@@ -10,7 +10,7 @@ import (
 
 func TestCommittedUniqueJSONFactFitsBound(t *testing.T) {
 	t.Parallel()
-	assertCommittedPayloadFactFitsBound(t, "agent-unique-json",
+	assertCommittedAgentFactFitsBound(t, "internal/payloadschema", "agent-unique-json",
 		DomainShapeSelector{Path: "internal/payloadschema/unique_json.go"},
 		DomainShapeSelector{Subject: "agent-unique-json"},
 	)
@@ -18,14 +18,23 @@ func TestCommittedUniqueJSONFactFitsBound(t *testing.T) {
 
 func TestCommittedEnvelopeSchemaFactFitsBound(t *testing.T) {
 	t.Parallel()
-	assertCommittedPayloadFactFitsBound(t, "agent-envelope-schema",
+	assertCommittedAgentFactFitsBound(t, "internal/payloadschema", "agent-envelope-schema",
 		DomainShapeSelector{Path: "internal/payloadschema/envelope.go"},
 		DomainShapeSelector{Path: "internal/payloadschema/generated_envelope_schema.go"},
 		DomainShapeSelector{Subject: "agent-envelope-schema"},
 	)
 }
 
-func assertCommittedPayloadFactFitsBound(t *testing.T, factID string, selectors ...DomainShapeSelector) {
+func TestCommittedAgentContractFactFitsBound(t *testing.T) {
+	t.Parallel()
+	assertCommittedAgentFactFitsBound(t, "internal/agentcontract", "agent-operation-admission",
+		DomainShapeSelector{Path: "internal/agentcontract/generated_contracts.go"},
+		DomainShapeSelector{Path: "internal/agentcontract/payload_validation.go"},
+		DomainShapeSelector{Subject: "agent-operation-admission"},
+	)
+}
+
+func assertCommittedAgentFactFitsBound(t *testing.T, owningRoot, factID string, selectors ...DomainShapeSelector) {
 	t.Helper()
 	ctx := context.Background()
 	root := repositoryRootForTest(t)
@@ -49,7 +58,7 @@ func assertCommittedPayloadFactFitsBound(t *testing.T, factID string, selectors 
 	}
 	for _, selector := range selectors {
 		selection := selectDomainShape(*snapshot, KnowledgeHome{HomeProjectID: "concord", HomeLocatorID: "main"}, "concord", selector)
-		if !slices.Equal(selection.DomainIDs, []string{"agent-surface"}) || len(selection.Roots) != 1 || selection.Roots[0].Path != "internal/payloadschema" {
+		if !slices.Equal(selection.DomainIDs, []string{"agent-surface"}) || len(selection.Roots) != 1 || selection.Roots[0].Path != owningRoot {
 			t.Fatalf("selector %+v has wrong ownership: %+v", selector, selection.Roots)
 		}
 		found := false
@@ -58,8 +67,8 @@ func assertCommittedPayloadFactFitsBound(t *testing.T, factID string, selectors 
 				continue
 			}
 			fact := item.Fact
-			if fact.Kind != DomainFactInvariant || fact.Standing != "observed" || fact.OwnerDomainID != "agent-surface" || fact.OwningRoot != "internal/payloadschema" || fact.Invariant == nil || !slices.Equal(fact.Invariant.AppliesToDomainIDs, []string{"agent-surface"}) {
-				t.Fatalf("wrong payload fact: %+v", fact)
+			if fact.Kind != DomainFactInvariant || fact.Standing != "observed" || fact.OwnerDomainID != "agent-surface" || fact.OwningRoot != owningRoot || fact.Invariant == nil || !slices.Equal(fact.Invariant.AppliesToDomainIDs, []string{"agent-surface"}) {
+				t.Fatalf("wrong agent fact: %+v", fact)
 			}
 			found = true
 		}

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -31,7 +32,7 @@ type takeoverFixture struct {
 func newTakeoverFixture(t *testing.T) takeoverFixture {
 	t.Helper()
 	ctx := context.Background()
-	s, service, grant, privateKey := mutationDispatchFixture(t, []Capability{"work_transition"})
+	s, service, grant, privateKey := mutationDispatchFixture(t, []agentcontract.Capability{"work_transition"})
 	seedAgentWorkflow(t, s, grant)
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
 	if err != nil {
@@ -39,10 +40,10 @@ func newTakeoverFixture(t *testing.T) takeoverFixture {
 	}
 	owner, _ := advanceWorkflowBoundaryToExecution(t, s, service, grant, privateKey, mutationEnvelope(grant, scopeVersion))
 	owner.HostApproval = nil
-	if err := service.RegisterTrustedClient(ctx, testClientRegistration("client-2", "human-2", []Capability{"work_transition"}, []string{"product-1"}, []string{"project-1"})); err != nil {
+	if err := service.RegisterTrustedClient(ctx, testClientRegistration("client-2", "human-2", []agentcontract.Capability{"work_transition"}, []string{"product-1"}, []string{"project-1"})); err != nil {
 		t.Fatal(err)
 	}
-	otherGrant, err := service.Authorize(ctx, Invocation{ClientRef: "client-2", PrincipalRef: "human-2", SessionRef: "session-2", AgentRef: "agent-other", Directory: "/repo", Worktree: "/repo-wt", ManifestDigest: ManifestDigest, RequiredCapability: "work_transition", ProductID: "product-1", ProjectID: "project-1"})
+	otherGrant, err := service.Authorize(ctx, Invocation{ClientRef: "client-2", PrincipalRef: "human-2", SessionRef: "session-2", AgentRef: "agent-other", Directory: "/repo", Worktree: "/repo-wt", ManifestDigest: agentcontract.ManifestDigest, RequiredCapability: "work_transition", ProductID: "product-1", ProjectID: "project-1"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -237,7 +238,7 @@ func TestStartExecutionAfterHolderVacatesNeedsNoApproval(t *testing.T) {
 func TestStartExecutionOverLiveLaneRequiresApprovalUntilLaneRelinquishes(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_transition", "worker_dispatch"})
+	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_transition", "worker_dispatch"})
 	grant.Worktree = seedWorkerRetryMutationFixture(t, s, grant)
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
 	if err != nil {

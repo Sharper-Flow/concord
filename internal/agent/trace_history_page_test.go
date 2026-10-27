@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -171,7 +172,7 @@ func TestTraceHistoryPageCarriesPublishedWorkflowRead(t *testing.T) {
 // render their versions.
 func TestTraceHistoryBindsTheContractVersionSelector(t *testing.T) {
 	t.Parallel()
-	s, service, grant, privateKey := mutationDispatchFixture(t, []Capability{"work_transition", "product_read"})
+	s, service, grant, privateKey := mutationDispatchFixture(t, []agentcontract.Capability{"work_transition", "product_read"})
 	version := seedAgentWorkflow(t, s, grant)
 	scopeVersion, _, err := s.ScopeVersion(context.Background(), "project-1")
 	if err != nil {
@@ -224,12 +225,12 @@ func TestTraceHistoryBindsTheContractVersionSelector(t *testing.T) {
 func TestTraceHistoryContractVersionInputBounds(t *testing.T) {
 	t.Parallel()
 	for _, valid := range []string{`{"work_id":"work-1"}`, `{"work_id":"work-1","contract_version":1}`, `{"work_id":"work-1","contract_version":2147483647}`} {
-		if err := ValidateOperationPayload("concord_work_trace", "history", []byte(valid), false); err != nil {
+		if err := agentcontract.ValidateOperationPayload("concord_work_trace", "history", []byte(valid), false); err != nil {
 			t.Fatalf("valid history input refused: %s: %v", valid, err)
 		}
 	}
 	for _, invalid := range []string{`{"work_id":"work-1","contract_version":0}`, `{"work_id":"work-1","contract_version":-1}`, `{"work_id":"work-1","contract_version":2147483648}`, `{"work_id":"work-1","contract_version":"1"}`, `{"work_id":"work-1","contract_version":null}`} {
-		if err := ValidateOperationPayload("concord_work_trace", "history", []byte(invalid), false); err == nil {
+		if err := agentcontract.ValidateOperationPayload("concord_work_trace", "history", []byte(invalid), false); err == nil {
 			t.Fatalf("history input accepted: %s", invalid)
 		}
 	}

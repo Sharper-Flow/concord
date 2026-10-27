@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -47,7 +48,7 @@ func TestRecordDeliveryExitsTheStepTheSessionExecuted(t *testing.T) {
 			WorkID: f.work, ExpectedVersion: v, ActionID: actionID, Payload: raw,
 			Actor: execActor, AcceptedInputsDigest: "sha256:" + strings.Repeat("3", 64), IdempotencyIdentity: identity,
 			OperationID: "delivery-op-" + identity, PrincipalRef: "human-1", Tool: "concord-test", IdempotencyKey: "delivery-key-" + identity,
-			RequestID: "delivery-request-" + identity, AcceptedScope: `{"project":"project-1"}`, ContractDigest: ManifestDigest, Now: fixedTime(),
+			RequestID: "delivery-request-" + identity, AcceptedScope: `{"project":"project-1"}`, ContractDigest: agentcontract.ManifestDigest, Now: fixedTime(),
 		}
 		preflight := store.WorkflowActionPreflightRequest{WorkID: f.work, ExpectedVersion: v, ActionID: actionID, Payload: raw, Actor: execActor}
 		return store.AuthorizeWorkflowActionAtBoundaryTx(ctx, s, store.BuiltinWorkflowRegistry(), preflight, nil, func(tx *store.Transaction) error {

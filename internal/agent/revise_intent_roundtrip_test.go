@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"testing"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
 	"github.com/sharper-flow/concord/internal/store/storetest"
 )
@@ -167,7 +168,7 @@ func TestTaskOnlyRevisionPreservesZeroEmptyAndAbsentIntentStates(t *testing.T) {
 func TestReviseIntentRefusesTheCaptureOwnedExternalRef(t *testing.T) {
 	t.Parallel()
 	payload := []byte(`{"work_id":"work-1","expected_version":2,"title":"T","value_statement":"V","kind":"task","external_ref":"linear:CON-835-4","reason":"probe","idempotency_key":"probe"}`)
-	if err := ValidateOperationPayload("concord_work_define", "revise_intent", payload, false); err == nil {
+	if err := agentcontract.ValidateOperationPayload("concord_work_define", "revise_intent", payload, false); err == nil {
 		t.Fatal("revise_intent input must refuse the capture-owned external_ref field")
 	}
 }
@@ -183,7 +184,7 @@ func TestReviseIntentStaysBehindTheWorkDefineCapability(t *testing.T) {
 	defer s.Close()
 	ctx := context.Background()
 	seedRoundtripAuthority(t, s)
-	service, _, grant := newAuthorizedService(t, s, "reader-client", "human-1", []Capability{"product_read"}, []string{"product-1"}, []string{"project-1"}, store.ProjectResolution{ProjectID: "project-1"})
+	service, _, grant := newAuthorizedService(t, s, "reader-client", "human-1", []agentcontract.Capability{"product_read"}, []string{"product-1"}, []string{"project-1"}, store.ProjectResolution{ProjectID: "project-1"})
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
 	if err != nil {
 		t.Fatal(err)
@@ -221,7 +222,7 @@ func seedIntentRoundtripWork(t *testing.T, capture map[string]any) (*store.Store
 	t.Cleanup(func() { s.Close() })
 	ctx := context.Background()
 	seedRoundtripAuthority(t, s)
-	service, _, grant := newAuthorizedService(t, s, "roundtrip-client", "human-1", []Capability{"work_define", "product_read"}, []string{"product-1"}, []string{"project-1"}, store.ProjectResolution{ProjectID: "project-1"})
+	service, _, grant := newAuthorizedService(t, s, "roundtrip-client", "human-1", []agentcontract.Capability{"work_define", "product_read"}, []string{"product-1"}, []string{"project-1"}, store.ProjectResolution{ProjectID: "project-1"})
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
 	if err != nil {
 		t.Fatal(err)

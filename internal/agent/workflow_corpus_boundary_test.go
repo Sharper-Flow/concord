@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -125,7 +126,7 @@ func invokeWorkflowBoundary(t *testing.T, s *store.Store, service *Service, env 
 
 func TestWorkflowActionAvailabilityBeforePayloadOrAuth(t *testing.T) {
 	t.Parallel()
-	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_transition"})
+	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_transition"})
 	version := seedAgentWorkflow(t, s, grant)
 	scopeVersion, _, err := s.ScopeVersion(context.Background(), "project-1")
 	if err != nil {
@@ -198,7 +199,7 @@ func advanceWorkflowBoundaryToExecution(t *testing.T, s *store.Store, service *S
 
 func TestWorkflowActionStrictInvokeBoundaryForStepActorAndPayload(t *testing.T) {
 	t.Parallel()
-	s, service, grant, privateKey := mutationDispatchFixture(t, []Capability{"work_transition"})
+	s, service, grant, privateKey := mutationDispatchFixture(t, []agentcontract.Capability{"work_transition"})
 	seedAgentWorkflow(t, s, grant)
 	scopeVersion, _, err := s.ScopeVersion(context.Background(), "project-1")
 	if err != nil {
@@ -238,7 +239,7 @@ func TestWorkflowActionStrictInvokeBoundaryForStepActorAndPayload(t *testing.T) 
 
 func TestWorkflowActionRejectsReplayWithoutEffects(t *testing.T) {
 	t.Parallel()
-	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_transition"})
+	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_transition"})
 	version := seedAgentWorkflow(t, s, grant)
 	scopeVersion, _, err := s.ScopeVersion(context.Background(), "project-1")
 	if err != nil {

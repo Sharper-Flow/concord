@@ -6,6 +6,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -14,7 +15,7 @@ func TestWorkerControlProofSeparatesClientRefusalsFromStoreFaults(t *testing.T) 
 	for _, scenario := range []string{"active", "missing client", "inactive key", "bad signature", "read fault"} {
 		t.Run(scenario, func(t *testing.T) {
 			t.Parallel()
-			service, assertion, key := workerControlProofFixture(t, []Capability{"work_transition"})
+			service, assertion, key := workerControlProofFixture(t, []agentcontract.Capability{"work_transition"})
 			ctx := context.Background()
 			switch scenario {
 			case "missing client":
@@ -63,7 +64,7 @@ func TestWorkerEvidenceAssertionSeparatesClientRefusalsFromStoreFaults(t *testin
 	for _, scenario := range []string{"active", "missing client", "inactive key", "bad signature", "read fault"} {
 		t.Run(scenario, func(t *testing.T) {
 			t.Parallel()
-			service, control, key := workerControlProofFixture(t, []Capability{CapabilityWorkerEvidence})
+			service, control, key := workerControlProofFixture(t, []agentcontract.Capability{CapabilityWorkerEvidence})
 			env := workerEvidenceV2Envelope(t, "worker-evidence-read-nonce")
 			env.ClientRef = control.ClientRef
 			var assertion WorkerEvidenceAssertion

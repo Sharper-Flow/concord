@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
 	storetest "github.com/sharper-flow/concord/internal/store/storetest"
 )
@@ -31,7 +32,7 @@ func issueLinkRecordFixture(t *testing.T, workIDs ...string) (*store.Store, *Ser
 	for _, workID := range workIDs {
 		seedLinkWorkItem(t, s, workID, "project-1")
 	}
-	service, _, grant := newAuthorizedService(t, s, "client-1", "human-1", []Capability{"work_define"}, []string{"product-1"}, []string{"project-1"}, store.ProjectResolution{ProjectID: "project-1"})
+	service, _, grant := newAuthorizedService(t, s, "client-1", "human-1", []agentcontract.Capability{"work_define"}, []string{"product-1"}, []string{"project-1"}, store.ProjectResolution{ProjectID: "project-1"})
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
 	if err != nil {
 		t.Fatal(err)

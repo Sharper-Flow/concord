@@ -5,6 +5,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -14,7 +15,7 @@ func newTrustedClientReadFixture(t *testing.T) (*store.Store, *Service, Invocati
 	t.Helper()
 	db := openAgentDB(t)
 	seedSimpleAuthorityScope(t, db)
-	service, invocation, authority := newAuthorizedService(t, db, "client-1", "human-1", []Capability{"product_read"}, []string{"product-1"}, []string{"project-1"}, store.ProjectResolution{ProjectID: "project-1"})
+	service, invocation, authority := newAuthorizedService(t, db, "client-1", "human-1", []agentcontract.Capability{"product_read"}, []string{"product-1"}, []string{"project-1"}, store.ProjectResolution{ProjectID: "project-1"})
 	if authority.ClientRef != "client-1" || authority.PrincipalRef != "human-1" {
 		t.Fatalf("active control authority = %+v, want client client-1 for human-1", authority)
 	}

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -22,7 +23,7 @@ func TestSupersedeContractDispatchChallengesThenBindsApprovalOperator(t *testing
 
 func testSupersedeContractDispatch(t *testing.T, stage string) {
 	t.Helper()
-	s, service, grant, privateKey := mutationDispatchFixture(t, []Capability{"work_transition", "worker_dispatch"})
+	s, service, grant, privateKey := mutationDispatchFixture(t, []agentcontract.Capability{"work_transition", "worker_dispatch"})
 	// The initial contract is engineering. The successor's serious registry
 	// correction exercises exact-text consent under consequence_v1.
 	version := seedAgentWorkflowAt(t, s, grant, legacyApprovalPolicyDefinitionForRef(t))

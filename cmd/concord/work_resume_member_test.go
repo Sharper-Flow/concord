@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/sharper-flow/concord/internal/agent"
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -105,7 +106,7 @@ func newMemberResumeFixture(t *testing.T, claim bool) memberResumeFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return memberResumeFixture{s: s, repo: repo, integration: boot.Entry.Path, memberID: memberID, input: workResumeInput{ProductID: "product-wl", ProjectID: "project-wl", WorkID: boot.WorkID, SessionRef: actor.SessionRef, CallEnvelope: &agent.CallEnvelope{SchemaVersion: "1.0", RequestID: "resume-request", ClientRef: actor.ClientRef, AgentRef: actor.AgentRef, SessionRef: actor.SessionRef, Directory: repo, Worktree: repo, AmbientProjectID: "project-wl", SelectedProductID: "product-wl", ScopeVersion: version, ManifestDigest: agent.ManifestDigest}}}
+	return memberResumeFixture{s: s, repo: repo, integration: boot.Entry.Path, memberID: memberID, input: workResumeInput{ProductID: "product-wl", ProjectID: "project-wl", WorkID: boot.WorkID, SessionRef: actor.SessionRef, CallEnvelope: &agent.CallEnvelope{SchemaVersion: "1.0", RequestID: "resume-request", ClientRef: actor.ClientRef, AgentRef: actor.AgentRef, SessionRef: actor.SessionRef, Directory: repo, Worktree: repo, AmbientProjectID: "project-wl", SelectedProductID: "product-wl", ScopeVersion: version, ManifestDigest: agentcontract.ManifestDigest}}}
 }
 
 func runMemberResume(t *testing.T, f memberResumeFixture) (int, workResumeOutput, string) {

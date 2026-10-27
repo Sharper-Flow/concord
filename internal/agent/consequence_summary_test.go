@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"testing"
 	"time"
+
+	"github.com/sharper-flow/concord/internal/agentcontract"
 )
 
 // CD-0037: the approval prompt is a typed object derived from the challenge's
@@ -75,7 +77,7 @@ func make64Hex(t *testing.T) string {
 func TestMintedChallengeRefusalCarriesTheTypedSummary(t *testing.T) {
 	t.Parallel()
 	// CD-0243 D2 reserves access grants; D3/D7 retire terminal-only consent.
-	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_relate"})
+	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_relate"})
 	scopeVersion, _, err := s.ScopeVersion(context.Background(), "project-1")
 	if err != nil {
 		t.Fatal(err)

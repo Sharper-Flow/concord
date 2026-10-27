@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/payloadschema"
 	"github.com/sharper-flow/concord/internal/store"
 )
@@ -334,13 +335,13 @@ type productProjectAddInput struct {
 // authenticated caller's own trusted client, because a tool argument that
 // could name another client would impersonate it (CD-0071 D1).
 type clientPolicyGrantRequestInput struct {
-	Capabilities   []Capability   `json:"capabilities"`
-	ProductScope   []string       `json:"product_scope"`
-	ProjectScope   []string       `json:"project_scope"`
-	AgentScope     []string       `json:"agent_scope"`
-	Reason         string         `json:"reason"`
-	IdempotencyKey string         `json:"idempotency_key"`
-	Approval       *approvalInput `json:"approval"`
+	Capabilities   []agentcontract.Capability `json:"capabilities"`
+	ProductScope   []string                   `json:"product_scope"`
+	ProjectScope   []string                   `json:"project_scope"`
+	AgentScope     []string                   `json:"agent_scope"`
+	Reason         string                     `json:"reason"`
+	IdempotencyKey string                     `json:"idempotency_key"`
+	Approval       *approvalInput             `json:"approval"`
 }
 type resolveOverlapMutationInput struct {
 	FromWorkID          string         `json:"from_work_id"`
@@ -395,7 +396,7 @@ type compactReconcileInput struct {
 
 type mutationEffect func(context.Context, *store.Transaction, Authority) (json.RawMessage, []string, []ChangedRef, error)
 
-func (r runtime) replayMutationBeforeScope(ctx context.Context, base Envelope, raw []byte, grant Authority, op ContractOperation) (Envelope, bool, error) {
+func (r runtime) replayMutationBeforeScope(ctx context.Context, base Envelope, raw []byte, grant Authority, op agentcontract.ContractOperation) (Envelope, bool, error) {
 	// Retirement re-authorizes every retained owner inside its transaction;
 	// a cached Product snapshot cannot establish the owner's current scope.
 	if op.ID == "concord_work_define.research_retire" {
@@ -462,14 +463,14 @@ func (r runtime) replayMutationBeforeScope(ctx context.Context, base Envelope, r
 	return r.replayAuthorizedMutation(ctx, base, raw, op, record, authorizedScope, idempotency, durable, opID)
 }
 
-func mutationReplayDurability(durable bool, op ContractOperation, authorizedScope map[string]any, selectedProduct string) (bool, error) {
+func mutationReplayDurability(durable bool, op agentcontract.ContractOperation, authorizedScope map[string]any, selectedProduct string) (bool, error) {
 	if rawDurability, present := authorizedScope["durable_commit"]; present {
 		committedDurably, valid := rawDurability.(bool)
 		if !valid {
 			return false, errors.New("stored mutation durability binding is malformed")
 		}
 		durable = durable || committedDurably
-	} else if op.Approval == ApprovalClass("conditional") {
+	} else if op.Approval == agentcontract.ApprovalClass("conditional") {
 		// A missing durability binding must not downgrade possible authority.
 		durable = true
 	}
@@ -489,7 +490,7 @@ func mutationReplayDurability(durable bool, op ContractOperation, authorizedScop
 	return durable, nil
 }
 
-func (r runtime) replayAuthorizedMutation(ctx context.Context, base Envelope, raw []byte, op ContractOperation, record store.MutationIdempotencyRecord, authorizedScope map[string]any, idempotency store.MutationIdempotencyKey, durable bool, opID string) (Envelope, bool, error) {
+func (r runtime) replayAuthorizedMutation(ctx context.Context, base Envelope, raw []byte, op agentcontract.ContractOperation, record store.MutationIdempotencyRecord, authorizedScope map[string]any, idempotency store.MutationIdempotencyKey, durable bool, opID string) (Envelope, bool, error) {
 	// Consent admission reads only the committed response snapshot.
 	if refusal, refused, admissionErr := r.replayRoutineClaimAdmission(base, raw, record); admissionErr != nil {
 		return Envelope{}, false, admissionErr
@@ -650,10 +651,10 @@ func workflowActionReplayResult(base Envelope, step store.FenceResult, observed 
 	switch step.ResultKind {
 	case store.ResultCompleted:
 		payload := json.RawMessage(step.ResultPayload)
-		if step.ContractDigest != ManifestDigest {
+		if step.ContractDigest != agentcontract.ManifestDigest {
 			return coreError(base, "malformed_response", "durable workflow result manifest digest does not match the current contract", "contact_operator", false)
 		}
-		if err := ValidateOperationPayload(base.Tool, base.Operation, payload, true); err != nil {
+		if err := agentcontract.ValidateOperationPayload(base.Tool, base.Operation, payload, true); err != nil {
 			return coreError(base, "malformed_response", fmt.Sprintf("durable workflow result is not a valid current result: %v", err), "contact_operator", false)
 		}
 		return NewOKMutation(base, payload, decodeWorkflowChangedRefs(step.ChangedRefs), nil)
@@ -1081,7 +1082,7 @@ func researchContextSelectionPacks(actionID string, payload json.RawMessage) ([]
 	return packs, nil
 }
 
-func (r runtime) mutateWorkflowAction(ctx context.Context, base Envelope, raw []byte, grant Authority, op ContractOperation) (Envelope, error) {
+func (r runtime) mutateWorkflowAction(ctx context.Context, base Envelope, raw []byte, grant Authority, op agentcontract.ContractOperation) (Envelope, error) {
 	if r.Store == nil {
 		return coreError(base, "invalid_input", "workflow action requires a registered workflow authority", "contact_operator", false), nil
 	}
@@ -1209,9 +1210,9 @@ func (m *workflowActionMutation) execute(ctx context.Context, action store.Workf
 	// registry entry declares the capability the dispatcher must hold;
 	// legacy actions that did not declare one default to work_transition
 	// so pre-CD-0059 actions retain their authority contract.
-	requiredCapability := Capability("work_transition")
+	requiredCapability := agentcontract.Capability("work_transition")
 	if action.RequiredCapability != "" {
-		requiredCapability = Capability(action.RequiredCapability)
+		requiredCapability = agentcontract.Capability(action.RequiredCapability)
 	}
 	inv := Invocation{ClientRef: r.Envelope.ClientRef, PrincipalRef: r.Envelope.PrincipalRef, SessionRef: r.Envelope.SessionRef, AgentRef: r.Envelope.AgentRef, Directory: r.Envelope.Directory, Worktree: r.Envelope.Worktree, ManifestDigest: r.Envelope.ManifestDigest, HostAssertionDigest: r.Envelope.HostAssertionDigest, RequiredCapability: requiredCapability, RequiredOperation: r.Operation, ProductID: r.Envelope.SelectedProductID}
 	if inv.HostAssertionDigest == "" {
@@ -1236,7 +1237,7 @@ func (m *workflowActionMutation) execute(ctx context.Context, action store.Workf
 
 	scopeJSON, _ := json.Marshal(scope)
 	versionsJSON, _ := json.Marshal(versions)
-	actionRequest := store.WorkflowActionExecutionRequest{WorkID: in.WorkID, ExpectedVersion: in.ExpectedVersion, ActionID: in.ActionID, SelectedChoice: in.SelectedChoice, DecisionContextDigest: in.DecisionContextDigest, Payload: payload, EvidenceRefs: evidenceLocators(in.Evidence), EvidenceKinds: evidenceKinds(in.Evidence), Actor: store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}, SessionWorktree: r.Envelope.Worktree, ApprovedTakeover: takeover, ResearchBindings: researchBindingDeclarations(in.ResearchBindings), AcceptedInputsDigest: digest, IdempotencyIdentity: in.IdempotencyKey, OperationID: operationID, PrincipalRef: grant.PrincipalRef, Tool: r.Tool, IdempotencyKey: in.IdempotencyKey, RequestID: r.Envelope.RequestID, AcceptedScope: string(scopeJSON), ContractDigest: ManifestDigest, Now: r.Authority.now()}
+	actionRequest := store.WorkflowActionExecutionRequest{WorkID: in.WorkID, ExpectedVersion: in.ExpectedVersion, ActionID: in.ActionID, SelectedChoice: in.SelectedChoice, DecisionContextDigest: in.DecisionContextDigest, Payload: payload, EvidenceRefs: evidenceLocators(in.Evidence), EvidenceKinds: evidenceKinds(in.Evidence), Actor: store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}, SessionWorktree: r.Envelope.Worktree, ApprovedTakeover: takeover, ResearchBindings: researchBindingDeclarations(in.ResearchBindings), AcceptedInputsDigest: digest, IdempotencyIdentity: in.IdempotencyKey, OperationID: operationID, PrincipalRef: grant.PrincipalRef, Tool: r.Tool, IdempotencyKey: in.IdempotencyKey, RequestID: r.Envelope.RequestID, AcceptedScope: string(scopeJSON), ContractDigest: agentcontract.ManifestDigest, Now: r.Authority.now()}
 	actionRequest.ApprovalOperationDigest = digest
 	actionRequest.ApprovalScopeJSON = string(scopeJSON)
 	actionRequest.ApprovalVersionsJSON = string(versionsJSON)
@@ -1499,12 +1500,12 @@ type mutationPlan struct {
 	plannedInitialDurability *bool
 }
 
-func newMutationPlan(envelope CallEnvelope, op ContractOperation) *mutationPlan {
+func newMutationPlan(envelope CallEnvelope, op agentcontract.ContractOperation) *mutationPlan {
 	return &mutationPlan{
 		scope:            map[string]any{"product_id": envelope.SelectedProductID, "project_ids": []string{envelope.AmbientProjectID}, "scope_version": envelope.ScopeVersion},
 		versions:         map[string]any{},
 		consequence:      string(op.Consequence),
-		requiresApproval: op.Approval == ApprovalClass("required"),
+		requiresApproval: op.Approval == agentcontract.ApprovalClass("required"),
 	}
 }
 
@@ -1515,7 +1516,7 @@ func (plan *mutationPlan) declareInitialDurability(durable bool) {
 }
 
 // planCapture plans concord_work_define.capture.
-func (r runtime) planCapture(ctx context.Context, base Envelope, raw []byte, digest string, _ Authority, _ ContractOperation, plan *mutationPlan) (Envelope, error, bool) {
+func (r runtime) planCapture(ctx context.Context, base Envelope, raw []byte, digest string, _ Authority, _ agentcontract.ContractOperation, plan *mutationPlan) (Envelope, error, bool) {
 	var in captureMutationInput
 	if err := decodeOperationInput(raw, &in); err != nil {
 		return base, err, true
@@ -1683,7 +1684,7 @@ func (r runtime) applyCaptureTx(ctx context.Context, tx *store.Transaction, gran
 }
 
 // planReviseIntent plans concord_work_define.revise_intent.
-func (r runtime) planReviseIntent(ctx context.Context, base Envelope, raw []byte, digest string, _ Authority, _ ContractOperation, plan *mutationPlan) (Envelope, error, bool) {
+func (r runtime) planReviseIntent(ctx context.Context, base Envelope, raw []byte, digest string, _ Authority, _ agentcontract.ContractOperation, plan *mutationPlan) (Envelope, error, bool) {
 	var in reviseMutationInput
 	if err := decodeOperationInput(raw, &in); err != nil {
 		return base, err, true
@@ -1839,7 +1840,7 @@ func (r runtime) workProductForSize(ctx context.Context, workID string) (string,
 // planWorkerAbandon records the adapter's durable idempotency receipt after the
 // host has appended the signed worker.failed event. The host owns session
 // observation and worker evidence, so this core operation records no event.
-func (r runtime) planWorkerAbandon(_ context.Context, base Envelope, raw []byte, _ string, _ Authority, _ ContractOperation, plan *mutationPlan) (Envelope, error, bool) {
+func (r runtime) planWorkerAbandon(_ context.Context, base Envelope, raw []byte, _ string, _ Authority, _ agentcontract.ContractOperation, plan *mutationPlan) (Envelope, error, bool) {
 	var in workerAbandonInput
 	if err := decodeOperationInput(raw, &in); err != nil {
 		return base, err, true
@@ -1862,7 +1863,7 @@ func (r runtime) planWorkerAbandon(_ context.Context, base Envelope, raw []byte,
 }
 
 // planLifecycle plans concord_work_transition.lifecycle.
-func (r runtime) planLifecycle(_ context.Context, base Envelope, raw []byte, digest string, _ Authority, _ ContractOperation, plan *mutationPlan) (Envelope, error, bool) {
+func (r runtime) planLifecycle(_ context.Context, base Envelope, raw []byte, digest string, _ Authority, _ agentcontract.ContractOperation, plan *mutationPlan) (Envelope, error, bool) {
 	var in lifecycleMutationInput
 	if err := decodeOperationInput(raw, &in); err != nil {
 		return base, err, true
@@ -1955,7 +1956,7 @@ func (r runtime) terminalVacateTargetTx(ctx context.Context, tx *store.Transacti
 }
 
 // planResearchPackCreate plans concord_work_define.research_pack_create.
-func (r runtime) planResearchPackCreate(_ context.Context, base Envelope, raw []byte, _ string, _ Authority, _ ContractOperation, plan *mutationPlan) (Envelope, error, bool) {
+func (r runtime) planResearchPackCreate(_ context.Context, base Envelope, raw []byte, _ string, _ Authority, _ agentcontract.ContractOperation, plan *mutationPlan) (Envelope, error, bool) {
 	var in researchPackCreateMutation
 	if err := decodeOperationInput(raw, &in); err != nil {
 		return base, err, true
@@ -1977,7 +1978,7 @@ func (r runtime) planResearchPackCreate(_ context.Context, base Envelope, raw []
 }
 
 // planResearchRevisionAppend plans concord_work_define.research_revision_append.
-func (r runtime) planResearchRevisionAppend(ctx context.Context, base Envelope, raw []byte, _ string, _ Authority, _ ContractOperation, plan *mutationPlan) (Envelope, error, bool) {
+func (r runtime) planResearchRevisionAppend(ctx context.Context, base Envelope, raw []byte, _ string, _ Authority, _ agentcontract.ContractOperation, plan *mutationPlan) (Envelope, error, bool) {
 	var in researchRevisionMutation
 	if err := decodeOperationInput(raw, &in); err != nil {
 		return base, err, true
@@ -2001,7 +2002,7 @@ func (r runtime) planResearchRevisionAppend(ctx context.Context, base Envelope, 
 }
 
 // planResearchFindingRecord plans concord_work_define.research_finding_record.
-func (r runtime) planResearchFindingRecord(ctx context.Context, base Envelope, raw []byte, _ string, _ Authority, _ ContractOperation, plan *mutationPlan) (Envelope, error, bool) {
+func (r runtime) planResearchFindingRecord(ctx context.Context, base Envelope, raw []byte, _ string, _ Authority, _ agentcontract.ContractOperation, plan *mutationPlan) (Envelope, error, bool) {
 	var in researchFindingMutation
 	if err := decodeOperationInput(raw, &in); err != nil {
 		return base, err, true
@@ -2038,7 +2039,7 @@ func (r runtime) planResearchFindingRecord(ctx context.Context, base Envelope, r
 }
 
 // planResearchSourceRecord plans concord_work_define.research_source_record.
-func (r runtime) planResearchSourceRecord(ctx context.Context, base Envelope, raw []byte, _ string, _ Authority, _ ContractOperation, plan *mutationPlan) (Envelope, error, bool) {
+func (r runtime) planResearchSourceRecord(ctx context.Context, base Envelope, raw []byte, _ string, _ Authority, _ agentcontract.ContractOperation, plan *mutationPlan) (Envelope, error, bool) {
 	var in researchSourceMutation
 	if err := decodeOperationInput(raw, &in); err != nil {
 		return base, err, true
@@ -2063,7 +2064,7 @@ func (r runtime) planResearchSourceRecord(ctx context.Context, base Envelope, ra
 }
 
 // planResearchFreshnessSet plans concord_work_define.research_freshness_set.
-func (r runtime) planResearchFreshnessSet(ctx context.Context, base Envelope, raw []byte, _ string, _ Authority, _ ContractOperation, plan *mutationPlan) (Envelope, error, bool) {
+func (r runtime) planResearchFreshnessSet(ctx context.Context, base Envelope, raw []byte, _ string, _ Authority, _ agentcontract.ContractOperation, plan *mutationPlan) (Envelope, error, bool) {
 	var in researchFreshnessMutation
 	if err := decodeOperationInput(raw, &in); err != nil {
 		return base, err, true
@@ -2089,7 +2090,7 @@ func (r runtime) planResearchFreshnessSet(ctx context.Context, base Envelope, ra
 // mutateResearchRetire keeps batch authorization, deletion, and the replay
 // receipt in one transaction. Dry runs classify without a receipt. Replays
 // authorize the retained owners from the cached result, not deleted packs.
-func (r runtime) mutateResearchRetire(ctx context.Context, base Envelope, raw []byte, op ContractOperation) (Envelope, error) {
+func (r runtime) mutateResearchRetire(ctx context.Context, base Envelope, raw []byte, op agentcontract.ContractOperation) (Envelope, error) {
 	var in researchRetireMutation
 	if err := decodeOperationInput(raw, &in); err != nil {
 		return base, err
@@ -2118,7 +2119,7 @@ func (r runtime) mutateResearchRetire(ctx context.Context, base Envelope, raw []
 	return response, nil
 }
 
-func (r runtime) retireResearchTx(ctx context.Context, tx *store.Transaction, base *Envelope, in researchRetireMutation, op ContractOperation, digest string, host store.ResolvedProjectHost, durable bool, response *Envelope) error {
+func (r runtime) retireResearchTx(ctx context.Context, tx *store.Transaction, base *Envelope, in researchRetireMutation, op agentcontract.ContractOperation, digest string, host store.ResolvedProjectHost, durable bool, response *Envelope) error {
 	inv := Invocation{ClientRef: r.Envelope.ClientRef, PrincipalRef: r.Envelope.PrincipalRef, SessionRef: r.Envelope.SessionRef, AgentRef: r.Envelope.AgentRef, Directory: r.Envelope.Directory, Worktree: r.Envelope.Worktree, ManifestDigest: r.Envelope.ManifestDigest, HostAssertionDigest: r.Envelope.HostAssertionDigest, RequiredCapability: op.Capability, RequiredOperation: r.Operation, ProductID: r.Envelope.SelectedProductID}
 	if inv.HostAssertionDigest == "" {
 		inv.HostAssertionDigest = digest
@@ -2267,7 +2268,7 @@ func (r runtime) planSingleWorkEvent(plan *mutationPlan, workID string, expected
 }
 
 // planResourceClaim plans concord_work_relate.resource_claim.
-func (r runtime) planResourceClaim(_ context.Context, base Envelope, raw []byte, digest string, _ Authority, _ ContractOperation, plan *mutationPlan) (Envelope, error, bool) {
+func (r runtime) planResourceClaim(_ context.Context, base Envelope, raw []byte, digest string, _ Authority, _ agentcontract.ContractOperation, plan *mutationPlan) (Envelope, error, bool) {
 	var in resourceClaimInput
 	if err := decodeOperationInput(raw, &in); err != nil {
 		return base, err, true
@@ -2290,7 +2291,7 @@ func (r runtime) planResourceClaim(_ context.Context, base Envelope, raw []byte,
 }
 
 // planResourceRelease plans concord_work_relate.resource_release.
-func (r runtime) planResourceRelease(_ context.Context, base Envelope, raw []byte, digest string, _ Authority, _ ContractOperation, plan *mutationPlan) (Envelope, error, bool) {
+func (r runtime) planResourceRelease(_ context.Context, base Envelope, raw []byte, digest string, _ Authority, _ agentcontract.ContractOperation, plan *mutationPlan) (Envelope, error, bool) {
 	var in resourceReleaseInput
 	if err := decodeOperationInput(raw, &in); err != nil {
 		return base, err, true
@@ -2307,7 +2308,7 @@ func (r runtime) planResourceRelease(_ context.Context, base Envelope, raw []byt
 }
 
 // planMessageSend plans concord_work_relate.message_send.
-func (r runtime) planMessageSend(_ context.Context, base Envelope, raw []byte, digest string, _ Authority, _ ContractOperation, plan *mutationPlan) (Envelope, error, bool) {
+func (r runtime) planMessageSend(_ context.Context, base Envelope, raw []byte, digest string, _ Authority, _ agentcontract.ContractOperation, plan *mutationPlan) (Envelope, error, bool) {
 	var in messageSendInput
 	if err := decodeOperationInput(raw, &in); err != nil {
 		return base, err, true
@@ -2388,7 +2389,7 @@ func (r runtime) planMessageSend(_ context.Context, base Envelope, raw []byte, d
 }
 
 // planMessageWithdraw plans concord_work_relate.message_withdraw.
-func (r runtime) planMessageWithdraw(_ context.Context, base Envelope, raw []byte, digest string, _ Authority, _ ContractOperation, plan *mutationPlan) (Envelope, error, bool) {
+func (r runtime) planMessageWithdraw(_ context.Context, base Envelope, raw []byte, digest string, _ Authority, _ agentcontract.ContractOperation, plan *mutationPlan) (Envelope, error, bool) {
 	var in messageWithdrawInput
 	if err := decodeOperationInput(raw, &in); err != nil {
 		return base, err, true
@@ -2405,7 +2406,7 @@ func (r runtime) planMessageWithdraw(_ context.Context, base Envelope, raw []byt
 }
 
 // planObservationRecord plans concord_work_define.observation_record.
-func (r runtime) planObservationRecord(_ context.Context, base Envelope, raw []byte, digest string, _ Authority, _ ContractOperation, plan *mutationPlan) (Envelope, error, bool) {
+func (r runtime) planObservationRecord(_ context.Context, base Envelope, raw []byte, digest string, _ Authority, _ agentcontract.ContractOperation, plan *mutationPlan) (Envelope, error, bool) {
 	var in observationRecordInput
 	if err := decodeOperationInput(raw, &in); err != nil {
 		return base, err, true
@@ -2510,7 +2511,7 @@ func (r runtime) applyExternalObservationTx(ctx context.Context, tx *store.Trans
 // Linear issue identity the agent read from the Linear MCP server on one work
 // item. Concord makes no Linear call (CD-0213 D3, D7), and the record bumps no
 // work version.
-func (r runtime) planIssueLinkRecord(_ context.Context, base Envelope, raw []byte, _ string, _ Authority, _ ContractOperation, plan *mutationPlan) (Envelope, error, bool) {
+func (r runtime) planIssueLinkRecord(_ context.Context, base Envelope, raw []byte, _ string, _ Authority, _ agentcontract.ContractOperation, plan *mutationPlan) (Envelope, error, bool) {
 	var in issueLinkRecordInput
 	if err := decodeOperationInput(raw, &in); err != nil {
 		return base, err, true
@@ -2627,7 +2628,7 @@ func pathsEquivalent(left, right string) bool {
 // host refuses a move into another git repository, so the only route is a
 // second coordinator session in the target repository. Two Projects in one
 // repository keep the within-repository move.
-func (r runtime) planWorktreeClaim(ctx context.Context, base Envelope, raw []byte, digest string, grant Authority, _ ContractOperation, plan *mutationPlan) (Envelope, error, bool) {
+func (r runtime) planWorktreeClaim(ctx context.Context, base Envelope, raw []byte, digest string, grant Authority, _ agentcontract.ContractOperation, plan *mutationPlan) (Envelope, error, bool) {
 	var in worktreeClaimInput
 	if err := decodeOperationInput(raw, &in); err != nil {
 		return base, err, true
@@ -2748,7 +2749,7 @@ type projectHandoffConsumeInput struct {
 // re-probeable inside a transaction; the retirement read re-proves
 // preservation from the recorded references against the claimed source
 // before any readiness, so a stale preservation never reaches retirement.
-func (r runtime) planProjectHandoffRecord(ctx context.Context, base Envelope, raw []byte, _ string, grant Authority, _ ContractOperation, plan *mutationPlan) (Envelope, error, bool) {
+func (r runtime) planProjectHandoffRecord(ctx context.Context, base Envelope, raw []byte, _ string, grant Authority, _ agentcontract.ContractOperation, plan *mutationPlan) (Envelope, error, bool) {
 	var in projectHandoffRecordInput
 	if err := decodeOperationInput(raw, &in); err != nil {
 		return base, err, true
@@ -2812,7 +2813,7 @@ func (r runtime) planProjectHandoffRecord(ctx context.Context, base Envelope, ra
 // another session of the Project already consumed resolves from the
 // standing shared bind, and managed execution stays closed until a bind
 // stands.
-func (r runtime) planProjectHandoffConsume(_ context.Context, base Envelope, raw []byte, _ string, grant Authority, _ ContractOperation, plan *mutationPlan) (Envelope, error, bool) {
+func (r runtime) planProjectHandoffConsume(_ context.Context, base Envelope, raw []byte, _ string, grant Authority, _ agentcontract.ContractOperation, plan *mutationPlan) (Envelope, error, bool) {
 	var in projectHandoffConsumeInput
 	if err := decodeOperationInput(raw, &in); err != nil {
 		return base, err, true
@@ -2855,7 +2856,7 @@ func (r runtime) planProjectHandoffConsume(_ context.Context, base Envelope, raw
 // it. The commit leaves every occupancy row standing; the adapter-only
 // vacate-landing verb releases them once the host readback verifies the
 // landing.
-func (r runtime) planSessionVacate(_ context.Context, base Envelope, raw []byte, digest string, _ Authority, _ ContractOperation, plan *mutationPlan) (Envelope, error, bool) {
+func (r runtime) planSessionVacate(_ context.Context, base Envelope, raw []byte, digest string, _ Authority, _ agentcontract.ContractOperation, plan *mutationPlan) (Envelope, error, bool) {
 	var in sessionVacateInput
 	if err := decodeOperationInput(raw, &in); err != nil {
 		return base, err, true
@@ -3033,7 +3034,7 @@ func (r runtime) applySessionVacateTx(ctx context.Context, tx *store.Transaction
 // the operator approval this planner routes through the standard challenge
 // flow. The worktree resolves through the session's Project anchor; no path
 // input exists (CD-0096 D2).
-func (r runtime) planWorktreeDestroy(ctx context.Context, base Envelope, raw []byte, _ string, grant Authority, _ ContractOperation, plan *mutationPlan) (Envelope, error, bool) {
+func (r runtime) planWorktreeDestroy(ctx context.Context, base Envelope, raw []byte, _ string, grant Authority, _ agentcontract.ContractOperation, plan *mutationPlan) (Envelope, error, bool) {
 	var in worktreeDestroyInput
 	if err := decodeOperationInput(raw, &in); err != nil {
 		return base, err, true
@@ -3122,7 +3123,7 @@ func (r runtime) planWorktreeDestroy(ctx context.Context, base Envelope, raw []b
 // ceiling, the envelope, and the idempotency record. The worktree derives
 // from the session's Project and the work identity; no path input exists
 // (CD-0096 D2).
-func (r runtime) mutateWorktreeVerify(ctx context.Context, base Envelope, raw []byte, grant Authority, _ ContractOperation) (Envelope, error) {
+func (r runtime) mutateWorktreeVerify(ctx context.Context, base Envelope, raw []byte, grant Authority, _ agentcontract.ContractOperation) (Envelope, error) {
 	var in worktreeVerifyInput
 	if err := decodeOperationInput(raw, &in); err != nil {
 		return base, err
@@ -3234,7 +3235,7 @@ func worktreeVerifyPostLeaseFailure(failure Envelope, changed []ChangedRef) Enve
 }
 
 // planWorkRemoval plans the operator-controlled, per-item removal operation.
-func (r runtime) planWorkRemoval(ctx context.Context, base Envelope, raw []byte, digest string, grant Authority, _ ContractOperation, plan *mutationPlan) (Envelope, error, bool) {
+func (r runtime) planWorkRemoval(ctx context.Context, base Envelope, raw []byte, digest string, grant Authority, _ agentcontract.ContractOperation, plan *mutationPlan) (Envelope, error, bool) {
 	var in workRemovalMutationInput
 	if err := decodeOperationInput(raw, &in); err != nil {
 		return base, err, true
@@ -3321,7 +3322,7 @@ func (r runtime) planWorkRemoval(ctx context.Context, base Envelope, raw []byte,
 // post-commit exit below routes through auditReclaimPostCommitFailure, which
 // keeps the failure's kind and coupled recovery, marks effects possible, and
 // carries exactly the committed refs (issue #757).
-func (r runtime) mutateWorktreeAuditReclaim(ctx context.Context, base Envelope, raw []byte, grant Authority, _ ContractOperation) (Envelope, error) {
+func (r runtime) mutateWorktreeAuditReclaim(ctx context.Context, base Envelope, raw []byte, grant Authority, _ agentcontract.ContractOperation) (Envelope, error) {
 	var in worktreeAuditReclaimInput
 	if err := decodeOperationInput(raw, &in); err != nil {
 		return base, err
@@ -3648,7 +3649,7 @@ func auditReclaimEnvelopeBytes(base Envelope, payload json.RawMessage, changed [
 }
 
 // planWorktreeReclaim plans concord_work_transition.worktree_reclaim.
-func (r runtime) planWorktreeReclaim(ctx context.Context, base Envelope, raw []byte, _ string, grant Authority, _ ContractOperation, plan *mutationPlan) (Envelope, error, bool) {
+func (r runtime) planWorktreeReclaim(ctx context.Context, base Envelope, raw []byte, _ string, grant Authority, _ agentcontract.ContractOperation, plan *mutationPlan) (Envelope, error, bool) {
 	var in worktreeReclaimInput
 	if err := decodeOperationInput(raw, &in); err != nil {
 		return base, err, true
@@ -3733,7 +3734,7 @@ func (r runtime) planWorktreeReclaim(ctx context.Context, base Envelope, raw []b
 }
 
 // planSetMemberships plans concord_work_relate.set_memberships.
-func (r runtime) planSetMemberships(_ context.Context, base Envelope, raw []byte, digest string, _ Authority, _ ContractOperation, plan *mutationPlan) (Envelope, error, bool) {
+func (r runtime) planSetMemberships(_ context.Context, base Envelope, raw []byte, digest string, _ Authority, _ agentcontract.ContractOperation, plan *mutationPlan) (Envelope, error, bool) {
 	var in membershipsMutationInput
 	if err := decodeOperationInput(raw, &in); err != nil {
 		return base, err, true
@@ -3771,7 +3772,7 @@ func (r runtime) planSetMemberships(_ context.Context, base Envelope, raw []byte
 // creates. The trusted check here therefore runs against the named Project's
 // current Products, and the operator challenge binds the exact link on top of
 // that check instead of replacing it.
-func (r runtime) mutateProductProjectAdd(ctx context.Context, base Envelope, raw []byte, grant Authority, op ContractOperation) (Envelope, error) {
+func (r runtime) mutateProductProjectAdd(ctx context.Context, base Envelope, raw []byte, grant Authority, op agentcontract.ContractOperation) (Envelope, error) {
 	var in productProjectAddInput
 	if err := decodeOperationInput(raw, &in); err != nil {
 		return coreError(base, "invalid_input", err.Error(), "reread_entities", false), nil
@@ -3823,7 +3824,7 @@ func (r runtime) mutateProductProjectAdd(ctx context.Context, base Envelope, raw
 	if !slices.Contains(grant.PolicyProductScope, in.ProductID) {
 		return coreError(base, "unauthorized", fmt.Sprintf("destination Product %s is outside trusted client Product policy", in.ProductID), "contact_operator", false), nil
 	}
-	if crossProduct && !containsCapability(grant.Capabilities, Capability("cross_scope")) {
+	if crossProduct && !containsCapability(grant.Capabilities, agentcontract.Capability("cross_scope")) {
 		return coreError(base, "unauthorized", "cross-Product mutation requires cross_scope capability", "contact_operator", false), nil
 	}
 	if slices.Contains(currentProducts, in.ProductID) {
@@ -3876,7 +3877,7 @@ type productProjectLinkMutation struct {
 func (m *productProjectLinkMutation) applyTx(ctx context.Context, tx *store.Transaction) error {
 	r, in, base := m.runtime, m.in, m.base
 	digest, approval, scope, versions, consequence, intents, raw, host := m.digest, m.approval, m.scope, m.versions, m.consequence, m.intents, m.raw, m.host
-	contractOp, registered := ValidateContractOperation(r.Tool, r.Operation)
+	contractOp, registered := agentcontract.ValidateContractOperation(r.Tool, r.Operation)
 	if !registered {
 		return newRuntimeFailure("invariant_violation", fmt.Sprintf("mutation dispatch reached unregistered operation %s.%s", r.Tool, r.Operation), "contact_operator", false)
 	}
@@ -3974,7 +3975,7 @@ func (m *productProjectLinkMutation) reauthorizeScopeTx(ctx context.Context, tx 
 	if !slices.Contains(grant.PolicyProductScope, in.ProductID) {
 		return newRuntimeFailure("unauthorized", fmt.Sprintf("destination Product %s is outside trusted client Product policy", in.ProductID), "contact_operator", false)
 	}
-	if m.crossProduct && !containsCapability(grant.Capabilities, Capability("cross_scope")) {
+	if m.crossProduct && !containsCapability(grant.Capabilities, agentcontract.Capability("cross_scope")) {
 		return newRuntimeFailure("unauthorized", "cross-Product mutation requires cross_scope capability", "contact_operator", false)
 	}
 	return nil
@@ -4030,7 +4031,7 @@ func stalePolicyConflict(base Envelope, client store.TrustedClientRecord) Envelo
 // owner in the same transaction that consumes the approval, so denial,
 // expiry, altered arguments, a stale policy, and replay all leave authority
 // exactly as it was (CD-0071 D1, CD-0037 D5, CD-0097 D6).
-func (r runtime) mutateClientPolicyGrantRequest(ctx context.Context, base Envelope, raw []byte, _ Authority, op ContractOperation) (Envelope, error) {
+func (r runtime) mutateClientPolicyGrantRequest(ctx context.Context, base Envelope, raw []byte, _ Authority, op agentcontract.ContractOperation) (Envelope, error) {
 	var in clientPolicyGrantRequestInput
 	if err := decodeOperationInput(raw, &in); err != nil {
 		return coreError(base, "invalid_input", err.Error(), "reread_entities", false), nil
@@ -4107,7 +4108,7 @@ type clientPolicyGrantMutation struct {
 func (m *clientPolicyGrantMutation) applyTx(ctx context.Context, tx *store.Transaction) error {
 	r, in, base := m.runtime, m.in, m.base
 	digest, approval, challengeScope, versions, consequence, raw, host := m.digest, m.approval, m.challengeScope, m.versions, m.consequence, m.raw, m.host
-	contractOp, registered := ValidateContractOperation(r.Tool, r.Operation)
+	contractOp, registered := agentcontract.ValidateContractOperation(r.Tool, r.Operation)
 	if !registered {
 		return newRuntimeFailure("invariant_violation", fmt.Sprintf("mutation dispatch reached unregistered operation %s.%s", r.Tool, r.Operation), "contact_operator", false)
 	}
@@ -4247,7 +4248,7 @@ func (m *clientPolicyGrantMutation) recordExpansionTx(ctx context.Context, tx *s
 //
 // A merger or supersession requires consent only when it discards a declared
 // governing requirement. A supplied terminal claim still binds exactly.
-func (r runtime) planResolveOverlap(ctx context.Context, base Envelope, raw []byte, digest string, _ Authority, _ ContractOperation, plan *mutationPlan) (Envelope, error, bool) {
+func (r runtime) planResolveOverlap(ctx context.Context, base Envelope, raw []byte, digest string, _ Authority, _ agentcontract.ContractOperation, plan *mutationPlan) (Envelope, error, bool) {
 	var in resolveOverlapMutationInput
 	if err := decodeOperationInput(raw, &in); err != nil {
 		return base, err, true
@@ -4314,7 +4315,7 @@ func (r runtime) planResolveOverlap(ctx context.Context, base Envelope, raw []by
 // the authenticated caller's own recorded workflow actor and never reopens
 // the completed work. CD-0243 D3/D7 retire cross-Product coordination
 // consent; the effect rejects an unconsumed approval claim.
-func (r runtime) planCorrectDelivery(_ context.Context, base Envelope, raw []byte, digest string, _ Authority, _ ContractOperation, plan *mutationPlan) (Envelope, error, bool) {
+func (r runtime) planCorrectDelivery(_ context.Context, base Envelope, raw []byte, digest string, _ Authority, _ agentcontract.ContractOperation, plan *mutationPlan) (Envelope, error, bool) {
 	var in correctDeliveryMutationInput
 	if err := decodeOperationInput(raw, &in); err != nil {
 		return base, err, true
@@ -4359,7 +4360,7 @@ func (r runtime) planCorrectDelivery(_ context.Context, base Envelope, raw []byt
 // transaction (handled true), or populates the plan and lets the common tail
 // execute it (handled false). This is the dispatch shape (runtime).read
 // established: arms delegate rather than inline.
-func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Authority, op ContractOperation) (Envelope, error) {
+func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Authority, op agentcontract.ContractOperation) (Envelope, error) {
 	if op.ID == "concord_work_define.research_retire" {
 		return r.mutateResearchRetire(ctx, base, raw, op)
 	}
@@ -4526,7 +4527,7 @@ func deriveMutationProductsTx(ctx context.Context, tx *store.Transaction, scope 
 	return result, nil
 }
 
-func (r runtime) mutateCompaction(ctx context.Context, base Envelope, raw []byte, digest string, op ContractOperation) (Envelope, error) {
+func (r runtime) mutateCompaction(ctx context.Context, base Envelope, raw []byte, digest string, op agentcontract.ContractOperation) (Envelope, error) {
 	var publish compactPublishInput
 	var reconcile compactReconcileInput
 	if op.ID == "concord_work_compact.publish" {
@@ -4606,7 +4607,7 @@ type compactionMutation struct {
 	base              Envelope
 	raw               []byte
 	digest            string
-	op                ContractOperation
+	op                agentcontract.ContractOperation
 	publishInput      compactPublishInput
 	reconcileInput    compactReconcileInput
 	key, workID, opID string
@@ -4660,7 +4661,7 @@ func (m *compactionMutation) publish(ctx context.Context) (Envelope, error) {
 	m.base = base
 	// CD-0243 D7: the durable intent locks exact content and home; it is not
 	// operator consent. ClaimStepAuthorized retains the publication fence.
-	claimReq := store.ClaimRequest{OpID: opID, WorkID: workID, WorkflowTypeRef: "concord.pm6.compaction", StepID: "git_proof", StepKind: store.StepCrossAuthority, AcceptedInputsDigest: digest, AcceptedScopeSnapshot: m.acceptedScope, PrincipalRef: grant.PrincipalRef, Tool: r.Tool, IdempotencyKey: key, RequestID: r.Envelope.RequestID, ObservedAt: r.Authority.now(), ContractDigest: ManifestDigest}
+	claimReq := store.ClaimRequest{OpID: opID, WorkID: workID, WorkflowTypeRef: "concord.pm6.compaction", StepID: "git_proof", StepKind: store.StepCrossAuthority, AcceptedInputsDigest: digest, AcceptedScopeSnapshot: m.acceptedScope, PrincipalRef: grant.PrincipalRef, Tool: r.Tool, IdempotencyKey: key, RequestID: r.Envelope.RequestID, ObservedAt: r.Authority.now(), ContractDigest: agentcontract.ManifestDigest}
 	claim, claimErr := store.ClaimStepAuthorized(ctx, r.Store, claimReq, func(tx *store.Transaction) error {
 		// CD-0222 D7: publication is consequential, so the claim refuses
 		// before any git note is written when the contract's law revision
@@ -5246,7 +5247,7 @@ func currentLifecycle(ctx context.Context, tx *store.Transaction, id string) (st
 // It validates the exact tool/operation result before the envelope can cross the
 // agent boundary, including the canonical envelope cap.
 func (r runtime) mutationResult(base Envelope, payload json.RawMessage, changed []ChangedRef, intents []NextIntent, allowedPinless ...string) Envelope {
-	if err := ValidateOperationPayload(r.Tool, r.Operation, payload, true); err != nil {
+	if err := agentcontract.ValidateOperationPayload(r.Tool, r.Operation, payload, true); err != nil {
 		return coreError(base, "malformed_response", fmt.Sprintf("mutation result failed closed-schema validation: %v", err), "contact_operator", false)
 	}
 	var projected struct {
@@ -5298,7 +5299,7 @@ func (r runtime) executeMutation(ctx context.Context, base Envelope, raw []byte,
 	// Durability resolves before any effect: the operation's declaration is
 	// the baseline, a planner fact replaces it, and a missing or unknown
 	// declaration is an invariant failure, never an ordinary write.
-	contractOp, registered := ValidateContractOperation(r.Tool, r.Operation)
+	contractOp, registered := agentcontract.ValidateContractOperation(r.Tool, r.Operation)
 	if !registered {
 		return Envelope{}, newRuntimeFailure("invariant_violation", fmt.Sprintf("mutation dispatch reached unregistered operation %s.%s", r.Tool, r.Operation), "contact_operator", false)
 	}
@@ -5383,7 +5384,7 @@ type mutationExecution struct {
 	intents                                   []NextIntent
 	effect                                    mutationEffect
 	host                                      store.ResolvedProjectHost
-	contractOp                                ContractOperation
+	contractOp                                agentcontract.ContractOperation
 	nativeFinalize                            func(context.Context) error
 	response                                  Envelope
 	resultRejected, cachedReplay              bool
@@ -5581,7 +5582,7 @@ func (r runtime) deriveAuthorizedProductsTx(ctx context.Context, tx *store.Trans
 		}
 		if r.Envelope.SelectedProductID != "" && product != r.Envelope.SelectedProductID {
 			crossProduct = true
-			if !containsCapability(grant.Capabilities, Capability("cross_scope")) {
+			if !containsCapability(grant.Capabilities, agentcontract.Capability("cross_scope")) {
 				return false, newRuntimeFailure("unauthorized", "cross-Product mutation requires cross_scope capability", "contact_operator", false)
 			}
 		}
@@ -5687,8 +5688,8 @@ func mutationRequiresConsequentialBoundary(tool, operation string, raw []byte) b
 // mutationConsequence reports the consequence the generated manifest declares
 // for one operation. An unknown operation reports the empty string, which the
 // caller treats as guarded.
-func mutationConsequence(tool, operation string) OperationConsequence {
-	for _, op := range ContractOperations {
+func mutationConsequence(tool, operation string) agentcontract.OperationConsequence {
+	for _, op := range agentcontract.ContractOperations {
 		if op.Tool == tool && op.Operation == operation {
 			return op.Consequence
 		}

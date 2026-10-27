@@ -8,12 +8,14 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
+	"github.com/sharper-flow/concord/internal/payloadschema"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
 func TestCaptureWorkflowTypeInitializesAndDispatchesFirstAction(t *testing.T) {
 	t.Parallel()
-	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_define", "work_transition"})
+	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_define", "work_transition"})
 	scopeVersion, _, err := s.ScopeVersion(context.Background(), "project-1")
 	if err != nil {
 		t.Fatal(err)
@@ -87,7 +89,7 @@ func TestCaptureWorkflowTypeInitializesAndDispatchesFirstAction(t *testing.T) {
 // family captures without touching the operator kind vocabulary.
 func TestCaptureLiveAuthoringSelectorRefusesRetiredFamiliesAndUnnamedDecisionKinds(t *testing.T) {
 	t.Parallel()
-	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_define", "work_transition"})
+	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_define", "work_transition"})
 	type captureState struct {
 		works, instances, contracts, events, changes int
 	}
@@ -286,7 +288,7 @@ func TestOperatorQuestionPremiseSummaryUsesSchemaRuneBound(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			err = ValidatePayloadSchema("operator_question", payload)
+			err = payloadschema.Validate("operator_question", payload)
 			if (err == nil) != testCase.valid {
 				t.Fatalf("schema result err=%v valid=%v", err, testCase.valid)
 			}
@@ -296,7 +298,7 @@ func TestOperatorQuestionPremiseSummaryUsesSchemaRuneBound(t *testing.T) {
 
 func TestWorkflowActionMalformedBoundaryPrecedesPinAndAuthorityChecks(t *testing.T) {
 	t.Parallel()
-	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_transition"})
+	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_transition"})
 	scopeVersion, _, err := s.ScopeVersion(context.Background(), "project-1")
 	if err != nil {
 		t.Fatal(err)
@@ -375,7 +377,7 @@ func workOneVersion(t *testing.T, s *store.Store) int64 {
 func issue31EvaluatorGrant(t *testing.T, service *Service, privateKey ed25519.PrivateKey) Authority {
 	t.Helper()
 	_ = privateKey
-	grant, err := service.Authorize(context.Background(), Invocation{ClientRef: "client-1", PrincipalRef: "human-1", SessionRef: "session-evaluator", AgentRef: "agent-evaluator", Directory: "/repo", Worktree: "/repo-wt", ManifestDigest: ManifestDigest, RequiredCapability: "work_transition", ProductID: "product-1", ProjectID: "project-1"})
+	grant, err := service.Authorize(context.Background(), Invocation{ClientRef: "client-1", PrincipalRef: "human-1", SessionRef: "session-evaluator", AgentRef: "agent-evaluator", Directory: "/repo", Worktree: "/repo-wt", ManifestDigest: agentcontract.ManifestDigest, RequiredCapability: "work_transition", ProductID: "product-1", ProjectID: "project-1"})
 	if err != nil {
 		t.Fatal(err)
 	}

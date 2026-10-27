@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -499,7 +500,7 @@ func TestSessionVacateReoccupiesSameWorktree(t *testing.T) {
 	if err := s.AddProjectLocator(ctx, "project-2", store.ProjectLocator{ID: "path-2", Kind: store.LocatorCanonicalPath, Value: repo2}, 1); err != nil {
 		t.Fatal(err)
 	}
-	service2, _, grant2 := newAuthorizedService(t, s, "client-2", "human-1", []Capability{"work_transition", "product_read"}, []string{"product-1"}, []string{"project-2"}, store.ProjectResolution{ProjectID: "project-2"})
+	service2, _, grant2 := newAuthorizedService(t, s, "client-2", "human-1", []agentcontract.Capability{"work_transition", "product_read"}, []string{"product-1"}, []string{"project-2"}, store.ProjectResolution{ProjectID: "project-2"})
 
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
 	if err != nil {

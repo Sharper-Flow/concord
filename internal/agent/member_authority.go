@@ -3,10 +3,11 @@ package agent
 import (
 	"encoding/json"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
-func memberOperationScope(raw []byte, env CallEnvelope, op ContractOperation) store.MemberOperationScope {
+func memberOperationScope(raw []byte, env CallEnvelope, op agentcontract.ContractOperation) store.MemberOperationScope {
 	var fields struct {
 		WorkID    string `json:"work_id"`
 		ProjectID string `json:"project_id"`
@@ -17,7 +18,7 @@ func memberOperationScope(raw []byte, env CallEnvelope, op ContractOperation) st
 	if fields.ProjectID == "" {
 		fields.ProjectID = env.AmbientProjectID
 	}
-	return store.MemberOperationScope{WorkID: fields.WorkID, ProjectID: fields.ProjectID, Operation: op.ID, ActionID: fields.ActionID, AttemptID: fields.AttemptID, Read: op.Kind == OperationRead}
+	return store.MemberOperationScope{WorkID: fields.WorkID, ProjectID: fields.ProjectID, Operation: op.ID, ActionID: fields.ActionID, AttemptID: fields.AttemptID, Read: op.Kind == agentcontract.OperationRead}
 }
 
 func memberWorkflowActor(grant Authority) store.WorkflowActor {

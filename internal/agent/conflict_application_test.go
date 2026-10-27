@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
 	"github.com/sharper-flow/concord/internal/store/storetest"
 )
@@ -88,7 +89,7 @@ func conflictDispatchFixture(t *testing.T) (*store.Store, *Service, Authority, s
 	if err := store.ApplyOperation(ctx, s, store.Operation{Events: []store.Event{conflictSizedWorkEvent(t, "work-sized-size", "work-sized")}}); err != nil {
 		t.Fatal(err)
 	}
-	service, _, grant := newAuthorizedService(t, s, "client-1", "human-1", []Capability{"product_read", "work_define"}, []string{"product-1"}, []string{"project-1"}, store.ProjectResolution{ProjectID: "project-1"})
+	service, _, grant := newAuthorizedService(t, s, "client-1", "human-1", []agentcontract.Capability{"product_read", "work_define"}, []string{"product-1"}, []string{"project-1"}, store.ProjectResolution{ProjectID: "project-1"})
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
 	if err != nil {
 		t.Fatal(err)
@@ -112,7 +113,7 @@ func conflictCrossProductFixture(t *testing.T) (*store.Store, *Service, Authorit
 	if err := store.ApplyOperation(ctx, s, store.Operation{Events: []store.Event{conflictSizedWorkEvent(t, "work-2-size", "work-2")}}); err != nil {
 		t.Fatal(err)
 	}
-	service, _, grant := newAuthorizedService(t, s, "client-1", "human-1", []Capability{"product_read", "work_define", "cross_scope"}, []string{"product-1", "product-2"}, []string{"project-1", "project-2"}, store.ProjectResolution{ProjectID: "project-1"})
+	service, _, grant := newAuthorizedService(t, s, "client-1", "human-1", []agentcontract.Capability{"product_read", "work_define", "cross_scope"}, []string{"product-1", "product-2"}, []string{"project-1", "project-2"}, store.ProjectResolution{ProjectID: "project-1"})
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
 	if err != nil {
 		t.Fatal(err)
@@ -534,7 +535,7 @@ func TestConflictObservationFreshKeyRecordsASecondSettlement(t *testing.T) {
 func TestConflictObservationAnotherPrincipalRecordsItsOwnSettlement(t *testing.T) {
 	t.Parallel()
 	s, service, grant, _ := conflictDispatchFixture(t)
-	otherService, _, otherGrant := newAuthorizedService(t, s, "client-2", "human-2", []Capability{"product_read", "work_define"}, []string{"product-1"}, []string{"project-1"}, store.ProjectResolution{ProjectID: "project-1"})
+	otherService, _, otherGrant := newAuthorizedService(t, s, "client-2", "human-2", []agentcontract.Capability{"product_read", "work_define"}, []string{"product-1"}, []string{"project-1"}, store.ProjectResolution{ProjectID: "project-1"})
 	scopeVersion, _, err := s.ScopeVersion(context.Background(), "project-1")
 	if err != nil {
 		t.Fatal(err)

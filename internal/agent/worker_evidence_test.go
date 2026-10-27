@@ -15,6 +15,7 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -288,7 +289,7 @@ func snakeCase(name string) string {
 func TestWorkerEvidenceCapabilityIsNotRequestable(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	_, service, authority, _ := mutationDispatchFixture(t, []Capability{"product_read"})
+	_, service, authority, _ := mutationDispatchFixture(t, []agentcontract.Capability{"product_read"})
 	invocation := Invocation{
 		ClientRef: authority.ClientRef, PrincipalRef: authority.PrincipalRef, SessionRef: authority.SessionRef,
 		AgentRef: authority.AgentRef, Directory: authority.Directory, Worktree: authority.Worktree,
@@ -297,7 +298,7 @@ func TestWorkerEvidenceCapabilityIsNotRequestable(t *testing.T) {
 	if _, err := service.Authorize(ctx, invocation); err == nil {
 		t.Fatal("worker_evidence obtained without a client policy entry")
 	}
-	if err := service.RegisterTrustedClient(ctx, testClientRegistration("worker-evidence-client", "worker-evidence-principal", []Capability{CapabilityWorkerEvidence}, []string{"product-1"}, []string{"project-1"})); err != nil {
+	if err := service.RegisterTrustedClient(ctx, testClientRegistration("worker-evidence-client", "worker-evidence-principal", []agentcontract.Capability{CapabilityWorkerEvidence}, []string{"product-1"}, []string{"project-1"})); err != nil {
 		t.Fatal(err)
 	}
 	invocation.ClientRef = "worker-evidence-client"
@@ -539,7 +540,7 @@ func registerHeldKeyWorkerEvidenceClient(t *testing.T, service *Service) ed25519
 		PublicKey: publicKey,
 		Policy: TrustedClientPolicy{
 			PrincipalRef: "con787-evidence-principal",
-			Capabilities: []Capability{CapabilityWorkerEvidence},
+			Capabilities: []agentcontract.Capability{CapabilityWorkerEvidence},
 			ProductScope: []string{"product-1"},
 			ProjectScope: []string{"project-1"},
 			AgentScope:   testFixtureAgents,
@@ -573,7 +574,7 @@ func validateWorkerEvidenceAuthTx(t *testing.T, s *store.Store, service *Service
 // digest, and the binding comparison carries the version semantics.
 func TestWorkerEvidenceV2AuthenticatesTheSignedObservationDigest(t *testing.T) {
 	t.Parallel()
-	s, service, _, _ := mutationDispatchFixture(t, []Capability{"product_read"})
+	s, service, _, _ := mutationDispatchFixture(t, []agentcontract.Capability{"product_read"})
 	key := registerHeldKeyWorkerEvidenceClient(t, service)
 	digest := "sha256:" + strings.Repeat("a", 64)
 
@@ -618,7 +619,7 @@ func TestWorkerEvidenceV2AuthenticatesTheSignedObservationDigest(t *testing.T) {
 // refuses at validation, before the signature or the binding is consulted.
 func TestWorkerEvidenceV2RefusesAMissingObservationDigest(t *testing.T) {
 	t.Parallel()
-	s, service, _, _ := mutationDispatchFixture(t, []Capability{"product_read"})
+	s, service, _, _ := mutationDispatchFixture(t, []agentcontract.Capability{"product_read"})
 	key := registerHeldKeyWorkerEvidenceClient(t, service)
 
 	env := workerEvidenceV2Envelope(t, "nonce-con787-v2-nodigest1")
@@ -637,7 +638,7 @@ func TestWorkerEvidenceV2RefusesAMissingObservationDigest(t *testing.T) {
 // ignoring the member.
 func TestWorkerEvidenceV1RefusesAnObservationDigest(t *testing.T) {
 	t.Parallel()
-	s, service, _, _ := mutationDispatchFixture(t, []Capability{"product_read"})
+	s, service, _, _ := mutationDispatchFixture(t, []agentcontract.Capability{"product_read"})
 	key := registerHeldKeyWorkerEvidenceClient(t, service)
 
 	env := workerEvidenceV2Envelope(t, "nonce-con787-v1-digest-01")
@@ -656,7 +657,7 @@ func TestWorkerEvidenceV1RefusesAnObservationDigest(t *testing.T) {
 // core.
 func TestWorkerEvidenceRefusesAnUnknownAssertionVersion(t *testing.T) {
 	t.Parallel()
-	s, service, _, _ := mutationDispatchFixture(t, []Capability{"product_read"})
+	s, service, _, _ := mutationDispatchFixture(t, []agentcontract.Capability{"product_read"})
 	key := registerHeldKeyWorkerEvidenceClient(t, service)
 
 	env := workerEvidenceV2Envelope(t, "nonce-con787-v3-unknown1")
@@ -675,7 +676,7 @@ func TestWorkerEvidenceRefusesAnUnknownAssertionVersion(t *testing.T) {
 // the released v1 writes the shared vector pins byte for byte.
 func TestWorkerEvidenceV1PathStaysOpenForVersionlessAssertions(t *testing.T) {
 	t.Parallel()
-	s, service, _, _ := mutationDispatchFixture(t, []Capability{"product_read"})
+	s, service, _, _ := mutationDispatchFixture(t, []agentcontract.Capability{"product_read"})
 	key := registerHeldKeyWorkerEvidenceClient(t, service)
 
 	env := workerEvidenceV2Envelope(t, "nonce-con787-v1-open-0001")

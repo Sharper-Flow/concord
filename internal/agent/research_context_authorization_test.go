@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -27,14 +28,14 @@ func researchContextBinding(packID string) researchBindingInput {
 // transaction-callback pair for it: the runtime value and invocation the
 // live workflow_action mutation route assembles, with the byte-oriented
 // envelope researchScopeEnvelope builds.
-func researchContextCallbackFixture(t *testing.T, capabilities []Capability, products []string) (researchScopeEnv, runtime, Invocation) {
+func researchContextCallbackFixture(t *testing.T, capabilities []agentcontract.Capability, products []string) (researchScopeEnv, runtime, Invocation) {
 	t.Helper()
 	f := researchScopeFixture(t, capabilities, products)
 	env, err := researchScopeEnvelope(f)
 	if err != nil {
 		t.Fatal(err)
 	}
-	inv := Invocation{ClientRef: "client-1", PrincipalRef: "human-1", SessionRef: "session-1", AgentRef: "agent-1", Directory: "/repo", Worktree: "/repo-wt", ManifestDigest: ManifestDigest, RequiredCapability: Capability("work_transition"), ProductID: "product-a", ProjectID: "project-a"}
+	inv := Invocation{ClientRef: "client-1", PrincipalRef: "human-1", SessionRef: "session-1", AgentRef: "agent-1", Directory: "/repo", Worktree: "/repo-wt", ManifestDigest: agentcontract.ManifestDigest, RequiredCapability: agentcontract.Capability("work_transition"), ProductID: "product-a", ProjectID: "project-a"}
 	return f, runtime{Store: f.store, Authority: f.service, Envelope: env}, inv
 }
 
@@ -144,50 +145,50 @@ func TestResearchContextSelectionOwnerScope(t *testing.T) {
 	// The callback checks the combined referenced-owner set independently of
 	// workflow admission and leaves durable state unchanged on refusal.
 	t.Run("same_product_selection_succeeds", func(t *testing.T) {
-		f, rt, inv := researchContextCallbackFixture(t, []Capability{"product_read", "work_transition"}, []string{"product-a"})
+		f, rt, inv := researchContextCallbackFixture(t, []agentcontract.Capability{"product_read", "work_transition"}, []string{"product-a"})
 		if err := researchContextAuthorizeTx(t, f, rt, inv, nil, researchContextSelection(researchScopePackA)); err != nil {
 			t.Fatalf("same-Product selection refused: %v", err)
 		}
 	})
 	t.Run("selection_only_cross_product_denied_without_cross_scope", func(t *testing.T) {
-		f, rt, inv := researchContextCallbackFixture(t, []Capability{"product_read", "work_transition"}, []string{"product-a"})
+		f, rt, inv := researchContextCallbackFixture(t, []agentcontract.Capability{"product_read", "work_transition"}, []string{"product-a"})
 		err := researchContextAuthorizeTx(t, f, rt, inv, nil, researchContextSelection(researchScopePackB))
 		researchContextRequireRefusal(t, err, "unauthorized")
 	})
 	t.Run("covered_cross_product_denied_without_cross_scope", func(t *testing.T) {
-		f, rt, inv := researchContextCallbackFixture(t, []Capability{"product_read", "work_transition"}, []string{"product-a", "product-b"})
+		f, rt, inv := researchContextCallbackFixture(t, []agentcontract.Capability{"product_read", "work_transition"}, []string{"product-a", "product-b"})
 		err := researchContextAuthorizeTx(t, f, rt, inv, nil, researchContextSelection(researchScopePackB))
 		researchContextRequireRefusal(t, err, "unauthorized")
 	})
 	t.Run("selection_denied_outside_grant_even_with_cross_scope", func(t *testing.T) {
-		f, rt, inv := researchContextCallbackFixture(t, []Capability{"product_read", "work_transition", "cross_scope"}, []string{"product-a"})
+		f, rt, inv := researchContextCallbackFixture(t, []agentcontract.Capability{"product_read", "work_transition", "cross_scope"}, []string{"product-a"})
 		err := researchContextAuthorizeTx(t, f, rt, inv, nil, researchContextSelection(researchScopePackB))
 		researchContextRequireRefusal(t, err, "unauthorized")
 	})
 	t.Run("allowed_cross_product_with_matching_grant_and_capability", func(t *testing.T) {
-		f, rt, inv := researchContextCallbackFixture(t, []Capability{"product_read", "work_transition", "cross_scope"}, []string{"product-a", "product-b"})
+		f, rt, inv := researchContextCallbackFixture(t, []agentcontract.Capability{"product_read", "work_transition", "cross_scope"}, []string{"product-a", "product-b"})
 		if err := researchContextAuthorizeTx(t, f, rt, inv, nil, researchContextSelection(researchScopePackB)); err != nil {
 			t.Fatalf("allowed cross-Product selection refused: %v", err)
 		}
 	})
 	t.Run("mixed_allowed_and_denied_selections_reject_whole", func(t *testing.T) {
-		f, rt, inv := researchContextCallbackFixture(t, []Capability{"product_read", "work_transition"}, []string{"product-a"})
+		f, rt, inv := researchContextCallbackFixture(t, []agentcontract.Capability{"product_read", "work_transition"}, []string{"product-a"})
 		err := researchContextAuthorizeTx(t, f, rt, inv, nil, []string{researchScopePackA, researchScopePackB})
 		researchContextRequireRefusal(t, err, "unauthorized")
 	})
 	t.Run("binding_and_foreign_selection_reject_whole", func(t *testing.T) {
-		f, rt, inv := researchContextCallbackFixture(t, []Capability{"product_read", "work_transition"}, []string{"product-a"})
+		f, rt, inv := researchContextCallbackFixture(t, []agentcontract.Capability{"product_read", "work_transition"}, []string{"product-a"})
 		err := researchContextAuthorizeTx(t, f, rt, inv, []researchBindingInput{researchContextBinding(researchScopePackA)}, researchContextSelection(researchScopePackB))
 		researchContextRequireRefusal(t, err, "unauthorized")
 	})
 	t.Run("missing_owner_scope", func(t *testing.T) {
 		t.Run("absent_pack", func(t *testing.T) {
-			f, rt, inv := researchContextCallbackFixture(t, []Capability{"product_read", "work_transition"}, []string{"product-a"})
+			f, rt, inv := researchContextCallbackFixture(t, []agentcontract.Capability{"product_read", "work_transition"}, []string{"product-a"})
 			err := researchContextAuthorizeTx(t, f, rt, inv, nil, researchContextSelection("pack-absent"))
 			researchContextRequireRefusal(t, err, string(store.KindProjectionNotFound))
 		})
 		t.Run("membershipless_owner", func(t *testing.T) {
-			f, rt, inv := researchContextCallbackFixture(t, []Capability{"product_read", "work_transition"}, []string{"product-a"})
+			f, rt, inv := researchContextCallbackFixture(t, []agentcontract.Capability{"product_read", "work_transition"}, []string{"product-a"})
 			pack := "pack-scope-orphan"
 			seedResearchScopePack(t, f.store, pack, "owner-none", "Orphan question", "Orphan finding")
 			// A missing membership is corrupt retained state, not a legal
@@ -278,7 +279,7 @@ func TestResearchContextSelectionOwnerScope(t *testing.T) {
 				if err != nil || len(packs) != 1 || packs[0] != researchScopePackB {
 					t.Fatalf("normalized selection packs=%v err=%v, want [%s]", packs, err, researchScopePackB)
 				}
-				f, rt, inv := researchContextCallbackFixture(t, []Capability{"product_read", "work_transition"}, []string{"product-a", "product-b"})
+				f, rt, inv := researchContextCallbackFixture(t, []agentcontract.Capability{"product_read", "work_transition"}, []string{"product-a", "product-b"})
 				researchContextRequireRefusal(t, researchContextAuthorizeTx(t, f, rt, inv, nil, packs), "unauthorized")
 			})
 		}
@@ -313,7 +314,7 @@ func TestResearchContextSelectionOwnerScope(t *testing.T) {
 		}
 	})
 	t.Run("duplicate_references_share_one_owner_set", func(t *testing.T) {
-		f, rt, inv := researchContextCallbackFixture(t, []Capability{"product_read", "work_transition"}, []string{"product-a"})
+		f, rt, inv := researchContextCallbackFixture(t, []agentcontract.Capability{"product_read", "work_transition"}, []string{"product-a"})
 		if err := researchContextAuthorizeTx(t, f, rt, inv, []researchBindingInput{researchContextBinding(researchScopePackA)}, []string{researchScopePackA, researchScopePackA}); err != nil {
 			t.Fatalf("duplicated in-scope references refused: %v", err)
 		}
@@ -327,7 +328,7 @@ func TestResearchContextSelectionOwnerScope(t *testing.T) {
 	// declaration of the same binding refuses, proving the moved owner would
 	// refuse if the replay re-authorized.
 	t.Run("exact_replay_no_duplicate_effect", func(t *testing.T) {
-		f := researchScopeFixture(t, []Capability{"product_read", "work_transition"}, []string{"product-a"})
+		f := researchScopeFixture(t, []agentcontract.Capability{"product_read", "work_transition"}, []string{"product-a"})
 		input := researchScopeBindingAction(t, f, "record_proposal", "rc-replay-bind", []map[string]any{researchScopeBinding(researchScopePackA, 1, true)})
 		first := researchScopeInvoke(t, f, "workflow_action", input)
 		if first.Outcome != OutcomeOK {
@@ -351,7 +352,7 @@ func TestResearchContextSelectionOwnerScope(t *testing.T) {
 	// selection resolves with its native content, and the unbound foreign
 	// selection reads as the typed fail-closed missing entry.
 	t.Run("retained_reads_survive_unavailable_author_grant", func(t *testing.T) {
-		f := researchScopeFixture(t, []Capability{"product_read", "work_transition"}, []string{"product-a"})
+		f := researchScopeFixture(t, []agentcontract.Capability{"product_read", "work_transition"}, []string{"product-a"})
 		bound := researchScopeInvoke(t, f, "workflow_action", researchScopeBindingAction(t, f, "record_proposal", "rc-retained-bind", []map[string]any{researchScopeBinding(researchScopePackA, 1, true)}))
 		if bound.Outcome != OutcomeOK {
 			t.Fatalf("in-scope binding failed: %+v", bound.Error)

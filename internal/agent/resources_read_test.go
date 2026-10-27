@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
 	"github.com/sharper-flow/concord/internal/store/storetest"
 )
@@ -47,7 +48,7 @@ func TestProductViewResourcesReadsTheSelectedProductInventory(t *testing.T) {
 	if response.Outcome != OutcomeOK {
 		t.Fatalf("resources response=%+v error=%#v", response, response.Error)
 	}
-	if err := ValidateOperationPayload("concord_product_view", "resources", response.Result, true); err != nil {
+	if err := agentcontract.ValidateOperationPayload("concord_product_view", "resources", response.Result, true); err != nil {
 		t.Fatalf("resource_page failed closed-schema validation: %v", err)
 	}
 	var result struct {
@@ -72,13 +73,13 @@ func TestProductViewResourcesReadsTheSelectedProductInventory(t *testing.T) {
 
 func TestProductViewResourcesInputIsClosed(t *testing.T) {
 	t.Parallel()
-	if err := ValidateOperationPayload("concord_product_view", "resources", []byte(`{"resource_id":"vendor-api","class":"saas"}`), false); err != nil {
+	if err := agentcontract.ValidateOperationPayload("concord_product_view", "resources", []byte(`{"resource_id":"vendor-api","class":"saas"}`), false); err != nil {
 		t.Fatalf("valid resources input refused: %v", err)
 	}
-	if err := ValidateOperationPayload("concord_product_view", "resources", []byte(`{"product_id":"p","class":"cloud"}`), false); err == nil {
+	if err := agentcontract.ValidateOperationPayload("concord_product_view", "resources", []byte(`{"product_id":"p","class":"cloud"}`), false); err == nil {
 		t.Fatal("unknown class passed the closed input")
 	}
-	if err := ValidateOperationPayload("concord_product_view", "resources", []byte(`{"product_id":"p","write":true}`), false); err == nil {
+	if err := agentcontract.ValidateOperationPayload("concord_product_view", "resources", []byte(`{"product_id":"p","write":true}`), false); err == nil {
 		t.Fatal("unknown field passed the closed input")
 	}
 }

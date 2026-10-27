@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/sharper-flow/concord/internal/agentcontract"
 )
 
 // CD-0037 D1 requires a minted challenge to carry its typed consequence summary.
@@ -14,7 +16,7 @@ import (
 // CD-0243 D3/D7 retain security grant consent, not membership consent.
 func TestUnapprovedAccessGrantRefusalIsDeliverable(t *testing.T) {
 	ctx := context.Background()
-	s, service, grant, _ := productProjectLinkFixture(t, []Capability{"work_relate", "cross_scope"})
+	s, service, grant, _ := productProjectLinkFixture(t, []agentcontract.Capability{"work_relate", "cross_scope"})
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
 	if err != nil {
 		t.Fatal(err)

@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/sharper-flow/concord/internal/agent"
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/predecessor"
 	"github.com/sharper-flow/concord/internal/store"
 	"github.com/sharper-flow/concord/internal/version"
@@ -132,8 +133,8 @@ func formatRequiredFields(fields []commandField) string {
 }
 
 func invokeOperationEnums() string {
-	operations := make([]string, 0, len(agent.ContractOperations))
-	for _, operation := range agent.ContractOperations {
+	operations := make([]string, 0, len(agentcontract.ContractOperations))
+	for _, operation := range agentcontract.ContractOperations {
 		operations = append(operations, operation.ID)
 	}
 	return "tool.operation: " + strings.Join(operations, " | ")
@@ -1194,9 +1195,9 @@ func runClientPolicyCommand(command string, raw []byte, service *agent.Service, 
 			writeOperatorDiagnostic(errOut, command, "public_key must be base64 Ed25519")
 			return 1
 		}
-		caps := make([]agent.Capability, len(request.Capabilities))
+		caps := make([]agentcontract.Capability, len(request.Capabilities))
 		for i, v := range request.Capabilities {
-			caps[i] = agent.Capability(v)
+			caps[i] = agentcontract.Capability(v)
 		}
 		err = service.RegisterTrustedClient(ctx, agent.ClientRegistration{ClientRef: request.ClientRef, KeyID: request.KeyID, PublicKey: ed25519.PublicKey(key), Policy: agent.TrustedClientPolicy{PrincipalRef: request.PrincipalRef, Capabilities: caps, ProductScope: request.ProductScope, ProjectScope: request.ProjectScope, AgentScope: request.AgentScope}})
 		if err != nil {
@@ -1217,9 +1218,9 @@ func runClientPolicyCommand(command string, raw []byte, service *agent.Service, 
 			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
 			return 1
 		}
-		caps := make([]agent.Capability, len(request.Capabilities))
+		caps := make([]agentcontract.Capability, len(request.Capabilities))
 		for i, v := range request.Capabilities {
-			caps[i] = agent.Capability(v)
+			caps[i] = agentcontract.Capability(v)
 		}
 		if err := service.UpdateTrustedClientPolicy(ctx, request.ClientRef, agent.TrustedClientPolicy{PrincipalRef: request.PrincipalRef, Capabilities: caps, ProductScope: request.ProductScope, ProjectScope: request.ProjectScope, AgentScope: request.AgentScope}); err != nil {
 			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
@@ -1238,9 +1239,9 @@ func runClientPolicyCommand(command string, raw []byte, service *agent.Service, 
 			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
 			return 1
 		}
-		caps := make([]agent.Capability, len(request.Capabilities))
+		caps := make([]agentcontract.Capability, len(request.Capabilities))
 		for i, v := range request.Capabilities {
-			caps[i] = agent.Capability(v)
+			caps[i] = agentcontract.Capability(v)
 		}
 		if err := service.ExpandTrustedClientPolicy(ctx, request.ClientRef, agent.TrustedClientPolicy{Capabilities: caps, ProductScope: request.ProductScope, ProjectScope: request.ProjectScope, AgentScope: request.AgentScope}); err != nil {
 			writeOperatorDiagnostic(errOut, command, diagnosticText(err))

@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
 	"github.com/sharper-flow/concord/internal/store/storetest"
 )
@@ -75,7 +76,7 @@ func worktreeDispatchFixture(t *testing.T) (*store.Store, *Service, Authority, s
 		t.Fatal(err)
 	}
 
-	service, _, grant := newAuthorizedService(t, s, "client-1", "human-1", []Capability{"work_transition", "product_read"}, []string{"product-1"}, []string{"project-1"}, store.ProjectResolution{ProjectID: "project-1"})
+	service, _, grant := newAuthorizedService(t, s, "client-1", "human-1", []agentcontract.Capability{"work_transition", "product_read"}, []string{"product-1"}, []string{"project-1"}, store.ProjectResolution{ProjectID: "project-1"})
 	return s, service, grant, repoRoot, baseSHA
 }
 
@@ -299,7 +300,7 @@ func TestWorktreeClaimCrossScopeGate(t *testing.T) {
 	baseSHA := seedSecondProjectFixture(t, s)
 	// The client policy names both Products, so the refusal below is the
 	// cross_scope capability gate and not the client's own Product policy.
-	service, _, crossGrant := newAuthorizedService(t, s, "client-cross", "human-cross", []Capability{"work_transition", "product_read"}, []string{"product-1", "product-2"}, []string{"project-1"}, store.ProjectResolution{ProjectID: "project-1"})
+	service, _, crossGrant := newAuthorizedService(t, s, "client-cross", "human-cross", []agentcontract.Capability{"work_transition", "product_read"}, []string{"product-1", "product-2"}, []string{"project-1"}, store.ProjectResolution{ProjectID: "project-1"})
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
 	if err != nil {
 		t.Fatal(err)

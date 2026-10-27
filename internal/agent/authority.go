@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -26,9 +27,9 @@ const defaultClockSkew = 2 * time.Minute
 // Product state in the store and never touch a checkout path (CD-0092 D2).
 // The boundary is declared once here so future additions require a decision
 // naming the new capability's write surface (CD-0092 D3).
-var mainCheckoutAllowedCapabilities = map[Capability]struct{}{
-	Capability("product_read"): {},
-	Capability("work_define"):  {},
+var mainCheckoutAllowedCapabilities = map[agentcontract.Capability]struct{}{
+	agentcontract.Capability("product_read"): {},
+	agentcontract.Capability("work_define"):  {},
 }
 
 // mainCheckoutAllowedOperations names the operation-scoped extension to the
@@ -36,8 +37,8 @@ var mainCheckoutAllowedCapabilities = map[Capability]struct{}{
 // event and never touches a checkout path or claims a worktree (CD-0094 D1/D2).
 // The boundary remains declared once so each new operation requires a decision
 // naming its write surface (CD-0094 D3).
-var mainCheckoutAllowedOperations = map[Capability]map[string]struct{}{
-	Capability("work_transition"): {
+var mainCheckoutAllowedOperations = map[agentcontract.Capability]map[string]struct{}{
+	agentcontract.Capability("work_transition"): {
 		"lifecycle": {},
 		// CD-0094 D5 admits remove conditionally: replay or the planner's
 		// exact-item shelving proof, revalidated in the transaction.
@@ -63,8 +64,8 @@ var mainCheckoutAllowedOperations = map[Capability]map[string]struct{}{
 // planner-side terminality check, because its one addressed row may hold any
 // lifecycle; worktree_audit_reclaim adds no check here, because the store
 // pass applies the tier gates to every row it reclaims.
-var mainCheckoutWorktreeRetirementOperations = map[Capability]map[string]struct{}{
-	Capability("work_transition"): {
+var mainCheckoutWorktreeRetirementOperations = map[agentcontract.Capability]map[string]struct{}{
+	agentcontract.Capability("work_transition"): {
 		"worktree_audit_reclaim": {},
 		"worktree_reclaim":       {},
 	},
@@ -149,7 +150,7 @@ type ClientRegistration struct {
 
 type TrustedClientPolicy struct {
 	PrincipalRef string
-	Capabilities []Capability
+	Capabilities []agentcontract.Capability
 	ProductScope []string
 	ProjectScope []string
 	AgentScope   []string
@@ -276,14 +277,14 @@ func unionPolicyExpansion(op string, add canonicalPolicyJSON) func(store.Trusted
 // Tool arguments still cannot add capabilities (CD-0071 D1); this route only
 // proposes, and the core applies a proposal after an independent operator
 // approval in the same transaction.
-var grantRequestCapabilities = map[Capability]struct{}{
-	Capability("product_read"):    {},
-	Capability("work_define"):     {},
-	Capability("work_transition"): {},
-	Capability("work_relate"):     {},
-	Capability("work_compact"):    {},
-	Capability("cross_scope"):     {},
-	Capability("research"):        {},
+var grantRequestCapabilities = map[agentcontract.Capability]struct{}{
+	agentcontract.Capability("product_read"):    {},
+	agentcontract.Capability("work_define"):     {},
+	agentcontract.Capability("work_transition"): {},
+	agentcontract.Capability("work_relate"):     {},
+	agentcontract.Capability("work_compact"):    {},
+	agentcontract.Capability("cross_scope"):     {},
+	agentcontract.Capability("research"):        {},
 }
 
 // TrustedClientPolicyVersion derives the version of a stored trusted client
@@ -308,7 +309,7 @@ func TrustedClientPolicyVersion(current store.TrustedClientRecord) string {
 type PolicyExpansionProposal struct {
 	ClientRef     string
 	PolicyVersion string
-	Capabilities  []Capability
+	Capabilities  []agentcontract.Capability
 	ProductScope  []string
 	ProjectScope  []string
 	AgentScope    []string
@@ -435,7 +436,7 @@ type Authority struct {
 	Directory         string
 	Worktree          string
 	ManifestDigest    string
-	Capabilities      []Capability
+	Capabilities      []agentcontract.Capability
 	ProductScope      []string
 	ProjectScope      []string
 	ScopeVersion      string
@@ -458,7 +459,7 @@ type Authority struct {
 type Invocation struct {
 	ClientRef, PrincipalRef, SessionRef, AgentRef, Directory, Worktree, ManifestDigest string
 	HostAssertionDigest                                                                string
-	RequiredCapability                                                                 Capability
+	RequiredCapability                                                                 agentcontract.Capability
 	RequiredOperation                                                                  string
 	ProductID, ProjectID                                                               string
 }
@@ -541,7 +542,7 @@ func (s *Service) authorizeResolved(ctx context.Context, tx *store.Transaction, 
 	if in.PrincipalRef != "" && in.PrincipalRef != client.PrincipalRef {
 		return Authority{}, authorityRefusal("principal does not match trusted client")
 	}
-	if in.ManifestDigest != ManifestDigest {
+	if in.ManifestDigest != agentcontract.ManifestDigest {
 		return Authority{}, authorityRefusal("manifest digest mismatch")
 	}
 	var policyCaps, policyProducts, policyProjects, policyAgents []string
@@ -621,7 +622,7 @@ func (s *Service) authorizeResolved(ctx context.Context, tx *store.Transaction, 
 		return Authority{}, err
 	}
 	snapshot := map[string]any{"project_id": resolved.ProjectID, "product_ids": candidateProducts, "scope_version": scopeVersion}
-	return Authority{PrincipalRef: client.PrincipalRef, ClientRef: client.ClientRef, SessionRef: in.SessionRef, AgentRef: in.AgentRef, Directory: in.Directory, Worktree: in.Worktree, ManifestDigest: ManifestDigest, Capabilities: capabilityValues(normalizeStrings(policyCaps)), ProductScope: authorizedProducts, ProjectScope: normalizeStrings(projects), ScopeVersion: scopeVersion, CandidateProducts: candidateProducts, ScopeSnapshot: snapshot, PolicyProductScope: normalizeStrings(policyProducts), PolicyProjectScope: normalizeStrings(policyProjects), MainWorktree: resolved.MainWorktree}, nil
+	return Authority{PrincipalRef: client.PrincipalRef, ClientRef: client.ClientRef, SessionRef: in.SessionRef, AgentRef: in.AgentRef, Directory: in.Directory, Worktree: in.Worktree, ManifestDigest: agentcontract.ManifestDigest, Capabilities: capabilityValues(normalizeStrings(policyCaps)), ProductScope: authorizedProducts, ProjectScope: normalizeStrings(projects), ScopeVersion: scopeVersion, CandidateProducts: candidateProducts, ScopeSnapshot: snapshot, PolicyProductScope: normalizeStrings(policyProducts), PolicyProjectScope: normalizeStrings(policyProjects), MainWorktree: resolved.MainWorktree}, nil
 }
 
 func (s *Service) authorizedProductProjects(ctx context.Context, tx *store.Transaction, projectID string, products []string) ([]string, error) {
@@ -681,17 +682,17 @@ func expiryPassed(stored string, now time.Time) bool {
 	return !parsed.After(now)
 }
 
-func capabilityStrings(values []Capability) []string {
+func capabilityStrings(values []agentcontract.Capability) []string {
 	out := make([]string, len(values))
 	for i, v := range values {
 		out[i] = string(v)
 	}
 	return out
 }
-func capabilityValues(values []string) []Capability {
-	out := make([]Capability, len(values))
+func capabilityValues(values []string) []agentcontract.Capability {
+	out := make([]agentcontract.Capability, len(values))
 	for i, value := range values {
-		out[i] = Capability(value)
+		out[i] = agentcontract.Capability(value)
 	}
 	return out
 }
@@ -709,7 +710,7 @@ func normalizeStrings(values []string) []string {
 	}
 	return out
 }
-func containsCapability(values []Capability, value Capability) bool {
+func containsCapability(values []agentcontract.Capability, value agentcontract.Capability) bool {
 	for _, v := range values {
 		if subtle.ConstantTimeCompare([]byte(v), []byte(value)) == 1 {
 			return true

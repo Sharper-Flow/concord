@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/pm1fixture"
 	"github.com/sharper-flow/concord/internal/store"
 )
@@ -107,7 +108,7 @@ func deliveryRecoveryCompletion(t *testing.T, s *store.Store, grant Authority, a
 }
 
 func TestDeliveryGateRecoveryReturnsStaleReviewThroughAgent(t *testing.T) {
-	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_transition", "worker_dispatch"})
+	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_transition", "worker_dispatch"})
 	ctx := context.Background()
 	home, err := pm1fixture.SeedCommittedProductDomain(ctx, s, "product-1", "project-1", t.TempDir())
 	if err != nil {

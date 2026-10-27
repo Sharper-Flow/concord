@@ -17,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
 	"github.com/sharper-flow/concord/internal/store/storetest"
 )
@@ -24,7 +25,7 @@ import (
 func TestDispatchRejectsObsoleteEpicSurfaceAndGenericInitiativeCapture(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"product_read", "work_define"})
+	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"product_read", "work_define"})
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
 	if err != nil {
 		t.Fatal(err)
@@ -46,7 +47,7 @@ func TestDispatchRejectsObsoleteEpicSurfaceAndGenericInitiativeCapture(t *testin
 func TestDispatchApprovalChallengeRoundTripIsDurableAndSingleUse(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	s, service, grant, privateKey := productProjectLinkFixture(t, []Capability{"work_relate", "cross_scope"})
+	s, service, grant, privateKey := productProjectLinkFixture(t, []agentcontract.Capability{"work_relate", "cross_scope"})
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
 	if err != nil {
 		t.Fatal(err)
@@ -136,7 +137,7 @@ func TestDispatchApprovalChallengeRoundTripIsDurableAndSingleUse(t *testing.T) {
 func TestLateHostApprovalNeedsOneChallenge(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	s, service, grant, _ := productProjectLinkFixture(t, []Capability{"work_relate", "cross_scope"})
+	s, service, grant, _ := productProjectLinkFixture(t, []agentcontract.Capability{"work_relate", "cross_scope"})
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
 	if err != nil {
 		t.Fatal(err)
@@ -253,7 +254,7 @@ func TestLateHostApprovalNeedsOneChallenge(t *testing.T) {
 func TestDispatchRejectsInvalidHostApprovalAssertions(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	s, service, authority, _ := productProjectLinkFixture(t, []Capability{"work_relate", "cross_scope"})
+	s, service, authority, _ := productProjectLinkFixture(t, []agentcontract.Capability{"work_relate", "cross_scope"})
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
 	if err != nil {
 		t.Fatal(err)
@@ -296,7 +297,7 @@ func TestDispatchRejectsInvalidHostApprovalAssertions(t *testing.T) {
 func TestDispatchFailedDomainEffectRollsBackGrantAndApproval(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	s, service, grant, privateKey := productProjectLinkFixture(t, []Capability{"work_relate", "cross_scope"})
+	s, service, grant, privateKey := productProjectLinkFixture(t, []agentcontract.Capability{"work_relate", "cross_scope"})
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
 	if err != nil {
 		t.Fatal(err)
@@ -337,7 +338,7 @@ func TestDispatchFailedDomainEffectRollsBackGrantAndApproval(t *testing.T) {
 func TestDispatchFailedDomainEffectRollsBackRearmedDeadline(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	s, service, grant, _ := productProjectLinkFixture(t, []Capability{"work_relate", "cross_scope"})
+	s, service, grant, _ := productProjectLinkFixture(t, []agentcontract.Capability{"work_relate", "cross_scope"})
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
 	if err != nil {
 		t.Fatal(err)
@@ -421,10 +422,10 @@ func TestDispatchReconcileLinksVerifiedOrphanWithoutSecondNote(t *testing.T) {
 	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); INSERT INTO project_locators(locator_id,project_id,kind,locator_value,normalized_value,created_at,updated_at) VALUES('locator-1','project-1','canonical_path',?,?,'now','now'); INSERT INTO product_knowledge_homes(product_id,project_id,locator_id) VALUES('product-1','project-1','locator-1'); DELETE FROM write_guard`, repo, repo); err != nil {
 		t.Fatal(err)
 	}
-	service, _, grant := newAuthorizedService(t, s, "client-1", "human-1", []Capability{"work_compact"}, []string{"product-1"}, []string{"project-1"}, store.ProjectResolution{ProjectID: "project-1"})
+	service, _, grant := newAuthorizedService(t, s, "client-1", "human-1", []agentcontract.Capability{"work_compact"}, []string{"product-1"}, []string{"project-1"}, store.ProjectResolution{ProjectID: "project-1"})
 	grant.Worktree = "/unrelated-worktree"
 	claimScope := `{"product_id":"product-1","project_ids":["project-1"],"work_ids":["work-orphan"],"scope_version":"","work_version":3,"content_digest":"` + proofDigest + `","home_project_id":"project-1","home_locator_id":"locator-1","head_ref":"HEAD"}`
-	claim, err := store.ClaimStepAuthorized(ctx, s, store.ClaimRequest{OpID: "orphan-operation", WorkID: "work-orphan", WorkflowTypeRef: "concord.pm6.compaction", StepID: "git_proof", StepKind: store.StepCrossAuthority, AcceptedInputsDigest: "sha256:" + strings.Repeat("0", 64), AcceptedScopeSnapshot: claimScope, PrincipalRef: grant.PrincipalRef, Tool: "concord_work_compact", IdempotencyKey: "publish-key", RequestID: "publish-request", ObservedAt: fixedTime(), ContractDigest: ManifestDigest}, nil)
+	claim, err := store.ClaimStepAuthorized(ctx, s, store.ClaimRequest{OpID: "orphan-operation", WorkID: "work-orphan", WorkflowTypeRef: "concord.pm6.compaction", StepID: "git_proof", StepKind: store.StepCrossAuthority, AcceptedInputsDigest: "sha256:" + strings.Repeat("0", 64), AcceptedScopeSnapshot: claimScope, PrincipalRef: grant.PrincipalRef, Tool: "concord_work_compact", IdempotencyKey: "publish-key", RequestID: "publish-request", ObservedAt: fixedTime(), ContractDigest: agentcontract.ManifestDigest}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -451,7 +452,7 @@ func TestDispatchReconcileLinksVerifiedOrphanWithoutSecondNote(t *testing.T) {
 func TestDispatchIdempotentReplaySurvivesAmbientScopeDrift(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_define"})
+	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_define"})
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
 	if err != nil {
 		t.Fatal(err)
@@ -490,7 +491,7 @@ func TestDispatchCrossProductCaptureKeepsCapabilityWithoutConsent(t *testing.T) 
 	// CD-0243 D3/D7 retire cross-Product coordination consent, not capability.
 	t.Parallel()
 	ctx := context.Background()
-	deniedStore, deniedService, deniedGrant, _ := crossProductDispatchFixture(t, []Capability{"work_define"})
+	deniedStore, deniedService, deniedGrant, _ := crossProductDispatchFixture(t, []agentcontract.Capability{"work_define"})
 	deniedScope, _, err := deniedStore.ScopeVersion(ctx, "project-1")
 	if err != nil {
 		t.Fatal(err)
@@ -504,7 +505,7 @@ func TestDispatchCrossProductCaptureKeepsCapabilityWithoutConsent(t *testing.T) 
 		t.Fatalf("denied capture created %d work items", count)
 	}
 
-	s, service, grant, _ := crossProductDispatchFixture(t, []Capability{"work_define", "cross_scope"})
+	s, service, grant, _ := crossProductDispatchFixture(t, []agentcontract.Capability{"work_define", "cross_scope"})
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
 	if err != nil {
 		t.Fatal(err)
@@ -530,7 +531,7 @@ func TestDispatchCrossProductCaptureKeepsCapabilityWithoutConsent(t *testing.T) 
 	}
 }
 
-func crossProductDispatchFixture(t *testing.T, capabilities []Capability) (*store.Store, *Service, Authority, ed25519.PrivateKey) {
+func crossProductDispatchFixture(t *testing.T, capabilities []agentcontract.Capability) (*store.Store, *Service, Authority, ed25519.PrivateKey) {
 	t.Helper()
 	ctx := context.Background()
 	s, err := storetest.Open(t.TempDir())
@@ -566,7 +567,7 @@ func countRows(t *testing.T, db *sql.DB, query string) int {
 	return count
 }
 
-func mutationDispatchFixture(t *testing.T, capabilities []Capability) (*store.Store, *Service, Authority, ed25519.PrivateKey) {
+func mutationDispatchFixture(t *testing.T, capabilities []agentcontract.Capability) (*store.Store, *Service, Authority, ed25519.PrivateKey) {
 	t.Helper()
 	ctx := context.Background()
 	s, err := storetest.Open(t.TempDir())

@@ -5,6 +5,8 @@ import (
 	"errors"
 	"strings"
 	"testing"
+
+	"github.com/sharper-flow/concord/internal/agentcontract"
 )
 
 func TestPublishedExecutionAbsenceAuthorizationAndWire(t *testing.T) {
@@ -13,7 +15,7 @@ func TestPublishedExecutionAbsenceAuthorizationAndWire(t *testing.T) {
 	ctx := t.Context()
 	request := InvokeRequest{Tool: "concord_work_trace", Operation: "observations", Input: json.RawMessage(`{"work_id":"work-published"}`)}
 	for _, products := range [][]string{{"product-b"}, {"product-a"}} {
-		err := validateRequestedScope(ctx, s, CallEnvelope{SelectedProductID: products[0]}, Authority{ProductScope: products}, request, OperationRead)
+		err := validateRequestedScope(ctx, s, CallEnvelope{SelectedProductID: products[0]}, Authority{ProductScope: products}, request, agentcontract.OperationRead)
 		if products[0] == "product-b" {
 			var failure *runtimeFailure
 			if !errors.As(err, &failure) || failure.kind != "unauthorized" || strings.Contains(err.Error(), ".concord/docs/work/") {

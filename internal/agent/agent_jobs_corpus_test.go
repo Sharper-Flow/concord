@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/pm1fixture"
 	"github.com/sharper-flow/concord/internal/store"
 )
@@ -1124,7 +1125,7 @@ func agentJobsPM1Fixture(t *testing.T) (*store.Store, *Service, Authority, pm1fi
 		t.Fatalf("pm1fixture.Seed: %v", err)
 	}
 
-	service, _, grant := newAuthorizedService(t, s, "client-1", "human-operator", []Capability{"product_read"}, []string{"prod-alpha", "prod-beta"}, []string{"proj-web", "proj-api", "proj-shared"}, store.ProjectResolution{ProjectID: "proj-web"})
+	service, _, grant := newAuthorizedService(t, s, "client-1", "human-operator", []agentcontract.Capability{"product_read"}, []string{"prod-alpha", "prod-beta"}, []string{"proj-web", "proj-api", "proj-shared"}, store.ProjectResolution{ProjectID: "proj-web"})
 	grant.SessionRef = "session-agent-jobs"
 	grant.AgentRef = "agent-engineer"
 	return s, service, grant, corpus

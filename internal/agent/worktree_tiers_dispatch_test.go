@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
 	"github.com/sharper-flow/concord/internal/store/storetest"
 )
@@ -53,7 +54,7 @@ func tiersRepoFixture(t *testing.T) (*store.Store, *Service, Authority, string) 
 		t.Fatal(err)
 	}
 
-	service, _, grant := newAuthorizedService(t, s, "client-1", "human-1", []Capability{"work_transition", "product_read"}, []string{"product-1"}, []string{"project-1"}, store.ProjectResolution{ProjectID: "project-1"})
+	service, _, grant := newAuthorizedService(t, s, "client-1", "human-1", []agentcontract.Capability{"work_transition", "product_read"}, []string{"product-1"}, []string{"project-1"}, store.ProjectResolution{ProjectID: "project-1"})
 	return s, service, grant, repoRoot
 }
 
@@ -84,7 +85,7 @@ func tiersFixture(t *testing.T) (*store.Store, *Service, Authority, *Service, Au
 	}); response.Outcome != OutcomeOK {
 		t.Fatalf("claim work-1 response=%+v err=%+v", response, response.Error)
 	}
-	second, _, secondGrant := newAuthorizedService(t, s, "client-2", "human-2", []Capability{"work_transition", "product_read"}, []string{"product-1"}, []string{"project-1"}, store.ProjectResolution{ProjectID: "project-1"})
+	second, _, secondGrant := newAuthorizedService(t, s, "client-2", "human-2", []agentcontract.Capability{"work_transition", "product_read"}, []string{"product-1"}, []string{"project-1"}, store.ProjectResolution{ProjectID: "project-1"})
 	secondGrant.SessionRef = "session-2"
 	if response := tiersInvoke(t, s, second, secondGrant, "concord_work_transition", "worktree_claim", map[string]any{"host_pid": os.Getpid(),
 		"work_id": "work-2", "project_id": "project-1", "base_sha": baseSHA, "expected_version": 2, "idempotency_key": "tiers-claim-2",

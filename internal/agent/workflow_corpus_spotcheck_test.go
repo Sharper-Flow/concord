@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"testing"
+
+	"github.com/sharper-flow/concord/internal/agentcontract"
 )
 
 func mustJSON(t *testing.T, value any) json.RawMessage {
@@ -31,7 +33,7 @@ func mustMarshalInvoke(t *testing.T, request InvokeRequest, env CallEnvelope) []
 
 func TestWorkflowActionErrorEnvelopeHasNoFallbackEffects(t *testing.T) {
 	t.Parallel()
-	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_transition"})
+	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_transition"})
 	version := seedAgentWorkflow(t, s, grant)
 	scopeVersion, _, err := s.ScopeVersion(context.Background(), "project-1")
 	if err != nil {

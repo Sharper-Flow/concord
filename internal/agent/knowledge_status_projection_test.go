@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sharper-flow/concord/internal/payloadschema"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -176,7 +177,7 @@ func TestKnowledgeWireRejectsRetiredLawStatusAndSuccessor(t *testing.T) {
 					t.Fatal(err)
 				}
 				valid := !successor && (status == "accepted" || (name == "canonical_note_result" && status == "published"))
-				if err := ValidatePayloadSchema(name, raw); (err == nil) != valid {
+				if err := payloadschema.Validate(name, raw); (err == nil) != valid {
 					t.Fatalf("%s status=%q successor=%v: err=%v, want valid=%v", name, status, successor, err, valid)
 				}
 			}
@@ -186,11 +187,11 @@ func TestKnowledgeWireRejectsRetiredLawStatusAndSuccessor(t *testing.T) {
 		"knowledge_page":        `{"items":[{"knowledge_id":"work-1","kind":"note","locator":"note.md","successor_id":"work-2"}]}`,
 		"canonical_note_result": `{"state":"canonical","successor_id":"work-2"}`,
 	} {
-		if err := ValidatePayloadSchema(name, json.RawMessage(payload)); err != nil {
+		if err := payloadschema.Validate(name, json.RawMessage(payload)); err != nil {
 			t.Fatalf("%s rejected work-note successor: %v", name, err)
 		}
 	}
-	if err := ValidatePayloadSchema("knowledge_page", json.RawMessage(`{"items":[{"knowledge_id":"lesson-1","kind":"lesson","locator":"lesson.md","status":"published"}]}`)); err != nil {
+	if err := payloadschema.Validate("knowledge_page", json.RawMessage(`{"items":[{"knowledge_id":"lesson-1","kind":"lesson","locator":"lesson.md","status":"published"}]}`)); err != nil {
 		t.Fatalf("knowledge page rejected published non-law record: %v", err)
 	}
 }

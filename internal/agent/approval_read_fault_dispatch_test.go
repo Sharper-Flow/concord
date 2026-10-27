@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -153,7 +154,7 @@ func dispatchApprovedCallWithFault(t *testing.T, s *store.Store, service *Servic
 }
 
 func workflowActionApprovalCall(t *testing.T) (*store.Store, *Service, CallEnvelope, InvokeRequest) {
-	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_transition"})
+	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_transition"})
 	if got := seedAgentWorkflow(t, s, grant); got != 4 {
 		t.Fatalf("workflow seed version=%d, want 4", got)
 	}
@@ -175,14 +176,14 @@ func knowledgePublicationApprovalCall(t *testing.T) (*store.Store, *Service, Cal
 }
 
 func researchRetirementApprovalCall(t *testing.T) (*store.Store, *Service, CallEnvelope, InvokeRequest) {
-	s, service, grant, candidates := researchRetireFixture(t, []Capability{"product_read", "research"})
+	s, service, grant, candidates := researchRetireFixture(t, []agentcontract.Capability{"product_read", "research"})
 	ctx := context.Background()
 	// Exercise cross-Product retirement as ordinary coordination.
 	event := store.Event{EventID: "cross-retire-owner", Kind: "work.memberships_replaced", SubjectType: store.SubjectWorkItem, SubjectID: "retire-owner-0", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"memberships":[{"project_id":"project-1","role":"primary"},{"project_id":"project-2","role":"secondary"}],"expected_version":3,"resulting_version":4}`)}
 	if err := store.ApplyOperation(ctx, s, store.Operation{Events: []store.Event{event}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, "retire-owner-0"): 3}}); err != nil {
 		t.Fatal(err)
 	}
-	if err := service.UpdateTrustedClientPolicy(ctx, "client-1", TrustedClientPolicy{PrincipalRef: "human-1", Capabilities: []Capability{"product_read", "research", "cross_scope"}, ProductScope: []string{"product-1", "product-2"}, ProjectScope: []string{"project-1", "project-2"}, AgentScope: testFixtureAgents}); err != nil {
+	if err := service.UpdateTrustedClientPolicy(ctx, "client-1", TrustedClientPolicy{PrincipalRef: "human-1", Capabilities: []agentcontract.Capability{"product_read", "research", "cross_scope"}, ProductScope: []string{"product-1", "product-2"}, ProjectScope: []string{"project-1", "project-2"}, AgentScope: testFixtureAgents}); err != nil {
 		t.Fatal(err)
 	}
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
@@ -197,7 +198,7 @@ func researchRetirementApprovalCall(t *testing.T) (*store.Store, *Service, CallE
 }
 
 func productProjectLinkApprovalCall(t *testing.T) (*store.Store, *Service, CallEnvelope, InvokeRequest) {
-	s, service, grant, _ := productProjectLinkFixture(t, []Capability{"work_relate", "cross_scope"})
+	s, service, grant, _ := productProjectLinkFixture(t, []agentcontract.Capability{"work_relate", "cross_scope"})
 	scopeVersion, _, err := s.ScopeVersion(context.Background(), "project-1")
 	if err != nil {
 		t.Fatal(err)
@@ -206,12 +207,12 @@ func productProjectLinkApprovalCall(t *testing.T) (*store.Store, *Service, CallE
 }
 
 func clientPolicyGrantApprovalCall(t *testing.T) (*store.Store, *Service, CallEnvelope, InvokeRequest) {
-	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_relate"})
+	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_relate"})
 	return s, service, grantRequestEnvelope(t, s, grant), InvokeRequest{Tool: "concord_work_relate", Operation: "client_policy_grant_request", Input: json.RawMessage(grantRequestInput(""))}
 }
 
 func workMembershipsApprovalCall(t *testing.T) (*store.Store, *Service, CallEnvelope, InvokeRequest) {
-	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_relate"})
+	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_relate"})
 	scopeVersion, _, err := s.ScopeVersion(context.Background(), "project-1")
 	if err != nil {
 		t.Fatal(err)

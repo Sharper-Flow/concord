@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
 	"github.com/sharper-flow/concord/internal/store/storetest"
 )
@@ -222,7 +223,7 @@ func handoffSessionReauthorized(t *testing.T, service *Service, client, project,
 	t.Helper()
 	invocation := Invocation{
 		ClientRef: client, PrincipalRef: "human-1", SessionRef: "session-" + client, AgentRef: "agent-1",
-		Directory: worktree, Worktree: worktree, ManifestDigest: ManifestDigest,
+		Directory: worktree, Worktree: worktree, ManifestDigest: agentcontract.ManifestDigest,
 		RequiredCapability: "work_transition", ProductID: "product-1", ProjectID: project,
 	}
 	authority, err := service.Authorize(context.Background(), invocation)
@@ -240,12 +241,12 @@ func authorizedHandoffService(t *testing.T, db *store.Store, client string, proj
 	service := NewService(db)
 	service.Now = fixedTime
 	resolveProjectAuthority(service, store.ProjectResolution{ProjectID: projects[0]})
-	if err := service.RegisterTrustedClient(ctx, testClientRegistration(client, "human-1", []Capability{"product_read", "work_transition"}, []string{"product-1"}, projects)); err != nil {
+	if err := service.RegisterTrustedClient(ctx, testClientRegistration(client, "human-1", []agentcontract.Capability{"product_read", "work_transition"}, []string{"product-1"}, projects)); err != nil {
 		t.Fatal(err)
 	}
 	invocation := Invocation{
 		ClientRef: client, PrincipalRef: "human-1", SessionRef: "session-" + client, AgentRef: "agent-1",
-		Directory: worktree, Worktree: worktree, ManifestDigest: ManifestDigest,
+		Directory: worktree, Worktree: worktree, ManifestDigest: agentcontract.ManifestDigest,
 		RequiredCapability: "work_transition", ProductID: "product-1", ProjectID: projects[0],
 	}
 	authority, err := service.Authorize(ctx, invocation)
@@ -633,7 +634,7 @@ func TestProjectHandoffConsumeKeyFitsTheContractAtMaximumIdentityLengths(t *test
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := ValidateOperationPayload("concord_work_transition", "project_handoff_consume", raw, false); err != nil {
+		if err := agentcontract.ValidateOperationPayload("concord_work_transition", "project_handoff_consume", raw, false); err != nil {
 			t.Fatalf("%s: bounded consume key refused: %v", name, err)
 		}
 	}
@@ -642,7 +643,7 @@ func TestProjectHandoffConsumeKeyFitsTheContractAtMaximumIdentityLengths(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := ValidateOperationPayload("concord_work_transition", "project_handoff_consume", raw, false); err == nil {
+	if err := agentcontract.ValidateOperationPayload("concord_work_transition", "project_handoff_consume", raw, false); err == nil {
 		t.Fatalf("the concatenated legacy key (%d characters) must fail the 128-character bound", len(legacy))
 	}
 }

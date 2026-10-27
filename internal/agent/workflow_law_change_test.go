@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/pm1fixture"
 	"github.com/sharper-flow/concord/internal/store"
 )
@@ -22,7 +23,7 @@ func TestWorkflowClassifiedLawChangeApproval(t *testing.T) {
 
 func TestReviseInitializesVerifiedProductLawBaseline(t *testing.T) {
 	ctx := t.Context()
-	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_define"})
+	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_define"})
 	if _, initialized, err := s.WorkflowInstanceDefinition(ctx, "work-1"); err != nil || initialized {
 		t.Fatalf("fixture must have no workflow instance: initialized=%v error=%v", initialized, err)
 	}
@@ -45,7 +46,7 @@ func TestReviseInitializesVerifiedProductLawBaseline(t *testing.T) {
 
 func TestCaptureLawBaselineUsesPreTransactionProofAndReplays(t *testing.T) {
 	ctx := t.Context()
-	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_define"})
+	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_define"})
 	home, err := pm1fixture.SeedCommittedProductDomain(ctx, s, "product-1", "project-1", t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -96,7 +97,7 @@ func TestWorkflowUnclassifiedLawChangeAdmission(t *testing.T) {
 func testWorkflowLawChangeApproval(t *testing.T, classified bool, tier string) {
 	t.Helper()
 	ctx := context.Background()
-	s, service, grant, privateKey := mutationDispatchFixture(t, []Capability{"work_transition"})
+	s, service, grant, privateKey := mutationDispatchFixture(t, []agentcontract.Capability{"work_transition"})
 	home, err := pm1fixture.SeedCommittedProductDomain(ctx, s, "product-1", "project-1", t.TempDir())
 	if err != nil {
 		t.Fatal(err)

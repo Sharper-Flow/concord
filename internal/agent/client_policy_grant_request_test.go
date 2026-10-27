@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -81,7 +82,7 @@ func dispatchGrantRequest(t *testing.T, s *store.Store, service *Service, env Ca
 
 func TestGrantRequestMintsExactOperatorChallenge(t *testing.T) {
 	t.Parallel()
-	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_relate"})
+	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_relate"})
 	before := readStoredPolicy(t, s, "client-1")
 	env := grantRequestEnvelope(t, s, grant)
 	response := dispatchGrantRequest(t, s, service, env, grantRequestInput(""))
@@ -126,7 +127,7 @@ func TestGrantRequestMintsExactOperatorChallenge(t *testing.T) {
 
 func TestApprovedGrantRequestAppliesExactUnion(t *testing.T) {
 	t.Parallel()
-	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_relate"})
+	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_relate"})
 	env := grantRequestEnvelope(t, s, grant)
 	challenge := dispatchGrantRequest(t, s, service, env, grantRequestInput(""))
 	if challenge.Error == nil || challenge.Error.Kind != "approval_required" {
@@ -186,7 +187,7 @@ func TestApprovedGrantRequestAppliesExactUnion(t *testing.T) {
 
 func TestAlteredArgumentsRefuseAndLeaveAuthorityUnchanged(t *testing.T) {
 	t.Parallel()
-	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_relate"})
+	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_relate"})
 	env := grantRequestEnvelope(t, s, grant)
 	challenge := dispatchGrantRequest(t, s, service, env, grantRequestInput(""))
 	details := challenge.Error.Details
@@ -240,7 +241,7 @@ func assertStalePolicyVersionConflict(t *testing.T, s *store.Store, response Env
 
 func TestStalePolicyRefusesApproval(t *testing.T) {
 	t.Parallel()
-	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_relate"})
+	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_relate"})
 	env := grantRequestEnvelope(t, s, grant)
 	challenge := dispatchGrantRequest(t, s, service, env, grantRequestInput(""))
 	details := challenge.Error.Details
@@ -272,7 +273,7 @@ func TestStalePolicyRefusesApproval(t *testing.T) {
 // applies the exact requested additions exactly once.
 func TestLateGrantRequestApprovalWidensPolicyOnce(t *testing.T) {
 	t.Parallel()
-	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_relate"})
+	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_relate"})
 	env := grantRequestEnvelope(t, s, grant)
 	before := readStoredPolicy(t, s, "client-1")
 	challenge := dispatchGrantRequest(t, s, service, env, grantRequestInput(""))
@@ -337,7 +338,7 @@ func TestLateGrantRequestApprovalWidensPolicyOnce(t *testing.T) {
 
 func TestApprovedGrantRequestReplaysWithoutReapplying(t *testing.T) {
 	t.Parallel()
-	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_relate"})
+	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_relate"})
 	env := grantRequestEnvelope(t, s, grant)
 	challenge := dispatchGrantRequest(t, s, service, env, grantRequestInput(""))
 	details := challenge.Error.Details
@@ -364,7 +365,7 @@ func TestApprovedGrantRequestReplaysWithoutReapplying(t *testing.T) {
 
 func TestGrantRequestRefusesBearerForbiddenCapabilities(t *testing.T) {
 	t.Parallel()
-	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_relate"})
+	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_relate"})
 	env := grantRequestEnvelope(t, s, grant)
 	input := `{"capabilities":["worker_dispatch"],"product_scope":[],"project_scope":[],"agent_scope":[],"reason":"dispatch a nested worker","idempotency_key":"grant-request-worker"}`
 	response, err := Dispatch(context.Background(), s, service, InvokeRequest{Tool: "concord_work_relate", Operation: "client_policy_grant_request", Input: json.RawMessage(input)}, env)
@@ -381,7 +382,7 @@ func TestGrantRequestRefusesBearerForbiddenCapabilities(t *testing.T) {
 	// The derivation carries the same closed vocabulary, so a request that
 	// reaches the handler from a stale published schema still refuses typed
 	// and names the operator route (CD-0044, CD-0071 D1).
-	_, deriveErr := DeriveTrustedClientPolicyExpansion(store.TrustedClientRecord{ClientRef: "client-1", Status: "active", PrincipalRef: "human-1", CapabilitiesJSON: `["work_relate"]`, ProductScopeJSON: `[]`, ProjectScopeJSON: `[]`, AgentScopeJSON: `[]`}, TrustedClientPolicy{Capabilities: []Capability{"worker_dispatch"}})
+	_, deriveErr := DeriveTrustedClientPolicyExpansion(store.TrustedClientRecord{ClientRef: "client-1", Status: "active", PrincipalRef: "human-1", CapabilitiesJSON: `["work_relate"]`, ProductScopeJSON: `[]`, ProjectScopeJSON: `[]`, AgentScopeJSON: `[]`}, TrustedClientPolicy{Capabilities: []agentcontract.Capability{"worker_dispatch"}})
 	if deriveErr == nil {
 		t.Fatal("derivation accepted a bearer-forbidden capability")
 	}
@@ -392,14 +393,14 @@ func TestGrantRequestRefusesBearerForbiddenCapabilities(t *testing.T) {
 
 func TestGrantRequestTargetsOnlyTheCallingClient(t *testing.T) {
 	t.Parallel()
-	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_relate"})
+	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_relate"})
 	// A second registered client stays untouched by client-1's request: the
 	// input schema carries no client field, so the caller cannot name one.
 	otherKey, _, err := ed25519.GenerateKey(cryptorand.Reader)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := service.RegisterTrustedClient(context.Background(), ClientRegistration{ClientRef: "client-2", KeyID: "key-client-2", PublicKey: otherKey, Policy: TrustedClientPolicy{PrincipalRef: "human-2", Capabilities: []Capability{"product_read"}, ProductScope: []string{"product-1"}, ProjectScope: []string{"project-1"}, AgentScope: testFixtureAgents}}); err != nil {
+	if err := service.RegisterTrustedClient(context.Background(), ClientRegistration{ClientRef: "client-2", KeyID: "key-client-2", PublicKey: otherKey, Policy: TrustedClientPolicy{PrincipalRef: "human-2", Capabilities: []agentcontract.Capability{"product_read"}, ProductScope: []string{"product-1"}, ProjectScope: []string{"project-1"}, AgentScope: testFixtureAgents}}); err != nil {
 		t.Fatal(err)
 	}
 	before := readStoredPolicy(t, s, "client-2")
@@ -415,7 +416,7 @@ func TestGrantRequestTargetsOnlyTheCallingClient(t *testing.T) {
 
 func TestGrantRequestWithoutNewGrantsRefuses(t *testing.T) {
 	t.Parallel()
-	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_relate"})
+	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_relate"})
 	env := grantRequestEnvelope(t, s, grant)
 	input := `{"capabilities":["work_relate"],"product_scope":["product-1"],"project_scope":[],"agent_scope":[],"reason":"everything is already granted","idempotency_key":"grant-request-empty"}`
 	response := dispatchGrantRequest(t, s, service, env, input)
@@ -429,7 +430,7 @@ func TestGrantRequestWithoutNewGrantsRefuses(t *testing.T) {
 
 func TestRestoredPolicyRefusesApprovalMintedBeforeRestore(t *testing.T) {
 	t.Parallel()
-	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_relate"})
+	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_relate"})
 	env := grantRequestEnvelope(t, s, grant)
 	challenge := dispatchGrantRequest(t, s, service, env, grantRequestInput(""))
 	details := challenge.Error.Details
@@ -472,7 +473,7 @@ func TestRestoredPolicyRefusesApprovalMintedBeforeRestore(t *testing.T) {
 
 func TestGrantRequestAcknowledgementIsDurable(t *testing.T) {
 	t.Parallel()
-	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_relate"})
+	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_relate"})
 	env := grantRequestEnvelope(t, s, grant)
 	// The challenge mint acknowledges client and approval authority, so the
 	// response may return only after a durable commit (CD-0050 D3).
@@ -539,7 +540,7 @@ func totalBoundProducts() []string {
 // before the core writes a challenge or policy change.
 func TestGrantRequestOverTheTotalBoundRefuses(t *testing.T) {
 	t.Parallel()
-	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_relate"})
+	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_relate"})
 	before := readStoredPolicy(t, s, "client-1")
 	env := grantRequestEnvelope(t, s, grant)
 	// 6 + 25 additions and 2 identity bindings exceed the 32-binding summary.
@@ -566,7 +567,7 @@ func TestGrantRequestOverTheTotalBoundRefuses(t *testing.T) {
 // including a single dimension with more than twenty additions.
 func TestGrantRequestAtTheTotalBoundMints(t *testing.T) {
 	t.Parallel()
-	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_relate"})
+	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_relate"})
 	before := readStoredPolicy(t, s, "client-1")
 	env := grantRequestEnvelope(t, s, grant)
 	// 6 + 24 additions and 2 identity bindings fill the 32-binding summary.
@@ -615,7 +616,7 @@ func TestGrantRequestAtTheTotalBoundMints(t *testing.T) {
 // without applying the policy union again.
 func TestGrantRequestAcknowledgesUnderPinnedReader(t *testing.T) {
 	t.Parallel()
-	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_relate"})
+	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_relate"})
 	env := grantRequestEnvelope(t, s, grant)
 	challenge := dispatchGrantRequest(t, s, service, env, grantRequestInput(""))
 	details := challenge.Error.Details

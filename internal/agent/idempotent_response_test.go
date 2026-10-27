@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -27,7 +28,7 @@ func TestIdempotentResponseKeepsCommittedSubjectWithoutHistory(t *testing.T) {
 		t.Fatal(err)
 	}
 	r := runtime{Store: s, Authority: service, Envelope: mutationEnvelope(grant, scopeVersion), Tool: "concord_work_transition", Operation: "worktree_claim"}
-	op, _ := ValidateContractOperation(r.Tool, r.Operation)
+	op, _ := agentcontract.ValidateContractOperation(r.Tool, r.Operation)
 	retry := func() Envelope {
 		raw, _ := json.Marshal(input)
 		response, handled, err := r.replayMutationBeforeScope(context.Background(), NewBase("retry", r.Tool, r.Operation), raw, grant, op)
@@ -110,7 +111,7 @@ func TestIdempotentResponseMissingFactsKeepPossibleEffects(t *testing.T) {
 	for _, prior := range []store.MutationIdempotencyRecord{
 		{ResultPayload: `{}`, ChangedRefs: `[]`, AuthorizedScopeSnapshot: `{}`},
 		{ResultPayload: `{}`, ChangedRefs: `not-json`, AuthorizedScopeSnapshot: string(scopeJSON)},
-		{ResultPayload: `{}`, ChangedRefs: `[]`, AuthorizedScopeSnapshot: `{"mutation_response":{"manifest_digest":"` + ManifestDigest + `"}}`},
+		{ResultPayload: `{}`, ChangedRefs: `[]`, AuthorizedScopeSnapshot: `{"mutation_response":{"manifest_digest":"` + agentcontract.ManifestDigest + `"}}`},
 	} {
 		response := r.recordedMutationResult(base, prior)
 		if response.Outcome != OutcomeError || response.Error == nil || response.Error.EffectState != EffectPossible || response.Error.RecoveryAction.Kind != "reconcile_operation" || response.Error.RetrySafe {
@@ -162,7 +163,7 @@ func TestIdempotentResponseWorkflowUnresolvedClassification(t *testing.T) {
 func TestIdempotentResponseWorkflowCapturesTransactionResult(t *testing.T) {
 	r, grant, raw, first := committedWorkflowReplay(t)
 	ctx := context.Background()
-	op, _ := ValidateContractOperation(r.Tool, r.Operation)
+	op, _ := agentcontract.ValidateContractOperation(r.Tool, r.Operation)
 	key := store.MutationIdempotencyKey{PrincipalRef: grant.PrincipalRef, Tool: r.Tool, OperationKind: r.Operation, IdempotencyKey: "retained-replay"}
 	prior, found, err := r.Store.LookupMutationIdempotency(ctx, key)
 	if err != nil || !found || prior.ResultPayload != string(first.Result) {

@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
 	"github.com/sharper-flow/concord/internal/store/storetest"
 )
@@ -18,7 +19,7 @@ import (
 // name every agent whose invocations it is expected to authorize.
 var testFixtureAgents = []string{"agent", "agent-1", "agent-engineer", "agent-evaluator", "agent-exec", "agent-other"}
 
-func testClientRegistration(client, principal string, capabilities []Capability, products, projects []string) ClientRegistration {
+func testClientRegistration(client, principal string, capabilities []agentcontract.Capability, products, projects []string) ClientRegistration {
 	publicKey, _, _ := ed25519.GenerateKey(cryptorand.Reader)
 	return ClientRegistration{ClientRef: client, KeyID: "key-" + client, PublicKey: publicKey, Policy: TrustedClientPolicy{PrincipalRef: principal, Capabilities: capabilities, ProductScope: products, ProjectScope: projects, AgentScope: testFixtureAgents}}
 }
@@ -42,7 +43,7 @@ func resolveProjectAuthority(service *Service, resolution store.ProjectResolutio
 }
 
 // newAuthorizedService creates a registered client and a fixed project resolver for a fixture.
-func newAuthorizedService(t *testing.T, db *store.Store, client, principal string, capabilities []Capability, products, projects []string, resolution store.ProjectResolution) (*Service, Invocation, Authority) {
+func newAuthorizedService(t *testing.T, db *store.Store, client, principal string, capabilities []agentcontract.Capability, products, projects []string, resolution store.ProjectResolution) (*Service, Invocation, Authority) {
 	t.Helper()
 	ctx := context.Background()
 	service := NewService(db)
@@ -53,7 +54,7 @@ func newAuthorizedService(t *testing.T, db *store.Store, client, principal strin
 	}
 	invocation := Invocation{
 		ClientRef: client, PrincipalRef: principal, SessionRef: "session-1", AgentRef: "agent-1",
-		Directory: "/repo", Worktree: "/repo-wt", ManifestDigest: ManifestDigest,
+		Directory: "/repo", Worktree: "/repo-wt", ManifestDigest: agentcontract.ManifestDigest,
 		RequiredCapability: capabilities[0], ProductID: products[0], ProjectID: resolution.ProjectID,
 	}
 	authority, err := service.Authorize(ctx, invocation)
@@ -95,7 +96,7 @@ func TestAgentScopeBoundsTheAgentAClientMayPresent(t *testing.T) {
 			}
 			ctx := context.Background()
 			registration := ClientRegistration{ClientRef: "client-1", KeyID: "key-1", PublicKey: publicKey, Policy: TrustedClientPolicy{
-				PrincipalRef: "human-1", Capabilities: []Capability{"product_read"},
+				PrincipalRef: "human-1", Capabilities: []agentcontract.Capability{"product_read"},
 				ProductScope: []string{"product-1"}, ProjectScope: []string{"project-1"}, AgentScope: testCase.scope,
 			}}
 			if err := service.RegisterTrustedClient(ctx, registration); err != nil {
@@ -103,7 +104,7 @@ func TestAgentScopeBoundsTheAgentAClientMayPresent(t *testing.T) {
 			}
 			_, err = service.Authorize(ctx, Invocation{
 				ClientRef: "client-1", PrincipalRef: "human-1", SessionRef: "session-1", AgentRef: testCase.agent,
-				Directory: "/repo", Worktree: "/repo-wt", ManifestDigest: ManifestDigest,
+				Directory: "/repo", Worktree: "/repo-wt", ManifestDigest: agentcontract.ManifestDigest,
 				RequiredCapability: "product_read", ProductID: "product-1", ProjectID: "project-1",
 			})
 			if testCase.authorized {
@@ -130,12 +131,12 @@ func TestApprovalConsumptionIsTransactionBoundAndSingleUse(t *testing.T) {
 	service := NewService(db)
 	service.Now = fixedTime
 	seedSimpleAuthorityScope(t, db)
-	if err := service.RegisterTrustedClient(context.Background(), testClientRegistration("client-1", "human-1", []Capability{"product_read"}, []string{"product-1"}, []string{"project-1"})); err != nil {
+	if err := service.RegisterTrustedClient(context.Background(), testClientRegistration("client-1", "human-1", []agentcontract.Capability{"product_read"}, []string{"product-1"}, []string{"project-1"})); err != nil {
 		t.Fatal(err)
 	}
 	resolveProjectAuthority(service, store.ProjectResolution{ProjectID: "project-1"})
 	ctx := context.Background()
-	invocation := Invocation{ClientRef: "client-1", PrincipalRef: "human-1", SessionRef: "session-1", AgentRef: "agent-1", Directory: "/repo", Worktree: "/repo-wt", ManifestDigest: ManifestDigest, RequiredCapability: "product_read", HostAssertionDigest: "sha256:host-resolution", ProductID: "product-1", ProjectID: "project-1"}
+	invocation := Invocation{ClientRef: "client-1", PrincipalRef: "human-1", SessionRef: "session-1", AgentRef: "agent-1", Directory: "/repo", Worktree: "/repo-wt", ManifestDigest: agentcontract.ManifestDigest, RequiredCapability: "product_read", HostAssertionDigest: "sha256:host-resolution", ProductID: "product-1", ProjectID: "project-1"}
 	var challenge string
 	if err := db.Transact(ctx, func(tx *store.Transaction) error {
 		var err error
@@ -177,7 +178,7 @@ func TestDirectApprovalAssertionConsumesExistingApprovalWithoutChallenge(t *test
 	t.Parallel()
 	db := openAgentDB(t)
 	seedSimpleAuthorityScope(t, db)
-	service, invocation, _ := newAuthorizedService(t, db, "client-1", "human-1", []Capability{"product_read"}, []string{"product-1"}, []string{"project-1"}, store.ProjectResolution{ProjectID: "project-1"})
+	service, invocation, _ := newAuthorizedService(t, db, "client-1", "human-1", []agentcontract.Capability{"product_read"}, []string{"product-1"}, []string{"project-1"}, store.ProjectResolution{ProjectID: "project-1"})
 	ctx := context.Background()
 	invocation.HostAssertionDigest = "sha256:host-resolution"
 	const approvalRef = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"

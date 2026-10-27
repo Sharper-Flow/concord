@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+
+	"github.com/sharper-flow/concord/internal/agentcontract"
 )
 
 func TestRetainedFindingReadRoutes(t *testing.T) {
@@ -36,7 +38,7 @@ func TestRetainedFindingReadRoutes(t *testing.T) {
 			if response.Outcome != OutcomeOK {
 				t.Fatalf("read refused retained finding: %+v", response.Error)
 			}
-			if err := ValidateOperationPayload(call.tool, call.operation, response.Result, true); err != nil {
+			if err := agentcontract.ValidateOperationPayload(call.tool, call.operation, response.Result, true); err != nil {
 				t.Fatal(err)
 			}
 			if !strings.Contains(string(response.Result), `"detail":"The recorded proof is incomplete."`) {

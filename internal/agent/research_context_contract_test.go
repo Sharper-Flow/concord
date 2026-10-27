@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -159,7 +160,7 @@ func TestResearchContextContractPublishesSelectedResearch(t *testing.T) {
 
 	t.Run("same_product_selection_publishes_resolved_view", func(t *testing.T) {
 		t.Parallel()
-		f := researchScopeFixture(t, []Capability{"product_read", "work_transition"}, []string{"product-a"})
+		f := researchScopeFixture(t, []agentcontract.Capability{"product_read", "work_transition"}, []string{"product-a"})
 		_, child := seedResearchContextDomainRegistry(t, f)
 		linked := "pack-rc-linked"
 		seedResearchContextLinkedPack(t, f, linked)
@@ -175,7 +176,7 @@ func TestResearchContextContractPublishesSelectedResearch(t *testing.T) {
 
 	t.Run("root_domain_selection_carries_rationale", func(t *testing.T) {
 		t.Parallel()
-		f := researchScopeFixture(t, []Capability{"product_read", "work_transition"}, []string{"product-a"})
+		f := researchScopeFixture(t, []agentcontract.Capability{"product_read", "work_transition"}, []string{"product-a"})
 		root, _ := seedResearchContextDomainRegistry(t, f)
 		input := researchContextSelectionAction(t, f, "rc-publish-root",
 			[]map[string]any{researchScopeBinding(researchScopePackA, 1, true)},
@@ -191,7 +192,7 @@ func TestResearchContextContractPublishesSelectedResearch(t *testing.T) {
 
 	t.Run("selection_without_pin_refuses_whole", func(t *testing.T) {
 		t.Parallel()
-		f := researchScopeFixture(t, []Capability{"product_read", "work_transition"}, []string{"product-a"})
+		f := researchScopeFixture(t, []agentcontract.Capability{"product_read", "work_transition"}, []string{"product-a"})
 		_, child := seedResearchContextDomainRegistry(t, f)
 		input := researchContextSelectionAction(t, f, "rc-publish-nopin", nil,
 			[]map[string]any{researchContextSelectedRef(researchScopePackA, "f-"+researchScopePackA, child, "")})
@@ -203,7 +204,7 @@ func TestResearchContextContractPublishesSelectedResearch(t *testing.T) {
 
 	t.Run("cross_product_selection_denied_without_cross_scope_atomically", func(t *testing.T) {
 		t.Parallel()
-		f := researchScopeFixture(t, []Capability{"product_read", "work_transition"}, []string{"product-a"})
+		f := researchScopeFixture(t, []agentcontract.Capability{"product_read", "work_transition"}, []string{"product-a"})
 		_, child := seedResearchContextDomainRegistry(t, f)
 		input := researchContextSelectionAction(t, f, "rc-publish-b",
 			[]map[string]any{researchScopeBinding(researchScopePackB, 1, true)},
@@ -216,7 +217,7 @@ func TestResearchContextContractPublishesSelectedResearch(t *testing.T) {
 
 	t.Run("covered_cross_product_selection_publishes_with_grant_and_cross_scope", func(t *testing.T) {
 		t.Parallel()
-		f := researchScopeFixture(t, []Capability{"product_read", "work_transition", "cross_scope"}, []string{"product-a", "product-b"})
+		f := researchScopeFixture(t, []agentcontract.Capability{"product_read", "work_transition", "cross_scope"}, []string{"product-a", "product-b"})
 		_, child := seedResearchContextDomainRegistry(t, f)
 		input := researchContextSelectionAction(t, f, "rc-publish-b-granted",
 			[]map[string]any{researchScopeBinding(researchScopePackB, 1, true)},
@@ -230,7 +231,7 @@ func TestResearchContextContractPublishesSelectedResearch(t *testing.T) {
 
 	t.Run("malformed_and_unknown_owner_selections_refuse_whole", func(t *testing.T) {
 		t.Parallel()
-		f := researchScopeFixture(t, []Capability{"product_read", "work_transition"}, []string{"product-a"})
+		f := researchScopeFixture(t, []agentcontract.Capability{"product_read", "work_transition"}, []string{"product-a"})
 		_, child := seedResearchContextDomainRegistry(t, f)
 		before := researchScopeSnapshot(t, f.store, researchScopePackA)
 		bound := func(key string, mutate func(ref map[string]any)) map[string]any {
@@ -261,7 +262,7 @@ func TestResearchContextContractPublishesSelectedResearch(t *testing.T) {
 
 	t.Run("worker_actions_carry_no_selection_authority", func(t *testing.T) {
 		t.Parallel()
-		f := researchScopeFixture(t, []Capability{"product_read", "work_transition"}, []string{"product-a"})
+		f := researchScopeFixture(t, []agentcontract.Capability{"product_read", "work_transition"}, []string{"product-a"})
 		_, child := seedResearchContextDomainRegistry(t, f)
 		// The promoted record_proposal payload never declares the selection
 		// member, so the coordinator declaration action is the only authoring
@@ -281,7 +282,7 @@ func TestResearchContextContractPublishesSelectedResearch(t *testing.T) {
 
 	t.Run("exact_selected_payload_replay_has_no_duplicate_effect", func(t *testing.T) {
 		t.Parallel()
-		f := researchScopeFixture(t, []Capability{"product_read", "work_transition"}, []string{"product-a"})
+		f := researchScopeFixture(t, []agentcontract.Capability{"product_read", "work_transition"}, []string{"product-a"})
 		_, child := seedResearchContextDomainRegistry(t, f)
 		linked := "pack-rc-replay"
 		seedResearchContextLinkedPack(t, f, linked)
@@ -314,7 +315,7 @@ func TestResearchContextContractPublishesSelectedResearch(t *testing.T) {
 
 	t.Run("retained_reads_survive_unavailable_author_grant", func(t *testing.T) {
 		t.Parallel()
-		f := researchScopeFixture(t, []Capability{"product_read", "work_transition"}, []string{"product-a"})
+		f := researchScopeFixture(t, []agentcontract.Capability{"product_read", "work_transition"}, []string{"product-a"})
 		_, child := seedResearchContextDomainRegistry(t, f)
 		linked := "pack-rc-retained"
 		seedResearchContextLinkedPack(t, f, linked)

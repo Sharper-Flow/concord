@@ -1,4 +1,4 @@
-package agent
+package agentcontract
 
 import (
 	"fmt"
@@ -23,22 +23,14 @@ func ValidateOperationPayload(tool, operation string, data []byte, result bool) 
 	}
 	if err := ValidateGeneratedPayload(tool, contract.ID, name, data, result); err != nil {
 		if !result {
-			if detail := ValidatePayloadSchema(name, data); payloadschema.HasSelectedGuidance(detail) {
+			if detail := payloadschema.Validate(name, data); payloadschema.HasSelectedGuidance(detail) {
 				return detail
 			}
 		}
 		return err
 	}
-	if err := ValidatePayloadSchema(name, data); err != nil {
+	if err := payloadschema.Validate(name, data); err != nil {
 		return err
 	}
 	return nil
-}
-
-// ValidatePayloadSchema checks one payload against the named generated schema.
-// The schema document and the validation engine belong to payloadschema, which
-// the workflow engine answers to as well, so one declaration keeps one
-// enforcement authority.
-func ValidatePayloadSchema(name string, data []byte) error {
-	return payloadschema.Validate(name, data)
 }

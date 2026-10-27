@@ -6,11 +6,12 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
 func TestRepeatedFailedWorkersUseOrdinaryLaunchAuthority(t *testing.T) {
-	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_transition", "worker_dispatch"})
+	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_transition", "worker_dispatch"})
 	_, _, grant.Worktree = seedFailedWorkerRetryMutation(t, s, service, grant)
 	env := mutationEnvelope(grant, mustScopeVersion(t, s))
 	for round := 2; round <= 5; round++ {

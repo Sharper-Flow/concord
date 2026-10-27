@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -15,7 +16,7 @@ func durableCommitCount(t *testing.T, s *store.Store) uint64 {
 
 func TestOrdinaryObservationKeepsNormalDurability(t *testing.T) {
 	ctx := context.Background()
-	s, service, grant := crossProductPolicyFixture(t, []Capability{"product_read", "work_define", "cross_scope"})
+	s, service, grant := crossProductPolicyFixture(t, []agentcontract.Capability{"product_read", "work_define", "cross_scope"})
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
 	if err != nil {
 		t.Fatal(err)
@@ -41,7 +42,7 @@ func TestOrdinaryObservationKeepsNormalDurability(t *testing.T) {
 func TestDerivedApprovalAuthorityCommitsDurably(t *testing.T) {
 	ctx := context.Background()
 	// CD-0243 D3/D7 retain security approval durability, not observation consent.
-	s, service, grant, key := productProjectLinkFixture(t, []Capability{"work_relate", "cross_scope"})
+	s, service, grant, key := productProjectLinkFixture(t, []agentcontract.Capability{"work_relate", "cross_scope"})
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
 	if err != nil {
 		t.Fatal(err)
@@ -98,7 +99,7 @@ func TestMutationReplayDurabilityBindings(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := context.Background()
-			s, service, grant := crossProductPolicyFixture(t, []Capability{"product_read", "work_define", "cross_scope"})
+			s, service, grant := crossProductPolicyFixture(t, []agentcontract.Capability{"product_read", "work_define", "cross_scope"})
 			scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
 			if err != nil {
 				t.Fatal(err)
@@ -130,12 +131,12 @@ func TestMutationReplayDurabilityBindings(t *testing.T) {
 			if _, err := s.DatabaseForTesting().ExecContext(ctx, `UPDATE idempotency_records SET authorized_scope_snapshot=? WHERE principal_ref=? AND tool=? AND operation_kind=? AND idempotency_key=?`, string(encoded), key.PrincipalRef, key.Tool, key.OperationKind, key.IdempotencyKey); err != nil {
 				t.Fatal(err)
 			}
-			op, registered := ValidateContractOperation(request.Tool, request.Operation)
+			op, registered := agentcontract.ValidateContractOperation(request.Tool, request.Operation)
 			if !registered {
 				t.Fatal("observation operation is not registered")
 			}
 			if tc.conditional {
-				op.Approval = ApprovalClass("conditional")
+				op.Approval = agentcontract.ApprovalClass("conditional")
 			}
 			before := s.DurableCommits()
 			r := runtime{Store: s, Authority: service, Tool: request.Tool, Operation: request.Operation, Envelope: env}
@@ -175,7 +176,7 @@ func TestDurableCommitFailureEnvelopePreservesPossibleEffect(t *testing.T) {
 
 func TestProductProjectApprovalCommitsDurably(t *testing.T) {
 	ctx := context.Background()
-	s, service, grant, key := productProjectLinkFixture(t, []Capability{"work_relate", "cross_scope"})
+	s, service, grant, key := productProjectLinkFixture(t, []agentcontract.Capability{"work_relate", "cross_scope"})
 	before := durableCommitCount(t, s)
 	ref, env, _ := productProjectLinkChallenge(t, s, service, grant, key)
 	if after := durableCommitCount(t, s); after != before+1 {

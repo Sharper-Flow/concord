@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
 	"github.com/sharper-flow/concord/internal/store/storetest"
 )
@@ -42,12 +43,12 @@ func removeAuthoritySibling(t *testing.T, s *store.Store) {
 }
 
 func productAuthorityInvocation(grant Authority) Invocation {
-	return Invocation{ClientRef: grant.ClientRef, PrincipalRef: grant.PrincipalRef, SessionRef: grant.SessionRef, AgentRef: grant.AgentRef, Directory: grant.Directory, Worktree: grant.Worktree, ManifestDigest: ManifestDigest, RequiredCapability: "work_relate", ProductID: "product-1"}
+	return Invocation{ClientRef: grant.ClientRef, PrincipalRef: grant.PrincipalRef, SessionRef: grant.SessionRef, AgentRef: grant.AgentRef, Directory: grant.Directory, Worktree: grant.Worktree, ManifestDigest: agentcontract.ManifestDigest, RequiredCapability: "work_relate", ProductID: "product-1"}
 }
 
 func TestSameProductSiblingMembershipMutationNeedsNoConsent(t *testing.T) {
 	ctx := context.Background()
-	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_relate"})
+	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_relate"})
 	addAuthoritySibling(t, s)
 
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
@@ -87,7 +88,7 @@ func TestProductAccessApprovalPreservesHostTimestampFailure(t *testing.T) {
 func testProductAccessApprovalWireRoundTrip(t *testing.T, elapsed time.Duration, malformedTimestamp bool) {
 	t.Helper()
 	ctx := context.Background()
-	s, service, grant, _ := productProjectLinkFixture(t, []Capability{"work_relate", "cross_scope"})
+	s, service, grant, _ := productProjectLinkFixture(t, []agentcontract.Capability{"work_relate", "cross_scope"})
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
 	if err != nil {
 		t.Fatal(err)
@@ -193,7 +194,7 @@ func testProductAccessApprovalWireRoundTrip(t *testing.T, elapsed time.Duration,
 
 func TestProjectOutsideAuthorizedProductRefusesBeforeEffect(t *testing.T) {
 	ctx := context.Background()
-	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_relate"})
+	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_relate"})
 	addAuthoritySibling(t, s)
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
 	if err != nil {
@@ -221,7 +222,7 @@ func TestProjectOutsideAuthorizedProductRefusesBeforeEffect(t *testing.T) {
 
 func TestSharedProjectStaysAmbiguousUntilProductSelected(t *testing.T) {
 	ctx := context.Background()
-	s, service, grant, _ := crossProductDispatchFixture(t, []Capability{"product_read", "work_relate"})
+	s, service, grant, _ := crossProductDispatchFixture(t, []agentcontract.Capability{"product_read", "work_relate"})
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
 	if err != nil {
 		t.Fatal(err)
@@ -250,7 +251,7 @@ func TestSharedProjectStaysAmbiguousUntilProductSelected(t *testing.T) {
 
 func TestAmbiguousProductRefusesMutationBeforeEffects(t *testing.T) {
 	ctx := context.Background()
-	s, service, grant, _ := crossProductDispatchFixture(t, []Capability{"work_relate"})
+	s, service, grant, _ := crossProductDispatchFixture(t, []agentcontract.Capability{"work_relate"})
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
 	if err != nil {
 		t.Fatal(err)
@@ -269,7 +270,7 @@ func TestAmbiguousProductRefusesMutationBeforeEffects(t *testing.T) {
 
 func TestRemovedProjectLosesAuthorityOnNextInvocation(t *testing.T) {
 	ctx := context.Background()
-	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_relate"})
+	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_relate"})
 	addAuthoritySibling(t, s)
 	inv := productAuthorityInvocation(grant)
 	if authority, err := service.Authorize(ctx, inv); err != nil || !reflect.DeepEqual(authority.ProjectScope, []string{"project-1", "project-2"}) {
@@ -291,14 +292,14 @@ func TestRemovedProjectLosesAuthorityOnNextInvocation(t *testing.T) {
 // product-1 and product-2 only, so project-3 is the untrusted case. work-1
 // sits in project-1 and work-2 in project-2, so linking project-2 into
 // product-1 changes derived scope for work-2.
-func productProjectLinkFixture(t *testing.T, capabilities []Capability) (*store.Store, *Service, Authority, ed25519.PrivateKey) {
+func productProjectLinkFixture(t *testing.T, capabilities []agentcontract.Capability) (*store.Store, *Service, Authority, ed25519.PrivateKey) {
 	return productProjectLinkFixturePolicy(t, capabilities, []string{"product-1", "product-2"}, []string{"project-1", "project-2"})
 }
 
 // productProjectLinkFixturePolicy builds the same three-Product topology and
 // registers the trusted client with the named policy scopes, so a test can
 // admit a Project the ambient-derived grant scope cannot see.
-func productProjectLinkFixturePolicy(t *testing.T, capabilities []Capability, products, projects []string) (*store.Store, *Service, Authority, ed25519.PrivateKey) {
+func productProjectLinkFixturePolicy(t *testing.T, capabilities []agentcontract.Capability, products, projects []string) (*store.Store, *Service, Authority, ed25519.PrivateKey) {
 	t.Helper()
 	ctx := context.Background()
 	s, err := storetest.Open(t.TempDir())
@@ -366,7 +367,7 @@ func productProjectLinkChallengeFor(t *testing.T, s *store.Store, service *Servi
 
 func TestProductProjectAddRequiresExactOperatorApproval(t *testing.T) {
 	ctx := context.Background()
-	s, service, grant, privateKey := productProjectLinkFixture(t, []Capability{"work_relate", "cross_scope"})
+	s, service, grant, privateKey := productProjectLinkFixture(t, []agentcontract.Capability{"work_relate", "cross_scope"})
 	_, env, _ := productProjectLinkChallenge(t, s, service, grant, privateKey)
 	request := InvokeRequest{Tool: "concord_work_relate", Operation: "product_project_add", Input: productProjectLinkRequest(challengeRef(env), "project-2")}
 	approved, err := Dispatch(ctx, s, service, request, env)
@@ -409,7 +410,7 @@ func challengeRef(env CallEnvelope) string {
 
 func TestProductProjectAddReportsAffectedWorkScope(t *testing.T) {
 	ctx := context.Background()
-	s, service, grant, privateKey := productProjectLinkFixture(t, []Capability{"work_relate", "cross_scope"})
+	s, service, grant, privateKey := productProjectLinkFixture(t, []agentcontract.Capability{"work_relate", "cross_scope"})
 	_, env, _ := productProjectLinkChallenge(t, s, service, grant, privateKey)
 	request := InvokeRequest{Tool: "concord_work_relate", Operation: "product_project_add", Input: productProjectLinkRequest(challengeRef(env), "project-2")}
 	approved, err := Dispatch(ctx, s, service, request, env)
@@ -444,7 +445,7 @@ func TestProductProjectAddReportsAffectedWorkScope(t *testing.T) {
 // reaches the operator challenge even though no ambient edge carries it.
 func TestProductProjectAddLinksDisjointProjectNamedByPolicy(t *testing.T) {
 	ctx := context.Background()
-	s, service, grant, privateKey := productProjectLinkFixturePolicy(t, []Capability{"work_relate", "cross_scope"}, []string{"product-1", "product-2", "product-3"}, []string{"project-1", "project-2", "project-3"})
+	s, service, grant, privateKey := productProjectLinkFixturePolicy(t, []agentcontract.Capability{"work_relate", "cross_scope"}, []string{"product-1", "product-2", "product-3"}, []string{"project-1", "project-2", "project-3"})
 	_, env, _ := productProjectLinkChallengeFor(t, s, service, grant, privateKey, "project-3", []string{"product-1", "product-3"})
 	request := InvokeRequest{Tool: "concord_work_relate", Operation: "product_project_add", Input: productProjectLinkRequest(challengeRef(env), "project-3")}
 	approved, err := Dispatch(ctx, s, service, request, env)
@@ -469,7 +470,7 @@ func TestProductProjectAddLinksDisjointProjectNamedByPolicy(t *testing.T) {
 func TestProductProjectAddRefusals(t *testing.T) {
 	ctx := context.Background()
 	t.Run("cross_product_requires_cross_scope", func(t *testing.T) {
-		s, service, grant, _ := productProjectLinkFixture(t, []Capability{"work_relate"})
+		s, service, grant, _ := productProjectLinkFixture(t, []agentcontract.Capability{"work_relate"})
 		scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
 		if err != nil {
 			t.Fatal(err)
@@ -483,7 +484,7 @@ func TestProductProjectAddRefusals(t *testing.T) {
 		}
 	})
 	t.Run("untrusted_project_refuses_before_challenge", func(t *testing.T) {
-		s, service, grant, _ := productProjectLinkFixture(t, []Capability{"work_relate", "cross_scope"})
+		s, service, grant, _ := productProjectLinkFixture(t, []agentcontract.Capability{"work_relate", "cross_scope"})
 		scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
 		if err != nil {
 			t.Fatal(err)
@@ -497,7 +498,7 @@ func TestProductProjectAddRefusals(t *testing.T) {
 		}
 	})
 	t.Run("unknown_project_refuses", func(t *testing.T) {
-		s, service, grant, _ := productProjectLinkFixture(t, []Capability{"work_relate", "cross_scope"})
+		s, service, grant, _ := productProjectLinkFixture(t, []agentcontract.Capability{"work_relate", "cross_scope"})
 		scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
 		if err != nil {
 			t.Fatal(err)
@@ -508,7 +509,7 @@ func TestProductProjectAddRefusals(t *testing.T) {
 		}
 	})
 	t.Run("existing_edge_refuses", func(t *testing.T) {
-		s, service, grant, _ := productProjectLinkFixture(t, []Capability{"work_relate", "cross_scope"})
+		s, service, grant, _ := productProjectLinkFixture(t, []agentcontract.Capability{"work_relate", "cross_scope"})
 		scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
 		if err != nil {
 			t.Fatal(err)
@@ -523,7 +524,7 @@ func TestProductProjectAddRefusals(t *testing.T) {
 		}
 	})
 	t.Run("wrong_role_binding_refuses", func(t *testing.T) {
-		s, service, grant, privateKey := productProjectLinkFixture(t, []Capability{"work_relate", "cross_scope"})
+		s, service, grant, privateKey := productProjectLinkFixture(t, []agentcontract.Capability{"work_relate", "cross_scope"})
 		scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
 		if err != nil {
 			t.Fatal(err)
@@ -542,7 +543,7 @@ func TestProductProjectAddRefusals(t *testing.T) {
 		}
 	})
 	t.Run("stale_version_refuses_at_cas", func(t *testing.T) {
-		s, service, grant, privateKey := productProjectLinkFixture(t, []Capability{"work_relate", "cross_scope"})
+		s, service, grant, privateKey := productProjectLinkFixture(t, []agentcontract.Capability{"work_relate", "cross_scope"})
 		_, env, _ := productProjectLinkChallenge(t, s, service, grant, privateKey)
 		// A stage change bumps the Product version without moving the Project
 		// scope, so the approval still binds and only the compare-and-swap

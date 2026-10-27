@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -33,7 +34,7 @@ type dispatchTakeoverFixture struct {
 func newDispatchTakeoverFixture(t *testing.T) dispatchTakeoverFixture {
 	t.Helper()
 	ctx := context.Background()
-	capabilities := []Capability{"work_transition", "worker_dispatch"}
+	capabilities := []agentcontract.Capability{"work_transition", "worker_dispatch"}
 	s, service, grant, privateKey := mutationDispatchFixture(t, capabilities)
 	grant.Worktree = seedWorkerRetryMutationFixture(t, s, grant)
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
@@ -43,7 +44,7 @@ func newDispatchTakeoverFixture(t *testing.T) dispatchTakeoverFixture {
 	if err := service.RegisterTrustedClient(ctx, testClientRegistration("client-2", "human-2", capabilities, []string{"product-1"}, []string{"project-1"})); err != nil {
 		t.Fatal(err)
 	}
-	otherGrant, err := service.Authorize(ctx, Invocation{ClientRef: "client-2", PrincipalRef: "human-2", SessionRef: "session-2", AgentRef: "agent-other", Directory: grant.Directory, Worktree: grant.Worktree, ManifestDigest: ManifestDigest, RequiredCapability: "worker_dispatch", ProductID: "product-1", ProjectID: "project-1"})
+	otherGrant, err := service.Authorize(ctx, Invocation{ClientRef: "client-2", PrincipalRef: "human-2", SessionRef: "session-2", AgentRef: "agent-other", Directory: grant.Directory, Worktree: grant.Worktree, ManifestDigest: agentcontract.ManifestDigest, RequiredCapability: "worker_dispatch", ProductID: "product-1", ProjectID: "project-1"})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -3,6 +3,8 @@ package agent
 import (
 	"encoding/json"
 	"testing"
+
+	"github.com/sharper-flow/concord/internal/payloadschema"
 )
 
 func TestPublishedWorkflowReadOmitsRetryWindow(t *testing.T) {
@@ -21,7 +23,7 @@ func TestPublishedWorkflowReadOmitsRetryWindow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := ValidatePayloadSchema("workflow_read", raw); err != nil {
+	if err := payloadschema.Validate("workflow_read", raw); err != nil {
 		t.Fatalf("the published workflow read violates its closed contract: %v", err)
 	}
 }

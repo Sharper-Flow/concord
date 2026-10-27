@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/sharper-flow/concord/internal/agentcontract"
 )
 
 // AJ5 — scope a change by its footprint (CD-0222 D2, C22.DomainFootprint).
@@ -121,7 +123,7 @@ func TestDomainFootprintInputSchemaBounds(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := ValidateOperationPayload("concord_domain", "footprint", raw, false); (err == nil) != testCase.valid {
+		if err := agentcontract.ValidateOperationPayload("concord_domain", "footprint", raw, false); (err == nil) != testCase.valid {
 			t.Fatalf("footprint input %s: valid=%t, err=%v", raw, testCase.valid, err)
 		}
 	}

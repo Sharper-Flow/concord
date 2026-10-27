@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -344,7 +345,7 @@ func TestResearchReadInputSchemaBounds(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := ValidateOperationPayload("concord_work_trace", "research", raw, false); err != nil {
+		if err := agentcontract.ValidateOperationPayload("concord_work_trace", "research", raw, false); err != nil {
 			t.Fatalf("valid research input refused: %s: %v", raw, err)
 		}
 	}
@@ -365,7 +366,7 @@ func TestResearchReadInputSchemaBounds(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := ValidateOperationPayload("concord_work_trace", "research", raw, false); err == nil {
+		if err := agentcontract.ValidateOperationPayload("concord_work_trace", "research", raw, false); err == nil {
 			t.Fatalf("invalid research input admitted: %s", raw)
 		}
 	}
@@ -387,7 +388,7 @@ func TestResearchReadResultSchemaUnion(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := ValidateOperationPayload("concord_work_trace", "research", raw, true); err != nil {
+		if err := agentcontract.ValidateOperationPayload("concord_work_trace", "research", raw, true); err != nil {
 			t.Fatalf("valid research result refused: %s: %v", raw, err)
 		}
 	}
@@ -402,7 +403,7 @@ func TestResearchReadResultSchemaUnion(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := ValidateOperationPayload("concord_work_trace", "research", raw, true); err == nil {
+		if err := agentcontract.ValidateOperationPayload("concord_work_trace", "research", raw, true); err == nil {
 			t.Fatalf("invalid research result admitted: %s", raw)
 		}
 	}

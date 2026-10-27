@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/pm1fixture"
 	"github.com/sharper-flow/concord/internal/store"
 )
@@ -185,7 +186,7 @@ func TestCaptureSizeRefusalsLeaveNoWork(t *testing.T) {
 func TestCaptureSizeInputsRefusesProjectsOfTwoProducts(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	s, service, grant, _ := crossProductDispatchFixture(t, []Capability{"work_define", "cross_scope"})
+	s, service, grant, _ := crossProductDispatchFixture(t, []agentcontract.Capability{"work_define", "cross_scope"})
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
 	if err != nil {
 		t.Fatal(err)

@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -63,8 +64,8 @@ func TestMutationEnrichmentRefusesAPinThatDisagreesWithItsChangedRef(t *testing.
 // may name a work mutation.
 func TestHandWrittenIntentsNeverNameAWorkMutation(t *testing.T) {
 	t.Parallel()
-	operations := map[string]ContractOperation{}
-	for _, op := range ContractOperations {
+	operations := map[string]agentcontract.ContractOperation{}
+	for _, op := range agentcontract.ContractOperations {
 		operations[op.Tool+"."+op.Operation] = op
 	}
 	derivations := map[string]bool{"nextIntentsFromPin": true}
@@ -106,7 +107,7 @@ func TestHandWrittenIntentsNeverNameAWorkMutation(t *testing.T) {
 						op, known := operations[tool+"."+operation]
 						if !known {
 							t.Errorf("%s: hand-written intent names %s.%s, which the manifest does not declare", position, tool, operation)
-						} else if op.Kind == OperationMutation && op.Capability != "research" {
+						} else if op.Kind == agentcontract.OperationMutation && op.Capability != "research" {
 							t.Errorf("%s: hand-written intent names work mutation %s; derive it from the work pin", position, op.ID)
 						}
 					}

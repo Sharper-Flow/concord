@@ -8,6 +8,8 @@ import (
 	"testing"
 
 	"github.com/sharper-flow/concord/internal/agent"
+	"github.com/sharper-flow/concord/internal/agentcontract"
+	"github.com/sharper-flow/concord/internal/payloadschema"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -34,7 +36,7 @@ func TestBuildMatchesCanonicalContinuityPayload(t *testing.T) {
 	if packet.SchemaVersion != "1.0" || packet.SessionType != "operator" || packet.SessionContractVersion != "1.0" {
 		t.Fatalf("packet identity = %#v", packet)
 	}
-	if packet.ManifestDigest != agent.ManifestDigest {
+	if packet.ManifestDigest != agentcontract.ManifestDigest {
 		t.Fatalf("packet manifest digest = %s", packet.ManifestDigest)
 	}
 	want, _ := json.Marshal(agent.ContinuityPayload(testSnapshot()))
@@ -355,7 +357,7 @@ func TestBuildReferencesOversizedFixedProjection(t *testing.T) {
 	// The fixture is shape-valid against the published read schema, so size
 	// is the only reason the projection cannot ride inline: the reference
 	// branch must not hide an unrelated shape invalidity.
-	if err := agent.ValidatePayloadSchema("continuity_snapshot", full); err != nil {
+	if err := payloadschema.Validate("continuity_snapshot", full); err != nil {
 		t.Fatalf("oversized fixture is not a schema-valid continuity snapshot: %v", err)
 	}
 	// The bound is the session boot packet's own cap, and the fixture's fixed

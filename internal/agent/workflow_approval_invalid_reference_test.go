@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -24,7 +25,7 @@ func TestWorkflowActionRefusesAnInvalidApprovalReference(t *testing.T) {
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			t.Parallel()
-			s, service, grant, privateKey := mutationDispatchFixture(t, []Capability{"work_transition"})
+			s, service, grant, privateKey := mutationDispatchFixture(t, []agentcontract.Capability{"work_transition"})
 			if got := seedAgentWorkflow(t, s, grant); got != 4 {
 				t.Fatalf("workflow seed version=%d, want 4", got)
 			}

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -115,7 +116,7 @@ func assertOverlapDigestNoEffect(t *testing.T, s *store.Store, baseline overlapD
 
 func TestWorkflowOverlapExactDigestBinding(t *testing.T) {
 	t.Parallel()
-	op, registered := ValidateContractOperation("concord_work_relate", "resolve_overlap")
+	op, registered := agentcontract.ValidateContractOperation("concord_work_relate", "resolve_overlap")
 	if !registered {
 		t.Fatal("resolve_overlap is not a registered contract operation")
 	}

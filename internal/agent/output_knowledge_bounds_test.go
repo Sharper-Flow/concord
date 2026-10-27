@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/payloadschema"
 	"github.com/sharper-flow/concord/internal/store"
 )
@@ -158,7 +159,7 @@ func TestResearchOutputAdmitsRetainedStoreBounds(t *testing.T) {
 	if len(raw) >= 51200 {
 		t.Fatalf("the retained readback must sit below the 51200-byte ceiling, is %d bytes", len(raw))
 	}
-	if err := ValidateOperationPayload("concord_work_trace", "research", raw, true); err != nil {
+	if err := agentcontract.ValidateOperationPayload("concord_work_trace", "research", raw, true); err != nil {
 		t.Fatalf("the research result schema must admit the retained store readback: %v", err)
 	}
 }

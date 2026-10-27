@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+
+	"github.com/sharper-flow/concord/internal/agentcontract"
 )
 
 // TestInvokeShapesUnsupportedOperationAsTypedEnvelope pins the boundary contract
@@ -13,7 +15,7 @@ import (
 // The shaping lives in this package so a test can reach it (issue #450).
 func TestInvokeShapesUnsupportedOperationAsTypedEnvelope(t *testing.T) {
 	t.Parallel()
-	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_transition"})
+	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_transition"})
 	scopeVersion, _, err := s.ScopeVersion(context.Background(), "project-1")
 	if err != nil {
 		t.Fatal(err)
@@ -97,7 +99,7 @@ func assertInputCorrection(t *testing.T, response Envelope, err error, diagnosti
 // address, so no envelope can be built for it.
 func TestInvokeReturnsErrorOnlyForUndecodableInput(t *testing.T) {
 	t.Parallel()
-	s, service, _, _ := mutationDispatchFixture(t, []Capability{"work_transition"})
+	s, service, _, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_transition"})
 
 	response, err := Invoke(context.Background(), s, service, []byte(`{"tool":`))
 	if err == nil {

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
 	"github.com/sharper-flow/concord/internal/store/storetest"
 )
@@ -32,7 +33,7 @@ func trunkFirewallFixture(t *testing.T, mainWorktree bool) *Service {
 	service.Now = fixedTime
 	resolveProjectAuthority(service, store.ProjectResolution{ProjectID: "project-1", MainWorktree: mainWorktree})
 	publicKey, _, _ := ed25519.GenerateKey(cryptorand.Reader)
-	policy := TrustedClientPolicy{PrincipalRef: "human-1", Capabilities: []Capability{"product_read", "work_define", "work_transition", "cross_scope"}, ProductScope: []string{"product-1"}, ProjectScope: []string{"project-1"}, AgentScope: testFixtureAgents}
+	policy := TrustedClientPolicy{PrincipalRef: "human-1", Capabilities: []agentcontract.Capability{"product_read", "work_define", "work_transition", "cross_scope"}, ProductScope: []string{"product-1"}, ProjectScope: []string{"project-1"}, AgentScope: testFixtureAgents}
 	if err := service.RegisterTrustedClient(ctx, ClientRegistration{ClientRef: "client-1", KeyID: "key-1", PublicKey: publicKey, Policy: policy}); err != nil {
 		t.Fatal(err)
 	}
@@ -45,10 +46,10 @@ func trunkFirewallFixture(t *testing.T, mainWorktree bool) *Service {
 // because its writes land in the store, not a checkout path.
 func TestAuthorizeRefusesMutationOnMainWorktree(t *testing.T) {
 	t.Parallel()
-	mutating := []Capability{"work_transition", "work_relate", "work_compact", "cross_scope"}
+	mutating := []agentcontract.Capability{"work_transition", "work_relate", "work_compact", "cross_scope"}
 	for _, capability := range mutating {
 		service := trunkFirewallFixture(t, true)
-		_, err := service.Authorize(context.Background(), Invocation{ClientRef: "client-1", PrincipalRef: "human-1", SessionRef: "session-1", AgentRef: "agent-1", Directory: "/repo", Worktree: "/repo-wt", ManifestDigest: ManifestDigest, RequiredCapability: capability, ProductID: "product-1", ProjectID: "project-1"})
+		_, err := service.Authorize(context.Background(), Invocation{ClientRef: "client-1", PrincipalRef: "human-1", SessionRef: "session-1", AgentRef: "agent-1", Directory: "/repo", Worktree: "/repo-wt", ManifestDigest: agentcontract.ManifestDigest, RequiredCapability: capability, ProductID: "product-1", ProjectID: "project-1"})
 		if err == nil || !strings.Contains(err.Error(), "linked worktree") {
 			t.Fatalf("capability=%v expected main-worktree refusal, got err=%v", capability, err)
 		}
@@ -59,9 +60,9 @@ func TestAuthorizeRefusesMutationOnMainWorktree(t *testing.T) {
 // from the main checkout. Each entry in the allowlist must grant there.
 func TestAuthorizeAllowsWorkDefineOnMainWorktree(t *testing.T) {
 	t.Parallel()
-	for _, capability := range []Capability{"product_read", "work_define"} {
+	for _, capability := range []agentcontract.Capability{"product_read", "work_define"} {
 		service := trunkFirewallFixture(t, true)
-		invocation := Invocation{ClientRef: "client-1", PrincipalRef: "human-1", SessionRef: "session-1", AgentRef: "agent-1", Directory: "/repo", Worktree: "/repo-wt", ManifestDigest: ManifestDigest, RequiredCapability: capability, ProductID: "product-1", ProjectID: "project-1"}
+		invocation := Invocation{ClientRef: "client-1", PrincipalRef: "human-1", SessionRef: "session-1", AgentRef: "agent-1", Directory: "/repo", Worktree: "/repo-wt", ManifestDigest: agentcontract.ManifestDigest, RequiredCapability: capability, ProductID: "product-1", ProjectID: "project-1"}
 		authority, err := service.Authorize(context.Background(), invocation)
 		if err != nil {
 			t.Fatalf("capability=%v expected grant on main checkout, got err=%v", capability, err)
@@ -75,7 +76,7 @@ func TestAuthorizeAllowsWorkDefineOnMainWorktree(t *testing.T) {
 func TestAuthorizeAllowsReadsOnMainWorktreeAndMutationOnLinked(t *testing.T) {
 	t.Parallel()
 	service := trunkFirewallFixture(t, true)
-	invocation := Invocation{ClientRef: "client-1", PrincipalRef: "human-1", SessionRef: "session-1", AgentRef: "agent-1", Directory: "/repo", Worktree: "/repo-wt", ManifestDigest: ManifestDigest, RequiredCapability: "product_read", ProductID: "product-1", ProjectID: "project-1"}
+	invocation := Invocation{ClientRef: "client-1", PrincipalRef: "human-1", SessionRef: "session-1", AgentRef: "agent-1", Directory: "/repo", Worktree: "/repo-wt", ManifestDigest: agentcontract.ManifestDigest, RequiredCapability: "product_read", ProductID: "product-1", ProjectID: "project-1"}
 	authority, err := service.Authorize(context.Background(), invocation)
 	if err != nil {
 		t.Fatalf("read-only authority on main worktree should pass, got %v", err)
@@ -94,7 +95,7 @@ func TestAuthorizeAllowsReadsOnMainWorktreeAndMutationOnLinked(t *testing.T) {
 func TestLifecycleTransitionAllowsMainCheckout(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_transition"})
+	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_transition"})
 	resolveProjectAuthority(service, store.ProjectResolution{ProjectID: "project-1", MainWorktree: true})
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
 	if err != nil {
@@ -117,7 +118,7 @@ func TestMainCheckoutLifecyclePreservesTerminalGates(t *testing.T) {
 	t.Parallel()
 	t.Run("missing evidence", func(t *testing.T) {
 		ctx := context.Background()
-		s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_transition"})
+		s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_transition"})
 		resolveProjectAuthority(service, store.ProjectResolution{ProjectID: "project-1", MainWorktree: true})
 		scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
 		if err != nil {
@@ -138,7 +139,7 @@ func TestMainCheckoutLifecyclePreservesTerminalGates(t *testing.T) {
 
 	t.Run("verification evidence without consent", func(t *testing.T) {
 		ctx := context.Background()
-		s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_transition"})
+		s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_transition"})
 		resolveProjectAuthority(service, store.ProjectResolution{ProjectID: "project-1", MainWorktree: true})
 		scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
 		if err != nil {
@@ -180,7 +181,7 @@ func TestMainCheckoutRefusesImplementationOperations(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.operation, func(t *testing.T) {
 			ctx := context.Background()
-			s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_transition"})
+			s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_transition"})
 			resolveProjectAuthority(service, store.ProjectResolution{ProjectID: "project-1", MainWorktree: true})
 			scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
 			if err != nil {
@@ -203,7 +204,7 @@ func TestMainCheckoutRefusesImplementationOperations(t *testing.T) {
 func TestMainCheckoutDispatchRefusalNamesVacateRoute(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_transition"})
+	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_transition"})
 	resolveProjectAuthority(service, store.ProjectResolution{ProjectID: "project-1", MainWorktree: true})
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
 	if err != nil {
@@ -236,7 +237,7 @@ func TestMainCheckoutDispatchRefusalNamesVacateRoute(t *testing.T) {
 
 func TestMainCheckoutAllowlistDeclaresBothSides(t *testing.T) {
 	t.Parallel()
-	for _, capability := range []Capability{"product_read", "work_define"} {
+	for _, capability := range []agentcontract.Capability{"product_read", "work_define"} {
 		if _, ok := mainCheckoutAllowedCapabilities[capability]; !ok {
 			t.Fatalf("capability %q is missing from the main-checkout allowlist", capability)
 		}
@@ -244,7 +245,7 @@ func TestMainCheckoutAllowlistDeclaresBothSides(t *testing.T) {
 	if len(mainCheckoutAllowedCapabilities) != 2 {
 		t.Fatalf("main-checkout capability allowlist=%v, want exactly two entries", mainCheckoutAllowedCapabilities)
 	}
-	operations, ok := mainCheckoutAllowedOperations[Capability("work_transition")]
+	operations, ok := mainCheckoutAllowedOperations[agentcontract.Capability("work_transition")]
 	if !ok {
 		t.Fatal("work_transition operation allowlist is missing")
 	}
@@ -256,7 +257,7 @@ func TestMainCheckoutAllowlistDeclaresBothSides(t *testing.T) {
 	if len(operations) != 3 {
 		t.Fatalf("work_transition operation allowlist=%v, want lifecycle, session_vacate and conditional remove only", operations)
 	}
-	retirement, ok := mainCheckoutWorktreeRetirementOperations[Capability("work_transition")]
+	retirement, ok := mainCheckoutWorktreeRetirementOperations[agentcontract.Capability("work_transition")]
 	if !ok {
 		t.Fatal("work_transition worktree-retirement operation set is missing")
 	}
@@ -279,7 +280,7 @@ func TestAuditReclaimResolvesFromMainCheckout(t *testing.T) {
 	t.Parallel()
 	t.Run("authorization grants", func(t *testing.T) {
 		service := trunkFirewallFixture(t, true)
-		authority, err := service.Authorize(context.Background(), Invocation{ClientRef: "client-1", PrincipalRef: "human-1", SessionRef: "session-1", AgentRef: "agent-1", Directory: "/repo", Worktree: "/repo-wt", ManifestDigest: ManifestDigest, RequiredCapability: "work_transition", RequiredOperation: "worktree_audit_reclaim", ProductID: "product-1", ProjectID: "project-1"})
+		authority, err := service.Authorize(context.Background(), Invocation{ClientRef: "client-1", PrincipalRef: "human-1", SessionRef: "session-1", AgentRef: "agent-1", Directory: "/repo", Worktree: "/repo-wt", ManifestDigest: agentcontract.ManifestDigest, RequiredCapability: "work_transition", RequiredOperation: "worktree_audit_reclaim", ProductID: "product-1", ProjectID: "project-1"})
 		if err != nil {
 			t.Fatalf("worktree_audit_reclaim must resolve from the main checkout, got err=%v", err)
 		}

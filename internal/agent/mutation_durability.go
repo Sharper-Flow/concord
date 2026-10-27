@@ -1,5 +1,7 @@
 package agent
 
+import "github.com/sharper-flow/concord/internal/agentcontract"
+
 // mutationDurability declares one registered mutation's transaction class.
 // The table is closed, keyed by the exact registered ContractOperation.ID; a
 // lookup that misses is an invariant failure, never a default write. Consent
@@ -66,8 +68,8 @@ func (e *mutationDurabilityError) Error() string {
 // mutationDurabilityFor resolves the declared baselines for one registered
 // contract operation. Keying by identity alone means a copied operation with
 // altered Approval metadata resolves identically; reads carry no durability.
-func mutationDurabilityFor(op ContractOperation) (mutationDurability, error) {
-	if op.Kind != OperationMutation {
+func mutationDurabilityFor(op agentcontract.ContractOperation) (mutationDurability, error) {
+	if op.Kind != agentcontract.OperationMutation {
 		return mutationDurability{}, &mutationDurabilityError{opID: op.ID, reason: "kind " + string(op.Kind) + " carries no mutation durability"}
 	}
 	declared, ok := mutationDurabilityDeclarations[op.ID]

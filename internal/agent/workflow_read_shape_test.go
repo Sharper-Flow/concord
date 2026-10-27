@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/sharper-flow/concord/internal/payloadschema"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -27,7 +28,7 @@ func TestPublishedWorkflowReadShapesPopulatedNestedFields(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if err := ValidatePayloadSchema("workflow_read", raw); err != nil {
+			if err := payloadschema.Validate("workflow_read", raw); err != nil {
 				t.Fatalf("populated %s violates the published workflow_read contract: %v", field, err)
 			}
 			items, ok := published[field].([]any)
@@ -49,7 +50,7 @@ func TestPublishedWorkflowReadQualifiedStaleLawRevision(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := ValidatePayloadSchema("workflow_read", raw); err != nil {
+	if err := payloadschema.Validate("workflow_read", raw); err != nil {
 		t.Fatalf("qualified deleted law ID violates the published workflow_read contract: %v", err)
 	}
 }

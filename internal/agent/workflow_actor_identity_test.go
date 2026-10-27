@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"testing"
+
+	"github.com/sharper-flow/concord/internal/agentcontract"
 )
 
 // principal_ref leads the idempotency_records primary key and carries identity
@@ -14,7 +16,7 @@ import (
 // would replay another principal's mutation.
 func TestWorkflowActionPartitionsUnderDerivedPrincipal(t *testing.T) {
 	t.Parallel()
-	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_transition"})
+	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_transition"})
 	if version := seedAgentWorkflow(t, s, grant); version != 4 {
 		t.Fatalf("workflow seed version=%d, want 4", version)
 	}
@@ -55,7 +57,7 @@ func TestWorkflowActionPartitionsUnderDerivedPrincipal(t *testing.T) {
 // as. CD-0080 D1 leaves no room for the envelope to name a different one.
 func TestWorkflowActionRefusesForgedEnvelopePrincipal(t *testing.T) {
 	t.Parallel()
-	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_transition"})
+	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_transition"})
 	if version := seedAgentWorkflow(t, s, grant); version != 4 {
 		t.Fatalf("workflow seed version=%d, want 4", version)
 	}

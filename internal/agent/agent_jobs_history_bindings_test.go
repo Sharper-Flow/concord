@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"testing"
+
+	"github.com/sharper-flow/concord/internal/agentcontract"
 )
 
 // AJ4 — read the contract a correction replaced.
@@ -16,7 +18,7 @@ import (
 // unknown_scope, and that the reads leave the store revision unchanged.
 func bindAJ4HistoryOfASupersededContract(t *testing.T, _ jobScenario) jobObservation {
 	t.Helper()
-	s, service, grant, privateKey := mutationDispatchFixture(t, []Capability{"work_transition", "product_read"})
+	s, service, grant, privateKey := mutationDispatchFixture(t, []agentcontract.Capability{"work_transition", "product_read"})
 	version := seedAgentWorkflow(t, s, grant)
 	scopeVersion, _, err := s.ScopeVersion(context.Background(), "project-1")
 	if err != nil {

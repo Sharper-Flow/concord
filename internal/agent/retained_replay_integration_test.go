@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -21,7 +22,7 @@ func TestRetainedReplayKeepsCommittedEmptyChangedRefs(t *testing.T) {
 		t.Fatal(err)
 	}
 	r := runtime{Store: s, Authority: service, Envelope: mutationEnvelope(grant, scopeVersion), Tool: "concord_work_transition", Operation: "worker_reconcile"}
-	op, _ := ValidateContractOperation(r.Tool, r.Operation)
+	op, _ := agentcontract.ValidateContractOperation(r.Tool, r.Operation)
 	raw, _ := json.Marshal(map[string]any{"work_id": "work-1", "attempt_id": "attempt-retained", "task_part_id": "part-retained", "idempotency_key": "retained-reconcile"})
 	digest := mutationDigest(r.Tool, r.Operation, r.Envelope, raw)
 	scope := map[string]any{"product_id": "product-1", "project_ids": []string{"project-1"}, "work_ids": []string{"work-1"}}

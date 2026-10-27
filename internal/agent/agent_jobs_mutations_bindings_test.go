@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/pm1fixture"
 	"github.com/sharper-flow/concord/internal/store"
 )
@@ -991,7 +992,7 @@ func bindAJ8ApprovalRequired(t *testing.T, sc jobScenario) jobObservation {
 	t.Helper()
 	// CD-0243 D3/D7 retire lifecycle-only consent. Declare the actual
 	// security decision instead of inferring authority from its reason text.
-	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_transition"})
+	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_transition"})
 	seedAgentWorkflow(t, s, grant)
 	env := mutationEnvelope(grant, scopeVersionForProject(t, s, "project-1"))
 	workID := "work-1"

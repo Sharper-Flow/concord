@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/pm1fixture"
 	"github.com/sharper-flow/concord/internal/store"
 )
@@ -81,7 +82,7 @@ func seedReadPopulationFixture(t *testing.T) readPopulationFixture {
 	fx.seedResearchPack(t)
 
 	fx.service, _, fx.grant = newAuthorizedService(t, s, "client-1", "human-1",
-		[]Capability{"product_read", "work_define", "work_transition", "work_relate"},
+		[]agentcontract.Capability{"product_read", "work_define", "work_transition", "work_relate"},
 		[]string{readPopulationProduct}, []string{readPopulationProject},
 		store.ProjectResolution{ProjectID: readPopulationProject})
 	fx.grant.SessionRef = "session-population"

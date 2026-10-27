@@ -270,8 +270,8 @@ func validateCaptureExternalRefTx(ctx context.Context, tx *sql.Tx, payload workC
 				return conflict
 			}
 		} else if payload.RaisedFromWorkID != "" {
-			return newFailure(KindProjectionConflict, "fold_event", "raised_from_work_id does not acknowledge a live external reference conflict", false,
-				"reread the live external reference owner and supply its work ID")
+			return newFailure(KindInvalidPayload, "fold_event", "raised_from_work_id does not acknowledge a live external reference conflict; omit raised_from_work_id and resubmit the corrected request with the same idempotency_key. This refusal records no work or key binding; normal admission and committed-key checks still apply", false,
+				"correct_request")
 		}
 	}
 	return nil

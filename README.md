@@ -13,10 +13,10 @@ One operator coordinates multiple agents on one workstation; the engine gates
 every state transition on verified evidence.
 
 [Why Concord](#why-concord-exists) ·
-[Completion example](#completion-in-practice) ·
+[Workflow enforcement](#workflow-enforcement-in-action) ·
 [Engineering highlights](#engineering-highlights) ·
+[Batteries included](#batteries-included) ·
 [Architecture](#architecture-and-tradeoffs) ·
-[Skills & methods](#portable-skills-and-methods) ·
 [Install](#install-a-release)
 
 ## Why Concord exists
@@ -26,44 +26,59 @@ change can pass review in isolation while their combined effect breaks an
 approved requirement. Concord records approved goals and enforces workflow
 conditions that govern managed execution.
 
-- **Completion requires evidence.** Completion requests refuse until the
-  evidence types required by the contract and workflow are durably bound. An
-  agent's claim that work is finished cannot substitute for verified evidence.
+- **Completion requires evidence.** Concord refuses completion requests until
+  the required evidence types are durably bound. An agent's claim that work is
+  finished cannot substitute for verified evidence.
 - **Goals are fixed before work begins.** The operator approves outcome
   predicates first. At acceptance, Concord measures the delivered result
   against those predicates rather than against an agent's summary.
-  ([CD-0012](.concord/docs/decisions/CD-0012-bind-stated-goals-to-delivered-outcomes.md))
-- **Domains own code roots exclusively.** Architectures partition into Domains
-  that own distinct code roots and maintain typed architectural facts.
-  Concurrent execution refuses conflicting architectural writes—such as
-  overlapping law changes, domain boundary shifts, or relation mutations—while
-  permitting parallel work across independent domains.
-  ([CD-0244](.concord/docs/decisions/CD-0244-domains-own-code-exclusively-and-hold-typed-facts.md),
-  [Architecture and overlap rules](.concord/docs/decisions/CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md#d6-architectural-overlap-is-explicit-before-concurrent-work-proceeds))
+- **Domains own code roots exclusively.** Codebases partition into Domains that
+  own distinct code roots and hold typed architectural facts. Concurrent
+  execution blocks conflicting writes—such as overlapping policy edits, domain
+  boundary shifts, or relation changes—while allowing parallel work across
+  independent domains.
 - **Every refusal names its remedy.** Refusals are strictly typed and state
   which condition failed, directing a blocked agent to the corrective path
   rather than leaving it to guess.
 
-This carries a real cost. An agent must earn each transition, and a session that
-skips a step is refused rather than obeyed.
+## Workflow enforcement in action
 
-## Completion in practice
+Most agent frameworks rely on the model self-reporting that work is done.
+Concord replaces prompt trust with an evidence-driven progression model.
+Completion is defined up front and built toward through concrete enforcement
+mechanisms:
 
-An agent's request to finish is not permission to finish. The
-[terminal-gate integration test](internal/agent/trunk_firewall_test.go#L116-L174)
-exercises two synthetic cases for an approval-gated terminal operation through
-the agent dispatcher:
+1. **Outcome predicates define completion before work starts.** Before
+   execution begins, the operator approves concrete predicates (such as
+   specific file states, test assertions, or schema outputs). Success criteria
+   are locked before an agent modifies code.
+2. **Execution stays isolated.** Worker agents implement changes in dedicated
+   worktrees constrained to approved file paths. They cannot modify unrelated
+   packages or write to the main checkout.
+3. **Artifacts require verifiable evidence.** As work proceeds, tools generate
+   immutable evidence—such as Ed25519-signed worker reports, test execution
+   receipts, and diff digests. Unverified assertions in chat are not evidence.
+4. **Verification is independent.** Work cannot be accepted through author
+   self-review. Specialized review and verification lanes (`concord-review`,
+   `concord-verify`) independently evaluate candidate diffs against the locked
+   predicates.
+5. **The engine gates terminal transitions.** When an agent calls
+   `concord_work_transition` to mark a task `completed`, Concord verifies that
+   all required evidence kinds are present and valid. If an operator approval
+   boundary is touched, the engine issues a cryptographic challenge that must
+   be signed before the state transition commits to SQLite.
 
-| Request | Engine result |
-|---|---|
-| Complete work without evidence | Refuse with `missing_evidence`. |
-| Complete work with evidence | Require approval, then complete after a valid signed approval. |
+### Concrete gate demonstration
 
-This is a summary of the test cases, not a CLI transcript or a promise that
-evidence alone satisfies every workflow. Required evidence and other completion
-conditions come from the approved contract and workflow.
+The [terminal-gate integration test](internal/agent/trunk_firewall_test.go#L116-L174)
+exercises this gate directly in code:
 
-Run the example from a source checkout:
+| Scenario | Agent action | Engine response |
+|---|---|---|
+| **Missing evidence** | Agent requests completion with no attached evidence | Engine immediately refuses with `missing_evidence`. Prompt assertions cannot bypass the gate. |
+| **Gated completion** | Agent submits valid verification evidence | Engine issues an `approval_required` challenge with the mutation digest, completing only after a valid signed host approval. |
+
+Run this test from a source checkout:
 
 ```sh
 bin/oc-test targeted -- go test ./internal/agent \
@@ -86,59 +101,74 @@ Inspect the [authorization checks](internal/agent/authority.go),
 
 ### Current-state authority and explicit durability
 
-SQLite holds current execution state and unresolved-effect receipts, not
-historical event logs ([CD-0242](.concord/docs/decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md)).
-The store uses `synchronous=FULL` for designated durable transactions, then restores
-`synchronous=NORMAL` for ordinary writes. Pinned readers never block durable
-commits, and low-level SQLite mechanics run in an isolated internal subsystem.
-The distinction makes durability costs explicit rather than claiming that every
-write carries the same crash guarantee.
+SQLite holds current execution state and unresolved-effect receipts rather than
+replaying historical event logs. The store uses `synchronous=FULL` for designated
+durable transactions and `synchronous=NORMAL` for ordinary writes. Pinned readers
+never block durable commits, and low-level SQLite mechanics run in an isolated
+internal subsystem. This makes durability costs explicit instead of assuming every
+write needs the same disk-flush guarantees.
 
 Inspect the [transaction owner](internal/store/durable.go) and
 [durability tests](internal/store/durable_test.go). The separate
 [ten-process conformance harness](internal/store/conformance_test.go) exercises
 concurrent access to the local store.
 
-### Domain Shape v1 and architectural facts
+### Domain Shape and architectural boundaries
 
 Products declare explicit package roles (`domain`, `mixed`, `composition`,
-`test_support`) and maintain typed architectural facts under
-[CD-0244](.concord/docs/decisions/CD-0244-domains-own-code-exclusively-and-hold-typed-facts.md).
-Boundary checks validate import edges against declared `depends_on`
-dependencies, while an enforceable ratchet prevents architectural drift.
-Inspect the [domain read engine](internal/store/domain_reads.go).
+`test_support`) and track typed architectural facts. Boundary checks validate
+import edges against declared `depends_on` dependencies, while an enforceable
+ratchet prevents architectural drift. Inspect the
+[domain read engine](internal/store/domain_reads.go).
 
 ### Recoverable installation and automated releases
 
-The release workflow builds Linux amd64 artifacts, generates an SPDX software
-bill of materials, checksums every uploaded asset, and attests build provenance.
-The installer journals changes and recovers interrupted operations without
-overwriting files the operator changed after the transaction began.
+The release workflow builds Linux amd64 binaries, generates an SPDX software
+bill of materials, checksums each asset, and attests build provenance. The
+installer journals file operations so interrupted transactions recover cleanly
+without overwriting operator edits.
 
-The [installer tests](scripts/test-installer.py#L2408-L2467) inject process death
-at each transaction phase during install, upgrade, and uninstall. The
-[release workflow](.github/workflows/release.yml) owns publication.
+The [installer tests](scripts/test-installer.py#L2408-L2467) test process death
+across every transaction phase during install, upgrade, and uninstall. The
+[release workflow](.github/workflows/release.yml) automates publication.
 
-## Portable skills and methods
+## Batteries included
 
-Concord ships on-demand skills directly with each release
-([CD-0245](.concord/docs/decisions/CD-0245-concord-ships-the-skill-that-operates-its-domain-shape.md),
-[CD-0246](.concord/docs/decisions/CD-0246-concord-ships-portable-engineering-methods.md)).
-The installer registers them with OpenCode without imposing runtime overhead or
-altering worker obligations:
+Concord ships with primary agent profiles, specialized worker lanes, and
+portable skills ready for OpenCode out of the box.
+
+### Agent profiles and worker lanes
+
+- **Primary roles**: `Concord` coordinates work with the operator; `Concord-RTE`
+  sequences multi-session dependencies; `Concord-Planner` structures requirements
+  and planning intake.
+- **Implementation and review**: `concord-implement` executes changes in
+  isolated worktrees within locked scope; `concord-review` performs independent
+  reviews against approved acceptance criteria.
+- **Verification and research**: `concord-verify` runs deterministic
+  verification gates; `concord-research` investigates questions and records
+  structured findings; `concord-design` handles scoped visual UI/UX changes.
+- **Read-only utilities**: `concord-explore` analyzes repository structure;
+  `concord-advisor` provides unprompted second opinions on architectural
+  questions.
+
+Worker lane definitions embed their instructions directly, so execution integrity
+never depends on an agent remembering to load an optional skill.
+
+### Portable skills and methods
+
+The installer registers on-demand skills in OpenCode without adding runtime
+overhead:
 
 - **`concord-domain-shape-stewardship`**: Initialize, migrate, refine, and audit
-  Product Domain boundaries and typed architectural facts.
-- **`concord-law-writing`**: Draft, amend, or prune Product law held by Concord
-  without weakening obligations or shifting approval boundaries.
-- **Engineering methods**: Portable skills for `concord-diagnosis`,
-  `concord-codebase-design`, `concord-work-shaping`, and `concord-retrospective`.
-  Worker lane definitions carry lane-specific guidance directly, so execution
-  integrity never depends on loading an optional skill.
-- **Total engineering cost dependency selection**: Guidance instructs agents to
-  evaluate dependencies by total engineering cost rather than minimizing
-  dependency counts, choosing established, maintained libraries when clearer and
-  more reliable.
+  Domain boundaries and typed architectural facts.
+- **`concord-law-writing`**: Draft, amend, or prune Product specifications and
+  decisions without altering obligations or approval boundaries.
+- **Engineering methods**: Portable skills for diagnosis, codebase design,
+  work shaping, and retrospectives.
+- **Dependency selection by total cost**: Evaluates dependencies by total
+  engineering cost rather than minimizing dependency counts, favoring
+  established libraries over bespoke reinvention.
 
 ## Architecture and tradeoffs
 
@@ -150,58 +180,57 @@ flowchart LR
 ```
 
 - **One core owns the rules.** Go owns domain logic and workflow admission. The
-  TypeScript adapter handles host context, credentials, and transport rather
-  than maintaining a second implementation of those rules.
-- **Local authority, not a distributed service.** One SQLite database keeps
-  approved requirements, execution state, evidence, knowledge, and research
-  together. The design targets one operator's workstation, not a multi-host service.
-- **Planning stays separate from execution.** Agents use the Linear MCP server
-  for planning. Concord retains at most one recorded issue identity per work
-  unit; the binary makes no Linear API call and holds no Linear credential.
+  TypeScript adapter handles host integration, credentials, and transport
+  without duplicating rule sets.
+- **Local authority, not a distributed service.** A single SQLite database
+  holds approved requirements, execution state, evidence, knowledge, and
+  research. The architecture runs locally on one operator's workstation, not as
+  a remote multi-tenant service.
+- **Planning stays separate from execution.** Agents manage planning through
+  the Linear MCP server. Concord records only verified issue identifiers; the
+  engine makes no Linear API calls and stores no planning credentials.
 
-The security boundary trusts the OS account, OpenCode process, installed adapter,
-and credential service. It does not isolate arbitrary code that already controls
-that account. See the [transport contract](.concord/docs/agent-adapter-transport-contract.md#21-client-registration-and-key-storage),
+The security boundary relies on the local OS user account, the OpenCode
+process, the adapter, and the host credential service. It does not attempt to
+defend against arbitrary code already executing under that account. See the
+[transport contract](.concord/docs/agent-adapter-transport-contract.md#21-client-registration-and-key-storage),
 [core architecture](.concord/docs/core-architecture.md), and
 [managed development authority](.concord/docs/managed-development-authority.md).
 
 ### Graph usage
 
-Concord uses several distinct graphs, not one universal directed acyclic graph
-(DAG). Each mechanism gives its edges a different meaning:
+Concord uses several distinct graphs rather than one monolithic directed
+acyclic graph (DAG). Each mechanism gives its edges a different meaning:
 
-- **Work relations describe coordination.** The typed
-  [relation vocabulary](contracts/relation-vocabulary.v1.json) defines stored
-  relations and inverse query labels, such as `blocks` and `blocked_by`.
-  For actionable work, `blocks` excludes the target from the
-  [ready queue](internal/store/query.go) while the source is `needed` or
-  `in_progress`; `depends_on` records a requirement whose transitive closure can
-  be read. Neither refuses a lifecycle start by itself. A resolved
-  [Domain overlap](internal/store/workflow_domain_overlap.go) can sequence
-  execution entry through either kind.
-- **Workflow edges govern execution.** A definition connects workflow steps,
-  with cycle checks that exclude declared retry and failure edges. Recovery is
-  explicit, not an assumption that execution only moves forward. Inspect the
+- **Work relations coordinate tasks.** The typed
+  [relation vocabulary](contracts/relation-vocabulary.v1.json) defines directed
+  relations such as `blocks` and `depends_on`. While a prerequisite task is
+  active, `blocks` filters dependent work from the
+  [ready queue](internal/store/query.go), while `depends_on` allows querying
+  transitive dependencies. Resolved
+  [Domain overlaps](internal/store/workflow_domain_overlap.go) use these
+  relations to sequence concurrent work safely.
+- **Workflow edges structure execution.** Workflow definitions link stages
+  through directed state graphs, checking for cycles while permitting declared
+  retry and failure paths. Recovery routes are explicit rather than assuming
+  workflows only move forward. Inspect the
   [graph validator](internal/store/workflow_registry.go) and
-  [correction and premise-recovery routes](internal/store/workflow_recovery_routes.go).
-- **Worker-job prerequisites pin exact work.** Within a work item, prerequisites
-  name a job and revision, optionally an exact accepted result reference.
-  [Readiness checks](internal/store/worker_jobs.go) require those prerequisites
-  to be satisfied and check the candidate job's latest revision, active contract,
-  readiness evidence, and unresolved references. These are not work-to-work
-  `depends_on` edges.
-- **Law and Domain relations describe authority and architecture.** Law links
-  express refinement, subordination, supersession, or conflict; federated law
-  identities include their home Project so equal local IDs stay distinct.
-  Domain relations separately express dependency, shared contracts, or
-  replacement. Inspect the [knowledge model](internal/store/knowledge_manifest.go)
-  and [federated law validation](internal/store/product_knowledge_source.go).
-- **Evidence links record provenance, not acceptance.** An
-  [evidence binding](internal/store/workflow.go) records an immutable subject
-  separately from the producer, run, and watermark. That identifies what was
-  observed and who produced the evidence; it does not itself accept a worker
-  result or establish that an approved outcome was met. Verdicts and completion
-  have their own gates.
+  [recovery routes](internal/store/workflow_recovery_routes.go).
+- **Worker-job prerequisites isolate dispatch.** Inside a work item,
+  prerequisites pin specific jobs and revisions, optionally requiring accepted
+  results from prior steps. [Readiness checks](internal/store/worker_jobs.go)
+  verify contracts and prerequisite outputs before a worker dispatches.
+- **Law and Domain relations track authority.** Law links represent refinement,
+  supersession, or conflict across specifications, keeping federated identities
+  unique across projects. Domain relations declare package dependencies, shared
+  interfaces, and replacements. Inspect the
+  [knowledge model](internal/store/knowledge_manifest.go) and
+  [federated law validation](internal/store/product_knowledge_source.go).
+- **Evidence links prove provenance, not acceptance.** An
+  [evidence binding](internal/store/workflow.go) ties an immutable artifact to
+  its producer, run timestamp, and watermark. This establishes who produced
+  what without conflating collection with acceptance. Verdicts and completion
+  remain separate gates.
 
 ## Build and verify from source
 
@@ -261,14 +290,13 @@ compromising local verification:
 
 ## Install a release
 
-Concord supports Linux amd64. Read the [full prerequisites](.concord/docs/installation.md#prerequisites)
-before you install. Run the installer with Python 3.
+Concord runs on Linux amd64. Review the [prerequisites](.concord/docs/installation.md#prerequisites)
+before installing. The installer requires Python 3.
 
-Before an upgrade introduces the `Concord`, `Concord-RTE`, or optional
-`Concord-Planner` profiles, complete
-the [primary-agent authorization step](adapter/opencode/README.md#authorize-the-primary-agent-names-before-activation)
-for every affected trusted client. Installation does not grant agent scope;
-verify the exact names before activation or selecting the profiles.
+Before upgrading to releases that introduce the `Concord`, `Concord-RTE`, or
+optional `Concord-Planner` profiles, [authorize the agent names](adapter/opencode/README.md#authorize-the-primary-agent-names-before-activation)
+on each trusted client. Installing profiles does not grant agent execution
+scope automatically.
 
 > **Warning:** On a headless host without a login collection, the installer
 > creates an unencrypted, user-scoped keyring collection. The operating-system
@@ -282,9 +310,9 @@ install that release's tag (replace `vX.Y.Z`):
 python3 concord-installer.py install --version vX.Y.Z
 ```
 
-The installer verifies the published checksum and bundle before it changes the
-operator environment. It does not overwrite user-authored files and recovers
-an interrupted operation cleanly. Restart OpenCode after installation.
+The installer verifies package checksums and provenance signatures before
+touching the local environment. It never overwrites user-edited files and
+resumes interrupted operations cleanly. Restart OpenCode after installing.
 
 The [installation guide](.concord/docs/installation.md) covers artifact verification,
 managed paths, repair, upgrade, uninstall, and first-use requirements.
@@ -299,30 +327,29 @@ data root's `backups` directory before any breaking migration applies, and
 names it in its report as `backup`. Migration 124 dropped unsent
 planning-mirror writes, Initiative projections, Linear Project links, and the
 Product planning-mode column. It retained recorded issue identities only when
-both the issue key and URL were non-empty; incomplete links remain only in the
-backup. Use the backup for any reconciliation through the Linear MCP server.
+both the issue key and URL were non-empty. Use the backup for any reconciliation
+through the Linear MCP server.
 
 </details>
 
 ## First use
 
-Complete the [operator bootstrap](adapter/opencode/README.md#operator-bootstrap-cli)
-before you use adapter tools:
+Initialize your environment with the [operator bootstrap CLI](adapter/opencode/README.md#operator-bootstrap-cli)
+before running adapter tools:
 
 1. Register the client.
-2. Create the Product and its first Project.
-3. Add a locator for the Project's Git repository.
+2. Create the Product and its initial Project.
+3. Add a repository locator for the Project.
 
-Concord does not invent these records or their keys. The bootstrap commands
-listed in the adapter guide read one strict JSON object from stdin and write one
-bounded JSON result.
+Each bootstrap command accepts a strict JSON payload on stdin and returns a
+bounded JSON response.
 
 ```sh
 concord --version
 concord --help
 ```
 
-You start each session with your host tooling. Inside a session, agents enter
+Start each session with your host tooling. Inside a session, agents enter
 managed work through the adapter's `concord_work_start` tool.
 
 ## Learn more

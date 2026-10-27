@@ -125,12 +125,12 @@ func conflictEventCount(t *testing.T, s *store.Store) int {
 	return scalarRow(t, s, `SELECT count(*) FROM effect_receipts WHERE kind=?`, store.WorkConflictApplied)
 }
 
-// conflictApplicationRecord reads the conflict application rows recorded for
-// one work item and fails unless the whole store holds exactly want of them.
-func conflictApplicationRecord(t *testing.T, s *store.Store, workID string, want int, expected conflictSettlement) (string, store.ConflictApplication, map[string]any) {
+// conflictApplicationRecord reads the conflict application row recorded for
+// one work item and fails unless the whole store holds exactly one.
+func conflictApplicationRecord(t *testing.T, s *store.Store, workID string, expected conflictSettlement) (string, store.ConflictApplication, map[string]any) {
 	t.Helper()
-	if got := conflictEventCount(t, s); got != want {
-		t.Fatalf("effect_receipts holds %d conflict applications, want %d", got, want)
+	if got := conflictEventCount(t, s); got != 1 {
+		t.Fatalf("effect_receipts holds %d conflict applications, want one", got)
 	}
 	rows := conflictSettlementRows(t, s, workID, expected)
 	if len(rows) != 1 {
@@ -183,7 +183,7 @@ func TestConflictObservationRecordsOneSettlementTrio(t *testing.T) {
 	if err != nil || response.Error != nil || response.Outcome != OutcomeOK || response.Replayed {
 		t.Fatalf("conflict observation_record = %+v err = %v, want a first ok settlement", response, err)
 	}
-	actor, record, fields := conflictApplicationRecord(t, s, "work-sized", 1, expectedConflictSettlement(t, s, "work-sized", grant.PrincipalRef, "conflict-settle-1", "R1", "settled: rule R1 applied, the slice stays out of scope", 1))
+	actor, record, fields := conflictApplicationRecord(t, s, "work-sized", expectedConflictSettlement(t, s, "work-sized", grant.PrincipalRef, "conflict-settle-1", "R1", "settled: rule R1 applied, the slice stays out of scope", 1))
 	if actor != grant.PrincipalRef {
 		t.Fatalf("conflict application actor %q, want the authenticated principal %q", actor, grant.PrincipalRef)
 	}
@@ -314,7 +314,7 @@ func TestConflictObservationReplaysFromCacheAndRefusesDivergence(t *testing.T) {
 	if err != nil || divergent.Error == nil || divergent.Error.Kind != "idempotency_conflict" {
 		t.Fatalf("divergent same-key conflict = %+v err = %v, want idempotency_conflict", divergent, err)
 	}
-	_, record, _ := conflictApplicationRecord(t, s, "work-sized", 1, expectedConflictSettlement(t, s, "work-sized", grant.PrincipalRef, "conflict-replay-1", "A2-3", "settled: A2-3 recorded", 1))
+	_, record, _ := conflictApplicationRecord(t, s, "work-sized", expectedConflictSettlement(t, s, "work-sized", grant.PrincipalRef, "conflict-replay-1", "A2-3", "settled: A2-3 recorded", 1))
 	if record.Outcome != "settled: A2-3 recorded" {
 		t.Fatalf("divergent retry rewrote the recorded outcome to %q", record.Outcome)
 	}
@@ -355,7 +355,7 @@ func TestConflictObservationCrossProductConsentFreeAndExactBinding(t *testing.T)
 	if dispatchErr != nil || approved.Error != nil || approved.Outcome != OutcomeOK {
 		t.Fatalf("approved conflict settlement = %+v err = %v, want ok", approved, dispatchErr)
 	}
-	actor, record, _ := conflictApplicationRecord(t, s, "work-2", 1, expectedConflictSettlement(t, s, "work-2", grant.PrincipalRef, "cross-conflict-1", "A2-1", "settled: cross-Product conflict recorded", 1))
+	actor, record, _ := conflictApplicationRecord(t, s, "work-2", expectedConflictSettlement(t, s, "work-2", grant.PrincipalRef, "cross-conflict-1", "A2-1", "settled: cross-Product conflict recorded", 1))
 	if actor != grant.PrincipalRef {
 		t.Fatalf("approved settlement actor %q, want the authenticated principal %q", actor, grant.PrincipalRef)
 	}
@@ -373,7 +373,7 @@ func TestConflictObservationCrossProductConsentFreeAndExactBinding(t *testing.T)
 	if dispatchErr != nil || tamperedResponse.Error == nil || tamperedResponse.Error.Kind != "idempotency_conflict" {
 		t.Fatalf("tampered conflict resubmission = %+v err = %v, want idempotency_conflict", tamperedResponse, dispatchErr)
 	}
-	conflictApplicationRecord(t, s, "work-2", 1, expectedConflictSettlement(t, s, "work-2", grant.PrincipalRef, "cross-conflict-1", "A2-1", "settled: cross-Product conflict recorded", 1))
+	conflictApplicationRecord(t, s, "work-2", expectedConflictSettlement(t, s, "work-2", grant.PrincipalRef, "cross-conflict-1", "A2-1", "settled: cross-Product conflict recorded", 1))
 	if got := workVersion(t, s, "work-2"); got != 2 {
 		t.Fatalf("settlement or replay moved work version to %d, want 2", got)
 	}

@@ -121,6 +121,17 @@ A readiness refusal creates no attempt.
 Unsupported recipes or unavailable inputs require explicit preparation recovery,
 not an invented reference, automatic execution, or a readiness exception.
 
+For Review, a recorded readiness reference that qualifies on the current
+candidate remains the preparation binding. Otherwise the core binds the latest
+qualified preparation of the exact unchanged control bundle under the same
+contract, Project, current candidate, and runtime environment. The dispatch
+authorization records that exact preparation. Oracle execution and worker
+control use the authorization's binding, never a later preparation. Missing
+qualification refuses before an attempt and directs Main to qualify and prepare
+that bundle through `worktree_verify`. No preparation runs automatically. The
+job content, recorded readiness references, and digest stay unchanged. Other
+lanes keep their recorded-reference rule.
+
 The following evidence limits apply to every recipe family, including Go:
 
 - Same-UID changes between digest observations can escape those observations.
@@ -138,14 +149,29 @@ The worker-job lifecycle applies from `workflow.implementation` version 24 and
 routes and declare `record_worker_job` at each dispatch step that accepts
 worker results and declares `record_delivery` as its explicit phase exit.
 
-At such a step, a dispatch of any admitted lane must carry one
-ready revision in `inputs.worker_job`, with the recorded content. The core
-refuses a packet without it, and a packet with other content. `inputs.task`
-stays the complete parent premise.
+At such a step, every admitted lane carries one recorded revision in
+`inputs.worker_job`, with the recorded content. The core refuses a packet
+without it, and a packet with other content. `inputs.task` stays the complete
+parent premise. Except for Review under the binding below, the revision must
+be ready.
 
 The `dispatch_worker` completion records the binding. The dispatch evidence
 must carry exactly that binding. The report must claim exactly that revision.
-A satisfied revision refuses a new dispatch, on resume and on the first ask.
+A satisfied revision refuses a new dispatch, on resume and on the first ask,
+except for Review under the binding below and the existing checks-repair
+confirming Review.
+
+Review binds the sole ready revision when one exists. When none is ready,
+Review binds the latest revision of the job dispatched by the existing delivery
+anchor's accepted implementation attempt, provided that revision is current
+under the active contract and its satisfaction comes from that attempt. A
+checks-repair confirming Review keeps its existing binding. Several ready
+revisions still refuse; the core invents neither a choice nor a job. The packet
+carries the recorded content unchanged. Accepting Review of an already-satisfied
+revision preserves its satisfaction reference and sequence for every
+disposition. Review still judges the current integrated candidate and
+depended-on revisions; this binding supplies no implementation or delivery
+assertion.
 
 The host derives canonical report identity from the authorized packet. Worker
 echoes cannot select another job, revision, attempt, or subject. The store
@@ -375,8 +401,8 @@ subject, source, or cause. Admission validates the same retained structural join
 ## Consequences
 
 A coordinator records a bounded job before a worker
-dispatch on a new pin. The adapter selects the one ready revision from the
-work pin and refuses zero or several ready revisions. A successful job gets a
+dispatch on a new pin. The adapter selects the sole ready revision or the
+Review binding admitted by D2, and refuses an unavailable or ambiguous binding. A successful job gets a
 disposition while the parent work stays open. No job holds an attempt budget or correction window; each launch is one admitted request with its own scope, assignment, and subject bindings ([CD-0242 D6](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-attempts-carry-their-own-authority-not-a-budget)). Whole-work delivery still requires the
 complete delivery admission.
 

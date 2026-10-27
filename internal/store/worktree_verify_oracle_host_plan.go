@@ -78,6 +78,8 @@ func (t *nativeTargetOraclePlan) stages(phase string, witnesses []string) ([]Nat
 			"select fewer witnesses for the pinned runner")
 	}
 	switch pair.Runner {
+	case nativeTargetRunnerVitest:
+		return nativeTargetVitestStages(t, phase, witnesses)
 	case nativeTargetRunnerPytest:
 		if phase == "prepare" {
 			return append(stages, NativeOracleStage{Name: "collect", Argv: slices.Concat([]string{"pytest", "--collect-only", "-q", "-p", "no:cacheprovider"}, flags, targets)}), nil
@@ -99,6 +101,9 @@ func (t *nativeTargetOraclePlan) stages(phase string, witnesses []string) ([]Nat
 					argv := []string{"bash", "-n", script}
 					if check.Argv[0] == "python3" {
 						argv = []string{"python3", "-B", "-c", nativeTargetPythonSyntaxCheck, script}
+					}
+					if check.Argv[0] == "node" {
+						argv = []string{"node", "--check", script}
 					}
 					stages = append(stages, NativeOracleStage{Name: "check_inputs", Argv: argv})
 				}
@@ -353,7 +358,7 @@ func nativeTargetHostPath(ctx context.Context, tool string, args ...string) (str
 func nativeTargetToolDigests(e nativeTargetEnvironment) ([]NativeOracleFile, error) {
 	var tools []NativeOracleFile
 	for _, slot := range []struct{ role, path string }{
-		{"uv", e.UV}, {"python", e.Python}, {"bash", e.Bash}, {"bun", e.Bun},
+		{"uv", e.UV}, {"python", e.Python}, {"bash", e.Bash}, {"bun", e.Bun}, {"node", e.Node},
 	} {
 		if slot.path == "" {
 			continue

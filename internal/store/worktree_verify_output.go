@@ -84,12 +84,19 @@ func (w nativeCaptureWriter) Write(b []byte) (int, error) {
 	return len(b), nil
 }
 
-// Each child owns a process group. Cancellation and stream overflow stop it.
+// Unisolated children own process groups; cancellation and overflow stop them.
+// Required isolation delegates lifetime and teardown to its private supervisor.
 // The stage reads its own output pipes because os/exec reports a stream that
 // WaitDelay cut only when the child exited successfully.
-func runNativeOracleStage(ctx context.Context, dir string, argv, env []string, stdin io.Reader, capture *nativeStreamCapture, launched func()) (int, error) {
+func runNativeOracleStage(ctx context.Context, dir string, argv, env []string, stdin io.Reader, capture *nativeStreamCapture, launched func(), isolation ...*nativeStageIsolation) (int, error) {
 	if err := validateWorktreeVerifyCommand(argv); err != nil {
 		return -1, err
+	}
+	if len(isolation) > 1 {
+		return -1, nativeIsolationUnavailable("multiple isolation plans")
+	}
+	if len(isolation) == 1 && isolation[0] != nil {
+		return runNativeIsolatedStage(ctx, dir, argv, env, stdin, capture, launched, isolation[0])
 	}
 	runCtx, cancel := context.WithCancel(ctx)
 	defer cancel()

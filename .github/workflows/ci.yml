@@ -33,7 +33,11 @@ concurrency:
 jobs:
   verify-history:
     name: verify-history
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    env:
+      OC_NATIVE_NPM_CACHE: ${{ runner.temp }}/native-target-npm-cache
+      OC_NATIVE_ISOLATION_REQUIRED: "1"
+      OC_NATIVE_ISOLATION_EVIDENCE: ${{ runner.temp }}/native-isolation-evidence
     timeout-minutes: 15
     steps:
       - name: Check out repository and historical baseline
@@ -50,11 +54,32 @@ jobs:
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
         with:
           bun-version: 1.4.0
+      - name: Set up native Node
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version: 24.15.0
+          architecture: x64
+          check-latest: false
+          package-manager-cache: false
       - name: Set up uv
         uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884
         with:
           version: 0.11.26
           enable-cache: "false"
+      - name: Provision fixed native isolation on this disposable runner
+        env:
+          CONCORD_DISPOSABLE_CI_PROVISION: "1"
+        run: bash scripts/ci-provision-native-isolation.sh
+      - name: Retain installed isolation and upstream test evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: native-isolation-${{ github.job }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/native-isolation-evidence
+          if-no-files-found: error
+          retention-days: 90
+      - name: Warm every public native fixture npm archive
+        run: bun scripts/ci-warm-native-npm.ts
       - name: Warm the uv fixture cache from the committed lock
         # The only networked uv step. Both commands refuse a lock that no
         # longer matches its project, and the sync checks every wheel
@@ -317,7 +342,11 @@ jobs:
 
   verify-tooling:
     name: verify-tooling
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    env:
+      OC_NATIVE_NPM_CACHE: ${{ runner.temp }}/native-target-npm-cache
+      OC_NATIVE_ISOLATION_REQUIRED: "1"
+      OC_NATIVE_ISOLATION_EVIDENCE: ${{ runner.temp }}/native-isolation-evidence
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -351,11 +380,34 @@ jobs:
       # pin, selector battery, or glob routing drifts from this workflow.
       - name: Validate pre-push preflight parity
         run: python3 scripts/check-pre-push.py
+      - name: Test disposable native CI provisioning and cache warming
+        run: python3 scripts/test-ci-native-provision.py
+      - name: Set up native Node
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version: 24.15.0
+          architecture: x64
+          check-latest: false
+          package-manager-cache: false
       - name: Set up uv
         uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884
         with:
           version: 0.11.26
           enable-cache: "false"
+      - name: Provision fixed native isolation on this disposable runner
+        env:
+          CONCORD_DISPOSABLE_CI_PROVISION: "1"
+        run: bash scripts/ci-provision-native-isolation.sh
+      - name: Retain installed isolation and upstream test evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: native-isolation-${{ github.job }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/native-isolation-evidence
+          if-no-files-found: error
+          retention-days: 90
+      - name: Warm every public native fixture npm archive
+        run: bun scripts/ci-warm-native-npm.ts
       - name: Warm the uv fixture cache from the committed lock
         # The only networked uv step. Both commands refuse a lock that no
         # longer matches its project, and the sync checks every wheel
@@ -544,7 +596,11 @@ jobs:
 
   verify-tests-store-1:
     name: verify-tests-store-1
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    env:
+      OC_NATIVE_NPM_CACHE: ${{ runner.temp }}/native-target-npm-cache
+      OC_NATIVE_ISOLATION_REQUIRED: "1"
+      OC_NATIVE_ISOLATION_EVIDENCE: ${{ runner.temp }}/native-isolation-evidence
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -569,6 +625,13 @@ jobs:
         # Release-pair tests build their baselines from these tags.
         # The default checkout is shallow and carries no tags.
         run: git fetch --no-tags --depth=1 origin +refs/tags/v11.61.0:refs/tags/v11.61.0 +refs/tags/v11.63.30:refs/tags/v11.63.30 +refs/tags/v13.4.0:refs/tags/v13.4.0
+      - name: Set up native Node
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version: 24.15.0
+          architecture: x64
+          check-latest: false
+          package-manager-cache: false
       - name: Set up uv
         uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884
         with:
@@ -584,6 +647,20 @@ jobs:
           python_dir="$(dirname "$python_path")"
           test "$("$python_dir/python3" --version)" = "Python $version"
           printf '%s\n' "$python_dir" >> "$GITHUB_PATH"
+      - name: Provision fixed native isolation on this disposable runner
+        env:
+          CONCORD_DISPOSABLE_CI_PROVISION: "1"
+        run: bash scripts/ci-provision-native-isolation.sh
+      - name: Retain installed isolation and upstream test evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: native-isolation-${{ github.job }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/native-isolation-evidence
+          if-no-files-found: error
+          retention-days: 90
+      - name: Warm every public native fixture npm archive
+        run: bun scripts/ci-warm-native-npm.ts
       - name: Warm the uv fixture cache from the committed lock
         # The package-network step. Both commands refuse a lock that no
         # longer matches its project, and the sync checks every wheel
@@ -628,7 +705,11 @@ jobs:
 
   verify-tests-store-2:
     name: verify-tests-store-2
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    env:
+      OC_NATIVE_NPM_CACHE: ${{ runner.temp }}/native-target-npm-cache
+      OC_NATIVE_ISOLATION_REQUIRED: "1"
+      OC_NATIVE_ISOLATION_EVIDENCE: ${{ runner.temp }}/native-isolation-evidence
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -653,6 +734,13 @@ jobs:
         # Release-pair tests build their baselines from these tags.
         # The default checkout is shallow and carries no tags.
         run: git fetch --no-tags --depth=1 origin +refs/tags/v11.61.0:refs/tags/v11.61.0 +refs/tags/v11.63.30:refs/tags/v11.63.30 +refs/tags/v13.4.0:refs/tags/v13.4.0
+      - name: Set up native Node
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version: 24.15.0
+          architecture: x64
+          check-latest: false
+          package-manager-cache: false
       - name: Set up uv
         uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884
         with:
@@ -668,6 +756,20 @@ jobs:
           python_dir="$(dirname "$python_path")"
           test "$("$python_dir/python3" --version)" = "Python $version"
           printf '%s\n' "$python_dir" >> "$GITHUB_PATH"
+      - name: Provision fixed native isolation on this disposable runner
+        env:
+          CONCORD_DISPOSABLE_CI_PROVISION: "1"
+        run: bash scripts/ci-provision-native-isolation.sh
+      - name: Retain installed isolation and upstream test evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: native-isolation-${{ github.job }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/native-isolation-evidence
+          if-no-files-found: error
+          retention-days: 90
+      - name: Warm every public native fixture npm archive
+        run: bun scripts/ci-warm-native-npm.ts
       - name: Warm the uv fixture cache from the committed lock
         # The package-network step. Both commands refuse a lock that no
         # longer matches its project, and the sync checks every wheel
@@ -712,7 +814,11 @@ jobs:
 
   verify-tests-store-3:
     name: verify-tests-store-3
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    env:
+      OC_NATIVE_NPM_CACHE: ${{ runner.temp }}/native-target-npm-cache
+      OC_NATIVE_ISOLATION_REQUIRED: "1"
+      OC_NATIVE_ISOLATION_EVIDENCE: ${{ runner.temp }}/native-isolation-evidence
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -737,6 +843,13 @@ jobs:
         # Release-pair tests build their baselines from these tags.
         # The default checkout is shallow and carries no tags.
         run: git fetch --no-tags --depth=1 origin +refs/tags/v11.61.0:refs/tags/v11.61.0 +refs/tags/v11.63.30:refs/tags/v11.63.30 +refs/tags/v13.4.0:refs/tags/v13.4.0
+      - name: Set up native Node
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version: 24.15.0
+          architecture: x64
+          check-latest: false
+          package-manager-cache: false
       - name: Set up uv
         uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884
         with:
@@ -752,6 +865,20 @@ jobs:
           python_dir="$(dirname "$python_path")"
           test "$("$python_dir/python3" --version)" = "Python $version"
           printf '%s\n' "$python_dir" >> "$GITHUB_PATH"
+      - name: Provision fixed native isolation on this disposable runner
+        env:
+          CONCORD_DISPOSABLE_CI_PROVISION: "1"
+        run: bash scripts/ci-provision-native-isolation.sh
+      - name: Retain installed isolation and upstream test evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: native-isolation-${{ github.job }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/native-isolation-evidence
+          if-no-files-found: error
+          retention-days: 90
+      - name: Warm every public native fixture npm archive
+        run: bun scripts/ci-warm-native-npm.ts
       - name: Warm the uv fixture cache from the committed lock
         # The package-network step. Both commands refuse a lock that no
         # longer matches its project, and the sync checks every wheel
@@ -796,7 +923,11 @@ jobs:
 
   verify-tests-store-4:
     name: verify-tests-store-4
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    env:
+      OC_NATIVE_NPM_CACHE: ${{ runner.temp }}/native-target-npm-cache
+      OC_NATIVE_ISOLATION_REQUIRED: "1"
+      OC_NATIVE_ISOLATION_EVIDENCE: ${{ runner.temp }}/native-isolation-evidence
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -821,6 +952,13 @@ jobs:
         # Release-pair tests build their baselines from these tags.
         # The default checkout is shallow and carries no tags.
         run: git fetch --no-tags --depth=1 origin +refs/tags/v11.61.0:refs/tags/v11.61.0 +refs/tags/v11.63.30:refs/tags/v11.63.30 +refs/tags/v13.4.0:refs/tags/v13.4.0
+      - name: Set up native Node
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version: 24.15.0
+          architecture: x64
+          check-latest: false
+          package-manager-cache: false
       - name: Set up uv
         uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884
         with:
@@ -836,6 +974,20 @@ jobs:
           python_dir="$(dirname "$python_path")"
           test "$("$python_dir/python3" --version)" = "Python $version"
           printf '%s\n' "$python_dir" >> "$GITHUB_PATH"
+      - name: Provision fixed native isolation on this disposable runner
+        env:
+          CONCORD_DISPOSABLE_CI_PROVISION: "1"
+        run: bash scripts/ci-provision-native-isolation.sh
+      - name: Retain installed isolation and upstream test evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: native-isolation-${{ github.job }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/native-isolation-evidence
+          if-no-files-found: error
+          retention-days: 90
+      - name: Warm every public native fixture npm archive
+        run: bun scripts/ci-warm-native-npm.ts
       - name: Warm the uv fixture cache from the committed lock
         # The package-network step. Both commands refuse a lock that no
         # longer matches its project, and the sync checks every wheel
@@ -880,7 +1032,11 @@ jobs:
 
   verify-tests-store-5:
     name: verify-tests-store-5
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    env:
+      OC_NATIVE_NPM_CACHE: ${{ runner.temp }}/native-target-npm-cache
+      OC_NATIVE_ISOLATION_REQUIRED: "1"
+      OC_NATIVE_ISOLATION_EVIDENCE: ${{ runner.temp }}/native-isolation-evidence
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -905,6 +1061,13 @@ jobs:
         # Release-pair tests build their baselines from these tags.
         # The default checkout is shallow and carries no tags.
         run: git fetch --no-tags --depth=1 origin +refs/tags/v11.61.0:refs/tags/v11.61.0 +refs/tags/v11.63.30:refs/tags/v11.63.30 +refs/tags/v13.4.0:refs/tags/v13.4.0
+      - name: Set up native Node
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version: 24.15.0
+          architecture: x64
+          check-latest: false
+          package-manager-cache: false
       - name: Set up uv
         uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884
         with:
@@ -920,6 +1083,20 @@ jobs:
           python_dir="$(dirname "$python_path")"
           test "$("$python_dir/python3" --version)" = "Python $version"
           printf '%s\n' "$python_dir" >> "$GITHUB_PATH"
+      - name: Provision fixed native isolation on this disposable runner
+        env:
+          CONCORD_DISPOSABLE_CI_PROVISION: "1"
+        run: bash scripts/ci-provision-native-isolation.sh
+      - name: Retain installed isolation and upstream test evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: native-isolation-${{ github.job }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/native-isolation-evidence
+          if-no-files-found: error
+          retention-days: 90
+      - name: Warm every public native fixture npm archive
+        run: bun scripts/ci-warm-native-npm.ts
       - name: Warm the uv fixture cache from the committed lock
         # The package-network step. Both commands refuse a lock that no
         # longer matches its project, and the sync checks every wheel
@@ -964,7 +1141,11 @@ jobs:
 
   verify-tests-store-6:
     name: verify-tests-store-6
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    env:
+      OC_NATIVE_NPM_CACHE: ${{ runner.temp }}/native-target-npm-cache
+      OC_NATIVE_ISOLATION_REQUIRED: "1"
+      OC_NATIVE_ISOLATION_EVIDENCE: ${{ runner.temp }}/native-isolation-evidence
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -989,6 +1170,13 @@ jobs:
         # Release-pair tests build their baselines from these tags.
         # The default checkout is shallow and carries no tags.
         run: git fetch --no-tags --depth=1 origin +refs/tags/v11.61.0:refs/tags/v11.61.0 +refs/tags/v11.63.30:refs/tags/v11.63.30 +refs/tags/v13.4.0:refs/tags/v13.4.0
+      - name: Set up native Node
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version: 24.15.0
+          architecture: x64
+          check-latest: false
+          package-manager-cache: false
       - name: Set up uv
         uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884
         with:
@@ -1004,6 +1192,20 @@ jobs:
           python_dir="$(dirname "$python_path")"
           test "$("$python_dir/python3" --version)" = "Python $version"
           printf '%s\n' "$python_dir" >> "$GITHUB_PATH"
+      - name: Provision fixed native isolation on this disposable runner
+        env:
+          CONCORD_DISPOSABLE_CI_PROVISION: "1"
+        run: bash scripts/ci-provision-native-isolation.sh
+      - name: Retain installed isolation and upstream test evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: native-isolation-${{ github.job }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/native-isolation-evidence
+          if-no-files-found: error
+          retention-days: 90
+      - name: Warm every public native fixture npm archive
+        run: bun scripts/ci-warm-native-npm.ts
       - name: Warm the uv fixture cache from the committed lock
         # The package-network step. Both commands refuse a lock that no
         # longer matches its project, and the sync checks every wheel
@@ -1048,7 +1250,11 @@ jobs:
 
   verify-tests-store-7:
     name: verify-tests-store-7
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    env:
+      OC_NATIVE_NPM_CACHE: ${{ runner.temp }}/native-target-npm-cache
+      OC_NATIVE_ISOLATION_REQUIRED: "1"
+      OC_NATIVE_ISOLATION_EVIDENCE: ${{ runner.temp }}/native-isolation-evidence
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -1073,6 +1279,13 @@ jobs:
         # Release-pair tests build their baselines from these tags.
         # The default checkout is shallow and carries no tags.
         run: git fetch --no-tags --depth=1 origin +refs/tags/v11.61.0:refs/tags/v11.61.0 +refs/tags/v11.63.30:refs/tags/v11.63.30 +refs/tags/v13.4.0:refs/tags/v13.4.0
+      - name: Set up native Node
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version: 24.15.0
+          architecture: x64
+          check-latest: false
+          package-manager-cache: false
       - name: Set up uv
         uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884
         with:
@@ -1088,6 +1301,20 @@ jobs:
           python_dir="$(dirname "$python_path")"
           test "$("$python_dir/python3" --version)" = "Python $version"
           printf '%s\n' "$python_dir" >> "$GITHUB_PATH"
+      - name: Provision fixed native isolation on this disposable runner
+        env:
+          CONCORD_DISPOSABLE_CI_PROVISION: "1"
+        run: bash scripts/ci-provision-native-isolation.sh
+      - name: Retain installed isolation and upstream test evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: native-isolation-${{ github.job }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/native-isolation-evidence
+          if-no-files-found: error
+          retention-days: 90
+      - name: Warm every public native fixture npm archive
+        run: bun scripts/ci-warm-native-npm.ts
       - name: Warm the uv fixture cache from the committed lock
         # The package-network step. Both commands refuse a lock that no
         # longer matches its project, and the sync checks every wheel
@@ -1386,7 +1613,11 @@ jobs:
   # multiplying fixed lock delays. The full tree races in the nightly workflow.
   verify-race:
     name: verify-race
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    env:
+      OC_NATIVE_NPM_CACHE: ${{ runner.temp }}/native-target-npm-cache
+      OC_NATIVE_ISOLATION_REQUIRED: "1"
+      OC_NATIVE_ISOLATION_EVIDENCE: ${{ runner.temp }}/native-isolation-evidence
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -1398,11 +1629,36 @@ jobs:
           go-version-file: go.mod
           cache: true
           cache-dependency-path: go.sum
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version: 1.4.0
+      - name: Set up native Node
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version: 24.15.0
+          architecture: x64
+          check-latest: false
+          package-manager-cache: false
       - name: Set up uv
         uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884
         with:
           version: 0.11.26
           enable-cache: "false"
+      - name: Provision fixed native isolation on this disposable runner
+        env:
+          CONCORD_DISPOSABLE_CI_PROVISION: "1"
+        run: bash scripts/ci-provision-native-isolation.sh
+      - name: Retain installed isolation and upstream test evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: native-isolation-${{ github.job }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/native-isolation-evidence
+          if-no-files-found: error
+          retention-days: 90
+      - name: Warm every public native fixture npm archive
+        run: bun scripts/ci-warm-native-npm.ts
       - name: Warm the uv fixture cache from the committed lock
         # The only networked uv step. Both commands refuse a lock that no
         # longer matches its project, and the sync checks every wheel
@@ -1452,7 +1708,11 @@ jobs:
   # packaged black-box suite.
   verify-acceptance:
     name: verify-acceptance
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    env:
+      OC_NATIVE_NPM_CACHE: ${{ runner.temp }}/native-target-npm-cache
+      OC_NATIVE_ISOLATION_REQUIRED: "1"
+      OC_NATIVE_ISOLATION_EVIDENCE: ${{ runner.temp }}/native-isolation-evidence
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -1464,11 +1724,36 @@ jobs:
           go-version-file: go.mod
           cache: true
           cache-dependency-path: go.sum
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version: 1.4.0
+      - name: Set up native Node
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version: 24.15.0
+          architecture: x64
+          check-latest: false
+          package-manager-cache: false
       - name: Set up uv
         uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884
         with:
           version: 0.11.26
           enable-cache: "false"
+      - name: Provision fixed native isolation on this disposable runner
+        env:
+          CONCORD_DISPOSABLE_CI_PROVISION: "1"
+        run: bash scripts/ci-provision-native-isolation.sh
+      - name: Retain installed isolation and upstream test evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: native-isolation-${{ github.job }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/native-isolation-evidence
+          if-no-files-found: error
+          retention-days: 90
+      - name: Warm every public native fixture npm archive
+        run: bun scripts/ci-warm-native-npm.ts
       - name: Warm the uv fixture cache from the committed lock
         # The only networked uv step. Both commands refuse a lock that no
         # longer matches its project, and the sync checks every wheel

@@ -27,6 +27,9 @@ import (
 )
 
 func main() {
+	if code, handled := store.RunNativeIsolationSupervisor(); handled {
+		os.Exit(code)
+	}
 	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
 }
 

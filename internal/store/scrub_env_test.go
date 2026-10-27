@@ -21,6 +21,12 @@ var conformanceConfiguration struct {
 }
 
 func TestMain(m *testing.M) {
+	if code, handled := runNativeIsolationSupervisorTestRole(); handled {
+		os.Exit(code)
+	}
+	if code, handled := RunNativeIsolationSupervisor(); handled {
+		os.Exit(code)
+	}
 	conformanceConfiguration.long = os.Getenv(conformanceLongEnv) == "1"
 	conformanceConfiguration.unpaced = os.Getenv(conformanceUnpacedEnv) == "1"
 	conformanceConfiguration.acceptanceRunner = os.Getenv(conformanceAcceptanceRunnerEnv)

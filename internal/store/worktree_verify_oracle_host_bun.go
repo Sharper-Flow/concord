@@ -64,8 +64,10 @@ type nativeBunPackage struct {
 
 // nativeBunLock is one parsed closed bun.lock.
 type nativeBunLock struct {
-	Root     nativeBunWorkspace
-	Packages map[string]nativeBunPackage
+	Root                nativeBunWorkspace
+	Packages            map[string]nativeBunPackage
+	Overrides           map[string]string
+	TrustedDependencies []string
 }
 
 type nativeBunWorkspace struct {
@@ -165,7 +167,7 @@ func nativeBunSplitSpec(spec string) (string, string, bool) {
 	return spec[:at], spec[at+1:], true
 }
 
-var nativeBunLockTopKeys = []string{"lockfileVersion", "configVersion", "workspaces", "packages"}
+var nativeBunLockTopKeys = []string{"lockfileVersion", "configVersion", "workspaces", "packages", "overrides", "trustedDependencies"}
 
 // parseNativeBunLock decodes the closed bun.lock grammar.
 func parseNativeBunLock(raw []byte) (nativeBunLock, error) {
@@ -183,9 +185,16 @@ func parseNativeBunLock(raw []byte) (nativeBunLock, error) {
 			return lock, nativeBunUnavailable("bun.lock carries the unsupported top-level key " + key)
 		}
 	}
+	lock.Overrides, lock.TrustedDependencies, err = parseNativeBunResolutionMetadata(top)
+	if err != nil {
+		return lock, err
+	}
 	var version int
-	if json.Unmarshal(top["lockfileVersion"], &version) != nil || version != 1 {
-		return lock, nativeBunUnavailable("bun.lock lockfileVersion must equal 1")
+	// Bun's v2 keeps the v1 registry tuple syntax and tightens off-registry
+	// integrity and git-tag parsing. This grammar already refuses those
+	// resolutions entirely and requires sha512 for every extracted archive.
+	if json.Unmarshal(top["lockfileVersion"], &version) != nil || (version != 1 && version != 2) {
+		return lock, nativeBunUnavailable("bun.lock lockfileVersion must equal 1 or 2")
 	}
 	if config, ok := top["configVersion"]; ok {
 		if json.Unmarshal(config, &version) != nil || version != 1 {
@@ -207,17 +216,40 @@ func parseNativeBunLock(raw []byte) (nativeBunLock, error) {
 		return lock, oracleFailure(KindLimitExceeded, "bun.lock declares more than "+strconv.Itoa(nativeBunMaxPackages)+" packages", "reduce the locked dependency set")
 	}
 	lock.Packages = make(map[string]nativeBunPackage, len(packages))
-	for key, tuple := range packages {
-		pkg, err := parseNativeBunPackage(key, tuple)
+	// A key sorts before every key nested beneath it. Only a fully parsed
+	// platform-excluded ancestor can authorize pruning a bundled descendant.
+	for _, key := range slices.Sorted(maps.Keys(packages)) {
+		pruned := nativeBunUnselectedAncestor(lock, key)
+		pkg, err := parseNativeBunPackageForPlatform(key, packages[key], pruned)
 		if err != nil {
 			return lock, err
+		}
+		if pruned {
+			continue
 		}
 		lock.Packages[key] = pkg
 	}
 	return lock, nil
 }
 
+func nativeBunUnselectedAncestor(lock nativeBunLock, key string) bool {
+	segments, ok := nativeBunKeySegments(key)
+	if !ok {
+		return false
+	}
+	for i := 1; i < len(segments); i++ {
+		if ancestor, ok := lock.Packages[strings.Join(segments[:i], "/")]; ok && !ancestor.selected() {
+			return true
+		}
+	}
+	return false
+}
+
 func parseNativeBunPackage(key string, tuple []json.RawMessage) (nativeBunPackage, error) {
+	return parseNativeBunPackageForPlatform(key, tuple, false)
+}
+
+func parseNativeBunPackageForPlatform(key string, tuple []json.RawMessage, pruned bool) (nativeBunPackage, error) {
 	pkg := nativeBunPackage{Key: key}
 	if _, ok := nativeBunKeySegments(key); !ok {
 		return pkg, nativeBunUnavailable("bun.lock key is not a chain of package names: " + key)
@@ -237,19 +269,11 @@ func parseNativeBunPackage(key string, tuple []json.RawMessage) (nativeBunPackag
 		return pkg, nativeBunUnavailable("bun.lock entry version is not SemVer: " + spec)
 	}
 	pkg.Name, pkg.Version = name, version
-	digest, ok := strings.CutPrefix(integrity, "sha512-")
-	if !ok {
-		return pkg, nativeBunUnavailable("bun.lock entry integrity is not one sha512 value: " + key)
-	}
-	sum, err := base64.StdEncoding.DecodeString(digest)
-	if err != nil || len(sum) != sha512.Size {
-		return pkg, nativeBunUnavailable("bun.lock entry integrity is not one sha512 value: " + key)
-	}
-	pkg.Integrity = sum
 	var meta map[string]json.RawMessage
-	if json.Unmarshal(tuple[2], &meta) != nil {
+	if json.Unmarshal(tuple[2], &meta) != nil || meta == nil {
 		return pkg, nativeBunUnavailable("bun.lock entry metadata is not an object: " + key)
 	}
+	bundled := false
 	for field, value := range meta {
 		var err error
 		switch field {
@@ -268,6 +292,10 @@ func parseNativeBunPackage(key string, tuple []json.RawMessage) (nativeBunPackag
 			pkg.CPU, err = nativeBunPlatformList(value)
 			pkg.hasCPU = true
 		case "bin":
+		case "bundled":
+			if json.Unmarshal(value, &bundled) != nil || !bundled || !pruned {
+				return pkg, nativeBunUnavailable("bun.lock entry carries an unsupported bundle without an unselected platform ancestor: " + key)
+			}
 		default:
 			return pkg, nativeBunUnavailable("bun.lock entry metadata carries the unsupported field " + field + ": " + key)
 		}
@@ -275,6 +303,21 @@ func parseNativeBunPackage(key string, tuple []json.RawMessage) (nativeBunPackag
 			return pkg, nativeBunUnavailable("bun.lock entry metadata field " + field + " is malformed: " + key)
 		}
 	}
+	// Bundled archives have no independent materialization here. Their SRI
+	// may use unsupported algorithms, but only a pruned subtree can reach
+	// this exemption; none of its bytes is read, resolved, or extracted.
+	if bundled {
+		return pkg, nil
+	}
+	digest, ok := strings.CutPrefix(integrity, "sha512-")
+	if !ok {
+		return pkg, nativeBunUnavailable("bun.lock entry integrity is not one sha512 value: " + key)
+	}
+	sum, err := base64.StdEncoding.DecodeString(digest)
+	if err != nil || len(sum) != sha512.Size {
+		return pkg, nativeBunUnavailable("bun.lock entry integrity is not one sha512 value: " + key)
+	}
+	pkg.Integrity = sum
 	return pkg, nil
 }
 
@@ -325,14 +368,47 @@ func (p nativeBunPackage) selected() bool {
 // materializer reads; every field that changes resolution beyond them
 // refuses.
 type nativeBunManifest struct {
-	Name     string
-	Deps     map[string]string
-	DevDeps  map[string]string
-	OptDeps  map[string]string
-	PeerDeps map[string]string
+	Name                string
+	Deps                map[string]string
+	DevDeps             map[string]string
+	OptDeps             map[string]string
+	PeerDeps            map[string]string
+	Overrides           map[string]string
+	TrustedDependencies []string
 }
 
-var nativeBunManifestRefused = []string{"workspaces", "overrides", "resolutions", "catalog", "catalogs", "patchedDependencies"}
+var nativeBunManifestRefused = []string{"workspaces", "resolutions", "catalog", "catalogs", "patchedDependencies"}
+
+// Only package-name -> registry range overrides are admitted. Bun
+// also supports scoped/nested selectors and replacement protocols; those
+// require different resolution semantics and remain outside this grammar.
+// Trust is compared as a set, but never grants execution of lifecycle scripts.
+func parseNativeBunResolutionMetadata(fields map[string]json.RawMessage) (map[string]string, []string, error) {
+	var overrides map[string]string
+	if raw, ok := fields["overrides"]; ok {
+		if json.Unmarshal(raw, &overrides) != nil || overrides == nil {
+			return nil, nil, nativeBunUnavailable("overrides must be an object of package names and registry ranges")
+		}
+		for name, spec := range overrides {
+			if _, ok := parseNativeSemverRange(spec); !ok || strings.TrimSpace(spec) == "" || !nativeBunValidName(name) {
+				return nil, nil, nativeBunUnavailable("overrides carries an unsupported package name or registry range: " + name + "@" + spec)
+			}
+		}
+	}
+	var trusted []string
+	if raw, ok := fields["trustedDependencies"]; ok {
+		if json.Unmarshal(raw, &trusted) != nil || trusted == nil {
+			return nil, nil, nativeBunUnavailable("trustedDependencies must be an array of package names")
+		}
+		slices.Sort(trusted)
+		for i, name := range trusted {
+			if !nativeBunValidName(name) || i > 0 && trusted[i-1] == name {
+				return nil, nil, nativeBunUnavailable("trustedDependencies carries an invalid or duplicate package name: " + name)
+			}
+		}
+	}
+	return overrides, trusted, nil
+}
 
 func parseNativeBunManifest(raw []byte) (nativeBunManifest, error) {
 	var m nativeBunManifest
@@ -350,7 +426,9 @@ func parseNativeBunManifest(raw []byte) (nativeBunManifest, error) {
 			return m, nativeBunUnavailable("package.json field " + field + " is malformed")
 		}
 	}
-	return m, nil
+	var err error
+	m.Overrides, m.TrustedDependencies, err = parseNativeBunResolutionMetadata(fields)
+	return m, err
 }
 
 // nativeBunInstall is one package the materializer extracts: its hoisted
@@ -368,12 +446,16 @@ func verifyNativeBunLock(manifest nativeBunManifest, lock nativeBunLock) ([]nati
 	if manifest.Name != root.Name || !maps.Equal(manifest.Deps, root.Deps) || !maps.Equal(manifest.DevDeps, root.DevDeps) || !maps.Equal(manifest.OptDeps, root.OptDeps) || !maps.Equal(manifest.PeerDeps, root.PeerDeps) {
 		return nil, nativeBunUnavailable("bun.lock root workspace differs from package.json: the lock is stale")
 	}
-	type edge struct {
-		from     string
-		deps     map[string]string
-		required bool
+	if !maps.Equal(manifest.Overrides, lock.Overrides) || !slices.Equal(manifest.TrustedDependencies, lock.TrustedDependencies) {
+		return nil, nativeBunUnavailable("bun.lock overrides or trustedDependencies differ from package.json: the lock is stale")
 	}
-	edges := []edge{{"", root.Deps, true}, {"", root.DevDeps, true}, {"", root.OptDeps, false}}
+	type edge struct {
+		from         string
+		deps         map[string]string
+		required     bool
+		overrideOnly bool
+	}
+	edges := []edge{{"", root.Deps, true, false}, {"", root.DevDeps, true, false}, {"", root.OptDeps, false, false}, {"", root.PeerDeps, false, true}}
 	keys := slices.Sorted(maps.Keys(lock.Packages))
 	var installs []nativeBunInstall
 	for _, key := range keys {
@@ -381,12 +463,15 @@ func verifyNativeBunLock(manifest nativeBunManifest, lock nativeBunLock) ([]nati
 		if !pkg.selected() {
 			continue
 		}
-		edges = append(edges, edge{key, pkg.Deps, true}, edge{key, pkg.OptDeps, false})
+		edges = append(edges, edge{key, pkg.Deps, true, false}, edge{key, pkg.OptDeps, false, false}, edge{key, pkg.PeerDeps, false, true})
 		segments, _ := nativeBunKeySegments(key)
 		installs = append(installs, nativeBunInstall{Dir: "node_modules/" + strings.Join(segments, "/node_modules/"), Pkg: pkg})
 	}
 	for _, e := range edges {
 		for _, name := range slices.Sorted(maps.Keys(e.deps)) {
+			if _, overridden := lock.Overrides[name]; e.overrideOnly && !overridden {
+				continue
+			}
 			spec := e.deps[name]
 			target, rangeText := name, spec
 			if alias, ok := strings.CutPrefix(spec, "npm:"); ok {
@@ -396,10 +481,16 @@ func verifyNativeBunLock(manifest nativeBunManifest, lock nativeBunLock) ([]nati
 				}
 				target, rangeText = aliasName, aliasRange
 			}
-			r, ok := parseNativeSemverRange(rangeText)
-			if !ok {
+			if _, ok := parseNativeSemverRange(rangeText); !ok {
 				return nil, nativeBunUnavailable("dependency specifier is outside the supported range grammar: " + name + "@" + spec)
 			}
+			// npm aliases are exempt from Bun's overrides. Keep the original
+			// declarations for archive reconciliation; only resolution uses
+			// the effective range.
+			if override, ok := lock.Overrides[name]; ok && !strings.HasPrefix(spec, "npm:") {
+				rangeText = override
+			}
+			r, _ := parseNativeSemverRange(rangeText)
 			key, found := nativeBunResolve(lock, e.from, name)
 			if !found {
 				if e.required {
@@ -467,12 +558,23 @@ func reconcileNativeBunArchive(pkg nativeBunPackage, raw []byte) error {
 	for name := range a.OptDeps {
 		delete(deps, name)
 	}
+	// Bun keeps the required/optional declaration when a package also names
+	// that dependency as a peer. Only such an archive-backed declaration can
+	// explain a peer absent from the lock; active peers still compare exactly.
+	shadowedPeer := func(name string) bool {
+		if _, present := pkg.PeerDeps[name]; present {
+			return false
+		}
+		_, required := a.Deps[name]
+		_, optional := a.OptDeps[name]
+		return required || optional
+	}
 	var optionalPeers []string
 	for name, meta := range a.PeerDepsMeta {
 		var m struct {
 			Optional bool `json:"optional"`
 		}
-		if json.Unmarshal(meta, &m) == nil && m.Optional {
+		if json.Unmarshal(meta, &m) == nil && m.Optional && !shadowedPeer(name) {
 			optionalPeers = append(optionalPeers, name)
 		}
 	}
@@ -487,7 +589,7 @@ func reconcileNativeBunArchive(pkg nativeBunPackage, raw []byte) error {
 		}
 	}
 	for name := range a.PeerDeps {
-		if _, ok := pkg.PeerDeps[name]; !ok {
+		if _, ok := pkg.PeerDeps[name]; !ok && !shadowedPeer(name) {
 			peersOK = false
 		}
 	}

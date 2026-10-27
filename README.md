@@ -214,13 +214,13 @@ Concord separates responsibilities across three focused layers:
 - **Local workstation database.**
   - *What*: A single SQLite database stores requirements, current execution state, evidence, and research.
   - *Why*: Eliminates remote network latency and multi-tenant synchronization overhead during high-cadence local agent development.
-  - *How*: Transactions run locally on disk using designated `FULL` sync commits for durable state and memory-mapped reads for low latency.
+  - *How*: The store runs SQLite in WAL mode with `synchronous=NORMAL`, and switches a designated durable transaction to `synchronous=FULL`.
 - **Decoupled planning and execution.**
   - *What*: Linear handles planning; Concord coordinates local execution.
   - *Why*: Keeps external tracker state from polluting local runtime invariants while allowing operators to manage milestones in their tool of choice.
-  - *How*: Concord records verified Linear issue identifiers and URLs, but makes no external API calls and requires no tracker credentials.
+  - *How*: Agents read and write Linear through the Linear MCP server. Concord records at most one issue key and URL per work item; the binary makes no Linear API call and holds no Linear credential.
 
-The trust boundary centers on the local workstation: the operating system user account, the OpenCode process, the adapter, and the host credential service. See the [transport contract](.concord/docs/agent-adapter-transport-contract.md#21-client-registration-and-key-storage), [core architecture](.concord/docs/core-architecture.md), and [managed development authority](.concord/docs/managed-development-authority.md).
+The trust boundary is the local workstation: the operating system user account, the OpenCode process, the adapter, and the host credential service. Concord does not defend against arbitrary code already running under that account. See the [transport contract](.concord/docs/agent-adapter-transport-contract.md#21-client-registration-and-key-storage), [core architecture](.concord/docs/core-architecture.md), and [managed development authority](.concord/docs/managed-development-authority.md).
 
 ### Specialized graphs over monolithic DAGs
 
@@ -269,7 +269,7 @@ bin/oc-test broad -- env -u CONCORD_SELECTED_PRODUCT_ID bun test adapter/opencod
 
 ### Tiered test suites
 
-- **Smoke tier (`bin/oc-test smoke`)**: Runs adapter tests, JSON schema validators, and unsharded Go package tests in ~30 seconds. To stay fast, it omits `cmd/concord` and `internal/store`, which CI splits into shard jobs.
+- **Smoke tier (`bin/oc-test smoke`)**: Runs adapter tests, JSON schema validators, and unsharded Go package tests. It omits `cmd/concord` and `internal/store`, which CI splits into shard jobs.
 - **Conformance tier (`bin/oc-test conformance`)**: Runs the ten-process SQLite harness to verify concurrency and transaction-locking invariants.
 - **Deterministic store sharding**: To test heavy packages locally without running the entire suite, run individual CI shards. For example, to run shard 1 of the 7 `internal/store` shards:
 
@@ -277,7 +277,7 @@ bin/oc-test broad -- env -u CONCORD_SELECTED_PRODUCT_ID bun test adapter/opencod
 bin/oc-test broad -- bash -euo pipefail -c 'go test -timeout=15m -run "$(python3 scripts/go-test-shard.py ./internal/store 1 7)" ./internal/store'
 ```
 
-To inspect which tests a command selects without executing them, run `bin/oc-test plan targeted -- <command>`. Refer to the [CI workflow](.github/workflows/ci.yml) for repository gate requirements.
+Heavy tiers refuse to start without the host test gate. Every tier caps each file a test writes at 1024 MiB; a writer that reaches the cap is normally killed by SIGXFSZ. `PASS` reports the command's exit status, not proof that a named test matched. To see admission and selection without running tests, use `bin/oc-test plan targeted -- <command>`. [`bin/oc-test`](bin/oc-test) documents the per-run override and host admission; the [CI workflow](.github/workflows/ci.yml) defines the required repository checks.
 
 ## Roadmap
 
@@ -305,9 +305,11 @@ install the target release tag (replace `vX.Y.Z`):
 python3 concord-installer.py install --version vX.Y.Z
 ```
 
-The installer verifies package checksums and build provenance signatures before
-touching the workstation. It journals file operations to recover cleanly from
-interrupted installs and will never overwrite user-modified configuration files.
+The installer verifies the release checksum and archive before changing any
+data, binary, adapter, or OpenCode configuration path. It journals file
+operations to recover from interrupted installs and never overwrites
+user-modified files. Release assets also carry GitHub build-provenance
+attestations, which the installer does not check.
 Restart OpenCode after installation completes.
 
 > **Keyring notice for headless servers:** On a headless system without an
@@ -318,16 +320,16 @@ Restart OpenCode after installation completes.
 
 Before activating agent profiles (`Concord`, `Concord-RTE`, or optional
 `Concord-Planner`), [authorize the primary agent names](adapter/opencode/README.md#authorize-the-primary-agent-names-before-activation)
-on each trusted client. Installing profiles configures agent prompts and tools,
-but does not grant execution capabilities automatically.
+on each trusted client. Installing profiles does not grant agent execution
+scope.
 
 ### 3. Bootstrap your project
 
 Initialize the repository using the [operator bootstrap CLI](adapter/opencode/README.md#operator-bootstrap-cli):
 
-1. **Register the client**: Generates client capabilities and local cryptographic keys.
-2. **Create the Product and Project**: Establishes the project coordination scope in SQLite.
-3. **Register repository locators**: Binds Concord to your Git checkout paths.
+1. **Register the client** (`concord client-register`): records the client's Ed25519 public key and its capability and scope grants. The private key stays in the host credential service.
+2. **Create the Product and Project** (`concord product-create`): establishes the coordination scope.
+3. **Add a repository locator** (`concord project-locator-add`): binds the Project to a checkout path or Git remote.
 
 Each bootstrap command reads a strict JSON payload from stdin and writes a
 bounded JSON response to stdout:
@@ -340,8 +342,8 @@ concord --help
 Once bootstrapped, launch agent sessions through your host environment. Inside a
 session, agents enter managed workflows using the `concord_work_start` tool.
 
-See the [installation guide](.concord/docs/installation.md) for advanced
-operations including upgrades, repairs, and rollbacks.
+The [installation guide](.concord/docs/installation.md) covers artifact
+verification, managed paths, repair, upgrade, and uninstall.
 
 <details>
 <summary>Upgrade note: retirement of the planning mirror</summary>
@@ -349,10 +351,12 @@ operations including upgrades, repairs, and rollbacks.
 ### Planning retirement upgrade
 
 `concord upgrade` writes a verified snapshot of the unmigrated store to the
-data root's `backups` directory before any breaking migration applies. Migration
-124 retired the legacy planning mirror in favor of native Linear MCP
-integration, retaining valid issue identities while preserving raw state in the
-backup snapshot.
+data root's `backups` directory before any breaking migration applies, and
+names it in its report as `backup`. Migration 124 dropped unsent
+planning-mirror writes, Initiative projections, Linear Project links, and the
+Product planning-mode column. It kept a recorded issue identity only when both
+its issue key and URL were non-empty. Use the backup for any reconciliation
+through the Linear MCP server.
 
 </details>
 

@@ -219,6 +219,13 @@ depends on them; a correct producer alone does not prove delivery.
 When work relies on a knowledge entry, check that it applies and that its
 consequential facts hold; a stale or false citation is a finding.
 
+For a defect fix, check that the regression test drives the real call path and
+can fail on the reported symptom, and that evidence shows it failing without
+the fix. A missing failing run is missing required evidence. For a new or
+changed interface, apply the deletion test: a module, wrapper, or seam whose
+removal would leave its callers no more complex is a pass-through, and a seam
+with one adapter is indirection. Tests should cross the interface callers use.
+
 For each defect, state the triggering input or state, impact, and exact source
 location. Distinguish proven defects, missing required evidence, and optional
 suggestions using the existing finding detail. For an oracle-governed finding,

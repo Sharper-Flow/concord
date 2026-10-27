@@ -1,4 +1,4 @@
-# CD-0233: A checks wait waits for every required context
+# CD-0233: Checks-mode success waits for every required context
 
 - **Status:** Accepted
 - **Date:** 2026-10-17
@@ -34,8 +34,10 @@ repos/octocat/Hello-World/branches/master` answers `"protected": false` with
 
 ### D1. Required contexts join the checks population as pending
 
-After merged and closed
-classification, checks mode reads the required contexts of the pull request's
+Checks mode applies the subject qualification and classification rule in
+[CD-0228 D1](CD-0228-merge-waits-report-observed-check-failures-unless-github-reports-unstable.md#d1-common-classification-and-reporting-rule).
+Missing contexts do not delay an observed relevant failure. To judge
+completeness, checks mode reads the required contexts of the pull request's
 base branch. The set is the union of both sources:
 
 - `gh api repos/<repo>/rules/branches/<base>?per_page=100 --method GET --paginate --slurp`,
@@ -48,8 +50,10 @@ population entry names, under the existing case-insensitive name identity,
 joins the population as a `pending` entry. The join runs on the merged
 population, so at the full rollup page the paginated snapshot counts too.
 The report reason names the missing contexts, and `checks.entries` can name a
-context nobody observed. The existing terminal rules then decide. A branch
-with no required context keeps the earlier behavior.
+context nobody observed. CD-0228 D1 governs failure and success; a branch with
+no required context still needs its complete applicable workflow population
+before success. Requiredness discovery, caching and failed-read handling remain
+as defined here.
 
 ### D2. The read is cached per base
 
@@ -84,23 +88,26 @@ D2: it adds no requiredness read.
 
 ## Consequences
 
-A wait whose token cannot read the rules or branch endpoints now ends every
-checks wait as `error`. A branch answer without
-`protection.required_status_checks` also fails closed instead of reporting a
+When completeness requires the requiredness read, a token that cannot read
+the rules or branch endpoints ends the checks wait as `error`. A branch answer
+without `protection.required_status_checks` also fails closed instead of reporting a
 partial success. Whether every token sees the classic contexts was not
 verified: a token that received emptied lists would pass silently.
 
 A required context that another app reports under the same name satisfies the
 requirement here. A ruleset rule can name the integration the status must
 originate from, and then GitHub does not accept that report. A required
-context that never reports leaves the wait pending until the deadline.
+context that never reports leaves a wait with no relevant failure pending
+until the deadline.
 
 ## Verification
 
 - `cmd/concord.TestCiWaitPRChecksModeWaitsForRequiredContexts` proves that a
   context required only by a ruleset or only by classic protection holds the
   wait. It also proves required pass, required failure, and no required
-  context.
+  context. [CD-0228 Verification](CD-0228-merge-waits-report-observed-check-failures-unless-github-reports-unstable.md#verification)
+  also requires fail-fast and queued-workflow checks: missing contexts cannot
+  delay failure, and their presence alone cannot establish success.
 - `cmd/concord.TestCiWaitPRChecksModeRequiredContextAtTheFullPage` proves the
   paginated snapshot counts as observed.
 - `cmd/concord.TestCiWaitPRChecksModeReadsRequiredContextsOncePerBase` proves

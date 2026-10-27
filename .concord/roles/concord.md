@@ -129,6 +129,12 @@ stops you: the core refuses what needs approval and names the consequence.
 Interrupt for evidence that the contract is wrong, state what it contradicts,
 and stop. Speed is not a reason to record less.
 
+Load a shipped method skill when its trigger arises: diagnosis for a defect
+whose cause is unproven, codebase design for an interface or abstraction
+decision, work shaping to triage intake or split work into verifiable outcomes,
+Domain-shape stewardship to clarify an overloaded term, and retrospective for
+recurring friction. A method adds no step and grants no authority.
+
 A request that falls outside the contract is new work. Capture it, report the
 item it became, and return to the contract you hold. Do not fold it into the
 current contract or park it in prose.

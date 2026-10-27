@@ -2,7 +2,43 @@
   "evidence": [
     {
       "kind": "go_test",
-      "value": "cmd/concord.TestCiWaitPRMergeModeCheckFailures"
+      "value": "cmd/concord.TestCiWaitQueuedWorkflows"
+    },
+    {
+      "kind": "go_test",
+      "value": "cmd/concord.TestCiWaitFailFastReports"
+    },
+    {
+      "kind": "go_test",
+      "value": "cmd/concord.TestCiWaitNewestWorkflowAttempts"
+    },
+    {
+      "kind": "go_test",
+      "value": "cmd/concord.TestCiWaitWorkflowPaginationAndReadFailures"
+    },
+    {
+      "kind": "go_test",
+      "value": "cmd/concord.TestCiWaitWorkflowAttemptIdentity"
+    },
+    {
+      "kind": "go_test",
+      "value": "cmd/concord.TestCiWaitFailureDoesNotWaitForRequiredness"
+    },
+    {
+      "kind": "go_test",
+      "value": "cmd/concord.TestCiWaitFailFastServedReport"
+    },
+    {
+      "kind": "go_test",
+      "value": "cmd/concord.TestCiWaitWorkflowSubjectAndCurrentAttempt"
+    },
+    {
+      "kind": "go_test",
+      "value": "cmd/concord.TestCiWaitKnownRunFailureSurvivesMissingJobDetail"
+    },
+    {
+      "kind": "go_test",
+      "value": "cmd/concord.TestCiWaitPRChecksModeMixedFailureAndPendingFails"
     },
     {
       "kind": "go_test",
@@ -15,10 +51,6 @@
     {
       "kind": "go_test",
       "value": "cmd/concord.TestCiWaitPRMergeModeFullPageRollupNeedsNoChecksQuery"
-    },
-    {
-      "kind": "go_test",
-      "value": "cmd/concord.TestCiWaitPRChecksModeMixedFailureAndPendingStaysPending"
     }
   ],
   "id": "CD-0228",

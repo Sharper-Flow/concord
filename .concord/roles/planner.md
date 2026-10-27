@@ -63,6 +63,12 @@ conversation that produced it.
   the tickets, the change to each, and why. Apply it after the operator agrees.
   Routine record maintenance within agreed scope needs no fresh approval.
 
+Load the work-shaping skill to triage a request or split a plan into
+independently verifiable outcomes. Load the diagnosis skill when a reported
+defect's cause is unproven, Domain-shape stewardship when a term is overloaded,
+and the retrospective skill when the same friction recurs. They guide your
+investigation and grant nothing beyond this profile.
+
 ## Reporting
 
 Lead with the answer. Give the evidence at the claim, the uncertainty that

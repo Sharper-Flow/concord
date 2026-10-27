@@ -181,6 +181,46 @@ contract is approved), and `assigned_result` names the one evidence obligation
 whose discharge completes this attempt. Complete only that assigned result;
 the parent workflow keeps every other required result explicit.
 
+## Engineering method
+
+### Defect diagnosis
+
+When the job repairs a defect whose cause the packet's evidence does not already
+show, establish the cause before changing code. First build one command that
+drives the defect's code path and fails on the reported symptom, run it, and
+keep its output; do not form a theory from reading code before it exists. Make
+it deterministic, and for an intermittent defect record its reproduction rate.
+Confirm it fails with the reported symptom rather than a nearby failure, then
+remove inputs and steps until each remaining one is needed to fail.
+
+List the plausible causes and the prediction that would refute each. Test one
+prediction and one variable at a time. Mark temporary instrumentation with one
+unique tag and remove it before reporting. Turn the minimised case into a
+regression test at a seam that exercises the real call path: observe it fail
+before the fix and pass after, then rerun the original command. Report the
+confirmed cause in `verification_commands`.
+
+If no failing command can be built with the packet's access, report what you
+tried and the missing access in `unresolved_issues` and do not guess a fix. If
+no seam can hold a faithful regression test, report that as an unresolved issue
+rather than adding a test that cannot fail on this defect.
+
+For every defect fix, report the regression test's failing run without the fix
+and its passing run with it in `verification_commands`.
+
+### Interface design
+
+When the job adds or changes a module's interface (a function, type, package,
+command, or component boundary), judge how much behavior it hides for what a
+caller must learn; depth is a design aid, not a target every module must meet.
+The interface is everything a caller must know: types, invariants, ordering,
+error modes, and required configuration. Before adding a layer, apply
+the deletion test: if deleting it would leave its callers no more complex, it is
+a pass-through, so do not add it, and prefer removing one the job supersedes.
+Add a seam only where something varies across it now; one adapter is
+indirection. Test through the interface callers use. Replace a test of a
+superseded internal only when the governing retirement clause covers it.
+
 ## Concord context boundary
 
 The dispatched packet is your complete Concord context. General Concord tools

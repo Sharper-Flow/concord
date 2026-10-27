@@ -102,9 +102,12 @@ type ciWaitChecks struct {
 }
 
 type ciWaitCheck struct {
-	Name   string `json:"name"`
-	URL    string `json:"url,omitempty"`
-	Bucket string `json:"bucket"`
+	Name           string `json:"name"`
+	URL            string `json:"url,omitempty"`
+	Bucket         string `json:"bucket"`
+	Classification string `json:"-"`
+	FirstError     string `json:"-"`
+	DetailError    string `json:"-"`
 }
 
 type ciWaitDetail struct {
@@ -468,48 +471,68 @@ func ciWaitPollPR(ctx context.Context, state *ciWaitState) (ciWaitReport, bool, 
 		report.Reason = "the pull request is closed without a merge"
 		return report, true, nil
 	}
-	// Checks mode needs the complete population at the full-page boundary,
-	// so it fetches the paginated `pr checks` snapshot there. Merge mode
-	// classifies only the rollup entries already observed.
-	population, missing, err := ciWaitPRPopulation(ctx, state, head)
+	population, err := ciWaitPRPopulation(ctx, state, head)
 	if err != nil {
-		return ciWaitReport{}, false, err
+		return report, false, err
 	}
-	counts, failures := ciWaitCountPRChecks(population)
-	report.Checks = counts
-	return ciWaitPRCheckReport(ctx, state, head, report, population, missing, failures)
+	report.Checks, _ = ciWaitCountPRChecks(population)
+	// Queue removal retains precedence over head-check failures.
+	if state.Mode == "merge" {
+		removal, err := ciWaitMergeQueueRemoval(ctx, state)
+		if err != nil {
+			return ciWaitReport{}, false, err
+		}
+		if removal != nil {
+			return ciWaitQueueRemovalReport(ctx, state, report, removal), true, nil
+		}
+	}
+	runs, err := ciWaitWorkflowRuns(ctx, state, state.HeadSHA)
+	if err != nil {
+		return report, false, err
+	}
+	population = ciWaitWithoutWorkflowChecks(population, runs)
+	if failed, terminal := ciWaitObservedFailure(state, report, population); terminal {
+		return failed, true, nil
+	}
+	population, err = ciWaitObserveWorkflows(ctx, state, ciWaitNewestWorkflowRuns(runs), population)
+	if err != nil {
+		return report, false, err
+	}
+	if failed, terminal := ciWaitObservedFailure(state, report, population); terminal {
+		return failed, true, nil
+	}
+	var missing []string
+	if state.Mode != "merge" {
+		required, err := ciWaitRequiredContexts(ctx, state, head.BaseRefName)
+		if err != nil {
+			return report, false, err
+		}
+		population, missing = ciWaitJoinRequired(population, required)
+	}
+	report.Checks, _ = ciWaitCountPRChecks(population)
+	return ciWaitPRCheckReport(state, head, report, missing)
 }
 
-func ciWaitPRPopulation(ctx context.Context, state *ciWaitState, head ghPRHead) ([]ciWaitCheck, []string, error) {
+func ciWaitPRPopulation(ctx context.Context, state *ciWaitState, head ghPRHead) ([]ciWaitCheck, error) {
 	var population []ciWaitCheck
 	switch {
 	case state.Mode != "merge" && len(head.StatusCheckRollup) == ciWaitPRRollupPageSize:
 		checksBody, err := ciWaitGH(ctx, "pr", "checks", state.Selector.Value,
 			"--repo", state.Repo, "--json", "name,state,link,bucket")
 		if err != nil {
-			return nil, nil, err
+			return nil, err
 		}
 		var checks []ghPRCheck
 		if err := ciWaitDecode(checksBody, &checks); err != nil {
-			return nil, nil, err
+			return nil, err
 		}
-		population = ciWaitPRCheckPopulation(checks, head.StatusCheckRollup)
-	case state.Mode == "merge":
+		population = ciWaitPRCheckPopulation(checks, ciWaitNewestRollupPerIdentity(head.StatusCheckRollup))
+	default:
 		for _, entry := range ciWaitNewestRollupPerIdentity(head.StatusCheckRollup) {
 			population = append(population, ciWaitRollupCheck(entry))
 		}
-	default:
-		population = ciWaitPRCheckPopulation(nil, head.StatusCheckRollup)
 	}
-	var missing []string
-	if state.Mode != "merge" {
-		required, err := ciWaitRequiredContexts(ctx, state, head.BaseRefName)
-		if err != nil {
-			return nil, nil, err
-		}
-		population, missing = ciWaitJoinRequired(population, required)
-	}
-	return population, missing, nil
+	return population, nil
 }
 
 func ciWaitCountPRChecks(population []ciWaitCheck) (*ciWaitChecks, []ciWaitDetail) {
@@ -522,10 +545,15 @@ func ciWaitCountPRChecks(population []ciWaitCheck) (*ciWaitChecks, []ciWaitDetai
 			counts.Passing++
 		case "fail":
 			counts.Failing++
+			classification := check.Classification
+			if classification == "" {
+				classification = ciWaitClassifyName(check.Name)
+			}
 			failures = append(failures, ciWaitDetail{
 				Name:           check.Name,
 				URL:            check.URL,
-				Classification: ciWaitClassifyName(check.Name),
+				Classification: classification,
+				FirstError:     check.FirstError,
 			})
 		case "skipping":
 			counts.Skipped++
@@ -536,52 +564,27 @@ func ciWaitCountPRChecks(population []ciWaitCheck) (*ciWaitChecks, []ciWaitDetai
 	return counts, failures
 }
 
-func ciWaitPRCheckReport(ctx context.Context, state *ciWaitState, head ghPRHead, report ciWaitReport, population []ciWaitCheck, missing []string, failures []ciWaitDetail) (ciWaitReport, bool, error) {
+func ciWaitPRCheckReport(state *ciWaitState, head ghPRHead, report ciWaitReport, missing []string) (ciWaitReport, bool, error) {
 	counts := report.Checks
 	if state.Mode == "merge" {
-		removal, err := ciWaitMergeQueueRemoval(ctx, state)
-		if err != nil {
-			return ciWaitReport{}, false, err
-		}
-		if removal != nil {
-			return ciWaitQueueRemovalReport(ctx, state, report, removal), true, nil
-		}
-		// GitHub's MergeStateStatus documents UNSTABLE as "Mergeable with
-		// non-passing commit status", so an observed failure there keeps
-		// the merge possible and the wait stays pending.
-		if counts.Failing == 0 || strings.EqualFold(head.MergeStateStatus, "UNSTABLE") {
-			if ciWaitMergeable(head.MergeStateStatus) {
-				report.Reason = "the pull request can merge but is not merged yet"
-				return report, false, nil
-			}
+		if ciWaitMergeable(head.MergeStateStatus) {
+			report.Reason = "the pull request can merge but is not merged yet"
+		} else {
 			report.Reason = "the pull request is not mergeable yet"
-			return report, false, nil
 		}
-	} else {
-		// An empty check set is never success: a PR with no checks yet stays
-		// pending until the deadline, and the timeout report says so.
-		if counts.Total == 0 {
-			report.Reason = "no checks reported for this pull request yet"
-			return report, false, nil
-		}
-		if len(missing) > 0 {
-			report.Reason = "required checks not reported yet: " + strings.Join(missing, ", ")
-			return report, false, nil
-		}
-		if head.StatusCheckRollup != nil && !ciWaitRollupTerminal(head.StatusCheckRollup) {
-			report.Reason = "the pull request status check rollup is not complete yet"
-			return report, false, nil
-		}
-		if counts.Pending > 0 {
-			return report, false, nil
-		}
+		return report, false, nil
 	}
-	if counts.Failing > 0 {
-		report.Status = "failure"
-		report.Failures = failures
-		report.RunURL = ciWaitFirstRunURLForPopulation(state.Repo, population)
-		ciWaitCollectFailureExcerpts(ctx, state, report.Failures)
-		return report, true, nil
+	if counts.Total == 0 {
+		report.Reason = "no checks reported for this pull request yet"
+		return report, false, nil
+	}
+	if len(missing) > 0 {
+		report.Reason = "required checks not reported yet: " + strings.Join(missing, ", ")
+		return report, false, nil
+	}
+	if counts.Pending > 0 {
+		report.Reason = "the check and workflow population is not complete yet"
+		return report, false, nil
 	}
 	if ciWaitMergeConflict(head.MergeStateStatus) {
 		report.Reason = "the pull request checks passed but GitHub reports a merge conflict"
@@ -600,6 +603,9 @@ func ciWaitPRCheckPopulation(checks []ghPRCheck, rollup []ghPRRollup) []ciWaitCh
 	positions := make(map[string]int, len(checks)+len(rollup))
 	for _, check := range checks {
 		observed := ciWaitCheck{Name: check.Name, URL: check.Link, Bucket: check.Bucket}
+		if observed.Bucket == "cancel" {
+			observed.Bucket, observed.Classification = "fail", "cancelled"
+		}
 		key := ciWaitCheckKey(observed.Name)
 		if key == "" {
 			key = fmt.Sprintf("snapshot-%d", len(population))
@@ -662,16 +668,6 @@ func ciWaitNewestRollupPerIdentity(rollup []ghPRRollup) []ghPRRollup {
 
 func ciWaitCheckKey(name string) string {
 	return strings.ToLower(strings.TrimSpace(name))
-}
-
-func ciWaitRollupTerminal(rollup []ghPRRollup) bool {
-	for _, entry := range rollup {
-		_, terminal := ciWaitRollupBucket(entry)
-		if !terminal {
-			return false
-		}
-	}
-	return true
 }
 
 func ciWaitRollupBucket(entry ghPRRollup) (string, bool) {
@@ -758,59 +754,32 @@ func ciWaitSortRuns(runs []ghRunSummary) {
 }
 
 func ciWaitPollSHA(ctx context.Context, state *ciWaitState) (ciWaitReport, bool, error) {
-	body, err := ciWaitGH(ctx, "run", "list", "--repo", state.Repo,
-		"--commit", state.Selector.Value, "--json", ciWaitRunListFields)
+	state.LastSHA = strings.ToLower(state.Selector.Value)
+	runs, err := ciWaitWorkflowRuns(ctx, state, state.LastSHA)
 	if err != nil {
 		return ciWaitReport{}, false, err
 	}
-	var runs []ghRunSummary
-	if err := ciWaitDecode(body, &runs); err != nil {
-		return ciWaitReport{}, false, err
-	}
-	ciWaitSortRuns(runs)
-	state.LastSHA = strings.ToLower(state.Selector.Value)
-	// A commit with no runs yet is pending, never success: the empty set does
-	// not silently count as passing CI.
+	runs = ciWaitNewestWorkflowRuns(runs)
+	report := ciWaitReport{Status: "pending", SHA: state.LastSHA, Checks: &ciWaitChecks{}}
 	if len(runs) == 0 {
-		return ciWaitReport{
-			Status: "pending",
-			Reason: "no workflow runs observed for this commit yet",
-			SHA:    state.LastSHA,
-			Checks: &ciWaitChecks{},
-		}, false, nil
+		report.Reason = "no workflow runs observed for this commit yet"
+		return report, false, nil
 	}
-	counts := &ciWaitChecks{Total: len(runs)}
-	var failures []ciWaitDetail
-	for _, run := range runs {
-		switch ciWaitRunBucket(run) {
-		case "pass":
-			counts.Passing++
-		case "skipping":
-			counts.Skipped++
-		case "fail":
-			counts.Failing++
-			failures = append(failures, ciWaitRunFailure(run))
-		default:
-			counts.Pending++
-		}
+	report.RunURL = runs[0].URL
+	population, err := ciWaitObserveWorkflows(ctx, state, runs, nil)
+	if err != nil {
+		return report, false, err
 	}
-	report := ciWaitReport{
-		Status: "pending",
-		SHA:    state.LastSHA,
-		Checks: counts,
-		RunURL: runs[0].URL,
+	if failed, terminal := ciWaitObservedFailure(state, report, population); terminal {
+		return failed, true, nil
 	}
-	if counts.Pending == 0 {
-		if counts.Failing > 0 {
-			report.Status = "failure"
-			report.Failures = failures
-			report.RunURL = failures[0].URL
-		} else {
-			report.Status = "success"
-		}
-		return report, true, nil
+	report.Checks, _ = ciWaitCountPRChecks(population)
+	if report.Checks.Pending > 0 {
+		report.Reason = "the workflow population is not complete yet"
+		return report, false, nil
 	}
-	return report, false, nil
+	report.Status = "success"
+	return report, true, nil
 }
 
 // ciWaitRunBucket classifies one workflow run: an unfinished run is pending,
@@ -844,11 +813,12 @@ type ghRunDetail struct {
 	Conclusion string `json:"conclusion"`
 	URL        string `json:"url"`
 	HeadSHA    string `json:"headSha"`
+	Attempt    int    `json:"attempt"`
 }
 
 func ciWaitPollRun(ctx context.Context, state *ciWaitState) (ciWaitReport, bool, error) {
 	body, err := ciWaitGH(ctx, "run", "view", state.Selector.Value,
-		"--repo", state.Repo, "--json", "status,conclusion,url,headSha")
+		"--repo", state.Repo, "--json", "status,conclusion,url,headSha,attempt")
 	if err != nil {
 		return ciWaitReport{}, false, err
 	}
@@ -856,39 +826,30 @@ func ciWaitPollRun(ctx context.Context, state *ciWaitState) (ciWaitReport, bool,
 	if err := ciWaitDecode(body, &run); err != nil {
 		return ciWaitReport{}, false, err
 	}
-	state.LastSHA = run.HeadSHA
-	counts := &ciWaitChecks{Total: 1}
-	report := ciWaitReport{
-		Status: "pending",
-		SHA:    run.HeadSHA,
-		RunURL: run.URL,
-		Checks: counts,
+	if run.Attempt <= 0 || run.HeadSHA == "" {
+		return ciWaitReport{}, false, fmt.Errorf("gh run view returned no qualified subject or attempt")
 	}
-	if run.Status != "completed" {
-		counts.Pending = 1
+	state.LastSHA = run.HeadSHA
+	id, _ := strconv.ParseInt(state.Selector.Value, 10, 64)
+	report := ciWaitReport{Status: "pending", SHA: run.HeadSHA, RunURL: run.URL}
+	population, err := ciWaitObserveWorkflows(ctx, state, []ciWaitWorkflowRun{{
+		ID: id, Attempt: run.Attempt, HeadSHA: run.HeadSHA, Name: "run " + state.Selector.Value,
+		Status: run.Status, Conclusion: run.Conclusion, URL: run.URL,
+	}}, nil)
+	if err != nil {
+		return report, false, err
+	}
+	if failed, terminal := ciWaitObservedFailure(state, report, population); terminal {
+		return failed, true, nil
+	}
+	report.Checks, _ = ciWaitCountPRChecks(population)
+	if report.Checks.Pending > 0 {
+		report.Reason = "the workflow population is not complete yet"
 		return report, false, nil
 	}
-	switch run.Conclusion {
-	case "success":
-		counts.Passing = 1
-		report.Status = "success"
-	case "skipped", "neutral":
-		counts.Skipped = 1
-		report.Status = "success"
+	report.Status = "success"
+	if run.Conclusion == "skipped" || run.Conclusion == "neutral" {
 		report.Reason = "the run concluded " + run.Conclusion
-	case "cancelled":
-		counts.Failing = 1
-		report.Status = "failure"
-		report.Failures = []ciWaitDetail{{
-			Name: "run " + state.Selector.Value, URL: run.URL, Classification: "cancelled",
-		}}
-	default:
-		counts.Failing = 1
-		report.Status = "failure"
-		report.Failures = []ciWaitDetail{{
-			Name: "run " + state.Selector.Value, URL: run.URL,
-			Classification: ciWaitClassifyName(""),
-		}}
 	}
 	return report, true, nil
 }

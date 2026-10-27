@@ -29,14 +29,14 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:1717d9907877eaff1bb1c0ebc5d57ff254a2bcdc37103114488ad5ac4824e2f5",
+  "sha256": "sha256:8d255f4bc93aca70ab53a5ba87982ed75f510de135d1e8ed873c2b13727ab161",
   "status": "accepted",
-  "summary": "Checks mode reads the base branch's required status check contexts from both rulesets and classic protection, caches the union per base in the wait state, and adds each unobserved required context to the population as pending. A failed read is an error and a stalled read is pending. Merge mode reads no requiredness.",
+  "summary": "For checks-mode completeness, the base branch's required contexts join the population as pending from rulesets and classic protection. Missing contexts do not delay an observed relevant failure under CD-0228, and complete applicable workflows are still needed for success. The union stays cached per base; a failed read is an error and a stalled read is pending. Merge mode reads no requiredness.",
   "tags": [
     "ci-wait",
     "cli",
     "github",
     "operator-surface"
   ],
-  "title": "A checks wait waits for every required context"
+  "title": "Checks-mode success waits for every required context"
 }

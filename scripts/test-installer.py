@@ -2633,14 +2633,19 @@ esac''',
             for path in sorted((repository / origin).rglob("*"))
             if path.is_file() and (directory != "agents" or fnmatch.fnmatch(path.name, installer.AGENT_GLOB))
         }
-        skill_relatives = {
-            "skills/concord-domain-shape-stewardship/SKILL.md",
-            "skills/concord-law-writing/SKILL.md",
-        }
+        skill_names = [
+            "concord-codebase-design",
+            "concord-diagnosis",
+            "concord-domain-shape-stewardship",
+            "concord-law-writing",
+            "concord-retrospective",
+            "concord-work-shaping",
+        ]
+        skill_relatives = {f"skills/{name}/SKILL.md" for name in skill_names}
         self.assertEqual(
             {name for name in expected_files if name.startswith("skills/")},
-            {"skills/README.md", *skill_relatives, "skills/concord-law-writing/LICENSE"},
-            "CD-0245 admits the declared skills and their support files, not arbitrary executable skills",
+            {"skills/README.md", *skill_relatives, *(f"skills/{name}/LICENSE" for name in skill_names)},
+            "CD-0245 and CD-0246 admit the declared skills and their support files, not arbitrary executable skills",
         )
         self.assertIn(b"\nCommit only durable content. ", expected_files["instructions/change.md"])
         expected_by_version = {
@@ -2710,7 +2715,7 @@ esac''',
                 self.assertEqual(skill.read_bytes(), expected_files[relative])
             self.assertEqual(
                 sorted(path.parent.name for path in registered.glob("*/SKILL.md")),
-                ["concord-domain-shape-stewardship", "concord-law-writing"],
+                skill_names,
             )
             for path, content in user_files.items():
                 self.assertEqual(path.read_bytes(), content, str(path.relative_to(self.root)))

@@ -1,0 +1,41 @@
+{
+  "authority": {
+    "tier": "derived"
+  },
+  "date": "2026-10-27T00:00:00Z",
+  "doc_contract_profile": "current",
+  "home_domain_id": "agent-surface",
+  "id": "CD-0246",
+  "kind": "decision",
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0043"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0063"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0245"
+    }
+  ],
+  "path": ".concord/docs/decisions/CD-0246-concord-ships-portable-engineering-methods.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:35b848f65f70db449f9f851828d507c44a26bbf496317d6198762284eab7b110",
+  "status": "accepted",
+  "summary": "Concord may ship tool-independent engineering methods for diagnosing defects, designing interfaces, shaping work, and improving instructions and checks. A lane's generated definition carries the method its purpose uses, bound by dispatch provenance; other agents receive occasional methods as shipped skills through the existing install route. Host-specific procedure stays host-owned, and a method adds no workflow step, approval, packet field, capability, check, or authority.",
+  "tags": [
+    "skills",
+    "lanes",
+    "methods"
+  ],
+  "title": "Concord ships portable engineering methods"
+}

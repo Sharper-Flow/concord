@@ -4,8 +4,8 @@
 - **Date:** 2026-10-17
 - **Scope:** Merge-mode classification in `concord ci-wait`; the verb's
   `gh api` read boundary and its `repo` input
-- **Preserves:** Head supersession, merged and closed precedence, the
-  `UNSTABLE` exception for check failures, checks mode, bounded slices,
+- **Preserves:** Head supersession, merged and closed precedence,
+  checks mode, bounded slices,
   carried deadlines, and the closed report statuses
 - **Related:** [CD-0168](CD-0168-the-ci-wait-pr-population-follows-the-rollup-page-boundary.md),
   [CD-0233](CD-0233-a-checks-wait-waits-for-every-required-context.md)
@@ -60,12 +60,12 @@ a fresh enqueue that the wait has not observed yet. Such a wait stays pending
 until a later event or the deadline. A manual dequeue is a removal like any
 other, and it reports `failure`.
 
-### D2. The removal precedes check failures and the UNSTABLE exception
+### D2. The removal precedes check failures
 
 A queue removal is classified before the check failures of
 [CD-0228](CD-0228-merge-waits-report-observed-check-failures-unless-github-reports-unstable.md)
-D1. `UNSTABLE` does not hold a removal open, because the queue has already
-decided the pull request will not merge from this entry. The report reason
+D1's common classification and reporting rule. `UNSTABLE` delays neither
+the removal nor an observed relevant failure. The report reason
 names the removal and GitHub's reason string, for example
 `the merge queue removed the pull request without merging (failed_checks)`.
 
@@ -136,7 +136,7 @@ The `concord_ci_watch` input schema already refuses every such value.
 - `cmd/concord.TestCiWaitPRMergeModeQueueRemovalEndsTheWait` proves a fresh
   removal ends the wait and names the failed merge-group run.
 - `cmd/concord.TestCiWaitPRMergeModeQueueRemovalPrecedesCheckFailures` proves
-  D2: the removal wins over a failed head check and over `UNSTABLE`.
+  D2: the removal wins over a failed head check, including with `UNSTABLE`.
 - `cmd/concord.TestCiWaitPRMergeModeQueueEventsThatKeepTheWaitOpen` proves a
   merge removal, a closed, merged, or changed head, the baseline removal, a
   re-enqueue, and no event stay pending.

@@ -177,6 +177,11 @@ Prefer primary sources; distinguish source observations from your inferences.
 Check versions and dates before comparing claims. One decisive source can be
 enough; do not add searches or citations merely to fill a quota.
 
+When the question asks why a defect occurs, list the plausible causes with the
+observation that would refute each, and report which observations confirm or
+refute each one. Keep a cause the evidence does not confirm in `uncertainties`
+as a hypothesis, never as a finding.
+
 Lead with the answer in the first `evidence` entry's `detail`, not a new
 report field. Put supporting findings and retrieval handles in existing
 `evidence` entries. Keep the required `source_citations`, `bounded_findings`,

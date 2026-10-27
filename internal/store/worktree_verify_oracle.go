@@ -256,7 +256,11 @@ func readNativeOracleDispatchTx(ctx context.Context, q queryer, req WorktreeVeri
 	if err != nil && !oracleSubjectMoved(err) {
 		return b, version, auth, err
 	}
-	if !slices.Contains(b.Control.ReadinessEvidenceRefs, req.Oracle.PreparationRunRef) {
+	dispatch, _, dispatchErr := readNativeOracleDispatchBindingTx(ctx, q, req.WorkID, req.Oracle.AttemptID)
+	if dispatchErr != nil {
+		return b, version, auth, dispatchErr
+	}
+	if ref, ok := nativeDispatchPreparationRef(dispatch, b, req.Oracle.PreparationRunRef); !ok || ref != req.Oracle.PreparationRunRef {
 		return b, version, auth, oracleFailure(KindUnauthorizedDispatch, "native oracle execution lacks the exact live dispatch and candidate binding", "authorize a fresh exact job/packet/candidate before execution")
 	}
 	return b, version, auth, err
@@ -374,13 +378,13 @@ func readNativeOracleAuthorizationTx(ctx context.Context, tx queryer, req Worktr
 	if err != nil {
 		return b, version, auth, err
 	}
+	dispatch, _, err := readNativeOracleDispatchBindingTx(ctx, tx, req.WorkID, req.Oracle.AttemptID)
+	if err != nil {
+		return b, version, auth, err
+	}
 	repair := nativeReviewRepairFrom(ctx)
 	preparationSubject := observed.head
 	if repair != nil {
-		dispatch, _, err := readNativeOracleDispatchBindingTx(ctx, tx, req.WorkID, req.Oracle.AttemptID)
-		if err != nil {
-			return b, version, auth, err
-		}
 		if repair.Commit != observed.head || validateNativeReviewRepairTx(ctx, tx, req.WorkID, dispatch, repair) != nil {
 			return refuse()
 		}
@@ -389,7 +393,13 @@ func readNativeOracleAuthorizationTx(ctx context.Context, tx queryer, req Worktr
 	if core == "" || (core != observed.head && (repair == nil || core != repair.Base)) {
 		return refuse()
 	}
-	if repair == nil {
+	if repair == nil && dispatch.WorkerCapabilityClass == "review" && len(dispatch.WorkerOraclePreparations) != 0 {
+		// The Review authorization froze its preparation (CD-0205 D1);
+		// job admission is state-only and the receipt join below binds the subject.
+		if err := requireWorkerReviewJobRevisionStateTx(ctx, tx, req.WorkID, *req.Oracle.WorkerJobBinding); err != nil {
+			return b, version, auth, err
+		}
+	} else if repair == nil {
 		if err := requireWorkerJobRevisionReadyTx(ctx, tx, req.WorkID, *req.Oracle.WorkerJobBinding); err != nil {
 			return b, version, auth, err
 		}
@@ -511,24 +521,9 @@ func validateNativeJobPreparations(ctx context.Context, q queryer, work string, 
 }
 
 func readSelectedOraclePreparations(ctx context.Context, q queryer, work string) ([]NativeOraclePreparation, error) {
-	jobs, err := readWorkerJobRevisions(ctx, q, work)
-	if err != nil {
+	selected, err := selectedPreparationJobTx(ctx, q, work)
+	if err != nil || selected == nil || selected.AcceptanceOracle == nil {
 		return nil, err
-	}
-	var selected *WorkerJobRevisionView
-	for i := range jobs {
-		if jobs[i].Ready {
-			// Several jobs may be ready at once, so the context cannot
-			// select one. Dispatch admission still checks the bound job's
-			// preparations (requireWorkerJobRevisionReadyTx).
-			if selected != nil {
-				return nil, nil
-			}
-			selected = &jobs[i]
-		}
-	}
-	if selected == nil || selected.AcceptanceOracle == nil {
-		return nil, nil
 	}
 	var preparations []NativeOraclePreparation
 	seen := map[string]bool{}
@@ -537,24 +532,77 @@ func readSelectedOraclePreparations(ctx context.Context, q queryer, work string)
 		if err != nil {
 			return nil, err
 		}
-		for _, ref := range control.ReadinessEvidenceRefs {
-			if seen[ref] {
-				continue
-			}
-			seen[ref] = true
-			p, err := readOraclePreparationReceiptTx(ctx, q, work, control.RecipeSource.ProjectID, ref)
-			if err != nil {
-				return nil, err
-			}
-			if p == nil || p.ContractVersion != selected.ContractVersion || p.BundleDigest != nativeBundleDigest(bundle) {
-				return nil, oracleFailure(KindMissingEvidence, "selected job has no exact native preparation", "prepare and record the exact bundle")
-			}
-			preparations = append(preparations, *p)
+		if preparations, err = appendControlPreparationsTx(ctx, q, work, selected.ContractVersion, bundle, seen, preparations); err != nil {
+			return nil, err
 		}
 	}
 	raw, _ := json.Marshal(preparations)
 	if len(raw) > 32*1024 {
 		return nil, oracleFailure(KindLimitExceeded, "selected preparation metadata exceeds 32 KiB", "reduce the selected harness inventory")
+	}
+	return preparations, nil
+}
+
+// selectedPreparationJobTx selects the job whose preparations the context
+// carries: the sole ready revision, or with none ready the final-Review
+// revision (CD-0205 D2). Several ready revisions select none; dispatch
+// admission still checks the bound job's preparations.
+func selectedPreparationJobTx(ctx context.Context, q queryer, work string) (*WorkerJobRevisionView, error) {
+	jobs, err := readWorkerJobRevisions(ctx, q, work)
+	if err != nil {
+		return nil, err
+	}
+	var selected *WorkerJobRevisionView
+	for i := range jobs {
+		if jobs[i].Ready {
+			if selected != nil {
+				return nil, nil
+			}
+			selected = &jobs[i]
+		}
+	}
+	if selected != nil {
+		return selected, nil
+	}
+	final, err := finalReviewWorkerJobTx(ctx, q, work)
+	if err != nil || final == nil {
+		return nil, err
+	}
+	for i := range jobs {
+		if jobs[i].Binding == *final {
+			return &jobs[i], nil
+		}
+	}
+	return nil, nil
+}
+
+// appendControlPreparationsTx appends the control's recorded preparations,
+// each exact for its bundle and contract, then the latest qualified
+// preparation of the unchanged bundle on the current candidate, which a
+// Review dispatch may bind and freeze (CD-0205 D1).
+func appendControlPreparationsTx(ctx context.Context, q queryer, work string, version int64, bundle NativeOracleControlBundle, seen map[string]bool, preparations []NativeOraclePreparation) ([]NativeOraclePreparation, error) {
+	project := bundle.Control.RecipeSource.ProjectID
+	for _, ref := range bundle.Control.ReadinessEvidenceRefs {
+		if seen[ref] {
+			continue
+		}
+		seen[ref] = true
+		p, err := readOraclePreparationReceiptTx(ctx, q, work, project, ref)
+		if err != nil {
+			return nil, err
+		}
+		if p == nil || p.ContractVersion != version || p.BundleDigest != nativeBundleDigest(bundle) {
+			return nil, oracleFailure(KindMissingEvidence, "selected job has no exact native preparation", "prepare and record the exact bundle")
+		}
+		preparations = append(preparations, *p)
+	}
+	p, err := latestNativeBundlePreparationTx(ctx, q, work, project, version, bundle)
+	if err != nil {
+		return nil, err
+	}
+	if p != nil && !seen[p.RunRef] {
+		seen[p.RunRef] = true
+		preparations = append(preparations, *p)
 	}
 	return preparations, nil
 }
@@ -1029,7 +1077,8 @@ func (s *Store) releaseNativeOracle(ctx context.Context, req WorktreeVerifyReque
 	version, versionErr := activeWorkflowContractVersion(ctx, tx, req.WorkID, "worktree_verify")
 	outsideErr := requireNoOutsideRepairTx(ctx, tx, req.WorkID, "worktree_verify")
 	if req.Oracle.Phase == "execute" && valid && current == stamp {
-		if readyErr := requireWorkerJobRevisionStateReadyTx(ctx, tx, req.WorkID, *req.Oracle.WorkerJobBinding); readyErr != nil {
+		dispatch, _, dispatchErr := readNativeOracleDispatchBindingTx(ctx, tx, req.WorkID, req.Oracle.AttemptID)
+		if dispatchErr != nil || nativeDispatchJobStateTx(ctx, tx, req.WorkID, dispatch, *req.Oracle.WorkerJobBinding) != nil {
 			valid = false
 		}
 	}

@@ -137,6 +137,18 @@ test("qualified preparation refs and metadata are mandatory before any probe or 
   }
 })
 
+test("only Review may carry a qualified preparation outside the recorded references", async () => {
+  const review = agentLanes.find((entry) => entry.id === "review")!
+  const later = packet()
+  later.inputs.work_context!.oracle_preparations![0].run_ref = "run:later"
+  expect((await verifyPacketOracleReadiness(later))!.message).toContain("preparation")
+  later.lane_id = review.id
+  later.lane_digest = review.digest
+  expect(await verifyPacketOracleReadiness(later)).toBeNull()
+  later.inputs.work_context!.oracle_preparations![0].subject_commit = "c".repeat(40)
+  expect((await verifyPacketOracleReadiness(later))!.message).toContain("preparation")
+})
+
 test("target preparations pass only the exact admitted materializer and runner pairs", async () => {
   for (const pair of [
     { materializer: "uv", runner: "pytest" },

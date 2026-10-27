@@ -108,12 +108,11 @@ func TestRepeatedFailedCorrectionKeepsLaunchFenceAndRecovery(t *testing.T) {
 
 	// Contract recovery still retires the old job revision.
 	supersedeEscalatedCorrectionContract(t, s, owner, workVersion(t, s, "work-1"), 2, "the failed retry needs a corrected objective")
-	recordReadyRetryJobUnderContract(t, s, service, mutationEnvelope(grant, mustScopeVersion(t, s)), "job:retry-objective-2-review", 2)
+	recordReadyRetryJobUnderContract(t, s, service, mutationEnvelope(grant, mustScopeVersion(t, s)), "job:retry-objective-2", 2)
 	oAgentReview(t, oAgentFixture(t, s, service, env, "work-1"), "continue", false)
 	if epoch := escalatedDispatchEpoch(t, s); epoch != retryAttemptEpoch+1 {
 		t.Fatalf("contract-recovery Review epoch=%d, want the fenced epoch after %d", epoch, retryAttemptEpoch)
 	}
-	recordReadyRetryJobUnderContract(t, s, service, mutationEnvelope(grant, mustScopeVersion(t, s)), "job:retry-objective-2", 2)
 	renewedWantEpoch := escalatedDispatchEpoch(t, s) + 1
 	renewedInput := map[string]any{
 		"work_id": "work-1", "expected_version": workVersion(t, s, "work-1"), "action_id": "dispatch_worker",
@@ -256,9 +255,8 @@ func seedEscalatedFailedWorkerMutation(t *testing.T, s *store.Store, service *Se
 			t.Fatal(selectErr)
 		}
 		inputs["worker_job"] = json.RawMessage(selected)
-		// The Review consumes its own job, so the selected implementation
-		// revision stays ready for this cycle's dispatch.
-		recordReadyRetryJob(t, s, service, env, "job:escalated-"+strconv.FormatInt(cycle, 10)+"-review")
+		// Review binds the selected job; continue leaves it ready for this
+		// cycle's dispatch (CD-0205 D3).
 		oAgentReview(t, oAgentFixture(t, s, service, env, "work-1"), "continue", false)
 		version = workVersion(t, s, "work-1")
 		packet := bindPacketToRecordedState(t, s, map[string]any{"schema_version": store.WorkerPacketSchemaVersion, "attempt_id": attemptID, "lane_id": lane.ID, "lane_digest": lane.Digest, "work_id": "work-1", "step_id": "execution", "inputs": inputs})

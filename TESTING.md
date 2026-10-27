@@ -131,11 +131,11 @@ CI remains the executable inventory. Do not maintain a second test catalog.
 * Native-tool integration remains with its owning store/agent mechanisms. Use
   CI's Go/Bun/uv versions and offline preparation. Do not remove preparation from a
   shard without evidence that none of its tests needs it.
-* `cmd/concord` has separate required shards. Unsharded Go packages use the
-  `verify-tests-rest` job. Adapter jobs own Bun test files and existing timing
-  artifacts; `verify-tooling` owns the Python battery.
+* `internal/agent` and `cmd/concord` have separate required shards. Unsharded
+  Go packages use the `verify-tests-rest` job. Adapter jobs own Bun test files
+  and existing timing artifacts; `verify-tooling` owns the Python battery.
 * `bin/oc-test conformance` explicitly enables the long ten-process harness.
-  Smoke excludes both sharded Go packages, but includes the adapter suite and
+  Smoke excludes every sharded Go package, but includes the adapter suite and
   JSON/law validation. It is not a cheap substitute for a named regression.
 
 Current deterministic round-robin sharding includes newly discovered tests and

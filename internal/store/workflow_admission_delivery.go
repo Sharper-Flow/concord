@@ -363,7 +363,7 @@ func workflowDeliveryJobsFailure(state workflowDeliveryAdmission, accepting *Wor
 	if len(unsatisfied) != 0 {
 		return newFailure(KindMissingEvidence, "workflow_action",
 			fmt.Sprintf("the delivery assertion requires every recorded worker job satisfied: %d required job revision(s) remain unsatisfied (%s)", len(unsatisfied), workflowRefExcerpt(strings.Join(unsatisfied, ", "))),
-			false, "satisfy or re-record the unsatisfied worker jobs before asserting whole-work delivery")
+			false, "execute and accept the listed unsatisfied worker jobs before whole-work delivery; do not re-record unchanged content to obtain satisfaction; if a job truly changes, record and prepare it, then "+workflowReviewRecovery("", "covering the revised job before implementation"))
 	}
 	confirmationRequired := state.ChecksRepairUnconfirmedReview
 	if accepting != nil {
@@ -374,7 +374,7 @@ func workflowDeliveryJobsFailure(state workflowDeliveryAdmission, accepting *Wor
 	if confirmationRequired {
 		return newFailure(KindMissingEvidence, "workflow_action",
 			"the delivery assertion requires an accepted confirming Review for an unconfirmed checks repair",
-			false, "accept the confirming Review's continue or ready_for_final_proof disposition before asserting whole-work delivery")
+			false, workflowReviewRecovery("", "confirming the checks repair with disposition continue or ready_for_final_proof before asserting whole-work delivery"))
 	}
 	if state.JobsRecorded && !state.JobsIntegrated {
 		return newFailure(KindMissingEvidence, "workflow_action",
@@ -447,13 +447,13 @@ func workflowAdmitReview(state WorkflowReviewState, group string) error {
 		return err
 	}
 	if state.StaleJobs[group] || group == "" && len(state.StaleJobs) != 0 {
-		return reviewFailure(KindMissingEvidence, "a changed worker-job revision requires a current accepted Review", "obtain and accept a Review covering the revised job before dispatch or execution exit")
+		return reviewFailure(KindMissingEvidence, "a changed worker-job revision requires a current accepted Review", workflowReviewRecovery("", "covering the revised job before implementation dispatch or execution exit"))
 	}
 	if admitted, found := state.Groups[group]; found && admitted.CorrectionRef != "" && state.Accepted != nil && state.Accepted.ReportRef == admitted.ReviewRef && state.DependenciesCurrent {
 		return nil
 	}
 	if blocker := state.blocker(); blocker != "" {
-		return reviewFailure(KindMissingEvidence, "open in-scope blocking finding "+blocker+" blocks execution progression", "obtain an evidenced closure of "+blocker+" and have Main accept that Review report")
+		return reviewFailure(KindMissingEvidence, "open in-scope blocking finding "+blocker+" blocks execution progression", workflowReviewRecovery("repair the blocking finding "+blocker+" and capture its closure evidence", "carrying the evidenced closure of "+blocker))
 	}
 	if admitted, found := state.Groups[group]; group != "" && found {
 		applicable := state.Accepted != nil && state.Candidate != nil && state.Accepted.Report.OutputCandidate == *state.Candidate
@@ -472,27 +472,27 @@ func workflowAdmitReview(state WorkflowReviewState, group string) error {
 		return nil
 	}
 	if state.Accepted == nil || state.Candidate == nil || state.Accepted.Report.OutputCandidate != *state.Candidate || !state.DependenciesCurrent {
-		return reviewFailure(KindMissingEvidence, "execution progression requires an accepted Review on the current candidate and depended-on revisions", "obtain and accept a Review of the current integrated candidate; only valid preceding exits admit the first group")
+		return reviewFailure(KindMissingEvidence, "execution progression requires an accepted Review on the current candidate and depended-on revisions", workflowReviewRecovery("", "covering the current integrated candidate and depended-on revisions; only valid preceding exits admit the first group"))
 	}
 	disposition := state.Accepted.Report.Disposition
 	if group != "" {
 		if disposition != "continue" {
-			return reviewFailure(KindMissingEvidence, "opening an ordinary assignment group requires accepted continue, not "+disposition, "obtain and accept continue, or follow the report's declared corrective/upstream obligation")
+			return reviewFailure(KindMissingEvidence, "opening an ordinary assignment group requires accepted continue, not "+disposition, workflowReviewRecovery("follow the report's declared corrective/upstream obligation", "with disposition continue for implementation of the same bound job"))
 		}
 		if state.ContinueConsumed && state.GroupID != group {
-			return reviewFailure(KindOperationConflict, "this continue permission has already opened group "+state.GroupID, "finish that group, integrate its results, and obtain a new accepted continue")
+			return reviewFailure(KindOperationConflict, "this continue permission has already opened group "+state.GroupID, workflowReviewRecovery("finish group "+state.GroupID+" and integrate its results", "with a new continue disposition for implementation of the same bound job"))
 		}
 		return nil
 	}
 	if disposition != "ready_for_final_proof" {
-		return reviewFailure(KindMissingEvidence, "leaving execution requires accepted ready_for_final_proof, not "+disposition, "obtain and accept ready_for_final_proof on the current candidate")
+		return reviewFailure(KindMissingEvidence, "leaving execution requires accepted ready_for_final_proof, not "+disposition, workflowReviewRecovery("follow any declared corrective/upstream obligation", "with disposition ready_for_final_proof on the current candidate before leaving execution"))
 	}
 	return nil
 }
 
 func workflowAdmitArchitectureReview(state WorkflowReviewState) error {
 	if state.Dependencies != nil && !state.Dependencies.ArchitectureNotApplicable && (state.Accepted == nil || !state.DependenciesCurrent) {
-		return reviewFailure(KindMissingEvidence, "execution progression requires an accepted Review covering the current architecture and criteria", "use request_correction if the architecture needs revision, then obtain and accept a Review on the current dependencies")
+		return reviewFailure(KindMissingEvidence, "execution progression requires an accepted Review covering the current architecture and criteria", workflowReviewRecovery("use request_correction if the architecture needs revision", "covering the current architecture and criteria"))
 	}
 	return nil
 }

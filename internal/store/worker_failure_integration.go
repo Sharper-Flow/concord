@@ -49,8 +49,8 @@ AND (lease_id=? OR (result_json IS NOT NULL AND json_valid(result_json) AND json
 // completions of the work at or below the watermark, in event order. The
 // first acceptance's own identifier is the result reference; the current
 // job satisfaction can advance independently. No latest-job lookup or
-// timestamp participates. A confirming review judges an already
-// accepted revision; its core-marked dispatch grants no second input result.
+// timestamp participates. A continue Review grants execution permission, not
+// an input result. A confirming Review grants no second input result either.
 const workerFailureIntegrationAcceptQuery = `SELECT receipt.event_id,
 	json_extract(e.first_acceptance_payload,'$.worker_job.job_id'),
 	json_extract(e.first_acceptance_payload,'$.worker_job.revision'),
@@ -60,6 +60,12 @@ LEFT JOIN effect_receipts receipt ON receipt.effect_seq=e.first_acceptance_seq
 WHERE e.work_id=? AND e.first_acceptance_seq<=?
 AND e.action_id='accept_worker_result'
 AND json_extract(e.first_acceptance_payload,'$.worker_job') IS NOT NULL
+AND NOT EXISTS (
+	SELECT 1 FROM worker_attempts a
+	WHERE a.work_id=e.work_id AND a.attempt_id=e.attempt_id
+	AND a.capability_class='review' AND a.terminal_kind='worker.completed'
+	AND json_extract(a.terminal_payload,'$.review.disposition')='continue'
+)
 AND NOT EXISTS (
 	SELECT 1 FROM worker_authorizations d
 	WHERE d.work_id=e.work_id AND d.seq<e.first_acceptance_seq
@@ -256,8 +262,9 @@ func workerFailureIntegrationRunIdentity(lease *workerFailureIntegrationLease, w
 // with the acceptance event id as the result reference. A lease without its
 // watermark reports the population explicitly unavailable — never an empty
 // accepted list and never a timestamp reconstruction. Distinct attempts
-// accepting one revision are structural corruption: the confirming judgment
-// is excluded, and repeated acceptance of one attempt retains its first input.
+// accepting one revision are structural corruption: permission-only and
+// confirming Reviews are excluded, and repeated acceptance of one attempt
+// retains its first input.
 func workerFailureIntegrationInputs(ctx context.Context, q queryer, workID string, watermark sql.NullInt64) ([]WorkerFailureInputResult, bool, error) {
 	if !watermark.Valid {
 		return nil, true, nil

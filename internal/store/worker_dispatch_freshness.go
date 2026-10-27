@@ -73,7 +73,8 @@ type workerDispatchProof struct {
 	// readings carries one sealed witness per declared required reading:
 	// the SQL-sampled source identities sampled in the same read snapshot,
 	// plus the Git resolution resolved after that snapshot closed.
-	readings []dispatchReadingWitness
+	readings     []dispatchReadingWitness
+	nativeReview *nativeReviewDispatchProof
 }
 
 // WorkerDispatchPreparation is the opaque prepared proof the authenticated
@@ -118,6 +119,9 @@ type PrepareWorkerDispatchRequest struct {
 	WorkID          string
 	SessionWorktree string
 	Runner          GitRunner
+	// DispatchPayload identifies the Review lane and exact job to sample for
+	// runtime qualification. Admission still validates the original packet.
+	DispatchPayload json.RawMessage
 	// WorkerJob is the dispatched job binding the dispatch payload carried,
 	// resolved by the authenticated mutation boundary before preparation.
 	// When it names a capped job, its recorded base_commit anchors the
@@ -127,6 +131,10 @@ type PrepareWorkerDispatchRequest struct {
 	// retry re-dispatches; its authorization's job binding anchors the same
 	// probe when the retry carries no packet of its own.
 	WorkerAttemptID string
+	// reviewPlanner replaces the native plan normalizer for store fixtures
+	// whose synthetic subjects and recipes have no real runtime; nil
+	// normalizes the real plan.
+	reviewPlanner nativeReviewPlanner
 }
 
 // workerDispatchSample is the SQL-sampled identity set one dispatch
@@ -146,6 +154,7 @@ type workerDispatchSample struct {
 	readings        []dispatchReadingWitness
 	pinReceipt      *WorktreeVerifyResult
 	memberAncestors []string
+	nativeReview    *nativeReviewDispatchSample
 }
 
 // sampleWorkerDispatchStateInto samples the dispatch state into the
@@ -225,6 +234,12 @@ func sampleWorkerDispatchState(ctx context.Context, q queryer, request PrepareWo
 		return sample, err
 	}
 	sample.memberAncestors = join.Ancestors
+	if len(request.DispatchPayload) != 0 || request.WorkerAttemptID != "" {
+		sample.nativeReview, err = sampleNativeReviewDispatchTx(ctx, q, request)
+		if err != nil {
+			return sample, err
+		}
+	}
 	return sample, nil
 }
 
@@ -326,6 +341,9 @@ func prepareWorkerSubjectFreshness(ctx context.Context, s *Store, request Prepar
 		return nil, err
 	}
 	proof.observation = observation
+	if proof.nativeReview, err = observeNativeReviewDispatch(ctx, runner, request.reviewPlanner, entry, request.WorkID, &proof, sample.nativeReview); err != nil {
+		return nil, err
+	}
 	if entry.MemberID == "" && observation.State == "clean" && len(sample.memberAncestors) != 0 {
 		proof.memberCandidate = dispatchSubjectIncludesMembers(ctx, runner, probePath, observation.Commit, sample.memberAncestors)
 	}
@@ -584,14 +602,14 @@ func workflowDefinitionProducesDelivery(definition WorkflowDefinition) bool {
 // is not a prerequisite for obtaining baseline continuation authority.
 func validateReviewAcceptedDeliveryTx(ctx context.Context, tx *sql.Tx, workID, subject, worktreeIdentity string) error {
 	if subject == "" {
-		return newFailure(KindUnauthorizedDispatch, workerDispatchFreshnessOp, "review of implementation work requires a nonempty qualified subject; qualify the accepted candidate through worktree-verify before review", false, "run worktree-verify on the clean accepted candidate, then rebuild the packet")
+		return newFailure(KindUnauthorizedDispatch, workerDispatchFreshnessOp, "review of implementation work requires a nonempty qualified subject; qualify the accepted candidate through worktree-verify before review", false, workflowReviewRecovery("run worktree-verify on the clean accepted candidate and rebuild the packet", "covering that qualified candidate"))
 	}
 	receipt, err := readCurrentOracleSubjectReceipt(ctx, tx, workID)
 	if err != nil {
 		return err
 	}
 	if receipt == nil || receipt.SubjectRef != "commit:"+subject || workerWorktreeIdentity(receipt.Path) != worktreeIdentity {
-		return reviewFailure(KindMissingEvidence, "Review input is not the qualified candidate on its claimed worktree", "qualify the clean current candidate through worktree-verify, then dispatch Review")
+		return reviewFailure(KindMissingEvidence, "Review input is not the qualified candidate on its claimed worktree", workflowReviewRecovery("qualify the clean current candidate through worktree-verify", "covering that qualified candidate"))
 	}
 	state, err := loadWorkflowReviewState(ctx, tx, workID)
 	if err != nil {
@@ -602,10 +620,10 @@ func validateReviewAcceptedDeliveryTx(ctx context.Context, tx *sql.Tx, workID, s
 		return err
 	}
 	if len(join.Ancestors) != 0 && !workflowPreparedMemberCandidate(ctx, subject) {
-		return reviewFailure(KindStaleRequiresReview, "Review input has no proven ancestry from every accepted member and the current candidate", "merge the accepted member commits into Main's integration worktree and qualify that candidate before Review")
+		return reviewFailure(KindStaleRequiresReview, "Review input has no proven ancestry from every accepted member and the current candidate", workflowReviewRecovery("merge the accepted member commits into Main's integration worktree and qualify that candidate", "covering the integrated candidate"))
 	}
 	if state.Candidate != nil && (state.Candidate.Commit != subject || state.Candidate.ProjectID != receipt.ProjectID) && !workflowPreparedMemberCandidate(ctx, subject) {
-		return reviewFailure(KindStaleRequiresReview, "Review input differs from Main's current integrated candidate", "dispatch Review on the accepted current candidate")
+		return reviewFailure(KindStaleRequiresReview, "Review input differs from Main's current integrated candidate", workflowReviewRecovery("qualify Main's accepted current candidate and rebuild the packet for that subject", "covering the accepted current candidate"))
 	}
 	return nil
 }

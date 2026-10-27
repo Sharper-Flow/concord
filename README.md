@@ -269,7 +269,7 @@ bin/oc-test broad -- env -u CONCORD_SELECTED_PRODUCT_ID bun test adapter/opencod
 
 ### Tiered test suites
 
-- **Smoke tier (`bin/oc-test smoke`)**: Runs adapter tests, JSON schema validators, and unsharded Go package tests. It omits `cmd/concord` and `internal/store`, which CI splits into shard jobs.
+- **Smoke tier (`bin/oc-test smoke`)**: Runs adapter tests, JSON schema validators, and unsharded Go package tests. It omits `cmd/concord`, `internal/agent`, and `internal/store`, which CI splits into shard jobs.
 - **Conformance tier (`bin/oc-test conformance`)**: Runs the ten-process SQLite harness to verify concurrency and transaction-locking invariants.
 - **Deterministic store sharding**: To test heavy packages locally without running the entire suite, run individual CI shards. For example, to run shard 1 of the 7 `internal/store` shards:
 

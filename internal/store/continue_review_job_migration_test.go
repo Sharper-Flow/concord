@@ -69,7 +69,7 @@ func continueReviewMigrationReplaceReceipt(t *testing.T, db *sql.DB, id, column 
 
 func continueReviewMigrationSeed(t *testing.T) *sql.DB {
 	t.Helper()
-	db := openMigratedTo(t, filepath.Join(t.TempDir(), "continue-review.db"), 156)
+	db := openMigratedTo(t, filepath.Join(t.TempDir(), "continue-review.db"), 157)
 	memberMigrationExec(t, db, `INSERT INTO write_guard(active) VALUES(1)`)
 	memberMigrationExec(t, db, `INSERT INTO work_items(id,kind,title,lifecycle,priority,version,created_at,updated_at) VALUES('continue-work','task','Continue Review recovery','in_progress',0,1,'before','before')`)
 	memberMigrationExec(t, db, `INSERT INTO workflow_instances(work_id,definition_ref,definition_digest,current_step,instance_state) VALUES('continue-work','workflow.break_fix',?,'repair','running')`, "sha256:"+strings.Repeat("a", 64))
@@ -121,7 +121,7 @@ func continueReviewMigrationSnapshot(t *testing.T, db *sql.DB, includeSatisfacti
 	return out
 }
 
-func TestContinueReviewJobMigration157RestoresOnlySatisfaction(t *testing.T) {
+func TestContinueReviewJobMigration158RestoresOnlySatisfaction(t *testing.T) {
 	for _, repeated := range []string{"none", "first-retained", "latest-retained", "unrelated-facts"} {
 		t.Run(repeated, func(t *testing.T) {
 			db := continueReviewMigrationSeed(t)
@@ -170,7 +170,7 @@ func TestContinueReviewJobMigration157RestoresOnlySatisfaction(t *testing.T) {
 	}
 }
 
-func TestContinueReviewJobMigration157RefusesUnprovedRestoration(t *testing.T) {
+func TestContinueReviewJobMigration158RefusesUnprovedRestoration(t *testing.T) {
 	dependent := `INSERT INTO worker_job_revisions(work_id,job_id,revision,contract_version,objective,stopping_condition,path_scope,predicate_ids,checks,prerequisites,unresolved_refs,digest,state,recorded_at) SELECT work_id,'job:dependent',1,contract_version,objective,stopping_condition,path_scope,predicate_ids,checks,`
 	cases := []struct{ name, sql string }{
 		{"completed-work", `UPDATE work_items SET lifecycle='completed'`},
@@ -251,7 +251,7 @@ func TestContinueReviewJobMigration157RefusesUnprovedRestoration(t *testing.T) {
 	}
 }
 
-func TestContinueReviewJobMigration157RefusesConflictingBoundPayloads(t *testing.T) {
+func TestContinueReviewJobMigration158RefusesConflictingBoundPayloads(t *testing.T) {
 	// Refresh receipt digests so these exercise exact semantic joins, rather
 	// than merely refusing a stale digest after a payload change.
 	for _, tc := range []struct{ name, query, receipt string }{

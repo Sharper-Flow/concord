@@ -74,12 +74,22 @@ type KnowledgeItem struct {
 type Q9Result struct {
 	ResultMeta
 	Items           []KnowledgeItem           `json:"items"`
+	Publications    []KnowledgePublication    `json:"publications"`
 	IndexWatermark  string                    `json:"index_watermark"`
 	SourceOmissions []KnowledgeSourceOmission `json:"source_omissions,omitempty"`
 	// SourceWatermarks carries the per-source freshness verdict of a
 	// Product-wide Q9 over a registered source set (CD-0200). It stays empty
 	// for a single-source answer, whose output is unchanged.
 	SourceWatermarks []KnowledgeSourceWatermark `json:"source_watermarks,omitempty"`
+	publicationReads []knowledgePublicationRead
+}
+
+// knowledgePublicationRead retains the query owner's exact source and served
+// revision until its database cursors and proof transactions have closed.
+type knowledgePublicationRead struct {
+	home       KnowledgeHome
+	commit     string
+	historical bool
 }
 
 // KnowledgeSourceOmission carries identities separately from the bounded
@@ -145,8 +155,10 @@ type Q10Result struct {
 	ResultMeta
 	Status              string                        `json:"status"`
 	Note                *CanonicalNote                `json:"note,omitempty"`
+	Publication         *KnowledgePublication         `json:"publication,omitempty"`
 	Result              *Q10Payload                   `json:"result"`
 	UnverifiedAuthority *KnowledgeUnverifiedAuthority `json:"unverified_authority,omitempty"`
+	publicationRead     *knowledgePublicationRead
 }
 
 // KnowledgeUnverifiedAuthority identifies a declared contract whose work is
@@ -185,7 +197,20 @@ func (s *Store) QueryQ9(ctx context.Context, req Q9Request) (Q9Result, error) {
 	if s == nil || s.db == nil {
 		return out, newFailure(KindUnavailable, "PM1.Q9", "store is not open", false, "open a store before querying knowledge")
 	}
-	return queryQ9(ctx, s.db, req, s.now())
+	out, err := queryQ9(ctx, s.db, req, s.now())
+	if err != nil {
+		return out, err
+	}
+	out.Publications = make([]KnowledgePublication, 0, len(out.publicationReads))
+	for _, read := range out.publicationReads {
+		publication, err := s.KnowledgePublicationForRead(ctx, read.home, read.commit, read.historical)
+		if err != nil {
+			return out, err
+		}
+		out.Publications = append(out.Publications, publication)
+	}
+	out.publicationReads = nil
+	return out, nil
 }
 
 // validateQ9SharedFilters applies the bounded-text rule before source resolution.
@@ -332,7 +357,17 @@ func (s *Store) QueryQ10(ctx context.Context, req Q10Request) (Q10Result, error)
 	if s == nil || s.db == nil {
 		return out, newFailure(KindUnavailable, "PM1.Q10", "store is not open", false, "open a store before querying knowledge")
 	}
-	return queryQ10(ctx, s.db, req)
+	out, err := queryQ10(ctx, s.db, req)
+	if err != nil || out.publicationRead == nil {
+		return out, err
+	}
+	read := out.publicationRead
+	publication, err := s.KnowledgePublicationForRead(ctx, read.home, read.commit, read.historical)
+	if err != nil {
+		return out, err
+	}
+	out.Publication, out.publicationRead = &publication, nil
+	return out, nil
 }
 
 // queryQ10 verifies one canonical note against its recorded git proof. It takes
@@ -429,11 +464,13 @@ func queryQ10(ctx context.Context, db *sql.DB, req Q10Request) (Q10Result, error
 			return out, err
 		}
 	}
-	payload := &Q10Payload{Status: "canonical", Note: &note, SuccessorID: successor}
-	if law := KnowledgeLawStatus(kind, status); law != "" {
-		payload.LawStatus = law
-	}
+	payload := &Q10Payload{Status: "canonical", Note: &note, SuccessorID: successor, LawStatus: KnowledgeLawStatus(kind, status)}
 	out.Status, out.Note, out.Result = "canonical", &note, payload
+	// Manifest lookup proves the indexed law at its recorded commit; that does
+	// not make it an explicit historical read. Archived work notes do carry
+	// that meaning, even when selected through knowledge_id. A missing or
+	// unverified proof serves no note and therefore has no publication.
+	out.publicationRead = &knowledgePublicationRead{home: storedHome, commit: note.CommitOID, historical: kind == "work_note" || req.Work != ""}
 	return out, nil
 }
 
@@ -986,6 +1023,18 @@ func (page *federatedKnowledgePage) readSource(ctx context.Context, db *sql.DB, 
 		out.SourceOmissions = append(out.SourceOmissions, KnowledgeSourceOmission{Kind: KnowledgeSourceDemandFailed, ProjectID: source.HomeProjectID, LocatorID: source.HomeLocatorID, Cause: cause})
 	}
 	page.watermarks = append(page.watermarks, KnowledgeSourceWatermark{ProjectID: source.HomeProjectID, LocatorID: source.HomeLocatorID, Watermark: verdict, Authority: authority})
+	served := scanned
+	if scanned == "unreachable" {
+		// The reachability verdict is not a commit. A degraded query still
+		// reads the cached projection, including when it returns no rows.
+		err := db.QueryRowContext(ctx, `SELECT scanned_commit_oid FROM knowledge_index_watermark WHERE home_project_id=? AND home_locator_id=? AND head_ref=?`, source.HomeProjectID, source.HomeLocatorID, source.HeadRef).Scan(&served)
+		if errors.Is(err, sql.ErrNoRows) {
+			served = ""
+		} else if err != nil {
+			return wrapFailure(KindUnavailable, "PM1.Q9", "cannot read the served knowledge revision", true, "retry once the database is readable", err)
+		}
+	}
+	out.publicationReads = append(out.publicationReads, knowledgePublicationRead{home: source, commit: served})
 	if authority != "authoritative" && sourceCount > 1 {
 		return nil
 	}

@@ -480,6 +480,14 @@
           }
         },
         {
+          "required": ["tool", "operation", "query_id"],
+          "properties": {
+            "tool": {"const": "concord_knowledge"},
+            "operation": {"const": "observe_publication"},
+            "query_id": {"const": "CD-0020.R1"}
+          }
+        },
+        {
           "required": [
             "tool",
             "operation"
@@ -764,6 +772,7 @@
             "research_source_record",
             "resolve",
             "resolve_note",
+            "observe_publication",
             "resolve_overlap",
             "resource_claim",
             "resource_claims",
@@ -798,7 +807,7 @@
         },
         "query_id": {
           "type": "string",
-          "pattern": "^(PM1\\.Q(1[0-46]|[1-9])|CD-0030\\.R1|CD-0040\\.R1|CD-0096\\.R1|CD-0182\\.R1|C15\\.Resources|C19\\.Continuity|C22\\.Domain(List|Detail|Attachments|Overlaps|Footprint|Shape))$"
+          "pattern": "^(PM1\\.Q(1[0-46]|[1-9])|CD-0020\\.R1|CD-0030\\.R1|CD-0040\\.R1|CD-0096\\.R1|CD-0182\\.R1|C15\\.Resources|C19\\.Continuity|C22\\.Domain(List|Detail|Attachments|Overlaps|Footprint|Shape))$"
         },
         "outcome": {
           "enum": [
@@ -1250,6 +1259,7 @@
             "research_source_record",
             "resolve",
             "resolve_note",
+            "observe_publication",
             "resolve_overlap",
             "resource_claim",
             "resource_claims",
@@ -1284,7 +1294,7 @@
         },
         "query_id": {
           "type": "string",
-          "pattern": "^(PM1\\.Q(1[0-46]|[1-9])|CD-0030\\.R1|CD-0040\\.R1|CD-0096\\.R1|CD-0182\\.R1|C15\\.Resources|C19\\.Continuity|C22\\.Domain(List|Detail|Attachments|Overlaps|Footprint|Shape))$"
+          "pattern": "^(PM1\\.Q(1[0-46]|[1-9])|CD-0020\\.R1|CD-0030\\.R1|CD-0040\\.R1|CD-0096\\.R1|CD-0182\\.R1|C15\\.Resources|C19\\.Continuity|C22\\.Domain(List|Detail|Attachments|Overlaps|Footprint|Shape))$"
         },
         "reason_code": {
           "type": "string",

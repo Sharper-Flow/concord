@@ -28,6 +28,13 @@ states three things before any plan:
 A goal, a feature request, or a law to implement is not yet a problem. Say what
 fails, is missing, or costs too much today without it.
 
+A defect record reports the failure, not its diagnosis. Its title and problem
+name what failed as the affected party saw it. Put a suspected cause only
+under a heading that marks it unverified, with the evidence for and against
+it. Write the end state as the outcome the affected party needs, never as a
+change to a suspected mechanism. The agent that takes the item reproduces the
+failure and confirms the cause before it designs a fix.
+
 ## Write for the later reader
 
 Name what the reader can open. Give the path, the symbol, the command, the

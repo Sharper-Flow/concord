@@ -1349,6 +1349,8 @@ func (r runtime) readResult(ctx context.Context, base Envelope, input []byte, qu
 		return r.readKnowledgeSearch(ctx, base, input)
 	case "concord_knowledge.resolve_note":
 		return r.readKnowledgeResolveNote(ctx, base, input)
+	case "concord_knowledge.observe_publication":
+		return r.readKnowledgeObservePublication(ctx, base, input)
 	case "concord_domain.list", "concord_domain.detail", "concord_domain.attachments", "concord_domain.overlaps":
 		return r.readDomain(ctx, base, input, queryID)
 	case "concord_domain.footprint":
@@ -2239,7 +2241,11 @@ func (r runtime) q9(base Envelope, q store.Q9Result) (Envelope, error) {
 		}
 		items = append(items, wire)
 	}
-	payload := map[string]any{"items": items, "watermark": q.IndexWatermark}
+	publications := q.Publications
+	if publications == nil {
+		publications = []store.KnowledgePublication{}
+	}
+	payload := map[string]any{"items": items, "watermark": q.IndexWatermark, "publications": publications}
 	// CD-0200: a federated answer carries its per-source watermarks in the
 	// payload and one envelope watermark entry per registered source, so the
 	// packet proves each source's freshness verdict. A single-source answer
@@ -2276,6 +2282,16 @@ func (r runtime) q10(base Envelope, q store.Q10Result) (Envelope, error) {
 		locator = &v
 	}
 	payload := map[string]any{"state": state, "locator": locator, "candidates": []string{}}
+	if q.Note != nil {
+		for key, value := range map[string]string{"commit_oid": q.Note.CommitOID, "content_hash": q.Note.ContentHash, "home_project_id": q.Note.HomeProjectID, "home_locator_id": q.Note.HomeLocatorID} {
+			if value != "" {
+				payload[key] = value
+			}
+		}
+	}
+	if q.Publication != nil {
+		payload["publication"] = q.Publication
+	}
 	// Law status or a work-note successor never replaces the PM1 Q10 locator
 	// state: canonical/not_compacted/missing/ambiguous.
 	if lawStatus != "" {

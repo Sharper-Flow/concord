@@ -6,11 +6,11 @@
     },
     {
       "kind": "go_test",
-      "value": "internal/store.TestContinueReviewJobMigration157RestoresOnlySatisfaction"
+      "value": "internal/store.TestContinueReviewJobMigration158RestoresOnlySatisfaction"
     },
     {
       "kind": "go_test",
-      "value": "internal/store.TestContinueReviewJobMigration157RefusesUnprovedRestoration"
+      "value": "internal/store.TestContinueReviewJobMigration158RefusesUnprovedRestoration"
     },
     {
       "kind": "go_test",

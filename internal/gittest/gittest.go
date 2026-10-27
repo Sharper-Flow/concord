@@ -4,9 +4,64 @@
 package gittest
 
 import (
+	"context"
+	"fmt"
 	"os"
+	"os/exec"
+	"regexp"
 	"strconv"
+	"strings"
+	"time"
 )
+
+// ScrubRepositoryEnvironment removes a launching hook's repository and injected
+// configuration before fixtures run. Call it before DisableBackgroundMaintenance
+// so the test harness, not the launching repository, owns child Git settings.
+func ScrubRepositoryEnvironment() error {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	command := exec.CommandContext(ctx, "git", "rev-parse", "--local-env-vars")
+	command.Dir = os.TempDir()
+	command.Env = []string{}
+	for _, entry := range os.Environ() {
+		if !strings.HasPrefix(entry, "GIT_") {
+			command.Env = append(command.Env, entry)
+		}
+	}
+	output, err := command.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("discover Git repository environment: %w\n%s", err, output)
+	}
+	keys, err := repositoryEnvironmentKeys(output)
+	if err != nil {
+		return err
+	}
+	for _, entry := range os.Environ() {
+		key, _, _ := strings.Cut(entry, "=")
+		if keys[key] || strings.HasPrefix(key, "GIT_CONFIG_KEY_") || strings.HasPrefix(key, "GIT_CONFIG_VALUE_") {
+			if err := os.Unsetenv(key); err != nil {
+				return fmt.Errorf("clear Git repository variable %s: %w", key, err)
+			}
+		}
+	}
+	return nil
+}
+
+func repositoryEnvironmentKeys(output []byte) (map[string]bool, error) {
+	names := strings.Fields(string(output))
+	if len(names) == 0 {
+		return nil, fmt.Errorf("git reported an empty repository environment namespace")
+	}
+	valid := regexp.MustCompile(`^GIT_[A-Z0-9_]+$`)
+	keys := map[string]bool{"GIT_QUARANTINE_PATH": true}
+	for _, name := range names {
+		if !valid.MatchString(name) {
+			return nil, fmt.Errorf("git reported an invalid repository environment variable: %q", name)
+		}
+		keys[name] = true
+	}
+	return keys, nil
+}
 
 // DisableBackgroundMaintenance configures every git invocation made by the
 // calling test binary to never start background work in a fixture repository.

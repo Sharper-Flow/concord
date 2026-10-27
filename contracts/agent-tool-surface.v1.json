@@ -60,10 +60,11 @@
     },
     {
       "id": "concord_knowledge",
-      "description": "Search and resolve durable knowledge.",
+      "description": "Search and resolve durable knowledge using cached publication provenance. Explicit observe_publication is the bounded network/cache exception: one origin discovery and selected-branch fetch within ten seconds, then retained provenance; it does not synchronize law or change read authority.",
       "operations": [
         "concord_knowledge.search",
-        "concord_knowledge.resolve_note"
+        "concord_knowledge.resolve_note",
+        "concord_knowledge.observe_publication"
       ]
     },
     {
@@ -567,6 +568,27 @@
       "query_id": "PM1.Q10",
       "input_schema": "#/schemas/knowledge_resolve_input",
       "result_schema": "#/schemas/canonical_note_result",
+      "capability": "product_read",
+      "consequence": "read",
+      "approval": "none",
+      "metadata": {
+        "context": "explicit",
+        "idempotency": "request_id",
+        "pagination": "none",
+        "output_bytes": 51200,
+        "versions": [
+          "1.0"
+        ]
+      },
+      "supported_budget_seconds": 300
+    },
+    {
+      "id": "concord_knowledge.observe_publication",
+      "tool": "concord_knowledge",
+      "kind": "read",
+      "query_id": "CD-0020.R1",
+      "input_schema": "#/schemas/knowledge_observe_publication_input",
+      "result_schema": "#/schemas/knowledge_publication",
       "capability": "product_read",
       "consequence": "read",
       "approval": "none",
@@ -1530,6 +1552,14 @@
       "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/external_observation_page",
       "closed": true
     },
+    "knowledge_observe_publication_input": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/knowledge_observe_publication_input",
+      "closed": true
+    },
+    "knowledge_publication": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/knowledge_publication",
+      "closed": true
+    },
     "knowledge_page": {
       "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/knowledge_page",
       "closed": true
@@ -1926,6 +1956,6 @@
       "digest"
     ]
   },
-  "payload_digest": "sha256:61d16f6ce8dcdce4d6e24ae2503a5a43b2aa323911727a3dc0ecf5e1224b5a08",
-  "digest": "sha256:fb23f602b87f9e34e88b84e93166b6650e620312b839875f0fff025d4cce58ec"
+  "payload_digest": "sha256:c5c08650ef577b06dd66ed42d1fda269bec3ef263c5fcb84881036e0a13dbb2e",
+  "digest": "sha256:e3de0fc38033d0103f90d56e79c46882e48842a9568c232f04859a00323912fb"
 }

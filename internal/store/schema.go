@@ -7895,7 +7895,24 @@ CREATE TRIGGER knowledge_domain_facts_guard_delete BEFORE DELETE ON knowledge_do
 `,
 	},
 	{
-		Version:  157,
+		Version: 157,
+		Name:    "knowledge_publication_observations",
+		SQL: `
+CREATE TABLE knowledge_publication_observations (
+    project_id TEXT NOT NULL CHECK(length(CAST(project_id AS BLOB)) BETWEEN 1 AND 128),
+    locator_id TEXT NOT NULL CHECK(length(CAST(locator_id AS BLOB)) BETWEEN 1 AND 128),
+    source_binding TEXT NOT NULL CHECK(length(source_binding)=71),
+    latest_record TEXT NOT NULL CHECK(json_valid(latest_record) AND json_type(latest_record)='object' AND length(CAST(latest_record AS BLOB))<=4096),
+    success_record TEXT NOT NULL CHECK(success_record='' OR (json_valid(success_record) AND json_type(success_record)='object' AND length(CAST(success_record AS BLOB))<=4096)),
+    PRIMARY KEY(project_id,locator_id)
+);
+CREATE TRIGGER knowledge_publication_observations_guard_insert BEFORE INSERT ON knowledge_publication_observations BEGIN SELECT RAISE(ABORT, 'knowledge_publication_observations is write-seam-only') WHERE NOT EXISTS (SELECT 1 FROM write_guard WHERE active=1); END;
+CREATE TRIGGER knowledge_publication_observations_guard_update BEFORE UPDATE ON knowledge_publication_observations BEGIN SELECT RAISE(ABORT, 'knowledge_publication_observations is write-seam-only') WHERE NOT EXISTS (SELECT 1 FROM write_guard WHERE active=1); END;
+CREATE TRIGGER knowledge_publication_observations_guard_delete BEFORE DELETE ON knowledge_publication_observations BEGIN SELECT RAISE(ABORT, 'knowledge_publication_observations is write-seam-only') WHERE NOT EXISTS (SELECT 1 FROM write_guard WHERE active=1); END;
+`,
+	},
+	{
+		Version:  158,
 		Name:     "continue_review_job_satisfaction",
 		Breaking: false,
 		SQL: `

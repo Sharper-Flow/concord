@@ -783,6 +783,29 @@ func demandFailureKind(err error) string {
 	return "unknown"
 }
 
+// This explicit cache/provenance exception uses product_read admission. It is
+// not an ordinary knowledge read: the store performs bounded origin discovery
+// and one selected-branch fetch, then persists the observation, not Product law.
+func (r runtime) readKnowledgeObservePublication(ctx context.Context, base Envelope, input []byte) (Envelope, error) {
+	var in struct {
+		ProductID       string `json:"product_id"`
+		SourceProjectID string `json:"source_project_id"`
+		SourceLocatorID string `json:"source_locator_id"`
+	}
+	if err := decodeOperationInput(input, &in); err != nil {
+		return base, err
+	}
+	publication, err := r.Store.ObserveKnowledgePublication(ctx, in.ProductID, in.SourceProjectID, in.SourceLocatorID)
+	if err != nil {
+		return failureEnvelope(base, err), nil
+	}
+	meta := store.ResultMeta{QueryID: "CD-0020.R1", ContractVersion: "CD-0020/1.0",
+		ResolvedScope: store.ResolvedScope{ProductID: in.ProductID, ProjectID: in.SourceProjectID},
+		Authority:     "authoritative", Freshness: store.Freshness{ObservedAt: publication.ObservedAt},
+		OrderingKeys: []string{"project_id", "locator_id"}}
+	return r.resultEnvelope(base, meta, r.scope(meta), publication)
+}
+
 func (r runtime) readKnowledgeResolveNote(ctx context.Context, base Envelope, input []byte) (Envelope, error) {
 	var in knowledgeResolveInput
 	if err := decodeOperationInput(input, &in); err != nil {

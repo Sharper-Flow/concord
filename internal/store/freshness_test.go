@@ -417,7 +417,7 @@ func TestCrossProjectCreationRunsExactlyOnePreflight(t *testing.T) {
 	}
 	bin := t.TempDir()
 	log := filepath.Join(bin, "fetches")
-	script := fmt.Sprintf("#!/bin/sh\ncase \"$3\" in fetch) printf 'fetch\\n' >> %q ;; esac\nexec %q \"$@\"\n", log, realGit)
+	script := fmt.Sprintf("#!/bin/sh\ncase \"$1:$3\" in fetch:*|-C:fetch) printf 'fetch\\n' >> %q ;; esac\nexec %q \"$@\"\n", log, realGit)
 	if err := os.WriteFile(filepath.Join(bin, "git"), []byte(script), 0o700); err != nil {
 		t.Fatal(err)
 	}

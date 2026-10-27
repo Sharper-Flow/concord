@@ -369,11 +369,26 @@ const GeneratedPayloadSchemaDocument = `{
           "type": "array",
           "uniqueItems": true
         },
+        "commit_oid": {
+          "$ref": "#/$defs/id"
+        },
+        "content_hash": {
+          "$ref": "#/$defs/digest"
+        },
+        "home_locator_id": {
+          "$ref": "#/$defs/id"
+        },
+        "home_project_id": {
+          "$ref": "#/$defs/id"
+        },
         "locator": {
           "type": [
             "string",
             "null"
           ]
+        },
+        "publication": {
+          "$ref": "#/$defs/knowledge_publication"
         },
         "state": {
           "enum": [
@@ -3531,6 +3546,34 @@ const GeneratedPayloadSchemaDocument = `{
       "pattern": "^\\S(?:[\\s\\S]*\\S)?$",
       "type": "string"
     },
+    "knowledge_observe_publication_input": {
+      "additionalProperties": false,
+      "description": "Explicit cache/provenance exception for readers and writers with product_read. Requires one exact registered Product/source Project/locator tuple, never an arbitrary repository or ref. Performs one noninteractive origin default-branch discovery and one selected-branch fetch within a combined ten seconds, then persists timestamped provenance. Only the selected origin tracking ref, required objects and transfer metadata may change. No checkout synchronization, law mutation, or automatic network on ordinary reads.",
+      "properties": {
+        "product_id": {
+          "$ref": "#/$defs/id",
+          "description": "Bounds: 1..128 code points inclusive"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds",
+          "description": "Bounds: >=1 value inclusive"
+        },
+        "source_locator_id": {
+          "$ref": "#/$defs/id",
+          "description": "Exact registered locator in that source tuple. Bounds: 1..128 code points inclusive"
+        },
+        "source_project_id": {
+          "$ref": "#/$defs/id",
+          "description": "Project in the Product's registered knowledge source tuple. Bounds: 1..128 code points inclusive"
+        }
+      },
+      "required": [
+        "product_id",
+        "source_project_id",
+        "source_locator_id"
+      ],
+      "type": "object"
+    },
     "knowledge_page": {
       "additionalProperties": false,
       "properties": {
@@ -3636,6 +3679,13 @@ const GeneratedPayloadSchemaDocument = `{
         "next_cursor": {
           "$ref": "#/$defs/cursor_output"
         },
+        "publications": {
+          "description": "Cached publication provenance for each queried registered source, never an automatic origin check.",
+          "items": {
+            "$ref": "#/$defs/knowledge_publication"
+          },
+          "type": "array"
+        },
         "source_watermarks": {
           "description": "CD-0200: one freshness verdict per registered knowledge source in a Product-wide answer, home first. Absent from a single-source answer.",
           "items": {
@@ -3676,6 +3726,135 @@ const GeneratedPayloadSchemaDocument = `{
       },
       "required": [
         "items"
+      ],
+      "type": "object"
+    },
+    "knowledge_publication": {
+      "additionalProperties": false,
+      "description": "Commit publication evidence, separate from law status and read authority. observed_at is the retained observation instant, not the envelope read instant; absent when not_observed or historical_read. Cached evidence never asserts live currency. A failed latest check remains unknown even when previous_success retains historical evidence.",
+      "properties": {
+        "basis": {
+          "enum": [
+            "explicit_remote_observation",
+            "cached_remote_observation",
+            "not_observed",
+            "historical_read"
+          ],
+          "type": "string"
+        },
+        "cause": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "comparison": {
+          "enum": [
+            "match",
+            "lagging",
+            "unpublished",
+            "diverged",
+            "unknown"
+          ],
+          "type": "string"
+        },
+        "locator_id": {
+          "$ref": "#/$defs/id"
+        },
+        "observed_at": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "origin_identity": {
+          "$ref": "#/$defs/digest"
+        },
+        "previous_success": {
+          "$ref": "#/$defs/knowledge_publication_record",
+          "description": "Historical only; never replaces the latest comparison."
+        },
+        "project_id": {
+          "$ref": "#/$defs/id"
+        },
+        "publication_commit": {
+          "$ref": "#/$defs/id"
+        },
+        "publication_ref": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "recovery": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "served_commit": {
+          "$ref": "#/$defs/id"
+        }
+      },
+      "required": [
+        "project_id",
+        "locator_id",
+        "basis",
+        "comparison"
+      ],
+      "type": "object"
+    },
+    "knowledge_publication_record": {
+      "additionalProperties": false,
+      "properties": {
+        "basis": {
+          "enum": [
+            "explicit_remote_observation",
+            "cached_remote_observation",
+            "not_observed",
+            "historical_read"
+          ],
+          "type": "string"
+        },
+        "cause": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "comparison": {
+          "enum": [
+            "match",
+            "lagging",
+            "unpublished",
+            "diverged",
+            "unknown"
+          ],
+          "type": "string"
+        },
+        "locator_id": {
+          "$ref": "#/$defs/id"
+        },
+        "observed_at": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "origin_identity": {
+          "$ref": "#/$defs/digest"
+        },
+        "project_id": {
+          "$ref": "#/$defs/id"
+        },
+        "publication_commit": {
+          "$ref": "#/$defs/id"
+        },
+        "publication_ref": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "recovery": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "served_commit": {
+          "$ref": "#/$defs/id"
+        }
+      },
+      "required": [
+        "project_id",
+        "locator_id",
+        "basis",
+        "comparison"
       ],
       "type": "object"
     },

@@ -43,6 +43,7 @@ func TestCommittedSQLiteMechanismFacts(t *testing.T) {
 		"sqlite-current-row-write-guard": DomainFactInvariant,
 		"sqlite-effect-receipt-order":    DomainFactInvariant,
 		"sqlite-finite-snapshot":         DomainFactInvariant,
+		"sqlite-installation-key":        DomainFactInvariant,
 		"sqlite-typed-constraints":       DomainFactInvariant,
 	} {
 		t.Run(id, func(t *testing.T) {

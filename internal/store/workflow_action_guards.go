@@ -1685,26 +1685,8 @@ func bindWorkerDispatchCompletionTx(in workflowActionAssemblyInput, lane LaneDef
 	if err := admitWorkerDispatchSubjectFreshness(in.ctx, in.tx, in.request, in.entry.Definition, lane, admittedContext); err != nil {
 		return err
 	}
-	// CD-0205 D1/D2: a final Review freezes one qualified preparation per
-	// control on the current candidate in its authorization; job content
-	// stays unchanged. A Review of a ready revision keeps ordinary readiness.
-	if lane.CapabilityClass == "review" && job != nil && repairReview == nil {
-		final, err := finalReviewWorkerJobTx(in.ctx, in.tx, in.request.WorkID)
-		if err != nil {
-			return err
-		}
-		oracle, err := readWorkerJobOracle(in.ctx, in.tx, in.request.WorkID, *job)
-		if err != nil {
-			return err
-		}
-		if final != nil && *final == *job && oracle != nil {
-			subject, _ := completionValues["worker_subject_commit"].(string)
-			selected, err := bindNativeReviewPreparationsTx(in.ctx, in.tx, in.request.WorkID, *job, oracle, subject)
-			if err != nil {
-				return err
-			}
-			completionValues["worker_oracle_preparations"] = selected
-		}
+	if err := freezeReviewDispatchPreparationsTx(in.ctx, in.tx, in.request.WorkID, lane, job, repairReview, completionValues); err != nil {
+		return err
 	}
 	if err := validateWorkerReviewInput(in.ctx, in.tx, in.request.WorkID, lane, in.entry.Definition, packetRaw); err != nil {
 		return err

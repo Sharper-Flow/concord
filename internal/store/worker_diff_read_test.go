@@ -104,7 +104,7 @@ func workerDiffDispatchJob(t *testing.T, j *candidateJourney, attempt string, jo
 	if correction != nil {
 		packet["inputs"].(map[string]any)["correction"] = correction
 	}
-	ctx, err := reviewSubjectPrepareDispatch(j.s, j.workID, j.repo)
+	ctx, err := reviewSubjectPrepareDispatch(t, j.s, j.workID, j.repo, mustJSONValue(map[string]any{"attempt_id": attempt, "worker_packet": packet}))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -1119,6 +1119,29 @@ func packetJobFromView(view WorkerJobRevisionView) WorkerPacketJob {
 	}
 }
 
+// admitUnreadyPacketJobTx admits a packet whose revision fails ordinary
+// readiness. The one dispatch a satisfied revision admits is the confirming
+// review of an open unconfirmed checks repair (CD-0205 D4): a review-capable
+// lane whose packet binds the exact satisfied repairing revision, before that
+// repair's one confirming dispatch exists; it returns that binding.
+// Otherwise a Review may bind a state-ready revision or the final-Review
+// revision; dispatch then binds and freezes a qualified current-candidate
+// preparation per control, or refuses before an attempt (CD-0205 D1/D2).
+// Every other refusal keeps its text.
+func admitUnreadyPacketJobTx(ctx context.Context, q queryer, workID string, lane LaneDefinition, binding WorkerJobBinding, readyErr error) (*WorkerJobBinding, error) {
+	admitted, err := admitWorkerChecksRepairReviewDispatchTx(ctx, q, workID, lane, binding)
+	if err != nil {
+		return nil, err
+	}
+	if admitted {
+		return &binding, nil
+	}
+	if lane.CapabilityClass != "review" {
+		return nil, readyErr
+	}
+	return nil, requireWorkerReviewJobRevisionStateTx(ctx, q, workID, binding)
+}
+
 // validateWorkerPacketJob is the dispatch-time job binding (CD-0205). On a
 // job-capable pin the packet must carry inputs.worker_job naming a ready
 // recorded revision, with content equal to the record; on every earlier pin
@@ -1158,23 +1181,8 @@ func validateWorkerPacketJob(ctx context.Context, q queryer, definition Workflow
 	binding := WorkerJobBinding{JobID: claimed.JobID, Revision: claimed.Revision, Digest: claimed.Digest}
 	var repairReview *WorkerJobBinding
 	if err := requireWorkerJobRevisionReadyTx(ctx, q, workID, binding); err != nil {
-		// The one dispatch a satisfied revision admits is the confirming
-		// review of an open unconfirmed checks repair (CD-0205 D4): a
-		// review-capable lane whose packet binds the exact satisfied
-		// repairing revision, before that repair's one confirming dispatch
-		// exists. Otherwise a Review may bind the final-Review revision with
-		// state-only admission; dispatch freezes its current-candidate native
-		// preparations (CD-0205 D1/D2). Every other refusal keeps its text.
-		admitted, admitErr := admitWorkerChecksRepairReviewDispatchTx(ctx, q, workID, lane, binding)
-		if admitErr != nil {
-			return nil, nil, admitErr
-		}
-		if admitted {
-			repairReview = &binding
-		} else if lane.CapabilityClass != "review" {
+		if repairReview, err = admitUnreadyPacketJobTx(ctx, q, workID, lane, binding, err); err != nil {
 			return nil, nil, err
-		} else if finalErr := requireWorkerReviewJobRevisionStateTx(ctx, q, workID, binding); finalErr != nil {
-			return nil, nil, finalErr
 		}
 	}
 	views, err := readWorkerJobRevisions(ctx, q, workID)

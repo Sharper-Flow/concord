@@ -5,11 +5,12 @@ import (
 	"fmt"
 )
 
-// workflowMandateAdmission is the first unbound mandate in contract order.
+// workflowMandateAdmission holds the first unbound mandate and input law.
 // Recovery is a folded route, not a second query from an admission consumer.
 type workflowMandateAdmission struct {
 	Present          bool
 	LawID            string
+	InputLawID       string
 	BindingStep      string
 	AddedByContract  bool
 	CorrectionAction string
@@ -44,18 +45,23 @@ func loadWorkflowMandateAdmission(ctx context.Context, q queryer, workID string,
 		if bound {
 			continue
 		}
-		result.LawID = lawID
-		result.AddedByContract, err = workflowContractAddsLaw(ctx, q, workID, version, lawID)
+		added, err := workflowContractAddsLaw(ctx, q, workID, version, lawID)
 		if err != nil {
 			return result, err
 		}
-		if result.AddedByContract {
-			result.CorrectionAction, err = workflowMandateCorrectionAction(ctx, q, workID, definition, step, subject, state, rejected)
-			if err != nil {
-				return result, err
+		if result.LawID == "" {
+			result.LawID, result.AddedByContract = lawID, added
+			if added {
+				result.CorrectionAction, err = workflowMandateCorrectionAction(ctx, q, workID, definition, step, subject, state, rejected)
+				if err != nil {
+					return result, err
+				}
 			}
 		}
-		return result, nil
+		if !added {
+			result.InputLawID = lawID
+			break
+		}
 	}
 	return result, nil
 }
@@ -82,7 +88,7 @@ func workflowMandateCorrectionAction(ctx context.Context, q queryer, workID stri
 	return "", nil
 }
 
-func workflowAdmitMandate(definition WorkflowDefinition, step string, state workflowMandateAdmission, actionID, subject string) *Failure {
+func workflowAdmitMandate(definition WorkflowDefinition, step string, state workflowMandateAdmission, actionID, subject string, reviewOnly bool) *Failure {
 	if actionID == "supersede_contract" || actionID == "bind_evidence" {
 		return nil
 	}
@@ -101,6 +107,11 @@ func workflowAdmitMandate(definition WorkflowDefinition, step string, state work
 	}
 	if state.BindingStep == "" {
 		return newFailure(KindInvariantViolation, subject, "workflow spec mandate has no bind_evidence step", false, "repair the pinned workflow definition")
+	}
+	// A local Review disposition judges a candidate; it neither delivers nor
+	// binds the law this contract will add. Existing input law still binds first.
+	if reviewOnly {
+		state.LawID, state.AddedByContract = state.InputLawID, false
 	}
 	if state.LawID == "" {
 		return nil

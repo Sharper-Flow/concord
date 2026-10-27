@@ -162,21 +162,21 @@ func TestDomainShapeReadSelectorsAndTypedSubjects(t *testing.T) {
 	}
 }
 
-func TestDomainShapeReadLongestRootRolesAndInheritedLaw(t *testing.T) {
+func TestDomainShapeReadLongestRootRolesAndScopedLaw(t *testing.T) {
 	ctx := context.Background()
 	s := openTemp(t)
 	home, product := domainShapeProjectionFixture(t, s, "a")
 	scopes := KnowledgeRecordScopes{Mode: "explicit", DomainIDs: []string{"fixture-law", "domain-b"}}
 	writeManifestFixture(t, home.RepoPath,
 		manifestFixture{ID: "CD-0001", Kind: "decision", Path: ".concord/docs/decisions/CD-0001-synthetic.md", Status: "accepted", Date: "2026-08-10T00:00:00Z", Title: "Synthetic law a", Summary: "Synthetic owner invariant", Scopes: scopes},
-		manifestFixture{ID: "CD-0003", Kind: "decision", Path: ".concord/docs/decisions/CD-0003-root.md", Status: "accepted", Date: "2026-08-10T00:00:00Z", Title: "Synthetic inherited law", Summary: "Synthetic inherited law", RootHomed: true, Scopes: scopes})
+		manifestFixture{ID: "CD-0003", Kind: "decision", Path: ".concord/docs/decisions/CD-0003-root.md", Status: "accepted", Date: "2026-08-10T00:00:00Z", Title: "Synthetic root law", Summary: "Synthetic root law", RootHomed: true, Scopes: scopes})
 	writeKnowledgeFile(t, home.RepoPath, knowledgePackageMapPath, `{"schema_version":"1.1","packages":[{"path":"src","role":"domain","owner_domain_id":"fixture-law"},{"path":"src/wiring","role":"composition"},{"path":"testsupport","role":"test_support"},{"path":"legacy","role":"mixed","domain_ids":["fixture-law","domain-b"]}]}`)
 	writeKnowledgeFile(t, home.RepoPath, "src/wiring/entry.go", "package synthetic\n")
 	fact, _ := domainFactFixture(DomainFactInvariant)
 	fact.ID, fact.OwnerDomainID, fact.OwningRoot = "mixed-observation", "fixture-law", "legacy"
 	fact.Invariant.AppliesToDomainIDs = []string{"fixture-law"}
 	writeKnowledgeFile(t, home.RepoPath, knowledgeFactTreeDir+fact.ID+".json", string(marshalDomainFact(t, fact)))
-	commitKnowledgeRepo(t, home.RepoPath, "nested roles and inherited law")
+	commitKnowledgeRepo(t, home.RepoPath, "nested roles and scoped law")
 	for _, test := range []struct {
 		path, role string
 		facts      int
@@ -198,12 +198,17 @@ func TestDomainShapeReadLongestRootRolesAndInheritedLaw(t *testing.T) {
 		if test.role != "" && (len(got.Roots) != 1 || got.Roots[0].Role != test.role) {
 			t.Fatalf("%s role: %+v", test.path, got.Roots)
 		}
-		if len(test.owners) != 0 && (len(got.GoverningLaw) != 2 || got.GoverningLaw[1].LawID != "CD-0003") {
-			t.Fatal("inherited root law missing", got.GoverningLaw)
+		if len(test.owners) != 0 && (len(got.GoverningLaw) != 1 || got.GoverningLaw[0].LawID != "CD-0001") {
+			t.Fatal("selected law includes parent placement alone or loses the direct home", got.GoverningLaw)
 		}
 		if test.role == "mixed" && (got.Facts[0].Fact.Standing != "observed" || len(got.Facts[0].Fact.GoverningLawIDs) != 0 || got.Roots[0].OwnerDomainID != "") {
 			t.Fatal("mixed observation acquired exclusive ownership or law standing", got)
 		}
+	}
+	root := composeWorkingTreeManifest(t, home.RepoPath).DomainRegistry.RootDomainID
+	got, err := s.QueryDomainShape(ctx, product, DomainShapeSelector{DomainID: root})
+	if err != nil || len(got.GoverningLaw) != 1 || got.GoverningLaw[0].LawID != "CD-0003" {
+		t.Fatal("root law is not separately retrievable", got.GoverningLaw, err)
 	}
 }
 

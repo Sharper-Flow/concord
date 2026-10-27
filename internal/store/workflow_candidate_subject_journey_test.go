@@ -715,7 +715,7 @@ func (j *candidateJourney) dispatchJob(t *testing.T, attemptID, laneID, capabili
 // action from the claimed worktree.
 func (j *candidateJourney) dispatchPacket(t *testing.T, packet map[string]any) error {
 	t.Helper()
-	prepared, err := PrepareWorkerDispatchFreshness(context.Background(), j.s, PrepareWorkerDispatchRequest{WorkID: j.workID, SessionWorktree: j.repo})
+	prepared, err := PrepareWorkerDispatchFreshness(context.Background(), j.s, PrepareWorkerDispatchRequest{WorkID: j.workID, SessionWorktree: j.repo, DispatchPayload: mustJSONValue(map[string]any{"attempt_id": packet["attempt_id"], "worker_packet": packet}), reviewPlanner: oracleFixtureReviewPlanner(t, oracleFixtureRuntime)})
 	if err != nil {
 		return err
 	}

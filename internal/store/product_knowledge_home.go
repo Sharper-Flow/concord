@@ -4,6 +4,8 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+
+	"github.com/sharper-flow/concord/internal/store/internal/sqlitedb"
 )
 
 // knowledgeHomePayload is the shared event payload for Product knowledge-home
@@ -94,7 +96,7 @@ func foldProductKnowledgeHomeDesignated(ctx context.Context, tx *sql.Tx, event E
 		VALUES (?, ?, ?)
 		ON CONFLICT(product_id) DO UPDATE SET project_id = excluded.project_id, locator_id = excluded.locator_id`,
 		payload.ProductID, payload.ProjectID, payload.LocatorID); err != nil {
-		if isUniqueViolation(err) {
+		if sqlitedb.IsUniqueViolation(err) {
 			return newFailure(KindProjectionConflict, "fold_event", "Project locator is already another Product's knowledge home", false,
 				"clear the other Product's designation or designate a different locator")
 		}

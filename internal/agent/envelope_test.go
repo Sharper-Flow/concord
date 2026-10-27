@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sharper-flow/concord/internal/payloadschema"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -174,7 +175,7 @@ func TestAdapterEnvelopeAdmitsSchemaVocabulary(t *testing.T) {
 		Then       *schemaNode           `json:"then"`
 	}
 	var schema schemaNode
-	if err := json.Unmarshal([]byte(GeneratedEnvelopeSchemaDocument), &schema); err != nil {
+	if err := json.Unmarshal([]byte(payloadschema.GeneratedEnvelopeSchemaDocument), &schema); err != nil {
 		t.Fatal(err)
 	}
 	reasons := schema.Defs["typedError"].Properties["adapter_reason"].Enum
@@ -275,7 +276,7 @@ func TestAdapterVacateGeneratedSchemaRecoveryScope(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		return ValidateGeneratedEnvelope(data)
+		return payloadschema.ValidateEnvelope(data)
 	}
 	for _, recovery := range []string{"retry_same_request", "contact_operator"} {
 		t.Run(recovery, func(t *testing.T) {
@@ -487,7 +488,7 @@ func TestSessionPlacementRequiresCrossRepositoryKindAndCheckout(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if err := ValidateGeneratedEnvelope(encoded); (err == nil) != wantValid {
+			if err := payloadschema.ValidateEnvelope(encoded); (err == nil) != wantValid {
 				t.Fatalf("schema validation=%v, want valid=%v", err, wantValid)
 			}
 		})

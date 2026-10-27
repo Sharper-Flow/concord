@@ -9,6 +9,8 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"github.com/sharper-flow/concord/internal/store/internal/sqlitedb"
 )
 
 type workCreatedPayload struct {
@@ -240,7 +242,7 @@ func foldWorkCreated(ctx context.Context, tx *sql.Tx, event Event) error {
 		VALUES (?, ?, ?, 'needed', ?, ?, 1, ?, ?, NULL, ?, ?, ?)`,
 		event.SubjectID, payload.WorkKind, payload.Title, *payload.Priority, urgency, now, now, string(intent), event.Actor, event.Seq)
 	if err != nil {
-		if isUniqueViolation(err) {
+		if sqlitedb.IsUniqueViolation(err) {
 			return newFailure(KindProjectionConflict, "fold_event", "work item already exists", false,
 				"append a lifecycle or relation event for the existing work item")
 		}
@@ -277,8 +279,8 @@ func validateCaptureExternalRefTx(ctx context.Context, tx *sql.Tx, payload workC
 				return conflict
 			}
 		} else if payload.RaisedFromWorkID != "" {
-			return newFailure(KindProjectionConflict, "fold_event", "raised_from_work_id does not acknowledge a live external reference conflict", false,
-				"reread the live external reference owner and supply its work ID")
+			return newFailure(KindInvalidPayload, "fold_event", "raised_from_work_id does not acknowledge a live external reference conflict; omit raised_from_work_id and resubmit the corrected request with the same idempotency_key. This refusal records no work or key binding; normal admission and committed-key checks still apply", false,
+				"correct_request")
 		}
 	}
 	return nil
@@ -1187,11 +1189,11 @@ func insertRelation(ctx context.Context, tx *sql.Tx, event Event, payload relati
 	if err == nil {
 		return nil
 	}
-	if isIdentityConflict(err) || isCheckViolation(err) {
+	if sqlitedb.IsIdentityConflict(err) || sqlitedb.IsCheckViolation(err) {
 		return wrapFailure(KindRelationConflict, "fold_event", "relation violates a uniqueness or self-edge constraint", false,
 			"remove the duplicate or self-edge from the operation", err)
 	}
-	if isForeignKeyViolation(err) {
+	if sqlitedb.IsForeignKeyViolation(err) {
 		return wrapFailure(KindProjectionNotFound, "fold_event", "relation endpoint does not exist", false,
 			"create both work items before adding a relation", err)
 	}

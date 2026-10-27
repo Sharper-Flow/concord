@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 )
 
@@ -103,5 +104,43 @@ func TestWorkCreatedExternalRefCollisionIgnoresTerminalOwner(t *testing.T) {
 	second := externalRefWorkCreatedEvent("terminal-second", "work-second", "tracker:44", "")
 	if err := ApplyOperation(ctx, s, Operation{Events: []Event{second, externalRefMembershipEvent("terminal-second-membership", "work-second")}, ExpectedVersions: workVersion("work-second", 0)}); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestWorkCreatedExternalRefNoOwnerCorrection(t *testing.T) {
+	for _, terminalOwner := range []bool{false, true} {
+		t.Run(map[bool]string{false: "vacant", true: "terminal owner"}[terminalOwner], func(t *testing.T) {
+			s := openTemp(t)
+			ctx := context.Background()
+			seedWork(t, s, "setup")
+			if terminalOwner {
+				if err := ApplyOperation(ctx, s, Operation{Events: []Event{
+					externalRefWorkCreatedEvent("first", "work-first", "tracker:46", ""),
+					externalRefMembershipEvent("first-member", "work-first"),
+					workTransitionEvent("close-first", "work-first", "needed", "completed", 2, 3),
+				}, ExpectedVersions: workVersion("work-first", 0)}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			event := externalRefWorkCreatedEvent("unowned", "work-unowned", "tracker:46", "work-first")
+			err := ApplyOperation(ctx, s, Operation{Events: []Event{event}, ExpectedVersions: workVersion("work-unowned", 0)})
+			var failure *Failure
+			if !errors.As(err, &failure) || failure.Kind != KindInvalidPayload || failure.RecoveryAction != "correct_request" || failure.RetrySafe || failure.EffectPossible || len(failure.CommittedRefs) != 0 || failure.ExternalRefConflict != nil {
+				t.Fatalf("no-owner correction = %+v, err=%v", failure, err)
+			}
+			if !strings.Contains(failure.Detail, "omit raised_from_work_id") || !strings.Contains(failure.Detail, "same idempotency_key") {
+				t.Fatalf("missing input/key correction: %s", failure.Detail)
+			}
+			for _, query := range []string{
+				`SELECT count(*) FROM work_items WHERE id='work-unowned'`,
+				`SELECT count(*) FROM relations WHERE work_id_from='work-unowned'`,
+				`SELECT count(*) FROM effect_receipts WHERE event_id='unowned'`,
+			} {
+				var count int
+				if err := s.DatabaseForTesting().QueryRow(query).Scan(&count); err != nil || count != 0 {
+					t.Fatalf("refused capture: %s = %d, err=%v", query, count, err)
+				}
+			}
+		})
 	}
 }

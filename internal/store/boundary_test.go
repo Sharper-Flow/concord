@@ -10,6 +10,9 @@ package store
 // *sql.DB or *sql.Tx, call BeginTx, touch a .DB / .DatabaseForTesting member,
 // or hold literal SQL aimed at a store-owned table. Inside internal/store, a
 // Store.DB accessor is forbidden so the handle has no production escape hatch.
+// Production SQLite driver APIs and result constants belong to internal/store/internal/sqlitedb,
+// not to its domain-facing callers inside or outside internal/store.
+// Installation-key SQL also stays in sqlitedb; schema DDL and test support remain allowed.
 
 import (
 	"go/ast"
@@ -119,7 +122,32 @@ func scanBoundaryFiles(files map[string]string, tables map[string]bool) []bounda
 			findings = append(findings, boundaryFinding{path, 1, "cannot parse: " + err.Error()})
 			continue
 		}
+		if !strings.HasPrefix(path, "internal/store/internal/sqlitedb/") {
+			for _, spec := range file.Imports {
+				imported, _ := strconv.Unquote(spec.Path.Value)
+				message := ""
+				switch imported {
+				case "modernc.org/sqlite":
+					message = "SQLite driver API outside internal/store/internal/sqlitedb"
+				case "modernc.org/sqlite/lib":
+					message = "SQLite result constants outside internal/store/internal/sqlitedb"
+				}
+				if message != "" {
+					findings = append(findings, boundaryFinding{
+						path, fset.Position(spec.Pos()).Line, message,
+					})
+				}
+			}
+		}
 		if scope == boundaryScopeStore {
+			if !strings.HasPrefix(path, "internal/store/internal/sqlitedb/") {
+				ast.Inspect(file, func(n ast.Node) bool {
+					if lit, ok := n.(*ast.BasicLit); ok && lit.Kind == token.STRING {
+						findings = append(findings, scanSQLLiteral(path, lit, fset, map[string]bool{"agent_installation_keys": true})...)
+					}
+					return true
+				})
+			}
 			findings = append(findings, scanStoreAccessor(path, file, fset)...)
 			continue
 		}
@@ -465,8 +493,90 @@ func TestStoreBoundaryFixtureViolations(t *testing.T) {
 			count: 0,
 		},
 		{
+			name:     "installation-key queries belong to the durable owner",
+			files:    map[string]string{"internal/store/key.go": "package store\nvar query = `SELECT key_bytes FROM agent_installation_keys`\n"},
+			contains: []string{"literal SQL SELECT targets store table agent_installation_keys"},
+			count:    1,
+		},
+		{
+			name:     "installation-key insert belongs to the durable owner",
+			files:    map[string]string{"internal/store/key.go": "package store\nvar query = `INSERT OR IGNORE INTO agent_installation_keys VALUES('cursor',?,?)`\n"},
+			contains: []string{"literal SQL INSERT targets store table agent_installation_keys"},
+			count:    1,
+		},
+		{
+			name:  "durable owner may read and write installation keys",
+			files: map[string]string{"internal/store/internal/sqlitedb/key.go": "package sqlitedb\nvar query = `SELECT key_bytes FROM agent_installation_keys; INSERT INTO agent_installation_keys VALUES('cursor',?,?)`\n"},
+			count: 0,
+		},
+		{
+			name:  "schema still declares installation keys",
+			files: map[string]string{"internal/store/schema.go": "package store\nvar ddl = `CREATE TABLE agent_installation_keys(key_bytes BLOB)`\n"},
+			count: 0,
+		},
+		{
+			name:  "declared test support may reset installation keys",
+			files: map[string]string{"internal/store/storetest/fixture.go": "package storetest\nvar query = `DELETE FROM agent_installation_keys`\n"},
+			count: 0,
+		},
+		{
 			name:  "nested durable production code remains inside store",
 			files: map[string]string{"internal/store/internal/sqlitedb/read.go": "package sqlitedb\nimport \"database/sql\"\nfunc read(db *sql.DB) { db.BeginTx(nil, nil); _ = db.Query(`SELECT id FROM widgets`) }\n"},
+			count: 0,
+		},
+		{
+			name:     "SQLite driver API belongs to the durable owner",
+			files:    map[string]string{"internal/store/register.go": "package store\nimport driver \"modernc.org/sqlite\"\n"},
+			contains: []string{"SQLite driver API outside internal/store/internal/sqlitedb"},
+			count:    1,
+		},
+		{
+			name:     "outside-store aliased driver import is forbidden",
+			files:    map[string]string{"internal/agent/register.go": "package agent\nimport driver \"modernc.org/sqlite\"\n"},
+			contains: []string{"SQLite driver API outside internal/store/internal/sqlitedb"},
+			count:    1,
+		},
+		{
+			name:     "blank driver import belongs to the durable owner",
+			files:    map[string]string{"internal/store/register.go": "package store\nimport _ \"modernc.org/sqlite\"\n"},
+			contains: []string{"SQLite driver API outside internal/store/internal/sqlitedb"},
+			count:    1,
+		},
+		{
+			name:  "durable owner may register driver functions",
+			files: map[string]string{"internal/store/internal/sqlitedb/register.go": "package sqlitedb\nimport driver \"modernc.org/sqlite\"\n"},
+			count: 0,
+		},
+		{
+			name:  "declared test support may use driver APIs",
+			files: map[string]string{"internal/store/storetest/neighbor/fixture.go": "package neighbor\nimport driver \"modernc.org/sqlite\"\n"},
+			count: 0,
+		},
+		{
+			name:  "test files may use driver APIs",
+			files: map[string]string{"internal/store/driver_test.go": "package store\nimport driver \"modernc.org/sqlite\"\n"},
+			count: 0,
+		},
+		{
+			name:     "SQLite result constants belong to the durable owner",
+			files:    map[string]string{"internal/store/classify.go": "package store\nimport codes \"modernc.org/sqlite/lib\"\nvar code = codes.SQLITE_CONSTRAINT_UNIQUE\n"},
+			contains: []string{"SQLite result constants outside internal/store/internal/sqlitedb"},
+			count:    1,
+		},
+		{
+			name:     "outside-store callers cannot classify SQLite result codes",
+			files:    map[string]string{"internal/agent/classify.go": "package agent\nimport codes \"modernc.org/sqlite/lib\"\nvar code = codes.SQLITE_CONSTRAINT_UNIQUE\n"},
+			contains: []string{"SQLite result constants outside internal/store/internal/sqlitedb"},
+			count:    1,
+		},
+		{
+			name:  "durable owner may classify SQLite result codes",
+			files: map[string]string{"internal/store/internal/sqlitedb/constraints.go": "package sqlitedb\nimport \"modernc.org/sqlite/lib\"\n"},
+			count: 0,
+		},
+		{
+			name:  "test code may assert SQLite result codes",
+			files: map[string]string{"internal/store/classify_test.go": "package store\nimport \"modernc.org/sqlite/lib\"\n"},
 			count: 0,
 		},
 		{

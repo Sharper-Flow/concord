@@ -77,6 +77,9 @@ type WorkflowAdmissionState struct {
 	// CorrectionRecovery reports a completed result the reject_worker_result
 	// recovery can reject.
 	CorrectionRecovery bool
+	// ReviewResultAcceptance advertises an eligible Review result. Request
+	// binding replaces it with the exact requested attempt's capability.
+	ReviewResultAcceptance bool
 	// RefineReviewEvidenceAttemptID names the review available for hold-mode acceptance at refine.
 	RefineReviewEvidenceAttemptID string
 	// CorrectionRequestRecovery reports the delivery-gate corrective return
@@ -388,9 +391,20 @@ func (l workflowAdmissionLoad) recoveryRoutes(state *WorkflowAdmissionState) (bo
 		return false, workerFailureErr
 	}
 	state.WorkerFailureRecovery = workerFailureRoute
-	correctionRoute, correctionRouteErr := workflowRejectedWorkerResultAvailable(l.ctx, l.q, l.workID, l.definition, l.currentStep, l.subject)
+	results, correctionRouteErr := workflowRejectableWorkerResults(l.ctx, l.q, l.workID, l.definition, l.currentStep, l.subject, 0)
 	if correctionRouteErr != nil {
 		return false, correctionRouteErr
+	}
+	correctionRoute := len(results) > 0
+	for _, result := range results {
+		review, err := workflowAttemptIsReview(l.ctx, l.q, l.workID, result.AttemptID)
+		if err != nil {
+			return false, err
+		}
+		if review {
+			state.ReviewResultAcceptance = true
+			break
+		}
 	}
 	// The rejection recovery is a worker-dispatch-step route: off a step that
 	// declares dispatch_worker the state carries no recovery, so a caller
@@ -725,7 +739,9 @@ func workflowAdmitDispatchRefused(state WorkflowAdmissionState, actionID string,
 
 // workflowAdmitDeliveryRefused answers delivery admission and the mandate.
 func workflowAdmitDeliveryRefused(definition WorkflowDefinition, state WorkflowAdmissionState, actionID string, decision *WorkflowAdmissionDecision) bool {
-	if failure := workflowAdmitMandate(definition, state.Step, state.Mandate, actionID, "workflow_action"); failure != nil {
+	reviewOnly := actionID == "accept_worker_result" && state.ReviewResultAcceptance &&
+		!workflowAcceptDeliveryAdmissionActive(definition, state.Step)
+	if failure := workflowAdmitMandate(definition, state.Step, state.Mandate, actionID, "workflow_action", reviewOnly); failure != nil {
 		decision.Failure = failure
 		return true
 	}

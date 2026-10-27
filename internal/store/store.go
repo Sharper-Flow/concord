@@ -8,7 +8,6 @@ package store
 
 import (
 	"context"
-	"crypto/rand"
 	"database/sql"
 	"fmt"
 	"os"
@@ -385,58 +384,13 @@ func (s *Store) finishOpen(ctx context.Context) error {
 	return validateMembershipInvariants(ctx, s.db)
 }
 
-// ensureInstallationKey creates the one authority-owned cursor signing key.
-// The read runs first so an open of an established database never needs the
-// write lock: an INSERT statement opens a write transaction even when
-// INSERT OR IGNORE ends up inserting nothing, which made every open compete
-// for the lock and fail with SQLITE_BUSY under a long foreign write. The
-// INSERT stays idempotent so concurrent first opens converge on one key.
+// ensureInstallationKey supplies the open lifecycle's timestamp and failure envelope.
 func ensureInstallationKey(ctx context.Context, db *sql.DB, createdAt ...time.Time) error {
-	var exists int
-	if err := db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM agent_installation_keys WHERE key_name='cursor')`).Scan(&exists); err != nil {
-		return wrapFailure(KindUnavailable, "open", "cannot inspect the installation cursor key", true,
-			"confirm the database is readable", err)
-	}
-	if exists == 1 {
-		return nil
-	}
 	when := nowFromClock(nil)
 	if len(createdAt) > 0 {
 		when = createdAt[0]
 	}
-	key := make([]byte, 32)
-	if _, err := rand.Read(key); err != nil {
-		return wrapFailure(KindUnavailable, "open", "cannot create the installation cursor key", true,
-			"retry once the operating system random source is available", err)
-	}
-	tx, err := beginOrdinaryTx(ctx, db)
-	if err != nil {
-		return wrapFailure(KindUnavailable, "open", "cannot begin installation cursor key creation", true,
-			"retry once the database is writable", err)
-	}
-	defer tx.Rollback()
-	result, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO agent_installation_keys(key_name,key_bytes,created_at) VALUES('cursor',?,?)`, key, when.UTC().Format(time.RFC3339Nano))
-	if err != nil {
-		return wrapFailure(KindUnavailable, "open", "cannot persist the installation cursor key", true,
-			"retry once the database is writable", err)
-	}
-	inserted, err := result.RowsAffected()
-	if err != nil {
-		return wrapFailure(KindUnavailable, "open", "cannot confirm installation cursor key creation", true,
-			"retry once the database is readable", err)
-	}
-	if inserted == 0 {
-		if err := tx.Rollback(); err != nil {
-			return wrapFailure(KindUnavailable, "open", "cannot roll back ignored installation cursor key creation", true,
-				"retry once the database is writable", err)
-		}
-		return nil
-	}
-	if err := tx.Commit(); err != nil {
-		return wrapFailure(KindUnavailable, "open", "cannot commit the installation cursor key", true,
-			"retry once the database is writable", err)
-	}
-	return nil
+	return mechanismFailure(sqlitedb.EnsureInstallationKey(ctx, db, when))
 }
 
 // InstallationKey returns the authority-owned key for authenticated cursors.
@@ -445,16 +399,8 @@ func ensureInstallationKey(ctx context.Context, db *sql.DB, createdAt ...time.Ti
 // The queryer must be a live handle; callers guard their own handle before
 // calling in.
 func InstallationKey(ctx context.Context, q queryer) ([]byte, error) {
-	var key []byte
-	if err := q.QueryRowContext(ctx, `SELECT key_bytes FROM agent_installation_keys WHERE key_name='cursor'`).Scan(&key); err != nil {
-		return nil, wrapFailure(KindUnavailable, "cursor_key", "cannot read the installation cursor key", true,
-			"open a migrated authority database", err)
-	}
-	if len(key) != 32 {
-		return nil, newFailure(KindInvariantViolation, "cursor_key", "installation cursor key has an invalid length", false,
-			"rebuild the authority from its migration")
-	}
-	return append([]byte(nil), key...), nil
+	key, err := sqlitedb.InstallationKey(ctx, q)
+	return key, mechanismFailure(err)
 }
 
 // dataSourceName builds the connection string. Every setting travels in the

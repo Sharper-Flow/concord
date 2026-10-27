@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/sharper-flow/concord/internal/payloadschema"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -39,7 +40,7 @@ func TestCommittedLifecycleEnvelopeSatisfiesGeneratedContract(t *testing.T) {
 	if err != nil {
 		t.Fatalf("committed lifecycle envelope failed its own producer validation: %v", err)
 	}
-	if err := ValidateGeneratedEnvelope(encoded); err != nil {
+	if err := payloadschema.ValidateEnvelope(encoded); err != nil {
 		t.Fatalf("committed lifecycle envelope failed the generated TS7 contract: %v; envelope=%s", err, encoded)
 	}
 	var read Envelope
@@ -105,7 +106,7 @@ func TestCommittedReclaimEnvelopeSatisfiesGeneratedContract(t *testing.T) {
 	if err != nil {
 		t.Fatalf("committed reclaim envelope failed its own producer validation: %v", err)
 	}
-	if err := ValidateGeneratedEnvelope(encoded); err != nil {
+	if err := payloadschema.ValidateEnvelope(encoded); err != nil {
 		t.Fatalf("committed reclaim envelope failed the generated TS7 contract: %v; envelope=%s", err, encoded)
 	}
 	// The claimed worktree was clean and merged, so the contract-valid
@@ -154,7 +155,7 @@ func TestGeneratedContractRejectsUndeclaredScopeMembers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := ValidateGeneratedEnvelope(tampered); err == nil {
+	if err := payloadschema.ValidateEnvelope(tampered); err == nil {
 		t.Fatal("generated TS7 contract accepted resolved_scope.product_ids, the exact #701 drift shape")
 	}
 }
@@ -186,7 +187,7 @@ func TestGeneratedContractRejectsUndeclaredAllOfMembers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := ValidateGeneratedEnvelope(raw); err == nil {
+	if err := payloadschema.ValidateEnvelope(raw); err == nil {
 		t.Fatal("generated contract accepted an undeclared allOf member")
 	}
 }

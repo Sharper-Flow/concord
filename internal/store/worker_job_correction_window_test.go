@@ -392,6 +392,13 @@ func dispatchJobBoundAttempt(t *testing.T, s *Store, workID, stepID, attemptID s
 // refusal before admission.
 func dispatchJobPacketForTest(t *testing.T, s *Store, workID, attemptID string, actor WorkflowActor, key string, packet map[string]any) error {
 	t.Helper()
+	return dispatchJobPacketOnRuntimeForTest(t, s, workID, attemptID, actor, key, packet, oracleFixtureRuntime)
+}
+
+// dispatchJobPacketOnRuntimeForTest dispatches the packet while the dispatch
+// preparation observes the named fixture runtime.
+func dispatchJobPacketOnRuntimeForTest(t *testing.T, s *Store, workID, attemptID string, actor WorkflowActor, key string, packet map[string]any, runtime string) error {
+	t.Helper()
 	if packet["inputs"].(map[string]any)["worker_job"] != nil {
 		packet["schema_version"] = WorkerPacketSchemaVersion
 	}
@@ -401,7 +408,7 @@ func dispatchJobPacketForTest(t *testing.T, s *Store, workID, attemptID string, 
 		t.Fatal(err)
 	}
 	payload := mustJSONValue(map[string]any{"attempt_id": attemptID, "worker_packet": json.RawMessage(packetPayload)})
-	_, err = invokeWorkflowActionForCD0059(context.Background(), t, s, WorkflowActionExecutionRequest{
+	_, err = invokeWorkflowActionForCD0059(context.WithValue(context.Background(), oracleFixtureRuntimeKey{}, runtime), t, s, WorkflowActionExecutionRequest{
 		WorkID: workID, ExpectedVersion: readWorkVersion(t, s, workID), ActionID: "dispatch_worker", Payload: payload, SessionWorktree: dispatchSessionWorktree(t, s, workID),
 		Actor: actor, AcceptedInputsDigest: "sha256:" + strings.Repeat("d", 64), IdempotencyIdentity: key, OperationID: key,
 		PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: key, RequestID: "request:" + key, ContractDigest: testManifestDigest, Now: time.Unix(10, 0).UTC(),

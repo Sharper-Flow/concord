@@ -12,6 +12,8 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"github.com/sharper-flow/concord/internal/store/internal/sqlitedb"
 )
 
 func normalizeRevision(input ResearchRevisionInput) (ResearchRevisionInput, error) {
@@ -273,7 +275,7 @@ func researchConstraint(detail string, err error) error {
 	if strings.Contains(strings.ToLower(err.Error()), "foreign key") {
 		return newFailure(KindProjectionNotFound, "research_mutation", detail, false, "create the referenced work or revision first")
 	}
-	if isUniqueViolation(err) {
+	if sqlitedb.IsUniqueViolation(err) {
 		return researchConflict(detail)
 	}
 	return researchUnavailable(detail, err)

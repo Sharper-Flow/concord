@@ -73,10 +73,10 @@ if name == "go" and sys.argv[1:2] == ["list"]:
 
 REPOSITORY = Path(__file__).resolve().parents[1]
 MODULE = "github.com/sharper-flow/concord"
-# What the fake `go list ./...` reports: the two packages CI tests in shard
+# What the fake `go list ./...` reports: three packages CI tests in shard
 # jobs, and two it tests in one run.
 GO_LIST_OUTPUT = "\n".join(f"{MODULE}/{package}" for package in (
-    "cmd/concord", "internal/agent", "internal/store", "scripts/support",
+    "cmd/concord", "internal/agent", "internal/store", "internal/support", "scripts/support",
 ))
 # The wrapper keeps a stricter limit inherited from whatever runs this suite.
 _INHERITED_HARD = resource.getrlimit(resource.RLIMIT_FSIZE)[1]
@@ -84,7 +84,7 @@ DEFAULT_FILE_LIMIT = [1024 * 1024 * 1024 if _INHERITED_HARD == resource.RLIM_INF
                       else min(1024 * 1024 * 1024, _INHERITED_HARD)] * 2
 # Writes 3 MiB, then exits 0: past a 1 MiB limit, yet bounded if no limit holds.
 RUNAWAY_WRITER = ["/bin/bash", "-c", 'for _ in $(seq 3072); do printf "%1024s" ""; done >"$SCRATCH/runaway"']
-UNSHARDED_PACKAGES = [f"{MODULE}/internal/agent", f"{MODULE}/scripts/support"]
+UNSHARDED_PACKAGES = [f"{MODULE}/internal/support", f"{MODULE}/scripts/support"]
 CI_UNSHARDED_STEP = "Test every package without its own shard job"
 
 

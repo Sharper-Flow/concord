@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/sharper-flow/concord/internal/store/internal/sqlitedb"
 )
 
 const (
@@ -248,7 +250,7 @@ func foldManagedResourceCreated(ctx context.Context, tx *sql.Tx, event Event) er
 	}
 	_, err := tx.ExecContext(ctx, `INSERT INTO managed_resources(resource_id,display_name,class,kind,purpose,stage_maturity,stage_audience_commitment,environments,locator_absence_reason,metadata_schema_version,metadata,version,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, p.ResourceID, p.DisplayName, p.Class, p.Kind, p.Purpose, p.StageMaturity, p.StageAudienceCommitment, marshalStrings(p.Environments), nullableText(p.LocatorAbsenceReason), p.MetadataSchemaVersion, string(p.Metadata), 1, event.OccurredAt.UTC().Format(time.RFC3339Nano), event.OccurredAt.UTC().Format(time.RFC3339Nano))
 	if err != nil {
-		if isUniqueViolation(err) {
+		if sqlitedb.IsUniqueViolation(err) {
 			return newFailure(KindProjectionConflict, "fold_event", "managed resource identity already exists", false, "choose an unused resource ID")
 		}
 		return wrapFailure(KindUnavailable, "fold_event", "cannot write managed resource", true, "retry once the database is writable", err)
@@ -306,7 +308,7 @@ func foldManagedResourceConsumerAdded(ctx context.Context, tx *sql.Tx, event Eve
 		return wrapFailure(KindUnavailable, "fold_event", "cannot inspect existing resource Product link", true, "retry once the database is readable", err)
 	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO resource_products(resource_id,product_id,role,purpose,environments) VALUES(?,?,?,?,?)`, p.ResourceID, p.ProductID, "consumer", p.Purpose, marshalStrings(p.Environments)); err != nil {
-		if isUniqueViolation(err) {
+		if sqlitedb.IsUniqueViolation(err) {
 			return newFailure(KindProjectionConflict, "fold_event", "Product is already linked to the managed resource", false, "use the existing resource link")
 		}
 		return wrapFailure(KindUnavailable, "fold_event", "cannot write managed resource consumer", true, "retry once the database is writable", err)

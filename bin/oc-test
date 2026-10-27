@@ -10,10 +10,11 @@
 #   conformance Gated production-like ten-process conformance harness.
 #   preflight   Lefthook pre-push gates (lefthook.yml), pinned to v2.1.14.
 #
-# Smoke leaves out the packages CI splits into shard jobs (internal/store and
-# cmd/concord). Its Go step is CI's "Test every package without its own shard
-# job" command, and scripts/test-oc-test.py fails when the two differ. To test
-# one shard locally, run CI's selection for it, for example shard 1 of 7:
+# Smoke leaves out the packages CI splits into shard jobs (internal/store,
+# internal/agent, and cmd/concord). Its Go step is CI's "Test every package
+# without its own shard job" command, and scripts/test-oc-test.py fails when the
+# two differ. To test one shard locally, run CI's selection for it, for example
+# shard 1 of 7:
 #
 #   bin/oc-test broad -- bash -euo pipefail -c 'go test -timeout=15m -run "$(python3 scripts/go-test-shard.py ./internal/store 1 7)" ./internal/store'
 #
@@ -155,7 +156,7 @@ case "$tier" in
   smoke)
     [[ $# -eq 0 ]] || usage
     run_tier smoke smoke bash -euo pipefail -c '
-      go test -timeout=15m $(go list ./... | grep -v -x -F -e github.com/sharper-flow/concord/internal/store -e github.com/sharper-flow/concord/cmd/concord)
+      go test -timeout=15m $(go list ./... | grep -v -x -F -e github.com/sharper-flow/concord/internal/store -e github.com/sharper-flow/concord/internal/agent -e github.com/sharper-flow/concord/cmd/concord)
       env -u CONCORD_SELECTED_PRODUCT_ID bun test adapter/opencode/
       env -u CONCORD_SELECTED_PRODUCT_ID CONCORD_REQUIRE_BUN=1 python3 scripts/check-json.py --adapter-tests-external
     '

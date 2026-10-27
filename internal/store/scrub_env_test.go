@@ -26,6 +26,10 @@ func TestMain(m *testing.M) {
 	conformanceConfiguration.acceptanceRunner = os.Getenv(conformanceAcceptanceRunnerEnv)
 	_, _ = fmt.Sscanf(os.Getenv(conformanceAttemptsEnv), "%d", &conformanceConfiguration.attempts)
 	dir := testenv.ScrubEnv()
+	if err := gittest.ScrubRepositoryEnvironment(); err != nil {
+		_, _ = fmt.Fprintln(os.Stderr, err)
+		os.Exit(testenv.Cleanup(dir, 1))
+	}
 	gittest.DisableBackgroundMaintenance()
 	testDatabaseTemplate.dir = dir
 	// A SQLite neighbor child only holds a transaction and never resolves a

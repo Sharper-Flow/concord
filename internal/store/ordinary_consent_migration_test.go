@@ -16,7 +16,7 @@ var ordinaryConsentMigrationTables = []string{"workflow_overlap_resolutions", "o
 // every table and constraint; the fixture supplies only FK-valid row values.
 func ordinaryConsentMigrationFixture(t *testing.T) *sql.DB {
 	t.Helper()
-	db := openMigratedTo(t, filepath.Join(t.TempDir(), "ordinary-consent.db"), 157)
+	db := openMigratedTo(t, filepath.Join(t.TempDir(), "ordinary-consent.db"), migrationPrefixBefore(t, "ordinary_overlap_and_outside_repair_consent"))
 	execSixClassSQL(t, db, `INSERT INTO write_guard(active) VALUES(1);
 INSERT INTO products(id,display_name,stage_maturity,stage_audience_commitment,version,created_at,updated_at) VALUES('ordinary-product','Product','prototype','operator_only',1,'t','t');
 INSERT INTO work_items(id,kind,title,lifecycle,priority,version,created_at,updated_at) VALUES('ordinary-from','task','From','needed',0,1,'t','t'),('ordinary-to','task','To','needed',0,1,'t','t');`)
@@ -137,7 +137,7 @@ func TestOrdinaryConsentMigrationPreservesRowsAndConstraints(t *testing.T) {
 	}
 	execSixClassSQL(t, db, `DELETE FROM write_guard`)
 	var breaking, guards, leftovers int
-	if err := db.QueryRow(`SELECT breaking,(SELECT count(*) FROM write_guard),(SELECT count(*) FROM sqlite_schema WHERE name LIKE '%_v158') FROM schema_migrations WHERE version=158`).Scan(&breaking, &guards, &leftovers); err != nil || breaking != 1 || guards != 0 || leftovers != 0 {
+	if err := db.QueryRow(`SELECT breaking,(SELECT count(*) FROM write_guard),(SELECT count(*) FROM sqlite_schema WHERE name LIKE '%_v158') FROM schema_migrations WHERE name=?`, "ordinary_overlap_and_outside_repair_consent").Scan(&breaking, &guards, &leftovers); err != nil || breaking != 1 || guards != 0 || leftovers != 0 {
 		t.Fatalf("breaking=%d guards=%d leftovers=%d: %v", breaking, guards, leftovers, err)
 	}
 	rows, err := db.Query(`PRAGMA foreign_key_check`)

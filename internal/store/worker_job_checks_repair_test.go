@@ -205,6 +205,25 @@ func TestChecksRepairSatisfiesNamedRevisionsAndAdmitsOneConfirmingReview(t *test
 	// carries the core-observed clean delivery that anchors the review subject.
 	pin = issue1013Pin(t, s, workID)
 	issue1013StartRepair(t, s, workID, fixture.owner, pin.Version, latestStepStartEpoch(t, s, workID, "repair")+1)
+	// A pre-implementation continue Review grants permission for this exact
+	// repairing revision, not acceptance of its implementation or checks repair.
+	acceptCurrentReviewForBoundJobForTest(t, workContextFixture{store: s, workID: workID, owner: fixture.owner}, native.journey.repo, "continue", *rev3)
+	if candidates, err := workerChecksRepairAwaitingReviewTx(ctx, s.db, workID); err != nil || len(candidates) != 0 {
+		t.Fatalf("confirming Review candidates before implementation acceptance = (%#v, %v), want none", candidates, err)
+	}
+	history, err := readWorkflowCorrectionFacts(ctx, s.db, workID, "workflow_correction")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if repair := history.repairOfBinding(rev3.JobID, rev3.Revision); repair == nil || repair.acceptanceSeq != 0 || repair.confirmAttempt != "" || repair.confirmed || repair.voided {
+		t.Fatalf("repair state after permission-only Review = %+v, want recorded but unopened", repair)
+	}
+	for _, binding := range []*WorkerJobBinding{rev1, rev2, rev3} {
+		view := checksRepairRevisionView(t, s, workID, *binding)
+		if view.State != "recorded" || view.SatisfiedResultRef != "" {
+			t.Fatalf("revision %s@%d after permission-only Review = %+v, want no satisfaction", binding.JobID, binding.Revision, view)
+		}
+	}
 	pin = issue1013Pin(t, s, workID)
 	attempt3 := "attempt:" + workID + ":3"
 	dispatchJobBoundAttempt(t, s, workID, "repair", attempt3, pin.Correction, worker, pin.Version, "checks-repair-attempt-3", rev3)
@@ -222,6 +241,11 @@ func TestChecksRepairSatisfiesNamedRevisionsAndAdmitsOneConfirmingReview(t *test
 	// revision is satisfied.
 	if ready, err := readyWorkerJobRevisions(ctx, s.db, workID); err != nil || len(ready) != 0 {
 		t.Fatalf("ready revisions behind the unconfirmed repair = %#v, %v, want none", ready, err)
+	}
+	// The unconfirmed repairing revision keeps its one confirming Review; it
+	// is not a final-Review binding (CD-0205 D2).
+	if final, err := finalReviewWorkerJobTx(ctx, s.db, workID); err != nil || final != nil {
+		t.Fatalf("final Review binding of the unconfirmed repair = %#v, %v, want none", final, err)
 	}
 	// A later ordinary revision cannot hide an accepted repair's pending confirming Review.
 	later := jobFields("go test ./internal/store/ -run TestChecksRepair", nil)

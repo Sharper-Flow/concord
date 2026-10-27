@@ -21,16 +21,7 @@ func lawUpgradePrefix(t *testing.T, id, step string, contract, boundary int) (*S
 
 func lawUpgradePrefixForDefinition(t *testing.T, id, step string, contract, boundary int, definitionRef string) (*Store, WorkflowActor) {
 	t.Helper()
-	prefix := -1
-	for i, migration := range migrations {
-		if migration.Name == "workflow_owning_start_law_baseline" {
-			prefix = i
-			break
-		}
-	}
-	if prefix < 0 {
-		t.Fatal("owning-start baseline migration is not registered")
-	}
+	prefix := migrationPrefixBefore(t, "workflow_owning_start_law_baseline")
 	path := filepath.Join(t.TempDir(), "before-owning-start.db")
 	s := &Store{db: openMigratedTo(t, path, prefix), path: path, Clock: func() time.Time { return time.Unix(100, 0).UTC() }}
 	var tables int

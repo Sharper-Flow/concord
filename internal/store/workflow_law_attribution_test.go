@@ -417,7 +417,7 @@ func TestLawAttributionRegistryFingerprintGapsStayVisible(t *testing.T) {
 }
 
 func TestLawAttributionMigrationAndGuards(t *testing.T) {
-	db := openMigratedTo(t, filepath.Join(t.TempDir(), "attribution.db"), 158)
+	db := openMigratedTo(t, filepath.Join(t.TempDir(), "attribution.db"), migrationPrefixBefore(t, "workflow_owning_start_law_baseline"))
 	execSixClassSQL(t, db, `INSERT INTO write_guard(active) VALUES(1); INSERT INTO work_items(id,kind,title,lifecycle,priority,version,created_at,updated_at) VALUES('historic-law','task','Historic','in_progress',0,1,'t','t'); DELETE FROM write_guard;`)
 	if err := Migrate(t.Context(), db); err != nil {
 		t.Fatal(err)

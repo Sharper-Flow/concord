@@ -34,7 +34,7 @@ func newWorkflowCorrectionState() *workflowCorrectionHistory {
 	return &workflowCorrectionHistory{
 		unresolved: map[string]bool{}, dispatchJob: map[string]string{}, materialized: map[string]bool{},
 		obligations: map[string]workflowJobObligationState{}, blockingReview: map[string]bool{},
-		reviewDisposition: map[string]string{}, checksRepairs: map[string]*workflowChecksRepairState{},
+		reviewDisposition: map[string]string{}, reviewAttempts: map[string]bool{}, checksRepairs: map[string]*workflowChecksRepairState{},
 	}
 }
 
@@ -131,6 +131,7 @@ func (h *workflowCorrectionHistory) readAuthorizations(ctx context.Context, q qu
 		if authorization.WorkerJob != nil {
 			h.bind(attempt, *authorization.WorkerJob)
 		}
+		h.reviewAttempts[attempt] = authorization.WorkerCapabilityClass == "review"
 		h.completions = append(h.completions, workflowCorrectionDispatchCompletion{seq: seq, attempt: attempt})
 	}
 	if err := rows.Err(); err != nil {

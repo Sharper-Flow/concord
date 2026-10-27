@@ -277,6 +277,7 @@ const GeneratedEnvelopeSchemaDocument = `{
             "research_source_record",
             "resolve",
             "resolve_note",
+            "observe_publication",
             "resolve_overlap",
             "resource_claim",
             "resource_claims",
@@ -335,7 +336,7 @@ const GeneratedEnvelopeSchemaDocument = `{
           "type": "string"
         },
         "query_id": {
-          "pattern": "^(PM1\\.Q(1[0-46]|[1-9])|CD-0030\\.R1|CD-0040\\.R1|CD-0096\\.R1|CD-0182\\.R1|C15\\.Resources|C19\\.Continuity|C22\\.Domain(List|Detail|Attachments|Overlaps|Footprint|Shape))$",
+          "pattern": "^(PM1\\.Q(1[0-46]|[1-9])|CD-0020\\.R1|CD-0030\\.R1|CD-0040\\.R1|CD-0096\\.R1|CD-0182\\.R1|C15\\.Resources|C19\\.Continuity|C22\\.Domain(List|Detail|Attachments|Overlaps|Footprint|Shape))$",
           "type": "string"
         },
         "replayed": {
@@ -1052,6 +1053,7 @@ const GeneratedEnvelopeSchemaDocument = `{
             "research_source_record",
             "resolve",
             "resolve_note",
+            "observe_publication",
             "resolve_overlap",
             "resource_claim",
             "resource_claims",
@@ -1085,7 +1087,7 @@ const GeneratedEnvelopeSchemaDocument = `{
           "type": "string"
         },
         "query_id": {
-          "pattern": "^(PM1\\.Q(1[0-46]|[1-9])|CD-0030\\.R1|CD-0040\\.R1|CD-0096\\.R1|CD-0182\\.R1|C15\\.Resources|C19\\.Continuity|C22\\.Domain(List|Detail|Attachments|Overlaps|Footprint|Shape))$",
+          "pattern": "^(PM1\\.Q(1[0-46]|[1-9])|CD-0020\\.R1|CD-0030\\.R1|CD-0040\\.R1|CD-0096\\.R1|CD-0182\\.R1|C15\\.Resources|C19\\.Continuity|C22\\.Domain(List|Detail|Attachments|Overlaps|Footprint|Shape))$",
           "type": "string"
         },
         "reason_code": {
@@ -2028,6 +2030,24 @@ const GeneratedEnvelopeSchemaDocument = `{
             },
             "query_id": {
               "const": "PM1.Q10"
+            },
+            "tool": {
+              "const": "concord_knowledge"
+            }
+          },
+          "required": [
+            "tool",
+            "operation",
+            "query_id"
+          ]
+        },
+        {
+          "properties": {
+            "operation": {
+              "const": "observe_publication"
+            },
+            "query_id": {
+              "const": "CD-0020.R1"
             },
             "tool": {
               "const": "concord_knowledge"

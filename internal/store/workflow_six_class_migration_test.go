@@ -10,9 +10,22 @@ import (
 	"testing"
 )
 
+// migrationPrefixBefore returns the number of steps before the named owner,
+// as required by openMigratedTo, independently of its version or append slot.
+func migrationPrefixBefore(t *testing.T, name string) int {
+	t.Helper()
+	for i, migration := range migrations {
+		if migration.Name == name {
+			return i
+		}
+	}
+	t.Fatalf("migration %q is not registered", name)
+	return 0
+}
+
 func seedSixClassMigration(t *testing.T) *sql.DB {
 	t.Helper()
-	db := openMigratedTo(t, filepath.Join(t.TempDir(), "six-class.db"), 156)
+	db := openMigratedTo(t, filepath.Join(t.TempDir(), "six-class.db"), migrationPrefixBefore(t, "workflow_contract_six_decision_classes"))
 	execSixClassSQL(t, db, `INSERT INTO write_guard(active) VALUES(1);
 INSERT INTO work_items(id,kind,title,lifecycle,priority,version,created_at,updated_at) VALUES('six-class','task','Six-class migration','needed',0,1,'t','t');`)
 	execSixClassSQL(t, db, `INSERT INTO workflow_actors(actor_ref,principal_ref,client_ref,agent_ref,session_ref,actor_class,first_seen_at) VALUES(?,'principal/test','client/test','agent/test','session/test','agent','t')`, DeriveWorkflowActorRef("principal/test", "client/test", "agent/test", "session/test"))
@@ -108,7 +121,7 @@ func TestSixClassMigrationPreservesContractsAndGuards(t *testing.T) {
 		}
 	}
 	var breaking, guards, oldColumns int
-	if err := db.QueryRow(`SELECT breaking,(SELECT count(*) FROM write_guard),(SELECT count(*) FROM pragma_table_info('workflow_contracts') WHERE name='decision_domains_v156') FROM schema_migrations WHERE version=157`).Scan(&breaking, &guards, &oldColumns); err != nil || breaking != 1 || guards != 0 || oldColumns != 0 {
+	if err := db.QueryRow(`SELECT breaking,(SELECT count(*) FROM write_guard),(SELECT count(*) FROM pragma_table_info('workflow_contracts') WHERE name='decision_domains_v156') FROM schema_migrations WHERE name=?`, "workflow_contract_six_decision_classes").Scan(&breaking, &guards, &oldColumns); err != nil || breaking != 1 || guards != 0 || oldColumns != 0 {
 		t.Fatalf("breaking=%d guards=%d oldColumns=%d: %v", breaking, guards, oldColumns, err)
 	}
 	rows, err := db.Query(`PRAGMA foreign_key_check`)

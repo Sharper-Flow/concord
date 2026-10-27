@@ -122,7 +122,7 @@ func TestLawChangeRegistryRootAndRelationIdentity(t *testing.T) {
 }
 
 func TestLawChangeBaselineMigrationPreservesHistoricalFacts(t *testing.T) {
-	db := openMigratedTo(t, filepath.Join(t.TempDir(), "law-start.db"), 158)
+	db := openMigratedTo(t, filepath.Join(t.TempDir(), "law-start.db"), migrationPrefixBefore(t, "workflow_owning_start_law_baseline"))
 	execSixClassSQL(t, db, `INSERT INTO write_guard(active) VALUES(1); INSERT INTO work_items(id,kind,title,lifecycle,priority,version,created_at,updated_at) VALUES('historic-law','task','Historic law item','in_progress',0,1,'t','t');`)
 	actor := DeriveWorkflowActorRef("principal/test", "client/test", "agent/test", "session/test")
 	execSixClassSQL(t, db, `INSERT INTO workflow_actors(actor_ref,principal_ref,client_ref,agent_ref,session_ref,actor_class,first_seen_at) VALUES(?,'principal/test','client/test','agent/test','session/test','agent','t')`, actor)

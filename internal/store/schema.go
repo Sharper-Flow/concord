@@ -96,6 +96,9 @@ func applyMigration(ctx context.Context, q migrationRunner, m migration) error {
 	if m.Name == "effect_receipts" {
 		return backfillEffectReceiptDigests(ctx, q)
 	}
+	if m.Name == "continue_review_job_satisfaction" {
+		return restoreContinueReviewJobSatisfaction(ctx, q)
+	}
 	if m.Name == "workflow_evidence_current_facts" {
 		if err := backfillWorkflowCorrectionFacts(ctx, q); err != nil {
 			return err
@@ -7892,7 +7895,35 @@ CREATE TRIGGER knowledge_domain_facts_guard_delete BEFORE DELETE ON knowledge_do
 `,
 	},
 	{
-		Version:        157,
+		Version: 157,
+		Name:    "knowledge_publication_observations",
+		SQL: `
+CREATE TABLE knowledge_publication_observations (
+    project_id TEXT NOT NULL CHECK(length(CAST(project_id AS BLOB)) BETWEEN 1 AND 128),
+    locator_id TEXT NOT NULL CHECK(length(CAST(locator_id AS BLOB)) BETWEEN 1 AND 128),
+    source_binding TEXT NOT NULL CHECK(length(source_binding)=71),
+    latest_record TEXT NOT NULL CHECK(json_valid(latest_record) AND json_type(latest_record)='object' AND length(CAST(latest_record AS BLOB))<=4096),
+    success_record TEXT NOT NULL CHECK(success_record='' OR (json_valid(success_record) AND json_type(success_record)='object' AND length(CAST(success_record AS BLOB))<=4096)),
+    PRIMARY KEY(project_id,locator_id)
+);
+CREATE TRIGGER knowledge_publication_observations_guard_insert BEFORE INSERT ON knowledge_publication_observations BEGIN SELECT RAISE(ABORT, 'knowledge_publication_observations is write-seam-only') WHERE NOT EXISTS (SELECT 1 FROM write_guard WHERE active=1); END;
+CREATE TRIGGER knowledge_publication_observations_guard_update BEFORE UPDATE ON knowledge_publication_observations BEGIN SELECT RAISE(ABORT, 'knowledge_publication_observations is write-seam-only') WHERE NOT EXISTS (SELECT 1 FROM write_guard WHERE active=1); END;
+CREATE TRIGGER knowledge_publication_observations_guard_delete BEFORE DELETE ON knowledge_publication_observations BEGIN SELECT RAISE(ABORT, 'knowledge_publication_observations is write-seam-only') WHERE NOT EXISTS (SELECT 1 FROM write_guard WHERE active=1); END;
+`,
+	},
+	{
+		Version:  158,
+		Name:     "continue_review_job_satisfaction",
+		Breaking: false,
+		SQL: `
+-- Restore only satisfaction proved to come from the current accepted
+-- continue Review. The Go migration validates retained payload digests
+-- before clearing the four satisfaction fields; immutable facts stay intact.
+SELECT 1;
+`,
+	},
+	{
+		Version:        159,
 		Name:           "workflow_contract_six_decision_classes",
 		Breaking:       true,
 		FoldMaintained: "origin",
@@ -7935,7 +7966,7 @@ ALTER TABLE workflow_contracts DROP COLUMN decision_domains_v156;
 `,
 	},
 	{
-		Version:  158,
+		Version:  160,
 		Name:     "ordinary_overlap_and_outside_repair_consent",
 		Breaking: true,
 		SQL: `
@@ -8008,7 +8039,7 @@ CREATE TRIGGER outside_repair_reconciliations_guard_delete BEFORE DELETE ON outs
 `,
 	},
 	{
-		Version:        159,
+		Version:        161,
 		Name:           "workflow_owning_start_law_baseline",
 		Breaking:       true,
 		FoldMaintained: "advance",

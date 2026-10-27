@@ -526,6 +526,149 @@ function bindRouteSessions(worktree: string, coordinatorIDs: string[]) {
   return { sessions, opening, retain, counts: () => ({ coordinatorSessions: coordinatorIDs.length, taskLaunches, sessionCreates }) }
 }
 
+for (const mode of ["ordinary", "revised", "final-proof"]) {
+const revised = mode === "revised"
+routeDeclaration(`required Review leaves the ${mode} job ready for implementation in Main's session`, async () => {
+  const root = await fixtureTempRoot("dispatch-required-review")
+  const previousConfig = process.env.OPENCODE_CONFIG
+  try {
+    const { binary, dbPath, configPath, workID, worktree, lane } = await bootRouteFixture(root)
+    process.env.OPENCODE_CONFIG = configPath
+    const context = contextFor(worktree, "required-review-main")
+    const host = bindRouteSessions(worktree, [context.sessionID])
+    const calls: Array<{ argv: string[]; input: JSONRecord }> = []
+    const runner = realStoreRunner(binary, dbPath, calls, worktree)
+    configureConcordAdapter({ runner })
+    const invoke = (tool: string, args: any, context: any, directory?: string) => invokeConcordOperation(tool, args, context, directory) as Promise<JSONRecord>
+    const version = () => dbValue(dbPath, `SELECT version FROM work_items WHERE id='${workID}'`).version
+    const action = async (name: string, key: string, fields: JSONRecord) => {
+      const result = await invoke("concord_work_transition", { operation: "workflow_action", input: {
+        work_id: workID, expected_version: version(), action_id: name, idempotency_key: key, fields,
+      } }, context)
+      expect(result.outcome, JSON.stringify(result)).toBe("ok")
+      return result
+    }
+    const dispatch = async (laneID: string, key: string) => {
+      context.workerSessionID = `${key}-worker`
+      return dispatchRouteTask(agentLanes.find((lane) => lane.id === laneID)!, workID, worktree, version(), key, `${key}-task`, context, invoke,
+        (packet, agent) => host.opening(context, packet, agent))
+    }
+    const review = async (key: string) => {
+      const task = await dispatch("review", key)
+      const report = routeWorkerReport(agentLanes.find((lane) => lane.id === "review")!, task.packet,
+        task.packet.inputs.work_context.subject_commit,
+        await routeReviewBlock(task.packet, worktree, "continue", invoke, context))
+      const receipt = await completeRouteTask(task, report, runner, binary)
+      expect(receipt.outcome, JSON.stringify(receipt)).toBe("ok")
+      host.retain(task, report)
+      const epoch = dbValue(dbPath, `SELECT json_extract(payload,'$.attempt_epoch') AS n FROM worker_authorizations WHERE work_id='${workID}' AND attempt_id='${task.packet.attempt_id}'`).n
+      await action("accept_worker_result", `${key}-accept`, { attempt_id: task.packet.attempt_id, attempt_epoch: epoch })
+      return task
+    }
+    await driveWorkflowToContract(workID, invoke, context, APPROVED_OBJECTIVE, [WORKFLOW_PREDICATE], [], [".concord/docs/dispatch-marker.txt"])
+    if (revised) {
+      const firstReview = await review("required-review-baseline")
+      const job = firstReview.packet.inputs.worker_job
+      await action("record_worker_job", "required-review-revised-job", {
+        job_id: job.job_id, predicate_ids: job.predicate_ids, path_scope: job.path_scope,
+        checks: job.checks, stopping_condition: job.stopping_condition,
+        acceptance_oracle: job.acceptance_oracle, ready: true,
+        readiness_evidence: [job.acceptance_oracle.controls[0].readiness_evidence_refs[0]],
+        objective: "Apply the bounded repair and verify the revised route.",
+      })
+      const before = version()
+      const refused = await dispatchLaneWorker({ work_id: workID, expected_version: before, idempotency_key: "required-review-before", lane_id: "implement" }, {
+        context, invoke, credentials: { async getPrivateKey() { return PRIVATE_SEED } }, windows: new DispatchWindows(),
+      })
+      expect(refused.outcome, JSON.stringify(refused)).toBe("error")
+      expect(JSON.stringify(refused)).toContain("a changed worker-job revision requires a current accepted Review")
+      for (const route of ["dispatch_worker", "lane_id=review", "concord-review Task subagent", "Main's own session"]) {
+        expect(JSON.stringify(refused)).toContain(route)
+      }
+      expect(version()).toBe(before)
+    }
+    const acceptedReview = await review("required-review-current")
+    expect(acceptedReview.packet.inputs.worker_job.revision).toBe(revised ? 2 : 1)
+    const ready = await invoke("concord_work_trace", { operation: "continuity", input: { work_id: workID } }, context)
+    expect(ready.outcome, JSON.stringify(ready)).toBe("ok")
+    expect(ready.result.pinned.ready_worker_jobs.map((job: JSONRecord) => [job.job_id, job.revision, job.digest])).toEqual([
+      [ROUTE_WORKER_JOB_ID, revised ? 2 : 1, acceptedReview.packet.inputs.worker_job.digest],
+    ])
+    const implement = await dispatch("implement", "required-review-implementation")
+    expect(reportWorkerJob(implement.packet)).toEqual(reportWorkerJob(acceptedReview.packet))
+    expect(host.counts()).toEqual({ coordinatorSessions: 1, taskLaunches: revised ? 3 : 2, sessionCreates: 0 })
+    if (mode === "final-proof") {
+      await Bun.write(join(worktree, ".concord/docs/dispatch-marker.txt"), "The bounded route repair is implemented.\n")
+      await git(worktree, "add", ".concord/docs/dispatch-marker.txt")
+      await git(worktree, "-c", "user.name=Synthetic Test", "-c", "user.email=test@example.invalid", "commit", "--quiet", "-m", "synthetic implemented route")
+      const subject = (await runProcess(["git", "rev-parse", "HEAD"], "", worktree)).stdout.trim()
+      const report = routeWorkerReport(lane, implement.packet, subject)
+      const receipt = await completeRouteTask(implement, report, runner, binary)
+      expect(receipt.outcome, JSON.stringify(receipt)).toBe("ok")
+      host.retain(implement, report)
+      const epoch = dbValue(dbPath, `SELECT json_extract(payload,'$.attempt_epoch') AS n FROM worker_authorizations WHERE work_id='${workID}' AND attempt_id='${implement.packet.attempt_id}'`).n
+      await action("accept_worker_result", "required-review-implemented", { attempt_id: implement.packet.attempt_id, attempt_epoch: epoch })
+      const delivery = await invoke("concord_work_transition", { operation: "workflow_action", input: {
+        work_id: workID, expected_version: version(), action_id: "record_delivery", idempotency_key: "required-review-delivery", fields: {
+          delivery_artifact: `commit:${subject}`, delivery_state: "asserted",
+        },
+      } }, context)
+      expect(delivery.outcome, JSON.stringify(delivery)).toBe("error")
+      expect(JSON.stringify(delivery)).toContain("requires an accepted Review")
+      const satisfaction = () => dbValue(dbPath, `SELECT state,satisfied_result_ref AS ref,satisfied_seq AS seq FROM worker_job_revisions WHERE work_id='${workID}' AND job_id='${ROUTE_WORKER_JOB_ID}' AND revision=1`)
+      const implemented = satisfaction()
+      expect(implemented.state).toBe("satisfied")
+      const verify = async (key: string, input: JSONRecord) => {
+        const response = await invoke("concord_work_transition", { operation: "worktree_verify", input: { work_id: workID, idempotency_key: key, requested_budget_seconds: 300, ...input } }, context)
+        expect(response.outcome, JSON.stringify(response)).toBe("ok")
+        return response.result
+      }
+      await verify("required-review-final-subject", { command: ["git", "status", "--porcelain"] })
+      const satisfiedRead = await invoke("concord_work_trace", { operation: "continuity", input: { work_id: workID } }, context)
+      expect(satisfiedRead.result.pinned.ready_worker_jobs).toBeUndefined()
+      expect(satisfiedRead.result.pinned.review_worker_jobs.map((job: JSONRecord) => [job.job_id, job.revision, job.digest])).toEqual([
+        [ROUTE_WORKER_JOB_ID, 1, implement.packet.inputs.worker_job.digest],
+      ])
+      // The recorded readiness reference qualified the pre-implementation
+      // candidate, so Review refuses until Main prepares the current one.
+      const before = version()
+      const unprepared = await dispatchLaneWorker({ work_id: workID, expected_version: before, idempotency_key: "required-review-final-unprepared", lane_id: "review" }, {
+        context, invoke, credentials: { async getPrivateKey() { return PRIVATE_SEED } }, windows: new DispatchWindows(),
+      })
+      expect(unprepared.outcome, JSON.stringify(unprepared)).toBe("error")
+      expect(JSON.stringify(unprepared)).toContain("qualified native preparation")
+      expect(JSON.stringify(unprepared)).toContain("worktree_verify")
+      expect(version()).toBe(before)
+      const oracle = implement.packet.inputs.worker_job.acceptance_oracle
+      const { readiness_evidence_refs: recordedRefs, ...control } = oracle.controls[0]
+      const prepared = await verify("required-review-final-prepare", { oracle: { phase: "prepare", expected_contract_version: 1, control_bundle: { owner: oracle.owners[0], cases: oracle.cases, control } } })
+      expect(prepared.oracle.qualification).toBe("ready")
+      expect(prepared.oracle.subject_commit).toBe(subject)
+      expect(recordedRefs).not.toContain(prepared.oracle.run_ref)
+      const finalReview = await dispatch("review", "required-review-final-proof")
+      expect(reportWorkerJob(finalReview.packet)).toEqual(reportWorkerJob(implement.packet))
+      expect(finalReview.packet.inputs.worker_job).toEqual(implement.packet.inputs.worker_job)
+      const frozen = dbValue(dbPath, `SELECT json_extract(payload,'$.worker_oracle_preparations') AS refs FROM worker_authorizations WHERE work_id='${workID}' AND attempt_id='${finalReview.packet.attempt_id}'`).refs
+      expect(JSON.parse(frozen)).toEqual([{ control_id: control.control_id, preparation_run_ref: prepared.oracle.run_ref }])
+      const finalReport = routeWorkerReport(agentLanes.find((lane) => lane.id === "review")!, finalReview.packet, subject,
+        await routeReviewBlock(finalReview.packet, worktree, "continue", invoke, context))
+      const finalReceipt = await completeRouteTask(finalReview, finalReport, runner, binary)
+      expect(finalReceipt.outcome, JSON.stringify(finalReceipt)).toBe("ok")
+      host.retain(finalReview, finalReport)
+      const finalEpoch = dbValue(dbPath, `SELECT json_extract(payload,'$.attempt_epoch') AS n FROM worker_authorizations WHERE work_id='${workID}' AND attempt_id='${finalReview.packet.attempt_id}'`).n
+      await action("accept_worker_result", "required-review-final-accept", { attempt_id: finalReview.packet.attempt_id, attempt_epoch: finalEpoch })
+      expect(satisfaction()).toEqual(implemented)
+      expect(dbValue(dbPath, `SELECT count(DISTINCT job_id) AS n FROM worker_job_revisions WHERE work_id='${workID}'`).n).toBe(1)
+    }
+  } finally {
+    configureConcordAdapter({ reset: true })
+    hostControlPlane().bind(undefined)
+    if (previousConfig === undefined) delete process.env.OPENCODE_CONFIG
+    else process.env.OPENCODE_CONFIG = previousConfig
+  }
+}, 300_000)
+}
+
 routeDeclaration("G01 composes concurrent coordinators with fresh production independent review verify and retained reports", async () => {
   const root = await fixtureTempRoot("dispatch-g01")
   const previousConfig = process.env.OPENCODE_CONFIG

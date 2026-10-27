@@ -90,12 +90,17 @@ func resolveWorkerControl(ctx context.Context, q queryer, req WorkerControlReque
 	if err != nil {
 		return err
 	}
-	if bundle.Control.RecipeSource.ProjectID != req.ProjectID || bundle.Owner.Mechanism.ProjectID != req.ProjectID || len(bundle.Control.ReadinessEvidenceRefs) == 0 {
+	if bundle.Control.RecipeSource.ProjectID != req.ProjectID || bundle.Owner.Mechanism.ProjectID != req.ProjectID {
 		return workerControlUnauthorized()
 	}
-	// Declared order chooses one already-qualified preparation. An invalid
-	// selected receipt refuses rather than falling through to another runner.
-	oracle.PreparationRunRef = bundle.Control.ReadinessEvidenceRefs[0]
+	// Review uses its authorization's frozen preparation; other lanes take the
+	// first declared reference. An invalid selected receipt refuses rather than
+	// falling through to another runner.
+	ref, ok := nativeDispatchPreparationRef(dispatch, bundle, "")
+	if !ok {
+		return workerControlUnauthorized()
+	}
+	oracle.PreparationRunRef = ref
 	preparation, err := readOraclePreparationReceiptTx(ctx, q, req.WorkID, req.ProjectID, oracle.PreparationRunRef)
 	if err != nil {
 		return err

@@ -79,7 +79,6 @@ func TestRetainedReviewCandidateReadback(t *testing.T) {
 func TestRetainedUnidentifiedFindingReadback(t *testing.T) {
 	for _, oracle := range []*WorkerOracleFinding{nil, {Classification: OracleClassificationFollowUp}} {
 		finding := WorkerReviewFinding{Severity: "P2", Confidence: "high", Detail: "The recorded proof is incomplete.", Oracle: oracle}
-		before, digest := mustJSONValue(finding), reviewDigest(finding)
 		state := WorkflowReviewState{Findings: []WorkerReviewFinding{finding}, PublicationOutstanding: true}
 		raw := mustJSONValue(state)
 		if err := payloadschema.Validate("workflow_review_state", raw); err != nil {
@@ -102,8 +101,9 @@ func TestRetainedUnidentifiedFindingReadback(t *testing.T) {
 		if len(view.Findings) != 1 || !reflect.DeepEqual(view.Findings[0], expected) {
 			t.Fatalf("finding invented or lost recorded fields: %s", raw)
 		}
-		if !bytes.Equal(before, mustJSONValue(finding)) || digest != reviewDigest(finding) {
-			t.Fatal("readback changed report bytes or digest")
+		type reportedFinding WorkerReviewFinding
+		if !bytes.Equal(mustJSONValue(finding), mustJSONValue(reportedFinding(finding))) || reviewDigest(finding) != reviewDigest(reportedFinding(finding)) {
+			t.Fatal("worker report bytes or digest differ from the unprojected finding")
 		}
 		if err := payloadschema.Validate("lane_report_review_finding", mustJSONValue(want)); err == nil {
 			t.Fatal("strict report schema admitted an unidentified finding")

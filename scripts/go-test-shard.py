@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Print the `go test -run` pattern for one shard of a package's tests.
 
-CI runs `internal/store` and `cmd/concord` as several jobs each, because one
-run of either is too slow for one job; for `internal/store`, the shard margin
+CI runs `internal/store`, `internal/agent`, and `cmd/concord` as several jobs
+each, because one run of any is too slow for one job; for `internal/store`, the shard margin
 rule in .github/workflows/ci.yml sets the count. Job i of n asks this script
 for its share:
 

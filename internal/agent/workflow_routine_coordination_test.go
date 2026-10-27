@@ -1,9 +1,7 @@
 package agent
 
-// The destructive overlap classes (merged_into, supersedes) settle only
-// through the consumed one-use operator approval the real host mints. Every
-// assertion here runs through Dispatch: the challenge the Service mints, the
-// host assertion over the exact request, the consumption, and the effect.
+// CD-0243 D3/D7 retire kind-only merger and supersession consent. An explicit
+// approval claim still binds the exact request and must be consumed once.
 
 import (
 	"context"
@@ -14,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -249,7 +248,7 @@ func routineOverlapResolveInput(t *testing.T, binding routineOverlapBinding, key
 		"from_work_id": binding.fromWorkID, "to_work_id": binding.toWorkID,
 		"from_expected_version": binding.fromVersion, "to_expected_version": binding.toVersion,
 		"from_contract_version": binding.fromContractVersion, "to_contract_version": binding.toContractVersion,
-		"resolution_kind": binding.kind, "reason": "the operator settles the destructive overlap",
+		"resolution_kind": binding.kind, "reason": "settle the exact overlap",
 		"idempotency_key": key,
 	})
 	if err != nil {
@@ -258,26 +257,45 @@ func routineOverlapResolveInput(t *testing.T, binding routineOverlapBinding, key
 	return raw
 }
 
-// routineOverlapChallenge drives the first, approval-less dispatch and
-// asserts the genuine challenge: its typed refusal, its reference, its
-// bound direction and kind, and its exact request digest.
+// Explicit-claim tests seed a real challenge through the Service without
+// asking the ordinary operation to require consent. No-consent execution is
+// covered by TestOrdinaryOverlapNeedsNoConsent.
 func routineOverlapChallenge(t *testing.T, s *store.Store, service *Service, env CallEnvelope, binding routineOverlapBinding, input []byte) string {
 	t.Helper()
-	first := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_relate", Operation: "resolve_overlap", Input: input}, env)
-	if first.Error == nil || first.Error.Kind != "approval_required" {
-		t.Fatalf("destructive %s resolution without approval outcome=%s error=%+v, want the typed challenge", binding.kind, first.Outcome, first.Error)
+	ctx := context.Background()
+	r := runtime{Store: s, Authority: service, Envelope: env}
+	host, err := r.probeInvocationHost(ctx)
+	if err != nil {
+		t.Fatal(err)
 	}
-	challengeRef, ok := first.Error.Details["approval_ref"].(string)
-	if !ok || challengeRef == "" {
-		t.Fatalf("destructive %s challenge carries no approval ref: %+v", binding.kind, first.Error.Details)
+	productsByWork, err := s.ProductsForWorkIDs(ctx, []string{binding.fromWorkID, binding.toWorkID})
+	if err != nil {
+		t.Fatal(err)
 	}
-	if first.Error.Details["resolution_kind"] != binding.kind || first.Error.Details["from_work_id"] != binding.fromWorkID || first.Error.Details["to_work_id"] != binding.toWorkID {
-		t.Fatalf("destructive %s challenge omitted the bound direction: %+v", binding.kind, first.Error.Details)
+	seen := map[string]bool{}
+	for _, products := range productsByWork {
+		for _, product := range products {
+			seen[product] = true
+		}
 	}
-	if digest, _ := first.Error.Details["operation_digest"].(string); digest != mutationDigest("concord_work_relate", "resolve_overlap", env, input) {
-		t.Fatalf("destructive %s challenge digest %v does not bind the exact request", binding.kind, first.Error.Details["operation_digest"])
+	products := []string{}
+	for product := range seen {
+		products = append(products, product)
 	}
-	return challengeRef
+	sort.Strings(products)
+	scope, versions := routineOverlapCrossScopeBindings(t, s, env, binding, products)
+	digest := mutationDigest("concord_work_relate", "resolve_overlap", env, input)
+	inv := Invocation{ClientRef: env.ClientRef, SessionRef: env.SessionRef, AgentRef: env.AgentRef, Directory: env.Directory, Worktree: env.Worktree, ManifestDigest: env.ManifestDigest, HostAssertionDigest: digest, RequiredCapability: "work_relate", RequiredOperation: "resolve_overlap", ProductID: env.SelectedProductID}
+	var ref string
+	err = s.TransactDurable(ctx, func(tx *store.Transaction) error {
+		var err error
+		ref, err = service.CreateApprovalChallengeTx(ctx, tx, host, inv, ApprovalChallengeSpec{OperationDigest: digest, Scope: scope, Versions: versions, Consequence: "relation", HostAssertionDigest: digest, ExpiresAt: fixedTime().Add(time.Hour)})
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return ref
 }
 
 // routineOverlapApprovedDispatch signs the host assertion over one digest and
@@ -292,7 +310,7 @@ func routineOverlapApprovedDispatch(t *testing.T, s *store.Store, service *Servi
 }
 
 // TestRoutineCoordinationDestructiveKindsSettleThroughAConsumedHostApproval:
-// each destructive kind resolves only through a challenge the Service minted,
+// each explicit claim resolves through a challenge the Service minted,
 // a host assertion over the exact request, and one consumed one-use approval
 // row. The terminal and survivor lifecycles, the one-step endpoint version
 // bumps, the single consumed row, and the spent-row refusal are the settled
@@ -478,11 +496,10 @@ func TestRoutineCoordinationDestructiveApprovalRefusesWhenBoundToAnotherRequest(
 }
 
 // TestRoutineCoordinationDestructiveKindsRefuseWithoutAConsumableApproval:
-// no approval at all mints the typed challenge, an approval reference no host
-// exchange ever derived refuses, and a minted but unconsumed challenge
-// presented without its host assertion refuses. None of them consumes
-// authority or moves a version.
-func TestRoutineCoordinationDestructiveKindsRefuseWithoutAConsumableApproval(t *testing.T) {
+// An explicit reference that no host exchange derived refuses, as does a
+// minted challenge presented without its host assertion. Neither consumes
+// authority or moves a version. Missing consent itself is not a refusal.
+func TestRoutineCoordinationDestructiveKindsRefuseInvalidSuppliedApproval(t *testing.T) {
 	t.Parallel()
 	for _, kind := range []string{store.ResolutionMergedInto, store.ResolutionSupersedes} {
 		t.Run(kind, func(t *testing.T) {
@@ -491,8 +508,7 @@ func TestRoutineCoordinationDestructiveKindsRefuseWithoutAConsumableApproval(t *
 			binding := routineOverlapExactBinding(t, s, kind)
 			input := routineOverlapResolveInput(t, binding, "routine-destructive-missing-"+kind)
 
-			// Missing: the first dispatch is the typed challenge naming the
-			// exact destructive resolution.
+			// Seed only the explicit-claim fixture; ordinary dispatch needs no consent.
 			challengeRef := routineOverlapChallenge(t, s, service, env, binding, input)
 
 			// Fabricated: a well-shaped reference no challenge or approval row
@@ -1014,31 +1030,15 @@ func routineOverlapConsumedApprovalWitness(t *testing.T, s *store.Store, label s
 	}
 }
 
-// TestRoutineCoordinationCrossProductRoutineKindSettlesThroughAConsumedHostApproval:
-// compatible_with is a routine kind, yet the generic scope derivation reports
-// the request cross-Product because the shared Project's second membership
-// puts the endpoints' derived Product set outside the selected Product. The
-// first dispatch therefore returns the typed challenge, and the host-approved
-// retry consumes exactly one one-use approval and settles. The routine event
-// carries no approval binding of any kind, the attribution is the
-// authenticated caller, both endpoints advance one version, the commit is
-// durable with the derived cross-Product set bound.
-func TestRoutineCoordinationCrossProductRoutineKindSettlesThroughAConsumedHostApproval(t *testing.T) {
+// CD-0243 D3/D7 retire cross-Product routine consent. Capability, caller
+// attribution, endpoint versions, durable scope, and replay remain required.
+func TestRoutineCoordinationCrossProductRoutineKindNeedsNoConsent(t *testing.T) {
 	t.Parallel()
-	s, service, grant, privateKey, env := crossProductRoutineCoordinationFixture(t, []Capability{"work_relate", "cross_scope"})
+	s, service, grant, _, env := crossProductRoutineCoordinationFixture(t, []Capability{"work_relate", "cross_scope"})
 	binding := routineOverlapExactBinding(t, s, store.ResolutionCompatibleWith)
 	input := routineOverlapResolveInput(t, binding, "routine-cross-product-compatible")
-	challengeRef := routineOverlapChallenge(t, s, service, env, binding, input)
-	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM agent_approvals`); got != 0 {
-		t.Fatalf("the cross-Product challenge minted %d approval rows", got)
-	}
-	withApproval, err := injectApproval(input, challengeRef)
-	if err != nil {
-		t.Fatal(err)
-	}
-	scope, versions := routineOverlapCrossScopeBindings(t, s, env, binding, []string{"product-1", "product-2"})
-	digest := mutationDigest("concord_work_relate", "resolve_overlap", env, withApproval)
-	approved := routineOverlapApprovedDispatch(t, s, service, privateKey, env, challengeRef, digest, scope, versions, withApproval)
+	request := InvokeRequest{Tool: "concord_work_relate", Operation: "resolve_overlap", Input: input}
+	approved := dispatchMutation(t, s, service, request, env)
 	if approved.Outcome != OutcomeOK {
 		t.Fatalf("approved cross-Product compatible_with outcome=%s error=%+v, want the settled resolution", approved.Outcome, approved.Error)
 	}
@@ -1054,7 +1054,9 @@ func TestRoutineCoordinationCrossProductRoutineKindSettlesThroughAConsumedHostAp
 	if got := workVersion(t, s, "work-2"); got != binding.toVersion+1 {
 		t.Fatalf("cross-Product compatible_with left work-2 at v%d, want the single step to %d", got, binding.toVersion+1)
 	}
-	routineOverlapConsumedApprovalWitness(t, s, "cross-Product compatible_with")
+	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM agent_approval_challenges`); got != 0 {
+		t.Fatalf("ordinary cross-Product coordination minted %d challenges", got)
+	}
 	var recordedRef, eventRef, eventScope, eventDigest, eventVersions, eventConsequence, eventActor string
 	if err := s.DatabaseForTesting().QueryRow(`SELECT COALESCE(approval_ref,'') FROM workflow_overlap_resolutions`).Scan(&recordedRef); err != nil {
 		t.Fatal(err)
@@ -1078,11 +1080,8 @@ func TestRoutineCoordinationCrossProductRoutineKindSettlesThroughAConsumedHostAp
 	if !strings.Contains(snapshot, `"product_ids":["product-1","product-2"]`) {
 		t.Fatalf("cross-Product compatible_with snapshot lost the derived Product set: %s", snapshot)
 	}
-	// The cached replay of the same signed cross-Product request answers
-	// with the original result and consumes nothing again: the approval row
-	// stays the single consumed one-use row, the routine event stays alone,
-	// no endpoint version moves again, and no second receipt exists.
-	replayed := routineOverlapApprovedDispatch(t, s, service, privateKey, env, challengeRef, digest, scope, versions, withApproval)
+	// Exact replay preserves the original result and writes no second effect.
+	replayed := dispatchMutation(t, s, service, request, env)
 	if replayed.Outcome != OutcomeOK || replayed.Error != nil {
 		t.Fatalf("cached cross-Product compatible_with replay outcome=%s error=%+v, want the original cached success", replayed.Outcome, replayed.Error)
 	}
@@ -1095,11 +1094,8 @@ func TestRoutineCoordinationCrossProductRoutineKindSettlesThroughAConsumedHostAp
 	if !sameChangedRefs(t, approved.ChangedRefs, replayed.ChangedRefs) {
 		t.Fatalf("cached cross-Product compatible_with replay changed refs %+v differ from the original %+v", replayed.ChangedRefs, approved.ChangedRefs)
 	}
-	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM agent_approvals`); got != 1 {
-		t.Fatalf("cached cross-Product compatible_with replay left %d approval rows, want the one consumed row", got)
-	}
-	if used := countRows(t, s.DatabaseForTesting(), `SELECT used_count FROM agent_approvals`); used != 1 {
-		t.Fatalf("cached cross-Product compatible_with replay approval used_count=%d, want the single consumed use", used)
+	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM agent_approvals`); got != 0 {
+		t.Fatalf("ordinary cross-Product replay left %d approval rows", got)
 	}
 	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM workflow_overlap_resolutions`); got != 1 {
 		t.Fatalf("cached cross-Product compatible_with replay left %d resolutions, want the settled one", got)

@@ -21,12 +21,27 @@ import (
 	"time"
 )
 
+func authoredDecisionDomainSets() [][]string {
+	classes := []string{"increased_spending", "legal", "product", "production_data", "security", "ui_ux"}
+	sets := make([][]string, 0, 1<<len(classes))
+	for mask := 0; mask < 1<<len(classes); mask++ {
+		set := []string{}
+		for index, class := range classes {
+			if mask&(1<<index) != 0 {
+				set = append(set, class)
+			}
+		}
+		sets = append(sets, set)
+	}
+	return sets
+}
+
 func TestDecisionFactWriteBoundary(t *testing.T) {
 	t.Parallel()
 
-	t.Run("all eight canonical decision facts persist exact event and stored bytes on genuine initial writes", func(t *testing.T) {
+	t.Run("all canonical decision facts persist exact event and stored bytes on genuine initial writes", func(t *testing.T) {
 		t.Parallel()
-		for _, set := range canonicalDecisionDomainSets() {
+		for _, set := range authoredDecisionDomainSets() {
 			workID := "decision-fact-initial-" + factWriteSetLabel(set)
 			definition := approvalRouteDefinition(t)
 			registry, registered := newResolutionRegistry(t, definition)
@@ -113,9 +128,9 @@ func TestDecisionFactWriteBoundary(t *testing.T) {
 		}
 	})
 
-	t.Run("all eight canonical decision facts persist on complete successors without mutating the predecessor", func(t *testing.T) {
+	t.Run("all canonical decision facts persist on complete successors without mutating the predecessor", func(t *testing.T) {
 		t.Parallel()
-		for _, set := range canonicalDecisionDomainSets() {
+		for _, set := range authoredDecisionDomainSets() {
 			workID := "decision-fact-successor-write-" + factWriteSetLabel(set)
 			definition := approvalRouteDefinition(t)
 			registry, registered := newResolutionRegistry(t, definition)
@@ -473,8 +488,9 @@ func TestDecisionFactWriteBoundary(t *testing.T) {
 			want bool
 		}{
 			{`[]`, true},
-			{`["preference", "product"]`, true},
-			{`["preference", "product", "ui_ux"]`, true},
+			{`["legal", "product"]`, true},
+			{`["increased_spending", "legal", "product", "production_data", "security", "ui_ux"]`, true},
+			{`["preference"]`, false},
 			{`null`, false},
 			{`"product"`, false},
 			{`["economics"]`, false},
@@ -495,7 +511,7 @@ func TestDecisionFactWriteBoundary(t *testing.T) {
 		}
 		aliasProbe := workflowDecisionFactRecoveryActionDefinition(newPolicy).Payload.Fields[len(recovery.Payload.Fields)-1]
 		aliasProbe.Enum[0] = "mutated"
-		if workflowDecisionDomainSet[0] != "preference" {
+		if workflowDecisionDomainSet[0] != "increased_spending" {
 			t.Fatalf("the fact enum aliases the canonical set: %v", workflowDecisionDomainSet)
 		}
 
@@ -569,7 +585,7 @@ func TestDecisionFactWriteBoundary(t *testing.T) {
 	// The constructor checks bind the write boundary's constructors and
 	// declaration consumers to the same canonical fact the fold gates carry:
 	// the actual approve_contract and supersede_contract constructors emit
-	// and preserve the exact typed bytes for all eight canonical sets, refuse
+	// and preserve the exact typed bytes for all canonical sets, refuse
 	// every broken and absent shape typed before any durable effect, and the
 	// dispatch, closed-validation, preflight, and work-pin surfaces agree
 	// with the copied declaration owner while every legacy declaration stays
@@ -590,7 +606,7 @@ func TestDecisionFactWriteBoundary(t *testing.T) {
 
 	t.Run("the initial approve constructor emits and folds every canonical decision fact exactly", func(t *testing.T) {
 		t.Parallel()
-		for _, set := range canonicalDecisionDomainSets() {
+		for _, set := range authoredDecisionDomainSets() {
 			workID := "decision-fact-initial-ctor-" + factWriteSetLabel(set)
 			definition := approvalRouteDefinition(t)
 			registry, registered := newResolutionRegistry(t, definition)
@@ -646,7 +662,7 @@ func TestDecisionFactWriteBoundary(t *testing.T) {
 
 	t.Run("the supersede constructor emits and folds every canonical decision fact exactly without mutating the predecessor", func(t *testing.T) {
 		t.Parallel()
-		for _, set := range canonicalDecisionDomainSets() {
+		for _, set := range authoredDecisionDomainSets() {
 			workID := "decision-fact-successor-ctor-" + factWriteSetLabel(set)
 			definition := approvalRouteDefinition(t)
 			registry, registered := newResolutionRegistry(t, definition)
@@ -1284,10 +1300,10 @@ func TestDecisionFactWriteBoundary(t *testing.T) {
 			returnedFact := first.Payload.Fields[factIndex]
 			if len(returnedFact.Enum) != 0 {
 				returnedFact.Enum[0] = "mutated"
-				if workflowDecisionDomainSet[0] != "preference" {
+				if workflowDecisionDomainSet[0] != "increased_spending" {
 					t.Errorf("the returned fact enum aliases the canonical set: %v", workflowDecisionDomainSet)
 				}
-				if pinned.Payload.Fields[factIndex].Enum[0] != "preference" {
+				if pinned.Payload.Fields[factIndex].Enum[0] != "increased_spending" {
 					t.Errorf("the returned fact enum aliases the pinned declaration's enum")
 				}
 			}

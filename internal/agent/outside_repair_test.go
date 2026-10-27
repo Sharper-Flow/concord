@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/sharper-flow/concord/internal/store"
 )
@@ -1017,17 +1018,29 @@ func outsideApprovalScope(env CallEnvelope, selectors func(map[string]any)) map[
 
 func dispatchOutsideMints(t *testing.T, s *store.Store, service *Service, env CallEnvelope, operation string, input map[string]any) string {
 	t.Helper()
-	unapprovedRaw, err := json.Marshal(input)
+	raw, err := json.Marshal(input)
 	if err != nil {
 		t.Fatal(err)
 	}
-	response := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: operation, Input: unapprovedRaw}, env)
-	if response.Error == nil || response.Error.Kind != "approval_required" {
-		t.Fatalf("%s without approval = %+v, want the operator challenge", operation, response.Error)
+	// CD-0243 D3/D7 retire ordinary outside-repair consent. These explicit
+	// approval-binding cases seed their own challenge; ordinary no-consent
+	// behavior is exercised by TestOrdinaryOutsideRepairNeedsNoConsent.
+	ctx := context.Background()
+	r := runtime{Store: s, Authority: service, Envelope: env}
+	host, err := r.probeInvocationHost(ctx)
+	if err != nil {
+		t.Fatal(err)
 	}
-	ref, ok := response.Error.Details["approval_ref"].(string)
-	if !ok || ref == "" {
-		t.Fatalf("%s challenge carries no approval reference: %+v", operation, response.Error.Details)
+	digest := mutationDigest("concord_work_transition", operation, env, raw)
+	inv := Invocation{ClientRef: env.ClientRef, SessionRef: env.SessionRef, AgentRef: env.AgentRef, Directory: env.Directory, Worktree: env.Worktree, ManifestDigest: env.ManifestDigest, HostAssertionDigest: digest, RequiredCapability: "work_transition", RequiredOperation: operation, ProductID: env.SelectedProductID}
+	var ref string
+	err = s.TransactDurable(ctx, func(tx *store.Transaction) error {
+		var err error
+		ref, err = service.CreateApprovalChallengeTx(ctx, tx, host, inv, ApprovalChallengeSpec{OperationDigest: digest, Scope: outsideApprovalScope(env, outsideReleaseSelectorsFor(operation, input)), Versions: map[string]any{"work": input["expected_version"]}, Consequence: "recovery", HostAssertionDigest: digest, ExpiresAt: fixedTime().Add(time.Hour)})
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
 	return ref
 }
@@ -1152,7 +1165,7 @@ func resultPin(t *testing.T, response Envelope) map[string]any {
 	return result.WorkPins[0]
 }
 
-func TestOutsideRepairHoldRequiresApprovalAndRecordsHold(t *testing.T) {
+func TestOutsideRepairSuppliedApprovalRecordsHold(t *testing.T) {
 	s, service, env, fake := outsideFixture(t)
 	input := outsideHoldInput(2, nil)
 	ref := dispatchOutsideMints(t, s, service, env, "outside_repair", input)
@@ -1422,15 +1435,6 @@ func TestOutsideRepairApprovalBindsExactOperation(t *testing.T) {
 	// ref carries a different operation digest, and its approval binding
 	// refuses before any effect.
 	input := outsideHoldInput(4, func(value map[string]any) { value["idempotency_key"] = "outside-hold-second" })
-	unapprovedRaw, err := json.Marshal(input)
-	if err != nil {
-		t.Fatal(err)
-	}
-	challenged := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "outside_repair", Input: unapprovedRaw}, env)
-	ref := challenged.Error.Details["approval_ref"].(string)
-	if ref == "" {
-		t.Fatalf("second hold minted no challenge")
-	}
 	refused := dispatchOutsideConsumedApproval(t, s, service, env, "outside_repair", consumedRef, input)
 	assertOutsideRefusedWith(t, refused, "approval reused for another operation", "approval_invalid")
 	if got := outsideWorkVersion(t, s); got != 4 {

@@ -242,18 +242,18 @@ func TestMessageSendSelfRecipientRefusedAsInvariantCrossProduct(t *testing.T) {
 }
 
 // The approval transport canonicalizes duplicate bindings before matching the
-// challenge, and both the committed response and replay resolve each work once.
-func TestMembershipApprovalCanonicalScopeRoundTrip(t *testing.T) {
+// challenge. CD-0243 D3/D7 retain this consent for security access grants.
+func TestAccessApprovalCanonicalScopeRoundTrip(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	s, service, grant, privateKey := mutationDispatchFixture(t, []Capability{"work_relate"})
+	s, service, grant, privateKey := productProjectLinkFixture(t, []Capability{"work_relate", "cross_scope"})
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
 	if err != nil {
 		t.Fatal(err)
 	}
 	env := mutationEnvelope(grant, scopeVersion)
-	input := json.RawMessage(`{"work_id":"work-1","expected_version":2,"memberships":[{"project_id":"project-1","role":"primary"}],"idempotency_key":"membership-canonical-scope"}`)
-	request := InvokeRequest{Tool: "concord_work_relate", Operation: "set_memberships", Input: input}
+	input := productProjectLinkRequest("", "project-2")
+	request := InvokeRequest{Tool: "concord_work_relate", Operation: "product_project_add", Input: input}
 
 	missing, err := Dispatch(ctx, s, service, request, env)
 	if err != nil || missing.Outcome != OutcomeError || missing.Error == nil || missing.Error.Kind != "approval_required" {
@@ -266,7 +266,7 @@ func TestMembershipApprovalCanonicalScopeRoundTrip(t *testing.T) {
 	if !sortedBoundedList(summary.Scope, maxConsequenceSummaryBindings) {
 		t.Fatalf("summary bindings are not strictly sorted and unique: %v", summary.Scope)
 	}
-	duplicateScope := map[string]any{"product_id": "product-1", "product_ids": []string{"product-1"}, "project_ids": []string{"project-1"}, "work_ids": []string{"work-1", "work-1"}, "scope_version": scopeVersion}
+	duplicateScope := map[string]any{"product_id": "product-1", "product_ids": []string{"product-1", "product-2", "product-1"}, "project_id": "project-2", "role": "secondary", "scope_version": scopeVersion}
 	if want := approvalScopeBindings(duplicateScope); !reflect.DeepEqual(summary.Scope, want) {
 		t.Fatalf("summary scope=%v want the canonical bindings of the duplicate-named scope %v", summary.Scope, want)
 	}
@@ -274,7 +274,7 @@ func TestMembershipApprovalCanonicalScopeRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("the challenge envelope does not marshal: %v", err)
 	}
-	if strings.Contains(string(encoded), `"work_ids:work-1","work_ids:work-1"`) {
+	if strings.Contains(string(encoded), `"product_ids:product-1","product_ids:product-1"`) {
 		t.Fatalf("the challenge envelope carries a duplicate binding: %s", encoded)
 	}
 
@@ -288,14 +288,14 @@ func TestMembershipApprovalCanonicalScopeRoundTrip(t *testing.T) {
 	}
 	request.Input = approvedInput
 	digest := mutationDigest(request.Tool, request.Operation, env, request.Input)
-	env.HostApproval = signedHostApproval(privateKey, challengeRef, digest, duplicateScope, map[string]any{"work": 2}, "session-1", "agent-1", env.Worktree, fixedTime(), "membership-canonical-approval")
+	env.HostApproval = signedHostApproval(privateKey, challengeRef, digest, duplicateScope, map[string]any{"product": 2}, "session-1", "agent-1", env.Worktree, fixedTime(), "access-canonical-approval")
 
 	approved, err := Dispatch(ctx, s, service, request, env)
 	if err != nil || approved.Outcome != OutcomeOK {
-		t.Fatalf("approved membership response=%+v err=%v", approved.Error, err)
+		t.Fatalf("approved access response=%+v err=%v", approved.Error, err)
 	}
-	if approved.ResolvedScope == nil || !reflect.DeepEqual(approved.ResolvedScope.WorkIDs, []string{"work-1"}) {
-		t.Fatalf("resolved work scope=%v want [work-1] once", approved.ResolvedScope)
+	if approved.ResolvedScope == nil || !reflect.DeepEqual(approved.ResolvedScope.ProjectIDs, []string{"project-1"}) {
+		t.Fatalf("resolved Project scope=%v want [project-1] once", approved.ResolvedScope)
 	}
 	if err := validateScope(approved.ResolvedScope); err != nil {
 		t.Fatalf("resolved scope invalid: %v", err)
@@ -306,17 +306,17 @@ func TestMembershipApprovalCanonicalScopeRoundTrip(t *testing.T) {
 		t.Fatalf("replay=%+v err=%v", replay, err)
 	}
 	var snapshot string
-	if replay.ResolvedScope == nil || !reflect.DeepEqual(replay.ResolvedScope.WorkIDs, []string{"work-1"}) {
-		t.Fatalf("replayed work scope=%v want [work-1] once", replay.ResolvedScope)
+	if replay.ResolvedScope == nil || !reflect.DeepEqual(replay.ResolvedScope.ProjectIDs, []string{"project-1"}) {
+		t.Fatalf("replayed Project scope=%v want [project-1] once", replay.ResolvedScope)
 	}
-	if err := s.DatabaseForTesting().QueryRow(`SELECT authorized_scope_snapshot FROM idempotency_records WHERE idempotency_key=?`, "membership-canonical-scope").Scan(&snapshot); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT authorized_scope_snapshot FROM idempotency_records WHERE idempotency_key=?`, "link-project").Scan(&snapshot); err != nil {
 		t.Fatalf("stored snapshot unreadable: %v", err)
 	}
 	authorizedScope, err := authorizedScopeFromSnapshot(snapshot)
 	if err != nil {
 		t.Fatalf("stored snapshot undecodable: %v", err)
 	}
-	if resolved := scopeFromMap(authorizedScope); resolved == nil || !reflect.DeepEqual(resolved.WorkIDs, []string{"work-1"}) {
-		t.Fatalf("snapshot-decoded resolved work scope=%v want [work-1] once", resolved)
+	if got := scopeListValues(authorizedScope["product_ids"]); !reflect.DeepEqual(got, []string{"product-1", "product-2"}) {
+		t.Fatalf("snapshot Product identities=%v want each authorized Product once", got)
 	}
 }

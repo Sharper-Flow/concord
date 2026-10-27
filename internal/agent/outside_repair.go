@@ -338,9 +338,8 @@ func outsideRepairGitHubRepository(normalizedRemote string) (string, bool) {
 // successful required-check sets, the published release and its tag-resolved
 // immutable commit, and proves every merge is an ancestor of that release
 // commit. A zero Envelope return names an ok collection.
-func (r runtime) outsideRepairEvidenceForPlan(ctx context.Context, base Envelope, pin store.WorkPin, in outsideRepairReconcileInput) (store.OutsideRepairEvidence, Envelope) {
+func (r runtime) outsideRepairEvidenceForPlan(ctx context.Context, base Envelope, pin store.WorkPin, in outsideRepairReconcileInput, authorityRef string) (store.OutsideRepairEvidence, Envelope) {
 	zero := store.OutsideRepairEvidence{}
-	authorityRef := "approval:" + in.Approval.ApprovalRef
 	normalized, repositoryRefusal := r.outsideRepairRepositoryForProject(ctx, base, pin.ProjectID)
 	if repositoryRefusal.Error != nil {
 		return zero, repositoryRefusal
@@ -855,7 +854,7 @@ func (r runtime) outsideRepairMergeAncestor(ctx context.Context, base Envelope, 
 }
 
 // planOutsideRepairDisposition plans the hold: durably record the
-// operator-approved outside-repair disposition on live work. No workflow pin
+// outside-repair disposition on live work. No workflow pin
 // and no managed step is required to enter the route.
 func (r runtime) planOutsideRepairDisposition(ctx context.Context, base Envelope, raw []byte, digest string, _ Authority, _ ContractOperation, plan *mutationPlan) (Envelope, error, bool) {
 	var in outsideRepairDispositionInput
@@ -874,7 +873,7 @@ func (r runtime) planOutsideRepairDisposition(ctx context.Context, base Envelope
 
 // planOutsideRepairReconcile plans the one reconcile action: completed mode
 // closes the held work from collected evidence, resume mode clears the hold.
-func (r runtime) planOutsideRepairReconcile(ctx context.Context, base Envelope, raw []byte, digest string, _ Authority, _ ContractOperation, plan *mutationPlan) (Envelope, error, bool) {
+func (r runtime) planOutsideRepairReconcile(ctx context.Context, base Envelope, raw []byte, digest string, grant Authority, _ ContractOperation, plan *mutationPlan) (Envelope, error, bool) {
 	var in outsideRepairReconcileInput
 	if err := decodeOperationInput(raw, &in); err != nil {
 		return base, err, true
@@ -895,12 +894,15 @@ func (r runtime) planOutsideRepairReconcile(ctx context.Context, base Envelope, 
 	if pinRefusal.Error != nil {
 		return pinRefusal, nil, true
 	}
-	// The completion proof is fetched once, before any transaction opens,
-	// and only when an approval reference is present: the challenge path
-	// never contacts the forge.
+	// CD-0243 D3/D7 remove ordinary consent, not authenticated completion
+	// proof. Fetch it once before any transaction opens.
 	var evidence *store.OutsideRepairEvidence
-	if in.Mode == OutsideRepairModeCompleted && in.Approval != nil {
-		collected, collectRefusal := r.outsideRepairEvidenceForPlan(ctx, base, pin, in)
+	if in.Mode == OutsideRepairModeCompleted {
+		actorRef, err := store.WorkflowActorRef(memberWorkflowActor(grant))
+		if err != nil {
+			return failureEnvelope(base, err), nil, true
+		}
+		collected, collectRefusal := r.outsideRepairEvidenceForPlan(ctx, base, pin, in, actorRef)
 		if collectRefusal.Error != nil {
 			return collectRefusal, nil, true
 		}
@@ -915,9 +917,8 @@ func (r runtime) planOutsideRepairReconcile(ctx context.Context, base Envelope, 
 }
 
 // prepareOutsideRepairPlan carries the shared outside-repair plan shape. The
-// operator approval binds the exact work, expected version, and — on a
-// completed reconcile — the bounded release selectors, so approval consumption
-// authorizes one consequence and never another result.
+// exact work, expected version, and completed reconcile selectors remain bound
+// even when ordinary coordination requires no operator consent (CD-0243 D7).
 func (r runtime) prepareOutsideRepairPlan(base Envelope, plan *mutationPlan, workID string, expectedVersion int64, reason string, approval *approvalInput, mode, releaseTag string, pullRequests []int64) (Envelope, bool) {
 	if len([]rune(reason)) < 2 || len([]rune(reason)) > 4096 {
 		return coreError(base, "invalid_input", "outside repair requires a bounded repair reason", "reread_entities", false), true
@@ -925,7 +926,7 @@ func (r runtime) prepareOutsideRepairPlan(base Envelope, plan *mutationPlan, wor
 	if approval != nil {
 		plan.approval = approval.ApprovalRef
 	}
-	plan.requiresApproval = true
+	plan.requiresApproval = approval != nil
 	plan.versions["work"] = expectedVersion
 	plan.scope["work_ids"] = []string{workID}
 	if mode == OutsideRepairModeCompleted {
@@ -939,28 +940,26 @@ func (r runtime) prepareOutsideRepairPlan(base Envelope, plan *mutationPlan, wor
 	return Envelope{}, false
 }
 
-// outsideRepairPlanEffect composes the typed effect: executeMutation consumed
-// the one-use operator approval within the same transaction, and the store's
-// approval-consumption route re-verifies the binding while replaying.
+// outsideRepairPlanEffect attributes ordinary coordination to the caller.
+// A supplied operator approval still carries its exact consumed binding.
 func (r runtime) outsideRepairPlanEffect(digest string, plan *mutationPlan, workID string, expectedVersion int64, reason, mode string, evidence *store.OutsideRepairEvidence) mutationEffect {
 	return func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
-		_ = grant
 		consumedApprovalRef, _ := plan.scope["approval_ref"].(string)
-		approvalScopeJSON, _ := json.Marshal(boundedApprovalScope(plan.scope))
-		approvalVersionsJSON, _ := json.Marshal(plan.versions)
 		request := store.OutsideRepairRequest{
-			OutsideRepairApproval: store.OutsideRepairApproval{
-				ApprovalRef:             consumedApprovalRef,
-				ApprovalOperationDigest: digest,
-				ApprovalScopeJSON:       string(approvalScopeJSON),
-				ApprovalVersionsJSON:    string(approvalVersionsJSON),
-				ApprovalConsequence:     plan.consequence,
-			},
+			Actor:           memberWorkflowActor(grant),
 			WorkID:          workID,
 			Reason:          reason,
 			EventID:         digest + ":outside-repair",
 			ExpectedVersion: expectedVersion,
 			OccurredAt:      r.Authority.now(),
+		}
+		if consumedApprovalRef != "" {
+			approvalScopeJSON, _ := json.Marshal(boundedApprovalScope(plan.scope))
+			approvalVersionsJSON, _ := json.Marshal(plan.versions)
+			request.OutsideRepairApproval = store.OutsideRepairApproval{
+				ApprovalRef: consumedApprovalRef, ApprovalOperationDigest: digest,
+				ApprovalScopeJSON: string(approvalScopeJSON), ApprovalVersionsJSON: string(approvalVersionsJSON), ApprovalConsequence: plan.consequence,
+			}
 		}
 		var result store.ApplyOperationResult
 		var err error

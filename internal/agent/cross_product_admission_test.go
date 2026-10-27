@@ -118,13 +118,10 @@ func TestReadOfProductOutsidePolicyRefuses(t *testing.T) {
 	}
 }
 
-// A cross-Product membership mutation demands the cross_scope capability and
-// then an operator approval; it must reach the approval challenge instead of
-// an unconditional unauthorized refusal, and the approval must carry the
-// derived cross-Product scope.
-func TestCrossProductMembershipChallengesUnderCrossScope(t *testing.T) {
+// CD-0243 D3/D7 retire cross-Product coordination consent, not cross_scope.
+func TestCrossProductMembershipNeedsNoConsentUnderCrossScope(t *testing.T) {
 	ctx := context.Background()
-	s, service, grant, privateKey := crossProductPolicyFixture(t, []Capability{"work_relate", "cross_scope"})
+	s, service, grant, _ := crossProductPolicyFixture(t, []Capability{"work_relate", "cross_scope"})
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
 	if err != nil {
 		t.Fatal(err)
@@ -132,18 +129,6 @@ func TestCrossProductMembershipChallengesUnderCrossScope(t *testing.T) {
 	env := mutationEnvelope(grant, scopeVersion)
 	input := json.RawMessage(`{"work_id":"work-1","expected_version":2,"memberships":[{"project_id":"project-2","role":"secondary"}],"idempotency_key":"cross-membership-1"}`)
 	request := InvokeRequest{Tool: "concord_work_relate", Operation: "set_memberships", Input: input}
-	challenge, dispatchErr := Dispatch(ctx, s, service, request, env)
-	if dispatchErr != nil || challenge.Error == nil || challenge.Error.Kind != "approval_required" {
-		t.Fatalf("cross-Product membership challenge = %+v, err = %v, want approval_required", challenge, dispatchErr)
-	}
-	if workVersion(t, s, "work-1") != 2 {
-		t.Fatal("challenge creation changed the work item")
-	}
-	ref := challenge.Error.Details["approval_ref"].(string)
-	scope := map[string]any{"product_id": "product-1", "product_ids": []string{"product-1", "product-2"}, "project_ids": []string{"project-2"}, "work_ids": []string{"work-1"}, "scope_version": scopeVersion}
-	versions := map[string]any{"work": workVersion(t, s, "work-1")}
-	env.HostApproval = signedHostApproval(privateKey, ref, mutationDigest(request.Tool, request.Operation, env, input), scope, versions, env.SessionRef, env.AgentRef, env.Worktree, fixedTime(), "cross-membership-approval")
-	request.Input = json.RawMessage(`{"work_id":"work-1","expected_version":2,"memberships":[{"project_id":"project-2","role":"secondary"}],"idempotency_key":"cross-membership-1","approval":{"approval_ref":"` + ref + `"}}`)
 	approved, dispatchErr := Dispatch(ctx, s, service, request, env)
 	if dispatchErr != nil || approved.Error != nil || approved.Outcome != OutcomeOK {
 		t.Fatalf("approved cross-Product membership = %s / %v, err = %v", approved.Outcome, approved.Error, dispatchErr)
@@ -151,6 +136,9 @@ func TestCrossProductMembershipChallengesUnderCrossScope(t *testing.T) {
 	memberships, err := s.ProjectsForWork(ctx, "work-1")
 	if err != nil || len(memberships) != 1 || memberships[0].ID != "project-2" {
 		t.Fatalf("work memberships = %+v, err = %v", memberships, err)
+	}
+	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM agent_approval_challenges`); got != 0 {
+		t.Fatalf("routine cross-Product membership minted %d challenges", got)
 	}
 }
 

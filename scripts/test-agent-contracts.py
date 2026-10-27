@@ -28,6 +28,34 @@ RETIRED_PUBLISHED_ACTIONS = {
 }
 
 
+class ApprovalDeclarationTests(unittest.TestCase):
+    def test_six_class_operation_consent_preserves_other_axes(self):
+        required = {"concord_work_relate.product_project_add", "concord_work_relate.client_policy_grant_request"}
+        conditional = {
+            "concord_work_define.capture", "concord_work_define.revise_intent",
+            "concord_work_transition.workflow_action", "concord_work_transition.worktree_destroy",
+            "concord_work_transition.lifecycle",
+        }
+        for operation in manifest["operations"]:
+            with self.subTest(operation=operation["id"]):
+                expected = "required" if operation["id"] in required else "conditional" if operation["id"] in conditional else "none"
+                self.assertEqual(operation["approval"], expected)
+        # Consent is not capability, scope, idempotency, or consequence.
+        for identifier, capability, consequence, context in [
+            ("concord_work_transition.remove", "work_transition", "lifecycle", "ambient"),
+            ("concord_work_compact.publish", "work_compact", "publication", "explicit"),
+            ("concord_work_transition.correct_delivery", "work_transition", "recovery", "explicit"),
+            ("concord_work_transition.outside_repair", "work_transition", "recovery", "ambient"),
+            ("concord_work_relate.set_memberships", "work_relate", "scope", "explicit"),
+        ]:
+            operation = next(op for op in manifest["operations"] if op["id"] == identifier)
+            self.assertEqual(operation["kind"], "mutation")
+            self.assertEqual(operation["capability"], capability)
+            self.assertEqual(operation["consequence"], consequence)
+            self.assertEqual(operation["metadata"]["idempotency"], "required")
+            self.assertEqual(operation["metadata"]["context"], context)
+
+
 class DomainFactProjectionTests(unittest.TestCase):
     def test_delegated_shape_reading_projects_the_same_closed_source(self):
         packet = copy.deepcopy(packet_schema)

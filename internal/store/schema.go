@@ -7891,6 +7891,137 @@ CREATE TRIGGER knowledge_domain_facts_guard_update BEFORE UPDATE ON knowledge_do
 CREATE TRIGGER knowledge_domain_facts_guard_delete BEFORE DELETE ON knowledge_domain_facts BEGIN SELECT RAISE(ABORT, 'knowledge_domain_facts is write-seam-only') WHERE NOT EXISTS (SELECT 1 FROM write_guard WHERE active=1); END;
 `,
 	},
+	{
+		Version:        157,
+		Name:           "workflow_contract_six_decision_classes",
+		Breaking:       true,
+		FoldMaintained: "origin",
+		SQL: `
+-- CD-0243 D2-D3: six approval classes replace preference in new authoring.
+-- Keep stored preference facts and NULL absence unchanged. Replacing only the
+-- column leaves contract keys, dependent rows, indexes, and write guards intact.
+ALTER TABLE workflow_contracts RENAME COLUMN decision_domains TO decision_domains_v156;
+ALTER TABLE workflow_contracts ADD COLUMN decision_domains TEXT CHECK(decision_domains IS NULL OR json_valid(decision_domains));
+
+-- The canonical reconstruction rejects unknown/non-string members, duplicate
+-- members, non-arrays, and noncanonical order or formatting. preference remains
+-- readable for historical facts; authoring excludes it before the write seam.
+CREATE TRIGGER workflow_contracts_decision_domains_insert BEFORE INSERT ON workflow_contracts
+WHEN NEW.decision_domains IS NOT NULL BEGIN
+    SELECT RAISE(ABORT, 'workflow_contracts decision_domains is not canonical')
+    WHERE NEW.decision_domains <> (
+        SELECT json_group_array(value) FROM (
+            SELECT DISTINCT value FROM json_each(NEW.decision_domains)
+            WHERE type='text' AND value IN ('increased_spending','legal','preference','product','production_data','security','ui_ux')
+            ORDER BY value COLLATE BINARY
+        )
+    );
+END;
+CREATE TRIGGER workflow_contracts_decision_domains_update BEFORE UPDATE OF decision_domains ON workflow_contracts
+WHEN NEW.decision_domains IS NOT NULL BEGIN
+    SELECT RAISE(ABORT, 'workflow_contracts decision_domains is not canonical')
+    WHERE NEW.decision_domains <> (
+        SELECT json_group_array(value) FROM (
+            SELECT DISTINCT value FROM json_each(NEW.decision_domains)
+            WHERE type='text' AND value IN ('increased_spending','legal','preference','product','production_data','security','ui_ux')
+            ORDER BY value COLLATE BINARY
+        )
+    );
+END;
+INSERT INTO write_guard(active) VALUES(1);
+UPDATE workflow_contracts SET decision_domains=decision_domains_v156;
+DELETE FROM write_guard;
+ALTER TABLE workflow_contracts DROP COLUMN decision_domains_v156;
+`,
+	},
+	{
+		Version:  158,
+		Name:     "ordinary_overlap_and_outside_repair_consent",
+		Breaking: true,
+		SQL: `
+-- CD-0243 D3/D7: ordinary merger, supersession, and outside repair carry no
+-- approval claim. The owning writers still validate every supplied claim.
+-- Preserve historical references, effect coordinates, and all other checks.
+CREATE TABLE workflow_overlap_resolutions_v158 (
+    resolution_id TEXT PRIMARY KEY,
+    event_seq INTEGER NOT NULL UNIQUE REFERENCES effect_receipts(effect_seq) ON DELETE RESTRICT,
+    product_id TEXT NOT NULL REFERENCES products(id) ON DELETE RESTRICT,
+    from_work_id TEXT NOT NULL REFERENCES work_items(id) ON DELETE RESTRICT,
+    to_work_id TEXT NOT NULL REFERENCES work_items(id) ON DELETE RESTRICT,
+    from_contract_version INTEGER NOT NULL,
+    to_contract_version INTEGER NOT NULL,
+    resolution_kind TEXT NOT NULL CHECK(resolution_kind IN ('compatible_with','depends_on','blocks','merged_into','supersedes')),
+    reason TEXT NOT NULL CHECK(length(reason) BETWEEN 1 AND 4096),
+    approval_ref TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    invalidated_seq INTEGER REFERENCES effect_receipts(effect_seq) ON DELETE RESTRICT,
+    CHECK(from_work_id <> to_work_id),
+    CHECK(from_contract_version > 0 AND to_contract_version > 0),
+    FOREIGN KEY(from_work_id,from_contract_version) REFERENCES workflow_contracts(work_id,contract_version) ON DELETE RESTRICT,
+    FOREIGN KEY(to_work_id,to_contract_version) REFERENCES workflow_contracts(work_id,contract_version) ON DELETE RESTRICT
+);
+INSERT INTO workflow_overlap_resolutions_v158 SELECT * FROM workflow_overlap_resolutions;
+DROP TABLE workflow_overlap_resolutions;
+ALTER TABLE workflow_overlap_resolutions_v158 RENAME TO workflow_overlap_resolutions;
+CREATE INDEX workflow_overlap_resolutions_pair ON workflow_overlap_resolutions(product_id,from_work_id,to_work_id,from_contract_version,to_contract_version,event_seq);
+CREATE INDEX workflow_overlap_resolutions_reverse_pair ON workflow_overlap_resolutions(product_id,to_work_id,from_work_id,to_contract_version,from_contract_version,event_seq);
+CREATE TRIGGER workflow_overlap_resolutions_guard_insert BEFORE INSERT ON workflow_overlap_resolutions FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_overlap_resolutions is write-seam-only') WHERE NOT EXISTS (SELECT 1 FROM write_guard WHERE active=1); END;
+CREATE TRIGGER workflow_overlap_resolutions_guard_update BEFORE UPDATE ON workflow_overlap_resolutions FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_overlap_resolutions is write-seam-only') WHERE NOT EXISTS (SELECT 1 FROM write_guard WHERE active=1); END;
+CREATE TRIGGER workflow_overlap_resolutions_guard_delete BEFORE DELETE ON workflow_overlap_resolutions FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_overlap_resolutions is write-seam-only') WHERE NOT EXISTS (SELECT 1 FROM write_guard WHERE active=1); END;
+
+CREATE TABLE outside_repair_dispositions_v158 (
+    work_id TEXT PRIMARY KEY REFERENCES work_items(id) ON DELETE RESTRICT,
+    approval_ref TEXT NOT NULL,
+    state TEXT NOT NULL CHECK(state IN ('active','completed','resumed')),
+    reason TEXT NOT NULL,
+    evidence_json TEXT NOT NULL CHECK(json_valid(evidence_json) AND json_type(evidence_json)='object'),
+    recorded_at TEXT NOT NULL,
+    CHECK(approval_ref='' OR length(approval_ref) BETWEEN 9 AND 128),
+    CHECK(length(reason) BETWEEN 1 AND 4096)
+);
+INSERT INTO outside_repair_dispositions_v158 SELECT * FROM outside_repair_dispositions;
+DROP TABLE outside_repair_dispositions;
+ALTER TABLE outside_repair_dispositions_v158 RENAME TO outside_repair_dispositions;
+CREATE INDEX outside_repair_dispositions_state ON outside_repair_dispositions(state, work_id);
+CREATE TRIGGER outside_repair_dispositions_guard_insert BEFORE INSERT ON outside_repair_dispositions FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'outside_repair_dispositions is write-seam-only') WHERE NOT EXISTS (SELECT 1 FROM write_guard WHERE active=1); END;
+CREATE TRIGGER outside_repair_dispositions_guard_update BEFORE UPDATE ON outside_repair_dispositions FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'outside_repair_dispositions is write-seam-only') WHERE NOT EXISTS (SELECT 1 FROM write_guard WHERE active=1); END;
+CREATE TRIGGER outside_repair_dispositions_guard_delete BEFORE DELETE ON outside_repair_dispositions FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'outside_repair_dispositions is write-seam-only') WHERE NOT EXISTS (SELECT 1 FROM write_guard WHERE active=1); END;
+
+CREATE TABLE outside_repair_reconciliations_v158 (
+    reconciliation_id TEXT PRIMARY KEY,
+    work_id TEXT NOT NULL REFERENCES work_items(id) ON DELETE RESTRICT,
+    approval_ref TEXT NOT NULL,
+    reason TEXT NOT NULL,
+    evidence_json TEXT NOT NULL CHECK(json_valid(evidence_json) AND json_type(evidence_json)='object'),
+    recorded_at TEXT NOT NULL,
+    CHECK(length(reconciliation_id) BETWEEN 2 AND 128),
+    CHECK(approval_ref='' OR length(approval_ref) BETWEEN 9 AND 128),
+    CHECK(length(reason) BETWEEN 1 AND 4096)
+);
+INSERT INTO outside_repair_reconciliations_v158 SELECT * FROM outside_repair_reconciliations;
+DROP TABLE outside_repair_reconciliations;
+ALTER TABLE outside_repair_reconciliations_v158 RENAME TO outside_repair_reconciliations;
+CREATE INDEX outside_repair_reconciliations_work ON outside_repair_reconciliations(work_id, recorded_at);
+CREATE TRIGGER outside_repair_reconciliations_guard_insert BEFORE INSERT ON outside_repair_reconciliations FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'outside_repair_reconciliations is write-seam-only') WHERE NOT EXISTS (SELECT 1 FROM write_guard WHERE active=1); END;
+CREATE TRIGGER outside_repair_reconciliations_guard_update BEFORE UPDATE ON outside_repair_reconciliations FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'outside_repair_reconciliations is write-seam-only') WHERE NOT EXISTS (SELECT 1 FROM write_guard WHERE active=1); END;
+CREATE TRIGGER outside_repair_reconciliations_guard_delete BEFORE DELETE ON outside_repair_reconciliations FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'outside_repair_reconciliations is write-seam-only') WHERE NOT EXISTS (SELECT 1 FROM write_guard WHERE active=1); END;
+`,
+	},
+	{
+		Version:  159,
+		Name:     "workflow_owning_start_law_baseline",
+		Breaking: true,
+		SQL: `
+-- Absence on an existing item is unknown before-state, never today's law.
+CREATE TABLE workflow_law_baselines (
+    work_id TEXT PRIMARY KEY REFERENCES work_items(id) ON DELETE RESTRICT,
+    baseline_json TEXT NOT NULL CHECK(json_valid(baseline_json) AND json_type(baseline_json)='object' AND length(CAST(baseline_json AS BLOB)) <= 4194304)
+);
+CREATE TRIGGER workflow_law_baselines_guard_insert BEFORE INSERT ON workflow_law_baselines BEGIN SELECT RAISE(ABORT, 'workflow_law_baselines is write-seam-only') WHERE NOT EXISTS (SELECT 1 FROM write_guard WHERE active=1); END;
+CREATE TRIGGER workflow_law_baselines_immutable BEFORE UPDATE ON workflow_law_baselines BEGIN SELECT RAISE(ABORT, 'workflow_law_baselines is immutable'); END;
+CREATE TRIGGER workflow_law_baselines_guard_delete BEFORE DELETE ON workflow_law_baselines BEGIN SELECT RAISE(ABORT, 'workflow_law_baselines is write-seam-only') WHERE NOT EXISTS (SELECT 1 FROM write_guard WHERE active=1); END;
+`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any

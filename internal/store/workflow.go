@@ -115,8 +115,8 @@ type workflowContractApprovedPayload struct {
 	// records engineering and nil records historical absence. omitzero drops a
 	// nil fact from the encoding while a non-nil empty slice stays present.
 	DecisionDomains []string `json:"decision_domains,omitzero"`
-	// LawChange records a consequence_v1 contract's law change with its
-	// derived Domains and seriousness (CD-0230 D4); nil when it changes none.
+	// LawChange records the reason, scope and any exact operator-approved text;
+	// nil when the contract and the owning-start comparison change no law.
 	LawChange *WorkflowLawChange `json:"law_change,omitempty"`
 }
 
@@ -129,20 +129,34 @@ const workflowContractLawChangePayloadVersion = 6
 // carry law_change.
 const workflowContractSupersededLawChangePayloadVersion = 5
 
-// workflowDecisionDomainSet is the closed canonical decision-domain set. It is
-// sorted, so canonical order is the slice order.
-var workflowDecisionDomainSet = []string{"preference", "product", "ui_ux"}
+// workflowDecisionDomainSet is the sorted authoring set from CD-0243 D2.
+var workflowDecisionDomainSet = []string{"increased_spending", "legal", "product", "production_data", "security", "ui_ux"}
+
+// validateWorkflowAuthoredDecisionDomains excludes the retired preference class
+// from new facts without changing the decoding of stored contracts.
+func validateWorkflowAuthoredDecisionDomains(domains []string) error {
+	if err := validateWorkflowDecisionDomains(domains); err != nil {
+		return err
+	}
+	for _, domain := range domains {
+		if domain == "preference" {
+			return newFailure(KindInvalidPayload, "fold_event", "contract decision_domains names the retired preference class", false, "declare only increased_spending, legal, product, production_data, security, or ui_ux")
+		}
+	}
+	return nil
+}
 
 // validateWorkflowDecisionDomains holds the typed fact to its canonical form:
 // a sorted unique subset of the closed set with at most one entry per domain.
-// nil stays legal here; the caller decides what absence means.
+// Stored preference remains decodable; nil stays legal here, and the caller
+// decides what absence means.
 func validateWorkflowDecisionDomains(domains []string) error {
-	if len(domains) > len(workflowDecisionDomainSet) {
+	if len(domains) > len(workflowDecisionDomainSet)+1 {
 		return newFailure(KindInvalidPayload, "fold_event", "contract decision_domains exceeds the closed domain set", false, "declare at most one entry per decision domain")
 	}
 	previous := ""
 	for _, domain := range domains {
-		known := false
+		known := domain == "preference"
 		for _, candidate := range workflowDecisionDomainSet {
 			if domain == candidate {
 				known = true
@@ -150,7 +164,7 @@ func validateWorkflowDecisionDomains(domains []string) error {
 			}
 		}
 		if !known {
-			return newFailure(KindInvalidPayload, "fold_event", "contract decision_domains names a domain outside the closed set", false, "declare only preference, product, or ui_ux")
+			return newFailure(KindInvalidPayload, "fold_event", "contract decision_domains names a domain outside the closed set", false, "declare only increased_spending, legal, product, production_data, security, or ui_ux; preference is readable only on stored contracts")
 		}
 		if domain <= previous {
 			return newFailure(KindInvalidPayload, "fold_event", "contract decision_domains is not canonical sorted unique", false, "declare the domains in canonical order without duplicates")

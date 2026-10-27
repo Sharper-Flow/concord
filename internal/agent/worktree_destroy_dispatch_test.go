@@ -13,7 +13,7 @@ import (
 
 // CD-0096 D3 Destroy and D5 continuity through the agent tool surface,
 // against real git. Destroy reclaims merged terminal work under the unchanged
-// git gates and routes every other removal through operator approval; the
+// git gates; CD-0243 D7 reserves approval for the existing safety waivers. The
 // continuity read re-pins the reading session's held verify leases.
 
 func authorityInvoke(t *testing.T, s *store.Store, service *Service, grant Authority, tool, operation string, input map[string]any) Envelope {
@@ -62,45 +62,18 @@ func TestWorktreeDestroyDispatchReclaimsMergedTerminalWork(t *testing.T) {
 	}
 }
 
-func TestWorktreeDestroyDispatchRoutesNonTerminalThroughApproval(t *testing.T) {
+func TestWorktreeDestroyDispatchNonTerminalNeedsNoConsent(t *testing.T) {
 	t.Parallel()
 	s, service, grant, _, _, _ := tiersFixture(t)
 	worktreePath := filepath.Join(filepath.Dir(s.Path()), "worktrees", "project-1", "work-1")
 	vacateLinkedWorktree(t, s, service, grant, worktreePath, "destroy-nt-vacate")
 
-	refused := authorityInvoke(t, s, service, grant, "concord_work_transition", "worktree_destroy", map[string]any{
+	// CD-0243 D3/D7 retire ordinary nonterminal consent.
+	removed := authorityInvoke(t, s, service, grant, "concord_work_transition", "worktree_destroy", map[string]any{
 		"work_id": "work-1", "expected_version": 3, "default_ref": "main", "idempotency_key": "destroy-nt",
 	})
-	if refused.Outcome != OutcomeError || refused.Error == nil || refused.Error.Kind != "approval_required" {
-		t.Fatalf("refused response=%+v err=%+v, want approval_required", refused, refused.Error)
-	}
-	challengeRef, ok := refused.Error.Details["approval_ref"].(string)
-	if !ok || len(challengeRef) != 64 {
-		t.Fatalf("approval_ref=%v", refused.Error.Details["approval_ref"])
-	}
-	if _, err := os.Stat(worktreePath); err != nil {
-		t.Fatalf("non-terminal destroy removed the worktree before approval: %v", err)
-	}
-
-	scopeVersion, _, err := s.ScopeVersion(context.Background(), "project-1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	env := mutationEnvelope(grant, scopeVersion)
-	raw, _ := json.Marshal(map[string]any{"work_id": "work-1", "expected_version": 3, "default_ref": "main", "idempotency_key": "destroy-nt"})
-	digest := mutationDigest("concord_work_transition", "worktree_destroy", env, raw)
-	scope := map[string]any{"product_id": "product-1", "product_ids": []string{"product-1"}, "project_ids": []string{"project-1"}, "work_ids": []string{"work-1"}, "scope_version": scopeVersion}
-	versions := map[string]any{"work": 3}
-	env.HostApproval = signedHostApproval(mustKey(t), challengeRef, digest, scope, versions, grant.SessionRef, grant.AgentRef, grant.Worktree, fixedTime(), "destroy-nt-1")
-	approvedRaw, _ := json.Marshal(map[string]any{"work_id": "work-1", "expected_version": 3, "default_ref": "main", "idempotency_key": "destroy-nt", "approval": map[string]any{"approval_ref": challengeRef}})
-	approved, approvalErr := Dispatch(context.Background(), s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "worktree_destroy", Input: approvedRaw}, env)
-	if approvalErr != nil {
-		t.Fatal(approvalErr)
-	}
-	// The approval satisfies the terminal gate; the git gates still run and
-	// the clean merged tree passes them.
-	if approved.Outcome != OutcomeOK {
-		t.Fatalf("approved response=%+v err=%+v", approved, approved.Error)
+	if removed.Outcome != OutcomeOK {
+		t.Fatalf("removed response=%+v err=%+v", removed, removed.Error)
 	}
 	if _, err := os.Stat(worktreePath); !os.IsNotExist(err) {
 		t.Fatalf("worktree still present at %s", worktreePath)

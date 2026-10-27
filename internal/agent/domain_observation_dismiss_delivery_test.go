@@ -11,19 +11,20 @@ import (
 
 // CD-0037 D1 requires a minted challenge to carry its typed consequence summary.
 // The operator can act only when that refusal encodes with the approval ref.
-func TestUnapprovedMembershipRefusalIsDeliverable(t *testing.T) {
+// CD-0243 D3/D7 retain security grant consent, not membership consent.
+func TestUnapprovedAccessGrantRefusalIsDeliverable(t *testing.T) {
 	ctx := context.Background()
-	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_relate"})
+	s, service, grant, _ := productProjectLinkFixture(t, []Capability{"work_relate", "cross_scope"})
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
 	if err != nil {
 		t.Fatal(err)
 	}
 	env := mutationEnvelope(grant, scopeVersion)
 
-	input := json.RawMessage(`{"work_id":"work-1","expected_version":2,"memberships":[{"project_id":"project-1","role":"primary"}],"idempotency_key":"membership-delivery"}`)
-	refusal, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_relate", Operation: "set_memberships", Input: input}, env)
+	input := productProjectLinkRequest("", "project-2")
+	refusal, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_relate", Operation: "product_project_add", Input: input}, env)
 	if err != nil || refusal.Error == nil || refusal.Error.Kind != "approval_required" {
-		t.Fatalf("unapproved membership response=%+v err=%v", refusal, err)
+		t.Fatalf("unapproved access grant response=%+v err=%v", refusal, err)
 	}
 	raw, encodeErr := refusal.Encode()
 	if encodeErr != nil {
@@ -47,7 +48,7 @@ func TestUnapprovedMembershipRefusalIsDeliverable(t *testing.T) {
 	if summary == nil {
 		t.Fatal("CD-0037 D1: a refusal that minted a challenge must carry its consequence summary")
 	}
-	if summary.Tool != "concord_work_relate" || summary.Operation != "set_memberships" {
+	if summary.Tool != "concord_work_relate" || summary.Operation != "product_project_add" {
 		t.Errorf("consequence summary names %s.%s", summary.Tool, summary.Operation)
 	}
 	if len(summary.Scope) == 0 {

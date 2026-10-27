@@ -402,7 +402,7 @@ func workflowPremiseConfirmationAuthority(ctx context.Context, tx *sql.Tx, defin
 // workflowPremiseContractIsEngineering reports whether the contract's stored
 // decision fact classifies the work as engineering under consequence_v1.
 func workflowPremiseContractIsEngineering(contract workflowCompletionContractData) bool {
-	return contract.DecisionDomainsPresent && len(contract.DecisionDomains) == 0
+	return contract.DecisionDomainsPresent && !workflowDecisionDomainsRequireConsent(contract.DecisionDomains)
 }
 
 func workflowCompletionVersion(ctx context.Context, tx *sql.Tx, workID string, expected *int64) error {

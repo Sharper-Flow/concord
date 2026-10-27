@@ -595,19 +595,14 @@ func correctionApprovedDispatch(t *testing.T, s *store.Store, service *Service, 
 	return dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "correct_delivery", Input: input}, approvedEnv)
 }
 
-// TestDeliveryCorrectionCrossProductBoundarySettlesThroughAConsumedHostApproval:
-// the correction's derived authorized Product scope crosses the selected
-// Product through the shared Project's second membership while the completed
-// work keeps its single footprint Product. The first dispatch returns the
-// typed challenge, and the host-approved retry consumes exactly one one-use
-// approval, appends one correction under the authenticated coordinator's own
-// workflow actor, and leaves the original assertion, the completed state, the
-// seeded actor population, and the recorded binding untouched.
-func TestDeliveryCorrectionCrossProductBoundarySettlesThroughAConsumedHostApproval(t *testing.T) {
+// CD-0243 D3/D7 retire cross-Product correction consent. The correction still
+// appends under the coordinator's actor and preserves the closed work, exact
+// target, original assertion, read contract, and durable Product scope.
+func TestDeliveryCorrectionCrossProductBoundaryNeedsNoConsent(t *testing.T) {
 	t.Parallel()
 	// product_read authorizes the read-surface assertions below; the
 	// correction boundary itself needs work_transition and cross_scope only.
-	s, service, grant, privateKey := crossProductDispatchFixture(t, []Capability{"work_transition", "cross_scope", "product_read"})
+	s, service, grant, _ := crossProductDispatchFixture(t, []Capability{"work_transition", "cross_scope", "product_read"})
 	targetEventID, version, targetPayloadVersion, targetSeq := completedDeliveryAgentFixture(t, s, grant)
 	scopeVersion, _, err := s.ScopeVersion(context.Background(), "project-1")
 	if err != nil {
@@ -630,49 +625,13 @@ func TestDeliveryCorrectionCrossProductBoundarySettlesThroughAConsumedHostApprov
 	}
 
 	input := agentCorrectionDispatchInput(t, s, targetEventID, targetSeq, targetPayloadVersion, "delivery-correction-cross-product", nil)
-	first := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "correct_delivery", Input: input}, env)
-	if first.Error == nil || first.Error.Kind != "approval_required" {
-		t.Fatalf("cross-Product correction without approval outcome=%s error=%+v, want the typed challenge", first.Outcome, first.Error)
-	}
-	challengeRef, ok := first.Error.Details["approval_ref"].(string)
-	if !ok || challengeRef == "" {
-		t.Fatalf("cross-Product correction challenge carries no approval ref: %+v", first.Error.Details)
-	}
-	firstChallenges, firstApprovals := agentApprovalRowCounts(t, s)
-	if firstChallenges != 1 || firstApprovals != 0 {
-		t.Fatalf("the cross-Product challenge left %d challenge and %d approval rows, want exactly the one unconsumed challenge", firstChallenges, firstApprovals)
-	}
-
-	// The host-approved retry settles the cross-Product consent the tail
-	// derives: one consumed one-use approval, no other authority row.
-	withApproval, err := injectApproval(input, challengeRef)
-	if err != nil {
-		t.Fatal(err)
-	}
-	scope := map[string]any{"product_id": "product-1", "product_ids": []string{"product-1", "product-2"}, "project_ids": []string{"project-1"}, "scope_version": scopeVersion, "work_ids": []string{"work-1"}}
-	versions := map[string]any{"work": version}
-	digest := mutationDigest("concord_work_transition", "correct_delivery", env, withApproval)
-	approved := correctionApprovedDispatch(t, s, service, privateKey, env, challengeRef, digest, scope, versions, withApproval)
+	request := InvokeRequest{Tool: "concord_work_transition", Operation: "correct_delivery", Input: input}
+	approved := dispatchMutation(t, s, service, request, env)
 	if approved.Outcome != OutcomeOK || approved.Error != nil {
 		t.Fatalf("approved cross-Product correction outcome=%s error=%+v, want the appended correction", approved.Outcome, approved.Error)
 	}
-	secondChallenges, secondApprovals := agentApprovalRowCounts(t, s)
-	if secondApprovals != 1 {
-		t.Fatalf("the approved cross-Product correction left %d challenge and %d approval rows, want the single consumed approval", secondChallenges, secondApprovals)
-	}
-	if used := countRows(t, s.DatabaseForTesting(), `SELECT used_count FROM agent_approvals`); used != 1 {
-		t.Fatalf("cross-Product correction approval used_count=%d, want the consumed one-use row", used)
-	}
-	var approvalScopeJSON string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT scope_json FROM agent_approvals`).Scan(&approvalScopeJSON); err != nil {
-		t.Fatal(err)
-	}
-	expectedScope, marshalErr := json.Marshal(scope)
-	if marshalErr != nil {
-		t.Fatal(marshalErr)
-	}
-	if approvalScopeJSON != string(expectedScope) {
-		t.Fatalf("consumed approval scope %s, want the exact bounded scope %s with no new host scope fields", approvalScopeJSON, expectedScope)
+	if challenges, approvals := agentApprovalRowCounts(t, s); challenges != 0 || approvals != 0 {
+		t.Fatalf("ordinary cross-Product correction left %d challenges and %d approvals", challenges, approvals)
 	}
 
 	// The correction appends one versioned event attributed to the

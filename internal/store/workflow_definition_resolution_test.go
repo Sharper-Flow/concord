@@ -81,12 +81,22 @@ func applyWorkflowOperationTxWithRegistry(ctx context.Context, tx *sql.Tx, opera
 // the workflow transaction entry and returns the refusal instead of failing
 // the test, so the negative subtests can assert the typed refusal.
 func tryAppendWorkflowEventsWithRegistry(s *Store, registry DefinitionRegistry, operation Operation) error {
-	tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
+	ctx := context.Background()
+	for _, event := range operation.Events {
+		if event.Kind == WorkflowContractApproved || event.Kind == WorkflowContractSuperseded {
+			verified, err := s.EstablishKnowledgeSourceSetProof(ctx, event.SubjectID)
+			if err != nil {
+				return err
+			}
+			ctx = verified
+		}
+	}
+	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
-	if err := applyWorkflowOperationTxWithRegistry(context.Background(), tx, operation, newWriteScope(tx), registry); err != nil {
+	if err := applyWorkflowOperationTxWithRegistry(ctx, tx, operation, newWriteScope(tx), registry); err != nil {
 		return err
 	}
 	return tx.Commit()

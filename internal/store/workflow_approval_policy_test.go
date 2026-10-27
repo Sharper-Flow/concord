@@ -89,9 +89,6 @@ func TestWorkflowApprovalPolicy(t *testing.T) {
 		if plain.Consent != WorkflowConsentNone {
 			t.Fatalf("legacy dispatch consent = %q, want the declared none", plain.Consent)
 		}
-		if _, err := ClassifyWorkflowApproval(legacy, "approve_contract", WorkflowApprovalFacts{Destructive: WorkflowDestructiveCancel}); err == nil {
-			t.Fatal("legacy policy accepted a destructive consequence fact it never declared, want refusal")
-		}
 	})
 
 	t.Run("new policy classifies every gated action", func(t *testing.T) {
@@ -109,12 +106,16 @@ func TestWorkflowApprovalPolicy(t *testing.T) {
 			}
 		}
 		for _, actionID := range []string{"accept_decision", "approve_operation", "request_correction", "supersede_contract", "record_verdict", "complete", "dispatch_worker"} {
-			result, err := ClassifyWorkflowApproval(definition, actionID, WorkflowApprovalFacts{})
+			result, err := ClassifyWorkflowApproval(definition, actionID, WorkflowApprovalFacts{ProposedDecisionDomains: []string{}})
 			if err != nil {
 				t.Fatalf("routine classification refused %s: %v", actionID, err)
 			}
-			if result.Class != WorkflowApprovalClassRoutine || result.Consent != WorkflowConsentNone {
-				t.Errorf("routine %s classified %s/%s, want routine/none", actionID, result.Class, result.Consent)
+			wantClass := WorkflowApprovalClassRoutine
+			if actionID == "supersede_contract" {
+				wantClass = WorkflowApprovalClassDecision
+			}
+			if result.Class != wantClass || result.Consent != WorkflowConsentNone {
+				t.Errorf("routine %s classified %s/%s, want %s/none", actionID, result.Class, result.Consent, wantClass)
 			}
 		}
 	})
@@ -124,7 +125,7 @@ func TestWorkflowApprovalPolicy(t *testing.T) {
 		definition := approvalPolicyDefinition(WorkflowApprovalPolicyConsequenceV1, "approve_contract", "confirm_premise")
 		for index, domains := range canonicalDecisionDomainSets() {
 			want := WorkflowConsentNone
-			if len(domains) != 0 {
+			if workflowDecisionDomainsRequireConsent(domains) {
 				want = WorkflowConsentRequired
 			}
 			proposed, err := ClassifyWorkflowApproval(definition, "approve_contract", WorkflowApprovalFacts{ProposedDecisionDomains: domains})
@@ -175,25 +176,13 @@ func TestWorkflowApprovalPolicy(t *testing.T) {
 		}
 	})
 
-	t.Run("destructive consequence takes precedence", func(t *testing.T) {
+	t.Run("completion has no independent consent class", func(t *testing.T) {
 		t.Parallel()
-		definition := approvalPolicyDefinition(WorkflowApprovalPolicyConsequenceV1, "approve_contract", "record_verdict")
-		result, err := ClassifyWorkflowApproval(definition, "approve_contract", WorkflowApprovalFacts{ProposedDecisionDomains: []string{"product"}, Destructive: WorkflowDestructiveCancel})
-		if err != nil {
-			t.Fatalf("destructive classification refused: %v", err)
-		}
-		if result.Class != WorkflowApprovalClassDestructive || result.Consent != WorkflowConsentRequired {
-			t.Fatalf("destructive precedence on approve_contract = %s/%s, want destructive/required", result.Class, result.Consent)
-		}
-		routine, err := ClassifyWorkflowApproval(definition, "record_verdict", WorkflowApprovalFacts{Destructive: WorkflowDestructiveCancel})
-		if err != nil {
-			t.Fatalf("destructive routine classification refused: %v", err)
-		}
-		if routine.Class != WorkflowApprovalClassDestructive || routine.Consent != WorkflowConsentRequired {
-			t.Fatalf("destructive precedence on record_verdict = %s/%s, want destructive/required", routine.Class, routine.Consent)
-		}
-		if _, err := ClassifyWorkflowApproval(definition, "approve_contract", WorkflowApprovalFacts{Destructive: WorkflowDestructiveConsequence("delete_everything")}); err == nil {
-			t.Fatal("an unknown destructive consequence fact classified, want refusal")
+		// CD-0243 D3/D4 retire destructive cancellation and serious-law facts.
+		definition := approvalPolicyDefinition(WorkflowApprovalPolicyConsequenceV1, "complete")
+		result, err := ClassifyWorkflowApproval(definition, "complete", WorkflowApprovalFacts{})
+		if err != nil || result.Class != WorkflowApprovalClassRoutine || result.Consent != WorkflowConsentNone {
+			t.Fatalf("routine completion = %+v, %v", result, err)
 		}
 	})
 

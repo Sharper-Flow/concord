@@ -255,6 +255,10 @@ func seedFirstCallWorkflow(t *testing.T, s *Store, workID, workflowRef, actorNam
 	if err != nil {
 		t.Fatal(err)
 	}
+	ctx, err = s.EstablishKnowledgeSourceSetProof(ctx, workID)
+	if err != nil {
+		t.Fatal(err)
+	}
 	initTx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -275,11 +279,15 @@ func firstCallApproveContract(t *testing.T, s *Store, workID string, version int
 	if err != nil {
 		t.Fatal(err)
 	}
-	tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
+	ctx, err := s.EstablishKnowledgeSourceSetProof(context.Background(), workID)
+	if err != nil {
+		return err
+	}
+	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, actionErr := applyWorkflowActionRawTx(context.Background(), tx, newWriteScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
+	_, actionErr := applyWorkflowActionRawTx(ctx, tx, newWriteScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
 		WorkID: workID, ExpectedVersion: version, ActionID: "approve_contract", Payload: payload, Actor: stepFixtureActor(),
 		AcceptedInputsDigest: "sha256:first-call", IdempotencyIdentity: operationID, OperationID: operationID,
 		PrincipalRef: stepFixtureActor().PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: operationID,

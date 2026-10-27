@@ -57,21 +57,34 @@ func knowledgeSourceSetProofFrom(ctx context.Context) *knowledgeSourceSetProof {
 // transaction-scoped law boundary entries. It must run before the
 // consequential transaction opens: a rebuild needs the connection the
 // transaction would hold, and a git probe must never run inside one
-// (CD-0195 D2). Single homes use the same demand-driven index refresh before
-// their transaction; source-set proof remains specific to federated homes.
+// (CD-0195 D2). A standalone home keeps demand-driven refresh before its
+// transaction. A designated Product home requires proof even when
+// it is the only source: an empty mandate still compares the entire inventory.
 func (s *Store) EstablishKnowledgeSourceSetProof(ctx context.Context, workID string) (context.Context, error) {
 	if s == nil || s.db == nil {
 		return ctx, newFailure(KindUnavailable, "check_mandated_laws", "store is not open", false, "open a store before verifying mandated laws")
 	}
-	// A work whose law home does not resolve, and a Product with no unique
-	// designated home or no registered source set, verify trivially here and
-	// keep their refusal at the boundary clause that owns it — never ahead of
-	// the gate's ordered clauses.
+	// Leave an unresolved law home to its owning boundary clause, rather than
+	// moving its refusal ahead of the gate's ordered clauses.
 	homeProjectID, homeLocatorID, err := workflowLawHome(ctx, s.db, workID)
 	if err != nil {
 		return ctx, nil
 	}
 	return s.establishKnowledgeSourceSetProofAtHome(ctx, homeProjectID, homeLocatorID)
+}
+
+// EstablishKnowledgeSourceSetProofForProject verifies the same law home before
+// a capture has written its primary membership. Initialization revalidates the
+// proof against that membership inside the capture's transaction.
+func (s *Store) EstablishKnowledgeSourceSetProofForProject(ctx context.Context, projectID string) (context.Context, error) {
+	if s == nil || s.db == nil {
+		return ctx, newFailure(KindUnavailable, "check_mandated_laws", "store is not open", false, "open a store before verifying mandated laws")
+	}
+	project, locator, err := workflowLawHomeForProject(ctx, s.db, projectID)
+	if err != nil {
+		return ctx, nil // Initialization owns absence and ambiguity admission.
+	}
+	return s.establishKnowledgeSourceSetProofAtHome(ctx, project, locator)
 }
 
 func (s *Store) establishKnowledgeSourceSetProofAtHome(ctx context.Context, homeProjectID, homeLocatorID string) (context.Context, error) {
@@ -92,11 +105,8 @@ func (s *Store) establishKnowledgeSourceSetProofAtHome(ctx context.Context, home
 		return ctx, nil
 	}
 	sources, err := resolveKnowledgeQuerySources(ctx, s.db, productID, "check_mandated_laws")
-	if err != nil || len(sources) == 0 {
-		return ctx, nil
-	}
-	if len(sources) == 1 {
-		return withKnowledgeSourceSetProof(ctx, &knowledgeSourceSetProof{refreshErr: s.EnsureKnowledgeIndexFresh(ctx, sources[0])}), nil
+	if err != nil {
+		return ctx, nil // The transaction's boundary owns source-resolution refusal.
 	}
 	revisions := make(map[string]knowledgeSourceVerifiedRevision, len(sources))
 	for _, source := range sources {
@@ -159,7 +169,7 @@ func requireKnowledgeSourceSetProof(ctx context.Context, q queryer, homeProjectI
 		return err
 	}
 	sources, err := resolveKnowledgeQuerySources(ctx, q, productID, "check_mandated_laws")
-	if err != nil || len(sources) <= 1 {
+	if err != nil {
 		return err
 	}
 	proof := knowledgeSourceSetProofFrom(ctx)
@@ -1000,7 +1010,18 @@ func checkMandatedSourceLawConflicts(ctx context.Context, q queryer, set *mandat
 // Project's Product owns the contract, so a secondary membership in another
 // Product must never widen the home choice or make the workflow unrecordable.
 func workflowLawHome(ctx context.Context, q queryer, workID string) (string, string, error) {
-	rows, err := q.QueryContext(ctx, `SELECT ph.project_id,ph.locator_id FROM product_knowledge_homes ph JOIN product_projects pp ON pp.product_id=ph.product_id JOIN work_projects wp ON wp.project_id=pp.project_id WHERE wp.work_id=? AND wp.role='primary' ORDER BY ph.project_id,ph.locator_id`, workID)
+	var project string
+	if err := q.QueryRowContext(ctx, `SELECT project_id FROM work_projects WHERE work_id=? AND role='primary'`, workID).Scan(&project); err != nil {
+		if err == sql.ErrNoRows {
+			return "", "", newFailure(KindUnknownScope, "check_mandated_laws", "workflow has no canonical Git law home", false, "designate a Product home or primary Project locator")
+		}
+		return "", "", wrapFailure(KindUnavailable, "check_mandated_laws", "cannot resolve the primary Project", true, "retry once the workflow scope is readable", err)
+	}
+	return workflowLawHomeForProject(ctx, q, project)
+}
+
+func workflowLawHomeForProject(ctx context.Context, q queryer, projectID string) (string, string, error) {
+	rows, err := q.QueryContext(ctx, `SELECT ph.project_id,ph.locator_id FROM product_knowledge_homes ph JOIN product_projects pp ON pp.product_id=ph.product_id WHERE pp.project_id=? ORDER BY ph.project_id,ph.locator_id`, projectID)
 	if err != nil {
 		return "", "", wrapFailure(KindUnavailable, "check_mandated_laws", "cannot resolve the workflow Git knowledge home", true, "retry once the workflow scope is readable", err)
 	}
@@ -1029,7 +1050,7 @@ func workflowLawHome(ctx context.Context, q queryer, workID string) (string, str
 		return "", "", newAmbiguousScopeFailure("check_mandated_laws", "workflow resolves to multiple canonical Git law homes", "resolve one Product knowledge home", candidates)
 	}
 	var project, locator string
-	err = q.QueryRowContext(ctx, `SELECT wp.project_id,pl.locator_id FROM work_projects wp JOIN project_locators pl ON pl.project_id=wp.project_id AND pl.kind='canonical_path' WHERE wp.work_id=? AND wp.role='primary'`, workID).Scan(&project, &locator)
+	err = q.QueryRowContext(ctx, `SELECT project_id,locator_id FROM project_locators WHERE project_id=? AND kind='canonical_path'`, projectID).Scan(&project, &locator)
 	if err == sql.ErrNoRows {
 		return "", "", newFailure(KindUnknownScope, "check_mandated_laws", "workflow has no canonical Git law home", false, "designate a Product home or primary Project locator")
 	}

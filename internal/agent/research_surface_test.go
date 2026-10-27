@@ -684,7 +684,8 @@ func TestResearchRetireCrossProductAdmission(t *testing.T) {
 	}{
 		{"missing cross capability", false, false, "unauthorized"},
 		{"dry run needs no approval", true, true, ""},
-		{"deletion requires approval", true, false, "approval_required"},
+		// CD-0243 D3/D7 retire ordinary research-deletion consent.
+		{"deletion needs no approval", true, false, ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			s, service, grant, candidates := researchRetireFixture(t, []Capability{"product_read", "research"})
@@ -709,10 +710,14 @@ func TestResearchRetireCrossProductAdmission(t *testing.T) {
 				t.Fatalf("want %s, got outcome=%s error=%+v", tc.want, response.Outcome, response.Error)
 			}
 			var packs, receipts int
-			if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM active_research_packs`).Scan(&packs); err != nil || packs != 3 {
+			wantPacks, wantReceipts := 3, 0
+			if tc.cross && !tc.dry {
+				wantPacks, wantReceipts = 2, 1
+			}
+			if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM active_research_packs`).Scan(&packs); err != nil || packs != wantPacks {
 				t.Fatalf("cross admission pack count=%d err=%v", packs, err)
 			}
-			if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM idempotency_records WHERE operation_kind='research_retire'`).Scan(&receipts); err != nil || receipts != 0 {
+			if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM idempotency_records WHERE operation_kind='research_retire'`).Scan(&receipts); err != nil || receipts != wantReceipts {
 				t.Fatalf("cross admission receipt count=%d err=%v", receipts, err)
 			}
 		})

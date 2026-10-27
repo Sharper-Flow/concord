@@ -1996,16 +1996,20 @@
         "decision_domains": {
           "type": "array",
           "uniqueItems": true,
-          "maxItems": 3,
+          "maxItems": 7,
           "items": {
             "type": "string",
             "enum": [
+              "increased_spending",
+              "legal",
               "preference",
               "product",
+              "production_data",
+              "security",
               "ui_ux"
             ]
           },
-          "description": "The contract's declared decision domains, sorted. Absent on a contract approved before its definition declared the fact; an empty array declares engineering work."
+          "description": "The contract's declared decision domains, sorted. Stored preference remains readable but is excluded from new authoring. Absent on a contract approved before its definition declared the fact; an empty array declares engineering work."
         }
       }
     },
@@ -14704,7 +14708,10 @@
           "maxLength": 4096
         },
         "approval_ref": {
-          "$ref": "#/$defs/id"
+          "oneOf": [
+            {"const": ""},
+            {"$ref": "#/$defs/id"}
+          ]
         },
         "state": {
           "type": "string",
@@ -17002,18 +17009,21 @@
                   "items": {
                     "type": "string",
                     "enum": [
-                      "preference",
+                      "increased_spending",
+                      "legal",
                       "product",
+                      "production_data",
+                      "security",
                       "ui_ux"
                     ],
-                    "description": "Accepted shape: one of \"preference\", \"product\", \"ui_ux\"; example: \"preference\"",
+                    "description": "Accepted shape: one of \"increased_spending\", \"legal\", \"product\", \"production_data\", \"security\", \"ui_ux\"; example: \"increased_spending\"",
                     "examples": [
-                      "preference"
+                      "increased_spending"
                     ]
                   },
                   "minItems": 0,
-                  "maxItems": 3,
-                  "description": "Accepted shape: array of one of \"preference\", \"product\", \"ui_ux\"; Bounds: 0..3 items inclusive; example: []",
+                  "maxItems": 6,
+                  "description": "Accepted shape: array of one of \"increased_spending\", \"legal\", \"product\", \"production_data\", \"security\", \"ui_ux\"; Bounds: 0..6 items inclusive; example: []",
                   "examples": [
                     []
                   ]
@@ -22970,18 +22980,21 @@
                   "items": {
                     "type": "string",
                     "enum": [
-                      "preference",
+                      "increased_spending",
+                      "legal",
                       "product",
+                      "production_data",
+                      "security",
                       "ui_ux"
                     ],
-                    "description": "Accepted shape: one of \"preference\", \"product\", \"ui_ux\"; example: \"preference\"",
+                    "description": "Accepted shape: one of \"increased_spending\", \"legal\", \"product\", \"production_data\", \"security\", \"ui_ux\"; example: \"increased_spending\"",
                     "examples": [
-                      "preference"
+                      "increased_spending"
                     ]
                   },
                   "minItems": 0,
-                  "maxItems": 3,
-                  "description": "Accepted shape: array of one of \"preference\", \"product\", \"ui_ux\"; Bounds: 0..3 items inclusive; example: []",
+                  "maxItems": 6,
+                  "description": "Accepted shape: array of one of \"increased_spending\", \"legal\", \"product\", \"production_data\", \"security\", \"ui_ux\"; Bounds: 0..6 items inclusive; example: []",
                   "examples": [
                     []
                   ]

@@ -13,37 +13,15 @@ import (
 // event payload, so the receipt could never render: the single response that
 // reported lifecycle "completed" always carried an empty evidence_refs.
 func TestLifecycleCompletionEvidenceRefs(t *testing.T) {
-	s, service, grant, privateKey, _ := agentJobsMutationPM1Fixture(t)
+	s, service, grant, _, _ := agentJobsMutationPM1Fixture(t)
 	env := agentJobsMutationEnvelope(t, s, grant, "proj-web")
 
 	_, preVersion := readWorkFromStore(t, s, "work-cross")
 	idempotencyKey := fmt.Sprintf("evidence-refs-cross-%d", preVersion)
 	input := []byte(fmt.Sprintf(`{"work_id":"work-cross","expected_version":%d,"target":"completed","reason":"complete with verification","idempotency_key":"%s","evidence":[{"kind":"verification","authority":"agent-verifier","locator_kind":"test","locator":"verification-pass"}]}`, preVersion, idempotencyKey))
 
-	first := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "lifecycle", Input: input}, env)
-	if first.Error == nil || first.Error.Kind != "approval_required" {
-		t.Fatalf("expected approval_required, got outcome=%s err=%+v", first.Outcome, first.Error)
-	}
-	challengeRef, ok := first.Error.Details["approval_ref"].(string)
-	if !ok || len(challengeRef) != 64 {
-		t.Fatalf("approval challenge malformed: %v", first.Error.Details)
-	}
-	withApproval, err := injectApproval(input, challengeRef)
-	if err != nil {
-		t.Fatalf("inject approval: %v", err)
-	}
-	scope := map[string]any{
-		"product_id":    "prod-alpha",
-		"product_ids":   []string{"prod-alpha"},
-		"project_ids":   []string{"proj-web"},
-		"work_ids":      []string{"work-cross"},
-		"scope_version": env.ScopeVersion,
-	}
-	versions := map[string]any{"work": preVersion}
-	digest := mutationDigest("concord_work_transition", "lifecycle", env, withApproval)
-	env.HostApproval = signedHostApproval(privateKey, challengeRef, digest, scope, versions, env.SessionRef, env.AgentRef, env.Worktree, fixedTime(), nonceForChallenge(challengeRef))
-
-	approved := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "lifecycle", Input: withApproval}, env)
+	// CD-0243 D3/D7 retire ordinary terminal consent, not receipt evidence.
+	approved := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "lifecycle", Input: input}, env)
 	if approved.Outcome != OutcomeOK {
 		t.Fatalf("approved dispatch failed outcome=%s err=%+v", approved.Outcome, approved.Error)
 	}
@@ -63,9 +41,7 @@ func TestLifecycleCompletionEvidenceRefs(t *testing.T) {
 
 	// A replayed completion must surface the same evidence, or the receipt
 	// renders once and silently stops on every retry of the same key.
-	replayDigest := mutationDigest("concord_work_transition", "lifecycle", env, withApproval)
-	env.HostApproval = signedHostApproval(privateKey, challengeRef, replayDigest, scope, versions, env.SessionRef, env.AgentRef, env.Worktree, fixedTime(), nonceForChallenge(challengeRef))
-	replay := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "lifecycle", Input: withApproval}, env)
+	replay := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "lifecycle", Input: input}, env)
 	if !replay.Replayed {
 		t.Fatalf("replay did not set Replayed=true")
 	}

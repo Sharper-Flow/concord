@@ -1039,16 +1039,15 @@ type WorktreeReclaimRequest struct {
 	ExpectedVersion int64
 	Now             time.Time
 	Runner          GitRunner
-	// RequireTerminal gates the request on terminal work (the CD-0096 D3
-	// Destroy tier). The reclaim surface leaves it false.
+	// RequireTerminal selects the Destroy tier (CD-0096 D3). CD-0243 D7
+	// permits nonterminal work when content and occupancy gates pass.
 	RequireTerminal bool
 	// RequireUnstarted gates the request on unstarted work (CD-0118): the
 	// item stays at needed and the worktree branch holds no commit beyond
 	// the Project's default ref. The reclaim surface leaves it false.
 	RequireUnstarted bool
-	// OperatorApprovalRef names the operator approval consumed for a removal
-	// the terminal gate would otherwise refuse (CD-0096 D3 Destroy). Empty
-	// keeps the gate. The git safety gates are unaffected by this field.
+	// OperatorApprovalRef names the operator approval consumed for a safety
+	// waiver. The git safety gates are unaffected unless Destructive is true.
 	OperatorApprovalRef string
 	// Destructive declares that the consumed approval also covers discarding
 	// the git safety gates: the clean-tree and durable-branch checks are
@@ -1517,9 +1516,8 @@ type WorktreeReclaimProbe struct {
 	Facts json.RawMessage
 }
 
-// WorktreeDestroyRequest drives the CD-0096 D3 Destroy tier: merged terminal
-// work reclaims under the unchanged CD-0095 git gates; non-terminal work and
-// any destructive removal refuse typed without a consumed operator approval.
+// WorktreeDestroyRequest drives the CD-0096 D3 Destroy tier under the unchanged
+// CD-0095 git gates. CD-0243 D7 retires nonterminal consent, not safety waivers.
 type WorktreeDestroyRequest struct {
 	WorkID          string
 	ProjectID       string
@@ -3060,9 +3058,8 @@ func reclaimWorktreeStoreTx(ctx context.Context, tx *sql.Tx, req WorktreeReclaim
 }
 
 func validateReclaimLifecycleTx(ctx context.Context, tx *sql.Tx, req WorktreeReclaimRequest, op string) error {
-	// CD-0096 D3 Destroy: merged terminal work reclaims without approval.
-	// Non-terminal work refuses typed unless the operator approved this
-	// exact removal.
+	// CD-0243 D7 permits nonterminal removal when content and occupancy
+	// gates pass. A destructive waiver still needs its operator approval.
 	if req.RequireTerminal {
 		var lifecycle string
 		err := tx.QueryRowContext(ctx, `SELECT lifecycle FROM work_items WHERE id=?`, req.WorkID).Scan(&lifecycle)
@@ -3071,9 +3068,6 @@ func validateReclaimLifecycleTx(ctx context.Context, tx *sql.Tx, req WorktreeRec
 		}
 		if err != nil {
 			return wrapFailure(KindUnavailable, op, "cannot read the work item", true, "retry once the database is readable", err)
-		}
-		if !isTerminalLifecycle(lifecycle) && req.OperatorApprovalRef == "" {
-			return newFailure(KindInvalidTransition, op, "work item is "+lifecycle+", so its worktree is not merged terminal work", false, "complete or cancel the work first, or obtain an operator-approved destroy")
 		}
 		if req.Destructive && req.OperatorApprovalRef == "" {
 			return newFailure(KindInvalidOperation, op, "destructive removal requires the operator approval it would consume", false, "obtain an operator-approved destructive destroy")
@@ -3883,42 +3877,53 @@ func releaseWorktreeOccupancyRowTx(ctx context.Context, tx *sql.Tx, req Worktree
 	return nil
 }
 
+func worktreeOccupantEnded(occ WorktreeOccupant, leases HostLeaseSet) bool {
+	if occ.HasProcessIdentity {
+		start, err := hostlease.ProcessStart(int(*occ.HostPID))
+		return err != nil || start != *occ.HostPIDStart
+	}
+	return legacyOccupancyRowEnded(leases, occ.RecordedAt)
+}
+
+// WorktreeReclaimOccupancyWaiverRequired reads the same liveness rule as the
+// removal gate, without releasing rows. CD-0243 D7 preserves this operator-only
+// waiver even when ordinary nonterminal removal requires no consent.
+func (s *Store) WorktreeReclaimOccupancyWaiverRequired(ctx context.Context, req WorktreeReclaimRequest, probe WorktreeReclaimProbe) (bool, error) {
+	required := false
+	err := s.ReadTransaction(ctx, func(transaction *Transaction) error {
+		return worktreeReclaimOccupancyWaiverRequiredTx(ctx, transaction, req, probe, &required)
+	})
+	return required, err
+}
+
+func worktreeReclaimOccupancyWaiverRequiredTx(ctx context.Context, transaction *Transaction, req WorktreeReclaimRequest, probe WorktreeReclaimProbe, required *bool) error {
+	tx, err := transactionSQL(transaction, "worktree_destroy")
+	if err != nil {
+		return err
+	}
+	occupants, err := worktreeOccupancyRowsTx(ctx, tx, WorktreeSetID(req.WorkID), req.ProjectID, probe.Entry.ClaimOpID)
+	if err != nil {
+		return err
+	}
+	for _, occupant := range occupants {
+		if !worktreeOccupantEnded(occupant, req.HostLeases) {
+			*required = true
+		}
+	}
+	return nil
+}
+
 // reclaimOccupancyGateTx applies the occupancy release rules one reclaim or
 // removal must satisfy before it may take the worktree (CD-0178 D3, CD-0179
-// D3). A row whose recorded process is live, and a legacy row the lease-set
-// proof has not ended, stay and block removal by naming the sessions that
-// would be stranded. Rows whose process ended release; a legacy row releases
-// when every live host lease started after the row was recorded, which
-// proves its recording process ended. An unreadable lease set releases
-// nothing. Operator-approved reclamation (ReleaseOccupancy with
-// OperatorApprovalRef) clears every row the liveness pass left, and each
-// recorded release event names its session, so the removal record names
-// every live occupant the approval consumed.
+// D3). A live process or unproven legacy row stays unless the exact operator
+// waiver releases it; every recorded release event names its session.
 func reclaimOccupancyGateTx(ctx context.Context, tx *sql.Tx, req WorktreeReclaimRequest, op string, entry WorktreeEntry, setID string, occupants []WorktreeOccupant, incarnation int, now time.Time) error {
 	if len(occupants) == 0 {
 		return nil
 	}
 	liveOccupants := []string{}
 	for _, occ := range occupants {
-		if occ.HasProcessIdentity {
-			start, err := hostlease.ProcessStart(int(*occ.HostPID))
-			if err == nil && start == *occ.HostPIDStart {
-				liveOccupants = append(liveOccupants, occ.SessionRef)
-				continue
-			}
-			// Process is no longer live as recorded. Release the row.
-			if err := releaseWorktreeOccupancyRowTx(ctx, tx, req, setID, entry.ProjectID, entry.ClaimOpID, occ.SessionRef, incarnation, now); err != nil {
-				return err
-			}
-			continue
-		}
-		// Legacy row without process identity (CD-0179): released when
-		// every live host lease started after the row's recorded_at,
-		// which proves its recording process ended. An unreadable lease
-		// set releases nothing, and so does any live lease that
-		// predates the row. Only session_vacate or an operator-approved
-		// removal releases such a row while that proof is missing.
-		if legacyOccupancyRowEnded(req.HostLeases, occ.RecordedAt) {
+		if worktreeOccupantEnded(occ, req.HostLeases) {
 			if err := releaseWorktreeOccupancyRowTx(ctx, tx, req, setID, entry.ProjectID, entry.ClaimOpID, occ.SessionRef, incarnation, now); err != nil {
 				return err
 			}

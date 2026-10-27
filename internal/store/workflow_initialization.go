@@ -194,5 +194,13 @@ func initializeWorkflowRawTx(ctx context.Context, tx *sql.Tx, request WorkflowIn
 		},
 		ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, request.WorkID): version},
 	}, scope)
-	return err
+	if err != nil {
+		return err
+	}
+	guard, err := beginWrite(ctx, tx)
+	if err != nil {
+		return err
+	}
+	defer guard.close(ctx)
+	return initializeWorkflowLawBaselineTx(ctx, tx, request.WorkID)
 }

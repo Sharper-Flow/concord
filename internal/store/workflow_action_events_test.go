@@ -21,11 +21,19 @@ func issue31WorkflowAction(t *testing.T, s *Store, workID string, version int64,
 func issue31WorkflowActionWithPayload(t *testing.T, s *Store, workID string, version int64, actionID, operationID string, actor WorkflowActor, payload json.RawMessage) int64 {
 	t.Helper()
 	payload = testApprovalPayload(t, s, workID, actionID, payload)
-	tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
+	ctx := context.Background()
+	if actionID == "approve_contract" || actionID == "supersede_contract" || actionID == "complete" {
+		var err error
+		ctx, err = s.EstablishKnowledgeSourceSetProof(ctx, workID)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	result, err := applyWorkflowActionRawTx(context.Background(), tx, newWriteScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
+	result, err := applyWorkflowActionRawTx(ctx, tx, newWriteScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
 		WorkID: workID, ExpectedVersion: version, ActionID: actionID, Payload: payload, Actor: actor,
 		AcceptedInputsDigest: "sha256:issue31", IdempotencyIdentity: operationID, OperationID: operationID,
 		PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: operationID,

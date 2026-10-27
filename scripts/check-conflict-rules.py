@@ -63,9 +63,14 @@ ALLOWED_DUTY = {"id"} | MECHANISM_FIELDS
 # CD-0230 D5: the approval-point inventory labels decisions,
 # it never computes consent. A row carries exactly one owner triple, a
 # non-empty reachability over distinct retained contexts, and exactly one of
-# a D5 class or a named gap.
+# a D2 class, a structural disposition, or a named implementation gap.
 ALLOWED_APPROVAL = {"id", "owner", "holding_law", "reachability", "classification", "evidence"}
-APPROVAL_CLASSES = frozenset({"ui_ux", "product_preference", "serious_law", "destructive_verified_recovery"})
+APPROVAL_CLASSES = frozenset({"product", "ui_ux", "production_data", "security", "increased_spending", "legal"})
+PRESERVED_GATES = frozenset({
+    "unrelinquished_attempt_takeover", "separately_required_dispatch_approval",
+    "operator_size_override", "worktree_content_waiver", "worktree_occupancy_waiver",
+    "unstarted_reclaim_override",
+})
 APPROVAL_REACHABILITY = frozenset({"live", "legacy_pinned", "retired", "caller_registered"})
 
 
@@ -181,9 +186,9 @@ def check_label(entry: dict, prefix: str, label: str, files_follow_ups: bool, fi
 
 
 def check_classification_shape(classification: object, prefix: str, findings: list[str]) -> str | None:
-    """Validate exactly one of a D5 class or a named gap; return the gap issue."""
+    """Validate a closed disposition, never infer an instance's approval class."""
     if not isinstance(classification, dict):
-        findings.append(f"{prefix}: classification must be a D5 class or a named gap")
+        findings.append(f"{prefix}: classification must be a D2 class, structural disposition, or named gap")
         return None
     if "class" in classification and "gap_issue" in classification:
         findings.append(f"{prefix}: classification carries both a class and a gap_issue")
@@ -211,7 +216,23 @@ def check_classification_shape(classification: object, prefix: str, findings: li
         if not isinstance(classification.get("reason"), str) or not classification["reason"].strip():
             findings.append(f"{prefix}: a gap carries a non-blank reason")
         return gap_issue
-    findings.append(f"{prefix}: classification is neither a D5 class nor a named gap")
+    if "classes" in classification:
+        classes = classification["classes"]
+        if (set(classification) != {"classes"} or not isinstance(classes, list) or not classes
+                or any(not isinstance(item, str) or item not in APPROVAL_CLASSES for item in classes)
+                or len(set(classes)) != len(classes)):
+            findings.append(f"{prefix}: classes must be a non-empty distinct list of the six D2 classes")
+        return None
+    for disposition in ("agent_owned", "preserved_gate", "legacy"):
+        if disposition not in classification:
+            continue
+        value = classification[disposition]
+        valid = (isinstance(value, str) and value in PRESERVED_GATES) if disposition == "preserved_gate" else value is True
+        if (set(classification) != {disposition, "reason"} or not valid
+                or not isinstance(classification.get("reason"), str) or not classification["reason"].strip()):
+            findings.append(f"{prefix}: {disposition} must carry its exact disposition and a non-blank reason")
+        return None
+    findings.append(f"{prefix}: classification is neither a D2 class, structural disposition, nor a named gap")
     return None
 
 

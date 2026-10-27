@@ -86,26 +86,29 @@ func TestMutationDurabilityDeclaresEffectIndependentlyOfConsent(t *testing.T) {
 // TestMutationDurabilityDeclarations enumerates every registered contract
 // operation against the closed durability declaration table. Read operations
 // must refuse with a typed durability invariant error. Each registered
-// mutation must declare exactly the initial and replay baselines derived
-// here from the ContractOperations manifest: the "required" approval class,
-// plus worktree_claim for the initial selection and the workflow_action,
-// worktree_claim, client_policy_grant_request, and compaction routes for
-// replay. No declaration may exist for an operation the manifest does not
-// register as a mutation. Conditional planner facts override the initial
+// mutation must retain its independent initial and replay baselines. Consent
+// changes do not downgrade the durable removal, publication, repair, relation,
+// or access-grant consequences. No declaration may exist for an operation
+// the manifest does not register as a mutation. Conditional planner facts override the initial
 // baseline in the executor.
 func TestMutationDurabilityDeclarations(t *testing.T) {
 	t.Parallel()
 
-	legacyInitialBaseline := func(op ContractOperation) bool {
-		return op.Approval == ApprovalClass("required") ||
-			(op.Tool == "concord_work_transition" && op.Operation == "worktree_claim")
+	durableInitial := map[string]bool{
+		"concord_work_transition.remove":                   true,
+		"concord_work_transition.worktree_claim":           true,
+		"concord_work_relate.resolve_overlap":              true,
+		"concord_work_compact.publish":                     true,
+		"concord_work_transition.correct_delivery":         true,
+		"concord_work_relate.product_project_add":          true,
+		"concord_work_relate.client_policy_grant_request":  true,
+		"concord_work_transition.outside_repair":           true,
+		"concord_work_transition.outside_repair_reconcile": true,
 	}
-	legacyReplayBaseline := func(op ContractOperation) bool {
-		return op.Approval == ApprovalClass("required") ||
+	replayBaseline := func(op ContractOperation) bool {
+		return durableInitial[op.ID] ||
 			op.ID == "concord_work_transition.workflow_action" ||
-			op.ID == "concord_work_transition.worktree_claim" ||
-			op.ID == "concord_work_relate.client_policy_grant_request" ||
-			op.Tool == "concord_work_compact"
+			op.ID == "concord_work_compact.reconcile"
 	}
 
 	declared := map[string]bool{}
@@ -123,14 +126,14 @@ func TestMutationDurabilityDeclarations(t *testing.T) {
 			}
 		case OperationMutation:
 			delete(declared, op.ID)
-			want := mutationDurability{initial: legacyInitialBaseline(op), replay: legacyReplayBaseline(op)}
+			want := mutationDurability{initial: durableInitial[op.ID], replay: replayBaseline(op)}
 			got, err := mutationDurabilityFor(op)
 			if err != nil {
 				missing = append(missing, op.ID)
 				continue
 			}
 			if got != want {
-				t.Errorf("mutation %s declares %+v, pre-S7 derivation gives %+v", op.ID, got, want)
+				t.Errorf("mutation %s declares %+v, independent consequence baseline is %+v", op.ID, got, want)
 			}
 		}
 	}
@@ -244,8 +247,9 @@ func TestMutationDurabilityConditionalPlans(t *testing.T) {
 		if got := plannedFact(t, plan); got != tc.durable {
 			t.Errorf("lifecycle target %s planned initial durability %t, want %t", tc.target, got, tc.durable)
 		}
-		if plan.requiresApproval != tc.durable {
-			t.Errorf("lifecycle target %s approval requirement %t does not follow its consequence branch", tc.target, plan.requiresApproval)
+		// CD-0243 D3/D7 retire terminal status as an independent consent trigger.
+		if plan.requiresApproval {
+			t.Errorf("ordinary lifecycle target %s unexpectedly requires approval", tc.target)
 		}
 	}
 
@@ -281,8 +285,8 @@ func TestMutationDurabilityConditionalPlans(t *testing.T) {
 		{"compatible_with", "compatible_with", true, false},
 		{"depends_on", "depends_on", false, false},
 		{"blocks", "blocks", true, false},
-		{"merged_into", "merged_into", true, true},
-		{"supersedes", "supersedes", true, true},
+		{"merged_into", "merged_into", true, false},
+		{"supersedes", "supersedes", true, false},
 	} {
 		raw, err := json.Marshal(map[string]any{
 			"from_work_id": "work-1", "to_work_id": "work-2",
@@ -307,13 +311,8 @@ func TestMutationDurabilityConditionalPlans(t *testing.T) {
 		}
 	}
 
-	// Consent never feeds the overlap facts: the same destructive plan
-	// carrying an approval claim keeps its durable fact and its consent
-	// requirement. A fresh same-Product routine request derives no consent
-	// requirement, so the tail consumes nothing and the effect refuses the
-	// unneeded claim. The dispatch tests own that refusal. A cross-Product
-	// routine request derives its consent inside the transaction instead,
-	// and its tail consumes the claim and settles.
+	// CD-0243 D3/D7 retire merger and supersession as consent triggers.
+	// An explicitly supplied claim is still validated, without changing durability.
 	approvedOverlapRaw, err := json.Marshal(map[string]any{
 		"from_work_id": "work-1", "to_work_id": "work-2",
 		"from_expected_version": 2, "to_expected_version": 3,
@@ -357,16 +356,17 @@ func TestMutationDurabilityConditionalPlans(t *testing.T) {
 	if !plannedFact(t, plan) {
 		t.Error("membership replacement did not raise its durable effect boundary")
 	}
-	if !plan.requiresApproval {
-		t.Error("membership replacement lost its approval requirement")
+	// CD-0243 D3: ordinary membership coordination is agent-owned.
+	if plan.requiresApproval {
+		t.Error("ordinary membership replacement unexpectedly requires approval")
 	}
 }
 
 // TestMutationDurabilityStoreBoundPlannerFacts proves the capture
 // governing-conflict and worktree_destroy planner facts reach the
 // executor: each minted challenge commits through the durable
-// transaction. The executor escalates only on discovered cross-Product
-// scope, so these facts alone keep the approval boundary durable.
+// transaction. Governing scope cuts and named worktree waivers retain
+// their durable boundary independently of ordinary consent.
 func TestMutationDurabilityStoreBoundPlannerFacts(t *testing.T) {
 	t.Parallel()
 	t.Run("capture governing conflict", func(t *testing.T) {

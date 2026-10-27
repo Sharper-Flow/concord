@@ -6,14 +6,13 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 )
 
-// A registry edit retains compact before-state fingerprints. At enactment,
-// the count follows entries and relations actually changed in the projection,
-// not just the contract's declared registry scope. Commit watermarks and the
-// whole-registry hash are not entry content.
+// Compact registry fingerprints distinguish each Domain and typed relation.
+// Commit watermarks and the whole-registry hash are not entry content.
 type workflowLawRegistrySnapshot struct {
 	RootDomainID string                   `json:"root_domain_id"`
 	Entries      []workflowLawRegistryPin `json:"entries"`
@@ -42,12 +41,16 @@ func readWorkflowLawRegistrySnapshot(ctx context.Context, q queryer, workID stri
 	}
 	productID, _, err := resolveKnowledgeSourceRole(ctx, q, KnowledgeHome{HomeProjectID: homeProjectID, HomeLocatorID: homeLocatorID})
 	if err != nil {
+		var f *Failure
+		if failureAs(err, &f) && f.Kind == KindUnknownScope {
+			return nil, nil
+		}
 		return nil, err
 	}
 	result := &workflowLawRegistrySnapshot{Entries: []workflowLawRegistryPin{}}
 	if err := q.QueryRowContext(ctx, `SELECT root_domain_id FROM domain_registries WHERE product_id=?`, productID).Scan(&result.RootDomainID); err != nil {
 		if err == sql.ErrNoRows {
-			return nil, newFailure(KindMissingEvidence, "workflow_law_change", "the changed Domain registry has no projection", false, "rebuild the Product's Domain registry")
+			return nil, nil
 		}
 		return nil, workflowProjectionError(err, "cannot read the changed Domain registry")
 	}
@@ -115,32 +118,48 @@ WHERE r.product_id=? ORDER BY r.source_domain_id,r.kind,r.target_domain_id,g.law
 	return result, nil
 }
 
-func workflowLawRegistryChangedDomains(before, after *workflowLawRegistrySnapshot) []string {
-	old := map[string]string{}
-	now := map[string]string{}
+// Scope follows the registry's typed entry or relation identity, not a count
+// or the endpoints alone. Naming two Domains does not authorize their relation.
+func checkWorkflowLawRegistryScope(before, after *workflowLawRegistrySnapshot, binding *WorkflowArchitectureBinding) error {
+	if before == nil {
+		before = &workflowLawRegistrySnapshot{}
+	}
+	if after == nil {
+		after = &workflowLawRegistrySnapshot{}
+	}
+	declaredDomain := func(id string) bool { return id == "" || binding != nil && slices.Contains(binding.DomainModifies, id) }
+	if before.RootDomainID != after.RootDomainID && (!declaredDomain(before.RootDomainID) || !declaredDomain(after.RootDomainID)) {
+		return newFailure(KindOutcomeMismatch, "complete_workflow", "the enacted registry root changed outside the declared Domain scope", false, "restore the registry root or declare both root identities")
+	}
+	old, now := map[string]workflowLawRegistryPin{}, map[string]workflowLawRegistryPin{}
 	for _, pin := range before.Entries {
-		old[pin.key()] = pin.ContentHash
+		old[pin.key()] = pin
 	}
 	for _, pin := range after.Entries {
-		now[pin.key()] = pin.ContentHash
+		now[pin.key()] = pin
 	}
-	var domains []string
-	collect := func(state *workflowLawRegistrySnapshot, other map[string]string) {
-		for _, pin := range state.Entries {
-			if pin.ContentHash == other[pin.key()] {
+	check := func(entries, other map[string]workflowLawRegistryPin) error {
+		for _, key := range slices.Sorted(maps.Keys(entries)) {
+			pin := entries[key]
+			if candidate, exists := other[key]; exists && candidate.ContentHash == pin.ContentHash {
 				continue
 			}
-			if pin.DomainID != state.RootDomainID {
-				domains = append(domains, pin.DomainID)
+			if pin.Kind == "" && declaredDomain(pin.DomainID) {
+				continue
 			}
-			if pin.TargetDomainID != "" && pin.TargetDomainID != state.RootDomainID {
-				domains = append(domains, pin.TargetDomainID)
+			if pin.Kind != "" && binding != nil && slices.ContainsFunc(binding.DomainRelationModifies, func(relation WorkflowDomainRelationModification) bool {
+				return relation.SourceDomainID == pin.DomainID && relation.Kind == pin.Kind && relation.TargetDomainID == pin.TargetDomainID
+			}) {
+				continue
 			}
+			return newFailure(KindOutcomeMismatch, "complete_workflow", "the enacted registry entry is outside the declared scope: "+pin.key(), false, "restore the registry entry or declare its exact Domain or relation identity")
 		}
+		return nil
 	}
-	collect(before, now)
-	collect(after, old)
-	return uniqueSorted(domains)
+	if err := check(old, now); err != nil {
+		return err
+	}
+	return check(now, old)
 }
 
 func validateWorkflowLawRegistrySnapshot(snapshot *workflowLawRegistrySnapshot) error {

@@ -1166,6 +1166,13 @@ func (s *Store) prepareBootstrapMode(ctx context.Context, req BootstrapRequest, 
 			return out, planErr
 		}
 	}
+	if !existing && probe.journalErr != nil {
+		verified, err := s.EstablishKnowledgeSourceSetProofForProject(ctx, req.ProjectID)
+		if err != nil {
+			return out, err
+		}
+		ctx = verified
+	}
 	tx, err := s.beginDurableTx(ctx)
 	if err != nil {
 		return out, wrapFailure(KindUnavailable, "work_bootstrap", "cannot begin bootstrap journal", true, "retry the same operation", err)

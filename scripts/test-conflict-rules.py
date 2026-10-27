@@ -74,7 +74,7 @@ def table() -> dict:
                 "owner": {"path": "internal/store/workflow_registry.go", "symbol": "builtinActionPolicies", "branch": "approve_contract"},
                 "holding_law": "CD-0033",
                 "reachability": ["live", "legacy_pinned", "retired"],
-                "classification": {"class": "product_preference"},
+                "classification": {"class": "product"},
                 "evidence": ["internal/store/workflow_registry.go:1758"],
             },
         ],
@@ -232,7 +232,7 @@ def approval_point(**overrides) -> dict:
         # One owner serves many definition contexts, so reachability is a
         # non-empty list over the closed vocabulary.
         "reachability": ["live"],
-        "classification": {"class": "product_preference"},
+        "classification": {"class": "product"},
     }
     point.update(overrides)
     return point
@@ -300,7 +300,7 @@ def test_non_object_classification_with_a_holder_is_refused_normally() -> None:
     value = approval_points_table()
     value["approval_points"][0]["classification"] = ["gap_issue"]
     findings, _ = validate(value)
-    assert any("classification must be a D5 class or a named gap" in finding for finding in findings), findings
+    assert any("classification must be a D2 class" in finding for finding in findings), findings
 
 
 def test_null_holding_on_a_class_row_is_refused() -> None:
@@ -355,11 +355,42 @@ def test_catalog_generation_must_be_a_positive_identity() -> None:
     assert any("catalog_generation" in finding for finding in findings), findings
 
 
-def test_fifth_approval_class_is_refused() -> None:
+def test_seventh_approval_class_is_refused() -> None:
     value = approval_points_table()
     value["approval_points"][0]["classification"] = {"class": "convenience"}
     findings, _ = validate(value)
     assert any("convenience" in finding for finding in findings), findings
+
+
+def test_six_classes_and_structural_dispositions() -> None:
+    classes = ["product", "ui_ux", "production_data", "security", "increased_spending", "legal"]
+    classifications = [{"class": name} for name in classes] + [
+        {"classes": classes},
+        {"agent_owned": True, "reason": "ordinary coordination within scope"},
+        {"preserved_gate": "worktree_content_waiver", "reason": "explicit operator-only waiver"},
+        {"legacy": True, "reason": "released metadata, not a new approval class"},
+    ]
+    for classification in classifications:
+        value = approval_points_table()
+        value["approval_points"][0]["classification"] = classification
+        assert validate(value)[0] == [], classification
+
+
+def test_structural_dispositions_refuse_unknown_mixed_or_empty_shapes() -> None:
+    for classification in [
+        {"classes": []}, {"classes": ["product", "product"]},
+        {"classes": ["serious_law"]}, {"class": "product_preference"},
+        {"class": "destructive_verified_recovery"},
+        {"agent_owned": False, "reason": "ordinary"},
+        {"legacy": True}, {"preserved_gate": "", "reason": "waiver"},
+        {"preserved_gate": "convenience", "reason": "not an existing gate"},
+        {"agent_owned": True, "reason": ""},
+        {"classes": ["security"], "agent_owned": True, "reason": "mixed"},
+        {"class": "security", "legacy": True, "reason": "mixed"},
+    ]:
+        value = approval_points_table()
+        value["approval_points"][0]["classification"] = classification
+        assert validate(value)[0], classification
 
 
 def test_approval_point_needs_exactly_one_classification() -> None:

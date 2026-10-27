@@ -40,7 +40,9 @@ func largeMembershipApprovalFixture(t *testing.T, projectCount int) (*store.Stor
 	return s, service, grant, products, projects
 }
 
-func TestLargeCrossProductMembershipApprovalRoundTrip(t *testing.T) {
+// CD-0243 D3/D7 retire ordinary membership consent. Approval summary bounds
+// still apply to security grants, not to an ordinary membership mutation.
+func TestLargeCrossProductMembershipWithoutConsent(t *testing.T) {
 	for _, projectCount := range []int{13, 20} {
 		t.Run(fmt.Sprintf("%d-projects", projectCount), func(t *testing.T) {
 			testLargeMembershipApprovalRoundTrip(t, projectCount)
@@ -51,8 +53,7 @@ func TestLargeCrossProductMembershipApprovalRoundTrip(t *testing.T) {
 func testLargeMembershipApprovalRoundTrip(t *testing.T, projectCount int) {
 	t.Helper()
 	ctx := context.Background()
-	s, service, grant, products, projects := largeMembershipApprovalFixture(t, projectCount)
-	privateKey := mustKey(t)
+	s, service, grant, _, projects := largeMembershipApprovalFixture(t, projectCount)
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
 	if err != nil {
 		t.Fatal(err)
@@ -72,44 +73,15 @@ func testLargeMembershipApprovalRoundTrip(t *testing.T, projectCount int) {
 		t.Fatal(err)
 	}
 	request := InvokeRequest{Tool: "concord_work_relate", Operation: "set_memberships", Input: raw}
-	challenge, err := Dispatch(ctx, s, service, request, env)
-	if err != nil || challenge.Error == nil || challenge.Error.Kind != "approval_required" {
-		t.Fatalf("challenge = %+v, err = %v", challenge.Error, err)
-	}
-	if _, err := json.Marshal(challenge); err != nil {
-		t.Fatalf("large membership approval must serialize: %v", err)
-	}
-	scope := map[string]any{"product_id": "product-1", "product_ids": products, "project_ids": projects, "work_ids": []string{"work-1"}, "scope_version": scopeVersion}
-	if got := challenge.Error.ConsequenceSummary; got == nil || !reflect.DeepEqual(got.Scope, approvalScopeBindings(scope)) || len(got.Scope) != len(products)+len(projects)+3 {
-		t.Fatalf("summary lost scope bindings: %+v", got)
-	}
-	if _, duplicated := challenge.Error.Details["scope"]; duplicated {
-		t.Fatal("approval scope must have one wire owner: consequence_summary")
-	}
-	if _, duplicated := challenge.Error.Details["versions"]; duplicated {
-		t.Fatal("approval versions must have one wire owner: consequence_summary")
-	}
-	if workVersion(t, s, "work-1") != 2 {
-		t.Fatal("approval challenge changed work membership")
-	}
-	ref := challenge.Error.Details["approval_ref"].(string)
-	versions := map[string]any{"work": int64(2)}
-	digest := mutationDigest(request.Tool, request.Operation, env, raw)
-	input["approval"] = map[string]string{"approval_ref": ref}
-	request.Input, err = json.Marshal(input)
-	if err != nil {
-		t.Fatal(err)
-	}
-	tamperedScope := map[string]any{"product_id": "product-1", "product_ids": products, "project_ids": projects[:len(projects)-1], "work_ids": []string{"work-1"}, "scope_version": scopeVersion}
-	env.HostApproval = signedHostApproval(privateKey, ref, digest, tamperedScope, versions, env.SessionRef, env.AgentRef, env.Worktree, fixedTime(), "large-tampered")
-	refused, err := Dispatch(ctx, s, service, request, env)
-	if err != nil || refused.Error == nil || refused.Error.Kind != "approval_invalid" || workVersion(t, s, "work-1") != 2 {
-		t.Fatalf("tampered scope was not refused without effect: %+v, err = %v", refused.Error, err)
-	}
-	env.HostApproval = signedHostApproval(privateKey, ref, digest, scope, versions, env.SessionRef, env.AgentRef, env.Worktree, fixedTime(), "large-approved")
 	approved, err := Dispatch(ctx, s, service, request, env)
 	if err != nil || approved.Error != nil || approved.Outcome != OutcomeOK {
-		t.Fatalf("exact-scope approval failed: %+v, err = %v", approved.Error, err)
+		t.Fatalf("ordinary membership failed: %+v, err = %v", approved.Error, err)
+	}
+	if _, err := approved.Encode(); err != nil {
+		t.Fatalf("large membership response must serialize: %v", err)
+	}
+	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM agent_approval_challenges`); got != 0 {
+		t.Fatalf("ordinary membership minted %d challenges", got)
 	}
 	got, err := s.ProjectsForWork(ctx, "work-1")
 	if err != nil || len(got) != len(projects) || workVersion(t, s, "work-1") != 3 {
@@ -123,9 +95,13 @@ func testLargeMembershipApprovalRoundTrip(t *testing.T, projectCount int) {
 	if !reflect.DeepEqual(gotIDs, projects) {
 		t.Fatalf("approved Project identities = %v, want %v", gotIDs, projects)
 	}
+	replay, err := Dispatch(ctx, s, service, request, env)
+	if err != nil || replay.Outcome != OutcomeOK || !replay.Replayed || workVersion(t, s, "work-1") != 3 {
+		t.Fatalf("large membership replay=%+v err=%v", replay.Error, err)
+	}
 }
 
-func TestApprovalScopeOverSummaryCapacityRefusesBeforeMint(t *testing.T) {
+func TestMembershipScopeDoesNotUseApprovalSummaryCapacity(t *testing.T) {
 	ctx := context.Background()
 	s, service, grant, _, projects := largeMembershipApprovalFixture(t, 21)
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
@@ -134,20 +110,24 @@ func TestApprovalScopeOverSummaryCapacityRefusesBeforeMint(t *testing.T) {
 	}
 	memberships := make([]map[string]string, 0, len(projects))
 	for _, project := range projects {
-		memberships = append(memberships, map[string]string{"project_id": project, "role": "secondary"})
+		role := "secondary"
+		if project == "project-1" {
+			role = "primary"
+		}
+		memberships = append(memberships, map[string]string{"project_id": project, "role": role})
 	}
 	raw, err := json.Marshal(map[string]any{"work_id": "work-1", "expected_version": 2, "memberships": memberships, "idempotency_key": "over-capacity-memberships"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	response, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_relate", Operation: "set_memberships", Input: raw}, mutationEnvelope(grant, scopeVersion))
-	if err != nil || response.Error == nil || response.Error.Kind != "limit_exceeded" || response.Error.EffectState != EffectNone || response.Error.RecoveryAction.Kind != "reduce_limit" {
-		t.Fatalf("over-capacity approval = %+v, err = %v", response.Error, err)
+	if err != nil || response.Outcome != OutcomeOK {
+		t.Fatalf("ordinary large membership = %+v, err = %v", response.Error, err)
 	}
 	if _, err := json.Marshal(response); err != nil {
-		t.Fatalf("over-capacity refusal must serialize: %v", err)
+		t.Fatalf("ordinary large membership must serialize: %v", err)
 	}
-	if workVersion(t, s, "work-1") != 2 || countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM agent_approval_challenges`) != 0 {
-		t.Fatal("over-capacity approval changed work or minted an undeliverable challenge")
+	if workVersion(t, s, "work-1") != 3 || countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM agent_approval_challenges`) != 0 {
+		t.Fatal("ordinary membership did not change work exactly once without a challenge")
 	}
 }

@@ -58,9 +58,9 @@ func workflowCompletionFootprintAfterActorPrefix(resolved *ResolvedWorkflowFootp
 			return resolved
 		}
 	}
-	copy := *resolved
-	copy.snapshot.version += int64(len(prefix))
-	return &copy
+	adjusted := *resolved
+	adjusted.snapshot.version += int64(len(prefix))
+	return &adjusted
 }
 
 func completeWorkflowTxWithInputs(ctx context.Context, tx *sql.Tx, registry DefinitionRegistry, event Event, scope *writeScope, inputs workflowCompletionInputs) error {

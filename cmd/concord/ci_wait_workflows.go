@@ -175,12 +175,12 @@ func ciWaitObserveWorkflows(ctx context.Context, state *ciWaitState, runs []ciWa
 			if run.Status == "completed" {
 				_, details := ciWaitCountPRChecks(population)
 				ciWaitCollectFailureExcerpts(ctx, state, details)
+				firstErrors := make(map[string]string, len(details))
+				for _, detail := range details {
+					firstErrors[detail.URL] = detail.FirstError
+				}
 				for i := range population {
-					for _, detail := range details {
-						if population[i].URL == detail.URL {
-							population[i].FirstError = detail.FirstError
-						}
-					}
+					population[i].FirstError = firstErrors[population[i].URL]
 				}
 			}
 			return population, nil

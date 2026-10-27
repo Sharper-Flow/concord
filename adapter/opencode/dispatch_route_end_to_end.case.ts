@@ -604,7 +604,7 @@ routeDeclaration("accepts an unchanged new-law baseline Review before implementa
       context, invoke, windows: new DispatchWindows(), credentials: { async getPrivateKey() { return PRIVATE_SEED } },
     })
     expect(prematureImplementation.outcome, JSON.stringify(prematureImplementation)).toBe("error")
-    expect(prematureImplementation.error.message).toContain("execution progression requires an accepted Review covering the current architecture and criteria")
+    expect(prematureImplementation.error?.message).toContain("execution progression requires an accepted Review covering the current architecture and criteria")
     expect(version()).toBe(beforeBaseline)
     const reviewLane = agentLanes.find((candidate) => candidate.id === "review")!
     const review = await dispatch(reviewLane, "new-law-baseline-review")

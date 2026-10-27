@@ -81,7 +81,7 @@ GENERATED = frozenset(
         "internal/payloadschema/generated_schemas.go",
         "internal/payloadschema/generated_envelope_schema.go",
         "internal/store/generated_agent_lanes.go",
-        "internal/store/generated_typed_error_kinds.go",
+    "internal/payloadschema/generated_typed_error_kinds.go",
     }
 )
 

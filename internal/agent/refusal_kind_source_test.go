@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sharper-flow/concord/internal/store"
+	"github.com/sharper-flow/concord/internal/payloadschema"
 )
 
 // The error kind is the field a caller branches on first, and the contract
@@ -42,7 +42,7 @@ type literalRefusalKind struct {
 // cannot be delivered: validateError refuses the envelope and Encode fails.
 func TestEveryRefusalNamesAContractualKind(t *testing.T) {
 	contractual := map[string]bool{}
-	for _, kind := range store.TypedErrorKinds() {
+	for _, kind := range payloadschema.TypedErrorKinds() {
 		contractual[kind] = true
 	}
 	sites := literalRefusalKinds(t)

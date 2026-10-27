@@ -1175,7 +1175,7 @@ func mapFailureKind(kind store.FailureKind) string {
 	// is that kind; collapsing it to internal_error told the caller a fault
 	// occurred and to contact the operator for a refusal it could have
 	// answered itself, and publicRecovery then discarded the store's remedy.
-	if store.TypedErrorKindAllowed(string(kind)) {
+	if payloadschema.TypedErrorKindAllowed(string(kind)) {
 		return string(kind)
 	}
 	// A store kind that names no public kind is an internal fault to the

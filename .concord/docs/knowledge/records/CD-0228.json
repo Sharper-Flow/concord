@@ -25,14 +25,14 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:df5af95410fa8e846c56c43da06a7a2c710348b62fb611677f1cfc38bc469d8d",
+  "sha256": "sha256:6677cd93f8d64998eb66bfa38b5f242cbe6e002689e3b56f2b9f9ddb8f04431a",
   "status": "accepted",
-  "summary": "Merge waits select the newest attempt per CheckRun name/workflow or StatusContext context from the existing rollup. A selected failed or cancelled check ends an open wait unless GitHub reports UNSTABLE. Newer passing and pending reruns replace older failures, different identities remain distinct, and lifecycle outcomes retain precedence. Checks-mode completeness and the query boundary remain unchanged.",
+  "summary": "After subject qualification, relevant terminal failed or cancelled checks or jobs end CI waits without waiting for peers, registration or workflow completion, including UNSTABLE. Newest applicable Actions runs remain distinct by workflow ID and event; non-Actions rollup ordering stays unchanged. Checks-mode success needs the complete observed workflow and check population and every required context. Failure reports name the exact subject and actual URL without claiming full-suite completeness. Lifecycle precedence, read-only queries and adapter delivery remain unchanged.",
   "tags": [
     "ci-wait",
     "cli",
     "github",
     "operator-surface"
   ],
-  "title": "Merge waits report observed check failures unless GitHub reports UNSTABLE"
+  "title": "CI waits report observed failures before the full population completes"
 }

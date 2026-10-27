@@ -31,6 +31,8 @@ const ciWaitQuietReads = `
 	*"api graphql"*) echo '{"data":{"repository":{"pullRequest":{"state":"OPEN","headRefOid":"","timelineItems":{"nodes":[]}}}}}';;
 	*"rules/branches/"*) echo '[[]]';;
 	*"api repos/"*"/branches/"*) echo '{"protection":{"required_status_checks":{"contexts":[],"checks":[]}}}';;
+	*"api repos/"*"/actions/runs?"*) echo '[{"total_count":0,"workflow_runs":[]}]';;
+	*"/attempts/"*"/jobs?"*) echo '[{"total_count":0,"jobs":[]}]';;
 `
 
 func ghStubPath(t *testing.T, dir string) {
@@ -229,8 +231,8 @@ func TestCiWaitSelectorsQueryTheIntendedSubject(t *testing.T) {
 case "$*" in
 	*"pr view"*) echo '{"baseRefName":"main","headRefOid":"aabb","url":"u","statusCheckRollup":[{"name":"c","status":"COMPLETED","conclusion":"SUCCESS"}] }';;
 	*"pr checks"*) echo '[{"name":"c","state":"SUCCESS","link":"l","bucket":"pass"}]';;
-	*"run list"*) echo '[{"databaseId":1,"name":"n","status":"completed","conclusion":"success","url":"u"}]';;
-	*"run view"*) echo '{"status":"completed","conclusion":"success","url":"u","headSha":"s"}';;
+	"api repos/o/r/actions/runs?head_sha=` + sha + `&per_page=100 --method GET --paginate --slurp") echo '` + ciWaitSelectorRunsFixture(t, []ghRunSummary{{DatabaseID: 1, Name: "n", Status: "completed", Conclusion: "success", URL: "https://github.com/o/r/actions/runs/1"}}) + `';;
+	*"run view"*) echo '{"status":"completed","conclusion":"success","url":"https://github.com/o/r/actions/runs/42","headSha":"` + sha + `","attempt":2}';;
 ` + ciWaitQuietReads + `esac`
 	ghStubPath(t, ghStubDir(t, stub))
 	cases := []struct {
@@ -239,13 +241,17 @@ case "$*" in
 		want  string
 	}{
 		{"pr", "5", "pr view 5 --repo o/r"},
-		{"sha", sha, "run list --repo o/r --commit " + sha},
+		{"sha", sha, "api repos/o/r/actions/runs?head_sha=" + sha + "&per_page=100 --method GET --paginate --slurp"},
 		{"run", "42", "run view 42 --repo o/r"},
+		{"run", "42", "api repos/o/r/actions/runs/42/attempts/2/jobs?per_page=100 --method GET --paginate --slurp"},
 	}
 	for _, tc := range cases {
-		_, _ = runCiWaitStdin(t, ciWaitJSON(t, ciWaitRequest{
-			Selector: &ciWaitSelector{Kind: tc.kind, Value: tc.value}, Repo: "o/r", TimeSecondsMax: ciWaitBudget(1800),
+		code, report := runCiWaitStdin(t, ciWaitJSON(t, ciWaitRequest{
+			Selector: &ciWaitSelector{Kind: tc.kind, Value: tc.value}, Repo: "o/r", TimeSecondsMax: ciWaitBudget(8),
 		}))
+		if code != 0 || report.Status != "success" {
+			t.Fatalf("selector %s must observe its passing subject, got code=%d report=%+v", tc.kind, code, report)
+		}
 	}
 	raw, err := os.ReadFile(capture)
 	if err != nil {
@@ -362,6 +368,27 @@ case "$*" in
 	}
 }
 
+func TestCiWaitPaginatedCancelledCheckIsFailure(t *testing.T) {
+	rollup := make([]ghPRRollup, ciWaitPRRollupPageSize)
+	for i := range rollup {
+		rollup[i] = ghPRRollup{Name: fmt.Sprintf("check-%d", i), Status: "COMPLETED", Conclusion: "SUCCESS"}
+	}
+	encoded, err := json.Marshal(rollup)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ghStubPath(t, ghStubDir(t, `case "$*" in
+	*"pr view"*) echo '{"baseRefName":"main","headRefOid":"aabb","url":"u","statusCheckRollup":`+string(encoded)+`}';;
+	*"pr checks"*) echo '[{"name":"external-scan","state":"CANCELLED","link":"https://ci.example/1","bucket":"cancel"}]';;
+`+ciWaitQuietReads+`esac`))
+	_, report := runCiWaitStdin(t, ciWaitJSON(t, ciWaitRequest{
+		Selector: &ciWaitSelector{Kind: "pr", Value: "5"}, Repo: "o/r", TimeSecondsMax: ciWaitBudget(8),
+	}))
+	if report.Status != "failure" || len(report.Failures) != 1 || report.Failures[0].Classification != "cancelled" {
+		t.Fatalf("a cancelled check beyond the rollup page is a failure, got %+v", report)
+	}
+}
+
 func TestCiWaitPollIntervalStagesOnElapsedWaitTime(t *testing.T) {
 	for _, tc := range []struct {
 		elapsed time.Duration
@@ -450,8 +477,8 @@ EOL
 				if code != 0 {
 					t.Fatalf("a failure verdict is a successful observation; want exit 0, got %d", code)
 				}
-				if len(report.Failures) == 0 || report.Failures[0].FirstError != "--- FAIL: TestThing (0.1s)" {
-					t.Fatalf("failure detail must quote the observed error, got %+v", report.Failures)
+				if len(report.Failures) == 0 || report.Failures[0].Name != "test-0" {
+					t.Fatalf("failure detail must name the observed check, got %+v", report.Failures)
 				}
 			}
 		})
@@ -811,18 +838,20 @@ func TestCiWaitPRMergeModeCheckFailures(t *testing.T) {
 			failName:    "verify-tests",
 		},
 		{
-			name:       "UNSTABLE failure stays pending",
-			mergeState: "UNSTABLE",
-			rollup:     []ghPRRollup{ciWaitRollupPass("verify-go"), ciWaitRollupFail("verify-tests", failureJob)},
-			wantStatus: "pending",
-			wantReason: "can merge",
+			name:        "UNSTABLE does not hide failure",
+			mergeState:  "UNSTABLE",
+			rollup:      []ghPRRollup{ciWaitRollupPass("verify-go"), ciWaitRollupFail("verify-tests", failureJob)},
+			wantStatus:  "failure",
+			wantFailing: 1,
+			failName:    "verify-tests",
 		},
 		{
-			name:       "unstable matches case-insensitively",
-			mergeState: "unstable",
-			rollup:     []ghPRRollup{ciWaitRollupFail("verify-tests", failureJob)},
-			wantStatus: "pending",
-			wantReason: "can merge",
+			name:        "unstable matches case-insensitively",
+			mergeState:  "unstable",
+			rollup:      []ghPRRollup{ciWaitRollupFail("verify-tests", failureJob)},
+			wantStatus:  "failure",
+			wantFailing: 1,
+			failName:    "verify-tests",
 		},
 		{
 			name:        "failure overrides pending peers",
@@ -965,8 +994,8 @@ func TestCiWaitPRMergeModeCheckFailures(t *testing.T) {
 		if report.RunURL != "https://github.com/o/r/actions/runs/10" {
 			t.Fatalf("failure must carry the observed run URL, got %q", report.RunURL)
 		}
-		if detail.FirstError != "--- FAIL: TestThing (0.1s)" {
-			t.Fatalf("failure detail must quote the first observed log line, got %q", detail.FirstError)
+		if detail.FirstError != "" || strings.Contains(captured, "--log-failed") {
+			t.Fatalf("unqualified workflow completion cannot authorize a log delay: detail=%+v calls=%s", detail, captured)
 		}
 		if strings.Contains(captured, "pr checks") {
 			t.Fatalf("merge mode must not query pr checks, calls=%q", captured)
@@ -1225,10 +1254,9 @@ func TestCiWaitPRMergeModeFullPageRollupNeedsNoChecksQuery(t *testing.T) {
 	}
 }
 
-func TestCiWaitPRChecksModeMixedFailureAndPendingStaysPending(t *testing.T) {
-	// Checks mode keeps its completeness requirement: an observed failure next
-	// to a pending check stays pending until the population completes. Only
-	// merge mode lets a failure override pending peers.
+func TestCiWaitPRChecksModeMixedFailureAndPendingFails(t *testing.T) {
+	// CD-0228 retires the mixed-failure-waits rule. Negative evidence does not
+	// require the complete population needed for a positive verdict.
 	rollup := []ghPRRollup{
 		ciWaitRollupPass("verify-go"),
 		ciWaitRollupFail("verify-tests", "https://github.com/o/r/actions/runs/10/job/2"),
@@ -1236,34 +1264,33 @@ func TestCiWaitPRChecksModeMixedFailureAndPendingStaysPending(t *testing.T) {
 	}
 	headJSON := ciWaitMergeHeadFixture(t, "CLEAN", "OPEN", "", "aabbccdd", rollup)
 	report, terminal, _ := ciWaitPollPROnce(t, "checks", headJSON, "")
-	if terminal || report.Status != "pending" {
-		t.Fatalf("checks mode must keep a mixed failure and pending rollup pending, got status=%s terminal=%t (report=%+v)", report.Status, terminal, report)
+	if !terminal || report.Status != "failure" {
+		t.Fatalf("checks mode must report a failure despite pending peers, got status=%s terminal=%t (report=%+v)", report.Status, terminal, report)
 	}
 	if report.Checks == nil || report.Checks.Failing != 1 || report.Checks.Pending != 1 {
 		t.Fatalf("report must count the observed mix, got %+v", report.Checks)
 	}
 
-	t.Run("same-name terminal failure collapses a pending rollup entry", func(t *testing.T) {
-		// The population join replaces a same-name pending entry with the
-		// later terminal failing rollup entry, so counts.Pending reaches
-		// zero while the raw rollup keeps the stale pending duplicate and
-		// ciWaitRollupTerminal stays false. Checks mode must answer from
-		// the completeness gate, not from the collapsed counts.
+	t.Run("newest failure replaces an older pending attempt", func(t *testing.T) {
+		pending := ciWaitRollupPending("verify-flaky")
+		pending.StartedAt, _ = time.Parse(time.RFC3339, ciWaitAttemptOld)
+		failed := ciWaitRollupFail("verify-flaky", "https://github.com/o/r/actions/runs/10/job/2")
+		failed.StartedAt, _ = time.Parse(time.RFC3339, ciWaitAttemptNewer)
 		rollup := []ghPRRollup{
 			ciWaitRollupPass("verify-go"),
-			ciWaitRollupPending("verify-flaky"),
-			ciWaitRollupFail("verify-flaky", "https://github.com/o/r/actions/runs/10/job/2"),
+			pending,
+			failed,
 		}
 		headJSON := ciWaitMergeHeadFixture(t, "CLEAN", "OPEN", "", "aabbccdd", rollup)
 		report, terminal, _ := ciWaitPollPROnce(t, "checks", headJSON, "")
-		if terminal || report.Status != "pending" {
-			t.Fatalf("checks mode must keep a collapsed pending duplicate pending, got status=%s terminal=%t (report=%+v)", report.Status, terminal, report)
+		if !terminal || report.Status != "failure" {
+			t.Fatalf("the selected failure ends the wait, got status=%s terminal=%t (report=%+v)", report.Status, terminal, report)
 		}
 		if report.Checks == nil || report.Checks.Failing != 1 || report.Checks.Pending != 0 || report.Checks.Total != 2 {
 			t.Fatalf("the later same-name entry must collapse the pending one, got %+v", report.Checks)
 		}
-		if !strings.Contains(report.Reason, "rollup is not complete") {
-			t.Fatalf("pending must come from the rollup completeness gate, got %q", report.Reason)
+		if !strings.Contains(report.Reason, "incomplete") {
+			t.Fatalf("failure does not claim a complete inventory, got %q", report.Reason)
 		}
 	})
 }
@@ -1403,7 +1430,7 @@ func TestCiWaitRunSelectorConclusions(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.conclusion, func(t *testing.T) {
-			ghStubPath(t, ghStubDir(t, `echo '{"status":"completed","conclusion":"`+tc.conclusion+`","url":"u","headSha":"sha"}'`))
+			ghStubPath(t, ghStubDir(t, ciWaitSelectorRunStub(t, "completed", tc.conclusion)))
 			_, report := runCiWaitStdin(t, ciWaitJSON(t, ciWaitRequest{
 				Selector: &ciWaitSelector{Kind: "run", Value: "42"}, Repo: "o/r", TimeSecondsMax: ciWaitBudget(1800),
 			}))
@@ -1415,7 +1442,7 @@ func TestCiWaitRunSelectorConclusions(t *testing.T) {
 }
 
 func TestCiWaitRunSelectorPendingStaysPending(t *testing.T) {
-	ghStubPath(t, ghStubDir(t, `echo '{"status":"in_progress","conclusion":null,"url":"u","headSha":"sha"}'`))
+	ghStubPath(t, ghStubDir(t, ciWaitSelectorRunStub(t, "in_progress", "")))
 	_, report := runCiWaitStdin(t, ciWaitJSON(t, ciWaitRequest{
 		Selector: &ciWaitSelector{Kind: "run", Value: "42"}, Repo: "o/r", TimeSecondsMax: ciWaitBudget(8),
 	}))
@@ -1425,7 +1452,7 @@ func TestCiWaitRunSelectorPendingStaysPending(t *testing.T) {
 }
 
 func TestCiWaitSHASelectorNoRunsIsPendingNeverSuccess(t *testing.T) {
-	ghStubPath(t, ghStubDir(t, `echo '[]'`))
+	ghStubPath(t, ghStubDir(t, ciWaitSelectorRunsStub(t, nil)))
 	_, report := runCiWaitStdin(t, ciWaitJSON(t, ciWaitRequest{
 		Selector: &ciWaitSelector{Kind: "sha", Value: strings.Repeat("a", 40)}, Repo: "o/r", TimeSecondsMax: ciWaitBudget(8),
 	}))
@@ -1435,8 +1462,8 @@ func TestCiWaitSHASelectorNoRunsIsPendingNeverSuccess(t *testing.T) {
 }
 
 func TestCiWaitSHASelectorCancelledRunIsFailure(t *testing.T) {
-	runs := []ghRunSummary{{Name: "CI", Status: "completed", Conclusion: "cancelled", URL: "u"}}
-	ghStubPath(t, ghStubDir(t, `echo '[{"databaseId":1,"name":"CI","status":"completed","conclusion":"cancelled","url":"u"}]'`))
+	runs := []ghRunSummary{{DatabaseID: 1, Name: "CI", Status: "completed", Conclusion: "cancelled", URL: "https://github.com/o/r/actions/runs/1"}}
+	ghStubPath(t, ghStubDir(t, ciWaitSelectorRunsStub(t, runs)))
 	_, report := runCiWaitStdin(t, ciWaitJSON(t, ciWaitRequest{
 		Selector: &ciWaitSelector{Kind: "sha", Value: strings.Repeat("a", 40)}, Repo: "o/r", TimeSecondsMax: ciWaitBudget(1800),
 	}))
@@ -1446,7 +1473,6 @@ func TestCiWaitSHASelectorCancelledRunIsFailure(t *testing.T) {
 	if len(report.Failures) != 1 || report.Failures[0].Classification != "cancelled" {
 		t.Fatalf("cancelled must classify as cancelled, got %+v", report.Failures)
 	}
-	_ = runs
 }
 
 func TestCiWaitSHAFailureRunURL(t *testing.T) {
@@ -1459,31 +1485,28 @@ func TestCiWaitSHAFailureRunURL(t *testing.T) {
 		{
 			name: "passing first then failing",
 			runs: []ghRunSummary{
-				{Name: "Build", Status: "completed", Conclusion: "success", URL: passURL},
-				{Name: "Verify", Status: "completed", Conclusion: "failure", URL: failURL},
+				{DatabaseID: 10, Name: "Build", Status: "completed", Conclusion: "success", URL: passURL},
+				{DatabaseID: 20, Name: "Verify", Status: "completed", Conclusion: "failure", URL: failURL},
 			},
 		},
 		{
 			name: "failing first then passing",
 			runs: []ghRunSummary{
-				{Name: "Verify", Status: "completed", Conclusion: "failure", URL: failURL},
-				{Name: "Build", Status: "completed", Conclusion: "success", URL: passURL},
+				{DatabaseID: 20, Name: "Verify", Status: "completed", Conclusion: "failure", URL: failURL},
+				{DatabaseID: 10, Name: "Build", Status: "completed", Conclusion: "success", URL: passURL},
 			},
 		},
 		{
 			name: "passing first then cancelled",
 			runs: []ghRunSummary{
-				{Name: "Build", Status: "completed", Conclusion: "success", URL: passURL},
-				{Name: "Verify", Status: "completed", Conclusion: "cancelled", URL: failURL},
+				{DatabaseID: 10, Name: "Build", Status: "completed", Conclusion: "success", URL: passURL},
+				{DatabaseID: 20, Name: "Verify", Status: "completed", Conclusion: "cancelled", URL: failURL},
 			},
 		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			stub := `case "$*" in
-	*"run list"*) echo '` + ciWaitJSON(t, tc.runs) + `';;
-esac`
-			ghStubPath(t, ghStubDir(t, stub))
+			ghStubPath(t, ghStubDir(t, ciWaitSelectorRunsStub(t, tc.runs)))
 			code, report := runCiWaitStdin(t, ciWaitJSON(t, ciWaitRequest{
 				Selector: &ciWaitSelector{Kind: "sha", Value: strings.Repeat("a", 40)}, Repo: "o/r", TimeSecondsMax: ciWaitBudget(1800),
 			}))
@@ -1685,7 +1708,7 @@ func TestCiWaitSHARunURLIsIndependentOfRunOrder(t *testing.T) {
 		wantNames  []string
 	}{
 		{"success", []ghRunSummary{ci, release}, "success", ci.URL, nil},
-		{"failure", []ghRunSummary{failing(ci), failing(release)}, "failure", ci.URL, []string{"CI", "Auto Release"}},
+		{"failure", []ghRunSummary{failing(ci), failing(release)}, "failure", ci.URL, []string{"CI"}},
 		{"pending", []ghRunSummary{ci, pending(release)}, "pending", ci.URL, nil},
 	}
 	for _, tc := range cases {
@@ -1695,18 +1718,23 @@ func TestCiWaitSHARunURLIsIndependentOfRunOrder(t *testing.T) {
 				if order == "reversed" {
 					runs[0], runs[1] = runs[1], runs[0]
 				}
-				ghStubPath(t, ghStubDir(t, `case "$*" in
-	*"run list"*) echo '`+ciWaitJSON(t, runs)+`';;
-	*"run view"*) exit 97;;
-esac`))
+				ghStubPath(t, ghStubDir(t, ciWaitSelectorRunsStub(t, runs)))
 				_, report := runCiWaitStdin(t, ciWaitJSON(t, ciWaitRequest{
 					Selector: &ciWaitSelector{Kind: "sha", Value: strings.Repeat("a", 40)}, Repo: "o/r", TimeSecondsMax: ciWaitBudget(8),
 				}))
 				if report.Status != tc.wantStatus || report.RunURL != tc.wantURL {
 					t.Fatalf("status=%s run_url=%q want %s %q (report=%+v)", report.Status, report.RunURL, tc.wantStatus, tc.wantURL, report)
 				}
-				if report.Checks == nil || report.Checks.Total != 2 {
-					t.Fatalf("every observed run must count, got %+v", report.Checks)
+				wantTotal := 2
+				if tc.wantStatus == "failure" {
+					// CD-0228 permits stopping before reading a failed run's peers.
+					wantTotal = 1
+					if !strings.Contains(report.Reason, "incomplete") {
+						t.Fatalf("fail-fast must disclose its partial inventory, got %q", report.Reason)
+					}
+				}
+				if report.Checks == nil || report.Checks.Total != wantTotal {
+					t.Fatalf("every observed run must count; want %d, got %+v", wantTotal, report.Checks)
 				}
 				var names []string
 				for _, failure := range report.Failures {

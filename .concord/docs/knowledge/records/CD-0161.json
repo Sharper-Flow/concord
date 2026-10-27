@@ -28,9 +28,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:d58fa2ecc6186230a873dc61ba14f99a2f0fbd103a129fc04221332ca2df10e1",
+  "sha256": "sha256:3a8e3c40d31a84732b55d0f5119a7adaac20cfd8e2d47b3e83d45e9bb5f48893",
   "status": "accepted",
-  "summary": "In checks mode only DIRTY blocks a complete passing check verdict. Merge mode waits for an actual merge and selects the newest attempt per CheckRun name/workflow or StatusContext context. A failed or cancelled selected attempt ends the wait unless merge_state is UNSTABLE. Pending peers do not block that failure verdict. In merge mode merged and closed outcomes retain precedence; checks mode still judges the watched head's checks after a merge or close. Head supersession retains precedence in both modes, and every report carries the observed merge_state.",
+  "summary": "In checks mode only DIRTY blocks a complete passing check verdict. Both modes apply CD-0228's common classification and reporting rule, including prompt failure reporting, newest applicable attempts and complete-success requirements. Merge mode waits for an actual merge; merged, closed and qualifying queue-removal outcomes retain precedence over check failures. Checks mode still judges the watched head after a merge or close. Head supersession retains precedence in both modes, and every report carries the observed merge_state.",
   "tags": [
     "agent-surface",
     "utilities",

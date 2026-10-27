@@ -21,9 +21,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:6458c036909af24c951a5ba8dead4fe7683677d10bee550058920b0976552a69",
+  "sha256": "sha256:d1fba2a1c87e483300393ecff98c4a49f384992f60f5f0ec41e3574887c6043b",
   "status": "accepted",
-  "summary": "Checks mode uses the gh pr view rollup and queries gh pr checks only at the full 100-context page boundary. Merge mode selects the newest attempt per check identity from the already-read rollup without another population query. Selected failures end the merge wait except in UNSTABLE, while lifecycle outcomes retain precedence. The staged poll interval, carried deadline, bounded slice, and stalled-command retry remain unchanged.",
+  "summary": "Checks mode uses the gh pr view rollup and queries gh pr checks only at the full 100-context page boundary. Merge mode uses the already-read rollup without a gh pr checks query. Both modes apply CD-0228's common classification and reporting rule, including workflow-run and job reads, while non-Actions rollup identities and ordering remain unchanged. The staged poll interval, carried deadline, bounded slice and stalled-command retry remain unchanged.",
   "tags": [
     "ci-wait",
     "cli",
@@ -31,5 +31,5 @@
     "polling",
     "operator-surface"
   ],
-  "title": "The ci-wait PR population follows the rollup page boundary"
+  "title": "The ci-wait PR rollup query follows the page boundary"
 }

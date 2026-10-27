@@ -1444,6 +1444,9 @@ func (r runtime) prepareWorkerDispatchContext(ctx context.Context, workID, actio
 // boundary, not only at the legacy refinement exit.
 func resolveWorkflowActionSources(ctx context.Context, s *store.Store, registry store.DefinitionRegistry, workID, actionID string, payload json.RawMessage) (*store.ProjectToolingManifest, *store.ResolvedWorkflowFootprint, error) {
 	resolved := store.ResolveWorkflowFootprint(ctx, s, registry, workID, actionID, payload)
+	if resolved != nil && !resolved.SourcesResolved() {
+		return nil, resolved, nil
+	}
 	if actionID != "record_delivery" && actionID != "accept_worker_result" && actionID != "bind_evidence" && (actionID != "complete" || resolved == nil) {
 		return nil, resolved, nil
 	}

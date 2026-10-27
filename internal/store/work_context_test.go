@@ -226,6 +226,12 @@ func seedWorkContextReadingSources(t *testing.T, s *Store, workID string) workCo
 		t.Fatal(err)
 	}
 	writeKnowledgeFile(t, lawRepo, knowledgeRecordTree+"/spec-one.json", string(recordJSON)+"\n")
+	// The managed fixtures edit these packages. Keep their ownership in the
+	// committed synthetic law corpus and its index before any Review pins it.
+	packageMap := `{"schema_version":"1.0","packages":[{"path":"pkg","domain_ids":["child-alpha"]},{"path":"internal/store","domain_ids":["child-alpha"]}]}` + "\n"
+	writeKnowledgeFile(t, lawRepo, knowledgePackageMapPath, packageMap)
+	packageMapSum := sha256.Sum256([]byte(packageMap))
+	packageMapHash := "sha256:" + hex.EncodeToString(packageMapSum[:])
 	out.lawCommit = commitKnowledgeRepo(t, lawRepo, "synthetic law home with manifest record")
 	// The git-derived projection rows pin the exact committed identity the
 	// reading resolution discovers in the snapshot. The knowledge tables are
@@ -243,6 +249,8 @@ func seedWorkContextReadingSources(t *testing.T, s *Store, workID string) workCo
 			VALUES(?,?,'HEAD',?,'sha256:seed','test',1,?)`, []any{homeProject, homeLocator, out.lawCommit, knowledgeProjectionVersion}},
 		{"law domain home", `INSERT OR REPLACE INTO law_domain_homes(home_project_id,home_locator_id,law_id,product_id,domain_id,law_content_hash,scanned_commit_oid,product_wide_rationale) VALUES(?,?,?,?,?,?, 'test', '')`,
 			[]any{homeProject, homeLocator, out.lawID, "product", workContextTestChild, out.lawHash}},
+		{"package ownership", `INSERT INTO knowledge_package_domains(home_project_id,home_locator_id,package_path,domain_id,map_content_hash,scanned_commit_oid) VALUES(?,?,'pkg',?,?,?),(?,?,'internal/store',?,?,?)`,
+			[]any{homeProject, homeLocator, workContextTestChild, packageMapHash, out.lawCommit, homeProject, homeLocator, workContextTestChild, packageMapHash, out.lawCommit}},
 		{"guard release", `DELETE FROM write_guard`, nil},
 	}
 	for _, stmt := range stmts {
@@ -1092,6 +1100,7 @@ func TestCompletionAndBoundaryWriteNoContextContent(t *testing.T) {
 		t.Fatal(err)
 	}
 	gitRunStore(t, repo, "branch", "-m", branch)
+	footprintProofRecordPath(t, fixture.store, fixture.workID, "product", ".concord/docs/spec.md")
 	journey := &candidateJourney{fixture: fixture, s: fixture.store, workID: fixture.workID, repo: repo}
 	implementation := WorkerJobBinding{JobID: "job:ctx-no-promotion"}
 	const implementAttempt = "attempt:ctx-no-promotion:implement"
@@ -1150,7 +1159,6 @@ func TestCompletionAndBoundaryWriteNoContextContent(t *testing.T) {
 	}
 	// Main associates the captured proof and completes through the declared
 	// exits. Context claims cannot stand in for criterion evidence.
-	footprintProofSyntheticScope(t, fixture.store, fixture.workID, repo)
 	if err := journey.action(t, "bind_evidence", map[string]any{"evidence_kind": "verification", "evidence_ref": proof.OperationRef}, fixture.owner); err != nil {
 		t.Fatalf("bind captured proof: %v", err)
 	}

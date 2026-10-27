@@ -39,6 +39,31 @@ func workflowCompletionRequired() error {
 // releases one depth level on it, so a boundary-owned guard survives until the
 // boundary's own level closes.
 func CompleteWorkflowTxWithRegistry(ctx context.Context, tx *sql.Tx, registry DefinitionRegistry, event Event, scope *writeScope) error {
+	return completeWorkflowTxWithInputs(ctx, tx, registry, event, scope, workflowCompletionInputs{})
+}
+
+// workflowCompletionInputs carries only source inputs prepared before the
+// transaction. Missing inputs never exempt a delivering workflow from proof.
+type workflowCompletionInputs struct {
+	tooling   *ProjectToolingManifest
+	footprint *ResolvedWorkflowFootprint
+}
+
+func workflowCompletionFootprintAfterActorPrefix(resolved *ResolvedWorkflowFootprint, expectedVersion int64, prefix []Event) *ResolvedWorkflowFootprint {
+	if resolved == nil || resolved.snapshot.version != expectedVersion || len(prefix) == 0 {
+		return resolved
+	}
+	for _, event := range prefix {
+		if event.Kind != WorkflowActorRecorded {
+			return resolved
+		}
+	}
+	copy := *resolved
+	copy.snapshot.version += int64(len(prefix))
+	return &copy
+}
+
+func completeWorkflowTxWithInputs(ctx context.Context, tx *sql.Tx, registry DefinitionRegistry, event Event, scope *writeScope, inputs workflowCompletionInputs) error {
 	if tx == nil {
 		return newFailure(KindUnavailable, "complete_workflow", "transaction is not open", false, "open a mutation transaction")
 	}
@@ -97,10 +122,10 @@ func CompleteWorkflowTxWithRegistry(ctx context.Context, tx *sql.Tx, registry De
 		return err
 	}
 	defer func() { _ = scope.close(ctx) }()
-	return completeWorkflowInScopeTx(ctx, tx, registry, event, scope, payload)
+	return completeWorkflowInScopeTx(ctx, tx, registry, event, scope, payload, inputs)
 }
 
-func completeWorkflowInScopeTx(ctx context.Context, tx *sql.Tx, registry DefinitionRegistry, event Event, scope *writeScope, payload workflowCompletedPayload) error {
+func completeWorkflowInScopeTx(ctx context.Context, tx *sql.Tx, registry DefinitionRegistry, event Event, scope *writeScope, payload workflowCompletedPayload, inputs workflowCompletionInputs) error {
 	// The expected version is checked before clause 1.  This is the lock/fence
 	// boundary described by the contract; every subsequent mutation uses the
 	// same transaction and therefore sees one consistent projection.
@@ -121,12 +146,14 @@ func completeWorkflowInScopeTx(ctx context.Context, tx *sql.Tx, registry Definit
 	if err != nil {
 		return err
 	}
+	if err := workflowCompletionFootprintProofTx(ctx, tx, event.SubjectID, definition, inputs); err != nil {
+		return err
+	}
 	return appendWorkflowCompletionTx(ctx, tx, event, scope, payload, contract.Version, warnings)
 }
 
-// The action and its preflight check existing completion obligations before
-// footprint admission. The fold uses the same read-only proof, not a second
-// implementation or an exemption for missing scope.
+// The fold and preflight check existing completion obligations before
+// footprint admission, using the same read-only proof.
 func workflowCompletionProofTx(ctx context.Context, tx *sql.Tx, workID string, contract workflowCompletionContractData, definition WorkflowDefinition) ([]string, error) {
 	if workflowDefinitionProducesDelivery(definition) {
 		review, err := loadWorkflowReviewState(ctx, tx, workID)
@@ -175,6 +202,27 @@ func workflowCompletionProofForDefinitionTx(ctx context.Context, tx *sql.Tx, wor
 	}
 	_, err = workflowCompletionProofTx(ctx, tx, workID, contract, definition)
 	return err
+}
+
+// workflowCompletionFootprintProofTx runs only after the completion clauses
+// pass. Candidate and receipt identities are read in this transaction; Git
+// and filesystem reads stay in the caller's sealed preparation.
+func workflowCompletionFootprintProofTx(ctx context.Context, tx *sql.Tx, workID string, definition WorkflowDefinition, inputs workflowCompletionInputs) error {
+	if !workflowDefinitionProducesDelivery(definition) {
+		return nil
+	}
+	candidate, runs, err := workflowFootprintProofRuns(ctx, tx, workID, "")
+	if err != nil {
+		return err
+	}
+	refusal, err := workflowFootprintProofRefusal(ctx, tx, workID, inputs.tooling, candidate, runs, inputs.footprint, "complete_workflow")
+	if err != nil {
+		return err
+	}
+	if refusal != nil {
+		return refusal
+	}
+	return nil
 }
 
 func verifyWorkflowCompletionEvidenceAndScopeTx(ctx context.Context, tx *sql.Tx, workID string, contract workflowCompletionContractData, definition WorkflowDefinition, evidenceCutoff int64) error {

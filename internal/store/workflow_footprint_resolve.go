@@ -17,6 +17,12 @@ type ResolvedWorkflowFootprint struct {
 	err        error
 }
 
+// SourcesResolved reports source-read completion, not admission or execution
+// proof. Failed reads stay sealed until the owning gate evaluates them.
+func (r *ResolvedWorkflowFootprint) SourcesResolved() bool {
+	return r != nil && r.err == nil
+}
+
 type workflowFootprintSnapshot struct {
 	work, product, repo, claim, base, size, definition string
 	version, contract, authorization                   int64

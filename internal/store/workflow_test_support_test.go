@@ -356,6 +356,7 @@ func CompleteWorkflowWithRegistry(ctx context.Context, s *Store, registry Defini
 	if err != nil {
 		return err
 	}
+	inputs := workflowCompletionInputs{footprint: ResolveWorkflowFootprint(ctx, s, registry, event.SubjectID, "complete", nil)}
 	tx, err := s.beginDurableTx(ctx)
 	if err != nil {
 		return wrapFailure(KindUnavailable, "complete_workflow", "cannot begin workflow completion", true, "retry once the database is writable", err)
@@ -365,7 +366,7 @@ func CompleteWorkflowWithRegistry(ctx context.Context, s *Store, registry Defini
 	if err != nil {
 		return err
 	}
-	if err := CompleteWorkflowTxWithRegistry(ctx, tx.Tx, registry, event, scope); err != nil {
+	if err := completeWorkflowTxWithInputs(ctx, tx.Tx, registry, event, scope, inputs); err != nil {
 		return err
 	}
 	if len(scope.eventIDs) < 2 || scope.eventIDs[len(scope.eventIDs)-2] != event.EventID || scope.eventIDs[len(scope.eventIDs)-1] != event.EventID+":lifecycle" {

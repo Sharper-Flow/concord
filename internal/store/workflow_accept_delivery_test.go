@@ -206,7 +206,6 @@ func acceptDeliveryCandidateAt(t *testing.T, workID, ref, step string, pending b
 	if len(setup) == 0 {
 		// These text-only journeys carry a complete, known-empty footprint.
 		// Missing scope is tested separately; it cannot exempt this fixture.
-		footprintProofBaseline(t, f.store, workID, repo)
 		footprintProofRecordPath(t, f.store, workID, footprintProduct, ".concord/docs/decisions/CD-0003-empty.md")
 	}
 	return c

@@ -100,7 +100,8 @@ func (f acceptanceRecoveryFixture) run(ctx context.Context, actionID, label stri
 		Actor: invoking, OperationID: f.workID + ":" + label, PrincipalRef: operator.PrincipalRef, Tool: "concord_work_transition",
 		IdempotencyKey: f.workID + ":" + label, IdempotencyIdentity: f.workID + ":" + label, RequestID: f.workID + ":" + label,
 		AcceptedInputsDigest: "sha256:" + strings.Repeat("a", 64), ContractDigest: testManifestDigest,
-		Now: time.Date(2026, 8, 12, 0, 0, 0, 0, time.UTC),
+		Now:               time.Date(2026, 8, 12, 0, 0, 0, 0, time.UTC),
+		ResolvedFootprint: ResolveWorkflowFootprint(ctx, f.store, BuiltinWorkflowRegistry(), f.workID, actionID, payload),
 	}
 	if actionID == "confirm_premise" {
 		request.SelectedChoice = "confirm"

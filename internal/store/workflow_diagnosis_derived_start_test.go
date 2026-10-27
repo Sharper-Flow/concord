@@ -356,6 +356,51 @@ func TestRecordDiagnosisRefusalsLeaveZeroWrites(t *testing.T) {
 	}
 }
 
+func diagnosisDeliveryFixture(t *testing.T, workID, definitionRef, step string) workflowReturnRouteFixture {
+	t.Helper()
+	return seedWorkflowReturnRouteFixtureWithSetup(t, workID, legacyApprovalPolicyDefinitionForRef(t, definitionRef), step,
+		[]string{"verification"}, []string{"verification", "review", "artifact"}, func(s *Store) {
+			product := footprintProofKnowledge(t, s, workID)
+			footprintProofRecordPath(t, s, workID, product, ".concord/docs/decisions/CD-0003-empty.md")
+		})
+}
+
+// The derived-start journeys deliver an unchanged, real Git candidate. Their
+// recorded document has no executable footprint anchors; its ordinary native
+// verification receipt still has to satisfy the delivery epoch.
+func diagnosisProveReadyDelivery(t *testing.T, fixture workflowReturnRouteFixture, workID string) {
+	t.Helper()
+	f := workContextFixture{store: fixture.store, workID: workID, owner: fixture.owner, operator: fixture.operator}
+	repo, _ := reviewSubjectClaim(t, f.store, workID)
+	var branch string
+	if err := f.store.db.QueryRow(`SELECT branch FROM worktree_entries WHERE set_id=? AND state='active'`, WorktreeSetID(workID)).Scan(&branch); err != nil {
+		t.Fatal(err)
+	}
+	gitRunStore(t, repo, "branch", "-m", branch)
+	j := &candidateJourney{fixture: f, s: f.store, workID: workID, repo: repo, acceptor: f.owner}
+	proof := j.observeRun(t, "derived-start-current")
+	job := reviewSubjectReadyRevision(t, f)
+	attempt := "review:derived-start:" + workID
+	packet := joinPacketFor(t, f.store, workID, currentStep(t, f.store, workID), attempt, "review", registeredLaneIdentity(t, "review"))
+	packet["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, f.store, workID, job, "review")
+	checkpoint, err := readLatestContextCheckpointTx(t.Context(), f.store.db, workID, "workflow_action")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if checkpoint != nil {
+		packet["inputs"].(map[string]any)["checkpoint"] = checkpoint
+	}
+	if err := j.dispatchPacket(t, packet); err != nil {
+		t.Fatal(err)
+	}
+	j.laneDispatch(t, attempt, "review", &job)
+	j.completeLane(t, attempt, "review", &job, nil)
+	if err := j.acceptEvidence(t, attempt); err != nil {
+		t.Fatal(err)
+	}
+	j.bindVerification(t, proof)
+}
+
 // TestDerivedRepairStartClaimsEpochFromFirstQualifyingCheckpoint proves the
 // CD-0198 D3 derivation on the repair step: the first admitted qualifying
 // action fences the step from its own actor, opens epoch 1, and the step's
@@ -363,7 +408,7 @@ func TestRecordDiagnosisRefusalsLeaveZeroWrites(t *testing.T) {
 func TestDerivedRepairStartClaimsEpochFromFirstQualifyingCheckpoint(t *testing.T) {
 	t.Parallel()
 	const workID = "derived-repair-start"
-	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", "repair")
+	fixture := diagnosisDeliveryFixture(t, workID, "workflow.break_fix", "repair")
 	s := fixture.store
 	if startedAt, _ := instanceExecutionStart(t, s, workID); startedAt != "" {
 		t.Fatalf("repair step pre-start execution_started_at = %q, want empty", startedAt)
@@ -396,7 +441,7 @@ func TestDerivedRepairStartClaimsEpochFromFirstQualifyingCheckpoint(t *testing.T
 	// The derived start admits the step's ordinary route: the repair
 	// step's delivery advances toward the refinement pass, which owns the
 	// refine proof behind its own derived start.
-	oProveReadyDelivery(t, fixture, workID)
+	diagnosisProveReadyDelivery(t, fixture, workID)
 	if err := runVerdictActionAs(t, s, workID, "record_delivery", json.RawMessage(`{"delivery_artifact":"artifact:derived-repair-`+workID+`","delivery_state":"asserted"}`), 0, fixture.owner); err != nil {
 		t.Fatalf("record_delivery behind the derived start: %v", err)
 	}
@@ -415,7 +460,7 @@ func TestDerivedRefineStartClaimsEpochFromCheckpointRefine(t *testing.T) {
 		{"workflow.implementation"}, {"workflow.break_fix"},
 	} {
 		const workID = "derived-refine-start"
-		fixture := seedWorkflowReturnRouteFixture(t, workID, family.ref, "refine")
+		fixture := diagnosisDeliveryFixture(t, workID, family.ref, "refine")
 		s := fixture.store
 		entry, err := VerifyWorkflowInstanceDefinition(context.Background(), s, BuiltinWorkflowRegistry(), workID)
 		if err != nil {
@@ -433,7 +478,7 @@ func TestDerivedRefineStartClaimsEpochFromCheckpointRefine(t *testing.T) {
 			t.Fatalf("%s: refine current start = %+v, want one checkpoint_refine start at epoch 1", family.ref, start)
 		}
 		refineProofSeedGreenRun(t, s, workID, "derivedrefine"+workID)
-		oProveReadyDelivery(t, fixture, workID)
+		diagnosisProveReadyDelivery(t, fixture, workID)
 		if err := runVerdictActionAs(t, s, workID, "record_delivery", json.RawMessage(`{"delivery_artifact":"artifact:derived-refine-`+workID+`","delivery_state":"asserted"}`), 0, fixture.owner); err != nil {
 			t.Fatalf("%s: record_delivery behind the derived refine start: %v", family.ref, err)
 		}
@@ -503,7 +548,7 @@ func TestNonQualifyingActionsCannotStartTheRepairStep(t *testing.T) {
 func TestRepeatedQualifyingActionsDoNotResetTheStartCutoff(t *testing.T) {
 	t.Parallel()
 	const workID = "derived-start-repeat"
-	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", "refine")
+	fixture := diagnosisDeliveryFixture(t, workID, "workflow.break_fix", "refine")
 	s := fixture.store
 	actor := fixture.owner
 	if err := runVerdictActionAs(t, s, workID, "checkpoint_refine", json.RawMessage(`{}`), 0, actor); err != nil {
@@ -524,7 +569,7 @@ func TestRepeatedQualifyingActionsDoNotResetTheStartCutoff(t *testing.T) {
 	if startedAt == "" || actorRef == "" || startedAt != firstStartedAt || actorRef != firstActor {
 		t.Fatal("step activity changed or lost the instance's execution time/actor fence")
 	}
-	oProveReadyDelivery(t, fixture, workID)
+	diagnosisProveReadyDelivery(t, fixture, workID)
 	if err := runVerdictActionAs(t, s, workID, "record_delivery", json.RawMessage(`{"delivery_artifact":"artifact:repeat-`+workID+`","delivery_state":"asserted"}`), 0, actor); err != nil {
 		t.Fatalf("record_delivery after the further step activity: %v", err)
 	}

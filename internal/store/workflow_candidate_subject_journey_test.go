@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -29,11 +30,13 @@ type candidateJourney struct {
 	repo           string
 	acceptor       WorkflowActor
 	bundle         NativeOracleControlBundle
+	packageBundle  NativeOracleControlBundle
+	tooling        *ProjectToolingManifest
 	launches       int
 	reviewReceipts []string
 }
 
-func newCandidateJourney(t *testing.T, workID string) *candidateJourney {
+func newCandidateJourney(t *testing.T, workID string, declaredHead ...string) *candidateJourney {
 	t.Helper()
 	// The journey pins the current break-fix definition, under which Main
 	// confirms and completes with no operator substitution.
@@ -41,11 +44,23 @@ func newCandidateJourney(t *testing.T, workID string) *candidateJourney {
 	t.Cleanup(func() { f.store.Close() })
 	j := &candidateJourney{fixture: f, s: f.store, workID: workID, repo: t.TempDir()}
 	j.acceptor = WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/candidate-acceptor", SessionRef: "session/" + workID + "-acceptor", ActorClass: ActorAgent}
+	headInvocation := "git rev-parse --verify HEAD^{commit}"
+	if len(declaredHead) != 0 {
+		headInvocation = declaredHead[0]
+	}
+	tooling := mustJSONValue(map[string]any{"schema_version": "1.0", "project": "candidate", "tools": []any{
+		map[string]any{"id": "head", "invocation": headInvocation, "purpose": "Observe the clean candidate.", "tier": "fast"},
+		map[string]any{"id": "package", "invocation": "go test -count=1 ./pkg", "purpose": "Verify the complete candidate package.", "tier": "fast", "coverage": []any{
+			map[string]any{"anchor": FootprintCheck{Kind: "go_package", Value: "./pkg"}, "recipe_path": ".concord/oracles/package.json", "case_id": "case:package"},
+		}},
+	}})
 	for name, data := range map[string]string{
-		"go.mod":            "module example.invalid/oracle\n\ngo 1.26.0\ntoolchain go1.26.7\n",
-		"pkg/value.go":      "package oracle\nfunc Value() int { return 6 }\n",
-		"pkg/value_test.go": candidateJourneyHarness,
-		"pkg/oracle.json":   `{"kind":"go_top_level_v1","package_cwd":"pkg","test_files":["pkg/value_test.go"],"fixture_files":[],"cases":{"case:fixture":["TestValue"]}}`,
+		"go.mod":                          "module example.invalid/oracle\n\ngo 1.26.0\ntoolchain go1.26.7\n",
+		"pkg/value.go":                    "package oracle\nfunc Value() int { return 6 }\n",
+		"pkg/value_test.go":               candidateJourneyHarness,
+		".concord/oracles/candidate.json": `{"kind":"go_top_level_v1","package_cwd":"pkg","test_files":["pkg/value_test.go"],"fixture_files":[],"cases":{"case:fixture":["TestValue"]}}`,
+		".concord/oracles/package.json":   `{"kind":"go_package_v1","package_cwd":"pkg","cases":{"case:package":["go_package:./pkg"]}}`,
+		projectToolingManifestPath:        string(tooling),
 	} {
 		path := filepath.Join(j.repo, name)
 		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
@@ -57,9 +72,15 @@ func newCandidateJourney(t *testing.T, workID string) *candidateJourney {
 	}
 	gitRunStore(t, j.repo, "init", "-b", "candidate-branch")
 	base := j.commit(t, "worker@example.invalid", "pinned harness and defect")
+	var toolingErr error
+	j.tooling, toolingErr = resolveProjectToolingAtCommit(t.Context(), ExecGitRunner{}, j.repo, "project", base)
+	if toolingErr != nil || j.tooling == nil {
+		t.Fatalf("resolve committed candidate tooling: %+v, %v", j.tooling, toolingErr)
+	}
 	if _, err := j.s.db.Exec(`INSERT INTO write_guard(active) VALUES(1);INSERT INTO worktree_entries(set_id,project_id,claim_op_id,branch,base_sha,path,repository_id,state,verified_at,git_facts) VALUES(?,'project','candidate-claim','candidate-branch',?,?,?,'active','2026-10-09T00:00:00Z','{}');DELETE FROM write_guard`, WorktreeSetID(workID), base, j.repo, j.repo); err != nil {
 		t.Fatal(err)
 	}
+	footprintProofRecordPath(t, j.s, workID, "product", "pkg/value.go")
 	j.s.nativeOracleProgramLaunched = func() { j.launches++ }
 	if got := j.observe(t, "base"); got != base {
 		t.Fatalf("base observation qualified %q, want %q", got, base)
@@ -77,10 +98,18 @@ func newCandidateJourney(t *testing.T, workID string) *candidateJourney {
 	}
 	j.bundle = NativeOracleControlBundle{Owner: oracle.Owners[0], Cases: oracle.Cases, Control: oracle.Controls[0]}
 	j.bundle.Control.Cwd = "pkg"
-	j.bundle.Control.RecipeSource = WorkContextReadingSource{Kind: WorkContextSourceRepositoryFile, ProjectID: "project", Path: "pkg/oracle.json", CommitOID: base}
+	j.bundle.Control.RecipeSource = WorkContextReadingSource{Kind: WorkContextSourceRepositoryFile, ProjectID: "project", Path: ".concord/oracles/candidate.json", CommitOID: base}
 	j.bundle.Control.Argv = []string{"go", "test", "-count=1", "-run", "^(TestValue)$", "."}
 	j.bundle.Control.RequiredEvidenceRole = OracleEvidenceRoleIndependentlyExecuted
 	j.bundle.Control.ReadinessEvidenceRefs = nil
+	j.packageBundle = j.bundle
+	j.packageBundle.Control.ControlID = "control:package"
+	j.packageBundle.Control.CaseIDs = []string{"case:package"}
+	j.packageBundle.Control.RecipeSource.Path = ".concord/oracles/package.json"
+	j.packageBundle.Control.Argv = []string{"go", "test", "-count=1", "."}
+	packageCase := j.bundle.Cases[0]
+	packageCase.CaseID, packageCase.ControlIDs = "case:package", []string{"control:package"}
+	j.packageBundle.Cases = []OracleCase{packageCase}
 	return j
 }
 
@@ -124,7 +153,11 @@ func (j *candidateJourney) observe(t *testing.T, id string) string {
 
 func (j *candidateJourney) prepare(t *testing.T, id string) WorktreeVerifyResult {
 	t.Helper()
-	bundle := j.bundle
+	return j.prepareControl(t, id, j.bundle)
+}
+
+func (j *candidateJourney) prepareControl(t *testing.T, id string, bundle NativeOracleControlBundle) WorktreeVerifyResult {
+	t.Helper()
 	result, err := j.s.VerifyWorktree(context.Background(), j.request("prepare-"+id, &NativeOracleRequest{Phase: "prepare", ExpectedContractVersion: 1, ControlBundle: &bundle}))
 	if err != nil || result.Oracle == nil || result.Oracle.Qualification != "ready" {
 		t.Fatalf("prepare %s: %+v err=%v", id, result.Oracle, err)
@@ -136,18 +169,34 @@ func (j *candidateJourney) prepare(t *testing.T, id string) WorktreeVerifyResult
 // record_worker_job action. Its oracle carries exactly the named preparation.
 func (j *candidateJourney) recordReadyJob(t *testing.T, jobID string, preparation WorktreeVerifyResult) WorkerJobBinding {
 	t.Helper()
+	return j.recordReadyJobScoped(t, jobID, preparation, []string{"pkg"})
+}
+
+func (j *candidateJourney) recordReadyJobScoped(t *testing.T, jobID string, preparation WorktreeVerifyResult, paths []string) WorkerJobBinding {
+	t.Helper()
 	control := j.bundle.Control
 	control.ReadinessEvidenceRefs = []string{preparation.OperationRef}
-	oracle, err := json.Marshal(AcceptanceOracle{Owners: []OracleOwner{j.bundle.Owner}, Cases: j.bundle.Cases, Controls: []OracleControl{control}})
+	controls := []OracleControl{control}
+	cases := slices.Clone(j.bundle.Cases)
+	readiness := []string{preparation.OperationRef}
+	if j.packageBundle.Control.ControlID != "" {
+		packagePreparation := j.prepareControl(t, "package-"+strings.TrimPrefix(preparation.LeaseID, "candidate-"), j.packageBundle)
+		packageControl := j.packageBundle.Control
+		packageControl.ReadinessEvidenceRefs = []string{packagePreparation.OperationRef}
+		controls = append(controls, packageControl)
+		cases = append(cases, j.packageBundle.Cases...)
+		readiness = append(readiness, packagePreparation.OperationRef)
+	}
+	oracle, err := json.Marshal(AcceptanceOracle{Owners: []OracleOwner{j.bundle.Owner}, Cases: cases, Controls: controls})
 	if err != nil {
 		t.Fatal(err)
 	}
 	fields := map[string]any{
 		"job_id": jobID, "objective": "return the approved value from the pinned harness",
 		"stopping_condition": "the pinned harness passes on the candidate",
-		"path_scope":         []string{"pkg"}, "checks": []string{"go test ./pkg"},
+		"path_scope":         paths, "checks": []string{"go test ./pkg"},
 		"reserved_integration": "integration evidence binds at the parent effect step",
-		"ready":                true, "readiness_evidence": []string{preparation.OperationRef},
+		"ready":                true, "readiness_evidence": readiness,
 		"acceptance_oracle": json.RawMessage(oracle),
 	}
 	if err := recordWorkerJobActionForTest(t, j.s, j.workID, j.fixture.owner, fields); err != nil {
@@ -173,6 +222,9 @@ func (j *candidateJourney) action(t *testing.T, action string, payload any, acto
 	t.Helper()
 	if WorkflowActionRequiresSubjectFreshness(action) {
 		return j.terminalAction(t, action, mustJSONValue(payload), actor)
+	}
+	if j.tooling != nil && (action == "record_delivery" || action == "accept_worker_result") {
+		return runDeliveryAdmissionAction(t, j.s, j.workID, action, mustJSONValue(payload), j.tooling, actor)
 	}
 	return runVerdictActionAs(t, j.s, j.workID, action, mustJSONValue(payload), 0, actor)
 }
@@ -204,6 +256,7 @@ func (j *candidateJourney) terminalActionContext(t *testing.T, ctx context.Conte
 			OperationID: id, PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: id,
 			RequestID: "request:" + id, ContractDigest: testManifestDigest, Now: time.Now().UTC(),
 			ResolvedFootprint: resolved,
+			ProjectTooling:    j.tooling,
 		})
 		return err
 	})
@@ -232,9 +285,9 @@ func journeyToVerify(t *testing.T, workID string, reviewAccepted bool) *candidat
 	return j
 }
 
-func journeyToRefineA(t *testing.T, workID string) *candidateAtVerify {
+func journeyToRefineA(t *testing.T, workID string, declaredHead ...string) *candidateAtVerify {
 	t.Helper()
-	j := &candidateAtVerify{candidateJourney: newCandidateJourney(t, workID)}
+	j := &candidateAtVerify{candidateJourney: newCandidateJourney(t, workID, declaredHead...)}
 	base := j.head(t)
 
 	// Subject A: a managed implement attempt produces the change.
@@ -252,10 +305,21 @@ func journeyToRefineA(t *testing.T, workID string) *candidateAtVerify {
 	if err := j.action(t, "accept_worker_result", map[string]any{"attempt_id": "attempt-candidate-a", "attempt_epoch": latestStepStartEpoch(t, j.s, j.workID, "repair")}, j.acceptor); err != nil {
 		t.Fatalf("accept A: %v", err)
 	}
+	j.observeRun(t, "review-a")
+	packageJob := j.recordReadyJob(t, "job:candidate", j.prepare(t, "package-a"))
+	const packageAttempt = "attempt-package-a"
+	if err := j.dispatchReviewJob(t, packageAttempt, packageJob); err != nil {
+		t.Fatalf("dispatch package proof on A: %v", err)
+	}
+	packageRun := j.executePackage(t, packageAttempt, packageJob, "package-a")
+	j.reviewReceipts = []string{packageRun.OperationRef}
+	j.completeLane(t, packageAttempt, "review", &packageJob, nil)
+	if err := j.acceptEvidence(t, packageAttempt); err != nil {
+		t.Fatalf("accept package proof Review on A: %v", err)
+	}
 
 	// Repair, refine, and delivery over A, each exit proved by a qualified
 	// green run of A in its epoch.
-	j.observeRun(t, "review-a")
 	acceptCurrentReviewForTest(t, j.fixture, j.repo, "ready_for_final_proof")
 	delivery := map[string]any{"delivery_artifact": "artifact:candidate-a", "delivery_state": "asserted"}
 	j.bindVerification(t, j.observeRun(t, "repair-a"))
@@ -550,7 +614,7 @@ func (j *candidateJourney) requireAcceptedReview(t *testing.T, attemptID, candid
 func journeyWithIntegratedB(t *testing.T, workID string) *candidateAtVerify {
 	t.Helper()
 	j := journeyThroughA(t, workID, true)
-	job := reviewSubjectReadyRevision(t, j.fixture)
+	job := j.recordReadyJobScoped(t, "job:candidate", j.prepare(t, "integrate-b"), []string{"pkg", "internal/store"})
 	const attempt = "attempt-integrate-b"
 	if err := j.dispatchReviewJob(t, attempt, job); err != nil {
 		t.Fatalf("dispatch corrective Review of A: %v", err)
@@ -830,6 +894,9 @@ func (j *candidateJourney) completeCorrectiveReview(t *testing.T, attemptID stri
 		t.Fatal(err)
 	}
 	output := j.commit(t, "reviewer@example.invalid", "corrective review pass")
+	if j.packageBundle.Control.ControlID != "" {
+		j.executePackage(t, attemptID, job, "corrective-"+observeID)
+	}
 	run := j.observeRun(t, observeID)
 	if run.SubjectRef != "commit:"+output {
 		t.Fatalf("corrected candidate run = %q, want %q", run.SubjectRef, output)
@@ -1000,6 +1067,32 @@ func (j *candidateJourney) executeRequest(t *testing.T, attemptID string, job Wo
 	}
 	bound := job
 	return NativeOracleRequest{Phase: "execute", AttemptID: attemptID, AttemptEpoch: j.dispatchEpoch(t, attemptID), WorkerPacketDigest: digest, WorkerJobBinding: &bound, ControlID: j.bundle.Control.ControlID, PreparationRunRef: preparation.OperationRef}
+}
+
+// executePackage consumes the package control and preparation recorded in this
+// exact job. Repairing Review authority may execute on its contained output;
+// an earlier implement assignment still cannot execute on a changed subject.
+func (j *candidateJourney) executePackage(t *testing.T, attemptID string, job WorkerJobBinding, id string) WorktreeVerifyResult {
+	t.Helper()
+	var raw []byte
+	if err := j.s.db.QueryRow(`SELECT recorded_payload FROM worker_job_revisions WHERE work_id=? AND job_id=? AND revision=? AND digest=?`, j.workID, job.JobID, job.Revision, job.Digest).Scan(&raw); err != nil {
+		t.Fatal(err)
+	}
+	var recorded WorkerJobRecordedPayload
+	if err := json.Unmarshal(raw, &recorded); err != nil {
+		t.Fatal(err)
+	}
+	bundle, err := nativeBundleForControl(recorded.AcceptanceOracle, "control:package")
+	if err != nil || len(bundle.Control.ReadinessEvidenceRefs) != 1 {
+		t.Fatalf("recorded package control: %+v, %v", bundle, err)
+	}
+	request := j.executeRequest(t, attemptID, job, WorktreeVerifyResult{OperationRef: bundle.Control.ReadinessEvidenceRefs[0]})
+	request.ControlID = bundle.Control.ControlID
+	run, err := j.s.VerifyWorktree(t.Context(), j.request("execute-package-"+id, &request))
+	if err != nil || run.Oracle == nil || run.Oracle.Qualification != "pass" || run.Oracle.RecipeKind != nativeGoPackageKind || run.Oracle.PackageInventory == nil || !slices.Contains(run.Oracle.ObservedWitnessIDs, "go_package:./pkg") || run.SubjectRef != "commit:"+j.head(t) {
+		t.Fatalf("execute real package proof %s: %+v, %v", id, run.Oracle, err)
+	}
+	return run
 }
 
 // refuseStaleExecution proves an earlier subject's execution authority

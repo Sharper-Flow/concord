@@ -118,7 +118,6 @@ func footprintProofSyntheticScope(t *testing.T, s *Store, work, repo string) {
 		t.Fatal(err)
 	}
 	footprintProofGuard(t, s, `INSERT OR IGNORE INTO knowledge_index_watermark(home_project_id,home_locator_id,head_ref,scanned_commit_oid,scanned_at,complete) VALUES('`+home.HomeProjectID+`','`+home.HomeLocatorID+`','`+home.HeadRef+`','`+commit+`','2026-10-27T00:00:00Z',1)`)
-	footprintProofBaseline(t, s, work, repo)
 	footprintProofRecordPath(t, s, work, product, path)
 }
 
@@ -148,25 +147,12 @@ func footprintProofResolved(t *testing.T, s *Store, work string) *ResolvedWorkfl
 	return r
 }
 
-// This fixture adds the engineering foundation absent from review-only test
-// journeys. It is settled, so it cannot stand as an unaccepted worker result.
-func footprintProofBaseline(t *testing.T, s *Store, work, repo string) {
-	t.Helper()
-	head := headCommit(t, repo)
-	footprintProofObserve(t, s, work, "foundation", head, head, []string{}, true)
-	attempt := work + "-footprint-observation-foundation"
-	footprintProofGuard(t, s,
-		`UPDATE worker_attempts SET lifecycle_state='failed',completed_at=NULL,failed_at='2026-10-27T00:00:01Z',failure_kind='abandoned',failure_recorded=1,terminal_kind='worker.failed' WHERE attempt_id='`+attempt+`'`,
-		`INSERT INTO worker_authorizations(work_id,attempt_id,seq,contract_version,payload) VALUES('`+work+`','`+attempt+`',1,1,'`+workflowJSON(map[string]string{"worker_subject_commit": head, "worker_worktree_identity": workerWorktreeIdentity(repo)})+`')`)
-}
-
 func footprintProofDeliveryCandidate(t *testing.T, work string, pending bool) (acceptDeliveryCandidate, string) {
 	t.Helper()
 	var product string
 	c := acceptDeliveryCandidateAt(t, work, "workflow.implementation", "refine", pending, func(s *Store) {
 		product = footprintProofKnowledge(t, s, work)
 	})
-	footprintProofBaseline(t, c.f.store, work, c.j.repo)
 	footprintProofRecordedSource(t, c.f.store, work, product)
 	return c, product
 }
@@ -236,9 +222,11 @@ func footprintProofObserve(t *testing.T, s *Store, workID, suffix, base, commit 
 // so the footprint gate is the check that decides route-level refusals.
 func footprintProofManifest(binding ProjectResolvedCoverage, declare bool) *ProjectToolingManifest {
 	manifest := &ProjectToolingManifest{Project: "concord", Declared: []ProjectDeclaredTool{{ID: "go-vet", Invocation: "go vet ./..."}}}
-	if declare {
-		manifest.Declared = append(manifest.Declared, ProjectDeclaredTool{ID: "go-test-oracle", Invocation: "go test -count=1 ./pkg", Coverage: []ProjectToolCoverage{{Anchor: binding.Anchor, RecipePath: binding.RecipeSource.Path, CaseID: binding.CaseID}}})
+	if !declare {
+		return manifest
 	}
+	// Resolution derives each resolved binding from one declared coverage entry.
+	manifest.Declared = append(manifest.Declared, ProjectDeclaredTool{ID: "go-test-oracle", Invocation: "go test -count=1 ./pkg", Coverage: []ProjectToolCoverage{{Anchor: binding.Anchor, RecipePath: binding.RecipeSource.Path, CaseID: binding.CaseID}}})
 	if binding.Anchor.Kind != "" {
 		manifest.ResolvedCoverage = []ProjectResolvedCoverage{binding}
 	}
@@ -872,8 +860,8 @@ func TestDeliveryEntryRoutesRefuseUnprovedFootprintChecks(t *testing.T) {
 }
 
 // TestCompletionGuardConsumesFootprintProofState drives the completion
-// boundary guard over the same typed state: an unproved checked footprint
-// refuses completion, and the guard stays dormant without one.
+// fold's late proof owner over the same typed state: an unproved checked
+// footprint and missing scope each refuse completion.
 func TestCompletionGuardConsumesFootprintProofState(t *testing.T) {
 	ctx := context.Background()
 	c := smallImplementationAtRelease(t)
@@ -897,8 +885,7 @@ func TestCompletionGuardConsumesFootprintProofState(t *testing.T) {
 			return err
 		}
 		defer func() { _ = gtx.Rollback() }()
-		g := &workflowActionGuardContext{ctx: ctx, tx: gtx, entry: entry, currentStep: "release", request: WorkflowActionExecutionRequest{WorkID: workID, ProjectTooling: tooling, ResolvedFootprint: resolved, Payload: json.RawMessage(`{"impact_verdict":"non-breaking"}`)}}
-		return guardCompleteBoundary(g)
+		return workflowCompletionFootprintProofTx(ctx, gtx, workID, entry.Definition, workflowCompletionInputs{tooling: tooling, footprint: resolved})
 	}
 	if err := guard(refineProofTooling(ProjectDeclaredTool{ID: "go-vet", Invocation: "go vet ./..."})); err == nil {
 		t.Fatal("completion passed an unproved checked footprint")

@@ -66,9 +66,10 @@ func TestDeliveryPrerequisiteAdmissionAgreement(t *testing.T) {
 				t.Fatalf("%s: loaded admission %+v != expected %+v", stage, got, want)
 			}
 			decision := workflowAdmit(definition, state, "record_delivery")
+			payload := json.RawMessage(`{"delivery_artifact":"artifact:agreement","delivery_state":"asserted"}`)
 			preflightErr := WorkflowActionPreflightWithRegistry(context.Background(), fixture.store, BuiltinWorkflowRegistry(), WorkflowActionPreflightRequest{
-				WorkID: workID, ExpectedVersion: pin.Version, ActionID: "record_delivery", Actor: reviewGateAcceptor(workID),
-				Payload: json.RawMessage(`{"delivery_artifact":"artifact:agreement","delivery_state":"asserted"}`),
+				WorkID: workID, ExpectedVersion: pin.Version, ActionID: "record_delivery", Actor: reviewGateAcceptor(workID), Payload: payload,
+				ResolvedFootprint: ResolveWorkflowFootprint(context.Background(), fixture.store, BuiltinWorkflowRegistry(), workID, "record_delivery", payload),
 			})
 			executionErr := refineProofDelivery(t, fixture.store, workID, nil)
 			advertised := workPinContainsAction(pin.NextValidIntents, "record_delivery")
@@ -164,6 +165,7 @@ func TestDeliveryGuardKeepsProofEvidenceOutsideAbstractState(t *testing.T) {
 	acceptDeliveryBindFresh(t, c, "snapshot")
 	fixture := struct{ store *Store }{c.f.store}
 	ctx := context.Background()
+	resolved := ResolveWorkflowFootprint(ctx, fixture.store, BuiltinWorkflowRegistry(), workID, "record_delivery", nil)
 	tx, err := fixture.store.DatabaseForTesting().BeginTx(ctx, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -185,7 +187,7 @@ func TestDeliveryGuardKeepsProofEvidenceOutsideAbstractState(t *testing.T) {
 	for _, cached := range []bool{false, true} {
 		g := workflowActionGuardContext{
 			ctx: ctx, tx: tx, entry: entry, currentStep: "refine",
-			request: WorkflowActionExecutionRequest{WorkID: workID, ActionID: "record_delivery"},
+			request: WorkflowActionExecutionRequest{WorkID: workID, ActionID: "record_delivery", ResolvedFootprint: resolved},
 		}
 		if cached {
 			g.admissionState, g.admissionDecision, g.deliveryProofRuns, g.deliveryIntegrationRuns = &state, &decision, runs, integrationRuns

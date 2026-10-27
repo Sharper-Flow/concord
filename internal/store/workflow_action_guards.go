@@ -679,30 +679,11 @@ func workflowContradictionObservationRecorded(ctx context.Context, q queryer, wo
 	return recorded != 0, nil
 }
 
-// guardCompleteBoundary runs the completion boundary preflight and the
-// footprint proof gate: a delivery-producing workflow completes only when
-// every applicable footprint check carries the same typed required-proof
-// state the delivering routes consumed, so completion cannot pass a proof
-// the delivery admission refused.
+// guardCompleteBoundary validates only payload-local completion bounds.
+// The ordered completion fold owns evidence and footprint proof, after step
+// legality, caller authority, and the existing completion prerequisites.
 func guardCompleteBoundary(g *workflowActionGuardContext) error {
-	if err := workflowCompletionBoundaryPreflight(g.request.Payload); err != nil {
-		return err
-	}
-	if workflowDefinitionProducesDelivery(g.entry.Definition) {
-		if err := workflowCompletionProofForDefinitionTx(g.ctx, g.tx, g.request.WorkID, g.entry.Definition); err != nil {
-			return err
-		}
-		candidate, runs, err := workflowFootprintProofRuns(g.ctx, g.tx, g.request.WorkID, "")
-		if err != nil {
-			return err
-		}
-		if refusal, err := workflowFootprintProofRefusal(g.ctx, g.tx, g.request.WorkID, g.request.ProjectTooling, candidate, runs, g.request.ResolvedFootprint, "complete_workflow"); err != nil {
-			return err
-		} else if refusal != nil {
-			return refusal
-		}
-	}
-	return nil
+	return workflowCompletionBoundaryPreflight(g.request.Payload)
 }
 
 // guardForwardLinkOnly rejects nested or non-forward workflow composition.
@@ -1791,6 +1772,10 @@ func applyCompleteWorkflowActionTx(ctx context.Context, tx *sql.Tx, scope *write
 			return result, err
 		}
 	}
+	// Actor recording is the only prefix allowed to advance the sealed
+	// footprint's version fence. It changes neither candidate nor scope; all
+	// other footprint identities are revalidated by the ordered proof gate.
+	resolved := workflowCompletionFootprintAfterActorPrefix(request.ResolvedFootprint, request.ExpectedVersion, prefixEvents)
 	request.ExpectedVersion += int64(len(prefixEvents))
 	if err := extendCompletionEvidenceAuthorityTx(ctx, tx, request); err != nil {
 		return result, err
@@ -1799,7 +1784,7 @@ func applyCompleteWorkflowActionTx(ctx context.Context, tx *sql.Tx, scope *write
 	if completionErr != nil {
 		return result, completionErr
 	}
-	if err := CompleteWorkflowTxWithRegistry(ctx, tx, registry, completion, scope); err != nil {
+	if err := completeWorkflowTxWithInputs(ctx, tx, registry, completion, scope, workflowCompletionInputs{tooling: request.ProjectTooling, footprint: resolved}); err != nil {
 		return result, err
 	}
 	result.EventIDs = append([]string{}, scope.eventIDs[startReceipt:]...)

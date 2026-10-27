@@ -307,6 +307,11 @@ func workflowActionPreflightTx(ctx context.Context, tx *sql.Tx, registry Definit
 	if _, err := WorkflowActorRef(request.Actor); err != nil {
 		return RegisteredDefinition{}, err
 	}
+	if request.ActionID == "complete" {
+		if err := workflowCompletionBoundaryPreflight(request.Payload); err != nil {
+			return RegisteredDefinition{}, err
+		}
+	}
 	if staleRecovery {
 		if err := validateWorkflowContractRecoveryPayload(entry.Definition, request.Payload); err != nil {
 			return RegisteredDefinition{}, err
@@ -418,9 +423,24 @@ func preflightWorkflowFootprintProofTx(ctx context.Context, tx *sql.Tx, definiti
 		if err := validateWorkflowAcceptanceFreshness(ctx, tx, request.WorkID); err != nil {
 			return err
 		}
+		actor, err := WorkflowActorRef(request.Actor)
+		if err != nil {
+			return err
+		}
+		if err := workflowCompletionCallerAuthority(ctx, tx, request.WorkID, actor); err != nil {
+			return err
+		}
 		if err := workflowCompletionProofForDefinitionTx(ctx, tx, request.WorkID, definition); err != nil {
 			return err
 		}
+		if err := workflowCompletionFootprintProofTx(ctx, tx, request.WorkID, definition, workflowCompletionInputs{tooling: request.ProjectTooling, footprint: request.ResolvedFootprint}); err != nil {
+			var failure *Failure
+			if failureAs(err, &failure) {
+				return workflowPreflightFailure(failure)
+			}
+			return err
+		}
+		return nil
 	} else {
 		refineTooling := workflowRefineProofTooling(definition, currentStep, request.ActionID, request.ProjectTooling)
 		var delivery workflowDeliveryAdmission

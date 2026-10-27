@@ -290,6 +290,9 @@ func TestWitnessCombinedAcceptAfterEarlierReview(t *testing.T) {
 	}
 }
 
+// The Review supplies no criterion receipts. Package execution meets footprint
+// coverage but its package-relative argv is not the manifest's
+// root-relative invocation, so it cannot replace the declared Git-command proof.
 func witnessUnprovedCorrectiveReview(t *testing.T, j *candidateJourney, attempt string, job WorkerJobBinding, path string) string {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(filepath.Join(j.repo, path)), 0o700); err != nil {
@@ -299,6 +302,7 @@ func witnessUnprovedCorrectiveReview(t *testing.T, j *candidateJourney, attempt 
 		t.Fatal(err)
 	}
 	output := j.commit(t, "reviewer@example.invalid", "unproved corrective output")
+	j.executePackage(t, attempt, job, "pending-output")
 	report := currentReviewBlockForTest(t, j.s, j.workID, attempt, "ready_for_final_proof")
 	report.OutputCandidate = WorkerReviewCandidate{ProjectID: report.InputCandidate.ProjectID, Commit: output, Tree: reviewObservedTree(t, j.repo, output)}
 	j.reviewReceipts = nil
@@ -321,7 +325,7 @@ func TestWitnessCombinedAcceptBindsIntegrationToTheIntegratedCandidate(t *testin
 			proof := j.observeRun(t, "before-final-result")
 			j.bindVerification(t, proof)
 			attempt := "attempt:" + id + ":final"
-			job := workerDiffJob(t, j.candidateJourney, "witness-final")
+			job := j.recordReadyJobScoped(t, "diff-read-witness-final", j.prepare(t, "witness-final"), []string{"internal/store"})
 			if err := descendantDispatch(t, j.candidateJourney, "review", attempt, job, nil); err != nil {
 				t.Fatal(err)
 			}
@@ -345,7 +349,7 @@ func TestWitnessCombinedAcceptBindsIntegrationToTheIntegratedCandidate(t *testin
 			}
 			payload := mustJSONValue(map[string]any{"attempt_id": attempt, "attempt_epoch": j.dispatchEpoch(t, attempt), "delivery_artifact": "artifact:witness-final", "delivery_state": "asserted"})
 			err = runDeliveryAdmissionAction(t, s, id, "accept_worker_result", payload,
-				refineProofTooling(ProjectDeclaredTool{ID: "head", Invocation: "git rev-parse --verify HEAD^{commit}"}), reviewGateAcceptor(id))
+				j.tooling, reviewGateAcceptor(id))
 			if changed {
 				t.Logf("proof=%s pending_output=commit:%s integrated_before=commit:%s integrated_after=commit:%s acceptance_error=%v before=%s after=%s", proof.SubjectRef, output, integratedBefore, refineProofCandidate(t, s, id), err, before, j.effects(t))
 				var failure *Failure
@@ -360,13 +364,21 @@ func TestWitnessCombinedAcceptBindsIntegrationToTheIntegratedCandidate(t *testin
 				}
 				definition := mustBuiltinDefinition(t, "workflow.break_fix").Definition
 				for _, pending := range []string{"", attempt} {
-					admission, _, _, err := loadWorkflowDeliveryAdmission(t.Context(), s.db, id, definition, "refine", pending)
+					admission, proofRuns, integrationRuns, err := loadWorkflowDeliveryAdmission(t.Context(), s.db, id, definition, "refine", pending)
 					if err != nil {
 						t.Fatal(err)
 					}
+					// Native package proof is not the declared integration command.
+					// Judge both candidates through delivery's exact tooling gates.
+					declaredProof, _, err := workflowVerificationProof(proofRuns, j.tooling)
+					if err != nil {
+						t.Fatal(err)
+					}
+					proofReady := admission.ProofReady && declaredProof
+					jobsIntegrated := admission.JobsIntegrated && workflowIntegrationToolingFailure(admission, integrationRuns, j.tooling) == nil
 					wantCovered := pending == ""
-					if admission.ProofReady != wantCovered || admission.JobsIntegrated != wantCovered {
-						t.Fatalf("accepting %q: refine proof ready=%t, jobs integrated=%t, want both %t", pending, admission.ProofReady, admission.JobsIntegrated, wantCovered)
+					if proofReady != wantCovered || jobsIntegrated != wantCovered {
+						t.Fatalf("accepting %q: declared refine proof ready=%t, jobs integrated=%t, want both %t", pending, proofReady, jobsIntegrated, wantCovered)
 					}
 				}
 				reviewGateRequireStep(t, s, id, "refine")
@@ -376,7 +388,7 @@ func TestWitnessCombinedAcceptBindsIntegrationToTheIntegratedCandidate(t *testin
 				// The same pending result admits once its output is actually proven.
 				j.bindVerification(t, j.observeRun(t, "final-result"))
 				err = runDeliveryAdmissionAction(t, s, id, "accept_worker_result", payload,
-					refineProofTooling(ProjectDeclaredTool{ID: "head", Invocation: "git rev-parse --verify HEAD^{commit}"}), reviewGateAcceptor(id))
+					j.tooling, reviewGateAcceptor(id))
 			}
 			if err != nil {
 				t.Fatalf("combined acceptance refused proof on its output candidate: %v", err)
@@ -406,11 +418,15 @@ func TestWitnessCombinedAcceptChecksPendingCandidateTooling(t *testing.T) {
 		}
 		t.Run(name, func(t *testing.T) {
 			const id = "witness-pending-tooling"
-			j := journeyToRefineA(t, id)
+			invocation := "git rev-parse --verify HEAD^{commit}"
+			if pendingDeclared {
+				invocation = "git rev-parse HEAD"
+			}
+			j := journeyToRefineA(t, id, invocation)
 			proofA := j.observeRun(t, "tooling-a")
 			j.bindVerification(t, proofA)
 			attempt := "attempt:" + id + ":final"
-			job := workerDiffJob(t, j.candidateJourney, "tooling-final")
+			job := j.recordReadyJobScoped(t, "diff-read-tooling-final", j.prepare(t, "tooling-final"), []string{"internal/store"})
 			if err := descendantDispatch(t, j.candidateJourney, "review", attempt, job, nil); err != nil {
 				t.Fatal(err)
 			}
@@ -423,11 +439,7 @@ func TestWitnessCombinedAcceptChecksPendingCandidateTooling(t *testing.T) {
 				t.Fatalf("pending producer proof = %+v, %v; want changed output %s", proofB, err, output)
 			}
 			j.bindVerification(t, proofB)
-			invocation := "git rev-parse --verify HEAD^{commit}"
-			if pendingDeclared {
-				invocation = "git rev-parse HEAD"
-			}
-			tooling := refineProofTooling(ProjectDeclaredTool{ID: "head", Invocation: invocation})
+			tooling := j.tooling
 			before := j.effects(t)
 			candidateBefore := refineProofCandidate(t, j.s, id)
 			deliveryBefore, err := workflowLatestDeliveryAssertionSeq(t.Context(), j.s, id)

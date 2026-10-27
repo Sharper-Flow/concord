@@ -10,6 +10,23 @@ import (
 
 func TestCommittedUniqueJSONFactFitsBound(t *testing.T) {
 	t.Parallel()
+	assertCommittedPayloadFactFitsBound(t, "agent-unique-json",
+		DomainShapeSelector{Path: "internal/payloadschema/unique_json.go"},
+		DomainShapeSelector{Subject: "agent-unique-json"},
+	)
+}
+
+func TestCommittedEnvelopeSchemaFactFitsBound(t *testing.T) {
+	t.Parallel()
+	assertCommittedPayloadFactFitsBound(t, "agent-envelope-schema",
+		DomainShapeSelector{Path: "internal/payloadschema/envelope.go"},
+		DomainShapeSelector{Path: "internal/payloadschema/generated_envelope_schema.go"},
+		DomainShapeSelector{Subject: "agent-envelope-schema"},
+	)
+}
+
+func assertCommittedPayloadFactFitsBound(t *testing.T, factID string, selectors ...DomainShapeSelector) {
+	t.Helper()
 	ctx := context.Background()
 	root := repositoryRootForTest(t)
 	runner := CommittedReadGitRunner{}
@@ -30,27 +47,24 @@ func TestCommittedUniqueJSONFactFitsBound(t *testing.T) {
 	if err := reconstructDomainShapeReadingSnapshot(ctx, runner, &dispatchReadingWitness{sourceRepo: root}, shards, snapshot); err != nil {
 		t.Fatal(err)
 	}
-	for _, selector := range []DomainShapeSelector{
-		{Path: "internal/payloadschema/unique_json.go"},
-		{Subject: "agent-unique-json"},
-	} {
+	for _, selector := range selectors {
 		selection := selectDomainShape(*snapshot, KnowledgeHome{HomeProjectID: "concord", HomeLocatorID: "main"}, "concord", selector)
 		if !slices.Equal(selection.DomainIDs, []string{"agent-surface"}) || len(selection.Roots) != 1 || selection.Roots[0].Path != "internal/payloadschema" {
 			t.Fatalf("selector %+v has wrong ownership: %+v", selector, selection.Roots)
 		}
 		found := false
 		for _, item := range selection.Facts {
-			if item.Fact.ID != "agent-unique-json" {
+			if item.Fact.ID != factID {
 				continue
 			}
 			fact := item.Fact
 			if fact.Kind != DomainFactInvariant || fact.Standing != "observed" || fact.OwnerDomainID != "agent-surface" || fact.OwningRoot != "internal/payloadschema" || fact.Invariant == nil || !slices.Equal(fact.Invariant.AppliesToDomainIDs, []string{"agent-surface"}) {
-				t.Fatalf("wrong JSON admission fact: %+v", fact)
+				t.Fatalf("wrong payload fact: %+v", fact)
 			}
 			found = true
 		}
 		if !found {
-			t.Fatalf("selector %+v omitted agent-unique-json", selector)
+			t.Fatalf("selector %+v omitted %s", selector, factID)
 		}
 		selection.GoverningLaw = domainShapeManifestGoverningLaw(manifest, selection)
 		bounded, err := boundDomainShapeResult(selection)

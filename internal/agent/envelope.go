@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/sharper-flow/concord/internal/payloadschema"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -393,7 +394,7 @@ func (e Envelope) Validate() error {
 	if err != nil {
 		return err
 	}
-	return ValidateGeneratedEnvelope(encoded)
+	return payloadschema.ValidateEnvelope(encoded)
 }
 func (e Envelope) validateInvariants() error {
 	unresolvedWrapper := e.Operation == "" && e.Origin == OriginAdapter && e.Error != nil && e.Error.AdapterReason == "invalid_request_wrapper"

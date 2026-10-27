@@ -167,7 +167,9 @@ contract is approved), and `assigned_result` names the one evidence obligation
 whose discharge completes this attempt. Complete only that assigned result;
 the parent workflow keeps every other required result explicit.
 
-## Verification method
+## Engineering method
+
+### Defect evidence
 
 When the job's acceptance concerns a defect, check that the recorded control
 reaches the defect's code path and can fail on the reported symptom. A control

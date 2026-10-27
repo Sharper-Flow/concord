@@ -198,12 +198,15 @@ prediction and one variable at a time. Mark temporary instrumentation with one
 unique tag and remove it before reporting. Turn the minimised case into a
 regression test at a seam that exercises the real call path: observe it fail
 before the fix and pass after, then rerun the original command. Report the
-confirmed cause and the red and green runs in `verification_commands`.
+confirmed cause in `verification_commands`.
 
 If no failing command can be built with the packet's access, report what you
 tried and the missing access in `unresolved_issues` and do not guess a fix. If
 no seam can hold a faithful regression test, report that as an unresolved issue
 rather than adding a test that cannot fail on this defect.
+
+For every defect fix, report the regression test's failing run without the fix
+and its passing run with it in `verification_commands`.
 
 ### Interface design
 

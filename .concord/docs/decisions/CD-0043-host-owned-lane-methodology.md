@@ -65,8 +65,9 @@ models, or configuration stays host-owned and reaches a worker through D2.
 
 ### D2. `CONCORD_HOST_INSTRUCTIONS` is the sole legal channel
 
-Methodology reaches a worker only as a host prompt surface, through the enumerable
-instruction path CD-0034 declared. The adapter binds each file with its kind, path,
+Host-specific methodology reaches a worker only as a host prompt surface, through
+the enumerable instruction path CD-0034 declared. A portable method shipped under
+CD-0246 reaches a worker in its generated lane definition instead. The adapter binds each file with its kind, path,
 and content hash, and folds it into the `host_provenance` total digest.
 
 Methodology delivered through any other route is invisible drift. CD-0034 already
@@ -85,7 +86,7 @@ admits a skill when it operates a structure that accepted Concord law defines,
 and Concord's checks verify the result. The first such skill is Domain-shape
 stewardship. [CD-0246](CD-0246-concord-ships-portable-engineering-methods.md)
 D3 also admits a skill that carries a portable engineering method. A worker
-receives its method in its generated lane definition, never through a skill.
+receives its method in its generated lane definition under CD-0246 D2.
 
 ### D4. The coverage rows name the owner
 

@@ -104,7 +104,7 @@ class EngineeringMethodProjectionTests(unittest.TestCase):
     CARRIERS = {
         "### Defect diagnosis\n": {"implement"},
         "### Interface design\n": {"implement", "design"},
-        "## Verification method\n": {"verify"},
+        "### Defect evidence\n": {"verify"},
     }
 
     def test_each_method_reaches_exactly_the_lanes_that_use_it(self):
@@ -126,6 +126,7 @@ class EngineeringMethodProjectionTests(unittest.TestCase):
             "the prediction that would refute each",
             "observe it fail before the fix and pass after",
             "in `verification_commands`",
+            "For every defect fix, report the regression test's failing run without the fix",
             "in `unresolved_issues` and do not guess a fix",
         ):
             self.assertIn(fragment, text)

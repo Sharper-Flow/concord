@@ -55,8 +55,8 @@ unshipped. A portable engineering method ships under
 generated definition or as a skill, not in this always-on corpus.
 
 The distinction is portability. Conduct that names no tool and no repository is
-correct wherever Concord is installed. Methodology is host-coupled by
-construction, and shipping it would make Concord the owner of prose it cannot
+correct wherever Concord is installed. Host-specific procedure is host-coupled
+by construction, and shipping it would make Concord the owner of prose it cannot
 verify.
 
 ### D2. The installation is central; a project holds pointers

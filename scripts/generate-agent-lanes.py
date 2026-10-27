@@ -930,12 +930,15 @@ prediction and one variable at a time. Mark temporary instrumentation with one
 unique tag and remove it before reporting. Turn the minimised case into a
 regression test at a seam that exercises the real call path: observe it fail
 before the fix and pass after, then rerun the original command. Report the
-confirmed cause and the red and green runs in `verification_commands`.
+confirmed cause in `verification_commands`.
 
 If no failing command can be built with the packet's access, report what you
 tried and the missing access in `unresolved_issues` and do not guess a fix. If
 no seam can hold a faithful regression test, report that as an unresolved issue
 rather than adding a test that cannot fail on this defect.
+
+For every defect fix, report the regression test's failing run without the fix
+and its passing run with it in `verification_commands`.
 """
 
 INTERFACE_METHOD = """### Interface design
@@ -951,23 +954,7 @@ indirection. Test through the interface callers use. Replace a test of a
 superseded internal only when the governing retirement clause covers it.
 """
 
-
-def engineering_method_instructions(lane: dict) -> str:
-    # CD-0246 D2: a lane carries the portable method its purpose uses, in
-    # this generated definition, never through a skill loaded mid-attempt.
-    sections = {
-        "implement": [DIAGNOSIS_METHOD, INTERFACE_METHOD],
-        "design": [INTERFACE_METHOD],
-    }.get(lane["id"])
-    if not sections:
-        return ""
-    return "## Engineering method\n\n" + "\n".join(sections) + "\n"
-
-
-def verification_method_instructions(lane: dict) -> str:
-    if lane["id"] != "verify":
-        return ""
-    return """## Verification method
+DEFECT_EVIDENCE_METHOD = """### Defect evidence
 
 When the job's acceptance concerns a defect, check that the recorded control
 reaches the defect's code path and can fail on the reported symptom. A control
@@ -975,8 +962,20 @@ that passes but could not have failed on that symptom is weak evidence for the
 fix: say so in `failure_classification` rather than reporting it as proof.
 Classify each failure by its observed cause, and keep a cause you did not
 confirm labelled as a hypothesis.
-
 """
+
+
+def engineering_method_instructions(lane: dict) -> str:
+    # CD-0246 D2: a lane carries the portable method its purpose uses, in
+    # this generated definition, never through a skill loaded mid-attempt.
+    sections = {
+        "implement": [DIAGNOSIS_METHOD, INTERFACE_METHOD],
+        "design": [INTERFACE_METHOD],
+        "verify": [DEFECT_EVIDENCE_METHOD],
+    }.get(lane["id"])
+    if not sections:
+        return ""
+    return "## Engineering method\n\n" + "\n".join(sections) + "\n"
 
 
 def research_method_instructions(lane: dict) -> str:
@@ -1108,7 +1107,7 @@ record workflow transitions, verdicts, completion, or spawn nested workers.
 {acceptance_oracle_instructions(packet_schema, lane)}
 {job_size_instructions(report_schema, lane)}
 {objective_binding_instructions()}
-{engineering_method_instructions(lane)}{research_method_instructions(lane)}{verification_method_instructions(lane)}{review_method_instructions(lane)}{concord_context_boundary_instructions()}
+{engineering_method_instructions(lane)}{research_method_instructions(lane)}{review_method_instructions(lane)}{concord_context_boundary_instructions()}
 {command_duration_instructions(lane)}
 Return exactly one Markdown fence whose info string is
 `{packet_schema['properties']['inputs']['properties']['report_protocol']['const']}`.

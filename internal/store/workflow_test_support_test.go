@@ -366,7 +366,7 @@ func CompleteWorkflowWithRegistry(ctx context.Context, s *Store, registry Defini
 	if err != nil {
 		return err
 	}
-	if err := completeWorkflowTxWithInputs(ctx, tx.Tx, registry, event, scope, inputs); err != nil {
+	if err := CompleteWorkflowTxWithRegistry(ctx, tx.Tx, registry, event, scope, inputs); err != nil {
 		return err
 	}
 	if len(scope.eventIDs) < 2 || scope.eventIDs[len(scope.eventIDs)-2] != event.EventID || scope.eventIDs[len(scope.eventIDs)-1] != event.EventID+":lifecycle" {

@@ -290,7 +290,7 @@ func TestNativeFootprintNestedWitnessMustRunAndPass(t *testing.T) {
 			}
 			add("pass", "TestCorpus")
 			add("pass", "")
-			err := validateNativeOracleWitnessEvents(events, "pkg", []string{"TestCorpus/scenario-one"})
+			err := gradeNativeGoEvents(bytes.NewReader(events), newNativeGoEventGrade("pkg", []string{"TestCorpus/scenario-one"}, false, nil))
 			if (err == nil) != (outcome == "pass") {
 				t.Fatalf("outcome %s: %v", outcome, err)
 			}
@@ -355,11 +355,12 @@ func TestNativeFootprintPackageEventRefusals(t *testing.T) {
 			add("pass", "TestOne")
 			if mode != "missing" {
 				add("run", "TestTwo")
-				if mode == "skip" {
+				switch mode {
+				case "skip":
 					add("skip", "TestTwo")
-				} else if mode == "failure" {
+				case "failure":
 					add("fail", "TestTwo")
-				} else {
+				default:
 					add("pass", "TestTwo")
 				}
 			}

@@ -33,15 +33,6 @@ func workflowCompletionRequired() error {
 	return newFailure(KindWorkflowCompletionRequired, "append_event", "workflow.completed is reserved for the ordered completion gate", false, "use the ordered workflow completion entry point")
 }
 
-// CompleteWorkflowTxWithRegistry is the caller-owned transaction seam.  No
-// completion or notice is appended until every earlier clause has passed. The
-// caller passes the write scope its region owns; the completion enters and
-// releases one depth level on it, so a boundary-owned guard survives until the
-// boundary's own level closes.
-func CompleteWorkflowTxWithRegistry(ctx context.Context, tx *sql.Tx, registry DefinitionRegistry, event Event, scope *writeScope) error {
-	return completeWorkflowTxWithInputs(ctx, tx, registry, event, scope, workflowCompletionInputs{})
-}
-
 // workflowCompletionInputs carries only source inputs prepared before the
 // transaction. Missing inputs never exempt a delivering workflow from proof.
 type workflowCompletionInputs struct {
@@ -63,7 +54,9 @@ func workflowCompletionFootprintAfterActorPrefix(resolved *ResolvedWorkflowFootp
 	return &adjusted
 }
 
-func completeWorkflowTxWithInputs(ctx context.Context, tx *sql.Tx, registry DefinitionRegistry, event Event, scope *writeScope, inputs workflowCompletionInputs) error {
+// CompleteWorkflowTxWithRegistry applies ordered completion using pre-resolved
+// source inputs. Missing inputs never exempt delivering workflows from proof.
+func CompleteWorkflowTxWithRegistry(ctx context.Context, tx *sql.Tx, registry DefinitionRegistry, event Event, scope *writeScope, inputs workflowCompletionInputs) error {
 	if tx == nil {
 		return newFailure(KindUnavailable, "complete_workflow", "transaction is not open", false, "open a mutation transaction")
 	}

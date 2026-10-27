@@ -953,7 +953,8 @@ func nativeOracleInitialResult(req WorktreeVerifyRequest, entry WorktreeEntry, p
 	digest, identity := nativePlanEnvironment(p)
 	base.ToolchainIdentity = identity
 	base.BuildEnvironmentDigest = digest
-	if p.Target != nil {
+	switch {
+	case p.Target != nil:
 		names, _ := nativeTargetCaseWitnesses(p.Target.Recipe, p.Bundle.Control)
 		base.RecipeKind = nativeTargetKind
 		base.TargetMaterializer = p.Target.Environment.Materializer
@@ -961,13 +962,13 @@ func nativeOracleInitialResult(req WorktreeVerifyRequest, entry WorktreeEntry, p
 		base.SelectedWitnessIDs = names
 		base.CaseToWitnessMap = p.Target.Recipe.Cases
 		base.SelectedDistinctCount = len(names)
-	} else if p.Manifest.Kind == nativeGoPackageKind {
+	case p.Manifest.Kind == nativeGoPackageKind:
 		names, _ := nativeOracleSelector(p.Manifest, p.Bundle.Control)
 		base.RecipeKind = nativeGoPackageKind
 		base.SelectedWitnessIDs = names
 		base.CaseToWitnessMap = p.Manifest.Cases
 		base.SelectedDistinctCount = len(names)
-	} else {
+	default:
 		names, _ := nativeOracleSelector(p.Manifest, p.Bundle.Control)
 		base.SelectedTestNames = names
 		base.CaseToTestMap = p.Manifest.Cases

@@ -54,7 +54,7 @@ func workflowFootprintProofRuns(ctx context.Context, q queryer, workID, acceptin
 // error reports no applicable check; the callers above it keep their existing
 // refine argv, integration, and Review gates.
 func workflowFootprintProofRefusal(ctx context.Context, q queryer, workID string, tooling *ProjectToolingManifest, candidate *WorkerReviewCandidate, runs []workflowVerificationRun, resolved *ResolvedWorkflowFootprint, subject string) (*Failure, error) {
-	required, refusal, err := workflowFootprintRequiredAnchorsTx(ctx, q, workID, tooling, candidate, resolved, subject)
+	required, refusal, err := workflowFootprintRequiredAnchorsTx(ctx, q, workID, tooling, candidate, resolved)
 	if err != nil || refusal != nil {
 		return refusal, err
 	}
@@ -116,7 +116,7 @@ func workflowFootprintProofRefusal(ctx context.Context, q queryer, workID string
 // obligations resolved from the accumulated diff. Missing scope is unknown,
 // not an empty check set. Callers classify non-delivering definitions before
 // entering this gate, after their existing refinement and Review checks.
-func workflowFootprintRequiredAnchorsTx(ctx context.Context, q queryer, workID string, tooling *ProjectToolingManifest, candidate *WorkerReviewCandidate, resolved *ResolvedWorkflowFootprint, subject string) ([]workflowRequiredAnchorProof, *Failure, error) {
+func workflowFootprintRequiredAnchorsTx(ctx context.Context, q queryer, workID string, tooling *ProjectToolingManifest, candidate *WorkerReviewCandidate, resolved *ResolvedWorkflowFootprint) ([]workflowRequiredAnchorProof, *Failure, error) {
 	record, sized, err := readWorkSize(ctx, q, workID)
 	if err != nil {
 		return nil, nil, err

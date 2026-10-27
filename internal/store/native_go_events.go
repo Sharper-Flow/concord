@@ -2,7 +2,6 @@ package store
 
 import (
 	"bufio"
-	"bytes"
 	"encoding/json"
 	"io"
 	"slices"
@@ -152,8 +151,4 @@ func gradeNativeGoEvents(reader io.Reader, g *nativeGoEventGrade) error {
 		return nativeUnavailable("test2json event exceeds bounded decoder or stream is incomplete")
 	}
 	return g.finish()
-}
-
-func nativeGoGradeBytes(raw []byte, pkg string, selected []string) error {
-	return gradeNativeGoEvents(bytes.NewReader(raw), newNativeGoEventGrade(pkg, selected, false, nil))
 }

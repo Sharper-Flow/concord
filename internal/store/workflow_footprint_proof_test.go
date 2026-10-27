@@ -102,7 +102,7 @@ func footprintProofRecordPath(t *testing.T, s *Store, work, product, path string
 // Existing synthetic-law journeys have a declared law projection, not a Git
 // knowledge corpus. Complete their fixture index and record its actual empty
 // check set through the footprint owner. No gate is disabled or mocked.
-func footprintProofSyntheticScope(t *testing.T, s *Store, work, repo string) {
+func footprintProofSyntheticScope(t *testing.T, s *Store, work string) {
 	t.Helper()
 	ctx := context.Background()
 	product, err := architectureBindingProductID(ctx, s.db, work)
@@ -303,7 +303,7 @@ func TestWorkflowFootprintAccumulatedUnion(t *testing.T) {
 	if r.snapshot.base != f.dispatchSubject {
 		t.Fatalf("baseline = %s, want claimed branch base %s", r.snapshot.base, f.dispatchSubject)
 	}
-	required, refusal, err := workflowFootprintRequiredAnchorsTx(ctx, f.s.db, f.work, nil, candidate, r, "test")
+	required, refusal, err := workflowFootprintRequiredAnchorsTx(ctx, f.s.db, f.work, nil, candidate, r)
 	if err != nil || refusal != nil {
 		t.Fatalf("derive union: %v %v", refusal, err)
 	}
@@ -628,7 +628,7 @@ func TestWorkflowFootprintUnionDoesNotTruncatePaths(t *testing.T) {
 	if len(r.footprints) != 2 {
 		t.Fatalf("resolved %d batches, want 2", len(r.footprints))
 	}
-	required, refusal, err := workflowFootprintRequiredAnchorsTx(t.Context(), f.s.db, f.work, nil, candidate, r, "test")
+	required, refusal, err := workflowFootprintRequiredAnchorsTx(t.Context(), f.s.db, f.work, nil, candidate, r)
 	if err != nil || refusal != nil {
 		t.Fatalf("complete union: %v %v", refusal, err)
 	}
@@ -845,7 +845,7 @@ func TestDeliveryEntryRoutesRefuseUnprovedFootprintChecks(t *testing.T) {
 		// so the footprint gate is the refusal that decides this route.
 		workerJobIntegrationGreenRun(t, s, workID, "footprint-proof-combined-integration")
 
-		payload := json.RawMessage(`{"attempt_id":"` + c.attempt + `","attempt_epoch":` + strconv.FormatInt(int64(c.epoch), 10) + `,"delivery_artifact":"artifact:footprint-proof","delivery_state":"asserted"}`)
+		payload := json.RawMessage(`{"attempt_id":"` + c.attempt + `","attempt_epoch":` + strconv.FormatInt(c.epoch, 10) + `,"delivery_artifact":"artifact:footprint-proof","delivery_state":"asserted"}`)
 		resolved := ResolveWorkflowFootprint(context.Background(), s, BuiltinWorkflowRegistry(), workID, "accept_worker_result", payload)
 		if resolved == nil || resolved.err != nil {
 			t.Fatalf("resolve pending candidate: %+v", resolved)

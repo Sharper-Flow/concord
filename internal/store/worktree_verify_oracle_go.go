@@ -887,39 +887,28 @@ func nativeGoFileTests(rooted *os.Root, name string, found map[string]bool, main
 // validateNativeGoTestMainSignature requires the exact run-harness shape
 // func TestMain(m *testing.M) with no results.
 func validateNativeGoTestMainSignature(fn *ast.FuncDecl, aliases map[string]bool) error {
-	if fn.Type.TypeParams != nil || (fn.Type.Results != nil && len(fn.Type.Results.List) != 0) || fn.Type.Params == nil || len(fn.Type.Params.List) != 1 || len(fn.Type.Params.List[0].Names) > 1 {
-		return nativeUnavailable("TestMain signature is not func TestMain(*testing.M)")
-	}
-	star, ok := fn.Type.Params.List[0].Type.(*ast.StarExpr)
-	if !ok {
-		return nativeUnavailable("unsupported TestMain signature")
-	}
-	sel, ok := star.X.(*ast.SelectorExpr)
-	if !ok || sel.Sel.Name != "M" {
-		return nativeUnavailable("unsupported TestMain signature")
-	}
-	ident, ok := sel.X.(*ast.Ident)
-	if !ok || !aliases[ident.Name] {
-		return nativeUnavailable("TestMain parameter must be testing.M")
-	}
-	return nil
+	return validateNativeGoTestingSignature(fn, aliases, "TestMain", "TestMain", "M")
 }
 
 func validateNativeGoTestSignature(fn *ast.FuncDecl, aliases map[string]bool) error {
+	return validateNativeGoTestingSignature(fn, aliases, "test", "TestXxx", "T")
+}
+
+func validateNativeGoTestingSignature(fn *ast.FuncDecl, aliases map[string]bool, label, name, parameter string) error {
 	if fn.Type.TypeParams != nil || (fn.Type.Results != nil && len(fn.Type.Results.List) != 0) || fn.Type.Params == nil || len(fn.Type.Params.List) != 1 || len(fn.Type.Params.List[0].Names) > 1 {
-		return nativeUnavailable("test signature is not func TestXxx(*testing.T)")
+		return nativeUnavailable(label + " signature is not func " + name + "(*testing." + parameter + ")")
 	}
 	star, ok := fn.Type.Params.List[0].Type.(*ast.StarExpr)
 	if !ok {
-		return nativeUnavailable("unsupported test signature")
+		return nativeUnavailable("unsupported " + label + " signature")
 	}
 	sel, ok := star.X.(*ast.SelectorExpr)
-	if !ok || sel.Sel.Name != "T" {
-		return nativeUnavailable("unsupported test signature")
+	if !ok || sel.Sel.Name != parameter {
+		return nativeUnavailable("unsupported " + label + " signature")
 	}
 	ident, ok := sel.X.(*ast.Ident)
 	if !ok || !aliases[ident.Name] {
-		return nativeUnavailable("test parameter must be testing.T")
+		return nativeUnavailable(label + " parameter must be testing." + parameter)
 	}
 	return nil
 }
@@ -966,20 +955,6 @@ func validateNativeLocalPackageClosure(root, dir string, p nativeOraclePlan) err
 		}
 		return nativeUnavailable("undeclared non-Go repository dependency input: " + rel)
 	})
-}
-
-func nativeOracleWitnesses(raw []byte, pkg string, selected []string, stdout []byte) ([]string, error) {
-	if err := validateNativeOracleWitnessEvents(raw, pkg, selected); err != nil {
-		return nil, err
-	}
-	if err := validateNativeOracleWitnessFrames(stdout, selected); err != nil {
-		return nil, err
-	}
-	return slices.Clone(selected), nil
-}
-
-func validateNativeOracleWitnessEvents(raw []byte, pkg string, selected []string) error {
-	return nativeGoGradeBytes(raw, pkg, selected)
 }
 
 func validateNativeOracleWitnessFrames(stdout []byte, selected []string) error {
@@ -1192,9 +1167,10 @@ func (n *nativeGoOracleRun) runStage(ctx context.Context, stage NativeOracleStag
 	stageCapture := nativeOracleStageCapture(stage.Name, capture)
 	var exit int
 	var runErr error
-	if stage.Name == "convert" && n.programExit != 0 {
+	switch {
+	case stage.Name == "convert" && n.programExit != 0:
 		exit, runErr = runNativeOracleStageOutput(stageCtx, n.cwd, argv, n.env, stdin, stageCapture, launched, io.Discard)
-	} else if stage.Name == "convert" {
+	case stage.Name == "convert":
 		names := n.result.SelectedTestNames
 		packageMode := n.plan.Manifest.Kind == nativeGoPackageKind
 		if packageMode {
@@ -1213,7 +1189,7 @@ func (n *nativeGoOracleRun) runStage(ctx context.Context, stage NativeOracleStag
 		if gradeErr := <-graded; gradeErr != nil && n.programExit == 0 {
 			runErr = gradeErr
 		}
-	} else {
+	default:
 		exit, runErr = runNativeOracleStage(stageCtx, n.cwd, argv, n.env, stdin, stageCapture, launched)
 	}
 	cancel()

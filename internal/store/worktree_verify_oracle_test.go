@@ -1,9 +1,13 @@
 package store
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"os"
 	"path/filepath"
 	"slices"
@@ -457,7 +461,7 @@ func TestNativeOracleSelectorArgvCeiling(t *testing.T) {
 func TestNativeOracleExecutedCasesRequired(t *testing.T) {
 	for _, raw := range []string{"", `{"Action":"pass","Package":"p"}`, `{"Action":"run","Package":"p","Test":"TestValue"}
 {"Action":"skip","Package":"p","Test":"TestValue"}`, `{"Action":"pass","Package":"p","Test":"TestValue/sub"}`} {
-		if _, err := nativeOracleWitnesses([]byte(raw), "p", []string{"TestValue"}, nativeWitnessFramesForTest()); err == nil {
+		if err := gradeNativeGoEvents(strings.NewReader(raw), newNativeGoEventGrade("p", []string{"TestValue"}, false, nil)); err == nil {
 			t.Fatalf("non-execution qualified: %s", raw)
 		}
 	}
@@ -477,17 +481,79 @@ func TestNativeOracleWitnessGrammar(t *testing.T) {
 		"unknown_action":       run + `{"Action":"unknown","Package":"p"}` + "\n" + pass + terminal,
 	} {
 		t.Run(name, func(t *testing.T) {
-			if _, err := nativeOracleWitnesses([]byte(raw), "p", []string{"TestValue"}, nativeWitnessFramesForTest()); err == nil {
+			if err := gradeNativeGoEvents(strings.NewReader(raw), newNativeGoEventGrade("p", []string{"TestValue"}, false, nil)); err == nil {
 				t.Fatal("conflicting or incomplete witness stream qualified")
 			}
 		})
 	}
 	valid := []byte(run + pass + terminal)
-	if _, err := nativeOracleWitnesses(valid, "p", []string{"TestValue"}, nativeWitnessFramesForTest()); err != nil {
+	if err := gradeNativeGoEvents(bytes.NewReader(valid), newNativeGoEventGrade("p", []string{"TestValue"}, false, nil)); err != nil {
+		t.Fatalf("unique witnesses refused: %v", err)
+	}
+	if err := validateNativeOracleWitnessFrames(nativeWitnessFramesForTest(), []string{"TestValue"}); err != nil {
 		t.Fatalf("unique framed witnesses refused: %v", err)
 	}
-	if _, err := nativeOracleWitnesses(valid, "p", []string{"TestValue"}, []byte("=== RUN   TestValue\n--- PASS: TestValue (0.00s)\nPASS\n")); err == nil {
+	if err := validateNativeOracleWitnessFrames([]byte("=== RUN   TestValue\n--- PASS: TestValue (0.00s)\nPASS\n"), []string{"TestValue"}); err == nil {
 		t.Fatal("unmarked witnesses qualified")
+	}
+}
+
+func TestNativeOracleTestingSignatures(t *testing.T) {
+	for _, signature := range []struct {
+		name, parameter, shape, unsupported, alias string
+		validate                                   func(*ast.FuncDecl, map[string]bool) error
+	}{
+		{"test", "T", "test signature is not func TestXxx(*testing.T)", "unsupported test signature", "test parameter must be testing.T", validateNativeGoTestSignature},
+		{"TestMain", "M", "TestMain signature is not func TestMain(*testing.M)", "unsupported TestMain signature", "TestMain parameter must be testing.M", validateNativeGoTestMainSignature},
+	} {
+		t.Run(signature.name, func(t *testing.T) {
+			for _, tc := range []struct {
+				name, declaration, want string
+			}{
+				{"named", "func TestValue(t *testing.$type) {}", ""},
+				{"unnamed", "func TestValue(*testing.$type) {}", ""},
+				{"blank", "func TestValue(_ *testing.$type) {}", ""},
+				{"alias", "func TestValue(t *testalias.$type) {}", ""},
+				{"empty_results", "func TestValue(t *testing.$type) () {}", ""},
+				{"generic", "func TestValue[P any](t *testing.$type) {}", signature.shape},
+				{"result", "func TestValue(t *testing.$type) bool { return true }", signature.shape},
+				{"no_parameters", "func TestValue() {}", signature.shape},
+				{"nil_parameters", "func TestValue() {}", signature.shape},
+				{"grouped_parameters", "func TestValue(a, b *testing.$type) {}", signature.shape},
+				{"separate_parameters", "func TestValue(a *testing.$type, b *testing.$type) {}", signature.shape},
+				{"value_parameter", "func TestValue(t testing.$type) {}", signature.unsupported},
+				{"unqualified", "func TestValue(t *$type) {}", signature.unsupported},
+				{"wrong_type", "func TestValue(t *testing.B) {}", signature.unsupported},
+				{"wrong_qualifier", "func TestValue(t *other.$type) {}", signature.alias},
+				{"nonidentifier_qualifier", "func TestValue(t *testing.$type) {}", signature.alias},
+			} {
+				t.Run(tc.name, func(t *testing.T) {
+					file, err := parser.ParseFile(token.NewFileSet(), "signature_test.go", "package p\n"+strings.ReplaceAll(tc.declaration, "$type", signature.parameter), 0)
+					if err != nil {
+						t.Fatal(err)
+					}
+					fn := file.Decls[0].(*ast.FuncDecl)
+					switch tc.name {
+					case "nil_parameters":
+						fn.Type.Params = nil
+					case "nonidentifier_qualifier":
+						sel := fn.Type.Params.List[0].Type.(*ast.StarExpr).X.(*ast.SelectorExpr)
+						sel.X = &ast.ParenExpr{X: sel.X}
+					}
+					err = signature.validate(fn, map[string]bool{"testing": true, "testalias": true})
+					if tc.want == "" {
+						if err != nil {
+							t.Fatalf("valid signature refused: %v", err)
+						}
+						return
+					}
+					var failure *Failure
+					if !errors.As(err, &failure) || failure.Kind != KindUnavailable || failure.Detail != tc.want {
+						t.Fatalf("signature refusal=%v, want unavailable with detail %q", err, tc.want)
+					}
+				})
+			}
+		})
 	}
 }
 

@@ -303,7 +303,7 @@ func TestBuiltinWorkflowCompletionWitnesses(t *testing.T) {
 						qAcceptCriterionReview(t, journey.fixture, journey.repo, run.OperationRef)
 						journey.bindVerification(t, run)
 						proofRef = run.OperationRef
-						footprintProofSyntheticScope(t, s, workID, journey.repo)
+						footprintProofSyntheticScope(t, s, workID)
 					}
 				}
 				if actionID == "record_verdict" && definition.Ref == "workflow.research" {

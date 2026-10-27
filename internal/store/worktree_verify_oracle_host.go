@@ -219,20 +219,20 @@ func nativeTargetSelector(m nativeTargetOracleManifest, c OracleControl) ([]stri
 	return witnesses, nil
 }
 
-// nativeTargetPytestWitness splits one pytest node ID into its root-relative
-// file part and its exact remaining node path. Pytest renders node IDs
+// nativeTargetPytestWitness validates one pytest node ID and returns its
+// root-relative file part. Pytest renders node IDs
 // relative to its rootdir, which the producer pins to the manifest root, so
 // a witness is the exact ID the runner invokes. The file part must name a
 // pinned harness test file.
-func nativeTargetPytestWitness(root, witness string) (string, string, error) {
+func nativeTargetPytestWitness(root, witness string) (string, error) {
 	file, node, found := strings.Cut(witness, "::")
 	if !found || node == "" || file == "" || strings.Contains(file, "::") {
-		return "", "", nativeUnavailable("pytest witnesses must be <harness file>::<node id> identities under the manifest root")
+		return "", nativeUnavailable("pytest witnesses must be <harness file>::<node id> identities under the manifest root")
 	}
 	if _, ok := nativeTargetRootedPath(root, file); !ok {
-		return "", "", nativeUnavailable("pytest witnesses must be <harness file>::<node id> identities under the manifest root")
+		return "", nativeUnavailable("pytest witnesses must be <harness file>::<node id> identities under the manifest root")
 	}
-	return file, node, nil
+	return file, nil
 }
 
 // nativeTargetCheckFor returns the one declared check for a selected
@@ -403,7 +403,7 @@ func validateNativeTargetManifestCases(m nativeTargetOracleManifest, pair native
 
 func validateNativeTargetDeclaredWitness(m nativeTargetOracleManifest, pair nativeTargetPair, witness string) error {
 	if pair.Runner == nativeTargetRunnerPytest {
-		file, _, err := nativeTargetPytestWitness(m.Root, witness)
+		file, err := nativeTargetPytestWitness(m.Root, witness)
 		joined, ok := nativeTargetRootedPath(m.Root, file)
 		if err != nil || !ok || !slices.Contains(m.HarnessFiles, joined) || !strings.HasSuffix(file, ".py") {
 			return nativeUnavailable("pytest witness must name a pinned harness test")
@@ -439,7 +439,7 @@ func validateNativeTargetPytestManifest(m nativeTargetOracleManifest, c OracleCo
 		return nativeUnavailable("pytest recipes must not declare checks")
 	}
 	for _, witness := range witnesses {
-		file, _, err := nativeTargetPytestWitness(m.Root, witness)
+		file, err := nativeTargetPytestWitness(m.Root, witness)
 		if err != nil {
 			return err
 		}

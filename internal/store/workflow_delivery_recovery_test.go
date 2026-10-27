@@ -164,7 +164,8 @@ func TestDeliveryGateCorrectionNeedsOutstandingReview(t *testing.T) {
 	s := fixture.store
 	refineProofStartRefine(t, fixture, workID)
 	refineProofAcceptReadyReview(t, fixture, workID)
-	footprintProofSyntheticScope(t, s, workID, workerFixtureDirectory(t, s, workID))
+	workerFixtureDirectory(t, s, workID)
+	footprintProofSyntheticScope(t, s, workID)
 	refineProofCandidateRun(t, s, workID, "gate", refineProofCandidate(t, s, workID), []string{"go", "vet", "./..."})
 	if err := refineProofDelivery(t, s, workID, nil); err != nil {
 		t.Fatalf("record_delivery with the reviewed candidate: %v", err)

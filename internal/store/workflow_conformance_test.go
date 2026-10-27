@@ -306,7 +306,7 @@ func prepareWorkflowCorpusState(t *testing.T, setup workflowCorpusSetup, request
 			return nil, nil, err
 		}
 		bindCompletionClosure(t, s, workID, owner)
-		footprintProofSyntheticScope(t, s, workID, f.repo)
+		footprintProofSyntheticScope(t, s, workID)
 		if proof == "completion_rollback" || proof == "impact_notice_identity" {
 			prepareCorpusImpactDependent(t, s, workID, registered)
 		}

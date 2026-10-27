@@ -226,16 +226,19 @@ func nativeOraclePassComplete(p nativeOraclePlan, o *NativeOracleResult) bool {
 	if len(o.Stages) != len(p.Stages) || o.BinaryDigest == "" || o.SelectedDistinctCount == 0 {
 		return false
 	}
-	if p.Manifest.Kind == nativeGoPackageKind && p.Target == nil {
+	switch {
+	case p.Manifest.Kind == nativeGoPackageKind && p.Target == nil:
 		if !nativeGoPackageProofComplete(p, o) {
 			return false
 		}
-	} else if p.Target != nil {
+	case p.Target != nil:
 		if !slices.Equal(o.SelectedWitnessIDs, o.ObservedWitnessIDs) || o.SelectedDistinctCount != len(o.SelectedWitnessIDs) || len(o.ObservedTestNames) != 0 {
 			return false
 		}
-	} else if !slices.Equal(o.SelectedTestNames, o.ObservedTestNames) || o.SelectedDistinctCount != len(o.SelectedTestNames) || len(o.SelectedTestNames) == 0 || len(o.ObservedWitnessIDs) != 0 {
-		return false
+	default:
+		if !slices.Equal(o.SelectedTestNames, o.ObservedTestNames) || o.SelectedDistinctCount != len(o.SelectedTestNames) || len(o.SelectedTestNames) == 0 || len(o.ObservedWitnessIDs) != 0 {
+			return false
+		}
 	}
 	for _, stage := range o.Stages {
 		if stage.ExitCode != 0 {

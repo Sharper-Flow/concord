@@ -1784,7 +1784,7 @@ func applyCompleteWorkflowActionTx(ctx context.Context, tx *sql.Tx, scope *write
 	if completionErr != nil {
 		return result, completionErr
 	}
-	if err := completeWorkflowTxWithInputs(ctx, tx, registry, completion, scope, workflowCompletionInputs{tooling: request.ProjectTooling, footprint: resolved}); err != nil {
+	if err := CompleteWorkflowTxWithRegistry(ctx, tx, registry, completion, scope, workflowCompletionInputs{tooling: request.ProjectTooling, footprint: resolved}); err != nil {
 		return result, err
 	}
 	result.EventIDs = append([]string{}, scope.eventIDs[startReceipt:]...)

@@ -58,7 +58,7 @@ func qAssociateCurrentProofAt(t *testing.T, f workContextFixture, verdictStep, a
 		t.Fatal(err)
 	}
 	gitRunStore(t, repo, "branch", "-m", branch)
-	footprintProofSyntheticScope(t, f.store, workID, repo)
+	footprintProofSyntheticScope(t, f.store, workID)
 	j := &candidateJourney{fixture: f, s: f.store, workID: workID, repo: repo, acceptor: f.owner}
 	run, err := f.store.VerifyWorktree(t.Context(), j.request("q-proof", nil))
 	if err != nil || run.ExitCode != 0 {

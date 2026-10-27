@@ -161,7 +161,7 @@ func TestCompleteFootprintDirectSeamCannotBypassProof(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		return CompleteWorkflowTxWithRegistry(ctx, tx, BuiltinWorkflowRegistry(), event, newWriteScope(tx))
+		return CompleteWorkflowTxWithRegistry(ctx, tx, BuiltinWorkflowRegistry(), event, newWriteScope(tx), workflowCompletionInputs{})
 	})
 	refineProofRequireMissingEvidence(t, err, "required accumulated diff footprint was not resolved")
 	if readWorkVersion(t, s, work) != version {

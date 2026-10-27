@@ -1292,7 +1292,7 @@ func completeLawChangeContract(t *testing.T, s *Store, definition WorkflowDefini
 	if err != nil {
 		t.Fatalf("construct completion: %v", err)
 	}
-	if err := CompleteWorkflowTxWithRegistry(ctx, tx, registry, completion, newWriteScope(tx)); err != nil {
+	if err := CompleteWorkflowTxWithRegistry(ctx, tx, registry, completion, newWriteScope(tx), workflowCompletionInputs{}); err != nil {
 		t.Fatalf("complete the non-Product-changing item over another item's registry edit: %v", err)
 	}
 	if err := tx.Commit(); err != nil {

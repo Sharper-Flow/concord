@@ -238,7 +238,7 @@ func TestStartExecutionOverLiveLaneRequiresApprovalUntilLaneRelinquishes(t *test
 	t.Parallel()
 	ctx := context.Background()
 	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_transition", "worker_dispatch"})
-	grant.Worktree = seedWorkerRetryMutationFixture(t, s, service, grant)
+	grant.Worktree = seedWorkerRetryMutationFixture(t, s, grant)
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
 	if err != nil {
 		t.Fatal(err)

@@ -35,7 +35,7 @@ func newDispatchTakeoverFixture(t *testing.T) dispatchTakeoverFixture {
 	ctx := context.Background()
 	capabilities := []Capability{"work_transition", "worker_dispatch"}
 	s, service, grant, privateKey := mutationDispatchFixture(t, capabilities)
-	grant.Worktree = seedWorkerRetryMutationFixture(t, s, service, grant)
+	grant.Worktree = seedWorkerRetryMutationFixture(t, s, grant)
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
 	if err != nil {
 		t.Fatal(err)

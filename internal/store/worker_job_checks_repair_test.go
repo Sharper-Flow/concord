@@ -242,6 +242,11 @@ func TestChecksRepairSatisfiesNamedRevisionsAndAdmitsOneConfirmingReview(t *test
 	if ready, err := readyWorkerJobRevisions(ctx, s.db, workID); err != nil || len(ready) != 0 {
 		t.Fatalf("ready revisions behind the unconfirmed repair = %#v, %v, want none", ready, err)
 	}
+	// The unconfirmed repairing revision keeps its one confirming Review; it
+	// is not a final-Review binding (CD-0205 D2).
+	if final, err := finalReviewWorkerJobTx(ctx, s.db, workID); err != nil || final != nil {
+		t.Fatalf("final Review binding of the unconfirmed repair = %#v, %v, want none", final, err)
+	}
 	// A later ordinary revision cannot hide an accepted repair's pending confirming Review.
 	later := jobFields("go test ./internal/store/ -run TestChecksRepair", nil)
 	later["ready"] = false

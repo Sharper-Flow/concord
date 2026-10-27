@@ -10,6 +10,8 @@ package store
 // *sql.DB or *sql.Tx, call BeginTx, touch a .DB / .DatabaseForTesting member,
 // or hold literal SQL aimed at a store-owned table. Inside internal/store, a
 // Store.DB accessor is forbidden so the handle has no production escape hatch.
+// Production SQLite result constants belong to internal/store/internal/sqlitedb,
+// not to its domain-facing callers inside or outside internal/store.
 
 import (
 	"go/ast"
@@ -482,6 +484,12 @@ func TestStoreBoundaryFixtureViolations(t *testing.T) {
 		{
 			name:     "SQLite result constants belong to the durable owner",
 			files:    map[string]string{"internal/store/classify.go": "package store\nimport codes \"modernc.org/sqlite/lib\"\nvar code = codes.SQLITE_CONSTRAINT_UNIQUE\n"},
+			contains: []string{"SQLite result constants outside internal/store/internal/sqlitedb"},
+			count:    1,
+		},
+		{
+			name:     "outside-store callers cannot classify SQLite result codes",
+			files:    map[string]string{"internal/agent/classify.go": "package agent\nimport codes \"modernc.org/sqlite/lib\"\nvar code = codes.SQLITE_CONSTRAINT_UNIQUE\n"},
 			contains: []string{"SQLite result constants outside internal/store/internal/sqlitedb"},
 			count:    1,
 		},

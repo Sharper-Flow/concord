@@ -34,7 +34,9 @@ func (e continueReviewRestorationEvidence) proves(binding WorkerJobBinding) bool
 			return false
 		}
 	}
-	return job.JobID == binding.JobID && job.Revision == binding.Revision && job.Digest == binding.Digest && DeriveWorkerJobDigest(job) == binding.Digest &&
+	// A checks repair also needs its acceptance and named-revision readiness
+	// reconciled, outside this satisfaction-only recovery.
+	return job.ChecksRepair == nil && job.JobID == binding.JobID && job.Revision == binding.Revision && job.Digest == binding.Digest && DeriveWorkerJobDigest(job) == binding.Digest &&
 		auth.ActionID == "dispatch_worker" && auth.WorkerAttemptID == e.attempt && auth.WorkerCapabilityClass == "review" && auth.ChecksRepairReview == nil &&
 		dispatch.AttemptID == e.attempt && dispatch.CapabilityClass == "review" && dispatch.Terminal == "" && terminal.AttemptID == e.attempt &&
 		auth.WorkerJob != nil && *auth.WorkerJob == binding && dispatch.WorkerJob != nil && *dispatch.WorkerJob == binding &&
@@ -82,7 +84,6 @@ WHERE j.state='satisfied' AND j.satisfied_at IS NOT NULL AND j.satisfied_seq>0
  AND d.seq<a.dispatch_seq AND a.dispatch_seq<a.terminal_seq AND a.terminal_seq<=j.satisfied_seq
  AND (e.seq=j.satisfied_seq AND e.event_id=j.satisfied_result_ref OR e.first_acceptance_seq=j.satisfied_seq)
  AND (e.seq<>e.first_acceptance_seq OR json(e.payload)=json(e.first_acceptance_payload))
- AND json_extract(d.payload,'$.checks_repair_review') IS NULL
  AND NOT EXISTS (SELECT 1 FROM worker_attempt_dispositions conflict
    WHERE conflict.work_id=j.work_id AND conflict.attempt_id=a.attempt_id
    AND conflict.action_id IN ('reject_worker_result','record_worker_failure') AND conflict.seq>=j.satisfied_seq)

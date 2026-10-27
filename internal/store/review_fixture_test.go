@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -32,7 +33,7 @@ func completeCurrentReviewForTest(t *testing.T, f workContextFixture, repo, disp
 func completeCurrentReviewForBoundJobForTest(t *testing.T, f workContextFixture, repo, disposition string, job WorkerJobBinding, mutations ...func(*WorkerReviewBlock)) (string, int64) {
 	t.Helper()
 	j := &candidateJourney{fixture: f, s: f.store, workID: f.workID, repo: repo}
-	attempt := "review:fixture:" + job.JobID
+	attempt := fmt.Sprintf("review:fixture:%d", readWorkVersion(t, f.store, f.workID))
 	if err := descendantDispatch(t, j, "review", attempt, job, nil); err != nil {
 		t.Fatalf("dispatch fixture Review: %v", err)
 	}

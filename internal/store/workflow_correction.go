@@ -472,6 +472,13 @@ func (h *workflowCorrectionHistory) observeCorrectionAction(row workflowCorrecti
 }
 
 func (h *workflowCorrectionHistory) observeCorrectionAcceptance(row workflowCorrectionHistoryRow) {
+	confirming := h.confirmingAttemptOf(row.actionAttempt)
+	disposition := h.reviewDisposition[row.actionAttempt]
+	// A non-confirming continue Review grants execution permission only
+	// (CD-0205 D3): it neither opens a checks repair nor satisfies corrective debt.
+	if confirming == nil && disposition == "continue" {
+		return
+	}
 	// Only a result acceptance counts for repair state (CD-0205 D4):
 	// the repairing result's own acceptance opens the repair, and the
 	// exact confirming attempt's accepted Review confirms it when that
@@ -481,8 +488,6 @@ func (h *workflowCorrectionHistory) observeCorrectionAcceptance(row workflowCorr
 	if repair := h.repairOfBinding(row.jobID, row.jobRevision); repair != nil && repair.acceptanceSeq == 0 {
 		repair.acceptanceSeq = row.seq
 	}
-	confirming := h.confirmingAttemptOf(row.actionAttempt)
-	disposition := h.reviewDisposition[row.actionAttempt]
 	if confirming != nil && (disposition == "correction_required" || disposition == "revision_required") {
 		h.voidConfirmingRepair(row.actionAttempt)
 	}

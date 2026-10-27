@@ -67,7 +67,7 @@ func continueReviewMigrationReplaceReceipt(t *testing.T, db *sql.DB, id, column 
 	memberMigrationExec(t, db, `INSERT INTO effect_receipts("`+strings.Join(columns, `","`)+`") VALUES(`+strings.TrimSuffix(strings.Repeat("?,", len(columns)), ",")+`)`, values...)
 }
 
-func continueReviewMigrationSeed(t *testing.T) *sql.DB {
+func continueReviewMigrationSeed(t *testing.T, mutations ...func(*WorkerJobRecordedPayload)) *sql.DB {
 	t.Helper()
 	db := openMigratedTo(t, filepath.Join(t.TempDir(), "continue-review.db"), 157)
 	memberMigrationExec(t, db, `INSERT INTO write_guard(active) VALUES(1)`)
@@ -77,10 +77,13 @@ func continueReviewMigrationSeed(t *testing.T) *sql.DB {
 		JobID: "job:continue", Revision: 1, ContractVersion: 1, Objective: "Implement the repair", StoppingCondition: "Repair verified",
 		PathScope: []string{"internal/store"}, PredicateIDs: []string{}, Checks: []string{"go test"}, Prerequisites: []WorkerJobPrerequisite{}, UnresolvedRefs: []string{},
 	}
+	for _, mutate := range mutations {
+		mutate(&job)
+	}
 	job.Digest = DeriveWorkerJobDigest(job)
 	binding := &WorkerJobBinding{JobID: job.JobID, Revision: job.Revision, Digest: job.Digest}
 	memberMigrationExec(t, db, `INSERT INTO worker_job_revisions(work_id,job_id,revision,contract_version,objective,stopping_condition,path_scope,predicate_ids,checks,prerequisites,unresolved_refs,digest,state,recorded_at,satisfied_at,satisfied_result_ref,satisfied_seq,recorded_payload,recorded_seq,recorded_event_id)
-VALUES('continue-work',?,1,1,?,?,'["internal/store"]','[]','["go test"]','[]','[]',?,'satisfied','recorded','accepted','accept',40,?,5,'job-recorded')`, job.JobID, job.Objective, job.StoppingCondition, job.Digest, continueReviewMigrationJSON(t, job))
+VALUES('continue-work',?,?,1,?,?,'["internal/store"]','[]','["go test"]','[]','[]',?,'satisfied','recorded','accepted','accept',40,?,5,'job-recorded')`, job.JobID, job.Revision, job.Objective, job.StoppingCondition, job.Digest, continueReviewMigrationJSON(t, job))
 	auth := workflowActionCompletedPayload{ActionID: "dispatch_worker", StepID: "repair", WorkerAttemptID: "attempt:continue", WorkerCapabilityClass: "review", WorkerJob: binding}
 	dispatch := WorkerDispatchedPayload{AttemptID: "attempt:continue", CapabilityClass: "review", WorkerJob: binding}
 	report := WorkerReviewBlock{Disposition: "continue", InputCandidate: WorkerReviewCandidate{Commit: strings.Repeat("b", 40)}, OutputCandidate: WorkerReviewCandidate{Commit: strings.Repeat("b", 40)}, Dependencies: WorkerReviewDependencies{Criteria: []WorkerReviewCriterion{}, ArchitectureNotApplicable: true}, Assessments: []WorkerReviewAssessment{}, Findings: []WorkerReviewFinding{}, RemainingObligations: []WorkerReviewObligation{}}
@@ -187,8 +190,9 @@ func TestContinueReviewJobMigration158RefusesUnprovedRestoration(t *testing.T) {
 		{"different-report-digest", `UPDATE workflow_review_state SET state=json_set(state,'$.accepted.report_digest','other-digest')`},
 		{"different-report-content", `UPDATE workflow_review_state SET state=json_set(state,'$.accepted.report.remaining_obligations',json('[{"obligation_id":"changed"}]'))`},
 		{"different-accepting-actor", `UPDATE workflow_review_state SET state=json_set(state,'$.accepted.actor_ref','other-main')`},
-		{"ready-review", `UPDATE workflow_review_state SET state=json_set(state,'$.accepted.report.disposition','ready_for_main')`},
-		{"blocking-review", `UPDATE workflow_review_state SET state=json_set(state,'$.accepted.report.disposition','blocked')`},
+		{"ready-review", `UPDATE workflow_review_state SET state=json_set(state,'$.accepted.report.disposition','ready_for_final_proof')`},
+		{"correction-review", `UPDATE workflow_review_state SET state=json_set(state,'$.accepted.report.disposition','correction_required')`},
+		{"revision-review", `UPDATE workflow_review_state SET state=json_set(state,'$.accepted.report.disposition','revision_required')`},
 		{"missing-authorization", `DELETE FROM worker_authorizations`},
 		{"missing-terminal", `UPDATE worker_attempts SET terminal_payload=NULL`},
 		{"missing-dispatch", `UPDATE worker_attempts SET dispatch_payload=NULL`},
@@ -260,7 +264,7 @@ func TestContinueReviewJobMigration158RefusesConflictingBoundPayloads(t *testing
 		{"dispatch-revision", `UPDATE worker_attempts SET dispatch_payload=json_set(dispatch_payload,'$.worker_job.revision',2); SELECT dispatch_payload FROM worker_attempts`, "dispatch"},
 		{"terminal-job", `UPDATE worker_attempts SET terminal_payload=json_set(terminal_payload,'$.worker_job.job_id','job:other'); SELECT terminal_payload FROM worker_attempts`, "terminal"},
 		{"terminal-attempt", `UPDATE worker_attempts SET terminal_payload=json_set(terminal_payload,'$.attempt_id','attempt:other'); SELECT terminal_payload FROM worker_attempts`, "terminal"},
-		{"terminal-disposition", `UPDATE worker_attempts SET terminal_payload=json_set(terminal_payload,'$.review.disposition','ready_for_main'); SELECT terminal_payload FROM worker_attempts`, "terminal"},
+		{"terminal-disposition", `UPDATE worker_attempts SET terminal_payload=json_set(terminal_payload,'$.review.disposition','ready_for_final_proof'); SELECT terminal_payload FROM worker_attempts`, "terminal"},
 		{"acceptance-job", `UPDATE worker_attempt_dispositions SET payload=json_set(payload,'$.worker_job.revision',2),first_acceptance_payload=json_set(first_acceptance_payload,'$.worker_job.revision',2); SELECT payload FROM worker_attempt_dispositions`, "accept"},
 		{"acceptance-delivery", `UPDATE worker_attempt_dispositions SET payload=json_set(payload,'$.delivery_artifact','synthetic-result'),first_acceptance_payload=json_set(first_acceptance_payload,'$.delivery_artifact','synthetic-result'); SELECT payload FROM worker_attempt_dispositions`, "accept"},
 	} {
@@ -287,4 +291,79 @@ func TestContinueReviewJobMigration158RefusesConflictingBoundPayloads(t *testing
 			}
 		})
 	}
+}
+
+func TestContinueReviewJobMigration158PreservesChecksRepairState(t *testing.T) {
+	db := continueReviewMigrationSeed(t, func(job *WorkerJobRecordedPayload) {
+		job.Revision = 2
+		job.ChecksRepair = &WorkerJobChecksRepair{
+			Reason: "Replace an unavailable check",
+			Revisions: []WorkerJobChecksRepairEntry{{
+				WorkerJob: WorkerJobBinding{JobID: "job:continue", Revision: 1, Digest: "sha256:" + strings.Repeat("d", 64)},
+				Checks:    []string{"unavailable-check"},
+			}},
+		}
+	})
+	memberMigrationExec(t, db, `DELETE FROM write_guard`)
+	before := continueReviewMigrationSnapshot(t, db, true)
+	if err := Migrate(t.Context(), db); err != nil {
+		t.Fatal(err)
+	}
+	if after := continueReviewMigrationSnapshot(t, db, true); !reflect.DeepEqual(before, after) {
+		t.Fatal("restored a checks repair without reconciling its legacy acceptance and named-revision readiness")
+	}
+}
+
+func TestContinueReviewJobMigration158RestoresProducedFacts(t *testing.T) {
+	const workID = "continue-review-produced-upgrade"
+	f := oSeedReviewRoute(t, workID, "workflow.break_fix", "repair")
+	s := f.store
+	defer s.Close()
+	job := WorkerJobBinding{JobID: "job:upgrade-continue", Revision: 1}
+	recordWorkerJobRevisionForTest(t, s, workID, f.owner, &job)
+	acceptCurrentReviewForBoundJobForTest(t, workContextFixture{store: s, workID: workID, owner: f.owner}, workerFixtureDirectory(t, s, workID), "continue", job)
+	facts, err := readWorkflowReviewFacts(t.Context(), s.db, workID)
+	if err != nil || facts.Accepted == nil {
+		t.Fatalf("accepted Review = %+v, err = %v", facts.Accepted, err)
+	}
+	var acceptance Event
+	acceptance.SubjectID = workID
+	if err := s.db.QueryRow(`SELECT seq,event_id FROM worker_attempt_dispositions WHERE work_id=? AND attempt_id=? AND action_id='accept_worker_result'`, workID, facts.Accepted.AttemptID).Scan(&acceptance.Seq, &acceptance.EventID); err != nil {
+		t.Fatal(err)
+	}
+	// Impose only the pre-upgrade fold's satisfaction on real retained
+	// dispatch, terminal, and acceptance facts. Their payloads stay unchanged.
+	if err := s.Transact(t.Context(), func(tx *Transaction) error {
+		if err := enterWrite(t.Context(), tx.tx); err != nil {
+			return err
+		}
+		if err := markWorkerJobSatisfiedTx(t.Context(), tx.tx, acceptance, &job); err != nil {
+			return err
+		}
+		return leaveWrite(t.Context(), tx.tx)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	before := continueReviewMigrationSnapshot(t, s.db, false)
+	if err := s.Transact(t.Context(), func(tx *Transaction) error {
+		return restoreContinueReviewJobSatisfaction(t.Context(), tx.tx)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if after := continueReviewMigrationSnapshot(t, s.db, false); !reflect.DeepEqual(before, after) {
+		t.Fatal("restoration changed produced facts beyond job satisfaction")
+	}
+	views, err := readWorkerJobRevisions(t.Context(), s.db, workID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, view := range views {
+		if view.Binding == job {
+			if view.State != "recorded" || !view.Ready || view.SatisfiedResultRef != "" {
+				t.Fatalf("produced facts did not restore the held job: %+v", view)
+			}
+			return
+		}
+	}
+	t.Fatal("produced job disappeared during restoration")
 }

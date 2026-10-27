@@ -910,14 +910,11 @@ func guardDeliveryAdmission(g *workflowActionGuardContext) error {
 		}
 		projected := *state
 		projected.Delivery = delivery
-		auth, result, err := readReviewAttempt(g.ctx, g.tx, g.request.WorkID, workflowFieldStringDefault(fields, "attempt_id", ""))
-		if err != nil {
-			return err
-		}
-		if workerReviewContinuesJob(auth, result) {
-			accepting = nil
-		}
 		if state.Review != nil {
+			auth, result, err := readReviewAttempt(g.ctx, g.tx, g.request.WorkID, workflowFieldStringDefault(fields, "attempt_id", ""))
+			if err != nil {
+				return err
+			}
 			review, err := projectWorkflowReviewAcceptance(g.ctx, g.tx, g.request.WorkID, *state.Review, auth, result, g.actorRef)
 			if err != nil {
 				return err

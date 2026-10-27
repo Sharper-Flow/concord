@@ -14,6 +14,22 @@
     },
     {
       "kind": "go_test",
+      "value": "internal/store.TestContinueReviewJobMigration158RestoresProducedFacts"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestContinueReviewJobMigration158PreservesChecksRepairState"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestReviewAcceptancePreservesContinueJobReadiness"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestContinueReviewPreservesCorrectiveJobDebt"
+    },
+    {
+      "kind": "go_test",
       "value": "internal/store.TestOwnerOracleGraph"
     },
     {

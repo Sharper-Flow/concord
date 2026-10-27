@@ -12,6 +12,7 @@ package store
 // Store.DB accessor is forbidden so the handle has no production escape hatch.
 // Production SQLite result constants belong to internal/store/internal/sqlitedb,
 // not to its domain-facing callers inside or outside internal/store.
+// Installation-key SQL also stays in sqlitedb; schema DDL and test support remain allowed.
 
 import (
 	"go/ast"
@@ -132,6 +133,14 @@ func scanBoundaryFiles(files map[string]string, tables map[string]bool) []bounda
 			}
 		}
 		if scope == boundaryScopeStore {
+			if !strings.HasPrefix(path, "internal/store/internal/sqlitedb/") {
+				ast.Inspect(file, func(n ast.Node) bool {
+					if lit, ok := n.(*ast.BasicLit); ok && lit.Kind == token.STRING {
+						findings = append(findings, scanSQLLiteral(path, lit, fset, map[string]bool{"agent_installation_keys": true})...)
+					}
+					return true
+				})
+			}
 			findings = append(findings, scanStoreAccessor(path, file, fset)...)
 			continue
 		}
@@ -474,6 +483,33 @@ func TestStoreBoundaryFixtureViolations(t *testing.T) {
 		{
 			name:  "store-owned code is allowed",
 			files: map[string]string{"internal/store/owned.go": "package store\nimport \"database/sql\"\nfunc owned(db *sql.DB) { db.BeginTx(nil, nil); _ = db.Query(`SELECT id FROM widgets`) }\n"},
+			count: 0,
+		},
+		{
+			name:     "installation-key queries belong to the durable owner",
+			files:    map[string]string{"internal/store/key.go": "package store\nvar query = `SELECT key_bytes FROM agent_installation_keys`\n"},
+			contains: []string{"literal SQL SELECT targets store table agent_installation_keys"},
+			count:    1,
+		},
+		{
+			name:     "installation-key insert belongs to the durable owner",
+			files:    map[string]string{"internal/store/key.go": "package store\nvar query = `INSERT OR IGNORE INTO agent_installation_keys VALUES('cursor',?,?)`\n"},
+			contains: []string{"literal SQL INSERT targets store table agent_installation_keys"},
+			count:    1,
+		},
+		{
+			name:  "durable owner may read and write installation keys",
+			files: map[string]string{"internal/store/internal/sqlitedb/key.go": "package sqlitedb\nvar query = `SELECT key_bytes FROM agent_installation_keys; INSERT INTO agent_installation_keys VALUES('cursor',?,?)`\n"},
+			count: 0,
+		},
+		{
+			name:  "schema still declares installation keys",
+			files: map[string]string{"internal/store/schema.go": "package store\nvar ddl = `CREATE TABLE agent_installation_keys(key_bytes BLOB)`\n"},
+			count: 0,
+		},
+		{
+			name:  "declared test support may reset installation keys",
+			files: map[string]string{"internal/store/storetest/fixture.go": "package storetest\nvar query = `DELETE FROM agent_installation_keys`\n"},
 			count: 0,
 		},
 		{

@@ -149,6 +149,9 @@ type ContinuitySnapshot struct {
 	// their one confirming review (CD-0205 D4), in packet shape. Only review
 	// capability selects them. They are not ready_worker_jobs.
 	ChecksRepairReviewJobs []WorkerPacketJob `json:"checks_repair_review_jobs,omitempty"`
+	// ReviewWorkerJobs carries the delivery-bound final Review fallback, never
+	// ordinary readiness. Review selects it only without another eligible job.
+	ReviewWorkerJobs []WorkerPacketJob `json:"review_worker_jobs,omitempty"`
 	// LawContext resolves the approved contract's binding law and Domains
 	// against the law_subjects and domains projections at read time. Nil
 	// when the contract binds no law and no Domain.
@@ -631,6 +634,16 @@ func continuityReadReadyWorkerJobsTx(ctx context.Context, tx *sql.Tx, work strin
 				out.ChecksRepairReviewJobs = append(out.ChecksRepairReviewJobs, packetJobFromView(view))
 				break
 			}
+		}
+	}
+	final, err := finalReviewWorkerJobTx(ctx, tx, work)
+	if err != nil || final == nil {
+		return err
+	}
+	for _, view := range views {
+		if view.Binding == *final {
+			out.ReviewWorkerJobs = append(out.ReviewWorkerJobs, packetJobFromView(view))
+			break
 		}
 	}
 	return nil

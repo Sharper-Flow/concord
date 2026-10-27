@@ -81,8 +81,6 @@ func TestWorkerJobCallerRepairAcceptanceThroughAgent(t *testing.T) {
 				t.Fatal(err)
 			}
 			env := mutationEnvelope(grant, scope)
-			recordReadyRetryJob(t, s, service, env, "job:caller-architecture-review")
-			oAgentReview(t, oAgentFixture(t, s, service, env, "work-1"), "continue", false)
 			invoke := func(action, key string, fields map[string]any, caller CallEnvelope) Envelope {
 				t.Helper()
 				caller.RequestID = "request:" + key
@@ -104,6 +102,8 @@ func TestWorkerJobCallerRepairAcceptanceThroughAgent(t *testing.T) {
 			if out := invoke("record_worker_job", "caller-job", fields, env); out.Outcome != OutcomeOK {
 				t.Fatalf("record_worker_job: %+v", out.Error)
 			}
+			// The architecture Review binds the job it permits (CD-0205 D3).
+			oAgentReview(t, oAgentFixture(t, s, service, env, "work-1"), "continue", false)
 			if scenario == "foreign owner" {
 				// Another work item in the same Project holds a path claim
 				// over the caller path the repair changes.

@@ -28,7 +28,7 @@ func TestDerivedWorkerFailureCorrectionKeepsStorableEvidenceRefs(t *testing.T) {
 	// The canonical head derives the workflow failure record from the
 	// attempt's own terminal event (CD-0198 D5); the dispatch that opens the
 	// fenced window is the qualifying public authorization.
-	recordReadyRetryJob(t, s, service, env, "job:prose-evidence")
+	recordReviewedRetryJob(t, s, service, env, "job:prose-evidence")
 	attemptID := "attempt:work-1:prose-evidence"
 	version := workVersion(t, s, "work-1")
 	dispatch := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: retryJSON(map[string]any{

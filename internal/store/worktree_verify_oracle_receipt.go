@@ -284,7 +284,10 @@ func validateNativeOracleHistoryTx(ctx context.Context, q queryer, work string, 
 		return sql.ErrNoRows
 	}
 	bundle, err := nativeBundleForControl(job.AcceptanceOracle, o.ControlID)
-	if err != nil || nativeBundleDigest(bundle) != p.BundleDigest || !slices.Contains(bundle.Control.ReadinessEvidenceRefs, o.PreparationRunRef) {
+	if err != nil || nativeBundleDigest(bundle) != p.BundleDigest {
+		return sql.ErrNoRows
+	}
+	if ref, ok := nativeDispatchPreparationRef(d, bundle, o.PreparationRunRef); !ok || ref != o.PreparationRunRef {
 		return sql.ErrNoRows
 	}
 	return nil

@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"testing"
 	"time"
 )
@@ -50,8 +51,8 @@ func oCompleteOracleFixtureReview(t *testing.T, f oracleRepairFixture, workID, d
 	t.Helper()
 	s := f.store
 	w := workContextFixture{store: s, workID: workID, owner: f.owner}
-	job := reviewSubjectReadyRevision(t, w)
-	attempt := "review:" + job.JobID
+	job := reviewSubjectReviewJob(t, w)
+	attempt := fmt.Sprintf("review:%s:%d", job.JobID, readWorkVersion(t, s, workID))
 	laneDigest := registeredLaneIdentity(t, "review")
 	packet := joinPacketFor(t, s, workID, currentStep(t, s, workID), attempt, "review", laneDigest)
 	packet["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, s, workID, job, "review")

@@ -74,16 +74,17 @@ func make64Hex(t *testing.T) string {
 
 func TestMintedChallengeRefusalCarriesTheTypedSummary(t *testing.T) {
 	t.Parallel()
-	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_transition"})
+	// CD-0243 D2 reserves access grants; D3/D7 retire terminal-only consent.
+	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_relate"})
 	scopeVersion, _, err := s.ScopeVersion(context.Background(), "project-1")
 	if err != nil {
 		t.Fatal(err)
 	}
 	env := mutationEnvelope(grant, scopeVersion)
 	resp, err := Dispatch(context.Background(), s, service, InvokeRequest{
-		Tool:      "concord_work_transition",
-		Operation: "lifecycle",
-		Input:     json.RawMessage(`{"work_id":"work-1","expected_version":2,"target":"completed","reason":"complete","idempotency_key":"cd0037-summary","evidence":[{"kind":"verification","authority":"agent-verifier","locator_kind":"test","locator":"verification-pass"}]}`),
+		Tool:      "concord_work_relate",
+		Operation: "client_policy_grant_request",
+		Input:     json.RawMessage(grantRequestInput("")),
 	}, env)
 	if err != nil {
 		t.Fatal(err)
@@ -98,7 +99,7 @@ func TestMintedChallengeRefusalCarriesTheTypedSummary(t *testing.T) {
 	if summary == nil {
 		t.Fatal("minted challenge refusal carries no typed consequence summary")
 	}
-	if summary.Tool != "concord_work_transition" || summary.Operation != "lifecycle" {
+	if summary.Tool != "concord_work_relate" || summary.Operation != "client_policy_grant_request" || summary.Consequence != "scope" {
 		t.Fatalf("summary identity not from the invocation: %#v", summary)
 	}
 	if _, err := time.Parse(time.RFC3339Nano, summary.ExpiresAt); err != nil {

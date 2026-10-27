@@ -12,7 +12,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sharper-flow/concord/internal/pm1fixture"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -29,8 +28,9 @@ func seedDerivedFailureWorkerForCombinedReject(t *testing.T, s *store.Store, ser
 		t.Fatal(err)
 	}
 	owner := store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}
-	if err := s.Transact(context.Background(), func(tx *store.Transaction) error {
-		return store.InitializeWorkflowTx(context.Background(), tx, store.WorkflowInitializationRequest{WorkID: "work-1", Definition: definition, Actor: owner, Now: fixedTime()})
+	ctx := agentWorkflowSourceProof(t, context.Background(), s, "work-1")
+	if err := s.Transact(ctx, func(tx *store.Transaction) error {
+		return store.InitializeWorkflowTx(ctx, tx, store.WorkflowInitializationRequest{WorkID: "work-1", Definition: definition, Actor: owner, Now: fixedTime()})
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -119,7 +119,7 @@ func recordOversizedWorkContext(t *testing.T, s *store.Store, service *Service, 
 				evidence + ":0", evidence + ":1", evidence + ":2", evidence + ":3",
 				evidence + ":4", evidence + ":5", evidence + ":6", evidence + ":7",
 			},
-			"domain_id":              pm1fixture.FixtureRootDomainID,
+			"domain_id":              workflowArchitectureBindingForSeededRegistry(t, s)["home_domain_id"],
 			"product_wide_rationale": "the fixture root domain carries every combined-reject finding",
 		})
 	}
@@ -319,7 +319,7 @@ func recordSelectedResearchContextForCombinedReject(t *testing.T, s *store.Store
 			"required_reading": []any{}, "finding_refs": []any{}, "context_findings": []any{},
 			"research_finding_refs": []map[string]any{{
 				"pack_id": packID, "revision": int64(1), "finding_id": "f-" + packID,
-				"domain_id":              pm1fixture.FixtureRootDomainID,
+				"domain_id":              workflowArchitectureBindingForSeededRegistry(t, s)["home_domain_id"],
 				"product_wide_rationale": "the selection governs every Domain of the fixture Product",
 			}},
 		},

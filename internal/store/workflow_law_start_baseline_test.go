@@ -58,8 +58,11 @@ func TestLawChangeUnnamedNewAndRemovedLawsRefuse(t *testing.T) {
 				lawChangeFold(t, s, `DELETE FROM law_subjects WHERE law_id='law-agent'`)
 			}
 			requireFailureKind(t, enactLawChange(t, s, id, nil, nil), KindOutcomeMismatch, "law-free contract changed a source law")
-			_, err := deriveLawChange(t, s, id, lawChangeV1, nil, nil, nil, []string{})
-			requireFailureKind(t, err, KindOutcomeMismatch, "cannot omit a made delta from a successor")
+			change, err := deriveLawChange(t, s, id, lawChangeV1, nil, nil, nil, []string{})
+			if err != nil || change != nil {
+				t.Fatalf("recovery must not adopt an undeclared delta: change=%+v err=%v", change, err)
+			}
+			requireFailureKind(t, enactLawChange(t, s, id, change, nil), KindOutcomeMismatch, "recovery does not exclude an unattributed delta from completion")
 		})
 	}
 }

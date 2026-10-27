@@ -116,7 +116,7 @@ func TestCriterion38RecoveryReevaluationJourney(t *testing.T) {
 	done := f.read(t)
 	if done.Pinned.Pin.Lifecycle != "completed" || *done.Pinned.Pin.Review.Candidate != candidate || len(done.Pinned.Pin.VerifiedCriteria) != 1 ||
 		countRows(t, f.s.DatabaseForTesting(), `SELECT count(*) FROM worker_attempts WHERE capability_class='implementation'`) != attempts ||
-		countWorkflowApprovalChallenges(t, f.s) != challenges+2 || f.proofCommit != candidate.Commit {
+		countWorkflowApprovalChallenges(t, f.s) != challenges || f.proofCommit != candidate.Commit {
 		t.Fatal("re-evaluation required no-op production, discarded proof, or introduced unrelated approval")
 	}
 }

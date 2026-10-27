@@ -534,7 +534,7 @@ func validateRemovalGatesQ(ctx context.Context, q queryer, req WorkRemovalReques
 			return newFailure(KindInvalidRelation, "work_removal", "Linear confirmation names a different Product", false, "confirm the configured Product destination")
 		}
 	}
-	return nil
+	return requireReleasedWorkflowLawEnactmentQ(ctx, q, req.WorkID, "work_removal")
 }
 
 func foldWorkRemoved(ctx context.Context, tx *sql.Tx, event Event) error {
@@ -592,6 +592,9 @@ func foldWorkRemoved(ctx context.Context, tx *sql.Tx, event Event) error {
 }
 
 func deleteWorkOwnedProjections(ctx context.Context, tx *sql.Tx, workID string) error {
+	if err := requireReleasedWorkflowLawEnactmentQ(ctx, tx, workID, "work_removal"); err != nil {
+		return err
+	}
 	// This order follows the FK graph. The table names are closed source-owned
 	// identifiers, not caller input. Shared Product, Project, actor, and law
 	// rows have no work-item ownership predicate and remain untouched.

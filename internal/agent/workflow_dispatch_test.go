@@ -377,6 +377,7 @@ func committedWorkflowReplay(t *testing.T) (runtime, Authority, json.RawMessage,
 	if err != nil {
 		t.Fatal(err)
 	}
+	ctx = agentWorkflowSourceProof(t, ctx, s, "work-1")
 	if err := s.Transact(ctx, func(tx *store.Transaction) error {
 		return store.InitializeWorkflowTx(ctx, tx, store.WorkflowInitializationRequest{WorkID: "work-1", Definition: definition, Actor: store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}, Now: fixedTime()})
 	}); err != nil {

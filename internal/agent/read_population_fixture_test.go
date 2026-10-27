@@ -318,6 +318,7 @@ func (fx readPopulationFixture) seedFocusWorkflow(t *testing.T) {
 		t.Fatal(err)
 	}
 	actor := store.WorkflowActor{PrincipalRef: "human-1", ClientRef: "client-1", AgentRef: "agent-1", SessionRef: "session-population", ActorClass: store.ActorAgent}
+	ctx = agentWorkflowSourceProof(t, ctx, fx.store, fx.workID)
 	if err := fx.store.Transact(ctx, func(tx *store.Transaction) error {
 		return store.InitializeWorkflowTx(ctx, tx, store.WorkflowInitializationRequest{
 			WorkID: fx.workID, Definition: registered, Actor: actor, Now: fixedTime(),

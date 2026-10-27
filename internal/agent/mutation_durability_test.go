@@ -200,7 +200,10 @@ func TestMutationDurabilityDeclarations(t *testing.T) {
 func TestMutationDurabilityConditionalPlans(t *testing.T) {
 	t.Parallel()
 
-	r := runtime{}
+	// Terminal overlap planning reads the captured governing requirements;
+	// use the real canonical-source fixture rather than an absent store.
+	s, _, _, _ := routineCoordinationFixture(t)
+	r := runtime{Store: s}
 	envelope := CallEnvelope{SelectedProductID: "product-1", AmbientProjectID: "project-1", ScopeVersion: "scope-version-1"}
 	digest := "sha256:" + strings.Repeat("b", 64)
 	registeredOp := func(t *testing.T, tool, operation string) ContractOperation {
@@ -290,7 +293,7 @@ func TestMutationDurabilityConditionalPlans(t *testing.T) {
 	} {
 		raw, err := json.Marshal(map[string]any{
 			"from_work_id": "work-1", "to_work_id": "work-2",
-			"from_expected_version": 2, "to_expected_version": 3,
+			"from_expected_version": workVersion(t, s, "work-1"), "to_expected_version": workVersion(t, s, "work-2"),
 			"from_contract_version": 1, "to_contract_version": 1,
 			"resolution_kind": tc.kind, "reason": "durability plan witness",
 			"idempotency_key": "durability-plan-overlap-" + tc.name,
@@ -315,7 +318,7 @@ func TestMutationDurabilityConditionalPlans(t *testing.T) {
 	// An explicitly supplied claim is still validated, without changing durability.
 	approvedOverlapRaw, err := json.Marshal(map[string]any{
 		"from_work_id": "work-1", "to_work_id": "work-2",
-		"from_expected_version": 2, "to_expected_version": 3,
+		"from_expected_version": workVersion(t, s, "work-1"), "to_expected_version": workVersion(t, s, "work-2"),
 		"from_contract_version": 1, "to_contract_version": 1,
 		"resolution_kind": "merged_into", "reason": "durability plan witness",
 		"idempotency_key": "durability-plan-overlap-approved",
@@ -389,13 +392,29 @@ func TestMutationDurabilityStoreBoundPlannerFacts(t *testing.T) {
 	t.Run("worktree_destroy non-terminal", func(t *testing.T) {
 		t.Parallel()
 		s, service, grant, _, _, _ := tiersFixture(t)
+		// CD-0243 D7 retains occupancy admission, not nonterminal consent.
 		before := s.DurableCommits()
-		refused := authorityInvoke(t, s, service, grant, "concord_work_transition", "worktree_destroy", map[string]any{"work_id": "work-1", "expected_version": 3, "default_ref": "main", "idempotency_key": "durability-destroy-1"})
-		if refused.Error == nil || refused.Error.Kind != "approval_required" {
-			t.Fatalf("non-terminal destroy minted no challenge: outcome=%s err=%+v", refused.Outcome, refused.Error)
+		occupied := authorityInvoke(t, s, service, grant, "concord_work_transition", "worktree_destroy", map[string]any{"work_id": "work-1", "expected_version": 3, "default_ref": "main", "idempotency_key": "durability-destroy-occupied"})
+		if occupied.Error == nil || occupied.Error.Kind != "approval_required" || occupied.Error.ConsequenceSummary == nil {
+			t.Fatalf("recorded occupancy destroy = %+v, want exact waiver challenge", occupied.Error)
 		}
 		if after := s.DurableCommits(); after != before+1 {
-			t.Fatalf("non-terminal destroy challenge moved the durable counter %d -> %d, want +1", before, after)
+			t.Fatalf("occupancy-waiver challenge moved durable counter %d -> %d, want +1", before, after)
+		}
+		challenges := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM agent_approval_challenges`)
+		if lifecycle, version := readWorkFromStore(t, s, "work-1"); lifecycle != "needed" || version != 3 {
+			t.Fatalf("waiver challenge changed work to %s v%d", lifecycle, version)
+		}
+		vacateLinkedWorktree(t, s, service, grant, filepath.Join(filepath.Dir(s.Path()), "worktrees", "project-1", "work-1"), "durability-nonterminal-vacate")
+		removed := authorityInvoke(t, s, service, grant, "concord_work_transition", "worktree_destroy", map[string]any{"work_id": "work-1", "expected_version": 3, "default_ref": "main", "idempotency_key": "durability-destroy-1"})
+		if removed.Outcome != OutcomeOK {
+			t.Fatalf("clean unoccupied non-terminal destroy = %+v", removed.Error)
+		}
+		if lifecycle, version := readWorkFromStore(t, s, "work-1"); lifecycle != "needed" || version != 4 {
+			t.Fatalf("nonterminal removal changed disposition or lost version: %s v%d", lifecycle, version)
+		}
+		if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM agent_approval_challenges`); got != challenges {
+			t.Fatalf("ordinary non-terminal destroy minted %d challenges", got-challenges)
 		}
 	})
 	t.Run("worktree_destroy destructive", func(t *testing.T) {

@@ -30,12 +30,13 @@ func TestWorktreeVerifyNewRequestRunsAgain(t *testing.T) {
 			// correction obtains a fresh refine epoch on the second leg.
 			pinned := legacyApprovalPolicyDefinitionForRef(t)
 			grantActor := store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}
-			if err := s.Transact(context.Background(), func(tx *store.Transaction) error {
-				return store.InitializeWorkflowTx(context.Background(), tx, store.WorkflowInitializationRequest{WorkID: "work-2", Definition: pinned, Actor: grantActor, Now: fixedTime()})
+			seedCurrentWorkflowDomainOnce(t, s)
+			ctx := agentWorkflowSourceProof(t, context.Background(), s, "work-2")
+			if err := s.Transact(ctx, func(tx *store.Transaction) error {
+				return store.InitializeWorkflowTx(ctx, tx, store.WorkflowInitializationRequest{WorkID: "work-2", Definition: pinned, Actor: grantActor, Now: fixedTime()})
 			}); err != nil {
 				t.Fatal(err)
 			}
-			seedCurrentWorkflowDomainOnce(t, s)
 			approvalStep := ""
 			for _, step := range pinned.Definition.StepGraph.Steps {
 				if slices.Contains(step.Actions, "approve_contract") {
@@ -174,7 +175,7 @@ func verifyIdentityAction(t *testing.T, s *store.Store, action string, fields ma
 		PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: operationID, RequestID: "request:" + operationID,
 		ContractDigest: ManifestDigest, Now: now,
 	}
-	ctx := context.Background()
+	ctx := agentWorkflowSourceProof(t, context.Background(), s, request.WorkID)
 	if store.WorkflowActionRequiresSubjectFreshness(action) {
 		preparation, prepErr := store.PrepareWorkflowAcceptanceFreshness(ctx, s, store.PrepareWorkerDispatchRequest{WorkID: request.WorkID})
 		if prepErr != nil {

@@ -124,8 +124,7 @@ func TestLawProofStandaloneHomeKeepsLegacyRead(t *testing.T) {
 // turn a resume into ordinary completion evidence.
 func TestLawBaselineMissingCurrentPinKeepsOutsideRepairRoute(t *testing.T) {
 	const id = "pre-baseline-current-pin"
-	s := openTemp(t)
-	seedOutsideRepairTestWork(t, s, id)
+	s, _ := lawUpgradePrefixForDefinition(t, id, "proposal", 0, 0, "workflow.implementation")
 	if _, err := ReadWorkPin(t.Context(), s, id); err != nil {
 		t.Fatal(err)
 	}

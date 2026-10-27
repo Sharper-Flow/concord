@@ -14,8 +14,9 @@ import (
 )
 
 // A publication interrupted after its committed proof leaves a pending claim.
-// Taking over that claim requires an issued approval and fences the old owner.
-func TestCompactionTakeoverOfStuckClaimRequiresApproval(t *testing.T) {
+// CD-0243 D3/D7 retire ordinary takeover consent, not exact publication proof
+// or the epoch fence that prevents the old owner from completing.
+func TestCompactionTakeoverOfStuckClaimNeedsNoConsent(t *testing.T) {
 	t.Parallel()
 	s, service, grant, privateKey, home := agentJobsCompactionFixture(t)
 	const key = "compaction-takeover"
@@ -58,30 +59,49 @@ func TestCompactionTakeoverOfStuckClaimRequiresApproval(t *testing.T) {
 		t.Fatalf("claims after the interrupted publication = %v, want %v", epochs, stuckClaim)
 	}
 
-	unapproved := newCancelledNotePublication(t, s, grant, home, key)
-	response := dispatchMutation(t, s, service, unapproved.request(), unapproved.env)
-	_, epochs = claims()
-	if response.Outcome != OutcomeError || response.Error == nil || response.Error.Kind != "approval_required" || !slices.Equal(epochs, stuckClaim) {
-		t.Fatalf("unapproved takeover response=%+v claims=%v, want approval_required and unchanged claim", response, epochs)
+	// The durable intent still binds the deterministic publication home.
+	wrongHome := newCancelledNotePublication(t, s, grant, home, key+"-wrong-home")
+	var altered map[string]any
+	if err := json.Unmarshal(wrongHome.input, &altered); err != nil {
+		t.Fatal(err)
 	}
-
-	// The boundary refuses a reference it never issued. Only the refusal and
-	// the unchanged claim are asserted: the error kind it returns today is not
-	// the contracted approval_invalid.
-	forged := newCancelledNotePublication(t, s, grant, home, key+"-unissued")
-	request, env := forged.approvedBy(t, privateKey, strings.Repeat("ab", 32))
-	if refused := dispatchMutation(t, s, service, request, env); refused.Outcome != OutcomeError {
-		t.Fatalf("unissued approval reference outcome=%s, want error", refused.Outcome)
+	altered["home_locator_id"] = "unselected-home"
+	wrongHome.input = mustJSON(t, altered)
+	if refused := dispatchMutation(t, s, service, wrongHome.request(), wrongHome.env); refused.Error == nil || refused.Error.Kind != "ambiguous_scope" {
+		t.Fatalf("wrong publication home = %+v, want ambiguous_scope", refused.Error)
 	}
 	if _, epochs = claims(); !slices.Equal(epochs, stuckClaim) {
-		t.Fatalf("claims after an unissued approval reference = %v, want %v", epochs, stuckClaim)
+		t.Fatalf("wrong home changed claims = %v, want %v", epochs, stuckClaim)
 	}
 
-	if approved := publishCancelledNoteWithKey(t, s, service, grant, privateKey, home, key+"-approved"); approved.Outcome != OutcomeOK {
-		t.Fatalf("approved takeover outcome=%s error=%+v", approved.Outcome, approved.Error)
+	publication := newCancelledNotePublication(t, s, grant, home, key)
+	if response := dispatchMutation(t, s, service, publication.request(), publication.env); response.Outcome != OutcomeOK {
+		t.Fatalf("consent-free takeover outcome=%s error=%+v", response.Outcome, response.Error)
 	}
 	if _, epochs = claims(); !slices.Equal(epochs, []string{"1:pending", "2:completed"}) {
-		t.Fatalf("claims after the approved takeover = %v, want [1:pending 2:completed]", epochs)
+		t.Fatalf("claims after takeover = %v, want [1:pending 2:completed]", epochs)
+	}
+	if replay := dispatchMutation(t, s, service, publication.request(), publication.env); replay.Outcome != OutcomeOK || !replay.Replayed {
+		t.Fatalf("takeover replay = %+v", replay)
+	}
+	if _, epochs = claims(); !slices.Equal(epochs, []string{"1:pending", "2:completed"}) {
+		t.Fatalf("replay changed claims: %v", epochs)
+	}
+	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM agent_approval_challenges`); got != 0 {
+		t.Fatalf("ordinary publication minted %d challenges", got)
+	}
+	locator, commit, found := archivedWorkLocator(t, s)
+	if !found || archivedCancelledWorkCount(t, s) != 1 {
+		t.Fatal("takeover did not retain exactly one canonical note")
+	}
+	var intended struct {
+		ContentDigest string `json:"content_digest"`
+	}
+	if err := json.Unmarshal(publication.input, &intended); err != nil {
+		t.Fatal(err)
+	}
+	if proof, err := store.VerifyCommittedNote(context.Background(), home.RepoPath, commit, locator, intended.ContentDigest); err != nil || proof.ID != "work-cancelled" {
+		t.Fatalf("takeover lacks exact committed note proof: %+v err=%v", proof, err)
 	}
 	_, staleErr := store.CompleteStep(context.Background(), s, store.CompleteRequest{OpID: opID, AttemptEpoch: 1, ResultKind: store.ResultCompleted, PrincipalRef: grant.PrincipalRef, Tool: "concord_work_compact", IdempotencyKey: key + "-late", RequestID: key + "-late", ObservedAt: fixedTime()})
 	var failure *store.Failure

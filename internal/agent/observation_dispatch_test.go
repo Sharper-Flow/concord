@@ -57,14 +57,13 @@ func TestObservationRecordDispatchContinuityAndNonAuthority(t *testing.T) {
 		t.Fatalf("observations at resume=%+v", snapshot.Observations)
 	}
 
-	// Non-authority: an observation does not soften the terminal transition's
-	// approval requirement, and no workflow gate reads it. Post-D3 the
-	// refusal surfaces as missing_evidence (the agent must supply the
-	// verification evidence before the approval challenge can even be
-	// minted); this is strictly stronger than the pre-fix approval-only
-	// gate because the missing-evidence recovery_action=provide_evidence
-	// names the exact next step the agent must take.
-	terminalInput, _ := json.Marshal(map[string]any{"work_id": "work-holder", "expected_version": 3, "target": "completed", "reason": "observed and delivered", "idempotency_key": "obs-terminal"})
+	// CD-0243 D3/D7 retire terminal consent. An observation still cannot
+	// substitute for verification evidence. Initialization records two events.
+	_, version := readWorkFromStore(t, s, "work-holder")
+	if version != 4 {
+		t.Fatalf("initialized work version = %d, want 4", version)
+	}
+	terminalInput, _ := json.Marshal(map[string]any{"work_id": "work-holder", "expected_version": version, "target": "completed", "reason": "observed and delivered", "idempotency_key": "obs-terminal"})
 	response, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "lifecycle", Input: terminalInput}, mutationEnvelope(grant, scopeVersion))
 	if err != nil {
 		t.Fatal(err)
@@ -72,16 +71,22 @@ func TestObservationRecordDispatchContinuityAndNonAuthority(t *testing.T) {
 	if response.Outcome != OutcomeError || response.Error == nil || response.Error.Kind != "missing_evidence" {
 		t.Fatalf("observation must not substitute for terminal evidence: %+v", response.Error)
 	}
-	// Supplying evidence proves the observation buys no approval either, so
-	// the approval gate remains asserted here and not merely the evidence one.
-	obsWithEvidence, _ := json.Marshal(map[string]any{"work_id": "work-holder", "expected_version": 3, "target": "completed", "reason": "observed and delivered", "idempotency_key": "obs-terminal-evidence",
+	obsWithEvidence, _ := json.Marshal(map[string]any{"work_id": "work-holder", "expected_version": version, "target": "completed", "reason": "observed and delivered", "idempotency_key": "obs-terminal-evidence",
 		"evidence": []map[string]any{{"kind": "verification", "authority": "native_run", "locator_kind": "run_ref", "locator": "observation-verification"}}})
-	obsApprovalGated, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "lifecycle", Input: obsWithEvidence}, mutationEnvelope(grant, scopeVersion))
+	workflowGated, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "lifecycle", Input: obsWithEvidence}, mutationEnvelope(grant, scopeVersion))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if obsApprovalGated.Outcome != OutcomeError || obsApprovalGated.Error == nil || obsApprovalGated.Error.Kind != "approval_required" {
-		t.Fatalf("observation must not substitute for approval: %+v", obsApprovalGated.Error)
+	// D7 retains workflow admission: evidence alone cannot finish a planned
+	// workflow, and neither refusal may change its version or disposition.
+	if workflowGated.Outcome != OutcomeError || workflowGated.Error == nil || workflowGated.Error.Kind != "not_terminal" {
+		t.Fatalf("observation must not substitute for workflow completion: %+v", workflowGated.Error)
+	}
+	if lifecycle, got := readWorkFromStore(t, s, "work-holder"); lifecycle != "needed" || got != version {
+		t.Fatalf("refused completion changed work = %s v%d, want needed v%d", lifecycle, got, version)
+	}
+	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM agent_approval_challenges`); got != 0 {
+		t.Fatalf("ordinary completion minted %d challenges", got)
 	}
 
 	// Replay is idempotent.

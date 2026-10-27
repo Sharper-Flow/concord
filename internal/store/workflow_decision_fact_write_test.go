@@ -1727,7 +1727,10 @@ func factWritePayloadMember(t *testing.T, raw string) (member string, present bo
 // any store-backed assertion, because the store pools one connection.
 func factWriteConstructInitialContract(t *testing.T, s *Store, definition WorkflowDefinition, workID, ownerRef string, fields map[string]json.RawMessage, expected int64) ([]Event, error) {
 	t.Helper()
-	ctx := context.Background()
+	ctx, err := s.EstablishKnowledgeSourceSetProof(t.Context(), workID)
+	if err != nil {
+		return nil, err
+	}
 	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -1747,7 +1750,10 @@ func factWriteConstructInitialContract(t *testing.T, s *Store, definition Workfl
 // any store-backed assertion, because the store pools one connection.
 func factWriteConstructSuccessorContract(t *testing.T, s *Store, definition WorkflowDefinition, workID, ownerRef string, raw json.RawMessage, fields map[string]json.RawMessage, expected int64) ([]Event, error) {
 	t.Helper()
-	ctx := context.Background()
+	ctx, err := s.EstablishKnowledgeSourceSetProof(t.Context(), workID)
+	if err != nil {
+		return nil, err
+	}
 	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
 	if err != nil {
 		t.Fatal(err)

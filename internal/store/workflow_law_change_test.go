@@ -295,7 +295,10 @@ func TestLawChangeCurrentScopeAndLiveTampering(t *testing.T) {
 	tx := lawChangeTx(t, s)
 	err = validateLiveWorkflowLawChangeTx(ctx, tx, workID, workflowContractApprovedPayload{DecisionDomains: []string{}, LawChange: change, LawModifies: []string{"law-agent"}})
 	_ = tx.Rollback()
-	requireFailureKind(t, err, KindOutcomeMismatch, "stale scope fact")
+	if err != nil {
+		t.Fatalf("unattributed delta must not obstruct contract recovery: %v", err)
+	}
+	requireFailureKind(t, enactLawChange(t, s, workID, change, nil), KindOutcomeMismatch, "live recovery does not exclude the unnamed law")
 	change, err = deriveLawChange(t, s, workID, lawChangeV1, lawChangeFields(t, map[string]any{workflowLawChangeReasonField: "revise"}), []string{"law-agent", "law-other"}, nil, []string{})
 	if err != nil {
 		t.Fatal(err)
@@ -425,8 +428,11 @@ func TestLawChangeSuccessorKeepsOwningStart(t *testing.T) {
 	}
 	editLawChangeLaw(t, s, "law-other")
 	requireFailureKind(t, enactLawChange(t, s, id, narrow, nil), KindOutcomeMismatch, "dropped unchanged law changed later")
-	_, err = deriveLawChange(t, s, id, lawChangeV1, fields, []string{"law-agent"}, nil, []string{})
-	requireFailureKind(t, err, KindOutcomeMismatch, "successor cannot drop an enacted law delta")
+	recovered, err := deriveLawChange(t, s, id, lawChangeV1, fields, []string{"law-agent"}, nil, []string{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	requireFailureKind(t, enactLawChange(t, s, id, recovered, nil), KindOutcomeMismatch, "recovery cannot hide a delta without recorded ownership")
 }
 
 var lawChangeConstructorActor = WorkflowActor{PrincipalRef: "principal:law", ClientRef: "client:law", AgentRef: "agent:law", SessionRef: "session:law", ActorClass: ActorAgent}
@@ -544,6 +550,67 @@ func constructLawChangeContract(t *testing.T, s *Store, definition WorkflowDefin
 }
 
 func TestLawChangeThroughTheRealConstructors(t *testing.T) {
+	t.Run("unattributed deletion and registry edit allow recovery not completion", func(t *testing.T) {
+		const id = "law-real-foreign-recovery"
+		s := seedLawChangeFixture(t, id)
+		seedLawChangeLaw(t, s, "law-foreign", "derived", "agent-surface")
+		d, r, o := lawChangeConstructorItem(t, s, id, true)
+		constructLawChangeContract(t, s, d, r, id, o, lawChangeConstructorFields(t, s, 1, []string{}, []string{}))
+		lawChangeFold(t, s, `DELETE FROM law_domain_homes WHERE law_id='law-foreign'`)
+		lawChangeFold(t, s, `DELETE FROM law_subjects WHERE law_id='law-foreign'`)
+		lawChangeFold(t, s, `UPDATE domains SET purpose='foreign edit' WHERE domain_id='workflow-engine'`)
+		change, binding := constructLawChangeContract(t, s, d, r, id, o, lawChangeConstructorFields(t, s, 2, []string{}, []string{}))
+		if change != nil {
+			t.Fatalf("recovery adopted foreign changes: %+v", change)
+		}
+		requireFailureKind(t, enactLawChange(t, s, id, change, binding), KindOutcomeMismatch, "unattributed deletion still blocks completion with nil law change")
+		seedLawChangeLaw(t, s, "law-foreign", "derived", "agent-surface")
+		requireFailureKind(t, enactLawChange(t, s, id, change, binding), KindOutcomeMismatch, "unattributed registry edit still blocks completion")
+	})
+	t.Run("successors retain enacted own scope across narrowing", func(t *testing.T) {
+		const id = "law-real-own-recovery"
+		s := seedLawChangeFixture(t, id)
+		seedLawChangeLaw(t, s, "law-agent", "derived", "agent-surface")
+		d, r, o := lawChangeConstructorItem(t, s, id, true)
+		v1, _ := constructLawChangeContract(t, s, d, r, id, o, lawChangeConstructorFields(t, s, 1, []string{"law-agent"}, []string{"agent-surface"}))
+		editLawChangeLaw(t, s, "law-agent")
+		lawChangeFold(t, s, `UPDATE domains SET purpose='own edit' WHERE domain_id='agent-surface'`)
+		for _, version := range []int{2, 3} {
+			fields := lawChangeConstructorFields(t, s, version, []string{}, []string{})
+			fields[workflowLawChangeReasonField] = mustJSONValue("retain already enacted own changes")
+			change, binding := constructLawChangeContract(t, s, d, r, id, o, fields)
+			if change == nil || !slices.Equal(change.LawIDs, v1.LawIDs) || !reflect.DeepEqual(change.LawBefore, v1.LawBefore) || !reflect.DeepEqual(change.RegistryBefore, v1.RegistryBefore) || !change.EditsRegistry {
+				t.Fatalf("successor erased own changes or original state: %+v", change)
+			}
+			requireFailureKind(t, enactLawChange(t, s, id, change, binding), KindOutcomeMismatch, "retained registry fact cannot replace typed registry scope")
+		}
+	})
+	t.Run("earlier own scope survives an unchanged intermediate successor", func(t *testing.T) {
+		const id = "law-real-historic-scope"
+		s := seedLawChangeFixture(t, id)
+		seedLawChangeLaw(t, s, "law-agent", "derived", "agent-surface")
+		d, r, o := lawChangeConstructorItem(t, s, id, true)
+		v1, _ := constructLawChangeContract(t, s, d, r, id, o, lawChangeConstructorFields(t, s, 1, []string{"law-agent"}, []string{}))
+		v2, _ := constructLawChangeContract(t, s, d, r, id, o, lawChangeConstructorFields(t, s, 2, []string{}, []string{}))
+		if v2 != nil {
+			t.Fatalf("unchanged law cannot force cumulative scope: %+v", v2)
+		}
+		editLawChangeLaw(t, s, "law-agent")
+		fields := lawChangeConstructorFields(t, s, 3, []string{}, []string{})
+		_, err := deriveLawChange(t, s, id, d, fields, nil, nil, []string{})
+		requireFailureKind(t, err, KindInvalidPayload, "retained own delta still requires a reason")
+		fields[workflowLawChangeReasonField] = mustJSONValue("retain the already approved own change")
+		v3, binding := constructLawChangeContract(t, s, d, r, id, o, fields)
+		if v3 == nil || !slices.Equal(v3.LawIDs, v1.LawIDs) || !reflect.DeepEqual(v3.LawBefore, v1.LawBefore) {
+			t.Fatalf("intermediate successor erased own scope: %+v", v3)
+		}
+		if err := enactLawChange(t, s, id, v3, binding); err != nil {
+			t.Fatal(err)
+		}
+		fields["decision_domains"] = mustJSONValue([]string{"product"})
+		_, err = deriveLawChange(t, s, id, d, fields, nil, nil, []string{"product"})
+		requireFailureKind(t, err, KindInvalidPayload, "retained own delta still requires exact pins for classified decisions")
+	})
 	t.Run("unchanged registry can drop its declaration", func(t *testing.T) {
 		const id = "law-real-narrow"
 		s, d, r, o := lawChangeConstructorFixture(t, id)

@@ -3,9 +3,48 @@ package store
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"strings"
 	"testing"
 )
+
+func TestWorkRemovalRetainsConsumedLawEnactment(t *testing.T) {
+	s := lawCleanupStore(t)
+	attributionItem(t, s, "cleanup-consumer", []string{}, []string{})
+	lawCleanupProducer(t, s, true)
+	producer := removalTestRequest()
+	producer.WorkID, producer.ExpectedVersion = "cleanup-producer", readWorkVersion(t, s, "cleanup-producer")
+	// Explicit removal cannot remove completed work, even after consumers leave.
+	_, err := s.RemoveWork(t.Context(), producer)
+	assertFailureKind(t, err, KindInvalidOperation)
+	// The deletion owner must also retain the full join if called directly.
+	err = s.Transact(t.Context(), func(tx *Transaction) error {
+		scope, err := beginWrite(t.Context(), tx.tx)
+		if err != nil {
+			return err
+		}
+		defer func() { _ = scope.close(t.Context()) }()
+		if err := deleteWorkOwnedProjections(t.Context(), tx.tx, "cleanup-producer"); err != nil {
+			return err
+		}
+		return errors.New("deletion owner discarded a consumed law enactment")
+	})
+	assertFailureKind(t, err, KindOperationConflict)
+	requireLawCleanupJoin(t, s, 1)
+	requireLawCleanupAttribution(t, s)
+	consumer := removalTestRequest()
+	consumer.OperationID, consumer.IdempotencyKey = "remove-consumer", "remove-consumer-key"
+	consumer.WorkID, consumer.ExpectedVersion = "cleanup-consumer", readWorkVersion(t, s, "cleanup-consumer")
+	if _, err := s.RemoveWork(t.Context(), consumer); err != nil {
+		t.Fatal(err)
+	}
+	_, err = s.RemoveWork(t.Context(), producer)
+	assertFailureKind(t, err, KindInvalidOperation)
+	if err := s.CleanupPublishedTerminalWork(t.Context(), "cleanup-producer"); err != nil {
+		t.Fatal(err)
+	}
+	requireLawCleanupJoin(t, s, 0)
+}
 
 func removalTestRequest() WorkRemovalRequest {
 	return WorkRemovalRequest{
@@ -97,10 +136,20 @@ func TestWorkRemovalRefusesMissingSafetyEvidence(t *testing.T) {
 func TestWorkRemovalCancellationKeepsReasonDistinct(t *testing.T) {
 	s := openTemp(t)
 	seedWork(t, s, "cancelled-removal-work")
+	if err := s.Transact(t.Context(), func(tx *Transaction) error {
+		return InitializeWorkflowTx(t.Context(), tx, WorkflowInitializationRequest{WorkID: "cancelled-removal-work", Definition: mustBuiltinDefinition(t, "workflow.implementation"), Actor: lawChangeConstructorActor})
+	}); err != nil {
+		t.Fatal(err)
+	}
+	var baselines int
+	if err := s.db.QueryRow(`SELECT count(*) FROM workflow_law_baselines WHERE work_id='cancelled-removal-work'`).Scan(&baselines); err != nil || baselines != 1 {
+		t.Fatalf("owning start baseline count=%d: %v", baselines, err)
+	}
 	req := removalTestRequest()
 	req.OperationID = "cancel-op-1"
 	req.IdempotencyKey = "cancel-key-1"
 	req.WorkID = "cancelled-removal-work"
+	req.ExpectedVersion = readWorkVersion(t, s, req.WorkID)
 	req.Reason = "cancelled"
 	receipt, err := s.RemoveWork(context.Background(), req)
 	if err != nil {
@@ -118,6 +167,9 @@ func TestWorkRemovalCancellationKeepsReasonDistinct(t *testing.T) {
 	}
 	if removed != 1 || transitioned != 0 {
 		t.Fatalf("removal events = %d, transition events = %d", removed, transitioned)
+	}
+	if err := s.db.QueryRow(`SELECT count(*) FROM workflow_law_baselines WHERE work_id='cancelled-removal-work'`).Scan(&baselines); err != nil || baselines != 0 {
+		t.Fatalf("removed work retained baseline count=%d: %v", baselines, err)
 	}
 }
 

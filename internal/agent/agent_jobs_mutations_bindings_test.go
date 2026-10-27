@@ -226,14 +226,11 @@ func bindAJ4StartValidWork(t *testing.T, sc jobScenario) jobObservation {
 	return obs
 }
 
-// AJ4-complete-valid-work: complete work-cross with the supplied
-// verification evidence and a signed host-approval assertion. After
-// the D3 repair (terminal lifecycle transitions now mint a real
-// approval challenge when evidence is present), the binding must
-// perform a full approval round-trip.
+// CD-0243 D3/D7 retire terminal-only consent, not verification or replay.
+// AJ4 completes work-cross with verification and no approval challenge.
 func bindAJ4CompleteValidWork(t *testing.T, sc jobScenario) jobObservation {
 	t.Helper()
-	s, service, grant, privateKey, _ := agentJobsMutationPM1Fixture(t)
+	s, service, grant, _, _ := agentJobsMutationPM1Fixture(t)
 	env := agentJobsMutationEnvelope(t, s, grant, "proj-web")
 
 	preLifecycle, preVersion := readWorkFromStore(t, s, "work-cross")
@@ -249,36 +246,7 @@ func bindAJ4CompleteValidWork(t *testing.T, sc jobScenario) jobObservation {
 	idempotencyKey := fmt.Sprintf("complete-cross-%d", preVersion)
 	input := []byte(fmt.Sprintf(`{"work_id":"work-cross","expected_version":%d,"target":"completed","reason":"complete with verification","idempotency_key":"%s","evidence":[{"kind":"verification","authority":"agent-verifier","locator_kind":"test","locator":"verification-pass"}]}`, preVersion, idempotencyKey))
 
-	// First dispatch — surface the approval_required challenge.
-	first := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "lifecycle", Input: input}, env)
-	if first.Error == nil || first.Error.Kind != "approval_required" {
-		t.Fatalf("expected approval_required on first dispatch, got outcome=%s err=%+v", first.Outcome, first.Error)
-	}
-	challengeRef, ok := first.Error.Details["approval_ref"].(string)
-	if !ok || len(challengeRef) != 64 {
-		t.Fatalf("approval challenge missing or malformed: %v", first.Error.Details)
-	}
-
-	// Build the final input with the approval block, compute its
-	// digest, and sign the host-approval assertion. The signed scope
-	// must mirror the challenge scope exactly (mutationDigest strips
-	// approval/idempotency_key before hashing, so the digest is over
-	// the canonical request body).
-	withApproval, err := injectApproval(input, challengeRef)
-	if err != nil {
-		t.Fatalf("inject approval: %v", err)
-	}
-	scope := map[string]any{
-		"product_id":    "prod-alpha",
-		"product_ids":   []string{"prod-alpha"},
-		"project_ids":   []string{"proj-web"},
-		"work_ids":      []string{"work-cross"},
-		"scope_version": env.ScopeVersion,
-	}
-	versions := map[string]any{"work": preVersion}
-	digest := mutationDigest("concord_work_transition", "lifecycle", env, withApproval)
-	env.HostApproval = signedHostApproval(privateKey, challengeRef, digest, scope, versions, env.SessionRef, env.AgentRef, env.Worktree, fixedTime(), nonceForChallenge(challengeRef))
-	approved := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "lifecycle", Input: withApproval}, env)
+	approved := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "lifecycle", Input: input}, env)
 	if approved.Outcome != OutcomeOK {
 		t.Fatalf("approved dispatch failed outcome=%s err=%+v", approved.Outcome, approved.Error)
 	}
@@ -305,15 +273,8 @@ func bindAJ4CompleteValidWork(t *testing.T, sc jobScenario) jobObservation {
 		t.Fatalf("transition_events.0.evidence_refs missing verification-pass: %v", evidenceRefs)
 	}
 
-	// Replay the same idempotency key with the same approval block
-	// (the same challenge is not re-usable, so this binding is
-	// satisfied by a fresh challenge+signature for replay observation).
-	replayInput := withApproval
-	replayChallengeRef := challengeRef
-	replayDigest := mutationDigest("concord_work_transition", "lifecycle", env, replayInput)
-	env.HostApproval = signedHostApproval(privateKey, replayChallengeRef, replayDigest, scope, versions, env.SessionRef, env.AgentRef, env.Worktree, fixedTime(), nonceForChallenge(replayChallengeRef))
-	replay := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "lifecycle", Input: replayInput}, env)
-	if !replay.Replayed {
+	replay := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "lifecycle", Input: input}, env)
+	if !replay.Replayed || replay.Outcome != OutcomeOK {
 		t.Fatalf("replay did not set Replayed=true")
 	}
 	if _, v := readWorkFromStore(t, s, "work-cross"); v != version {
@@ -355,7 +316,10 @@ func bindAJ4CompleteValidWork(t *testing.T, sc jobScenario) jobObservation {
 		"retry_safe_replayed":         true,
 		"atomic_core_effect":          "complete",
 	}
-	obs.Authority["approval_consumed"] = true
+	if countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM agent_approval_challenges`) != 0 || countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM agent_approvals`) != 0 {
+		t.Fatal("ordinary completion minted a challenge or consumed approval")
+	}
+	obs.Authority["approval_consumed"] = false
 	return obs
 }
 
@@ -901,20 +865,21 @@ func TestCaptureAcceptsRequirementFromSiblingProjectOfTheProduct(t *testing.T) {
 }
 
 // TestCaptureAcceptsAcceptedLawID proves the second legitimate referencing
-// surface: an accepted law_subjects id visible for the Product's Projects
-// resolves without being registered as a Project requirement. The law row is
-// seeded without a law_domain_homes row, so the pass-through does not depend
-// on the Domain-home projection existing for the law.
+// surface: an accepted committed law visible for the Product's Projects
+// resolves without being registered as a Project requirement.
 func TestCaptureAcceptsAcceptedLawID(t *testing.T) {
 	t.Parallel()
 	s, service, grant, _, _ := agentJobsMutationPM1Fixture(t)
-	hash := "sha256:" + strings.Repeat("a", 64)
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); INSERT INTO project_locators(locator_id,project_id,kind,locator_value,normalized_value,created_at,updated_at) VALUES('capture-law-locator','proj-web','canonical_path','/fixture/capture-law','/fixture/capture-law','fixture','fixture'); INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('proj-web','capture-law-locator','synthetic-capture-law','decision','accepted','.concord/docs/decisions/synthetic-capture-law.md','Synthetic capture law',?,'test'); DELETE FROM write_guard`, hash); err != nil {
+	home, err := pm1fixture.SeedCommittedProductDomain(context.Background(), s, "prod-alpha", "proj-web", t.TempDir())
+	if err != nil {
 		t.Fatalf("seed accepted law: %v", err)
+	}
+	if err := s.RebuildKnowledgeIndex(context.Background(), home); err != nil {
+		t.Fatal(err)
 	}
 	env := agentJobsMutationEnvelope(t, s, grant, "proj-web")
 
-	input := []byte(`{"title":"Law-bound capture","value_statement":"declaring an accepted law id","kind":"task","project_ids":["proj-web"],"governing_requirements":["synthetic-capture-law"],"idempotency_key":"accepted-law-1"}`)
+	input := []byte(`{"title":"Law-bound capture","value_statement":"declaring an accepted law id","kind":"task","project_ids":["proj-web"],"governing_requirements":["CD-0001"],"idempotency_key":"accepted-law-1"}`)
 	resp := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_define", Operation: "capture", Input: input}, env)
 	if resp.Outcome != OutcomeOK {
 		t.Fatalf("accepted-law capture was refused outcome=%s err=%+v", resp.Outcome, resp.Error)
@@ -1017,25 +982,34 @@ func bindAJ8BudgetRefused(t *testing.T, sc jobScenario) jobObservation {
 // ---------------------------------------------------------------------------
 
 // bindAJ8ApprovalRequired proves the consent prompt is typed and core-derived:
-// a consequential transition the operator has not approved mints a challenge
+// a security decision the operator has not approved mints a challenge
 // and returns the summary derived from that challenge's own facts. The
 // credential rotation never starts, and its absence is probed, not assumed —
 // no effect ran, no transition event exists, and the work version did not
 // move.
 func bindAJ8ApprovalRequired(t *testing.T, sc jobScenario) jobObservation {
 	t.Helper()
-	s, service, grant, _, _ := agentJobsMutationPM1Fixture(t)
-	env := agentJobsMutationEnvelope(t, s, grant, "proj-web")
-
-	workID := "work-ready-high"
-	_, version := readWorkFromStore(t, s, workID)
+	// CD-0243 D3/D7 retire lifecycle-only consent. Declare the actual
+	// security decision instead of inferring authority from its reason text.
+	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_transition"})
+	seedAgentWorkflow(t, s, grant)
+	env := mutationEnvelope(grant, scopeVersionForProject(t, s, "project-1"))
+	workID := "work-1"
+	version := advanceCapturedWorkToContract(t, s, service, env, workID, "aj8-security")
 	key := "aj8-approval-1"
 	if seed, ok := sc.InitialState["idempotency_seed"].(string); ok && seed != "" {
 		key = seed
 	}
 
-	input := []byte(fmt.Sprintf(`{"work_id":%q,"expected_version":%d,"target":"completed","reason":"credential rotation delivered","idempotency_key":"%s","evidence":[{"kind":"verification","authority":"agent-verifier","locator_kind":"test","locator":"verification-pass"}]}`, workID, version, key))
-	resp := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "lifecycle", Input: input}, env)
+	fields := workflowContractFieldsForSeededRegistry(t, s)
+	fields["premise"] = "Rotate the production database credential."
+	fields["decision_domains"] = []string{"security"}
+	input, err := json.Marshal(map[string]any{"work_id": workID, "expected_version": version, "action_id": "approve_contract", "fields": fields, "idempotency_key": key})
+	if err != nil {
+		t.Fatal(err)
+	}
+	before := agentCurrentEffects(t, s)
+	resp := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: input}, env)
 	if resp.Outcome != OutcomeError || resp.Error == nil || resp.Error.Kind != "approval_required" {
 		t.Fatalf("unapproved consequential transition was not an approval refusal outcome=%s err=%+v", resp.Outcome, resp.Error)
 	}
@@ -1043,7 +1017,7 @@ func bindAJ8ApprovalRequired(t *testing.T, sc jobScenario) jobObservation {
 	if summary == nil {
 		t.Fatal("minted challenge refusal carries no typed consequence summary")
 	}
-	if summary.Tool != "concord_work_transition" || summary.Operation != "lifecycle" || summary.Consequence == "" {
+	if summary.Tool != "concord_work_transition" || summary.Operation != "workflow_action" || summary.Consequence == "" {
 		t.Fatalf("summary is not derived from the validated invocation: %#v", summary)
 	}
 	if summary.OperationDigest == "" || len(summary.Scope) == 0 || len(summary.Versions) == 0 || summary.ExpiresAt == "" {
@@ -1058,6 +1032,9 @@ func bindAJ8ApprovalRequired(t *testing.T, sc jobScenario) jobObservation {
 	_, versionAfter := readWorkFromStore(t, s, workID)
 	if versionAfter != version {
 		t.Fatalf("refused transition moved the work version %d -> %d", version, versionAfter)
+	}
+	if agentCurrentEffects(t, s) != before {
+		t.Fatal("security contract refusal changed current effects")
 	}
 	if lifecycle, _ := readWorkFromStore(t, s, workID); lifecycle != "needed" && lifecycle != "in_progress" {
 		t.Fatalf("refused transition changed lifecycle to %q", lifecycle)

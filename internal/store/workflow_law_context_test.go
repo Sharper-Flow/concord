@@ -24,7 +24,7 @@ func workflowLawFixtureRepo(t *testing.T, s *Store) string {
 // seedLawContextFixture initializes one implementation workflow whose approved
 // contract binds spec:one (mandated and modified), law:new (added), and the
 // root and child Domains, with one verification obligation on spec:one.
-func seedLawContextFixture(t *testing.T, s *Store, workID string) {
+func seedLawContextFixture(t *testing.T, s *Store, workID string, beforeStart ...func()) {
 	t.Helper()
 	ctx := context.Background()
 	seedWork(t, s, workID)
@@ -64,6 +64,9 @@ func seedLawContextFixture(t *testing.T, s *Store, workID string) {
 	definition, ok := BuiltinWorkflowRegistry().Current("workflow.implementation")
 	if !ok {
 		t.Fatal("latest implementation definition missing")
+	}
+	for _, setup := range beforeStart {
+		setup()
 	}
 	ctx, err = s.EstablishKnowledgeSourceSetProof(ctx, workID)
 	if err != nil {
@@ -207,14 +210,15 @@ func TestContinuityResolvesMandatedConstitutionLaw(t *testing.T) {
 	ctx := context.Background()
 	s := openTemp(t)
 	workID := "law-context-constitution"
-	seedLawContextFixture(t, s, workID)
-	constitutionHash := "sha256:" + strings.Repeat("c", 64)
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('project','workflow-law-locator','const:one','constitution','accepted','.concord/docs/constitution.md','Synthetic constitution',?,'test'); INSERT INTO law_domain_homes(home_project_id,home_locator_id,law_id,product_id,domain_id,law_content_hash,scanned_commit_oid) VALUES('project','workflow-law-locator','const:one','product','root',?,'test'); DELETE FROM write_guard`, constitutionHash, constitutionHash); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(workflowLawFixtureRepo(t, s), ".concord", "docs", "constitution.md"), []byte("# Synthetic constitution\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	seedLawContextFixture(t, s, workID, func() {
+		constitutionHash := "sha256:" + strings.Repeat("c", 64)
+		if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('project','workflow-law-locator','const:one','constitution','accepted','.concord/docs/constitution.md','Synthetic constitution',?,'test'); INSERT INTO law_domain_homes(home_project_id,home_locator_id,law_id,product_id,domain_id,law_content_hash,scanned_commit_oid) VALUES('project','workflow-law-locator','const:one','product','root',?,'test'); DELETE FROM write_guard`, constitutionHash, constitutionHash); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(workflowLawFixtureRepo(t, s), ".concord", "docs", "constitution.md"), []byte("# Synthetic constitution\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	})
 	binding := WorkflowArchitectureBinding{DomainRegistryContentHash: "sha256:" + strings.Repeat("b", 64), HomeDomainID: "root", AffectedDomainIDs: []string{"root"}, DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{}, VerificationObligations: []WorkflowVerificationObligation{}}
 	approveLawContextContract(t, s, workID, []string{"const:one"}, []string{}, binding)
 	snapshot, err := ReadWorkflowContinuity(ctx, s, ContinuityRequest{Work: workID})

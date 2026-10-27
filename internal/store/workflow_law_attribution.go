@@ -43,8 +43,51 @@ func recordWorkflowLawEnactmentTx(ctx context.Context, tx *sql.Tx, completion Ev
 	return nil
 }
 
+const completedWorkflowLawEnactmentsSQL = ` FROM workflow_law_baselines b JOIN effect_receipts r ON r.effect_seq=b.enactment_effect_seq JOIN workflow_instances i ON i.work_id=b.work_id JOIN work_items w ON w.id=b.work_id WHERE r.kind='workflow.completed' AND r.subject_type='work_item' AND r.subject_id=b.work_id AND i.instance_state='completed' AND w.lifecycle='completed'`
+
+// The attribution reader needs the entire completion join, not only the proof
+// bytes. CD-0217 retention therefore fences deletion of any of its owners while
+// an older, source-matching execution remains an unfinished consumer.
+func requireReleasedWorkflowLawEnactmentQ(ctx context.Context, q queryer, workID, operation string) error {
+	var encoded string
+	var completionSeq int64
+	err := q.QueryRowContext(ctx, `SELECT b.enactment_json,b.enactment_effect_seq`+completedWorkflowLawEnactmentsSQL+` AND b.work_id=?`, workID).Scan(&encoded, &completionSeq)
+	if err == sql.ErrNoRows {
+		return nil
+	}
+	if err != nil {
+		return workflowProjectionError(err, "cannot read retained law enactment")
+	}
+	var proof workflowLawEnactment
+	if err := json.Unmarshal([]byte(encoded), &proof); err != nil {
+		return workflowProjectionError(err, "cannot decode retained law enactment")
+	}
+	rows, err := q.QueryContext(ctx, `SELECT baseline_json FROM workflow_law_baselines WHERE work_id<>? AND start_effect_seq<? AND work_id IN `+terminalCleanupConsumers, workID, completionSeq)
+	if err != nil {
+		return workflowProjectionError(err, "cannot read law enactment consumers")
+	}
+	defer func() { _ = rows.Close() }()
+	for rows.Next() {
+		var raw string
+		if err := rows.Scan(&raw); err != nil {
+			return workflowProjectionError(err, "cannot read law enactment consumer baseline")
+		}
+		var baseline workflowLawBaseline
+		if err := json.Unmarshal([]byte(raw), &baseline); err != nil {
+			return workflowProjectionError(err, "cannot decode law enactment consumer baseline")
+		}
+		if sameWorkflowLawSources(&baseline, &proof.Before) && sameWorkflowLawSources(&baseline, &proof.After) {
+			return newFailure(KindOperationConflict, operation, "another execution consumes the completed law enactment", false, "retain the completion proof until its consumers are terminal, published and settled or removed")
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return workflowProjectionError(err, "cannot finish reading law enactment consumers")
+	}
+	return nil
+}
+
 func applyCompletedWorkflowLawEnactmentsTx(ctx context.Context, q queryer, workID string, startSeq int64, cursor *workflowLawBaseline) error {
-	rows, err := q.QueryContext(ctx, `SELECT b.enactment_json FROM workflow_law_baselines b JOIN effect_receipts r ON r.effect_seq=b.enactment_effect_seq JOIN workflow_instances i ON i.work_id=b.work_id JOIN work_items w ON w.id=b.work_id WHERE b.work_id<>? AND b.enactment_effect_seq>? AND r.kind='workflow.completed' AND r.subject_type='work_item' AND r.subject_id=b.work_id AND i.instance_state='completed' AND w.lifecycle='completed' ORDER BY b.enactment_effect_seq`, workID, startSeq)
+	rows, err := q.QueryContext(ctx, `SELECT b.enactment_json`+completedWorkflowLawEnactmentsSQL+` AND b.work_id<>? AND b.enactment_effect_seq>? ORDER BY b.enactment_effect_seq`, workID, startSeq)
 	if err != nil {
 		return workflowProjectionError(err, "cannot read completed law enactments")
 	}

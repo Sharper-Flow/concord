@@ -131,11 +131,8 @@ func TestResourceClaimGrantsNoAuthority(t *testing.T) {
 	if err != nil || claim.Outcome != OutcomeOK {
 		t.Fatalf("claim=%+v kind=%s msg=%s err=%v", claim, claim.Error.Kind, claim.Error.Message, err)
 	}
-	// A terminal lifecycle transition still demands approval and evidence —
-	// holding a claim changes nothing about authority. Both gates are
-	// asserted: without evidence the refusal is missing_evidence, and with
-	// evidence supplied the claim still buys no approval. Asserting only the
-	// first would leave the approval gate unexercised here.
+	// CD-0243 D3/D7 retire terminal consent, not verification evidence.
+	// Holding a claim cannot substitute for that evidence.
 	terminalInput, _ := json.Marshal(map[string]any{"work_id": "work-holder", "expected_version": 3, "target": "completed", "reason": "done", "idempotency_key": "auth-terminal"})
 	response, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "lifecycle", Input: terminalInput}, mutationEnvelope(grant, scopeVersion))
 	if err != nil {
@@ -146,15 +143,18 @@ func TestResourceClaimGrantsNoAuthority(t *testing.T) {
 	}
 	withEvidence, _ := json.Marshal(map[string]any{"work_id": "work-holder", "expected_version": 3, "target": "completed", "reason": "done", "idempotency_key": "auth-terminal-evidence",
 		"evidence": []map[string]any{{"kind": "verification", "authority": "native_run", "locator_kind": "run_ref", "locator": "claim-holder-verification"}}})
-	approvalGated, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "lifecycle", Input: withEvidence}, mutationEnvelope(grant, scopeVersion))
+	completed, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "lifecycle", Input: withEvidence}, mutationEnvelope(grant, scopeVersion))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if approvalGated.Outcome != OutcomeError || approvalGated.Error == nil || approvalGated.Error.Kind != "approval_required" {
-		t.Fatalf("claim holder must still need approval once evidence is supplied, got %+v", approvalGated.Error)
+	if completed.Outcome != OutcomeOK {
+		t.Fatalf("claim holder with verification evidence must complete without consent, got %+v", completed.Error)
 	}
-	if ref, _ := approvalGated.Error.Details["approval_ref"].(string); len(ref) != 64 {
-		t.Fatalf("approval refusal must carry an actionable approval_ref, got %v", approvalGated.Error.Details["approval_ref"])
+	if lifecycle, version := readWorkFromStore(t, s, "work-holder"); lifecycle != "completed" || version != 4 {
+		t.Fatalf("completed claim holder = %s v%d, want completed v4", lifecycle, version)
+	}
+	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM agent_approval_challenges`); got != 0 {
+		t.Fatalf("ordinary completion minted %d challenges", got)
 	}
 }
 

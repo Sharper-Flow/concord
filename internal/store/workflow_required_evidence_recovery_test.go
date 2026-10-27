@@ -87,6 +87,13 @@ func (f acceptanceRecoveryFixture) actors() (WorkflowActor, WorkflowActor) {
 // run applies one declared action through the real action layer. Engineering
 // confirmation uses Main's choice and the sealed live candidate observation.
 func (f acceptanceRecoveryFixture) run(ctx context.Context, actionID, label string, version int64, payload json.RawMessage, evidenceRefs []string) error {
+	if actionID == "complete" {
+		verified, err := f.store.EstablishKnowledgeSourceSetProof(ctx, f.workID)
+		if err != nil {
+			return err
+		}
+		ctx = verified
+	}
 	if WorkflowActionRequiresSubjectFreshness(actionID) {
 		prepared, err := PrepareWorkflowAcceptanceFreshness(ctx, f.store, PrepareWorkerDispatchRequest{WorkID: f.workID, SessionWorktree: f.repo})
 		if err != nil {

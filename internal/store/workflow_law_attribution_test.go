@@ -47,7 +47,7 @@ func attributionItem(t *testing.T, s *Store, id string, laws, domains []string, 
 	}
 }
 
-func attributionCompletion(t *testing.T, s *Store, id string) Event {
+func attributionCompletion(t *testing.T, s *Store, id string, closureHashes ...string) Event {
 	t.Helper()
 	fixture := workContextFixture{store: s, workID: id, owner: lawChangeConstructorActor}
 	repo, _ := reviewSubjectClaim(t, s, id)
@@ -90,7 +90,11 @@ func attributionCompletion(t *testing.T, s *Store, id string) Event {
 	if err := advanceWorkflowTestInstanceToStep(t.Context(), s, id, "release", owner); err != nil {
 		t.Fatal(err)
 	}
-	bindCompletionClosure(t, s, id, lawChangeConstructorActor)
+	if len(closureHashes) == 0 {
+		bindCompletionClosure(t, s, id, lawChangeConstructorActor)
+	} else if err := closureBind(t, workflowReturnRouteFixture{store: s, owner: lawChangeConstructorActor}, id, "review", closureHashes[0]); err != nil {
+		t.Fatal(err)
+	}
 	v := readWorkVersion(t, s, id)
 	event := workflowEventWithActor("attribution-complete-"+id, WorkflowCompleted, id, owner, map[string]any{
 		"work_id": id, "expected_version": v, "resulting_version": v + 1, "terminal_state": "completed", "final_verdict_kind": "ok", "verdict_actor_ref": owner,

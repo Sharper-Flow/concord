@@ -279,8 +279,9 @@ func bindAJ8HealthFailureRollback(t *testing.T, sc jobScenario) jobObservation {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := s.Transact(context.Background(), func(tx *store.Transaction) error {
-		return store.InitializeWorkflowTx(context.Background(), tx, store.WorkflowInitializationRequest{WorkID: "work-1", Definition: registered, Actor: store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}, Now: fixedTime()})
+	ctx := agentWorkflowSourceProof(t, context.Background(), s, "work-1")
+	if err := s.Transact(ctx, func(tx *store.Transaction) error {
+		return store.InitializeWorkflowTx(ctx, tx, store.WorkflowInitializationRequest{WorkID: "work-1", Definition: registered, Actor: store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}, Now: fixedTime()})
 	}); err != nil {
 		t.Fatalf("initialize the instance: %v", err)
 	}

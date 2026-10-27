@@ -13,9 +13,25 @@ import (
 
 func seedCurrentWorkflowDomainFixture(t *testing.T, s *store.Store) {
 	t.Helper()
-	if err := pm1fixture.SeedCurrentProductDomain(context.Background(), s, "product-1", "project-1", t.TempDir()); err != nil {
-		t.Fatalf("pm1fixture.SeedCurrentProductDomain: %v", err)
+	ctx := context.Background()
+	home, err := pm1fixture.SeedCommittedProductDomain(ctx, s, "product-1", "project-1", t.TempDir())
+	if err != nil {
+		t.Fatalf("pm1fixture.SeedCommittedProductDomain: %v", err)
 	}
+	if err := s.RebuildKnowledgeIndex(ctx, home); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// Source verification runs before the owning transaction; its returned context
+// carries the production proof into InitializeWorkflowTx.
+func agentWorkflowSourceProof(t *testing.T, ctx context.Context, s *store.Store, workID string) context.Context {
+	t.Helper()
+	verified, err := s.EstablishKnowledgeSourceSetProof(ctx, workID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return verified
 }
 
 // seedCurrentWorkflowDomainOnce seeds the canonical Product Domain registry

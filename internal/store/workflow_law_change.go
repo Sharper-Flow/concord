@@ -132,10 +132,10 @@ func workflowChangedLawIDs(lawModifies []string, binding *WorkflowArchitectureBi
 }
 
 // deriveWorkflowLawChangeTx builds the law-change fact for one consequence_v1
-// contract or successor. It returns nil for a legacy definition, or for a
-// contract that changes no law on an item whose active contracts recorded no
-// law change, and refuses a law-changing contract without a reason. binding
-// is the Product-changing contract's architecture binding, else nil.
+// contract or successor. It returns nil for a legacy definition or a contract
+// with no declared or retained enacted law scope, and refuses a law-changing
+// contract without a reason. binding is the Product-changing contract's
+// architecture binding, else nil.
 func deriveWorkflowLawChangeTx(ctx context.Context, q queryer, definition WorkflowDefinition, workID string, fields map[string]json.RawMessage, lawModifies []string, binding *WorkflowArchitectureBinding, decisionDomains []string) (*WorkflowLawChange, error) {
 	declared := false
 	for _, field := range workflowLawChangeFields() {
@@ -177,8 +177,9 @@ func deriveWorkflowLawChangeTx(ctx context.Context, q queryer, definition Workfl
 	return change, nil
 }
 
-// All changed source laws must join the declared scope. No other item's edit
-// is excluded without stored attribution. The start snapshot is never refreshed.
+// Approval records declared scope and retains enacted scope from this item's
+// prior contracts. Unattributed inventory deltas stay visible to completion;
+// they do not become this item's declarations or obstruct successor recovery.
 func deriveWorkflowLawChangeScopeTx(ctx context.Context, q queryer, workID string, change *WorkflowLawChange, lawModifies []string, binding *WorkflowArchitectureBinding) error {
 	before, after, err := readWorkflowLawBaselineTx(ctx, q, workID)
 	if err != nil {
@@ -214,13 +215,28 @@ func deriveWorkflowLawChangeScopeTx(ctx context.Context, q queryer, workID strin
 		}
 		aliases[canonical] = reference
 	}
+	prior, err := readWorkflowLawChangeHistoryTx(ctx, q, workID)
+	if err != nil {
+		return err
+	}
+	owned := map[string]string{}
+	for _, previous := range prior {
+		for _, reference := range previous.LawIDs {
+			canonical, err := workflowLawInventoryReference(reference, before, after)
+			if err != nil {
+				return err
+			}
+			owned[canonical] = reference
+		}
+	}
 	laws := slices.Clone(declared)
 	for _, canonical := range workflowLawInventoryDifferences(before, after) {
-		reference, exists := aliases[canonical]
-		if !exists {
-			return newFailure(KindOutcomeMismatch, "workflow_law_change", "law "+canonical+" changed outside the declared law scope", false, "wait for the actual owner's verified completion; for this item's own change, restore the law or declare it in law_modifies or law_additions")
+		if _, declared := aliases[canonical]; declared {
+			continue
 		}
-		laws = append(laws, reference)
+		if reference, approved := owned[canonical]; approved {
+			laws = append(laws, reference)
+		}
 	}
 	change.LawIDs = append([]string{}, uniqueSorted(laws)...)
 	change.LawBefore = []workflowLawState{}
@@ -237,8 +253,37 @@ func deriveWorkflowLawChangeScopeTx(ctx context.Context, q queryer, workID strin
 		change.LawBefore = append(change.LawBefore, state)
 	}
 	change.RegistryBefore = before.Registry
-	change.EditsRegistry = workflowContractEditsRegistry(binding) || !reflect.DeepEqual(before.Registry, after.Registry)
+	change.EditsRegistry = workflowContractEditsRegistry(binding)
+	if !reflect.DeepEqual(before.Registry, after.Registry) {
+		for _, previous := range prior {
+			change.EditsRegistry = change.EditsRegistry || previous.EditsRegistry
+		}
+	}
 	return nil
+}
+
+func readWorkflowLawChangeHistoryTx(ctx context.Context, q queryer, workID string) ([]WorkflowLawChange, error) {
+	rows, err := q.QueryContext(ctx, `SELECT law_change FROM workflow_contracts WHERE work_id=? AND law_change IS NOT NULL ORDER BY contract_version`, workID)
+	if err != nil {
+		return nil, workflowProjectionError(err, "cannot read the item's approved law scope")
+	}
+	defer func() { _ = rows.Close() }()
+	var changes []WorkflowLawChange
+	for rows.Next() {
+		var encoded string
+		if err := rows.Scan(&encoded); err != nil {
+			return nil, workflowProjectionError(err, "cannot read a prior law change")
+		}
+		var change WorkflowLawChange
+		if err := json.Unmarshal([]byte(encoded), &change); err != nil {
+			return nil, workflowProjectionError(err, "cannot decode a prior law change")
+		}
+		changes = append(changes, change)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, workflowProjectionError(err, "cannot finish reading the item's approved law scope")
+	}
+	return changes, nil
 }
 
 // workflowLawChangeSubmittedPins decodes the submitted text pins, sorted by
@@ -406,7 +451,7 @@ func validateWorkflowLawBeforeStates(before []workflowLawState) error {
 	return nil
 }
 
-// The live guard refuses stale scope or a substituted start snapshot.
+// The live guard refuses altered own scope or a substituted start snapshot.
 func validateLiveWorkflowLawChangeTx(ctx context.Context, tx *sql.Tx, workID string, p workflowContractApprovedPayload) error {
 	if p.DecisionDomains == nil && p.LawChange == nil {
 		return nil

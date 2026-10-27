@@ -435,6 +435,8 @@ connected("a readback outside every Project recovers through the remembered dest
       role: "primary",
     })
     await runCLI("project-locator-add", { project_id: PROJECT_1, locator_id: "repo-1", kind: "canonical_path", value: repo1.repo, expected_version: 1 })
+    const designated = dbValue(dbPath, "SELECT version FROM products WHERE id=?", PRODUCT_ID).version as number
+    await runCLI("product-knowledge-home-designate", { product_id: PRODUCT_ID, project_id: PROJECT_1, locator_id: "repo-1", expected_version: designated })
     await runCLI("client-register", {
       client_ref: "opencode",
       key_id: "outside-key",
@@ -608,6 +610,8 @@ connected("an unreadable ok answer recovers through the same-key replay from the
       role: "primary",
     })
     await runCLI("project-locator-add", { project_id: PROJECT_1, locator_id: "repo-1", kind: "canonical_path", value: repo1.repo, expected_version: 1 })
+    const designated = dbValue(dbPath, "SELECT version FROM products WHERE id=?", PRODUCT_ID).version as number
+    await runCLI("product-knowledge-home-designate", { product_id: PRODUCT_ID, project_id: PROJECT_1, locator_id: "repo-1", expected_version: designated })
     await runCLI("client-register", {
       client_ref: "opencode",
       key_id: "unreadable-key",
@@ -780,6 +784,8 @@ connected("a same-key replay after a later claim refuses without moving the host
       role: "primary",
     })
     await runCLI("project-locator-add", { project_id: PROJECT_1, locator_id: "repo-1", kind: "canonical_path", value: repo1.repo, expected_version: 1 })
+    const designated = dbValue(dbPath, "SELECT version FROM products WHERE id=?", PRODUCT_ID).version as number
+    await runCLI("product-knowledge-home-designate", { product_id: PRODUCT_ID, project_id: PROJECT_1, locator_id: "repo-1", expected_version: designated })
     await runCLI("client-register", {
       client_ref: "opencode",
       key_id: "later-claim-key",

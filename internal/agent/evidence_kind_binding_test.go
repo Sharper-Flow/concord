@@ -62,7 +62,7 @@ func ekbWorkAtExecute(t *testing.T, ctx context.Context, s *store.Store, service
 	approved, _ := ekbDispatch(t, ctx, s, service, env, grant, privateKey, workID, version, "approve_contract", map[string]any{
 		"premise":              "one bind records one evidence kind",
 		"outcome_predicates":   []map[string]any{{"predicate_id": "predicate:primary", "ordinal": 0, "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:ekb", "immutable_subject_ref": "commit:ekb", "expected_result": "pass"}}},
-		"architecture_binding": workflowArchitectureBindingFixture(),
+		"architecture_binding": workflowArchitectureBindingForSeededRegistry(t, s),
 		"required_evidence":    []string{"artifact"},
 		"spec_mandate":         []string{},
 		"law_modifies":         []string{},

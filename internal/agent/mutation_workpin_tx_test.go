@@ -21,8 +21,9 @@ func initializeMutationPinWorkflow(t *testing.T, s *store.Store, workID string, 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := s.Transact(context.Background(), func(tx *store.Transaction) error {
-		return store.InitializeWorkflowTx(context.Background(), tx, store.WorkflowInitializationRequest{WorkID: workID, Definition: registered, Actor: store.WorkflowActor{PrincipalRef: "principal/fixture", ClientRef: "client/fixture", AgentRef: "agent/fixture", SessionRef: "session/fixture", ActorClass: store.ActorAgent}, Now: fixedTime()})
+	ctx := agentWorkflowSourceProof(t, context.Background(), s, workID)
+	if err := s.Transact(ctx, func(tx *store.Transaction) error {
+		return store.InitializeWorkflowTx(ctx, tx, store.WorkflowInitializationRequest{WorkID: workID, Definition: registered, Actor: store.WorkflowActor{PrincipalRef: "principal/fixture", ClientRef: "client/fixture", AgentRef: "agent/fixture", SessionRef: "session/fixture", ActorClass: store.ActorAgent}, Now: fixedTime()})
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -135,15 +136,13 @@ func TestCompactionCompletedReplaysKeepTransactionPin(t *testing.T) {
 			if err := s.DatabaseForTesting().QueryRow(`SELECT op_id FROM durable_operations WHERE work_id='work-cancelled'`).Scan(&operationID); err != nil {
 				t.Fatal(err)
 			}
-			var approvalRef string
-			if err := s.DatabaseForTesting().QueryRow(`SELECT challenge_ref FROM agent_approval_challenges WHERE consequence='publication'`).Scan(&approvalRef); err != nil {
-				t.Fatal(err)
-			}
 			driftWorkPinVersion(t, s, "work-cancelled")
 			env := agentJobsMutationEnvelope(t, s, grant, "proj-api")
 			r := runtime{Store: s, Authority: service, Envelope: env, Tool: "concord_work_compact", Operation: "publish"}
 			content := pm1fixture.CanonicalWorkNote("work-cancelled", "2026-08-02T12:00:00Z", "cancelled", "proj-api")
-			input := map[string]any{"work_id": "work-cancelled", "expected_version": before, "content": content, "content_digest": fmt.Sprintf("sha256:%x", sha256.Sum256([]byte(content))), "home_project_id": home.HomeProjectID, "home_locator_id": home.HomeLocatorID, "idempotency_key": "compact-cancelled-approval-roundtrip-1", "approval": map[string]any{"approval_ref": approvalRef}}
+			// CD-0243 D3/D7 retire publication-only consent. Replay the
+			// original unsigned request; its committed transaction pin stays fixed.
+			input := map[string]any{"work_id": "work-cancelled", "expected_version": before, "content": content, "content_digest": fmt.Sprintf("sha256:%x", sha256.Sum256([]byte(content))), "home_project_id": home.HomeProjectID, "home_locator_id": home.HomeLocatorID, "idempotency_key": "compact-cancelled-approval-roundtrip-1"}
 			if route == "completed_reconcile" {
 				r.Operation = "reconcile"
 				input = map[string]any{"operation_id": operationID, "expected_operation_version": 1, "idempotency_key": "completed-reconcile-pin"}

@@ -282,7 +282,11 @@ func TestRoutineEvaluation(t *testing.T) {
 		setWorkflowStepForOperatorVerdictTest(t, s, workID, "release")
 		bindCompletionClosure(t, s, workID, coordinator)
 		version := readWorkVersion(t, s, workID)
-		tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
+		ctx, err := s.EstablishKnowledgeSourceSetProof(t.Context(), workID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -291,7 +295,7 @@ func TestRoutineEvaluation(t *testing.T) {
 			WorkID: workID, ExpectedVersion: version, ActionID: "complete", Payload: json.RawMessage(`{"impact_verdict":"non-breaking"}`), Actor: coordinator,
 			OperationID: "routine-complete-" + workID, Now: time.Unix(11, 0).UTC(),
 		}
-		_, err = applyCompleteWorkflowActionTx(context.Background(), tx, newWriteScope(tx), BuiltinWorkflowRegistry(), mustBuiltinDefinition(t, "workflow.implementation"), execution, ownerRefForTest(t, coordinator), json.RawMessage(`{"impact_verdict":"non-breaking"}`), nil)
+		_, err = applyCompleteWorkflowActionTx(ctx, tx, newWriteScope(tx), BuiltinWorkflowRegistry(), mustBuiltinDefinition(t, "workflow.implementation"), execution, ownerRefForTest(t, coordinator), json.RawMessage(`{"impact_verdict":"non-breaking"}`), nil)
 		var failure *Failure
 		if err == nil || !failureAs(err, &failure) || failure.Kind != KindMissingEvidence || !strings.Contains(failure.Detail, "verdict is missing") {
 			t.Fatalf("completion without a verdict returned %v, want the missing-verdict clause refusal", err)

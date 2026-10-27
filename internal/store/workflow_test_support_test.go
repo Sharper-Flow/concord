@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -10,6 +11,25 @@ import (
 )
 
 const testManifestDigest = "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+
+// Synthetic projection fixtures still bind freshness to real committed bytes,
+// just as seedWorkflowLaw does. Source proof is established separately by the
+// caller before opening its workflow transaction.
+func bindWorkflowFixtureKnowledgeSource(t *testing.T, s *Store, home KnowledgeHome) {
+	t.Helper()
+	commit := commitKnowledgeRepo(t, home.RepoPath, "fixture knowledge source")
+	digest, err := knowledgeContentDigest(t.Context(), home, commit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest, err = domainShapeKnowledgeDigest(t.Context(), home, commit, digest, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); INSERT INTO knowledge_index_watermark(home_project_id,home_locator_id,head_ref,scanned_commit_oid,scanned_content_digest,scanned_at,complete,projection_version) VALUES(?,?,'HEAD',?,?,'test',1,?); DELETE FROM write_guard`, home.HomeProjectID, home.HomeLocatorID, commit, digest, knowledgeProjectionVersion); err != nil {
+		t.Fatal(err)
+	}
+}
 
 func ReadWorkflowProjection(ctx context.Context, s *Store, request WorkflowReadRequest) (WorkflowReadProjection, error) {
 	var out WorkflowReadProjection
@@ -254,7 +274,7 @@ func applyWorkflowTestOperationDirect(ctx context.Context, s *Store, operation O
 	// caller that is exercising a source change after verification.
 	if knowledgeSourceSetProofFrom(ctx) == nil {
 		for _, event := range operation.Events {
-			if event.Kind == WorkflowContractApproved || event.Kind == WorkflowContractSuperseded {
+			if event.Kind == WorkflowDefinitionSelected || event.Kind == WorkflowContractApproved || event.Kind == WorkflowContractSuperseded {
 				var err error
 				ctx, err = s.EstablishKnowledgeSourceSetProof(ctx, event.SubjectID)
 				if err != nil {
@@ -268,12 +288,59 @@ func applyWorkflowTestOperationDirect(ctx context.Context, s *Store, operation O
 	if err != nil {
 		return err
 	}
-	_, err = applyWorkflowOperationTx(ctx, tx, operation, newWriteScope(tx))
+	err = applyWorkflowFixtureOperationTx(ctx, tx, operation, BuiltinWorkflowRegistry())
 	if err != nil {
 		tx.Rollback()
 		return err
 	}
 	return tx.Commit()
+}
+
+// Event-seeded fixtures model the owning start at the first definition selection,
+// before any contract in the same operation can consume its law inventory.
+func applyWorkflowFixtureOperationTx(ctx context.Context, tx *sql.Tx, operation Operation, registry DefinitionRegistry) error {
+	for index, event := range operation.Events {
+		if event.Kind != WorkflowDefinitionSelected {
+			continue
+		}
+		var existing int
+		if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM workflow_instances WHERE work_id=?`, event.SubjectID).Scan(&existing); err != nil {
+			return err
+		}
+		if existing != 0 {
+			continue
+		}
+		prefix := Operation{Events: operation.Events[:index+1], ExpectedVersions: operation.ExpectedVersions}
+		if err := applyWorkflowOperationTxWithRegistry(ctx, tx, prefix, newWriteScope(tx), registry); err != nil {
+			return err
+		}
+		guard, err := beginWrite(ctx, tx)
+		if err != nil {
+			return err
+		}
+		if err := initializeWorkflowLawBaselineTx(ctx, tx, event.SubjectID); err != nil {
+			_ = guard.close(ctx)
+			return err
+		}
+		if err := guard.close(ctx); err != nil {
+			return err
+		}
+		if index == len(operation.Events)-1 {
+			return nil
+		}
+		expected := make(map[SubjectRef]int64, len(operation.ExpectedVersions))
+		for subject, version := range operation.ExpectedVersions {
+			expected[subject] = version
+		}
+		for _, applied := range prefix.Events {
+			subject := VersionRef(applied.SubjectType, applied.SubjectID)
+			if _, present := expected[subject]; present {
+				expected[subject]++
+			}
+		}
+		return applyWorkflowFixtureOperationTx(ctx, tx, Operation{Events: operation.Events[index+1:], ExpectedVersions: expected}, registry)
+	}
+	return applyWorkflowOperationTxWithRegistry(ctx, tx, operation, newWriteScope(tx), registry)
 }
 
 func shiftWorkflowTestEventVersions(event Event, shift int64) Event {

@@ -4,7 +4,7 @@
 - **Date:** 2026-10-23
 - **Scope:** The Domain shape Concord sets up, checks, and queries in every Product: code ownership, allowed dependencies, typed Domain facts, and their retrieval
 - **Amends:** [CD-0222](CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md) D2 and D12; [`concord-knowledge-index.md`](../concord-knowledge-index.md)
-- **Approval:** The operator approved the original text, including the transitional mixed role, on 2026-10-23. The operator approved the Required conformance heading and publication-check section on 2026-10-26. Both approvals are recorded in [Concord (CON) issue 1317](https://linear.app/sharper-flow/issue/CON-1317).
+- **Approval:** The operator approved the original text, including the transitional mixed role, on 2026-10-23. The operator approved the Required conformance heading and publication-check section on 2026-10-26. Both approvals are recorded in [Concord (CON) issue 1317](https://linear.app/sharper-flow/issue/CON-1317). The operator approved D7's scoped law-context paragraph in [Concord (CON) issue 1320](https://linear.app/sharper-flow/issue/CON-1320).
 
 ## Context
 
@@ -125,6 +125,8 @@ Concord serves one read with three selectors: a code path, a Domain, or a
 subject (a data object, setting, state, or resource). It returns the owning
 Domain or Domains and the matching facts with their anchors, within a declared
 byte bound. A `mixed` root returns its listed Domains, labelled `mixed`.
+
+Domain-fact reads include law homed to the selected Domains, law explicitly applicable to them, and law cited by matching facts. Parent-Domain placement alone does not include law; the law remains authoritative and separately retrievable.
 
 The footprint read and the work-context required reading consume this read.
 Concord generates no per-Domain cards and injects no Domain overview into a

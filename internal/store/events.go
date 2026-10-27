@@ -4,15 +4,11 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"strings"
 	"time"
 
 	"github.com/sharper-flow/concord/internal/store/internal/sqlitedb"
-
-	sqlite "modernc.org/sqlite"
-	sqlitelib "modernc.org/sqlite/lib"
 )
 
 // SubjectType names the kind of thing an event is about.
@@ -178,7 +174,7 @@ func appendPreparedEvent(ctx context.Context, tx *sql.Tx, e Event) (Sequence, er
 	receipt := effectReceiptHeader(e)
 	receipt.Seq, receipt.PayloadDigest = seq, digest
 	if err := sqlitedb.AppendReceipt(ctx, tx, receipt, asserted, relationSeq); err != nil {
-		if isUniqueViolation(err) {
+		if sqlitedb.IsUniqueViolation(err) {
 			return 0, classifyEventIDConflict(ctx, tx, e, err)
 		}
 		return 0, wrapFailure(KindUnavailable, "append_event", "cannot record the effect receipt", true, "retry once the database is writable", err)
@@ -233,50 +229,6 @@ func isJSONObject(payload []byte) bool {
 	}
 	var decoded map[string]json.RawMessage
 	return json.Unmarshal(payload, &decoded) == nil && decoded != nil
-}
-
-// constraintCode returns the typed SQLite result code carried by err, or
-// 0 when err is not a driver error. Driver message text is not a stability
-// contract; classification at this boundary uses the typed code.
-func constraintCode(err error) int {
-	var sqliteErr *sqlite.Error
-	if !errors.As(err, &sqliteErr) {
-		return 0
-	}
-	return sqliteErr.Code()
-}
-
-// isUniqueViolation reports whether err is a uniqueness conflict.
-func isUniqueViolation(err error) bool {
-	return constraintCode(err) == sqlitelib.SQLITE_CONSTRAINT_UNIQUE
-}
-
-// isIdentityConflict reports whether err is a row-identity collision, which
-// SQLite raises under a different code depending on whether the colliding
-// column is a UNIQUE index or the table's primary key. A fold that inserts a
-// row keyed by a caller-supplied id has to treat both as "this id already
-// exists"; matching only the UNIQUE code would misreport a primary-key
-// collision as an unrelated storage failure.
-func isIdentityConflict(err error) bool {
-	code := constraintCode(err)
-	return code == sqlitelib.SQLITE_CONSTRAINT_UNIQUE || code == sqlitelib.SQLITE_CONSTRAINT_PRIMARYKEY
-}
-
-// isForeignKeyViolation reports whether err is a foreign-key conflict.
-func isForeignKeyViolation(err error) bool {
-	return constraintCode(err) == sqlitelib.SQLITE_CONSTRAINT_FOREIGNKEY
-}
-
-// isCheckViolation reports whether err is a CHECK constraint conflict.
-func isCheckViolation(err error) bool {
-	return constraintCode(err) == sqlitelib.SQLITE_CONSTRAINT_CHECK
-}
-
-// isConstraintViolation reports whether err is any SQLite constraint
-// conflict (unique, primary key, foreign key, check, not-null).
-func isConstraintViolation(err error) bool {
-	code := constraintCode(err)
-	return code != 0 && code&0xff == sqlitelib.SQLITE_CONSTRAINT
 }
 
 // classifyEventIDConflict inspects the event that already holds the requested

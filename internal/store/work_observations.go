@@ -7,6 +7,8 @@ import (
 	"regexp"
 	"time"
 	"unicode/utf8"
+
+	"github.com/sharper-flow/concord/internal/store/internal/sqlitedb"
 )
 
 // CD-0030: an observation is the durable form of "I noticed something" —
@@ -94,7 +96,7 @@ func foldWorkObservationRecorded(ctx context.Context, tx *sql.Tx, event Event) e
 		// Only a duplicate id is a conflict. Reporting every insert failure as
 		// one told a caller its observation id collided when the real cause was
 		// a violated column constraint.
-		if isIdentityConflict(err) {
+		if sqlitedb.IsIdentityConflict(err) {
 			return newFailure(KindProjectionConflict, "fold_event", "observation id already exists", false, "generate a new observation id")
 		}
 		return wrapFailure(KindUnavailable, "fold_event", "cannot write the observation", true, "retry once the database is writable", err)

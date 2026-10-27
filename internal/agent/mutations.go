@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/sharper-flow/concord/internal/payloadschema"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -910,7 +911,7 @@ func workflowActionFields(raw json.RawMessage) (json.RawMessage, error) {
 	if len(raw) == 0 || string(raw) == "null" {
 		return json.RawMessage(`{}`), nil
 	}
-	if err := validateUniqueJSON(raw); err != nil {
+	if err := payloadschema.ValidateUniqueJSON(raw); err != nil {
 		return nil, err
 	}
 	var object map[string]json.RawMessage

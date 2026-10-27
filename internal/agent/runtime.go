@@ -49,7 +49,7 @@ func DecodeInvokeRequest(data []byte) (InvokeRequest, CallEnvelope, error) {
 	if len(data) == 0 || len(data) > MaxRequestBytes {
 		return InvokeRequest{}, CallEnvelope{}, fmt.Errorf("invoke input exceeds %d bytes", MaxRequestBytes)
 	}
-	if err := validateUniqueJSON(data); err != nil {
+	if err := payloadschema.ValidateUniqueJSON(data); err != nil {
 		return InvokeRequest{}, CallEnvelope{}, err
 	}
 	var request InvokeRequest

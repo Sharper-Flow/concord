@@ -13,6 +13,8 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/sharper-flow/concord/internal/store/internal/sqlitedb"
 )
 
 // Project-session handoff (CD-0182 amendment): a bounded typed work-scoped
@@ -166,7 +168,7 @@ func foldProjectHandoffRecorded(ctx context.Context, tx *sql.Tx, event Event) er
 		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,'recorded',?,?)`,
 		p.HandoffID, event.SubjectID, p.ContractVersion, p.SourceProjectID, p.TargetProjectID, p.SourceSessionRef, p.BoundedJob, changes, verification, artifactRefs, blockers, p.NextAction, p.RecordedAt, event.Seq)
 	if err != nil {
-		if isUniqueViolation(err) {
+		if sqlitedb.IsUniqueViolation(err) {
 			return newFailure(KindProjectionConflict, "fold_event", "project handoff id is already recorded", false, "record the handoff with a new deterministic id")
 		}
 		return wrapFailure(KindUnavailable, "fold_event", "cannot record the project handoff projection", true, "retry once the database is writable", err)

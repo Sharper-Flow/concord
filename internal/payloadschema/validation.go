@@ -1,5 +1,5 @@
-// Package payloadschema owns validation of a JSON value against the generated
-// payload schema document.
+// Package payloadschema owns raw JSON admission and validation against the
+// generated payload and envelope schema documents.
 //
 // The declaration of an action payload names a schema; the agent boundary and
 // the workflow engine both answer to that name. Before this package existed the

@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/sharper-flow/concord/internal/payloadschema"
+	"github.com/sharper-flow/concord/internal/store/internal/sqlitedb"
 )
 
 // Workflow event names are deliberately closed. Adding one is a contract change.
@@ -976,7 +977,7 @@ func workflowProjectionError(err error, message string) error {
 	if err == nil {
 		return nil
 	}
-	if isIdentityConflict(err) {
+	if sqlitedb.IsIdentityConflict(err) {
 		return newFailure(KindProjectionConflict, "fold_event", message, false, "append a new workflow version")
 	}
 	return wrapFailure(KindUnavailable, "fold_event", fmt.Sprintf("%s: %v", message, err), true, "retry once the database is writable", err)
@@ -2947,7 +2948,7 @@ func bindWorkerAttemptInFlightTx(ctx context.Context, tx *sql.Tx, event Event, p
 		VALUES (?,?,?,?,?, '', '1.0', '1.0', 'in_flight', ?)`,
 		event.SubjectID, p.WorkerAttemptID, p.WorkerLaneID, p.WorkerLaneDigest, p.WorkerCapabilityClass, now)
 	if err != nil {
-		if isIdentityConflict(err) {
+		if sqlitedb.IsIdentityConflict(err) {
 			return newFailure(KindProjectionConflict, "fold_event", "worker attempt is already authorized in flight", false, "open a fresh dispatch_worker authorization with a new attempt identity")
 		}
 		return wrapFailure(KindUnavailable, "fold_event", "cannot create the in-flight worker attempt binding", true, "retry once the database is writable", err)

@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"errors"
 	"time"
+
+	"github.com/sharper-flow/concord/internal/store/internal/sqlitedb"
 )
 
 // TrustedClientRecord is the durable trusted-client projection used by the
@@ -440,7 +442,7 @@ func PruneAndRecordNonceTx(ctx context.Context, transaction *Transaction, client
 		return wrapFailure(KindUnavailable, "agent_nonce", "cannot prune assertion nonces", true, "retry the assertion", err)
 	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO agent_nonce_replay(client_ref,nonce,observed_at,expires_at) VALUES(?,?,?,?)`, clientRef, nonce, observedAt, expiresAt); err != nil {
-		if isIdentityConflict(err) {
+		if sqlitedb.IsIdentityConflict(err) {
 			return newFailure(KindProjectionConflict, "agent_nonce", "host approval assertion nonce replayed", false, "issue a new assertion nonce")
 		}
 		return wrapFailure(KindUnavailable, "agent_nonce", "cannot record assertion nonce", true, "retry the assertion", err)

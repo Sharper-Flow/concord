@@ -1,0 +1,26 @@
+{
+  "id": "agent-envelope-schema",
+  "invariant": {
+    "applies_to_domain_ids": [
+      "agent-surface"
+    ],
+    "enforced_by": [
+      {
+        "check_id": "go-test-race",
+        "kind": "go_test",
+        "value": "internal/payloadschema.TestValidateEnvelope"
+      },
+      {
+        "check_id": "go-test-race",
+        "kind": "go_test",
+        "value": "internal/agent.TestAdapterEnvelopeRetainsSchemaRejections"
+      }
+    ],
+    "statement": "The core's Envelope.Validate checks marshalled envelope data against the generated TS7 root schema through payloadschema. That schema check parses one JSON value, preserves numbers, rejects trailing input and applies the root schema; duplicate member names retain the decoder's last value. It does not replace the envelope's separate Go invariants or the lexical uniqueness checks used by invoke and operation admission."
+  },
+  "kind": "invariant",
+  "owner_domain_id": "agent-surface",
+  "owning_root": "internal/payloadschema",
+  "schema_version": "1.0",
+  "standing": "observed"
+}

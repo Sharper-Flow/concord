@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/sharper-flow/concord/internal/payloadschema"
 	"github.com/sharper-flow/concord/internal/pm1fixture"
 	"github.com/sharper-flow/concord/internal/store"
 )
@@ -20,7 +21,7 @@ func assertBoundedRead(t *testing.T, response Envelope) {
 	if len(raw) > MaxResultEnvelopeBytes {
 		t.Fatalf("read size %d exceeds %d", len(raw), MaxResultEnvelopeBytes)
 	}
-	if err := ValidateGeneratedEnvelope(raw); err != nil {
+	if err := payloadschema.ValidateEnvelope(raw); err != nil {
 		t.Fatalf("read failed closed envelope schema: %v", err)
 	}
 	if response.Outcome == OutcomeOK {

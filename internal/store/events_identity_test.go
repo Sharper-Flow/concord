@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/sharper-flow/concord/internal/store/internal/sqlitedb"
 )
 
 // TestAppendEventRejectsDivergentReuseOfEventID covers the divergent
@@ -471,7 +473,7 @@ func TestAppendEventUniqueViolationLeavesTransactionUsable(t *testing.T) {
 		}
 	}()
 
-	if _, err := tx.ExecContext(ctx, `INSERT INTO effect_receipts SELECT * FROM effect_receipts WHERE event_id=?`, testEvent().EventID); !isUniqueViolation(err) && !isIdentityConflict(err) {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO effect_receipts SELECT * FROM effect_receipts WHERE event_id=?`, testEvent().EventID); !sqlitedb.IsUniqueViolation(err) && !sqlitedb.IsIdentityConflict(err) {
 		t.Fatalf("duplicate receipt insert = %v, want a unique identity violation", err)
 	}
 

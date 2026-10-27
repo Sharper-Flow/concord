@@ -53,6 +53,43 @@ type workflowVerificationRun struct {
 	Producer *WorktreeVerifyResult
 }
 
+type workflowDeliveryAcceptance struct {
+	State           WorkflowAdmissionState
+	ProofRuns       []workflowVerificationRun
+	IntegrationRuns []workflowVerificationRun
+	Decision        WorkflowAdmissionDecision
+}
+
+// loadWorkflowDeliveryAcceptance judges delivery against the job satisfaction,
+// candidate and Review the pending acceptance will install. It only reads SQL;
+// both preflight and execution consume its decision before tooling or footprint.
+func loadWorkflowDeliveryAcceptance(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, currentStep string, state WorkflowAdmissionState, attempt, actor string) (workflowDeliveryAcceptance, error) {
+	projected := workflowDeliveryAcceptance{State: state}
+	accepting, err := workflowDispatchedJobForAttempt(ctx, q, workID, attempt)
+	if err != nil {
+		return projected, err
+	}
+	delivery, proof, integration, err := loadWorkflowDeliveryAdmission(ctx, q, workID, definition, currentStep, attempt)
+	if err != nil {
+		return projected, err
+	}
+	projected.State.Delivery = delivery
+	projected.ProofRuns, projected.IntegrationRuns = proof, integration
+	if state.Review != nil {
+		auth, result, err := readReviewAttempt(ctx, q, workID, attempt)
+		if err != nil {
+			return projected, err
+		}
+		review, err := projectWorkflowReviewAcceptance(ctx, q, workID, *state.Review, auth, result, actor)
+		if err != nil {
+			return projected, err
+		}
+		projected.State.Review = &review
+	}
+	projected.Decision = workflowAdmitDeliveryForAccept(definition, projected.State, WorkflowAdmissionDecision{}, accepting)
+	return projected, nil
+}
+
 // acceptingAttempt projects the same candidate the acceptance fold will install.
 // Standalone delivery leaves it empty and proves the already integrated candidate.
 func loadWorkflowDeliveryAdmission(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, currentStep, acceptingAttempt string) (workflowDeliveryAdmission, []workflowVerificationRun, []workflowVerificationRun, error) {
@@ -127,6 +164,16 @@ func workflowRefineProofFailure(why string) *Failure {
 	return newFailure(KindMissingEvidence, "workflow_action",
 		"leaving refine requires a passing worktree_verify run on the current integrated candidate: "+why,
 		false, "run worktree_verify on the current integrated candidate before record_delivery")
+}
+
+// The refine argv and integration-tooling gates keep their CD-0192 scope:
+// record_delivery outside the refinement step never consumed the manifest.
+// The footprint gate consumes the same manifest at every delivery boundary.
+func workflowRefineProofTooling(definition WorkflowDefinition, step, action string, tooling *ProjectToolingManifest) *ProjectToolingManifest {
+	if action == "record_delivery" && !workflowRefineProofGateActive(definition, step) {
+		return nil
+	}
+	return tooling
 }
 
 func workflowDeliveryToolingProofFailure(state workflowDeliveryAdmission, proof, integration []workflowVerificationRun, tooling *ProjectToolingManifest) error {

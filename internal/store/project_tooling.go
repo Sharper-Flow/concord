@@ -476,9 +476,14 @@ func resolveWorkProjectTooling(ctx context.Context, s *Store, workID string, run
 	}
 	commit := strings.TrimSpace(string(commitRaw))
 	if !regexp.MustCompile(`^[0-9a-f]{40}([0-9a-f]{24})?$`).MatchString(commit) {
-		return nil, fmt.Errorf("default ref did not resolve to an immutable commit OID")
+		return nil, newFailure(KindGitUnreachable, "project_tooling", "default ref did not resolve to an immutable commit OID", false, "restore the Project's default ref before resolving tooling")
 	}
-	return resolveProjectToolingAtCommit(ctx, runner, repoRoot, projectID, commit)
+	manifest, err := resolveProjectToolingAtCommit(ctx, runner, repoRoot, projectID, commit)
+	var failure *Failure
+	if err != nil && !failureAs(err, &failure) {
+		return nil, wrapFailure(KindInvalidPayload, "project_tooling", "invalid tooling declaration: "+err.Error(), false, "repair "+projectToolingManifestPath+" and its coverage bindings on the Project's default branch", err)
+	}
+	return manifest, err
 }
 
 func resolveProjectToolingAtCommit(ctx context.Context, runner GitRunner, repoRoot, projectID, commit string) (*ProjectToolingManifest, error) {

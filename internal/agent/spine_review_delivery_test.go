@@ -165,7 +165,6 @@ func TestSpineReviewRepairsCandidateThroughMainDelivery(t *testing.T) {
 	}
 	pin := f.read(t).Pinned.Pin
 	spineOK(t, f.call(t, "concord_work_transition", "workflow_action", map[string]any{"work_id": f.work, "expected_version": pin.Version, "action_id": "confirm_premise", "selected_choice": "confirm", "idempotency_key": "spine-confirm"}))
-	spineOK(t, f.action(t, "bind_evidence", map[string]any{"evidence_kind": "review", "evidence_ref": "sha256:" + strings.Repeat("a", 64)}))
 	if err := os.WriteFile(filepath.Join(f.path, "pkg/value.go"), []byte("package spine\nfunc Value() int { return 8 }\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -181,6 +180,7 @@ func TestSpineReviewRepairsCandidateThroughMainDelivery(t *testing.T) {
 		t.Fatalf("completion did not revalidate the final checkout against C: %+v", changedSubject.Error)
 	}
 	gitRun(t, f.path, "checkout", "--detach", c.Commit)
+	spineOK(t, f.action(t, "bind_evidence", map[string]any{"evidence_kind": "review", "evidence_ref": "sha256:" + strings.Repeat("a", 64)}))
 	spineOK(t, f.action(t, "complete", map[string]any{"impact_verdict": "non-breaking"}))
 	done := f.read(t).Pinned.Pin
 	if done.Lifecycle != "completed" || done.Review.Candidate == nil || *done.Review.Candidate != c || !done.Review.PublicationOutstanding || len(done.VerifiedCriteria) != 1 {

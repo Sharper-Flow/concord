@@ -58,8 +58,8 @@ function packageWitnessesValid(preparation: NativeOraclePackagePreparation, case
   if (!Array.isArray(selected) || selected.length !== 1 || selected[0] !== witness || preparation.selected_distinct_count !== 1) return false
   const map = preparation.case_to_witness_map
   if (!isRecord(map) || Object.keys(map).length < 1 || Object.keys(map).length > 64) return false
-  // The native preparation retains the recipe's full case map, not just
-  // this control's subset. Every package case still names the same package.
+  // The native preparation retains the selected recipe cases.
+  // Every package case names the same package.
   return cases.every((id) => Object.hasOwn(map, id)) && Object.values(map).every((value) => {
     const names = strings(value)
     return names.length === 1 && names[0] === witness

@@ -426,6 +426,13 @@ func recordDeliveryJourneyFootprint(t *testing.T, f *oAgentFixtureState) {
 	if err := f.s.EnsureKnowledgeIndexFresh(ctx, home); err != nil {
 		t.Fatal(err)
 	}
+	// Claim setup precedes construction of the fixture's native harness.
+	// Its committed foundation is complete now, before any work edits run.
+	if _, err := f.s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1);
+		UPDATE worktree_entries SET base_sha=? WHERE set_id=? AND project_id='project-1';
+		DELETE FROM write_guard`, gitRun(t, f.path, "rev-parse", "HEAD"), store.WorktreeSetID(f.work)); err != nil {
+		t.Fatal(err)
+	}
 	service, _, grant := newAuthorizedService(t, f.s, "client-delivery-size", f.env.PrincipalRef, []Capability{"work_define"}, []string{"product-1"}, []string{"project-1"}, store.ProjectResolution{ProjectID: "project-1"})
 	service.Now = f.service.Now
 	env := mutationEnvelope(grant, mustScopeVersion(t, f.s))

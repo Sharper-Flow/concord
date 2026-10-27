@@ -107,7 +107,6 @@
     "internal/agent/product_project_authority_test.go",
     "internal/agent/project_handoff_dispatch_test.go",
     "internal/agent/race_support_norace_test.go",
-    "internal/agent/race_support_test.go",
     "internal/agent/read_envelope_budget_test.go",
     "internal/agent/read_population_fixture_test.go",
     "internal/agent/record_delivery_test.go",

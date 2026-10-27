@@ -15,10 +15,16 @@ func pReturnReviewFixture(t *testing.T, id, family, disposition string) *candida
 	if family == "workflow.break_fix" {
 		effect = "repair"
 	}
-	f := seedWorkflowReturnRouteFixture(t, id, family, effect)
+	// Pin the indexed law and package ownership before Review captures them.
+	// The return-route law has a complete empty executable-check set.
+	var product string
+	f := seedWorkflowReturnRouteFixtureWithSetup(t, id, legacyApprovalPolicyDefinitionForRef(t, family), effect, []string{"verification"}, []string{"verification", "review", "artifact"}, func(s *Store) {
+		product = footprintProofKnowledge(t, s, id)
+	})
 	t.Cleanup(func() { _ = f.store.Close() })
 	j := pReturnClaim(t, f, id)
 	pReturnProduce(t, j, "initial")
+	footprintProofRecordPath(t, j.s, id, product, ".concord/docs/decisions/CD-0003-empty.md")
 	if disposition != "" {
 		acceptCurrentReviewForTest(t, j.fixture, j.repo, disposition)
 	}

@@ -65,6 +65,13 @@ func reviewSubjectClaim(t *testing.T, s *Store, workID string) (string, string) 
 	run("add", "-A")
 	run("commit", "--allow-empty", "-m", "review subject seed")
 	head := run("rev-parse", "--verify", "HEAD^{commit}")
+	// The fake claim is created before its real Git repository. Replace its
+	// placeholder base with the actual branch foundation before admission.
+	if _, err := s.db.Exec(`INSERT INTO write_guard(active) VALUES(1);
+		UPDATE worktree_entries SET base_sha=? WHERE set_id=? AND project_id='project';
+		DELETE FROM write_guard`, head, WorktreeSetID(workID)); err != nil {
+		t.Fatal(err)
+	}
 	git.worktrees[dir] = claimed.Entry.Branch
 	git.worktreeRepos[dir] = dir
 	git.branches[claimed.Entry.Branch] = head

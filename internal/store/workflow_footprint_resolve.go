@@ -82,16 +82,14 @@ func resolveWorkflowFootprint(ctx context.Context, s *Store, registry Definition
 	ctx, cancel := context.WithTimeout(ctx, workerDispatchReadingResolutionDeadline)
 	defer cancel()
 	r.err = s.readSnapshot(ctx, func(q queryer) error {
-		var err error
-		r.snapshot, err = sampleWorkflowFootprint(ctx, q, work, r.accepting)
-		return err
+		return r.sampleTx(ctx, q, work)
 	})
 	if r.err != nil {
 		return r
 	}
-	// The terminal observation owner supplies the read-only full delta, but
-	// its base comes from the review diff owner's first editing authorization,
-	// never from the latest attempt-relative completion.
+	// The terminal observation owner supplies the read-only full delta from
+	// the claimed branch's base. Dispatch subjects are narrower: they omit
+	// coordinator edits and changes preceding a contract supersession.
 	observed, err := observeWorkerDelivery(ctx, runner, r.snapshot.repo, r.snapshot.base)
 	if err != nil {
 		r.err = err
@@ -132,21 +130,7 @@ func resolveWorkflowFootprint(ctx context.Context, s *Store, registry Definition
 		}
 	}
 	r.err = s.readSnapshot(ctx, func(q queryer) error {
-		for i := range r.footprints {
-			f := &r.footprints[i]
-			var err error
-			f.result, err = f.prepared.ownershipTx(ctx, q)
-			if err != nil {
-				return err
-			}
-			if err := workflowFootprintComplete(f.result); err != nil {
-				return err
-			}
-			if err := workflowFootprintIndexComplete(ctx, q, f.prepared.home); err != nil {
-				return err
-			}
-		}
-		return r.revalidate(ctx, q, work, r.snapshot.candidate)
+		return r.resolveInputsTx(ctx, q, work)
 	})
 	if r.err != nil {
 		return r
@@ -158,6 +142,30 @@ func resolveWorkflowFootprint(ctx context.Context, s *Store, registry Definition
 		r.err = fmt.Errorf("candidate changed while resolving the accumulated footprint")
 	}
 	return r
+}
+
+func (r *ResolvedWorkflowFootprint) sampleTx(ctx context.Context, q queryer, work string) error {
+	var err error
+	r.snapshot, err = sampleWorkflowFootprint(ctx, q, work, r.accepting)
+	return err
+}
+
+func (r *ResolvedWorkflowFootprint) resolveInputsTx(ctx context.Context, q queryer, work string) error {
+	for i := range r.footprints {
+		f := &r.footprints[i]
+		var err error
+		f.result, err = f.prepared.ownershipTx(ctx, q)
+		if err != nil {
+			return err
+		}
+		if err := workflowFootprintComplete(f.result); err != nil {
+			return err
+		}
+		if err := workflowFootprintIndexComplete(ctx, q, f.prepared.home); err != nil {
+			return err
+		}
+	}
+	return r.revalidate(ctx, q, work, r.snapshot.candidate)
 }
 
 func sampleWorkflowFootprint(ctx context.Context, q queryer, work, accepting string) (workflowFootprintSnapshot, error) {
@@ -191,9 +199,9 @@ func sampleWorkflowFootprint(ctx context.Context, q queryer, work, accepting str
 		return out, err
 	}
 	out.repo, out.claim = entry.Path, workflowJSON(entry)
-	out.base, err = firstWorkerEditingSubject(ctx, q, work, workerWorktreeIdentity(entry.Path), out.authorization+1)
-	if err != nil {
-		return out, err
+	out.base = entry.BaseSHA
+	if !worktreeSHAPattern.MatchString(out.base) {
+		return out, fmt.Errorf("claimed branch has no valid recorded base")
 	}
 	out.product, err = architectureBindingProductID(ctx, q, work)
 	return out, err

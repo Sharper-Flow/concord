@@ -894,6 +894,7 @@ func guardNoRestartDispatch(g *workflowActionGuardContext) error {
 // guardDeliveryAdmission consumes the shared decision and binds the proof
 // to the request's external tool declaration.
 func guardDeliveryAdmission(g *workflowActionGuardContext) error {
+	refineTooling := workflowRefineProofTooling(g.entry.Definition, g.currentStep, g.request.ActionID, g.request.ProjectTooling)
 	state, err := g.foldedAdmissionState()
 	if err != nil {
 		return err
@@ -903,7 +904,7 @@ func guardDeliveryAdmission(g *workflowActionGuardContext) error {
 		return err
 	}
 	if !decision.Admitted {
-		return workflowExecutionAdmissionFailure(*decision, g.request.ProjectTooling)
+		return workflowExecutionAdmissionFailure(*decision, refineTooling)
 	}
 	// On a job-capable pin the payload-blind accept admission is local
 	// acceptance and carries no delivery facet (CD-0205), so the
@@ -919,37 +920,17 @@ func guardDeliveryAdmission(g *workflowActionGuardContext) error {
 		if fieldsErr != nil {
 			return fieldsErr
 		}
-		accepting, acceptingErr := workflowDispatchedJobForAttempt(g.ctx, g.tx, g.request.WorkID, workflowFieldStringDefault(fields, "attempt_id", ""))
-		if acceptingErr != nil {
-			return acceptingErr
-		}
-		// The combined action integrates its pending result before delivery.
-		// Judge both proof facets against that output, using the fold's candidate
-		// selection rather than the pre-acceptance candidate cached above.
-		delivery, proofRuns, integrationRuns, err := loadWorkflowDeliveryAdmission(g.ctx, g.tx, g.request.WorkID, g.entry.Definition, g.currentStep, workflowFieldStringDefault(fields, "attempt_id", ""))
+		projected, err := loadWorkflowDeliveryAcceptance(g.ctx, g.tx, g.request.WorkID, g.entry.Definition, g.currentStep, *state, workflowFieldStringDefault(fields, "attempt_id", ""), g.actorRef)
 		if err != nil {
 			return err
 		}
-		projected := *state
-		projected.Delivery = delivery
-		if state.Review != nil {
-			auth, result, err := readReviewAttempt(g.ctx, g.tx, g.request.WorkID, workflowFieldStringDefault(fields, "attempt_id", ""))
-			if err != nil {
-				return err
-			}
-			review, err := projectWorkflowReviewAcceptance(g.ctx, g.tx, g.request.WorkID, *state.Review, auth, result, g.actorRef)
-			if err != nil {
-				return err
-			}
-			projected.Review = &review
-		}
-		state = &projected
-		g.deliveryProofRuns, g.deliveryIntegrationRuns = proofRuns, integrationRuns
-		if delivery := workflowAdmitDeliveryForAccept(g.entry.Definition, *state, WorkflowAdmissionDecision{}, accepting); delivery.Failure != nil {
-			return workflowExecutionAdmissionFailure(delivery, g.request.ProjectTooling)
+		state = &projected.State
+		g.deliveryProofRuns, g.deliveryIntegrationRuns = projected.ProofRuns, projected.IntegrationRuns
+		if projected.Decision.Failure != nil {
+			return workflowExecutionAdmissionFailure(projected.Decision, refineTooling)
 		}
 	}
-	if err := workflowDeliveryToolingProofFailure(state.Delivery, g.deliveryProofRuns, g.deliveryIntegrationRuns, g.request.ProjectTooling); err != nil {
+	if err := workflowDeliveryToolingProofFailure(state.Delivery, g.deliveryProofRuns, g.deliveryIntegrationRuns, refineTooling); err != nil {
 		return err
 	}
 	// The footprint proof gate: every applicable check in the footprint

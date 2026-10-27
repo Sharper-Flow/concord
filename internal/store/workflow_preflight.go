@@ -389,11 +389,11 @@ func preflightWorkflowActionGuardsTx(ctx context.Context, tx *sql.Tx, definition
 			return err
 		}
 		if request.ActionID == "accept_worker_result" {
-			return preflightWorkflowFootprintProofTx(ctx, tx, definition, currentStep, request)
+			return preflightWorkflowFootprintProofTx(ctx, tx, definition, currentStep, request, admission)
 		}
 		return nil
 	case "record_delivery", "complete":
-		return preflightWorkflowFootprintProofTx(ctx, tx, definition, currentStep, request)
+		return preflightWorkflowFootprintProofTx(ctx, tx, definition, currentStep, request, admission)
 	}
 	return nil
 }
@@ -402,7 +402,7 @@ func preflightWorkflowActionGuardsTx(ctx context.Context, tx *sql.Tx, definition
 // delivering preflight surface from the same typed required-proof state the
 // owning guards consume, so discovery cannot admit a delivery or completion
 // the boundary refuses.
-func preflightWorkflowFootprintProofTx(ctx context.Context, tx *sql.Tx, definition WorkflowDefinition, currentStep string, request WorkflowActionPreflightRequest) error {
+func preflightWorkflowFootprintProofTx(ctx context.Context, tx *sql.Tx, definition WorkflowDefinition, currentStep string, request WorkflowActionPreflightRequest, admission WorkflowAdmissionState) error {
 	if !workflowFootprintActionRequired(definition, currentStep, request.ActionID, request.Payload) {
 		return nil
 	}
@@ -422,11 +422,30 @@ func preflightWorkflowFootprintProofTx(ctx context.Context, tx *sql.Tx, definiti
 			return err
 		}
 	} else {
-		delivery, proof, integration, err := loadWorkflowDeliveryAdmission(ctx, tx, request.WorkID, definition, currentStep, accepting)
-		if err != nil {
-			return err
+		refineTooling := workflowRefineProofTooling(definition, currentStep, request.ActionID, request.ProjectTooling)
+		var delivery workflowDeliveryAdmission
+		var proof, integration []workflowVerificationRun
+		if request.ActionID == "accept_worker_result" && workflowWorkerJobsActive(definition) {
+			actor, err := WorkflowActorRef(request.Actor)
+			if err != nil {
+				return err
+			}
+			projected, err := loadWorkflowDeliveryAcceptance(ctx, tx, request.WorkID, definition, currentStep, admission, accepting, actor)
+			if err != nil {
+				return err
+			}
+			if projected.Decision.Failure != nil {
+				return workflowPreflightFailure(workflowExecutionAdmissionFailure(projected.Decision, refineTooling))
+			}
+			delivery, proof, integration = projected.State.Delivery, projected.ProofRuns, projected.IntegrationRuns
+		} else {
+			var err error
+			delivery, proof, integration, err = loadWorkflowDeliveryAdmission(ctx, tx, request.WorkID, definition, currentStep, accepting)
+			if err != nil {
+				return err
+			}
 		}
-		if err := workflowDeliveryToolingProofFailure(delivery, proof, integration, request.ProjectTooling); err != nil {
+		if err := workflowDeliveryToolingProofFailure(delivery, proof, integration, refineTooling); err != nil {
 			return err
 		}
 	}

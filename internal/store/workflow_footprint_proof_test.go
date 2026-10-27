@@ -308,9 +308,12 @@ func TestWorkflowFootprintAccumulatedUnion(t *testing.T) {
 	candidate := footprintProofInstallCandidate(t, f.s, f.work, f.repo)
 	// The latest Review observes B -> B and no paths. It must not hide A -> B.
 	footprintProofObserve(t, f.s, f.work, "no-change-review", candidate.Commit, candidate.Commit, []string{}, true)
+	// A coordinator edit before the first editing dispatch (or an edit under
+	// an earlier contract) remains part of the claimed branch's change.
+	footprintProofGuard(t, f.s, `UPDATE worker_authorizations SET payload=json_set(payload,'$.worker_subject_commit','`+candidate.Commit+`') WHERE work_id='`+f.work+`'`)
 	r := footprintProofResolved(t, f.s, f.work)
 	if r.snapshot.base != f.dispatchSubject {
-		t.Fatalf("baseline = %s, want first editing subject %s", r.snapshot.base, f.dispatchSubject)
+		t.Fatalf("baseline = %s, want claimed branch base %s", r.snapshot.base, f.dispatchSubject)
 	}
 	required, refusal, err := workflowFootprintRequiredAnchorsTx(ctx, f.s.db, f.work, nil, candidate, r, "test")
 	if err != nil || refusal != nil {
@@ -523,10 +526,10 @@ func TestWorkflowFootprintResolutionCurrentness(t *testing.T) {
 		defer footprintProofGuard(t, f.s, `UPDATE work_items SET version=version-1 WHERE id='`+f.work+`'`)
 		check(r, "no longer current")
 	})
-	t.Run("missing editing baseline", func(t *testing.T) {
-		footprintProofGuard(t, f.s, `UPDATE worker_authorizations SET payload=json_set(payload,'$.worker_subject_commit','') WHERE work_id='`+f.work+`'`)
-		defer footprintProofGuard(t, f.s, `UPDATE worker_authorizations SET payload=json_set(payload,'$.worker_subject_commit','`+f.dispatchSubject+`') WHERE work_id='`+f.work+`'`)
-		check(ResolveWorkflowFootprint(ctx, f.s, BuiltinWorkflowRegistry(), f.work, "record_delivery", nil), "no recorded raw subject")
+	t.Run("missing claimed baseline", func(t *testing.T) {
+		footprintProofGuard(t, f.s, `UPDATE worktree_entries SET base_sha='' WHERE set_id='`+WorktreeSetID(f.work)+`'`)
+		defer footprintProofGuard(t, f.s, `UPDATE worktree_entries SET base_sha='`+f.dispatchSubject+`' WHERE set_id='`+WorktreeSetID(f.work)+`'`)
+		check(ResolveWorkflowFootprint(ctx, f.s, BuiltinWorkflowRegistry(), f.work, "record_delivery", nil), "no valid recorded base")
 	})
 	t.Run("dirty candidate", func(t *testing.T) {
 		path := filepath.Join(f.repo, "untracked.txt")
@@ -966,4 +969,23 @@ func TestWorkflowActionPreflightRefusesUnprovedFootprintChecks(t *testing.T) {
 			refineProofRequireMissingEvidence(t, err, "has no declared tooling coverage binding")
 		}
 	})
+}
+
+// The refine argv and integration-tooling gates keep their refinement-step
+// scope while the footprint gate consumes the manifest at every delivery
+// boundary: an integration run of an undeclared command admits record_delivery
+// at the execution step and still refuses it at the refinement step.
+func TestRecordDeliveryKeepsRefineToolingGateScope(t *testing.T) {
+	c := acceptDeliveryCandidateAt(t, "footprint-refine-scope", "workflow.implementation", "execution", false)
+	acceptDeliveryBindFresh(t, c, "refine-scope-delivery")
+	undeclared := refineProofTooling(ProjectDeclaredTool{ID: "go-vet", Invocation: "go vet ./..."})
+	delivery := json.RawMessage(`{"delivery_artifact":"artifact:refine-scope","delivery_state":"asserted"}`)
+	if err := runDeliveryAdmissionAction(t, c.f.store, c.f.workID, "record_delivery", delivery, undeclared, c.f.owner); err != nil {
+		t.Fatalf("execution-step delivery consumed the refine-only tooling gate: %v", err)
+	}
+	reviewGateRequireStep(t, c.f.store, c.f.workID, "refine")
+	if err := c.j.action(t, "checkpoint_refine", map[string]any{}, c.f.owner); err != nil {
+		t.Fatal(err)
+	}
+	refineProofRequireMissingEvidence(t, runDeliveryAdmissionAction(t, c.f.store, c.f.workID, "record_delivery", delivery, undeclared, c.f.owner), "declare")
 }

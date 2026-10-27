@@ -161,7 +161,7 @@ func workflowFootprintRequiredAnchorsTx(ctx context.Context, q queryer, workID s
 	required = slices.CompactFunc(required, func(left, right workflowRequiredAnchorProof) bool {
 		return left.Anchor == right.Anchor
 	})
-	if toolingHasCoverage(tooling) {
+	if tooling != nil {
 		for index := range required {
 			for i := range tooling.ResolvedCoverage {
 				if tooling.ResolvedCoverage[i].Anchor == required[index].Anchor {
@@ -173,18 +173,6 @@ func workflowFootprintRequiredAnchorsTx(ctx context.Context, q queryer, workID s
 		}
 	}
 	return required, nil, nil
-}
-
-func toolingHasCoverage(tooling *ProjectToolingManifest) bool {
-	if tooling == nil {
-		return false
-	}
-	for _, tool := range tooling.Declared {
-		if len(tool.Coverage) != 0 {
-			return true
-		}
-	}
-	return false
 }
 
 // nativeOracleReceiptAnchorDeficiency names why one qualified native receipt

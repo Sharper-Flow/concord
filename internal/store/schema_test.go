@@ -8,6 +8,8 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/sharper-flow/concord/internal/store/internal/sqlitedb"
 )
 
 // Migration 104 replaces the single occupant_session_ref column with the
@@ -667,7 +669,7 @@ func TestMigrateV24ToV25AddsRoutingResolutionEvidence(t *testing.T) {
 	if err := db.QueryRowContext(ctx, `SELECT routing_policy_digest,resolution_role,fallback_reason FROM worker_attempts WHERE attempt_id='attempt'`).Scan(&digest, &role, &reason); err != nil {
 		t.Fatal(err)
 	}
-	if digest != RoutingPolicyManifestDigest || role != "preferred" || reason != "" {
+	if digest != sqlitedb.RoutingPolicyManifestDigest || role != "preferred" || reason != "" {
 		t.Fatalf("migration defaults = %s/%s/%s", digest, role, reason)
 	}
 	if _, err := db.ExecContext(ctx, `UPDATE worker_attempts SET resolution_role='fallback', fallback_reason='' WHERE attempt_id='attempt'`); err == nil {
@@ -703,7 +705,7 @@ func TestMigrateV43ToV44DropsWorkerRoutingEvidenceAndPreservesRows(t *testing.T)
 	if _, err := db.ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.ExecContext(ctx, `INSERT INTO worker_attempts(work_id,attempt_id,lane_id,lane_version,lane_digest,capability_class,routing_policy_version,routing_policy_digest,resolved_model,resolution_role,fallback_reason,readback_model,packet_schema_version,report_schema_version,lifecycle_state,dispatched_at) VALUES('pre-existing-work','pre-existing','research',1,?,'research','routing-v1',?,'openai/gpt-5.6-luna','preferred','','openai/gpt-5.6-luna','1.0','1.0','dispatched','2026-08-22T00:00:00Z')`, "sha256:"+strings.Repeat("a", 64), RoutingPolicyManifestDigest); err != nil {
+	if _, err := db.ExecContext(ctx, `INSERT INTO worker_attempts(work_id,attempt_id,lane_id,lane_version,lane_digest,capability_class,routing_policy_version,routing_policy_digest,resolved_model,resolution_role,fallback_reason,readback_model,packet_schema_version,report_schema_version,lifecycle_state,dispatched_at) VALUES('pre-existing-work','pre-existing','research',1,?,'research','routing-v1',?,'openai/gpt-5.6-luna','preferred','','openai/gpt-5.6-luna','1.0','1.0','dispatched','2026-08-22T00:00:00Z')`, "sha256:"+strings.Repeat("a", 64), sqlitedb.RoutingPolicyManifestDigest); err != nil {
 		t.Fatalf("seed v43 worker attempt: %v", err)
 	}
 	if err := Migrate(ctx, db); err != nil {
@@ -1836,7 +1838,7 @@ func TestMigrationReplayFromScratchDropsWorkerRoutingEvidence(t *testing.T) {
 	}
 	// Migration 43's DEFAULT invoked concord_routing_policy_manifest_digest().
 	// Exercise it now while the column still exists: an INSERT that omits
-	// routing_policy_digest must succeed and store RoutingPolicyManifestDigest.
+	// routing_policy_digest must succeed and store the frozen historical digest.
 	if _, err := db.ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
 		t.Fatalf("fold guard: %v", err)
 	}
@@ -1855,8 +1857,8 @@ func TestMigrationReplayFromScratchDropsWorkerRoutingEvidence(t *testing.T) {
 	).Scan(&replayDigest); err != nil {
 		t.Fatalf("read replay digest: %v", err)
 	}
-	if replayDigest != RoutingPolicyManifestDigest {
-		t.Fatalf("replay routing_policy_digest = %q, want %q", replayDigest, RoutingPolicyManifestDigest)
+	if replayDigest != sqlitedb.RoutingPolicyManifestDigest {
+		t.Fatalf("replay routing_policy_digest = %q, want %q", replayDigest, sqlitedb.RoutingPolicyManifestDigest)
 	}
 	if _, err := db.ExecContext(ctx, `DELETE FROM fold_guard`); err != nil {
 		t.Fatalf("release fold guard: %v", err)

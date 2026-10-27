@@ -10,7 +10,7 @@ package store
 // *sql.DB or *sql.Tx, call BeginTx, touch a .DB / .DatabaseForTesting member,
 // or hold literal SQL aimed at a store-owned table. Inside internal/store, a
 // Store.DB accessor is forbidden so the handle has no production escape hatch.
-// Production SQLite result constants belong to internal/store/internal/sqlitedb,
+// Production SQLite driver APIs and result constants belong to internal/store/internal/sqlitedb,
 // not to its domain-facing callers inside or outside internal/store.
 // Installation-key SQL also stays in sqlitedb; schema DDL and test support remain allowed.
 
@@ -124,10 +124,17 @@ func scanBoundaryFiles(files map[string]string, tables map[string]bool) []bounda
 		}
 		if !strings.HasPrefix(path, "internal/store/internal/sqlitedb/") {
 			for _, spec := range file.Imports {
-				if imported, _ := strconv.Unquote(spec.Path.Value); imported == "modernc.org/sqlite/lib" {
+				imported, _ := strconv.Unquote(spec.Path.Value)
+				message := ""
+				switch imported {
+				case "modernc.org/sqlite":
+					message = "SQLite driver API outside internal/store/internal/sqlitedb"
+				case "modernc.org/sqlite/lib":
+					message = "SQLite result constants outside internal/store/internal/sqlitedb"
+				}
+				if message != "" {
 					findings = append(findings, boundaryFinding{
-						path, fset.Position(spec.Pos()).Line,
-						"SQLite result constants outside internal/store/internal/sqlitedb",
+						path, fset.Position(spec.Pos()).Line, message,
 					})
 				}
 			}
@@ -515,6 +522,39 @@ func TestStoreBoundaryFixtureViolations(t *testing.T) {
 		{
 			name:  "nested durable production code remains inside store",
 			files: map[string]string{"internal/store/internal/sqlitedb/read.go": "package sqlitedb\nimport \"database/sql\"\nfunc read(db *sql.DB) { db.BeginTx(nil, nil); _ = db.Query(`SELECT id FROM widgets`) }\n"},
+			count: 0,
+		},
+		{
+			name:     "SQLite driver API belongs to the durable owner",
+			files:    map[string]string{"internal/store/register.go": "package store\nimport driver \"modernc.org/sqlite\"\n"},
+			contains: []string{"SQLite driver API outside internal/store/internal/sqlitedb"},
+			count:    1,
+		},
+		{
+			name:     "outside-store aliased driver import is forbidden",
+			files:    map[string]string{"internal/agent/register.go": "package agent\nimport driver \"modernc.org/sqlite\"\n"},
+			contains: []string{"SQLite driver API outside internal/store/internal/sqlitedb"},
+			count:    1,
+		},
+		{
+			name:     "blank driver import belongs to the durable owner",
+			files:    map[string]string{"internal/store/register.go": "package store\nimport _ \"modernc.org/sqlite\"\n"},
+			contains: []string{"SQLite driver API outside internal/store/internal/sqlitedb"},
+			count:    1,
+		},
+		{
+			name:  "durable owner may register driver functions",
+			files: map[string]string{"internal/store/internal/sqlitedb/register.go": "package sqlitedb\nimport driver \"modernc.org/sqlite\"\n"},
+			count: 0,
+		},
+		{
+			name:  "declared test support may use driver APIs",
+			files: map[string]string{"internal/store/storetest/neighbor/fixture.go": "package neighbor\nimport driver \"modernc.org/sqlite\"\n"},
+			count: 0,
+		},
+		{
+			name:  "test files may use driver APIs",
+			files: map[string]string{"internal/store/driver_test.go": "package store\nimport driver \"modernc.org/sqlite\"\n"},
 			count: 0,
 		},
 		{

@@ -44,6 +44,7 @@ func TestCommittedSQLiteMechanismFacts(t *testing.T) {
 		"sqlite-effect-receipt-order":    DomainFactInvariant,
 		"sqlite-finite-snapshot":         DomainFactInvariant,
 		"sqlite-installation-key":        DomainFactInvariant,
+		"sqlite-routing-policy-digest":   DomainFactInvariant,
 		"sqlite-typed-constraints":       DomainFactInvariant,
 	} {
 		t.Run(id, func(t *testing.T) {

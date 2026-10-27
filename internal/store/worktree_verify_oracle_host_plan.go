@@ -216,6 +216,9 @@ func normalizeNativeTargetOraclePlan(ctx context.Context, r GitRunner, entry Wor
 	if err := resolveNativeTargetMaterializerCache(ctx, target, pair, depRaw); err != nil {
 		return p, err
 	}
+	if err := qualifyNativeIsolationArtifacts(ctx, target, depRaw); err != nil {
+		return p, err
+	}
 	tools, err := nativeTargetToolDigests(target.Environment)
 	if err != nil {
 		return p, err

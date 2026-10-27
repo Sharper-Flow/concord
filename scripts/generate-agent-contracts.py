@@ -1304,7 +1304,14 @@ def project_native_oracle_metadata(defs: dict, packet_defs: dict) -> None:
     }
     stage.update({field: {"type": "integer", "minimum": 0, "maximum": 2097152} for field in
                   ("stdout_offset", "stdout_length", "stderr_offset", "stderr_length")})
-    defs["native_oracle_stage"] = {"type": "object", "additionalProperties": False, "required": list(stage), "properties": stage}
+    stage_required = list(stage)
+    stage.update({
+        "isolation_fingerprint": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$", "minLength": 71, "maxLength": 71},
+        "isolation_enforced": {"type": "boolean", "const": True},
+    })
+    defs["native_oracle_stage"] = {"type": "object", "additionalProperties": False, "required": stage_required, "properties": stage}
+    defs["native_oracle_stage"]["if"] = {"anyOf": [{"required": ["isolation_fingerprint"]}, {"required": ["isolation_enforced"]}]}
+    defs["native_oracle_stage"]["then"] = {"required": ["isolation_fingerprint", "isolation_enforced"]}
 
     def project_phase_into_branches(node: dict, properties: dict, required: list[str]) -> None:
         """Each closed family branch carries the phase's own fields: a

@@ -341,6 +341,9 @@ interface NativeOraclePreparationCommon {
 }
 
 export interface NativeOracleGoPreparation extends NativeOraclePreparationCommon {
+  isolation_policy?: undefined
+  isolation_fingerprint?: undefined
+  isolation_enforcement?: undefined
   selected_test_names: string[]
   case_to_test_map: Record<string, string[]>
   recipe_kind?: undefined
@@ -351,9 +354,12 @@ export interface NativeOracleGoPreparation extends NativeOraclePreparationCommon
 }
 
 export interface NativeOracleTargetPreparation extends NativeOraclePreparationCommon {
+  isolation_policy?: "loopback_only_v1"
+  isolation_fingerprint?: string
+  isolation_enforcement?: "established" | "unavailable"
   recipe_kind: "target_runner_v1"
   target_materializer: "none" | "uv" | "bun"
-  target_runner: "pytest" | "check"
+  target_runner: "pytest" | "check" | "vitest"
   selected_witness_ids: string[]
   case_to_witness_map: Record<string, string[]>
   selected_test_names?: undefined

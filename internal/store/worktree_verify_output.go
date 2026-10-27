@@ -52,6 +52,8 @@ type nativeStreamCapture struct {
 	stdout, stderr, preview []byte
 	complete                bool
 	previewTruncated        bool
+	isolationEstablished    bool
+	isolationReaped         bool
 }
 
 type nativeCaptureWriter struct {

@@ -286,6 +286,10 @@ func TestNativeTargetSvelteKitStageOwnership(t *testing.T) {
 // The explicit CI requirement turns missing offline preparation into failure.
 func TestNativeTargetVitestFixture(t *testing.T) {
 	m, c := nativeVitestManifestForTest()
+	requiredIsolation := os.Getenv("OC_NATIVE_ISOLATION_REQUIRED") == "1"
+	if requiredIsolation {
+		m.Isolation = nativeIsolationLoopback
+	}
 	fixture := os.DirFS("testdata/native-vitest")
 	manifest, err := fs.ReadFile(fixture, "package.json")
 	if err != nil {
@@ -318,10 +322,18 @@ func TestNativeTargetVitestFixture(t *testing.T) {
 		t.Fatal(err)
 	}
 	environment.NPMCacheDir = cache
+	preflight := &nativeTargetOraclePlan{Recipe: m, Environment: environment, DependencyFiles: []NativeOracleFile{
+		{Path: path.Join(m.Root, m.Pin.DepLock), SHA256: nativeDigest(lock)},
+		{Path: path.Join(m.Root, m.Pin.DepManifest), SHA256: nativeDigest(manifest)},
+	}}
+	if err := qualifyNativeIsolationArtifacts(context.Background(), preflight, map[string][]byte{m.Pin.DepManifest: manifest, m.Pin.DepLock: lock}); err != nil {
+		t.Fatal(err)
+	}
+	environment = preflight.Environment
 	var apiRoot, apiDigest string
 	var apiTarget *nativeTargetOraclePlan
 	for _, phase := range []string{"prepare", "execute"} {
-		root := t.TempDir()
+		root, preserve := nativeIsolationFixtureScratch(t, requiredIsolation)
 		t.Run(phase, func(t *testing.T) {
 			snapshot := filepath.Join(root, "snapshot")
 			if err := nativeScratchDirectories(root); err != nil {
@@ -370,7 +382,7 @@ func TestNativeTargetVitestFixture(t *testing.T) {
 				t.Fatal(err)
 			}
 			result := &NativeOracleResult{}
-			n := nativeTargetOracleRun{store: &Store{}, req: WorktreeVerifyRequest{Oracle: &NativeOracleRequest{Phase: phase}, SupportedBudgetSeconds: 60}, plan: p, recipe: m, capture: &nativeStreamCapture{complete: true}, result: result, root: root, snapshot: snapshot, cwd: snapshot, env: nativeTargetControlledEnv(target, root), baseline: baseline, binaryDigest: digest}
+			n := nativeTargetOracleRun{store: &Store{}, req: WorktreeVerifyRequest{Oracle: &NativeOracleRequest{Phase: phase}, SupportedBudgetSeconds: 60}, plan: p, recipe: m, capture: &nativeStreamCapture{complete: true}, result: result, root: root, snapshot: snapshot, cwd: snapshot, env: nativeTargetControlledEnv(target, root), baseline: baseline, binaryDigest: digest, preserveScratch: preserve}
 			if err := n.execute(context.Background()); err != nil {
 				t.Fatalf("%s: %v\nstdout=%s\nstderr=%s", phase, err, n.capture.stdout, n.capture.stderr)
 			}
@@ -381,6 +393,9 @@ func TestNativeTargetVitestFixture(t *testing.T) {
 			if result.Qualification != want {
 				t.Fatalf("qualification %s: %s %s", result.Qualification, n.capture.stdout, n.capture.stderr)
 			}
+			if requiredIsolation && !nativeIsolationResultMatches(p, &result.NativeOraclePreparation, result.Stages) {
+				t.Fatal("fixture omitted observed isolation")
+			}
 			if phase == "prepare" && len(result.ObservedWitnessIDs) != 0 {
 				t.Fatal("preparation executed acceptance")
 			}
@@ -390,7 +405,9 @@ func TestNativeTargetVitestFixture(t *testing.T) {
 		})
 	}
 	if apiTarget != nil {
-		t.Run("api-obligations", func(t *testing.T) { nativeTargetVitestAPI(t, filepath.Join(apiRoot, "snapshot", "node_modules")) })
+		t.Run("api-obligations", func(t *testing.T) {
+			nativeTargetVitestAPI(t, filepath.Join(apiRoot, "snapshot", "node_modules"), requiredIsolation)
+		})
 		current, err := nativeTargetRunnerDigest(apiTarget, apiRoot)
 		if err != nil || current != apiDigest {
 			t.Fatalf("API qualification changed the verified dependency closure: %v", err)
@@ -405,16 +422,28 @@ func TestNativeTargetVitestAPI(t *testing.T) {
 	if modules == "" {
 		t.Skip("disposable API dependency tree not supplied; the verified-archive fixture owns CI qualification")
 	}
-	nativeTargetVitestAPI(t, modules)
+	nativeTargetVitestAPI(t, modules, false)
 }
 
-func nativeTargetVitestAPI(t *testing.T, modules string) {
+func nativeTargetVitestAPI(t *testing.T, modules string, requiredIsolation bool) {
 	t.Helper()
 	m, c := nativeVitestManifestForTest()
+	if requiredIsolation {
+		m.Isolation = nativeIsolationLoopback
+	}
 	pair, _ := nativeTargetPairOf(m)
 	environment, err := resolveNativeTargetRuntime(context.Background(), m, pair)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if requiredIsolation {
+		environment.NPMCacheDir, err = nativeBunCacheDir()
+		if configured := os.Getenv("OC_NATIVE_NPM_CACHE"); configured != "" {
+			environment.NPMCacheDir = filepath.Join(configured, "_cacache")
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
 	}
 	for _, name := range []string{"prepare", "execute", "eslint", "svelte", "test-fails", "eslint-fails", "svelte-fails", "skip", "todo", "duplicate", "extra", "un-pinned-setup", "un-pinned-plugin", "dynamic-skip"} {
 		t.Run(name, func(t *testing.T) {
@@ -437,7 +466,7 @@ func nativeTargetVitestAPI(t *testing.T, modules string) {
 			case "dynamic-skip":
 				phase, wantFailure = "execute", "Vitest callbacks contain"
 			}
-			root := t.TempDir()
+			root, preserve := nativeIsolationFixtureScratch(t, requiredIsolation)
 			snapshot := filepath.Join(root, "snapshot")
 			if err := nativeScratchDirectories(root); err != nil {
 				t.Fatal(err)
@@ -458,8 +487,10 @@ func nativeTargetVitestAPI(t *testing.T, modules string) {
 			}); err != nil {
 				t.Fatal(err)
 			}
-			if err := os.Symlink(modules, filepath.Join(snapshot, "node_modules")); err != nil {
-				t.Fatal(err)
+			if !requiredIsolation {
+				if err := os.Symlink(modules, filepath.Join(snapshot, "node_modules")); err != nil {
+					t.Fatal(err)
+				}
 			}
 			if name == "prepare" || name == "test-fails" {
 				if err := os.WriteFile(filepath.Join(snapshot, "src", "value.ts"), []byte("export const value = 8;\n"), 0600); err != nil {
@@ -518,6 +549,21 @@ func nativeTargetVitestAPI(t *testing.T, modules string) {
 				}
 			}
 			target := &nativeTargetOraclePlan{Recipe: m, Environment: environment}
+			if requiredIsolation {
+				for _, name := range []string{m.Pin.DepManifest, m.Pin.DepLock} {
+					data, err := os.ReadFile(filepath.Join(snapshot, name))
+					if err != nil {
+						t.Fatal(err)
+					}
+					target.DependencyFiles = append(target.DependencyFiles, NativeOracleFile{Path: name, SHA256: nativeDigest(data)})
+				}
+				if err := materializeNativeBunRun(context.Background(), target, root, snapshot); err != nil {
+					t.Fatal(err)
+				}
+				if err := nativeIsolationBindTargetExports(target, snapshot); err != nil {
+					t.Fatal(err)
+				}
+			}
 			if err := nativeTargetInstallRunner(target, root, c); err != nil {
 				t.Fatal(err)
 			}
@@ -532,7 +578,17 @@ func nativeTargetVitestAPI(t *testing.T, modules string) {
 					t.Fatal(err)
 				}
 			}
-			n := nativeTargetOracleRun{store: &Store{}, req: WorktreeVerifyRequest{Oracle: &NativeOracleRequest{Phase: phase}, SupportedBudgetSeconds: 60}, plan: p, recipe: m, capture: &nativeStreamCapture{complete: true}, result: &NativeOracleResult{}, root: root, snapshot: snapshot, cwd: snapshot, env: nativeTargetControlledEnv(target, root)}
+			n := nativeTargetOracleRun{store: &Store{}, req: WorktreeVerifyRequest{Oracle: &NativeOracleRequest{Phase: phase}, SupportedBudgetSeconds: 60}, plan: p, recipe: m, capture: &nativeStreamCapture{complete: true}, result: &NativeOracleResult{}, root: root, snapshot: snapshot, cwd: snapshot, env: nativeTargetControlledEnv(target, root), preserveScratch: preserve}
+			if requiredIsolation {
+				n.baseline, err = nativeTargetInputInventory(p, snapshot, false)
+				if err != nil {
+					t.Fatal(err)
+				}
+				n.binaryDigest, err = nativeTargetRunnerDigest(target, root)
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
 			failed := false
 			for _, stage := range stages {
 				if err := n.freshGeneratedInputs(); err != nil {

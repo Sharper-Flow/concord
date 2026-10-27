@@ -67,6 +67,9 @@ type nativeTargetOracleManifest struct {
 	VitestConfig string `json:"vitest_config,omitempty"`
 	// SvelteKit reserves a fresh producer-owned .svelte-kit output per stage.
 	SvelteKit bool `json:"sveltekit,omitempty"`
+	// Isolation is absent for the legacy execution contract. No mount or
+	// network exception is accepted from the recipe.
+	Isolation string `json:"isolation,omitempty"`
 	// Pin carries the exact runtime identities this recipe requires.
 	Pin nativeTargetPin `json:"pin"`
 }
@@ -299,6 +302,9 @@ func validateNativeTargetCheckArgv(argv []string) error {
 // — including the superseded fused driver field.
 func decodeNativeTargetManifest(raw []byte) (nativeTargetOracleManifest, error) {
 	var m nativeTargetOracleManifest
+	if err := nativeIsolationManifestPolicy(raw); err != nil {
+		return m, err
+	}
 	d := json.NewDecoder(bytes.NewReader(raw))
 	d.DisallowUnknownFields()
 	if err := d.Decode(&m); err != nil {
@@ -307,6 +313,9 @@ func decodeNativeTargetManifest(raw []byte) (nativeTargetOracleManifest, error) 
 	var trailing any
 	if d.Decode(&trailing) != io.EOF {
 		return m, nativeUnavailable("recipe contains trailing input")
+	}
+	if err := validateNativeIsolationPolicy(m.Isolation); err != nil {
+		return m, err
 	}
 	return m, nil
 }
@@ -334,6 +343,9 @@ func nativeOracleRecipeKind(raw []byte) (string, error) {
 // runner, and the exact pin fields the pair requires with no foreign pin
 // fields.
 func validateNativeTargetManifest(m nativeTargetOracleManifest, c OracleControl) error {
+	if err := validateNativeIsolationPolicy(m.Isolation); err != nil {
+		return err
+	}
 	if m.Kind != nativeTargetKind {
 		return nativeUnavailable("unsupported recipe family")
 	}
@@ -574,9 +586,10 @@ func nativeTargetRootedPath(root, name string) (string, bool) {
 // against an exact installed identity. Slots are stable role names; the plan
 // carries the resolved absolute paths beside the digested identity.
 type nativeTargetEnvironment struct {
-	Materializer string             `json:"materializer"`
-	Runner       string             `json:"runner"`
-	Tools        []NativeOracleFile `json:"tools"`
+	Isolation    *nativeIsolationEnvironment `json:"isolation,omitempty"`
+	Materializer string                      `json:"materializer"`
+	Runner       string                      `json:"runner"`
+	Tools        []NativeOracleFile          `json:"tools"`
 	// RuntimeIdentity is the joined exact version string of every pinned
 	// tool, for example "uv 0.11.26 python 3.13.7 pytest 9.1.1". It becomes
 	// the preparation's ToolchainIdentity.
@@ -632,6 +645,12 @@ func resolveNativeTargetRuntime(ctx context.Context, m nativeTargetOracleManifes
 		return e, err
 	}
 	e.RuntimeIdentity = strings.TrimSpace(e.RuntimeIdentity)
+	if m.Isolation != "" {
+		e.Isolation, err = resolveNativeIsolationEnvironment(e)
+		if err != nil {
+			return e, err
+		}
+	}
 	return e, nil
 }
 
@@ -830,9 +849,13 @@ func nativeTargetResolvePython(ctx context.Context, uv, pin string) (string, err
 // change re-pins the environment identity.
 func finalizeNativeTargetEnvironment(e *nativeTargetEnvironment) {
 	slices.SortFunc(e.Tools, func(a, b NativeOracleFile) int { return strings.Compare(a.Path, b.Path) })
-	e.Digest = nativeDigest([]byte(strings.Join([]string{
+	parts := []string{
 		e.Materializer, e.Runner, e.RuntimeIdentity, e.DependencyInputsDigest,
 		nativeDigest([]byte(workflowJSON(e.Tools))),
 		"offline-locked-no-build-no-scripts-copy-private-scratch",
-	}, "\x00")))
+	}
+	if e.Isolation != nil {
+		parts = append(parts, nativeIsolationEnvironmentDigest(e.Isolation))
+	}
+	e.Digest = nativeDigest([]byte(strings.Join(parts, "\x00")))
 }

@@ -4863,6 +4863,58 @@ const GeneratedPayloadSchemaDocument = `{
     },
     "native_oracle_preparation": {
       "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "anyOf": [
+              {
+                "required": [
+                  "isolation_policy"
+                ]
+              },
+              {
+                "required": [
+                  "isolation_fingerprint"
+                ]
+              },
+              {
+                "required": [
+                  "isolation_enforcement"
+                ]
+              }
+            ]
+          },
+          "then": {
+            "if": {
+              "properties": {
+                "qualification": {
+                  "enum": [
+                    "ready",
+                    "pass",
+                    "fail"
+                  ],
+                  "type": "string"
+                }
+              },
+              "required": [
+                "qualification"
+              ]
+            },
+            "required": [
+              "isolation_policy",
+              "isolation_fingerprint",
+              "isolation_enforcement"
+            ],
+            "then": {
+              "properties": {
+                "isolation_enforcement": {
+                  "const": "established"
+                }
+              }
+            }
+          }
+        }
+      ],
       "description": "The store-selected qualified preparation for an immutable job's exact readiness reference, never a latest-run guess or worker assertion. Two closed recipe families share the record and one branch must match exactly: a mixed family shape, an unknown recipe kind, or an unsupported materializer/runner pair refuses. The pure-Go family proves exact pinned file bytes, cwd, build-selected nonempty witnesses, and compile-only readiness; non-Go and resolved embed inputs must be declared pinned fixtures or explicit compiler inputs, with no production Go/module replacement. The target_runner_v1 family admits exactly the pairs uv+pytest, none+check, uv+check, bun+check, and bun+vitest: the materializer owns dependency manifest and lockfile equality with the pinned recipe, offline lock-verified materialization into per-run scratch, cached-byte integrity, disabled lifecycle and build scripts, and runtime fingerprints (none declares a dependency-free recipe); the runner owns collection, the exact witness population, and the result grammar, and preparation runs only its collection or check-input stage, never the graded workload. Vitest pins Node 24.15.0, Vitest 4.1.11 and Vite 8.2.2; its identity is canonical JSON [namedProject,rootRelativePinnedFile,ancestorTitles[],title], never a joined display name. Check supports pinned bash, python3 and Node script slots. No pnpm surface exists. Every stage pins its installed toolchain; the Go stages set GOTOOLCHAIN=local, GOPROXY=off, GOFLAGS=-mod=readonly, CGO_ENABLED=0, GOWORK=off, and a private disposable GOCACHE. No aggregate scratch quota or uncommitted-diagnostics promise. Preparation grants no worker attempt, verification authority, or semantic acceptance.",
       "oneOf": [
         {
@@ -5238,6 +5290,23 @@ const GeneratedPayloadSchemaDocument = `{
               "minItems": 1,
               "type": "array"
             },
+            "isolation_enforcement": {
+              "enum": [
+                "established",
+                "unavailable"
+              ],
+              "type": "string"
+            },
+            "isolation_fingerprint": {
+              "maxLength": 71,
+              "minLength": 71,
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "type": "string"
+            },
+            "isolation_policy": {
+              "const": "loopback_only_v1",
+              "type": "string"
+            },
             "logical_argv_digest": {
               "maxLength": 71,
               "minLength": 71,
@@ -5486,6 +5555,25 @@ const GeneratedPayloadSchemaDocument = `{
           "maxItems": 32,
           "minItems": 1,
           "type": "array"
+        },
+        "isolation_enforcement": {
+          "description": "Producer-observed launcher/profile/namespace/lifetime/teardown state, not candidate assertions. Missing or changed required enforcement is unavailable.",
+          "enum": [
+            "established",
+            "unavailable"
+          ],
+          "type": "string"
+        },
+        "isolation_fingerprint": {
+          "maxLength": 71,
+          "minLength": 71,
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "isolation_policy": {
+          "const": "loopback_only_v1",
+          "description": "Derived only from the pinned recipe. Absent means the legacy unisolated contract. Callers supply no mounts, paths or network exceptions.",
+          "type": "string"
         },
         "logical_argv_digest": {
           "maxLength": 71,
@@ -5903,6 +5991,58 @@ const GeneratedPayloadSchemaDocument = `{
       "oneOf": [
         {
           "additionalProperties": false,
+          "allOf": [
+            {
+              "if": {
+                "anyOf": [
+                  {
+                    "required": [
+                      "isolation_policy"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "isolation_fingerprint"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "isolation_enforcement"
+                    ]
+                  }
+                ]
+              },
+              "then": {
+                "if": {
+                  "properties": {
+                    "qualification": {
+                      "enum": [
+                        "ready",
+                        "pass",
+                        "fail"
+                      ],
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "qualification"
+                  ]
+                },
+                "required": [
+                  "isolation_policy",
+                  "isolation_fingerprint",
+                  "isolation_enforcement"
+                ],
+                "then": {
+                  "properties": {
+                    "isolation_enforcement": {
+                      "const": "established"
+                    }
+                  }
+                }
+              }
+            }
+          ],
           "description": "The store-selected qualified preparation for an immutable job's exact readiness reference, never a latest-run guess or worker assertion. Two closed recipe families share the record and one branch must match exactly: a mixed family shape, an unknown recipe kind, or an unsupported materializer/runner pair refuses. The pure-Go family proves exact pinned file bytes, cwd, build-selected nonempty witnesses, and compile-only readiness; non-Go and resolved embed inputs must be declared pinned fixtures or explicit compiler inputs, with no production Go/module replacement. The target_runner_v1 family admits exactly the pairs uv+pytest, none+check, uv+check, bun+check, and bun+vitest: the materializer owns dependency manifest and lockfile equality with the pinned recipe, offline lock-verified materialization into per-run scratch, cached-byte integrity, disabled lifecycle and build scripts, and runtime fingerprints (none declares a dependency-free recipe); the runner owns collection, the exact witness population, and the result grammar, and preparation runs only its collection or check-input stage, never the graded workload. Vitest pins Node 24.15.0, Vitest 4.1.11 and Vite 8.2.2; its identity is canonical JSON [namedProject,rootRelativePinnedFile,ancestorTitles[],title], never a joined display name. Check supports pinned bash, python3 and Node script slots. No pnpm surface exists. Every stage pins its installed toolchain; the Go stages set GOTOOLCHAIN=local, GOPROXY=off, GOFLAGS=-mod=readonly, CGO_ENABLED=0, GOWORK=off, and a private disposable GOCACHE. No aggregate scratch quota or uncommitted-diagnostics promise. Preparation grants no worker attempt, verification authority, or semantic acceptance.",
           "oneOf": [
             {
@@ -6318,6 +6458,23 @@ const GeneratedPayloadSchemaDocument = `{
                 "input_manifest_digest": {
                   "$ref": "#/$defs/native_oracle_digest"
                 },
+                "isolation_enforcement": {
+                  "enum": [
+                    "established",
+                    "unavailable"
+                  ],
+                  "type": "string"
+                },
+                "isolation_fingerprint": {
+                  "maxLength": 71,
+                  "minLength": 71,
+                  "pattern": "^sha256:[0-9a-f]{64}$",
+                  "type": "string"
+                },
+                "isolation_policy": {
+                  "const": "loopback_only_v1",
+                  "type": "string"
+                },
                 "logical_argv_digest": {
                   "maxLength": 71,
                   "minLength": 71,
@@ -6591,6 +6748,25 @@ const GeneratedPayloadSchemaDocument = `{
             "input_manifest_digest": {
               "$ref": "#/$defs/native_oracle_digest"
             },
+            "isolation_enforcement": {
+              "description": "Producer-observed launcher/profile/namespace/lifetime/teardown state, not candidate assertions. Missing or changed required enforcement is unavailable.",
+              "enum": [
+                "established",
+                "unavailable"
+              ],
+              "type": "string"
+            },
+            "isolation_fingerprint": {
+              "maxLength": 71,
+              "minLength": 71,
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "type": "string"
+            },
+            "isolation_policy": {
+              "const": "loopback_only_v1",
+              "description": "Derived only from the pinned recipe. Absent means the legacy unisolated contract. Callers supply no mounts, paths or network exceptions.",
+              "type": "string"
+            },
             "logical_argv_digest": {
               "maxLength": 71,
               "minLength": 71,
@@ -6761,6 +6937,58 @@ const GeneratedPayloadSchemaDocument = `{
         },
         {
           "additionalProperties": false,
+          "allOf": [
+            {
+              "if": {
+                "anyOf": [
+                  {
+                    "required": [
+                      "isolation_policy"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "isolation_fingerprint"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "isolation_enforcement"
+                    ]
+                  }
+                ]
+              },
+              "then": {
+                "if": {
+                  "properties": {
+                    "qualification": {
+                      "enum": [
+                        "ready",
+                        "pass",
+                        "fail"
+                      ],
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "qualification"
+                  ]
+                },
+                "required": [
+                  "isolation_policy",
+                  "isolation_fingerprint",
+                  "isolation_enforcement"
+                ],
+                "then": {
+                  "properties": {
+                    "isolation_enforcement": {
+                      "const": "established"
+                    }
+                  }
+                }
+              }
+            }
+          ],
           "description": "The store-selected qualified preparation for an immutable job's exact readiness reference, never a latest-run guess or worker assertion. Two closed recipe families share the record and one branch must match exactly: a mixed family shape, an unknown recipe kind, or an unsupported materializer/runner pair refuses. The pure-Go family proves exact pinned file bytes, cwd, build-selected nonempty witnesses, and compile-only readiness; non-Go and resolved embed inputs must be declared pinned fixtures or explicit compiler inputs, with no production Go/module replacement. The target_runner_v1 family admits exactly the pairs uv+pytest, none+check, uv+check, bun+check, and bun+vitest: the materializer owns dependency manifest and lockfile equality with the pinned recipe, offline lock-verified materialization into per-run scratch, cached-byte integrity, disabled lifecycle and build scripts, and runtime fingerprints (none declares a dependency-free recipe); the runner owns collection, the exact witness population, and the result grammar, and preparation runs only its collection or check-input stage, never the graded workload. Vitest pins Node 24.15.0, Vitest 4.1.11 and Vite 8.2.2; its identity is canonical JSON [namedProject,rootRelativePinnedFile,ancestorTitles[],title], never a joined display name. Check supports pinned bash, python3 and Node script slots. No pnpm surface exists. Every stage pins its installed toolchain; the Go stages set GOTOOLCHAIN=local, GOPROXY=off, GOFLAGS=-mod=readonly, CGO_ENABLED=0, GOWORK=off, and a private disposable GOCACHE. No aggregate scratch quota or uncommitted-diagnostics promise. Preparation grants no worker attempt, verification authority, or semantic acceptance.",
           "if": {
             "properties": {
@@ -7264,6 +7492,23 @@ const GeneratedPayloadSchemaDocument = `{
                 "input_manifest_digest": {
                   "$ref": "#/$defs/native_oracle_digest"
                 },
+                "isolation_enforcement": {
+                  "enum": [
+                    "established",
+                    "unavailable"
+                  ],
+                  "type": "string"
+                },
+                "isolation_fingerprint": {
+                  "maxLength": 71,
+                  "minLength": 71,
+                  "pattern": "^sha256:[0-9a-f]{64}$",
+                  "type": "string"
+                },
+                "isolation_policy": {
+                  "const": "loopback_only_v1",
+                  "type": "string"
+                },
                 "logical_argv_digest": {
                   "maxLength": 71,
                   "minLength": 71,
@@ -7599,6 +7844,25 @@ const GeneratedPayloadSchemaDocument = `{
             "input_manifest_digest": {
               "$ref": "#/$defs/native_oracle_digest"
             },
+            "isolation_enforcement": {
+              "description": "Producer-observed launcher/profile/namespace/lifetime/teardown state, not candidate assertions. Missing or changed required enforcement is unavailable.",
+              "enum": [
+                "established",
+                "unavailable"
+              ],
+              "type": "string"
+            },
+            "isolation_fingerprint": {
+              "maxLength": 71,
+              "minLength": 71,
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "type": "string"
+            },
+            "isolation_policy": {
+              "const": "loopback_only_v1",
+              "description": "Derived only from the pinned recipe. Absent means the legacy unisolated contract. Callers supply no mounts, paths or network exceptions.",
+              "type": "string"
+            },
             "logical_argv_digest": {
               "maxLength": 71,
               "minLength": 71,
@@ -7913,6 +8177,20 @@ const GeneratedPayloadSchemaDocument = `{
     },
     "native_oracle_stage": {
       "additionalProperties": false,
+      "if": {
+        "anyOf": [
+          {
+            "required": [
+              "isolation_fingerprint"
+            ]
+          },
+          {
+            "required": [
+              "isolation_enforced"
+            ]
+          }
+        ]
+      },
       "properties": {
         "argv": {
           "description": "The argv that runs inside the derived worktree under the exclusive verify lease. Values run as separate arguments; a shell command string is never accepted.",
@@ -7929,6 +8207,16 @@ const GeneratedPayloadSchemaDocument = `{
           "maximum": 255,
           "minimum": -1,
           "type": "integer"
+        },
+        "isolation_enforced": {
+          "const": true,
+          "type": "boolean"
+        },
+        "isolation_fingerprint": {
+          "maxLength": 71,
+          "minLength": 71,
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "type": "string"
         },
         "name": {
           "maxLength": 128,
@@ -7965,6 +8253,12 @@ const GeneratedPayloadSchemaDocument = `{
         "stderr_offset",
         "stderr_length"
       ],
+      "then": {
+        "required": [
+          "isolation_fingerprint",
+          "isolation_enforced"
+        ]
+      },
       "type": "object"
     },
     "native_oracle_stream": {
@@ -10210,6 +10504,58 @@ const GeneratedPayloadSchemaDocument = `{
     },
     "retained_native_oracle_preparation": {
       "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "anyOf": [
+              {
+                "required": [
+                  "isolation_policy"
+                ]
+              },
+              {
+                "required": [
+                  "isolation_fingerprint"
+                ]
+              },
+              {
+                "required": [
+                  "isolation_enforcement"
+                ]
+              }
+            ]
+          },
+          "then": {
+            "if": {
+              "properties": {
+                "qualification": {
+                  "enum": [
+                    "ready",
+                    "pass",
+                    "fail"
+                  ],
+                  "type": "string"
+                }
+              },
+              "required": [
+                "qualification"
+              ]
+            },
+            "required": [
+              "isolation_policy",
+              "isolation_fingerprint",
+              "isolation_enforcement"
+            ],
+            "then": {
+              "properties": {
+                "isolation_enforcement": {
+                  "const": "established"
+                }
+              }
+            }
+          }
+        }
+      ],
       "description": "The store-selected qualified preparation for an immutable job's exact readiness reference, never a latest-run guess or worker assertion. Two closed recipe families share the record and one branch must match exactly: a mixed family shape, an unknown recipe kind, or an unsupported materializer/runner pair refuses. The pure-Go family proves exact pinned file bytes, cwd, build-selected nonempty witnesses, and compile-only readiness; non-Go and resolved embed inputs must be declared pinned fixtures or explicit compiler inputs, with no production Go/module replacement. The target_runner_v1 family admits exactly the pairs uv+pytest, none+check, uv+check, bun+check, and bun+vitest: the materializer owns dependency manifest and lockfile equality with the pinned recipe, offline lock-verified materialization into per-run scratch, cached-byte integrity, disabled lifecycle and build scripts, and runtime fingerprints (none declares a dependency-free recipe); the runner owns collection, the exact witness population, and the result grammar, and preparation runs only its collection or check-input stage, never the graded workload. Vitest pins Node 24.15.0, Vitest 4.1.11 and Vite 8.2.2; its identity is canonical JSON [namedProject,rootRelativePinnedFile,ancestorTitles[],title], never a joined display name. Check supports pinned bash, python3 and Node script slots. No pnpm surface exists. Every stage pins its installed toolchain; the Go stages set GOTOOLCHAIN=local, GOPROXY=off, GOFLAGS=-mod=readonly, CGO_ENABLED=0, GOWORK=off, and a private disposable GOCACHE. No aggregate scratch quota or uncommitted-diagnostics promise. Preparation grants no worker attempt, verification authority, or semantic acceptance.",
       "oneOf": [
         {
@@ -10583,6 +10929,23 @@ const GeneratedPayloadSchemaDocument = `{
               "minItems": 1,
               "type": "array"
             },
+            "isolation_enforcement": {
+              "enum": [
+                "established",
+                "unavailable"
+              ],
+              "type": "string"
+            },
+            "isolation_fingerprint": {
+              "maxLength": 71,
+              "minLength": 71,
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "type": "string"
+            },
+            "isolation_policy": {
+              "const": "loopback_only_v1",
+              "type": "string"
+            },
             "logical_argv_digest": {
               "maxLength": 71,
               "minLength": 71,
@@ -10829,6 +11192,25 @@ const GeneratedPayloadSchemaDocument = `{
           "maxItems": 32,
           "minItems": 1,
           "type": "array"
+        },
+        "isolation_enforcement": {
+          "description": "Producer-observed launcher/profile/namespace/lifetime/teardown state, not candidate assertions. Missing or changed required enforcement is unavailable.",
+          "enum": [
+            "established",
+            "unavailable"
+          ],
+          "type": "string"
+        },
+        "isolation_fingerprint": {
+          "maxLength": 71,
+          "minLength": 71,
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "isolation_policy": {
+          "const": "loopback_only_v1",
+          "description": "Derived only from the pinned recipe. Absent means the legacy unisolated contract. Callers supply no mounts, paths or network exceptions.",
+          "type": "string"
         },
         "logical_argv_digest": {
           "maxLength": 71,

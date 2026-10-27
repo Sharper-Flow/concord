@@ -23797,6 +23797,58 @@
     "native_oracle_preparation": {
       "type": "object",
       "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "anyOf": [
+              {
+                "required": [
+                  "isolation_policy"
+                ]
+              },
+              {
+                "required": [
+                  "isolation_fingerprint"
+                ]
+              },
+              {
+                "required": [
+                  "isolation_enforcement"
+                ]
+              }
+            ]
+          },
+          "then": {
+            "required": [
+              "isolation_policy",
+              "isolation_fingerprint",
+              "isolation_enforcement"
+            ],
+            "if": {
+              "properties": {
+                "qualification": {
+                  "type": "string",
+                  "enum": [
+                    "ready",
+                    "pass",
+                    "fail"
+                  ]
+                }
+              },
+              "required": [
+                "qualification"
+              ]
+            },
+            "then": {
+              "properties": {
+                "isolation_enforcement": {
+                  "const": "established"
+                }
+              }
+            }
+          }
+        }
+      ],
       "required": [
         "protocol",
         "phase",
@@ -23913,6 +23965,25 @@
           "pattern": "^sha256:[0-9a-f]{64}$",
           "minLength": 71,
           "maxLength": 71
+        },
+        "isolation_policy": {
+          "type": "string",
+          "const": "loopback_only_v1",
+          "description": "Derived only from the pinned recipe. Absent means the legacy unisolated contract. Callers supply no mounts, paths or network exceptions."
+        },
+        "isolation_fingerprint": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "minLength": 71,
+          "maxLength": 71
+        },
+        "isolation_enforcement": {
+          "type": "string",
+          "enum": [
+            "established",
+            "unavailable"
+          ],
+          "description": "Producer-observed launcher/profile/namespace/lifetime/teardown state, not candidate assertions. Missing or changed required enforcement is unavailable."
         },
         "recipe_kind": {
           "type": "string",
@@ -24389,6 +24460,23 @@
               "minLength": 71,
               "maxLength": 71
             },
+            "isolation_policy": {
+              "type": "string",
+              "const": "loopback_only_v1"
+            },
+            "isolation_fingerprint": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "minLength": 71,
+              "maxLength": 71
+            },
+            "isolation_enforcement": {
+              "type": "string",
+              "enum": [
+                "established",
+                "unavailable"
+              ]
+            },
             "recipe_kind": {
               "type": "string",
               "const": "target_runner_v1"
@@ -24633,7 +24721,37 @@
           "type": "integer",
           "minimum": 0,
           "maximum": 2097152
+        },
+        "isolation_fingerprint": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "minLength": 71,
+          "maxLength": 71
+        },
+        "isolation_enforced": {
+          "type": "boolean",
+          "const": true
         }
+      },
+      "if": {
+        "anyOf": [
+          {
+            "required": [
+              "isolation_fingerprint"
+            ]
+          },
+          {
+            "required": [
+              "isolation_enforced"
+            ]
+          }
+        ]
+      },
+      "then": {
+        "required": [
+          "isolation_fingerprint",
+          "isolation_enforced"
+        ]
       }
     },
     "native_oracle_result": {
@@ -24641,6 +24759,58 @@
         {
           "type": "object",
           "additionalProperties": false,
+          "allOf": [
+            {
+              "if": {
+                "anyOf": [
+                  {
+                    "required": [
+                      "isolation_policy"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "isolation_fingerprint"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "isolation_enforcement"
+                    ]
+                  }
+                ]
+              },
+              "then": {
+                "required": [
+                  "isolation_policy",
+                  "isolation_fingerprint",
+                  "isolation_enforcement"
+                ],
+                "if": {
+                  "properties": {
+                    "qualification": {
+                      "type": "string",
+                      "enum": [
+                        "ready",
+                        "pass",
+                        "fail"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "qualification"
+                  ]
+                },
+                "then": {
+                  "properties": {
+                    "isolation_enforcement": {
+                      "const": "established"
+                    }
+                  }
+                }
+              }
+            }
+          ],
           "required": [
             "protocol",
             "phase",
@@ -24757,6 +24927,25 @@
               "pattern": "^sha256:[0-9a-f]{64}$",
               "minLength": 71,
               "maxLength": 71
+            },
+            "isolation_policy": {
+              "type": "string",
+              "const": "loopback_only_v1",
+              "description": "Derived only from the pinned recipe. Absent means the legacy unisolated contract. Callers supply no mounts, paths or network exceptions."
+            },
+            "isolation_fingerprint": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "minLength": 71,
+              "maxLength": 71
+            },
+            "isolation_enforcement": {
+              "type": "string",
+              "enum": [
+                "established",
+                "unavailable"
+              ],
+              "description": "Producer-observed launcher/profile/namespace/lifetime/teardown state, not candidate assertions. Missing or changed required enforcement is unavailable."
             },
             "recipe_kind": {
               "type": "string",
@@ -25281,6 +25470,23 @@
                   "minLength": 71,
                   "maxLength": 71
                 },
+                "isolation_policy": {
+                  "type": "string",
+                  "const": "loopback_only_v1"
+                },
+                "isolation_fingerprint": {
+                  "type": "string",
+                  "pattern": "^sha256:[0-9a-f]{64}$",
+                  "minLength": 71,
+                  "maxLength": 71
+                },
+                "isolation_enforcement": {
+                  "type": "string",
+                  "enum": [
+                    "established",
+                    "unavailable"
+                  ]
+                },
                 "recipe_kind": {
                   "type": "string",
                   "const": "target_runner_v1"
@@ -25499,6 +25705,58 @@
         {
           "type": "object",
           "additionalProperties": false,
+          "allOf": [
+            {
+              "if": {
+                "anyOf": [
+                  {
+                    "required": [
+                      "isolation_policy"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "isolation_fingerprint"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "isolation_enforcement"
+                    ]
+                  }
+                ]
+              },
+              "then": {
+                "required": [
+                  "isolation_policy",
+                  "isolation_fingerprint",
+                  "isolation_enforcement"
+                ],
+                "if": {
+                  "properties": {
+                    "qualification": {
+                      "type": "string",
+                      "enum": [
+                        "ready",
+                        "pass",
+                        "fail"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "qualification"
+                  ]
+                },
+                "then": {
+                  "properties": {
+                    "isolation_enforcement": {
+                      "const": "established"
+                    }
+                  }
+                }
+              }
+            }
+          ],
           "required": [
             "protocol",
             "phase",
@@ -25624,6 +25882,25 @@
               "pattern": "^sha256:[0-9a-f]{64}$",
               "minLength": 71,
               "maxLength": 71
+            },
+            "isolation_policy": {
+              "type": "string",
+              "const": "loopback_only_v1",
+              "description": "Derived only from the pinned recipe. Absent means the legacy unisolated contract. Callers supply no mounts, paths or network exceptions."
+            },
+            "isolation_fingerprint": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "minLength": 71,
+              "maxLength": 71
+            },
+            "isolation_enforcement": {
+              "type": "string",
+              "enum": [
+                "established",
+                "unavailable"
+              ],
+              "description": "Producer-observed launcher/profile/namespace/lifetime/teardown state, not candidate assertions. Missing or changed required enforcement is unavailable."
             },
             "recipe_kind": {
               "type": "string",
@@ -26271,6 +26548,23 @@
                   "pattern": "^sha256:[0-9a-f]{64}$",
                   "minLength": 71,
                   "maxLength": 71
+                },
+                "isolation_policy": {
+                  "type": "string",
+                  "const": "loopback_only_v1"
+                },
+                "isolation_fingerprint": {
+                  "type": "string",
+                  "pattern": "^sha256:[0-9a-f]{64}$",
+                  "minLength": 71,
+                  "maxLength": 71
+                },
+                "isolation_enforcement": {
+                  "type": "string",
+                  "enum": [
+                    "established",
+                    "unavailable"
+                  ]
                 },
                 "recipe_kind": {
                   "type": "string",
@@ -29500,6 +29794,58 @@
     "retained_native_oracle_preparation": {
       "type": "object",
       "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "anyOf": [
+              {
+                "required": [
+                  "isolation_policy"
+                ]
+              },
+              {
+                "required": [
+                  "isolation_fingerprint"
+                ]
+              },
+              {
+                "required": [
+                  "isolation_enforcement"
+                ]
+              }
+            ]
+          },
+          "then": {
+            "required": [
+              "isolation_policy",
+              "isolation_fingerprint",
+              "isolation_enforcement"
+            ],
+            "if": {
+              "properties": {
+                "qualification": {
+                  "type": "string",
+                  "enum": [
+                    "ready",
+                    "pass",
+                    "fail"
+                  ]
+                }
+              },
+              "required": [
+                "qualification"
+              ]
+            },
+            "then": {
+              "properties": {
+                "isolation_enforcement": {
+                  "const": "established"
+                }
+              }
+            }
+          }
+        }
+      ],
       "required": [
         "protocol",
         "phase",
@@ -29614,6 +29960,25 @@
           "pattern": "^sha256:[0-9a-f]{64}$",
           "minLength": 71,
           "maxLength": 71
+        },
+        "isolation_policy": {
+          "type": "string",
+          "const": "loopback_only_v1",
+          "description": "Derived only from the pinned recipe. Absent means the legacy unisolated contract. Callers supply no mounts, paths or network exceptions."
+        },
+        "isolation_fingerprint": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "minLength": 71,
+          "maxLength": 71
+        },
+        "isolation_enforcement": {
+          "type": "string",
+          "enum": [
+            "established",
+            "unavailable"
+          ],
+          "description": "Producer-observed launcher/profile/namespace/lifetime/teardown state, not candidate assertions. Missing or changed required enforcement is unavailable."
         },
         "recipe_kind": {
           "type": "string",
@@ -30085,6 +30450,23 @@
               "pattern": "^sha256:[0-9a-f]{64}$",
               "minLength": 71,
               "maxLength": 71
+            },
+            "isolation_policy": {
+              "type": "string",
+              "const": "loopback_only_v1"
+            },
+            "isolation_fingerprint": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "minLength": 71,
+              "maxLength": 71
+            },
+            "isolation_enforcement": {
+              "type": "string",
+              "enum": [
+                "established",
+                "unavailable"
+              ]
             },
             "recipe_kind": {
               "type": "string",

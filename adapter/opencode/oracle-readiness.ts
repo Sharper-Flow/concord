@@ -19,13 +19,17 @@ function strings(value: unknown): string[] {
 
 // The closed admitted materializer/runner pairs of target_runner_v1. Every
 // other pair — including unknown members — refuses before any probe.
-const admittedTargetPairs = new Set(["uv:pytest", "none:check", "uv:check", "bun:check"])
+const admittedTargetPairs = new Set(["uv:pytest", "none:check", "uv:check", "bun:check", "bun:vitest"])
 
 // Witness IDs are runner-defined exact identities: 1 to 256 bytes, unique,
 // and free of control characters, mirroring the core's closed manifest rule.
 const visibleWitnessPattern = /^[^\x00-\x1f\x7f]*$/
 
 function targetWitnessesValid(preparation: NativeOracleTargetPreparation, cases: string[]): boolean {
+  if (preparation.isolation_policy !== undefined || preparation.isolation_fingerprint !== undefined || preparation.isolation_enforcement !== undefined) {
+    if (preparation.isolation_policy !== "loopback_only_v1" || preparation.isolation_enforcement !== "established"
+      || typeof preparation.isolation_fingerprint !== "string" || !/^sha256:[0-9a-f]{64}$/.test(preparation.isolation_fingerprint)) return false
+  }
   if (preparation.selected_test_names !== undefined || preparation.case_to_test_map !== undefined) return false
   if (!admittedTargetPairs.has(`${preparation.target_materializer}:${preparation.target_runner}`)) return false
   const selected = preparation.selected_witness_ids
@@ -48,6 +52,7 @@ function targetWitnessesValid(preparation: NativeOracleTargetPreparation, cases:
 }
 
 function goWitnessesValid(preparation: NativeOracleGoPreparation, cases: string[]): boolean {
+  if (preparation.isolation_policy !== undefined || preparation.isolation_fingerprint !== undefined || preparation.isolation_enforcement !== undefined) return false
   if (preparation.recipe_kind !== undefined || preparation.target_materializer !== undefined || preparation.target_runner !== undefined
     || preparation.selected_witness_ids !== undefined || preparation.case_to_witness_map !== undefined) return false
   const names = preparation.selected_test_names

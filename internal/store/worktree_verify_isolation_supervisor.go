@@ -178,7 +178,7 @@ func RunNativeIsolationSupervisor() (int, bool) {
 		err = nativeNoInheritableDescriptors()
 	}
 	if err == nil {
-		err = validateNativeLauncherFile(plan.Isolation.Launcher)
+		err = nativeIsolationLauncherVersion(plan.Isolation.Launcher)
 	}
 	if err == nil {
 		signal.Reset(syscall.SIGCHLD)
@@ -263,7 +263,11 @@ func decodeNativeSupervisorJSON(raw []byte, value any) error {
 }
 
 func runNativeIsolatedStage(ctx context.Context, dir string, argv, env []string, stdin io.Reader, capture *nativeStreamCapture, launched func(), isolation *nativeStageIsolation) (int, error) {
+	capture.isolationEstablished, capture.isolationReaped = false, false
 	if err := validateNativeIsolation(isolation, argv); err != nil {
+		return -1, nativeIsolationUnavailable(err.Error())
+	}
+	if err := nativeIsolationLauncherVersion(isolation.Launcher); err != nil {
 		return -1, nativeIsolationUnavailable(err.Error())
 	}
 	// No arbitrary reader-copy goroutine may outlive the native owner. Native
@@ -397,10 +401,21 @@ func runNativeIsolatedStage(ctx context.Context, dir string, argv, env []string,
 		capture.complete = false
 		return -1, nativeIsolationUnavailable(cut.Error())
 	}
+	// Output overflow and caller cancellation remain unavailable evidence,
+	// but must not erase independently observed teardown. The scratch owner
+	// distinguishes them from a controller whose cleanup is still pending.
+	nativeIsolationRecordProof(capture, result)
 	if runCtx.Err() != nil {
 		return -1, runCtx.Err()
 	}
 	return result.Exit, nil
+}
+
+func nativeIsolationRecordProof(capture *nativeStreamCapture, result nativeSupervisorResult) {
+	if result.Established && result.Reaped && result.Detail == "" {
+		capture.isolationEstablished = true
+		capture.isolationReaped = true
+	}
 }
 
 func readNativeSupervisorResult(r io.Reader, fingerprint string, launched func()) (nativeSupervisorResult, error) {

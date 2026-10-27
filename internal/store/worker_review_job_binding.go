@@ -72,8 +72,10 @@ type implementationDelivery struct {
 }
 
 // newestAcceptedImplementationDeliveryTx returns the delivery anchor: the
-// job-bound implementation attempt whose accepted result most recently
-// delivered a candidate, or nil when none has.
+// newest accepted job-bound implementation result on the work's claimed
+// worktree. A member result delivers on its member worktree and is skipped.
+// The anchor must carry a clean core observation; when the newest result has
+// none, there is no anchor and no older delivery stands in for it.
 func newestAcceptedImplementationDeliveryTx(ctx context.Context, q queryer, workID string) (*implementationDelivery, error) {
 	rows, err := q.QueryContext(ctx, `SELECT attempt_id FROM worker_attempt_dispositions WHERE work_id=? AND action_id='accept_worker_result' ORDER BY seq DESC`, workID)
 	if err != nil {
@@ -105,13 +107,17 @@ func newestAcceptedImplementationDeliveryTx(ctx context.Context, q queryer, work
 		if auth.WorkerCapabilityClass != "implementation" || auth.WorkerJob == nil {
 			continue
 		}
+		if base, err := workflowMemberResultBase(ctx, q, workID, auth); err != nil || base != nil {
+			if err != nil {
+				return nil, err
+			}
+			continue
+		}
 		candidate, err := workflowResultCandidate(ctx, q, workID, auth, result)
-		if err != nil {
+		if err != nil || candidate == nil {
 			return nil, err
 		}
-		if candidate != nil {
-			return &implementationDelivery{attempt: attempt, job: *auth.WorkerJob, candidate: *candidate}, nil
-		}
+		return &implementationDelivery{attempt: attempt, job: *auth.WorkerJob, candidate: *candidate}, nil
 	}
 	return nil, nil
 }

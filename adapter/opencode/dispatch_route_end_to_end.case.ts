@@ -1,6 +1,7 @@
 import { expect } from "bun:test"
 import { Database } from "bun:sqlite"
 import { chmod, mkdir, unlink } from "node:fs/promises"
+import { createHash } from "node:crypto"
 import { delimiter, join } from "node:path"
 import { createInterface } from "node:readline"
 import { Readable } from "node:stream"
@@ -141,7 +142,7 @@ interface RouteFixture {
 // client carrying the worker evidence and dispatch capabilities. The host
 // control-plane binding and the transport runner stay per-test, because each
 // scenario answers the host session routes differently.
-async function bootRouteFixture(root: string): Promise<RouteFixture> {
+async function bootRouteFixture(root: string, kind: "bug" | "task" = "bug"): Promise<RouteFixture> {
   // The CLI's native producer uses the installed local toolchain, not Go's
   // module-triggered launcher switch. Use the toolchain that builds this test.
   const toolchain = await runProcess(["go", "env", "GOROOT"], "", join(import.meta.dir, "..", ".."))
@@ -223,10 +224,10 @@ async function bootRouteFixture(root: string): Promise<RouteFixture> {
     project_id: PROJECT_ID,
     title: "Synthetic dispatch route",
     value_statement: "The route completes a real worker attempt.",
-    kind: "bug",
+    kind,
     task: "Exercise the dispatch route.",
     idempotency_key: "dispatch-route-e2e",
-    defect_intake: { failure_shape: "dispatch-route-e2e", reproduction: "run the synthetic dispatch route", searched: "the synthetic store", related_defect_ids: [] },
+    ...(kind === "bug" ? { defect_intake: { failure_shape: "dispatch-route-e2e", reproduction: "run the synthetic dispatch route", searched: "the synthetic store", related_defect_ids: [] } } : {}),
     priority: 1,
     urgency: "standard",
     tags: [],
@@ -321,6 +322,11 @@ async function driveWorkflowToContract(
   expect(response.outcome, JSON.stringify(response)).toBe("ok")
   const stepRead = (await invoke("concord_work_trace", { operation: "continuity", input: { work_id: workID, page: { cursor: null, limit: 1 } } }, context)).result as JSONRecord
   expect((stepRead.pinned as JSONRecord).workflow_step).toBe("repair")
+  return recordRouteWorkerJob(workID, invoke, context, outcomePredicates, jobPathScope, jobChecks, 10)
+}
+
+async function recordRouteWorkerJob(workID: string, invoke: any, context: any, outcomePredicates: JSONRecord[], jobPathScope: string[], jobChecks: string[], version: number): Promise<number> {
+  const transition = (actionID: string, idempotencyKey: string, fields: Record<string, unknown>) => invoke("concord_work_transition", { operation: "workflow_action", input: { work_id: workID, expected_version: version, action_id: actionID, idempotency_key: idempotencyKey, fields } }, context)
   const head = await runProcess(["git", "rev-parse", "HEAD"], "", context.directory)
   expect(head.exitCode, head.stderr).toBe(0)
   const subjectCommit = head.stdout.trim()
@@ -347,7 +353,7 @@ async function driveWorkflowToContract(
   const verify = (idempotencyKey: string, input: Record<string, unknown>) => invoke("concord_work_transition", {
     operation: "worktree_verify", input: { work_id: workID, idempotency_key: idempotencyKey, requested_budget_seconds: 300, ...input },
   }, context)
-  response = await verify("e2e-oracle-subject", { command: ["git", "status", "--porcelain"] })
+  let response = await verify("e2e-oracle-subject", { command: ["git", "status", "--porcelain"] })
   expect(response.outcome, JSON.stringify(response.error ?? null)).toBe("ok")
   expect(response.result.exit_code).toBe(0)
   expect(response.result.tracked_files_changed).toBe(false)
@@ -361,7 +367,7 @@ async function driveWorkflowToContract(
   const preparationRef = response.result.oracle.run_ref as string
   // The job-capable break-fix definition dispatches the implement lane only
   // under a recorded ready worker-job revision (CD-0205).
-  response = await transition(10, "record_worker_job", "e2e-worker-job", {
+  response = await transition("record_worker_job", "e2e-worker-job", {
     job_id: ROUTE_WORKER_JOB_ID,
     predicate_ids: owner.predicate_ids,
     objective: "Apply the bounded route repair.",
@@ -527,6 +533,113 @@ function bindRouteSessions(worktree: string, coordinatorIDs: string[]) {
   }
   return { sessions, opening, retain, counts: () => ({ coordinatorSessions: coordinatorIDs.length, taskLaunches, sessionCreates }) }
 }
+
+routeDeclaration("accepts an unchanged new-law baseline Review before implementation without binding the future law", async () => {
+  const root = await fixtureTempRoot("dispatch-new-law")
+  const previousConfig = process.env.OPENCODE_CONFIG
+  try {
+    const { binary, dbPath, configPath, workID, worktree, lane } = await bootRouteFixture(root, "task")
+    process.env.OPENCODE_CONFIG = configPath
+    const context = contextFor(worktree)
+    const approvals: JSONRecord[] = []
+    context.ask = async (request: JSONRecord) => { approvals.push(request.metadata) }
+    const host = bindRouteSessions(worktree, [context.sessionID])
+    const calls: Array<{ argv: string[]; input: JSONRecord }> = []
+    const runner = realStoreRunner(binary, dbPath, calls, worktree)
+    configureConcordAdapter({ runner, credentials: { async getPrivateKey() { return PRIVATE_SEED } } })
+    const invoke = (tool: string, args: any, context: any, directory?: string) => invokeConcordOperation(tool, args, context, directory) as Promise<JSONRecord>
+    const version = () => dbValue(dbPath, `SELECT version FROM work_items WHERE id='${workID}'`).version as number
+    const action = (name: string, key: string, fields: JSONRecord) => invoke("concord_work_transition", { operation: "workflow_action", input: { work_id: workID, expected_version: version(), action_id: name, idempotency_key: key, fields } }, context)
+    const ok = async (name: string, key: string, fields: JSONRecord) => {
+      const response = await action(name, key, fields)
+      expect(response.outcome, JSON.stringify(response)).toBe("ok")
+      return response
+    }
+    await ok("record_proposal", "new-law-proposal", {
+      problem: "The synthetic Product has no indexed rule for its route marker.",
+      affected: ["Synthetic route consumers"], stakes: "The approved rule must be published with its implementation.",
+      user_outcomes: ["The route marker and its approved law are published together."],
+    })
+    await ok("record_alignment", "new-law-alignment", { searched: "The synthetic backlog has no related work.", outcome: "none_found" })
+    const domains = await invoke("concord_domain", { operation: "list", input: { product_id: PRODUCT_ID } }, context)
+    expect(domains.outcome, JSON.stringify(domains)).toBe("ok")
+    const lawID = "CD-0901"
+    const lawText = "# Synthetic route rule\n\nThe route publishes its marker and knowledge together.\n"
+    const lawHash = "sha256:" + createHash("sha256").update(lawText).digest("hex")
+    const lawPath = ".concord/docs/route-rule.md"
+    await Bun.write(join(worktree, lawPath), lawText)
+    await git(worktree, "add", lawPath)
+    await git(worktree, "-c", "user.name=Synthetic Test", "-c", "user.email=test@example.invalid", "commit", "--quiet", "-m", "draft synthetic approved rule")
+    const subject = (await runProcess(["git", "rev-parse", "HEAD"], "", worktree)).stdout.trim()
+    const rootDomain = `product-root:${PRODUCT_ID}`
+    await ok("approve_contract", "new-law-contract", {
+      premise: "Publish the synthetic route marker and the exact approved route rule in the knowledge index.",
+      outcome_predicates: [WORKFLOW_PREDICATE], required_evidence: ["verification", "review"], route_conventions: [],
+      spec_mandate: [lawID], law_modifies: [], decision_domains: ["product"],
+      law_change_reason: "The synthetic Product needs its missing route rule.",
+      law_change_removes_user_visible_behavior: false, law_change_touches_security_or_data_safety: true,
+      law_change_text_pins: [{ law_id: lawID, content_hash: lawHash }],
+      architecture_binding: {
+        domain_registry_content_hash: domains.result.registry.content_hash, home_domain_id: rootDomain,
+        affected_domain_ids: [rootDomain], domain_modifies: [], domain_relation_modifies: [],
+        law_additions: [{ law_id: lawID, home_domain_id: rootDomain }], verification_obligations: [],
+      },
+    })
+    await ok("record_design", "new-law-design", {
+      approach: "Keep the approved rule draft unchanged; publish its index entry with the marker after baseline Review.",
+      decisions: [{ id: "decision:publication", question: "When is the new rule indexed?", choice: "During implementation.", rationale: "The baseline has no implementation or indexed new law.", rejected: ["Manufacture an indexed law before Review."] }],
+      touched_refs: [lawPath, ".concord/docs/knowledge/manifest.json"],
+    })
+    expect(approvals).toHaveLength(1)
+    expect(approvals[0].action_id).toBe("approve_contract")
+    const approvedContract = dbValue(dbPath, `SELECT premise,spec_mandate,law_change FROM workflow_contracts WHERE work_id='${workID}' AND superseded_by IS NULL`)
+    expect(JSON.parse(approvedContract.law_change).text_pins).toEqual([{ law_id: lawID, content_hash: lawHash }])
+    await recordRouteWorkerJob(workID, invoke, context, [WORKFLOW_PREDICATE], [lawPath, ".concord/docs/knowledge/manifest.json"], ["go test ./oraclekit"], version())
+    const dispatch = async (workerLane: (typeof agentLanes)[number], key: string) => {
+      context.workerSessionID = `${key}-worker`
+      return dispatchRouteTask(workerLane, workID, worktree, version(), key, `${key}-task`, context, invoke, (packet, agent) => host.opening(context, packet, agent))
+    }
+    const beforeBaseline = version()
+    const prematureImplementation = await dispatchLaneWorker({ work_id: workID, expected_version: version(), idempotency_key: "new-law-before-baseline", lane_id: lane.id }, {
+      context, invoke, windows: new DispatchWindows(), credentials: { async getPrivateKey() { return PRIVATE_SEED } },
+    })
+    expect(prematureImplementation.outcome, JSON.stringify(prematureImplementation)).toBe("error")
+    expect(prematureImplementation.error.message).toContain("execution progression requires an accepted Review covering the current architecture and criteria")
+    expect(version()).toBe(beforeBaseline)
+    const reviewLane = agentLanes.find((candidate) => candidate.id === "review")!
+    const review = await dispatch(reviewLane, "new-law-baseline-review")
+    const block = await routeReviewBlock(review.packet, worktree, "continue", invoke, context)
+    expect(block.input_candidate).toEqual(block.output_candidate)
+    expect(block.dependencies.architecture_digest).toMatch(/^sha256:[0-9a-f]{64}$/)
+    expect(block.dependencies.architecture_not_applicable).toBe(false)
+    expect(block.assessments).toEqual([])
+    const report = routeWorkerReport(reviewLane, review.packet, subject, block)
+    const receipt = await completeRouteTask(review, report, runner, binary)
+    expect(receipt.outcome, JSON.stringify(receipt)).toBe("ok")
+    const epoch = dbValue(dbPath, `SELECT json_extract(payload,'$.attempt_epoch') AS n FROM worker_authorizations WHERE attempt_id='${review.packet.attempt_id}'`).n
+    const accepted = await action("accept_worker_result", "new-law-accept-baseline", { attempt_id: review.packet.attempt_id, attempt_epoch: epoch })
+    expect(accepted.outcome, JSON.stringify(accepted)).toBe("ok")
+    expect(dbValue(dbPath, `SELECT current_step FROM workflow_instances WHERE work_id='${workID}'`).current_step).toBe("execution")
+    expect(dbValue(dbPath, `SELECT count(*) AS n FROM law_subjects WHERE law_id='${lawID}'`).n).toBe(0)
+    expect(dbValue(dbPath, `SELECT count(*) AS n FROM workflow_evidence_bindings WHERE work_id='${workID}' AND json_extract(payload,'$.immutable_subject_ref')='${lawID}'`).n).toBe(0)
+    expect(dbValue(dbPath, `SELECT premise,spec_mandate,law_change FROM workflow_contracts WHERE work_id='${workID}' AND superseded_by IS NULL`)).toEqual(approvedContract)
+    expect(approvals).toHaveLength(1)
+    const beforeDelivery = version()
+    const prematureDelivery = await action("record_delivery", "new-law-before-publication", { delivery_artifact: "https://github.com/synthetic/concord/pull/901", delivery_state: "asserted" })
+    expect(prematureDelivery.outcome, JSON.stringify(prematureDelivery)).toBe("error")
+    expect(prematureDelivery.error.message).toContain(`spec mandate law "${lawID}" is one of the contract's own law additions`)
+    expect(prematureDelivery.error.effect_state).toBe("none")
+    expect(version()).toBe(beforeDelivery)
+    const implementation = await dispatch(lane, "new-law-implementation")
+    expect(implementation.packet.inputs.task).toBe("Publish the synthetic route marker and the exact approved route rule in the knowledge index.")
+    const abandoned = await invoke("concord_work_transition", { operation: "worker_abandon", input: { work_id: workID, attempt_id: implementation.packet.attempt_id, lane_id: lane.id, detail: "Synthetic route stops after proving implementation admission.", idempotency_key: "new-law-stop-implementation" } }, context)
+    expect(abandoned.outcome, JSON.stringify(abandoned)).toBe("ok")
+  } finally {
+    hostControlPlane().bind(undefined)
+    if (previousConfig === undefined) delete process.env.OPENCODE_CONFIG
+    else process.env.OPENCODE_CONFIG = previousConfig
+  }
+}, 180_000)
 
 routeDeclaration("G01 composes concurrent coordinators with fresh production independent review verify and retained reports", async () => {
   const root = await fixtureTempRoot("dispatch-g01")

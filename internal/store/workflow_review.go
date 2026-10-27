@@ -343,10 +343,26 @@ func bindWorkflowReviewRequest(ctx context.Context, q queryer, state *WorkflowAd
 	if err != nil {
 		return err
 	}
+	state.ReviewResultAcceptance, err = workflowAttemptIsReview(ctx, q, workID, workflowFieldStringDefault(fields, "attempt_id", ""))
+	if err != nil {
+		return err
+	}
 	if err := validateReviewAcceptance(ctx, q, workID, workflowFieldStringDefault(fields, "attempt_id", ""), ref); err != nil {
 		state.ReviewAcceptanceError = workflowFailureOf(err)
 	}
 	return nil
+}
+
+func workflowAttemptIsReview(ctx context.Context, q queryer, workID, attempt string) (bool, error) {
+	var capability string
+	err := q.QueryRowContext(ctx, `SELECT capability_class FROM worker_attempts WHERE work_id=? AND attempt_id=?`, workID, attempt).Scan(&capability)
+	if err == sql.ErrNoRows {
+		return false, nil
+	}
+	if err != nil {
+		return false, workflowProjectionError(err, "cannot read the requested worker result's capability")
+	}
+	return capability == "review", nil
 }
 
 func readReviewAttempt(ctx context.Context, q queryer, workID, attempt string) (workflowActionCompletedPayload, WorkerCompletedPayload, error) {

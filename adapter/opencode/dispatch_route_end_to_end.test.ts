@@ -25,4 +25,5 @@ routeDeclaration("runs the protected dispatch journeys and retained recovery wit
   const selected = process.env.TEST_CONCORD_ROUTE_CASE
   if (!selected || new RegExp(selected).test("G01 composes concurrent coordinators")) expect(result.stdout).toContain("[pass] G01 composes concurrent coordinators")
   if (!selected || new RegExp(selected).test("G07 retains sourced research")) expect(result.stdout).toContain("[pass] G07 retains sourced research")
+  if (!selected || new RegExp(selected).test("accepts an unchanged new-law baseline Review")) expect(result.stdout).toContain("[pass] accepts an unchanged new-law baseline Review")
 }, 600_000)

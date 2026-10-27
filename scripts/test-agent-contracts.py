@@ -124,6 +124,28 @@ class ReviewCandidateReadbackProjectionTests(unittest.TestCase):
                 generator.schema_validate({"commit": "a" * 40, field: value}, view, payload)
 
 
+class UnidentifiedFindingReadbackProjectionTests(unittest.TestCase):
+    def test_only_closed_unidentified_findings_get_the_readback_variant(self):
+        payload = copy.deepcopy(payload_schema)
+        report = copy.deepcopy(report_schema)
+        generator.project_review_report_types(payload, report)
+        view = payload["$defs"]["workflow_review_unidentified_finding"]
+        strict = payload["$defs"]["lane_report_review_finding"]
+        self.assertEqual(set(view["required"]), {"severity", "confidence", "detail"})
+        self.assertEqual(set(view["properties"]), {"severity", "confidence", "detail", "oracle"})
+        self.assertFalse(view["additionalProperties"])
+        self.assertEqual(view["properties"], {key: strict["properties"][key] for key in view["properties"]})
+        self.assertEqual(report, report_schema)
+        finding = {"severity": "P2", "confidence": "high", "detail": "The recorded proof is incomplete."}
+        generator.schema_validate(finding, view, payload)
+        with self.assertRaises(ValueError):
+            generator.schema_validate(finding, strict, payload)
+        for key, value in {"finding_id": "finding:known", "status": "open", "in_scope": False,
+                           "blocking": False, "evidence_refs": [], "closure_refs": []}.items():
+            with self.subTest(key=key), self.assertRaises(ValueError):
+                generator.schema_validate({**finding, key: value}, view, payload)
+
+
 class IndependentPartIntegrationTests(unittest.TestCase):
     """Exercise composition identity and real regeneration on disposable source bytes."""
 

@@ -29579,7 +29579,14 @@ const GeneratedPayloadSchemaDocument = `{
         },
         "findings": {
           "items": {
-            "$ref": "#/$defs/lane_report_review_finding"
+            "anyOf": [
+              {
+                "$ref": "#/$defs/lane_report_review_finding"
+              },
+              {
+                "$ref": "#/$defs/workflow_review_unidentified_finding"
+              }
+            ]
           },
           "type": "array"
         },
@@ -29597,6 +29604,44 @@ const GeneratedPayloadSchemaDocument = `{
         "continue_consumed",
         "dependencies_current",
         "publication_outstanding"
+      ],
+      "type": "object"
+    },
+    "workflow_review_unidentified_finding": {
+      "additionalProperties": false,
+      "description": "A retained current finding without recorded identity, status, scope, blocking or reference fields. Only its observed content is exposed; it grants no worker-report, closure or acceptance authority.",
+      "properties": {
+        "confidence": {
+          "enum": [
+            "low",
+            "medium",
+            "high"
+          ],
+          "type": "string"
+        },
+        "detail": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string",
+          "x-maxBytes": 512
+        },
+        "oracle": {
+          "$ref": "#/$defs/lane_report_oracle_finding"
+        },
+        "severity": {
+          "enum": [
+            "P0",
+            "P1",
+            "P2",
+            "P3"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "severity",
+        "confidence",
+        "detail"
       ],
       "type": "object"
     },

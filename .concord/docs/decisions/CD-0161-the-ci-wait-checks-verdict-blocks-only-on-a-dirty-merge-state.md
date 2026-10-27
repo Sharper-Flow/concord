@@ -51,12 +51,10 @@ a set is not complete while a required context of the base branch is absent.
 
 The request gains `mode` with values `checks` and `merge`; `checks` stays the
 default. Merge mode waits for the pull request to merge, not merely become
-mergeable. Under [CD-0228](CD-0228-merge-waits-report-observed-check-failures-unless-github-reports-unstable.md),
-the newest attempt per check identity supplies the verdict. A failed or
-cancelled selected attempt ends an open merge wait as `failure`,
-unless `merge_state` is `UNSTABLE`. That state stays pending because GitHub
-reports the pull request as mergeable despite non-passing commit status.
-Failure takes precedence over pending peers. Under
+mergeable. Both modes apply the common classification and reporting rule in
+[CD-0228 D1](CD-0228-merge-waits-report-observed-check-failures-unless-github-reports-unstable.md#d1-common-classification-and-reporting-rule),
+including subject qualification, newest applicable attempts, prompt failure
+reporting and complete-success requirements. Under
 [CD-0232](CD-0232-a-merge-wait-ends-when-the-merge-queue-removes-the-pull-request.md),
 a fresh merge-queue removal that is not a merge ends an open merge wait as
 `failure` before check failures, and `UNSTABLE` does not hold it open.
@@ -67,15 +65,11 @@ call it already makes. In merge mode a merged pull request reports `merged`,
 and a closed one reports `closed`; those outcomes take precedence over check
 failures. In checks mode, merging or closing the pull request does not judge
 its checks. The selector reports the watched head's check verdict and totals
-through the same completeness rules as an open pull request: no checks or
-pending checks stay pending, and a complete failed set reports `failure`.
-A complete passing set reports `success` unless D1's `DIRTY` rule holds it
-pending. Head supersession retains precedence in both modes.
-
-CheckRun identity is `(name, workflowName)` because the existing rollup export
-omits event. StatusContext identity is its context, in a separate namespace.
-The greatest exported `startedAt` selects the attempt. A newer passing or
-pending rerun replaces an older failure. Different identities stay distinct.
+through the same classification rules as an open pull request. Without a
+relevant failure, no checks or an incomplete population stay pending. A complete
+passing set reports `success` unless D1's `DIRTY` rule holds it pending. Head
+supersession retains precedence in both modes. Non-Actions rollup identities
+and attempt ordering follow CD-0228 D2.
 
 ### D3. Every report carries merge_state
 
@@ -104,8 +98,9 @@ through the verb. CD-0160 D6 forbids caller-side polling methods.
   `success` for `UNKNOWN`, `BEHIND`, `BLOCKED`, `UNSTABLE`, `DRAFT`, empty,
   and `CLEAN` merge states with a complete passing check set, and `pending`
   for `DIRTY`.
-- `cmd/concord.TestCiWaitPRMergeModeCheckFailures` proves merge-mode failure
-  and the `UNSTABLE` pending exception.
+- [CD-0228 Verification](CD-0228-merge-waits-report-observed-check-failures-unless-github-reports-unstable.md#verification)
+  names the required fail-fast, queued-workflow and newest-attempt checks in
+  both modes, including failure reporting with `UNSTABLE`.
 - `cmd/concord.TestCiWaitPRMergeModeNewestAttempts` proves newest-attempt
   selection and separate check identities.
 - `cmd/concord.TestCiWaitPRMergeModeFailurePrecedence` proves merged, closed,

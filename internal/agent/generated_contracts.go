@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-const ManifestDigest = "sha256:baec3e2f89a474be2f2f000b2bbf24fcf4198702c3eeb4934d120fa91b1b220d"
+const ManifestDigest = "sha256:82279617c708f515c2fea068bd7c5fa03aa782059592716f5f14dcca02a6e9fd"
 
 type OperationKind string
 
@@ -417,6 +417,7 @@ var GeneratedPayloadRules = map[string]GeneratedPayloadRule{
 	"workflow_retained_outcome":                             {Required: []string{"kind", "allowed"}, Properties: []string{"kind", "allowed", "decision_record"}},
 	"workflow_review_candidate_view":                        {Required: []string{"commit"}, Properties: []string{"project_id", "commit", "tree"}},
 	"workflow_review_state":                                 {Required: []string{"candidate", "accepted_review", "findings", "continue_consumed", "dependencies_current", "publication_outstanding"}, Properties: []string{"candidate", "accepted_review", "findings", "continue_consumed", "group_id", "dependencies_current", "dependencies", "publication_outstanding"}},
+	"workflow_review_unidentified_finding":                  {Required: []string{"severity", "confidence", "detail"}, Properties: []string{"severity", "confidence", "detail", "oracle"}},
 	"workflow_self_repair":                                  {Required: []string{"refusal_kind", "blocked_operation", "evidence_refs"}, Properties: []string{"refusal_kind", "blocked_operation", "evidence_refs"}},
 	"workflow_verdict_batch_entry":                          {Required: []string{"predicate_id", "receipt_refs"}, Properties: []string{"predicate_id", "receipt_refs"}},
 	"worktree_audit_page":                                   {Required: []string{"root", "drift"}, Properties: []string{"root", "drift"}},

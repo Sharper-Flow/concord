@@ -26,17 +26,17 @@ func seedCrossRepositoryLawFixture(t *testing.T, s *Store, workID string) string
 	t.Helper()
 	ctx := context.Background()
 	seedWork(t, s, workID)
-	homeDir := t.TempDir()
+	homeDir := initKnowledgeRepo(t)
 	dispatchDir := t.TempDir()
 	registryDir := filepath.Join(homeDir, ".concord", "docs", "knowledge")
 	if err := os.MkdirAll(registryDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	registry := `{"schema_version":"1.0","product_key":"product","root_domain_id":"root","domains":[]}`
+	registry := `{"schema_version":"1.0","product_key":"product","root_domain_id":"product-root:product","domains":[{"domain_id":"product-root:product","name":"Root","purpose":"Synthetic law","status":"current","architecture_relations":[]}]}`
 	if err := os.WriteFile(filepath.Join(registryDir, "domain-registry.json"), []byte(registry+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(registryDir, "manifest.json"), []byte("{}\n"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(registryDir, "manifest.json"), []byte("{\"schema_version\":\"1.2\",\"supported_kinds\":[\"decision\",\"spec\"],\"indexed_kinds\":[\"decision\",\"spec\"]}\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.MkdirAll(filepath.Join(homeDir, ".concord", "docs"), 0o700); err != nil {
@@ -102,12 +102,29 @@ func seedCrossRepositoryLawFixture(t *testing.T, s *Store, workID string) string
 	if err := seedTx.Commit(); err != nil {
 		t.Fatal(err)
 	}
+	commit := commitKnowledgeRepo(t, homeDir, "synthetic cross-repository law source")
+	home := KnowledgeHome{HomeProjectID: "project-home", HomeLocatorID: "project-home-locator", RepoPath: homeDir, HeadRef: "HEAD"}
+	digest, err := knowledgeContentDigest(ctx, home, commit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest, err = domainShapeKnowledgeDigest(ctx, home, commit, digest, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); INSERT INTO knowledge_index_watermark(home_project_id,home_locator_id,head_ref,scanned_commit_oid,scanned_content_digest,scanned_at,complete,projection_version) VALUES('project-home','project-home-locator','HEAD',?,?,'test',1,?); DELETE FROM write_guard`, commit, digest, knowledgeProjectionVersion); err != nil {
+		t.Fatal(err)
+	}
 	// The approval helper derives its actor ref from the law-context actor
 	// identity, so initialization records exactly that actor.
 	actor := WorkflowActor{PrincipalRef: "principal:law-context", ClientRef: "client:law-context", AgentRef: "agent:law-context", SessionRef: "session:law-context", ActorClass: ActorAgent}
 	definition, ok := BuiltinWorkflowRegistry().Current("workflow.implementation")
 	if !ok {
 		t.Fatal("latest implementation definition missing")
+	}
+	ctx, err = s.EstablishKnowledgeSourceSetProof(ctx, workID)
+	if err != nil {
+		t.Fatal(err)
 	}
 	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
 	if err != nil {

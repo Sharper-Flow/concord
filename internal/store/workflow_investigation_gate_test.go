@@ -95,11 +95,15 @@ func TestApproveContractResearchBindingTakesEffectBeforeItsGate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
+	ctx, err := s.EstablishKnowledgeSourceSetProof(context.Background(), workID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := initializeWorkflowRawTx(context.Background(), tx, WorkflowInitializationRequest{WorkID: workID, Definition: registered, Actor: actor, Now: time.Date(2026, 8, 9, 0, 0, 0, 0, time.UTC)}); err != nil {
+	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := initializeWorkflowRawTx(ctx, tx, WorkflowInitializationRequest{WorkID: workID, Definition: registered, Actor: actor, Now: time.Date(2026, 8, 9, 0, 0, 0, 0, time.UTC)}); err != nil {
 		tx.Rollback()
 		t.Fatal(err)
 	}
@@ -157,11 +161,15 @@ func TestApproveContractResearchBindingTakesEffectBeforeItsGate(t *testing.T) {
 func applyInvestigationGateApproval(t *testing.T, s *Store, workID string, version int64, operationID string, actor WorkflowActor, payload json.RawMessage, bindings []ResearchBindingDeclaration) error {
 	t.Helper()
 	payload = testApprovalPayload(t, s, workID, "approve_contract", payload)
-	tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
+	ctx, err := s.EstablishKnowledgeSourceSetProof(context.Background(), workID)
+	if err != nil {
+		return err
+	}
+	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, actionErr := applyWorkflowActionRawTx(context.Background(), tx, newWriteScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
+	_, actionErr := applyWorkflowActionRawTx(ctx, tx, newWriteScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
 		WorkID: workID, ExpectedVersion: version, ActionID: "approve_contract", Payload: payload, Actor: actor,
 		AcceptedInputsDigest: "sha256:investigation-gate", IdempotencyIdentity: operationID, OperationID: operationID,
 		PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: operationID,

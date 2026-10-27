@@ -34,6 +34,10 @@ func seedWorkflowLawFixture(t *testing.T, s *Store, workID string) WorkflowActor
 	seedWorkflowLaw(t, s)
 	actor := WorkflowActor{PrincipalRef: "principal:law-home", ClientRef: "client:law-home", AgentRef: "agent:law-home", SessionRef: "session:law-home", ActorClass: ActorAgent}
 	definition := workflowFixtureDefinition(t, 1)
+	ctx, err := s.EstablishKnowledgeSourceSetProof(ctx, workID)
+	if err != nil {
+		t.Fatal(err)
+	}
 	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
 	if err != nil {
 		t.Fatal(err)

@@ -84,10 +84,11 @@ func (a OutsideRepairApproval) binding() workflowApprovalBinding {
 	return workflowApprovalBinding{ApprovalRef: a.ApprovalRef, OperationDigest: a.ApprovalOperationDigest, ScopeJSON: a.ApprovalScopeJSON, VersionsJSON: a.ApprovalVersionsJSON, Consequence: a.ApprovalConsequence}
 }
 
-// OutsideRepairRequest selects one live work item and one approved mutation.
+// OutsideRepairRequest selects one live work item and its authenticated actor.
 // A hold needs no completion evidence; it exists before repair starts.
 type OutsideRepairRequest struct {
 	OutsideRepairApproval
+	Actor           WorkflowActor
 	WorkID          string
 	Reason          string
 	EventID         string
@@ -102,7 +103,7 @@ type OutsideRepairReconcileRequest struct {
 
 // SetOutsideRepairDispositionTx durably holds needed/in_progress work while
 // preserving its workflow step, instance state and historical evidence. Commit
-// with TransactDurable; the caller owns approval consumption and idempotency.
+// with TransactDurable; the caller owns authentication and idempotency.
 func SetOutsideRepairDispositionTx(ctx context.Context, transaction *Transaction, request OutsideRepairRequest) (ApplyOperationResult, error) {
 	return applyOutsideRepairMutationTx(ctx, transaction, request, WorkflowOutsideRepairDispositionSet, nil)
 }
@@ -129,17 +130,31 @@ func applyOutsideRepairMutationTx(ctx context.Context, transaction *Transaction,
 	if !ValidReference(request.WorkID) || !workflowString(request.Reason, 4096) || !workflowString(request.EventID, 128) || request.ExpectedVersion <= 0 || request.ExpectedVersion > (1<<63-1)-2 {
 		return ApplyOperationResult{}, newFailure(KindInvalidPayload, "outside_repair", "work, reason, event identity or version is invalid", false, "supply bounded outside-repair fields")
 	}
-	operator, err := workflowOperatorFromConsumedApprovalTx(ctx, tx, request.binding(), "outside_repair")
-	if err != nil {
-		return ApplyOperationResult{}, err
+	actorIdentity := request.Actor
+	var actorRef string
+	if request.OutsideRepairApproval != (OutsideRepairApproval{}) {
+		operator, err := workflowOperatorFromConsumedApprovalTx(ctx, tx, request.binding(), "outside_repair")
+		if err != nil {
+			return ApplyOperationResult{}, err
+		}
+		actorIdentity = WorkflowActor{PrincipalRef: operator.PrincipalRef, ClientRef: operator.ClientRef, AgentRef: operator.AgentRef, SessionRef: operator.SessionRef, ActorClass: ActorOperator}
+		actorRef = operator.ref
+	} else {
+		if actorIdentity.ActorClass != ActorAgent {
+			return ApplyOperationResult{}, newFailure(KindUnauthorized, "outside_repair", "ordinary outside repair requires an authenticated agent", false, "use the authenticated outside-repair boundary")
+		}
+		actorRef, err = WorkflowActorRef(actorIdentity)
+		if err != nil {
+			return ApplyOperationResult{}, err
+		}
 	}
 	if request.OccurredAt.IsZero() {
 		request.OccurredAt = transaction.now()
 	}
 	version := request.ExpectedVersion
-	actor := workflowTypedEvent(request.EventID+":operator", WorkflowActorRecorded, request.WorkID, operator.ref, request.OccurredAt, version, map[string]any{
-		"actor_ref": operator.ref, "principal_ref": operator.PrincipalRef, "client_ref": operator.ClientRef,
-		"agent_ref": operator.AgentRef, "session_ref": operator.SessionRef, "actor_class": string(ActorOperator),
+	actor := workflowTypedEvent(request.EventID+":actor", WorkflowActorRecorded, request.WorkID, actorRef, request.OccurredAt, version, map[string]any{
+		"actor_ref": actorRef, "principal_ref": actorIdentity.PrincipalRef, "client_ref": actorIdentity.ClientRef,
+		"agent_ref": actorIdentity.AgentRef, "session_ref": actorIdentity.SessionRef, "actor_class": string(actorIdentity.ActorClass),
 	})
 	state := OutsideRepairStateActive
 	if kind == WorkflowOutsideRepairReconciled {
@@ -158,7 +173,7 @@ func applyOutsideRepairMutationTx(ctx context.Context, transaction *Transaction,
 		payload["evidence"] = evidence
 		payload["evidence_source"] = OutsideRepairEvidenceSource
 	}
-	event := workflowTypedEvent(request.EventID, kind, request.WorkID, operator.ref, request.OccurredAt, version+1, payload)
+	event := workflowTypedEvent(request.EventID, kind, request.WorkID, actorRef, request.OccurredAt, version+1, payload)
 	scope := transaction.write
 	if scope == nil {
 		scope = newWriteScope(tx)
@@ -255,8 +270,25 @@ func validateOutsideRepairFold(ctx context.Context, tx *sql.Tx, event Event, p w
 	if p.State != state || !workflowString(p.Reason, 4096) {
 		return workProjection{}, newFailure(KindInvalidPayload, "outside_repair", "invalid disposition state or reason", false, "use the typed outside-repair route")
 	}
-	if err := authorizeWorkflowOperatorApprovalTx(ctx, tx, event, p.binding(), outsideRepairApprovalSubject); err != nil {
-		return workProjection{}, err
+	if p.OutsideRepairApproval != (OutsideRepairApproval{}) {
+		if err := authorizeWorkflowOperatorApprovalTx(ctx, tx, event, p.binding(), outsideRepairApprovalSubject); err != nil {
+			return workProjection{}, err
+		}
+	} else {
+		var actorClass string
+		err := tx.QueryRowContext(ctx, `SELECT actor_class FROM workflow_actors WHERE actor_ref=?`, event.Actor).Scan(&actorClass)
+		if err == sql.ErrNoRows {
+			return workProjection{}, newFailure(KindUnauthorized, "outside_repair", "outside repair requires a recorded actor", false, "use the authenticated outside-repair boundary")
+		}
+		if err != nil {
+			return workProjection{}, wrapFailure(KindUnavailable, "outside_repair", "cannot read outside-repair actor", true, "retry once the workflow projection is readable", err)
+		}
+		if actorClass != string(ActorAgent) {
+			return workProjection{}, newFailure(KindUnauthorized, "outside_repair", "ordinary outside repair requires a recorded agent", false, "use the authenticated outside-repair boundary")
+		}
+		if err := workflowRequireMain(ctx, tx, event.SubjectID, event.Actor); err != nil {
+			return workProjection{}, err
+		}
 	}
 	work, err := readWork(ctx, tx, event.SubjectID)
 	if err != nil {

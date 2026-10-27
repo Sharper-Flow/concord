@@ -1,5 +1,5 @@
 {
   "id": "PM9",
-  "reason": "internal/store.TestPM8AndPM9DeclareNoEvidenceOrReceiptStore remains a structural absence witness, not proof of the authenticated publisher's reviewed summary attestation. TestPublishCanonicalNoteCommitsOneNote and TestCompactionPayloadRequiresExplicitUniqueScopeArrays in internal/store/knowledge_index_test.go are candidate publication witnesses. Routine publication invents neither operator attestation nor research-deletion authority; integrated salvage, attestation and applicable-approval coverage remain unmeasured.",
-  "state": "unmeasured"
+  "issue": "CON-1387",
+  "state": "outstanding"
 }

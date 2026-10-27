@@ -198,7 +198,7 @@ func seedEscalatedFailedWorkerMutation(t *testing.T, s *store.Store, service *Se
 		DELETE FROM write_guard`, approvalStep); err != nil {
 		t.Fatalf("seed escalated projections: %v", err)
 	}
-	fields := workflowContractFieldsFixture()
+	fields := workflowContractFieldsForSeededRegistry(t, s)
 	fields["premise"] = "approved retry objective"
 	fields["outcome_predicates"] = []map[string]any{{"predicate_id": "predicate:primary", "ordinal": 0, "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:workflow", "immutable_subject_ref": "commit:escalated-retry", "expected_result": "pass"}}}
 	fields["architecture_binding"] = workflowArchitectureBindingForSeededRegistry(t, s)
@@ -310,7 +310,7 @@ func supersedeEscalatedCorrectionContract(t *testing.T, s *store.Store, owner st
 			"outcome_payload": map[string]any{"kind": "check", "check_ref": "check:workflow", "immutable_subject_ref": "commit:escalated-retry", "expected_result": "pass"},
 		}},
 		"required_evidence": []string{"artifact"}, "route_conventions": []string{}, "spec_mandate": []string{}, "law_modifies": []string{},
-		"architecture_binding": workflowArchitectureBindingFixture(),
+		"architecture_binding": workflowArchitectureBindingForSeededRegistry(t, s),
 		"rigor_class":          "prototype_internal", "supersede_reason": reason, "audit_evidence": []string{"evidence:escalated-supersede"},
 	}
 	raw, err := json.Marshal(fields)
@@ -318,8 +318,12 @@ func supersedeEscalatedCorrectionContract(t *testing.T, s *store.Store, owner st
 		t.Fatal(err)
 	}
 	operationID := "escalated-supersede-" + strconv.FormatInt(next, 10)
-	if err := s.Transact(context.Background(), func(tx *store.Transaction) error {
-		_, err := store.ApplyWorkflowActionTx(context.Background(), tx, store.BuiltinWorkflowRegistry(), store.WorkflowActionExecutionRequest{
+	ctx, err := s.EstablishKnowledgeSourceSetProof(context.Background(), "work-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Transact(ctx, func(tx *store.Transaction) error {
+		_, err := store.ApplyWorkflowActionTx(ctx, tx, store.BuiltinWorkflowRegistry(), store.WorkflowActionExecutionRequest{
 			WorkID: "work-1", ExpectedVersion: version, ActionID: "supersede_contract", Payload: raw, Actor: owner,
 			AcceptedInputsDigest: "sha256:" + strings.Repeat("f", 64) + operationID, IdempotencyIdentity: operationID, OperationID: operationID,
 			PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: operationID, RequestID: "request:" + operationID,

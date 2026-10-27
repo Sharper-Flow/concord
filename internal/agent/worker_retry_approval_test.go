@@ -167,7 +167,7 @@ func seedWorkerRetryMutationFixtureAt(t *testing.T, s *store.Store, grant Author
 		DELETE FROM write_guard`, approvalStep); err != nil {
 		t.Fatalf("seed retry projections: %v", err)
 	}
-	fields := workflowContractFieldsFixture()
+	fields := workflowContractFieldsForSeededRegistry(t, s)
 	fields["premise"] = "approved retry objective"
 	fields["outcome_predicates"] = []map[string]any{{"predicate_id": "predicate:retry-objective", "ordinal": 0, "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:retry-objective", "immutable_subject_ref": "commit:retry-objective", "expected_result": "pass"}}}
 	fields["architecture_binding"] = workflowArchitectureBindingForSeededRegistry(t, s)

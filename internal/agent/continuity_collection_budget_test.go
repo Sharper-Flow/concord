@@ -18,7 +18,6 @@ import (
 
 	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/payloadschema"
-	"github.com/sharper-flow/concord/internal/pm1fixture"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -448,13 +447,13 @@ func TestContinuityFixedProjectionEnvelopeLiveness(t *testing.T) {
 			"statement":              fmt.Sprintf("liveness-finding-%02d-%s", i, strings.Repeat("f", 1003)),
 			"subject_ref":            strings.Repeat("s", 128),
 			"evidence_refs":          []string{},
-			"domain_id":              pm1fixture.FixtureRootDomainID,
+			"domain_id":              workflowArchitectureBindingForSeededRegistry(t, s)["home_domain_id"],
 			"product_wide_rationale": "the liveness witness spans every Domain of the fixture Product",
 		})
 	}
 	engine("record_work_context", map[string]any{
 		"required_reading": []map[string]any{{
-			"domain_id":              pm1fixture.FixtureRootDomainID,
+			"domain_id":              workflowArchitectureBindingForSeededRegistry(t, s)["home_domain_id"],
 			"product_wide_rationale": "the liveness witness reads across every Domain of the fixture Product",
 			"reason":                 strings.Repeat("w", 512),
 			"source":                 map[string]any{"kind": "repository_file", "project_id": "project-1", "path": "internal/store/work_context.go", "commit_oid": strings.Repeat("a", 40)},
@@ -937,13 +936,13 @@ func oversizedContinuationFixture(t *testing.T) (*store.Store, context.Context) 
 			"statement":              fmt.Sprintf("continuation-finding-%02d-😀%s", i, strings.Repeat("f", 995)),
 			"subject_ref":            strings.Repeat("s", 128),
 			"evidence_refs":          []string{},
-			"domain_id":              pm1fixture.FixtureRootDomainID,
+			"domain_id":              workflowArchitectureBindingForSeededRegistry(t, s)["home_domain_id"],
 			"product_wide_rationale": "the continuation fixture spans every Domain of the fixture Product",
 		})
 	}
 	engine("record_work_context", map[string]any{
 		"required_reading": []map[string]any{{
-			"domain_id":              pm1fixture.FixtureRootDomainID,
+			"domain_id":              workflowArchitectureBindingForSeededRegistry(t, s)["home_domain_id"],
 			"product_wide_rationale": "the continuation fixture reads across every Domain of the fixture Product",
 			"reason":                 strings.Repeat("w", 512),
 			"source":                 map[string]any{"kind": "repository_file", "project_id": "project-1", "path": "internal/agent/runtime.go", "commit_oid": strings.Repeat("b", 40)},
@@ -1018,7 +1017,7 @@ func oversizedContinuationFixture(t *testing.T) (*store.Store, context.Context) 
 		"context_findings": []map[string]any{},
 		"research_finding_refs": []map[string]any{{
 			"pack_id": continuationResearchPack, "revision": 1,
-			"finding_id": "f-continuation-research", "domain_id": pm1fixture.FixtureRootDomainID,
+			"finding_id": "f-continuation-research", "domain_id": workflowArchitectureBindingForSeededRegistry(t, s)["home_domain_id"],
 			"product_wide_rationale": "the continuation fixture selects across every Domain of the fixture Product",
 		}},
 	}

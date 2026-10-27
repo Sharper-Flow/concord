@@ -385,15 +385,17 @@ func TestRoutineCoordination(t *testing.T) {
 				t.Fatalf("stored v2 payload version = %d, want the source version kept", storedVersion)
 			}
 		})
-		t.Run("a v2 destructive event without a claim still refuses by name", func(t *testing.T) {
+		t.Run("a v2 governing scope cut without consent refuses", func(t *testing.T) {
 			t.Parallel()
 			s, _, actor := overlapContentFixture(t)
+			// CD-0243 D7 retains scope-cut consent, not kind-only consent.
+			overlapFixtureExec(t, s, `UPDATE work_items SET intent_json=json_set(intent_json,'$.governing_requirements',json('["audit_required"]')) WHERE id='content-left'`)
 			fromVersion, toVersion := routinePairVersions(t, s)
 			event := routineOverlapBoundaryEvent("routine-v2-destructive-claimless", actor, fromVersion, toVersion, ResolutionMergedInto, 2, "")
 			err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{event}, ExpectedVersions: workVersion("content-left", fromVersion)})
 			failure := routineFailure(t, err)
-			if failure.Kind != KindInvalidPayload || !strings.Contains(failure.Detail, "approval") {
-				t.Fatalf("v2 destructive event without a claim error = %v, want an invalid_payload refusal naming the approval", err)
+			if failure.Kind != KindApprovalRequired || len(failure.Violations) != 1 || failure.Violations[0] != "audit_required" {
+				t.Fatalf("v2 scope cut without consent = %v, want the omitted requirement and approval_required", err)
 			}
 		})
 	})

@@ -311,9 +311,8 @@ func TestStaleLawBoundaryLeavesRecoveryReachable(t *testing.T) {
 	deleteObservationBoundaryLaw(t, s)
 
 	version := scalarRow(t, s, `SELECT version FROM work_items WHERE id=?`, observationBoundaryWork)
-	// The evidence is supplied so the request passes the earlier lifecycle
-	// gates and actually reaches the boundary guard, which sits ahead of the
-	// approval challenge inside the owning transaction.
+	// CD-0243 D3/D7 retire terminal consent, not verification evidence.
+	// Supplied evidence lets the terminal recovery pass its retained gates.
 	input, _ := json.Marshal(map[string]any{
 		"work_id": observationBoundaryWork, "expected_version": version, "target": "cancelled",
 		"reason": "abandon the work after its mandated law was deleted", "idempotency_key": "obs-stale-recovery",
@@ -323,13 +322,13 @@ func TestStaleLawBoundaryLeavesRecoveryReachable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if response.Error == nil {
-		t.Fatalf("terminal recovery outcome=%s, want the approval challenge that proves it passed the guard", response.Outcome)
-	}
-	if response.Error.Kind == "stale_law_revision" {
+	if response.Outcome != OutcomeOK {
 		t.Fatalf("the stale-law boundary refused its own terminal_work recovery: %+v", response.Error)
 	}
-	if response.Error.Kind != "approval_required" {
-		t.Fatalf("terminal recovery refusal kind=%q, want approval_required (it must reach the approval gate past the guard)", response.Error.Kind)
+	if lifecycle, got := readWorkFromStore(t, s, observationBoundaryWork); lifecycle != "cancelled" || got != int64(version+1) {
+		t.Fatalf("terminal recovery = %s v%d, want cancelled v%d", lifecycle, got, version+1)
+	}
+	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM agent_approval_challenges`); got != 0 {
+		t.Fatalf("ordinary terminal recovery minted %d challenges", got)
 	}
 }

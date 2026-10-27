@@ -45,6 +45,7 @@ func TestFullWorkReadBytePagesEnumerateExactlyOnce(t *testing.T) {
 		if err := pm1fixture.SeedWorkItem(ctx, s, "project-1", id, id, i%10); err != nil {
 			t.Fatal(err)
 		}
+		ctx = agentWorkflowSourceProof(t, ctx, s, id)
 		if err := s.Transact(ctx, func(tx *store.Transaction) error {
 			return store.InitializeWorkflowTx(ctx, tx, store.WorkflowInitializationRequest{
 				WorkID: id, Definition: definition, Now: fixedTime(),

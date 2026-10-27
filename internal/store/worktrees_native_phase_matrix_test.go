@@ -582,20 +582,23 @@ func TestReclaimRefusalReasonMatrix(t *testing.T) {
 			wantKind: KindWorktreeOwnershipConflict,
 		},
 		{
-			name: "non-terminal destroy without approval",
+			name: "dirty non-terminal destroy without waiver",
 			setup: func(t *testing.T) (*con829Fixture, string, func() error) {
 				f := con829FixtureNew(t)
 				path, _ := f.claimWork("work-refuse-nonterminal")
+				if err := writeFile(filepath.Join(path, "tracked.txt"), "dirty\n"); err != nil {
+					t.Fatal(err)
+				}
 				return f, path, func() error {
 					_, err := destroyWorktreeForTest(context.Background(), f.s, WorktreeDestroyRequest{
 						WorkID: "work-refuse-nonterminal", ProjectID: "project-w", DefaultRef: "origin/main",
-						PrincipalRef: "principal-1", RequestID: "refuse-nonterminal",
+						ExpectedVersion: 3, PrincipalRef: "principal-1", RequestID: "refuse-nonterminal",
 					})
 					return err
 				}
 			},
-			wantKind:   KindInvalidTransition,
-			wantDetail: []string{"not merged terminal work"},
+			wantKind:   KindInvalidOperation,
+			wantDetail: []string{"dirty"},
 		},
 		{
 			name: "destructive removal without approval",
@@ -609,7 +612,7 @@ func TestReclaimRefusalReasonMatrix(t *testing.T) {
 				return f, path, func() error {
 					_, err := destroyWorktreeForTest(context.Background(), f.s, WorktreeDestroyRequest{
 						WorkID: "work-refuse-destructive", ProjectID: "project-w", DefaultRef: "origin/main",
-						Destructive: true, PrincipalRef: "principal-1", RequestID: "refuse-destructive",
+						ExpectedVersion: 4, Destructive: true, PrincipalRef: "principal-1", RequestID: "refuse-destructive",
 					})
 					return err
 				}
@@ -748,6 +751,31 @@ func TestReclaimRefusalReasonMatrix(t *testing.T) {
 				t.Fatal("the refused worktree must remain")
 			}
 		})
+	}
+}
+
+// CD-0243 D3/D7 retire nonterminal-only consent. A clean, merged and
+// unoccupied checkout passes the unchanged native removal gates.
+func TestNativeNonterminalDestroyWithoutConsent(t *testing.T) {
+	f := con829FixtureNew(t)
+	path, _ := f.claimWork("work-native-nonterminal")
+	entry, err := destroyWorktreeForTest(context.Background(), f.s, WorktreeDestroyRequest{
+		WorkID: "work-native-nonterminal", ProjectID: "project-w", DefaultRef: "origin/main",
+		ExpectedVersion: 3, PrincipalRef: "principal-1", RequestID: "native-nonterminal",
+	})
+	if err != nil {
+		t.Fatalf("clean nonterminal destroy without consent: %v", err)
+	}
+	if entry.State != worktreeEntryReclaimed || !f.worktreeGone(path) {
+		t.Fatalf("nonterminal destroy did not reclaim its checkout: %+v", entry)
+	}
+	var lifecycle string
+	var version int64
+	if err := f.s.db.QueryRow(`SELECT lifecycle,version FROM work_items WHERE id='work-native-nonterminal'`).Scan(&lifecycle, &version); err != nil {
+		t.Fatal(err)
+	}
+	if lifecycle != "needed" || version != 4 {
+		t.Fatalf("removal changed disposition or lost its version: %s v%d", lifecycle, version)
 	}
 }
 

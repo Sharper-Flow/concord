@@ -137,8 +137,9 @@ func seedEscalatedVerificationWorkerMutation(t *testing.T, s *store.Store, servi
 		t.Fatal(err)
 	}
 	owner := store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}
-	if err := s.Transact(context.Background(), func(tx *store.Transaction) error {
-		return store.InitializeWorkflowTx(context.Background(), tx, store.WorkflowInitializationRequest{WorkID: "work-1", Definition: definition, Actor: owner, Now: fixedTime()})
+	ctx := agentWorkflowSourceProof(t, context.Background(), s, "work-1")
+	if err := s.Transact(ctx, func(tx *store.Transaction) error {
+		return store.InitializeWorkflowTx(ctx, tx, store.WorkflowInitializationRequest{WorkID: "work-1", Definition: definition, Actor: owner, Now: fixedTime()})
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -373,6 +374,12 @@ func runVerificationStoreAction(t *testing.T, s *store.Store, action string, fie
 		ContractDigest: agentcontract.ManifestDigest, Now: fixedTime(),
 	}
 	ctx := context.Background()
+	if action == "approve_contract" || action == "supersede_contract" || action == "complete" {
+		ctx, err = s.EstablishKnowledgeSourceSetProof(ctx, request.WorkID)
+		if err != nil {
+			t.Fatalf("prepare %s for %s: %v", action, suffix, err)
+		}
+	}
 	if store.WorkflowActionRequiresSubjectFreshness(action) {
 		preparation, prepErr := store.PrepareWorkflowAcceptanceFreshness(ctx, s, store.PrepareWorkerDispatchRequest{WorkID: request.WorkID})
 		if prepErr != nil {

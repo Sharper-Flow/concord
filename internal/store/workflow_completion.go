@@ -151,7 +151,13 @@ func completeWorkflowInScopeTx(ctx context.Context, tx *sql.Tx, registry Definit
 	if err != nil {
 		return workflowClauseError(err, 6)
 	}
-	return appendWorkflowCompletionTx(ctx, tx, event, scope, payload, contract.Version, warnings)
+	if err := appendWorkflowCompletionTx(ctx, tx, event, scope, payload, contract.Version, warnings); err != nil {
+		return err
+	}
+	if contract.LawBoundaryVersion == 1 {
+		return recordWorkflowLawEnactmentTx(ctx, tx, event)
+	}
+	return nil
 }
 
 func verifyWorkflowCompletionEvidenceAndScopeTx(ctx context.Context, tx *sql.Tx, workID string, contract workflowCompletionContractData, definition WorkflowDefinition, evidenceCutoff int64) error {
@@ -402,7 +408,7 @@ func workflowPremiseConfirmationAuthority(ctx context.Context, tx *sql.Tx, defin
 // workflowPremiseContractIsEngineering reports whether the contract's stored
 // decision fact classifies the work as engineering under consequence_v1.
 func workflowPremiseContractIsEngineering(contract workflowCompletionContractData) bool {
-	return contract.DecisionDomainsPresent && len(contract.DecisionDomains) == 0
+	return contract.DecisionDomainsPresent && !workflowDecisionDomainsRequireConsent(contract.DecisionDomains)
 }
 
 func workflowCompletionVersion(ctx context.Context, tx *sql.Tx, workID string, expected *int64) error {

@@ -63,7 +63,7 @@ func TestBindEvidenceRefusesLocatorPastReferenceBound(t *testing.T) {
 	if response.Outcome != OutcomeOK {
 		t.Fatalf("record_diagnosis: %+v", response.Error)
 	}
-	response, after = ekbDispatch(t, ctx, s, service, env, grant, privateKey, workID, after, "approve_contract", workflowContractFieldsFixture(), nil, "wpeb-approve")
+	response, after = ekbDispatch(t, ctx, s, service, env, grant, privateKey, workID, after, "approve_contract", workflowContractFieldsForSeededRegistry(t, s), nil, "wpeb-approve")
 	if response.Outcome != OutcomeOK {
 		t.Fatalf("approve_contract: %+v", response.Error)
 	}

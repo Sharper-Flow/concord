@@ -156,6 +156,7 @@ Keep Linear current through its MCP server. Reconcile assigned Linear issues dur
 Keep status, execution owner, blockers, next actions, and evidence links current.
 Workers own delivery decisions; correct only stale planning facts established
 by evidence. An idle session, finished turn, or merged PR alone does not prove the item is Done.
+Correct stale status and links, and never change scope (CD-0243 D1).
 Check the full acceptance, including required release/install and partial scope.
 
 A merge, cancellation, approval, or completion notice requires a same-pass check

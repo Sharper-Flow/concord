@@ -17,9 +17,6 @@ const (
 	// WorkflowApprovalClassLegacy marks a classification answered from a
 	// definition's released approval metadata; legacy has no semantic class.
 	WorkflowApprovalClassLegacy WorkflowApprovalClass = "legacy"
-	// WorkflowApprovalClassDestructive marks an identity-abandoning or
-	// irreversible effect, which takes precedence over every other class.
-	WorkflowApprovalClassDestructive WorkflowApprovalClass = "destructive"
 	// WorkflowApprovalClassDecision marks the contract and confirmation
 	// actions whose consent follows the contract's declared decision domains.
 	WorkflowApprovalClassDecision WorkflowApprovalClass = "decision"
@@ -39,14 +36,6 @@ const (
 	WorkflowConsentRequired    WorkflowApprovalConsent = "required"
 )
 
-// WorkflowDestructiveConsequence names a typed irreversible effect an action
-// instance performs. The closed set grows only through an approved slice.
-type WorkflowDestructiveConsequence string
-
-// WorkflowDestructiveCancel marks an instance whose effect abandons the work
-// identity's acceptance obligation.
-const WorkflowDestructiveCancel WorkflowDestructiveConsequence = "cancel"
-
 // WorkflowApprovalFacts carries the typed instance facts classification
 // consumes. It deliberately carries no work title, work kind, changed-file
 // set, or product-truth flag: none of those may infer approval scope.
@@ -61,13 +50,6 @@ type WorkflowApprovalFacts struct {
 	// evaluation. Legacy consent honors it for the operator verdict actions;
 	// consequence_v1 never substitutes an operator for classification.
 	OperatorRequired bool
-	// Destructive names a typed irreversible effect. Legacy policy knows no
-	// such fact and refuses one; consequence_v1 gives it precedence.
-	Destructive WorkflowDestructiveConsequence
-	// SeriousLawChange records that the proposed contract or successor makes
-	// a law change that is serious under P12 or made at crucial size
-	// (CD-0230 D4). Legacy policy knows no such fact and refuses one.
-	SeriousLawChange bool
 }
 
 // WorkflowApprovalPolicyResult is one classification: the policy that answered,
@@ -118,9 +100,6 @@ func ClassifyWorkflowApproval(definition WorkflowDefinition, actionID string, fa
 	if declared == nil {
 		return WorkflowApprovalPolicyResult{}, newFailure(KindInvalidInput, "workflow_approval_policy", fmt.Sprintf("action %q is not declared by definition %s", actionID, definition.Ref), false, "classify an action the verified definition declares")
 	}
-	if facts.Destructive != "" && facts.Destructive != WorkflowDestructiveCancel {
-		return WorkflowApprovalPolicyResult{}, newFailure(KindInvalidInput, "workflow_approval_policy", fmt.Sprintf("destructive consequence %q is outside the closed set", string(facts.Destructive)), false, "declare a destructive consequence the policy knows")
-	}
 	switch definition.ApprovalPolicy {
 	case "":
 		return classifyLegacyWorkflowApproval(definition, declared, actionID, facts)
@@ -135,9 +114,6 @@ func ClassifyWorkflowApproval(definition WorkflowDefinition, actionID string, fa
 // metadata: the declared approval stands and the operator verdict actions
 // upgrade on WorkflowOperatorRequired.
 func classifyLegacyWorkflowApproval(definition WorkflowDefinition, declared *WorkflowActionDefinition, actionID string, facts WorkflowApprovalFacts) (WorkflowApprovalPolicyResult, error) {
-	if facts.Destructive != "" || facts.SeriousLawChange {
-		return WorkflowApprovalPolicyResult{}, newFailure(KindInvalidInput, "workflow_approval_policy", "the legacy policy has no destructive consequence or law-change fact", false, "classify legacy actions without consequence facts")
-	}
 	consent := WorkflowApprovalConsent(declared.Approval)
 	switch consent {
 	case WorkflowConsentNone, WorkflowConsentConditional, WorkflowConsentRequired:
@@ -152,28 +128,18 @@ func classifyLegacyWorkflowApproval(definition WorkflowDefinition, declared *Wor
 	return WorkflowApprovalPolicyResult{Policy: "", Class: WorkflowApprovalClassLegacy, Consent: consent, Reason: reason}, nil
 }
 
-// classifyConsequenceV1WorkflowApproval answers from the typed decision fact
-// and consequence facts: destructive precedence first, then the contract and
-// confirmation actions whose consent follows the declared decision domains,
-// and routine for everything else. No executor override substitutes an
-// operator, and no work attribute infers scope.
+// classifyConsequenceV1WorkflowApproval uses the six classes declared by the
+// contract. Routine coordination, cancellation, and law seriousness do not
+// independently require consent (CD-0243 D2-D4).
 func classifyConsequenceV1WorkflowApproval(definition WorkflowDefinition, actionID string, facts WorkflowApprovalFacts) (WorkflowApprovalPolicyResult, error) {
 	pin := definition.Ref
-	if facts.Destructive != "" {
-		return WorkflowApprovalPolicyResult{Policy: WorkflowApprovalPolicyConsequenceV1, Class: WorkflowApprovalClassDestructive, Consent: WorkflowConsentRequired,
-			Reason: fmt.Sprintf("consequence_v1: %s on %s performs the irreversible effect %q and requires an exact approval", actionID, pin, string(facts.Destructive))}, nil
-	}
 	switch actionID {
 	case "approve_contract":
-		return classifyConsequenceV1Decision(definition, actionID, "proposed", facts.ProposedDecisionDomains, facts.SeriousLawChange)
+		return classifyConsequenceV1Decision(definition, actionID, "proposed", facts.ProposedDecisionDomains)
 	case "confirm_premise":
-		return classifyConsequenceV1Decision(definition, actionID, "active", facts.ActiveDecisionDomains, false)
+		return classifyConsequenceV1Decision(definition, actionID, "active", facts.ActiveDecisionDomains)
 	case "supersede_contract":
-		if facts.SeriousLawChange {
-			return WorkflowApprovalPolicyResult{Policy: WorkflowApprovalPolicyConsequenceV1, Class: WorkflowApprovalClassDecision, Consent: WorkflowConsentRequired,
-				Reason: fmt.Sprintf("consequence_v1: %s on %s makes a serious law change and requires the operator's approval of its exact text (CD-0230 D4)", actionID, pin)}, nil
-		}
-		fallthrough
+		return classifyConsequenceV1Decision(definition, actionID, "successor", facts.ProposedDecisionDomains)
 	default:
 		// The declared legacy metadata is deliberately not consulted: the
 		// new policy replaces it for every routine action.
@@ -186,11 +152,10 @@ func classifyConsequenceV1WorkflowApproval(definition WorkflowDefinition, action
 }
 
 // classifyConsequenceV1Decision classifies one contract or confirmation
-// instance from its declared decision-domain fact and, for a contract, its
-// law-change seriousness. Absence refuses: a new-policy contract instance
+// instance from its declared decision-domain fact. Absence refuses: a new-policy contract instance
 // must declare the fact, where [] records engineering and a nonempty
 // canonical set records decision-bearing work.
-func classifyConsequenceV1Decision(definition WorkflowDefinition, actionID, role string, domains []string, seriousLawChange bool) (WorkflowApprovalPolicyResult, error) {
+func classifyConsequenceV1Decision(definition WorkflowDefinition, actionID, role string, domains []string) (WorkflowApprovalPolicyResult, error) {
 	pin := definition.Ref
 	if domains == nil {
 		return WorkflowApprovalPolicyResult{}, newFailure(KindInvalidInput, "workflow_approval_policy", fmt.Sprintf("consequence_v1 %s on %s requires the %s decision-domain fact; absence is a legacy shape", actionID, pin, role), false, "declare the contract's decision domains explicitly")
@@ -204,18 +169,23 @@ func classifyConsequenceV1Decision(definition WorkflowDefinition, actionID, role
 		if failureAs(err, &cause) && cause.Detail != "" {
 			detail = cause.Detail
 		}
-		return WorkflowApprovalPolicyResult{}, newFailure(KindInvalidInput, "workflow_approval_policy", fmt.Sprintf("consequence_v1 %s on %s declares a malformed %s decision-domain set: %s", actionID, pin, role, detail), false, "declare the domains canonically sorted and unique over preference, product, and ui_ux")
+		return WorkflowApprovalPolicyResult{}, newFailure(KindInvalidInput, "workflow_approval_policy", fmt.Sprintf("consequence_v1 %s on %s declares a malformed %s decision-domain set: %s", actionID, pin, role, detail), false, "declare the six approval classes canonically sorted and unique")
 	}
-	if len(domains) == 0 && seriousLawChange {
-		return WorkflowApprovalPolicyResult{Policy: WorkflowApprovalPolicyConsequenceV1, Class: WorkflowApprovalClassDecision, Consent: WorkflowConsentRequired,
-			Reason: fmt.Sprintf("consequence_v1: %s on %s makes a serious law change and requires the operator's approval of its exact text (CD-0230 D4)", actionID, pin)}, nil
-	}
-	if len(domains) == 0 {
+	if !workflowDecisionDomainsRequireConsent(domains) {
 		return WorkflowApprovalPolicyResult{Policy: WorkflowApprovalPolicyConsequenceV1, Class: WorkflowApprovalClassDecision, Consent: WorkflowConsentNone,
 			Reason: fmt.Sprintf("consequence_v1: %s on %s declares engineering work and records without an approval binding", actionID, pin)}, nil
 	}
 	return WorkflowApprovalPolicyResult{Policy: WorkflowApprovalPolicyConsequenceV1, Class: WorkflowApprovalClassDecision, Consent: WorkflowConsentRequired,
 		Reason: fmt.Sprintf("consequence_v1: %s on %s declares decision domains %v and requires the human consent question", actionID, pin, domains)}, nil
+}
+
+func workflowDecisionDomainsRequireConsent(domains []string) bool {
+	for _, domain := range domains {
+		if domain != "preference" {
+			return true
+		}
+	}
+	return false
 }
 
 // workflowApprovalPolicyRequiresDecisionFact reports whether the pinned
@@ -234,12 +204,12 @@ func workflowSubmittedDecisionDomains(definition WorkflowDefinition, role string
 	raw, present := fields["decision_domains"]
 	var domains []string
 	if present && json.Unmarshal(raw, &domains) != nil {
-		return nil, newFailure(KindInvalidPayload, "workflow_approval_policy", fmt.Sprintf("consequence_v1 %s decision_domains is not a decodable string array", role), false, "declare the domains as a JSON array over preference, product, and ui_ux")
+		return nil, newFailure(KindInvalidPayload, "workflow_approval_policy", fmt.Sprintf("consequence_v1 %s decision_domains is not a decodable string array", role), false, "declare the six approval classes as a JSON array")
 	}
 	if domains == nil {
 		return nil, newFailure(KindInvalidPayload, "workflow_approval_policy", fmt.Sprintf("consequence_v1 %s requires the submitted decision-domain fact; absence is a legacy shape", role), false, "declare the contract's decision domains explicitly")
 	}
-	if err := validateWorkflowDecisionDomains(domains); err != nil {
+	if err := validateWorkflowAuthoredDecisionDomains(domains); err != nil {
 		return nil, err
 	}
 	return domains, nil

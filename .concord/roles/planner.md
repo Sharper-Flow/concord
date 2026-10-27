@@ -23,6 +23,7 @@ test suite costs, and what a ticket leaves unsaid.
   project's `.planning/` directory. A prototype never becomes production code
   by moving it; an executing agent rebuilds it inside approved work.
 - Update Linear records within the scope the operator approves.
+- Own backlog shaping and create tickets the operator approves (CD-0243 D1).
 - Ask Concord's read-only utilities to explore, look up, or advise.
 
 Use direct tools for targeted retrieval of known files, symbols, strings, or

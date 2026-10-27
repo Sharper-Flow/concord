@@ -1101,22 +1101,25 @@ func TestCompleteStepContractCorrectionRefusals(t *testing.T) {
 		}
 	})
 
-	// consequence_v1 classifies a complete-step correction that makes no
-	// serious law change as routine record-keeping (CD-0230 D4): it records
-	// without an operator approval. The serious-law-change consent stays
-	// covered by the law-change suite.
+	// consequence_v1 records an engineering successor decision without an
+	// operator approval. Classified law-change consent stays covered by the
+	// law-change suite.
 	t.Run("routine authority without operator approval", func(t *testing.T) {
 		t.Parallel()
 		const workID = "complete-correction-no-approval"
 		fixture, _ := seedCompleteStepCorrection(t, workID, "workflow.break_fix", "verify", "complete")
 		version := readWorkVersion(t, fixture.store, workID)
-		tx, err := fixture.store.DatabaseForTesting().BeginTx(context.Background(), nil)
+		ctx, err := fixture.store.EstablishKnowledgeSourceSetProof(t.Context(), workID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		tx, err := fixture.store.DatabaseForTesting().BeginTx(ctx, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
 		defer tx.Rollback()
 		operationID := "complete-correction-no-approval"
-		_, err = applyWorkflowActionRawTx(context.Background(), tx, newWriteScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
+		_, err = applyWorkflowActionRawTx(ctx, tx, newWriteScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
 			WorkID: workID, ExpectedVersion: version, ActionID: "supersede_contract", Payload: completeStepSuccessorPayload(workID), Actor: fixture.owner,
 			AcceptedInputsDigest: "sha256:" + strings.Repeat("f", 64), IdempotencyIdentity: operationID, OperationID: operationID,
 			PrincipalRef: fixture.owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: operationID, RequestID: "request:" + operationID,
@@ -1125,9 +1128,9 @@ func TestCompleteStepContractCorrectionRefusals(t *testing.T) {
 		if err != nil {
 			t.Fatalf("routine complete-step correction without approval = %v, want admitted", err)
 		}
-		classified, err := ClassifyWorkflowApproval(mustBuiltinDefinition(t, "workflow.break_fix").Definition, "supersede_contract", WorkflowApprovalFacts{})
-		if err != nil || classified.Class != WorkflowApprovalClassRoutine || classified.Consent != WorkflowConsentNone {
-			t.Fatalf("supersede_contract classification = %+v err=%v, want routine without consent", classified, err)
+		classified, err := ClassifyWorkflowApproval(mustBuiltinDefinition(t, "workflow.break_fix").Definition, "supersede_contract", WorkflowApprovalFacts{ProposedDecisionDomains: []string{}})
+		if err != nil || classified.Class != WorkflowApprovalClassDecision || classified.Consent != WorkflowConsentNone {
+			t.Fatalf("supersede_contract classification = %+v err=%v, want an engineering decision without consent", classified, err)
 		}
 	})
 

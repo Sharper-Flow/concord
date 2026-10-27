@@ -74,7 +74,10 @@ func TestWorkflowContentIdentityMigration152PreservesRetainedState(t *testing.T)
 	// has the actual immutable 151 schema, not a reconstructed current schema.
 	path := filepath.Join(t.TempDir(), "content-identity-151.db")
 	db := openMigratedTo(t, path, 151)
-	rows, err := s.db.Query(`SELECT name FROM sqlite_schema WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name NOT IN ('schema_migrations','write_guard') ORDER BY rowid`)
+	// Home-pair triggers check immediately, even with deferred foreign keys.
+	// Copy the real Project locators before their knowledge projection rows.
+	rows, err := s.db.Query(`SELECT name FROM sqlite_schema WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name NOT IN ('schema_migrations','write_guard')
+ORDER BY CASE name WHEN 'projects' THEN 0 WHEN 'project_locators' THEN 1 ELSE 2 END, rowid`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -252,7 +255,7 @@ func contentIdentity152Snapshot(t *testing.T, db *sql.DB, before bool) map[strin
 		"workflow_context_checkpoints": "workflow_definition_version", "workflow_context_boundaries": "workflow_definition_version",
 		"durable_operations": "workflow_type_version",
 	}
-	tables := []string{"worker_attempts", "workflow_instances", "workflow_contracts", "workflow_context_checkpoints", "workflow_context_boundaries", "runtime_state_writers", "durable_operations", "worker_authorizations", "workflow_evidence_bindings", "worker_attempt_dispositions", "effect_receipts", "idempotency_records"}
+	tables := []string{"worker_attempts", "workflow_instances", "workflow_contracts", "workflow_context_checkpoints", "workflow_context_boundaries", "runtime_state_writers", "durable_operations", "worker_authorizations", "workflow_evidence_bindings", "worker_attempt_dispositions", "effect_receipts", "idempotency_records", "project_locators", "knowledge_index_watermark"}
 	out := make(map[string][]string, len(tables))
 	for _, table := range tables {
 		rows, err := db.Query(`SELECT name FROM pragma_table_info(?) ORDER BY name`, table)

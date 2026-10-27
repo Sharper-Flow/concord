@@ -129,6 +129,9 @@ func cleanupPublishedTerminalWorkTx(ctx context.Context, transaction *Transactio
 const terminalCleanupConsumers = `(SELECT w.id FROM work_items w WHERE w.lifecycle NOT IN ('completed','cancelled','superseded') OR NOT EXISTS(SELECT 1 FROM archived_work a WHERE a.id=w.id AND a.type='work_note' AND a.terminal_state=w.lifecycle) OR EXISTS(SELECT 1 FROM durable_operations d WHERE d.work_id=w.id AND (d.result_kind IS NULL OR d.result_kind IN ('pending','partial'))))`
 
 func terminalCleanupBlockersQ(ctx context.Context, q queryer, workID string) error {
+	if err := requireReleasedWorkflowLawEnactmentQ(ctx, q, workID, "terminal_cleanup"); err != nil {
+		return err
+	}
 	checks := []struct {
 		kind          FailureKind
 		query, detail string
@@ -200,6 +203,7 @@ func deleteTerminalExecutionTx(ctx context.Context, tx *sql.Tx, workID string) e
 		`DELETE FROM relations WHERE work_id_from=?1 OR work_id_to=?1`,
 		`DELETE FROM work_messages WHERE sender_work_id=?1 OR recipient_work_id=?1`,
 		`DELETE FROM resource_claims WHERE holder_work_id=?1`,
+		`DELETE FROM workflow_law_baselines WHERE work_id=?1`,
 		`DELETE FROM workflow_group_members WHERE work_id=?1`,
 		`DELETE FROM workflow_member_groups WHERE work_id=?1`,
 		`DELETE FROM workflow_contract_predicates WHERE work_id=?1`,

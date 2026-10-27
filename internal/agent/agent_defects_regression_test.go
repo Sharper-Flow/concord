@@ -205,13 +205,8 @@ func TestRegressionDefect3_TerminalWithoutEvidenceReturnsMissingEvidence(t *test
 	}
 }
 
-// TestRegressionDefect3_TerminalWithEvidenceMintsApprovalChallenge pins the
-// approval-minting side of the D3 repair: a complete transition WITH
-// evidence must take the normal challenge-minting path and emit a real
-// 64-character approval_ref. Without this half of the repair the agent
-// is permanently unable to complete work even when it does supply the
-// correct evidence — the entire lifecycle workflow is unreachable.
-func TestRegressionDefect3_TerminalWithEvidenceMintsApprovalChallenge(t *testing.T) {
+// CD-0243 D3/D7 retire terminal-status consent while retaining evidence.
+func TestRegressionDefect3_TerminalWithEvidenceCompletesWithoutConsent(t *testing.T) {
 	t.Parallel()
 	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_transition"})
 	scopeVersion, _, err := s.ScopeVersion(context.Background(), "project-1")
@@ -227,15 +222,14 @@ func TestRegressionDefect3_TerminalWithEvidenceMintsApprovalChallenge(t *testing
 	if err != nil {
 		t.Fatalf("dispatch returned err=%v", err)
 	}
-	if resp.Outcome != OutcomeError || resp.Error == nil {
-		t.Fatalf("expected approval_required, got outcome=%s err=%+v", resp.Outcome, resp.Error)
+	if resp.Outcome != OutcomeOK || resp.Error != nil {
+		t.Fatalf("evidenced completion outcome=%s error=%+v", resp.Outcome, resp.Error)
 	}
-	if resp.Error.Kind != "approval_required" {
-		t.Fatalf("error.kind=%q, want approval_required (D3 repair)", resp.Error.Kind)
+	if got := workLifecycle(t, s, "work-1"); got != "completed" {
+		t.Fatalf("lifecycle=%s, want completed", got)
 	}
-	approvalRef, ok := resp.Error.Details["approval_ref"].(string)
-	if !ok || len(approvalRef) != 64 {
-		t.Fatalf("terminal-with-evidence must mint a 64-char approval_ref, got %v", resp.Error.Details["approval_ref"])
+	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM agent_approval_challenges`); got != 0 {
+		t.Fatalf("ordinary completion minted %d challenges", got)
 	}
 }
 

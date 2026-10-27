@@ -32,7 +32,13 @@ func seedAgentWorkflow(t *testing.T, s *store.Store, grant Authority) int64 {
 func seedAgentWorkflowAt(t *testing.T, s *store.Store, grant Authority, registered store.RegisteredDefinition) int64 {
 	t.Helper()
 	ctx := context.Background()
-	seedCurrentWorkflowDomainFixture(t, s)
+	if _, err := pm1fixture.SeedCommittedProductDomain(ctx, s, "product-1", "project-1", t.TempDir()); err != nil {
+		t.Fatal(err)
+	}
+	ctx, err := s.EstablishKnowledgeSourceSetProof(ctx, "work-1")
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := s.Transact(ctx, func(tx *store.Transaction) error {
 		return store.InitializeWorkflowTx(ctx, tx, store.WorkflowInitializationRequest{WorkID: "work-1", Definition: registered, Actor: store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}, Now: fixedTime()})
 	}); err != nil {
@@ -372,6 +378,7 @@ func committedWorkflowReplay(t *testing.T) (runtime, Authority, json.RawMessage,
 	if err != nil {
 		t.Fatal(err)
 	}
+	ctx = agentWorkflowSourceProof(t, ctx, s, "work-1")
 	if err := s.Transact(ctx, func(tx *store.Transaction) error {
 		return store.InitializeWorkflowTx(ctx, tx, store.WorkflowInitializationRequest{WorkID: "work-1", Definition: definition, Actor: store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}, Now: fixedTime()})
 	}); err != nil {
@@ -789,7 +796,7 @@ func TestWorkflowActionDispatchUsesDefinitionApprovalChallenge(t *testing.T) {
 			t.Fatalf("advance action=%s response=%+v err=%v", action, response, dispatchErr)
 		}
 	}
-	input := workflowContractActionInput(t, "wf-approve-contract", "")
+	input := workflowContractActionInput(t, s, "wf-approve-contract", "")
 	challenge, err := Dispatch(context.Background(), s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: input}, env)
 	if err != nil || challenge.Outcome != OutcomeError || challenge.Error == nil || challenge.Error.Kind != "approval_required" {
 		t.Fatalf("approval challenge response=%+v err=%v", challenge, err)
@@ -806,7 +813,7 @@ func TestWorkflowActionDispatchUsesDefinitionApprovalChallenge(t *testing.T) {
 	if durableBefore != 2 {
 		t.Fatalf("approval challenge durable operation count=%d, want 2 prior actions", durableBefore)
 	}
-	approvedInput := workflowContractActionInput(t, "wf-approve-contract", challengeRef)
+	approvedInput := workflowContractActionInput(t, s, "wf-approve-contract", challengeRef)
 	approved, err := Dispatch(context.Background(), s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: approvedInput}, env)
 	if err != nil || approved.Outcome != OutcomeOK {
 		if approved.Error != nil {
@@ -829,7 +836,8 @@ func TestWorkflowActionDispatchUsesDefinitionApprovalChallenge(t *testing.T) {
 	if projection == nil {
 		t.Fatal("Q7 omitted the recorded workflow")
 	}
-	if projection.ArchitectureBinding == nil || projection.ArchitectureBinding.DomainRegistryContentHash != pm1fixture.FixtureDomainRegistryContentHash || projection.ArchitectureBinding.HomeDomainID != pm1fixture.FixtureRootDomainID {
+	wantBinding := workflowArchitectureBindingForSeededRegistry(t, s)
+	if projection.ArchitectureBinding == nil || projection.ArchitectureBinding.DomainRegistryContentHash != wantBinding["domain_registry_content_hash"] || projection.ArchitectureBinding.HomeDomainID != wantBinding["home_domain_id"] {
 		t.Fatalf("agent approval did not persist readable architecture binding: %+v", projection.ArchitectureBinding)
 	}
 }
@@ -869,7 +877,7 @@ func TestWorkflowLateHostApprovalNeedsOneChallenge(t *testing.T) {
 			t.Fatalf("advance action=%s response=%+v err=%v", action, response, dispatchErr)
 		}
 	}
-	input := workflowContractActionInput(t, "wf-late-approval", "")
+	input := workflowContractActionInput(t, s, "wf-late-approval", "")
 	challenge, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: input}, env)
 	if err != nil || challenge.Outcome != OutcomeError || challenge.Error == nil || challenge.Error.Kind != "approval_required" {
 		t.Fatalf("approval challenge response=%+v err=%v", challenge, err)
@@ -884,7 +892,7 @@ func TestWorkflowLateHostApprovalNeedsOneChallenge(t *testing.T) {
 	answerAt := fixedTime().Add(11 * time.Minute)
 	service.Now = func() time.Time { return answerAt }
 	env.HostApproval = &HostApprovalAssertion{ChallengeRef: ref, RequestDigest: summary.OperationDigest, Scope: summary.Scope, Versions: summary.Versions, SessionRef: env.SessionRef, AgentRef: env.AgentRef, Worktree: env.Worktree, IssuedAt: answerAt.Format(time.RFC3339Nano)}
-	approved, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: workflowContractActionInput(t, "wf-late-approval", ref)}, env)
+	approved, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: workflowContractActionInput(t, s, "wf-late-approval", ref)}, env)
 	if err != nil || approved.Outcome != OutcomeOK {
 		if approved.Error != nil {
 			t.Fatalf("late-approved workflow action response=%+v error=%+v err=%v", approved, *approved.Error, err)
@@ -913,7 +921,7 @@ func TestWorkflowLateHostApprovalNeedsOneChallenge(t *testing.T) {
 	if step != "design" {
 		t.Fatalf("late-approved action current step=%s, want design", step)
 	}
-	replayed, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: workflowContractActionInput(t, "wf-late-approval", ref)}, env)
+	replayed, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: workflowContractActionInput(t, s, "wf-late-approval", ref)}, env)
 	if err != nil || replayed.Outcome != OutcomeOK || !replayed.Replayed {
 		t.Fatalf("late workflow replay response=%+v err=%v", replayed, err)
 	}

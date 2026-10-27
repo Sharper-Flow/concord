@@ -16,7 +16,7 @@ func durableCommitCount(t *testing.T, s *store.Store) uint64 {
 
 func TestOrdinaryObservationKeepsNormalDurability(t *testing.T) {
 	ctx := context.Background()
-	s, service, grant, _ := crossProductPolicyFixture(t, []agentcontract.Capability{"product_read", "work_define", "cross_scope"})
+	s, service, grant := crossProductPolicyFixture(t, []agentcontract.Capability{"product_read", "work_define", "cross_scope"})
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
 	if err != nil {
 		t.Fatal(err)
@@ -41,14 +41,15 @@ func TestOrdinaryObservationKeepsNormalDurability(t *testing.T) {
 
 func TestDerivedApprovalAuthorityCommitsDurably(t *testing.T) {
 	ctx := context.Background()
-	s, service, grant, key := crossProductPolicyFixture(t, []agentcontract.Capability{"product_read", "work_define", "cross_scope"})
+	// CD-0243 D3/D7 retain security approval durability, not observation consent.
+	s, service, grant, key := productProjectLinkFixture(t, []agentcontract.Capability{"work_relate", "cross_scope"})
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
 	if err != nil {
 		t.Fatal(err)
 	}
 	env := mutationEnvelope(grant, scopeVersion)
-	input := json.RawMessage(`{"work_id":"work-2","statement":"approved progress","idempotency_key":"durable-observation"}`)
-	request := InvokeRequest{Tool: "concord_work_define", Operation: "observation_record", Input: input}
+	input := productProjectLinkRequest("", "project-2")
+	request := InvokeRequest{Tool: "concord_work_relate", Operation: "product_project_add", Input: input}
 	before := durableCommitCount(t, s)
 	challenge, err := Dispatch(ctx, s, service, request, env)
 	if err != nil || challenge.Error == nil || challenge.Error.Kind != "approval_required" {
@@ -61,12 +62,12 @@ func TestDerivedApprovalAuthorityCommitsDurably(t *testing.T) {
 		t.Fatalf("scope replan minted %d challenges, want one", count)
 	}
 	ref := challenge.Error.Details["approval_ref"].(string)
-	scope := map[string]any{"product_id": "product-1", "product_ids": []string{"product-1", "product-2"}, "project_ids": []string{"project-1"}, "scope_version": scopeVersion, "work_ids": []string{"work-2"}}
-	env.HostApproval = signedHostApproval(key, ref, mutationDigest(request.Tool, request.Operation, env, input), scope, map[string]any{}, env.SessionRef, env.AgentRef, env.Worktree, fixedTime(), "durable-observation-approval")
-	request.Input = json.RawMessage(`{"work_id":"work-2","statement":"approved progress","idempotency_key":"durable-observation","approval":{"approval_ref":"` + ref + `"}}`)
+	scope := map[string]any{"product_id": "product-1", "product_ids": []string{"product-1", "product-2"}, "project_id": "project-2", "role": "secondary", "scope_version": scopeVersion}
+	env.HostApproval = signedHostApproval(key, ref, mutationDigest(request.Tool, request.Operation, env, input), scope, map[string]any{"product": 2}, env.SessionRef, env.AgentRef, env.Worktree, fixedTime(), "durable-access-approval")
+	request.Input = productProjectLinkRequest(ref, "project-2")
 	approved, err := Dispatch(ctx, s, service, request, env)
 	if err != nil || approved.Error != nil || approved.Outcome != OutcomeOK {
-		t.Fatalf("approved observation=%+v err=%v", approved, err)
+		t.Fatalf("approved access grant=%+v err=%v", approved, err)
 	}
 	if after := durableCommitCount(t, s); after != before+2 {
 		t.Fatalf("approval consumption did not commit a durable boundary: want count %d, got %d", before+2, after)
@@ -98,7 +99,7 @@ func TestMutationReplayDurabilityBindings(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := context.Background()
-			s, service, grant, _ := crossProductPolicyFixture(t, []agentcontract.Capability{"product_read", "work_define", "cross_scope"})
+			s, service, grant := crossProductPolicyFixture(t, []agentcontract.Capability{"product_read", "work_define", "cross_scope"})
 			scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
 			if err != nil {
 				t.Fatal(err)

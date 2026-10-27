@@ -22,15 +22,26 @@ func (r auditPinDriftRunner) Run(ctx context.Context, dir string, args ...string
 
 func auditManagedPinFixture(t *testing.T) (*Store, *fakeWorktreeGit, string, int64) {
 	t.Helper()
-	s, git, _ := worktreeFixture(t)
+	s, git, repo := worktreeFixture(t)
+	runKnowledgeGit(t, repo, "init", "--initial-branch=main")
+	runKnowledgeGit(t, repo, "config", "user.email", "test@example.invalid")
+	runKnowledgeGit(t, repo, "config", "user.name", "Concord Test")
+	manifest := lawTestManifest()
+	manifest.Records = []KnowledgeRecord{}
+	writeAggregateAsShards(t, repo, mustJSONValue(manifest))
+	bindWorkflowFixtureKnowledgeSource(t, s, KnowledgeHome{HomeProjectID: "project-w", HomeLocatorID: "path-w", RepoPath: repo, HeadRef: "HEAD"})
 	path := auditWork(t, s, git, "work-done", true)
 	completeAuditWork(t, s, "work-done")
 	registered, err := BuiltinWorkflowRegistry().Register(BuiltinWorkflowDefinitions()[0])
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := s.Transact(context.Background(), func(tx *Transaction) error {
-		return InitializeWorkflowTx(context.Background(), tx, WorkflowInitializationRequest{WorkID: "work-done", Definition: registered, Actor: WorkflowActor{PrincipalRef: "principal/fixture", ClientRef: "client/fixture", AgentRef: "agent/fixture", SessionRef: "session/fixture", ActorClass: ActorAgent}, Now: time.Unix(35, 0).UTC()})
+	ctx, err := s.EstablishKnowledgeSourceSetProof(t.Context(), "work-done")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Transact(ctx, func(tx *Transaction) error {
+		return InitializeWorkflowTx(ctx, tx, WorkflowInitializationRequest{WorkID: "work-done", Definition: registered, Actor: WorkflowActor{PrincipalRef: "principal/fixture", ClientRef: "client/fixture", AgentRef: "agent/fixture", SessionRef: "session/fixture", ActorClass: ActorAgent}, Now: time.Unix(35, 0).UTC()})
 	}); err != nil {
 		t.Fatal(err)
 	}

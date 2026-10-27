@@ -1388,6 +1388,17 @@ class PrimaryProfileProjectionTests(unittest.TestCase):
         self.assertIn("`concord_work_transition.worktree_claim` with that Project's `project_id`", text)
         self.assertNotIn("`work_id` and the second `project_id`", text)
 
+    def test_concord_operator_choices_do_not_route_to_rte(self):
+        text = " ".join(self.projection("Concord").split())
+        self.assertIn(
+            "Take operator-reserved choices directly to the operator under the shared asking instructions.",
+            text,
+        )
+        self.assertIn("The RTE coordinates dependencies, not operator decisions.", text)
+        self.assertNotIn("Bring the RTE a choice", text)
+        self.assertNotIn("it decides a clear one", text)
+        self.assertNotIn("it decides for you", text)
+
     def test_projection_is_a_selectable_primary_agent(self):
         for agent_id in ("Concord-RTE", "Concord", "Concord-Planner"):
             frontmatter = self.frontmatter(self.projection(agent_id))

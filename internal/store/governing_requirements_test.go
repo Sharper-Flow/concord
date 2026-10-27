@@ -25,13 +25,13 @@ func seedGovernedProject(t *testing.T, s *Store, product, project string) {
 	}
 }
 
-func declareRequirementEvent(id, project, ref string, expected, resulting int64) Event {
-	return operationEvent(id, "project.governing_requirement_declared", SubjectProject, project, map[string]any{
-		"project_id":        project,
-		"requirement_ref":   ref,
+func declareAuditRequirementEvent(id string) Event {
+	return operationEvent(id, "project.governing_requirement_declared", SubjectProject, "proj", map[string]any{
+		"project_id":        "proj",
+		"requirement_ref":   "audit_required",
 		"reason":            "accepted audit obligation",
-		"expected_version":  expected,
-		"resulting_version": resulting,
+		"expected_version":  1,
+		"resulting_version": 2,
 	})
 }
 
@@ -53,7 +53,7 @@ func TestGoverningRequirementsAreScopeBoundAndCorrectForward(t *testing.T) {
 	ctx := context.Background()
 	s := openTemp(t)
 	seedGovernedProject(t, s, "prod", "proj")
-	if err := ApplyOperation(ctx, s, Operation{Events: []Event{declareRequirementEvent("declare-audit", "proj", "audit_required", 1, 2)}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectProject, "proj"): 1}}); err != nil {
+	if err := ApplyOperation(ctx, s, Operation{Events: []Event{declareAuditRequirementEvent("declare-audit")}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectProject, "proj"): 1}}); err != nil {
 		t.Fatalf("declare requirement: %v", err)
 	}
 
@@ -123,7 +123,7 @@ func TestWithdrawnRequirementLeavesCapturedWorkUnchanged(t *testing.T) {
 	ctx := context.Background()
 	s := openTemp(t)
 	seedGovernedProject(t, s, "prod", "proj")
-	if err := ApplyOperation(ctx, s, Operation{Events: []Event{declareRequirementEvent("declare-audit", "proj", "audit_required", 1, 2)}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectProject, "proj"): 1}}); err != nil {
+	if err := ApplyOperation(ctx, s, Operation{Events: []Event{declareAuditRequirementEvent("declare-audit")}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectProject, "proj"): 1}}); err != nil {
 		t.Fatalf("declare requirement: %v", err)
 	}
 	if err := s.ValidateCaptureGoverningRequirements(ctx, []string{"prod"}, nil, []string{"audit_required"}); err != nil {

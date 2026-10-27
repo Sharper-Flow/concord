@@ -534,7 +534,7 @@ func validateRemovalGatesQ(ctx context.Context, q queryer, req WorkRemovalReques
 			return newFailure(KindInvalidRelation, "work_removal", "Linear confirmation names a different Product", false, "confirm the configured Product destination")
 		}
 	}
-	return nil
+	return requireReleasedWorkflowLawEnactmentQ(ctx, q, req.WorkID, "work_removal")
 }
 
 func foldWorkRemoved(ctx context.Context, tx *sql.Tx, event Event) error {
@@ -592,6 +592,9 @@ func foldWorkRemoved(ctx context.Context, tx *sql.Tx, event Event) error {
 }
 
 func deleteWorkOwnedProjections(ctx context.Context, tx *sql.Tx, workID string) error {
+	if err := requireReleasedWorkflowLawEnactmentQ(ctx, tx, workID, "work_removal"); err != nil {
+		return err
+	}
 	// This order follows the FK graph. The table names are closed source-owned
 	// identifiers, not caller input. Shared Product, Project, actor, and law
 	// rows have no work-item ownership predicate and remain untouched.
@@ -604,7 +607,7 @@ func deleteWorkOwnedProjections(ctx context.Context, tx *sql.Tx, workID string) 
 	if _, err := tx.ExecContext(ctx, `DELETE FROM workflow_backlog_alignment WHERE work_id=? OR related_work_id=?`, workID, workID); err != nil {
 		return projectionDeleteFailure("workflow_backlog_alignment", err)
 	}
-	for _, table := range []string{"workflow_group_members", "workflow_member_groups"} {
+	for _, table := range []string{"workflow_law_baselines", "workflow_group_members", "workflow_member_groups"} {
 		if _, err := tx.ExecContext(ctx, `DELETE FROM `+table+` WHERE work_id=?`, workID); err != nil { //nolint:gosec // closed source-owned table list.
 			return projectionDeleteFailure(table, err)
 		}

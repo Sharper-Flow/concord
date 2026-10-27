@@ -1,9 +1,7 @@
 package agent
 
-// The destructive overlap classes (merged_into, supersedes) settle only
-// through the consumed one-use operator approval the real host mints. Every
-// assertion here runs through Dispatch: the challenge the Service mints, the
-// host assertion over the exact request, the consumption, and the effect.
+// CD-0243 D3/D7 retire kind-only merger and supersession consent. An explicit
+// approval claim still binds the exact request and must be consumed once.
 
 import (
 	"context"
@@ -11,9 +9,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
 	"reflect"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -52,7 +49,7 @@ func routineCoordinationFixture(t *testing.T) (*store.Store, *Service, ed25519.P
 	s, service, grant, privateKey := mutationDispatchFixture(t, []agentcontract.Capability{"work_relate"})
 	seedRoutineCoordinationDomainFixture(t, s, ctx)
 	events := []store.Event{
-		{EventID: "routine-coordination-work-2", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: "work-2", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: store.CurrentEventPayloadVersion("work.created"), Payload: json.RawMessage(`{"work_kind":"bug","title":"Routine coordination peer","priority":1,"defect_intake":{"failure_shape":"routine-coordination-peer","reproduction":"Exercise coordination with a distinct peer work item.","searched":"The fixture contains no earlier defect with this failure shape.","related_defect_ids":[]}}`)},
+		{EventID: "routine-coordination-work-2", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: "work-2", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: store.CurrentEventPayloadVersion("work.created"), Payload: json.RawMessage(`{"work_kind":"bug","title":"Routine coordination peer","priority":1,"governing_requirements":[],"defect_intake":{"failure_shape":"routine-coordination-peer","reproduction":"Exercise coordination with a distinct peer work item.","searched":"The fixture contains no earlier defect with this failure shape.","related_defect_ids":[]}}`)},
 		{EventID: "routine-coordination-work-2-membership", Kind: "work.memberships_replaced", SubjectType: store.SubjectWorkItem, SubjectID: "work-2", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"memberships":[{"project_id":"project-1","role":"primary"}],"expected_version":1,"resulting_version":2}`)},
 	}
 	if err := store.ApplyOperation(ctx, s, store.Operation{Events: events, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, "work-2"): 0}}); err != nil {
@@ -64,8 +61,12 @@ func routineCoordinationFixture(t *testing.T) (*store.Store, *Service, ed25519.P
 	}
 	actor := store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}
 	for _, workID := range []string{"work-1", "work-2"} {
-		if err := s.Transact(ctx, func(tx *store.Transaction) error {
-			return store.InitializeWorkflowTx(ctx, tx, store.WorkflowInitializationRequest{WorkID: workID, Definition: definition, Actor: actor, Now: fixedTime()})
+		verified, err := s.EstablishKnowledgeSourceSetProof(ctx, workID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := s.Transact(verified, func(tx *store.Transaction) error {
+			return store.InitializeWorkflowTx(verified, tx, store.WorkflowInitializationRequest{WorkID: workID, Definition: definition, Actor: actor, Now: fixedTime()})
 		}); err != nil {
 			t.Fatalf("initialize %s: %v", workID, err)
 		}
@@ -89,13 +90,8 @@ func routineCoordinationFixture(t *testing.T) (*store.Store, *Service, ed25519.P
 	return s, service, privateKey, env
 }
 
-// seedRoutineCoordinationDomainFixture seeds the fixture Product's current
-// Domain law. The canonical-path locator the home pair references is applied
-// as a project.locator_added event at the Project's current version, so the
-// rebuild refolds the locator the restored registry and Domain rows point at.
-// The registry, knowledge home, and root Domain rows are direct-authority
-// state the rebuild snapshots and restores; their identity values match the
-// shared current-Domain fixture the contract binding validation reads.
+// seedRoutineCoordinationDomainFixture commits the Product law source. The
+// event-owned locator survives rebuild; source preparation derives its registry.
 func seedRoutineCoordinationDomainFixture(t *testing.T, s *store.Store, ctx context.Context) {
 	t.Helper()
 	homeDir := t.TempDir()
@@ -106,39 +102,11 @@ func seedRoutineCoordinationDomainFixture(t *testing.T, s *store.Store, ctx cont
 	if err := s.AddProjectLocator(ctx, "project-1", store.ProjectLocator{ID: "domain-locator-product-1", Kind: store.LocatorCanonicalPath, Value: homeDir}, projectVersion); err != nil {
 		t.Fatalf("add the event-owned fixture locator: %v", err)
 	}
-	registry := fmt.Sprintf(`{"schema_version":"1.0","product_key":"fixture-%s","root_domain_id":%q,"domains":[]}`, "product-1", pm1fixture.FixtureRootDomainID)
-	docsKnowledge := filepath.Join(homeDir, filepath.FromSlash(".concord/docs/knowledge"))
-	if err := os.MkdirAll(docsKnowledge, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(docsKnowledge, "domain-registry.json"), []byte(registry+"\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(docsKnowledge, "manifest.json"), []byte("{}\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
+	home, err := pm1fixture.SeedCommittedProductDomain(ctx, s, "product-1", "project-1", homeDir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	statements := []struct {
-		name  string
-		query string
-		args  []any
-	}{
-		{"write guard", `INSERT INTO write_guard(active) VALUES(1)`, nil},
-		{"knowledge home", `INSERT INTO product_knowledge_homes(product_id,project_id,locator_id) VALUES('product-1','project-1','domain-locator-product-1')`, nil},
-		{"registry", `INSERT INTO domain_registries(product_id,home_project_id,home_locator_id,product_key,root_domain_id,schema_version,content_hash,scanned_commit_oid) VALUES('product-1','project-1','domain-locator-product-1','fixture-product-1',?,'1.0',?,'fixture')`, []any{pm1fixture.FixtureRootDomainID, pm1fixture.FixtureDomainRegistryContentHash}},
-		{"root domain", `INSERT INTO domains(home_project_id,home_locator_id,product_id,domain_id,name,purpose,parent_domain_id,status,registry_content_hash,scanned_commit_oid) VALUES('project-1','domain-locator-product-1','product-1',?,'Fixture root','Product law fixture',NULL,'current',?,'fixture')`, []any{pm1fixture.FixtureRootDomainID, pm1fixture.FixtureDomainRegistryContentHash}},
-		{"leave write", `DELETE FROM write_guard`, nil},
-	}
-	for _, statement := range statements {
-		if _, err := tx.ExecContext(ctx, statement.query, statement.args...); err != nil {
-			tx.Rollback()
-			t.Fatalf("seed %s: %v", statement.name, err)
-		}
-	}
-	if err := tx.Commit(); err != nil {
+	if err := s.UpdateProjectLocator(ctx, "project-1", store.ProjectLocator{ID: home.HomeLocatorID, Kind: store.LocatorCanonicalPath, Value: home.RepoPath}, projectVersion+1); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -173,8 +141,12 @@ func routineCoordinationDriveWorkflow(t *testing.T, s *store.Store, workID strin
 			RequestID: "routine-coordination-request-" + identity, AcceptedScope: `{"project":"project-1"}`, ContractDigest: agentcontract.ManifestDigest, Now: fixedTime(),
 		}
 		preflight := store.WorkflowActionPreflightRequest{WorkID: workID, ExpectedVersion: version, ActionID: actionID, Payload: raw, Actor: actor}
-		if err := store.AuthorizeWorkflowActionAtBoundaryTx(ctx, s, store.BuiltinWorkflowRegistry(), preflight, nil, func(tx *store.Transaction) error {
-			_, err := store.ApplyWorkflowActionTx(ctx, tx, store.BuiltinWorkflowRegistry(), request)
+		verified, err := s.EstablishKnowledgeSourceSetProof(ctx, workID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := store.AuthorizeWorkflowActionAtBoundaryTx(verified, s, store.BuiltinWorkflowRegistry(), preflight, nil, func(tx *store.Transaction) error {
+			_, err := store.ApplyWorkflowActionTx(verified, tx, store.BuiltinWorkflowRegistry(), request)
 			return err
 		}); err != nil {
 			t.Fatalf("%s %s at v%d: %v", workID, actionID, version, err)
@@ -188,11 +160,9 @@ func routineCoordinationDriveWorkflow(t *testing.T, s *store.Store, workID strin
 	})
 	fields := workflowContractFieldsFixture()
 	binding := workflowArchitectureBindingForSeededRegistry(t, s)
-	binding["domain_modifies"] = []string{pm1fixture.FixtureRootDomainID}
+	binding["domain_modifies"] = []string{binding["home_domain_id"].(string)}
 	fields["architecture_binding"] = binding
 	fields["law_change_reason"] = "The bounded repair changes the declared Domain."
-	fields["law_change_removes_user_visible_behavior"] = false
-	fields["law_change_touches_security_or_data_safety"] = false
 	fields["outcome_predicates"] = []map[string]any{{"predicate_id": "predicate:primary", "ordinal": 0, "outcome_kind": "absent", "outcome_payload": map[string]any{
 		"kind": "absent", "surface": "behavior:defect", "subjects": []string{workID}, "distinguish_from": []string{"disabled"},
 	}}}
@@ -239,6 +209,13 @@ func routineOverlapApprovalBindings(t *testing.T, s *store.Store, env CallEnvelo
 		t.Fatal("stale binding: an endpoint version moved before the approval was signed")
 	}
 	scope := map[string]any{"product_id": "product-1", "product_ids": []string{"product-1"}, "project_ids": []string{"project-1"}, "work_ids": []string{binding.fromWorkID, binding.toWorkID}, "scope_version": env.ScopeVersion}
+	if binding.kind == store.ResolutionMergedInto || binding.kind == store.ResolutionSupersedes {
+		governing, err := s.OverlapGoverningRequirementScope(context.Background(), binding.fromWorkID, binding.toWorkID, binding.kind)
+		if err != nil {
+			t.Fatal(err)
+		}
+		scope["governing_requirements"] = governing.Digest()
+	}
 	versions := map[string]any{"from": binding.fromVersion, "to": binding.toVersion, "from_contract": binding.fromContractVersion, "to_contract": binding.toContractVersion}
 	return scope, versions
 }
@@ -250,7 +227,7 @@ func routineOverlapResolveInput(t *testing.T, binding routineOverlapBinding, key
 		"from_work_id": binding.fromWorkID, "to_work_id": binding.toWorkID,
 		"from_expected_version": binding.fromVersion, "to_expected_version": binding.toVersion,
 		"from_contract_version": binding.fromContractVersion, "to_contract_version": binding.toContractVersion,
-		"resolution_kind": binding.kind, "reason": "the operator settles the destructive overlap",
+		"resolution_kind": binding.kind, "reason": "settle the exact overlap",
 		"idempotency_key": key,
 	})
 	if err != nil {
@@ -259,26 +236,45 @@ func routineOverlapResolveInput(t *testing.T, binding routineOverlapBinding, key
 	return raw
 }
 
-// routineOverlapChallenge drives the first, approval-less dispatch and
-// asserts the genuine challenge: its typed refusal, its reference, its
-// bound direction and kind, and its exact request digest.
+// Explicit-claim tests seed a real challenge through the Service without
+// asking the ordinary operation to require consent. No-consent execution is
+// covered by TestOrdinaryOverlapNeedsNoConsent.
 func routineOverlapChallenge(t *testing.T, s *store.Store, service *Service, env CallEnvelope, binding routineOverlapBinding, input []byte) string {
 	t.Helper()
-	first := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_relate", Operation: "resolve_overlap", Input: input}, env)
-	if first.Error == nil || first.Error.Kind != "approval_required" {
-		t.Fatalf("destructive %s resolution without approval outcome=%s error=%+v, want the typed challenge", binding.kind, first.Outcome, first.Error)
+	ctx := context.Background()
+	r := runtime{Store: s, Authority: service, Envelope: env}
+	host, err := r.probeInvocationHost(ctx)
+	if err != nil {
+		t.Fatal(err)
 	}
-	challengeRef, ok := first.Error.Details["approval_ref"].(string)
-	if !ok || challengeRef == "" {
-		t.Fatalf("destructive %s challenge carries no approval ref: %+v", binding.kind, first.Error.Details)
+	productsByWork, err := s.ProductsForWorkIDs(ctx, []string{binding.fromWorkID, binding.toWorkID})
+	if err != nil {
+		t.Fatal(err)
 	}
-	if first.Error.Details["resolution_kind"] != binding.kind || first.Error.Details["from_work_id"] != binding.fromWorkID || first.Error.Details["to_work_id"] != binding.toWorkID {
-		t.Fatalf("destructive %s challenge omitted the bound direction: %+v", binding.kind, first.Error.Details)
+	seen := map[string]bool{}
+	for _, products := range productsByWork {
+		for _, product := range products {
+			seen[product] = true
+		}
 	}
-	if digest, _ := first.Error.Details["operation_digest"].(string); digest != mutationDigest("concord_work_relate", "resolve_overlap", env, input) {
-		t.Fatalf("destructive %s challenge digest %v does not bind the exact request", binding.kind, first.Error.Details["operation_digest"])
+	products := []string{}
+	for product := range seen {
+		products = append(products, product)
 	}
-	return challengeRef
+	sort.Strings(products)
+	scope, versions := routineOverlapCrossScopeBindings(t, s, env, binding, products)
+	digest := mutationDigest("concord_work_relate", "resolve_overlap", env, input)
+	inv := Invocation{ClientRef: env.ClientRef, SessionRef: env.SessionRef, AgentRef: env.AgentRef, Directory: env.Directory, Worktree: env.Worktree, ManifestDigest: env.ManifestDigest, HostAssertionDigest: digest, RequiredCapability: "work_relate", RequiredOperation: "resolve_overlap", ProductID: env.SelectedProductID}
+	var ref string
+	err = s.TransactDurable(ctx, func(tx *store.Transaction) error {
+		var err error
+		ref, err = service.CreateApprovalChallengeTx(ctx, tx, host, inv, ApprovalChallengeSpec{OperationDigest: digest, Scope: scope, Versions: versions, Consequence: "relation", HostAssertionDigest: digest, ExpiresAt: fixedTime().Add(time.Hour)})
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return ref
 }
 
 // routineOverlapApprovedDispatch signs the host assertion over one digest and
@@ -293,7 +289,7 @@ func routineOverlapApprovedDispatch(t *testing.T, s *store.Store, service *Servi
 }
 
 // TestRoutineCoordinationDestructiveKindsSettleThroughAConsumedHostApproval:
-// each destructive kind resolves only through a challenge the Service minted,
+// each explicit claim resolves through a challenge the Service minted,
 // a host assertion over the exact request, and one consumed one-use approval
 // row. The terminal and survivor lifecycles, the one-step endpoint version
 // bumps, the single consumed row, and the spent-row refusal are the settled
@@ -479,11 +475,10 @@ func TestRoutineCoordinationDestructiveApprovalRefusesWhenBoundToAnotherRequest(
 }
 
 // TestRoutineCoordinationDestructiveKindsRefuseWithoutAConsumableApproval:
-// no approval at all mints the typed challenge, an approval reference no host
-// exchange ever derived refuses, and a minted but unconsumed challenge
-// presented without its host assertion refuses. None of them consumes
-// authority or moves a version.
-func TestRoutineCoordinationDestructiveKindsRefuseWithoutAConsumableApproval(t *testing.T) {
+// An explicit reference that no host exchange derived refuses, as does a
+// minted challenge presented without its host assertion. Neither consumes
+// authority or moves a version. Missing consent itself is not a refusal.
+func TestRoutineCoordinationDestructiveKindsRefuseInvalidSuppliedApproval(t *testing.T) {
 	t.Parallel()
 	for _, kind := range []string{store.ResolutionMergedInto, store.ResolutionSupersedes} {
 		t.Run(kind, func(t *testing.T) {
@@ -492,8 +487,7 @@ func TestRoutineCoordinationDestructiveKindsRefuseWithoutAConsumableApproval(t *
 			binding := routineOverlapExactBinding(t, s, kind)
 			input := routineOverlapResolveInput(t, binding, "routine-destructive-missing-"+kind)
 
-			// Missing: the first dispatch is the typed challenge naming the
-			// exact destructive resolution.
+			// Seed only the explicit-claim fixture; ordinary dispatch needs no consent.
 			challengeRef := routineOverlapChallenge(t, s, service, env, binding, input)
 
 			// Fabricated: a well-shaped reference no challenge or approval row
@@ -962,8 +956,12 @@ func crossProductRoutineCoordinationFixture(t *testing.T, capabilities []agentco
 	}
 	actor := store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}
 	for _, workID := range []string{"work-1", "work-2"} {
-		if err := s.Transact(ctx, func(tx *store.Transaction) error {
-			return store.InitializeWorkflowTx(ctx, tx, store.WorkflowInitializationRequest{WorkID: workID, Definition: definition, Actor: actor, Now: fixedTime()})
+		verified, err := s.EstablishKnowledgeSourceSetProof(ctx, workID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := s.Transact(verified, func(tx *store.Transaction) error {
+			return store.InitializeWorkflowTx(verified, tx, store.WorkflowInitializationRequest{WorkID: workID, Definition: definition, Actor: actor, Now: fixedTime()})
 		}); err != nil {
 			t.Fatalf("initialize %s: %v", workID, err)
 		}
@@ -999,6 +997,13 @@ func routineOverlapCrossScopeBindings(t *testing.T, s *store.Store, env CallEnve
 	if env.SelectedProductID != "" {
 		scope["product_id"] = env.SelectedProductID
 	}
+	if binding.kind == store.ResolutionMergedInto || binding.kind == store.ResolutionSupersedes {
+		governing, err := s.OverlapGoverningRequirementScope(context.Background(), binding.fromWorkID, binding.toWorkID, binding.kind)
+		if err != nil {
+			t.Fatal(err)
+		}
+		scope["governing_requirements"] = governing.Digest()
+	}
 	versions := map[string]any{"from": binding.fromVersion, "to": binding.toVersion, "from_contract": binding.fromContractVersion, "to_contract": binding.toContractVersion}
 	return scope, versions
 }
@@ -1015,31 +1020,15 @@ func routineOverlapConsumedApprovalWitness(t *testing.T, s *store.Store, label s
 	}
 }
 
-// TestRoutineCoordinationCrossProductRoutineKindSettlesThroughAConsumedHostApproval:
-// compatible_with is a routine kind, yet the generic scope derivation reports
-// the request cross-Product because the shared Project's second membership
-// puts the endpoints' derived Product set outside the selected Product. The
-// first dispatch therefore returns the typed challenge, and the host-approved
-// retry consumes exactly one one-use approval and settles. The routine event
-// carries no approval binding of any kind, the attribution is the
-// authenticated caller, both endpoints advance one version, the commit is
-// durable with the derived cross-Product set bound.
-func TestRoutineCoordinationCrossProductRoutineKindSettlesThroughAConsumedHostApproval(t *testing.T) {
+// CD-0243 D3/D7 retire cross-Product routine consent. Capability, caller
+// attribution, endpoint versions, durable scope, and replay remain required.
+func TestRoutineCoordinationCrossProductRoutineKindNeedsNoConsent(t *testing.T) {
 	t.Parallel()
-	s, service, grant, privateKey, env := crossProductRoutineCoordinationFixture(t, []agentcontract.Capability{"work_relate", "cross_scope"})
+	s, service, grant, _, env := crossProductRoutineCoordinationFixture(t, []agentcontract.Capability{"work_relate", "cross_scope"})
 	binding := routineOverlapExactBinding(t, s, store.ResolutionCompatibleWith)
 	input := routineOverlapResolveInput(t, binding, "routine-cross-product-compatible")
-	challengeRef := routineOverlapChallenge(t, s, service, env, binding, input)
-	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM agent_approvals`); got != 0 {
-		t.Fatalf("the cross-Product challenge minted %d approval rows", got)
-	}
-	withApproval, err := injectApproval(input, challengeRef)
-	if err != nil {
-		t.Fatal(err)
-	}
-	scope, versions := routineOverlapCrossScopeBindings(t, s, env, binding, []string{"product-1", "product-2"})
-	digest := mutationDigest("concord_work_relate", "resolve_overlap", env, withApproval)
-	approved := routineOverlapApprovedDispatch(t, s, service, privateKey, env, challengeRef, digest, scope, versions, withApproval)
+	request := InvokeRequest{Tool: "concord_work_relate", Operation: "resolve_overlap", Input: input}
+	approved := dispatchMutation(t, s, service, request, env)
 	if approved.Outcome != OutcomeOK {
 		t.Fatalf("approved cross-Product compatible_with outcome=%s error=%+v, want the settled resolution", approved.Outcome, approved.Error)
 	}
@@ -1055,7 +1044,9 @@ func TestRoutineCoordinationCrossProductRoutineKindSettlesThroughAConsumedHostAp
 	if got := workVersion(t, s, "work-2"); got != binding.toVersion+1 {
 		t.Fatalf("cross-Product compatible_with left work-2 at v%d, want the single step to %d", got, binding.toVersion+1)
 	}
-	routineOverlapConsumedApprovalWitness(t, s, "cross-Product compatible_with")
+	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM agent_approval_challenges`); got != 0 {
+		t.Fatalf("ordinary cross-Product coordination minted %d challenges", got)
+	}
 	var recordedRef, eventRef, eventScope, eventDigest, eventVersions, eventConsequence, eventActor string
 	if err := s.DatabaseForTesting().QueryRow(`SELECT COALESCE(approval_ref,'') FROM workflow_overlap_resolutions`).Scan(&recordedRef); err != nil {
 		t.Fatal(err)
@@ -1079,11 +1070,8 @@ func TestRoutineCoordinationCrossProductRoutineKindSettlesThroughAConsumedHostAp
 	if !strings.Contains(snapshot, `"product_ids":["product-1","product-2"]`) {
 		t.Fatalf("cross-Product compatible_with snapshot lost the derived Product set: %s", snapshot)
 	}
-	// The cached replay of the same signed cross-Product request answers
-	// with the original result and consumes nothing again: the approval row
-	// stays the single consumed one-use row, the routine event stays alone,
-	// no endpoint version moves again, and no second receipt exists.
-	replayed := routineOverlapApprovedDispatch(t, s, service, privateKey, env, challengeRef, digest, scope, versions, withApproval)
+	// Exact replay preserves the original result and writes no second effect.
+	replayed := dispatchMutation(t, s, service, request, env)
 	if replayed.Outcome != OutcomeOK || replayed.Error != nil {
 		t.Fatalf("cached cross-Product compatible_with replay outcome=%s error=%+v, want the original cached success", replayed.Outcome, replayed.Error)
 	}
@@ -1096,11 +1084,8 @@ func TestRoutineCoordinationCrossProductRoutineKindSettlesThroughAConsumedHostAp
 	if !sameChangedRefs(t, approved.ChangedRefs, replayed.ChangedRefs) {
 		t.Fatalf("cached cross-Product compatible_with replay changed refs %+v differ from the original %+v", replayed.ChangedRefs, approved.ChangedRefs)
 	}
-	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM agent_approvals`); got != 1 {
-		t.Fatalf("cached cross-Product compatible_with replay left %d approval rows, want the one consumed row", got)
-	}
-	if used := countRows(t, s.DatabaseForTesting(), `SELECT used_count FROM agent_approvals`); used != 1 {
-		t.Fatalf("cached cross-Product compatible_with replay approval used_count=%d, want the single consumed use", used)
+	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM agent_approvals`); got != 0 {
+		t.Fatalf("ordinary cross-Product replay left %d approval rows", got)
 	}
 	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM workflow_overlap_resolutions`); got != 1 {
 		t.Fatalf("cached cross-Product compatible_with replay left %d resolutions, want the settled one", got)

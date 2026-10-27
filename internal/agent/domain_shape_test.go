@@ -93,7 +93,7 @@ func TestDomainShapeProductReadAuthority(t *testing.T) {
 		{"missing read capability", "product-2", "unauthorized", []agentcontract.Capability{"work_define"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			s, service, grant, _ := crossProductPolicyFixture(t, tc.capabilities)
+			s, service, grant := crossProductPolicyFixture(t, tc.capabilities)
 			version, _, err := s.ScopeVersion(context.Background(), "project-1")
 			if err != nil {
 				t.Fatal(err)

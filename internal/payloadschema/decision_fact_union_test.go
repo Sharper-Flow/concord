@@ -47,3 +47,52 @@ func TestDecisionFactContractUnion(t *testing.T) {
 		})
 	}
 }
+
+func TestSixClassDecisionFactSchemas(t *testing.T) {
+	document := Document()
+	defs := document["$defs"].(map[string]any)
+	for _, action := range []string{"approve_contract", "supersede_contract"} {
+		name := "work_transition_action_variant_" + action
+		base := corpusSample(document, defs[name].(map[string]any)).(map[string]any)
+		for _, test := range []struct {
+			domains any
+			valid   bool
+		}{
+			{domains: []string{}, valid: true},
+			{domains: []string{"increased_spending"}, valid: true},
+			{domains: []string{"legal"}, valid: true},
+			{domains: []string{"production_data"}, valid: true},
+			{domains: []string{"security"}, valid: true},
+			{domains: []string{"increased_spending", "legal", "product", "production_data", "security", "ui_ux"}, valid: true},
+			{domains: []string{"preference"}},
+			{domains: []string{"unknown"}},
+			{domains: []string{"legal", "legal"}},
+			{domains: []string{"increased_spending", "legal", "product", "production_data", "security", "ui_ux", "unknown"}},
+			{domains: nil},
+			{domains: "security"},
+			{domains: []bool{true}},
+		} {
+			input := corpusCopy(base).(map[string]any)
+			input["fields"].(map[string]any)["decision_domains"] = test.domains
+			raw, err := json.Marshal(input)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := Validate(name, raw); (err == nil) != test.valid {
+				t.Errorf("%s domains %v: valid=%v, want %v: %v", action, test.domains, err == nil, test.valid, err)
+			}
+		}
+	}
+	// Read schemas preserve stored preference, rather than reauthoring that fact.
+	for _, domains := range [][]string{{"preference"}, {"preference", "product", "ui_ux"}, {"increased_spending", "legal", "product", "production_data", "security", "ui_ux"}} {
+		input := corpusSample(document, defs["workflow_contract"].(map[string]any)).(map[string]any)
+		input["decision_domains"] = domains
+		raw, err := json.Marshal(input)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := Validate("workflow_contract", raw); err != nil {
+			t.Errorf("stored domains %v refused by read schema: %v", domains, err)
+		}
+	}
+}

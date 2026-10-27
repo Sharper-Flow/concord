@@ -740,6 +740,13 @@ func seedDispatchFixture(t *testing.T, s *Store, workID string) cd0059DispatchSe
 // preflight machinery so the dispatch path is the only thing under test.
 func invokeWorkflowActionForCD0059(ctx context.Context, t *testing.T, s *Store, request WorkflowActionExecutionRequest) (WorkflowActionExecutionResult, error) {
 	t.Helper()
+	if knowledgeSourceSetProofFrom(ctx) == nil && (request.ActionID == "approve_contract" || request.ActionID == "supersede_contract" || request.ActionID == "complete") {
+		var err error
+		ctx, err = s.EstablishKnowledgeSourceSetProof(ctx, request.WorkID)
+		if err != nil {
+			return WorkflowActionExecutionResult{}, err
+		}
+	}
 	// Live dispatch assembly requires the sealed preparation the
 	// authenticated boundary prepares, so this invoker prepares one the same
 	// way when the caller has not supplied it. The fixture runner answers the

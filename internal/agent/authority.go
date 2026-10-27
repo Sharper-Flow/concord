@@ -1191,6 +1191,13 @@ func validChallengeScope(scope map[string]any) bool {
 
 func validChallengeScopeBinding(key string, value any) bool {
 	switch key {
+	case "governing_requirements":
+		text, ok := value.(string)
+		if !ok || len(text) != 71 || !strings.HasPrefix(text, "sha256:") {
+			return false
+		}
+		_, err := hex.DecodeString(text[7:])
+		return err == nil
 	case "product_id", "scope_version", "project_id", "client_ref", "policy_version", "failed_attempt_id", "held_attempt_holder":
 		text, ok := value.(string)
 		return ok && bounded(text, 1, 128)

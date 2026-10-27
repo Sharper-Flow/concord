@@ -51,14 +51,24 @@ func seedDecisionDomainsItem(t *testing.T, s *Store, workID string, domains any,
 	if !ok {
 		t.Fatal("workflow.research v5 is not registered")
 	}
+	ctx, err = s.EstablishKnowledgeSourceSetProof(ctx, workID)
+	if err != nil {
+		return err
+	}
+	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if err := initializeWorkflowRawTx(ctx, tx, WorkflowInitializationRequest{WorkID: workID, Definition: definition, Actor: owner}); err != nil {
+		return err
+	}
 	event := workflowEventWithActor("decision-contract-"+workID, WorkflowContractApproved, workID, ownerRef, decisionDomainsContract(workID, 1, domains))
 	event.PayloadVersion = payloadVersion
-	setup := []Event{
-		workflowEventWithActor("decision-actor-"+workID, WorkflowActorRecorded, workID, ownerRef, map[string]any{"work_id": workID, "expected_version": 2, "resulting_version": 3, "actor_ref": ownerRef, "principal_ref": owner.PrincipalRef, "client_ref": owner.ClientRef, "agent_ref": owner.AgentRef, "session_ref": owner.SessionRef, "actor_class": "agent"}),
-		workflowEventWithActor("decision-definition-"+workID, WorkflowDefinitionSelected, workID, ownerRef, map[string]any{"work_id": workID, "expected_version": 3, "resulting_version": 4, "ref": definition.Definition.Ref, "digest": definition.Digest, "work_kind": string(definition.Definition.WorkKind)}),
-		event,
+	if _, err := applyWorkflowOperationTx(ctx, tx, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 4}}, newWriteScope(tx)); err != nil {
+		return err
 	}
-	return applyWorkflowTestOperation(ctx, s, Operation{Events: setup, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 2}})
+	return tx.Commit()
 }
 
 // seedDecisionDomainsItemFatal seeds at the current payload version and fails

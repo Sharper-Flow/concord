@@ -64,6 +64,7 @@ func TestProductChangingApprovalDerivesTheRegistryItPins(t *testing.T) {
 	if registeredErr != nil {
 		t.Fatal(registeredErr)
 	}
+	ctx = agentWorkflowSourceProof(t, ctx, s, "work-1")
 	if err := s.Transact(ctx, func(tx *store.Transaction) error {
 		return store.InitializeWorkflowTx(ctx, tx, store.WorkflowInitializationRequest{WorkID: "work-1", Definition: registered, Actor: store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}, Now: fixedTime()})
 	}); err != nil {
@@ -105,8 +106,8 @@ func TestProductChangingApprovalDerivesTheRegistryWithoutAPriorRead(t *testing.T
 	if err != nil {
 		t.Fatalf("pm1fixture.SeedCommittedProductDomain: %v", err)
 	}
-	// Learn the committed registry's hash through the production path, then
-	// remove every trace of the derived projection.
+	// Learn the committed registry's hash through the production path before
+	// testing approval with every trace of the derived projection removed.
 	if err := s.RebuildKnowledgeIndex(ctx, home); err != nil {
 		t.Fatal(err)
 	}
@@ -114,12 +115,6 @@ func TestProductChangingApprovalDerivesTheRegistryWithoutAPriorRead(t *testing.T
 	if err := s.DatabaseForTesting().QueryRow(`SELECT content_hash, root_domain_id FROM domain_registries WHERE product_id='product-1'`).Scan(&contentHash, &rootDomainID); err != nil {
 		t.Fatal(err)
 	}
-	wipeDerivedKnowledge(t, s, home)
-	var registries int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT COUNT(*) FROM domain_registries`).Scan(&registries); err != nil || registries != 0 {
-		t.Fatalf("precondition: want no derived registry, got %d err=%v", registries, err)
-	}
-
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
 	if err != nil {
 		t.Fatal(err)
@@ -131,6 +126,7 @@ func TestProductChangingApprovalDerivesTheRegistryWithoutAPriorRead(t *testing.T
 	if registeredErr != nil {
 		t.Fatal(registeredErr)
 	}
+	ctx = agentWorkflowSourceProof(t, ctx, s, "work-1")
 	if err := s.Transact(ctx, func(tx *store.Transaction) error {
 		return store.InitializeWorkflowTx(ctx, tx, store.WorkflowInitializationRequest{WorkID: "work-1", Definition: registered, Actor: store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}, Now: fixedTime()})
 	}); err != nil {
@@ -147,6 +143,14 @@ func TestProductChangingApprovalDerivesTheRegistryWithoutAPriorRead(t *testing.T
 		"domain_relation_modifies":     []any{},
 		"law_additions":                []any{},
 		"verification_obligations":     []any{},
+	}
+	// Owning-start source verification and the pre-contract actions derive
+	// their own law inventory. Remove projections only after those demands,
+	// so this approval still proves recovery without a prior Domain read.
+	wipeDerivedKnowledge(t, s, home)
+	var registries int
+	if err := s.DatabaseForTesting().QueryRow(`SELECT COUNT(*) FROM domain_registries`).Scan(&registries); err != nil || registries != 0 {
+		t.Fatalf("precondition: want no derived registry, got %d err=%v", registries, err)
 	}
 	resp, _ := approvedWorkflowContract(t, s, service, grant, privateKey, env, version, fields, "derived-registry-approval-no-read")
 	if resp.Outcome != OutcomeOK {

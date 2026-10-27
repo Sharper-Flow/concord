@@ -40,8 +40,6 @@ func TestNonProductChangingLawRevision(t *testing.T) {
 			// law-change inputs.
 			if len(scenario.modifies) != 0 {
 				fields["law_change_reason"] = "Preserve the approved derived-law revision."
-				fields["law_change_removes_user_visible_behavior"] = false
-				fields["law_change_touches_security_or_data_safety"] = false
 			}
 			payload, err := json.Marshal(fields)
 			if err != nil {
@@ -73,13 +71,15 @@ func TestNonProductChangingLawRevision(t *testing.T) {
 				// than authoring bytes, and keep the raw law-change inputs off
 				// the successor contract, whose payload shape is closed.
 				lawChangeInputs := map[string]json.RawMessage{
-					workflowLawChangeReasonField:   json.RawMessage(`"Carry the derived revision into the successor contract."`),
-					workflowLawChangeBehaviorField: json.RawMessage(`false`),
-					workflowLawChangeSecurityField: json.RawMessage(`false`),
+					workflowLawChangeReasonField: json.RawMessage(`"Carry the derived revision into the successor contract."`),
 				}
 				// The store pools one connection: resolve the pinned definition
 				// before the derive transaction parks it.
 				definition := pinnedWorkflowDefinitionForTest(t, s, workID)
+				ctx, err = s.EstablishKnowledgeSourceSetProof(ctx, workID)
+				if err != nil {
+					t.Fatal(err)
+				}
 				tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
 				if err != nil {
 					t.Fatal(err)

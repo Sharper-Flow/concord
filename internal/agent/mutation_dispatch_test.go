@@ -43,15 +43,16 @@ func TestDispatchRejectsObsoleteEpicSurfaceAndGenericInitiativeCapture(t *testin
 	}
 }
 
+// CD-0243 D3/D7 retire membership consent, not security access grants.
 func TestDispatchApprovalChallengeRoundTripIsDurableAndSingleUse(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	s, service, grant, privateKey := mutationDispatchFixture(t, []agentcontract.Capability{"work_relate"})
+	s, service, grant, privateKey := productProjectLinkFixture(t, []agentcontract.Capability{"work_relate", "cross_scope"})
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
 	if err != nil {
 		t.Fatal(err)
 	}
-	request := InvokeRequest{Tool: "concord_work_relate", Operation: "set_memberships", Input: json.RawMessage(`{"work_id":"work-1","expected_version":2,"memberships":[{"project_id":"project-1","role":"primary"}],"idempotency_key":"membership-1"}`)}
+	request := InvokeRequest{Tool: "concord_work_relate", Operation: "product_project_add", Input: productProjectLinkRequest("", "project-2")}
 	env := mutationEnvelope(grant, scopeVersion)
 	missing, err := Dispatch(ctx, s, service, request, env)
 	if err != nil || missing.Outcome != OutcomeError || missing.Error == nil || missing.Error.Kind != "approval_required" {
@@ -72,10 +73,10 @@ func TestDispatchApprovalChallengeRoundTripIsDurableAndSingleUse(t *testing.T) {
 	}
 
 	digest := mutationDigest(request.Tool, request.Operation, env, request.Input)
-	scope := map[string]any{"product_id": "product-1", "product_ids": []string{"product-1"}, "project_ids": []string{"project-1"}, "work_ids": []string{"work-1"}, "scope_version": scopeVersion}
-	versions := map[string]any{"work": 2}
+	scope := map[string]any{"product_id": "product-1", "product_ids": []string{"product-1", "product-2"}, "project_id": "project-2", "role": "secondary", "scope_version": scopeVersion}
+	versions := map[string]any{"product": 2}
 	env.HostApproval = signedHostApproval(privateKey, challengeRef, digest, scope, versions, "session-1", "agent-1", "/repo-wt", fixedTime(), "approval-nonce-0001")
-	request.Input = json.RawMessage(`{"work_id":"work-1","expected_version":2,"memberships":[{"project_id":"project-1","role":"primary"}],"idempotency_key":"membership-1","approval":{"approval_ref":"` + challengeRef + `"}}`)
+	request.Input = productProjectLinkRequest(challengeRef, "project-2")
 	approved, err := Dispatch(ctx, s, service, request, env)
 	if err != nil || approved.Outcome != OutcomeOK {
 		t.Fatalf("approved response=%+v err=%v", approved, err)
@@ -86,21 +87,30 @@ func TestDispatchApprovalChallengeRoundTripIsDurableAndSingleUse(t *testing.T) {
 	if usedCount(t, s.DatabaseForTesting(), "SELECT used_count FROM agent_approvals WHERE approval_ref=(SELECT approval_ref FROM agent_approvals WHERE protected_evidence_ref=?)", "approval-challenge:"+challengeRef) != 1 {
 		t.Fatal("issued approval was not consumed exactly once")
 	}
-	if version := workVersion(t, s, "work-1"); version != 3 {
-		t.Fatalf("work version=%d, want 3", version)
+	if version := usedCount(t, s.DatabaseForTesting(), `SELECT version FROM products WHERE id=?`, "product-1"); version != 3 {
+		t.Fatalf("Product version=%d, want 3", version)
+	}
+	// Restore the fixture's scope so the spent challenge, rather than an
+	// already-present membership, decides the second attempt.
+	if err := store.ApplyOperation(ctx, s, store.Operation{Events: []store.Event{{EventID: "remove-approved-link", Kind: "product_project.removed", SubjectType: store.SubjectProduct, SubjectID: "product-1", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"product_id":"product-1","project_id":"project-2","role":"secondary","reason":"fixture","expected_version":3,"resulting_version":4}`)}}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectProduct, "product-1"): 3}}); err != nil {
+		t.Fatal(err)
 	}
 
 	second := request
-	second.Input = json.RawMessage(`{"work_id":"work-1","expected_version":2,"memberships":[{"project_id":"project-1","role":"primary"}],"idempotency_key":"membership-2","approval":{"approval_ref":"` + challengeRef + `"}}`)
+	second.Input = json.RawMessage(strings.Replace(string(request.Input), `"link-project"`, `"link-project-2"`, 1))
 	secondEnv := env
+	secondEnv.ScopeVersion, _, err = s.ScopeVersion(ctx, "project-1")
+	if err != nil {
+		t.Fatal(err)
+	}
 	secondEnv.RequestID = "approval-second"
 	secondEnv.HostApproval = signedHostApproval(privateKey, challengeRef, digest, scope, versions, "session-1", "agent-1", "/repo-wt", fixedTime(), "approval-nonce-0002")
 	reused, err := Dispatch(ctx, s, service, second, secondEnv)
 	if err != nil || reused.Outcome != OutcomeError || reused.Error == nil || reused.Error.Kind != "approval_invalid" {
-		t.Fatalf("reused challenge response=%+v err=%v", reused, err)
+		t.Fatalf("reused challenge response=%+v error=%+v err=%v", reused, reused.Error, err)
 	}
-	if version := workVersion(t, s, "work-1"); version != 3 {
-		t.Fatalf("reused challenge changed work version=%d", version)
+	if version := usedCount(t, s.DatabaseForTesting(), `SELECT version FROM products WHERE id=?`, "product-1"); version != 4 {
+		t.Fatalf("reused challenge changed Product version=%d", version)
 	}
 	// A late retry of the spent challenge refuses closed too: the consumed
 	// state, not elapsed time, is what blocks it.
@@ -111,8 +121,8 @@ func TestDispatchApprovalChallengeRoundTripIsDurableAndSingleUse(t *testing.T) {
 	if err != nil || lateReused.Outcome != OutcomeError || lateReused.Error == nil || lateReused.Error.Kind != "approval_invalid" {
 		t.Fatalf("late reused challenge response=%+v err=%v", lateReused, err)
 	}
-	if version := workVersion(t, s, "work-1"); version != 3 {
-		t.Fatalf("late reused challenge changed work version=%d", version)
+	if version := usedCount(t, s.DatabaseForTesting(), `SELECT version FROM products WHERE id=?`, "product-1"); version != 4 {
+		t.Fatalf("late reused challenge changed Product version=%d", version)
 	}
 }
 
@@ -127,12 +137,12 @@ func TestDispatchApprovalChallengeRoundTripIsDurableAndSingleUse(t *testing.T) {
 func TestLateHostApprovalNeedsOneChallenge(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_relate"})
+	s, service, grant, _ := productProjectLinkFixture(t, []agentcontract.Capability{"work_relate", "cross_scope"})
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
 	if err != nil {
 		t.Fatal(err)
 	}
-	request := InvokeRequest{Tool: "concord_work_relate", Operation: "set_memberships", Input: json.RawMessage(`{"work_id":"work-1","expected_version":2,"memberships":[{"project_id":"project-1","role":"primary"}],"idempotency_key":"late-answer-1"}`)}
+	request := InvokeRequest{Tool: "concord_work_relate", Operation: "product_project_add", Input: productProjectLinkRequest("", "project-2")}
 	env := mutationEnvelope(grant, scopeVersion)
 	dispatchWire := func(request InvokeRequest, env CallEnvelope) Envelope {
 		t.Helper()
@@ -219,8 +229,8 @@ func TestLateHostApprovalNeedsOneChallenge(t *testing.T) {
 	if approved.Outcome != OutcomeOK || approved.Error != nil {
 		t.Fatalf("late answer did not complete the intent: %+v, error=%+v", approved, approved.Error)
 	}
-	if workVersion(t, s, "work-1") != 3 {
-		t.Fatalf("late answer work version=%d, want exactly one mutation", workVersion(t, s, "work-1"))
+	if version := usedCount(t, s.DatabaseForTesting(), `SELECT version FROM products WHERE id=?`, "product-1"); version != 3 {
+		t.Fatalf("late answer Product version=%d, want exactly one mutation", version)
 	}
 	if usedCount(t, s.DatabaseForTesting(), `SELECT used_count FROM agent_approval_challenges WHERE challenge_ref=?`, approvalRef) != 1 {
 		t.Fatal("the late exchange did not consume the challenge exactly once")
@@ -236,7 +246,7 @@ func TestLateHostApprovalNeedsOneChallenge(t *testing.T) {
 		t.Fatalf("re-arm moved the challenge issue time to %s", issuedAt)
 	}
 	replayed := dispatchWire(request, env)
-	if replayed.Outcome != OutcomeOK || !replayed.Replayed || workVersion(t, s, "work-1") != 3 {
+	if replayed.Outcome != OutcomeOK || !replayed.Replayed || usedCount(t, s.DatabaseForTesting(), `SELECT version FROM products WHERE id=?`, "product-1") != 3 {
 		t.Fatalf("late-answer replay = %+v", replayed)
 	}
 }
@@ -244,12 +254,12 @@ func TestLateHostApprovalNeedsOneChallenge(t *testing.T) {
 func TestDispatchRejectsInvalidHostApprovalAssertions(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	s, service, authority, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_relate"})
+	s, service, authority, _ := productProjectLinkFixture(t, []agentcontract.Capability{"work_relate", "cross_scope"})
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
 	if err != nil {
 		t.Fatal(err)
 	}
-	request := InvokeRequest{Tool: "concord_work_relate", Operation: "set_memberships", Input: json.RawMessage(`{"work_id":"work-1","expected_version":2,"memberships":[{"project_id":"project-1","role":"primary"}],"idempotency_key":"membership-invalid"}`)}
+	request := InvokeRequest{Tool: "concord_work_relate", Operation: "product_project_add", Input: productProjectLinkRequest("", "project-2")}
 	env := mutationEnvelope(authority, scopeVersion)
 	missing, err := Dispatch(ctx, s, service, request, env)
 	if err != nil || missing.Error == nil || missing.Error.Kind != "approval_required" {
@@ -260,8 +270,8 @@ func TestDispatchRejectsInvalidHostApprovalAssertions(t *testing.T) {
 		t.Fatalf("approval challenge ref=%v", missing.Error.Details["approval_ref"])
 	}
 	digest := mutationDigest(request.Tool, request.Operation, env, request.Input)
-	scope := map[string]any{"product_id": "product-1", "product_ids": []string{"product-1"}, "project_ids": []string{"project-1"}, "work_ids": []string{"work-1"}, "scope_version": scopeVersion}
-	versions := map[string]any{"work": 2}
+	scope := map[string]any{"product_id": "product-1", "product_ids": []string{"product-1", "product-2"}, "project_id": "project-2", "role": "secondary", "scope_version": scopeVersion}
+	versions := map[string]any{"product": 2}
 	variants := []struct {
 		name      string
 		assertion *HostApprovalAssertion
@@ -272,7 +282,7 @@ func TestDispatchRejectsInvalidHostApprovalAssertions(t *testing.T) {
 	for _, variant := range variants {
 		t.Run(variant.name, func(t *testing.T) {
 			trial := request
-			trial.Input = json.RawMessage(`{"work_id":"work-1","expected_version":2,"memberships":[{"project_id":"project-1","role":"primary"}],"idempotency_key":"membership-` + variant.name + `","approval":{"approval_ref":"` + challengeRef + `"}}`)
+			trial.Input = json.RawMessage(strings.Replace(string(productProjectLinkRequest(challengeRef, "project-2")), `"link-project"`, `"link-`+variant.name+`"`, 1))
 			trialEnv := env
 			trialEnv.RequestID = "invalid-" + variant.name
 			trialEnv.HostApproval = variant.assertion
@@ -287,28 +297,28 @@ func TestDispatchRejectsInvalidHostApprovalAssertions(t *testing.T) {
 func TestDispatchFailedDomainEffectRollsBackGrantAndApproval(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	s, service, grant, privateKey := mutationDispatchFixture(t, []agentcontract.Capability{"work_relate"})
+	s, service, grant, privateKey := productProjectLinkFixture(t, []agentcontract.Capability{"work_relate", "cross_scope"})
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
 	if err != nil {
 		t.Fatal(err)
 	}
-	request := InvokeRequest{Tool: "concord_work_relate", Operation: "set_memberships", Input: json.RawMessage(`{"work_id":"work-1","expected_version":2,"memberships":[{"project_id":"project-1","role":"primary"}],"idempotency_key":"rollback-approval"}`)}
+	request := InvokeRequest{Tool: "concord_work_relate", Operation: "product_project_add", Input: productProjectLinkRequest("", "project-2")}
 	env := mutationEnvelope(grant, scopeVersion)
 	missing, err := Dispatch(ctx, s, service, request, env)
-	if err != nil {
-		t.Fatal(err)
+	if err != nil || missing.Error == nil || missing.Error.Kind != "approval_required" {
+		t.Fatalf("approval challenge=%+v err=%v", missing, err)
 	}
 	challengeRef := missing.Error.Details["approval_ref"].(string)
-	if err := store.ApplyOperation(ctx, s, store.Operation{Events: []store.Event{{EventID: "rollback-version", Kind: "work.intent_revised", SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"title":"Changed","value_statement":"Changed","kind":"task","priority":1,"tags":[],"reason":"race","expected_version":2,"resulting_version":3}`)}}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, "work-1"): 2}}); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`CREATE TRIGGER reject_access_grant BEFORE INSERT ON product_projects BEGIN SELECT RAISE(ABORT, 'fixture rejected access grant'); END`); err != nil {
 		t.Fatal(err)
 	}
 	digest := mutationDigest(request.Tool, request.Operation, env, request.Input)
-	scope := map[string]any{"product_id": "product-1", "product_ids": []string{"product-1"}, "project_ids": []string{"project-1"}, "work_ids": []string{"work-1"}, "scope_version": scopeVersion}
-	env.HostApproval = signedHostApproval(privateKey, challengeRef, digest, scope, map[string]any{"work": 2}, "session-1", "agent-1", "/repo-wt", fixedTime(), "rollback-approval-0001")
-	request.Input = json.RawMessage(`{"work_id":"work-1","expected_version":2,"memberships":[{"project_id":"project-1","role":"primary"}],"idempotency_key":"rollback-approval","approval":{"approval_ref":"` + challengeRef + `"}}`)
+	scope := map[string]any{"product_id": "product-1", "product_ids": []string{"product-1", "product-2"}, "project_id": "project-2", "role": "secondary", "scope_version": scopeVersion}
+	env.HostApproval = signedHostApproval(privateKey, challengeRef, digest, scope, map[string]any{"product": 2}, "session-1", "agent-1", "/repo-wt", fixedTime(), "rollback-approval-0001")
+	request.Input = productProjectLinkRequest(challengeRef, "project-2")
 	failed, err := Dispatch(ctx, s, service, request, env)
-	if err != nil || failed.Outcome != OutcomeError || failed.Error == nil || failed.Error.Kind != "version_conflict" {
-		t.Fatalf("failed mutation=%+v err=%v", failed, err)
+	if err != nil || failed.Outcome != OutcomeError || failed.Error == nil || failed.Error.Kind != "unreachable" || !strings.Contains(failed.Error.Message, "fixture rejected access grant") {
+		t.Fatalf("failed mutation=%+v error=%+v err=%v", failed, failed.Error, err)
 	}
 	var challengeStatus string
 	var challengeUsed int
@@ -328,31 +338,30 @@ func TestDispatchFailedDomainEffectRollsBackGrantAndApproval(t *testing.T) {
 func TestDispatchFailedDomainEffectRollsBackRearmedDeadline(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_relate"})
+	s, service, grant, _ := productProjectLinkFixture(t, []agentcontract.Capability{"work_relate", "cross_scope"})
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
 	if err != nil {
 		t.Fatal(err)
 	}
-	request := InvokeRequest{Tool: "concord_work_relate", Operation: "set_memberships", Input: json.RawMessage(`{"work_id":"work-1","expected_version":2,"memberships":[{"project_id":"project-1","role":"primary"}],"idempotency_key":"rollback-rearm"}`)}
+	request := InvokeRequest{Tool: "concord_work_relate", Operation: "product_project_add", Input: productProjectLinkRequest("", "project-2")}
 	env := mutationEnvelope(grant, scopeVersion)
 	missing, err := Dispatch(ctx, s, service, request, env)
-	if err != nil {
-		t.Fatal(err)
+	if err != nil || missing.Error == nil || missing.Error.Kind != "approval_required" {
+		t.Fatalf("approval challenge=%+v err=%v", missing, err)
 	}
 	challengeRef := missing.Error.Details["approval_ref"].(string)
 	summary := missing.Error.ConsequenceSummary
-	// A concurrent mutation moves the expected version while the prompt is
-	// open, so the late exchange re-arms and then fails at the domain effect.
-	if err := store.ApplyOperation(ctx, s, store.Operation{Events: []store.Event{{EventID: "rollback-rearm-version", Kind: "work.intent_revised", SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"title":"Changed","value_statement":"Changed","kind":"task","priority":1,"tags":[],"reason":"race","expected_version":2,"resulting_version":3}`)}}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, "work-1"): 2}}); err != nil {
+	// Reject the fold after the late exchange re-arms and consumes approval.
+	if _, err := s.DatabaseForTesting().Exec(`CREATE TRIGGER reject_access_grant BEFORE INSERT ON product_projects BEGIN SELECT RAISE(ABORT, 'fixture rejected access grant'); END`); err != nil {
 		t.Fatal(err)
 	}
 	answerAt := fixedTime().Add(11 * time.Minute)
 	service.Now = func() time.Time { return answerAt }
 	env.HostApproval = &HostApprovalAssertion{ChallengeRef: challengeRef, RequestDigest: summary.OperationDigest, Scope: summary.Scope, Versions: summary.Versions, SessionRef: env.SessionRef, AgentRef: env.AgentRef, Worktree: env.Worktree, IssuedAt: answerAt.Format(time.RFC3339Nano)}
-	request.Input = json.RawMessage(`{"work_id":"work-1","expected_version":2,"memberships":[{"project_id":"project-1","role":"primary"}],"idempotency_key":"rollback-rearm","approval":{"approval_ref":"` + challengeRef + `"}}`)
+	request.Input = productProjectLinkRequest(challengeRef, "project-2")
 	failed, err := Dispatch(ctx, s, service, request, env)
-	if err != nil || failed.Outcome != OutcomeError || failed.Error == nil || failed.Error.Kind != "version_conflict" {
-		t.Fatalf("failed late mutation=%+v err=%v", failed, err)
+	if err != nil || failed.Outcome != OutcomeError || failed.Error == nil || failed.Error.Kind != "unreachable" || !strings.Contains(failed.Error.Message, "fixture rejected access grant") {
+		t.Fatalf("failed late mutation=%+v error=%+v err=%v", failed, failed.Error, err)
 	}
 	var challengeStatus, issuedAt, expiresAt string
 	var challengeUsed int
@@ -365,8 +374,8 @@ func TestDispatchFailedDomainEffectRollsBackRearmedDeadline(t *testing.T) {
 	if countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM agent_approvals`) != 0 {
 		t.Fatal("failed late effect kept a derived approval row")
 	}
-	if version := workVersion(t, s, "work-1"); version != 3 {
-		t.Fatalf("failed late effect changed work version=%d", version)
+	if version := usedCount(t, s.DatabaseForTesting(), `SELECT version FROM products WHERE id=?`, "product-1"); version != 2 {
+		t.Fatalf("failed late effect changed Product version=%d", version)
 	}
 }
 
@@ -478,7 +487,8 @@ func TestDispatchIdempotentReplaySurvivesAmbientScopeDrift(t *testing.T) {
 	}
 }
 
-func TestDispatchCrossProductCaptureRequiresBoundApproval(t *testing.T) {
+func TestDispatchCrossProductCaptureKeepsCapabilityWithoutConsent(t *testing.T) {
+	// CD-0243 D3/D7 retire cross-Product coordination consent, not capability.
 	t.Parallel()
 	ctx := context.Background()
 	deniedStore, deniedService, deniedGrant, _ := crossProductDispatchFixture(t, []agentcontract.Capability{"work_define"})
@@ -495,23 +505,13 @@ func TestDispatchCrossProductCaptureRequiresBoundApproval(t *testing.T) {
 		t.Fatalf("denied capture created %d work items", count)
 	}
 
-	s, service, grant, privateKey := crossProductDispatchFixture(t, []agentcontract.Capability{"work_define", "cross_scope"})
+	s, service, grant, _ := crossProductDispatchFixture(t, []agentcontract.Capability{"work_define", "cross_scope"})
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
 	if err != nil {
 		t.Fatal(err)
 	}
 	env := mutationEnvelope(grant, scopeVersion)
 	request = InvokeRequest{Tool: "concord_work_define", Operation: "capture", Input: json.RawMessage(`{"title":"Cross","value_statement":"Cross value","kind":"task","project_ids":["project-1"],"idempotency_key":"cross-approved"}`)}
-	challenge, err := Dispatch(ctx, s, service, request, env)
-	if err != nil || challenge.Outcome != OutcomeError || challenge.Error == nil || challenge.Error.Kind != "approval_required" {
-		t.Fatalf("cross approval response=%+v kind=%s msg=%s details=%v err=%v", challenge, challenge.Error.Kind, challenge.Error.Message, challenge.Error.Details, err)
-	}
-	challengeRef := challenge.Error.Details["approval_ref"].(string)
-	digest := mutationDigest(request.Tool, request.Operation, env, request.Input)
-	scope := map[string]any{"product_id": "product-1", "product_ids": []string{"product-1", "product-2"}, "project_ids": []string{"project-1"}, "scope_version": scopeVersion}
-	assertion := signedHostApproval(privateKey, challengeRef, digest, scope, map[string]any{}, "session-1", "agent-1", "/repo-wt", fixedTime(), "cross-approval-0001")
-	request.Input = json.RawMessage(`{"title":"Cross","value_statement":"Cross value","kind":"task","project_ids":["project-1"],"idempotency_key":"cross-approved","approval":{"approval_ref":"` + challengeRef + `"}}`)
-	env.HostApproval = assertion
 	approved, err := Dispatch(ctx, s, service, request, env)
 	if err != nil || approved.Outcome != OutcomeOK {
 		t.Fatalf("cross approved response=%+v err=%v", approved, err)
@@ -545,9 +545,9 @@ func crossProductDispatchFixture(t *testing.T, capabilities []agentcontract.Capa
 		{EventID: "cross-project", Kind: "project.created", SubjectType: store.SubjectProject, SubjectID: "project-1", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: store.CurrentEventPayloadVersion("project.created"), Payload: json.RawMessage(`{"display_name":"Shared Project"}`)},
 		{EventID: "cross-membership-1", Kind: "product_project.added", SubjectType: store.SubjectProduct, SubjectID: "product-1", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"product_id":"product-1","project_id":"project-1","role":"primary","reason":"fixture","expected_version":1,"resulting_version":2}`)},
 		{EventID: "cross-membership-2", Kind: "product_project.added", SubjectType: store.SubjectProduct, SubjectID: "product-2", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"product_id":"product-2","project_id":"project-1","role":"secondary","reason":"fixture","expected_version":1,"resulting_version":2}`)},
-		{EventID: "cross-work-1", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: store.CurrentEventPayloadVersion("work.created"), Payload: json.RawMessage(`{"work_kind":"task","title":"Cross One","priority":1}`)},
+		{EventID: "cross-work-1", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: store.CurrentEventPayloadVersion("work.created"), Payload: json.RawMessage(`{"work_kind":"task","title":"Cross One","priority":1,"governing_requirements":[]}`)},
 		{EventID: "cross-work-1-membership", Kind: "work.memberships_replaced", SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"memberships":[{"project_id":"project-1","role":"primary"}],"expected_version":1,"resulting_version":2}`)},
-		{EventID: "cross-work-2", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: "work-2", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: store.CurrentEventPayloadVersion("work.created"), Payload: json.RawMessage(`{"work_kind":"task","title":"Cross Two","priority":1}`)},
+		{EventID: "cross-work-2", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: "work-2", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: store.CurrentEventPayloadVersion("work.created"), Payload: json.RawMessage(`{"work_kind":"task","title":"Cross Two","priority":1,"governing_requirements":[]}`)},
 		{EventID: "cross-work-2-membership", Kind: "work.memberships_replaced", SubjectType: store.SubjectWorkItem, SubjectID: "work-2", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"memberships":[{"project_id":"project-1","role":"primary"}],"expected_version":1,"resulting_version":2}`)},
 	}
 	if err := store.ApplyOperation(ctx, s, store.Operation{Events: events, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectProduct, "product-1"): 0, store.VersionRef(store.SubjectProduct, "product-2"): 0, store.VersionRef(store.SubjectProject, "project-1"): 0, store.VersionRef(store.SubjectWorkItem, "work-1"): 0, store.VersionRef(store.SubjectWorkItem, "work-2"): 0}}); err != nil {
@@ -579,7 +579,7 @@ func mutationDispatchFixture(t *testing.T, capabilities []agentcontract.Capabili
 		{EventID: "fixture-product", Kind: "product.created", SubjectType: store.SubjectProduct, SubjectID: "product-1", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: store.CurrentEventPayloadVersion("product.created"), Payload: json.RawMessage(`{"display_name":"Product","stage_maturity":"prototype","stage_audience_commitment":"operator_only"}`)},
 		{EventID: "fixture-project", Kind: "project.created", SubjectType: store.SubjectProject, SubjectID: "project-1", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: store.CurrentEventPayloadVersion("project.created"), Payload: json.RawMessage(`{"display_name":"Project"}`)},
 		{EventID: "fixture-product-project", Kind: "product_project.added", SubjectType: store.SubjectProduct, SubjectID: "product-1", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: store.CurrentEventPayloadVersion("product_project.added"), Payload: json.RawMessage(`{"product_id":"product-1","project_id":"project-1","role":"primary","reason":"fixture","expected_version":1,"resulting_version":2}`)},
-		{EventID: "fixture-work", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: store.CurrentEventPayloadVersion("work.created"), Payload: json.RawMessage(`{"work_kind":"task","title":"Work","priority":1}`)},
+		{EventID: "fixture-work", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: store.CurrentEventPayloadVersion("work.created"), Payload: json.RawMessage(`{"work_kind":"task","title":"Work","priority":1,"governing_requirements":[]}`)},
 		{EventID: "fixture-work-membership", Kind: "work.memberships_replaced", SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: store.CurrentEventPayloadVersion("work.memberships_replaced"), Payload: json.RawMessage(`{"memberships":[{"project_id":"project-1","role":"primary"}],"expected_version":1,"resulting_version":2}`)},
 	}
 	if err := store.ApplyOperation(ctx, s, store.Operation{Events: events, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectProduct, "product-1"): 0, store.VersionRef(store.SubjectProject, "project-1"): 0, store.VersionRef(store.SubjectWorkItem, "work-1"): 0}}); err != nil {

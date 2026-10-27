@@ -64,11 +64,15 @@ func completedDeliveryFixtureWithAssertions(t *testing.T, workID string, asserti
 	} else {
 		f := qCurrentAcceptanceWithDelivery(t, workID, deliveryCorrectionWrongPath)
 		s = f.store
-		if err := f.run(t.Context(), "confirm_premise", "confirm", readWorkVersion(t, s, workID), nil, nil); err != nil {
+		ctx, err := s.EstablishKnowledgeSourceSetProof(t.Context(), workID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := f.run(ctx, "confirm_premise", "confirm", readWorkVersion(t, s, workID), nil, nil); err != nil {
 			t.Fatal(err)
 		}
 		bindCompletionClosure(t, s, workID, f.owner)
-		if err := f.run(t.Context(), "complete", "complete", readWorkVersion(t, s, workID), json.RawMessage(`{"impact_verdict":"non-breaking"}`), nil); err != nil {
+		if err := f.run(ctx, "complete", "complete", readWorkVersion(t, s, workID), json.RawMessage(`{"impact_verdict":"non-breaking"}`), nil); err != nil {
 			t.Fatal(err)
 		}
 	}

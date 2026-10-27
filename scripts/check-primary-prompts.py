@@ -87,8 +87,9 @@ RTE_REQUIRED_PHRASES = (
     "Set merge order only for an actual conflict or dependency",
     "Compare each owner's retained posture, hold, or sequencing rule with your current directives",
     "Apply current accepted CD-0243 D2-D3 before asking for consent",
-    "Assigning a worker, making an in-scope dependency repair, and publishing or merging its PR do not independently require operator approval",
+    "Assigning a worker to an in-scope dependency repair, and that worker publishing or merging its PR, do not independently require operator approval",
     "A new ticket or implementation step is not itself new Product direction",
+    "Stated operator preferences remain binding",
 )
 CONCORD_REQUIRED_PHRASES = (
     "You are Concord, the primary agent",

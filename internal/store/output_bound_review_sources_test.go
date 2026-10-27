@@ -5,17 +5,18 @@ package store
 // schema's own caps; a retained value can exceed a newer report admission.
 func init() {
 	const (
-		lanes        = "internal/store/worker_lanes.go"
-		oracle       = "internal/store/worker_oracle_findings.go"
-		reviewShape  = "validateWorkerReviewBlock"
-		reportSchema = "contracts/agent-lane-report.schema.json"
-		finding      = "/$defs/lane_report_oracle_finding/properties/"
-		lawBinding   = "/$defs/lane_report_oracle_law_binding/properties/"
-		resolved     = "/$defs/lane_report_resolved_finding/properties/"
-		candidate    = "/$defs/lane_report_review_candidate/properties/"
-		dependencies = "/$defs/lane_report_review_dependencies/properties/"
-		obligation   = "/$defs/lane_report_review_obligation/properties/"
-		accepted     = "/$defs/workflow_review_state/properties/accepted_review/anyOf/1/properties/"
+		lanes         = "internal/store/worker_lanes.go"
+		oracle        = "internal/store/worker_oracle_findings.go"
+		reviewShape   = "validateWorkerReviewBlock"
+		reportSchema  = "contracts/agent-lane-report.schema.json"
+		finding       = "/$defs/lane_report_oracle_finding/properties/"
+		lawBinding    = "/$defs/lane_report_oracle_law_binding/properties/"
+		resolved      = "/$defs/lane_report_resolved_finding/properties/"
+		candidate     = "/$defs/lane_report_review_candidate/properties/"
+		candidateView = "/$defs/workflow_review_candidate_view/properties/"
+		dependencies  = "/$defs/lane_report_review_dependencies/properties/"
+		obligation    = "/$defs/lane_report_review_obligation/properties/"
+		accepted      = "/$defs/workflow_review_state/properties/accepted_review/anyOf/1/properties/"
 	)
 	reference := goInlineBound("internal/store/workflow_registry.go", "ValidReference", "len(value)", boundBytes)
 	predicate := goPatternBound("internal/store/worker_jobs.go", "workerJobPredicatePattern")
@@ -74,6 +75,9 @@ func init() {
 	registerOutputBound(candidate+"project_id/maxLength", reference)
 	registerOutputBound(candidate+"commit/maxLength", sha)
 	registerOutputBound(candidate+"tree/maxLength", sha)
+	registerOutputBound(candidateView+"project_id/maxLength", reference)
+	registerOutputBound(candidateView+"commit/maxLength", sha)
+	registerOutputBound(candidateView+"tree/maxLength", sha)
 	registerOutputBound(dependencies+"criteria/maxItems", goInlineBound(lanes, reviewShape, "len(review.Dependencies.Criteria)", boundItems))
 	registerOutputBound(dependencies+"criteria/items/properties/predicate_id/maxLength", predicate)
 	// Digest claims enter through the host's validateAgentLaneReport input

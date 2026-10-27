@@ -1,9 +1,9 @@
 {
   "schema_version": "1.1",
-  "catalog_generation": 4,
+  "catalog_generation": 6,
   "source": {
     "path": ".concord/docs/goals.md",
-    "sha256": "sha256:fce9f750aec8e8cf0a738bbaf852d83e830ef996d85ab9c66a325144e1ec07af"
+    "sha256": "sha256:f21896943972e1771e823b84c6aac7d29d8418f7b9b9cfcda1cebdbe8fc69d5f"
   },
   "rules": [
     {

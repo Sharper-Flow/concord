@@ -15,7 +15,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:fce9f750aec8e8cf0a738bbaf852d83e830ef996d85ab9c66a325144e1ec07af",
+  "sha256": "sha256:f21896943972e1771e823b84c6aac7d29d8418f7b9b9cfcda1cebdbe8fc69d5f",
   "status": "accepted",
   "summary": "The operator's goals for Concord: purpose, six equal goals with measures, the conflict rules (Appendix A), constraints, and the conflicts found with current Concord text (Appendix C). Accepted law, ranked first; priorities.md follows it. Where it conflicts with an accepted decision record, goals.md sets the direction, and the conflicting record is amended under CD-0036 D2 (in place when compatible, by a superseding record when breaking) before work relies on it.",
   "tags": [

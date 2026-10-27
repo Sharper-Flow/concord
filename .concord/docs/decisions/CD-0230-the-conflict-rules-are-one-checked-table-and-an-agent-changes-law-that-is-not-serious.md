@@ -52,10 +52,11 @@ the `goals.md` content hash differs from the recorded one.
 
 ### D2. Each rule names how it is enforced
 
-A rule's mechanism kind is one of four: a programmed check that refuses or
-reports; a coordinator decision that a tool records; an operator boundary
-where the operator approves or accepts; or a gap. A prose instruction is not a
-mechanism (Appendix A P3 and P7).
+A rule's mechanism kind is one of five: a programmed check that refuses or
+reports; a review that records the rule it applied; a coordinator decision
+that a tool records; an operator boundary where the operator approves or
+accepts; or a gap. Each rule uses the cheapest kind that upholds it (Appendix
+A P3). A prose instruction alone is not a mechanism.
 
 A gap row names the follow-up item that will build its mechanism. The
 validator reports every gap, so the gap count measures progress toward goal F.
@@ -150,7 +151,9 @@ Every change to `goals.md` moves its content hash, so the change that edits
 
 The table and its census are implemented; complete rule enforcement is not.
 `python3 scripts/test-conflict-rules.py` exercises D1 and D2's structural
-checks. `internal/store.TestOperatorApprovalInventoryTableCoversCensus` and
+checks, including `recorded_review` with resolving evidence anchors and refusal
+of missing or prose-only evidence. These checks do not prove that a review
+applied a rule. `internal/store.TestOperatorApprovalInventoryTableCoversCensus` and
 `internal/store.TestOperatorApprovalInventoryRegistryExpansionIsCovered`
 check D5's declared approval-point inventory, not six-class consent behavior.
 `python3 scripts/check-conflict-rules.py` reports both rule and approval-point
@@ -172,7 +175,7 @@ pointer, not the remaining enforcement and proof assigned below:
 
 | Clauses | Open owner and limit of delivered proof |
 |---|---|
-| P1, P2, P3; D3's letter-versus-intent conflict | [CON-1097](https://linear.app/sharper-flow/issue/CON-1097). Knowledge-index, document-contract and law-coverage validators check declared homes and evidence anchors; they do not establish semantic ownership, law-before-code retirement, or every changed law's required check. |
+| P1, P2, P3; D3's letter-versus-intent conflict | [CON-1097](https://linear.app/sharper-flow/issue/CON-1097). Knowledge-index, document-contract and law-coverage validators check declared homes and evidence anchors; they do not establish semantic ownership, law-before-code retirement, or every changed law's cheapest adequate enforcement. |
 | R2, P4, P6, A2 rows 2 and 4 | [CON-1098](https://linear.app/sharper-flow/issue/CON-1098). `internal/agent.TestResolveOverlapDependsOnRecordsDirectedSequencingWithoutConsent` proves directed work-item sequencing, not holding only the shared-Domain step. Shared stages do not by themselves prove boundary-change or shared-part-variant handling. |
 | P7, P9, P11 | [CON-1099](https://linear.app/sharper-flow/issue/CON-1099). Shared parts alone do not prove second-occurrence handling, in-place part repair, or the rule's follow-up outcome. |
 | R3, S, U, P5, P8, P10, P12; A2 rows 3, 7 and 9; D4 and D5 | [CON-1100](https://linear.app/sharper-flow/issue/CON-1100). CD-0243 D2–D6 owns the six-class boundary and runtime alignment. The inventory's classifications and consent gates are not proof of that alignment. [CON-1343](https://linear.app/sharper-flow/issue/CON-1343) owns the final-candidate preview enforcement required by U and CD-0242 D9. |

@@ -14,6 +14,10 @@
     },
     {
       "kind": "go_test",
+      "value": "internal/store.TestWorkRemovalReconcilesUnknownCommitOutcome"
+    },
+    {
+      "kind": "go_test",
       "value": "internal/agent.TestDefaultCheckoutShelvingRemoval"
     },
     {

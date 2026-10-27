@@ -1804,6 +1804,15 @@ test.each(["inventory-product", "scheduling-product"])("portable conduct provena
   }
 })
 
+test("portable conduct installs dependency selection by total engineering cost", async () => {
+  const { stable } = await installedConductFixture()
+  const corpus = (await Bun.file(path.join(stable, "instructions", "change.md")).text()).replace(/\s+/g, " ")
+  expect(corpus).toContain("Choose dependencies by total engineering cost, not by minimizing dependency count.")
+  expect(corpus).toContain("Prefer a well-established, actively maintained dependency when it provides a clearer, more reliable solution than custom code.")
+  expect(corpus).toContain("Adding a suitable dependency within the agreed scope is a normal engineering decision.")
+  expect(corpus).toContain("Respect explicit project constraints and existing security, legal, and spending approval boundaries.")
+})
+
 test.each(["design", "implement", "review"])("portable conduct generated %s lane cites the committed-content opening without checkout paths", async (laneId) => {
   const { stable, configDir } = await installedConductFixture()
   const corpus = await Bun.file(path.join(stable, "instructions", "change.md")).text()

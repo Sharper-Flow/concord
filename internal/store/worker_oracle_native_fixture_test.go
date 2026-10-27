@@ -83,11 +83,17 @@ func oracleFixtureNativePlan(t *testing.T, req WorktreeVerifyRequest, version in
 		Stages: []NativeOracleStage{{Name: "dependencies", Argv: []string{"go", "mod", "verify"}}, {Name: "metadata", Argv: []string{"go", "list", "-json", "-deps", "-test", "."}}, {Name: "compile", Argv: []string{"go", "test", "-c", "-o", "$scratch/oracle.test", "."}}, {Name: "converter_compile", Argv: []string{"go", "build", "-o", "$scratch/test2json", "cmd/test2json"}}, {Name: "dependencies_final", Argv: []string{"go", "mod", "verify"}}}}
 }
 
-// oracleFixtureReviewPlanner observes the named fixture runtime in place of
-// the real native normalizer, whose synthetic fixture subjects and recipes
-// have no runtime to observe.
+// oracleFixtureReviewPlanner observes the named fixture runtime for a control
+// whose readiness references are all ledger fixture preparations: their
+// synthetic subjects and recipes have no runtime to observe. A control the
+// real producer prepared keeps the real native normalizer.
 func oracleFixtureReviewPlanner(t *testing.T, runtime string) nativeReviewPlanner {
-	return func(_ context.Context, _ GitRunner, _ WorktreeEntry, req WorktreeVerifyRequest, b NativeOracleControlBundle, version int64, subject, _ string, _ nativeOracleAuthorization) (nativeOraclePlan, error) {
+	return func(ctx context.Context, r GitRunner, entry WorktreeEntry, req WorktreeVerifyRequest, b NativeOracleControlBundle, version int64, subject, identity string, auth nativeOracleAuthorization) (nativeOraclePlan, error) {
+		for _, ref := range b.Control.ReadinessEvidenceRefs {
+			if !strings.HasPrefix(ref, worktreeVerifyOperationRef("fixture-prepare-")) {
+				return normalizeNativeOraclePlan(ctx, r, entry, req, b, version, subject, identity, auth)
+			}
+		}
 		return oracleFixtureNativePlan(t, req, version, subject, b, runtime), nil
 	}
 }

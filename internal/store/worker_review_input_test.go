@@ -54,7 +54,7 @@ func TestReviewDispatchRequiresExactReviewInput(t *testing.T) {
 			} else {
 				delete(inputs, "review_input")
 			}
-			prepared, err := PrepareWorkerDispatchFreshness(t.Context(), f.store, PrepareWorkerDispatchRequest{WorkID: f.workID, SessionWorktree: repo})
+			prepared, err := PrepareWorkerDispatchFreshness(t.Context(), f.store, PrepareWorkerDispatchRequest{WorkID: f.workID, SessionWorktree: repo, DispatchPayload: mustJSONValue(map[string]any{"attempt_id": "attempt:review-input", "worker_packet": packet}), reviewPlanner: oracleFixtureReviewPlanner(t, oracleFixtureRuntime)})
 			if err != nil {
 				t.Fatal(err)
 			}

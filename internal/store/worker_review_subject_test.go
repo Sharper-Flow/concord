@@ -220,7 +220,7 @@ func reviewSubjectDispatch(t *testing.T, s *Store, f workContextFixture, attempt
 	if err != nil {
 		t.Fatal(err)
 	}
-	ctx, err := reviewSubjectPrepareDispatch(s, f.workID, sessionWorktree)
+	ctx, err := reviewSubjectPrepareDispatch(t, s, f.workID, sessionWorktree, payload)
 	if err != nil {
 		return err
 	}
@@ -325,8 +325,8 @@ func TestReviewDispatchPinsCurrentQualifiedSubject(t *testing.T) {
 // reviewSubjectPrepareDispatch prepares the one sealed dispatch proof the
 // way the authenticated mutation boundary does, against the real claimed
 // worktree.
-func reviewSubjectPrepareDispatch(s *Store, workID, sessionWorktree string) (context.Context, error) {
-	preparation, err := PrepareWorkerDispatchFreshness(context.Background(), s, PrepareWorkerDispatchRequest{WorkID: workID, SessionWorktree: sessionWorktree})
+func reviewSubjectPrepareDispatch(t *testing.T, s *Store, workID, sessionWorktree string, payload json.RawMessage) (context.Context, error) {
+	preparation, err := PrepareWorkerDispatchFreshness(context.Background(), s, PrepareWorkerDispatchRequest{WorkID: workID, SessionWorktree: sessionWorktree, DispatchPayload: payload, reviewPlanner: oracleFixtureReviewPlanner(t, oracleFixtureRuntime)})
 	if err != nil {
 		return nil, err
 	}

@@ -236,7 +236,7 @@ func TestReviewDescendantPostObservationMovementKeepsObservedSubject(t *testing.
 	laneDigest := registeredLaneIdentity(t, "review")
 	packet := joinPacketFor(t, j.s, j.workID, currentStep(t, j.s, j.workID), "observed-b-review", "review", laneDigest)
 	packet["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, j.s, j.workID, job, "review")
-	prepared, err := PrepareWorkerDispatchFreshness(context.Background(), j.s, PrepareWorkerDispatchRequest{WorkID: j.workID, SessionWorktree: j.repo})
+	prepared, err := PrepareWorkerDispatchFreshness(context.Background(), j.s, PrepareWorkerDispatchRequest{WorkID: j.workID, SessionWorktree: j.repo, DispatchPayload: mustJSONValue(map[string]any{"attempt_id": "observed-b-review", "worker_packet": packet}), reviewPlanner: oracleFixtureReviewPlanner(t, oracleFixtureRuntime)})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -42,21 +42,44 @@ type workflowReviewCandidateView struct {
 	Tree      string `json:"tree,omitempty"`
 }
 
-// MarshalJSON exposes only recorded candidate identities. It leaves stored
-// review facts and the strict worker-report candidate representation unchanged.
+type workflowReviewFindingsView []WorkerReviewFinding
+
+func (findings workflowReviewFindingsView) MarshalJSON() ([]byte, error) {
+	var projected []any
+	if findings != nil {
+		projected = make([]any, len(findings))
+	}
+	for i, finding := range findings {
+		projected[i] = finding
+		// Only the wholly unrecorded identity/state tuple admits a content-only
+		// view. A partially identified finding must still satisfy the strict shape.
+		if finding.FindingID == "" && finding.Status == "" && !finding.InScope && !finding.Blocking && finding.EvidenceRefs == nil && finding.ClosureRefs == nil {
+			projected[i] = struct {
+				Severity   string               `json:"severity"`
+				Confidence string               `json:"confidence"`
+				Detail     string               `json:"detail"`
+				Oracle     *WorkerOracleFinding `json:"oracle,omitempty"`
+			}{finding.Severity, finding.Confidence, finding.Detail, finding.Oracle}
+		}
+	}
+	return json.Marshal(projected)
+}
+
+// MarshalJSON exposes only recorded identities and finding fields. It leaves
+// stored review facts, report bytes and strict worker-report admission unchanged.
 func (state WorkflowReviewState) MarshalJSON() ([]byte, error) {
 	return json.Marshal(struct {
 		Dependencies           *WorkerReviewDependencies    `json:"dependencies,omitempty"`
 		Candidate              *workflowReviewCandidateView `json:"candidate"`
 		Accepted               *WorkflowAcceptedReview      `json:"accepted_review"`
-		Findings               []WorkerReviewFinding        `json:"findings"`
+		Findings               workflowReviewFindingsView   `json:"findings"`
 		ContinueConsumed       bool                         `json:"continue_consumed"`
 		GroupID                string                       `json:"group_id,omitempty"`
 		DependenciesCurrent    bool                         `json:"dependencies_current"`
 		PublicationOutstanding bool                         `json:"publication_outstanding"`
 	}{
 		Dependencies: state.Dependencies, Candidate: (*workflowReviewCandidateView)(state.Candidate),
-		Accepted: state.Accepted, Findings: state.Findings, ContinueConsumed: state.ContinueConsumed,
+		Accepted: state.Accepted, Findings: workflowReviewFindingsView(state.Findings), ContinueConsumed: state.ContinueConsumed,
 		GroupID: state.GroupID, DependenciesCurrent: state.DependenciesCurrent,
 		PublicationOutstanding: state.PublicationOutstanding,
 	})

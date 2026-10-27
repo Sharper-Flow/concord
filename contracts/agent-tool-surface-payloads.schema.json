@@ -906,7 +906,14 @@
         "findings": {
           "type": "array",
           "items": {
-            "$ref": "#/$defs/lane_report_review_finding"
+            "anyOf": [
+              {
+                "$ref": "#/$defs/lane_report_review_finding"
+              },
+              {
+                "$ref": "#/$defs/workflow_review_unidentified_finding"
+              }
+            ]
           }
         },
         "continue_consumed": {
@@ -28876,6 +28883,33 @@
         }
       }
     },
+    "workflow_review_candidate_view": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "commit"
+      ],
+      "description": "The retained candidate commit, with Project and tree only when recorded. Missing identity fields grant no worker-report or acceptance authority.",
+      "properties": {
+        "project_id": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 128
+        },
+        "commit": {
+          "type": "string",
+          "minLength": 40,
+          "maxLength": 64,
+          "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$"
+        },
+        "tree": {
+          "type": "string",
+          "minLength": 40,
+          "maxLength": 64,
+          "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$"
+        }
+      }
+    },
     "retained_workflow_correction_context": {
       "type": "object",
       "additionalProperties": false,
@@ -30403,32 +30437,43 @@
         }
       }
     },
-    "workflow_review_candidate_view": {
+    "workflow_review_unidentified_finding": {
       "type": "object",
       "additionalProperties": false,
       "required": [
-        "commit"
+        "severity",
+        "confidence",
+        "detail"
       ],
-      "description": "The retained candidate commit, with Project and tree only when recorded. Missing identity fields grant no worker-report or acceptance authority.",
       "properties": {
-        "project_id": {
-          "type": "string",
-          "minLength": 2,
-          "maxLength": 128
+        "severity": {
+          "enum": [
+            "P0",
+            "P1",
+            "P2",
+            "P3"
+          ],
+          "type": "string"
         },
-        "commit": {
-          "type": "string",
-          "minLength": 40,
-          "maxLength": 64,
-          "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$"
+        "confidence": {
+          "enum": [
+            "low",
+            "medium",
+            "high"
+          ],
+          "type": "string"
         },
-        "tree": {
+        "detail": {
           "type": "string",
-          "minLength": 40,
-          "maxLength": 64,
-          "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$"
+          "minLength": 1,
+          "maxLength": 512,
+          "x-maxBytes": 512
+        },
+        "oracle": {
+          "$ref": "#/$defs/lane_report_oracle_finding"
         }
-      }
+      },
+      "description": "A retained current finding without recorded identity, status, scope, blocking or reference fields. Only its observed content is exposed; it grants no worker-report, closure or acceptance authority."
     }
   }
 }

@@ -3,6 +3,7 @@ package store
 import (
 	"bytes"
 	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -72,6 +73,118 @@ func TestRetainedReviewCandidateReadback(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestRetainedUnidentifiedFindingReadback(t *testing.T) {
+	for _, oracle := range []*WorkerOracleFinding{nil, {Classification: OracleClassificationFollowUp}} {
+		finding := WorkerReviewFinding{Severity: "P2", Confidence: "high", Detail: "The recorded proof is incomplete.", Oracle: oracle}
+		before, digest := mustJSONValue(finding), reviewDigest(finding)
+		state := WorkflowReviewState{Findings: []WorkerReviewFinding{finding}, PublicationOutstanding: true}
+		raw := mustJSONValue(state)
+		if err := payloadschema.Validate("workflow_review_state", raw); err != nil {
+			t.Fatalf("unidentified finding readback rejected: %v", err)
+		}
+		var view struct {
+			Findings []map[string]json.RawMessage `json:"findings"`
+		}
+		if err := json.Unmarshal(raw, &view); err != nil {
+			t.Fatal(err)
+		}
+		want := map[string]any{"severity": finding.Severity, "confidence": finding.Confidence, "detail": finding.Detail}
+		if oracle != nil {
+			want["oracle"] = oracle
+		}
+		var expected map[string]json.RawMessage
+		if err := json.Unmarshal(mustJSONValue(want), &expected); err != nil {
+			t.Fatal(err)
+		}
+		if len(view.Findings) != 1 || !reflect.DeepEqual(view.Findings[0], expected) {
+			t.Fatalf("finding invented or lost recorded fields: %s", raw)
+		}
+		if !bytes.Equal(before, mustJSONValue(finding)) || digest != reviewDigest(finding) {
+			t.Fatal("readback changed report bytes or digest")
+		}
+		if err := payloadschema.Validate("lane_report_review_finding", mustJSONValue(want)); err == nil {
+			t.Fatal("strict report schema admitted an unidentified finding")
+		}
+		if err := validateWorkerReviewFinding(finding); err == nil {
+			t.Fatal("worker report admission accepted an unidentified finding")
+		}
+	}
+}
+
+func TestRetainedFindingReadbackRejectsPartialIdentity(t *testing.T) {
+	cases := map[string]func(*WorkerReviewFinding){
+		"identity_only":    func(f *WorkerReviewFinding) { f.FindingID = "finding:known" },
+		"status_only":      func(f *WorkerReviewFinding) { f.Status = "open" },
+		"scope_only":       func(f *WorkerReviewFinding) { f.InScope = true },
+		"blocking_only":    func(f *WorkerReviewFinding) { f.Blocking = true },
+		"evidence_empty":   func(f *WorkerReviewFinding) { f.EvidenceRefs = []string{} },
+		"closure_empty":    func(f *WorkerReviewFinding) { f.ClosureRefs = []string{} },
+		"closure_claim":    func(f *WorkerReviewFinding) { f.ClosureRefs = []string{"evidence:closure"} },
+		"missing_severity": func(f *WorkerReviewFinding) { f.Severity = "" },
+		"bad_confidence":   func(f *WorkerReviewFinding) { f.Confidence = "certain" },
+		"oversized_detail": func(f *WorkerReviewFinding) { f.Detail = strings.Repeat("x", 513) },
+	}
+	for name, change := range cases {
+		t.Run(name, func(t *testing.T) {
+			finding := WorkerReviewFinding{Severity: "P2", Confidence: "high", Detail: "The recorded proof is incomplete."}
+			change(&finding)
+			state := WorkflowReviewState{Findings: []WorkerReviewFinding{finding}, PublicationOutstanding: true}
+			if err := payloadschema.Validate("workflow_review_state", mustJSONValue(state)); err == nil {
+				t.Fatal("readback admitted a partial or malformed finding")
+			}
+		})
+	}
+}
+
+func TestRetainedFindingReadbackFieldInventory(t *testing.T) {
+	fields := map[string]bool{
+		"Severity": true, "Confidence": true, "Detail": true, "Oracle": true,
+		"FindingID": true, "Status": true, "InScope": true, "Blocking": true,
+		"EvidenceRefs": true, "ClosureRefs": true,
+	}
+	shape := reflect.TypeFor[WorkerReviewFinding]()
+	for i := range shape.NumField() {
+		name := shape.Field(i).Name
+		if !fields[name] {
+			t.Fatalf("finding field %s needs an explicit recorded-presence rule", name)
+		}
+		delete(fields, name)
+	}
+	if len(fields) != 0 {
+		t.Fatalf("finding readback rules name absent fields: %v", fields)
+	}
+}
+
+func TestRetainedFindingBackfillReadbackPreservesFacts(t *testing.T) {
+	db, _ := g32ReviewFixture(t)
+	records := []workflowReviewBackfillRecord{
+		{kind: WorkflowActionCompleted, raw: mustJSONValue(workflowActionCompletedPayload{ActionID: "dispatch_worker", WorkerAttemptID: "review:retained", WorkerCapabilityClass: "review"})},
+		{kind: WorkerCompleted, raw: []byte(`{"attempt_id":"review:retained","review":{"verdict":"no_ship","findings":[{"severity":"P2","confidence":"high","detail":"The recorded proof is incomplete."}],"resolved_findings":[]}}`)},
+	}
+	if err := backfillWorkflowReviewWork(t.Context(), db, "work-history", records); err != nil {
+		t.Fatal(err)
+	}
+	readStored := func() string {
+		t.Helper()
+		var raw string
+		if err := db.QueryRow(`SELECT state FROM workflow_review_state WHERE work_id='work-history'`).Scan(&raw); err != nil {
+			t.Fatal(err)
+		}
+		return raw
+	}
+	before := readStored()
+	state, err := readWorkflowReviewFacts(t.Context(), db, "work-history")
+	if err != nil || len(state.Findings) != 1 || state.Findings[0].FindingID != "" || state.Findings[0].ClosureRefs != nil {
+		t.Fatalf("retained finding changed: %+v, %v", state.Findings, err)
+	}
+	if err := payloadschema.Validate("workflow_review_state", mustJSONValue(state)); err != nil {
+		t.Fatalf("retained finding readback rejected: %v", err)
+	}
+	if after := readStored(); after != before {
+		t.Fatalf("readback rewrote stored facts:\n%s\n%s", before, after)
 	}
 }
 

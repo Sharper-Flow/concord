@@ -39,6 +39,9 @@ var mainCheckoutAllowedCapabilities = map[Capability]struct{}{
 var mainCheckoutAllowedOperations = map[Capability]map[string]struct{}{
 	Capability("work_transition"): {
 		"lifecycle": {},
+		// CD-0094 D5 admits remove conditionally: replay or the planner's
+		// exact-item shelving proof, revalidated in the transaction.
+		"remove": {},
 		// session_vacate resolves from the registered main checkout only to
 		// complete the landing of its own committed relocation request: the
 		// replay from the verified destination resolves the pending request

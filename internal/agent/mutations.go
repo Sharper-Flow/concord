@@ -1458,6 +1458,7 @@ func workKindMutationRefusal(kind string, allowed bool, fallback string) (string
 // derives products from, the version map, approval routing, the governing-law
 // conflict, next intents, and the transactional effect.
 type mutationPlan struct {
+	removalProof      *store.DefaultCheckoutRemovalProof
 	scope             map[string]any
 	versions          map[string]any
 	consequence       string
@@ -3252,6 +3253,17 @@ func (r runtime) planWorkRemoval(ctx context.Context, base Envelope, raw []byte,
 		EffectsReconciled: in.EffectsReconciled, DependenciesResolved: in.DependenciesResolved,
 		ArtifactsVerified: in.ArtifactsVerified, Sessions: in.Sessions,
 	}
+	if grant.MainWorktree {
+		project, _ := grant.ScopeSnapshot["project_id"].(string)
+		if product != r.Envelope.SelectedProductID {
+			return coreError(base, "unauthorized", "default-checkout shelving requires the selected Product", "contact_operator", false), nil, true
+		}
+		proof, err := r.Store.ProveDefaultCheckoutRemoval(ctx, removalRequest, project)
+		if err != nil {
+			return failureEnvelope(base, err), nil, true
+		}
+		plan.removalProof = proof
+	}
 	if in.Approval != nil {
 		plan.approval = in.Approval.ApprovalRef
 	}
@@ -4431,6 +4443,7 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Au
 	}
 	plan.scope["product_ids"] = preflightProducts
 	base.EvidenceRefs = append([]EvidenceRef{}, plan.evidenceRefs...)
+	r.removalProof = plan.removalProof
 	return r.executeMutation(ctx, base, raw, digest, plan.scope, plan.versions, plan.consequence, plan.approval, plan.requiresApproval, plan.governingConflict, plan.plannedInitialDurability, plan.intents, plan.effect, plan.nativeCleanup, plan.nativeFinalize)
 }
 
@@ -5447,6 +5460,15 @@ func (m *mutationExecution) replayTx(ctx context.Context, tx *store.Transaction,
 
 func (m *mutationExecution) admitTx(ctx context.Context, tx *store.Transaction, inv Invocation, grant Authority) (bool, error) {
 	r, raw, base, scope := m.runtime, m.raw, m.base, m.scope
+	if grant.MainWorktree && m.contractOp.ID == "concord_work_transition.remove" {
+		if grant.ScopeVersion != r.Envelope.ScopeVersion {
+			return false, newRuntimeFailure("stale_context", "shelving scope changed after native retirement observation", "refresh_context", false)
+		}
+		project, _ := grant.ScopeSnapshot["project_id"].(string)
+		if err := store.ValidateDefaultCheckoutRemovalTx(ctx, tx, r.removalProof, project, r.Envelope.SelectedProductID); err != nil {
+			return false, err
+		}
+	}
 	// CD-0222 D7: every consequential boundary validates the contract's law
 	// revision pins and its active Domain overlaps. The guarded set is the
 	// action classes D7 names, and no wider: D7 also holds that read-only

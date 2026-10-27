@@ -10,7 +10,7 @@
   "id": "CD-0094",
   "kind": "decision",
   "path": ".concord/docs/decisions/CD-0094-operation-scoped-main-checkout-authority.md",
-  "product_wide_rationale": "Defines operation-scoped main-checkout authority for Product-state lifecycle transitions. It amends the product-wide authority boundary without assigning ownership to a runtime Domain.",
+  "product_wide_rationale": "Defines operation-scoped main-checkout authority for Product-state lifecycle transitions and conditional shelving after cancelled execution and verified retirement. It amends the product-wide authority boundary without assigning ownership to a runtime Domain.",
   "scopes": {
     "domain_ids": [],
     "mode": "home",
@@ -18,9 +18,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:1b3566861d9bad54d05cbc7a9f782fa136b10c054010ff926af9084e6d6846ed",
+  "sha256": "sha256:00da8e81070458151ed25f3e2d7d1fdbcdf3159a743b3112b5e451b1f98525ac",
   "status": "accepted",
-  "summary": "Allows work_transition.lifecycle from a registered Project's default checkout because it writes one Product-state event, while terminal gates and implementation-bearing refusals remain unchanged.",
+  "summary": "Allows lifecycle transitions and conditional shelving removal from a registered Project's default checkout. Shelving requires cancelled execution, exact scope, all recorded claims retired, native absence and settled cleanup debt, while preserving existing removal gates and retained authorized replay.",
   "tags": [
     "authority",
     "worktree-isolation",

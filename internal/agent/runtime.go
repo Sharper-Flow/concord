@@ -298,6 +298,7 @@ type knowledgeResolveInput struct {
 }
 
 type runtime struct {
+	removalProof    *store.DefaultCheckoutRemovalProof
 	Store           *store.Store
 	Authority       *Service
 	Registry        store.DefinitionRegistry

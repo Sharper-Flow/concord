@@ -3,7 +3,7 @@
   "catalog_generation": 6,
   "source": {
     "path": ".concord/docs/goals.md",
-    "sha256": "sha256:8b1a7c7030b954cfea122f1f8c0caf2ce86f7afd2180907fdcc0890ecb300458"
+    "sha256": "sha256:f21896943972e1771e823b84c6aac7d29d8418f7b9b9cfcda1cebdbe8fc69d5f"
   },
   "rules": [
     {

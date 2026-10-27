@@ -259,5 +259,5 @@ Not a full sweep. In each case the operator's decision wins.
 | 7 | Shipped instruction `.concord/instructions/change.md`: "Fix the same fault where it recurs nearby." | Bloat the fix did not make gets a follow-up item (R1). |
 | 8 | Priority 4 and the first-usable floor name the launcher, retired by CD-0219. | Remove the launcher text. |
 | 9 | Advance-successor sections in `priorities.md` and `.concord/docs/README.md`. | History. |
-| 10 | Prose instruction files given to agents. | Programmed tools wherever a tool can do the job (goal D, P3, P7). |
+| 10 | Prose instruction files given to agents. | Programmed tools wherever a tool can do the job (goal D, P7). |
 | 11 | `.concord/docs/decisions/CD-0089-concord-development-coordination.md` D1: "Concord coordinates Concord development." | Concord's own development runs outside the workflow until the switch point (section 2). |

@@ -187,6 +187,7 @@ def test_recorded_review_requires_resolving_evidence_not_prose() -> None:
             entry["evidence"] = evidence
         findings, _ = validate(value)
         assert any("evidence" in finding for finding in findings), findings
+        assert not any("mechanism must be" in finding for finding in findings), findings
 
 
 def test_gap_must_name_a_live_follow_up_item() -> None:

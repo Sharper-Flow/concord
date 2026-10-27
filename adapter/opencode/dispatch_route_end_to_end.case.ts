@@ -631,8 +631,11 @@ routeDeclaration("accepts an unchanged new-law baseline Review before implementa
     expect(prematureDelivery.error.effect_state).toBe("none")
     expect(version()).toBe(beforeDelivery)
     const implementation = await dispatch(lane, "new-law-implementation")
+    expect(reportWorkerJob(implementation.packet)).toEqual(reportWorkerJob(review.packet))
     expect(implementation.packet.inputs.task).toBe("Publish the synthetic route marker and the exact approved route rule in the knowledge index.")
-    const abandoned = await invoke("concord_work_transition", { operation: "worker_abandon", input: { work_id: workID, attempt_id: implementation.packet.attempt_id, lane_id: lane.id, detail: "Synthetic route stops after proving implementation admission.", idempotency_key: "new-law-stop-implementation" } }, context)
+    const abandonment = await work_transition.execute({ request: { operation: "worker_abandon", input: { work_id: workID, attempt_id: implementation.packet.attempt_id, lane_id: lane.id, detail: "Synthetic route stops after proving implementation admission.", idempotency_key: "new-law-stop-implementation" } } }, context)
+    const abandonmentOutput = typeof abandonment === "string" ? abandonment : (abandonment as JSONRecord).output as string
+    const abandoned = JSON.parse(abandonmentOutput.split("\n")[0]) as JSONRecord
     expect(abandoned.outcome, JSON.stringify(abandoned)).toBe("ok")
   } finally {
     hostControlPlane().bind(undefined)

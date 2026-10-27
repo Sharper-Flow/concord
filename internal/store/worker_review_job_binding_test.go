@@ -288,6 +288,74 @@ func TestReadyReviewFreezesQualifiedPreparationOrRefusesBeforeAttempt(t *testing
 	}
 }
 
+// CD-0205 D1: Review preparation must match the runtime environment observed
+// at dispatch, before an attempt exists. On an unchanged candidate a recorded
+// reference prepared on another runtime does not qualify: Review refuses
+// until Main prepares the unchanged bundle on the current runtime, and then
+// binds that preparation instead of the recorded reference.
+func TestReadyReviewQualifiesPreparationOnObservedRuntime(t *testing.T) {
+	workID := "ready-review-runtime"
+	f := seedOracleRepairFixture(t, workID)
+	s := f.store
+	defer s.Close()
+	job := recordOracleJobRevision(t, s, workID, f.owner, "job:ready-review-runtime", twoPathOracleFields(t, s, workID, nil))
+	oracle, err := readWorkerJobOracle(context.Background(), s.db, workID, job)
+	if err != nil || oracle == nil {
+		t.Fatalf("job oracle = %v, %v", oracle, err)
+	}
+	review := reviewGateLane(t, "review")
+	dispatch := func(attempt, runtime string) error {
+		packet := joinPacketFor(t, s, workID, "repair", attempt, review.ID, review.Digest)
+		packet["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, s, workID, job, review.ID)
+		return dispatchJobPacketOnRuntimeForTest(t, s, workID, attempt, f.owner, "dispatch-"+attempt, packet, runtime)
+	}
+	frozen := func(attempt string) []WorkerOraclePreparationBinding {
+		var raw string
+		if err := s.db.QueryRow(`SELECT json_extract(payload,'$.worker_oracle_preparations') FROM worker_authorizations WHERE work_id=? AND attempt_id=?`, workID, attempt).Scan(&raw); err != nil {
+			t.Fatal(err)
+		}
+		var out []WorkerOraclePreparationBinding
+		if err := json.Unmarshal([]byte(raw), &out); err != nil {
+			t.Fatal(err)
+		}
+		return out
+	}
+	recorded := make([]WorkerOraclePreparationBinding, 0, len(oracle.Controls))
+	for _, control := range oracle.Controls {
+		recorded = append(recorded, WorkerOraclePreparationBinding{ControlID: control.ControlID, PreparationRunRef: control.ReadinessEvidenceRefs[0]})
+	}
+
+	switched := "attempt:" + workID + ":switched"
+	err = dispatch(switched, "switched")
+	var failure *Failure
+	if !errors.As(err, &failure) || failure.Kind != KindMissingEvidence || !strings.Contains(failure.RecoveryAction, "worktree_verify") {
+		t.Fatalf("Review on a switched runtime with only the recorded preparation = %v, want the preparation refusal", err)
+	}
+	var n int
+	if err := s.db.QueryRow(`SELECT count(*) FROM worker_authorizations WHERE work_id=? AND attempt_id=?`, workID, switched).Scan(&n); err != nil || n != 0 {
+		t.Fatalf("the refused Review dispatch recorded %d authorizations, %v", n, err)
+	}
+
+	current := *oracle
+	current.Controls = slices.Clone(oracle.Controls)
+	seedOraclePreparationLedgerFixtureOn(t, s, workID, &current, "switched")
+	prepared := "attempt:" + workID + ":prepared"
+	if err := dispatch(prepared, "switched"); err != nil {
+		t.Fatalf("Review after preparing on the switched runtime: %v", err)
+	}
+	var want []WorkerOraclePreparationBinding
+	for _, control := range current.Controls {
+		want = append(want, WorkerOraclePreparationBinding{ControlID: control.ControlID, PreparationRunRef: control.ReadinessEvidenceRefs[0]})
+	}
+	if got := frozen(prepared); !slices.Equal(got, want) || slices.Equal(got, recorded) {
+		t.Fatalf("frozen Review preparations = %#v, want the switched-runtime preparations %#v", got, want)
+	}
+	after, err := readWorkerJobOracle(context.Background(), s.db, workID, job)
+	if err != nil || !slices.EqualFunc(after.Controls, oracle.Controls, func(a, b OracleControl) bool { return slices.Equal(a.ReadinessEvidenceRefs, b.ReadinessEvidenceRefs) }) {
+		t.Fatalf("the recorded job's readiness references changed: %v", err)
+	}
+}
+
 // CD-0205 D1: Review execution consumes only its authorization's frozen
 // preparation; other lanes, and authorizations recorded without a mapping,
 // keep the recorded-reference rule.

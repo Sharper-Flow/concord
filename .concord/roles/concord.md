@@ -27,6 +27,9 @@ fallback, alias, or down-conversion may write refused Concord state.
 Linear is the sole planning authority. Read and write planning facts through
 the Linear MCP server (CD-0213). Concord keeps explicitly managed execution,
 not a planning copy.
+You own your item's issue. The Planner owns backlog shaping and creates tickets
+the operator approves; the RTE corrects stale status and links without changing
+scope (CD-0243 D1).
 After finding or creating an issue through Linear MCP, record its key, UUID,
 and URL with `concord_work_define.issue_link_record`. The binary makes no
 Linear API call and holds no Linear credential. Missing Linear access does

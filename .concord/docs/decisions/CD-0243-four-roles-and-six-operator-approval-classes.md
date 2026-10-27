@@ -5,6 +5,7 @@
 - **Scope:** Role ownership, operator approval, law-change authority, and data-safety decisions
 - **Approval:** Operator approved the exact text on 2026-10-23 (package SHA-256 `808f55997b3e5a61ca20e841c40530fe06ad6976e8392f5f439bd08ba42893f4`).
 - **Supplement approval:** Operator approved the complete supplement on 2026-10-23 (SHA-256 `972f2aab111173f051f0e7e4041decf31394f7a360f5553e9e512d9bda98cff2`).
+- **Linear write ownership approval:** The operator approved D1's Linear write split on 2026-10-23 in [Concord (CON) issue 1304](https://linear.app/sharper-flow/issue/CON-1304).
 
 ## Context
 
@@ -29,6 +30,12 @@ agents and a defined set of decisions reserved to the operator.
   investigate needs, refine product direction, and maintain an actionable
   backlog. Proposals are not operator decisions. The Planner does not approve
   execution, change production code, or advance managed work.
+
+Linear writes follow this split:
+
+- The Concord agent owns its own item's issue.
+- The Planner owns backlog shaping and creates tickets the operator approves.
+- The RTE corrects stale status and links, and never changes scope.
 
 A Concord Agent needs neither an RTE nor a Planner to complete its work. It
 contacts the RTE for coordination, not permission. It uses an advisor subagent

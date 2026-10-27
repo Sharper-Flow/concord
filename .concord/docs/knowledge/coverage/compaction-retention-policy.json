@@ -1,5 +1,5 @@
 {
   "id": "compaction-retention-policy",
-  "reason": "Terminal execution cleanup requires reviewed closure, settled canonical publication, released references and claims, and reconciled effects under CD-0242 D2 and D9. Candidate blocker, classification and typed-absence witnesses are internal/store.TestTerminalCleanupDefersUnreleasedOwners, internal/store.TestTerminalCleanupRetainsDefectAdmissionClassification, internal/store.TestPublishedExecutionAbsenceReaders and internal/store.TestPublishedClassificationOnlyAbsenceReaders. Locator, watermark, historical-scope and research-retirement witnesses remain required; integrated publication separation, optional pins, bounded dry run, restart, migration, restore and race coverage remain unmeasured.",
-  "state": "unmeasured"
+  "issue": "CON-1387",
+  "state": "outstanding"
 }

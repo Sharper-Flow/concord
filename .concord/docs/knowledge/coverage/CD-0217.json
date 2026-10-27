@@ -1,5 +1,5 @@
 {
   "id": "CD-0217",
-  "reason": "Verified closure, settled publication and released consumers gate terminal execution cleanup under CD-0242 D2 and D9. Candidate witnesses: internal/store.TestTerminalCleanupDefersUnreleasedOwners, internal/store.TestTerminalCleanupRetainsDefectAdmissionClassification, internal/store.TestPublishedExecutionAbsenceReaders, internal/store.TestPublishedClassificationOnlyAbsenceReaders, internal/store.TestResearchRetirementCascadesContent and internal/agent.TestResearchRetireDryRunAndReplay. Integrated publication, every terminal route, owner removal, restart, restore and pin/retire-race coverage remain unmeasured on the implementing subject.",
-  "state": "unmeasured"
+  "issue": "CON-1387",
+  "state": "outstanding"
 }

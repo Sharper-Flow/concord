@@ -13,7 +13,7 @@ One operator coordinates multiple agents on one workstation; the engine gates
 every state transition on verified evidence.
 
 [Why Concord](#why-concord-exists) ·
-[Workflow enforcement](#workflow-enforcement-in-action) ·
+[Workflow](#workflow) ·
 [Engineering highlights](#engineering-highlights) ·
 [Batteries included](#batteries-included) ·
 [Architecture](#architecture-and-tradeoffs) ·
@@ -41,42 +41,59 @@ conditions that govern managed execution.
   which condition failed, directing a blocked agent to the corrective path
   rather than leaving it to guess.
 
-## Workflow enforcement in action
+## Workflow
 
-Most agent frameworks rely on the model self-reporting that work is done.
-Concord replaces prompt trust with an evidence-driven progression model.
-Completion is defined up front and built toward through concrete enforcement
-mechanisms:
+Concord models software development as a state machine. Instead of asking an
+agent if it finished, the engine advances a task only when verified evidence
+satisfies the transition conditions.
 
-1. **Outcome predicates define completion before work starts.** Before
-   execution begins, the operator approves concrete predicates (such as
-   specific file states, test assertions, or schema outputs). Success criteria
-   are locked before an agent modifies code.
-2. **Execution stays isolated.** Worker agents implement changes in dedicated
-   worktrees constrained to approved file paths. They cannot modify unrelated
-   packages or write to the main checkout.
-3. **Artifacts require verifiable evidence.** As work proceeds, tools generate
-   immutable evidence—such as Ed25519-signed worker reports, test execution
-   receipts, and diff digests. Unverified assertions in chat are not evidence.
-4. **Verification is independent.** Work cannot be accepted through author
-   self-review. Specialized review and verification lanes (`concord-review`,
-   `concord-verify`) independently evaluate candidate diffs against the locked
-   predicates.
-5. **The engine gates terminal transitions.** When an agent calls
-   `concord_work_transition` to mark a task `completed`, Concord verifies that
-   all required evidence kinds are present and valid. If an operator approval
-   boundary is touched, the engine issues a cryptographic challenge that must
-   be signed before the state transition commits to SQLite.
+### Why: prompts cannot enforce boundaries
 
-### Concrete gate demonstration
+AI coding agents drift. Left on their own, they hallucinate completion, wander
+outside their assigned scope, and approve their own broken code. Prompts are soft
+suggestions that models can ignore under context pressure. Reliable multi-agent
+coordination requires mechanical gates enforced outside the context window.
+
+### How: the evidence-gated lifecycle
+
+Every change progresses through five deterministic enforcement stages:
+
+1. **Lock the goal before work starts.**
+   - *Why*: Prevents agents from moving the goalposts when tasks get difficult.
+   - *How*: The operator approves *outcome predicates* upfront—exact assertions
+     like passing test locators, schema outputs, or file states. Concord checks
+     completion against these predicates, never against an agent's summary.
+2. **Isolate execution in dedicated worktrees.**
+   - *Why*: Prevents changes from bleeding across packages or breaking trunk.
+   - *How*: Concord boots each task in an isolated Git worktree pinned to an
+     approved path scope. Operations outside the assigned paths are refused.
+3. **Collect cryptographic evidence.**
+   - *Why*: Guarantees that claimed results actually ran.
+   - *How*: Dispatched tools produce Ed25519-signed reports bound to execution
+     attempt nonces, command exit codes, and diff digests. The engine rejects
+     replayed or tampered evidence.
+4. **Enforce independent review.**
+   - *Why*: Eliminates author self-approval.
+   - *How*: Distinct worker lanes (`concord-review`, `concord-verify`) inspect
+     candidate diffs in clean environments, evaluating results against the
+     original predicates before work can leave the execution stage.
+5. **Gate terminal transitions with operator approval.**
+   - *Why*: Keeps the operator in control of consequential decisions.
+   - *How*: When an agent requests a `completed` transition, Concord validates
+     all required evidence bindings. If the transition touches an approval
+     boundary, the engine halts with an `approval_required` challenge containing
+     the mutation digest. Only a valid signed host approval advances the state
+     in SQLite.
+
+### Verification in practice
 
 The [terminal-gate integration test](internal/agent/trunk_firewall_test.go#L116-L174)
-exercises this gate directly in code:
+demonstrates this gate directly:
 
-| Scenario | Agent action | Engine response |
+| Scenario | Agent action | Engine verdict |
 |---|---|---|
-| **Missing evidence** | Agent requests completion with no attached evidence | Engine immediately refuses with `missing_evidence`. Prompt assertions cannot bypass the gate. |
-| **Gated completion** | Agent submits valid verification evidence | Engine issues an `approval_required` challenge with the mutation digest, completing only after a valid signed host approval. |
+| **Missing evidence** | Agent requests completion with no attached evidence | Refuses with `missing_evidence`. Prompt claims cannot satisfy the transition. |
+| **Gated completion** | Agent submits valid verification evidence | Halts with `approval_required`, returning the mutation digest. Transitions to `completed` only when a valid signed host approval is supplied. |
 
 Run this test from a source checkout:
 

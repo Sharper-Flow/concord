@@ -276,6 +276,8 @@ func init() {
 	// read applies no LIMIT, and the byte fitter never shrinks this array.
 	registerOutputBound("/$defs/continuity_snapshot/properties/pinned/properties/ready_worker_jobs/maxItems",
 		unboundedOutput("worker.job_recorded folds one revision row per recorded event with no per-work job cap (internal/store/worker_jobs.go:240-301), readWorkerJobRevisions reads every recorded revision with no LIMIT (internal/store/worker_jobs.go:520-527), and the continuity snapshot appends one packet per ready view (internal/store/workflow_continuity.go:515-526); FitContinuity shrinks only the observation window and the boundary page (internal/agent/runtime.go), so an over-envelope read refuses whole instead of clipping this array", readSizeRefusalPath))
+	registerOutputBound("/$defs/continuity_snapshot/properties/pinned/properties/review_worker_jobs/maxItems",
+		pkAppendSitesItemsBound("internal/store/workflow_continuity.go", "continuityReadReadyWorkerJobsTx", "out.ReviewWorkerJobs"))
 	registerOutputBound("/$defs/continuity_snapshot/properties/pinned/properties/spec_mandate/maxItems",
 		contractSpecMandate)
 	registerOutputBound("/$defs/continuity_snapshot/properties/pinned/properties/step_actions/maxItems", stepActionCount)

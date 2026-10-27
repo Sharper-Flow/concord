@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -640,11 +641,8 @@ func continuityReadReadyWorkerJobsTx(ctx context.Context, tx *sql.Tx, work strin
 	if err != nil || final == nil {
 		return err
 	}
-	for _, view := range views {
-		if view.Binding == *final {
-			out.ReviewWorkerJobs = append(out.ReviewWorkerJobs, packetJobFromView(view))
-			break
-		}
+	if i := slices.IndexFunc(views, func(view WorkerJobRevisionView) bool { return view.Binding == *final }); i >= 0 {
+		out.ReviewWorkerJobs = append(out.ReviewWorkerJobs, packetJobFromView(views[i]))
 	}
 	return nil
 }

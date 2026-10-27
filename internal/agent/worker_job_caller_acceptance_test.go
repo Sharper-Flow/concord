@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	goruntime "runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -46,7 +47,7 @@ func TestWorkerJobCallerRepairAcceptanceThroughAgent(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			write("go.mod", "module example.invalid/caller\n\ngo 1.26.0\n")
+			write("go.mod", "module example.invalid/caller\n\ngo 1.26.0\ntoolchain "+goruntime.Version()+"\n")
 			write("owner/value.go", "package owner\nfunc Value() int { return 7 }\n")
 			write("caller/use.go", "package caller\nimport \"example.invalid/caller/owner\"\nfunc Use() int { return owner.Value() }\n")
 			run := func(program string, args ...string) (string, error) {
@@ -74,16 +75,13 @@ func TestWorkerJobCallerRepairAcceptanceThroughAgent(t *testing.T) {
 			if err != nil {
 				t.Fatalf("baseline compile check: %v\n%s", err, baseline)
 			}
-			// The oracle fixture qualifies this real baseline before dispatch.
-			oracle := agentOracleFieldsForWork(t, s, "work-1")
+			fixtureClaimSubject(t, grant.Worktree)
 			mustGit("branch", "-m", "retry")
 			scope, _, err := s.ScopeVersion(context.Background(), "project-1")
 			if err != nil {
 				t.Fatal(err)
 			}
 			env := mutationEnvelope(grant, scope)
-			recordReadyRetryJob(t, s, service, env, "job:caller-architecture-review")
-			oAgentReview(t, oAgentFixture(t, s, service, env, "work-1"), "continue", false)
 			invoke := func(action, key string, fields map[string]any, caller CallEnvelope) Envelope {
 				t.Helper()
 				caller.RequestID = "request:" + key
@@ -94,6 +92,8 @@ func TestWorkerJobCallerRepairAcceptanceThroughAgent(t *testing.T) {
 			if out := invoke("start_execution", "caller-start", map[string]any{}, env); out.Outcome != OutcomeOK {
 				t.Fatalf("start_execution: %+v", out.Error)
 			}
+			// The oracle fixture prepares its real control on this baseline.
+			oracle := agentNativeOracle(t, s, service, env)
 			fields := map[string]any{"job_id": "job:caller", "objective": "Change Value and repair its direct caller", "stopping_condition": "the combined compile check passes",
 				"ready": true, "readiness_evidence": []string{"contract:work-1:1"}, "checks": []string{"go test ./..."}, "acceptance_oracle": oracle}
 			addAgentJobCallerMembers(t, s, "work-1", fields)
@@ -105,6 +105,8 @@ func TestWorkerJobCallerRepairAcceptanceThroughAgent(t *testing.T) {
 			if out := invoke("record_worker_job", "caller-job", fields, env); out.Outcome != OutcomeOK {
 				t.Fatalf("record_worker_job: %+v", out.Error)
 			}
+			// The architecture Review binds the job it permits (CD-0205 D3).
+			oAgentReview(t, oAgentFixture(t, s, service, env, "work-1"), "continue", false)
 			if scenario == "foreign owner" {
 				// Another work item in the same Project holds a path claim
 				// over the caller path the repair changes.

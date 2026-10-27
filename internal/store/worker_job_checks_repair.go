@@ -228,7 +228,7 @@ func deriveWorkerJobChecksRepairTx(ctx context.Context, q queryer, workID string
 		}
 	}
 	if history.openUnconfirmedRepairBeside(candidate.JobID, candidate.Revision) != nil {
-		return nil, newFailure(KindInvalidOperation, "worker_job", "at most one unconfirmed checks repair may be open per job", false, "let the confirming review end before recording another repair")
+		return nil, newFailure(KindInvalidOperation, "worker_job", "at most one unconfirmed checks repair may be open per job", false, "let any already dispatched confirming Review end before recording another repair; otherwise, "+workflowReviewRecovery("accept the open repair's repairing result", "with disposition continue or ready_for_final_proof to confirm that repair before recording another repair"))
 	}
 	entries := make([]WorkerJobChecksRepairEntry, 0, len(sorted))
 	for _, revision := range sorted {

@@ -220,7 +220,7 @@ func reviewSubjectDispatch(t *testing.T, s *Store, f workContextFixture, attempt
 	if err != nil {
 		t.Fatal(err)
 	}
-	ctx, err := reviewSubjectPrepareDispatch(s, f.workID, sessionWorktree)
+	ctx, err := reviewSubjectPrepareDispatch(t, s, f.workID, sessionWorktree, payload)
 	if err != nil {
 		return err
 	}
@@ -243,6 +243,21 @@ func reviewSubjectReadyRevision(t *testing.T, f workContextFixture) WorkerJobBin
 	job := WorkerJobBinding{JobID: "review-subject-job-" + f.workID + "-" + time.Now().Format("150405.000000000"), Revision: 1}
 	recordWorkerJobRevisionForTest(t, f.store, f.workID, f.owner, &job)
 	return job
+}
+
+// reviewSubjectReviewJob binds a Review to the job it permits or judges
+// (CD-0205 D3): the one existing ready revision when there is one, otherwise
+// a fresh ready revision.
+func reviewSubjectReviewJob(t *testing.T, f workContextFixture) WorkerJobBinding {
+	t.Helper()
+	ready, err := readyWorkerJobRevisions(context.Background(), f.store.db, f.workID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ready) == 1 {
+		return ready[0].Binding
+	}
+	return reviewSubjectReadyRevision(t, f)
 }
 
 func reviewSubjectWindow(t *testing.T, s *Store, workID, attemptID string) WorkerDispatchWindow {
@@ -310,8 +325,8 @@ func TestReviewDispatchPinsCurrentQualifiedSubject(t *testing.T) {
 // reviewSubjectPrepareDispatch prepares the one sealed dispatch proof the
 // way the authenticated mutation boundary does, against the real claimed
 // worktree.
-func reviewSubjectPrepareDispatch(s *Store, workID, sessionWorktree string) (context.Context, error) {
-	preparation, err := PrepareWorkerDispatchFreshness(context.Background(), s, PrepareWorkerDispatchRequest{WorkID: workID, SessionWorktree: sessionWorktree})
+func reviewSubjectPrepareDispatch(t *testing.T, s *Store, workID, sessionWorktree string, payload json.RawMessage) (context.Context, error) {
+	preparation, err := PrepareWorkerDispatchFreshness(context.Background(), s, PrepareWorkerDispatchRequest{WorkID: workID, SessionWorktree: sessionWorktree, DispatchPayload: payload, reviewPlanner: oracleFixtureReviewPlanner(t, oracleFixtureRuntime)})
 	if err != nil {
 		return nil, err
 	}

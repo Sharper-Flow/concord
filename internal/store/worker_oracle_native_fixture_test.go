@@ -49,6 +49,55 @@ func oracleFixtureFile(path, content string) NativeOracleFile {
 	return NativeOracleFile{Path: path, BlobOID: strings.TrimPrefix(digest, "sha256:")[:40], SHA256: digest}
 }
 
+// oracleFixtureRuntime names the runtime every ledger fixture preparation
+// records and the fixture Review planner observes by default.
+const oracleFixtureRuntime = "fixture"
+
+// oracleFixtureRuntimeKey carries the fixture runtime a test dispatch
+// preparation observes.
+type oracleFixtureRuntimeKey struct{}
+
+func oracleFixtureRuntimeFrom(ctx context.Context) string {
+	if runtime, ok := ctx.Value(oracleFixtureRuntimeKey{}).(string); ok {
+		return runtime
+	}
+	return oracleFixtureRuntime
+}
+
+// oracleFixtureNativePlan builds the immutable Go prepare plan a fixture
+// preparation records on the named runtime.
+func oracleFixtureNativePlan(t *testing.T, req WorktreeVerifyRequest, version int64, subject string, bundle NativeOracleControlBundle, runtime string) nativeOraclePlan {
+	t.Helper()
+	control := bundle.Control
+	testFile := control.Cwd + "/oracle_fixture_test.go"
+	manifest := nativeGoOracleManifest{Kind: "go_top_level_v1", PackageCwd: control.Cwd, TestFiles: []string{testFile}, FixtureFiles: []string{}, Cases: oracleFixtureCases(t, control)}
+	manifestRaw, _ := json.Marshal(manifest)
+	environment := nativeGoEnvironment{GoExecutable: "go", GoRoot: "goroot", ModuleCache: "modcache", Version: "go1.26", GOOS: "linux", GOARCH: "amd64", ToolchainIdentity: "go1.26 linux/amd64", ModuleInputsDigest: nativeDigest([]byte("fixture module inputs"))}
+	if runtime != oracleFixtureRuntime {
+		environment.ToolchainIdentity += " " + runtime
+	}
+	environment.Digest = nativeDigest([]byte(runtime + " environment\x00" + environment.ModuleInputsDigest))
+	return nativeOraclePlan{Request: *req.Oracle, RequestID: req.RequestID, WorkID: req.WorkID, ProjectID: req.ProjectID, ContractVersion: version, SubjectCommit: subject, Bundle: bundle, BundleDigest: nativeBundleDigest(bundle),
+		Manifest: manifest, ManifestFile: oracleFixtureFile(control.RecipeSource.Path, string(manifestRaw)), Files: []NativeOracleFile{oracleFixtureFile(testFile, "package fixture")}, Environment: environment,
+		StreamLimit: nativeOracleStreamLimit, CachePolicy: "private-disposable-per-lease",
+		Stages: []NativeOracleStage{{Name: "dependencies", Argv: []string{"go", "mod", "verify"}}, {Name: "metadata", Argv: []string{"go", "list", "-json", "-deps", "-test", "."}}, {Name: "compile", Argv: []string{"go", "test", "-c", "-o", "$scratch/oracle.test", "."}}, {Name: "converter_compile", Argv: []string{"go", "build", "-o", "$scratch/test2json", "cmd/test2json"}}, {Name: "dependencies_final", Argv: []string{"go", "mod", "verify"}}}}
+}
+
+// oracleFixtureReviewPlanner observes the named fixture runtime for a control
+// whose readiness references are all ledger fixture preparations: their
+// synthetic subjects and recipes have no runtime to observe. A control the
+// real producer prepared keeps the real native normalizer.
+func oracleFixtureReviewPlanner(t *testing.T, runtime string) nativeReviewPlanner {
+	return func(ctx context.Context, r GitRunner, entry WorktreeEntry, req WorktreeVerifyRequest, b NativeOracleControlBundle, version int64, subject, identity string, auth nativeOracleAuthorization) (nativeOraclePlan, error) {
+		for _, ref := range b.Control.ReadinessEvidenceRefs {
+			if !strings.HasPrefix(ref, worktreeVerifyOperationRef("fixture-prepare-")) {
+				return normalizeNativeOraclePlan(ctx, r, entry, req, b, version, subject, identity, auth)
+			}
+		}
+		return oracleFixtureNativePlan(t, req, version, subject, b, runtime), nil
+	}
+}
+
 // These trusted ledger fixtures isolate authoring, receipt, debt, and role joins.
 // They make no execution claim. The NativeOracle tests separately exercise the
 // real prepare/execute producer and count actual test-program launches.
@@ -57,6 +106,13 @@ func oracleFixtureFile(path, content string) NativeOracleFile {
 // active claim, and records every field the immutable prepare plan carries,
 // so it passes the same completeness check a produced preparation passes.
 func seedOraclePreparationLedgerFixture(t *testing.T, s *Store, work string, oracle *AcceptanceOracle) {
+	t.Helper()
+	seedOraclePreparationLedgerFixtureOn(t, s, work, oracle, oracleFixtureRuntime)
+}
+
+// seedOraclePreparationLedgerFixtureOn seeds the preparations on the named
+// fixture runtime.
+func seedOraclePreparationLedgerFixtureOn(t *testing.T, s *Store, work string, oracle *AcceptanceOracle, runtime string) {
 	t.Helper()
 	ctx := context.Background()
 	subject, err := readCurrentOracleSubject(ctx, s.db, work)
@@ -91,18 +147,13 @@ func seedOraclePreparationLedgerFixture(t *testing.T, s *Store, work string, ora
 		// silently keeping the predecessor's row, whose contract version the
 		// authority join would refuse.
 		id := "fixture-prepare-" + work + "-v" + strconv.FormatInt(version, 10) + "-" + strings.TrimPrefix(nativeBundleDigest(bundle), "sha256:") + "-" + subject
+		if runtime != oracleFixtureRuntime {
+			id += "-" + runtime
+		}
 		ref := worktreeVerifyOperationRef(id)
 		control.ReadinessEvidenceRefs = []string{ref}
-		testFile := control.Cwd + "/oracle_fixture_test.go"
-		manifest := nativeGoOracleManifest{Kind: "go_top_level_v1", PackageCwd: control.Cwd, TestFiles: []string{testFile}, FixtureFiles: []string{}, Cases: oracleFixtureCases(t, *control)}
-		manifestRaw, _ := json.Marshal(manifest)
-		environment := nativeGoEnvironment{GoExecutable: "go", GoRoot: "goroot", ModuleCache: "modcache", Version: "go1.26", GOOS: "linux", GOARCH: "amd64", ToolchainIdentity: "go1.26 linux/amd64", ModuleInputsDigest: nativeDigest([]byte("fixture module inputs"))}
-		environment.Digest = nativeDigest([]byte("fixture environment\x00" + environment.ModuleInputsDigest))
 		req := WorktreeVerifyRequest{WorkID: work, ProjectID: project, LeaseID: id, RequestID: id, Oracle: &NativeOracleRequest{Phase: "prepare", ExpectedContractVersion: version, ControlBundle: &bundle}, Command: slices.Clone(control.Argv)}
-		plan := nativeOraclePlan{Request: *req.Oracle, RequestID: id, WorkID: work, ProjectID: project, ContractVersion: version, SubjectCommit: subject, Bundle: bundle, BundleDigest: nativeBundleDigest(bundle),
-			Manifest: manifest, ManifestFile: oracleFixtureFile(control.RecipeSource.Path, string(manifestRaw)), Files: []NativeOracleFile{oracleFixtureFile(testFile, "package fixture")}, Environment: environment,
-			StreamLimit: nativeOracleStreamLimit, CachePolicy: "private-disposable-per-lease",
-			Stages: []NativeOracleStage{{Name: "dependencies", Argv: []string{"go", "mod", "verify"}}, {Name: "metadata", Argv: []string{"go", "list", "-json", "-deps", "-test", "."}}, {Name: "compile", Argv: []string{"go", "test", "-c", "-o", "$scratch/oracle.test", "."}}, {Name: "converter_compile", Argv: []string{"go", "build", "-o", "$scratch/test2json", "cmd/test2json"}}, {Name: "dependencies_final", Argv: []string{"go", "mod", "verify"}}}}
+		plan := oracleFixtureNativePlan(t, req, version, subject, bundle, runtime)
 		planRaw, _ := json.Marshal(plan)
 		req.nativePlanSHA256 = nativeDigest(planRaw)
 		r := nativeOracleInitialResult(req, WorktreeEntry{Path: root}, plan)

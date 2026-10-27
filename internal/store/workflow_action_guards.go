@@ -1685,6 +1685,9 @@ func bindWorkerDispatchCompletionTx(in workflowActionAssemblyInput, lane LaneDef
 	if err := admitWorkerDispatchSubjectFreshness(in.ctx, in.tx, in.request, in.entry.Definition, lane, admittedContext); err != nil {
 		return err
 	}
+	if err := freezeReviewDispatchPreparationsTx(in.ctx, in.tx, in.request.WorkID, lane, job, repairReview, completionValues); err != nil {
+		return err
+	}
 	if err := validateWorkerReviewInput(in.ctx, in.tx, in.request.WorkID, lane, in.entry.Definition, packetRaw); err != nil {
 		return err
 	}

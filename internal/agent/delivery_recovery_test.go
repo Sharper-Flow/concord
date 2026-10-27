@@ -178,7 +178,9 @@ func TestDeliveryGateRecoveryReturnsStaleReviewThroughAgent(t *testing.T) {
 		// Each dispatch binds its own recorded ready revision: an accepted
 		// job is satisfied and never redispatches (CD-0205).
 		recordReadyRetryJob(t, s, service, env, "job:"+attemptID)
-		if stepID == "refine" && capabilityClass == "implementation" {
+		if capabilityClass == "implementation" {
+			// Review binds the job it permits; continue leaves it ready for
+			// implementation (CD-0205 D3).
 			oAgentReview(t, oAgentFixture(t, s, service, env, "work-1"), "continue", false)
 		}
 		response := invoke(map[string]any{"work_id": "work-1", "expected_version": version(), "action_id": "dispatch_worker", "fields": map[string]any{"attempt_id": attemptID, "worker_packet": deliveryRecoveryPacket(t, s, stepID, attemptID, capabilityClass)}, "idempotency_key": "gate-dispatch-" + attemptID})
@@ -210,8 +212,6 @@ func TestDeliveryGateRecoveryReturnsStaleReviewThroughAgent(t *testing.T) {
 	if response := invoke(map[string]any{"work_id": "work-1", "expected_version": version(), "action_id": "bind_evidence", "fields": map[string]any{"evidence_kind": "review", "immutable_subject_ref": "evidence:gate-review"}, "idempotency_key": "gate-evidence-bind"}); response.Outcome != OutcomeOK {
 		t.Fatalf("gate recovery bind_evidence: %+v", response.Error)
 	}
-	recordReadyRetryJob(t, s, service, env, "job:gate-architecture-review")
-	oAgentReview(t, fixture, "continue", false)
 	dispatch("execution", "attempt:work-1:gate-execution", "implementation")
 	executionEpoch := epochOf("dispatch_worker")
 	if response := invoke(map[string]any{"work_id": "work-1", "expected_version": version(), "action_id": "accept_worker_result", "fields": map[string]any{"attempt_id": "attempt:work-1:gate-execution", "attempt_epoch": executionEpoch}, "idempotency_key": "gate-execution-accept"}); response.Outcome != OutcomeOK {

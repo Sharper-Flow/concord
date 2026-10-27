@@ -36,7 +36,7 @@ func newDispatchTakeoverFixture(t *testing.T) dispatchTakeoverFixture {
 	ctx := context.Background()
 	capabilities := []agentcontract.Capability{"work_transition", "worker_dispatch"}
 	s, service, grant, privateKey := mutationDispatchFixture(t, capabilities)
-	grant.Worktree = seedWorkerRetryMutationFixture(t, s, service, grant)
+	grant.Worktree = seedWorkerRetryMutationFixture(t, s, grant)
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
 	if err != nil {
 		t.Fatal(err)
@@ -54,7 +54,7 @@ func newDispatchTakeoverFixture(t *testing.T) dispatchTakeoverFixture {
 	if start := f.invoke(t, f.owner, map[string]any{"work_id": "work-1", "expected_version": workVersion(t, s, "work-1"), "action_id": "start_execution", "idempotency_key": "owner-start"}); start.Outcome != OutcomeOK {
 		t.Fatalf("owner start_execution: %+v", start.Error)
 	}
-	recordReadyRetryJob(t, s, service, f.owner, "job:retry-objective")
+	recordReviewedRetryJob(t, s, service, f.owner, "job:retry-objective")
 	return f
 }
 

@@ -82,8 +82,8 @@ func seedDerivedFailureWorkerForCombinedReject(t *testing.T, s *store.Store, ser
 	}
 	fixture := oAgentFixture(t, s, service, env, "work-1")
 	oAgentNativeJob(t, fixture)
-	recordReadyRetryJob(t, s, service, env, "job:combined-reject-architecture-review")
-	oAgentReviewJob(t, fixture, "job:combined-reject-architecture-review", "continue", false)
+	// The architecture Review binds the job it permits (CD-0205 D3).
+	oAgentReviewJob(t, fixture, "job:o-agent-native", "continue", false)
 	attemptID := "attempt:work-1:combined-reject-1"
 	lane, job, _ := fixture.startWorker(t, "implement", attemptID)
 	if job.JobID != "job:o-agent-native" {

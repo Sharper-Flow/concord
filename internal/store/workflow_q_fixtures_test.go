@@ -107,7 +107,7 @@ func qAssociationPayload(t *testing.T, f acceptanceRecoveryFixture) json.RawMess
 func qAcceptCriterionReview(t *testing.T, f workContextFixture, repo, receipt string) {
 	t.Helper()
 	j := &candidateJourney{fixture: f, s: f.store, workID: f.workID, repo: repo}
-	job := reviewSubjectReadyRevision(t, f)
+	job := reviewSubjectReviewJob(t, f)
 	attempt := fmt.Sprintf("q:review:%d", readWorkVersion(t, f.store, f.workID))
 	if err := descendantDispatch(t, j, "review", attempt, job, nil); err != nil {
 		t.Fatal(err)

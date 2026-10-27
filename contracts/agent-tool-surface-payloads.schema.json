@@ -4512,6 +4512,14 @@
                 "$ref": "#/$defs/worker_packet_worker_job"
               }
             },
+            "review_worker_jobs": {
+              "description": "CD-0205 D2: when no revision is ready, the one satisfied revision of the job whose accepted implementation attempt delivered the current integrated candidate. These are not ordinary ready jobs. Only a review lane may bind it, and only without another eligible job; core dispatch admission re-derives the binding.",
+              "type": "array",
+              "maxItems": 1,
+              "items": {
+                "$ref": "#/$defs/worker_packet_worker_job"
+              }
+            },
             "active_verify_leases": {
               "description": "CD-0096 D5: the reading session's held verify leases, newest first, bounded. Absent when the session named no identity or holds none.",
               "type": "array",

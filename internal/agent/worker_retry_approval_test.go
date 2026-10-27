@@ -62,14 +62,14 @@ func TestWorkerRetryWithoutConsentKeepsFreshIdentityAndReplay(t *testing.T) {
 
 func TestWorkerRetryRequiresTerminalReconciliationAndCurrentPacket(t *testing.T) {
 	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_transition", "worker_dispatch"})
-	grant.Worktree = seedWorkerRetryMutationFixture(t, s, service, grant)
+	grant.Worktree = seedWorkerRetryMutationFixture(t, s, grant)
 	scopeVersion, _, err := s.ScopeVersion(context.Background(), "project-1")
 	if err != nil {
 		t.Fatal(err)
 	}
 	env := mutationEnvelope(grant, scopeVersion)
 	const failedID = "attempt:work-1:concurrent-abandonment"
-	recordReadyRetryJob(t, s, service, env, "job:concurrent-abandonment")
+	recordReviewedRetryJob(t, s, service, env, "job:concurrent-abandonment")
 	first := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: retryJSON(map[string]any{
 		"work_id": "work-1", "expected_version": workOneVersion(t, s), "action_id": "dispatch_worker", "idempotency_key": "authorize-concurrent-abandonment",
 		"fields": map[string]any{"attempt_id": failedID, "worker_packet": retryMutationPacket(t, s, failedID, nil)},
@@ -127,17 +127,22 @@ func TestWorkerRetryRequiresTerminalReconciliationAndCurrentPacket(t *testing.T)
 	}
 }
 
-func seedWorkerRetryMutationFixture(t *testing.T, s *store.Store, service *Service, grant Authority) string {
+func seedWorkerRetryMutationFixture(t *testing.T, s *store.Store, grant Authority) string {
 	t.Helper()
 	registered, err := store.BuiltinWorkflowDefinitionForRef("workflow.implementation")
 	if err != nil {
 		t.Fatal(err)
 	}
-	grant.Worktree = seedWorkerRetryMutationFixtureAt(t, s, grant, registered)
-	env := mutationEnvelope(grant, mustScopeVersion(t, s))
-	recordReadyRetryJob(t, s, service, env, "job:retry-architecture-review")
+	return seedWorkerRetryMutationFixtureAt(t, s, grant, registered)
+}
+
+// recordReviewedRetryJob records one ready job and accepts the architecture
+// Review that binds it; continue leaves the job ready for implementation
+// (CD-0205 D3).
+func recordReviewedRetryJob(t *testing.T, s *store.Store, service *Service, env CallEnvelope, jobID string) {
+	t.Helper()
+	recordReadyRetryJob(t, s, service, env, jobID)
 	oAgentReview(t, oAgentFixture(t, s, service, env, "work-1"), "continue", false)
-	return grant.Worktree
 }
 
 func seedWorkerRetryMutationFixtureAt(t *testing.T, s *store.Store, grant Authority, registered store.RegisteredDefinition) string {
@@ -211,7 +216,7 @@ func agentWorkerFailedAttributedEvent(eventID string, payload store.WorkerFailed
 
 func seedFailedWorkerRetryMutation(t *testing.T, s *store.Store, service *Service, grant Authority) (int64, string, string) {
 	t.Helper()
-	path := seedWorkerRetryMutationFixture(t, s, service, grant)
+	path := seedWorkerRetryMutationFixture(t, s, grant)
 	grant.Worktree = path
 	attemptID := "attempt:work-1:failed"
 	scopeVersion, _, err := s.ScopeVersion(context.Background(), "project-1")
@@ -222,7 +227,7 @@ func seedFailedWorkerRetryMutation(t *testing.T, s *store.Store, service *Servic
 	if start.Outcome != OutcomeOK {
 		t.Fatalf("seed retry start: %+v", start.Error)
 	}
-	recordReadyRetryJob(t, s, service, mutationEnvelope(grant, scopeVersion), "job:retry-objective")
+	recordReviewedRetryJob(t, s, service, mutationEnvelope(grant, scopeVersion), "job:retry-objective")
 	env := mutationEnvelope(grant, scopeVersion)
 	version := workVersion(t, s, "work-1")
 	dispatch := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: retryJSON(map[string]any{

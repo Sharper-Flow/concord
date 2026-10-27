@@ -752,7 +752,13 @@ func invokeWorkflowActionForCD0059(ctx context.Context, t *testing.T, s *Store, 
 		if subjectErr != nil {
 			return WorkflowActionExecutionResult{}, subjectErr
 		}
-		preparation, preparationErr := PrepareWorkerDispatchFreshness(ctx, s, PrepareWorkerDispatchRequest{WorkID: request.WorkID, SessionWorktree: request.SessionWorktree, Runner: qualifiedSubjectRunner{head: subject}})
+		prepare := PrepareWorkerDispatchRequest{WorkID: request.WorkID, SessionWorktree: request.SessionWorktree, Runner: qualifiedSubjectRunner{head: subject}, reviewPlanner: oracleFixtureReviewPlanner(t, oracleFixtureRuntimeFrom(ctx))}
+		if request.ActionID == "dispatch_worker" {
+			prepare.DispatchPayload = request.Payload
+		} else {
+			prepare.WorkerAttemptID = WorkerAttemptIDFromRejectionPayload(request.Payload)
+		}
+		preparation, preparationErr := PrepareWorkerDispatchFreshness(ctx, s, prepare)
 		if preparationErr != nil {
 			return WorkflowActionExecutionResult{}, preparationErr
 		}

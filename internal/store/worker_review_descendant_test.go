@@ -96,7 +96,7 @@ func descendantDispatch(t *testing.T, j *candidateJourney, laneID, attempt strin
 	}
 	if prepared == nil {
 		var err error
-		prepared, err = PrepareWorkerDispatchFreshness(context.Background(), j.s, PrepareWorkerDispatchRequest{WorkID: j.workID, SessionWorktree: j.repo})
+		prepared, err = PrepareWorkerDispatchFreshness(context.Background(), j.s, PrepareWorkerDispatchRequest{WorkID: j.workID, SessionWorktree: j.repo, DispatchPayload: mustJSONValue(map[string]any{"attempt_id": attempt, "worker_packet": packet}), reviewPlanner: oracleFixtureReviewPlanner(t, oracleFixtureRuntime)})
 		if err != nil {
 			return err
 		}
@@ -218,8 +218,10 @@ func TestReviewDescendantPreparedSubjectDriftRefuses(t *testing.T) {
 	}
 	descendantCommit(t, j, "c")
 	before := j.effects(t)
-	if err := descendantDispatch(t, j, "review", "drift-review", job, prepared); failureKind(err) != KindMissingEvidence {
-		t.Fatalf("prepared subject drift = %v, want missing_evidence for the stale job preparation", err)
+	// Review binds its preparation after subject freshness (CD-0205 D1), so
+	// the drifted subject refuses first.
+	if err := descendantDispatch(t, j, "review", "drift-review", job, prepared); failureKind(err) != KindProjectionConflict {
+		t.Fatalf("prepared subject drift = %v, want the subject freshness refusal", err)
 	}
 	if after := j.effects(t); after != before {
 		t.Fatal("prepared-subject refusal changed durable state")
@@ -234,7 +236,7 @@ func TestReviewDescendantPostObservationMovementKeepsObservedSubject(t *testing.
 	laneDigest := registeredLaneIdentity(t, "review")
 	packet := joinPacketFor(t, j.s, j.workID, currentStep(t, j.s, j.workID), "observed-b-review", "review", laneDigest)
 	packet["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, j.s, j.workID, job, "review")
-	prepared, err := PrepareWorkerDispatchFreshness(context.Background(), j.s, PrepareWorkerDispatchRequest{WorkID: j.workID, SessionWorktree: j.repo})
+	prepared, err := PrepareWorkerDispatchFreshness(context.Background(), j.s, PrepareWorkerDispatchRequest{WorkID: j.workID, SessionWorktree: j.repo, DispatchPayload: mustJSONValue(map[string]any{"attempt_id": "observed-b-review", "worker_packet": packet}), reviewPlanner: oracleFixtureReviewPlanner(t, oracleFixtureRuntime)})
 	if err != nil {
 		t.Fatal(err)
 	}

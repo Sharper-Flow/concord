@@ -69,6 +69,39 @@ func TestUnrelatedAcceptedJobPreservesCorrectionWindow(t *testing.T) {
 
 }
 
+func TestContinueReviewPreservesCorrectiveJobDebt(t *testing.T) {
+	const workID = "correction-window-permission-review"
+	fixture := oSeedReviewRoute(t, workID, "workflow.break_fix", "repair")
+	s := fixture.store
+	defer s.Close()
+	job := &WorkerJobBinding{JobID: "job:permission-review", Revision: 1}
+	attempt := "attempt:" + workID + ":failed"
+	dispatchJobBoundAttempt(t, s, workID, "repair", attempt, nil, fixture.owner, 0, "permission-review-failed", job)
+	s2WorkerFailedAttributedLive(t, s, workID, attempt, "the implementation failed before a judgeable result existed")
+	pin := issue1013Pin(t, s, workID)
+	if pin.Correction == nil || pin.Correction.FailedAttemptID != attempt {
+		t.Fatalf("failed implementation correction = %+v, want %s", pin.Correction, attempt)
+	}
+	source := *pin.Correction
+	boundary := jobWindowAcceptanceBoundary(t, s, workID)
+	issue1013StartRepair(t, s, workID, fixture.owner, pin.Version, latestStepStartEpoch(t, s, workID, "repair")+1)
+	acceptCurrentReviewForBoundJobForTest(t, workContextFixture{store: s, workID: workID, owner: fixture.owner}, workerFixtureDirectory(t, s, workID), "continue", *job)
+	history, err := readWorkflowCorrectionFacts(t.Context(), s.db, workID, "workflow_correction")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !history.unresolved[workerJobKey(job.JobID, job.Revision)] || history.boundary != boundary {
+		t.Fatalf("permission-only Review changed corrective debt: unresolved=%v boundary=%d, want the job unresolved and boundary %d", history.unresolved, history.boundary, boundary)
+	}
+	correction, err := workflowCorrectionContextForDispatch(t.Context(), s.db, workID, "repair", "")
+	if err != nil || correction == nil || correction.SourceEventID != source.SourceEventID || correction.SourceEventSeq != source.SourceEventSeq || correction.FailedAttemptID != attempt {
+		t.Fatalf("correction after permission-only Review = (%+v, %v), want original source %+v", correction, err, source)
+	}
+	if view := checksRepairRevisionView(t, s, workID, *job); view.State != "recorded" || view.SatisfiedResultRef != "" {
+		t.Fatalf("permission-only Review satisfied the implementation revision: %+v", view)
+	}
+}
+
 // Only an accepted result under the recorded corrective job identity closes
 // the window (CD-0205): a later revision carrying the same obligation satisfies it.
 func TestSatisfyingAcceptedJobResetsCorrectionWindow(t *testing.T) {
@@ -359,6 +392,13 @@ func dispatchJobBoundAttempt(t *testing.T, s *Store, workID, stepID, attemptID s
 // refusal before admission.
 func dispatchJobPacketForTest(t *testing.T, s *Store, workID, attemptID string, actor WorkflowActor, key string, packet map[string]any) error {
 	t.Helper()
+	return dispatchJobPacketOnRuntimeForTest(t, s, workID, attemptID, actor, key, packet, oracleFixtureRuntime)
+}
+
+// dispatchJobPacketOnRuntimeForTest dispatches the packet while the dispatch
+// preparation observes the named fixture runtime.
+func dispatchJobPacketOnRuntimeForTest(t *testing.T, s *Store, workID, attemptID string, actor WorkflowActor, key string, packet map[string]any, runtime string) error {
+	t.Helper()
 	if packet["inputs"].(map[string]any)["worker_job"] != nil {
 		packet["schema_version"] = WorkerPacketSchemaVersion
 	}
@@ -368,7 +408,7 @@ func dispatchJobPacketForTest(t *testing.T, s *Store, workID, attemptID string, 
 		t.Fatal(err)
 	}
 	payload := mustJSONValue(map[string]any{"attempt_id": attemptID, "worker_packet": json.RawMessage(packetPayload)})
-	_, err = invokeWorkflowActionForCD0059(context.Background(), t, s, WorkflowActionExecutionRequest{
+	_, err = invokeWorkflowActionForCD0059(context.WithValue(context.Background(), oracleFixtureRuntimeKey{}, runtime), t, s, WorkflowActionExecutionRequest{
 		WorkID: workID, ExpectedVersion: readWorkVersion(t, s, workID), ActionID: "dispatch_worker", Payload: payload, SessionWorktree: dispatchSessionWorktree(t, s, workID),
 		Actor: actor, AcceptedInputsDigest: "sha256:" + strings.Repeat("d", 64), IdempotencyIdentity: key, OperationID: key,
 		PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: key, RequestID: "request:" + key, ContractDigest: testManifestDigest, Now: time.Unix(10, 0).UTC(),

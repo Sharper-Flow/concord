@@ -188,8 +188,8 @@ func TestWorkerJobPrerequisiteChainSequencesDispatchAcceptance(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(views) != 3 || views[0].Binding != *jobA || views[1].Binding != *jobB || views[0].State != "satisfied" || views[1].State != "satisfied" || views[2].State != "satisfied" {
-		t.Fatalf("revisions after the second local accept = %#v, want both implementation revisions and their continuation Review satisfied", views)
+	if len(views) != 2 || views[0].Binding != *jobA || views[1].Binding != *jobB || views[0].State != "satisfied" || views[1].State != "satisfied" {
+		t.Fatalf("revisions after the second local accept = %#v, want exactly both implementation revisions satisfied with no separate continuation Review job", views)
 	}
 	if views[1].SatisfiedResultRef == "" || views[1].SatisfiedResultRef == views[0].SatisfiedResultRef || views[1].SatisfiedResultRef != sequenceWitnessAcceptEventID(t, s, workID, attemptB) {
 		t.Fatalf("second satisfied result ref = %q, want the second acceptance's own distinct event id", views[1].SatisfiedResultRef)

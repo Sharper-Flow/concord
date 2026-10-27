@@ -251,13 +251,12 @@ func newSpineExecutionFixtureForFamily(t *testing.T, family string) *spineFixtur
 }
 
 func (f *spineFixture) recordJob(t *testing.T) {
+	f.recordJobAs(t, "job:spine-value")
 	if review := f.read(t).Pinned.Pin.Review; review != nil && review.Accepted == nil && review.Dependencies != nil && !review.Dependencies.ArchitectureNotApplicable {
-		// Review the architecture with its own job so accepting it does not
-		// satisfy the implementation assignment.
-		f.recordJobAs(t, "job:spine-architecture-review")
+		// The architecture Review binds the job it permits; continue leaves
+		// that job ready for implementation (CD-0205 D3).
 		f.review(t, "continue", "")
 	}
-	f.recordJobAs(t, "job:spine-value")
 }
 
 func (f *spineFixture) recordJobAs(t *testing.T, jobID string) {

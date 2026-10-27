@@ -185,8 +185,6 @@ func seedEscalatedVerificationWorkerMutation(t *testing.T, s *store.Store, servi
 	}
 	grant.Worktree = path
 	env := mutationEnvelope(grant, scopeVersion)
-	recordReadyRetryJob(t, s, service, env, "job:verification-architecture-review")
-	oAgentReview(t, oAgentFixture(t, s, service, env, "work-1"), "continue", false)
 	var version int64
 	for cycle := int64(1); cycle <= 4; cycle++ {
 		attemptID := "attempt:work-1:verification-" + strconv.FormatInt(cycle, 10)
@@ -198,6 +196,10 @@ func seedEscalatedVerificationWorkerMutation(t *testing.T, s *store.Store, servi
 		// Each cycle executes its own recorded job: an accepted job is
 		// satisfied and never redispatches (CD-0205).
 		recordReadyRetryJob(t, s, service, env, "job:verification-"+strconv.FormatInt(cycle, 10))
+		if cycle == 1 {
+			// The architecture Review binds the job it permits (CD-0205 D3).
+			oAgentReview(t, oAgentFixture(t, s, service, env, "work-1"), "continue", false)
+		}
 		version = workVersion(t, s, "work-1")
 		pin, err := store.ReadWorkPin(context.Background(), s, "work-1")
 		if err != nil {

@@ -1415,6 +1415,7 @@ func (r runtime) prepareWorkerDispatchContext(ctx context.Context, workID, actio
 		request := store.PrepareWorkerDispatchRequest{WorkID: workID, SessionWorktree: r.Envelope.Worktree}
 		if actionID == "dispatch_worker" {
 			request.WorkerJob = store.WorkerJobBindingFromDispatchPayload(payload)
+			request.DispatchPayload = payload
 		} else {
 			request.WorkerAttemptID = store.WorkerAttemptIDFromRejectionPayload(payload)
 		}

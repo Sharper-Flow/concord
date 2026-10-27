@@ -29,7 +29,7 @@ func mandateFixtureAdmission(ctx context.Context, q queryer, workID string, defi
 	if err != nil {
 		return err
 	}
-	if failure := workflowAdmitMandate(definition, step, mandate, actionID, subject); failure != nil {
+	if failure := workflowAdmitMandate(definition, step, mandate, actionID, subject, false); failure != nil {
 		return failure
 	}
 	return nil
@@ -191,4 +191,106 @@ func TestReadyReviewCannotBypassMandate(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestBaselineReviewMandateAdmission(t *testing.T) {
+	for _, mandates := range [][]string{{"CD-0189"}, {"CD-0189", "spec:one"}, {"spec:one", "CD-0189"}} {
+		t.Run(strings.Join(mandates, ","), func(t *testing.T) {
+			s := openTemp(t)
+			const workID = "baseline-review-mandate"
+			seedWork(t, s, workID)
+			seedWorkflowLaw(t, s)
+			seedMandateContract(t, s, workID)
+			seedReservedLawAddition(t, s, workID)
+			if _, err := s.db.Exec(`INSERT INTO write_guard(active) VALUES(1);
+UPDATE workflow_contracts SET spec_mandate=? WHERE work_id=?;
+DELETE FROM write_guard`, string(mustJSONValue(mandates)), workID); err != nil {
+				t.Fatal(err)
+			}
+			definition := mustBuiltinDefinition(t, "workflow.implementation").Definition
+			for _, boundInput := range []bool{false, true} {
+				if boundInput {
+					if _, err := s.db.Exec(`INSERT INTO write_guard(active) VALUES(1);
+INSERT INTO workflow_evidence_bindings(work_id,binding_seq,binding_id,actor,payload) VALUES(?,1,'baseline-input-binding','operator','{"immutable_subject_ref":"spec:one"}');
+DELETE FROM write_guard`, workID); err != nil {
+						t.Fatal(err)
+					}
+				}
+				mandate, err := loadWorkflowMandateAdmission(t.Context(), s.db, workID, definition, "execution", "workflow_action", WorkflowAdmissionState{}, false)
+				if err != nil {
+					t.Fatal(err)
+				}
+				for _, test := range []struct {
+					action, step, capability string
+					localReview              bool
+				}{
+					{"accept_worker_result", "execution", "review", true},
+					{"accept_worker_result", "execution", "implementation", false},
+					{"accept_worker_result", "refine", "review", false},
+					{"record_delivery", "execution", "review", false},
+					{"record_verdict", "acceptance", "review", false},
+					{"complete", "release", "review", false},
+				} {
+					state := WorkflowAdmissionState{Step: test.step, ReviewResultAcceptance: test.capability == "review", Mandate: mandate}
+					decision := WorkflowAdmissionDecision{}
+					refused := workflowAdmitDeliveryRefused(definition, state, test.action, &decision)
+					inputMissing := len(mandates) > 1 && !boundInput
+					if test.localReview && !inputMissing {
+						if refused {
+							t.Fatalf("%s/%s/%s boundInput=%v: %v", test.step, test.action, test.capability, boundInput, decision.Failure)
+						}
+						continue
+					}
+					if !refused || decision.Failure == nil || !strings.Contains(decision.Failure.Detail, "spec mandate law") {
+						t.Fatalf("%s/%s/%s bypassed mandate: %+v", test.step, test.action, test.capability, decision)
+					}
+					if test.localReview && !strings.Contains(decision.Failure.Detail, `"spec:one" is not bound`) {
+						t.Fatalf("future addition masked missing input: %v", decision.Failure)
+					}
+					if test.action == "complete" && decision.Failure.Kind != KindInvariantViolation {
+						t.Fatalf("completion lost final invariant: %v", decision.Failure)
+					}
+				}
+			}
+		})
+	}
+}
+
+func TestBaselineReviewMandateBindsTheRequestedResult(t *testing.T) {
+	f := seedCrossAttemptFixture(t, "baseline-review-exact-result")
+	f.buildTwoAttemptHistory(t)
+	check := func() {
+		t.Helper()
+		pin := issue1013Pin(t, f.s, f.workID)
+		definition, loaded := loadedAdmissionForTest(t, f.s, f.workID, pin)
+		// This isolated gate witness supplies the pending output mandate. The
+		// adapter journey approves the actual addition and its exact text pin.
+		loaded.Mandate = workflowMandateAdmission{Present: true, LawID: "law:future", AddedByContract: true, BindingStep: f.step}
+		advertised := WorkflowAdmissionDecision{}
+		if workflowAdmitDeliveryRefused(definition, loaded, "accept_worker_result", &advertised) {
+			t.Fatalf("an eligible Review is hidden by a sibling result: %v", advertised.Failure)
+		}
+		for _, target := range []struct {
+			attempt string
+			review  bool
+		}{{f.attemptR, false}, {f.attemptV, true}} {
+			state := loaded
+			payload := mustJSONValue(map[string]any{"attempt_id": target.attempt, "attempt_epoch": crossAttemptDispatchEpoch(t, f.s, f.workID, target.attempt)})
+			if err := bindWorkflowReviewRequest(t.Context(), f.s.db, &state, f.workID, "accept_worker_result", payload, f.dispatcher); err != nil {
+				t.Fatal(err)
+			}
+			decision := WorkflowAdmissionDecision{}
+			refused := workflowAdmitDeliveryRefused(definition, state, "accept_worker_result", &decision)
+			if refused == target.review {
+				t.Fatalf("requested %s (review=%v), latest class=%s: refused=%v failure=%v", target.attempt, target.review, loaded.AttemptCapabilityClass, refused, decision.Failure)
+			}
+			if refused && (decision.Failure == nil || !strings.Contains(decision.Failure.Detail, `"law:future" is one of the contract's own law additions`)) {
+				t.Fatalf("non-Review acceptance refused for the wrong reason: %v", decision.Failure)
+			}
+		}
+	}
+	check()
+	// A later in-flight non-Review changes neither completed sibling's class.
+	f.dispatch(t, "attempt:baseline-review-later-research", f.researchLane, f.dispatcher)
+	check()
 }

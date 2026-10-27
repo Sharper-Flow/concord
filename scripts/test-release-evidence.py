@@ -75,6 +75,9 @@ CI_JOB_IDS = (
     "verify-tests-store-7",
     "verify-tests-cli-1",
     "verify-tests-cli-2",
+    "verify-tests-agent-1",
+    "verify-tests-agent-2",
+    "verify-tests-agent-3",
     "verify-race",
     "verify-acceptance",
 )
@@ -169,7 +172,7 @@ class CIWorkflowDriftTests(unittest.TestCase):
                     package, index, count, tested = match.groups()
                     self.assertEqual(package, tested, f"{job_id} must test the package it shards")
                     shards.setdefault(package, []).append((job_id, int(index), int(count)))
-        self.assertEqual(sorted(shards), ["./cmd/concord", "./internal/store"])
+        self.assertEqual(sorted(shards), ["./cmd/concord", "./internal/agent", "./internal/store"])
         self.assertEqual({count for _, _, count in shards["./internal/store"]}, {STORE_SHARDS})
         for package, entries in shards.items():
             counts = {count for _, _, count in entries}

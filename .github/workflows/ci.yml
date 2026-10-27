@@ -440,7 +440,7 @@ jobs:
           retention-days: 90
 
   # Full suite without the race detector, split across runners.
-  # internal/store and cmd/concord each run as shard jobs that
+  # internal/store, internal/agent, and cmd/concord each run as shard jobs that
   # scripts/go-test-shard.py deals from `go test -list`. verify-tests-rest
   # runs every other package, and verify-tests keeps the required check name
   # by requiring verify-tests-rest and every shard job.
@@ -458,7 +458,7 @@ jobs:
   #     sort -n | awk '{v[NR]=$1} END {i=int(NR*0.9); if (i < NR*0.9) i++; print "p90", v[i], "max", v[NR]}'
   verify-tests:
     name: verify-tests
-    needs: [verify-tests-rest, verify-tests-store-1, verify-tests-store-2, verify-tests-store-3, verify-tests-store-4, verify-tests-store-5, verify-tests-store-6, verify-tests-store-7, verify-tests-cli-1, verify-tests-cli-2]
+    needs: [verify-tests-rest, verify-tests-store-1, verify-tests-store-2, verify-tests-store-3, verify-tests-store-4, verify-tests-store-5, verify-tests-store-6, verify-tests-store-7, verify-tests-cli-1, verify-tests-cli-2, verify-tests-agent-1, verify-tests-agent-2, verify-tests-agent-3]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -474,6 +474,9 @@ jobs:
           STORE_7_RESULT: ${{ needs.verify-tests-store-7.result }}
           CLI_1_RESULT: ${{ needs.verify-tests-cli-1.result }}
           CLI_2_RESULT: ${{ needs.verify-tests-cli-2.result }}
+          AGENT_1_RESULT: ${{ needs.verify-tests-agent-1.result }}
+          AGENT_2_RESULT: ${{ needs.verify-tests-agent-2.result }}
+          AGENT_3_RESULT: ${{ needs.verify-tests-agent-3.result }}
         run: |
           test "$REST_RESULT" = success
           test "$STORE_1_RESULT" = success
@@ -485,6 +488,9 @@ jobs:
           test "$STORE_7_RESULT" = success
           test "$CLI_1_RESULT" = success
           test "$CLI_2_RESULT" = success
+          test "$AGENT_1_RESULT" = success
+          test "$AGENT_2_RESULT" = success
+          test "$AGENT_3_RESULT" = success
 
   verify-tests-rest:
     name: verify-tests-rest
@@ -526,7 +532,7 @@ jobs:
           CONCORD_BIN: /nonexistent/poison-concord
           CONCORD_FUTURE_INPUT: poison-future
           CONCORD_TEST_SUBPROCESS: poison-no-bypass
-        run: python3 scripts/go-test-results.py --output-dir "$RUNNER_TEMP/go-test-results/tests" -- go test -timeout=15m $(go list ./... | grep -v -x -F -e github.com/sharper-flow/concord/internal/store -e github.com/sharper-flow/concord/cmd/concord)
+        run: python3 scripts/go-test-results.py --output-dir "$RUNNER_TEMP/go-test-results/tests" -- go test -timeout=15m $(go list ./... | grep -v -x -F -e github.com/sharper-flow/concord/internal/store -e github.com/sharper-flow/concord/internal/agent -e github.com/sharper-flow/concord/cmd/concord)
       - name: Retain native Go results
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
@@ -1215,6 +1221,156 @@ jobs:
           CONCORD_FUTURE_INPUT: poison-future
           CONCORD_TEST_SUBPROCESS: poison-no-bypass
         run: python3 scripts/go-test-results.py --output-dir "$RUNNER_TEMP/go-test-results/tests" -- go test -timeout=15m -run "$(python3 scripts/go-test-shard.py ./cmd/concord 2 2)" ./cmd/concord
+      - name: Retain native Go results
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: go-test-results-${{ github.job }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/go-test-results
+          if-no-files-found: error
+          retention-days: 90
+
+  verify-tests-agent-1:
+    name: verify-tests-agent-1
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+        with:
+          go-version-file: go.mod
+          cache: true
+          cache-dependency-path: go.sum
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version: 1.4.0
+      - name: Download Go modules
+        # A shard compiles one package, so it does not fetch the modules the
+        # others import. txBeginExports runs `go list -deps -export -json ./...`
+        # and parses its combined output, which a "go: downloading" line breaks.
+        run: go mod download
+      - name: Fetch the released sources the release-pair tests build
+        # Release-pair tests build their baselines from these tags.
+        # The default checkout is shallow and carries no tags.
+        run: git fetch --no-tags --depth=1 origin +refs/tags/v11.61.0:refs/tags/v11.61.0 +refs/tags/v11.63.30:refs/tags/v11.63.30 +refs/tags/v13.4.0:refs/tags/v13.4.0
+      - name: Test shard 1 of 3 of ./internal/agent
+        env:
+          CONCORD_SELECTED_PRODUCT_ID: poison-product
+          CONCORD_SELECTED_WORK_ID: poison-work
+          CONCORD_PRODUCT_ID: poison-product
+          CONCORD_DB_PATH: /nonexistent/poison.db
+          CONCORD_SELECTED_PROJECT_ID: poison-project
+          CONCORD_HOST_INSTRUCTIONS: /nonexistent/poison-instructions
+          CONCORD_CLIENT_REF: poison-client
+          CONCORD_SOURCE: /nonexistent/poison-source
+          CONCORD_BIN: /nonexistent/poison-concord
+          CONCORD_FUTURE_INPUT: poison-future
+          CONCORD_TEST_SUBPROCESS: poison-no-bypass
+        run: python3 scripts/go-test-results.py --output-dir "$RUNNER_TEMP/go-test-results/tests" -- go test -timeout=15m -run "$(python3 scripts/go-test-shard.py ./internal/agent 1 3)" ./internal/agent
+      - name: Retain native Go results
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: go-test-results-${{ github.job }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/go-test-results
+          if-no-files-found: error
+          retention-days: 90
+
+  verify-tests-agent-2:
+    name: verify-tests-agent-2
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+        with:
+          go-version-file: go.mod
+          cache: true
+          cache-dependency-path: go.sum
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version: 1.4.0
+      - name: Download Go modules
+        # A shard compiles one package, so it does not fetch the modules the
+        # others import. txBeginExports runs `go list -deps -export -json ./...`
+        # and parses its combined output, which a "go: downloading" line breaks.
+        run: go mod download
+      - name: Fetch the released sources the release-pair tests build
+        # Release-pair tests build their baselines from these tags.
+        # The default checkout is shallow and carries no tags.
+        run: git fetch --no-tags --depth=1 origin +refs/tags/v11.61.0:refs/tags/v11.61.0 +refs/tags/v11.63.30:refs/tags/v11.63.30 +refs/tags/v13.4.0:refs/tags/v13.4.0
+      - name: Test shard 2 of 3 of ./internal/agent
+        env:
+          CONCORD_SELECTED_PRODUCT_ID: poison-product
+          CONCORD_SELECTED_WORK_ID: poison-work
+          CONCORD_PRODUCT_ID: poison-product
+          CONCORD_DB_PATH: /nonexistent/poison.db
+          CONCORD_SELECTED_PROJECT_ID: poison-project
+          CONCORD_HOST_INSTRUCTIONS: /nonexistent/poison-instructions
+          CONCORD_CLIENT_REF: poison-client
+          CONCORD_SOURCE: /nonexistent/poison-source
+          CONCORD_BIN: /nonexistent/poison-concord
+          CONCORD_FUTURE_INPUT: poison-future
+          CONCORD_TEST_SUBPROCESS: poison-no-bypass
+        run: python3 scripts/go-test-results.py --output-dir "$RUNNER_TEMP/go-test-results/tests" -- go test -timeout=15m -run "$(python3 scripts/go-test-shard.py ./internal/agent 2 3)" ./internal/agent
+      - name: Retain native Go results
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: go-test-results-${{ github.job }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/go-test-results
+          if-no-files-found: error
+          retention-days: 90
+
+  verify-tests-agent-3:
+    name: verify-tests-agent-3
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+        with:
+          go-version-file: go.mod
+          cache: true
+          cache-dependency-path: go.sum
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version: 1.4.0
+      - name: Download Go modules
+        # A shard compiles one package, so it does not fetch the modules the
+        # others import. txBeginExports runs `go list -deps -export -json ./...`
+        # and parses its combined output, which a "go: downloading" line breaks.
+        run: go mod download
+      - name: Fetch the released sources the release-pair tests build
+        # Release-pair tests build their baselines from these tags.
+        # The default checkout is shallow and carries no tags.
+        run: git fetch --no-tags --depth=1 origin +refs/tags/v11.61.0:refs/tags/v11.61.0 +refs/tags/v11.63.30:refs/tags/v11.63.30 +refs/tags/v13.4.0:refs/tags/v13.4.0
+      - name: Test shard 3 of 3 of ./internal/agent
+        env:
+          CONCORD_SELECTED_PRODUCT_ID: poison-product
+          CONCORD_SELECTED_WORK_ID: poison-work
+          CONCORD_PRODUCT_ID: poison-product
+          CONCORD_DB_PATH: /nonexistent/poison.db
+          CONCORD_SELECTED_PROJECT_ID: poison-project
+          CONCORD_HOST_INSTRUCTIONS: /nonexistent/poison-instructions
+          CONCORD_CLIENT_REF: poison-client
+          CONCORD_SOURCE: /nonexistent/poison-source
+          CONCORD_BIN: /nonexistent/poison-concord
+          CONCORD_FUTURE_INPUT: poison-future
+          CONCORD_TEST_SUBPROCESS: poison-no-bypass
+        run: python3 scripts/go-test-results.py --output-dir "$RUNNER_TEMP/go-test-results/tests" -- go test -timeout=15m -run "$(python3 scripts/go-test-shard.py ./internal/agent 3 3)" ./internal/agent
       - name: Retain native Go results
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9

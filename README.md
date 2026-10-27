@@ -214,13 +214,13 @@ Concord separates responsibilities across three focused layers:
 - **Local workstation database.**
   - *What*: A single SQLite database stores requirements, current execution state, evidence, and research.
   - *Why*: Eliminates remote network latency and multi-tenant synchronization overhead during high-cadence local agent development.
-  - *How*: Transactions run locally on disk using designated `FULL` sync commits for durable state and memory-mapped reads for low latency.
+  - *How*: The store runs SQLite in WAL mode with `synchronous=NORMAL`, and switches a designated durable transaction to `synchronous=FULL`.
 - **Decoupled planning and execution.**
   - *What*: Linear handles planning; Concord coordinates local execution.
   - *Why*: Keeps external tracker state from polluting local runtime invariants while allowing operators to manage milestones in their tool of choice.
-  - *How*: Concord records verified Linear issue identifiers and URLs, but makes no external API calls and requires no tracker credentials.
+  - *How*: Agents read and write Linear through the Linear MCP server. Concord records at most one issue key and URL per work item; the binary makes no Linear API call and holds no Linear credential.
 
-The trust boundary centers on the local workstation: the operating system user account, the OpenCode process, the adapter, and the host credential service. See the [transport contract](.concord/docs/agent-adapter-transport-contract.md#21-client-registration-and-key-storage), [core architecture](.concord/docs/core-architecture.md), and [managed development authority](.concord/docs/managed-development-authority.md).
+The trust boundary is the local workstation: the operating system user account, the OpenCode process, the adapter, and the host credential service. Concord does not defend against arbitrary code already running under that account. See the [transport contract](.concord/docs/agent-adapter-transport-contract.md#21-client-registration-and-key-storage), [core architecture](.concord/docs/core-architecture.md), and [managed development authority](.concord/docs/managed-development-authority.md).
 
 ### Specialized graphs over monolithic DAGs
 
@@ -269,7 +269,7 @@ bin/oc-test broad -- env -u CONCORD_SELECTED_PRODUCT_ID bun test adapter/opencod
 
 ### Tiered test suites
 
-- **Smoke tier (`bin/oc-test smoke`)**: Runs adapter tests, JSON schema validators, and unsharded Go package tests in ~30 seconds. To stay fast, it omits `cmd/concord` and `internal/store`, which CI splits into shard jobs.
+- **Smoke tier (`bin/oc-test smoke`)**: Runs adapter tests, JSON schema validators, and unsharded Go package tests. It omits `cmd/concord`, `internal/agent`, and `internal/store`, which CI splits into shard jobs.
 - **Conformance tier (`bin/oc-test conformance`)**: Runs the ten-process SQLite harness to verify concurrency and transaction-locking invariants.
 - **Deterministic store sharding**: To test heavy packages locally without running the entire suite, run individual CI shards. For example, to run shard 1 of the 7 `internal/store` shards:
 

@@ -12,6 +12,8 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"github.com/sharper-flow/concord/internal/store/internal/sqlitedb"
 )
 
 // CompactionBoundary selects whether a compaction link revalidates law and
@@ -867,16 +869,16 @@ func insertKnowledgeNote(ctx context.Context, tx *sql.Tx, home KnowledgeHome, no
 }
 
 func indexedNoteConstraintFailure(home KnowledgeHome, note VerifiedNote, err error) error {
-	if !isConstraintViolation(err) {
+	if !sqlitedb.IsConstraintViolation(err) {
 		return nil
 	}
 	constraint := "database"
 	switch {
-	case isIdentityConflict(err):
+	case sqlitedb.IsIdentityConflict(err):
 		constraint = "note identity"
-	case isForeignKeyViolation(err):
+	case sqlitedb.IsForeignKeyViolation(err):
 		constraint = "knowledge-home scope"
-	case isCheckViolation(err):
+	case sqlitedb.IsCheckViolation(err):
 		constraint = "indexed note field"
 	}
 	return newFailure(KindInvalidInput, "rebuild_knowledge_index", fmt.Sprintf("indexed note %q violates the %s constraint in knowledge home %q", note.ID, constraint, home.HomeLocatorID), false, "repair the indexed note identity or scope before rebuilding")

@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/sharper-flow/concord/internal/store/internal/sqlitedb"
+
 	sqlitelib "modernc.org/sqlite/lib"
 )
 
@@ -96,7 +98,7 @@ func assertNonceFaultTyped(t *testing.T, err error, kind FailureKind, detail str
 
 func assertNonceFaultCause(t *testing.T, failure *Failure, code int) {
 	t.Helper()
-	if got := constraintCode(failure.Err); got != code {
+	if got := sqlitedb.ResultCode(failure.Err); got != code {
 		t.Fatalf("nonce fault cause code = %d, want typed symbolic code %d", got, code)
 	}
 }

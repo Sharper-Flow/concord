@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"regexp"
 	"time"
+
+	"github.com/sharper-flow/concord/internal/store/internal/sqlitedb"
 )
 
 // A Domain is a second observation anchor beside the work item. Domain
@@ -93,7 +95,7 @@ func foldDomainObservationRecorded(ctx context.Context, tx *sql.Tx, event Event)
 	if _, err := tx.ExecContext(ctx, `INSERT INTO domain_observations(observation_id,product_id,domain_id,statement,refs,tags,state,recorded_at,dismissed_at) VALUES(?,?,?,?,?,?,?,?,NULL)`,
 		p.ObservationID, p.ProductID, p.DomainID, p.Statement, marshalStrings(p.Refs), marshalStrings(p.Tags),
 		DomainObservationOpen, event.OccurredAt.UTC().Format(time.RFC3339Nano)); err != nil {
-		if isIdentityConflict(err) {
+		if sqlitedb.IsIdentityConflict(err) {
 			return newFailure(KindProjectionConflict, "fold_event", "observation id already exists", false, "generate a new observation id")
 		}
 		return wrapFailure(KindUnavailable, "fold_event", "cannot write the Domain observation", true, "retry once the database is writable", err)

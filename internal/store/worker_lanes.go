@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/sharper-flow/concord/internal/hostlease"
+	"github.com/sharper-flow/concord/internal/store/internal/sqlitedb"
 )
 
 const (
@@ -1377,7 +1378,7 @@ func foldWorkerDispatched(ctx context.Context, tx *sql.Tx, event Event) error {
 		(work_id,attempt_id,lane_id,lane_digest,capability_class,readback_model,packet_schema_version,report_schema_version,lifecycle_state,failure_kind,failure_detail,dispatched_at,failed_at)
 		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`, event.SubjectID, payload.AttemptID, payload.LaneID, payload.LaneDigest, payload.CapabilityClass, readbackModel, payload.PacketSchemaVersion, payload.ReportSchemaVersion, lifecycleState, failureKind, failureDetail, now, failedAt)
 	if err != nil {
-		if isUniqueViolation(err) {
+		if sqlitedb.IsUniqueViolation(err) {
 			return newFailure(KindProjectionConflict, "fold_event", "worker attempt is already dispatched", false, "use a new attempt identity")
 		}
 		return wrapFailure(KindUnavailable, "fold_event", "cannot create worker attempt projection", true, "retry once the database is writable", err)

@@ -5,6 +5,8 @@ import (
 	"errors"
 	"strings"
 	"testing"
+
+	"github.com/sharper-flow/concord/internal/store/internal/sqlitedb"
 )
 
 // maskedError hides the driver's message text while preserving the error
@@ -38,13 +40,13 @@ func TestUniqueViolationClassificationIsMessageIndependent(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected a unique violation from the driver")
 	}
-	if !isUniqueViolation(err) {
+	if !sqlitedb.IsUniqueViolation(err) {
 		t.Fatalf("stock driver error must classify as unique violation: %v", err)
 	}
-	if !isUniqueViolation(maskedError{err: err}) {
+	if !sqlitedb.IsUniqueViolation(maskedError{err: err}) {
 		t.Fatal("classification must survive message masking (typed code, not text)")
 	}
-	if isUniqueViolation(sql.ErrConnDone) {
+	if sqlitedb.IsUniqueViolation(sql.ErrConnDone) {
 		t.Fatal("unrelated errors must not classify as unique violations")
 	}
 }
@@ -75,10 +77,10 @@ func TestConstraintClassificationByKindIsTyped(t *testing.T) {
 	if fkErr == nil {
 		t.Fatal("expected a foreign key violation from the driver")
 	}
-	if !isForeignKeyViolation(fkErr) || !isForeignKeyViolation(maskedError{err: fkErr}) {
+	if !sqlitedb.IsForeignKeyViolation(fkErr) || !sqlitedb.IsForeignKeyViolation(maskedError{err: fkErr}) {
 		t.Fatalf("foreign key violation must classify typed: %v", fkErr)
 	}
-	if isUniqueViolation(fkErr) || isCheckViolation(fkErr) {
+	if sqlitedb.IsUniqueViolation(fkErr) || sqlitedb.IsCheckViolation(fkErr) {
 		t.Fatalf("foreign key violation must not cross-classify: %v", fkErr)
 	}
 
@@ -86,17 +88,17 @@ func TestConstraintClassificationByKindIsTyped(t *testing.T) {
 	if checkErr == nil {
 		t.Fatal("expected a check violation from the driver")
 	}
-	if !isCheckViolation(checkErr) || !isCheckViolation(maskedError{err: checkErr}) {
+	if !sqlitedb.IsCheckViolation(checkErr) || !sqlitedb.IsCheckViolation(maskedError{err: checkErr}) {
 		t.Fatalf("check violation must classify typed: %v", checkErr)
 	}
-	if isUniqueViolation(checkErr) || isForeignKeyViolation(checkErr) {
+	if sqlitedb.IsUniqueViolation(checkErr) || sqlitedb.IsForeignKeyViolation(checkErr) {
 		t.Fatalf("check violation must not cross-classify: %v", checkErr)
 	}
 
-	if !isConstraintViolation(fkErr) || !isConstraintViolation(checkErr) {
-		t.Fatal("every constraint violation must satisfy isConstraintViolation")
+	if !sqlitedb.IsConstraintViolation(fkErr) || !sqlitedb.IsConstraintViolation(checkErr) {
+		t.Fatal("every constraint violation must satisfy IsConstraintViolation")
 	}
-	if isConstraintViolation(sql.ErrConnDone) || isConstraintViolation(nil) {
+	if sqlitedb.IsConstraintViolation(sql.ErrConnDone) || sqlitedb.IsConstraintViolation(nil) {
 		t.Fatal("unrelated errors must not classify as constraint violations")
 	}
 }

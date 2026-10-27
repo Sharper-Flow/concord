@@ -119,6 +119,16 @@ func scanBoundaryFiles(files map[string]string, tables map[string]bool) []bounda
 			findings = append(findings, boundaryFinding{path, 1, "cannot parse: " + err.Error()})
 			continue
 		}
+		if !strings.HasPrefix(path, "internal/store/internal/sqlitedb/") {
+			for _, spec := range file.Imports {
+				if imported, _ := strconv.Unquote(spec.Path.Value); imported == "modernc.org/sqlite/lib" {
+					findings = append(findings, boundaryFinding{
+						path, fset.Position(spec.Pos()).Line,
+						"SQLite result constants outside internal/store/internal/sqlitedb",
+					})
+				}
+			}
+		}
 		if scope == boundaryScopeStore {
 			findings = append(findings, scanStoreAccessor(path, file, fset)...)
 			continue
@@ -467,6 +477,22 @@ func TestStoreBoundaryFixtureViolations(t *testing.T) {
 		{
 			name:  "nested durable production code remains inside store",
 			files: map[string]string{"internal/store/internal/sqlitedb/read.go": "package sqlitedb\nimport \"database/sql\"\nfunc read(db *sql.DB) { db.BeginTx(nil, nil); _ = db.Query(`SELECT id FROM widgets`) }\n"},
+			count: 0,
+		},
+		{
+			name:     "SQLite result constants belong to the durable owner",
+			files:    map[string]string{"internal/store/classify.go": "package store\nimport codes \"modernc.org/sqlite/lib\"\nvar code = codes.SQLITE_CONSTRAINT_UNIQUE\n"},
+			contains: []string{"SQLite result constants outside internal/store/internal/sqlitedb"},
+			count:    1,
+		},
+		{
+			name:  "durable owner may classify SQLite result codes",
+			files: map[string]string{"internal/store/internal/sqlitedb/constraints.go": "package sqlitedb\nimport \"modernc.org/sqlite/lib\"\n"},
+			count: 0,
+		},
+		{
+			name:  "test code may assert SQLite result codes",
+			files: map[string]string{"internal/store/classify_test.go": "package store\nimport \"modernc.org/sqlite/lib\"\n"},
 			count: 0,
 		},
 		{

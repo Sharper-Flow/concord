@@ -9,6 +9,8 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"github.com/sharper-flow/concord/internal/store/internal/sqlitedb"
 )
 
 type workCreatedPayload struct {
@@ -231,7 +233,7 @@ func foldWorkCreated(ctx context.Context, tx *sql.Tx, event Event) error {
 		VALUES (?, ?, ?, 'needed', ?, ?, 1, ?, ?, NULL, ?, ?, ?)`,
 		event.SubjectID, payload.WorkKind, payload.Title, *payload.Priority, urgency, now, now, string(intent), event.Actor, event.Seq)
 	if err != nil {
-		if isUniqueViolation(err) {
+		if sqlitedb.IsUniqueViolation(err) {
 			return newFailure(KindProjectionConflict, "fold_event", "work item already exists", false,
 				"append a lifecycle or relation event for the existing work item")
 		}
@@ -1178,11 +1180,11 @@ func insertRelation(ctx context.Context, tx *sql.Tx, event Event, payload relati
 	if err == nil {
 		return nil
 	}
-	if isIdentityConflict(err) || isCheckViolation(err) {
+	if sqlitedb.IsIdentityConflict(err) || sqlitedb.IsCheckViolation(err) {
 		return wrapFailure(KindRelationConflict, "fold_event", "relation violates a uniqueness or self-edge constraint", false,
 			"remove the duplicate or self-edge from the operation", err)
 	}
-	if isForeignKeyViolation(err) {
+	if sqlitedb.IsForeignKeyViolation(err) {
 		return wrapFailure(KindProjectionNotFound, "fold_event", "relation endpoint does not exist", false,
 			"create both work items before adding a relation", err)
 	}

@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"encoding/json"
 	"time"
+
+	"github.com/sharper-flow/concord/internal/store/internal/sqlitedb"
 )
 
 // CD-0040 D10: the generic external-observation writer extends the existing
@@ -65,7 +67,7 @@ func foldExternalObservationCaptured(ctx context.Context, tx *sql.Tx, event Even
 	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO external_observations(observation_id,work_id,subject_kind,subject_ref,capture_method,captured_at,reporting_authority_ref,subject_digest,observed_universe,freshness_policy_ref,divergence_policy_ref,verification_state,created_event_seq) VALUES(?,?,?,?,?,?,?,?,?,?,?, 'unverified', ?)`,
 		p.ObservationID, event.SubjectID, p.SubjectKind, p.SubjectRef, string(p.CaptureMethod), p.CapturedAt, p.ReportingAuthorityRef, subjectDigest, string(universe), p.FreshnessPolicyRef, p.DivergencePolicyRef, event.Seq); err != nil {
-		if isUniqueViolation(err) {
+		if sqlitedb.IsUniqueViolation(err) {
 			return newFailure(KindProjectionConflict, "fold_event", "external observation id already exists", false, "generate a new observation id")
 		}
 		return wrapFailure(KindUnavailable, "fold_event", "cannot fold external observation capture", true, "retry once the database is writable", err)

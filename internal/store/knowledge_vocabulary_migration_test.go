@@ -10,6 +10,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/sharper-flow/concord/internal/store/internal/sqlitedb"
 )
 
 var knowledge140Tables = []string{
@@ -196,7 +198,7 @@ func TestKnowledgeVocabularyMigration140PreservesCurrentState(t *testing.T) {
 		`UPDATE law_relations SET kind='supersedes' WHERE source_law_id='law-b'`,
 		`UPDATE law_cross_source_relations SET kind='supersedes' WHERE source_law_id='law-b'`,
 	} {
-		if _, err := db.Exec(query); err == nil || !isCheckViolation(err) {
+		if _, err := db.Exec(query); err == nil || !sqlitedb.IsCheckViolation(err) {
 			t.Fatalf("retired vocabulary was not rejected by CHECK: %s: %v", query, err)
 		}
 	}

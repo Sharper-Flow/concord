@@ -9,6 +9,8 @@ import (
 	"slices"
 	"sort"
 	"time"
+
+	"github.com/sharper-flow/concord/internal/store/internal/sqlitedb"
 )
 
 // WorkflowDomainRelationTuple is the canonical identity of a Domain relation
@@ -909,7 +911,7 @@ func workflowOverlapResolutionProjectionError(err error) error {
 	if err == nil {
 		return nil
 	}
-	if isConstraintViolation(err) {
+	if sqlitedb.IsConstraintViolation(err) {
 		return newFailure(KindProjectionConflict, "workflow_domain_overlap", "overlap resolution projection conflicts with current history", false, "reread the active overlap and resolve it again")
 	}
 	return wrapFailure(KindUnavailable, "workflow_domain_overlap", fmt.Sprintf("cannot update overlap resolution projection: %v", err), true, "retry once the database is writable", err)

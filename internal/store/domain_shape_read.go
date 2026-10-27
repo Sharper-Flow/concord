@@ -233,14 +233,12 @@ func domainShapeGoverningLawTx(ctx context.Context, q queryer, home KnowledgeHom
 	}
 	domains, _ := json.Marshal(selection.DomainIDs)
 	laws, _ := json.Marshal(sortedKeys(explicit))
-	rows, err := q.QueryContext(ctx, `WITH governing(domain_id) AS (
-		SELECT domain_id FROM domains WHERE product_id=? AND domain_id IN (SELECT value FROM json_each(?))
-	) SELECT DISTINCT s.law_id,s.kind,s.title,s.path,s.content_hash,s.scanned_commit_oid
+	rows, err := q.QueryContext(ctx, `SELECT DISTINCT s.law_id,s.kind,s.title,s.path,s.content_hash,s.scanned_commit_oid
 	FROM law_subjects s JOIN law_domain_homes h USING(home_project_id,home_locator_id,law_id)
 	WHERE s.home_project_id=? AND s.home_locator_id=? AND h.product_id=? AND s.status='accepted'
-	AND (h.domain_id IN (SELECT domain_id FROM governing) OR s.law_id IN (SELECT value FROM json_each(?))
-	OR EXISTS (SELECT 1 FROM law_domain_applicability a WHERE a.home_project_id=s.home_project_id AND a.home_locator_id=s.home_locator_id AND a.law_id=s.law_id AND a.product_id=? AND a.domain_id IN (SELECT domain_id FROM governing)))
-	ORDER BY s.law_id`, product, string(domains), home.HomeProjectID, home.HomeLocatorID, product, string(laws), product)
+	AND (h.domain_id IN (SELECT value FROM json_each(?)) OR s.law_id IN (SELECT value FROM json_each(?))
+	OR EXISTS (SELECT 1 FROM law_domain_applicability a WHERE a.home_project_id=s.home_project_id AND a.home_locator_id=s.home_locator_id AND a.law_id=s.law_id AND a.product_id=? AND a.domain_id IN (SELECT value FROM json_each(?))))
+	ORDER BY s.law_id`, home.HomeProjectID, home.HomeLocatorID, product, string(domains), string(laws), product, string(domains))
 	if err != nil {
 		return nil, err
 	}

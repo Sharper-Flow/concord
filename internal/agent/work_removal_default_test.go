@@ -178,6 +178,12 @@ func TestDefaultCheckoutShelvingRefusals(t *testing.T) {
 		{"stale claim", "retirement receipt", func(t *testing.T, s *store.Store, _ map[string]any, _ string) {
 			removalFixtureSQL(t, s, `UPDATE worktree_claims SET incarnation=incarnation+1`)
 		}},
+		{"mismatched retirement outcome", "native retirement outcomes do not match recorded claim identities", func(t *testing.T, s *store.Store, _ map[string]any, path string) {
+			removalFixtureSQL(t, s, `UPDATE worktree_ref_outcomes SET path=?`, path+"-other")
+		}},
+		{"mismatched worktree entry", "worktree entry does not match its retired claim", func(t *testing.T, s *store.Store, _ map[string]any, path string) {
+			removalFixtureSQL(t, s, `UPDATE worktree_entries SET path=?`, path+"-other")
+		}},
 		{"surviving directory", "path survives", func(t *testing.T, _ *store.Store, _ map[string]any, path string) {
 			if err := os.MkdirAll(path, 0700); err != nil {
 				t.Fatal(err)

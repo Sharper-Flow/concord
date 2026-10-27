@@ -17,6 +17,9 @@
     "internal/store/worker_job_correction_window_test.go",
     "internal/store/worker_job_integration_admission_test.go",
     "internal/store/worker_job_lifecycle_witness_test.go",
+    "internal/store/continue_review_job_migration.go",
+    "internal/store/continue_review_job_migration_test.go",
+    "adapter/opencode/dispatch_route_end_to_end.case.ts",
     "internal/store/workflow_admission_conformance_test.go",
     "internal/store/workflow_admission_liveness_test.go",
     "adapter/opencode/packet.ts",
@@ -39,7 +42,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:5ef419a916ed8f41b957379e2349855d43c55aecc9638576e1d1a81afc5d7955",
+  "sha256": "sha256:5ed13125a7f950d0cff6a2129afd47b1745831d64412139de90261dc9fa2fb58",
   "status": "accepted",
   "summary": "Immutable worker-job revisions bind every admitted lane end to end. Implementation v27 and break-fix v24 require one typed owner/case/control acceptance oracle in the job digest, with closed source and authority joins and retained readiness evidence. Definitions generate from one canonical source, and no released-definition version or pin is retained for history (CD-0242 D14). Local acceptance holds the step without delivery; whole-work delivery keeps complete parent admission and integration evidence. A revision recorded under a superseded contract is not ready. Under CD-0242 D6 each launch carries its own scope and subject bindings, and no attempt count, correction window, convergence basis, or escalation wall exists.",
   "tags": [

@@ -584,14 +584,14 @@ func workflowDefinitionProducesDelivery(definition WorkflowDefinition) bool {
 // is not a prerequisite for obtaining baseline continuation authority.
 func validateReviewAcceptedDeliveryTx(ctx context.Context, tx *sql.Tx, workID, subject, worktreeIdentity string) error {
 	if subject == "" {
-		return newFailure(KindUnauthorizedDispatch, workerDispatchFreshnessOp, "review of implementation work requires a nonempty qualified subject; qualify the accepted candidate through worktree-verify before review", false, "run worktree-verify on the clean accepted candidate, then rebuild the packet")
+		return newFailure(KindUnauthorizedDispatch, workerDispatchFreshnessOp, "review of implementation work requires a nonempty qualified subject; qualify the accepted candidate through worktree-verify before review", false, workflowReviewRecovery("run worktree-verify on the clean accepted candidate and rebuild the packet", "covering that qualified candidate"))
 	}
 	receipt, err := readCurrentOracleSubjectReceipt(ctx, tx, workID)
 	if err != nil {
 		return err
 	}
 	if receipt == nil || receipt.SubjectRef != "commit:"+subject || workerWorktreeIdentity(receipt.Path) != worktreeIdentity {
-		return reviewFailure(KindMissingEvidence, "Review input is not the qualified candidate on its claimed worktree", "qualify the clean current candidate through worktree-verify, then dispatch Review")
+		return reviewFailure(KindMissingEvidence, "Review input is not the qualified candidate on its claimed worktree", workflowReviewRecovery("qualify the clean current candidate through worktree-verify", "covering that qualified candidate"))
 	}
 	state, err := loadWorkflowReviewState(ctx, tx, workID)
 	if err != nil {
@@ -602,10 +602,10 @@ func validateReviewAcceptedDeliveryTx(ctx context.Context, tx *sql.Tx, workID, s
 		return err
 	}
 	if len(join.Ancestors) != 0 && !workflowPreparedMemberCandidate(ctx, subject) {
-		return reviewFailure(KindStaleRequiresReview, "Review input has no proven ancestry from every accepted member and the current candidate", "merge the accepted member commits into Main's integration worktree and qualify that candidate before Review")
+		return reviewFailure(KindStaleRequiresReview, "Review input has no proven ancestry from every accepted member and the current candidate", workflowReviewRecovery("merge the accepted member commits into Main's integration worktree and qualify that candidate", "covering the integrated candidate"))
 	}
 	if state.Candidate != nil && (state.Candidate.Commit != subject || state.Candidate.ProjectID != receipt.ProjectID) && !workflowPreparedMemberCandidate(ctx, subject) {
-		return reviewFailure(KindStaleRequiresReview, "Review input differs from Main's current integrated candidate", "dispatch Review on the accepted current candidate")
+		return reviewFailure(KindStaleRequiresReview, "Review input differs from Main's current integrated candidate", workflowReviewRecovery("qualify Main's accepted current candidate and rebuild the packet for that subject", "covering the accepted current candidate"))
 	}
 	return nil
 }

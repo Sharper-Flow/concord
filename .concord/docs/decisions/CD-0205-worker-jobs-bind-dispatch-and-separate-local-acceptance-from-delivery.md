@@ -240,9 +240,25 @@ observation. This join opens no approval challenge.
 ### D3. Local acceptance holds the step and asserts no delivery
 
 An accept of a job-bound attempt that carries no delivery assertion is local
-acceptance. It records the disposition of the dispatched revision, marks that
-revision satisfied, and holds the step. The core derives the disposition from
-the dispatch record. The caller never supplies it.
+acceptance. It records the accepted attempt's disposition and holds the step.
+An accepted Review whose disposition is `continue` grants permission to execute
+its dispatched job revision; the Review binds that revision, not a separately
+authored review job. This acceptance leaves the revision's satisfaction unchanged
+and supplies no pending satisfaction to either whole-work delivery route. Other
+job-bound acceptances mark the dispatched revision satisfied under the existing
+acceptance rules. The core derives the disposition from the dispatch record and
+admitted terminal report. The caller never supplies it.
+
+On upgrade, the core may restore an active work item's latest job revision to
+unsatisfied when its recorded satisfaction came from that work item's current
+accepted `continue` Review. The retained authorization, terminal report, and
+acceptance must prove the exact revision and satisfaction reference. Restoration
+requires no implementation dispatch of that revision, no prerequisite depending
+on that revision, and no checks-repair confirming Review. It clears only the
+revision's satisfaction fields; it preserves the job content, digest, Review,
+report, and acceptance. Missing or conflicting evidence leaves the revision
+unchanged. Every subsequent dispatch still passes ordinary readiness and
+current-Review admission.
 
 Whole-work delivery keeps its two routes: `record_delivery`, and the accept
 that carries `delivery_artifact` and `delivery_state`. Both routes run one

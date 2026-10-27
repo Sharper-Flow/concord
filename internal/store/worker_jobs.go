@@ -673,7 +673,7 @@ func verifyWorkerDispatchedJobBindingTx(ctx context.Context, tx *sql.Tx, event E
 			return err
 		}
 		if !admitted {
-			return newFailure(KindIllegalLifecycleTransition, "fold_event", "a satisfied worker-job revision cannot redispatch", false, "record a new revision of the job or dispatch another ready job")
+			return newFailure(KindIllegalLifecycleTransition, "fold_event", "a satisfied worker-job revision cannot redispatch", false, "select another existing ready job; record a new revision only for changed work, then "+workflowReviewRecovery("", "with disposition continue before implementing the revised job"))
 		}
 	}
 	return nil
@@ -822,6 +822,13 @@ func markAcceptedWorkerJobTx(ctx context.Context, tx *sql.Tx, event Event, p wor
 		}
 		return nil
 	}
+	auth, result, err := readReviewAttempt(ctx, tx, event.SubjectID, p.WorkerAttemptID)
+	if err != nil {
+		return err
+	}
+	if workerReviewContinuesJob(auth, result) {
+		return applyAcceptWorkerResultCorrectionTx(ctx, tx, event, p)
+	}
 	if err := markWorkerJobSatisfiedTx(ctx, tx, event, p.WorkerJob); err != nil {
 		return err
 	}
@@ -829,6 +836,12 @@ func markAcceptedWorkerJobTx(ctx context.Context, tx *sql.Tx, event Event, p wor
 		return err
 	}
 	return applyAcceptWorkerResultCorrectionTx(ctx, tx, event, p)
+}
+
+// A continue Review permits execution of its bound job; it is not that job's
+// completion. Confirming checks-repair Reviews keep their separate readiness rule.
+func workerReviewContinuesJob(auth workflowActionCompletedPayload, result WorkerCompletedPayload) bool {
+	return auth.WorkerCapabilityClass == "review" && result.Review != nil && result.Review.Disposition == "continue"
 }
 
 // markWorkerJobSatisfiedTx records the disposition an accepted worker result
@@ -1017,10 +1030,10 @@ func requireWorkerJobRevisionStateReadyTx(ctx context.Context, q queryer, workID
 		return err
 	}
 	if !dependenciesCurrent {
-		return newFailure(KindInvalidOperation, "workflow_action", "the selected worker-job revision's named predicates or oracle Domain/law bindings no longer match the active parent contract", false, "record a new revision of the job under the active contract before dispatching it")
+		return newFailure(KindInvalidOperation, "workflow_action", "the selected worker-job revision's named predicates or oracle Domain/law bindings no longer match the active parent contract", false, workflowReviewRecovery("record the changed job under the active contract and qualify its native preparation", "covering the revised job before implementation"))
 	}
 	if !ready {
-		return newFailure(KindInvalidOperation, "workflow_action", "the selected worker-job revision is not ready: it is satisfied, superseded by a later revision, lacks coordinator readiness, carries unresolved references, or waits on an unsatisfied prerequisite", false, "select a ready revision from the work's worker jobs, or record a new revision")
+		return newFailure(KindInvalidOperation, "workflow_action", "the selected worker-job revision is not ready: it is satisfied, superseded by a later revision, lacks coordinator readiness, carries unresolved references, or waits on an unsatisfied prerequisite", false, "read the worker-job revisions and select an existing ready revision; resolve its readiness or prerequisite failure instead of re-recording unchanged content; if the job must change, record and prepare the changed revision, then "+workflowReviewRecovery("", "with disposition continue before implementing the revised job"))
 	}
 	return nil
 }

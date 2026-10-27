@@ -71,6 +71,31 @@ class DomainFactProjectionTests(unittest.TestCase):
             self.assertIn("domain_fact_" + name, projected["$defs"])
 
 
+class ReviewCandidateReadbackProjectionTests(unittest.TestCase):
+    def test_readback_preserves_unknown_fields_without_relaxing_reports(self):
+        payload = copy.deepcopy(payload_schema)
+        report = copy.deepcopy(report_schema)
+        generator.project_review_report_types(payload, report)
+        view = payload["$defs"]["workflow_review_candidate_view"]
+        strict = payload["$defs"]["lane_report_review_candidate"]
+        self.assertEqual(view["required"], ["commit"])
+        self.assertEqual(view["properties"], strict["properties"])
+        self.assertEqual(report, report_schema)
+        self.assertEqual(set(strict["required"]), {"project_id", "commit", "tree"})
+        self.assertEqual(payload["$defs"]["workflow_review_state"]["properties"]["candidate"]["anyOf"][1],
+                         {"$ref": "#/$defs/workflow_review_candidate_view"})
+        for fields in [{}, {"project_id": "project-one"}, {"tree": "b" * 40},
+                       {"project_id": "project-one", "tree": "b" * 40}]:
+            candidate = {"commit": "a" * 40, **fields}
+            generator.schema_validate(candidate, view, payload)
+            if len(fields) < 2:
+                with self.assertRaises(ValueError):
+                    generator.schema_validate(candidate, strict, payload)
+        for field, value in {"commit": "", "project_id": "", "tree": "not-a-tree"}.items():
+            with self.subTest(field=field), self.assertRaises(ValueError):
+                generator.schema_validate({"commit": "a" * 40, field: value}, view, payload)
+
+
 class IndependentPartIntegrationTests(unittest.TestCase):
     """Exercise composition identity and real regeneration on disposable source bytes."""
 

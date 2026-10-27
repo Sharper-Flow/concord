@@ -60,6 +60,10 @@ func fullyPopulatedContinuitySnapshot() store.ContinuitySnapshot {
 			},
 		},
 		SpecMandate: []string{"spec-1"},
+		StaleLawRevision: &store.StaleLawRevision{
+			OldLawID: "spec-1", OldContentHash: "sha256:" + repeatHex(),
+			RecoveryActions: []string{"supersede_contract", "terminal_work"},
+		},
 		PendingOperatorDecision: &store.WorkflowOperatorQuestion{
 			ActionID:              "confirm_premise",
 			Prompt:                "confirm the premise",

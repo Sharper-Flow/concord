@@ -1891,6 +1891,16 @@ def project_review_report_types(payload: dict, lane_report: dict) -> None:
     for name in ("review_candidate", "review_block", "review_finding"):
         import_definition(name)
 
+    # A retained delivery may predate Project or tree observation. Readback
+    # exposes what was recorded; a new worker report still requires all three.
+    candidate_view = copy.deepcopy(target["lane_report_review_candidate"])
+    candidate_view["required"] = ["commit"]
+    candidate_view["description"] = "The retained candidate commit, with Project and tree only when recorded. Missing identity fields grant no worker-report or acceptance authority."
+    target["workflow_review_candidate_view"] = candidate_view
+    target["workflow_review_state"]["properties"]["candidate"]["anyOf"][1] = {
+        "$ref": "#/$defs/workflow_review_candidate_view"
+    }
+
 
 def check_schema_keywords(node, path="schema"):
     if not isinstance(node, dict): return

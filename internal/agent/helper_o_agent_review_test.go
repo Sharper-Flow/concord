@@ -17,8 +17,6 @@ import (
 // store projection; writes and native preparation use the agent boundary.
 type oAgentFixtureState struct {
 	*spineFixture
-	preparationRef string
-	preparationKey string
 }
 
 func oAgentFixture(t *testing.T, s *store.Store, service *Service, env CallEnvelope, workID string) *oAgentFixtureState {
@@ -107,9 +105,10 @@ func agentNativeOracle(t *testing.T, s *store.Store, service *Service, env CallE
 }
 
 // oAgentPreparedOracle qualifies the claimed candidate and prepares the real
-// fixture control for the given approved predicates. A new job revision on
-// unchanged inputs consumes the same qualified preparation; preparation is
-// not a per-consumer acceptance execution.
+// fixture control for the given approved predicates. The preparation key
+// names only its inputs (subject, contract version, and bundle), so a new job
+// revision on unchanged inputs replays the same qualified preparation;
+// preparation is not a per-consumer acceptance execution.
 func oAgentPreparedOracle(t *testing.T, f *oAgentFixtureState, predicates []string) store.AcceptanceOracle {
 	t.Helper()
 	oAgentControlRepository(t, f)
@@ -128,7 +127,7 @@ func oAgentPreparedOracle(t *testing.T, f *oAgentFixtureState, predicates []stri
 	owner := store.OracleOwner{OwnerID: "owner:o-agent-value", DomainID: domain,
 		Mechanism:  store.OracleMechanism{ProjectID: "project-1", Path: "o_fixture/value.go", EntryPoint: "Value"},
 		Obligation: "The fixture value satisfies the approved check.", PredicateIDs: predicates}
-	control := store.OracleControl{ControlID: "control:o-agent-value", OwnerID: owner.OwnerID, PredicateIDs: owner.PredicateIDs,
+	control := store.OracleControl{ControlID: oracleFixtureControlID, OwnerID: owner.OwnerID, PredicateIDs: owner.PredicateIDs,
 		CaseIDs: []string{"case:o-agent-value"}, Cwd: "o_fixture", Argv: []string{"go", "test", "-count=1", "-run", "^(TestValue)$", "."},
 		RecipeSource:   store.WorkContextReadingSource{Kind: store.WorkContextSourceRepositoryFile, ProjectID: "project-1", Path: "o_fixture/oracle.json", CommitOID: f.base},
 		ExpectedResult: store.OracleExpectedResultPass, RequiredEvidenceRole: store.OracleEvidenceRoleReported}
@@ -138,19 +137,15 @@ func oAgentPreparedOracle(t *testing.T, f *oAgentFixtureState, predicates []stri
 		t.Fatal(err)
 	}
 	delete(bundle["control"].(map[string]any), "readiness_evidence_refs")
-	key := fmt.Sprintf("%s:%d:%v", f.base, snapshot.Contract.Version, predicates)
-	if f.preparationRef == "" || f.preparationKey != key {
-		prepared := spineOK(t, f.call(t, "concord_work_transition", "worktree_verify", map[string]any{
-			"work_id": f.work, "idempotency_key": fmt.Sprintf("o-prepare-%d-%.12s-v%d", f.request, f.base, snapshot.Contract.Version),
-			"oracle": map[string]any{"phase": "prepare", "expected_contract_version": snapshot.Contract.Version, "control_bundle": bundle},
-		}))
-		var result store.WorktreeVerifyResult
-		if err := json.Unmarshal(prepared.Result, &result); err != nil || result.Oracle == nil || result.Oracle.Qualification != "ready" {
-			t.Fatalf("O native preparation: %s (%v)", prepared.Result, err)
-		}
-		f.preparationRef, f.preparationKey = result.OperationRef, key
+	prepared := spineOK(t, f.call(t, "concord_work_transition", "worktree_verify", map[string]any{
+		"work_id": f.work, "idempotency_key": fmt.Sprintf("o-prepare-%.12s-v%d-%s", f.base, snapshot.Contract.Version, oracleFixtureDigest(retryJSON(bundle))),
+		"oracle": map[string]any{"phase": "prepare", "expected_contract_version": snapshot.Contract.Version, "control_bundle": bundle},
+	}))
+	var result store.WorktreeVerifyResult
+	if err := json.Unmarshal(prepared.Result, &result); err != nil || result.Oracle == nil || result.Oracle.Qualification != "ready" {
+		t.Fatalf("O native preparation: %s (%v)", prepared.Result, err)
 	}
-	control.ReadinessEvidenceRefs = []string{f.preparationRef}
+	control.ReadinessEvidenceRefs = []string{result.OperationRef}
 	return store.AcceptanceOracle{Owners: []store.OracleOwner{owner}, Controls: []store.OracleControl{control}, Cases: cases}
 }
 

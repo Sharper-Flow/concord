@@ -204,9 +204,8 @@ func addAgentJobCallerMembers(t *testing.T, s *store.Store, workID string, field
 	}
 }
 
-// The oracle fixture constants mirror the store's trusted ledger fixture
-// (worker_oracle_native_fixture_test.go): one fixed work, Project, and
-// subject, and the identity vocabulary one control exercises.
+// The oracle fixture constants name the fixture work, its primary Project,
+// and the one real control agentNativeOracle prepares.
 const (
 	oracleFixtureWork      = "work-1"
 	oracleFixtureProject   = "project-1"

@@ -4,7 +4,7 @@
 - **Date:** 2026-10-23
 - **Scope:** Which skills Concord may ship; the `skills/` boundary
 - **Amends:** [CD-0043](CD-0043-host-owned-lane-methodology.md) D3; the `skills/` sentence of [CD-0063](CD-0063-shipped-operator-conduct-rules.md) D2
-- **Preserves:** CD-0043 D1, D2, and D4: lane methodology stays host-owned
+- **Preserves:** CD-0043 D1 as amended by CD-0246, D2, and D4: host-specific lane procedure stays host-owned
 - **Approval:** The operator approved the exact amendment wording on 2026-10-23 and the publication-only heading and check section on 2026-10-26, recorded in [Concord issue 1318](https://linear.app/sharper-flow/issue/CON-1318/permit-concord-to-ship-domain-shape-stewardship-through-its-existing).
 
 ## Context
@@ -31,9 +31,10 @@ skill is Domain-shape stewardship. It covers migrating a Product into the
 Domain shape, reorganising code roots, refining facts after a change, and
 auditing gaps.
 
-Lane methodology stays host-owned under CD-0043 D1. A skill that tells a worker
-how to review, verify, or implement inside its lane is not admitted by this
-clause.
+[CD-0246](CD-0246-concord-ships-portable-engineering-methods.md) D3 also
+admits a skill that carries a portable engineering method. A worker receives
+its method in its generated lane definition under CD-0246 D2; host-specific
+lane procedure stays host-owned under CD-0043 D2.
 
 ### D2. A shipped skill is versioned by the release
 

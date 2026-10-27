@@ -98,6 +98,67 @@ class InvestigationGuidanceTests(unittest.TestCase):
                 self.assertTrue(fragment in normalized, fragment)
 
 
+class EngineeringMethodProjectionTests(unittest.TestCase):
+    """CD-0246 D2: each lane's definition carries the method its purpose uses."""
+
+    CARRIERS = {
+        "### Defect diagnosis\n": {"implement"},
+        "### Interface design\n": {"implement", "design"},
+        "## Verification method\n": {"verify"},
+    }
+
+    def test_each_method_reaches_exactly_the_lanes_that_use_it(self):
+        manifest, _ = generator.load_manifest()
+        projections = {lane["id"]: lane_projection(lane) for lane in manifest["lanes"]}
+        for heading, lanes in self.CARRIERS.items():
+            with self.subTest(heading=heading):
+                self.assertEqual({lane for lane, text in projections.items() if heading in text}, lanes)
+        utilities = [generator.utility_projection(utility) for utility in manifest["utilities"]]
+        self.assertFalse(any("## Engineering method" in text for text in utilities))
+
+    def test_diagnosis_requires_a_red_signal_before_a_fix_and_reports_through_existing_obligations(self):
+        manifest, _ = generator.load_manifest()
+        lane = next(item for item in manifest["lanes"] if item["id"] == "implement")
+        text = " ".join(lane_projection(lane).split())
+        for fragment in (
+            "fails on the reported symptom",
+            "do not form a theory from reading code before it exists",
+            "the prediction that would refute each",
+            "observe it fail before the fix and pass after",
+            "in `verification_commands`",
+            "in `unresolved_issues` and do not guess a fix",
+        ):
+            self.assertIn(fragment, text)
+        for obligation in ("verification_commands", "unresolved_issues"):
+            self.assertIn(obligation, lane["evidence_obligations"])
+
+    def test_interface_design_applies_the_deletion_test_without_widening_test_retirement(self):
+        manifest, _ = generator.load_manifest()
+        for lane in manifest["lanes"]:
+            if lane["id"] not in self.CARRIERS["### Interface design\n"]:
+                continue
+            with self.subTest(lane=lane["id"]):
+                text = " ".join(lane_projection(lane).split())
+                self.assertIn("apply the deletion test", text)
+                self.assertIn("one adapter is indirection", text)
+                self.assertIn("only when the governing retirement clause covers it", text)
+
+    def test_review_research_and_verify_judge_diagnosis_evidence_inside_their_reports(self):
+        manifest, _ = generator.load_manifest()
+        lanes = {lane["id"]: " ".join(lane_projection(lane).split()) for lane in manifest["lanes"]}
+        self.assertIn("A missing failing run is missing required evidence", lanes["review"])
+        self.assertIn("apply the deletion test", lanes["review"])
+        self.assertIn("in `uncertainties` as a hypothesis, never as a finding", lanes["research"])
+        self.assertIn("say so in `failure_classification` rather than reporting it as proof", lanes["verify"])
+
+    def test_no_lane_obligation_depends_on_loading_a_skill(self):
+        manifest, _ = generator.load_manifest()
+        for lane in manifest["lanes"]:
+            with self.subTest(lane=lane["id"]):
+                body = lane_projection(lane).split("\n---\n", 1)[1].lower()
+                self.assertNotIn("skill", body)
+
+
 class CapabilityToolProjectionTests(unittest.TestCase):
     def test_opaque_code_mode_is_denied_for_every_lane(self):
         manifest, _ = generator.load_manifest()

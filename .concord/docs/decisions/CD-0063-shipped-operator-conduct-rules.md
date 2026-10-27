@@ -10,7 +10,7 @@
   [issue #410 comment](https://github.com/Sharper-Flow/concord/issues/410#issuecomment-5387585623)
 - **Related:** CD-0034, CD-0043 (D1, D2, D3),
   [`../managed-development-authority.md`](../managed-development-authority.md)
-- **Preserves:** CD-0043 D1 and D2; the skill admission boundary under
+- **Preserves:** CD-0043 D1 as amended by CD-0246, and D2; the skill admission boundary under
   CD-0043 D3; the closed lane registry and its digest; `agent-lane-packet.v1`
   and `agent-lane-report.v1`
 
@@ -48,8 +48,11 @@ alone. Verify before claiming a thing is done. Remove what a change supersedes.
 These hold for any project, need no host tooling, and change rarely.
 
 Methodology remains what CD-0043 D1 made it: how a reviewer chooses what to
-look at, how a verifier chooses which commands constitute proof. That stays
-host-owned and unshipped.
+look at, how a verifier chooses which commands constitute proof. Procedure that
+depends on a host's tools, models, or configuration stays host-owned and
+unshipped. A portable engineering method ships under
+[CD-0246](CD-0246-concord-ships-portable-engineering-methods.md), in a lane's
+generated definition or as a skill, not in this always-on corpus.
 
 The distinction is portability. Conduct that names no tool and no repository is
 correct wherever Concord is installed. Methodology is host-coupled by
@@ -91,7 +94,8 @@ that governs instructions.
 `skills/` admits skills that operate Concord-defined structure under
 [CD-0245](CD-0245-concord-ships-the-skill-that-operates-its-domain-shape.md) D1.
 A shipped skill uses this installation route and is versioned by the release
-under CD-0245 D2. Lane methodology stays host-owned under CD-0043 D1 and D2.
+under CD-0245 D2. A skill may also carry a portable engineering method under
+CD-0246 D3; host-specific lane procedure stays host-owned under CD-0043 D1 and D2.
 
 ### D3. The corpus is authored, never copied
 

@@ -146,6 +146,10 @@ of its own item. Check remaining closeout first, then verify the new primary's
 task identity and repository landing. Schedule installation and release windows
 with the operator; owners perform deployment within those windows.
 
+Load the work-shaping skill when an outcome must be split before allocation or
+a dependency must be judged real, and the retrospective skill when the same
+coordination friction recurs across streams. Neither changes who decides scope.
+
 ### 5. Reconcile planning and completion
 
 Keep Linear current through its MCP server. Reconcile assigned Linear issues during each pass.

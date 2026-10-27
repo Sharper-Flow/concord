@@ -897,6 +897,13 @@ depends on them; a correct producer alone does not prove delivery.
 When work relies on a knowledge entry, check that it applies and that its
 consequential facts hold; a stale or false citation is a finding.
 
+For a defect fix, check that the regression test drives the real call path and
+can fail on the reported symptom, and that evidence shows it failing without
+the fix. A missing failing run is missing required evidence. For a new or
+changed interface, apply the deletion test: a module, wrapper, or seam whose
+removal would leave its callers no more complex is a pass-through, and a seam
+with one adapter is indirection. Tests should cross the interface callers use.
+
 For each defect, state the triggering input or state, impact, and exact source
 location. Distinguish proven defects, missing required evidence, and optional
 suggestions using the existing finding detail. For an oracle-governed finding,
@@ -904,6 +911,70 @@ use `review_finding.oracle.classification` and keep the detail consistent with
 it; do not invent report fields. Missing required evidence remains a gap, not a
 reason to invent a defect. Do not turn style preferences into defects or a
 blocking disposition, and do not broaden the review into an unrelated audit.
+
+"""
+
+
+DIAGNOSIS_METHOD = """### Defect diagnosis
+
+When the job repairs a defect whose cause the packet's evidence does not already
+show, establish the cause before changing code. First build one command that
+drives the defect's code path and fails on the reported symptom, run it, and
+keep its output; do not form a theory from reading code before it exists. Make
+it deterministic, and for an intermittent defect record its reproduction rate.
+Confirm it fails with the reported symptom rather than a nearby failure, then
+remove inputs and steps until each remaining one is needed to fail.
+
+List the plausible causes and the prediction that would refute each. Test one
+prediction and one variable at a time. Mark temporary instrumentation with one
+unique tag and remove it before reporting. Turn the minimised case into a
+regression test at a seam that exercises the real call path: observe it fail
+before the fix and pass after, then rerun the original command. Report the
+confirmed cause and the red and green runs in `verification_commands`.
+
+If no failing command can be built with the packet's access, report what you
+tried and the missing access in `unresolved_issues` and do not guess a fix. If
+no seam can hold a faithful regression test, report that as an unresolved issue
+rather than adding a test that cannot fail on this defect.
+"""
+
+INTERFACE_METHOD = """### Interface design
+
+When the job adds or changes a module's interface (a function, type, package,
+command, or component boundary), keep the interface smaller than the behavior
+behind it. The interface is everything a caller must know: types, invariants,
+ordering, error modes, and required configuration. Before adding a layer, apply
+the deletion test: if deleting it would leave its callers no more complex, it is
+a pass-through, so do not add it, and prefer removing one the job supersedes.
+Add a seam only where something varies across it now; one adapter is
+indirection. Test through the interface callers use. Replace a test of a
+superseded internal only when the governing retirement clause covers it.
+"""
+
+
+def engineering_method_instructions(lane: dict) -> str:
+    # CD-0246 D2: a lane carries the portable method its purpose uses, in
+    # this generated definition, never through a skill loaded mid-attempt.
+    sections = {
+        "implement": [DIAGNOSIS_METHOD, INTERFACE_METHOD],
+        "design": [INTERFACE_METHOD],
+    }.get(lane["id"])
+    if not sections:
+        return ""
+    return "## Engineering method\n\n" + "\n".join(sections) + "\n"
+
+
+def verification_method_instructions(lane: dict) -> str:
+    if lane["id"] != "verify":
+        return ""
+    return """## Verification method
+
+When the job's acceptance concerns a defect, check that the recorded control
+reaches the defect's code path and can fail on the reported symptom. A control
+that passes but could not have failed on that symptom is weak evidence for the
+fix: say so in `failure_classification` rather than reporting it as proof.
+Classify each failure by its observed cause, and keep a cause you did not
+confirm labelled as a hypothesis.
 
 """
 
@@ -919,6 +990,11 @@ unknown. Do not widen the assignment or bypass unavailable source access.
 Prefer primary sources; distinguish source observations from your inferences.
 Check versions and dates before comparing claims. One decisive source can be
 enough; do not add searches or citations merely to fill a quota.
+
+When the question asks why a defect occurs, list the plausible causes with the
+observation that would refute each, and report which observations confirm or
+refute each one. Keep a cause the evidence does not confirm in `uncertainties`
+as a hypothesis, never as a finding.
 
 Lead with the answer in the first `evidence` entry's `detail`, not a new
 report field. Put supporting findings and retrieval handles in existing
@@ -1032,7 +1108,7 @@ record workflow transitions, verdicts, completion, or spawn nested workers.
 {acceptance_oracle_instructions(packet_schema, lane)}
 {job_size_instructions(report_schema, lane)}
 {objective_binding_instructions()}
-{research_method_instructions(lane)}{review_method_instructions(lane)}{concord_context_boundary_instructions()}
+{engineering_method_instructions(lane)}{research_method_instructions(lane)}{verification_method_instructions(lane)}{review_method_instructions(lane)}{concord_context_boundary_instructions()}
 {command_duration_instructions(lane)}
 Return exactly one Markdown fence whose info string is
 `{packet_schema['properties']['inputs']['properties']['report_protocol']['const']}`.

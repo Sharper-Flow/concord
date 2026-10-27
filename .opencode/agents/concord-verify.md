@@ -167,6 +167,15 @@ contract is approved), and `assigned_result` names the one evidence obligation
 whose discharge completes this attempt. Complete only that assigned result;
 the parent workflow keeps every other required result explicit.
 
+## Verification method
+
+When the job's acceptance concerns a defect, check that the recorded control
+reaches the defect's code path and can fail on the reported symptom. A control
+that passes but could not have failed on that symptom is weak evidence for the
+fix: say so in `failure_classification` rather than reporting it as proof.
+Classify each failure by its observed cause, and keep a cause you did not
+confirm labelled as a hypothesis.
+
 ## Concord context boundary
 
 The dispatched packet is your complete Concord context. General Concord tools

@@ -167,6 +167,20 @@ contract is approved), and `assigned_result` names the one evidence obligation
 whose discharge completes this attempt. Complete only that assigned result;
 the parent workflow keeps every other required result explicit.
 
+## Engineering method
+
+### Interface design
+
+When the job adds or changes a module's interface (a function, type, package,
+command, or component boundary), keep the interface smaller than the behavior
+behind it. The interface is everything a caller must know: types, invariants,
+ordering, error modes, and required configuration. Before adding a layer, apply
+the deletion test: if deleting it would leave its callers no more complex, it is
+a pass-through, so do not add it, and prefer removing one the job supersedes.
+Add a seam only where something varies across it now; one adapter is
+indirection. Test through the interface callers use. Replace a test of a
+superseded internal only when the governing retirement clause covers it.
+
 ## Concord context boundary
 
 The dispatched packet is your complete Concord context. General Concord tools

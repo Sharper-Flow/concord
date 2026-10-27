@@ -638,6 +638,7 @@ routeDeclaration("accepts an unchanged new-law baseline Review before implementa
     const abandoned = JSON.parse(abandonmentOutput.split("\n")[0]) as JSONRecord
     expect(abandoned.outcome, JSON.stringify(abandoned)).toBe("ok")
   } finally {
+    configureConcordAdapter({ reset: true })
     hostControlPlane().bind(undefined)
     if (previousConfig === undefined) delete process.env.OPENCODE_CONFIG
     else process.env.OPENCODE_CONFIG = previousConfig

@@ -185,8 +185,10 @@ Approved proposals (situation, then rule):
   owns the behavior. Apply R3's approval test.
 - P2 Law vs Quality. A current law requires code the agent judges bloat. Never delete what a current law
   requires. Change or retire the law first under R3, then remove the code.
-- P3 Law vs Parts. A law needs a check that no reusable part provides. Enforce a law with a programmed check,
-  never with prose. The change that adds or changes the law adds its check.
+- P3 Law vs Parts. A law needs enforcement that no reusable part provides. The change that adds or changes the
+  law names how the law is upheld, using the cheapest adequate means: an existing check, a focused test,
+  review, or clear guidance. Build a new programmed check only when none of these catches a violation that
+  matters. Never build a runtime system to enforce a rule that one of these already upholds.
 - P4 Arch vs Quality. The cleanest code crosses a domain boundary, or a boundary forces duplicate code. Keep the
   boundary inside the change. An architect step may move the boundary. With no architect step, file a
   follow-up item.

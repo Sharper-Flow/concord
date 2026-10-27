@@ -37,7 +37,7 @@ TABLE = ROOT / "contracts/conflict-rules.v1.json"
 GOALS_PATH = ".concord/docs/goals.md"
 SCHEMA_VERSION = "1.1"
 
-MECHANISMS = ("programmed_check", "recorded_decision", "operator_boundary")
+MECHANISMS = ("programmed_check", "recorded_review", "recorded_decision", "operator_boundary")
 ACTORS = ("agent", "coordinator", "operator", "decision_model")
 SIZES = ("Small", "Larger", "Crucial")
 SAME = "Same"

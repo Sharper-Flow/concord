@@ -165,6 +165,30 @@ def test_mechanism_without_resolving_evidence_is_refused() -> None:
     assert findings, "a mechanism with no evidence anchor must be refused"
 
 
+def test_recorded_review_uses_existing_evidence_anchors_for_every_entry_kind() -> None:
+    for key in ("rules", "a2", "duties"):
+        value = table()
+        entry = value[key][0]
+        entry.pop("issue")
+        entry.update(state="satisfied", mechanism="recorded_review", evidence=[dict(ANCHOR)])
+        findings, _ = validate(value)
+        assert findings == [], (key, findings)
+
+
+def test_recorded_review_requires_resolving_evidence_not_prose() -> None:
+    for evidence in (None, [], [{"kind": "validator", "value": "scripts/check-no-such-review.py"}],
+                     [{"kind": "prose", "value": "review applied S"}]):
+        value = table()
+        entry = value["rules"][4]
+        entry["mechanism"] = "recorded_review"
+        if evidence is None:
+            del entry["evidence"]
+        else:
+            entry["evidence"] = evidence
+        findings, _ = validate(value)
+        assert any("evidence" in finding for finding in findings), findings
+
+
 def test_gap_must_name_a_live_follow_up_item() -> None:
     value = table()
     del value["rules"][0]["issue"]

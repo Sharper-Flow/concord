@@ -259,6 +259,22 @@ class PrimaryPromptCheckTests(unittest.TestCase):
             with self.subTest(phrase=phrase):
                 self.assertIn(phrase, check_primary_prompts.RTE_REQUIRED_PHRASES)
 
+    def test_rte_record_ownership_and_continuation_are_required(self) -> None:
+        for phrase in (
+            "An implementation issue is not the RTE's session journal",
+            "Routine same-session reloads use host continuity, not new planning comments",
+            "A shared package or possible overlap does not establish merge precedence",
+            "Continue the assigned outcome across partial deliveries",
+            "Name the operation, target, observed refusal, effect state, and admitted next action",
+            "Update a record only when its planning fact, decision, risk, or evidence changes",
+            "Never approve, accept, overrule, or publish for another session's item",
+            "Tell both owners when their streams change the same source owner",
+            "Set merge order only for an actual conflict or dependency",
+            "Compare each owner's retained posture, hold, or sequencing rule with your current directives",
+        ):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, check_primary_prompts.RTE_REQUIRED_PHRASES)
+
     def test_retired_coordinator_profile_reports(self) -> None:
         # Zero tolerance: a checkout that still ships a retired profile
         # fails the validator.

@@ -76,6 +76,16 @@ RTE_REQUIRED_PHRASES = (
     "shared coordination instructions own worker and issue-state rules",
     "Keep unmerged, merged, released, and installed states distinct",
     "Do not keep a second planning backlog in a repository or host journal",
+    "An implementation issue is not the RTE's session journal",
+    "Routine same-session reloads use host continuity, not new planning comments",
+    "A shared package or possible overlap does not establish merge precedence",
+    "Continue the assigned outcome across partial deliveries",
+    "Name the operation, target, observed refusal, effect state, and admitted next action",
+    "Update a record only when its planning fact, decision, risk, or evidence changes",
+    "Never approve, accept, overrule, or publish for another session's item",
+    "Tell both owners when their streams change the same source owner",
+    "Set merge order only for an actual conflict or dependency",
+    "Compare each owner's retained posture, hold, or sequencing rule with your current directives",
 )
 CONCORD_REQUIRED_PHRASES = (
     "You are Concord, the primary agent",

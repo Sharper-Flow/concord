@@ -4,7 +4,7 @@
   "profiles": [
     {
       "id": "Concord-RTE",
-      "description": "Concord-RTE — optional coordination for busy Product or Project work; sequences conflicts, keeps Linear current, and reports ship status, deciding only the choices sessions bring to it.",
+      "description": "Concord-RTE — optional delivery coordination; sequences concrete conflicts, keeps planning current, and reports ship status. Item owners deliver; the operator decides reserved matters.",
       "role_source": ".concord/roles/rte.md",
       "tools": {
         "edit": "allow",

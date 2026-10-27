@@ -6,12 +6,11 @@ import (
 )
 
 // finalReviewWorkerJobTx returns the one revision a Review may bind when no
-// revision is ready (CD-0205 D2): the latest revision of the job whose
-// accepted implementation attempt delivered the current integrated candidate,
-// still current under the active contract and satisfied by that exact
-// acceptance. It returns nil when a ready revision exists, when no candidate
-// is installed, or when the delivery anchor does not resolve to exactly one
-// revision. It reads SQL only and authors no job or choice.
+// revision is ready (CD-0205 D2): the latest revision of the job dispatched by
+// the delivery anchor, the newest accepted implementation delivery, when that
+// delivery is Main's current candidate, the revision is current under the
+// active contract, and its satisfaction comes from that exact acceptance. It
+// returns nil otherwise. It reads SQL only and authors no job or choice.
 func finalReviewWorkerJobTx(ctx context.Context, q queryer, workID string) (*WorkerJobBinding, error) {
 	var ready bool
 	if err := q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM worker_job_revisions j WHERE j.work_id=? AND `+workerJobReadyPredicate+`)`, workID).Scan(&ready); err != nil {
@@ -24,57 +23,23 @@ func finalReviewWorkerJobTx(ctx context.Context, q queryer, workID string) (*Wor
 	if err != nil || review.Candidate == nil {
 		return nil, err
 	}
-	rows, err := q.QueryContext(ctx, `SELECT j.job_id,j.revision,j.digest,e.attempt_id FROM worker_job_revisions j
-JOIN worker_attempt_dispositions e ON e.work_id=j.work_id AND e.action_id='accept_worker_result'
- AND (e.seq=j.satisfied_seq AND e.event_id=j.satisfied_result_ref OR e.first_acceptance_seq=j.satisfied_seq)
-WHERE j.work_id=? AND j.state='satisfied' AND j.satisfied_seq>0
- AND j.revision=(SELECT MAX(latest.revision) FROM worker_job_revisions latest WHERE latest.work_id=j.work_id AND latest.job_id=j.job_id)
- AND (`+workerJobDependenciesCurrentPredicate+`)
- AND j.contract_version=(SELECT c.contract_version FROM workflow_contracts c WHERE c.work_id=j.work_id AND c.superseded_by IS NULL)
-ORDER BY j.job_id,j.revision`, workID)
-	if err != nil {
-		return nil, wrapFailure(KindUnavailable, "workflow_action", "cannot read satisfied worker-job revisions", true, "retry once the worker-job projection is readable", err)
-	}
-	type satisfied struct {
-		binding WorkerJobBinding
-		attempt string
-	}
-	// Close the cursor before attempt reads on the single pooled connection.
-	var found []satisfied
-	for rows.Next() {
-		var s satisfied
-		if err := rows.Scan(&s.binding.JobID, &s.binding.Revision, &s.binding.Digest, &s.attempt); err != nil {
-			rows.Close()
-			return nil, err
-		}
-		found = append(found, s)
-	}
-	err = rows.Err()
-	rows.Close()
-	if err != nil {
+	anchor, err := newestAcceptedImplementationDeliveryTx(ctx, q, workID)
+	if err != nil || anchor == nil || anchor.candidate != *review.Candidate {
 		return nil, err
 	}
-	var anchored []WorkerJobBinding
-	for _, s := range found {
-		auth, result, err := readReviewAttempt(ctx, q, workID, s.attempt)
-		if err == sql.ErrNoRows {
-			continue
-		}
-		if err != nil {
-			return nil, err
-		}
-		if auth.WorkerCapabilityClass != "implementation" || auth.WorkerJob == nil || *auth.WorkerJob != s.binding {
-			continue
-		}
-		candidate, err := workflowResultCandidate(ctx, q, workID, auth, result)
-		if err != nil {
-			return nil, err
-		}
-		if candidate != nil && *candidate == *review.Candidate {
-			anchored = append(anchored, s.binding)
-		}
+	binding := anchor.job
+	var satisfied bool
+	if err := q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM worker_job_revisions j
+JOIN worker_attempt_dispositions e ON e.work_id=j.work_id AND e.attempt_id=? AND e.action_id='accept_worker_result'
+ AND (e.seq=j.satisfied_seq AND e.event_id=j.satisfied_result_ref OR e.first_acceptance_seq=j.satisfied_seq)
+WHERE j.work_id=? AND j.job_id=? AND j.revision=? AND j.digest=? AND j.state='satisfied' AND j.satisfied_seq>0
+ AND j.revision=(SELECT MAX(latest.revision) FROM worker_job_revisions latest WHERE latest.work_id=j.work_id AND latest.job_id=j.job_id)
+ AND (`+workerJobDependenciesCurrentPredicate+`)
+ AND j.contract_version=(SELECT c.contract_version FROM workflow_contracts c WHERE c.work_id=j.work_id AND c.superseded_by IS NULL))`,
+		anchor.attempt, workID, binding.JobID, binding.Revision, binding.Digest).Scan(&satisfied); err != nil {
+		return nil, wrapFailure(KindUnavailable, "workflow_action", "cannot read the delivery anchor's worker-job revision", true, "retry once the worker-job projection is readable", err)
 	}
-	if len(anchored) != 1 {
+	if !satisfied {
 		return nil, nil
 	}
 	// A checks repair keeps its one confirming Review (CD-0205 D4); only a
@@ -83,7 +48,7 @@ ORDER BY j.job_id,j.revision`, workID)
 	if err != nil {
 		return nil, err
 	}
-	if repairs[anchored[0]] != nil {
+	if repairs[binding] != nil {
 		watermark, err := workerChecksRepairWatermarkTx(ctx, q, workID)
 		if err != nil {
 			return nil, err
@@ -92,12 +57,63 @@ ORDER BY j.job_id,j.revision`, workID)
 		if err != nil {
 			return nil, err
 		}
-		repair := history.checksRepairs[workerJobKey(anchored[0].JobID, anchored[0].Revision)]
+		repair := history.checksRepairs[workerJobKey(binding.JobID, binding.Revision)]
 		if repair == nil || !repair.confirmed {
 			return nil, nil
 		}
 	}
-	return &anchored[0], nil
+	return &binding, nil
+}
+
+type implementationDelivery struct {
+	attempt   string
+	job       WorkerJobBinding
+	candidate WorkerReviewCandidate
+}
+
+// newestAcceptedImplementationDeliveryTx returns the delivery anchor: the
+// job-bound implementation attempt whose accepted result most recently
+// delivered a candidate, or nil when none has.
+func newestAcceptedImplementationDeliveryTx(ctx context.Context, q queryer, workID string) (*implementationDelivery, error) {
+	rows, err := q.QueryContext(ctx, `SELECT attempt_id FROM worker_attempt_dispositions WHERE work_id=? AND action_id='accept_worker_result' ORDER BY seq DESC`, workID)
+	if err != nil {
+		return nil, wrapFailure(KindUnavailable, "workflow_action", "cannot read accepted worker attempts", true, "retry once the worker attempt projection is readable", err)
+	}
+	// Close the cursor before attempt reads on the single pooled connection.
+	var attempts []string
+	for rows.Next() {
+		var attempt string
+		if err := rows.Scan(&attempt); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		attempts = append(attempts, attempt)
+	}
+	err = rows.Err()
+	rows.Close()
+	if err != nil {
+		return nil, err
+	}
+	for _, attempt := range attempts {
+		auth, result, err := readReviewAttempt(ctx, q, workID, attempt)
+		if err == sql.ErrNoRows {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		if auth.WorkerCapabilityClass != "implementation" || auth.WorkerJob == nil {
+			continue
+		}
+		candidate, err := workflowResultCandidate(ctx, q, workID, auth, result)
+		if err != nil {
+			return nil, err
+		}
+		if candidate != nil {
+			return &implementationDelivery{attempt: attempt, job: *auth.WorkerJob, candidate: *candidate}, nil
+		}
+	}
+	return nil, nil
 }
 
 // requireWorkerReviewJobRevisionStateTx is Review's state-only job admission:

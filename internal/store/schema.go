@@ -8008,9 +8008,10 @@ CREATE TRIGGER outside_repair_reconciliations_guard_delete BEFORE DELETE ON outs
 `,
 	},
 	{
-		Version:  159,
-		Name:     "workflow_owning_start_law_baseline",
-		Breaking: true,
+		Version:        159,
+		Name:           "workflow_owning_start_law_baseline",
+		Breaking:       true,
+		FoldMaintained: "advance",
 		SQL: `
 -- Absence on an existing item is unknown before-state, never today's law.
 CREATE TABLE workflow_law_baselines (

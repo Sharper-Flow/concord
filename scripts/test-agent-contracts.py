@@ -71,6 +71,31 @@ class DomainFactProjectionTests(unittest.TestCase):
             self.assertIn("domain_fact_" + name, projected["$defs"])
 
 
+class ReviewCandidateReadbackProjectionTests(unittest.TestCase):
+    def test_readback_preserves_unknown_fields_without_relaxing_reports(self):
+        payload = copy.deepcopy(payload_schema)
+        report = copy.deepcopy(report_schema)
+        generator.project_review_report_types(payload, report)
+        view = payload["$defs"]["workflow_review_candidate_view"]
+        strict = payload["$defs"]["lane_report_review_candidate"]
+        self.assertEqual(view["required"], ["commit"])
+        self.assertEqual(view["properties"], strict["properties"])
+        self.assertEqual(report, report_schema)
+        self.assertEqual(set(strict["required"]), {"project_id", "commit", "tree"})
+        self.assertEqual(payload["$defs"]["workflow_review_state"]["properties"]["candidate"]["anyOf"][1],
+                         {"$ref": "#/$defs/workflow_review_candidate_view"})
+        for fields in [{}, {"project_id": "project-one"}, {"tree": "b" * 40},
+                       {"project_id": "project-one", "tree": "b" * 40}]:
+            candidate = {"commit": "a" * 40, **fields}
+            generator.schema_validate(candidate, view, payload)
+            if len(fields) < 2:
+                with self.assertRaises(ValueError):
+                    generator.schema_validate(candidate, strict, payload)
+        for field, value in {"commit": "", "project_id": "", "tree": "not-a-tree"}.items():
+            with self.subTest(field=field), self.assertRaises(ValueError):
+                generator.schema_validate({"commit": "a" * 40, field: value}, view, payload)
+
+
 class IndependentPartIntegrationTests(unittest.TestCase):
     """Exercise composition identity and real regeneration on disposable source bytes."""
 
@@ -959,7 +984,7 @@ class CD0043LaneMethodologyTests(unittest.TestCase):
         return lane_checker.cd0043_lane_methodology_findings(
             copy.deepcopy(packet if packet is not None else packet_schema),
             copy.deepcopy(registry if registry is not None else lane_registry),
-            list(skills if skills is not None else ["README.md", "concord-domain-shape-stewardship"]),
+            list(skills if skills is not None else ["README.md", *sorted(lane_checker.ADMITTED_SKILLS)]),
         )
 
     def test_shipped_contracts_satisfy(self):
@@ -1112,12 +1137,10 @@ class ShippedSkillTests(unittest.TestCase):
 
     def test_admitted_inventory_is_exact_and_rejects_missing_extra_or_symlinked_files(self):
         with tempfile.TemporaryDirectory() as temporary:
-            skills = Path(temporary)
-            (skills / "README.md").write_text("# Skills\n")
+            skills = Path(temporary) / "skills"
+            shutil.copytree(ROOT / "skills", skills)
             entry = skills / self.NAME
-            entry.mkdir()
             content = entry / "SKILL.md"
-            content.write_text(self.content())
             self.assertEqual(lane_checker.shipped_skill_inventory_findings(skills), [])
             extra = entry / "unadmitted.md"
             extra.write_text("Not admitted")
@@ -1142,6 +1165,46 @@ class ShippedSkillTests(unittest.TestCase):
             self.assertEqual(lane_checker.shipped_skill_inventory_findings(skills), [
                 "skills/: symlink is not an admitted skill directory",
             ])
+
+
+class LawWritingSkillTests(unittest.TestCase):
+    NAME = "concord-law-writing"
+    OPERATIONS = {
+        "concord_product_view.resolve", "concord_domain.list", "concord_domain.footprint",
+        "concord_knowledge.search", "concord_knowledge.resolve_note",
+    }
+
+    def content(self):
+        return (ROOT / "skills" / self.NAME / "SKILL.md").read_text(encoding="utf-8")
+
+    def findings(self, content):
+        return lane_checker.shipped_skill_content_findings(
+            content, skill_name=self.NAME, commands=set(), operations=self.OPERATIONS,
+        )
+
+    def test_law_writing_is_admitted_with_its_own_portable_references(self):
+        self.assertIn(self.NAME, lane_checker.ADMITTED_SKILLS)
+        self.assertEqual(self.findings(self.content()), [])
+
+    def test_law_approval_reference_is_required_independently_of_shape_references(self):
+        content = re.sub(r"\[Operator approval boundary\]\([^)]*\)", "Approval", self.content())
+        self.assertTrue(any("missing canonical approval reference" in finding for finding in self.findings(content)))
+
+    def test_law_references_resolve_in_delivered_history(self):
+        self.assertEqual(lane_checker.shipped_skill_reference_findings(ROOT, self.content()), [])
+
+    def test_law_license_is_required_without_admitting_arbitrary_support_files(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            skills = Path(temporary) / "skills"
+            shutil.copytree(ROOT / "skills", skills)
+            self.assertEqual(lane_checker.shipped_skill_inventory_findings(skills), [])
+            license_path = skills / self.NAME / "LICENSE"
+            self.assertIn("Copyright (c) 2026 Matt Pocock", license_path.read_text(encoding="utf-8"))
+            license_path.unlink()
+            findings = lane_checker.shipped_skill_inventory_findings(skills)
+            self.assertTrue(any(f"{self.NAME}/LICENSE: missing admitted file" in finding for finding in findings))
+            license_path.symlink_to(skills / "README.md")
+            self.assertTrue(any("symlink" in finding for finding in lane_checker.shipped_skill_inventory_findings(skills)))
 
 
 class EvidenceBoundParityTests(unittest.TestCase):
@@ -1223,6 +1286,62 @@ class EvidenceBoundParityTests(unittest.TestCase):
         del value["$defs"]["evidence"]
         with self.assertRaises(ValueError):
             self.check(payload=value)
+
+
+class BuiltinWorkflowDefinitionSchemaTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.schema = json.loads((ROOT / "contracts/workflow-definition.schema.json").read_text())
+        with tempfile.TemporaryDirectory(prefix="manifest-schema-", dir=ROOT / "scripts") as temporary:
+            probe = Path(temporary) / "main.go"
+            probe.write_text(IndependentPartIntegrationTests.PROBE)
+            result = subprocess.run(
+                ["go", "run", str(probe)], cwd=ROOT, input="{}", text=True,
+                capture_output=True, timeout=240,
+                env=os.environ | {"GOPROXY": "off", "GOSUMDB": "off"},
+            )
+        if result.returncode:
+            raise AssertionError(f"canonical manifest export failed:\n{result.stdout}{result.stderr}")
+        cls.definitions = {
+            ref: row["manifest"] | {"digest": row["digest"]}
+            for ref, row in json.loads(result.stdout).items()
+        }
+
+    def test_full_canonical_live_manifests_match_public_schema(self):
+        self.assertEqual(set(self.definitions), {
+            "workflow.implementation", "workflow.break_fix", "workflow.research",
+        })
+        for ref, definition in self.definitions.items():
+            with self.subTest(workflow=ref):
+                fields = next(action["payload"]["fields"] for action in definition["action_definitions"]
+                              if action["id"] == "confirm_premise")
+                by_name = {field["name"]: field for field in fields}
+                for name in ("selected_choice", "decision_context_digest"):
+                    self.assertIs(by_name[name]["envelope"], True)
+                generator.schema_validate(definition, self.schema, self.schema)
+
+    def test_payload_field_envelope_is_optional_boolean_and_stays_closed(self):
+        for ref, definition in self.definitions.items():
+            for envelope in (Ellipsis, False, True, None, "true", 1, [], {}):
+                with self.subTest(workflow=ref, envelope=envelope):
+                    changed = copy.deepcopy(definition)
+                    field = next(action["payload"]["fields"][0] for action in changed["action_definitions"]
+                                 if action["id"] == "confirm_premise")
+                    if envelope is Ellipsis:
+                        del field["envelope"]
+                    else:
+                        field["envelope"] = envelope
+                    if envelope is Ellipsis or isinstance(envelope, bool):
+                        generator.schema_validate(changed, self.schema, self.schema)
+                    else:
+                        with self.assertRaisesRegex(ValueError, "type mismatch.*envelope"):
+                            generator.schema_validate(changed, self.schema, self.schema)
+            changed = copy.deepcopy(definition)
+            field = next(action["payload"]["fields"][0] for action in changed["action_definitions"]
+                         if action["id"] == "confirm_premise")
+            field["unrelated"] = True
+            with self.subTest(workflow=ref), self.assertRaisesRegex(ValueError, "unknown properties.*unrelated"):
+                generator.schema_validate(changed, self.schema, self.schema)
 
 
 class WorkflowDefinitionContentIdentityTests(unittest.TestCase):

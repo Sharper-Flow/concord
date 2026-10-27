@@ -36,6 +36,32 @@ type WorkflowReviewState struct {
 	PublicationOutstanding bool                      `json:"publication_outstanding"`
 }
 
+type workflowReviewCandidateView struct {
+	ProjectID string `json:"project_id,omitempty"`
+	Commit    string `json:"commit"`
+	Tree      string `json:"tree,omitempty"`
+}
+
+// MarshalJSON exposes only recorded candidate identities. It leaves stored
+// review facts and the strict worker-report candidate representation unchanged.
+func (state WorkflowReviewState) MarshalJSON() ([]byte, error) {
+	return json.Marshal(struct {
+		Dependencies           *WorkerReviewDependencies    `json:"dependencies,omitempty"`
+		Candidate              *workflowReviewCandidateView `json:"candidate"`
+		Accepted               *WorkflowAcceptedReview      `json:"accepted_review"`
+		Findings               []WorkerReviewFinding        `json:"findings"`
+		ContinueConsumed       bool                         `json:"continue_consumed"`
+		GroupID                string                       `json:"group_id,omitempty"`
+		DependenciesCurrent    bool                         `json:"dependencies_current"`
+		PublicationOutstanding bool                         `json:"publication_outstanding"`
+	}{
+		Dependencies: state.Dependencies, Candidate: (*workflowReviewCandidateView)(state.Candidate),
+		Accepted: state.Accepted, Findings: state.Findings, ContinueConsumed: state.ContinueConsumed,
+		GroupID: state.GroupID, DependenciesCurrent: state.DependenciesCurrent,
+		PublicationOutstanding: state.PublicationOutstanding,
+	})
+}
+
 func reviewFailure(kind FailureKind, detail, next string) *Failure {
 	return newFailure(kind, "workflow_review", detail, false, next)
 }

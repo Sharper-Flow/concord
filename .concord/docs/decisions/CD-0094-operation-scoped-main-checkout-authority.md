@@ -2,9 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-09-01
-- **Scope:** Operation-level authority for
-  `concord_work_transition.lifecycle` from a registered Project's default
-  checkout; the authority boundary in `internal/agent/authority.go`; issue #660
+- **Scope:** Operation-level authority from a registered Project's default checkout for `concord_work_transition.lifecycle` and D5's conditional `concord_work_transition.remove` allowance; the authority boundary in `internal/agent/authority.go`.
 - **Approval:** The operator approved the disposition in issue #660 and
   directed its completion on 2026-09-01.
 - **Related:** CD-0008, CD-0072, CD-0089, CD-0092, issue #660
@@ -56,9 +54,7 @@ target without verification evidence returns `missing_evidence`. Evidence then
 permits the existing operator approval challenge, and the transition applies
 only after the approval is accepted.
 
-`worktree_claim`, `worktree_reclaim`, and `workflow_action` remain refused from
-the main checkout with the typed CD-0092 refusal. `worktree_reclaim` can remove
-a Git worktree, and `workflow_action` is execution authority.
+`worktree_claim` and `workflow_action` remain refused from the main checkout with the typed CD-0092 refusal. `worktree_reclaim` and `worktree_audit_reclaim` retain CD-0162's tier-gated admission. Removal receives only D5's conditional allowance.
 
 ### D3. The boundary is declared once and tested on both sides
 
@@ -76,14 +72,29 @@ required. They also prove that a terminal refusal without evidence is
 Main-checkout authorization follows the closed capability allowlist and the
 closed operation allowlist declared in `internal/agent/authority.go`.
 
+### D5. Default-checkout shelving after cancellation and verified retirement
+
+From a registered Project's default checkout, `concord_work_transition.remove` may remove one item with reason `shelved` only when all of the following hold:
+
+1. Its sole Project is the caller's resolved Project, its sole Product is the selected Product, and existing caller authority covers both.
+2. Its lifecycle and any workflow instance are `cancelled`, under the existing cancellation evidence, approval and historical-pin requirements.
+3. At least one worktree claim is recorded, all recorded claims are reclaimed, and complete native inventory plus filesystem checks prove every recorded checkout path absent.
+4. Every recorded native retirement effect, across all claim generations and incarnations, is settled or durably retained with no cleanup owed. Pending deletion or restoration, active or pending claims, and live or unknown occupants refuse removal.
+5. Every existing removal safety, version, handoff, authority and approval requirement passes.
+
+Authorization admits only this operation pair, not general `work_transition` authority. The removal planner and core check fresh eligibility before issuing a challenge and revalidate state, scope, work version and claim identities in the removal transaction. Native observations run outside that transaction and bind to those identities. Incomplete proof, observed change or uncertainty refuses removal without force or recovery bypass.
+
+The allowance performs only the existing removal's store effects and receipt; it grants no checkout or provider execution authority. Other operations and removal routes keep their admission.
+
+An identical committed removal replays through its retained authorized scope before live-item eligibility is evaluated. Replay checks current caller authority and the original request binding; it neither recreates the identity nor issues new removal authority.
+
 ## Consequences
 
 - A registered Project can reconcile a merged work item from its default
   checkout by recording a lifecycle transition with merge evidence.
 - Terminal lifecycle transitions still require verification evidence and
   operator approval.
-- Worktree claims, worktree reclamation, and workflow actions still require a
-  linked worktree or another eligible implementation authority.
+- Main-checkout worktree retirement retains CD-0162's tier gates. Removal receives only D5's allowance; other implementation-bearing operations remain refused.
 - A future main-checkout exception requires an operation-level decision that
   names its write surface and adds tests for both the grant and refusal sides.
 
@@ -93,8 +104,7 @@ closed operation allowlist declared in `internal/agent/authority.go`.
   transition from the main checkout.
 - `TestMainCheckoutLifecyclePreservesTerminalGates` proves the missing-evidence
   refusal and the approved terminal transition.
-- `TestMainCheckoutRefusesImplementationOperations` proves typed refusal for
-  `worktree_claim`, `worktree_reclaim`, and `workflow_action`.
+- `TestMainCheckoutRefusesImplementationOperations` proves the typed CD-0092 refusal for `worktree_claim`, nonterminal `worktree_reclaim`, and `workflow_action`. D5 authority tests prove eligible default-checkout shelving removal and refusal outside its conditions, preserving all existing removal gates.
 - `TestMainCheckoutAllowlistDeclaresBothSides` proves the two declarations and
   their closed entries.
 - The document contract and knowledge-closure validators pass.

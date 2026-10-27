@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-const ManifestDigest = "sha256:3b3c2b40d12e4fc6cac03a61b66d04c6338328046b8b2b3ba17d891a01850d5d"
+const ManifestDigest = "sha256:ecb3e13c433fd9ed5eb508e7bd98f7f31f44c0efb9e5024f527799563f6e5ef6"
 
 type OperationKind string
 
@@ -419,6 +419,7 @@ var GeneratedPayloadRules = map[string]GeneratedPayloadRule{
 	"workflow_read":                                         {Required: []string{"work_id", "state", "current_step", "definition", "conditions", "unresolved_conditions", "unreadable_conditions", "ready", "blocking_conditions", "impact_notices", "completion_warnings"}, Properties: []string{"work_id", "state", "current_step", "definition", "contract", "operator_question", "candidate_ids", "conditions", "unresolved_conditions", "unreadable_conditions", "ready", "blocking_conditions", "impact_notices", "completion_warnings", "parked_delivery", "stale_law_revision", "delivery_assertion", "backlog_alignment"}},
 	"workflow_retained_decision_record":                     {Required: []string{"question", "options_considered", "decision", "rationale", "consequences", "inputs", "poc_findings", "reviewer_actor_ref", "operator_approval_ref"}, Properties: []string{"question", "options_considered", "decision", "rationale", "consequences", "inputs", "poc_findings", "supersedes", "superseded_by", "unknowns", "required_to_decide", "reviewer_actor_ref", "operator_approval_ref"}},
 	"workflow_retained_outcome":                             {Required: []string{"kind", "allowed"}, Properties: []string{"kind", "allowed", "decision_record"}},
+	"workflow_review_candidate_view":                        {Required: []string{"commit"}, Properties: []string{"project_id", "commit", "tree"}},
 	"workflow_review_state":                                 {Required: []string{"candidate", "accepted_review", "findings", "continue_consumed", "dependencies_current", "publication_outstanding"}, Properties: []string{"candidate", "accepted_review", "findings", "continue_consumed", "group_id", "dependencies_current", "dependencies", "publication_outstanding"}},
 	"workflow_self_repair":                                  {Required: []string{"refusal_kind", "blocked_operation", "evidence_refs"}, Properties: []string{"refusal_kind", "blocked_operation", "evidence_refs"}},
 	"workflow_verdict_batch_entry":                          {Required: []string{"predicate_id", "receipt_refs"}, Properties: []string{"predicate_id", "receipt_refs"}},

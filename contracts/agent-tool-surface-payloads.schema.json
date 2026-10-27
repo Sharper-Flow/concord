@@ -860,7 +860,7 @@
               "type": "null"
             },
             {
-              "$ref": "#/$defs/lane_report_review_candidate"
+              "$ref": "#/$defs/workflow_review_candidate_view"
             }
           ]
         },
@@ -2328,31 +2328,7 @@
           }
         },
         "stale_law_revision": {
-          "type": [
-            "object",
-            "null"
-          ],
-          "additionalProperties": false,
-          "required": [
-            "old_law_id",
-            "old_content_hash",
-            "recovery_actions"
-          ],
-          "properties": {
-            "old_law_id": {
-              "$ref": "#/$defs/law_id"
-            },
-            "old_content_hash": {
-              "$ref": "#/$defs/digest"
-            },
-            "recovery_actions": {
-              "type": "array",
-              "maxItems": 4,
-              "items": {
-                "$ref": "#/$defs/id"
-              }
-            }
-          }
+          "$ref": "#/$defs/workflow_stale_law_revision"
         },
         "delivery_assertion": {
           "$ref": "#/$defs/workflow_delivery_assertion"
@@ -2360,6 +2336,33 @@
         "backlog_alignment": {
           "$ref": "#/$defs/workflow_backlog_alignment",
           "description": "The recorded backlog search. Absent when no search was recorded; none_found carries an empty related_ids list."
+        }
+      }
+    },
+    "workflow_stale_law_revision": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": false,
+      "required": [
+        "old_law_id",
+        "old_content_hash",
+        "recovery_actions"
+      ],
+      "properties": {
+        "old_law_id": {
+          "$ref": "#/$defs/law_id"
+        },
+        "old_content_hash": {
+          "$ref": "#/$defs/digest"
+        },
+        "recovery_actions": {
+          "type": "array",
+          "maxItems": 4,
+          "items": {
+            "$ref": "#/$defs/id"
+          }
         }
       }
     },
@@ -4477,6 +4480,9 @@
             },
             "law_context": {
               "$ref": "#/$defs/retained_workflow_law_context"
+            },
+            "stale_law_revision": {
+              "$ref": "#/$defs/workflow_stale_law_revision"
             },
             "proposal_record": {
               "$ref": "#/$defs/workflow_proposal_record"
@@ -30573,6 +30579,33 @@
           "maxLength": 64,
           "pattern": "^finding:[0-9]+:[0-9]+$",
           "description": "The owner-family finding this newly reproduced alternate entry path is a variant of. A variant is a new identity, not the same open finding."
+        }
+      }
+    },
+    "workflow_review_candidate_view": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "commit"
+      ],
+      "description": "The retained candidate commit, with Project and tree only when recorded. Missing identity fields grant no worker-report or acceptance authority.",
+      "properties": {
+        "project_id": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 128
+        },
+        "commit": {
+          "type": "string",
+          "minLength": 40,
+          "maxLength": 64,
+          "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$"
+        },
+        "tree": {
+          "type": "string",
+          "minLength": 40,
+          "maxLength": 64,
+          "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$"
         }
       }
     }

@@ -40,17 +40,29 @@ if _primary_spec is None or _primary_spec.loader is None:
 _primary_prompts = importlib.util.module_from_spec(_primary_spec)
 _primary_spec.loader.exec_module(_primary_prompts)
 
-ADMITTED_SKILLS = frozenset({"concord-domain-shape-stewardship"})  # CD-0245 D1
 SKILL_REFERENCES = {
-    "shape": ".concord/docs/decisions/CD-0244-domains-own-code-exclusively-and-hold-typed-facts.md",
-    "admission": ".concord/docs/decisions/CD-0245-concord-ships-the-skill-that-operates-its-domain-shape.md",
-    "authority": ".concord/docs/managed-development-authority.md",
-    "publication": ".concord/docs/concord-knowledge-index.md",
-    "facts": "contracts/domain-fact.v1.schema.json",
-    "roots": "contracts/package-domains.v1.schema.json",
-    "tooling": "contracts/project-tooling.v1.schema.json",
-    "protocol": "contracts/domain-shape-check.v1.schema.json",
+    "concord-domain-shape-stewardship": {
+        "shape": ".concord/docs/decisions/CD-0244-domains-own-code-exclusively-and-hold-typed-facts.md",
+        "admission": ".concord/docs/decisions/CD-0245-concord-ships-the-skill-that-operates-its-domain-shape.md",
+        "authority": ".concord/docs/managed-development-authority.md",
+        "publication": ".concord/docs/concord-knowledge-index.md",
+        "facts": "contracts/domain-fact.v1.schema.json",
+        "roots": "contracts/package-domains.v1.schema.json",
+        "tooling": "contracts/project-tooling.v1.schema.json",
+        "protocol": "contracts/domain-shape-check.v1.schema.json",
+    },
+    "concord-law-writing": {
+        "admission": ".concord/docs/decisions/CD-0245-concord-ships-the-skill-that-operates-its-domain-shape.md",
+        "formalization": ".concord/docs/knowledge-formalization-procedure.md",
+        "publication": ".concord/docs/concord-knowledge-index.md",
+        "ownership": ".concord/docs/decisions/CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md",
+        "amendment": ".concord/docs/decisions/CD-0036-breaking-law-cutovers.md",
+        "conflicts": ".concord/docs/decisions/CD-0230-the-conflict-rules-are-one-checked-table-and-an-agent-changes-law-that-is-not-serious.md",
+        "approval": ".concord/docs/decisions/CD-0243-four-roles-and-six-operator-approval-classes.md",
+    },
 }
+ADMITTED_SKILLS = frozenset(SKILL_REFERENCES)  # CD-0245 D1
+SKILL_SUPPORT_FILES = {"concord-law-writing": frozenset({"LICENSE"})}
 SKILL_REFERENCE = re.compile(r"https://github\.com/Sharper-Flow/concord/(?:tree|blob)/([0-9a-f]{40})/([^#\s]+)(?:#[a-z0-9-]+)?")
 
 HOST_PIN = ROOT / ".concord/docs/adapter-host-pin.v1.json"
@@ -724,7 +736,10 @@ def shipped_skill_inventory_findings(skills_dir: Path) -> list[str]:
     """Admission is explicit, including supporting files and empty directories."""
     if skills_dir.is_symlink():
         return ["skills/: symlink is not an admitted skill directory"]
-    expected = {"README.md", *(f"{name}/SKILL.md" for name in ADMITTED_SKILLS)}
+    expected = {
+        "README.md",
+        *(f"{name}/{file}" for name in ADMITTED_SKILLS for file in {"SKILL.md", *SKILL_SUPPORT_FILES.get(name, ())}),
+    }
     directories = {str(parent) for name in expected for parent in Path(name).parents if str(parent) != "."}
     findings: list[str] = []
     present: set[str] = set()
@@ -776,7 +791,7 @@ def shipped_skill_content_findings(content: str, *, skill_name: str, commands: s
             findings.append(f"reference must resolve to pinned public canonical content, not an adopting checkout: {target}")
     if len(revisions) != 1:
         findings.append("canonical references must name one source revision")
-    findings.extend(f"missing canonical {label} reference: {path}" for label, path in SKILL_REFERENCES.items() if path not in references)
+    findings.extend(f"missing canonical {label} reference: {path}" for label, path in SKILL_REFERENCES[skill_name].items() if path not in references)
     return findings
 
 

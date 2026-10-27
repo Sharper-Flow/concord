@@ -1393,6 +1393,9 @@ const GeneratedPayloadSchemaDocument = `{
               "type": "array",
               "uniqueItems": true
             },
+            "stale_law_revision": {
+              "$ref": "#/$defs/workflow_stale_law_revision"
+            },
             "step_actions": {
               "items": {
                 "$ref": "#/$defs/id"
@@ -29480,31 +29483,7 @@ const GeneratedPayloadSchemaDocument = `{
           "type": "boolean"
         },
         "stale_law_revision": {
-          "additionalProperties": false,
-          "properties": {
-            "old_content_hash": {
-              "$ref": "#/$defs/digest"
-            },
-            "old_law_id": {
-              "$ref": "#/$defs/law_id"
-            },
-            "recovery_actions": {
-              "items": {
-                "$ref": "#/$defs/id"
-              },
-              "maxItems": 4,
-              "type": "array"
-            }
-          },
-          "required": [
-            "old_law_id",
-            "old_content_hash",
-            "recovery_actions"
-          ],
-          "type": [
-            "object",
-            "null"
-          ]
+          "$ref": "#/$defs/workflow_stale_law_revision"
         },
         "state": {
           "$ref": "#/$defs/short"
@@ -29700,6 +29679,33 @@ const GeneratedPayloadSchemaDocument = `{
       ],
       "type": "object"
     },
+    "workflow_review_candidate_view": {
+      "additionalProperties": false,
+      "description": "The retained candidate commit, with Project and tree only when recorded. Missing identity fields grant no worker-report or acceptance authority.",
+      "properties": {
+        "commit": {
+          "maxLength": 64,
+          "minLength": 40,
+          "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$",
+          "type": "string"
+        },
+        "project_id": {
+          "maxLength": 128,
+          "minLength": 2,
+          "type": "string"
+        },
+        "tree": {
+          "maxLength": 64,
+          "minLength": 40,
+          "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "commit"
+      ],
+      "type": "object"
+    },
     "workflow_review_state": {
       "additionalProperties": false,
       "properties": {
@@ -29748,7 +29754,7 @@ const GeneratedPayloadSchemaDocument = `{
               "type": "null"
             },
             {
-              "$ref": "#/$defs/lane_report_review_candidate"
+              "$ref": "#/$defs/workflow_review_candidate_view"
             }
           ]
         },
@@ -29871,6 +29877,33 @@ const GeneratedPayloadSchemaDocument = `{
         "evidence_refs"
       ],
       "type": "object"
+    },
+    "workflow_stale_law_revision": {
+      "additionalProperties": false,
+      "properties": {
+        "old_content_hash": {
+          "$ref": "#/$defs/digest"
+        },
+        "old_law_id": {
+          "$ref": "#/$defs/law_id"
+        },
+        "recovery_actions": {
+          "items": {
+            "$ref": "#/$defs/id"
+          },
+          "maxItems": 4,
+          "type": "array"
+        }
+      },
+      "required": [
+        "old_law_id",
+        "old_content_hash",
+        "recovery_actions"
+      ],
+      "type": [
+        "object",
+        "null"
+      ]
     },
     "workflow_verdict_batch_entry": {
       "additionalProperties": false,

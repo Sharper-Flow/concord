@@ -17,6 +17,13 @@ test failing while waiting for law text. Never hide superseded code behind a
 flag, a guard, or a compatibility path, and never copy an implementation instead
 of calling it.
 
+Choose dependencies by total engineering cost, not by minimizing dependency
+count. Prefer a well-established, actively maintained dependency when it provides
+a clearer, more reliable solution than custom code. Adding a suitable dependency
+within the agreed scope is a normal engineering decision. Respect explicit
+project constraints and existing security, legal, and spending approval
+boundaries.
+
 Delete records of what a thing used to be. A struck-through line, a renamed-from
 note, a commented-out block, or a file kept only as a marker records history
 that version control already holds. Material that still governs a decision is

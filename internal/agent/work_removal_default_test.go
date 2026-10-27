@@ -286,9 +286,9 @@ func TestDefaultCheckoutShelvingApprovalRollbackAndBindings(t *testing.T) {
 		{"digest", func(e *CallEnvelope) { a := *e.HostApproval; a.RequestDigest = "sha256:other"; e.HostApproval = &a }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			copy := env
-			tc.change(&copy)
-			out := removalDispatch(t, s, service, copy, in)
+			changed := env
+			tc.change(&changed)
+			out := removalDispatch(t, s, service, changed, in)
 			if out.Error == nil || out.Error.Kind != "approval_invalid" {
 				t.Fatalf("binding: %+v", out.Error)
 			}
@@ -321,13 +321,13 @@ func TestDefaultCheckoutShelvingApprovalRollbackAndBindings(t *testing.T) {
 		{"scope", func(e *CallEnvelope, _ map[string]any) { e.SelectedProductID = "other-product" }},
 	} {
 		t.Run("replay "+tc.name, func(t *testing.T) {
-			copy := env
+			changed := env
 			input := map[string]any{}
 			for k, v := range in {
 				input[k] = v
 			}
-			tc.change(&copy, input)
-			out := removalDispatch(t, s, service, copy, input)
+			tc.change(&changed, input)
+			out := removalDispatch(t, s, service, changed, input)
 			if out.Error == nil || out.Error.Kind == "approval_required" {
 				t.Fatalf("changed replay: %+v", out)
 			}

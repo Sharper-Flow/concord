@@ -149,7 +149,11 @@ func repositoryRootForTest(t *testing.T) string {
 	if _, err := os.Stat(filepath.Join(root, "scripts/generate-knowledge-index.py")); err != nil {
 		root = filepath.Join("..", "..")
 	}
-	return root
+	abs, err := filepath.Abs(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return abs
 }
 
 // TestComposeKnowledgeManifestReadsTheLiveShards proves the committed shard

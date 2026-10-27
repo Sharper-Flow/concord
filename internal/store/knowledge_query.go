@@ -464,10 +464,7 @@ func queryQ10(ctx context.Context, db *sql.DB, req Q10Request) (Q10Result, error
 			return out, err
 		}
 	}
-	payload := &Q10Payload{Status: "canonical", Note: &note, SuccessorID: successor}
-	if law := KnowledgeLawStatus(kind, status); law != "" {
-		payload.LawStatus = law
-	}
+	payload := &Q10Payload{Status: "canonical", Note: &note, SuccessorID: successor, LawStatus: KnowledgeLawStatus(kind, status)}
 	out.Status, out.Note, out.Result = "canonical", &note, payload
 	// Manifest lookup proves the indexed law at its recorded commit; that does
 	// not make it an explicit historical read. Archived work notes do carry

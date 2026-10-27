@@ -1,4 +1,4 @@
-# CD-0247: Footprint checks bind to executable owners and use existing verification
+# CD-0248: Footprint checks bind to executable owners and use existing verification
 
 - **Status:** Accepted
 - **Date:** 2026-10-27

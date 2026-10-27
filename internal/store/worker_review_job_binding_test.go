@@ -103,6 +103,55 @@ func TestFinalReviewRefusesSupersededAnchorRevision(t *testing.T) {
 	}
 }
 
+// CD-0205 D2: when accepted implementation attempts of two different jobs
+// both delivered the current candidate, the anchor is ambiguous and Review
+// binds neither; the core invents no choice.
+func TestFinalReviewRefusesAmbiguousDeliveryAnchors(t *testing.T) {
+	workID := "final-review-ambiguous"
+	f := seedOracleRepairFixture(t, workID)
+	s := f.store
+	defer s.Close()
+	// Each job's declared outcome already holds on the qualified candidate,
+	// so each accepted result delivers that same candidate without a change.
+	var receipts []WorkerOracleReceipt
+	acceptNoChange := func(jobID string, reviewFirst bool) WorkerJobBinding {
+		t.Helper()
+		job := recordOracleJobRevision(t, s, workID, f.owner, jobID, twoPathOracleFields(t, s, workID, nil))
+		if reviewFirst {
+			// Progression past an installed candidate needs a permitting
+			// Review bound to this job (CD-0205 D3).
+			oAcceptOracleFixtureReview(t, f, workID, "continue")
+		}
+		attempt := "attempt:" + jobID
+		subject := dispatchChangeAcceptanceAttempt(t, f, workID, attempt, job)
+		if receipts == nil {
+			receipts, _ = noChangeOutcomeReceipts(t, f, workID, true)
+		}
+		completeChangeAcceptanceAttempt(t, f, workID, attempt, subject, func(p *WorkerCompletedPayload) {
+			appendNoChangeReceipts(p, receipts)
+		})
+		if err := acceptChangeTestAttempt(t, f, workID, attempt); err != nil {
+			t.Fatalf("accept %s: %v", jobID, err)
+		}
+		return job
+	}
+	first := acceptNoChange("job:final-review-first", false)
+	ctx := context.Background()
+	q := s.DatabaseForTesting()
+	if final, err := finalReviewWorkerJobTx(ctx, q, workID); err != nil || final == nil || *final != first {
+		t.Fatalf("final Review binding over one delivery anchor = %#v, %v; want %#v", final, err, first)
+	}
+	second := acceptNoChange("job:final-review-second", true)
+	if final, err := finalReviewWorkerJobTx(ctx, q, workID); err != nil || final != nil {
+		t.Fatalf("final Review binding over two delivery anchors = %#v, %v; want none", final, err)
+	}
+	for _, binding := range []WorkerJobBinding{first, second} {
+		if err := requireWorkerReviewJobRevisionStateTx(ctx, q, workID, binding); err == nil || !strings.Contains(err.Error(), "is not ready") {
+			t.Fatalf("Review admission of %s beside another anchor = %v, want the readiness refusal", binding.JobID, err)
+		}
+	}
+}
+
 // CD-0205 D1: Review execution consumes only its authorization's frozen
 // preparation; other lanes, and authorizations recorded without a mapping,
 // keep the recorded-reference rule.

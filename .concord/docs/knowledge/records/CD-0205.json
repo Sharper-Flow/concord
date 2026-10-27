@@ -23,7 +23,10 @@
     "internal/store/workflow_admission_conformance_test.go",
     "internal/store/workflow_admission_liveness_test.go",
     "adapter/opencode/packet.ts",
-    "adapter/opencode/packet.test.ts"
+    "adapter/opencode/packet.test.ts",
+    "internal/store/worker_review_job_binding.go",
+    "internal/store/worker_review_job_binding_test.go",
+    "internal/store/worker_review_preparation.go"
   ],
   "home_domain_id": "workflow-engine",
   "id": "CD-0205",

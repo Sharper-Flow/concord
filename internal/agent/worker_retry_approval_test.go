@@ -61,7 +61,7 @@ func TestWorkerRetryWithoutConsentKeepsFreshIdentityAndReplay(t *testing.T) {
 
 func TestWorkerRetryRequiresTerminalReconciliationAndCurrentPacket(t *testing.T) {
 	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_transition", "worker_dispatch"})
-	grant.Worktree = seedWorkerRetryMutationFixture(t, s, service, grant)
+	grant.Worktree = seedWorkerRetryMutationFixture(t, s, grant)
 	scopeVersion, _, err := s.ScopeVersion(context.Background(), "project-1")
 	if err != nil {
 		t.Fatal(err)
@@ -126,7 +126,7 @@ func TestWorkerRetryRequiresTerminalReconciliationAndCurrentPacket(t *testing.T)
 	}
 }
 
-func seedWorkerRetryMutationFixture(t *testing.T, s *store.Store, service *Service, grant Authority) string {
+func seedWorkerRetryMutationFixture(t *testing.T, s *store.Store, grant Authority) string {
 	t.Helper()
 	registered, err := store.BuiltinWorkflowDefinitionForRef("workflow.implementation")
 	if err != nil {
@@ -215,7 +215,7 @@ func agentWorkerFailedAttributedEvent(eventID string, payload store.WorkerFailed
 
 func seedFailedWorkerRetryMutation(t *testing.T, s *store.Store, service *Service, grant Authority) (int64, string, string) {
 	t.Helper()
-	path := seedWorkerRetryMutationFixture(t, s, service, grant)
+	path := seedWorkerRetryMutationFixture(t, s, grant)
 	grant.Worktree = path
 	attemptID := "attempt:work-1:failed"
 	scopeVersion, _, err := s.ScopeVersion(context.Background(), "project-1")

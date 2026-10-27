@@ -308,21 +308,12 @@ func proveDomainShapeReadingTooling(ctx context.Context, runner GitRunner, repo 
 }
 
 // This is the immutable equivalent of domainShapeGoverningLawTx's join: accepted
-// law must have a home, and match a selected Domain or ancestor, applicability,
+// law must have a home, and match a selected Domain by home or applicability,
 // or an explicit fact citation. Metadata comes only from the pinned manifest.
 func domainShapeManifestGoverningLaw(manifest KnowledgeManifest, selection DomainShapeResult) []DomainLawRecord {
-	parents := map[string]string{}
-	for _, domain := range manifest.DomainRegistry.Domains {
-		parents[domain.DomainID] = domain.ParentDomainID
-	}
 	governing := map[string]bool{}
 	for _, domain := range selection.DomainIDs {
-		for id := domain; id != "" && !governing[id]; id = parents[id] {
-			if _, exists := parents[id]; !exists {
-				break
-			}
-			governing[id] = true
-		}
+		governing[domain] = true
 	}
 	explicit := map[string]bool{}
 	for _, item := range selection.Facts {

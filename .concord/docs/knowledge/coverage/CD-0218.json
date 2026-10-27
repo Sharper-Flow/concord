@@ -1,5 +1,5 @@
 {
   "id": "CD-0218",
-  "reason": "Criterion4 now distinguishes unchanged retained definitions, digests, actors, subjects and evidence from typed collected-state absence. internal/store.TestPublishedExecutionAbsenceReaders and internal/store.TestPublishedClassificationOnlyAbsenceReaders are candidate collected-state witnesses; retained-definition witnesses remain required. Existing authoring, diagnosis, retry, readiness, completion, stale-recovery and failure-disposition witnesses remain named in the decision and its record evidence paths. The revised retained/collected boundary has not been proved on the implementing subject, so full coverage remains unmeasured.",
-  "state": "unmeasured"
+  "issue": "CON-1387",
+  "state": "outstanding"
 }

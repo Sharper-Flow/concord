@@ -6,7 +6,7 @@
     },
     {
       "kind": "go_test",
-      "value": "internal/agent.TestSameProductSiblingMembershipMutationPassesApprovalChallenge"
+      "value": "internal/agent.TestSameProductSiblingMembershipMutationNeedsNoConsent"
     },
     {
       "kind": "go_test",

@@ -99,12 +99,9 @@ func TestTerminalCleanupAfterCompactionSettlement(t *testing.T) {
 				env := agentJobsMutationEnvelope(t, s, grant, "proj-api")
 				input, _ := json.Marshal(map[string]any{"operation_id": operationID, "expected_operation_version": 1, "idempotency_key": "cleanup-reconcile"})
 				if route == "cached_publish" || route == "claimed_publish" {
-					var approvalRef string
-					if err := s.DatabaseForTesting().QueryRow(`SELECT challenge_ref FROM agent_approval_challenges WHERE consequence='publication'`).Scan(&approvalRef); err != nil {
-						t.Fatal(err)
-					}
-					request, approvedEnvelope := publication.approvedBy(t, key, approvalRef)
-					input, env = request.Input, approvedEnvelope
+					// CD-0243 D3/D7 retire publication-only consent, not
+					// reviewed-content or cleanup gates. Replay the original request.
+					input, env = publication.input, publication.env
 					if route == "cached_publish" {
 						response = dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_compact", Operation: "publish", Input: input}, env)
 					} else {

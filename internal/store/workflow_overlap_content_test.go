@@ -16,6 +16,7 @@ func overlapContentFixture(t *testing.T) (*Store, WorkflowArchitectureBinding, s
 	s, _, binding, _, _, _ := architectureValidationFixture(t, "content-left")
 	overlapFixtureExec(t, s, `INSERT INTO domains(home_project_id,home_locator_id,product_id,domain_id,name,purpose,status,registry_content_hash,scanned_commit_oid) SELECT home_project_id,home_locator_id,product_id,'extra','Extra','Synthetic Domain',status,registry_content_hash,scanned_commit_oid FROM domains WHERE domain_id='child'`)
 	seedWork(t, s, "content-right")
+	overlapFixtureExec(t, s, `UPDATE work_items SET intent_json=json_set(intent_json,'$.governing_requirements',json('[]')) WHERE id IN ('content-left','content-right')`)
 	actor, _ := seedProductChangingContract(t, s, "content-left", binding)
 	seedProductChangingContract(t, s, "content-right", binding)
 	ref, err := WorkflowActorRef(actor)

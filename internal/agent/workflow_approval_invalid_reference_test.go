@@ -38,7 +38,7 @@ func TestWorkflowActionRefusesAnInvalidApprovalReference(t *testing.T) {
 			if got := advanceCapturedWorkToContract(t, s, service, env, "work-1", "wf-advance"); got != 8 {
 				t.Fatalf("pre-contract version=%d, want 8", got)
 			}
-			input := workflowContractActionInput(t, "wf-approve-invalid-ref", testCase.ref)
+			input := workflowContractActionInput(t, s, "wf-approve-invalid-ref", testCase.ref)
 			digest := mutationDigest("concord_work_transition", "workflow_action", env, input)
 			scope := map[string]any{"product_id": "product-1", "project_ids": []string{"project-1"}, "work_ids": []string{"work-1"}, "scope_version": scopeVersion}
 			env.HostApproval = signedHostApproval(privateKey, testCase.ref, digest, scope, map[string]any{"work": 8}, grant.SessionRef, grant.AgentRef, grant.Worktree, fixedTime(), "workflow-invalid-ref-0001")

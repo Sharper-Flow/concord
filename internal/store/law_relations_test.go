@@ -253,6 +253,7 @@ func TestLawBoundaryVersionGatesV22(t *testing.T) {
 		t.Helper()
 		s := openTemp(t)
 		seedWork(t, s, workID)
+		seedWorkflowLaw(t, s)
 		actor := DeriveWorkflowActorRef("principal/operator", "client/concord-1", "agent/runner", "session/law-boundary")
 		digest := workflowFixtureDigest(t)
 		events := []Event{
@@ -265,7 +266,10 @@ func TestLawBoundaryVersionGatesV22(t *testing.T) {
 		return s, actor
 	}
 	approve := func(s *Store, workID, actor string) error {
-		ctx := context.Background()
+		ctx, err := s.EstablishKnowledgeSourceSetProof(t.Context(), workID)
+		if err != nil {
+			return err
+		}
 		tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
 		if err != nil {
 			return err
@@ -288,7 +292,6 @@ func TestLawBoundaryVersionGatesV22(t *testing.T) {
 	}
 	t.Run("2.2 contract fails unknown law before persistence", func(t *testing.T) {
 		s, actor := setup(t, "law-boundary-unknown")
-		seedWorkflowLaw(t, s)
 		if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); DELETE FROM law_subjects; DELETE FROM write_guard`); err != nil {
 			t.Fatal(err)
 		}
@@ -302,7 +305,6 @@ func TestLawBoundaryVersionGatesV22(t *testing.T) {
 	})
 	t.Run("2.2 contract passes accepted Git law projection", func(t *testing.T) {
 		s, actor := setup(t, "law-boundary-valid")
-		seedWorkflowLaw(t, s)
 		if err := approve(s, "law-boundary-valid", actor); err != nil {
 			t.Fatal(err)
 		}

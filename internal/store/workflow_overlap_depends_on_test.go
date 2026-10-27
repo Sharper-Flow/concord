@@ -10,8 +10,8 @@ import (
 // A depends_on resolution records its own authority: the declarer waits and
 // the peer proceeds, so the fold accepts it with no approval reference.
 // compatible_with and blocks are routine coordination answers that settle
-// without consent too. merged_into and supersedes change another item's
-// admission or identity, and the live writer refuses an unsigned resolution.
+// without consent too. CD-0243 D3/D7 retire kind-only consent for merged_into
+// and supersedes; endpoint versions and atomic lifecycle changes still apply.
 func TestWorkflowDomainOverlapDependsOnCarriesOwnAuthority(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -67,17 +67,41 @@ func TestWorkflowDomainOverlapDependsOnCarriesOwnAuthority(t *testing.T) {
 		}
 	}
 
-	// merged_into and supersedes keep their live unsigned refusals: no
-	// operator approved another item's admission.
-	sRefusal, refusalActor := seedOverlapProjection(t, "seq-self-terminal-source", "seq-self-terminal-target", false)
 	for _, kind := range []string{ResolutionMergedInto, ResolutionSupersedes} {
-		if err := resolve(sRefusal, refusalActor, "seq-self-"+kind, kind, "seq-self-terminal-source", "seq-self-terminal-target", "unapproved authority claim", 2, 2); err == nil {
-			t.Fatalf("unapproved %s resolution must refuse: no operator approved another item's admission", kind)
-		} else {
-			var refusal *Failure
-			if !errors.As(err, &refusal) || refusal.Kind != KindInvalidPayload {
-				t.Fatalf("unapproved %s refusal kind=%v, want invalid_payload: %v", kind, refusal, err)
+		t.Run(kind, func(t *testing.T) {
+			sTerminal, terminalActor := seedOverlapProjection(t, "seq-self-terminal-source", "seq-self-terminal-target", false)
+			for _, versions := range [][2]int64{{1, 2}, {2, 1}} {
+				err := resolve(sTerminal, terminalActor, "seq-stale-"+kind, kind, "seq-self-terminal-source", "seq-self-terminal-target", "stale endpoint", versions[0], versions[1])
+				var refusal *Failure
+				if !errors.As(err, &refusal) || refusal.Kind != KindVersionConflict {
+					t.Fatalf("stale %s endpoint %v = %v, want version conflict", kind, versions, err)
+				}
 			}
-		}
+			if err := resolve(sTerminal, terminalActor, "seq-self-"+kind, kind, "seq-self-terminal-source", "seq-self-terminal-target", "combine duplicate work", 2, 2); err != nil {
+				t.Fatalf("ordinary %s resolution without consent: %v", kind, err)
+			}
+			terminalWork, state := "seq-self-terminal-source", "superseded"
+			if kind == ResolutionSupersedes {
+				terminalWork, state = "seq-self-terminal-target", "superseded"
+			}
+			for _, workID := range []string{"seq-self-terminal-source", "seq-self-terminal-target"} {
+				var lifecycle string
+				var version int64
+				if err := sTerminal.db.QueryRow(`SELECT lifecycle,version FROM work_items WHERE id=?`, workID).Scan(&lifecycle, &version); err != nil {
+					t.Fatal(err)
+				}
+				want := "in_progress"
+				if workID == terminalWork {
+					want = state
+				}
+				if lifecycle != want || version != 3 {
+					t.Fatalf("%s = %s v%d, want %s v3", workID, lifecycle, version, want)
+				}
+			}
+			var approval string
+			if err := sTerminal.db.QueryRow(`SELECT approval_ref FROM workflow_overlap_resolutions WHERE resolution_kind=?`, kind).Scan(&approval); err != nil || approval != "" {
+				t.Fatalf("ordinary overlap approval = %q err=%v", approval, err)
+			}
+		})
 	}
 }

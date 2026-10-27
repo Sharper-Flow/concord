@@ -21,6 +21,14 @@ func TestWorkflowDeclaredDocumentEffects(t *testing.T) {
 				defer s.Close()
 				const workID = "work-declared-document"
 				seedWork(t, s, workID)
+				if actionID == "record_design" {
+					seedWorkflowLaw(t, s)
+					seedIssue31DomainRegistry(t, s)
+				}
+				ctx, err := s.EstablishKnowledgeSourceSetProof(ctx, workID)
+				if err != nil {
+					t.Fatal(err)
+				}
 				encoded, err := json.Marshal(currentWorkflowDefinition(t))
 				if err != nil {
 					t.Fatal(err)
@@ -84,8 +92,6 @@ func TestWorkflowDeclaredDocumentEffects(t *testing.T) {
 					if _, err := apply("record_alignment", `{"searched":"The bounded work inventory.","outcome":"none_found"}`, "prepare-alignment"); err != nil {
 						t.Fatal(err)
 					}
-					seedWorkflowLaw(t, s)
-					seedIssue31DomainRegistry(t, s)
 					binding := corpusArchitectureBinding()
 					binding["home_domain_id"], binding["affected_domain_ids"] = "root", []string{"root"}
 					approval := mustJSONValue(map[string]any{"premise": "The declared document serves the accepted outcome.", "decision_domains": []string{},

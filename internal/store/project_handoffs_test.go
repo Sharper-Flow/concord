@@ -136,7 +136,11 @@ func setupProjectHandoffFixture(t *testing.T) projectHandoffFixture {
 // the Project's claim locator and this law locator distinct.
 func seedProjectHandoffLaw(t *testing.T, s *Store, productID, projectID string) {
 	t.Helper()
-	locatorPath := t.TempDir()
+	locatorPath := initKnowledgeRepo(t)
+	rootDomainID := "product-root:" + productID
+	writeKnowledgeFile(t, locatorPath, ".concord/docs/knowledge/domain-registry.json", fmt.Sprintf(`{"schema_version":"1.0","product_key":%q,"root_domain_id":%q,"domains":[{"domain_id":%q,"name":"Root","purpose":"Synthetic law","status":"current","architecture_relations":[]}]}`+"\n", productID, rootDomainID, rootDomainID))
+	writeKnowledgeFile(t, locatorPath, ".concord/docs/knowledge/manifest.json", "{\"schema_version\":\"1.2\",\"supported_kinds\":[\"decision\",\"spec\"],\"indexed_kinds\":[\"decision\",\"spec\"]}\n")
+	writeKnowledgeFile(t, locatorPath, ".concord/docs/spec.md", "# Synthetic test law\n")
 	normalized, err := NormalizeProjectLocator(LocatorCanonicalPath, locatorPath)
 	if err != nil {
 		t.Fatal(err)
@@ -153,10 +157,23 @@ func seedProjectHandoffLaw(t *testing.T, s *Store, productID, projectID string) 
 	if _, err := s.DatabaseForTesting().Exec(fmt.Sprintf(`INSERT INTO write_guard(active) VALUES(1); INSERT INTO product_knowledge_homes(product_id,project_id,locator_id) VALUES('%s','%s','%s'); INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('%s','%s','%s','spec','accepted','.concord/docs/spec.md','Synthetic test law','sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa','test'); DELETE FROM write_guard`, productID, projectID, "ph-law-locator", projectID, "ph-law-locator", "spec:one")); err != nil {
 		t.Fatal(err)
 	}
+	commit := commitKnowledgeRepo(t, locatorPath, "synthetic handoff law source")
+	home := KnowledgeHome{HomeProjectID: projectID, HomeLocatorID: "ph-law-locator", RepoPath: locatorPath, HeadRef: "HEAD"}
+	digest, err := knowledgeContentDigest(t.Context(), home, commit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest, err = domainShapeKnowledgeDigest(t.Context(), home, commit, digest, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); INSERT INTO knowledge_index_watermark(home_project_id,home_locator_id,head_ref,scanned_commit_oid,scanned_content_digest,scanned_at,complete,projection_version) VALUES(?,?,'HEAD',?,?,'test',1,?); DELETE FROM write_guard`, projectID, "ph-law-locator", commit, digest, knowledgeProjectionVersion); err != nil {
+		t.Fatal(err)
+	}
 }
 
-// seedProjectHandoffContract records one active workflow contract on the
-// shared work item, mirroring the laneless research seed's event chain.
+// seedProjectHandoffContract initializes the shared work item's research
+// workflow before recording its active contract.
 func seedProjectHandoffContract(t *testing.T, s *Store, workID string, workVersion int64) {
 	t.Helper()
 	owner := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/coordinator", SessionRef: "session/source", ActorClass: ActorAgent}
@@ -168,14 +185,21 @@ func seedProjectHandoffContract(t *testing.T, s *Store, workID string, workVersi
 	if !ok {
 		t.Fatal("workflow.research v5 is not registered")
 	}
+	ctx, err := s.EstablishKnowledgeSourceSetProof(context.Background(), workID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Transact(ctx, func(tx *Transaction) error {
+		return InitializeWorkflowTx(ctx, tx, WorkflowInitializationRequest{WorkID: workID, Definition: definition, Actor: owner, Now: time.Date(2026, 8, 9, 0, 0, 0, 0, time.UTC)})
+	}); err != nil {
+		t.Fatal(err)
+	}
 	setup := []Event{
-		workflowEventWithActor("ph-actor-"+workID, WorkflowActorRecorded, workID, ownerRef, map[string]any{"work_id": workID, "expected_version": workVersion, "resulting_version": workVersion + 1, "actor_ref": ownerRef, "principal_ref": owner.PrincipalRef, "client_ref": owner.ClientRef, "agent_ref": owner.AgentRef, "session_ref": owner.SessionRef, "actor_class": "agent"}),
-		workflowEventWithActor("ph-definition-"+workID, WorkflowDefinitionSelected, workID, ownerRef, map[string]any{"work_id": workID, "expected_version": workVersion + 1, "resulting_version": workVersion + 2, "ref": definition.Definition.Ref, "digest": definition.Digest, "work_kind": string(definition.Definition.WorkKind)}),
 		workflowEventWithActor("ph-contract-"+workID, WorkflowContractApproved, workID, ownerRef, map[string]any{"work_id": workID, "expected_version": workVersion + 2, "resulting_version": workVersion + 3, "contract_version": 1, "premise": "cross-project handoff fixture", "decision_domains": []string{}, "outcome_kind": "outcome", "outcome_payload": map[string]any{"kind": "outcome", "allowed": []string{"report_recorded"}}, "outcome_predicates": []map[string]any{{"predicate_id": "predicate:handoff-fixture-exit", "ordinal": 0, "outcome_kind": "outcome", "outcome_payload": map[string]any{"kind": "outcome", "allowed": []string{"report_recorded"}}}}, "required_evidence": []string{"artifact"}, "route_conventions": []string{}, "spec_mandate": []string{}, "rigor_class": "prototype_internal", "consequence_class": "internal_sqlite"}),
 		workflowActionCompletedFixture("ph-approval-"+workID, workID, ownerRef, workVersion+3, "frame", "approve_contract"),
 	}
-	setup[2].PayloadVersion = eventKindRegistry[WorkflowContractApproved].CurrentVersion
-	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: setup, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): workVersion}}); err != nil {
+	setup[0].PayloadVersion = eventKindRegistry[WorkflowContractApproved].CurrentVersion
+	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: setup, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): workVersion + 2}}); err != nil {
 		t.Fatal(err)
 	}
 }

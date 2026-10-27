@@ -444,6 +444,10 @@ func TestBackupRestorePreservesLivingEvidence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	ctx, err = s.EstablishKnowledgeSourceSetProof(ctx, contextWork)
+	if err != nil {
+		t.Fatal(err)
+	}
 	contextTx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
 	if err != nil {
 		t.Fatal(err)

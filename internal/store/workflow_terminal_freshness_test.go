@@ -11,6 +11,13 @@ import (
 )
 
 func prepareTerminalTestContext(ctx context.Context, s *Store, workID, action string) (context.Context, error) {
+	if action == "approve_contract" || action == "supersede_contract" || action == "complete" {
+		verified, err := s.EstablishKnowledgeSourceSetProof(ctx, workID)
+		if err != nil {
+			return ctx, err
+		}
+		ctx = verified
+	}
 	if !WorkflowActionRequiresSubjectFreshness(action) {
 		return ctx, nil
 	}

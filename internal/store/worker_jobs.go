@@ -847,6 +847,18 @@ func markAcceptedWorkerJobTx(ctx context.Context, tx *sql.Tx, event Event, p wor
 	if workerReviewContinuesJob(auth, result) {
 		return applyAcceptWorkerResultCorrectionTx(ctx, tx, event, p)
 	}
+	// Each terminal result is accepted once (CD-0242 D6): the first acceptance
+	// stays the revision's satisfaction, so prerequisites pinned to it stay
+	// current through a repeated acceptance of the same attempt (CD-0242 D7).
+	var firstAccepted bool
+	if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM worker_job_revisions j JOIN worker_attempt_dispositions d ON d.work_id=j.work_id AND d.attempt_id=? AND d.action_id='accept_worker_result'
+WHERE j.work_id=? AND j.job_id=? AND j.revision=? AND j.digest=? AND j.state='satisfied' AND j.satisfied_seq=d.first_acceptance_seq)`,
+		p.WorkerAttemptID, event.SubjectID, p.WorkerJob.JobID, p.WorkerJob.Revision, p.WorkerJob.Digest).Scan(&firstAccepted); err != nil {
+		return wrapFailure(KindUnavailable, "fold_event", "cannot read the worker-job satisfaction's first acceptance", true, "retry once the worker-job projection is readable", err)
+	}
+	if firstAccepted {
+		return applyAcceptWorkerResultCorrectionTx(ctx, tx, event, p)
+	}
 	if err := markWorkerJobSatisfiedTx(ctx, tx, event, p.WorkerJob); err != nil {
 		return err
 	}

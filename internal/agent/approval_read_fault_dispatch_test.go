@@ -87,17 +87,34 @@ func TestApprovedCallWithoutAHostAssertionRefusesApprovalInvalid(t *testing.T) {
 	}
 }
 
-// approvalConsumingCalls names one operation per consumeApprovalTx caller:
-// the two that return the consume error to the dispatcher and the four that
-// render it inside the mutation.
+// CD-0243 D3/D7 retire ordinary publication, retirement, and membership
+// consent. Keep approval fault coverage on the surviving consumers.
 func approvalConsumingCalls() []approvalConsumingCall {
 	return []approvalConsumingCall{
 		{"workflow action", workflowActionApprovalCall},
-		{"knowledge publication", knowledgePublicationApprovalCall},
-		{"research retirement", researchRetirementApprovalCall},
 		{"product project link", productProjectLinkApprovalCall},
 		{"client policy grant", clientPolicyGrantApprovalCall},
+	}
+}
+
+func TestOrdinaryCoordinationDoesNotReadApprovalRecords(t *testing.T) {
+	for _, call := range []approvalConsumingCall{
+		{"knowledge publication", knowledgePublicationApprovalCall},
+		{"research retirement", researchRetirementApprovalCall},
 		{"work memberships", workMembershipsApprovalCall},
+	} {
+		t.Run(call.name, func(t *testing.T) {
+			s, service, env, request := call.setup(t)
+			execFixtureSQL(t, s, `ALTER TABLE agent_approvals RENAME COLUMN revoked_at TO revoked_at_unreadable`)
+			response, err := Dispatch(context.Background(), s, service, request, env)
+			execFixtureSQL(t, s, `ALTER TABLE agent_approvals RENAME COLUMN revoked_at_unreadable TO revoked_at`)
+			if err != nil || response.Outcome != OutcomeOK {
+				t.Fatalf("ordinary call error=%+v err=%v", response.Error, err)
+			}
+			if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM agent_approval_challenges`); got != 0 {
+				t.Fatalf("ordinary call minted %d approval challenges", got)
+			}
+		})
 	}
 }
 
@@ -149,7 +166,7 @@ func workflowActionApprovalCall(t *testing.T) (*store.Store, *Service, CallEnvel
 	if got := advanceCapturedWorkToContract(t, s, service, env, "work-1", "wf-advance"); got != 8 {
 		t.Fatalf("pre-contract version=%d, want 8", got)
 	}
-	return s, service, env, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: workflowContractActionInput(t, "wf-approve-read-fault", "")}
+	return s, service, env, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: workflowContractActionInput(t, s, "wf-approve-read-fault", "")}
 }
 
 func knowledgePublicationApprovalCall(t *testing.T) (*store.Store, *Service, CallEnvelope, InvokeRequest) {
@@ -161,8 +178,7 @@ func knowledgePublicationApprovalCall(t *testing.T) (*store.Store, *Service, Cal
 func researchRetirementApprovalCall(t *testing.T) (*store.Store, *Service, CallEnvelope, InvokeRequest) {
 	s, service, grant, candidates := researchRetireFixture(t, []agentcontract.Capability{"product_read", "research"})
 	ctx := context.Background()
-	// A second-Product member makes the retirement cross-Product, which is
-	// what requires operator approval.
+	// Exercise cross-Product retirement as ordinary coordination.
 	event := store.Event{EventID: "cross-retire-owner", Kind: "work.memberships_replaced", SubjectType: store.SubjectWorkItem, SubjectID: "retire-owner-0", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"memberships":[{"project_id":"project-1","role":"primary"},{"project_id":"project-2","role":"secondary"}],"expected_version":3,"resulting_version":4}`)}
 	if err := store.ApplyOperation(ctx, s, store.Operation{Events: []store.Event{event}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, "retire-owner-0"): 3}}); err != nil {
 		t.Fatal(err)

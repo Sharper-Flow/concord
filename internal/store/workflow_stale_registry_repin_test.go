@@ -138,8 +138,6 @@ func registryRepinSuccessorPayload(contractVersion int64, registryHash, workID s
 	}
 	if len(domainModifies) != 0 {
 		fields["law_change_reason"] = "keep the approved Domain authority under the rescanned registry"
-		fields["law_change_removes_user_visible_behavior"] = false
-		fields["law_change_touches_security_or_data_safety"] = false
 	}
 	return mustJSONValue(fields)
 }
@@ -291,16 +289,38 @@ func TestStaleRegistryRescanLetsAcceptWorkerResultRecord(t *testing.T) {
 // TestStaleRegistryRescanHoldsLateVerdictUntilRePin proves a stale contract
 // pin strands a late verdict behind the staleness boundary: an item past its
 // verification step with a missing verdict admits the late record_verdict
-// recovery only through the boundary, so a verdict never records under a pin
-// the rescan stranded. The recovery refuses on the owning transaction and on
-// the admission inspection, the accepted successor law re-pins through the
+// recovery only through the boundary, so a verdict never records under a
+// retained pin to a law already deleted before the owning start. The recovery
+// refuses on the owning transaction and on the admission inspection, the
+// accepted successor law re-pins through the
 // ordinary stale recovery, and the held receipt association records under the
 // re-pinned contract afterwards. Research's complete step owns the late recovery.
 func TestStaleRegistryRescanHoldsLateVerdictUntilRePin(t *testing.T) {
 	const workID = "stale-registry-late-verdict"
-	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.research", "complete")
+	// The replacement predates this item's owning start. Its retained contract
+	// still pins the deleted law, so this tests stale-pin recovery, not attribution
+	// of a post-start deletion to an uncompleted peer.
+	fixture := seedWorkflowReturnRouteFixtureWithSource(t, workID, legacyApprovalPolicyDefinitionForRef(t, "workflow.research"), "complete", []string{"verification"}, []string{"verification", "review", "artifact"}, func(s *Store) {
+		execStaleRegistryInFold(t, s,
+			`DELETE FROM law_domain_homes WHERE law_id='spec:one'`,
+			`DELETE FROM law_subjects WHERE home_project_id='project' AND home_locator_id='workflow-law-locator' AND law_id='spec:one'`,
+			`INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('project','workflow-law-locator','spec:two','spec','accepted','.concord/docs/spec-two.md','Synthetic successor law','sha256:`+strings.Repeat("b", 64)+`','test')`,
+			`INSERT INTO law_domain_homes(home_project_id,home_locator_id,law_id,product_id,domain_id,law_content_hash,scanned_commit_oid,product_wide_rationale) VALUES('project','workflow-law-locator','spec:two','product','root','sha256:`+strings.Repeat("b", 64)+`','test','')`,
+		)
+	})
 	s, owner := fixture.store, fixture.owner
 	defer s.Close()
+	var startBaseline string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT baseline_json FROM workflow_law_baselines WHERE work_id=?`, workID).Scan(&startBaseline); err != nil {
+		t.Fatal(err)
+	}
+	var baseline workflowLawBaseline
+	if err := json.Unmarshal([]byte(startBaseline), &baseline); err != nil {
+		t.Fatal(err)
+	}
+	if len(baseline.Laws) != 1 || baseline.Laws[0].LawID != "project/spec:two" {
+		t.Fatalf("owning start inventory=%+v, want the already-delivered successor law", baseline.Laws)
+	}
 	if got := currentStep(t, s, workID); got != "complete" {
 		t.Fatalf("fixture step = %q, want complete", got)
 	}
@@ -316,14 +336,11 @@ func TestStaleRegistryRescanHoldsLateVerdictUntilRePin(t *testing.T) {
 	if err != nil || view == nil || len(view.ResearchFindings) != 1 {
 		t.Fatalf("selected research receipt: %+v err=%v", view, err)
 	}
-	// The rescan deletes the pinned law, so the contract reads stale.
+	// Retain the historical deleted pin without changing the current source or
+	// the owning-start inventory. Both action surfaces must refuse that pin.
 	attachWorkflowLawPin(t, s, workID, "sha256:"+strings.Repeat("a", 64))
 	execStaleRegistryInFold(t, s,
 		`UPDATE workflow_contracts SET spec_mandate='["spec:one"]' WHERE work_id='`+workID+`' AND contract_version=1`,
-		`DELETE FROM law_domain_homes WHERE law_id='spec:one'`,
-		`DELETE FROM law_subjects WHERE home_project_id='project' AND home_locator_id='workflow-law-locator' AND law_id='spec:one'`,
-		`INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('project','workflow-law-locator','spec:two','spec','accepted','.concord/docs/spec-two.md','Synthetic successor law','sha256:`+strings.Repeat("b", 64)+`','test')`,
-		`INSERT INTO law_domain_homes(home_project_id,home_locator_id,law_id,product_id,domain_id,law_content_hash,scanned_commit_oid,product_wide_rationale) VALUES('project','workflow-law-locator','spec:two','product','root','sha256:`+strings.Repeat("b", 64)+`','test','')`,
 	)
 
 	// The current declaration accepts criterion-to-receipt associations only.
@@ -413,6 +430,14 @@ func TestStaleRegistryRescanHoldsLateVerdictUntilRePin(t *testing.T) {
 	}
 	if got := currentStep(t, s, workID); got != "complete" {
 		t.Fatalf("step after the held verdict = %q, want complete", got)
+	}
+	var finalBaseline string
+	var noEnactment bool
+	if err := s.DatabaseForTesting().QueryRow(`SELECT baseline_json,enactment_json IS NULL AND enactment_effect_seq IS NULL FROM workflow_law_baselines WHERE work_id=?`, workID).Scan(&finalBaseline, &noEnactment); err != nil {
+		t.Fatal(err)
+	}
+	if finalBaseline != startBaseline || !noEnactment {
+		t.Fatal("stale-pin recovery rewrote its owning start or invented enactment attribution")
 	}
 }
 

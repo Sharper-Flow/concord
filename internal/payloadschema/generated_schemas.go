@@ -8331,7 +8331,14 @@ const GeneratedPayloadSchemaDocument = `{
       "additionalProperties": false,
       "properties": {
         "approval_ref": {
-          "$ref": "#/$defs/id"
+          "oneOf": [
+            {
+              "const": ""
+            },
+            {
+              "$ref": "#/$defs/id"
+            }
+          ]
         },
         "evidence": {
           "$ref": "#/$defs/outside_repair_evidence"
@@ -17941,23 +17948,26 @@ const GeneratedPayloadSchemaDocument = `{
                   "type": "integer"
                 },
                 "decision_domains": {
-                  "description": "Accepted shape: array of one of \"preference\", \"product\", \"ui_ux\"; Bounds: 0..3 items inclusive; example: []",
+                  "description": "Accepted shape: array of one of \"increased_spending\", \"legal\", \"product\", \"production_data\", \"security\", \"ui_ux\"; Bounds: 0..6 items inclusive; example: []",
                   "examples": [
                     []
                   ],
                   "items": {
-                    "description": "Accepted shape: one of \"preference\", \"product\", \"ui_ux\"; example: \"preference\"",
+                    "description": "Accepted shape: one of \"increased_spending\", \"legal\", \"product\", \"production_data\", \"security\", \"ui_ux\"; example: \"increased_spending\"",
                     "enum": [
-                      "preference",
+                      "increased_spending",
+                      "legal",
                       "product",
+                      "production_data",
+                      "security",
                       "ui_ux"
                     ],
                     "examples": [
-                      "preference"
+                      "increased_spending"
                     ],
                     "type": "string"
                   },
-                  "maxItems": 3,
+                  "maxItems": 6,
                   "minItems": 0,
                   "type": "array",
                   "uniqueItems": true
@@ -17984,13 +17994,6 @@ const GeneratedPayloadSchemaDocument = `{
                   "type": "string",
                   "x-maxBytes": 71
                 },
-                "law_change_removes_user_visible_behavior": {
-                  "description": "Accepted shape: boolean; example: false",
-                  "examples": [
-                    false
-                  ],
-                  "type": "boolean"
-                },
                 "law_change_text_pins": {
                   "description": "Accepted shape: array of object; Bounds: 1..64 items inclusive; example: [{\"content_hash\":\"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"law_id\":\"aa\"}]",
                   "examples": [
@@ -18014,13 +18017,6 @@ const GeneratedPayloadSchemaDocument = `{
                   "maxItems": 64,
                   "minItems": 1,
                   "type": "array"
-                },
-                "law_change_touches_security_or_data_safety": {
-                  "description": "Accepted shape: boolean; example: false",
-                  "examples": [
-                    false
-                  ],
-                  "type": "boolean"
                 },
                 "law_modifies": {
                   "description": "Accepted shape: array of string matching ^\\S(?:[\\s\\S]*\\S)?$; Bounds: 0..32 items inclusive; example: []",
@@ -24007,23 +24003,26 @@ const GeneratedPayloadSchemaDocument = `{
                   "type": "integer"
                 },
                 "decision_domains": {
-                  "description": "Accepted shape: array of one of \"preference\", \"product\", \"ui_ux\"; Bounds: 0..3 items inclusive; example: []",
+                  "description": "Accepted shape: array of one of \"increased_spending\", \"legal\", \"product\", \"production_data\", \"security\", \"ui_ux\"; Bounds: 0..6 items inclusive; example: []",
                   "examples": [
                     []
                   ],
                   "items": {
-                    "description": "Accepted shape: one of \"preference\", \"product\", \"ui_ux\"; example: \"preference\"",
+                    "description": "Accepted shape: one of \"increased_spending\", \"legal\", \"product\", \"production_data\", \"security\", \"ui_ux\"; example: \"increased_spending\"",
                     "enum": [
-                      "preference",
+                      "increased_spending",
+                      "legal",
                       "product",
+                      "production_data",
+                      "security",
                       "ui_ux"
                     ],
                     "examples": [
-                      "preference"
+                      "increased_spending"
                     ],
                     "type": "string"
                   },
-                  "maxItems": 3,
+                  "maxItems": 6,
                   "minItems": 0,
                   "type": "array",
                   "uniqueItems": true
@@ -24071,13 +24070,6 @@ const GeneratedPayloadSchemaDocument = `{
                   "type": "string",
                   "x-maxBytes": 71
                 },
-                "law_change_removes_user_visible_behavior": {
-                  "description": "Accepted shape: boolean; example: false",
-                  "examples": [
-                    false
-                  ],
-                  "type": "boolean"
-                },
                 "law_change_text_pins": {
                   "description": "Accepted shape: array of object; Bounds: 1..64 items inclusive; example: [{\"content_hash\":\"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"law_id\":\"aa\"}]",
                   "examples": [
@@ -24101,13 +24093,6 @@ const GeneratedPayloadSchemaDocument = `{
                   "maxItems": 64,
                   "minItems": 1,
                   "type": "array"
-                },
-                "law_change_touches_security_or_data_safety": {
-                  "description": "Accepted shape: boolean; example: false",
-                  "examples": [
-                    false
-                  ],
-                  "type": "boolean"
                 },
                 "law_modifies": {
                   "description": "Accepted shape: array of string matching ^\\S(?:[\\s\\S]*\\S)?$; Bounds: 0..32 items inclusive; example: []",
@@ -28296,16 +28281,20 @@ const GeneratedPayloadSchemaDocument = `{
           "type": "boolean"
         },
         "decision_domains": {
-          "description": "The contract's declared decision domains, sorted. Absent on a contract approved before its definition declared the fact; an empty array declares engineering work.",
+          "description": "The contract's declared decision domains, sorted. Stored preference remains readable but is excluded from new authoring. Absent on a contract approved before its definition declared the fact; an empty array declares engineering work.",
           "items": {
             "enum": [
+              "increased_spending",
+              "legal",
               "preference",
               "product",
+              "production_data",
+              "security",
               "ui_ux"
             ],
             "type": "string"
           },
-          "maxItems": 3,
+          "maxItems": 7,
           "type": "array",
           "uniqueItems": true
         },

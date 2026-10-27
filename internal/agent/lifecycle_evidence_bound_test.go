@@ -29,7 +29,7 @@ func TestLifecycleCompletionEvidenceFieldBoundsNeverFaultTheResult(t *testing.T)
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			s, service, grant, privateKey, _ := agentJobsMutationPM1Fixture(t)
+			s, service, grant, _, _ := agentJobsMutationPM1Fixture(t)
 			env := agentJobsMutationEnvelope(t, s, grant, "proj-web")
 			_, preVersion := readWorkFromStore(t, s, "work-cross")
 
@@ -62,27 +62,8 @@ func TestLifecycleCompletionEvidenceFieldBoundsNeverFaultTheResult(t *testing.T)
 				}
 				return
 			}
-			first := dispatchMutation(t, s, service, request, env)
-			if first.Error == nil || first.Error.Kind != "approval_required" {
-				t.Fatalf("expected approval_required, got outcome=%s err=%+v", first.Outcome, first.Error)
-			}
-			challengeRef, _ := first.Error.Details["approval_ref"].(string)
-			withApproval, err := injectApproval(input, challengeRef)
-			if err != nil {
-				t.Fatalf("inject approval: %v", err)
-			}
-			scope := map[string]any{
-				"product_id":    "prod-alpha",
-				"product_ids":   []string{"prod-alpha"},
-				"project_ids":   []string{"proj-web"},
-				"work_ids":      []string{"work-cross"},
-				"scope_version": env.ScopeVersion,
-			}
-			versions := map[string]any{"work": preVersion}
-			digest := mutationDigest("concord_work_transition", "lifecycle", env, withApproval)
-			env.HostApproval = signedHostApproval(privateKey, challengeRef, digest, scope, versions, env.SessionRef, env.AgentRef, env.Worktree, fixedTime(), nonceForChallenge(challengeRef))
-
-			approved := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "lifecycle", Input: withApproval}, env)
+			// CD-0243 D3/D7 retire ordinary terminal consent, not field bounds.
+			approved := dispatchMutation(t, s, service, request, env)
 			if approved.Outcome != OutcomeOK {
 				t.Fatalf("%d-byte %s: outcome=%s err=%+v, want ok", tc.size, tc.field, approved.Outcome, approved.Error)
 			}

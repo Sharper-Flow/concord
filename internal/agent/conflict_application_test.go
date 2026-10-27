@@ -126,12 +126,12 @@ func conflictEventCount(t *testing.T, s *store.Store) int {
 	return scalarRow(t, s, `SELECT count(*) FROM effect_receipts WHERE kind=?`, store.WorkConflictApplied)
 }
 
-// conflictApplicationRecord reads the conflict application rows recorded for
-// one work item and fails unless the whole store holds exactly want of them.
-func conflictApplicationRecord(t *testing.T, s *store.Store, workID string, want int, expected conflictSettlement) (string, store.ConflictApplication, map[string]any) {
+// conflictApplicationRecord reads the conflict application row recorded for
+// one work item and fails unless the whole store holds exactly one.
+func conflictApplicationRecord(t *testing.T, s *store.Store, workID string, expected conflictSettlement) (string, store.ConflictApplication, map[string]any) {
 	t.Helper()
-	if got := conflictEventCount(t, s); got != want {
-		t.Fatalf("effect_receipts holds %d conflict applications, want %d", got, want)
+	if got := conflictEventCount(t, s); got != 1 {
+		t.Fatalf("effect_receipts holds %d conflict applications, want one", got)
 	}
 	rows := conflictSettlementRows(t, s, workID, expected)
 	if len(rows) != 1 {
@@ -184,7 +184,7 @@ func TestConflictObservationRecordsOneSettlementTrio(t *testing.T) {
 	if err != nil || response.Error != nil || response.Outcome != OutcomeOK || response.Replayed {
 		t.Fatalf("conflict observation_record = %+v err = %v, want a first ok settlement", response, err)
 	}
-	actor, record, fields := conflictApplicationRecord(t, s, "work-sized", 1, expectedConflictSettlement(t, s, "work-sized", grant.PrincipalRef, "conflict-settle-1", "R1", "settled: rule R1 applied, the slice stays out of scope", 1))
+	actor, record, fields := conflictApplicationRecord(t, s, "work-sized", expectedConflictSettlement(t, s, "work-sized", grant.PrincipalRef, "conflict-settle-1", "R1", "settled: rule R1 applied, the slice stays out of scope", 1))
 	if actor != grant.PrincipalRef {
 		t.Fatalf("conflict application actor %q, want the authenticated principal %q", actor, grant.PrincipalRef)
 	}
@@ -315,7 +315,7 @@ func TestConflictObservationReplaysFromCacheAndRefusesDivergence(t *testing.T) {
 	if err != nil || divergent.Error == nil || divergent.Error.Kind != "idempotency_conflict" {
 		t.Fatalf("divergent same-key conflict = %+v err = %v, want idempotency_conflict", divergent, err)
 	}
-	_, record, _ := conflictApplicationRecord(t, s, "work-sized", 1, expectedConflictSettlement(t, s, "work-sized", grant.PrincipalRef, "conflict-replay-1", "A2-3", "settled: A2-3 recorded", 1))
+	_, record, _ := conflictApplicationRecord(t, s, "work-sized", expectedConflictSettlement(t, s, "work-sized", grant.PrincipalRef, "conflict-replay-1", "A2-3", "settled: A2-3 recorded", 1))
 	if record.Outcome != "settled: A2-3 recorded" {
 		t.Fatalf("divergent retry rewrote the recorded outcome to %q", record.Outcome)
 	}
@@ -343,41 +343,20 @@ func TestConflictObservationKeepsOrdinaryVariantsUnchanged(t *testing.T) {
 	}
 }
 
-func TestConflictObservationCrossProductConsentAndExactBinding(t *testing.T) {
+// CD-0243 D3/D7 retire cross-Product observation consent, not exact settlement
+// identity, authenticated attribution or same-key replay binding.
+func TestConflictObservationCrossProductConsentFreeAndExactBinding(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	s, service, grant, scopeVersion := conflictCrossProductFixture(t)
 	env := mutationEnvelope(grant, scopeVersion)
 	input := json.RawMessage(`{"work_id":"work-2","idempotency_key":"cross-conflict-1","conflict":{"rule_id":"A2-1","outcome":"settled: cross-Product conflict recorded"}}`)
 	request := InvokeRequest{Tool: "concord_work_define", Operation: "observation_record", Input: input}
-	challenge, dispatchErr := Dispatch(ctx, s, service, request, env)
-	if dispatchErr != nil || challenge.Error == nil || challenge.Error.Kind != "approval_required" {
-		t.Fatalf("cross-Product conflict challenge = %+v err = %v, want approval_required", challenge, dispatchErr)
-	}
-	ref, ok := challenge.Error.Details["approval_ref"].(string)
-	if !ok || len(ref) != 64 {
-		t.Fatalf("approval_ref = %v, want a minted 64-character challenge ref", challenge.Error.Details["approval_ref"])
-	}
-	if got := conflictEventCount(t, s); got != 0 {
-		t.Fatalf("challenge creation recorded %d conflict application event(s), want none", got)
-	}
-	scope := map[string]any{"product_id": "product-1", "product_ids": []string{"product-1", "product-2"}, "project_ids": []string{"project-1"}, "scope_version": scopeVersion, "work_ids": []string{"work-2"}}
-	env.HostApproval = signedHostApproval(mustKey(t), ref, mutationDigest(request.Tool, request.Operation, env, input), scope, map[string]any{}, env.SessionRef, env.AgentRef, env.Worktree, fixedTime(), "cross-conflict-approval")
-	// The exact receipt binds the declared conflict: changing the outcome
-	// under the same approval reference refuses without effects.
-	tamperedResponse, dispatchErr := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_define", Operation: "observation_record", Input: json.RawMessage(`{"work_id":"work-2","idempotency_key":"cross-conflict-1","conflict":{"rule_id":"A2-1","outcome":"settled: a changed outcome"},"approval":{"approval_ref":"` + ref + `"}}`)}, env)
-	if dispatchErr != nil || tamperedResponse.Error == nil || tamperedResponse.Error.Kind != "approval_invalid" {
-		t.Fatalf("tampered conflict resubmission = %+v err = %v, want approval_invalid", tamperedResponse, dispatchErr)
-	}
-	if got := conflictEventCount(t, s); got != 0 {
-		t.Fatalf("tampered resubmission recorded %d conflict application event(s), want none", got)
-	}
-	request.Input = json.RawMessage(`{"work_id":"work-2","idempotency_key":"cross-conflict-1","conflict":{"rule_id":"A2-1","outcome":"settled: cross-Product conflict recorded"},"approval":{"approval_ref":"` + ref + `"}}`)
 	approved, dispatchErr := Dispatch(ctx, s, service, request, env)
 	if dispatchErr != nil || approved.Error != nil || approved.Outcome != OutcomeOK {
 		t.Fatalf("approved conflict settlement = %+v err = %v, want ok", approved, dispatchErr)
 	}
-	actor, record, _ := conflictApplicationRecord(t, s, "work-2", 1, expectedConflictSettlement(t, s, "work-2", grant.PrincipalRef, "cross-conflict-1", "A2-1", "settled: cross-Product conflict recorded", 1))
+	actor, record, _ := conflictApplicationRecord(t, s, "work-2", expectedConflictSettlement(t, s, "work-2", grant.PrincipalRef, "cross-conflict-1", "A2-1", "settled: cross-Product conflict recorded", 1))
 	if actor != grant.PrincipalRef {
 		t.Fatalf("approved settlement actor %q, want the authenticated principal %q", actor, grant.PrincipalRef)
 	}
@@ -386,6 +365,21 @@ func TestConflictObservationCrossProductConsentAndExactBinding(t *testing.T) {
 	}
 	if got := scalarRow(t, s, `SELECT count(*) FROM work_observations WHERE work_id='work-2'`); got != 0 {
 		t.Fatalf("approved settlement wrote %d ordinary observation row(s)", got)
+	}
+	replay, dispatchErr := Dispatch(ctx, s, service, request, env)
+	if dispatchErr != nil || replay.Outcome != OutcomeOK || !replay.Replayed {
+		t.Fatalf("cross-Product settlement replay = %+v err = %v", replay, dispatchErr)
+	}
+	tamperedResponse, dispatchErr := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_define", Operation: "observation_record", Input: json.RawMessage(`{"work_id":"work-2","idempotency_key":"cross-conflict-1","conflict":{"rule_id":"A2-1","outcome":"settled: a changed outcome"}}`)}, env)
+	if dispatchErr != nil || tamperedResponse.Error == nil || tamperedResponse.Error.Kind != "idempotency_conflict" {
+		t.Fatalf("tampered conflict resubmission = %+v err = %v, want idempotency_conflict", tamperedResponse, dispatchErr)
+	}
+	conflictApplicationRecord(t, s, "work-2", expectedConflictSettlement(t, s, "work-2", grant.PrincipalRef, "cross-conflict-1", "A2-1", "settled: cross-Product conflict recorded", 1))
+	if got := workVersion(t, s, "work-2"); got != 2 {
+		t.Fatalf("settlement or replay moved work version to %d, want 2", got)
+	}
+	if got := scalarRow(t, s, `SELECT count(*) FROM agent_approval_challenges`); got != 0 {
+		t.Fatalf("ordinary cross-Product settlement minted %d challenges", got)
 	}
 }
 

@@ -255,9 +255,11 @@ func TestTerminalCleanupRetainsDefectAdmissionClassification(t *testing.T) {
 					t.Fatalf("admission classification lost from %s: count=%d err=%v", table, count, err)
 				}
 			}
-			var bindings int
-			if err := s.db.QueryRowContext(t.Context(), `SELECT count(*) FROM workflow_evidence_bindings WHERE work_id='work-done'`).Scan(&bindings); err != nil || bindings != 0 {
-				t.Fatalf("retained classification kept execution evidence: count=%d err=%v", bindings, err)
+			for _, table := range []string{"workflow_evidence_bindings", "workflow_law_baselines"} {
+				var count int
+				if err := s.db.QueryRowContext(t.Context(), `SELECT count(*) FROM `+table+` WHERE work_id='work-done'`).Scan(&count); err != nil || count != 0 {
+					t.Fatalf("retained classification kept %s: count=%d err=%v", table, count, err)
+				}
 			}
 			assertFailureKind(t, publishedWorkAbsenceQ(t.Context(), s.db, "work-done", "test"), KindProjectionNotFound)
 			_, pinErr := ReadWorkPin(t.Context(), s, "work-done")
@@ -379,6 +381,205 @@ func TestTerminalCleanupDeletesOnlySettledExecution(t *testing.T) {
 		t.Fatalf("idempotent re-entry: %v", err)
 	}
 	assertFailureKind(t, publishedWorkAbsenceQ(t.Context(), s.db, "work-done", "test"), KindProjectionNotFound)
+}
+
+func lawCleanupContent(id, lifecycle string) string {
+	return strings.NewReplacer("prod-alpha", "product", "proj-web", "project", "[auth]", "[agent-surface]", "terminal_state: completed", "terminal_state: "+lifecycle).Replace(canonicalWorkNote(id, "2026-08-07T00:00:00Z"))
+}
+
+// Commit and link the exact reviewed bytes without replacing the synthetic law
+// projections used by the real completion fixture.
+func publishLawCleanupNote(t *testing.T, s *Store, id, content string, settle bool) int64 {
+	t.Helper()
+	home, err := s.ResolveCompactionHome(t.Context(), id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := ".concord/docs/work/" + id + ".md"
+	writeKnowledgeFile(t, home.RepoPath, path, content)
+	commit := commitKnowledgeRepo(t, home.RepoPath, "canonical outcome")
+	hash := nativeDigest([]byte(content))
+	version := readWorkVersion(t, s, id)
+	if err := PublishCompactionLink(t.Context(), s, CompactionLinkRequest{EventID: "publish-" + id, WorkID: id, ExpectedVersion: version, Actor: "operator", OccurredAt: time.Now().UTC(), Home: home, CommitOID: commit, NotePath: path, ExpectedHash: hash, Reason: "publish reviewed outcome"}); err != nil {
+		t.Fatal(err)
+	}
+	scope, _ := json.Marshal(map[string]any{"work_version": version, "content_digest": hash, "home_project_id": home.HomeProjectID, "home_locator_id": home.HomeLocatorID})
+	claim, err := ClaimStepAuthorized(t.Context(), s, ClaimRequest{OpID: "publication-" + id, WorkID: id, WorkflowTypeRef: "concord.pm6.compaction", StepID: "git_proof", StepKind: StepCrossAuthority, AcceptedInputsDigest: hash, AcceptedScopeSnapshot: string(scope), PrincipalRef: "operator", Tool: "concord_work_compact", IdempotencyKey: "publish-" + id, RequestID: "publish-" + id, ObservedAt: time.Now().UTC(), ContractDigest: hash}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if settle {
+		settleLawCleanupNote(t, s, id, claim.AttemptEpoch)
+	}
+	return claim.AttemptEpoch
+}
+
+func settleLawCleanupNote(t *testing.T, s *Store, id string, epoch int64) {
+	t.Helper()
+	if _, err := CompleteStep(t.Context(), s, CompleteRequest{OpID: "publication-" + id, AttemptEpoch: epoch, ResultKind: ResultCompleted, ResultPayload: `{}`, PrincipalRef: "operator", Tool: "concord_work_compact", IdempotencyKey: "settle-" + id, RequestID: "publish-" + id, ObservedAt: time.Now().UTC()}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func lawCleanupProducer(t *testing.T, s *Store, enacting bool) {
+	t.Helper()
+	laws := []string{}
+	if enacting {
+		laws = []string{"law-peer"}
+	}
+	attributionItem(t, s, "cleanup-producer", laws, []string{})
+	if enacting {
+		editLawChangeLaw(t, s, "law-peer")
+	}
+	content := lawCleanupContent("cleanup-producer", "completed")
+	if err := CompleteWorkflow(t.Context(), s, attributionCompletion(t, s, "cleanup-producer", nativeDigest([]byte(content)))); err != nil {
+		t.Fatal(err)
+	}
+	var proofs int
+	if err := s.db.QueryRow(`SELECT count(*) FROM workflow_law_baselines WHERE work_id='cleanup-producer' AND enactment_json IS NOT NULL`).Scan(&proofs); err != nil || (proofs == 1) != enacting {
+		t.Fatalf("material enactment count=%d, enacting=%t: %v", proofs, enacting, err)
+	}
+	// Release mutable native owners only; the real completion receipt and
+	// immutable attribution remain untouched until the cleanup owner runs.
+	terminalCleanupSQL(t, s,
+		`UPDATE worktree_entries SET state='reclaimed' WHERE set_id='wts:cleanup-producer'`,
+		`UPDATE worktree_claims SET state='reclaimed' WHERE work_id='cleanup-producer'`,
+	)
+	publishLawCleanupNote(t, s, "cleanup-producer", content, true)
+}
+
+func lawCleanupStore(t *testing.T) *Store {
+	t.Helper()
+	s := seedLawChangeFixture(t, "inventory-seed")
+	seedLawChangeLaw(t, s, "law-peer", "derived", "agent-surface")
+	lawChangeFold(t, s, `UPDATE law_subjects SET path='.concord/docs/spec.md' WHERE law_id='law-peer'`)
+	return s
+}
+
+func requireLawCleanupJoin(t *testing.T, s *Store, want int) {
+	t.Helper()
+	var count int
+	if err := s.db.QueryRow(`SELECT count(*) FROM workflow_law_baselines b JOIN effect_receipts r ON r.effect_seq=b.enactment_effect_seq JOIN workflow_instances i ON i.work_id=b.work_id JOIN work_items w ON w.id=b.work_id WHERE b.work_id='cleanup-producer' AND r.kind='workflow.completed' AND r.subject_type='work_item' AND r.subject_id=b.work_id AND i.instance_state='completed' AND w.lifecycle='completed'`).Scan(&count); err != nil || count != want {
+		t.Fatalf("attribution join count=%d, want %d: %v", count, want, err)
+	}
+}
+
+func requireLawCleanupAttribution(t *testing.T, s *Store) {
+	t.Helper()
+	// Exercise the production comparison reader against the genuine retained
+	// start and completion, independently of the fixture's synthetic law index.
+	if err := s.Transact(t.Context(), func(tx *Transaction) error {
+		var start, enacted string
+		var seq int64
+		if err := tx.tx.QueryRow(`SELECT baseline_json,start_effect_seq FROM workflow_law_baselines WHERE work_id='cleanup-consumer'`).Scan(&start, &seq); err != nil {
+			return err
+		}
+		if err := tx.tx.QueryRow(`SELECT enactment_json FROM workflow_law_baselines WHERE work_id='cleanup-producer'`).Scan(&enacted); err != nil {
+			return err
+		}
+		var cursor workflowLawBaseline
+		var proof workflowLawEnactment
+		if err := json.Unmarshal([]byte(start), &cursor); err != nil {
+			return err
+		}
+		if err := json.Unmarshal([]byte(enacted), &proof); err != nil {
+			return err
+		}
+		if reflect.DeepEqual(cursor, proof.After) {
+			return fmt.Errorf("consumer already has the enacted inventory without attribution")
+		}
+		if err := applyCompletedWorkflowLawEnactmentsTx(t.Context(), tx.tx, "cleanup-consumer", seq, &cursor); err != nil {
+			return err
+		}
+		if !reflect.DeepEqual(cursor, proof.After) {
+			return fmt.Errorf("retained completion did not advance the consumer to its enacted inventory")
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestTerminalCleanupRetainsConsumedLawEnactment(t *testing.T) {
+	s := lawCleanupStore(t)
+	attributionItem(t, s, "cleanup-consumer", []string{}, []string{})
+	baseline := attributionBaseline(t, s, "cleanup-consumer")
+	lawCleanupProducer(t, s, true)
+	requireLawCleanupJoin(t, s, 1)
+	var pendingEpoch int64
+	for _, state := range []string{"active", "terminal_unpublished", "publication_pending"} {
+		t.Run(state, func(t *testing.T) {
+			if state == "terminal_unpublished" {
+				content := lawCleanupContent("cleanup-consumer", "cancelled")
+				cancelWithReviewedEvidence(t, s, "cleanup-consumer", "operator", []string{nativeDigest([]byte(content))})
+			} else if state == "publication_pending" {
+				pendingEpoch = publishLawCleanupNote(t, s, "cleanup-consumer", lawCleanupContent("cleanup-consumer", "cancelled"), false)
+			}
+			err := s.CleanupPublishedTerminalWork(t.Context(), "cleanup-producer")
+			assertFailureKind(t, err, KindOperationConflict)
+			if !strings.Contains(err.Error(), "law enactment") {
+				t.Fatalf("wrong consumer blocker: %v", err)
+			}
+			requireLawCleanupJoin(t, s, 1)
+			requireLawCleanupAttribution(t, s)
+			if attributionBaseline(t, s, "cleanup-consumer") != baseline {
+				t.Fatal("consumer start changed")
+			}
+		})
+	}
+	settleLawCleanupNote(t, s, "cleanup-consumer", pendingEpoch)
+	if err := s.CleanupPublishedTerminalWork(t.Context(), "cleanup-producer"); err != nil {
+		t.Fatal(err)
+	}
+	requireLawCleanupJoin(t, s, 0)
+	for _, table := range []string{"workflow_law_baselines", "workflow_instances"} {
+		var count int
+		if err := s.db.QueryRow(`SELECT count(*) FROM ` + table + ` WHERE work_id='cleanup-producer'`).Scan(&count); err != nil || count != 0 {
+			t.Fatalf("released %s remains: %d %v", table, count, err)
+		}
+	}
+}
+
+func TestTerminalCleanupLawEnactmentNonConsumers(t *testing.T) {
+	for _, mode := range []string{"wrong_source", "newer_start", "no_peer", "no_enactment"} {
+		t.Run(mode, func(t *testing.T) {
+			s := lawCleanupStore(t)
+			if mode == "wrong_source" {
+				seedWork(t, s, "cleanup-consumer")
+				if err := ApplyOperation(t.Context(), s, Operation{Events: []Event{
+					productCreatedEvent("other-product", "create-other-product"),
+					projectCreatedEvent("other-project", "create-other-project"),
+					operationEvent("other-membership", "product_project.added", SubjectProduct, "other-product", map[string]any{"product_id": "other-product", "project_id": "other-project", "role": "primary", "reason": "fixture", "expected_version": 1, "resulting_version": 2}),
+				}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectProduct, "other-product"): 0, VersionRef(SubjectProject, "other-project"): 0}}); err != nil {
+					t.Fatal(err)
+				}
+				terminalCleanupSQL(t, s, `DELETE FROM work_projects WHERE work_id='cleanup-consumer'`, `INSERT INTO work_projects VALUES('cleanup-consumer','other-project','primary')`)
+				ctx, err := s.EstablishKnowledgeSourceSetProof(t.Context(), "cleanup-consumer")
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := s.Transact(ctx, func(tx *Transaction) error {
+					return InitializeWorkflowTx(ctx, tx, WorkflowInitializationRequest{WorkID: "cleanup-consumer", Definition: mustBuiltinDefinition(t, "workflow.implementation"), Actor: lawChangeConstructorActor})
+				}); err != nil {
+					t.Fatal(err)
+				}
+			} else if mode == "no_enactment" {
+				attributionItem(t, s, "cleanup-consumer", []string{}, []string{})
+			}
+			lawCleanupProducer(t, s, mode != "no_enactment")
+			if mode == "newer_start" {
+				seedWork(t, s, "cleanup-consumer")
+				startLawChange(t, s, "cleanup-consumer")
+			}
+			if err := s.CleanupPublishedTerminalWork(t.Context(), "cleanup-producer"); err != nil {
+				t.Fatal(err)
+			}
+			var count int
+			if err := s.db.QueryRow(`SELECT count(*) FROM work_items WHERE id='cleanup-producer'`).Scan(&count); err != nil || count != 0 {
+				t.Fatalf("nonconsumer retained producer: %d %v", count, err)
+			}
+		})
+	}
 }
 
 func TestTerminalCleanupRequiresMatchingReviewedReceipt(t *testing.T) {

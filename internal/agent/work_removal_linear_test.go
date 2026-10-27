@@ -14,7 +14,7 @@ import (
 func TestDispatchWorkRemovalCommitsWithRecordedLinearIssue(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	s, service, grant, privateKey := mutationDispatchFixture(t, []agentcontract.Capability{"work_transition"})
+	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_transition"})
 	if err := s.Transact(ctx, func(tx *store.Transaction) error {
 		_, err := store.RecordLinearIssueLinkTx(ctx, tx, store.LinearIssueLink{WorkID: "work-1", RemoteIssueUUID: "remote-removal-1", HumanKey: "CON-1", URL: "https://linear.app/example/issue/CON-1"})
 		return err
@@ -53,23 +53,7 @@ func TestDispatchWorkRemovalCommitsWithRecordedLinearIssue(t *testing.T) {
 		Tool: "concord_work_transition", Operation: "remove", Input: raw,
 	}
 	env := mutationEnvelope(grant, scopeVersion)
-	challenge, err := Dispatch(ctx, s, service, request, env)
-	if err != nil || challenge.Outcome != OutcomeError || challenge.Error == nil || challenge.Error.Kind != "approval_required" {
-		t.Fatalf("work removal challenge=%+v err=%v", challenge, err)
-	}
-	approvalRef, ok := challenge.Error.Details["approval_ref"].(string)
-	if !ok || len(approvalRef) != 64 {
-		t.Fatalf("approval_ref=%v", challenge.Error.Details["approval_ref"])
-	}
-	digest := mutationDigest(request.Tool, request.Operation, env, request.Input)
-	scope := map[string]any{"product_id": "product-1", "product_ids": []string{"product-1"}, "project_ids": []string{"project-1"}, "work_ids": []string{"work-1"}, "scope_version": scopeVersion}
-	versions := map[string]any{"work": int64(2)}
-	env.HostApproval = signedHostApproval(privateKey, approvalRef, digest, scope, versions, env.SessionRef, env.AgentRef, env.Worktree, fixedTime(), nonceForChallenge(approvalRef))
-	input["approval"] = map[string]string{"approval_ref": approvalRef}
-	request.Input, err = json.Marshal(input)
-	if err != nil {
-		t.Fatal(err)
-	}
+	// CD-0243 D3/D7 retire ordinary removal consent, not the Linear handoff.
 	response, err := Dispatch(ctx, s, service, request, env)
 	if err != nil || response.Outcome != OutcomeOK {
 		if response.Error != nil {

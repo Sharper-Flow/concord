@@ -121,36 +121,21 @@ func (p cancelledNotePublication) approvedBy(t *testing.T, privateKey ed25519.Pr
 	return InvokeRequest{Tool: "concord_work_compact", Operation: "publish", Input: withApproval}, env
 }
 
-// publishCancelledNote drives concord_work_compact.publish for work-cancelled
-// through the approval round-trip the operation requires. The returned envelope
-// is the approved dispatch.
+// publishCancelledNote drives the durable publication intent. CD-0243 D3/D7
+// retire ordinary consent, not exact content/home proof or publication order.
 func publishCancelledNote(t *testing.T, s *store.Store, service *Service, grant Authority, privateKey ed25519.PrivateKey, home store.KnowledgeHome) Envelope {
 	t.Helper()
 	return publishCancelledNoteWithKey(t, s, service, grant, privateKey, home, "compact-cancelled-approval-roundtrip-1")
 }
 
-func publishCancelledNoteWithKey(t *testing.T, s *store.Store, service *Service, grant Authority, privateKey ed25519.PrivateKey, home store.KnowledgeHome, idempotencyKey string) Envelope {
+func publishCancelledNoteWithKey(t *testing.T, s *store.Store, service *Service, grant Authority, _ ed25519.PrivateKey, home store.KnowledgeHome, idempotencyKey string) Envelope {
 	t.Helper()
 	publication := newCancelledNotePublication(t, s, grant, home, idempotencyKey)
 
-	// The first publication request mints the core approval challenge. The test
-	// stands in for the host that asks the operator and resubmits the same intent.
-	first := dispatchMutation(t, s, service, publication.request(), publication.env)
-	if first.Outcome == OutcomeOK {
-		return first
-	}
-	if first.Outcome != OutcomeError || first.Error == nil || first.Error.Kind != "approval_required" {
-		t.Fatalf("first publication dispatch=%+v, want approval_required", first)
-	}
-	challengeRef, ok := first.Error.Details["approval_ref"].(string)
-	if !ok || len(challengeRef) != 64 {
-		t.Fatalf("publication challenge=%v", first.Error.Details)
-	}
-	request, env := publication.approvedBy(t, privateKey, challengeRef)
-	return dispatchMutation(t, s, service, request, env)
+	return dispatchMutation(t, s, service, publication.request(), publication.env)
 }
 
-func TestPredicateFirstCallChallengePublish(t *testing.T) {
+func TestPredicateFirstCallPublishesWithoutConsent(t *testing.T) {
 	s, service, grant, privateKey, home := agentJobsCompactionFixture(t)
 	response := publishCancelledNote(t, s, service, grant, privateKey, home)
 	if response.Outcome != OutcomeOK {
@@ -159,8 +144,8 @@ func TestPredicateFirstCallChallengePublish(t *testing.T) {
 	if archivedCancelledWorkCount(t, s) != 1 {
 		t.Fatal("approved publication did not record one canonical note")
 	}
-	if countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM agent_approval_challenges WHERE consequence='publication'`) != 1 {
-		t.Fatal("publication did not persist its first-call approval challenge")
+	if countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM agent_approval_challenges WHERE consequence='publication'`) != 0 {
+		t.Fatal("ordinary publication persisted an approval challenge")
 	}
 }
 

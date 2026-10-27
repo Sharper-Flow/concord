@@ -1055,32 +1055,50 @@ func TestAgentJobsCorpus(t *testing.T) {
 			continue
 		}
 
-		// Run the binding.
-		sc.overrides = newOverrideTracker(sc.InitialState)
 		t.Run(sc.ID, func(t *testing.T) {
-			obs := jobBindings[sc.ID](t, sc)
-
-			// Evaluate every assertion.
-			for _, a := range sc.Expected.Assertions {
-				evaluateAssertion(t, obs, a)
-			}
-
-			// Evaluate named shared invariants.
-			for _, name := range sc.Expected.Invariants {
-				if check, ok := implementedInvariants[name]; ok {
-					check(t, obs)
-				} else if _, known := uncheckedInvariants[name]; !known {
-					t.Fatalf("invariant %q is neither implemented nor registered as unchecked", name)
-				}
-			}
-
-			// Every declared precondition must have been honored by the
-			// binding above. An unread key is a constraint the corpus states
-			// and nothing enforces.
-			if unread := sc.overrides.unconsumed(); len(unread) > 0 {
-				t.Errorf("scenario declares initial_state.fixture_override keys no binding read: %s. Honor each key in the binding via sc.override, or remove it from the corpus.", strings.Join(unread, ", "))
-			}
+			runAgentJobScenario(t, sc)
 		})
+	}
+}
+
+// CD-0243 D3/D7 retire terminal-only consent while keeping verification,
+// stale-version refusals, replay, and explicit security decisions. This bounded
+// caller selection exercises those bindings without running publication jobs.
+func TestAgentJobsApprovalBindings(t *testing.T) {
+	wanted := map[string]bool{
+		"AJ4-complete-valid-work": false, "AJ4-completion-missing-evidence": false,
+		"AJ4-stale-version": false, "AJ8-approval-required": false,
+		"AJ8-budget-refused": false, "AJ8-health-failure-rollback": false,
+	}
+	for _, sc := range loadAgentJobsCorpus(t).Scenarios {
+		if _, selected := wanted[sc.ID]; selected {
+			wanted[sc.ID] = true
+			t.Run(sc.ID, func(t *testing.T) { runAgentJobScenario(t, sc) })
+		}
+	}
+	for id, found := range wanted {
+		if !found {
+			t.Errorf("selected scenario %s did not execute", id)
+		}
+	}
+}
+
+func runAgentJobScenario(t *testing.T, sc jobScenario) {
+	t.Helper()
+	sc.overrides = newOverrideTracker(sc.InitialState)
+	obs := jobBindings[sc.ID](t, sc)
+	for _, a := range sc.Expected.Assertions {
+		evaluateAssertion(t, obs, a)
+	}
+	for _, name := range sc.Expected.Invariants {
+		if check, ok := implementedInvariants[name]; ok {
+			check(t, obs)
+		} else if _, known := uncheckedInvariants[name]; !known {
+			t.Fatalf("invariant %q is neither implemented nor registered as unchecked", name)
+		}
+	}
+	if unread := sc.overrides.unconsumed(); len(unread) > 0 {
+		t.Errorf("scenario declares initial_state.fixture_override keys no binding read: %s. Honor each key in the binding via sc.override, or remove it from the corpus.", strings.Join(unread, ", "))
 	}
 }
 

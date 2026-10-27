@@ -1167,6 +1167,13 @@ func (s *Store) prepareBootstrapMode(ctx context.Context, req BootstrapRequest, 
 			return out, planErr
 		}
 	}
+	if !existing && probe.journalErr != nil {
+		verified, err := s.EstablishKnowledgeSourceSetProofForProject(ctx, req.ProjectID)
+		if err != nil {
+			return out, err
+		}
+		ctx = verified
+	}
 	tx, err := s.beginDurableTx(ctx)
 	if err != nil {
 		return out, wrapFailure(KindUnavailable, "work_bootstrap", "cannot begin bootstrap journal", true, "retry the same operation", err)
@@ -1347,7 +1354,8 @@ func createBootstrapWorkTx(ctx context.Context, transaction *Transaction, req Bo
 		return newFailure(KindUnavailable, "work_bootstrap", "size_inputs reached the first creation without a size plan", true, "retry the same idempotency key")
 	}
 	priority := req.Priority
-	workPayload, _ := json.Marshal(workCreatedPayload{WorkID: workID, WorkKind: req.Kind, Title: req.Title, Task: req.Task, ValueStatement: req.ValueStatement, Priority: &priority, Urgency: req.Urgency, Tags: req.Tags, WorkflowTypeRef: req.WorkflowTypeRef, ExternalRef: req.ExternalRef, RaisedFromWorkID: req.RaisedFromWorkID, DefectIntake: req.DefectIntake})
+	declared := append([]string{}, req.GoverningRequirements...)
+	workPayload, _ := json.Marshal(workCreatedPayload{WorkID: workID, WorkKind: req.Kind, Title: req.Title, Task: req.Task, ValueStatement: req.ValueStatement, Priority: &priority, Urgency: req.Urgency, Tags: req.Tags, WorkflowTypeRef: req.WorkflowTypeRef, ExternalRef: req.ExternalRef, RaisedFromWorkID: req.RaisedFromWorkID, DefectIntake: req.DefectIntake, GoverningRequirements: &declared})
 	membershipPayload, _ := json.Marshal(workMembershipsPayload{Memberships: []workMembershipPayload{{ProjectID: req.ProjectID, Role: "primary"}}, ExpectedVersion: 1, ResultingVersion: 2})
 	events := []Event{
 		{EventID: operationID + ":work-created", Kind: "work.created", SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "operator", OccurredAt: now, PayloadVersion: 4, Payload: workPayload},
@@ -1669,7 +1677,7 @@ func validateBootstrapScopeTx(ctx context.Context, tx *sql.Tx, productID, projec
 	if missing := MissingGoverningRequirements(applicable, declared); len(missing) != 0 {
 		return newFailure(KindInvalidOperation, "work_bootstrap", "governing requirements need ordinary agent approval", false, "use the ordinary agent approval path with all governing requirements")
 	}
-	return nil
+	return validateCaptureGoverningRequirements(ctx, tx, []string{productID}, applicable, declared)
 }
 
 func (s *Store) finalizeBootstrap(ctx context.Context, req BootstrapRequest, operationID, workID string, location WorktreeLocation, facts worktreeFacts) (_ BootstrapResult, retErr error) {

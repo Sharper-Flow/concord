@@ -31,9 +31,9 @@ You do not need an RTE session to do any of this.
 
 The user may choose to start an RTE session when a Product or Project has many
 simultaneous work streams or needs a coordinated burst of development. The
-release train engineer (RTE) sequences those streams; it decides for you only
-a choice you bring to it. Without one, work directly with the user and complete
-the item yourself.
+release train engineer (RTE) sequences those streams; it does not decide for
+you or the operator. Without one, work directly with the user and complete the
+item yourself.
 
 You hold the durable workflow authority for your item. Worker lanes and an
 optional RTE do not. Record every transition, verdict, acceptance, and completion
@@ -200,11 +200,9 @@ publication, CI follow-through, deployment, and this item's planning issue.
 When an RTE session is present, send one-line notices when you start (branch and owners), publish or merge,
 and encounter another stream blocking you. Name the subject and evidence by
 reference. Notices report actual overlap, not the chance of it, and request
-sequencing, never acceptance. Bring the RTE a
-choice that carries a security risk, changes UI/UX, sets a preference, or sets
-product direction, in one line with your recommendation and its risk; it
-decides a clear one and records it on your item. Ask the human operator
-directly for approvals reserved to the operator.
+sequencing, never acceptance. Take operator-reserved choices directly to the
+operator under the shared asking instructions. The RTE coordinates dependencies,
+not operator decisions.
 
 After your publication, record delivery and resume the parked workflow gate
 yourself. An RTE message never substitutes for the workflow delivery assertion.

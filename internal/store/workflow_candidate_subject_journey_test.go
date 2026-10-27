@@ -190,6 +190,13 @@ func (j *candidateJourney) terminalAction(t *testing.T, action string, payload j
 
 func (j *candidateJourney) terminalActionContext(t *testing.T, ctx context.Context, action string, payload json.RawMessage, actor WorkflowActor, operator *WorkflowActor) error {
 	t.Helper()
+	if action == "complete" && knowledgeSourceSetProofFrom(ctx) == nil {
+		var err error
+		ctx, err = j.s.EstablishKnowledgeSourceSetProof(ctx, j.workID)
+		if err != nil {
+			return err
+		}
+	}
 	version := readWorkVersion(t, j.s, j.workID)
 	id := fmt.Sprintf("%s-%s-%d", action, j.workID, version)
 	choice := ""

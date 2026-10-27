@@ -66,6 +66,13 @@ func approvalRouteDefinition(t *testing.T) WorkflowDefinition {
 func runApprovalActionTx(t *testing.T, s *Store, registry DefinitionRegistry, workID, actionID string, actor WorkflowActor, operator *WorkflowActor, choice, digest, payload string) error {
 	t.Helper()
 	ctx := context.Background()
+	if actionID == "approve_contract" || actionID == "supersede_contract" || actionID == "complete" {
+		verified, err := s.EstablishKnowledgeSourceSetProof(ctx, workID)
+		if err != nil {
+			return err
+		}
+		ctx = verified
+	}
 	var worktree string
 	if WorkflowActionRequiresSubjectFreshness(actionID) && s.DatabaseForTesting().QueryRow(`SELECT path FROM worktree_entries WHERE set_id=? AND state='active' LIMIT 1`, WorktreeSetID(workID)).Scan(&worktree) == nil {
 		prepared, err := PrepareWorkflowAcceptanceFreshness(ctx, s, PrepareWorkerDispatchRequest{WorkID: workID, SessionWorktree: worktree})

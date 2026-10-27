@@ -22,9 +22,11 @@ type knowledgeSourceSetProof struct {
 	productID string
 	sources   []KnowledgeHome
 	revisions map[string]knowledgeSourceVerifiedRevision
-	// Single-home refresh errors belong to a nonempty mandate's boundary,
-	// not to law-free transitions that share the pre-transaction preparation.
-	refreshErr error
+	// Standalone failures are demand-driven: a mandate consumes refreshErr;
+	// an inventory read also requires strict verification. Neither blocks a
+	// law-free legacy transition that shares the preparation.
+	refreshErr   error
+	inventoryErr error
 }
 
 // knowledgeSourceVerifiedRevision keeps PM1 §3.3's two revisions apart. The
@@ -57,21 +59,34 @@ func knowledgeSourceSetProofFrom(ctx context.Context) *knowledgeSourceSetProof {
 // transaction-scoped law boundary entries. It must run before the
 // consequential transaction opens: a rebuild needs the connection the
 // transaction would hold, and a git probe must never run inside one
-// (CD-0195 D2). Single homes use the same demand-driven index refresh before
-// their transaction; source-set proof remains specific to federated homes.
+// (CD-0195 D2). A standalone home keeps demand-driven refresh before its
+// transaction. A designated Product home requires proof even when
+// it is the only source: an empty mandate still compares the entire inventory.
 func (s *Store) EstablishKnowledgeSourceSetProof(ctx context.Context, workID string) (context.Context, error) {
 	if s == nil || s.db == nil {
 		return ctx, newFailure(KindUnavailable, "check_mandated_laws", "store is not open", false, "open a store before verifying mandated laws")
 	}
-	// A work whose law home does not resolve, and a Product with no unique
-	// designated home or no registered source set, verify trivially here and
-	// keep their refusal at the boundary clause that owns it — never ahead of
-	// the gate's ordered clauses.
+	// Leave an unresolved law home to its owning boundary clause, rather than
+	// moving its refusal ahead of the gate's ordered clauses.
 	homeProjectID, homeLocatorID, err := workflowLawHome(ctx, s.db, workID)
 	if err != nil {
 		return ctx, nil
 	}
 	return s.establishKnowledgeSourceSetProofAtHome(ctx, homeProjectID, homeLocatorID)
+}
+
+// EstablishKnowledgeSourceSetProofForProject verifies the same law home before
+// a capture has written its primary membership. Initialization revalidates the
+// proof against that membership inside the capture's transaction.
+func (s *Store) EstablishKnowledgeSourceSetProofForProject(ctx context.Context, projectID string) (context.Context, error) {
+	if s == nil || s.db == nil {
+		return ctx, newFailure(KindUnavailable, "check_mandated_laws", "store is not open", false, "open a store before verifying mandated laws")
+	}
+	project, locator, err := workflowLawHomeForProject(ctx, s.db, projectID)
+	if err != nil {
+		return ctx, nil // Initialization owns absence and ambiguity admission.
+	}
+	return s.establishKnowledgeSourceSetProofAtHome(ctx, project, locator)
 }
 
 func (s *Store) establishKnowledgeSourceSetProofAtHome(ctx context.Context, homeProjectID, homeLocatorID string) (context.Context, error) {
@@ -86,17 +101,22 @@ func (s *Store) establishKnowledgeSourceSetProofAtHome(ctx context.Context, home
 		}
 		for _, home := range homes {
 			if home.HomeLocatorID == homeLocatorID {
-				return withKnowledgeSourceSetProof(ctx, &knowledgeSourceSetProof{refreshErr: s.EnsureKnowledgeIndexFresh(ctx, home)}), nil
+				proof := &knowledgeSourceSetProof{sources: []KnowledgeHome{home}, refreshErr: s.EnsureKnowledgeIndexFresh(ctx, home)}
+				if proof.refreshErr == nil {
+					verified, err := s.verifyKnowledgeSourceRevision(ctx, home)
+					proof.inventoryErr = err
+					if err == nil {
+						proof.revisions = map[string]knowledgeSourceVerifiedRevision{home.HomeProjectID + "/" + home.HomeLocatorID: verified}
+					}
+				}
+				return withKnowledgeSourceSetProof(ctx, proof), nil
 			}
 		}
 		return ctx, nil
 	}
 	sources, err := resolveKnowledgeQuerySources(ctx, s.db, productID, "check_mandated_laws")
-	if err != nil || len(sources) == 0 {
-		return ctx, nil
-	}
-	if len(sources) == 1 {
-		return withKnowledgeSourceSetProof(ctx, &knowledgeSourceSetProof{refreshErr: s.EnsureKnowledgeIndexFresh(ctx, sources[0])}), nil
+	if err != nil {
+		return ctx, nil // The transaction's boundary owns source-resolution refusal.
 	}
 	revisions := make(map[string]knowledgeSourceVerifiedRevision, len(sources))
 	for _, source := range sources {
@@ -108,36 +128,38 @@ func (s *Store) establishKnowledgeSourceSetProofAtHome(ctx context.Context, home
 		if err := s.EnsureKnowledgeIndexFresh(ctx, source); err != nil {
 			return ctx, err
 		}
-		verified, _, err := validateKnowledgeHomeForQueryCore(ctx, s.db, source, false, "check_mandated_laws")
+		verified, err := s.verifyKnowledgeSourceRevision(ctx, source)
 		if err != nil {
 			return ctx, err
 		}
-		// PM1 §3.3 separates the projection revision from the head: capture
-		// both at verification time, so the admission below can admit a
-		// content-fresh head that moved past the scanned revision and still
-		// refuse a head that moved after this verification.
-		verifiedHead, err := resolveKnowledgeHead(ctx, source)
-		if err != nil {
-			return ctx, err
-		}
-		// A commit that landed between the freshness probe and the head read
-		// must not bind a proof the probe never verified: re-validate that
-		// the captured head still freshens the same scanned revision before
-		// recording it. A content commit fails the strict probe here; a
-		// code-only commit rechecks clean and becomes part of the verified
-		// head.
-		if verifiedHead != verified {
-			rechecked, _, err := validateKnowledgeHomeForQueryCore(ctx, s.db, source, false, "check_mandated_laws")
-			if err != nil {
-				return ctx, err
-			}
-			if rechecked != verified {
-				return ctx, newFailure(KindInvalidOperation, "check_mandated_laws", "registered source "+key+" moved while its verification ran", false, "verify the Product's registered sources again before the consequential transaction opens")
-			}
-		}
-		revisions[key] = knowledgeSourceVerifiedRevision{scanned: verified, head: verifiedHead}
+		revisions[key] = verified
 	}
 	return withKnowledgeSourceSetProof(ctx, &knowledgeSourceSetProof{productID: productID, sources: sources, revisions: revisions}), nil
+}
+
+func (s *Store) verifyKnowledgeSourceRevision(ctx context.Context, source KnowledgeHome) (knowledgeSourceVerifiedRevision, error) {
+	verified, _, err := validateKnowledgeHomeForQueryCore(ctx, s.db, source, false, "check_mandated_laws")
+	if err != nil {
+		return knowledgeSourceVerifiedRevision{}, err
+	}
+	// PM1 §3.3 separates the projection revision from the head: a code-only
+	// commit before verification can leave the scanned revision behind.
+	verifiedHead, err := resolveKnowledgeHead(ctx, source)
+	if err != nil {
+		return knowledgeSourceVerifiedRevision{}, err
+	}
+	// A commit between the freshness probe and the head read must not bind
+	// a proof the probe never verified. Recheck the captured head's content.
+	if verifiedHead != verified {
+		rechecked, _, err := validateKnowledgeHomeForQueryCore(ctx, s.db, source, false, "check_mandated_laws")
+		if err != nil {
+			return knowledgeSourceVerifiedRevision{}, err
+		}
+		if rechecked != verified {
+			return knowledgeSourceVerifiedRevision{}, newFailure(KindInvalidOperation, "check_mandated_laws", "knowledge source "+source.HomeProjectID+"/"+source.HomeLocatorID+" moved while its verification ran", false, "verify the knowledge sources again before the consequential transaction opens")
+		}
+	}
+	return knowledgeSourceVerifiedRevision{scanned: verified, head: verifiedHead}, nil
 }
 
 // requireKnowledgeSourceSetProof refuses a transaction-scoped mandated-law
@@ -159,12 +181,24 @@ func requireKnowledgeSourceSetProof(ctx context.Context, q queryer, homeProjectI
 		return err
 	}
 	sources, err := resolveKnowledgeQuerySources(ctx, q, productID, "check_mandated_laws")
-	if err != nil || len(sources) <= 1 {
+	if err != nil {
 		return err
 	}
+	return requireKnowledgeSourcesProof(ctx, q, productID, sources)
+}
+
+// Both Product and standalone inventory reads revalidate the same canonical
+// location, projection watermark, and small-file head proof in the transaction.
+func requireKnowledgeSourcesProof(ctx context.Context, q queryer, productID string, sources []KnowledgeHome) error {
 	proof := knowledgeSourceSetProofFrom(ctx)
 	if proof == nil {
 		return newFailure(KindInvalidOperation, "check_mandated_laws", "the registered knowledge source set was not verified before this transaction", false, "verify the Product's registered sources before the consequential transaction opens")
+	}
+	if proof.refreshErr != nil {
+		return proof.refreshErr
+	}
+	if proof.inventoryErr != nil {
+		return proof.inventoryErr
 	}
 	if proof.productID != productID || knowledgeSourceSetDigest(proof.sources) != knowledgeSourceSetDigest(sources) {
 		return newFailure(KindInvalidOperation, "check_mandated_laws", "the registered knowledge source set changed after its verification", false, "verify the Product's registered sources again before the consequential transaction opens")
@@ -1000,7 +1034,18 @@ func checkMandatedSourceLawConflicts(ctx context.Context, q queryer, set *mandat
 // Project's Product owns the contract, so a secondary membership in another
 // Product must never widen the home choice or make the workflow unrecordable.
 func workflowLawHome(ctx context.Context, q queryer, workID string) (string, string, error) {
-	rows, err := q.QueryContext(ctx, `SELECT ph.project_id,ph.locator_id FROM product_knowledge_homes ph JOIN product_projects pp ON pp.product_id=ph.product_id JOIN work_projects wp ON wp.project_id=pp.project_id WHERE wp.work_id=? AND wp.role='primary' ORDER BY ph.project_id,ph.locator_id`, workID)
+	var project string
+	if err := q.QueryRowContext(ctx, `SELECT project_id FROM work_projects WHERE work_id=? AND role='primary'`, workID).Scan(&project); err != nil {
+		if err == sql.ErrNoRows {
+			return "", "", newFailure(KindUnknownScope, "check_mandated_laws", "workflow has no canonical Git law home", false, "designate a Product home or primary Project locator")
+		}
+		return "", "", wrapFailure(KindUnavailable, "check_mandated_laws", "cannot resolve the primary Project", true, "retry once the workflow scope is readable", err)
+	}
+	return workflowLawHomeForProject(ctx, q, project)
+}
+
+func workflowLawHomeForProject(ctx context.Context, q queryer, projectID string) (string, string, error) {
+	rows, err := q.QueryContext(ctx, `SELECT ph.project_id,ph.locator_id FROM product_knowledge_homes ph JOIN product_projects pp ON pp.product_id=ph.product_id WHERE pp.project_id=? ORDER BY ph.project_id,ph.locator_id`, projectID)
 	if err != nil {
 		return "", "", wrapFailure(KindUnavailable, "check_mandated_laws", "cannot resolve the workflow Git knowledge home", true, "retry once the workflow scope is readable", err)
 	}
@@ -1029,7 +1074,7 @@ func workflowLawHome(ctx context.Context, q queryer, workID string) (string, str
 		return "", "", newAmbiguousScopeFailure("check_mandated_laws", "workflow resolves to multiple canonical Git law homes", "resolve one Product knowledge home", candidates)
 	}
 	var project, locator string
-	err = q.QueryRowContext(ctx, `SELECT wp.project_id,pl.locator_id FROM work_projects wp JOIN project_locators pl ON pl.project_id=wp.project_id AND pl.kind='canonical_path' WHERE wp.work_id=? AND wp.role='primary'`, workID).Scan(&project, &locator)
+	err = q.QueryRowContext(ctx, `SELECT project_id,locator_id FROM project_locators WHERE project_id=? AND kind='canonical_path'`, projectID).Scan(&project, &locator)
 	if err == sql.ErrNoRows {
 		return "", "", newFailure(KindUnknownScope, "check_mandated_laws", "workflow has no canonical Git law home", false, "designate a Product home or primary Project locator")
 	}

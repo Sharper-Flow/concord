@@ -30,7 +30,7 @@
     },
     {
       "kind": "go_test",
-      "value": "internal/agent.TestDefaultCheckoutShelvingApprovalRollbackAndBindings"
+      "value": "internal/agent.TestDefaultCheckoutShelvingRollbackAndReplay"
     },
     {
       "kind": "go_test",

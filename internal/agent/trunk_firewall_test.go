@@ -137,9 +137,9 @@ func TestMainCheckoutLifecyclePreservesTerminalGates(t *testing.T) {
 		}
 	})
 
-	t.Run("approved evidence", func(t *testing.T) {
+	t.Run("verification evidence without consent", func(t *testing.T) {
 		ctx := context.Background()
-		s, service, grant, privateKey := mutationDispatchFixture(t, []agentcontract.Capability{"work_transition"})
+		s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_transition"})
 		resolveProjectAuthority(service, store.ProjectResolution{ProjectID: "project-1", MainWorktree: true})
 		scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
 		if err != nil {
@@ -151,25 +151,16 @@ func TestMainCheckoutLifecyclePreservesTerminalGates(t *testing.T) {
 			Operation: "lifecycle",
 			Input:     json.RawMessage(`{"work_id":"work-1","expected_version":2,"target":"completed","reason":"finish work","evidence":[{"kind":"verification","authority":"agent-verifier","locator_kind":"test","locator":"main-checkout-verification"}],"idempotency_key":"main-terminal-approved"}`),
 		}
-		challenge, err := Dispatch(ctx, s, service, request, env)
-		if err != nil || challenge.Outcome != OutcomeError || challenge.Error == nil || challenge.Error.Kind != "approval_required" {
-			t.Fatalf("challenge response=%+v err=%v", challenge, err)
-		}
-		approvalRef, ok := challenge.Error.Details["approval_ref"].(string)
-		if !ok || len(approvalRef) != 64 {
-			t.Fatalf("approval_ref=%v", challenge.Error.Details["approval_ref"])
-		}
-		digest := mutationDigest(request.Tool, request.Operation, env, request.Input)
-		scope := map[string]any{"product_id": "product-1", "product_ids": []string{"product-1"}, "project_ids": []string{"project-1"}, "work_ids": []string{"work-1"}, "scope_version": scopeVersion}
-		versions := map[string]any{"work": int64(2)}
-		env.HostApproval = signedHostApproval(privateKey, approvalRef, digest, scope, versions, "session-1", "agent-1", "/repo-wt", fixedTime(), "main-terminal-approval")
-		request.Input = json.RawMessage(`{"work_id":"work-1","expected_version":2,"target":"completed","reason":"finish work","evidence":[{"kind":"verification","authority":"agent-verifier","locator_kind":"test","locator":"main-checkout-verification"}],"idempotency_key":"main-terminal-approved","approval":{"approval_ref":"` + approvalRef + `"}}`)
+		// CD-0243 D3/D7 retire terminal status as a consent trigger.
 		approved, err := Dispatch(ctx, s, service, request, env)
 		if err != nil || approved.Outcome != OutcomeOK {
 			t.Fatalf("approved response=%+v err=%v", approved, err)
 		}
 		if lifecycle := workLifecycle(t, s, "work-1"); lifecycle != "completed" {
 			t.Fatalf("work lifecycle=%q, want completed", lifecycle)
+		}
+		if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM agent_approval_challenges`); got != 0 {
+			t.Fatalf("ordinary completion minted %d challenges", got)
 		}
 	})
 }

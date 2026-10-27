@@ -474,8 +474,8 @@ func mutationReplayDurability(durable bool, op agentcontract.ContractOperation, 
 		// A missing durability binding must not downgrade possible authority.
 		durable = true
 	}
-	// Cross-Product authority requires approval even when the operation's
-	// base class does not. Replays use the stored, re-authorized Product set.
+	// Preserve cross-Product durability on replay. CD-0243 D3/D7 retire
+	// ordinary coordination consent, not re-authorization of the Product set.
 	if products, present := authorizedScope["product_ids"].([]any); present && selectedProduct != "" {
 		for _, rawProduct := range products {
 			product, valid := rawProduct.(string)
@@ -1567,6 +1567,8 @@ func (r runtime) planCapture(ctx context.Context, base Envelope, raw []byte, dig
 	if requirementErr != nil {
 		return failureEnvelope(base, requirementErr), nil, true
 	}
+	governingScope := store.NewGoverningRequirementScope(applicable, in.GoverningRequirements)
+	plan.scope["governing_requirements"] = governingScope.Digest()
 	if missing := store.MissingGoverningRequirements(applicable, in.GoverningRequirements); len(missing) > 0 {
 		// The conflict is consequential, so it routes through the same
 		// approval machinery as every other governed consequence. That is
@@ -1595,13 +1597,19 @@ func (r runtime) planCapture(ctx context.Context, base Envelope, raw []byte, dig
 	}
 	for _, product := range productIDs {
 		if r.Envelope.SelectedProductID != "" && product != r.Envelope.SelectedProductID {
-			plan.requiresApproval = true
 			plan.declareInitialDurability(true)
 		}
 	}
 	plan.scope["project_ids"] = in.ProjectIDs
+	verifiedCtx, proofErr := r.Store.EstablishKnowledgeSourceSetProofForProject(ctx, in.ProjectIDs[0])
+	if proofErr != nil {
+		return failureEnvelope(base, proofErr), nil, true
+	}
 	plan.effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
-		return r.applyCaptureTx(ctx, tx, grant, in, digest, workID, registeredDefinition, sizePlan)
+		if err := store.ValidateCaptureGoverningRequirementsTx(ctx, tx, in.ProjectIDs, governingScope); err != nil {
+			return nil, nil, nil, err
+		}
+		return r.applyCaptureTx(verifiedCtx, tx, grant, in, digest, workID, registeredDefinition, sizePlan)
 	}
 	return Envelope{}, nil, false
 }
@@ -1633,6 +1641,7 @@ func (r runtime) applyCaptureTx(ctx context.Context, tx *store.Transaction, gran
 	// defect intake rides the same payload at the current version; the
 	// membership fold owns its admission.
 	payloadFields := map[string]any{"work_kind": in.Kind, "title": in.Title, "value_statement": in.ValueStatement, "priority": priority, "urgency": urgency, "tags": in.Tags, "workflow_type_ref": in.WorkflowTypeRef, "external_ref": in.ExternalRef, "raised_from_work_id": in.RaisedFromWorkID}
+	payloadFields["governing_requirements"] = append([]string{}, in.GoverningRequirements...)
 	if in.DefectIntake != nil {
 		payloadFields["defect_intake"] = in.DefectIntake
 	}
@@ -1717,8 +1726,22 @@ func (r runtime) planReviseIntent(ctx context.Context, base Envelope, raw []byte
 			return failureEnvelope(base, sizeErr), nil, true
 		}
 	}
+	verifiedCtx := ctx
+	if in.WorkflowTypeRef != "" {
+		_, initialized, readErr := r.Store.WorkflowInstanceDefinition(ctx, in.WorkID)
+		if readErr != nil {
+			return failureEnvelope(base, readErr), nil, true
+		}
+		if !initialized {
+			var proofErr error
+			verifiedCtx, proofErr = r.Store.EstablishKnowledgeSourceSetProof(ctx, in.WorkID)
+			if proofErr != nil {
+				return failureEnvelope(base, proofErr), nil, true
+			}
+		}
+	}
 	plan.effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
-		return r.applyReviseIntentTx(ctx, tx, grant, in, digest, registeredDefinition, sizePlan, plan)
+		return r.applyReviseIntentTx(verifiedCtx, tx, grant, in, digest, registeredDefinition, sizePlan, plan)
 	}
 	return Envelope{}, nil, false
 }
@@ -1848,11 +1871,7 @@ func (r runtime) planLifecycle(_ context.Context, base Envelope, raw []byte, dig
 	if in.Target == "superseded" {
 		return coreError(base, "invalid_input", "superseded requires resolve_overlap with resolution_kind supersedes", "reread_entities", false), nil, true
 	}
-	// Terminal lifecycle transitions demand evidence before approval can be
-	// granted. Refuse the missing-evidence case structurally with a typed
-	// missing_evidence refusal whose recovery_action is provide_evidence;
-	// only when evidence is present do we let the normal challenge-minting
-	// path execute so the agent receives a real approval_ref to act on.
+	// CD-0243 D3/D7 retire terminal-status consent, not verification evidence.
 	if (in.Target == "completed" || in.Target == "cancelled") && len(in.Evidence) == 0 {
 		response := coreError(base, "missing_evidence", "terminal lifecycle transition requires verification evidence", "provide_evidence", false)
 		response.Error.Details = map[string]any{"operation_digest": digest, "work_id": in.WorkID, "expected_version": in.ExpectedVersion, "required_kind": "verification"}
@@ -1862,7 +1881,7 @@ func (r runtime) planLifecycle(_ context.Context, base Envelope, raw []byte, dig
 		plan.approval = in.Approval.ApprovalRef
 	}
 	terminalTarget := in.Target == "completed" || in.Target == "cancelled"
-	plan.requiresApproval = terminalTarget
+	plan.requiresApproval = false
 	plan.declareInitialDurability(terminalTarget)
 	if in.Target == "completed" {
 		plan.evidenceRefs = append([]EvidenceRef{}, in.Evidence...)
@@ -2157,22 +2176,8 @@ func (r runtime) retireResearchTx(ctx context.Context, tx *store.Transaction, ba
 		*response = r.budgetRefusal(*base, fmt.Sprintf("requested_budget_seconds %d exceeds supported %d", r.Budget.RequestedSeconds, r.Budget.SupportedSeconds))
 		return nil
 	}
-	if crossProduct && !in.DryRun {
-		if !durable {
-			return errApprovalDurabilityRequired
-		}
-		// The canonical digest binds every candidate's version fence.
-		// Approval version bindings admit Work and operation roles, not packs.
-		versions := map[string]any{}
-		if in.Approval == nil {
-			*response, err = r.approvalChallengeEnvelopeTx(ctx, tx, host, inv, *base, digest, scope, versions, string(op.Consequence), nil)
-			return err
-		}
-		_, _, err := r.consumeApprovalTx(ctx, tx, host, inv, grant, ApprovalCheck{ApprovalRef: in.Approval.ApprovalRef, OperationDigest: digest, Scope: boundedApprovalScope(scope), Versions: versions, Consequence: string(op.Consequence), ClientRef: grant.ClientRef, SessionRef: grant.SessionRef})
-		if err != nil {
-			*response = failureEnvelope(*base, err)
-			return err
-		}
+	if crossProduct && !in.DryRun && !durable {
+		return errApprovalDurabilityRequired
 	}
 	if !in.DryRun {
 		result, err = store.RetireResearchPacksWithinTx(ctx, tx, store.RetireResearchPacksRequest{ProductID: in.ProductID, Candidates: in.Candidates})
@@ -3041,19 +3046,10 @@ func (r runtime) planWorktreeDestroy(ctx context.Context, base Envelope, raw []b
 	if project == "" {
 		return coreError(base, "unknown_scope", "worktree tiers resolve through the session's Project; this session holds none", "refresh_context", false), nil, true
 	}
-	// Approval preflight (the capture precedent): non-terminal work and a
-	// declared destructive removal are operator-approved consequences. The
-	// store re-checks both inside the transaction, so a changed lifecycle
-	// cannot slip through an unapproved effect.
-	lifecycle, err := r.Store.WorkLifecycle(ctx, in.WorkID)
-	if err != nil {
-		return failureEnvelope(base, err), nil, true
-	}
-	if !store.IsTerminalLifecycle(lifecycle) {
-		plan.requiresApproval = true
-		plan.declareInitialDurability(true)
-	}
-	if in.Destructive {
+	// CD-0243 D7 removes nonterminal consent, but an explicit destructive
+	// or occupancy waiver still consumes its exact operator approval.
+	plan.requiresApproval = false
+	if in.Destructive || in.Approval != nil {
 		plan.requiresApproval = true
 		plan.declareInitialDurability(true)
 	}
@@ -3078,6 +3074,15 @@ func (r runtime) planWorktreeDestroy(ctx context.Context, base Envelope, raw []b
 	probe, err := r.Store.PrepareWorktreeReclaim(ctx, reclaimReq)
 	if err != nil {
 		return failureEnvelope(base, err), nil, true
+	}
+	occupancyWaiver, err := r.Store.WorktreeReclaimOccupancyWaiverRequired(ctx, reclaimReq, probe)
+	if err != nil {
+		return failureEnvelope(base, err), nil, true
+	}
+	if occupancyWaiver {
+		plan.requiresApproval = true
+		plan.declareInitialDurability(true)
+		reclaimReq.ReleaseOccupancy = true
 	}
 	var removal *store.WorktreeNativeRemoval
 	plan.effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
@@ -3270,6 +3275,7 @@ func (r runtime) planWorkRemoval(ctx context.Context, base Envelope, raw []byte,
 	if in.Approval != nil {
 		plan.approval = in.Approval.ApprovalRef
 	}
+	plan.requiresApproval = false
 	plan.scope["work_ids"] = []string{in.WorkID}
 	plan.scope["product_ids"] = nonEmpty(product)
 	plan.versions["work"] = in.ExpectedVersion
@@ -3739,7 +3745,7 @@ func (r runtime) planSetMemberships(_ context.Context, base Envelope, raw []byte
 	if in.Approval != nil {
 		plan.approval = in.Approval.ApprovalRef
 	}
-	plan.requiresApproval = true
+	plan.requiresApproval = false
 	plan.declareInitialDurability(true)
 	plan.versions["work"] = in.ExpectedVersion
 	plan.scope["work_ids"] = []string{in.WorkID}
@@ -4240,23 +4246,31 @@ func (m *clientPolicyGrantMutation) recordExpansionTx(ctx context.Context, tx *s
 
 // planResolveOverlap plans concord_work_relate.resolve_overlap.
 //
-// The routine kinds — depends_on, compatible_with, blocks — record the
-// caller's coordination answer without operator consent. The destructive
-// kinds — merged_into and supersedes — settle only through the consumed
-// one-use operator approval whose binding the event carries. Routine
-// consent and the transaction-derived cross-Product consent stay distinct:
-// the tail owns the final decision, so the effect alone rejects a routine
-// claim the tail did not consume.
-func (r runtime) planResolveOverlap(_ context.Context, base Envelope, raw []byte, digest string, _ Authority, _ agentcontract.ContractOperation, plan *mutationPlan) (Envelope, error, bool) {
+// A merger or supersession requires consent only when it discards a declared
+// governing requirement. A supplied terminal claim still binds exactly.
+func (r runtime) planResolveOverlap(ctx context.Context, base Envelope, raw []byte, digest string, _ Authority, _ agentcontract.ContractOperation, plan *mutationPlan) (Envelope, error, bool) {
 	var in resolveOverlapMutationInput
 	if err := decodeOperationInput(raw, &in); err != nil {
 		return base, err, true
 	}
-	destructive := in.ResolutionKind == store.ResolutionMergedInto || in.ResolutionKind == store.ResolutionSupersedes
+	terminalResolution := in.ResolutionKind == store.ResolutionMergedInto || in.ResolutionKind == store.ResolutionSupersedes
 	if in.Approval != nil {
 		plan.approval = in.Approval.ApprovalRef
 	}
-	plan.requiresApproval = destructive
+	// CD-0243 D3/D7: merger and supersession alone require no consent.
+	// A supplied approval remains an exact, validated claim.
+	plan.requiresApproval = terminalResolution && in.Approval != nil
+	if terminalResolution {
+		scope, err := r.Store.OverlapGoverningRequirementScope(ctx, in.FromWorkID, in.ToWorkID, in.ResolutionKind)
+		if err != nil {
+			return failureEnvelope(base, err), nil, true
+		}
+		plan.scope["governing_requirements"] = scope.Digest()
+		if missing := scope.Missing(); len(missing) > 0 {
+			plan.requiresApproval = true
+			plan.governingConflict = missing
+		}
+	}
 	plan.declareInitialDurability(in.ResolutionKind != "depends_on")
 	plan.versions["from"] = in.FromExpectedVersion
 	plan.versions["to"] = in.ToExpectedVersion
@@ -4270,11 +4284,11 @@ func (r runtime) planResolveOverlap(_ context.Context, base Envelope, raw []byte
 	plan.intents = []NextIntent{{Tool: "concord_work_trace", Operation: "continuity", QueryID: "C19.Continuity", ReasonCode: "inspect_overlap_resolution", RequiredFields: []string{"work_id"}}}
 	plan.effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
 		consumedRef, _ := plan.scope["approval_ref"].(string)
-		if !destructive && in.Approval != nil && consumedRef == "" {
+		if in.Approval != nil && consumedRef == "" {
 			return nil, nil, nil, newRuntimeFailure("invalid_input", routineOverlapClaimRefusal, "reread_entities", false)
 		}
 		request := store.WorkflowDomainOverlapResolutionRequest{EventID: digest + ":overlap", FromWorkID: in.FromWorkID, ToWorkID: in.ToWorkID, FromExpectedVersion: in.FromExpectedVersion, ToExpectedVersion: in.ToExpectedVersion, FromContractVersion: in.FromContractVersion, ToContractVersion: in.ToContractVersion, ResolutionKind: in.ResolutionKind, Reason: in.Reason, Actor: grant.PrincipalRef, OccurredAt: r.Authority.now()}
-		if destructive {
+		if consumedRef != "" {
 			approvalScopeJSON, _ := json.Marshal(boundedApprovalScope(plan.scope))
 			approvalVersionsJSON, _ := json.Marshal(plan.versions)
 			request.ApprovalRef = consumedRef
@@ -4299,9 +4313,8 @@ func (r runtime) planResolveOverlap(_ context.Context, base Envelope, raw []byte
 // The correction is the coordinator's routine exact-target repair: it
 // appends one typed correction beside a completed delivery assertion under
 // the authenticated caller's own recorded workflow actor and never reopens
-// the completed work. Routine consent and the transaction-derived
-// cross-Product consent stay distinct: the tail owns the final decision,
-// so the effect alone rejects a claim the tail did not consume.
+// the completed work. CD-0243 D3/D7 retire cross-Product coordination
+// consent; the effect rejects an unconsumed approval claim.
 func (r runtime) planCorrectDelivery(_ context.Context, base Envelope, raw []byte, digest string, _ Authority, _ agentcontract.ContractOperation, plan *mutationPlan) (Envelope, error, bool) {
 	var in correctDeliveryMutationInput
 	if err := decodeOperationInput(raw, &in); err != nil {
@@ -4643,26 +4656,12 @@ func (m *compactionMutation) captureResultTx(ctx context.Context, tx *store.Tran
 
 func (m *compactionMutation) publish(ctx context.Context) (Envelope, error) {
 	r, publish, base, workID := m.runtime, m.publishInput, m.base, m.workID
-	digest, op, scope, inv, host, opID, grant, key, resolvedHome := m.digest, m.op, m.scope, m.inv, m.host, m.opID, m.grant, m.key, m.resolvedHome
-	if publish.Approval == nil || publish.Approval.ApprovalRef == "" {
-		challengeScope := boundedApprovalScope(scope)
-		spec := ApprovalChallengeSpec{OperationDigest: digest, Scope: challengeScope, Versions: map[string]any{"work": publish.ExpectedVersion}, Consequence: string(op.Consequence), HostAssertionDigest: inv.HostAssertionDigest, ExpiresAt: r.Authority.now().Add(10 * time.Minute)}
-		var challengeRef string
-		if err := r.Store.TransactDurable(ctx, func(tx *store.Transaction) error {
-			var err error
-			challengeRef, err = r.Authority.CreateApprovalChallengeTx(ctx, tx, host, inv, spec)
-			return err
-		}); err != nil {
-			return failureEnvelope(base, err), nil
-		}
-		response := coreError(base, "approval_required", "core approval is required for publication", "request_approval", false)
-		response.Error.ConsequenceSummary = consequenceSummaryFor(r.Tool, r.Operation, spec)
-		response.Error.Details = map[string]any{"approval_ref": challengeRef, "summary": "Approve the exact requested publication, scope, and expected version.", "operation_digest": digest}
-		return response, nil
-	}
+	digest, inv, host, opID, grant, key, resolvedHome := m.digest, m.inv, m.host, m.opID, m.grant, m.key, m.resolvedHome
 	base.ResolvedScope = &Scope{ProductID: r.Envelope.SelectedProductID, ProjectIDs: []string{r.Envelope.AmbientProjectID}, WorkIDs: []string{workID}, ScopeVersion: r.Envelope.ScopeVersion}
 	m.base = base
-	claimReq := store.ClaimRequest{OpID: opID, WorkID: workID, WorkflowTypeRef: "concord.pm6.compaction", StepID: "git_proof", StepKind: store.StepCrossAuthority, AcceptedInputsDigest: digest, AcceptedScopeSnapshot: m.acceptedScope, PrincipalRef: grant.PrincipalRef, Tool: r.Tool, IdempotencyKey: key, RequestID: r.Envelope.RequestID, ObservedAt: r.Authority.now(), ApprovalRef: publish.Approval.ApprovalRef, ContractDigest: agentcontract.ManifestDigest}
+	// CD-0243 D7: the durable intent locks exact content and home; it is not
+	// operator consent. ClaimStepAuthorized retains the publication fence.
+	claimReq := store.ClaimRequest{OpID: opID, WorkID: workID, WorkflowTypeRef: "concord.pm6.compaction", StepID: "git_proof", StepKind: store.StepCrossAuthority, AcceptedInputsDigest: digest, AcceptedScopeSnapshot: m.acceptedScope, PrincipalRef: grant.PrincipalRef, Tool: r.Tool, IdempotencyKey: key, RequestID: r.Envelope.RequestID, ObservedAt: r.Authority.now(), ContractDigest: agentcontract.ManifestDigest}
 	claim, claimErr := store.ClaimStepAuthorized(ctx, r.Store, claimReq, func(tx *store.Transaction) error {
 		// CD-0222 D7: publication is consequential, so the claim refuses
 		// before any git note is written when the contract's law revision
@@ -4673,7 +4672,7 @@ func (m *compactionMutation) publish(ctx context.Context) (Envelope, error) {
 		if _, err := r.Authority.AuthorizeTx(ctx, tx, host, inv); err != nil {
 			return err
 		}
-		_, _, err := r.consumeApprovalTx(ctx, tx, host, inv, grant, ApprovalCheck{ApprovalRef: publish.Approval.ApprovalRef, OperationDigest: digest, Scope: scope, Versions: map[string]any{"work": publish.ExpectedVersion}, Consequence: string(op.Consequence), ClientRef: grant.ClientRef, SessionRef: grant.SessionRef})
+		_, err := r.deriveAuthorizedProductsTx(ctx, tx, m.scope, grant)
 		return err
 	})
 	if claimErr != nil {
@@ -5411,7 +5410,7 @@ func (m *mutationExecution) executeTx(ctx context.Context, tx *store.Transaction
 	if err != nil {
 		return err
 	}
-	m.requiresApproval = m.baseApprovalRequirement || crossProduct
+	m.requiresApproval = m.baseApprovalRequirement
 	if crossProduct && !durable {
 		// SQL-only scope discovery runs before any effect or challenge.
 		// Reopen under FULL and revalidate scope before issuing authority.
@@ -5780,7 +5779,7 @@ func (r runtime) consumeApprovalTx(ctx context.Context, tx *store.Transaction, h
 func boundedApprovalScope(scope map[string]any) map[string]any {
 	out := make(map[string]any, len(scope))
 	for key, value := range scope {
-		if key != "product_id" && key != "product_ids" && key != "project_ids" && key != "work_ids" && key != "failed_attempt_id" && key != "held_attempt_holder" && key != "scope_version" && key != "project_id" && key != "role" && key != "client_ref" && key != "policy_version" && key != "capabilities" && key != "product_scope" && key != "project_scope" && key != "agent_scope" && key != "release_tag" && key != "pull_requests" {
+		if key != "governing_requirements" && key != "product_id" && key != "product_ids" && key != "project_ids" && key != "work_ids" && key != "failed_attempt_id" && key != "held_attempt_holder" && key != "scope_version" && key != "project_id" && key != "role" && key != "client_ref" && key != "policy_version" && key != "capabilities" && key != "product_scope" && key != "project_scope" && key != "agent_scope" && key != "release_tag" && key != "pull_requests" {
 			continue
 		}
 		switch typed := value.(type) {

@@ -673,7 +673,7 @@ func seedWorkflowLaw(t *testing.T, s *Store) {
 	if err := s.DatabaseForTesting().QueryRow(`SELECT version FROM projects WHERE id='project'`).Scan(&projectVersion); err != nil {
 		t.Fatal(err)
 	}
-	locatorPath := t.TempDir()
+	locatorPath := initKnowledgeRepo(t)
 	normalized, err := NormalizeProjectLocator(LocatorCanonicalPath, locatorPath)
 	if err != nil {
 		t.Fatal(err)
@@ -685,11 +685,11 @@ func seedWorkflowLaw(t *testing.T, s *Store) {
 	if err := os.MkdirAll(filepath.Join(docsDir, "knowledge"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	registry := `{"schema_version":"1.0","product_key":"product","root_domain_id":"root","domains":[]}`
+	registry := `{"schema_version":"1.0","product_key":"product","root_domain_id":"product-root:product","domains":[{"domain_id":"product-root:product","name":"Root","purpose":"Synthetic law","status":"current","architecture_relations":[]}]}`
 	if err := os.WriteFile(filepath.Join(docsDir, "knowledge", "domain-registry.json"), []byte(registry+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(docsDir, "knowledge", "manifest.json"), []byte("{}\n"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(docsDir, "knowledge", "manifest.json"), []byte("{\"schema_version\":\"1.2\",\"supported_kinds\":[\"decision\",\"spec\"],\"indexed_kinds\":[\"decision\",\"spec\"]}\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(docsDir, "spec.md"), []byte("# Synthetic test law\n"), 0o600); err != nil {
@@ -705,6 +705,21 @@ func seedWorkflowLaw(t *testing.T, s *Store) {
 		t.Fatal(err)
 	}
 	seedWorkflowLawProjection(t, s)
+	// These unit fixtures author projection rows directly. Bind their synthetic
+	// projection to real committed source bytes so freshness still uses Git.
+	commit := commitKnowledgeRepo(t, locatorPath, "synthetic law source")
+	home := KnowledgeHome{HomeProjectID: "project", HomeLocatorID: "workflow-law-locator", RepoPath: locatorPath, HeadRef: "HEAD"}
+	digest, err := knowledgeContentDigest(t.Context(), home, commit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest, err = domainShapeKnowledgeDigest(t.Context(), home, commit, digest, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); INSERT INTO knowledge_index_watermark(home_project_id,home_locator_id,head_ref,scanned_commit_oid,scanned_content_digest,scanned_at,complete,projection_version) VALUES('project','workflow-law-locator','HEAD',?,?,'test',1,?); DELETE FROM write_guard`, commit, digest, knowledgeProjectionVersion); err != nil {
+		t.Fatal(err)
+	}
 }
 
 // seedWorkflowLawProjection writes the fixture's synthetic current law home
@@ -914,7 +929,7 @@ func TestWorkflowProjectionSchemaHasClosedChecksForeignKeysAndFoldGuards(t *test
 	s := openTemp(t)
 	expectedColumns := map[string][]string{
 		"workflow_instances":             {"work_id", "definition_ref", "definition_digest", "current_step", "instance_state", "execution_actor_ref", "execution_model", "started_at", "completed_at", "last_checkpoint_at", "execution_started_at", "outside_repair_state", "result_disposition", "completion_payload", "completion_occurred_at", "unhealthy_verdict_seq", "latest_non_dispatch_start_seq"},
-		"workflow_contracts":             {"work_id", "contract_version", "premise", "consequence_class", "required_evidence", "route_conventions", "approved_at", "approved_by", "superseded_by", "spec_mandate", "rigor_class", "law_modifies", "law_boundary_version", "self_repair_json", "definition_ref", "definition_digest", "decision_domains", "law_change", "supersession_seq", "last_healthy_seq"},
+		"workflow_contracts":             {"work_id", "contract_version", "premise", "consequence_class", "required_evidence", "route_conventions", "approved_at", "approved_by", "superseded_by", "spec_mandate", "rigor_class", "law_modifies", "law_boundary_version", "self_repair_json", "definition_ref", "definition_digest", "law_change", "supersession_seq", "last_healthy_seq", "decision_domains"},
 		"workflow_contract_predicates":   {"work_id", "contract_version", "predicate_id", "ordinal", "outcome_kind", "outcome_payload"},
 		"workflow_candidate_sets":        {"work_id", "contract_version", "candidate_kind", "candidate_ref", "candidate_role", "candidate_scope", "recorded_at", "recorded_by"},
 		"workflow_actors":                {"actor_ref", "principal_ref", "client_ref", "agent_ref", "session_ref", "actor_class", "first_seen_at"},
@@ -974,9 +989,8 @@ func TestWorkflowProjectionSchemaHasClosedChecksForeignKeysAndFoldGuards(t *test
 				}
 			}
 			if table == "workflow_contracts" {
-				// decision_domains arrived with ALTER TABLE alone, so the
-				// table-level write-seam-only guards keep governing the column:
-				// an outside-fold UPDATE of it must abort.
+				// The table-level write-seam-only guards govern decision_domains
+				// as well as its canonical-value constraint.
 				seedWork(t, s, "fold-guard-decision-domains")
 				if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1);
 INSERT INTO workflow_actors(actor_ref,principal_ref,client_ref,agent_ref,session_ref,actor_class,first_seen_at) VALUES('actor:' || hex(zeroblob(32)),'principal:fold-guard-dd','client:fold-guard-dd','agent:fold-guard-dd','session:fold-guard-dd','agent','now');

@@ -157,7 +157,11 @@ func TestWorkflowLawRevisionRecontractsThroughProductionRoutes(t *testing.T) {
 			}
 			successor["spec_mandate"] = tc.mandate
 			version := readWorkVersion(t, s, workID)
-			tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
+			ctx, err := s.EstablishKnowledgeSourceSetProof(t.Context(), workID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -166,7 +170,7 @@ func TestWorkflowLawRevisionRecontractsThroughProductionRoutes(t *testing.T) {
 				tx.Rollback()
 				t.Fatal(err)
 			}
-			result, err := applyWorkflowActionRawTx(context.Background(), tx, scope, BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
+			result, err := applyWorkflowActionRawTx(ctx, tx, scope, BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
 				WorkID: workID, ExpectedVersion: version, ActionID: "supersede_contract", Payload: mustJSONValue(successor), Actor: actor,
 				AcceptedInputsDigest: "sha256:" + strings.Repeat("a", 64), IdempotencyIdentity: "recontract-recover", OperationID: "recontract-recover", PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "recontract-recover", RequestID: "request:recontract-recover", ContractDigest: testManifestDigest, Now: time.Date(2026, 8, 17, 0, 0, 3, 0, time.UTC),
 			})

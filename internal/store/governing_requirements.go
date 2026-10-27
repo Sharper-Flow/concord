@@ -145,7 +145,14 @@ func knownGoverningRequirementRefsForProducts(ctx context.Context, q queryer, pr
 // ValidateCaptureGoverningRequirements refuses declared refs that resolve in
 // neither the capture scope nor the Product's registries and accepted laws.
 func (s *Store) ValidateCaptureGoverningRequirements(ctx context.Context, productIDs, applicable, declared []string) error {
-	known, err := knownGoverningRequirementRefsForProducts(ctx, s.db, productIDs)
+	return validateCaptureGoverningRequirements(ctx, s.db, productIDs, applicable, declared)
+}
+
+func validateCaptureGoverningRequirements(ctx context.Context, q queryer, productIDs, applicable, declared []string) error {
+	if err := validateDeclaredGoverningRequirements(declared); err != nil {
+		return err
+	}
+	known, err := knownGoverningRequirementRefsForProducts(ctx, q, productIDs)
 	if err != nil {
 		return err
 	}

@@ -120,52 +120,45 @@ var approvalInventoryReceiptGuardIdents = map[string]bool{
 // constant decides nothing; challenge and consumption halves anchor to the
 // decision row they serve instead of inflating the gap count.
 var approvalInventoryAliases = map[string]string{
-	"internal/store/workflow_registry.go\x00ActionApprovalRequired\x00ActionApprovalRequired":                                                                                        "vocabulary constant; names a class, decides nothing",
-	"internal/store/workflow_evaluation.go\x00WorkflowOperatorRequired\x00WorkflowOperatorRequired":                                                                                  "vocabulary constant; names a class, decides nothing",
-	"internal/agent/authority.go\x00ApprovalCheck\x00ApprovalCheck":                                                                                                                  "identity/receipt-integrity input declaration; the consume boundary at its caller is the point",
-	"internal/store/workflow_approval_binding.go\x00workflowOperatorFromConsumedApprovalTx\x00operation requires a consumed operator approval":                                       "layered recheck of one already consumed receipt; no new decision",
-	"internal/store/workflow_approval_binding.go\x00workflowOperatorFromConsumedApprovalTx\x00operation requires a consumed one-use operator approval":                               "layered recheck of one already consumed receipt; no new decision",
-	"internal/agent/mutations.go\x00workflowActionMutation.authorizeTx\x00RequireOperatorIdentity":                                                                                   "identity/receipt-integrity parameter of the consume call anchored to workflow-action-consent-demand",
-	"internal/agent/mutations.go\x00workflowActionMutation.execute\x00requires-approval":                                                                                             "copies the already classified consent/takeover answer into the transaction receiver; same decisions anchored to workflow-action-consent-demand and workflow-action-takeover-demand at workflowActionMutation.execute",
-	"internal/store/workflow_outcome.go\x00validateDecisionRecord\x00question":                                                                                                       "audited operator-evidence consumer of the decision record (CD-0175); not independently minted consent",
-	"internal/store/workflow.go\x00validateWorkflowContractApprovalLaw\x00validateDerivedLawModification":                                                                            "same derived-tier admissibility decision anchored to law-admission-6",
-	"internal/store/workflow.go\x00validateWorkflowContractApprovalPolicy\x00validateWorkflowContractApprovalLaw":                                                                    "same derived-tier admissibility decision anchored to law-admission-6",
-	"internal/store/workflow.go\x00foldSuppliedWorkflowSuccessorTx\x00validateDerivedLawModification":                                                                                "same derived-tier admissibility decision anchored to law-admission-6",
-	"internal/store/law_boundary.go\x00validateDerivedLawModificationAtHome\x00refuseNonDerivedLawModification":                                                                      "same derived-tier admissibility decision anchored to law-admission-6",
-	"internal/store/law_boundary.go\x00validateDerivedLawModificationAcrossSources\x00refuseNonDerivedLawModification":                                                               "same derived-tier admissibility decision anchored to law-admission-6",
-	"internal/agent/mutations.go\x00runtime.workflowActionChallenge\x00CreateApprovalChallengeTx":                                                                                    "challenge half of the workflow-action consent anchored to workflow-action-consent-demand",
-	"internal/agent/mutations.go\x00workflowActionMutation.authorizeTx\x00consumeApprovalTx":                                                                                         "receipt half of the workflow-action consent anchored to workflow-action-consent-demand",
-	"internal/agent/mutations.go\x00runtime.retireResearchTx\x00approvalChallengeEnvelopeTx":                                                                                         "challenge half of cross-Product retirement consent anchored to research-retire-consume",
-	"internal/agent/mutations.go\x00productProjectLinkMutation.applyTx\x00CreateApprovalChallengeTx":                                                                                 "challenge half anchored to manifest:concord_work_relate.product_project_add",
-	"internal/agent/mutations.go\x00productProjectLinkMutation.applyTx\x00consumeApprovalTx":                                                                                         "receipt half anchored to manifest:concord_work_relate.product_project_add",
-	"internal/agent/mutations.go\x00clientPolicyGrantMutation.applyTx\x00CreateApprovalChallengeTx":                                                                                  "challenge half anchored to manifest:concord_work_relate.client_policy_grant_request",
-	"internal/agent/mutations.go\x00clientPolicyGrantMutation.applyTx\x00consumeApprovalTx":                                                                                          "receipt half anchored to manifest:concord_work_relate.client_policy_grant_request",
-	"internal/agent/mutations.go\x00compactionMutation.publish\x00CreateApprovalChallengeTx":                                                                                         "challenge half anchored to manifest:concord_work_compact.publish",
-	"internal/agent/mutations.go\x00compactionMutation.publish\x00consumeApprovalTx":                                                                                                 "receipt half anchored to manifest:concord_work_compact.publish",
-	"internal/agent/mutations.go\x00mutationExecution.admitTx\x00approvalChallengeEnvelopeTx":                                                                                        "generic challenge half of the manifest plan consent anchored to execute-mutation-manifest-inherited-demand",
-	"internal/agent/mutations.go\x00mutationExecution.admitTx\x00consumeApprovalTx":                                                                                                  "generic receipt half of the manifest plan consent anchored to execute-mutation-manifest-inherited-demand",
-	"internal/agent/mutations.go\x00runtime.approvalChallengeEnvelopeTx\x00CreateApprovalChallengeTx":                                                                                "the single challenge creation path anchored to challenge-envelope-core-approval",
-	"internal/agent/authority.go\x00Service.AcceptHostApprovalTx\x00ValidateAndConsumeApprovalTx":                                                                                    "receipt-integrity recheck anchored to the approval exchange decision at mutationExecution.executeTx",
-	"internal/agent/authority.go\x00Service.consumeChallengeApprovalTx\x00ValidateAndConsumeApprovalTx":                                                                              "receipt-integrity recheck anchored to the approval exchange decision at mutationExecution.executeTx",
-	"internal/agent/authority.go\x00Service.ValidateAndConsumeApprovalTx\x00ConsumeApprovalTx":                                                                                       "one-use consumption before the event exists; integrity layer of the exchange decision at mutationExecution.executeTx",
-	"internal/store/outside_repair.go\x00applyOutsideRepairMutationTx\x00workflowOperatorFromConsumedApprovalTx":                                                                     "live admission half anchored to outside-repair-demand",
-	"internal/store/outside_repair.go\x00validateOutsideRepairFold\x00authorizeWorkflowOperatorApprovalTx":                                                                           "fold recheck anchored to outside-repair-demand",
-	"internal/store/workflow.go\x00requireWorkflowDuplicateRecoveryApprovalTx\x00authorizeWorkflowOperatorApprovalTx":                                                                "fold recheck anchored to registry-supersede-contract",
-	"internal/store/workflow_domain_overlap.go\x00ResolveWorkflowDomainOverlapTx\x00workflowOperatorFromConsumedApprovalTx":                                                          "live admission half anchored to resolve-overlap-destructive-demand",
-	"internal/store/work_size_override.go\x00OverrideWorkSizeTx\x00workflowOperatorFromConsumedApprovalTx":                                                                           "live admission half anchored to revise-intent-operator-size-demand",
-	"internal/store/work_size_override.go\x00foldWorkSizeOverridden\x00authorizeWorkflowOperatorApprovalTx":                                                                          "fold recheck anchored to revise-intent-operator-size-demand",
-	"internal/store/workflow_completion.go\x00workflowPremiseConfirmationAuthority\x00workflow premise confirmation is not operator typed#2":                                         "the consequence_v1 decision-bearing arm of the same operator-typed premise check anchored to completion-premise-not-typed",
-	"internal/store/workflow_approval_policy.go\x00classifyLegacyWorkflowApproval\x00operator-required":                                                                              "classified consent source of the same decision anchored to workflow-action-consent-demand",
-	"internal/store/workflow_approval_policy.go\x00classifyConsequenceV1WorkflowApproval\x00destructive":                                                                             "classified consent source of the same decision anchored to workflow-action-consent-demand",
-	"internal/store/workflow_approval_policy.go\x00classifyConsequenceV1Decision\x00classifyConsequenceV1Decision":                                                                   "classified consent source of the same decision anchored to workflow-action-consent-demand",
-	"internal/store/workflow_approval_policy.go\x00classifyConsequenceV1Decision\x00domains":                                                                                         "approve_contract arm of the serious law-change consent anchored to serious-law-change-consent",
-	"internal/store/workflow_law_change.go\x00bindWorkflowLawChangeApprovalTx\x00workflowOperatorFromConsumedApprovalTx":                                                             "live admission half anchored to serious-law-change-consent",
-	"internal/store/workflow_law_change.go\x00validateLiveWorkflowLawChangeTx\x00workflowOperatorFromConsumedApprovalTx":                                                             "live fold recheck anchored to serious-law-change-consent",
-	"internal/store/workflow_law_change.go\x00validateWorkflowLawChangeApproval\x00a serious law change requires the consumed operator approval binding":                             "fold shape recheck anchored to serious-law-change-consent",
-	"internal/store/workflow_law_change.go\x00checkWorkflowLawChangeEnactmentTx\x00every law change at crucial size requires the operator's approval of its exact text (CD-0230 D4)": "completion recheck of the crucial-size arm anchored to serious-law-change-consent",
-	"internal/store/workflow_law_change.go\x00checkWorkflowLawChangeEnactmentTx\x00checkWorkflowLawChangeEnactmentTx":                                                                "completion recheck of the enacted Domain count anchored to serious-law-change-consent",
-	"internal/store/workflow_law_change.go\x00checkWorkflowLawChangePinsEnactedTx\x00checkWorkflowLawChangePinsEnactedTx":                                                            "completion recheck of the approved law text anchored to serious-law-change-consent",
-	"internal/store/workflow_law_change.go\x00checkWorkflowLawChangePinsEnactedTx\x00checkWorkflowLawChangePinsEnactedTx#2":                                                          "completion recheck of the approved registry anchored to serious-law-change-consent",
+	"internal/store/workflow_registry.go\x00ActionApprovalRequired\x00ActionApprovalRequired":                                                          "vocabulary constant; names a class, decides nothing",
+	"internal/store/workflow_evaluation.go\x00WorkflowOperatorRequired\x00WorkflowOperatorRequired":                                                    "vocabulary constant; names a class, decides nothing",
+	"internal/agent/authority.go\x00ApprovalCheck\x00ApprovalCheck":                                                                                    "identity/receipt-integrity input declaration; the consume boundary at its caller is the point",
+	"internal/store/workflow_approval_binding.go\x00workflowOperatorFromConsumedApprovalTx\x00operation requires a consumed operator approval":         "layered recheck of one already consumed receipt; no new decision",
+	"internal/store/workflow_approval_binding.go\x00workflowOperatorFromConsumedApprovalTx\x00operation requires a consumed one-use operator approval": "layered recheck of one already consumed receipt; no new decision",
+	"internal/agent/mutations.go\x00workflowActionMutation.authorizeTx\x00RequireOperatorIdentity":                                                     "identity/receipt-integrity parameter of the consume call anchored to workflow-action-consent-demand",
+	"internal/agent/mutations.go\x00workflowActionMutation.execute\x00requires-approval":                                                               "copies the already classified consent/takeover answer into the transaction receiver; same decisions anchored to workflow-action-consent-demand and workflow-action-takeover-demand at workflowActionMutation.execute",
+	"internal/store/workflow_outcome.go\x00validateDecisionRecord\x00question":                                                                         "audited operator-evidence consumer of the decision record (CD-0175); not independently minted consent",
+	"internal/store/workflow.go\x00validateWorkflowContractApprovalLaw\x00validateDerivedLawModification":                                              "same derived-tier admissibility decision anchored to law-admission-6",
+	"internal/store/workflow.go\x00validateWorkflowContractApprovalPolicy\x00validateWorkflowContractApprovalLaw":                                      "same derived-tier admissibility decision anchored to law-admission-6",
+	"internal/store/workflow.go\x00foldSuppliedWorkflowSuccessorTx\x00validateDerivedLawModification":                                                  "same derived-tier admissibility decision anchored to law-admission-6",
+	"internal/store/law_boundary.go\x00validateDerivedLawModificationAtHome\x00refuseNonDerivedLawModification":                                        "same derived-tier admissibility decision anchored to law-admission-6",
+	"internal/store/law_boundary.go\x00validateDerivedLawModificationAcrossSources\x00refuseNonDerivedLawModification":                                 "same derived-tier admissibility decision anchored to law-admission-6",
+	"internal/agent/mutations.go\x00runtime.workflowActionChallenge\x00CreateApprovalChallengeTx":                                                      "challenge half of the workflow-action consent anchored to workflow-action-consent-demand",
+	"internal/agent/mutations.go\x00workflowActionMutation.authorizeTx\x00consumeApprovalTx":                                                           "receipt half of the workflow-action consent anchored to workflow-action-consent-demand",
+	"internal/agent/mutations.go\x00productProjectLinkMutation.applyTx\x00CreateApprovalChallengeTx":                                                   "challenge half anchored to manifest:concord_work_relate.product_project_add",
+	"internal/agent/mutations.go\x00productProjectLinkMutation.applyTx\x00consumeApprovalTx":                                                           "receipt half anchored to manifest:concord_work_relate.product_project_add",
+	"internal/agent/mutations.go\x00clientPolicyGrantMutation.applyTx\x00CreateApprovalChallengeTx":                                                    "challenge half anchored to manifest:concord_work_relate.client_policy_grant_request",
+	"internal/agent/mutations.go\x00clientPolicyGrantMutation.applyTx\x00consumeApprovalTx":                                                            "receipt half anchored to manifest:concord_work_relate.client_policy_grant_request",
+	"internal/agent/mutations.go\x00mutationExecution.admitTx\x00approvalChallengeEnvelopeTx":                                                          "generic challenge half of the manifest plan consent anchored to execute-mutation-manifest-inherited-demand",
+	"internal/agent/mutations.go\x00mutationExecution.admitTx\x00consumeApprovalTx":                                                                    "generic receipt half of the manifest plan consent anchored to execute-mutation-manifest-inherited-demand",
+	"internal/agent/mutations.go\x00runtime.approvalChallengeEnvelopeTx\x00CreateApprovalChallengeTx":                                                  "the single challenge creation path anchored to challenge-envelope-core-approval",
+	"internal/agent/authority.go\x00Service.AcceptHostApprovalTx\x00ValidateAndConsumeApprovalTx":                                                      "receipt-integrity recheck anchored to the approval exchange decision at mutationExecution.executeTx",
+	"internal/agent/authority.go\x00Service.consumeChallengeApprovalTx\x00ValidateAndConsumeApprovalTx":                                                "receipt-integrity recheck anchored to the approval exchange decision at mutationExecution.executeTx",
+	"internal/agent/authority.go\x00Service.ValidateAndConsumeApprovalTx\x00ConsumeApprovalTx":                                                         "one-use consumption before the event exists; integrity layer of the exchange decision at mutationExecution.executeTx",
+	"internal/store/outside_repair.go\x00applyOutsideRepairMutationTx\x00workflowOperatorFromConsumedApprovalTx":                                       "validates an explicitly supplied receipt anchored to outside-repair-supplied-approval; ordinary repair has no consent demand",
+	"internal/store/outside_repair.go\x00validateOutsideRepairFold\x00authorizeWorkflowOperatorApprovalTx":                                             "fold recheck of an explicitly supplied receipt anchored to outside-repair-supplied-approval",
+	"internal/store/workflow.go\x00requireWorkflowDuplicateRecoveryApprovalTx\x00authorizeWorkflowOperatorApprovalTx":                                  "fold recheck anchored to registry-supersede-contract",
+	"internal/store/workflow_domain_overlap.go\x00ResolveWorkflowDomainOverlapTx\x00workflowOperatorFromConsumedApprovalTx":                            "validates an explicitly supplied receipt anchored to resolve-overlap-supplied-approval; merger alone demands no consent",
+	"internal/store/governing_scope.go\x00checkOverlapGoverningScope\x00workflowOperatorFromConsumedApprovalTx":                                        "receipt-integrity recheck anchored to resolve-overlap-scope-cut-guard; both sets bind the consumed scope-cut consent",
+	"internal/store/work_size_override.go\x00OverrideWorkSizeTx\x00workflowOperatorFromConsumedApprovalTx":                                             "live admission half anchored to revise-intent-operator-size-demand",
+	"internal/store/work_size_override.go\x00foldWorkSizeOverridden\x00authorizeWorkflowOperatorApprovalTx":                                            "fold recheck anchored to revise-intent-operator-size-demand",
+	"internal/store/workflow_completion.go\x00workflowPremiseConfirmationAuthority\x00workflow premise confirmation is not operator typed#2":           "the consequence_v1 decision-bearing arm of the same operator-typed premise check anchored to completion-premise-not-typed",
+	"internal/store/workflow_approval_policy.go\x00classifyLegacyWorkflowApproval\x00operator-required":                                                "classified consent source of the same decision anchored to workflow-action-consent-demand",
+	"internal/store/workflow_approval_policy.go\x00classifyConsequenceV1Decision\x00classifyConsequenceV1Decision":                                     "classified consent source of the same decision anchored to workflow-action-consent-demand",
+	"internal/store/workflow_law_change.go\x00bindWorkflowLawChangeApprovalTx\x00workflowOperatorFromConsumedApprovalTx":                               "live admission half anchored to classified-law-change-binding",
+	"internal/store/workflow_law_change.go\x00validateLiveWorkflowLawChangeTx\x00workflowOperatorFromConsumedApprovalTx":                               "live fold recheck anchored to classified-law-change-binding",
+	"internal/store/workflow_law_change.go\x00checkWorkflowLawChangePinsEnactedTx\x00checkWorkflowLawChangePinsEnactedTx":                              "completion recheck of the approved law text anchored to classified-law-change-binding",
+	"internal/store/workflow_law_change.go\x00checkWorkflowLawChangePinsEnactedTx\x00checkWorkflowLawChangePinsEnactedTx#2":                            "completion recheck of the approved registry anchored to classified-law-change-binding",
 }
 
 // approvalInventoryRetainedDeclarations witness retained consent declarations
@@ -176,12 +169,20 @@ var approvalInventoryAliases = map[string]string{
 // consent and is no excluded-owner shortcut.
 var approvalInventoryRetainedDeclarations = map[string]string{}
 
-// approvalInventoryClasses is the closed D5 class vocabulary.
+// approvalInventoryClasses is the closed CD-0243 D2 class vocabulary.
 var approvalInventoryClasses = map[string]bool{
-	"ui_ux":                         true,
-	"product_preference":            true,
-	"serious_law":                   true,
-	"destructive_verified_recovery": true,
+	"product": true, "ui_ux": true, "production_data": true,
+	"security": true, "increased_spending": true, "legal": true,
+}
+
+// These are retained gate/override identities, not additional approval classes.
+var approvalInventoryPreservedGates = map[string]bool{
+	"unrelinquished_attempt_takeover":       true,
+	"separately_required_dispatch_approval": true,
+	"operator_size_override":                true,
+	"worktree_content_waiver":               true,
+	"worktree_occupancy_waiver":             true,
+	"unstarted_reclaim_override":            true,
 }
 
 // approvalInventoryReachabilities is the closed reachability vocabulary.
@@ -1218,7 +1219,7 @@ func syntheticClassifierConsent(facts WorkflowApprovalFacts) WorkflowApprovalPol
 	if facts.OperatorRequired {
 		consent = WorkflowConsentRequired
 	}
-	if facts.Destructive != "" {
+	if facts.ProposedDecisionDomains != nil {
 		return WorkflowApprovalPolicyResult{Consent: WorkflowConsentRequired}
 	}
 	if consent == WorkflowConsentRequired {
@@ -1254,7 +1255,7 @@ func syntheticClassifierConsent(facts WorkflowApprovalFacts) WorkflowApprovalPol
 	}
 	// Each consent decision keys on its governing branch; the case-list
 	// validation read and the comparison read stay reads.
-	want := []string{"operator-required", "destructive", "workflow-consent-required", "syntheticClassifierConsent"}
+	want := []string{"operator-required", "proposed-decision-domains", "workflow-consent-required", "syntheticClassifierConsent"}
 	if !slices.Equal(demand, want) || consentReads != 2 {
 		t.Fatalf("census misclassified the synthetic classifier consent: demand=%v consentReads=%d points=%v reads=%v", demand, consentReads, visitor.points, visitor.reads)
 	}
@@ -1548,7 +1549,7 @@ func TestOperatorApprovalInventoryManifestConditionalPlannerControl(t *testing.T
 	}
 	for operation, owner := range map[string]string{
 		"concord_work_transition.workflow_action": "workflowActionMutation.execute",
-		"concord_work_compact.reconcile":          "compactionMutation.reconcile",
+		"concord_work_define.revise_intent":       "runtime.planReviseIntent",
 	} {
 		if !slices.Contains(realPlanners[operation], owner) {
 			t.Fatalf("dispatch for %s does not reach its extracted owner %s: %v", operation, owner, realPlanners[operation])
@@ -1710,39 +1711,99 @@ func approvalInventoryManifestCoverageProblems(rows map[string]approvalInventory
 	return problems
 }
 
+func TestOperatorApprovalInventorySixClassDispositions(t *testing.T) {
+	classes := make([]string, 0, len(approvalInventoryClasses))
+	for class := range approvalInventoryClasses {
+		classes = append(classes, class)
+	}
+	sort.Strings(classes)
+	if !slices.Equal(classes, workflowDecisionDomainSet) {
+		t.Fatalf("inventory classes %v differ from the runtime authoring vocabulary %v", classes, workflowDecisionDomainSet)
+	}
+	for _, raw := range []string{
+		`{"class":"product"}`, `{"class":"ui_ux"}`, `{"class":"production_data"}`,
+		`{"class":"security"}`, `{"class":"increased_spending"}`, `{"class":"legal"}`,
+		`{"classes":["product","ui_ux","production_data","security","increased_spending","legal"]}`,
+		`{"agent_owned":true,"reason":"ordinary coordination within scope"}`,
+		`{"preserved_gate":"worktree_content_waiver","reason":"operator-only waiver"}`,
+		`{"legacy":true,"reason":"released metadata"}`,
+	} {
+		if problems := approvalInventoryClassificationProblems(approvalInventoryPointRow{ID: "synthetic", Classification: json.RawMessage(raw)}); len(problems) != 0 {
+			t.Errorf("valid disposition %s: %v", raw, problems)
+		}
+	}
+	for _, raw := range []string{
+		`{"class":"serious_law"}`, `{"class":"product_preference"}`, `{"class":"destructive_verified_recovery"}`,
+		`{"classes":[]}`, `{"classes":["security","security"]}`, `{"classes":["convenience"]}`,
+		`{"agent_owned":false,"reason":"ordinary"}`, `{"legacy":true}`, `{"preserved_gate":"","reason":"waiver"}`,
+		`{"preserved_gate":"convenience","reason":"not an existing gate"}`,
+		`{"agent_owned":true,"reason":""}`, `{"class":"security","legacy":true,"reason":"mixed"}`,
+		`{"classes":["security"],"agent_owned":true,"reason":"mixed"}`,
+	} {
+		if problems := approvalInventoryClassificationProblems(approvalInventoryPointRow{ID: "synthetic", Classification: json.RawMessage(raw)}); len(problems) == 0 {
+			t.Errorf("invalid disposition accepted: %s", raw)
+		}
+	}
+}
+
 func approvalInventoryClassificationProblems(row approvalInventoryPointRow) []string {
-	var class struct {
-		Class string `json:"class"`
+	var shape map[string]json.RawMessage
+	invalid := func() []string {
+		return []string{fmt.Sprintf("approval_points row %s classification is not a closed D2 class, structural disposition, or named gap: %s", row.ID, row.Classification)}
 	}
-	var gap struct {
-		GapIssue string `json:"gap_issue"`
-		Reason   string `json:"reason"`
+	if json.Unmarshal(row.Classification, &shape) != nil || len(shape) == 0 {
+		return invalid()
 	}
-	if err := json.Unmarshal(row.Classification, &class); err == nil && class.Class != "" {
-		var extra map[string]json.RawMessage
-		_ = json.Unmarshal(row.Classification, &extra)
-		if _, hasGap := extra["gap_issue"]; hasGap {
-			return []string{fmt.Sprintf("approval_points row %s carries both a class and a gap; classification is exactly one shape", row.ID)}
-		}
-		if len(extra) != 1 {
-			return []string{fmt.Sprintf("approval_points row %s classification carries unknown fields: %s", row.ID, string(row.Classification))}
-		}
-		if !approvalInventoryClasses[class.Class] {
-			return []string{fmt.Sprintf("approval_points row %s names unknown class %q; the four D5 classes are closed", row.ID, class.Class)}
+	if raw, ok := shape["class"]; ok {
+		var class string
+		if len(shape) != 1 || json.Unmarshal(raw, &class) != nil || !approvalInventoryClasses[class] {
+			return invalid()
 		}
 		return nil
 	}
-	if err := json.Unmarshal(row.Classification, &gap); err == nil && gap.GapIssue != "" {
-		var problems []string
-		if !strings.HasPrefix(gap.GapIssue, "CON-") || strings.TrimPrefix(gap.GapIssue, "CON-") == "" {
-			problems = append(problems, fmt.Sprintf("approval_points row %s gap_issue %q must name a CON issue", row.ID, gap.GapIssue))
+	if raw, ok := shape["classes"]; ok {
+		var classes []string
+		if len(shape) != 1 || json.Unmarshal(raw, &classes) != nil || len(classes) == 0 {
+			return invalid()
 		}
-		if strings.TrimSpace(gap.Reason) == "" {
-			problems = append(problems, fmt.Sprintf("approval_points row %s names a gap with no reason", row.ID))
+		seen := map[string]bool{}
+		for _, class := range classes {
+			if !approvalInventoryClasses[class] || seen[class] {
+				return invalid()
+			}
+			seen[class] = true
 		}
-		return problems
+		return nil
 	}
-	return []string{fmt.Sprintf("approval_points row %s classification is neither a D5 class nor a named gap: %s", row.ID, string(row.Classification))}
+	var reason string
+	if json.Unmarshal(shape["reason"], &reason) != nil || strings.TrimSpace(reason) == "" || len(shape) != 2 {
+		return invalid()
+	}
+	for _, disposition := range []string{"agent_owned", "legacy", "preserved_gate", "gap_issue"} {
+		raw, ok := shape[disposition]
+		if !ok {
+			continue
+		}
+		if disposition == "agent_owned" || disposition == "legacy" {
+			var value bool
+			if json.Unmarshal(raw, &value) != nil || !value {
+				return invalid()
+			}
+		} else {
+			var value string
+			if json.Unmarshal(raw, &value) != nil || strings.TrimSpace(value) == "" {
+				return invalid()
+			}
+			if disposition == "gap_issue" && (!strings.HasPrefix(value, "CON-") || strings.TrimPrefix(value, "CON-") == "") {
+				return invalid()
+			}
+			if disposition == "preserved_gate" && !approvalInventoryPreservedGates[value] {
+				return invalid()
+			}
+		}
+		return nil
+	}
+	return invalid()
 }
 
 // approvalInventoryTripleCoverageProblems compares the declared coverage
@@ -1841,7 +1902,7 @@ func TestOperatorApprovalInventoryCensusRejectsStaleOwnerRow(t *testing.T) {
 		Owner:          approvalInventoryOwner{Path: "internal/store/workflow_registry.go", Symbol: "absentApprovalOwner", Branch: "absentApprovalOwner"},
 		HoldingLaw:     &holding,
 		Reachability:   []string{"live"},
-		Classification: json.RawMessage(`{"class":"product_preference"}`),
+		Classification: json.RawMessage(`{"class":"product"}`),
 	})
 	planners := approvalInventoryManifestConditionalPlanners(t, gated)
 	problems := approvalInventoryCoverageProblems(points, rows, gated, planners)
@@ -1900,5 +1961,47 @@ func TestOperatorApprovalInventoryRegistryExpansionIsCovered(t *testing.T) {
 	if len(problems) > 0 {
 		sort.Strings(problems)
 		t.Fatalf("registered approval triples are not covered: %d problem(s): %s", len(problems), strings.Join(problems, "; "))
+	}
+}
+
+func TestOperatorApprovalInventoryEvidenceNamesLiveSymbols(t *testing.T) {
+	for _, row := range approvalInventoryLoadTable(t).ApprovalPoints {
+		if len(row.Evidence) == 0 {
+			t.Errorf("%s has no source evidence", row.ID)
+		}
+		for _, citation := range row.Evidence {
+			path, symbol, ok := strings.Cut(citation, ":")
+			if !ok || !strings.HasSuffix(path, ".go") {
+				t.Errorf("%s evidence %q must name a Go owner or test symbol", row.ID, citation)
+				continue
+			}
+			file, err := parser.ParseFile(token.NewFileSet(), filepath.Join("../..", path), nil, 0)
+			if err != nil {
+				t.Errorf("%s evidence %q: %v", row.ID, citation, err)
+				continue
+			}
+			found := false
+			for _, declaration := range file.Decls {
+				if group, ok := declaration.(*ast.GenDecl); ok {
+					for _, spec := range group.Specs {
+						if value, ok := spec.(*ast.ValueSpec); ok {
+							for _, name := range value.Names {
+								found = found || name.Name == symbol
+							}
+						}
+					}
+				}
+				if function, ok := declaration.(*ast.FuncDecl); ok {
+					name := function.Name.Name
+					if receiver := approvalInventoryReceiverType(function); receiver != "" {
+						name = receiver + "." + name
+					}
+					found = found || name == symbol
+				}
+			}
+			if !found {
+				t.Errorf("%s evidence %q resolves to no live source symbol", row.ID, citation)
+			}
+		}
 	}
 }

@@ -135,7 +135,7 @@ func BackupWithOptions(ctx context.Context, s *Store, destination string, option
 			}
 		}
 	}()
-	if err := mechanismFailure(sqlitedb.BackupSnapshot(ctx, conn, destination)); err != nil {
+	if err := mechanismFailure(sqlitedb.BackupSnapshot(ctx, conn, SQLiteFileURI(destination))); err != nil {
 		return manifest, err
 	}
 

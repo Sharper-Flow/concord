@@ -82,7 +82,7 @@ func TestSnapshotRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	snapshot := filepath.Join(t.TempDir(), "snapshot%?#.db")
-	if err := BackupSnapshot(ctx, conn, snapshot); err != nil {
+	if err := BackupSnapshot(ctx, conn, FileURI(snapshot)); err != nil {
 		t.Fatal(err)
 	}
 	assertSnapshotConnectionReleased(t, db, conn)
@@ -144,7 +144,7 @@ func TestSnapshotBackupPinsSourceAcrossWriterCommit(t *testing.T) {
 		t.Fatal(err)
 	}
 	snapshot := filepath.Join(t.TempDir(), "pinned.db")
-	if err := BackupSnapshot(ctx, conn, snapshot); err != nil {
+	if err := BackupSnapshot(ctx, conn, FileURI(snapshot)); err != nil {
 		t.Fatal(err)
 	}
 	if writeErr != nil {
@@ -173,7 +173,7 @@ func TestSnapshotBackupCancellationReleasesConnection(t *testing.T) {
 	defer cancel()
 	notifications := 0
 	ctx = context.WithValue(ctx, BackupStartedContextKey{}, func() { notifications++; cancel() })
-	err = BackupSnapshot(ctx, conn, filepath.Join(t.TempDir(), "partial.db"))
+	err = BackupSnapshot(ctx, conn, FileURI(filepath.Join(t.TempDir(), "partial.db")))
 	assertSnapshotFailure(t, err, "backup", "online backup was interrupted", true, "discard the partial snapshot and retry", context.Canceled)
 	if notifications != 1 {
 		t.Fatalf("notifications = %d, want one after initialization", notifications)
@@ -190,7 +190,7 @@ func TestSnapshotBackupPinFailureFields(t *testing.T) {
 	if err := conn.Close(); err != nil {
 		t.Fatal(err)
 	}
-	err = BackupSnapshot(t.Context(), conn, filepath.Join(t.TempDir(), "snapshot.db"))
+	err = BackupSnapshot(t.Context(), conn, FileURI(filepath.Join(t.TempDir(), "snapshot.db")))
 	assertSnapshotFailure(t, err, "backup", "cannot pin a backup source snapshot", true, "retry once the database is readable", sql.ErrConnDone)
 	assertSnapshotConnectionReleased(t, db, conn)
 }
@@ -211,17 +211,17 @@ func TestSnapshotCopyFailureFieldsAndDSNs(t *testing.T) {
 	notifications := 0
 	ctx := context.WithValue(t.Context(), BackupStartedContextKey{}, func() { notifications++ })
 	for _, tc := range []struct {
-		op, dsn, detail, recovery string
-		copy                      func(context.Context, any, string) error
+		op, destination, dsn, detail, recovery string
+		copy                                   func(context.Context, any, string) error
 	}{
-		{"backup", FileURI(path), "cannot initialize SQLite online backup", "retry from a writable local filesystem", copyOnlineBackup},
-		{"restore_backup", DSN(path), "cannot initialize SQLite online restore", "retry from a readable verified snapshot", copyOnlineRestore},
+		{"backup", FileURI(path), FileURI(path), "cannot initialize SQLite online backup", "retry from a writable local filesystem", copyOnlineBackup},
+		{"restore_backup", path, DSN(path), "cannot initialize SQLite online restore", "retry from a readable verified snapshot", copyOnlineRestore},
 	} {
 		t.Run(tc.op, func(t *testing.T) {
-			err := tc.copy(ctx, struct{}{}, path)
+			err := tc.copy(ctx, struct{}{}, tc.destination)
 			assertSnapshotFailure(t, err, tc.op, "SQLite driver does not expose the Online Backup API", false, "use the supported modernc.org/sqlite driver", nil)
 			driver := &snapshotInitFailure{err: cause}
-			err = tc.copy(ctx, driver, path)
+			err = tc.copy(ctx, driver, tc.destination)
 			assertSnapshotFailure(t, err, tc.op, tc.detail, true, tc.recovery, cause)
 			if driver.dsn != tc.dsn {
 				t.Fatalf("DSN = %q, want %q", driver.dsn, tc.dsn)

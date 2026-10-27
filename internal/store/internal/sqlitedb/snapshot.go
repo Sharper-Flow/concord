@@ -33,8 +33,9 @@ type backupper interface {
 }
 
 // BackupSnapshot consumes and closes an acquired source connection. It pins one
-// source snapshot for the entire copy; the caller owns destination cleanup.
-func BackupSnapshot(ctx context.Context, conn *sql.Conn, destination string) error {
+// source snapshot for the entire copy; the caller selects the destination URI
+// and owns destination cleanup.
+func BackupSnapshot(ctx context.Context, conn *sql.Conn, destinationURI string) error {
 	tx, err := BeginRead(ctx, conn)
 	if err != nil {
 		_ = conn.Close()
@@ -51,7 +52,7 @@ func BackupSnapshot(ctx context.Context, conn *sql.Conn, destination string) err
 		return pinErr
 	}
 	backupErr := conn.Raw(func(raw any) error {
-		return copyOnlineBackup(ctx, raw, destination)
+		return copyOnlineBackup(ctx, raw, destinationURI)
 	})
 	// Exit Raw before releasing the snapshot: a rollback during the copy
 	// would reset the source pager and restart the backup's progress. The
@@ -63,12 +64,12 @@ func BackupSnapshot(ctx context.Context, conn *sql.Conn, destination string) err
 	return backupErr
 }
 
-func copyOnlineBackup(ctx context.Context, raw any, destination string) error {
+func copyOnlineBackup(ctx context.Context, raw any, destinationURI string) error {
 	driverConn, ok := raw.(backupper)
 	if !ok {
 		return failure(Unavailable, "backup", "SQLite driver does not expose the Online Backup API", false, "use the supported modernc.org/sqlite driver", nil)
 	}
-	operation, err := driverConn.NewBackup(FileURI(destination))
+	operation, err := driverConn.NewBackup(destinationURI)
 	if err != nil {
 		return failure(Unavailable, "backup", "cannot initialize SQLite online backup", true, "retry from a writable local filesystem", err)
 	}

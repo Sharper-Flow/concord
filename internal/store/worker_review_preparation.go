@@ -19,6 +19,10 @@ type nativeReviewDispatchSample struct {
 	job     WorkerJobRecordedPayload
 }
 
+// nativeReviewPlanner resolves one control's producer plan on the observed
+// runtime; dispatch uses normalizeNativeOraclePlan.
+type nativeReviewPlanner func(ctx context.Context, r GitRunner, entry WorktreeEntry, req WorktreeVerifyRequest, b NativeOracleControlBundle, version int64, subject, identity string, auth nativeOracleAuthorization) (nativeOraclePlan, error)
+
 type nativeReviewDispatchProof struct {
 	binding WorkerJobBinding
 	plans   []nativeOraclePlan
@@ -74,50 +78,19 @@ func sampleNativeReviewDispatchTx(ctx context.Context, q queryer, request Prepar
 	if sample.job.AcceptanceOracle == nil {
 		return nil, nil
 	}
-	// Observe the runtime only when some control lacks a recorded reference
-	// prepared on the current candidate; recorded references need no plan.
-	core, err := readCurrentOracleSubject(ctx, q, request.WorkID)
-	if err != nil {
-		return nil, err
-	}
-	for _, control := range sample.job.AcceptanceOracle.Controls {
-		bundle, err := nativeBundleForControl(sample.job.AcceptanceOracle, control.ControlID)
-		if err != nil {
-			return nil, err
-		}
-		ref, err := recordedReviewPreparationRefTx(ctx, q, request.WorkID, sample.job.ContractVersion, core, bundle)
-		if err != nil || ref == "" {
-			return sample, err
-		}
-	}
-	return nil, nil
-}
-
-// recordedReviewPreparationRefTx returns the first recorded readiness
-// reference prepared for the bundle under the contract on the core subject.
-func recordedReviewPreparationRefTx(ctx context.Context, q queryer, work string, version int64, core string, bundle NativeOracleControlBundle) (string, error) {
-	if core == "" {
-		return "", nil
-	}
-	for _, recorded := range bundle.Control.ReadinessEvidenceRefs {
-		p, err := readOraclePreparationReceiptTx(ctx, q, work, bundle.Control.RecipeSource.ProjectID, recorded)
-		if err != nil {
-			return "", err
-		}
-		if p != nil && p.ContractVersion == version && p.SubjectCommit == core && p.BundleDigest == nativeBundleDigest(bundle) {
-			return recorded, nil
-		}
-	}
-	return "", nil
+	return sample, nil
 }
 
 // This observes the same family-owned runtime and pinned inputs as execute,
 // after the freshness read snapshot closes. Normalization runs no test stages
 // and creates no preparation receipt. Its output is sealed, never caller JSON.
 // A terminal acceptance or an unclean observation observes nothing.
-func observeNativeReviewDispatch(ctx context.Context, runner GitRunner, entry WorktreeEntry, work string, dispatch *workerDispatchProof, sample *nativeReviewDispatchSample) (*nativeReviewDispatchProof, error) {
+func observeNativeReviewDispatch(ctx context.Context, runner GitRunner, planner nativeReviewPlanner, entry WorktreeEntry, work string, dispatch *workerDispatchProof, sample *nativeReviewDispatchSample) (*nativeReviewDispatchProof, error) {
 	if sample == nil || dispatch.acceptance || dispatch.observation.State != "clean" {
 		return nil, nil
+	}
+	if planner == nil {
+		planner = normalizeNativeOraclePlan
 	}
 	subject, identity := dispatch.observation.Commit, dispatch.sessionIdentity
 	proof := &nativeReviewDispatchProof{binding: sample.binding}
@@ -130,7 +103,7 @@ func observeNativeReviewDispatch(ctx context.Context, runner GitRunner, entry Wo
 			return nil, err
 		}
 		req := WorktreeVerifyRequest{WorkID: work, ProjectID: entry.ProjectID, Oracle: &NativeOracleRequest{Phase: "prepare"}}
-		plan, err := normalizeNativeOraclePlan(ctx, runner, entry, req, bundle, sample.job.ContractVersion, subject, identity, nativeOracleAuthorization{})
+		plan, err := planner(ctx, runner, entry, req, bundle, sample.job.ContractVersion, subject, identity, nativeOracleAuthorization{})
 		if err != nil {
 			return nil, err
 		}
@@ -148,8 +121,9 @@ func reviewPreparationMatches(p *NativeOraclePreparation, plan nativeOraclePlan)
 	return p != nil && p.WorkID == plan.WorkID && p.ProjectID == plan.ProjectID && p.SubjectCommit == plan.SubjectCommit && p.ContractVersion == plan.ContractVersion && p.BundleDigest == nativeBundleDigest(plan.Bundle) && p.BuildEnvironmentDigest == digest && p.ToolchainIdentity == identity && p.ManifestBlob == plan.ManifestFile.BlobOID && p.ManifestDigest == plan.ManifestFile.SHA256 && oracleEntryIdentical(p.Files, plan.Files)
 }
 
-// Recorded refs have priority in their declared order. Only otherwise do we
-// select the latest qualified same-bundle preparation. Rowid orders completed
+// Recorded refs have priority in their declared order when they qualify on
+// the observed runtime. Only otherwise do we select the latest qualified
+// same-bundle preparation. Rowid orders completed
 // receipts with equal release timestamps deterministically, never by ref text.
 func selectNativeReviewPreparationTx(ctx context.Context, q queryer, plan nativeOraclePlan) (string, error) {
 	for _, ref := range plan.Bundle.Control.ReadinessEvidenceRefs {
@@ -194,10 +168,11 @@ func selectNativeReviewPreparationTx(ctx context.Context, q queryer, plan native
 }
 
 // bindNativeReviewPreparationsTx selects each control's preparation for a
-// Review dispatch (CD-0205 D1). A recorded readiness reference that qualifies
-// on the current candidate stays the binding. Otherwise the sealed outside-
-// transaction plan selects the latest qualified preparation of the unchanged
-// bundle under the same contract, Project, candidate, and runtime environment.
+// Review dispatch (CD-0205 D1) against the sealed outside-transaction plan of
+// the current candidate and runtime environment. A recorded readiness
+// reference that qualifies on that plan stays the binding; otherwise the
+// latest qualified preparation of the unchanged bundle under the same
+// contract, Project, candidate, and runtime environment binds.
 func bindNativeReviewPreparationsTx(ctx context.Context, q queryer, work string, binding WorkerJobBinding, oracle *AcceptanceOracle, subject string) ([]WorkerOraclePreparationBinding, error) {
 	core, err := readCurrentOracleSubject(ctx, q, work)
 	if err != nil {
@@ -225,18 +200,13 @@ func bindNativeReviewPreparationsTx(ctx context.Context, q queryer, work string,
 		if err != nil {
 			return nil, err
 		}
-		ref, err := recordedReviewPreparationRefTx(ctx, q, work, version, core, bundle)
+		plan, ok := plans[control.ControlID]
+		if !ok || nativeBundleDigest(plan.Bundle) != nativeBundleDigest(bundle) {
+			return nil, missingReviewPreparation()
+		}
+		ref, err := selectNativeReviewPreparationTx(ctx, q, plan)
 		if err != nil {
 			return nil, err
-		}
-		if ref == "" {
-			plan, ok := plans[control.ControlID]
-			if !ok {
-				return nil, missingReviewPreparation()
-			}
-			if ref, err = selectNativeReviewPreparationTx(ctx, q, plan); err != nil {
-				return nil, err
-			}
 		}
 		selected = append(selected, WorkerOraclePreparationBinding{ControlID: control.ControlID, PreparationRunRef: ref})
 	}

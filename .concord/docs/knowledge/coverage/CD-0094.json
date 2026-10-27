@@ -15,6 +15,38 @@
     {
       "kind": "go_test",
       "value": "internal/agent.TestMainCheckoutAllowlistDeclaresBothSides"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/agent.TestDefaultCheckoutShelvingRemoval"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/agent.TestDefaultCheckoutShelvingRefusals"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/agent.TestDefaultCheckoutShelvingTransactionRaces"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/agent.TestDefaultCheckoutShelvingApprovalRollbackAndBindings"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/agent.TestDefaultCheckoutShelvingHistoricalRetirement"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/agent.TestDefaultCheckoutShelvingScopeAndWorkflow"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestDefaultRemovalNativeAbsence"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestDefaultRemovalProofCannotBeSupplied"
     }
   ],
   "id": "CD-0094",

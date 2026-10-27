@@ -11,6 +11,22 @@
     {
       "kind": "go_test",
       "value": "internal/store.TestWorkRemovalCancellationKeepsReasonDistinct"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/agent.TestDefaultCheckoutShelvingRemoval"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/agent.TestDefaultCheckoutShelvingApprovalRollbackAndBindings"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/agent.TestDefaultCheckoutShelvingHistoricalRetirement"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/agent.TestDefaultCheckoutShelvingManagedRestore"
     }
   ],
   "id": "CD-0142",

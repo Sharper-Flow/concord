@@ -119,6 +119,7 @@ the one canonical locator for a known terminal work/knowledge item.
 |---|---|---|---|
 | `search` | Q9 | Product scope; optional Project/domain; closed knowledge kinds (every manifest kind, with `specification` and `note` as aliases for `spec` and `work_note`); tags; bounded text matched per whitespace token across ID, title, summary, tags, and body; cursor/limit | `knowledge_page`: summaries, canonical locators, commit/content identity, index watermark, and optional per-item law `status` (`accepted`/`superseded`/`published`) with `successor_id` |
 | `resolve_note` | Q10 | exactly one work or knowledge reference | `canonical_note_result`: one locator or typed not-compacted/missing/ambiguous outcome; a canonical answer may add law `status` and `successor_id`, never altering `state` |
+| `observe_publication` | CD-0020.R1 | explicit Product, registered source Project and locator | `knowledge_publication`: timestamped publication comparison, origin/ref/commit identities, cause and recovery, with earlier success labelled historical |
 
 Search never returns an unbounded artifact body. Bounded text may match a
 projected law body in the index, but that match remains ranked discovery data and
@@ -127,6 +128,15 @@ accepted client may then read that authority through its normal bounded
 file/resource path. Index lag and canonical-Git reachability remain explicit.
 Law `status` and `successor_id` are additive projections of the indexed record
 (CD-0020 D3); `state` keeps its PM1 Q10 locator meaning.
+
+`observe_publication` is the explicit cache/provenance exception in
+[CD-0020 D3](./decisions/CD-0020-retain-knowledge-index-shape.md#publication-observation),
+available to both knowledge readers and writers within their authorized Product.
+It may perform one noninteractive discovery and one selected-branch fetch within
+ten seconds, updating only the permitted Git cache and source provenance.
+Ordinary `search` and `resolve_note` calls consume labelled cached evidence;
+they never trigger this observation. Other mutation and approval permissions
+remain unchanged.
 
 ## 3. Shared read-input constraints
 
@@ -155,7 +165,9 @@ Law `status` and `successor_id` are additive projections of the indexed record
   carries `allow_degraded`; omitted, a knowledge index behind its git head refuses rather
   than answering. An opted-in caller receives the readable items plus degraded authority,
   the omissions, and the watermark the answer actually reflects.
-- Reads never mutate, repair, reconcile, or trigger background work.
+- Ordinary reads never mutate, repair, reconcile, or trigger background work.
+  The explicit `observe_publication` exception has only the cache/provenance
+  effects defined in CD-0020 D3; it never changes work or source heads.
 
 ## 4. Why four tools
 

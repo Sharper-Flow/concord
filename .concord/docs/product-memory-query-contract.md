@@ -113,6 +113,22 @@ errors or explicitly degraded results.
 - Partial results are allowed only when the caller permits degradation and the
   response identifies omitted records and why. No natural-language guessing.
 
+Publication provenance follows
+[CD-0020 D3](./decisions/CD-0020-retain-knowledge-index-shape.md#publication-observation).
+Q9 carries one `publications` entry per served source, including empty or degraded
+sources. Q10 carries the located note's exact source, commit/hash, and
+`publication` evidence when the note is served. Cached evidence retains its
+observation time and basis; an unobserved or unverified comparison is unknown.
+Neither publication lag nor an unknown comparison changes read authority or law
+status. Explicit historical reads remain local and labelled historical.
+
+Both knowledge readers and writers may explicitly call
+`concord_knowledge.observe_publication` for one registered Product source.
+This operation alone performs the bounded network observation and cache effects
+defined by CD-0020 D3. Q9/Q10 and workflow boundaries do not invoke it. A failed
+latest observation supersedes the current comparison; earlier success remains
+historical evidence only.
+
 ### 3.4 Performance and boundedness
 
 - **Implementation acceptance target:** at 10× the measured ADV dataset, every

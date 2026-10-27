@@ -141,6 +141,27 @@ the cursor binds to a source-set digest. A missing or stale source refuses, or
 returns an explicit omission under allow_degraded; an empty answer is never an
 authoritative negative.
 
+#### Publication observation
+
+**1. Publication.** Concord uses the default branch advertised by a registered source's existing origin remote as that source's publication reference. A missing or ambiguous origin or default branch produces unknown publication state with the cause. Local `HEAD` and cached remote-tracking refs are not live publication observations.
+
+**2. Observation.** A caller explicitly requests one observation of one registered source. Ordinary knowledge reads and workflow boundaries do not invoke publication observation. Within one combined ten-second deadline, outside a store transaction, the noninteractive operation may discover the default branch once and fetch that branch once. It uses existing credentials and transport restrictions. Retries, alternate remotes, tag or submodule fetches, and history-widening fallbacks are outside this operation.
+
+**3. Effects.** Git changes are limited to the selected origin remote-tracking ref and required objects and transfer metadata. Preserve checkouts, local branches, index entries, working-tree files, configured remotes, and source heads. Use the existing source/index owners for provenance; no second knowledge store or background synchronization is authorized.
+
+**4. Evidence.** Record source and origin identities, the fully qualified publication ref, served and observed publication commits, observation time, and comparison basis. Distinguish a match, known revision lag, unpublished or divergent local history, and an unknown comparison. Report unknown when branch identity, fetched commit, or comparison cannot be verified, including races and failures; give the cause and recovery action. After a failed latest observation, retain earlier success only as historical evidence. Label cached evidence by its observation time. Describe a served revision as matching publication only when that match is verified, and always as of the observation time.
+
+**5. Authority and history.** Existing authoritative/degraded/unreachable semantics continue to describe the declared source and its projection. Publication evidence is provenance, not another law-status or read-authority system. Revision lag alone establishes no change to governing law. Reassess only affected governing obligations or evidence dependencies; unchanged record hashes and unrelated publications do not by themselves invalidate proof. Serve committed text, excluding dirty working-copy content. Label local-state observations with their time and basis. Explicit historical reads retain commit/hash proof and remain local.
+
+**6. Recovery.** For known lag, direct the caller to the source owner's existing safe update route or an already authorized suitable source, then repeat the observation and read. For unknown publication state, identify the access or configuration limitation to repair before repeating the explicit observation. Observation leaves work state, approvals, execution gates, and proof validity unchanged; existing governing-requirement and applicability rules continue to apply.
+
+**7. Approval scope.** Approval covers this publication reference, explicit observation capability, and labelled evidence as a narrow refinement of CD-0020 D3 and matching PM1 text. Automatic publication checks, checkout refresh, read-authority changes, new execution gates, altered operator approvals, live Product/store/index repair, installation, and repairs outside this item require separate authority.
+
+Both knowledge readers and writers may explicitly request publication observation
+within their authorized Product scope. This capability grants no other write
+permission. The explicit operation's cache and provenance effects are the narrow
+exception to the ordinary read-only boundary; ordinary knowledge reads stay local.
+
 ### D4. Keep durable-law projection separate from knowledge search
 
 `law_subjects` and `law_relations` remain the derived projection for accepted

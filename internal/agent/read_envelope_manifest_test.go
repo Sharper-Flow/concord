@@ -47,8 +47,9 @@ var readMarshalInputs = map[string]string{
 	"concord_work_trace.project_retirement":    `{"work_id":"work-done"}`,
 	"concord_work_trace.research":              `{"product_id":"prod-alpha"}`,
 
-	"concord_knowledge.search":       `{"product_id":"prod-alpha","page":{"cursor":null,"limit":10}}`,
-	"concord_knowledge.resolve_note": `{"work_id":"work-done"}`,
+	"concord_knowledge.search":              `{"product_id":"prod-alpha","page":{"cursor":null,"limit":10}}`,
+	"concord_knowledge.resolve_note":        `{"work_id":"work-done"}`,
+	"concord_knowledge.observe_publication": `{"product_id":"prod-alpha","source_project_id":"proj-web","source_locator_id":"repo-alpha-web"}`,
 
 	"concord_domain.list":        `{"product_id":"prod-alpha","page":{"cursor":null,"limit":10}}`,
 	"concord_domain.detail":      `{"product_id":"prod-alpha","domain_id":"root"}`,

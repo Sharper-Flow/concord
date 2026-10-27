@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -90,13 +91,26 @@ func initBootstrapStoreRepo(t *testing.T) string {
 
 func runTestGit(t *testing.T, repo string, args ...string) string {
 	t.Helper()
-	command := exec.Command("git", append([]string{"-C", repo}, args...)...)
-	command.Env = append(os.Environ(), "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t")
+	command, err := newTestGitCommand(repo, args...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	command.Env = append(command.Env, "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t")
 	out, err := command.CombinedOutput()
 	if err != nil {
 		t.Fatalf("git %v: %v\n%s", args, err, out)
 	}
 	return strings.TrimSpace(string(out))
+}
+
+func newTestGitCommand(repo string, args ...string) (*exec.Cmd, error) {
+	if !filepath.IsAbs(repo) {
+		return nil, fmt.Errorf("test git requires an absolute fixture directory: %q", repo)
+	}
+	command := exec.Command("git", args...)
+	command.Dir = repo
+	command.Env = os.Environ()
+	return command, nil
 }
 
 func deadBootstrapOwner(t *testing.T) (int64, string) {

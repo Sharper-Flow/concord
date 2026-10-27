@@ -12,7 +12,12 @@ import (
 // this helper never installs a claimed output observation or acceptance row.
 func acceptCurrentReviewForTest(t *testing.T, f workContextFixture, repo, disposition string) {
 	t.Helper()
-	attempt, epoch := completeCurrentReviewForTest(t, f, repo, disposition)
+	acceptCurrentReviewForBoundJobForTest(t, f, repo, disposition, reviewSubjectReadyRevision(t, f))
+}
+
+func acceptCurrentReviewForBoundJobForTest(t *testing.T, f workContextFixture, repo, disposition string, job WorkerJobBinding) {
+	t.Helper()
+	attempt, epoch := completeCurrentReviewForBoundJobForTest(t, f, repo, disposition, job)
 	j := &candidateJourney{fixture: f, s: f.store, workID: f.workID, repo: repo}
 	if err := j.action(t, "accept_worker_result", map[string]any{"attempt_id": attempt, "attempt_epoch": epoch}, f.owner); err != nil {
 		t.Fatalf("Main acceptance of fixture Review: %v", err)
@@ -21,8 +26,12 @@ func acceptCurrentReviewForTest(t *testing.T, f workContextFixture, repo, dispos
 
 func completeCurrentReviewForTest(t *testing.T, f workContextFixture, repo, disposition string, mutations ...func(*WorkerReviewBlock)) (string, int64) {
 	t.Helper()
+	return completeCurrentReviewForBoundJobForTest(t, f, repo, disposition, reviewSubjectReadyRevision(t, f), mutations...)
+}
+
+func completeCurrentReviewForBoundJobForTest(t *testing.T, f workContextFixture, repo, disposition string, job WorkerJobBinding, mutations ...func(*WorkerReviewBlock)) (string, int64) {
+	t.Helper()
 	j := &candidateJourney{fixture: f, s: f.store, workID: f.workID, repo: repo}
-	job := reviewSubjectReadyRevision(t, f)
 	attempt := "review:fixture:" + job.JobID
 	if err := descendantDispatch(t, j, "review", attempt, job, nil); err != nil {
 		t.Fatalf("dispatch fixture Review: %v", err)

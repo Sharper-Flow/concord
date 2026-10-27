@@ -23,7 +23,7 @@ func workflowAcceptanceSubjectCurrent(ctx context.Context, q queryer, workID str
 			return err
 		}
 		if result.Review == nil {
-			return reviewFailure(KindMissingEvidence, "accepted Review has no output candidate", "obtain and accept the current candidate's exact Review report")
+			return reviewFailure(KindMissingEvidence, "accepted Review has no output candidate", workflowReviewRecovery("", "identifying the current candidate's exact output"))
 		}
 		subjects = append(subjects, result.Review.OutputCandidate.Commit)
 	}

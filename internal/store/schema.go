@@ -96,6 +96,9 @@ func applyMigration(ctx context.Context, q migrationRunner, m migration) error {
 	if m.Name == "effect_receipts" {
 		return backfillEffectReceiptDigests(ctx, q)
 	}
+	if m.Name == "continue_review_job_satisfaction" {
+		return restoreContinueReviewJobSatisfaction(ctx, q)
+	}
 	if m.Name == "workflow_evidence_current_facts" {
 		if err := backfillWorkflowCorrectionFacts(ctx, q); err != nil {
 			return err
@@ -7889,6 +7892,17 @@ CREATE TRIGGER knowledge_domain_roots_guard_delete BEFORE DELETE ON knowledge_do
 CREATE TRIGGER knowledge_domain_facts_guard_insert BEFORE INSERT ON knowledge_domain_facts BEGIN SELECT RAISE(ABORT, 'knowledge_domain_facts is write-seam-only') WHERE NOT EXISTS (SELECT 1 FROM write_guard WHERE active=1); END;
 CREATE TRIGGER knowledge_domain_facts_guard_update BEFORE UPDATE ON knowledge_domain_facts BEGIN SELECT RAISE(ABORT, 'knowledge_domain_facts is write-seam-only') WHERE NOT EXISTS (SELECT 1 FROM write_guard WHERE active=1); END;
 CREATE TRIGGER knowledge_domain_facts_guard_delete BEFORE DELETE ON knowledge_domain_facts BEGIN SELECT RAISE(ABORT, 'knowledge_domain_facts is write-seam-only') WHERE NOT EXISTS (SELECT 1 FROM write_guard WHERE active=1); END;
+`,
+	},
+	{
+		Version:  157,
+		Name:     "continue_review_job_satisfaction",
+		Breaking: false,
+		SQL: `
+-- Restore only satisfaction proved to come from the current accepted
+-- continue Review. The Go migration validates retained payload digests
+-- before clearing the four satisfaction fields; immutable facts stay intact.
+SELECT 1;
 `,
 	},
 }

@@ -899,7 +899,7 @@ func workflowDeliveryGateCorrectionContextFolded(ctx context.Context, q queryer,
 		Disposition: "verification", PredicateIDs: predicates, EvidenceRefs: []string{state.Review.Accepted.ReportRef},
 		SourceEventID: state.Review.Accepted.ReportRef, SourceEventSeq: seq,
 		Diagnosis: "the accepted current Review no longer covers the current candidate or depended-on revisions",
-		Strategy:  fmt.Sprintf("return to step %q and obtain a fresh accepted review of the current candidate", target),
+		Strategy:  workflowReviewRecovery(fmt.Sprintf("return to step %q", target), "covering the current candidate"),
 	}, nil
 }
 
@@ -928,7 +928,7 @@ func workflowCorrectionRequestUnavailableFailure(subject, missing string) *Failu
 	case workflowCorrectionMissingAcceptedDelivery:
 		return newFailure(KindInvalidOperation, subject, "request_correction requires an accepted worker delivery behind the current non-ok verdict", false, "accept the completed worker result or reread the work pin")
 	case workflowCorrectionMissingFreshReview:
-		return newFailure(KindInvalidOperation, subject, "request_correction already consumed the accepted Review; a further correction requires a fresh accepted Review of the current candidate", false, "dispatch Review of the current candidate and accept its disposition")
+		return newFailure(KindInvalidOperation, subject, "request_correction already consumed the accepted Review; a further correction requires a fresh accepted Review of the current candidate", false, workflowReviewRecovery("", "covering the current candidate before requesting another correction"))
 	case workflowCorrectionMissingGateReview:
 		return newFailure(KindInvalidOperation, subject, "request_correction at the delivery gate requires an outstanding post-rejection review", false, "reread the current work pin")
 	default:
@@ -1056,7 +1056,7 @@ func workflowCorrectionRequestAdmissionForRegistry(ctx context.Context, q querye
 			if consumed {
 				return nil, workflowCorrectionMissingFreshReview, nil
 			}
-			return &WorkflowCorrectionContext{Disposition: "verification", PredicateIDs: predicates, EvidenceRefs: []string{review.Accepted.ReportRef}, SourceEventID: review.Accepted.ReportRef, SourceEventSeq: seq, Diagnosis: "the accepted current Review requires correction", Strategy: "perform the declared corrective work and obtain applicable Review"}, workflowCorrectionMissingNone, nil
+			return &WorkflowCorrectionContext{Disposition: "verification", PredicateIDs: predicates, EvidenceRefs: []string{review.Accepted.ReportRef}, SourceEventID: review.Accepted.ReportRef, SourceEventSeq: seq, Diagnosis: "the accepted current Review requires correction", Strategy: workflowReviewRecovery("perform the declared corrective work", "covering the corrected candidate")}, workflowCorrectionMissingNone, nil
 		}
 	}
 	if workflowStepIsDeliveryGate(workflowStep(definition, currentStep)) {

@@ -1,6 +1,18 @@
 {
   "evidence": [
     {
+      "kind": "adapter_test",
+      "value": "adapter/opencode/dispatch_route_end_to_end.test.ts#runs the protected dispatch journeys and retained recovery witnesses"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestContinueReviewJobMigration157RestoresOnlySatisfaction"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestContinueReviewJobMigration157RefusesUnprovedRestoration"
+    },
+    {
       "kind": "go_test",
       "value": "internal/store.TestOwnerOracleGraph"
     },

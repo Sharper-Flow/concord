@@ -23,6 +23,10 @@ routeDeclaration("runs the protected dispatch journeys and retained recovery wit
   const result = await runOwnedSuite(join(import.meta.dir, "dispatch_route_end_to_end.case.ts"))
   expect(result.exitCode, `owned dispatch-route suite failed:\n${result.stdout}\n${result.stderr}`).toBe(0)
   const selected = process.env.TEST_CONCORD_ROUTE_CASE
+  for (const kind of ["ordinary", "revised", "final-proof"]) {
+    const name = `required Review leaves the ${kind} job ready for implementation in Main's session`
+    if (!selected || new RegExp(selected).test(name)) expect(result.stdout).toContain(`[pass] ${name}`)
+  }
   if (!selected || new RegExp(selected).test("G01 composes concurrent coordinators")) expect(result.stdout).toContain("[pass] G01 composes concurrent coordinators")
   if (!selected || new RegExp(selected).test("G07 retains sourced research")) expect(result.stdout).toContain("[pass] G07 retains sourced research")
 }, 600_000)

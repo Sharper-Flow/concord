@@ -386,7 +386,7 @@ func validateReviewAcceptance(ctx context.Context, q queryer, workID, attempt, a
 	}
 	report := result.Review
 	if report == nil {
-		return reviewFailure(KindMissingEvidence, "Review has no exact terminal report", "obtain the terminal report before accepting it")
+		return reviewFailure(KindMissingEvidence, "Review has no exact terminal report", workflowReviewRecovery("retain the incomplete terminal result as evidence", "from a new attempt on the current candidate"))
 	}
 	if err := validateWorkerReviewBlock(report); err != nil {
 		return err
@@ -417,7 +417,7 @@ func validateImplementationAcceptance(ctx context.Context, q queryer, workID str
 	}
 	if state.Candidate != nil && auth.WorkerSubjectCommit != state.Candidate.Commit {
 		if result.ObservedDelivery == nil || result.ObservedDelivery.Commit != state.Candidate.Commit || result.ObservedDelivery.Tree != state.Candidate.Tree {
-			return reviewFailure(KindStaleRequiresReview, "this result starts from an older integrated candidate", "retain its evidence and integrate useful changes onto Main's current candidate before obtaining applicable Review")
+			return reviewFailure(KindStaleRequiresReview, "this result starts from an older integrated candidate", workflowReviewRecovery("retain its evidence and integrate useful changes onto Main's current candidate", "covering the integrated candidate"))
 		}
 	}
 	return nil
@@ -441,7 +441,7 @@ func validateReviewObservedCandidates(auth workflowActionCompletedPayload, resul
 
 func validateReviewAssignmentAcceptance(ctx context.Context, q queryer, workID string, auth workflowActionCompletedPayload, report *WorkerReviewBlock) error {
 	if auth.WorkerJob == nil {
-		return reviewFailure(KindMissingEvidence, "Review has no admitted assignment binding", "dispatch Review with the recorded scoped assignment")
+		return reviewFailure(KindMissingEvidence, "Review has no admitted assignment binding", workflowReviewRecovery("bind the packet to the recorded scoped assignment", "for that assignment"))
 	}
 	job, err := readWorkerJobRevisionTx(ctx, q, workID, *auth.WorkerJob)
 	if err != nil {
@@ -460,7 +460,7 @@ func validateReviewAssignmentAcceptance(ctx context.Context, q queryer, workID s
 			return err
 		}
 		if !current {
-			return reviewFailure(KindStaleRequiresReview, "a newer accepted candidate replaced this Review's input", "retain this report as evidence of its original subject and obtain Review of the current candidate")
+			return reviewFailure(KindStaleRequiresReview, "a newer accepted candidate replaced this Review's input", workflowReviewRecovery("retain this report as evidence of its original subject", "covering the current candidate"))
 		}
 	}
 	dependencies, err := workflowReviewDependencies(ctx, q, workID)
@@ -468,7 +468,7 @@ func validateReviewAssignmentAcceptance(ctx context.Context, q queryer, workID s
 		return err
 	}
 	if !sameReviewDependencies(report.Dependencies, dependencies) {
-		return reviewFailure(KindStaleRequiresReview, "Review judged different criterion or architecture content", "reassess the unchanged candidate against the changed depended-on revisions and return a new report")
+		return reviewFailure(KindStaleRequiresReview, "Review judged different criterion or architecture content", workflowReviewRecovery("refresh the packet's depended-on revisions", "reassessing the unchanged candidate against the changed criterion or architecture content"))
 	}
 	return validateReviewFindingClosures(ctx, q, workID, report, state.Findings)
 }
@@ -646,7 +646,7 @@ func workflowReviewedCommandReceipt(ctx context.Context, q queryer, workID, pred
 			}
 		}
 	}
-	return reviewFailure(KindMissingEvidence, "command receipt "+ref+" has no accepted Review assessment covering criterion "+predicate, "have Review assess this criterion on the final candidate and cite the captured passing command receipt, then accept that exact report")
+	return reviewFailure(KindMissingEvidence, "command receipt "+ref+" has no accepted Review assessment covering criterion "+predicate, workflowReviewRecovery("include the captured passing command receipt "+ref+" in the Review inputs", "assessing criterion "+predicate+" on the final candidate and citing that receipt"))
 }
 
 func validateWorkflowReceiptCriterion(ctx context.Context, q queryer, workID, predicate string, producer *WorktreeVerifyResult) error {

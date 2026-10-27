@@ -30,7 +30,7 @@ func oDispatchJobBoundAttempt(t *testing.T, s *Store, workID, attemptID string, 
 		t.Fatal(err)
 	}
 	if workflowAdmitReview(review, job.JobID) != nil {
-		acceptCurrentReviewForTest(t, workContextFixture{store: s, workID: workID, owner: actor}, workerFixtureDirectory(t, s, workID), "continue")
+		acceptCurrentReviewForBoundJobForTest(t, workContextFixture{store: s, workID: workID, owner: actor}, workerFixtureDirectory(t, s, workID), "continue", *job)
 	}
 	dispatchJobBoundAttempt(t, s, workID, stepID, attemptID, correction, actor, version, key, job)
 }

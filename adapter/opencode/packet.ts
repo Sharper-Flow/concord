@@ -163,7 +163,7 @@ function selectReadyWorkerJob(workId: string, pinned: Record<string, unknown>, c
     ready.push(...pinned.checks_repair_review_jobs.filter(isRecord))
   }
   if (ready.length === 0) {
-    return failure("worker_job_unavailable", `work ${workId} holds no dispatch-ready worker-job revision; record the bounded job with record_worker_job, ready, before dispatching this lane`)
+    return failure("worker_job_unavailable", `work ${workId} holds no dispatch-ready worker-job revision; inspect continuity's worker jobs and resolve readiness or prerequisites; do not re-record unchanged content just to obtain Review. Record and prepare a revision only for changed work. When Review is required, use typed dispatch_worker with lane_id=review, run its native concord-review Task subagent under Main's own session, then have Main accept its exact report; continue permits implementation of the same bound job without another job record`)
   }
   if (ready.length > 1) {
     const ids = ready.map((job) => `${String(job.job_id)}@${String(job.revision)}`).join(", ")

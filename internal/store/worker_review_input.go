@@ -49,7 +49,7 @@ func currentWorkerReviewInput(ctx context.Context, q queryer, workID string, lan
 	if lane.CapabilityClass == "review" && workflowDefinitionProducesDelivery(definition) {
 		prepared := workerDispatchPreparationFrom(ctx)
 		if prepared == nil || prepared.proof.observation == nil || prepared.proof.observation.Tree == "" {
-			return nil, reviewFailure(KindMissingEvidence, "Review input requires the native candidate tree observation", "prepare dispatch from the qualified clean candidate")
+			return nil, reviewFailure(KindMissingEvidence, "Review input requires the native candidate tree observation", workflowReviewRecovery("prepare dispatch from the qualified clean candidate with its native tree observation", "covering that candidate"))
 		}
 		dependencies, err := workflowReviewDependencies(ctx, q, workID)
 		if err != nil {

@@ -9,6 +9,8 @@ import argparse
 import json
 from pathlib import Path
 
+from evidence_anchors import scenario_adapter_test, scenario_declarations
+
 ROOT = Path(__file__).resolve().parents[1]
 OUTPUT = ROOT / ".concord/oracles/adapter/dispatch-acceptance.v1.json"
 PACKAGE = ROOT / "adapter/opencode/package.json"
@@ -27,12 +29,18 @@ def render() -> dict[Path, str]:
     harness = ["acceptance.py", "acceptance-preload.ts", "test_preload.ts", "fixture-temp-root.ts",
                "plugin-tool.fixture.ts", "host-version.test-support.ts", "generated-contract-tests.ts"]
     harness += [name for files in CHECKS.values() for name in files]
+    continuity_corpus = ".concord/scenarios/adapter-continuity.v1.json"
+    continuity = sorted(identity for identity, (path, _) in scenario_declarations().items()
+                        if path == continuity_corpus and scenario_adapter_test(identity) is not None)
+    checks = [{"witness": witness, "argv": ["python3", "acceptance.py", *files]} for witness, files in CHECKS.items()]
+    checks += [{"witness": identity, "argv": ["python3", "acceptance.py", "continuity_hook.test.ts", "--expect", identity]}
+               for identity in continuity]
     manifest = {
         "kind": "target_runner_v1", "materializer": "bun", "runner": "check", "root": "adapter/opencode",
-        "harness_files": [f"adapter/opencode/{name}" for name in harness],
-        "support_files": [],
-        "cases": {"case:adapter-dispatch": list(CHECKS)},
-        "checks": [{"witness": witness, "argv": ["python3", "acceptance.py", *files]} for witness, files in CHECKS.items()],
+        "harness_files": [f"adapter/opencode/{name}" for name in [*harness, "continuity_hook.test.ts"]],
+        "support_files": [continuity_corpus],
+        "cases": {"case:adapter-dispatch": list(CHECKS), "case:adapter-continuity": continuity},
+        "checks": checks,
         "pin": {"bun": "1.4.0", "python": "3.13.7", "dep_manifest": "package.json", "dep_lock": "bun.lock"},
     }
     lock = {"lockfileVersion": 1, "configVersion": 1,

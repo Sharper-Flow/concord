@@ -190,6 +190,7 @@ func (j *candidateJourney) terminalAction(t *testing.T, action string, payload j
 
 func (j *candidateJourney) terminalActionContext(t *testing.T, ctx context.Context, action string, payload json.RawMessage, actor WorkflowActor, operator *WorkflowActor) error {
 	t.Helper()
+	resolved := ResolveWorkflowFootprint(ctx, j.s, BuiltinWorkflowRegistry(), j.workID, action, payload)
 	version := readWorkVersion(t, j.s, j.workID)
 	id := fmt.Sprintf("%s-%s-%d", action, j.workID, version)
 	choice := ""
@@ -202,6 +203,7 @@ func (j *candidateJourney) terminalActionContext(t *testing.T, ctx context.Conte
 			EvidenceRefs: actionEvidenceRefs(action, payload), AcceptedInputsDigest: nativeDigest([]byte(id)), IdempotencyIdentity: id,
 			OperationID: id, PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: id,
 			RequestID: "request:" + id, ContractDigest: testManifestDigest, Now: time.Now().UTC(),
+			ResolvedFootprint: resolved,
 		})
 		return err
 	})

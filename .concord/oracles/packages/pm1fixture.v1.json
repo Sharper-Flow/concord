@@ -1,0 +1,5 @@
+{
+  "kind": "go_package_v1",
+  "package_cwd": "internal/pm1fixture",
+  "cases": {"case:package-pm1fixture": ["go_package:./internal/pm1fixture"]}
+}

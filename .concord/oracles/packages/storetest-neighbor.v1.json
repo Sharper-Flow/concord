@@ -1,0 +1,5 @@
+{
+  "kind": "go_package_v1",
+  "package_cwd": "internal/store/storetest/neighbor",
+  "cases": {"case:package-storetest-neighbor": ["go_package:./internal/store/storetest/neighbor"]}
+}

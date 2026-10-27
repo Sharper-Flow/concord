@@ -340,9 +340,11 @@ func TestDomainShapeRefineEmptyManifestStillRefuses(t *testing.T) {
 	seedWork(t, s, "shape-empty-tooling")
 	seedWorkCanonicalPath(t, s, t.TempDir())
 	runner := refineProofFakeRunner{responses: map[string][]byte{
-		"symbolic-ref refs/remotes/origin/HEAD":           []byte("refs/remotes/origin/main\n"),
-		"ls-tree origin/main -- .concord/tooling.v1.json": []byte("100644 blob 1111111111111111111111111111111111111111\t.concord/tooling.v1.json\n"),
-		"show origin/main:.concord/tooling.v1.json":       []byte(`{"schema_version":"1.0","project":"demo","tools":[],"domain_shape":{}}`),
+		"symbolic-ref refs/remotes/origin/HEAD":                                  []byte("refs/remotes/origin/main\n"),
+		"rev-parse --verify origin/main^{commit}":                                []byte(refineProofPinnedCommit + "\n"),
+		"ls-tree " + refineProofPinnedCommit + " -- .concord/tooling.v1.json":    []byte("100644 blob " + refineProofPinnedBlob + "\t.concord/tooling.v1.json\n"),
+		"ls-tree -z " + refineProofPinnedCommit + " -- .concord/tooling.v1.json": []byte("100644 blob " + refineProofPinnedBlob + "\t.concord/tooling.v1.json\x00"),
+		"cat-file blob " + refineProofPinnedBlob:                                 []byte(`{"schema_version":"1.0","project":"demo","tools":[],"domain_shape":{}}`),
 	}}
 	if _, err := resolveWorkProjectTooling(context.Background(), s, "shape-empty-tooling", runner); err == nil || !strings.Contains(err.Error(), "declares no tools") {
 		t.Fatalf("empty setup manifest bypassed refine guard: %v", err)

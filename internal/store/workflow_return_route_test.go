@@ -49,12 +49,21 @@ func seedCurrentWorkflowReturnRouteFixture(t *testing.T, workID, definitionRef, 
 }
 
 func seedWorkflowReturnRouteFixtureWithDefinition(t *testing.T, workID string, registered RegisteredDefinition, verdictStep string, requiredEvidence, boundKinds []string, predicates ...map[string]any) workflowReturnRouteFixture {
+	return seedWorkflowReturnRouteFixtureWithSetup(t, workID, registered, verdictStep, requiredEvidence, boundKinds, nil, predicates...)
+}
+
+// Source-dependent fixtures install their knowledge before contract approval,
+// so neither immutable bindings nor accepted Review dependencies need patching.
+func seedWorkflowReturnRouteFixtureWithSetup(t *testing.T, workID string, registered RegisteredDefinition, verdictStep string, requiredEvidence, boundKinds []string, setup func(*Store), predicates ...map[string]any) workflowReturnRouteFixture {
 	t.Helper()
 	ctx := context.Background()
 	s := openTemp(t)
 	seedWork(t, s, workID)
 	seedWorkflowLaw(t, s)
 	seedIssue31DomainRegistry(t, s)
+	if setup != nil {
+		setup(s)
+	}
 	owner := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/owner", SessionRef: "session/" + workID, ActorClass: ActorAgent}
 	operator := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/operator", SessionRef: "session/" + workID + "-operator", ActorClass: ActorOperator}
 	ownerRef, err := WorkflowActorRef(owner)
@@ -112,8 +121,16 @@ func seedWorkflowReturnRouteFixtureWithDefinition(t *testing.T, workID string, r
 		"consequence_class": "internal_sqlite",
 	}
 	if registered.Definition.ChangesProductTruth != nil && *registered.Definition.ChangesProductTruth {
+		product, err := architectureBindingProductID(ctx, s.db, workID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		registry, err := readDomainRegistry(ctx, s.db, product)
+		if err != nil {
+			t.Fatal(err)
+		}
 		contractPayload["architecture_binding"] = WorkflowArchitectureBinding{
-			DomainRegistryContentHash: "sha256:" + strings.Repeat("b", 64), HomeDomainID: "root", AffectedDomainIDs: []string{"root"},
+			DomainRegistryContentHash: registry.ContentHash, HomeDomainID: registry.RootDomainID, AffectedDomainIDs: []string{registry.RootDomainID},
 			DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{},
 			VerificationObligations: []WorkflowVerificationObligation{},
 		}

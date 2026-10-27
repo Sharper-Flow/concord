@@ -178,6 +178,7 @@ func normalizeNativeTargetOraclePlan(ctx context.Context, r GitRunner, entry Wor
 	if err != nil {
 		return p, err
 	}
+	m.Cases = nativeSelectedCaseMap(m.Cases, b.Control.CaseIDs)
 	// The overlay removes the recipe from the snapshot before it writes the
 	// declared files, so a recipe that names itself or a dependency input
 	// would delete candidate or harness bytes and refuses here.
@@ -242,13 +243,24 @@ func readNativeTargetHarnessFiles(ctx context.Context, r GitRunner, entry Worktr
 		if err != nil {
 			return err
 		}
+		if slices.Contains(m.SupportFiles, name) && nativeFixtureDataPath(name) {
+			_, candidate, err := nativeGitFile(ctx, r, entry.Path, p.SubjectCommit, name)
+			if err != nil || !bytes.Equal(candidate, data) {
+				return nativeUnavailable("candidate fixture differs from pinned assertion data: " + name)
+			}
+		}
 		total += len(data)
-		if total > 4*1024*1024 {
-			return oracleFailure(KindLimitExceeded, "named harness inputs exceed 4 MiB", "bound the declared harness and support bytes")
+		if total > nativeGoInputByteLimit {
+			return oracleFailure(KindLimitExceeded, "named harness inputs exceed 32 MiB", "bound the declared harness and support bytes")
 		}
 		p.Files = append(p.Files, file)
 	}
 	slices.SortFunc(p.Files, func(a, b NativeOracleFile) int { return strings.Compare(a.Path, b.Path) })
+	if len(p.Files) > 32 {
+		p.HarnessInputCount = len(p.Files)
+		p.HarnessInputDigest = nativeDigest([]byte(workflowJSON(p.Files)))
+		p.Files = nil
+	}
 	return nil
 }
 

@@ -679,8 +679,30 @@ func workflowContradictionObservationRecorded(ctx context.Context, q queryer, wo
 	return recorded != 0, nil
 }
 
+// guardCompleteBoundary runs the completion boundary preflight and the
+// footprint proof gate: a delivery-producing workflow completes only when
+// every applicable footprint check carries the same typed required-proof
+// state the delivering routes consumed, so completion cannot pass a proof
+// the delivery admission refused.
 func guardCompleteBoundary(g *workflowActionGuardContext) error {
-	return workflowCompletionBoundaryPreflight(g.request.Payload)
+	if err := workflowCompletionBoundaryPreflight(g.request.Payload); err != nil {
+		return err
+	}
+	if workflowDefinitionProducesDelivery(g.entry.Definition) {
+		if err := workflowCompletionProofForDefinitionTx(g.ctx, g.tx, g.request.WorkID, g.entry.Definition); err != nil {
+			return err
+		}
+		candidate, runs, err := workflowFootprintProofRuns(g.ctx, g.tx, g.request.WorkID, "")
+		if err != nil {
+			return err
+		}
+		if refusal, err := workflowFootprintProofRefusal(g.ctx, g.tx, g.request.WorkID, g.request.ProjectTooling, candidate, runs, g.request.ResolvedFootprint, "complete_workflow"); err != nil {
+			return err
+		} else if refusal != nil {
+			return refusal
+		}
+	}
+	return nil
 }
 
 // guardForwardLinkOnly rejects nested or non-forward workflow composition.
@@ -927,23 +949,32 @@ func guardDeliveryAdmission(g *workflowActionGuardContext) error {
 			return workflowExecutionAdmissionFailure(delivery, g.request.ProjectTooling)
 		}
 	}
-	if state.Delivery.ProofRequired && g.request.ProjectTooling != nil {
-		qualifying, why, err := workflowVerificationProof(g.deliveryProofRuns, g.request.ProjectTooling)
+	if err := workflowDeliveryToolingProofFailure(state.Delivery, g.deliveryProofRuns, g.deliveryIntegrationRuns, g.request.ProjectTooling); err != nil {
+		return err
+	}
+	// The footprint proof gate: every applicable check in the footprint
+	// union carries a declared coverage binding and a qualified native
+	// execution receipt on the current candidate. Missing, unresolved,
+	// stale, partial, and prepare-only proof refuse; the gates above stay
+	// unchanged.
+	if workflowFootprintActionRequired(g.entry.Definition, g.currentStep, g.request.ActionID, g.defaultedPayload()) {
+		accepting := ""
+		if g.request.ActionID == "accept_worker_result" {
+			fields, err := workflowActionObject(g.defaultedPayload())
+			if err != nil {
+				return err
+			}
+			accepting = workflowFieldStringDefault(fields, "attempt_id", "")
+		}
+		candidate, runs, err := workflowFootprintProofRuns(g.ctx, g.tx, g.request.WorkID, accepting)
 		if err != nil {
 			return err
 		}
-		if !qualifying {
-			failure := workflowRefineProofFailure(why)
-			failure.Detail += " " + ProjectToolingDeclaredText(g.request.ProjectTooling)
-			return failure
+		if refusal, err := workflowFootprintProofRefusal(g.ctx, g.tx, g.request.WorkID, g.request.ProjectTooling, candidate, runs, g.request.ResolvedFootprint, "workflow_action"); err != nil {
+			return err
+		} else if refusal != nil {
+			return refusal
 		}
-	}
-	// The integration facet re-validates the same runs against the request's
-	// declared tooling, the split the refine proof keeps: a qualifying run of
-	// an undeclared tool covers no required Project.
-	if failure := workflowIntegrationToolingFailure(state.Delivery, g.deliveryIntegrationRuns, g.request.ProjectTooling); failure != nil {
-		failure.Detail += " " + ProjectToolingDeclaredText(g.request.ProjectTooling)
-		return failure
 	}
 	return nil
 }

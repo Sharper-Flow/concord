@@ -32,6 +32,14 @@ type WorkflowActionPreflightRequest struct {
 	// SessionWorktree is the host worktree boundary. It is checked only for
 	// dispatch_worker, whose worker must run in the active claimed worktree.
 	SessionWorktree string
+	// ProjectTooling carries the tooling manifest the caller resolved from
+	// the work's primary Project default ref before the preflight opened
+	// (CD-0192). The footprint proof gate joins the manifest's resolved
+	// coverage to the applicable check set; nil reports that the Project
+	// declares no manifest, which cannot pass a checked footprint. It is
+	// never decoded from request input.
+	ProjectTooling    *ProjectToolingManifest    `json:"-"`
+	ResolvedFootprint *ResolvedWorkflowFootprint `json:"-"`
 }
 
 func VerifyWorkflowDefinitionPin(registry DefinitionRegistry, pin WorkflowDefinitionPin) (RegisteredDefinition, error) {
@@ -377,9 +385,74 @@ func preflightWorkflowActionGuardsTx(ctx context.Context, tx *sql.Tx, definition
 		}
 		return validateCorrectionRequestPayload(ctx, tx, request.WorkID, request.Payload, "workflow_action_preflight", admission.CorrectionRequestContext)
 	case "accept_worker_evidence", "accept_worker_result":
-		return preflightWorkflowWorkerAcceptanceTx(ctx, tx, definition, currentStep, request)
+		if err := preflightWorkflowWorkerAcceptanceTx(ctx, tx, definition, currentStep, request); err != nil {
+			return err
+		}
+		if request.ActionID == "accept_worker_result" {
+			return preflightWorkflowFootprintProofTx(ctx, tx, definition, currentStep, request)
+		}
+		return nil
+	case "record_delivery", "complete":
+		return preflightWorkflowFootprintProofTx(ctx, tx, definition, currentStep, request)
 	}
 	return nil
+}
+
+// preflightWorkflowFootprintProofTx answers the footprint proof gate on the
+// delivering preflight surface from the same typed required-proof state the
+// owning guards consume, so discovery cannot admit a delivery or completion
+// the boundary refuses.
+func preflightWorkflowFootprintProofTx(ctx context.Context, tx *sql.Tx, definition WorkflowDefinition, currentStep string, request WorkflowActionPreflightRequest) error {
+	if !workflowFootprintActionRequired(definition, currentStep, request.ActionID, request.Payload) {
+		return nil
+	}
+	accepting := ""
+	if request.ActionID == "accept_worker_result" {
+		fields, err := workflowActionObject(request.Payload)
+		if err != nil {
+			return err
+		}
+		accepting = workflowFieldStringDefault(fields, "attempt_id", "")
+	}
+	if request.ActionID == "complete" {
+		if err := validateWorkflowAcceptanceFreshness(ctx, tx, request.WorkID); err != nil {
+			return err
+		}
+		if err := workflowCompletionProofForDefinitionTx(ctx, tx, request.WorkID, definition); err != nil {
+			return err
+		}
+	} else {
+		delivery, proof, integration, err := loadWorkflowDeliveryAdmission(ctx, tx, request.WorkID, definition, currentStep, accepting)
+		if err != nil {
+			return err
+		}
+		if err := workflowDeliveryToolingProofFailure(delivery, proof, integration, request.ProjectTooling); err != nil {
+			return err
+		}
+	}
+	candidate, runs, err := workflowFootprintProofRuns(ctx, tx, request.WorkID, accepting)
+	if err != nil {
+		return err
+	}
+	refusal, err := workflowFootprintProofRefusal(ctx, tx, request.WorkID, request.ProjectTooling, candidate, runs, request.ResolvedFootprint, "workflow_action_preflight")
+	if err != nil {
+		return err
+	}
+	if refusal != nil {
+		return workflowPreflightFailure(refusal)
+	}
+	return nil
+}
+
+// preflightAcceptAssertsDelivery reports whether the accept payload carries
+// the CD-0198 D4 delivery fields, the only accept shape the delivery
+// admission gates.
+func preflightAcceptAssertsDelivery(payload json.RawMessage) bool {
+	fields, err := workflowActionObject(payload)
+	if err != nil {
+		return false
+	}
+	return workflowAcceptCarriesDeliveryAssertion(fields)
 }
 
 func preflightWorkflowVerdictTx(ctx context.Context, tx *sql.Tx, definition WorkflowDefinition, currentStep string, request WorkflowActionPreflightRequest) error {

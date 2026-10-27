@@ -88,6 +88,12 @@ func (w nativeCaptureWriter) Write(b []byte) (int, error) {
 // The stage reads its own output pipes because os/exec reports a stream that
 // WaitDelay cut only when the child exited successfully.
 func runNativeOracleStage(ctx context.Context, dir string, argv, env []string, stdin io.Reader, capture *nativeStreamCapture, launched func()) (int, error) {
+	return runNativeOracleStageOutput(ctx, dir, argv, env, stdin, capture, launched, nil)
+}
+
+// A converter's transient events go directly to its bounded incremental grader.
+// Only raw program output and converter stderr spend retained stream storage.
+func runNativeOracleStageOutput(ctx context.Context, dir string, argv, env []string, stdin io.Reader, capture *nativeStreamCapture, launched func(), stdout io.Writer) (int, error) {
 	if err := validateWorktreeVerifyCommand(argv); err != nil {
 		return -1, err
 	}
@@ -122,9 +128,15 @@ func runNativeOracleStage(ctx context.Context, dir string, argv, env []string, s
 	}
 	copied := make(chan error, len(readers))
 	for i, r := range readers {
-		w := nativeCaptureWriter{capture: capture, stderr: i == 1, cancel: cancel}
+		var w io.Writer = nativeCaptureWriter{capture: capture, stderr: i == 1, cancel: cancel}
+		if i == 0 && stdout != nil {
+			w = stdout
+		}
 		go func() {
 			_, err := io.Copy(w, r)
+			if err != nil {
+				cancel()
+			}
 			copied <- err
 		}()
 	}

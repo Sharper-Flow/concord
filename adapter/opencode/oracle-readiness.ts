@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto"
-import type { AgentLanePacket, NativeOracleGoPreparation, NativeOraclePreparation, NativeOracleTargetPreparation } from "./dispatch"
+import type { AgentLanePacket, NativeOracleSelectedGoPreparation, NativeOraclePackagePreparation, NativeOraclePreparation, NativeOracleTargetPreparation } from "./dispatch"
 
 // Readiness consumes the native owner's qualified, job-selected preparation
 // records. The core dispatch admission owns subject freshness — it observes
@@ -47,16 +47,36 @@ function targetWitnessesValid(preparation: NativeOracleTargetPreparation, cases:
   return covered.size === selected.length
 }
 
-function goWitnessesValid(preparation: NativeOracleGoPreparation, cases: string[]): boolean {
+function packageWitnessesValid(preparation: NativeOraclePackagePreparation, cases: string[], argv: string[]): boolean {
+  const logical = ["go", "test", "-count=1", "."]
+  if (argv.length !== logical.length || !argv.every((part, i) => part === logical[i])) return false
+  if (preparation.selected_test_names !== undefined || preparation.case_to_test_map !== undefined
+    || preparation.target_materializer !== undefined || preparation.target_runner !== undefined
+    || preparation.files !== null || preparation.harness_input_count !== undefined || preparation.harness_input_digest !== undefined) return false
+  const selected = preparation.selected_witness_ids
+  const witness = `go_package:./${preparation.logical_cwd}`
+  if (!Array.isArray(selected) || selected.length !== 1 || selected[0] !== witness || preparation.selected_distinct_count !== 1) return false
+  const map = preparation.case_to_witness_map
+  if (!isRecord(map) || Object.keys(map).length < 1 || Object.keys(map).length > 64) return false
+  // The native preparation retains the recipe's full case map, not just
+  // this control's subset. Every package case still names the same package.
+  return cases.every((id) => Object.hasOwn(map, id)) && Object.values(map).every((value) => {
+    const names = strings(value)
+    return names.length === 1 && names[0] === witness
+  })
+}
+
+function goWitnessesValid(preparation: NativeOracleSelectedGoPreparation, cases: string[]): boolean {
   if (preparation.recipe_kind !== undefined || preparation.target_materializer !== undefined || preparation.target_runner !== undefined
     || preparation.selected_witness_ids !== undefined || preparation.case_to_witness_map !== undefined) return false
   const names = preparation.selected_test_names
-  return Array.isArray(names) && names.length > 0 && new Set(names).size === names.length
+  return Array.isArray(names) && names.length > 0 && names.length <= 40 && new Set(names).size === names.length
     && preparation.selected_distinct_count === names.length
     && cases.length > 0 && isRecord(preparation.case_to_test_map)
     && cases.every((id) => {
       const witnesses = strings(preparation.case_to_test_map[id])
-      return witnesses.length > 0 && witnesses.every((name) => names.includes(name))
+      return witnesses.length > 0 && witnesses.length <= 8 && new Set(witnesses).size === witnesses.length
+        && witnesses.every((name) => names.includes(name))
     })
 }
 
@@ -78,6 +98,8 @@ function preparationMatches(preparation: NativeOraclePreparation, control: Recor
     && cases.length > 0
     && (preparation.recipe_kind === "target_runner_v1"
       ? targetWitnessesValid(preparation, cases)
+      : preparation.recipe_kind === "go_package_v1"
+        ? packageWitnessesValid(preparation, cases, argv)
       : goWitnessesValid(preparation, cases))
 }
 

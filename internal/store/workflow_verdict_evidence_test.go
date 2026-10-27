@@ -157,6 +157,7 @@ func runVerdictAction(t *testing.T, s *Store, workID, action string, payload jso
 // runVerdictActionAs runs one action under the supplied authenticated actor.
 func runVerdictActionAs(t *testing.T, s *Store, workID, action string, payload json.RawMessage, version int64, owner WorkflowActor) error {
 	t.Helper()
+	resolved := ResolveWorkflowFootprint(context.Background(), s, BuiltinWorkflowRegistry(), workID, action, payload)
 	ctx, err := prepareTerminalTestContext(context.Background(), s, workID, action)
 	if err != nil {
 		return err
@@ -173,6 +174,7 @@ func runVerdictActionAs(t *testing.T, s *Store, workID, action string, payload j
 		EvidenceRefs: actionEvidenceRefs(action, payload), WorkID: workID, ExpectedVersion: version, ActionID: action, Payload: payload, Actor: owner,
 		AcceptedInputsDigest: "sha256:" + strings.Repeat("b", 64) + fmt.Sprint(version), IdempotencyIdentity: action + "-" + workID + "-" + fmt.Sprint(version), OperationID: action + "-" + workID + "-" + fmt.Sprint(version),
 		PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: action + "-" + workID + "-" + fmt.Sprint(version), RequestID: "request:" + action + "-" + workID + "-" + fmt.Sprint(version), ContractDigest: testManifestDigest, Now: time.Unix(9, 0).UTC(),
+		ResolvedFootprint: resolved,
 	}); err != nil {
 		return err
 	}

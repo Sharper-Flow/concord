@@ -1,0 +1,5 @@
+{
+  "kind": "go_package_v1",
+  "package_cwd": "internal/gittest",
+  "cases": {"case:package-gittest": ["go_package:./internal/gittest"]}
+}

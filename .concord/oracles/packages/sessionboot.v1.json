@@ -1,0 +1,5 @@
+{
+  "kind": "go_package_v1",
+  "package_cwd": "internal/sessionboot",
+  "cases": {"case:package-sessionboot": ["go_package:./internal/sessionboot"]}
+}

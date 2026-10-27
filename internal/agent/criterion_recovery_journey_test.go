@@ -102,6 +102,9 @@ func TestCriterion38RecoveryReevaluationJourney(t *testing.T) {
 	if correction := f.read(t).Pinned.Pin.Correction; correction == nil || !slices.Contains(correction.EvidenceRefs, report) {
 		t.Fatal("the unmet changed obligation lost its correction authority")
 	}
+	// The candidate is unchanged, but native proof must name the active contract.
+	f.proveFootprint(t)
+	verdict["verdicts"] = []map[string]any{{"predicate_id": "predicate:primary", "receipt_refs": []string{f.proof}}}
 	f.recordJob(t)
 	f.review(t, "ready_for_final_proof", f.proof)
 	spineOK(t, f.action(t, "bind_evidence", map[string]any{"evidence_kind": "verification", "evidence_ref": f.proof}))

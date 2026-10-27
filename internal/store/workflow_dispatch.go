@@ -74,7 +74,8 @@ type WorkflowActionExecutionRequest struct {
 	// worktree-verify run's argv against it; nil reports that the Project
 	// declares no tooling manifest on its default ref. It is never decoded
 	// from request input.
-	ProjectTooling *ProjectToolingManifest
+	ProjectTooling    *ProjectToolingManifest    `json:"-"`
+	ResolvedFootprint *ResolvedWorkflowFootprint `json:"-"`
 }
 
 type WorkflowActionExecutionResult struct {

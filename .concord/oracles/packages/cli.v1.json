@@ -1,0 +1,5 @@
+{
+  "kind": "go_package_v1",
+  "package_cwd": "cmd/concord",
+  "cases": {"case:package-cli": ["go_package:./cmd/concord"]}
+}

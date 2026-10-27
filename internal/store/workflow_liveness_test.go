@@ -742,6 +742,7 @@ func livenessApply(ctx context.Context, s *Store, workID string, move livenessMo
 			evidenceRefs = []string{subject}
 		}
 	}
+	resolved := ResolveWorkflowFootprint(ctx, s, BuiltinWorkflowRegistry(), workID, move.action, payload)
 	request := WorkflowActionExecutionRequest{
 		WorkID: workID, ExpectedVersion: version, ActionID: move.action,
 		SelectedChoice: selectedChoice, DecisionContextDigest: decisionDigest,
@@ -752,13 +753,15 @@ func livenessApply(ctx context.Context, s *Store, workID string, move livenessMo
 		ContractDigest:       testManifestDigest,
 		Tool:                 "concord_work_transition",
 		IdempotencyKey:       label, RequestID: label, IdempotencyIdentity: label, OperationID: label,
-		PrincipalRef: actor.PrincipalRef,
-		Now:          time.Unix(int64(100+sequence), 0).UTC(),
+		PrincipalRef:      actor.PrincipalRef,
+		Now:               time.Unix(int64(100+sequence), 0).UTC(),
+		ResolvedFootprint: resolved,
 	}
 	preflight := WorkflowActionPreflightRequest{
 		WorkID: request.WorkID, ExpectedVersion: request.ExpectedVersion, ActionID: request.ActionID,
 		SelectedChoice: request.SelectedChoice, DecisionContextDigest: request.DecisionContextDigest,
 		Payload: request.Payload, Actor: request.Actor,
+		ResolvedFootprint: resolved,
 	}
 	err = AuthorizeWorkflowActionAtBoundaryTx(ctx, s, BuiltinWorkflowRegistry(), preflight, nil, func(tx *Transaction) error {
 		if seedGreenRun {

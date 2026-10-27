@@ -8,7 +8,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp/syntax"
 	"runtime"
 	"strconv"
 	"strings"
@@ -88,14 +87,13 @@ func init() {
 	// width.
 	branchBound := goPatternBound("internal/store/worktrees.go", "worktreeBranchPattern")
 	shaBound := goPatternBound("internal/store/worktrees.go", "worktreeSHAPattern")
-	// Per-case selector widths: nativeOracleCaseTests refuses len(name) > 64
-	// per test name (the ASCII-only name pattern makes bytes equal
-	// characters) and len(names) > 8 per case;
+	// Literal Go witness paths pass nativeGoWitnessValid's byte guard;
+	// nativeOracleCaseTests refuses len(names) > 8 per case;
 	// nativeTargetCaseWitnesses refuses len(ids) > 8 per case; and
-	// nativePreparationJoinsValid refuses len(o.Files) > 32 for either
+	// nativeGoHarnessReceiptMatches refuses len(o.Files) > 32 for either
 	// family's pinned file inventory.
-	testNameBound := goInlineBound("internal/store/worktree_verify_oracle_go.go", "nativeOracleCaseTests", "len(name)", boundBytes)
-	filesBound := goInlineBound("internal/store/worktree_verify_oracle.go", "nativePreparationJoinsValid", "len(o.Files)", boundItems)
+	testNameBound := goInlineBound("internal/store/native_recipe_case.go", "nativeGoWitnessValid", "len(name)", boundBytes)
+	filesBound := nativeRejectUpperBound("internal/store/native_go_package.go", "nativeGoHarnessReceiptMatches", "len(o.Files)", boundItems)
 	caseMapGoBound := goInlineBound("internal/store/worktree_verify_oracle_go.go", "nativeOracleCaseTests", "len(names)", boundItems)
 	caseMapTargetBound := goInlineBound("internal/store/worktree_verify_oracle_host.go", "nativeTargetCaseWitnesses", "len(ids)", boundItems)
 	// The output page: readNativeVerifyOutput base64-encodes at most
@@ -172,7 +170,13 @@ func init() {
 	// request digest of the same shape; the echo half is input-reachable and
 	// admits 71 exactly.
 	registerOutputBound("/$defs/native_oracle_digest/maxLength", nativeDigestDerived(nativeDigestFile, "nativeDigest"))
-	registerOutputBound("/$defs/native_oracle_test_name/maxLength", testNameBound)
+	registerOutputBound("/$defs/native_oracle_go_witness/maxLength", testNameBound)
+	registerOutputBound("/$defs/native_oracle_package_witness/maxLength", nativePackageWitnessDerived(false))
+	registerOutputBound("/$defs/native_oracle_package_witness/x-maxBytes", nativePackageWitnessDerived(false))
+	registerOutputBound("/$defs/native_oracle_package_inventory/properties/skipped_tests/maxItems", nativeInventorySkipCount(false))
+	registerOutputBound("/$defs/native_oracle_package_inventory/properties/skipped_tests/items/maxLength", goInlineBound("internal/store/native_recipe_case.go", "validateNativeGoManifest", "len(name)", boundBytes))
+	registerOutputBound("/$defs/native_oracle_package_inventory/properties/nested_skipped_tests/maxItems", nativeInventorySkipCount(true))
+	registerOutputBound("/$defs/native_oracle_package_inventory/properties/nested_skipped_tests/items/maxLength", goInlineBound("internal/store/native_go_events.go", "consume", "len(test)", boundBytes))
 	registerOutputBound("/$defs/native_oracle_stream/properties/sha256/maxLength", nativeDigestDerived(nativeDigestFile, "nativeStreamDescriptor"))
 	registerOutputBound("/$defs/native_oracle_stream/properties/ref/maxLength", nativePrefixedDigestDerived("oracle_output:"))
 	registerOutputBound("/$defs/native_oracle_file/properties/path/maxLength", repoPathBytes)
@@ -200,7 +204,7 @@ func init() {
 	// only and projects.id carries no length CHECK), and every writer of the
 	// published value copies it verbatim; genuinely unbounded, byte-ceiling
 	// only.
-	for _, branch := range []string{"", "/oneOf/0", "/oneOf/1"} {
+	for _, branch := range []string{"", "/oneOf/0", "/oneOf/1", "/oneOf/2"} {
 		registerRetainedTwinBound(prep+branch+"/properties/project_id/maxLength", unboundedOutput(projectIDGap, nativeReadSurfaceRefusal, nativeMutationResultRefusal))
 	}
 	registerOutputBoundWithTwin(prep+"/properties/subject_commit/maxLength", shaBound)
@@ -226,20 +230,19 @@ func init() {
 	registerOutputBoundWithTwin(prep+"/properties/manifest_blob/maxLength", shaBound)
 	registerOutputBoundWithTwin(prep+"/oneOf/*/properties/manifest_blob/maxLength", shaBound)
 	registerOutputBoundWithTwin(prep+"/properties/files/maxItems", filesBound)
-	registerOutputBoundWithTwin(prep+"/oneOf/*/properties/files/maxItems", filesBound)
+	registerOutputBoundWithTwin(prep+"/oneOf/0/properties/files/maxItems", filesBound)
+	registerOutputBoundWithTwin(prep+"/oneOf/1/properties/files/maxItems", filesBound)
 	// No finite per-field guard exists on either family: the target identity
 	// concatenates recipe version pins admitted only through the unbounded
 	// dotted-numeric pattern, and the Go family concatenates the go.mod
 	// toolchain directive admitted only through nativeGoToolchainName, whose
 	// digit runs are also unbounded - the width of today's toolchain string is
 	// not a source. Byte-ceiling only.
-	for _, branch := range []string{"", "/oneOf/0", "/oneOf/1"} {
+	for _, branch := range []string{"", "/oneOf/0", "/oneOf/1", "/oneOf/2"} {
 		registerRetainedTwinBound(prep+branch+"/properties/toolchain_identity/maxLength", unboundedOutput(toolchainGap, nativeReadSurfaceRefusal, nativeMutationResultRefusal))
 	}
-	// Distinct selected test names are bounded by the rendered selector
-	// budget: nativeOracleSelector renders "^(" + join(names, "|") + ")$" and
-	// refuses the render over maxWorktreeVerifyCommandPart bytes, while every
-	// name matches the ASCII test-name grammar whose minimum width is 5.
+	// Full literal witnesses are bounded by the explicit distinct-set guard.
+	// The root selector's separate byte guard cannot bound nested witnesses.
 	registerOutputBoundWithTwin(prep+"/properties/selected_test_names/maxItems", nativeSelectorNamesDerived())
 	registerOutputBoundWithTwin(prep+"/oneOf/0/properties/selected_test_names/maxItems", nativeSelectorNamesDerived())
 	// Distinct selected witnesses are bounded by the rendered verify-command
@@ -247,14 +250,18 @@ func init() {
 	// witness list and refuses more than maxWorktreeVerifyCommandArgs parts.
 	registerOutputBoundWithTwin(prep+"/properties/selected_witness_ids/maxItems", nativeWitnessSelectorDerived())
 	registerOutputBoundWithTwin(prep+"/oneOf/1/properties/selected_witness_ids/maxItems", nativeWitnessSelectorDerived())
-	registerOutputBoundWithTwin(prep+"/properties/selected_witness_ids/items/maxLength", witnessBytes)
+	registerOutputBoundWithTwin(prep+"/properties/selected_witness_ids/items/maxLength", maxBound(witnessBytes, nativePackageWitnessDerived(false)))
 	registerOutputBoundWithTwin(prep+"/oneOf/1/properties/selected_witness_ids/items/maxLength", witnessBytes)
 	registerOutputBoundWithTwin(prep+"/properties/case_to_test_map/patternProperties/^case:*/maxItems", caseMapGoBound)
 	registerOutputBoundWithTwin(prep+"/oneOf/0/properties/case_to_test_map/patternProperties/^case:*/maxItems", caseMapGoBound)
 	registerOutputBoundWithTwin(prep+"/properties/case_to_witness_map/patternProperties/^case:*/maxItems", caseMapTargetBound)
 	registerOutputBoundWithTwin(prep+"/oneOf/1/properties/case_to_witness_map/patternProperties/^case:*/maxItems", caseMapTargetBound)
-	registerOutputBoundWithTwin(prep+"/properties/case_to_witness_map/patternProperties/^case:*/items/maxLength", witnessBytes)
+	registerOutputBoundWithTwin(prep+"/properties/case_to_witness_map/patternProperties/^case:*/items/maxLength", maxBound(witnessBytes, nativePackageWitnessDerived(false)))
 	registerOutputBoundWithTwin(prep+"/oneOf/1/properties/case_to_witness_map/patternProperties/^case:*/items/maxLength", witnessBytes)
+	registerOutputBoundWithTwin(prep+"/oneOf/2/properties/selected_witness_ids/maxItems", nativePackageWitnessDerived(true))
+	registerOutputBoundWithTwin(prep+"/oneOf/2/properties/case_to_witness_map/patternProperties/^case:*/maxItems", nativePackageWitnessDerived(true))
+	registerOutputBoundWithTwin(prep+"/properties/harness_input_digest/maxLength", nativeDigestDerived(nativeOracleGoFile, "collectNativeGoHarnessFiles"))
+	registerOutputBoundWithTwin(prep+"/oneOf/*/properties/harness_input_digest/maxLength", nativeDigestDerived(nativeOracleGoFile, "collectNativeGoHarnessFiles"))
 
 	// -- native_oracle_result (published inside the worktree_verify mutation
 	// result; typed refusal owner is mutationResult) --
@@ -293,7 +300,8 @@ func init() {
 	registerOutputBound(result+"/oneOf/*/properties/manifest_blob/maxLength", shaBound)
 	registerOutputBound(result+"/oneOf/*/oneOf/*/properties/manifest_blob/maxLength", shaBound)
 	registerOutputBound(result+"/oneOf/*/properties/files/maxItems", filesBound)
-	registerOutputBound(result+"/oneOf/*/oneOf/*/properties/files/maxItems", filesBound)
+	registerOutputBound(result+"/oneOf/*/oneOf/0/properties/files/maxItems", filesBound)
+	registerOutputBound(result+"/oneOf/*/oneOf/1/properties/files/maxItems", filesBound)
 	// Byte-ceiling only: see the preparation rows for the producer argument.
 	registerOutputBound(result+"/oneOf/*/properties/toolchain_identity/maxLength", unboundedOutput(toolchainGap, nativeMutationResultRefusal))
 	registerOutputBound(result+"/oneOf/*/oneOf/*/properties/toolchain_identity/maxLength", unboundedOutput(toolchainGap, nativeMutationResultRefusal))
@@ -312,29 +320,34 @@ func init() {
 	registerOutputBound(result+"/oneOf/*/properties/selected_test_names/maxItems", nativeSelectorNamesDerived())
 	registerOutputBound(result+"/oneOf/*/oneOf/*/properties/selected_test_names/maxItems", nativeSelectorNamesDerived())
 	registerOutputBound(result+"/oneOf/*/properties/selected_witness_ids/maxItems", nativeWitnessSelectorDerived())
-	registerOutputBound(result+"/oneOf/*/oneOf/*/properties/selected_witness_ids/maxItems", nativeWitnessSelectorDerived())
-	registerOutputBound(result+"/oneOf/*/properties/selected_witness_ids/items/maxLength", witnessBytes)
-	registerOutputBound(result+"/oneOf/*/oneOf/*/properties/selected_witness_ids/items/maxLength", witnessBytes)
+	registerOutputBound(result+"/oneOf/*/oneOf/1/properties/selected_witness_ids/maxItems", nativeWitnessSelectorDerived())
+	registerOutputBound(result+"/oneOf/*/oneOf/2/properties/selected_witness_ids/maxItems", nativePackageWitnessDerived(true))
+	registerOutputBound(result+"/oneOf/*/properties/selected_witness_ids/items/maxLength", maxBound(witnessBytes, nativePackageWitnessDerived(false)))
+	registerOutputBound(result+"/oneOf/*/oneOf/1/properties/selected_witness_ids/items/maxLength", witnessBytes)
 	registerOutputBound(result+"/oneOf/*/properties/case_to_test_map/patternProperties/^case:*/maxItems", caseMapGoBound)
 	registerOutputBound(result+"/oneOf/*/oneOf/*/properties/case_to_test_map/patternProperties/^case:*/maxItems", caseMapGoBound)
 	registerOutputBound(result+"/oneOf/*/properties/case_to_witness_map/patternProperties/^case:*/maxItems", caseMapTargetBound)
-	registerOutputBound(result+"/oneOf/*/oneOf/*/properties/case_to_witness_map/patternProperties/^case:*/maxItems", caseMapTargetBound)
-	registerOutputBound(result+"/oneOf/*/properties/case_to_witness_map/patternProperties/^case:*/items/maxLength", witnessBytes)
-	registerOutputBound(result+"/oneOf/*/oneOf/*/properties/case_to_witness_map/patternProperties/^case:*/items/maxLength", witnessBytes)
+	registerOutputBound(result+"/oneOf/*/oneOf/1/properties/case_to_witness_map/patternProperties/^case:*/maxItems", caseMapTargetBound)
+	registerOutputBound(result+"/oneOf/*/oneOf/2/properties/case_to_witness_map/patternProperties/^case:*/maxItems", nativePackageWitnessDerived(true))
+	registerOutputBound(result+"/oneOf/*/properties/case_to_witness_map/patternProperties/^case:*/items/maxLength", maxBound(witnessBytes, nativePackageWitnessDerived(false)))
+	registerOutputBound(result+"/oneOf/*/oneOf/1/properties/case_to_witness_map/patternProperties/^case:*/items/maxLength", witnessBytes)
+	registerOutputBound(result+"/oneOf/*/properties/harness_input_digest/maxLength", nativeDigestDerived(nativeOracleGoFile, "collectNativeGoHarnessFiles"))
+	registerOutputBound(result+"/oneOf/*/oneOf/*/properties/harness_input_digest/maxLength", nativeDigestDerived(nativeOracleGoFile, "collectNativeGoHarnessFiles"))
 	registerOutputBound(result+"/oneOf/1/properties/preparation_run_ref/maxLength", inputBound("/$defs/native_oracle_request/oneOf/1/properties/preparation_run_ref/maxLength"))
 	registerOutputBound(result+"/oneOf/*/oneOf/*/properties/preparation_run_ref/maxLength", inputBound("/$defs/native_oracle_request/oneOf/1/properties/preparation_run_ref/maxLength"))
 	// Observed populations join against the selected sets: the Go family
-	// returns slices.Clone(selected) from nativeOracleWitnesses over
-	// result.SelectedTestNames, and the target family refuses unless observed
+	// assigns slices.Clone(result.SelectedTestNames) in consumeStage, and the
+	// target family refuses unless observed
 	// witnesses equal the selected population
 	// (worktree_verify_oracle_host_run.go), so both inherit the selector
 	// bounds.
 	registerOutputBound(result+"/oneOf/1/properties/observed_test_names/maxItems", nativeObservedNamesDerived())
 	registerOutputBound(result+"/oneOf/*/oneOf/*/properties/observed_test_names/maxItems", nativeObservedNamesDerived())
 	registerOutputBound(result+"/oneOf/1/properties/observed_witness_ids/maxItems", nativeObservedWitnessDerived())
-	registerOutputBound(result+"/oneOf/*/oneOf/*/properties/observed_witness_ids/maxItems", nativeObservedWitnessDerived())
-	registerOutputBound(result+"/oneOf/1/properties/observed_witness_ids/items/maxLength", witnessBytes)
-	registerOutputBound(result+"/oneOf/*/oneOf/*/properties/observed_witness_ids/items/maxLength", witnessBytes)
+	registerOutputBound(result+"/oneOf/*/oneOf/1/properties/observed_witness_ids/maxItems", nativeObservedWitnessDerived())
+	registerOutputBound(result+"/oneOf/*/oneOf/2/properties/observed_witness_ids/maxItems", nativePackageObservedDerived())
+	registerOutputBound(result+"/oneOf/1/properties/observed_witness_ids/items/maxLength", maxBound(witnessBytes, nativePackageWitnessDerived(false)))
+	registerOutputBound(result+"/oneOf/*/oneOf/1/properties/observed_witness_ids/items/maxLength", witnessBytes)
 }
 
 const (
@@ -513,6 +526,218 @@ func nativeItemsWidth(items int64, describe string) evaluatedBound {
 		describe:    describe,
 		constraints: []boundConstraint{{unit: boundItems, value: items, from: describe}},
 	}
+}
+
+// Select an enforcing upper comparison, not equality checks on a narrower
+// family arm. Every disjunct selected here independently enters the refusal.
+func nativeRejectUpperBound(file, function, measurement string, unit boundUnit) outputBoundSource {
+	return outputBoundSource{kind: "derived", derive: func(rt *ledgerRuntime, _ *boundCensus) (evaluatedBound, error) {
+		fn, err := nativeFuncDecl(rt, file, function)
+		if err != nil {
+			return evaluatedBound{}, err
+		}
+		source, err := nativeGoFile(rt, file)
+		if err != nil {
+			return evaluatedBound{}, err
+		}
+		var limits []int64
+		var inspect func(ast.Expr)
+		inspect = func(expr ast.Expr) {
+			if paren, ok := expr.(*ast.ParenExpr); ok {
+				inspect(paren.X)
+				return
+			}
+			cmp, ok := expr.(*ast.BinaryExpr)
+			if !ok {
+				return
+			}
+			if cmp.Op == token.LOR {
+				inspect(cmp.X)
+				inspect(cmp.Y)
+				return
+			}
+			if (cmp.Op == token.GTR || cmp.Op == token.GEQ) && ledgerExprText(cmp.X) == measurement {
+				if value, err := rt.evalNumeric(source, fn, cmp.Y); err == nil {
+					if cmp.Op == token.GEQ {
+						value--
+					}
+					limits = append(limits, value)
+				}
+			}
+		}
+		ast.Inspect(fn, func(n ast.Node) bool {
+			branch, ok := n.(*ast.IfStmt)
+			if !ok || len(branch.Body.List) != 1 {
+				return true
+			}
+			ret, ok := branch.Body.List[0].(*ast.ReturnStmt)
+			if !ok || len(ret.Results) == 0 {
+				return true
+			}
+			refuses := len(ret.Results) == 1 && ledgerExprText(ret.Results[0]) == "false"
+			if call, ok := ret.Results[len(ret.Results)-1].(*ast.CallExpr); ok {
+				refuses = ledgerCalleeMatches(call, "nativeUnavailable") || ledgerCalleeMatches(call, "oracleFailure")
+			}
+			if refuses {
+				inspect(branch.Cond)
+			}
+			return true
+		})
+		if len(limits) != 1 {
+			return evaluatedBound{}, fmt.Errorf("native bound: %s:%s has %d enforcing upper refusals for %s", file, function, len(limits), measurement)
+		}
+		describe := fmt.Sprintf("enforcing upper refusal %s:%s on %s", file, function, measurement)
+		return evaluatedBound{kind: "derived", describe: describe, constraints: []boundConstraint{{unit: unit, value: limits[0], from: describe}}}, nil
+	}}
+}
+
+func nativeInventorySkipCount(nested bool) outputBoundSource {
+	return outputBoundSource{kind: "derived", derive: func(rt *ledgerRuntime, census *boundCensus) (evaluatedBound, error) {
+		consume, err := nativeMethodDecl(rt, "internal/store/native_go_events.go", "nativeGoEventGrade", "consume")
+		if err != nil {
+			return evaluatedBound{}, err
+		}
+		grade, err := nativeFuncDecl(rt, "internal/store/native_go_package.go", "nativeGoPackageGrade")
+		if err != nil {
+			return evaluatedBound{}, err
+		}
+		field, output := "g.skipped", "inventory.SkippedTests"
+		guard := nativeRejectUpperBound("internal/store/native_recipe_case.go", "validateNativeGoManifest", "len(m.ExpectedSkips)", boundItems)
+		if nested {
+			field, output = "g.nestedSkips", "inventory.NestedSkippedTests"
+			guard = nativeRejectUpperBound("internal/store/native_go_events.go", "consume", "len(g.nestedSkips)", boundItems)
+		}
+		appended, copied, membershipRefusal, terminalRefusal, terminalState := false, false, false, false, false
+		ast.Inspect(consume, func(n ast.Node) bool {
+			if assign, ok := n.(*ast.AssignStmt); ok && len(assign.Lhs) == 1 && len(assign.Rhs) == 1 {
+				appended = appended || ledgerExprText(assign.Lhs[0]) == field && ledgerExprText(assign.Rhs[0]) == "append("+field+", test)"
+				terminalState = terminalState || ledgerExprText(assign.Lhs[0]) == "g.state[test]" && ledgerExprText(assign.Rhs[0]) == "3"
+			}
+			if branch, ok := n.(*ast.IfStmt); ok && ledgerExprText(branch.Cond) == "!nested && (!g.packageMode || !slices.Contains(g.expected, test))" {
+				membershipRefusal = len(nativeCalls(branch, "nativeUnavailable")) == 1
+			}
+			if branch, ok := n.(*ast.IfStmt); ok && ledgerExprText(branch.Cond) == "!known || phase != 1 || nested && rootPhase != 1" {
+				terminalRefusal = len(nativeCalls(branch, "nativeUnavailable")) == 1
+			}
+			return true
+		})
+		ast.Inspect(grade, func(n ast.Node) bool {
+			if assign, ok := n.(*ast.AssignStmt); ok && len(assign.Lhs) == 1 && len(assign.Rhs) == 1 {
+				copied = copied || ledgerExprText(assign.Lhs[0]) == output && ledgerExprText(assign.Rhs[0]) == "slices.Clone("+field+")"
+			}
+			return true
+		})
+		if !appended || !copied || !terminalRefusal || !terminalState || !nested && !membershipRefusal {
+			return evaluatedBound{}, fmt.Errorf("native bound: package skip population no longer joins the guarded event list")
+		}
+		bound, err := rt.evaluateSource(guard, census)
+		if err != nil {
+			return evaluatedBound{}, err
+		}
+		if nested {
+			// The >= guard observes the pre-append length; the one admitted
+			// append adds one to the published maximum.
+			for i := range bound.constraints {
+				bound.constraints[i].value++
+			}
+		}
+		return bound, nil
+	}}
+}
+
+// A package case admits only the one literal prefix plus the validated cwd.
+// Per-case uniqueness and the distinct-set return make both populations one.
+func nativePackageWitnessDerived(cardinality bool) outputBoundSource {
+	return outputBoundSource{kind: "derived", derive: func(rt *ledgerRuntime, census *boundCensus) (evaluatedBound, error) {
+		fn, err := nativeFuncDecl(rt, nativeOracleGoFile, "nativeOracleCaseTests")
+		if err != nil {
+			return evaluatedBound{}, err
+		}
+		prefix := ""
+		validRefusal, uniqueRefusal := false, false
+		ast.Inspect(fn, func(n ast.Node) bool {
+			branch, ok := n.(*ast.IfStmt)
+			if !ok {
+				return true
+			}
+			if ledgerExprText(branch.Cond) == "!valid || local[name]" {
+				for _, stmt := range branch.Body.List {
+					if ret, ok := stmt.(*ast.ReturnStmt); ok && len(ret.Results) == 2 && ledgerExprText(ret.Results[0]) == "nil" {
+						if call, ok := ret.Results[1].(*ast.CallExpr); ok && ledgerCalleeMatches(call, "nativeUnavailable") {
+							validRefusal, uniqueRefusal = true, true
+						}
+					}
+				}
+			}
+			if ledgerExprText(branch.Cond) != "m.Kind == nativeGoPackageKind" || len(branch.Body.List) != 1 {
+				return true
+			}
+			assign, ok := branch.Body.List[0].(*ast.AssignStmt)
+			if !ok || len(assign.Lhs) != 1 || len(assign.Rhs) != 1 || ledgerExprText(assign.Lhs[0]) != "valid" {
+				return true
+			}
+			eq, ok := assign.Rhs[0].(*ast.BinaryExpr)
+			if !ok || eq.Op != token.EQL || ledgerExprText(eq.X) != "name" {
+				return true
+			}
+			concat, ok := eq.Y.(*ast.BinaryExpr)
+			if ok && concat.Op == token.ADD && ledgerExprText(concat.Y) == "m.PackageCwd" {
+				prefix, _ = nativeStringLit(concat.X)
+			}
+			return true
+		})
+		if prefix == "" || !validRefusal || !uniqueRefusal {
+			return evaluatedBound{}, fmt.Errorf("native bound: package witnesses no longer refuse nonliteral or duplicate case entries")
+		}
+		if _, _, err := nativeSelectorNameCount(rt); err != nil {
+			return evaluatedBound{}, err
+		}
+		if cardinality {
+			return nativeItemsWidth(1, "one distinct package witness from literal-prefix/cwd equality and duplicate refusal"), nil
+		}
+		manifest, err := nativeFuncDecl(rt, "internal/store/native_recipe_case.go", "validateNativeGoManifest")
+		cwdValidated := false
+		if err == nil {
+			for _, call := range nativeCalls(manifest, "validateWorkContextRepoPath") {
+				cwdValidated = cwdValidated || len(call.Args) == 1 && ledgerExprText(call.Args[0]) == "m.PackageCwd"
+			}
+		}
+		if !cwdValidated {
+			return evaluatedBound{}, fmt.Errorf("native bound: package cwd no longer passes repository path admission: %v", err)
+		}
+		cwd, err := rt.evaluateSource(goInlineBound("internal/store/work_context.go", "validateWorkContextRepoPath", "len(path)", boundBytes), census)
+		if err != nil {
+			return evaluatedBound{}, err
+		}
+		for _, c := range cwd.constraints {
+			if c.unit == boundBytes {
+				width := c.value + int64(len(prefix))
+				return evaluatedBound{kind: "derived", describe: "literal package prefix plus admitted repository cwd", constraints: []boundConstraint{{unit: boundBytes, value: width, from: cwd.describe}}}, nil
+			}
+		}
+		return evaluatedBound{}, fmt.Errorf("native bound: package cwd has no byte bound")
+	}}
+}
+
+func nativePackageObservedDerived() outputBoundSource {
+	return outputBoundSource{kind: "derived", derive: func(rt *ledgerRuntime, census *boundCensus) (evaluatedBound, error) {
+		fn, err := nativeMethodDecl(rt, nativeOracleGoFile, "nativeGoOracleRun", "consumeStage")
+		if err != nil {
+			return evaluatedBound{}, err
+		}
+		joined := false
+		ast.Inspect(fn, func(n ast.Node) bool {
+			assign, ok := n.(*ast.AssignStmt)
+			if ok && len(assign.Lhs) == 1 && len(assign.Rhs) == 1 && ledgerExprText(assign.Lhs[0]) == "result.ObservedWitnessIDs" && ledgerExprText(assign.Rhs[0]) == "slices.Clone(result.SelectedWitnessIDs)" {
+				joined = true
+			}
+			return true
+		})
+		if !joined {
+			return evaluatedBound{}, fmt.Errorf("native bound: package observed witnesses no longer clone the selected set")
+		}
+		return rt.evaluateSource(nativePackageWitnessDerived(true), census)
+	}}
 }
 
 // nativeDigestShape verifies one sha256-prefixed digest function: exactly one
@@ -961,10 +1186,23 @@ func TestOutputBoundExtractedNativeProofBites(t *testing.T) {
 		{"blob equality", nativeOracleGoFile, "if oid != wantOID {", "if oid != otherOID {", nativeGitOIDWidthDerived()},
 		{"blob mismatch refusal", nativeOracleGoFile, `return nativeUnavailable("snapshot blob differs from subject: " + name)`, "return nil", nativeGitOIDWidthDerived()},
 		{"blob unsupported width refusal", nativeOracleGoFile, `return nativeUnavailable("unsupported Git object identity")`, "return nil", nativeGitOIDWidthDerived()},
-		{"Go selected input", nativeOracleGoFile, "result.SelectedTestNames, n.testStdout)", "other.SelectedTestNames, n.testStdout)", nativeObservedNamesDerived()},
-		{"Go observed output", nativeOracleGoFile, "result.ObservedTestNames, err =", "other.ObservedTestNames, err =", nativeObservedNamesDerived()},
-		{"Go selected clone", nativeOracleGoFile, "return slices.Clone(selected), nil", "return slices.Clone(other), nil", nativeObservedNamesDerived()},
+		{"Go selected input", nativeOracleGoFile, "result.ObservedTestNames = slices.Clone(result.SelectedTestNames)", "result.ObservedTestNames = slices.Clone(other.SelectedTestNames)", nativeObservedNamesDerived()},
+		{"Go observed output", nativeOracleGoFile, "result.ObservedTestNames = slices.Clone(result.SelectedTestNames)", "other.ObservedTestNames = slices.Clone(result.SelectedTestNames)", nativeObservedNamesDerived()},
+		{"Go selected clone", nativeOracleGoFile, "result.ObservedTestNames = slices.Clone(result.SelectedTestNames)", "result.ObservedTestNames = slices.Compact(result.SelectedTestNames)", nativeObservedNamesDerived()},
 		{"Go exact method owner", nativeOracleGoFile, "(n *nativeGoOracleRun) consumeStage", "(n *otherRun) consumeStage", nativeObservedNamesDerived()},
+		{"Go witness count guard", nativeOracleGoFile, "if len(set) > nativeGoSelectedWitnessLimit {", "if len(other) > nativeGoSelectedWitnessLimit {", nativeSelectorNamesDerived()},
+		{"Go witness count refusal", nativeOracleGoFile, `return nil, oracleFailure(KindLimitExceeded, "selected Go witnesses exceed 40 entries", "select at most 40 distinct literal witnesses")`, "return nil, nil", nativeSelectorNamesDerived()},
+		{"package literal equality", nativeOracleGoFile, `valid = name == "go_package:./"+m.PackageCwd`, "valid = name == other", nativePackageWitnessDerived(true)},
+		{"package duplicate refusal", nativeOracleGoFile, "if !valid || local[name] {", "if local[name] {", nativePackageWitnessDerived(true)},
+		{"package cwd admission", "internal/store/native_recipe_case.go", "validateWorkContextRepoPath(m.PackageCwd)", "validateWorkContextRepoPath(other)", nativePackageWitnessDerived(false)},
+		{"package observed input", nativeOracleGoFile, "result.ObservedWitnessIDs = slices.Clone(result.SelectedWitnessIDs)", "result.ObservedWitnessIDs = slices.Clone(other.SelectedWitnessIDs)", nativePackageObservedDerived()},
+		{"package nested skip bound", "internal/store/native_go_events.go", "len(g.nestedSkips) >= 64", "len(other) >= 64", nativeInventorySkipCount(true)},
+		{"package nested skip copy", "internal/store/native_go_package.go", "inventory.NestedSkippedTests = slices.Clone(g.nestedSkips)", "inventory.NestedSkippedTests = slices.Clone(other)", nativeInventorySkipCount(true)},
+		{"package expected skip membership", "internal/store/native_go_events.go", "!slices.Contains(g.expected, test)", "!slices.Contains(other, test)", nativeInventorySkipCount(false)},
+		{"package unique skip terminal", "internal/store/native_go_events.go", "!known || phase != 1 || nested && rootPhase != 1", "!known || nested && rootPhase != 1", nativeInventorySkipCount(false)},
+		{"package input file guard", "internal/store/native_go_package.go", "len(files) > nativeGoInputFileLimit", "len(other) > nativeGoInputFileLimit", nativeRejectUpperBound("internal/store/native_go_package.go", "nativeGoPackageTestInventory", "len(files)", boundItems)},
+		{"package input byte guard", "internal/store/native_go_package.go", "inventory.TestInputBytes > nativeGoInputByteLimit", "other.TestInputBytes > nativeGoInputByteLimit", nativeRejectUpperBound("internal/store/native_go_package.go", "nativeGoPackageTestInventory", "inventory.TestInputBytes", boundBytes)},
+		{"package test count guard", "internal/store/native_go_package.go", "len(names) > 65536", "len(other) > 65536", nativeRejectUpperBound("internal/store/native_go_package.go", "nativeGoPackageTestInventory", "len(names)", boundItems)},
 		{"target selected input", nativeOracleHostRun, "!slices.Equal(n.result.ObservedWitnessIDs, selected)", "!slices.Equal(n.result.ObservedWitnessIDs, other)", nativeObservedWitnessDerived()},
 		{"target observed output", nativeOracleHostRun, "!slices.Equal(n.result.ObservedWitnessIDs, selected)", "!slices.Equal(other.ObservedWitnessIDs, selected)", nativeObservedWitnessDerived()},
 		{"target mismatch refusal", nativeOracleHostRun, `return nativeUnavailable("observed witnesses differ from the exact selected population")`, "return nil", nativeObservedWitnessDerived()},
@@ -997,6 +1235,39 @@ func TestOutputBoundExtractedNativeProofBites(t *testing.T) {
 				if mutated && err == nil {
 					t.Fatal("the source proof accepted a broken enforcing owner")
 				}
+			}
+		})
+	}
+}
+
+func TestNativePackageInventoryNumericBounds(t *testing.T) {
+	t.Parallel()
+	rt := newLedgerRuntime(ledgerRepoRoot(t))
+	doc, err := rt.loadDoc(payloadSchemaFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	properties := doc["$defs"].(map[string]any)["native_oracle_package_inventory"].(map[string]any)["properties"].(map[string]any)
+	for _, tc := range []struct {
+		field, measurement string
+		unit               boundUnit
+	}{
+		{"test_file_count", "len(files)", boundItems},
+		{"test_input_bytes", "inventory.TestInputBytes", boundBytes},
+		{"test_count", "len(names)", boundItems},
+		{"passed_count", "len(names)", boundItems},
+	} {
+		t.Run(tc.field, func(t *testing.T) {
+			bound, err := rt.evaluateSource(nativeRejectUpperBound("internal/store/native_go_package.go", "nativeGoPackageTestInventory", tc.measurement, tc.unit), nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			maximum, err := strconv.ParseInt(fmt.Sprint(properties[tc.field].(map[string]any)["maximum"]), 10, 64)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(bound.constraints) != 1 || bound.constraints[0].value != maximum {
+				t.Fatalf("%s schema maximum %d differs from actual source guard %+v", tc.field, maximum, bound)
 			}
 		})
 	}
@@ -1346,194 +1617,47 @@ func nativePathSuccessfulSyscallWidth(rt *ledgerRuntime) (int64, error) {
 	return pathMax - 1, nil
 }
 
-// nativeRegexMinWidth computes the smallest accepted match width of a parsed
-// regular expression in bytes. Unsupported operators fail closed.
-func nativeRegexMinWidth(re *syntax.Regexp) (int, error) {
-	switch re.Op {
-	case syntax.OpEmptyMatch:
-		return 0, nil
-	case syntax.OpLiteral:
-		for _, r := range re.Rune {
-			if r >= 0x80 {
-				return 0, fmt.Errorf("native bound: non-ASCII regex literal")
-			}
-		}
-		return len(re.Rune), nil
-	case syntax.OpCharClass, syntax.OpAnyChar, syntax.OpAnyCharNotNL:
-		return 1, nil
-	case syntax.OpBeginLine, syntax.OpEndLine, syntax.OpBeginText, syntax.OpEndText, syntax.OpWordBoundary, syntax.OpNoWordBoundary:
-		return 0, nil
-	case syntax.OpCapture:
-		return nativeRegexMinWidth(re.Sub[0])
-	case syntax.OpStar, syntax.OpQuest:
-		return 0, nil
-	case syntax.OpPlus:
-		return nativeRegexMinWidth(re.Sub[0])
-	case syntax.OpRepeat:
-		minimum, err := nativeRegexMinWidth(re.Sub[0])
-		if err != nil {
-			return 0, err
-		}
-		return minimum * re.Min, nil
-	case syntax.OpConcat:
-		total := 0
-		for _, sub := range re.Sub {
-			width, err := nativeRegexMinWidth(sub)
-			if err != nil {
-				return 0, err
-			}
-			total += width
-		}
-		return total, nil
-	default:
-		return 0, fmt.Errorf("native bound: unsupported regex operator %s", re.Op)
-	}
-}
-
-// nativePackageRegex extracts the anchored pattern of a package-level
-// regexp.MustCompile variable.
-func nativePackageRegex(rt *ledgerRuntime, file, symbol string) (*syntax.Regexp, error) {
-	goS, err := nativeGoFile(rt, file)
-	if err != nil {
-		return nil, err
-	}
-	var raw string
-	found := false
-	for _, decl := range goS.file.Decls {
-		gen, ok := decl.(*ast.GenDecl)
-		if !ok || gen.Tok != token.VAR {
-			continue
-		}
-		for _, spec := range gen.Specs {
-			valueSpec, ok := spec.(*ast.ValueSpec)
-			if !ok {
-				continue
-			}
-			for i, name := range valueSpec.Names {
-				if name.Name != symbol || i >= len(valueSpec.Values) {
-					continue
-				}
-				call, ok := valueSpec.Values[i].(*ast.CallExpr)
-				if !ok || !ledgerCalleeMatches(call, "regexp.MustCompile") || len(call.Args) != 1 {
-					continue
-				}
-				if lit, ok := nativeStringLit(call.Args[0]); ok {
-					raw, found = lit, true
-				}
-			}
-		}
-	}
-	if !found {
-		return nil, fmt.Errorf("native bound: %s:%s is not a regexp.MustCompile variable with a literal pattern", file, symbol)
-	}
-	parsed, err := syntax.Parse(raw, syntax.Perl)
-	if err != nil {
-		return nil, fmt.Errorf("native bound: %s:%s does not parse: %w", file, symbol, err)
-	}
-	return parsed, nil
-}
-
-// nativeSelectorNameCount derives the Go family's distinct selected test-name
-// bound from the rendered selector budget: nativeOracleSelector wraps the
-// sorted distinct names as "^(" + join(names, "|") + ")$" and refuses the
-// render once len("-test.run="+selector) exceeds maxWorktreeVerifyCommandPart,
-// while nativeOracleCaseTests pattern-checks every name against the ASCII
-// test-name grammar whose minimum width is 5 bytes.
+// nativeSelectorNameCount derives the full literal-witness cardinality from
+// the explicit set guard. Root-selector length cannot bound nested witnesses.
 func nativeSelectorNameCount(rt *ledgerRuntime) (int64, string, error) {
-	re, err := nativePackageRegex(rt, nativeOracleGoFile, "nativeOracleTestName")
-	if err != nil {
-		return 0, "", err
-	}
-	minWidth, err := nativeRegexMinWidth(re)
-	if err != nil || minWidth < 1 {
-		return 0, "", fmt.Errorf("native bound: the test-name grammar minimum width is not derivable: %w", err)
-	}
 	caseTests, err := nativeFuncDecl(rt, nativeOracleGoFile, "nativeOracleCaseTests")
 	if err != nil {
 		return 0, "", err
 	}
-	if len(nativeCalls(caseTests, "nativeOracleTestName.MatchString")) == 0 {
-		return 0, "", fmt.Errorf("native bound: nativeOracleCaseTests no longer pattern-checks every selected name")
+	if len(nativeCalls(caseTests, "nativeGoWitnessValid")) != 1 {
+		return 0, "", fmt.Errorf("native bound: selected witnesses no longer pass the literal witness validator")
 	}
-	selector, err := nativeFuncDecl(rt, nativeOracleGoFile, "nativeOracleSelector")
+	bound, err := rt.evaluateSource(nativeRejectUpperBound(nativeOracleGoFile, "nativeOracleCaseTests", "len(set)", boundItems), nil)
 	if err != nil {
 		return 0, "", err
 	}
-	budget, found := int64(0), false
-	var rendered ast.Expr
-	ast.Inspect(selector, func(n ast.Node) bool {
-		be, ok := n.(*ast.BinaryExpr)
-		if !ok || be.Op != token.GTR {
-			return true
+	// The guarded set must be the source of every returned witness, not a
+	// separate count whose admission can drift away from the result.
+	makeFound, rangeFound, appendFound, returnFound := false, false, false, false
+	ast.Inspect(caseTests, func(n ast.Node) bool {
+		switch node := n.(type) {
+		case *ast.AssignStmt:
+			if len(node.Lhs) == 1 && len(node.Rhs) == 1 {
+				lhs, rhs := ledgerExprText(node.Lhs[0]), ledgerExprText(node.Rhs[0])
+				makeFound = makeFound || lhs == "names" && rhs == "make([]string, 0, len(set))"
+				appendFound = appendFound || lhs == "names" && rhs == "append(names, name)"
+			}
+		case *ast.RangeStmt:
+			rangeFound = rangeFound || ledgerExprText(node.X) == "set" && ledgerExprText(node.Key) == "name"
+		case *ast.ReturnStmt:
+			returnFound = returnFound || len(node.Results) == 2 && ledgerExprText(node.Results[0]) == "names" && ledgerExprText(node.Results[1]) == "nil"
 		}
-		lengthCall, ok := be.X.(*ast.CallExpr)
-		if !ok || !ledgerCalleeMatches(lengthCall, "len") || len(lengthCall.Args) != 1 {
-			return true
-		}
-		ident, ok := be.Y.(*ast.Ident)
-		if !ok {
-			return true
-		}
-		goS, err := nativeGoFile(rt, nativeWorktreesFile)
-		if err != nil {
-			return true
-		}
-		value, err := rt.evalNumeric(goS, nil, &ast.Ident{Name: ident.Name})
-		if err != nil {
-			return true
-		}
-		budget, rendered, found = value, lengthCall.Args[0], true
 		return true
 	})
-	if !found {
-		return 0, "", fmt.Errorf("native bound: nativeOracleSelector no longer refuses the rendered selector over the command-part budget")
+	if !makeFound || !rangeFound || !appendFound || !returnFound {
+		return 0, "", fmt.Errorf("native bound: nativeOracleCaseTests no longer returns the guarded distinct set")
 	}
-	runLiteral := ""
-	for _, operand := range nativeAddOperands(rendered) {
-		if lit, ok := nativeStringLit(operand); ok {
-			runLiteral = lit
-			break
+	for _, constraint := range bound.constraints {
+		if constraint.unit == boundItems {
+			return constraint.value, "explicit distinct literal-witness set guard: " + bound.describe, nil
 		}
 	}
-	if runLiteral == "" {
-		return 0, "", fmt.Errorf("native bound: nativeOracleSelector no longer prepends the -test.run literal to the rendered selector")
-	}
-	wrapPrefix, joinSeparator, wrapSuffix := "", "", ""
-	ast.Inspect(selector, func(n ast.Node) bool {
-		be, ok := n.(*ast.BinaryExpr)
-		if !ok || be.Op != token.ADD {
-			return true
-		}
-		chain := nativeAddOperands(be)
-		if len(chain) != 3 {
-			return true
-		}
-		prefix, okPrefix := nativeStringLit(chain[0])
-		suffix, okSuffix := nativeStringLit(chain[2])
-		if !okPrefix || !okSuffix || prefix != "^(" || suffix != ")$" {
-			return true
-		}
-		join, ok := chain[1].(*ast.CallExpr)
-		if !ok || !ledgerCalleeMatches(join, "strings.Join") || len(join.Args) != 2 {
-			return true
-		}
-		separator, ok := nativeStringLit(join.Args[1])
-		if !ok || separator == "" {
-			return true
-		}
-		wrapPrefix, joinSeparator, wrapSuffix = prefix, separator, suffix
-		return true
-	})
-	if wrapPrefix == "" || joinSeparator == "" || wrapSuffix == "" {
-		return 0, "", fmt.Errorf("native bound: nativeOracleSelector no longer renders ^(join(names, sep))$")
-	}
-	overhead := int64(len(runLiteral) + len(wrapPrefix) + len(wrapSuffix))
-	namesMax := (budget - overhead + 1) / (int64(minWidth) + int64(len(joinSeparator)))
-	if namesMax < 1 {
-		return 0, "", fmt.Errorf("native bound: the selector budget derivation collapsed (budget %d, overhead %d, min width %d)", budget, overhead, minWidth)
-	}
-	describe := fmt.Sprintf("derived selector-budget cardinality: the %d-byte rendered selector over names of minimum width %d joined by %q admits at most %d distinct names", budget, minWidth, joinSeparator, namesMax)
-	return namesMax, describe, nil
+	return 0, "", fmt.Errorf("native bound: selected witness guard carries no item capacity")
 }
 
 // nativeSelectorNamesDerived closes the Go family selected_test_names rows.
@@ -1548,36 +1672,13 @@ func nativeSelectorNamesDerived() outputBoundSource {
 }
 
 // nativeObservedNamesDerived closes the Go family observed_test_names rows:
-// the execute witness reader returns slices.Clone(selected) over
-// result.SelectedTestNames, so the observed population is exactly the
-// selected one and inherits its selector budget.
+// consumeStage clones result.SelectedTestNames, so the observed population
+// inherits the explicit selected-witness cardinality guard.
 func nativeObservedNamesDerived() outputBoundSource {
 	return outputBoundSource{kind: "derived", derive: func(rt *ledgerRuntime, census *boundCensus) (evaluatedBound, error) {
 		namesMax, describe, err := nativeSelectorNameCount(rt)
 		if err != nil {
 			return evaluatedBound{}, err
-		}
-		witnesses, err := nativeFuncDecl(rt, nativeOracleGoFile, "nativeOracleWitnesses")
-		if err != nil {
-			return evaluatedBound{}, err
-		}
-		cloneFound := false
-		ast.Inspect(witnesses, func(n ast.Node) bool {
-			ret, ok := n.(*ast.ReturnStmt)
-			if !ok || len(ret.Results) == 0 {
-				return true
-			}
-			call, ok := ret.Results[0].(*ast.CallExpr)
-			if !ok || !ledgerCalleeMatches(call, "slices.Clone") || len(call.Args) != 1 {
-				return true
-			}
-			if ident, ok := call.Args[0].(*ast.Ident); ok && ident.Name == "selected" {
-				cloneFound = true
-			}
-			return true
-		})
-		if !cloneFound {
-			return evaluatedBound{}, fmt.Errorf("native bound: nativeOracleWitnesses no longer returns slices.Clone(selected)")
 		}
 		run, err := nativeMethodDecl(rt, nativeOracleGoFile, "nativeGoOracleRun", "consumeStage")
 		if err != nil {
@@ -1589,14 +1690,14 @@ func nativeObservedNamesDerived() outputBoundSource {
 			if !ok || len(assign.Rhs) != 1 {
 				return true
 			}
-			if len(assign.Lhs) != 2 || ledgerExprText(assign.Lhs[0]) != "result.ObservedTestNames" {
+			if len(assign.Lhs) != 1 || ledgerExprText(assign.Lhs[0]) != "result.ObservedTestNames" {
 				return true
 			}
 			call, ok := assign.Rhs[0].(*ast.CallExpr)
-			if !ok || !ledgerCalleeMatches(call, "nativeOracleWitnesses") || len(call.Args) != 4 {
+			if !ok || !ledgerCalleeMatches(call, "slices.Clone") || len(call.Args) != 1 {
 				return true
 			}
-			joined = ledgerExprText(call.Args[2]) == "result.SelectedTestNames"
+			joined = ledgerExprText(call.Args[0]) == "result.SelectedTestNames"
 			return true
 		})
 		if !joined {

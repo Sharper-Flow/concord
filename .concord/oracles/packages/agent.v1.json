@@ -1,0 +1,5 @@
+{
+  "kind": "go_package_v1",
+  "package_cwd": "internal/agent",
+  "cases": {"case:package-agent": ["go_package:./internal/agent"]}
+}

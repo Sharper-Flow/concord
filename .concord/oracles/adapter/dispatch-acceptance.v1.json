@@ -16,14 +16,26 @@
     "adapter/opencode/dispatch-window.test.ts",
     "adapter/opencode/native-task-refusal.test.ts",
     "adapter/opencode/session-scope.test.ts",
-    "adapter/opencode/concord-plugin.test.ts"
+    "adapter/opencode/concord-plugin.test.ts",
+    "adapter/opencode/continuity_hook.test.ts"
   ],
-  "support_files": [],
+  "support_files": [
+    ".concord/scenarios/adapter-continuity.v1.json"
+  ],
   "cases": {
     "case:adapter-dispatch": [
       "adapter-dispatch",
       "adapter-guards",
       "adapter-publication"
+    ],
+    "case:adapter-continuity": [
+      "adapter-continuity-byte-stable-across-turns",
+      "adapter-continuity-failure-is-absence",
+      "adapter-continuity-lane-leak-absent",
+      "adapter-continuity-post-boundary-re-pin",
+      "adapter-continuity-state-change-replaces-block",
+      "adapter-continuity-ttl-gates-spawn",
+      "adapter-continuity-work-start-retarget"
     ]
   },
   "checks": [
@@ -52,6 +64,76 @@
         "python3",
         "acceptance.py",
         "concord-plugin.test.ts"
+      ]
+    },
+    {
+      "witness": "adapter-continuity-byte-stable-across-turns",
+      "argv": [
+        "python3",
+        "acceptance.py",
+        "continuity_hook.test.ts",
+        "--expect",
+        "adapter-continuity-byte-stable-across-turns"
+      ]
+    },
+    {
+      "witness": "adapter-continuity-failure-is-absence",
+      "argv": [
+        "python3",
+        "acceptance.py",
+        "continuity_hook.test.ts",
+        "--expect",
+        "adapter-continuity-failure-is-absence"
+      ]
+    },
+    {
+      "witness": "adapter-continuity-lane-leak-absent",
+      "argv": [
+        "python3",
+        "acceptance.py",
+        "continuity_hook.test.ts",
+        "--expect",
+        "adapter-continuity-lane-leak-absent"
+      ]
+    },
+    {
+      "witness": "adapter-continuity-post-boundary-re-pin",
+      "argv": [
+        "python3",
+        "acceptance.py",
+        "continuity_hook.test.ts",
+        "--expect",
+        "adapter-continuity-post-boundary-re-pin"
+      ]
+    },
+    {
+      "witness": "adapter-continuity-state-change-replaces-block",
+      "argv": [
+        "python3",
+        "acceptance.py",
+        "continuity_hook.test.ts",
+        "--expect",
+        "adapter-continuity-state-change-replaces-block"
+      ]
+    },
+    {
+      "witness": "adapter-continuity-ttl-gates-spawn",
+      "argv": [
+        "python3",
+        "acceptance.py",
+        "continuity_hook.test.ts",
+        "--expect",
+        "adapter-continuity-ttl-gates-spawn"
+      ]
+    },
+    {
+      "witness": "adapter-continuity-work-start-retarget",
+      "argv": [
+        "python3",
+        "acceptance.py",
+        "continuity_hook.test.ts",
+        "--expect",
+        "adapter-continuity-work-start-retarget"
       ]
     }
   ],

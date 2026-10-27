@@ -28,14 +28,37 @@ const projectToolingRefusalBudget = 900
 type ProjectDeclaredTool struct {
 	ID         string
 	Invocation string
+	Coverage   []ProjectToolCoverage
+}
+
+type ProjectToolCoverage struct {
+	Anchor     FootprintCheck `json:"anchor"`
+	RecipePath string         `json:"recipe_path"`
+	CaseID     string         `json:"case_id"`
+}
+
+// ProjectResolvedCoverage binds a declaration to one immutable recipe case.
+// Files contains the exact pinned harness and fixture inputs, not execution proof.
+type ProjectResolvedCoverage struct {
+	Anchor       FootprintCheck
+	RecipeSource WorkContextReadingSource
+	RecipeDigest string
+	CaseID       string
+	Recipe       NativeRecipeCase
+	RecipeRaw    []byte
+	Files        []NativeOracleFile
 }
 
 // ProjectToolingManifest is the resolved tooling declaration the refine-exit
 // proof guard compares the bound verify run against.
 type ProjectToolingManifest struct {
-	Project     string
-	Declared    []ProjectDeclaredTool
-	DomainShape *DomainShapeTooling
+	Project          string
+	Declared         []ProjectDeclaredTool
+	DomainShape      *DomainShapeTooling
+	SourceCommit     string
+	SourceProjectID  string
+	ManifestDigest   string
+	ResolvedCoverage []ProjectResolvedCoverage
 }
 
 // DomainShapeTooling references existing tool IDs; it grants no execution authority.
@@ -49,6 +72,141 @@ type DomainShapeTooling struct {
 }
 
 var projectToolID = regexp.MustCompile(`^[a-z][a-z0-9-]{1,63}$`)
+var projectToolPath = regexp.MustCompile(`^[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*$`)
+var projectToolPositiveInteger = regexp.MustCompile(`^[1-9][0-9]{0,5}$`)
+var projectToolDuration = regexp.MustCompile(`^[1-9][0-9]{0,5}(ms|s|m|h)$`)
+
+func projectToolingPathValid(value string) bool {
+	return len(value) >= 3 && len(value) <= 512 && projectToolPath.MatchString(value) && validateWorkContextRepoPath(value) == nil
+}
+
+func projectToolingAnchorValid(anchor FootprintCheck) bool {
+	if (!coverageAnchorKinds[anchor.Kind] && anchor.Kind != "go_package") || len(anchor.Value) == 0 || len(anchor.Value) > 512 || strings.TrimSpace(anchor.Value) != anchor.Value {
+		return false
+	}
+	return !strings.ContainsFunc(anchor.Value, func(r rune) bool { return r < 32 || r == 127 })
+}
+
+// projectToolingDirectCommand recognizes only commands with no selection-changing
+// flags. Wrappers remain legal refine declarations but convey no coverage.
+func projectToolingDirectCommand(invocation string) (string, []string, bool) {
+	if !projectToolingPlainInvocation(invocation) {
+		return "", nil, false
+	}
+	args := strings.Fields(invocation)
+	if len(args) == 2 && args[0] == "python3" && strings.HasPrefix(args[1], "scripts/") && strings.HasSuffix(args[1], ".py") && projectToolingPathValid(args[1]) {
+		return "python3", args[1:], true
+	}
+	if len(args) < 3 || args[1] != "test" || (args[0] != "go" && args[0] != "bun") {
+		return "", nil, false
+	}
+	var inputs []string
+	seenFlags := map[string]bool{}
+	for i := 2; i < len(args); i++ {
+		arg := args[i]
+		if strings.HasPrefix(arg, "-") {
+			flag, value, hasValue := strings.Cut(arg, "=")
+			if seenFlags[flag] {
+				return "", nil, false
+			}
+			seenFlags[flag] = true
+			if args[0] == "go" {
+				switch flag {
+				case "-race", "-v", "-json":
+					if hasValue {
+						return "", nil, false
+					}
+				case "-count", "-timeout", "-p", "-parallel":
+					if !hasValue {
+						i++
+						if i >= len(args) {
+							return "", nil, false
+						}
+						value = args[i]
+					}
+					if flag == "-count" && value != "1" || flag == "-timeout" && !projectToolDuration.MatchString(value) || (flag == "-p" || flag == "-parallel") && !projectToolPositiveInteger.MatchString(value) {
+						return "", nil, false
+					}
+				default:
+					return "", nil, false
+				}
+			} else {
+				if flag != "--timeout" {
+					return "", nil, false
+				}
+				if !hasValue {
+					i++
+					if i >= len(args) {
+						return "", nil, false
+					}
+					value = args[i]
+				}
+				if !projectToolPositiveInteger.MatchString(value) {
+					return "", nil, false
+				}
+			}
+			continue
+		}
+		if args[0] == "go" {
+			base := strings.TrimSuffix(strings.TrimPrefix(arg, "./"), "/...")
+			if arg != "." && arg != "./..." && (!strings.HasPrefix(arg, "./") || validateWorkContextRepoPath(base) != nil || !projectToolPath.MatchString(base)) {
+				return "", nil, false
+			}
+		} else if !projectToolingPathValid(strings.TrimPrefix(arg, "./")) || !strings.HasSuffix(arg, ".test.ts") {
+			return "", nil, false
+		}
+		if slices.Contains(inputs, arg) {
+			return "", nil, false
+		}
+		inputs = append(inputs, arg)
+	}
+	return args[0], inputs, len(inputs) > 0
+}
+
+// ProjectToolingCoverageLineage checks command-to-recipe input membership only.
+// The approved anchor/case relation and native receipt still need qualification.
+func ProjectToolingCoverageLineage(invocation string, recipe NativeRecipeCase) bool {
+	kind, inputs, ok := projectToolingDirectCommand(invocation)
+	if !ok {
+		return false
+	}
+	if kind == "go" {
+		if recipe.Kind != "go_top_level_v1" && recipe.Kind != "go_package_v1" {
+			return false
+		}
+		for _, input := range inputs {
+			if input == "./..." || input == "." && recipe.Cwd == "." || input == "./"+recipe.Cwd {
+				return true
+			}
+			if strings.HasSuffix(input, "/...") {
+				root := strings.TrimSuffix(strings.TrimPrefix(input, "./"), "/...")
+				if recipe.Cwd == root || strings.HasPrefix(recipe.Cwd, root+"/") {
+					return true
+				}
+			}
+		}
+		return false
+	}
+	if recipe.Kind != "target_runner_v1" || recipe.runner != "check" {
+		return false
+	}
+	for _, input := range inputs {
+		found := false
+		for _, check := range recipe.checks {
+			if kind == "python3" && slices.Equal(check.Argv, []string{"python3", projectToolingRelativePath(recipe.Cwd, input)}) {
+				found = slices.Contains(recipe.HarnessFiles, input)
+			}
+			if kind == "bun" {
+				files, _, ok := projectToolingAdapterCommand(recipe, check)
+				found = found || ok && slices.Contains(files, strings.TrimPrefix(input, "./"))
+			}
+		}
+		if !found {
+			return false
+		}
+	}
+	return true
+}
 
 func validateDomainShapeTooling(shape *DomainShapeTooling, tools []ProjectDeclaredTool) error {
 	if shape == nil {
@@ -86,8 +244,15 @@ func ParseProjectToolingManifest(raw []byte) (*ProjectToolingManifest, error) {
 		Project       string          `json:"project"`
 		DomainShape   json.RawMessage `json:"domain_shape"`
 		Tools         []struct {
-			ID         string `json:"id"`
-			Invocation string `json:"invocation"`
+			ID             string          `json:"id"`
+			Invocation     string          `json:"invocation"`
+			Purpose        string          `json:"purpose"`
+			Tier           string          `json:"tier"`
+			CostHint       string          `json:"cost_hint"`
+			ConfigPath     string          `json:"config_path"`
+			AutomationPath string          `json:"automation_path"`
+			Notes          string          `json:"notes"`
+			Coverage       json.RawMessage `json:"coverage"`
 		} `json:"tools"`
 	}
 	if len(raw) > 65536 {
@@ -96,13 +261,13 @@ func ParseProjectToolingManifest(raw []byte) (*ProjectToolingManifest, error) {
 	if err := rejectDuplicateJSONKeys(raw); err != nil {
 		return nil, err
 	}
-	if err := json.Unmarshal(raw, &document); err != nil {
+	if err := decodeStrictKnowledgeJSON(raw, &document); err != nil {
 		return nil, newFailure(KindInvalidPayload, "project_tooling", "tooling manifest is not valid JSON: "+err.Error(), false, "repair "+projectToolingManifestPath+" on the default ref")
 	}
 	if document.SchemaVersion != "1.0" {
 		return nil, newFailure(KindSchemaUnsupported, "project_tooling", fmt.Sprintf("tooling manifest schema_version must be \"1.0\", got %q", document.SchemaVersion), false, "declare schema_version \"1.0\" in "+projectToolingManifestPath)
 	}
-	if document.Project == "" {
+	if !projectToolID.MatchString(document.Project) {
 		return nil, newFailure(KindInvalidPayload, "project_tooling", "tooling manifest names no project", false, "declare the project identifier in "+projectToolingManifestPath)
 	}
 	if document.Tools == nil || len(document.Tools) > 64 || (len(document.Tools) == 0 && document.DomainShape == nil) {
@@ -110,6 +275,7 @@ func ParseProjectToolingManifest(raw []byte) (*ProjectToolingManifest, error) {
 	}
 	declared := make([]ProjectDeclaredTool, 0, len(document.Tools))
 	seen := map[string]bool{}
+	bindings := map[FootprintCheck]ProjectToolCoverage{}
 	for _, tool := range document.Tools {
 		if !projectToolID.MatchString(tool.ID) || seen[tool.ID] {
 			return nil, newFailure(KindInvalidPayload, "project_tooling", "tooling manifest declares a tool without an id", false, "declare every tool's stable id in "+projectToolingManifestPath)
@@ -118,7 +284,38 @@ func ParseProjectToolingManifest(raw []byte) (*ProjectToolingManifest, error) {
 		if !projectToolingPlainInvocation(tool.Invocation) {
 			return nil, newFailure(KindInvalidPayload, "project_tooling", fmt.Sprintf("tooling manifest tool %q declares no argv", tool.ID), false, "declare a splittable invocation in "+projectToolingManifestPath)
 		}
-		declared = append(declared, ProjectDeclaredTool{ID: tool.ID, Invocation: tool.Invocation})
+		var coverage []ProjectToolCoverage
+		if tool.Coverage != nil {
+			if string(tool.Coverage) == "null" {
+				return nil, fmt.Errorf("coverage must be an array")
+			}
+			if err := decodeStrictKnowledgeJSON(tool.Coverage, &coverage); err != nil {
+				return nil, err
+			}
+			if len(coverage) > 64 {
+				return nil, fmt.Errorf("coverage exceeds 64 entries")
+			}
+			local := map[FootprintCheck]bool{}
+			for _, entry := range coverage {
+				if !projectToolingAnchorValid(entry.Anchor) || !projectToolingPathValid(entry.RecipePath) || len(entry.CaseID) > 128 || !oracleCaseIDPattern.MatchString(entry.CaseID) {
+					return nil, fmt.Errorf("tool %q has invalid coverage anchor, recipe_path or case_id", tool.ID)
+				}
+				if local[entry.Anchor] {
+					return nil, fmt.Errorf("duplicate coverage anchor")
+				}
+				local[entry.Anchor] = true
+				if prior, exists := bindings[entry.Anchor]; exists && prior != entry {
+					return nil, fmt.Errorf("conflicting coverage binding")
+				}
+				bindings[entry.Anchor] = entry
+			}
+			if len(coverage) > 0 {
+				if _, _, ok := projectToolingDirectCommand(tool.Invocation); !ok {
+					return nil, fmt.Errorf("coverage requires a direct allowlisted command")
+				}
+			}
+		}
+		declared = append(declared, ProjectDeclaredTool{ID: tool.ID, Invocation: tool.Invocation, Coverage: coverage})
 	}
 	shape, err := parseDomainShapeTooling(document.DomainShape, declared)
 	if err != nil {
@@ -273,23 +470,105 @@ func resolveWorkProjectTooling(ctx context.Context, s *Store, workID string, run
 	if err != nil {
 		return nil, retitleFailure(err, "project_tooling")
 	}
+	commitRaw, err := runner.Run(ctx, repoRoot, "rev-parse", "--verify", defaultRef+"^{commit}")
+	if err != nil {
+		return nil, wrapFailure(KindGitUnreachable, "project_tooling", "cannot pin the default ref", false, "retry once the Project repository is reachable", err)
+	}
+	commit := strings.TrimSpace(string(commitRaw))
+	if !regexp.MustCompile(`^[0-9a-f]{40}([0-9a-f]{24})?$`).MatchString(commit) {
+		return nil, fmt.Errorf("default ref did not resolve to an immutable commit OID")
+	}
+	return resolveProjectToolingAtCommit(ctx, runner, repoRoot, projectID, commit)
+}
+
+func resolveProjectToolingAtCommit(ctx context.Context, runner GitRunner, repoRoot, projectID, commit string) (*ProjectToolingManifest, error) {
 	// ls-tree separates "absent at the ref" (empty output, exit 0) from an
 	// unreachable repository (nonzero exit), which cat-file -e cannot: a
 	// missing path inside an existing rev exits 128 there.
-	listing, err := runner.Run(ctx, repoRoot, "ls-tree", defaultRef, "--", projectToolingManifestPath)
+	listing, err := runner.Run(ctx, repoRoot, "ls-tree", commit, "--", projectToolingManifestPath)
 	if err != nil {
 		return nil, wrapFailure(KindGitUnreachable, "project_tooling", "cannot inspect "+projectToolingManifestPath+" on the default ref", false, "retry once the Project repository is reachable", err)
 	}
 	if len(strings.TrimSpace(string(listing))) == 0 {
 		return nil, nil
 	}
-	raw, err := runner.Run(ctx, repoRoot, "show", defaultRef+":"+projectToolingManifestPath)
+	file, raw, err := nativeGitFile(ctx, runner, repoRoot, commit, projectToolingManifestPath)
 	if err != nil {
 		return nil, wrapFailure(KindGitUnreachable, "project_tooling", "cannot read "+projectToolingManifestPath+" from the default ref", false, "retry once the Project repository is reachable", err)
 	}
 	manifest, err := ParseProjectToolingManifest(raw)
-	if err == nil && len(manifest.Declared) == 0 {
+	if err != nil {
+		return nil, err
+	}
+	if len(manifest.Declared) == 0 {
 		return nil, newFailure(KindInvalidPayload, "project_tooling", "tooling manifest declares no tools", false, "declare at least one tool in "+projectToolingManifestPath)
 	}
-	return manifest, err
+	manifest.SourceCommit, manifest.SourceProjectID, manifest.ManifestDigest = commit, projectID, file.SHA256
+	seen := map[FootprintCheck]int{}
+	files := map[string]NativeOracleFile{}
+	contents := map[string][]byte{}
+	var scenarioSources []string
+	bytesRead := len(raw)
+	read := func(name string) ([]byte, error) {
+		if data, exists := contents[name]; exists {
+			return data, nil
+		}
+		input, data, err := nativeGitFile(ctx, runner, repoRoot, commit, name)
+		if err != nil {
+			return nil, err
+		}
+		bytesRead += len(data)
+		if bytesRead > nativeGoInputByteLimit || len(files) >= nativeGoInputFileLimit {
+			return nil, fmt.Errorf("resolved tooling inputs exceed 4096 files or 33554432 bytes")
+		}
+		files[name], contents[name] = input, data
+		return data, nil
+	}
+	for _, tool := range manifest.Declared {
+		for _, coverage := range tool.Coverage {
+			if index, exists := seen[coverage.Anchor]; exists {
+				if !ProjectToolingCoverageLineage(tool.Invocation, manifest.ResolvedCoverage[index].Recipe) {
+					return nil, fmt.Errorf("tool %s has no direct lineage to shared coverage recipe %s", tool.ID, coverage.RecipePath)
+				}
+				if err := projectToolingAnchorCase(coverage.Anchor, manifest.ResolvedCoverage[index].Recipe, read, scenarioSources, tool.Invocation); err != nil {
+					return nil, fmt.Errorf("shared coverage anchor does not match tool %s: %w", tool.ID, err)
+				}
+				continue
+			}
+			recipeFile, recipeRaw, err := nativeGitFile(ctx, runner, repoRoot, commit, coverage.RecipePath)
+			if err != nil {
+				return nil, fmt.Errorf("resolve coverage recipe %s: %w", coverage.RecipePath, err)
+			}
+			bytesRead += len(recipeRaw)
+			if bytesRead > 32*1024*1024 {
+				return nil, fmt.Errorf("resolved tooling inputs exceed 33554432 bytes")
+			}
+			recipe, err := ResolveNativeRecipeCase(recipeRaw, coverage.CaseID)
+			if err != nil {
+				return nil, err
+			}
+			if !ProjectToolingCoverageLineage(tool.Invocation, recipe) {
+				return nil, fmt.Errorf("tool %s has no direct lineage to coverage recipe %s", tool.ID, coverage.RecipePath)
+			}
+			resolved := ProjectResolvedCoverage{Anchor: coverage.Anchor, RecipeSource: WorkContextReadingSource{Kind: "repository_file", ProjectID: projectID, Path: coverage.RecipePath, CommitOID: commit}, RecipeDigest: recipeFile.SHA256, CaseID: coverage.CaseID, Recipe: recipe, RecipeRaw: slices.Clone(recipeRaw)}
+			for _, name := range slices.Concat(recipe.HarnessFiles, recipe.FixtureFiles) {
+				if _, err := read(name); err != nil {
+					return nil, fmt.Errorf("resolve coverage input %s: %w", name, err)
+				}
+				resolved.Files = append(resolved.Files, files[name])
+			}
+			if coverage.Anchor.Kind == "scenario" && scenarioSources == nil {
+				scenarioSources, err = projectToolingScenarioSources(ctx, runner, repoRoot, commit)
+				if err != nil {
+					return nil, err
+				}
+			}
+			if err := projectToolingAnchorCase(coverage.Anchor, recipe, read, scenarioSources, tool.Invocation); err != nil {
+				return nil, fmt.Errorf("coverage anchor %s:%s does not match case %s: %w", coverage.Anchor.Kind, coverage.Anchor.Value, coverage.CaseID, err)
+			}
+			seen[coverage.Anchor] = len(manifest.ResolvedCoverage)
+			manifest.ResolvedCoverage = append(manifest.ResolvedCoverage, resolved)
+		}
+	}
+	return manifest, nil
 }

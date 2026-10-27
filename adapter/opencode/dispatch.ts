@@ -309,12 +309,10 @@ export interface NativeOracleStream {
 
 // The store selects these immutable records by the job's preparation refs.
 // This type carries metadata only, never the retained stdout/stderr bytes.
-// The recipe family closes the record: a Go preparation keeps the legacy
-// selected test names and case map and carries no host props, while a
-// target_runner_v1 preparation carries the closed materializer/runner axes
-// and real witness IDs and never fabricates Go test names. The undefined
-// mirrors make a mixed-family shape unrepresentable and keep both witness
-// grammars addressable across the union.
+// The recipe family closes the record. Selected Go carries literal witness
+// paths; complete-package Go carries one package witness without a test
+// catalog; target runners carry their own axes and witness IDs. The undefined
+// mirrors keep mixed-family shapes out of the typed union.
 interface NativeOraclePreparationCommon {
   protocol: "native_oracle_v2"
   phase: "prepare"
@@ -330,7 +328,9 @@ interface NativeOraclePreparationCommon {
   recipe_source: AgentLanePacketWorkContextReadingSource
   manifest_blob: string
   manifest_digest: string
-  files: { path: string; blob_oid: string; sha256: string }[]
+  files: { path: string; blob_oid: string; sha256: string }[] | null
+  harness_input_count?: number
+  harness_input_digest?: string
   toolchain_identity: string
   build_environment_digest: string
   selected_distinct_count: number
@@ -340,7 +340,7 @@ interface NativeOraclePreparationCommon {
   streams_complete: boolean
 }
 
-export interface NativeOracleGoPreparation extends NativeOraclePreparationCommon {
+export interface NativeOracleSelectedGoPreparation extends NativeOraclePreparationCommon {
   selected_test_names: string[]
   case_to_test_map: Record<string, string[]>
   recipe_kind?: undefined
@@ -349,6 +349,22 @@ export interface NativeOracleGoPreparation extends NativeOraclePreparationCommon
   selected_witness_ids?: undefined
   case_to_witness_map?: undefined
 }
+
+export interface NativeOraclePackagePreparation extends NativeOraclePreparationCommon {
+  recipe_kind: "go_package_v1"
+  files: null
+  selected_distinct_count: 1
+  selected_witness_ids: [string]
+  case_to_witness_map: Record<string, [string]>
+  selected_test_names?: undefined
+  case_to_test_map?: undefined
+  target_materializer?: undefined
+  target_runner?: undefined
+  harness_input_count?: undefined
+  harness_input_digest?: undefined
+}
+
+export type NativeOracleGoPreparation = NativeOracleSelectedGoPreparation | NativeOraclePackagePreparation
 
 export interface NativeOracleTargetPreparation extends NativeOraclePreparationCommon {
   recipe_kind: "target_runner_v1"

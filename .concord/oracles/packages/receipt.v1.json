@@ -1,0 +1,5 @@
+{
+  "kind": "go_package_v1",
+  "package_cwd": "internal/receipt",
+  "cases": {"case:package-receipt": ["go_package:./internal/receipt"]}
+}

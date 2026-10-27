@@ -371,6 +371,8 @@ jobs:
           chmod -R a-w "$UV_CACHE_DIR"
       - name: Validate the package-to-Domain map
         run: python3 scripts/check-package-domains.py
+      - name: Test native adapter acceptance and default tooling declarations
+        run: python3 scripts/test-adapter-acceptance.py && python3 scripts/test-default-tooling-coverage.py
       - name: Test legislative reference grammar and defaults
         run: python3 scripts/test-knowledge-authority.py
       - name: Test isolated rapid integration

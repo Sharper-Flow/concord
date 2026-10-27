@@ -1,8 +1,10 @@
 import { test, expect } from "bun:test"
 import { createHash } from "node:crypto"
 import { agentLanes } from "./generated-agent-lanes"
-import { configureCoreBinary, dispatchWorker, resolveWorkerReportFromText, validateAgentLanePacket, validateAgentLaneReport, type AgentLanePacket, type CanonicalLaneReport, type DispatchRunner, type HostProvenance, type NativeOraclePreparation } from "./dispatch"
+import { configureCoreBinary, dispatchWorker, resolveWorkerReportFromText, validateAgentLanePacket, validateAgentLaneReport, type AgentLanePacket, type CanonicalLaneReport, type DispatchRunner, type HostProvenance } from "./dispatch"
 import { verifyPacketOracleReadiness } from "./oracle-readiness"
+import { validateGeneratedPayload } from "./generated-contract-tests"
+import type { NativeOraclePackagePreparation, NativeOracleSelectedGoPreparation } from "./dispatch"
 
 // Readiness consumes native metadata without subprocesses. Report
 // admission composes the raw subject OID from the authorized typed packet.
@@ -81,7 +83,7 @@ const JOB = {
 const reviewLane = agentLanes.find((candidate) => candidate.id === "review")!
 const implementLane = agentLanes.find((candidate) => candidate.id === "implement")!
 
-function preparation(control: typeof ORACLE.controls[number]): NativeOraclePreparation {
+function preparation(control: typeof ORACLE.controls[number]): NativeOracleSelectedGoPreparation {
   const digest = `sha256:${"d".repeat(64)}`
   const names = control.control_id === "control:harness-digest" ? ["TestOwnerOracleGraph"] : ["TestOwnerOracleSecond"]
   return {
@@ -144,6 +146,68 @@ test("the oracle packet fixture passes the closed packet schema", () => {
   const valid = validateAgentLanePacket(oraclePacket(), failures)
   expect(failures).toEqual([])
   expect(valid).toBe(true)
+})
+
+test("package preparation and execution schemas use one witness and bounded inventory proof", () => {
+  const candidate = oraclePacket()
+  const base = preparation(ORACLE.controls[0])
+  const { selected_test_names, case_to_test_map, ...common } = base
+  const witness = "go_package:./internal/example"
+  const ready: NativeOraclePackagePreparation = {
+    ...common, recipe_kind: "go_package_v1", files: null, selected_distinct_count: 1,
+    selected_witness_ids: [witness], case_to_witness_map: { "case:digest-covers-oracle": [witness] },
+    harness_input_count: undefined, harness_input_digest: undefined,
+  }
+  const wire = JSON.parse(JSON.stringify(ready))
+  candidate.inputs.work_context!.oracle_preparations = [wire]
+  const failures: string[] = []
+  expect(validateAgentLanePacket(candidate, failures)).toBe(true)
+  expect(failures).toEqual([])
+  expect(validateGeneratedPayload("native_oracle_preparation", wire)).toBe(true)
+  const digest = `sha256:${"d".repeat(64)}`
+  const result = {
+    ...wire, phase: "execute", qualification: "pass", control_id: "control:harness-digest", stages: [],
+    attempt_id: "attempt-oracle-1", attempt_epoch: 1, worker_packet_digest: digest,
+    worker_job_binding: { job_id: JOB.job_id, revision: JOB.revision, digest: JOB.digest },
+    preparation_run_ref: wire.run_ref, authorization_event_id: "event:dispatch", authorization_seq: 9, start_seq: 8,
+    input_manifest_digest: digest, binary_digest: digest, observed_witness_ids: [witness],
+    package_inventory: {
+      test_file_count: 4096, test_input_bytes: 33554432, test_files_digest: digest,
+      test_count: 65536, test_names_digest: digest, passed_count: 65536,
+      skipped_tests: null, nested_skipped_tests: null, outcomes_digest: digest, converter_digest: digest,
+    },
+  }
+  expect(validateGeneratedPayload("native_oracle_result", result)).toBe(true)
+  for (const change of [
+    { package_inventory: undefined }, { observed_test_names: ["TestOne"] },
+    { package_inventory: { ...result.package_inventory, test_file_count: 4097 } },
+    { package_inventory: { ...result.package_inventory, test_input_bytes: 33554433 } },
+    { package_inventory: { ...result.package_inventory, test_count: 65537 } },
+    { stdout: { ...result.stdout, length: 2097153 } },
+  ]) {
+    expect(validateGeneratedPayload("native_oracle_result", JSON.parse(JSON.stringify({ ...result, ...change })))).toBe(false)
+  }
+  for (const change of [
+    { selected_test_names: ["TestOne"] }, { target_runner: "check" },
+    { selected_witness_ids: [witness, witness] }, { recipe_kind: "future" },
+  ]) {
+    expect(validateGeneratedPayload("native_oracle_preparation", { ...wire, ...change })).toBe(false)
+  }
+})
+
+test("nested Go witnesses stay literal and compact harness metadata does not widen file arrays", () => {
+  const value = preparation(ORACLE.controls[0])
+  const witness = "TestOwnerOracleGraph/scenario:one/exact-id"
+  const nested = { ...value, selected_test_names: [witness], case_to_test_map: { "case:digest-covers-oracle": [witness] } }
+  expect(validateGeneratedPayload("native_oracle_preparation", nested)).toBe(true)
+  for (const invalid of ["TestOne/", "TestOne//child", "TestOne/.*", "TestOne/a b", `TestOne/${"x".repeat(249)}`, `TestOne/${Array(8).fill("x").join("/")}`]) {
+    expect(validateGeneratedPayload("native_oracle_preparation", { ...nested, selected_test_names: [invalid] })).toBe(false)
+  }
+  const compact = { ...nested, files: null, harness_input_count: 4096, harness_input_digest: `sha256:${"d".repeat(64)}` }
+  expect(validateGeneratedPayload("native_oracle_preparation", compact)).toBe(true)
+  expect(validateGeneratedPayload("native_oracle_preparation", { ...compact, harness_input_count: 4097 })).toBe(false)
+  expect(validateGeneratedPayload("native_oracle_preparation", { ...nested, files: Array(33).fill(value.files![0]) })).toBe(false)
+  expect(validateGeneratedPayload("native_oracle_preparation", { ...nested, selected_test_names: Array.from({ length: 41 }, (_, i) => `TestOne/c${i}`) })).toBe(false)
 })
 
 test("native case witness maps admit only bounded case keys and typed witness arrays", () => {

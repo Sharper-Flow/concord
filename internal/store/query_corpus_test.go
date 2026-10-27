@@ -43,38 +43,40 @@ func TestAcceptedQ1ToQ10Corpus(t *testing.T) {
 			continue
 		}
 		run++
-		input := resolveCorpusInput(scenario.Input, results)
-		result, err := executeCorpusQuery(context.Background(), s, scenario.QueryID, input, scenario.FixtureOverride, gitKnowledge.Home)
-		if scenario.ExpectedError.Kind != "" {
-			if err == nil {
-				t.Fatalf("%s: expected %s, got success", scenario.ID, scenario.ExpectedError.Kind)
+		t.Run(scenario.ID, func(t *testing.T) {
+			input := resolveCorpusInput(scenario.Input, results)
+			result, err := executeCorpusQuery(context.Background(), s, scenario.QueryID, input, scenario.FixtureOverride, gitKnowledge.Home)
+			if scenario.ExpectedError.Kind != "" {
+				if err == nil {
+					t.Fatalf("%s: expected %s, got success", scenario.ID, scenario.ExpectedError.Kind)
+				}
+				var failure *store.Failure
+				if !asFailure(err, &failure) {
+					t.Fatalf("%s: error is not typed: %v", scenario.ID, err)
+				}
+				assertCorpusFailureEnvelope(t, scenario.ID, failure)
+				if string(failure.Kind) != scenario.ExpectedError.Kind {
+					t.Fatalf("%s: error kind %q, want %q", scenario.ID, failure.Kind, scenario.ExpectedError.Kind)
+				}
+				if len(scenario.ExpectedError.CandidateIDs) > 0 && !reflect.DeepEqual(failure.CandidateIDs, scenario.ExpectedError.CandidateIDs) {
+					t.Fatalf("%s: candidates %#v, want %#v", scenario.ID, failure.CandidateIDs, scenario.ExpectedError.CandidateIDs)
+				}
+				return
 			}
-			var failure *store.Failure
-			if !asFailure(err, &failure) {
-				t.Fatalf("%s: error is not typed: %v", scenario.ID, err)
+			if err != nil {
+				t.Fatalf("%s: query failed: %v", scenario.ID, err)
 			}
-			assertCorpusFailureEnvelope(t, scenario.ID, failure)
-			if string(failure.Kind) != scenario.ExpectedError.Kind {
-				t.Fatalf("%s: error kind %q, want %q", scenario.ID, failure.Kind, scenario.ExpectedError.Kind)
+			encoded := marshalCorpusResult(t, result)
+			assertCorpusEnvelope(t, scenario.ID, encoded)
+			if authority, _ := encoded["authority"].(string); authority != scenario.Expected.Authority {
+				t.Fatalf("%s: authority %q, want %q", scenario.ID, authority, scenario.Expected.Authority)
 			}
-			if len(scenario.ExpectedError.CandidateIDs) > 0 && !reflect.DeepEqual(failure.CandidateIDs, scenario.ExpectedError.CandidateIDs) {
-				t.Fatalf("%s: candidates %#v, want %#v", scenario.ID, failure.CandidateIDs, scenario.ExpectedError.CandidateIDs)
+			for _, assertion := range scenario.Expected.Assertions {
+				value := resolveCorpusKnowledgeAlias(assertion.Path, assertion.Value, gitKnowledge)
+				assertCorpus(t, scenario.ID, encoded, assertion.Path, assertion.Op, value)
 			}
-			continue
-		}
-		if err != nil {
-			t.Fatalf("%s: query failed: %v", scenario.ID, err)
-		}
-		encoded := marshalCorpusResult(t, result)
-		assertCorpusEnvelope(t, scenario.ID, encoded)
-		if authority, _ := encoded["authority"].(string); authority != scenario.Expected.Authority {
-			t.Fatalf("%s: authority %q, want %q", scenario.ID, authority, scenario.Expected.Authority)
-		}
-		for _, assertion := range scenario.Expected.Assertions {
-			value := resolveCorpusKnowledgeAlias(assertion.Path, assertion.Value, gitKnowledge)
-			assertCorpus(t, scenario.ID, encoded, assertion.Path, assertion.Op, value)
-		}
-		results[scenario.ID] = encoded
+			results[scenario.ID] = encoded
+		})
 	}
 	if run != 27 {
 		t.Fatalf("Q1-Q10 corpus scenarios executed = %d, want 27", run)

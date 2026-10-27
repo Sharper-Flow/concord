@@ -154,11 +154,16 @@ func nativeTargetPairOf(m nativeTargetOracleManifest) (nativeTargetPair, error) 
 // manifest maps the control's cases to: the exact witness set an execute run
 // must observe passing exactly once.
 func nativeTargetCaseWitnesses(m nativeTargetOracleManifest, c OracleControl) ([]string, error) {
-	if len(m.Cases) != len(c.CaseIDs) {
-		return nil, nativeUnavailable("manifest cases differ from the control")
+	if len(c.CaseIDs) == 0 || len(c.CaseIDs) > OracleCasesMax {
+		return nil, nativeUnavailable("control must select a bounded nonempty case subset")
 	}
 	set := map[string]bool{}
+	caseSeen := map[string]bool{}
 	for _, id := range c.CaseIDs {
+		if caseSeen[id] {
+			return nil, nativeUnavailable("duplicate control case identity")
+		}
+		caseSeen[id] = true
 		ids, ok := m.Cases[id]
 		if !ok || len(ids) < 1 || len(ids) > 8 {
 			return nil, nativeUnavailable("each case must select 1 to 8 literal witnesses")
@@ -288,6 +293,9 @@ func validateNativeTargetCheckArgv(argv []string) error {
 // — including the superseded fused driver field.
 func decodeNativeTargetManifest(raw []byte) (nativeTargetOracleManifest, error) {
 	var m nativeTargetOracleManifest
+	if err := rejectDuplicateJSONKeys(raw); err != nil {
+		return m, nativeUnavailable("recipe contains duplicate JSON keys")
+	}
 	d := json.NewDecoder(bytes.NewReader(raw))
 	d.DisallowUnknownFields()
 	if err := d.Decode(&m); err != nil {
@@ -311,6 +319,9 @@ type nativeTargetRecipePeek struct {
 
 func nativeOracleRecipeKind(raw []byte) (string, error) {
 	var peek nativeTargetRecipePeek
+	if err := rejectDuplicateJSONKeys(raw); err != nil {
+		return "", nativeUnavailable("recipe contains duplicate JSON keys")
+	}
 	if err := json.Unmarshal(raw, &peek); err != nil {
 		return "", nativeUnavailable("recipe is not one closed native oracle manifest")
 	}
@@ -338,13 +349,40 @@ func validateNativeTargetManifest(m nativeTargetOracleManifest, c OracleControl)
 			return err
 		}
 	}
-	if len(m.HarnessFiles) < 1 || len(m.HarnessFiles) > 16 || len(m.SupportFiles) > 16 {
+	if len(m.HarnessFiles) < 1 || len(m.HarnessFiles)+len(m.SupportFiles) > nativeGoInputFileLimit {
 		return nativeUnavailable("target manifest file inventories are out of bounds")
 	}
+	if len(m.Cases) < 1 || len(m.Cases) > OracleCasesMax {
+		return nativeUnavailable("recipe cases are out of bounds")
+	}
+	for id := range m.Cases {
+		if !oracleCaseIDPattern.MatchString(id) {
+			return nativeUnavailable("invalid recipe case identity")
+		}
+		witnesses, err := nativeTargetCaseWitnesses(m, OracleControl{CaseIDs: []string{id}})
+		if err != nil {
+			return err
+		}
+		for _, witness := range witnesses {
+			if pair.Runner == nativeTargetRunnerPytest {
+				file, _, err := nativeTargetPytestWitness(m.Root, witness)
+				joined, ok := nativeTargetRootedPath(m.Root, file)
+				if err != nil || !ok || !slices.Contains(m.HarnessFiles, joined) || !strings.HasSuffix(file, ".py") {
+					return nativeUnavailable("pytest witness must name a pinned harness test")
+				}
+			} else if _, err := nativeTargetCheckFor(m, witness); err != nil {
+				return err
+			}
+		}
+	}
 	seen := map[string]bool{}
-	for _, group := range [][]string{m.HarnessFiles, m.SupportFiles} {
+	for i, group := range [][]string{m.HarnessFiles, m.SupportFiles} {
 		for _, name := range group {
-			if seen[name] || !nativeTargetContainedName(m.Root, name) {
+			contained := nativeTargetContainedName(m.Root, name)
+			if i == 1 {
+				contained = contained || nativeFixtureDataPath(name)
+			}
+			if seen[name] || !contained {
 				return nativeUnavailable("manifest paths must be unique contained files under the root")
 			}
 			seen[name] = true
@@ -430,8 +468,12 @@ func validateNativeTargetCheckManifest(m nativeTargetOracleManifest, pair native
 		}
 	}
 	for witness := range checkWitnesses {
-		if !slices.Contains(witnesses, witness) {
-			return nativeUnavailable("declared check witness is not selected by the control: " + witness)
+		mapped := false
+		for _, names := range m.Cases {
+			mapped = mapped || slices.Contains(names, witness)
+		}
+		if !mapped {
+			return nativeUnavailable("declared check witness has no recipe case: " + witness)
 		}
 	}
 	return validateNativeTargetCheckPins(m, pair, usesBash, usesPython)

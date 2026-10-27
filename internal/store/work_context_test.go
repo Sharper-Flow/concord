@@ -1150,6 +1150,7 @@ func TestCompletionAndBoundaryWriteNoContextContent(t *testing.T) {
 	}
 	// Main associates the captured proof and completes through the declared
 	// exits. Context claims cannot stand in for criterion evidence.
+	footprintProofSyntheticScope(t, fixture.store, fixture.workID, repo)
 	if err := journey.action(t, "bind_evidence", map[string]any{"evidence_kind": "verification", "evidence_ref": proof.OperationRef}, fixture.owner); err != nil {
 		t.Fatalf("bind captured proof: %v", err)
 	}

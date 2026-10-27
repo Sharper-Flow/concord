@@ -18,6 +18,7 @@ func storeOracleClone(t *testing.T) (repo, head string) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	requireNativeRecipeGitMetadata(t, source)
 	rawHead, err := (ExecGitRunner{}).Run(context.Background(), source, "rev-parse", "HEAD")
 	if err != nil {
 		t.Fatal(err)

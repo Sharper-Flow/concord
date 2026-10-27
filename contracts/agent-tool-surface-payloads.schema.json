@@ -23899,7 +23899,10 @@
           "maxLength": 71
         },
         "files": {
-          "type": "array",
+          "type": [
+            "array",
+            "null"
+          ],
           "minItems": 1,
           "maxItems": 32,
           "items": {
@@ -23919,8 +23922,11 @@
         },
         "recipe_kind": {
           "type": "string",
-          "const": "target_runner_v1",
-          "description": "The closed discriminator of the target-runner family. Its presence marks a target preparation; a Go preparation never carries it."
+          "enum": [
+            "target_runner_v1",
+            "go_package_v1"
+          ],
+          "description": "The selected-Go family omits the discriminator; complete candidate-package and target-runner preparations name their closed family."
         },
         "target_materializer": {
           "type": "string",
@@ -23947,10 +23953,10 @@
           "items": {
             "type": "string",
             "minLength": 1,
-            "maxLength": 256,
+            "maxLength": 525,
             "pattern": "^[^\\x00-\\x1f\\x7f]*$"
           },
-          "description": "The runner-defined exact witness identities the qualified preparation selected: unique bounded visible strings of at most 256 bytes. The rendered selector still obeys the bounded verify command shape, so the nominal maximum derives from the shared witness allowance, not an independent one. No truncation or omitted witness."
+          "description": "Exact selected witness identities. The target branch retains its 256-byte witness bound and verify-command selector bound. The package branch admits exactly one go_package:./ witness with a contained cwd, never a catalog of test names."
         },
         "case_to_witness_map": {
           "type": "object",
@@ -23966,7 +23972,7 @@
               "items": {
                 "type": "string",
                 "minLength": 1,
-                "maxLength": 256,
+                "maxLength": 525,
                 "pattern": "^[^\\x00-\\x1f\\x7f]*$"
               }
             }
@@ -23979,9 +23985,9 @@
           "maxItems": 40,
           "uniqueItems": true,
           "items": {
-            "$ref": "#/$defs/native_oracle_test_name"
+            "$ref": "#/$defs/native_oracle_go_witness"
           },
-          "description": "The nominal maximum derives from floor((256-13)/6), not an independent test allowance. Every rendered selector still obeys sum(name bytes)+N+13 <= 256. No truncation or omitted witness."
+          "description": "Bounded literal Go witness paths. Only their distinct top-level roots enter the rendered selector, which retains its 256-byte limit. The selected witness array still admits at most 40 entries; no truncation or omitted witness."
         },
         "case_to_test_map": {
           "type": "object",
@@ -23995,7 +24001,7 @@
               "maxItems": 8,
               "uniqueItems": true,
               "items": {
-                "$ref": "#/$defs/native_oracle_test_name"
+                "$ref": "#/$defs/native_oracle_go_witness"
               }
             }
           }
@@ -24019,6 +24025,17 @@
         },
         "streams_complete": {
           "type": "boolean"
+        },
+        "harness_input_count": {
+          "type": "integer",
+          "minimum": 33,
+          "maximum": 4096
+        },
+        "harness_input_digest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "minLength": 71,
+          "maxLength": 71
         }
       },
       "oneOf": [
@@ -24127,7 +24144,10 @@
               "maxLength": 71
             },
             "files": {
-              "type": "array",
+              "type": [
+                "array",
+                "null"
+              ],
               "minItems": 1,
               "maxItems": 32,
               "items": {
@@ -24151,7 +24171,7 @@
               "maxItems": 40,
               "uniqueItems": true,
               "items": {
-                "$ref": "#/$defs/native_oracle_test_name"
+                "$ref": "#/$defs/native_oracle_go_witness"
               }
             },
             "case_to_test_map": {
@@ -24166,7 +24186,7 @@
                   "maxItems": 8,
                   "uniqueItems": true,
                   "items": {
-                    "$ref": "#/$defs/native_oracle_test_name"
+                    "$ref": "#/$defs/native_oracle_go_witness"
                   }
                 }
               }
@@ -24190,6 +24210,17 @@
             },
             "streams_complete": {
               "type": "boolean"
+            },
+            "harness_input_count": {
+              "type": "integer",
+              "minimum": 33,
+              "maximum": 4096
+            },
+            "harness_input_digest": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "minLength": 71,
+              "maxLength": 71
             }
           },
           "if": {
@@ -24373,7 +24404,10 @@
               "maxLength": 71
             },
             "files": {
-              "type": "array",
+              "type": [
+                "array",
+                "null"
+              ],
               "minItems": 1,
               "maxItems": 32,
               "items": {
@@ -24461,6 +24495,17 @@
             },
             "streams_complete": {
               "type": "boolean"
+            },
+            "harness_input_count": {
+              "type": "integer",
+              "minimum": 33,
+              "maximum": 4096
+            },
+            "harness_input_digest": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "minLength": 71,
+              "maxLength": 71
             }
           },
           "if": {
@@ -24566,9 +24611,266 @@
               }
             }
           ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Complete candidate-package compile readiness; no selected-test catalog or target-runner axes.",
+          "required": [
+            "protocol",
+            "phase",
+            "qualification",
+            "run_ref",
+            "work_id",
+            "project_id",
+            "contract_version",
+            "subject_commit",
+            "bundle_digest",
+            "logical_argv_digest",
+            "logical_cwd",
+            "recipe_source",
+            "manifest_blob",
+            "manifest_digest",
+            "files",
+            "toolchain_identity",
+            "build_environment_digest",
+            "recipe_kind",
+            "selected_witness_ids",
+            "case_to_witness_map",
+            "selected_distinct_count",
+            "native_plan_sha256",
+            "stdout",
+            "stderr",
+            "streams_complete"
+          ],
+          "properties": {
+            "protocol": {
+              "type": "string",
+              "const": "native_oracle_v2"
+            },
+            "phase": {
+              "type": "string",
+              "const": "prepare"
+            },
+            "qualification": {
+              "type": "string",
+              "enum": [
+                "ready",
+                "unavailable"
+              ]
+            },
+            "run_ref": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512
+            },
+            "work_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "project_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "contract_version": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9223372036854775807
+            },
+            "subject_commit": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$",
+              "minLength": 40,
+              "maxLength": 64
+            },
+            "bundle_digest": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "minLength": 71,
+              "maxLength": 71
+            },
+            "logical_argv_digest": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "minLength": 71,
+              "maxLength": 71
+            },
+            "logical_cwd": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512
+            },
+            "recipe_source": {
+              "$ref": "#/$defs/work_context_reading_source_repository_file"
+            },
+            "manifest_blob": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$",
+              "minLength": 40,
+              "maxLength": 64
+            },
+            "manifest_digest": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "minLength": 71,
+              "maxLength": 71
+            },
+            "files": {
+              "type": "null"
+            },
+            "toolchain_identity": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512
+            },
+            "build_environment_digest": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "minLength": 71,
+              "maxLength": 71
+            },
+            "recipe_kind": {
+              "type": "string",
+              "const": "go_package_v1"
+            },
+            "selected_witness_ids": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 1,
+              "uniqueItems": true,
+              "items": {
+                "$ref": "#/$defs/native_oracle_package_witness"
+              }
+            },
+            "case_to_witness_map": {
+              "type": "object",
+              "additionalProperties": false,
+              "minProperties": 1,
+              "maxProperties": 64,
+              "patternProperties": {
+                "^case:[A-Za-z0-9][A-Za-z0-9._:-]{0,122}$": {
+                  "type": "array",
+                  "minItems": 1,
+                  "maxItems": 1,
+                  "items": {
+                    "$ref": "#/$defs/native_oracle_package_witness"
+                  }
+                }
+              }
+            },
+            "selected_distinct_count": {
+              "type": "integer",
+              "const": 1
+            },
+            "native_plan_sha256": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "minLength": 71,
+              "maxLength": 71
+            },
+            "stdout": {
+              "$ref": "#/$defs/native_oracle_stream"
+            },
+            "stderr": {
+              "$ref": "#/$defs/native_oracle_stream"
+            },
+            "streams_complete": {
+              "type": "boolean"
+            }
+          },
+          "if": {
+            "properties": {
+              "qualification": {
+                "const": "ready"
+              }
+            },
+            "required": [
+              "qualification"
+            ]
+          },
+          "then": {
+            "properties": {
+              "streams_complete": {
+                "const": true
+              },
+              "stdout": {
+                "properties": {
+                  "stream": {
+                    "const": "stdout"
+                  },
+                  "complete": {
+                    "const": true
+                  },
+                  "ref": {
+                    "minLength": 1
+                  }
+                }
+              },
+              "stderr": {
+                "properties": {
+                  "stream": {
+                    "const": "stderr"
+                  },
+                  "complete": {
+                    "const": true
+                  },
+                  "ref": {
+                    "minLength": 1
+                  }
+                }
+              }
+            }
+          }
         }
       ],
-      "description": "The store-selected qualified preparation for an immutable job's exact readiness reference, never a latest-run guess or worker assertion. Two closed recipe families share the record and one branch must match exactly: a mixed family shape, an unknown recipe kind, or an unsupported materializer/runner pair refuses. The pure-Go family proves exact pinned file bytes, cwd, build-selected nonempty witnesses, and compile-only readiness; non-Go and resolved embed inputs must be declared pinned fixtures or explicit compiler inputs, with no production Go/module replacement. The target_runner_v1 family admits exactly the pairs uv+pytest, none+check, uv+check, and bun+check: the materializer owns dependency manifest and lockfile equality with the pinned recipe, offline lock-verified materialization into per-run scratch, cached-byte integrity, disabled lifecycle and build scripts, and runtime fingerprints (none declares a dependency-free recipe); the runner owns collection, the exact witness population, and the result grammar, and preparation runs only its collection or check-input stage, never the graded workload. No Vitest or pnpm surface exists. Every stage pins its installed toolchain; the Go stages set GOTOOLCHAIN=local, GOPROXY=off, GOFLAGS=-mod=readonly, CGO_ENABLED=0, GOWORK=off, and a private disposable GOCACHE. No aggregate scratch quota or uncommitted-diagnostics promise. Preparation grants no worker attempt, verification authority, or semantic acceptance."
+      "allOf": [
+        {
+          "if": {
+            "required": [
+              "harness_input_count"
+            ]
+          },
+          "then": {
+            "required": [
+              "harness_input_digest"
+            ],
+            "properties": {
+              "files": {
+                "type": "null"
+              }
+            }
+          },
+          "else": {
+            "not": {
+              "required": [
+                "harness_input_digest"
+              ]
+            },
+            "if": {
+              "not": {
+                "required": [
+                  "recipe_kind"
+                ],
+                "properties": {
+                  "recipe_kind": {
+                    "const": "go_package_v1"
+                  }
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "files": {
+                  "type": "array"
+                }
+              }
+            }
+          }
+        }
+      ],
+      "description": "A store-selected qualified preparation for the job's exact readiness reference. Exactly one closed family matches: pinned selected Go witnesses, complete candidate-package Go, or target_runner_v1. Selected Go witnesses are bounded literal nested paths, not regex selectors. go_package_v1 declares one package witness and no replacement files; execution derives candidate inventory counts and digests rather than serializing its test catalog. More than 32 pinned harness inputs use a count and digest with null files; at most 4096 inputs and 32 MiB are admitted. Go preparation compiles only. target_runner_v1 admits uv+pytest, none+check, uv+check and bun+check; preparation runs only collection or check-input, never the graded workload. Materializers retain offline lock verification, cached-byte integrity, disabled scripts and runtime fingerprints. Every stage pins its installed toolchain; Go uses GOTOOLCHAIN=local, GOPROXY=off, GOFLAGS=-mod=readonly, CGO_ENABLED=0, GOWORK=off and a private disposable GOCACHE. Packet, result, selector and retained-stream limits remain unchanged. Preparation grants no worker attempt, verification authority or semantic acceptance."
     },
     "native_oracle_stage": {
       "type": "object",
@@ -24731,7 +25033,10 @@
               "maxLength": 71
             },
             "files": {
-              "type": "array",
+              "type": [
+                "array",
+                "null"
+              ],
               "minItems": 1,
               "maxItems": 32,
               "items": {
@@ -24750,8 +25055,11 @@
             },
             "recipe_kind": {
               "type": "string",
-              "const": "target_runner_v1",
-              "description": "The closed discriminator of the target-runner family. Its presence marks a target preparation; a Go preparation never carries it."
+              "enum": [
+                "target_runner_v1",
+                "go_package_v1"
+              ],
+              "description": "The selected-Go family omits the discriminator; complete candidate-package and target-runner preparations name their closed family."
             },
             "target_materializer": {
               "type": "string",
@@ -24778,10 +25086,10 @@
               "items": {
                 "type": "string",
                 "minLength": 1,
-                "maxLength": 256,
+                "maxLength": 525,
                 "pattern": "^[^\\x00-\\x1f\\x7f]*$"
               },
-              "description": "The runner-defined exact witness identities the qualified preparation selected: unique bounded visible strings of at most 256 bytes. The rendered selector still obeys the bounded verify command shape, so the nominal maximum derives from the shared witness allowance, not an independent one. No truncation or omitted witness."
+              "description": "Exact selected witness identities. The target branch retains its 256-byte witness bound and verify-command selector bound. The package branch admits exactly one go_package:./ witness with a contained cwd, never a catalog of test names."
             },
             "case_to_witness_map": {
               "type": "object",
@@ -24797,7 +25105,7 @@
                   "items": {
                     "type": "string",
                     "minLength": 1,
-                    "maxLength": 256,
+                    "maxLength": 525,
                     "pattern": "^[^\\x00-\\x1f\\x7f]*$"
                   }
                 }
@@ -24810,9 +25118,9 @@
               "maxItems": 40,
               "uniqueItems": true,
               "items": {
-                "$ref": "#/$defs/native_oracle_test_name"
+                "$ref": "#/$defs/native_oracle_go_witness"
               },
-              "description": "The nominal maximum derives from floor((256-13)/6), not an independent test allowance. Every rendered selector still obeys sum(name bytes)+N+13 <= 256. No truncation or omitted witness."
+              "description": "Bounded literal Go witness paths. Only their distinct top-level roots enter the rendered selector, which retains its 256-byte limit. The selected witness array still admits at most 40 entries; no truncation or omitted witness."
             },
             "case_to_test_map": {
               "type": "object",
@@ -24826,7 +25134,7 @@
                   "maxItems": 8,
                   "uniqueItems": true,
                   "items": {
-                    "$ref": "#/$defs/native_oracle_test_name"
+                    "$ref": "#/$defs/native_oracle_go_witness"
                   }
                 }
               }
@@ -24850,6 +25158,17 @@
             },
             "streams_complete": {
               "type": "boolean"
+            },
+            "harness_input_count": {
+              "type": "integer",
+              "minimum": 33,
+              "maximum": 4096
+            },
+            "harness_input_digest": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "minLength": 71,
+              "maxLength": 71
             },
             "control_id": {
               "type": "string",
@@ -24983,7 +25302,10 @@
                   "maxLength": 71
                 },
                 "files": {
-                  "type": "array",
+                  "type": [
+                    "array",
+                    "null"
+                  ],
                   "minItems": 1,
                   "maxItems": 32,
                   "items": {
@@ -25006,7 +25328,7 @@
                   "maxItems": 40,
                   "uniqueItems": true,
                   "items": {
-                    "$ref": "#/$defs/native_oracle_test_name"
+                    "$ref": "#/$defs/native_oracle_go_witness"
                   }
                 },
                 "case_to_test_map": {
@@ -25021,7 +25343,7 @@
                       "maxItems": 8,
                       "uniqueItems": true,
                       "items": {
-                        "$ref": "#/$defs/native_oracle_test_name"
+                        "$ref": "#/$defs/native_oracle_go_witness"
                       }
                     }
                   }
@@ -25045,6 +25367,17 @@
                 },
                 "streams_complete": {
                   "type": "boolean"
+                },
+                "harness_input_count": {
+                  "type": "integer",
+                  "minimum": 33,
+                  "maximum": 4096
+                },
+                "harness_input_digest": {
+                  "type": "string",
+                  "pattern": "^sha256:[0-9a-f]{64}$",
+                  "minLength": 71,
+                  "maxLength": 71
                 },
                 "control_id": {
                   "type": "string",
@@ -25253,7 +25586,10 @@
                   "maxLength": 71
                 },
                 "files": {
-                  "type": "array",
+                  "type": [
+                    "array",
+                    "null"
+                  ],
                   "minItems": 1,
                   "maxItems": 32,
                   "items": {
@@ -25340,6 +25676,17 @@
                 },
                 "streams_complete": {
                   "type": "boolean"
+                },
+                "harness_input_count": {
+                  "type": "integer",
+                  "minimum": 33,
+                  "maximum": 4096
+                },
+                "harness_input_digest": {
+                  "type": "string",
+                  "pattern": "^sha256:[0-9a-f]{64}$",
+                  "minLength": 71,
+                  "maxLength": 71
                 },
                 "control_id": {
                   "type": "string",
@@ -25469,9 +25816,290 @@
                   }
                 }
               ]
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "description": "Complete candidate-package compile readiness; no selected-test catalog or target-runner axes.",
+              "required": [
+                "protocol",
+                "phase",
+                "qualification",
+                "run_ref",
+                "work_id",
+                "project_id",
+                "contract_version",
+                "subject_commit",
+                "bundle_digest",
+                "logical_argv_digest",
+                "logical_cwd",
+                "recipe_source",
+                "manifest_blob",
+                "manifest_digest",
+                "files",
+                "toolchain_identity",
+                "build_environment_digest",
+                "recipe_kind",
+                "selected_witness_ids",
+                "case_to_witness_map",
+                "selected_distinct_count",
+                "native_plan_sha256",
+                "stdout",
+                "stderr",
+                "streams_complete",
+                "control_id",
+                "stages"
+              ],
+              "properties": {
+                "protocol": {
+                  "type": "string",
+                  "const": "native_oracle_v2"
+                },
+                "phase": {
+                  "type": "string",
+                  "const": "prepare"
+                },
+                "qualification": {
+                  "type": "string",
+                  "enum": [
+                    "ready",
+                    "unavailable"
+                  ]
+                },
+                "run_ref": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 512
+                },
+                "work_id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128
+                },
+                "project_id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "contract_version": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 9223372036854775807
+                },
+                "subject_commit": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$",
+                  "minLength": 40,
+                  "maxLength": 64
+                },
+                "bundle_digest": {
+                  "type": "string",
+                  "pattern": "^sha256:[0-9a-f]{64}$",
+                  "minLength": 71,
+                  "maxLength": 71
+                },
+                "logical_argv_digest": {
+                  "type": "string",
+                  "pattern": "^sha256:[0-9a-f]{64}$",
+                  "minLength": 71,
+                  "maxLength": 71
+                },
+                "logical_cwd": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 512
+                },
+                "recipe_source": {
+                  "$ref": "#/$defs/work_context_reading_source_repository_file"
+                },
+                "manifest_blob": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$",
+                  "minLength": 40,
+                  "maxLength": 64
+                },
+                "manifest_digest": {
+                  "type": "string",
+                  "pattern": "^sha256:[0-9a-f]{64}$",
+                  "minLength": 71,
+                  "maxLength": 71
+                },
+                "files": {
+                  "type": "null"
+                },
+                "toolchain_identity": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "build_environment_digest": {
+                  "type": "string",
+                  "pattern": "^sha256:[0-9a-f]{64}$",
+                  "minLength": 71,
+                  "maxLength": 71
+                },
+                "recipe_kind": {
+                  "type": "string",
+                  "const": "go_package_v1"
+                },
+                "selected_witness_ids": {
+                  "type": "array",
+                  "minItems": 1,
+                  "maxItems": 1,
+                  "uniqueItems": true,
+                  "items": {
+                    "$ref": "#/$defs/native_oracle_package_witness"
+                  }
+                },
+                "case_to_witness_map": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "minProperties": 1,
+                  "maxProperties": 64,
+                  "patternProperties": {
+                    "^case:[A-Za-z0-9][A-Za-z0-9._:-]{0,122}$": {
+                      "type": "array",
+                      "minItems": 1,
+                      "maxItems": 1,
+                      "items": {
+                        "$ref": "#/$defs/native_oracle_package_witness"
+                      }
+                    }
+                  }
+                },
+                "selected_distinct_count": {
+                  "type": "integer",
+                  "const": 1
+                },
+                "native_plan_sha256": {
+                  "type": "string",
+                  "pattern": "^sha256:[0-9a-f]{64}$",
+                  "minLength": 71,
+                  "maxLength": 71
+                },
+                "stdout": {
+                  "$ref": "#/$defs/native_oracle_stream"
+                },
+                "stderr": {
+                  "$ref": "#/$defs/native_oracle_stream"
+                },
+                "streams_complete": {
+                  "type": "boolean"
+                },
+                "control_id": {
+                  "type": "string",
+                  "pattern": "^control:[A-Za-z0-9][A-Za-z0-9._:-]{0,126}$",
+                  "minLength": 9,
+                  "maxLength": 128,
+                  "description": "A stable control: identity, unique within this work item."
+                },
+                "input_manifest_digest": {
+                  "$ref": "#/$defs/native_oracle_digest"
+                },
+                "binary_digest": {
+                  "$ref": "#/$defs/native_oracle_digest"
+                },
+                "stages": {
+                  "type": "array",
+                  "minItems": 0,
+                  "maxItems": 16,
+                  "items": {
+                    "$ref": "#/$defs/native_oracle_stage"
+                  }
+                },
+                "detail": {
+                  "type": "string"
+                }
+              },
+              "if": {
+                "properties": {
+                  "qualification": {
+                    "const": "ready"
+                  }
+                },
+                "required": [
+                  "qualification"
+                ]
+              },
+              "then": {
+                "properties": {
+                  "streams_complete": {
+                    "const": true
+                  },
+                  "stdout": {
+                    "properties": {
+                      "stream": {
+                        "const": "stdout"
+                      },
+                      "complete": {
+                        "const": true
+                      },
+                      "ref": {
+                        "minLength": 1
+                      }
+                    }
+                  },
+                  "stderr": {
+                    "properties": {
+                      "stream": {
+                        "const": "stderr"
+                      },
+                      "complete": {
+                        "const": true
+                      },
+                      "ref": {
+                        "minLength": 1
+                      }
+                    }
+                  }
+                }
+              }
             }
           ],
-          "description": "The store-selected qualified preparation for an immutable job's exact readiness reference, never a latest-run guess or worker assertion. Two closed recipe families share the record and one branch must match exactly: a mixed family shape, an unknown recipe kind, or an unsupported materializer/runner pair refuses. The pure-Go family proves exact pinned file bytes, cwd, build-selected nonempty witnesses, and compile-only readiness; non-Go and resolved embed inputs must be declared pinned fixtures or explicit compiler inputs, with no production Go/module replacement. The target_runner_v1 family admits exactly the pairs uv+pytest, none+check, uv+check, and bun+check: the materializer owns dependency manifest and lockfile equality with the pinned recipe, offline lock-verified materialization into per-run scratch, cached-byte integrity, disabled lifecycle and build scripts, and runtime fingerprints (none declares a dependency-free recipe); the runner owns collection, the exact witness population, and the result grammar, and preparation runs only its collection or check-input stage, never the graded workload. No Vitest or pnpm surface exists. Every stage pins its installed toolchain; the Go stages set GOTOOLCHAIN=local, GOPROXY=off, GOFLAGS=-mod=readonly, CGO_ENABLED=0, GOWORK=off, and a private disposable GOCACHE. No aggregate scratch quota or uncommitted-diagnostics promise. Preparation grants no worker attempt, verification authority, or semantic acceptance."
+          "allOf": [
+            {
+              "if": {
+                "required": [
+                  "harness_input_count"
+                ]
+              },
+              "then": {
+                "required": [
+                  "harness_input_digest"
+                ],
+                "properties": {
+                  "files": {
+                    "type": "null"
+                  }
+                }
+              },
+              "else": {
+                "not": {
+                  "required": [
+                    "harness_input_digest"
+                  ]
+                },
+                "if": {
+                  "not": {
+                    "required": [
+                      "recipe_kind"
+                    ],
+                    "properties": {
+                      "recipe_kind": {
+                        "const": "go_package_v1"
+                      }
+                    }
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "files": {
+                      "type": "array"
+                    }
+                  }
+                }
+              }
+            }
+          ],
+          "description": "A store-selected qualified preparation for the job's exact readiness reference. Exactly one closed family matches: pinned selected Go witnesses, complete candidate-package Go, or target_runner_v1. Selected Go witnesses are bounded literal nested paths, not regex selectors. go_package_v1 declares one package witness and no replacement files; execution derives candidate inventory counts and digests rather than serializing its test catalog. More than 32 pinned harness inputs use a count and digest with null files; at most 4096 inputs and 32 MiB are admitted. Go preparation compiles only. target_runner_v1 admits uv+pytest, none+check, uv+check and bun+check; preparation runs only collection or check-input, never the graded workload. Materializers retain offline lock verification, cached-byte integrity, disabled scripts and runtime fingerprints. Every stage pins its installed toolchain; Go uses GOTOOLCHAIN=local, GOPROXY=off, GOFLAGS=-mod=readonly, CGO_ENABLED=0, GOWORK=off and a private disposable GOCACHE. Packet, result, selector and retained-stream limits remain unchanged. Preparation grants no worker attempt, verification authority or semantic acceptance."
         },
         {
           "type": "object",
@@ -25585,7 +26213,10 @@
               "maxLength": 71
             },
             "files": {
-              "type": "array",
+              "type": [
+                "array",
+                "null"
+              ],
               "minItems": 1,
               "maxItems": 32,
               "items": {
@@ -25604,8 +26235,11 @@
             },
             "recipe_kind": {
               "type": "string",
-              "const": "target_runner_v1",
-              "description": "The closed discriminator of the target-runner family. Its presence marks a target preparation; a Go preparation never carries it."
+              "enum": [
+                "target_runner_v1",
+                "go_package_v1"
+              ],
+              "description": "The selected-Go family omits the discriminator; complete candidate-package and target-runner preparations name their closed family."
             },
             "target_materializer": {
               "type": "string",
@@ -25632,10 +26266,10 @@
               "items": {
                 "type": "string",
                 "minLength": 1,
-                "maxLength": 256,
+                "maxLength": 525,
                 "pattern": "^[^\\x00-\\x1f\\x7f]*$"
               },
-              "description": "The runner-defined exact witness identities the qualified preparation selected: unique bounded visible strings of at most 256 bytes. The rendered selector still obeys the bounded verify command shape, so the nominal maximum derives from the shared witness allowance, not an independent one. No truncation or omitted witness."
+              "description": "Exact selected witness identities. The target branch retains its 256-byte witness bound and verify-command selector bound. The package branch admits exactly one go_package:./ witness with a contained cwd, never a catalog of test names."
             },
             "case_to_witness_map": {
               "type": "object",
@@ -25651,7 +26285,7 @@
                   "items": {
                     "type": "string",
                     "minLength": 1,
-                    "maxLength": 256,
+                    "maxLength": 525,
                     "pattern": "^[^\\x00-\\x1f\\x7f]*$"
                   }
                 }
@@ -25664,9 +26298,9 @@
               "maxItems": 40,
               "uniqueItems": true,
               "items": {
-                "$ref": "#/$defs/native_oracle_test_name"
+                "$ref": "#/$defs/native_oracle_go_witness"
               },
-              "description": "The nominal maximum derives from floor((256-13)/6), not an independent test allowance. Every rendered selector still obeys sum(name bytes)+N+13 <= 256. No truncation or omitted witness."
+              "description": "Bounded literal Go witness paths. Only their distinct top-level roots enter the rendered selector, which retains its 256-byte limit. The selected witness array still admits at most 40 entries; no truncation or omitted witness."
             },
             "case_to_test_map": {
               "type": "object",
@@ -25680,7 +26314,7 @@
                   "maxItems": 8,
                   "uniqueItems": true,
                   "items": {
-                    "$ref": "#/$defs/native_oracle_test_name"
+                    "$ref": "#/$defs/native_oracle_go_witness"
                   }
                 }
               }
@@ -25704,6 +26338,17 @@
             },
             "streams_complete": {
               "type": "boolean"
+            },
+            "harness_input_count": {
+              "type": "integer",
+              "minimum": 33,
+              "maximum": 4096
+            },
+            "harness_input_digest": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "minLength": 71,
+              "maxLength": 71
             },
             "control_id": {
               "type": "string",
@@ -25767,7 +26412,7 @@
               "maxItems": 40,
               "uniqueItems": true,
               "items": {
-                "$ref": "#/$defs/native_oracle_test_name"
+                "$ref": "#/$defs/native_oracle_go_witness"
               }
             },
             "observed_witness_ids": {
@@ -25778,9 +26423,12 @@
               "items": {
                 "type": "string",
                 "minLength": 1,
-                "maxLength": 256,
+                "maxLength": 525,
                 "pattern": "^[^\\x00-\\x1f\\x7f]*$"
               }
+            },
+            "package_inventory": {
+              "$ref": "#/$defs/native_oracle_package_inventory"
             }
           },
           "oneOf": [
@@ -25899,7 +26547,10 @@
                   "maxLength": 71
                 },
                 "files": {
-                  "type": "array",
+                  "type": [
+                    "array",
+                    "null"
+                  ],
                   "minItems": 1,
                   "maxItems": 32,
                   "items": {
@@ -25922,7 +26573,7 @@
                   "maxItems": 40,
                   "uniqueItems": true,
                   "items": {
-                    "$ref": "#/$defs/native_oracle_test_name"
+                    "$ref": "#/$defs/native_oracle_go_witness"
                   }
                 },
                 "case_to_test_map": {
@@ -25937,7 +26588,7 @@
                       "maxItems": 8,
                       "uniqueItems": true,
                       "items": {
-                        "$ref": "#/$defs/native_oracle_test_name"
+                        "$ref": "#/$defs/native_oracle_go_witness"
                       }
                     }
                   }
@@ -25961,6 +26612,17 @@
                 },
                 "streams_complete": {
                   "type": "boolean"
+                },
+                "harness_input_count": {
+                  "type": "integer",
+                  "minimum": 33,
+                  "maximum": 4096
+                },
+                "harness_input_digest": {
+                  "type": "string",
+                  "pattern": "^sha256:[0-9a-f]{64}$",
+                  "minLength": 71,
+                  "maxLength": 71
                 },
                 "control_id": {
                   "type": "string",
@@ -26024,19 +26686,7 @@
                   "maxItems": 40,
                   "uniqueItems": true,
                   "items": {
-                    "$ref": "#/$defs/native_oracle_test_name"
-                  }
-                },
-                "observed_witness_ids": {
-                  "type": "array",
-                  "minItems": 0,
-                  "maxItems": 40,
-                  "uniqueItems": true,
-                  "items": {
-                    "type": "string",
-                    "minLength": 1,
-                    "maxLength": 256,
-                    "pattern": "^[^\\x00-\\x1f\\x7f]*$"
+                    "$ref": "#/$defs/native_oracle_go_witness"
                   }
                 }
               },
@@ -26231,7 +26881,10 @@
                   "maxLength": 71
                 },
                 "files": {
-                  "type": "array",
+                  "type": [
+                    "array",
+                    "null"
+                  ],
                   "minItems": 1,
                   "maxItems": 32,
                   "items": {
@@ -26319,6 +26972,17 @@
                 "streams_complete": {
                   "type": "boolean"
                 },
+                "harness_input_count": {
+                  "type": "integer",
+                  "minimum": 33,
+                  "maximum": 4096
+                },
+                "harness_input_digest": {
+                  "type": "string",
+                  "pattern": "^sha256:[0-9a-f]{64}$",
+                  "minLength": 71,
+                  "maxLength": 71
+                },
                 "control_id": {
                   "type": "string",
                   "pattern": "^control:[A-Za-z0-9][A-Za-z0-9._:-]{0,126}$",
@@ -26374,15 +27038,6 @@
                   "type": "integer",
                   "minimum": 1,
                   "maximum": 9223372036854775807
-                },
-                "observed_test_names": {
-                  "type": "array",
-                  "minItems": 0,
-                  "maxItems": 40,
-                  "uniqueItems": true,
-                  "items": {
-                    "$ref": "#/$defs/native_oracle_test_name"
-                  }
                 },
                 "observed_witness_ids": {
                   "type": "array",
@@ -26500,9 +27155,314 @@
                   }
                 }
               ]
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "description": "Complete candidate-package compile readiness; no selected-test catalog or target-runner axes.",
+              "required": [
+                "protocol",
+                "phase",
+                "qualification",
+                "run_ref",
+                "work_id",
+                "project_id",
+                "contract_version",
+                "subject_commit",
+                "bundle_digest",
+                "logical_argv_digest",
+                "logical_cwd",
+                "recipe_source",
+                "manifest_blob",
+                "manifest_digest",
+                "files",
+                "toolchain_identity",
+                "build_environment_digest",
+                "recipe_kind",
+                "selected_witness_ids",
+                "case_to_witness_map",
+                "selected_distinct_count",
+                "native_plan_sha256",
+                "stdout",
+                "stderr",
+                "streams_complete",
+                "control_id",
+                "stages",
+                "attempt_id",
+                "attempt_epoch",
+                "worker_packet_digest",
+                "worker_job_binding",
+                "preparation_run_ref",
+                "authorization_event_id",
+                "authorization_seq",
+                "start_seq"
+              ],
+              "properties": {
+                "protocol": {
+                  "type": "string",
+                  "const": "native_oracle_v2"
+                },
+                "phase": {
+                  "type": "string",
+                  "const": "execute"
+                },
+                "qualification": {
+                  "type": "string",
+                  "enum": [
+                    "pass",
+                    "fail",
+                    "unavailable"
+                  ]
+                },
+                "run_ref": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 512
+                },
+                "work_id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128
+                },
+                "project_id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "contract_version": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 9223372036854775807
+                },
+                "subject_commit": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$",
+                  "minLength": 40,
+                  "maxLength": 64
+                },
+                "bundle_digest": {
+                  "type": "string",
+                  "pattern": "^sha256:[0-9a-f]{64}$",
+                  "minLength": 71,
+                  "maxLength": 71
+                },
+                "logical_argv_digest": {
+                  "type": "string",
+                  "pattern": "^sha256:[0-9a-f]{64}$",
+                  "minLength": 71,
+                  "maxLength": 71
+                },
+                "logical_cwd": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 512
+                },
+                "recipe_source": {
+                  "$ref": "#/$defs/work_context_reading_source_repository_file"
+                },
+                "manifest_blob": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$",
+                  "minLength": 40,
+                  "maxLength": 64
+                },
+                "manifest_digest": {
+                  "type": "string",
+                  "pattern": "^sha256:[0-9a-f]{64}$",
+                  "minLength": 71,
+                  "maxLength": 71
+                },
+                "files": {
+                  "type": "null"
+                },
+                "toolchain_identity": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "build_environment_digest": {
+                  "type": "string",
+                  "pattern": "^sha256:[0-9a-f]{64}$",
+                  "minLength": 71,
+                  "maxLength": 71
+                },
+                "recipe_kind": {
+                  "type": "string",
+                  "const": "go_package_v1"
+                },
+                "selected_witness_ids": {
+                  "type": "array",
+                  "minItems": 1,
+                  "maxItems": 1,
+                  "uniqueItems": true,
+                  "items": {
+                    "$ref": "#/$defs/native_oracle_package_witness"
+                  }
+                },
+                "case_to_witness_map": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "minProperties": 1,
+                  "maxProperties": 64,
+                  "patternProperties": {
+                    "^case:[A-Za-z0-9][A-Za-z0-9._:-]{0,122}$": {
+                      "type": "array",
+                      "minItems": 1,
+                      "maxItems": 1,
+                      "items": {
+                        "$ref": "#/$defs/native_oracle_package_witness"
+                      }
+                    }
+                  }
+                },
+                "selected_distinct_count": {
+                  "type": "integer",
+                  "const": 1
+                },
+                "native_plan_sha256": {
+                  "type": "string",
+                  "pattern": "^sha256:[0-9a-f]{64}$",
+                  "minLength": 71,
+                  "maxLength": 71
+                },
+                "stdout": {
+                  "$ref": "#/$defs/native_oracle_stream"
+                },
+                "stderr": {
+                  "$ref": "#/$defs/native_oracle_stream"
+                },
+                "streams_complete": {
+                  "type": "boolean"
+                },
+                "control_id": {
+                  "type": "string",
+                  "pattern": "^control:[A-Za-z0-9][A-Za-z0-9._:-]{0,126}$",
+                  "minLength": 9,
+                  "maxLength": 128,
+                  "description": "A stable control: identity, unique within this work item."
+                },
+                "input_manifest_digest": {
+                  "$ref": "#/$defs/native_oracle_digest"
+                },
+                "binary_digest": {
+                  "$ref": "#/$defs/native_oracle_digest"
+                },
+                "stages": {
+                  "type": "array",
+                  "minItems": 0,
+                  "maxItems": 16,
+                  "items": {
+                    "$ref": "#/$defs/native_oracle_stage"
+                  }
+                },
+                "detail": {
+                  "type": "string"
+                },
+                "attempt_id": {
+                  "$ref": "#/$defs/id"
+                },
+                "attempt_epoch": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 2147483647
+                },
+                "worker_packet_digest": {
+                  "$ref": "#/$defs/native_oracle_digest"
+                },
+                "worker_job_binding": {
+                  "$ref": "#/$defs/native_oracle_job_binding"
+                },
+                "preparation_run_ref": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 512
+                },
+                "authorization_event_id": {
+                  "$ref": "#/$defs/id"
+                },
+                "authorization_seq": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 9223372036854775807
+                },
+                "start_seq": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 9223372036854775807
+                },
+                "observed_witness_ids": {
+                  "type": "array",
+                  "minItems": 0,
+                  "maxItems": 1,
+                  "items": {
+                    "$ref": "#/$defs/native_oracle_package_witness"
+                  }
+                },
+                "package_inventory": {
+                  "$ref": "#/$defs/native_oracle_package_inventory"
+                }
+              },
+              "if": {
+                "properties": {
+                  "qualification": {
+                    "const": "pass"
+                  }
+                },
+                "required": [
+                  "qualification"
+                ]
+              },
+              "then": {
+                "required": [
+                  "package_inventory"
+                ]
+              }
             }
           ],
-          "description": "The store-selected qualified preparation for an immutable job's exact readiness reference, never a latest-run guess or worker assertion. Two closed recipe families share the record and one branch must match exactly: a mixed family shape, an unknown recipe kind, or an unsupported materializer/runner pair refuses. The pure-Go family proves exact pinned file bytes, cwd, build-selected nonempty witnesses, and compile-only readiness; non-Go and resolved embed inputs must be declared pinned fixtures or explicit compiler inputs, with no production Go/module replacement. The target_runner_v1 family admits exactly the pairs uv+pytest, none+check, uv+check, and bun+check: the materializer owns dependency manifest and lockfile equality with the pinned recipe, offline lock-verified materialization into per-run scratch, cached-byte integrity, disabled lifecycle and build scripts, and runtime fingerprints (none declares a dependency-free recipe); the runner owns collection, the exact witness population, and the result grammar, and preparation runs only its collection or check-input stage, never the graded workload. No Vitest or pnpm surface exists. Every stage pins its installed toolchain; the Go stages set GOTOOLCHAIN=local, GOPROXY=off, GOFLAGS=-mod=readonly, CGO_ENABLED=0, GOWORK=off, and a private disposable GOCACHE. No aggregate scratch quota or uncommitted-diagnostics promise. Preparation grants no worker attempt, verification authority, or semantic acceptance.",
+          "allOf": [
+            {
+              "if": {
+                "required": [
+                  "harness_input_count"
+                ]
+              },
+              "then": {
+                "required": [
+                  "harness_input_digest"
+                ],
+                "properties": {
+                  "files": {
+                    "type": "null"
+                  }
+                }
+              },
+              "else": {
+                "not": {
+                  "required": [
+                    "harness_input_digest"
+                  ]
+                },
+                "if": {
+                  "not": {
+                    "required": [
+                      "recipe_kind"
+                    ],
+                    "properties": {
+                      "recipe_kind": {
+                        "const": "go_package_v1"
+                      }
+                    }
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "files": {
+                      "type": "array"
+                    }
+                  }
+                }
+              }
+            }
+          ],
+          "description": "A store-selected qualified preparation for the job's exact readiness reference. Exactly one closed family matches: pinned selected Go witnesses, complete candidate-package Go, or target_runner_v1. Selected Go witnesses are bounded literal nested paths, not regex selectors. go_package_v1 declares one package witness and no replacement files; execution derives candidate inventory counts and digests rather than serializing its test catalog. More than 32 pinned harness inputs use a count and digest with null files; at most 4096 inputs and 32 MiB are admitted. Go preparation compiles only. target_runner_v1 admits uv+pytest, none+check, uv+check and bun+check; preparation runs only collection or check-input, never the graded workload. Materializers retain offline lock verification, cached-byte integrity, disabled scripts and runtime fingerprints. Every stage pins its installed toolchain; Go uses GOTOOLCHAIN=local, GOPROXY=off, GOFLAGS=-mod=readonly, CGO_ENABLED=0, GOWORK=off and a private disposable GOCACHE. Packet, result, selector and retained-stream limits remain unchanged. Preparation grants no worker attempt, verification authority or semantic acceptance.",
           "if": {
             "properties": {
               "qualification": {
@@ -26611,7 +27571,7 @@
           }
         }
       ],
-      "description": "Native producer observations only. The canonical plan/digest are immutable in the existing lease; command remains bare argv. Prepare grants readiness only. Execute pass requires actual run/pass witnesses in the record's own family grammar (observed test names for Go, observed witness IDs for target_runner_v1), complete streams, pinned inputs/cwd/environment, and the persisted live dispatch's three-way clean subject equality. Qualified green result metadata is byte-identical to lease result_json. Raw BLOBs never enter result metadata or idempotency records. Replay starts no process. No semantic acceptance or independent evidence role is implied."
+      "description": "Native producer observations only. The canonical plan/digest are immutable in the existing lease; command remains bare argv. Prepare grants readiness only. Execute pass requires actual run/pass witnesses in the record's own family grammar (literal Go paths for selected Go, package witness plus candidate inventory proof for go_package_v1, or target witness IDs), complete streams, pinned inputs/cwd/environment, and the persisted live dispatch's three-way clean subject equality. Qualified green result metadata is byte-identical to lease result_json. Raw BLOBs never enter result metadata or idempotency records. Replay starts no process. No semantic acceptance or independent evidence role is implied."
     },
     "native_oracle_output_page": {
       "type": "object",
@@ -29089,6 +30049,140 @@
         }
       }
     },
+    "workflow_review_unidentified_finding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "severity",
+        "confidence",
+        "detail"
+      ],
+      "properties": {
+        "severity": {
+          "enum": [
+            "P0",
+            "P1",
+            "P2",
+            "P3"
+          ],
+          "type": "string"
+        },
+        "confidence": {
+          "enum": [
+            "low",
+            "medium",
+            "high"
+          ],
+          "type": "string"
+        },
+        "detail": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512,
+          "x-maxBytes": 512
+        },
+        "oracle": {
+          "$ref": "#/$defs/lane_report_oracle_finding"
+        }
+      },
+      "description": "A retained current finding without recorded identity, status, scope, blocking or reference fields. Only its observed content is exposed; it grants no worker-report, closure or acceptance authority."
+    },
+    "native_oracle_go_witness": {
+      "type": "string",
+      "minLength": 5,
+      "maxLength": 256,
+      "pattern": "^Test[A-Z][A-Za-z0-9_]{0,123}(?:/[A-Za-z0-9_.:-]+){0,7}$",
+      "description": "A literal Go witness: a top-level Test name of at most 128 bytes and at most seven literal subtest segments. The full ASCII path is at most 256 bytes; it is not a regex. The rendered root selector retains its 256-byte limit."
+    },
+    "native_oracle_package_witness": {
+      "type": "string",
+      "minLength": 14,
+      "maxLength": 525,
+      "x-maxBytes": 525,
+      "pattern": "^go_package:\\./(?:\\.|[^/\\x00-\\x1f\\x7f]+(?:/[^/\\x00-\\x1f\\x7f]+)*)$",
+      "not": {
+        "pattern": "^go_package:\\./(?:/|\\./|tmp(?:/|$))|(?:^go_package:\\./|/)\\.\\.(?:/|$)|^go_package:\\./.+/\\.(?:/|$)|//|/$"
+      },
+      "description": "The exact package witness go_package:./ followed by the contained package cwd (at most 512 bytes); no test-name catalog."
+    },
+    "native_oracle_package_inventory": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "test_file_count",
+        "test_input_bytes",
+        "test_files_digest",
+        "test_count",
+        "test_names_digest",
+        "passed_count",
+        "skipped_tests",
+        "nested_skipped_tests",
+        "outcomes_digest",
+        "converter_digest"
+      ],
+      "properties": {
+        "test_file_count": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4096
+        },
+        "test_input_bytes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 33554432
+        },
+        "test_files_digest": {
+          "$ref": "#/$defs/native_oracle_digest"
+        },
+        "test_count": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65536
+        },
+        "test_names_digest": {
+          "$ref": "#/$defs/native_oracle_digest"
+        },
+        "passed_count": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 65536
+        },
+        "skipped_tests": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "maxItems": 64,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 5,
+            "maxLength": 128,
+            "pattern": "^Test[A-Z][A-Za-z0-9_]*$"
+          }
+        },
+        "nested_skipped_tests": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "maxItems": 64,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          }
+        },
+        "outcomes_digest": {
+          "$ref": "#/$defs/native_oracle_digest"
+        },
+        "converter_digest": {
+          "$ref": "#/$defs/native_oracle_digest"
+        }
+      },
+      "description": "Candidate package inventory and terminal outcome counts/digests from the native producer. Named skips are unproved and cannot replace required independent witnesses. Count equality, recipe identity and digest provenance remain producer and admission obligations."
+    },
     "retained_workflow_correction_context": {
       "type": "object",
       "additionalProperties": false,
@@ -29524,7 +30618,10 @@
           "maxLength": 71
         },
         "files": {
-          "type": "array",
+          "type": [
+            "array",
+            "null"
+          ],
           "minItems": 1,
           "maxItems": 32,
           "items": {
@@ -29543,8 +30640,11 @@
         },
         "recipe_kind": {
           "type": "string",
-          "const": "target_runner_v1",
-          "description": "The closed discriminator of the target-runner family. Its presence marks a target preparation; a Go preparation never carries it."
+          "enum": [
+            "target_runner_v1",
+            "go_package_v1"
+          ],
+          "description": "The selected-Go family omits the discriminator; complete candidate-package and target-runner preparations name their closed family."
         },
         "target_materializer": {
           "type": "string",
@@ -29571,10 +30671,10 @@
           "items": {
             "type": "string",
             "minLength": 1,
-            "maxLength": 256,
+            "maxLength": 525,
             "pattern": "^[^\\x00-\\x1f\\x7f]*$"
           },
-          "description": "The runner-defined exact witness identities the qualified preparation selected: unique bounded visible strings of at most 256 bytes. The rendered selector still obeys the bounded verify command shape, so the nominal maximum derives from the shared witness allowance, not an independent one. No truncation or omitted witness."
+          "description": "Exact selected witness identities. The target branch retains its 256-byte witness bound and verify-command selector bound. The package branch admits exactly one go_package:./ witness with a contained cwd, never a catalog of test names."
         },
         "case_to_witness_map": {
           "type": "object",
@@ -29590,7 +30690,7 @@
               "items": {
                 "type": "string",
                 "minLength": 1,
-                "maxLength": 256,
+                "maxLength": 525,
                 "pattern": "^[^\\x00-\\x1f\\x7f]*$"
               }
             }
@@ -29603,9 +30703,9 @@
           "maxItems": 40,
           "uniqueItems": true,
           "items": {
-            "$ref": "#/$defs/native_oracle_test_name"
+            "$ref": "#/$defs/native_oracle_go_witness"
           },
-          "description": "The nominal maximum derives from floor((256-13)/6), not an independent test allowance. Every rendered selector still obeys sum(name bytes)+N+13 <= 256. No truncation or omitted witness."
+          "description": "Bounded literal Go witness paths. Only their distinct top-level roots enter the rendered selector, which retains its 256-byte limit. The selected witness array still admits at most 40 entries; no truncation or omitted witness."
         },
         "case_to_test_map": {
           "type": "object",
@@ -29619,7 +30719,7 @@
               "maxItems": 8,
               "uniqueItems": true,
               "items": {
-                "$ref": "#/$defs/native_oracle_test_name"
+                "$ref": "#/$defs/native_oracle_go_witness"
               }
             }
           }
@@ -29643,6 +30743,17 @@
         },
         "streams_complete": {
           "type": "boolean"
+        },
+        "harness_input_count": {
+          "type": "integer",
+          "minimum": 33,
+          "maximum": 4096
+        },
+        "harness_input_digest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "minLength": 71,
+          "maxLength": 71
         }
       },
       "oneOf": [
@@ -29750,7 +30861,10 @@
               "maxLength": 71
             },
             "files": {
-              "type": "array",
+              "type": [
+                "array",
+                "null"
+              ],
               "minItems": 1,
               "maxItems": 32,
               "items": {
@@ -29773,7 +30887,7 @@
               "maxItems": 40,
               "uniqueItems": true,
               "items": {
-                "$ref": "#/$defs/native_oracle_test_name"
+                "$ref": "#/$defs/native_oracle_go_witness"
               }
             },
             "case_to_test_map": {
@@ -29788,7 +30902,7 @@
                   "maxItems": 8,
                   "uniqueItems": true,
                   "items": {
-                    "$ref": "#/$defs/native_oracle_test_name"
+                    "$ref": "#/$defs/native_oracle_go_witness"
                   }
                 }
               }
@@ -29812,6 +30926,17 @@
             },
             "streams_complete": {
               "type": "boolean"
+            },
+            "harness_input_count": {
+              "type": "integer",
+              "minimum": 33,
+              "maximum": 4096
+            },
+            "harness_input_digest": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "minLength": 71,
+              "maxLength": 71
             }
           },
           "if": {
@@ -29994,7 +31119,10 @@
               "maxLength": 71
             },
             "files": {
-              "type": "array",
+              "type": [
+                "array",
+                "null"
+              ],
               "minItems": 1,
               "maxItems": 32,
               "items": {
@@ -30081,6 +31209,17 @@
             },
             "streams_complete": {
               "type": "boolean"
+            },
+            "harness_input_count": {
+              "type": "integer",
+              "minimum": 33,
+              "maximum": 4096
+            },
+            "harness_input_digest": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "minLength": 71,
+              "maxLength": 71
             }
           },
           "if": {
@@ -30186,9 +31325,264 @@
               }
             }
           ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Complete candidate-package compile readiness; no selected-test catalog or target-runner axes.",
+          "required": [
+            "protocol",
+            "phase",
+            "qualification",
+            "run_ref",
+            "work_id",
+            "project_id",
+            "contract_version",
+            "subject_commit",
+            "bundle_digest",
+            "logical_argv_digest",
+            "logical_cwd",
+            "recipe_source",
+            "manifest_blob",
+            "manifest_digest",
+            "files",
+            "toolchain_identity",
+            "build_environment_digest",
+            "recipe_kind",
+            "selected_witness_ids",
+            "case_to_witness_map",
+            "selected_distinct_count",
+            "native_plan_sha256",
+            "stdout",
+            "stderr",
+            "streams_complete"
+          ],
+          "properties": {
+            "protocol": {
+              "type": "string",
+              "const": "native_oracle_v2"
+            },
+            "phase": {
+              "type": "string",
+              "const": "prepare"
+            },
+            "qualification": {
+              "type": "string",
+              "enum": [
+                "ready",
+                "unavailable"
+              ]
+            },
+            "run_ref": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512
+            },
+            "work_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "project_id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "contract_version": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9223372036854775807
+            },
+            "subject_commit": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$",
+              "minLength": 40,
+              "maxLength": 64
+            },
+            "bundle_digest": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "minLength": 71,
+              "maxLength": 71
+            },
+            "logical_argv_digest": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "minLength": 71,
+              "maxLength": 71
+            },
+            "logical_cwd": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512
+            },
+            "recipe_source": {
+              "$ref": "#/$defs/work_context_reading_source_repository_file"
+            },
+            "manifest_blob": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$",
+              "minLength": 40,
+              "maxLength": 64
+            },
+            "manifest_digest": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "minLength": 71,
+              "maxLength": 71
+            },
+            "files": {
+              "type": "null"
+            },
+            "toolchain_identity": {
+              "type": "string",
+              "minLength": 1
+            },
+            "build_environment_digest": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "minLength": 71,
+              "maxLength": 71
+            },
+            "recipe_kind": {
+              "type": "string",
+              "const": "go_package_v1"
+            },
+            "selected_witness_ids": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 1,
+              "uniqueItems": true,
+              "items": {
+                "$ref": "#/$defs/native_oracle_package_witness"
+              }
+            },
+            "case_to_witness_map": {
+              "type": "object",
+              "additionalProperties": false,
+              "minProperties": 1,
+              "maxProperties": 64,
+              "patternProperties": {
+                "^case:[A-Za-z0-9][A-Za-z0-9._:-]{0,122}$": {
+                  "type": "array",
+                  "minItems": 1,
+                  "maxItems": 1,
+                  "items": {
+                    "$ref": "#/$defs/native_oracle_package_witness"
+                  }
+                }
+              }
+            },
+            "selected_distinct_count": {
+              "type": "integer",
+              "const": 1
+            },
+            "native_plan_sha256": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "minLength": 71,
+              "maxLength": 71
+            },
+            "stdout": {
+              "$ref": "#/$defs/native_oracle_stream"
+            },
+            "stderr": {
+              "$ref": "#/$defs/native_oracle_stream"
+            },
+            "streams_complete": {
+              "type": "boolean"
+            }
+          },
+          "if": {
+            "properties": {
+              "qualification": {
+                "const": "ready"
+              }
+            },
+            "required": [
+              "qualification"
+            ]
+          },
+          "then": {
+            "properties": {
+              "streams_complete": {
+                "const": true
+              },
+              "stdout": {
+                "properties": {
+                  "stream": {
+                    "const": "stdout"
+                  },
+                  "complete": {
+                    "const": true
+                  },
+                  "ref": {
+                    "minLength": 1
+                  }
+                }
+              },
+              "stderr": {
+                "properties": {
+                  "stream": {
+                    "const": "stderr"
+                  },
+                  "complete": {
+                    "const": true
+                  },
+                  "ref": {
+                    "minLength": 1
+                  }
+                }
+              }
+            }
+          }
         }
       ],
-      "description": "The store-selected qualified preparation for an immutable job's exact readiness reference, never a latest-run guess or worker assertion. Two closed recipe families share the record and one branch must match exactly: a mixed family shape, an unknown recipe kind, or an unsupported materializer/runner pair refuses. The pure-Go family proves exact pinned file bytes, cwd, build-selected nonempty witnesses, and compile-only readiness; non-Go and resolved embed inputs must be declared pinned fixtures or explicit compiler inputs, with no production Go/module replacement. The target_runner_v1 family admits exactly the pairs uv+pytest, none+check, uv+check, and bun+check: the materializer owns dependency manifest and lockfile equality with the pinned recipe, offline lock-verified materialization into per-run scratch, cached-byte integrity, disabled lifecycle and build scripts, and runtime fingerprints (none declares a dependency-free recipe); the runner owns collection, the exact witness population, and the result grammar, and preparation runs only its collection or check-input stage, never the graded workload. No Vitest or pnpm surface exists. Every stage pins its installed toolchain; the Go stages set GOTOOLCHAIN=local, GOPROXY=off, GOFLAGS=-mod=readonly, CGO_ENABLED=0, GOWORK=off, and a private disposable GOCACHE. No aggregate scratch quota or uncommitted-diagnostics promise. Preparation grants no worker attempt, verification authority, or semantic acceptance."
+      "allOf": [
+        {
+          "if": {
+            "required": [
+              "harness_input_count"
+            ]
+          },
+          "then": {
+            "required": [
+              "harness_input_digest"
+            ],
+            "properties": {
+              "files": {
+                "type": "null"
+              }
+            }
+          },
+          "else": {
+            "not": {
+              "required": [
+                "harness_input_digest"
+              ]
+            },
+            "if": {
+              "not": {
+                "required": [
+                  "recipe_kind"
+                ],
+                "properties": {
+                  "recipe_kind": {
+                    "const": "go_package_v1"
+                  }
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "files": {
+                  "type": "array"
+                }
+              }
+            }
+          }
+        }
+      ],
+      "description": "A store-selected qualified preparation for the job's exact readiness reference. Exactly one closed family matches: pinned selected Go witnesses, complete candidate-package Go, or target_runner_v1. Selected Go witnesses are bounded literal nested paths, not regex selectors. go_package_v1 declares one package witness and no replacement files; execution derives candidate inventory counts and digests rather than serializing its test catalog. More than 32 pinned harness inputs use a count and digest with null files; at most 4096 inputs and 32 MiB are admitted. Go preparation compiles only. target_runner_v1 admits uv+pytest, none+check, uv+check and bun+check; preparation runs only collection or check-input, never the graded workload. Materializers retain offline lock verification, cached-byte integrity, disabled scripts and runtime fingerprints. Every stage pins its installed toolchain; Go uses GOTOOLCHAIN=local, GOPROXY=off, GOFLAGS=-mod=readonly, CGO_ENABLED=0, GOWORK=off and a private disposable GOCACHE. Packet, result, selector and retained-stream limits remain unchanged. Preparation grants no worker attempt, verification authority or semantic acceptance."
     },
     "retained_work_context_research_finding": {
       "type": "object",
@@ -30615,44 +32009,6 @@
           "description": "The owner-family finding this newly reproduced alternate entry path is a variant of. A variant is a new identity, not the same open finding."
         }
       }
-    },
-    "workflow_review_unidentified_finding": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "severity",
-        "confidence",
-        "detail"
-      ],
-      "properties": {
-        "severity": {
-          "enum": [
-            "P0",
-            "P1",
-            "P2",
-            "P3"
-          ],
-          "type": "string"
-        },
-        "confidence": {
-          "enum": [
-            "low",
-            "medium",
-            "high"
-          ],
-          "type": "string"
-        },
-        "detail": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 512,
-          "x-maxBytes": 512
-        },
-        "oracle": {
-          "$ref": "#/$defs/lane_report_oracle_finding"
-        }
-      },
-      "description": "A retained current finding without recorded identity, status, scope, blocking or reference fields. Only its observed content is exposed; it grants no worker-report, closure or acceptance authority."
     }
   }
 }

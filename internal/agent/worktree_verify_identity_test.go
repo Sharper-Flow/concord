@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sharper-flow/concord/internal/pm1fixture"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -35,7 +36,13 @@ func TestWorktreeVerifyNewRequestRunsAgain(t *testing.T) {
 			}); err != nil {
 				t.Fatal(err)
 			}
-			seedCurrentWorkflowDomainOnce(t, s)
+			home, err := pm1fixture.SeedCommittedProductDomain(context.Background(), s, "product-1", "project-1", t.TempDir())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := s.EnsureKnowledgeIndexFresh(context.Background(), home); err != nil {
+				t.Fatal(err)
+			}
 			approvalStep := ""
 			for _, step := range pinned.Definition.StepGraph.Steps {
 				if slices.Contains(step.Actions, "approve_contract") {
@@ -62,9 +69,23 @@ func TestWorktreeVerifyNewRequestRunsAgain(t *testing.T) {
 			// start of its own and the verdict route reads the execution
 			// production it needs.
 			verifyIdentityAction(t, s, "start_execution", map[string]any{}, grantActor, now)
-			reviewService, _, reviewGrant := newAuthorizedService(t, s, "client-o-review", grant.PrincipalRef, []Capability{"work_transition", "worker_dispatch"}, []string{"product-1"}, []string{"project-1"}, store.ProjectResolution{ProjectID: "project-1"})
+			reviewService, _, reviewGrant := newAuthorizedService(t, s, "client-o-review", grant.PrincipalRef, []Capability{"work_transition", "worker_dispatch", "product_read"}, []string{"product-1"}, []string{"project-1"}, store.ProjectResolution{ProjectID: "project-1"})
 			reviewService.Now = func() time.Time { return now }
 			fixture := oAgentFixture(t, s, reviewService, mutationEnvelope(reviewGrant, mustScopeVersion(t, s)), "work-2")
+			oAgentControlRepository(t, fixture)
+			recordDeliveryJourneyFootprint(t, fixture)
+			recordReadyRetryJobForWork(t, s, reviewService, fixture.env, "work-2", "job:verify-identity-architecture")
+			oAgentReview(t, fixture, "continue", false)
+			oAgentNativeJob(t, fixture)
+			lane, job, epoch := fixture.startWorker(t, "implement", "attempt:verify-identity-value")
+			if err := os.WriteFile(filepath.Join(fixture.path, "o_fixture/value.go"), []byte("package fixture\nfunc Value() int { return 3 + 4 }\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			gitRun(t, fixture.path, "add", "o_fixture/value.go")
+			gitRun(t, fixture.path, "commit", "-qm", "checked verify identity value")
+			fixture.finishWorker(t, lane, "attempt:verify-identity-value", job, nil)
+			spineOK(t, fixture.action(t, "accept_worker_result", map[string]any{"attempt_id": "attempt:verify-identity-value", "attempt_epoch": epoch}))
+			proveDeliveryJourneyFootprint(t, fixture)
 			oAgentNativeJob(t, fixture)
 			oAgentReview(t, fixture, "ready_for_final_proof", true)
 			integration := oAgentVerify(t, fixture, []string{"go", "test", "./..."})
@@ -175,6 +196,10 @@ func verifyIdentityAction(t *testing.T, s *store.Store, action string, fields ma
 		ContractDigest: ManifestDigest, Now: now,
 	}
 	ctx := context.Background()
+	request.ProjectTooling, request.ResolvedFootprint, err = resolveWorkflowActionSources(ctx, s, store.BuiltinWorkflowRegistry(), request.WorkID, action, raw)
+	if err != nil {
+		t.Fatalf("verify-identity journey sources for %s: %v", action, err)
+	}
 	if store.WorkflowActionRequiresSubjectFreshness(action) {
 		preparation, prepErr := store.PrepareWorkflowAcceptanceFreshness(ctx, s, store.PrepareWorkerDispatchRequest{WorkID: request.WorkID})
 		if prepErr != nil {

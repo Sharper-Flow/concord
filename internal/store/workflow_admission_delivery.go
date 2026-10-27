@@ -47,6 +47,10 @@ type workflowVerificationRun struct {
 	Scope        string
 	Disqualifier string
 	Failure      error
+	// Producer is the run's joined producer receipt when the projection read
+	// one. The footprint proof gate qualifies its native result against the
+	// anchor bindings; a nil Producer proves nothing.
+	Producer *WorktreeVerifyResult
 }
 
 // acceptingAttempt projects the same candidate the acceptance fold will install.
@@ -80,14 +84,14 @@ func loadWorkflowDeliveryAdmission(ctx context.Context, q queryer, workID string
 	}
 	var runs []workflowVerificationRun
 	for _, ref := range refs {
-		command, _, why, err := workflowCandidateVerificationRun(ctx, q, workID, ref, acceptingAttempt)
+		producer, command, _, why, err := workflowCandidateVerificationRun(ctx, q, workID, ref, acceptingAttempt)
 		if err != nil {
 			var failure *Failure
 			if !failureAs(err, &failure) || failure.Kind == KindUnavailable {
 				return state, nil, nil, err
 			}
 		}
-		runs = append(runs, workflowVerificationRun{Command: command, Disqualifier: why, Failure: err})
+		runs = append(runs, workflowVerificationRun{Command: command, Disqualifier: why, Failure: err, Producer: producer})
 	}
 	state.ProofReady, state.ProofDisqualifier, err = workflowVerificationProof(runs, nil)
 	if err != nil {
@@ -123,6 +127,25 @@ func workflowRefineProofFailure(why string) *Failure {
 	return newFailure(KindMissingEvidence, "workflow_action",
 		"leaving refine requires a passing worktree_verify run on the current integrated candidate: "+why,
 		false, "run worktree_verify on the current integrated candidate before record_delivery")
+}
+
+func workflowDeliveryToolingProofFailure(state workflowDeliveryAdmission, proof, integration []workflowVerificationRun, tooling *ProjectToolingManifest) error {
+	if state.ProofRequired && tooling != nil {
+		qualified, why, err := workflowVerificationProof(proof, tooling)
+		if err != nil {
+			return err
+		}
+		if !qualified {
+			failure := workflowRefineProofFailure(why)
+			failure.Detail += " " + ProjectToolingDeclaredText(tooling)
+			return failure
+		}
+	}
+	if failure := workflowIntegrationToolingFailure(state, integration, tooling); failure != nil {
+		failure.Detail += " " + ProjectToolingDeclaredText(tooling)
+		return failure
+	}
+	return nil
 }
 
 // loadWorkflowDeliveryJobAdmissionForAccept loads the CD-0205 job facet of the delivery
@@ -193,7 +216,7 @@ func loadWorkflowDeliveryJobAdmissionForAccept(ctx context.Context, q queryer, w
 	covered := map[string]bool{}
 	runs := make([]workflowVerificationRun, 0, len(refs))
 	for _, ref := range refs {
-		command, project, why, err := workflowCandidateVerificationRun(ctx, q, workID, ref, acceptingAttempt)
+		producer, command, project, why, err := workflowCandidateVerificationRun(ctx, q, workID, ref, acceptingAttempt)
 		if err != nil {
 			var failure *Failure
 			if !failureAs(err, &failure) || failure.Kind == KindUnavailable {
@@ -202,7 +225,7 @@ func loadWorkflowDeliveryJobAdmissionForAccept(ctx context.Context, q queryer, w
 			// A malformed projection fails closed: the run qualifies for no
 			// Project until the projection is rebuilt.
 		}
-		runs = append(runs, workflowVerificationRun{Command: command, Scope: project, Disqualifier: why, Failure: err})
+		runs = append(runs, workflowVerificationRun{Command: command, Scope: project, Disqualifier: why, Failure: err, Producer: producer})
 		if err == nil && why == "" {
 			covered[project] = true
 		}
@@ -211,24 +234,26 @@ func loadWorkflowDeliveryJobAdmissionForAccept(ctx context.Context, q queryer, w
 	return runs, nil
 }
 
-// Proof applicability follows the producer's subject, not its position relative
-// to an acceptance or a stage start. An unchanged candidate needs no rerun.
-func workflowCandidateVerificationRun(ctx context.Context, q queryer, workID, ref, acceptingAttempt string) ([]string, string, string, error) {
+// workflowCandidateVerificationRun projects one verification reference
+// against the candidate the route proves: the producer's actual subject must
+// equal the integrated candidate. The receipt travels with the run so the
+// footprint proof gate qualifies its native result without a second read.
+func workflowCandidateVerificationRun(ctx context.Context, q queryer, workID, ref, acceptingAttempt string) (*WorktreeVerifyResult, []string, string, string, error) {
 	producer, err := readOracleVerifySubjectReceipt(ctx, q, workID, ref)
 	if err != nil {
-		return nil, "", "", err
+		return nil, nil, "", "", err
 	}
 	if producer == nil {
-		return nil, "", "no passing unchanged-tree producer receipt", nil
+		return nil, nil, "", "no passing unchanged-tree producer receipt", nil
 	}
 	candidate, err := workflowVerificationCandidate(ctx, q, workID, acceptingAttempt)
 	if err != nil {
-		return nil, "", "", err
+		return nil, nil, "", "", err
 	}
 	if candidate == nil || producer.SubjectRef != "commit:"+candidate.Commit || producer.ProjectID != candidate.ProjectID {
-		return producer.Command, producer.ProjectID, "verification does not cover the current integrated candidate", nil
+		return producer, producer.Command, producer.ProjectID, "verification does not cover the current integrated candidate", nil
 	}
-	return producer.Command, producer.ProjectID, "", nil
+	return producer, producer.Command, producer.ProjectID, "", nil
 }
 
 // Explicit bindings and qualified producer receipts share the same candidate

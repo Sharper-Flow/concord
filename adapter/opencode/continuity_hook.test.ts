@@ -5,6 +5,25 @@ import { configureCoreBinary } from "./dispatch"
 const START = "<!-- concord:continuity:v1 -->"
 const END = "<!-- /concord:continuity:v1 -->"
 const pluginSource = await Bun.file(new URL("./concord-plugin.ts", import.meta.url)).text()
+const corpus = await Bun.file(new URL("../../.concord/scenarios/adapter-continuity.v1.json", import.meta.url)).json()
+
+async function assertScenario(id: string, assertions: Record<string, () => unknown>) {
+  const matches = corpus.scenarios.filter((scenario: { id: string }) => scenario.id === id)
+  expect(matches.length).toBe(1)
+  const required = matches[0].then.map((entry: { assertion: string }) => entry.assertion)
+  expect(new Set(required).size).toBe(required.length)
+  expect(Object.keys(assertions).sort()).toEqual([...required].sort())
+  for (const name of required) await assertions[name]!()
+}
+
+test("continuity corpus assertion binding refuses missing or extra assertions", async () => {
+  await expect(assertScenario("adapter-continuity-byte-stable-across-turns", {})).rejects.toThrow()
+  await expect(assertScenario("adapter-continuity-byte-stable-across-turns", {
+    system_prompt_byte_identical: () => {},
+    no_duplicate_sentinel: () => {},
+    extra_assertion: () => {},
+  })).rejects.toThrow()
+})
 
 type Transform = (input: { sessionID?: string }, output: { system: string[] }) => Promise<void>
 
@@ -46,7 +65,7 @@ test("plugin entry registers the continuity system transform", () => {
   expect(pluginSource).toContain("await continuityTransform(input, output)")
 })
 
-test("continuity transform keeps identical cached output byte-stable", async () => {
+test("adapter-continuity-byte-stable-across-turns", async () => {
   let calls = 0
   const sessions = countingSessions(fakeSessions())
   const transform = createContinuityTransform({
@@ -60,7 +79,13 @@ test("continuity transform keeps identical cached output byte-stable", async () 
   await transform({ sessionID: "ses-1" }, first)
   await transform({ sessionID: "ses-1" }, second)
 
-  expect(first.system[0]).toBe(second.system[0])
+  await assertScenario("adapter-continuity-byte-stable-across-turns", {
+    system_prompt_byte_identical: () => expect(first.system[0]).toBe(second.system[0]),
+    no_duplicate_sentinel: () => {
+      expect(second.system[0].split(START).length).toBe(2)
+      expect(second.system[0].split(END).length).toBe(2)
+    },
+  })
   expect(calls).toBe(1)
   expect(sessions.parentChecks).toBe(2)
   expect(sessions.directoryReads).toBe(2)
@@ -95,7 +120,7 @@ test("continuity transform carries only the core packet", async () => {
   expect(transformed.system[0]).toBe(`system prefix${START}\n${packet}\n${END}`)
 })
 
-test("continuity transform replaces a sentinel block instead of appending", async () => {
+test("adapter-continuity-state-change-replaces-block", async () => {
   let now = 1_000
   let content = "old"
   let calls = 0
@@ -112,11 +137,17 @@ test("continuity transform replaces a sentinel block instead of appending", asyn
   const previous = first.system[0]
   await transform({ sessionID: "ses-1" }, first)
 
-  expect(first.system[0]).toContain(`${START}\nnew content\n${END}`)
-  expect(first.system[0]).not.toContain(`${START}\nold\n${END}`)
-  expect(first.system[0].indexOf(START)).toBe(first.system[0].lastIndexOf(START))
-  expect(first.system[0].indexOf(END)).toBe(first.system[0].lastIndexOf(END))
-  expect(first.system[0].length - previous.length).toBe("new content".length - "old".length)
+  await assertScenario("adapter-continuity-state-change-replaces-block", {
+    sentinel_block_replaced_in_place: () => {
+      expect(first.system[0]).toBe(`system prefix${START}\nnew content\n${END}`)
+      expect(first.system[0]).not.toContain(`${START}\nold\n${END}`)
+      expect(first.system[0].length - previous.length).toBe("new content".length - "old".length)
+    },
+    no_duplicate_sentinel: () => {
+      expect(first.system[0].split(START).length).toBe(2)
+      expect(first.system[0].split(END).length).toBe(2)
+    },
+  })
   expect(calls).toBe(2)
 })
 
@@ -140,7 +171,7 @@ test("continuity transform renders no block without a session identity", async (
   expect(parentChecks).toBe(0)
 })
 
-test("continuity transform renders no block for a managed parent session", async () => {
+test("adapter-continuity-lane-leak-absent", async () => {
   const original = "lane session bytes"
   const unchanged = output(original)
   let calls = 0
@@ -155,12 +186,17 @@ test("continuity transform renders no block for a managed parent session", async
 
   await transform({ sessionID: "ses-lane" }, unchanged)
 
-  expect(unchanged.system[0]).toBe(original)
-  expect(calls).toBe(0)
+  await assertScenario("adapter-continuity-lane-leak-absent", {
+    lane_session_renders_no_block: () => {
+      expect(unchanged.system[0]).not.toContain(START)
+      expect(calls).toBe(0)
+    },
+    system_prompt_untouched: () => expect(unchanged.system[0]).toBe(original),
+  })
   expect(directoryReads).toBe(0)
 })
 
-test("continuity transform re-resolves after a work_start retarget", async () => {
+test("adapter-continuity-work-start-retarget", async () => {
   let now = 1_000
   const sessions = fakeSessions("/worktrees/project-1/work-launch")
   const directories: string[] = []
@@ -183,8 +219,14 @@ test("continuity transform re-resolves after a work_start retarget", async () =>
   await transform({ sessionID: "ses-1" }, transformed)
 
   expect(directories).toEqual(["/worktrees/project-1/work-launch", "/worktrees/project-1/work-landed"])
-  expect(transformed.system[0]).toContain(`packet for /worktrees/project-1/work-landed`)
-  expect(transformed.system[0].indexOf(START)).toBe(transformed.system[0].lastIndexOf(START))
+  await assertScenario("adapter-continuity-work-start-retarget", {
+    work_start_retarget_renders_landed_item_block: () => expect(transformed.system[0]).toContain("packet for /worktrees/project-1/work-landed"),
+    sentinel_block_replaced_in_place: () => expect(transformed.system[0]).toBe(`system prefix${START}\npacket for /worktrees/project-1/work-landed\n${END}`),
+    no_duplicate_sentinel: () => {
+      expect(transformed.system[0].split(START).length).toBe(2)
+      expect(transformed.system[0].split(END).length).toBe(2)
+    },
+  })
 })
 
 test("continuity transform ignores the launcher identity environment", async () => {
@@ -221,7 +263,7 @@ test("continuity transform ignores the launcher identity environment", async () 
   expect(Bun.env.CONCORD_SELECTED_WORK_ID).toBe(previousWork)
 })
 
-test("continuity transform leaves system bytes unchanged on failure, empty output, or unreadable session", async () => {
+test("adapter-continuity-failure-is-absence", async () => {
   const original = "prefix\n\nexact bytes"
   const failed = output(original)
   await (createContinuityTransform({
@@ -254,7 +296,14 @@ test("continuity transform leaves system bytes unchanged on failure, empty outpu
     },
     runner: { run: async () => ({ exitCode: 0, stdout: "unexpected", stderr: "" }) },
   }) as Transform)({ sessionID: "ses-gone" }, unreadable)
-  expect(unreadable.system[0]).toBe(original)
+  await assertScenario("adapter-continuity-failure-is-absence", {
+    system_prompt_untouched: () => {
+      expect(failed.system[0]).toBe(original)
+      expect(nonzero.system[0]).toBe(original)
+      expect(empty.system[0]).toBe(original)
+      expect(unreadable.system[0]).toBe(original)
+    },
+  })
 })
 
 test("continuity transform renders a held-work block without parsing step actions", async () => {
@@ -310,7 +359,7 @@ test("continuity transform renders a held-work block without parsing step action
   expect(transformed.system[0]).not.toContain("next_valid_intent")
 })
 
-test("continuity transform gates spawns by session and directory for ten seconds", async () => {
+test("adapter-continuity-ttl-gates-spawn", async () => {
   let now = 5_000
   let calls = 0
   const transform = createContinuityTransform({
@@ -318,10 +367,40 @@ test("continuity transform gates spawns by session and directory for ten seconds
     sessions: fakeSessions(),
     runner: { run: async () => { calls += 1; return { exitCode: 0, stdout: "fixture", stderr: "" } } },
   }) as Transform
-  await transform({ sessionID: "ses-1" }, output("one"))
+  const first = output("system prefix")
+  const second = output("system prefix")
+  await transform({ sessionID: "ses-1" }, first)
   now += 9_999
-  await transform({ sessionID: "ses-1" }, output("two"))
+  await transform({ sessionID: "ses-1" }, second)
+  await assertScenario("adapter-continuity-ttl-gates-spawn", {
+    no_child_spawn: () => expect(calls).toBe(1),
+    system_prompt_byte_identical: () => expect(second.system[0]).toBe(first.system[0]),
+  })
+})
+
+test("adapter-continuity-post-boundary-re-pin", async () => {
+  let now = 1_000
+  let calls = 0
+  const packet = corpus.fixtures.verb_output_stable
+  const transform = createContinuityTransform({
+    now: () => now,
+    sessions: fakeSessions(),
+    runner: { run: async () => { calls += 1; return { exitCode: 0, stdout: packet, stderr: "" } } },
+  }) as Transform
+  await transform({ sessionID: "ses-1" }, output("before boundary"))
+  const cached = output("compacted system")
+  await transform({ sessionID: "ses-1" }, cached)
   expect(calls).toBe(1)
+  now += 10_001
+  const fresh = output("compacted system")
+  await transform({ sessionID: "ses-1" }, fresh)
+  expect(calls).toBe(2)
+  await assertScenario("adapter-continuity-post-boundary-re-pin", {
+    pinned_block_present_without_tool_call: () => {
+      expect(cached.system[0]).toBe(`compacted system${START}\n${packet}\n${END}`)
+      expect(fresh.system[0]).toBe(cached.system[0])
+    },
+  })
 })
 
 // Fake-runner suite: bind the continuity hook transport to a nominal core

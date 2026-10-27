@@ -240,6 +240,7 @@ func executeWorkflowScenario(t *testing.T, action string, setup workflowCorpusSe
 	if err != nil {
 		return workflowObservation{}, err
 	}
+	resolved := ResolveWorkflowFootprint(ctx, s, registry, workID, action, payload)
 	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
 	if err != nil {
 		return workflowObservation{}, err
@@ -249,7 +250,7 @@ func executeWorkflowScenario(t *testing.T, action string, setup workflowCorpusSe
 		_ = tx.Rollback()
 		return workflowObservation{}, err
 	}
-	_, actionErr := applyWorkflowActionRawTx(ctx, tx, scope, registry, WorkflowActionExecutionRequest{WorkID: workID, ExpectedVersion: request.ExpectedVersion, ActionID: action, Payload: payload, Actor: actor, AcceptedInputsDigest: request.Idempotency.AcceptedInputsDigest, IdempotencyIdentity: request.Idempotency.Key, OperationID: request.Operation.OpID, PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: request.Idempotency.Key, RequestID: request.Idempotency.RequestID, AcceptedScope: `{"project":"project"}`, ContractDigest: testManifestDigest, Now: time.Now().UTC()})
+	_, actionErr := applyWorkflowActionRawTx(ctx, tx, scope, registry, WorkflowActionExecutionRequest{WorkID: workID, ExpectedVersion: request.ExpectedVersion, ActionID: action, Payload: payload, Actor: actor, AcceptedInputsDigest: request.Idempotency.AcceptedInputsDigest, IdempotencyIdentity: request.Idempotency.Key, OperationID: request.Operation.OpID, PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: request.Idempotency.Key, RequestID: request.Idempotency.RequestID, AcceptedScope: `{"project":"project"}`, ContractDigest: testManifestDigest, Now: time.Now().UTC(), ResolvedFootprint: resolved})
 	_ = scope.close(ctx)
 	if actionErr != nil {
 		_ = tx.Rollback()
@@ -305,6 +306,7 @@ func prepareWorkflowCorpusState(t *testing.T, setup workflowCorpusSetup, request
 			return nil, nil, err
 		}
 		bindCompletionClosure(t, s, workID, owner)
+		footprintProofSyntheticScope(t, s, workID, f.repo)
 		if proof == "completion_rollback" || proof == "impact_notice_identity" {
 			prepareCorpusImpactDependent(t, s, workID, registered)
 		}

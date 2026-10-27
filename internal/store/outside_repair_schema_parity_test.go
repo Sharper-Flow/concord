@@ -145,6 +145,7 @@ func outsideRepairPublishedVerdicts(t *testing.T, probes []map[string]any) map[s
 	if err != nil {
 		t.Fatal(err)
 	}
+	requireNativeRecipeGitMetadata(t, repoRoot)
 	if _, err := os.Stat(filepath.Join(repoRoot, "adapter", "opencode", "concord.ts")); err != nil {
 		t.Fatalf("the worktree publishes no adapter at %s: %v", repoRoot, err)
 	}

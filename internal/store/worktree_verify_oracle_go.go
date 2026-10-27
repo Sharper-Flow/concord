@@ -27,11 +27,12 @@ import (
 )
 
 type nativeGoOracleManifest struct {
-	Kind         string              `json:"kind"`
-	PackageCwd   string              `json:"package_cwd"`
-	TestFiles    []string            `json:"test_files"`
-	FixtureFiles []string            `json:"fixture_files"`
-	Cases        map[string][]string `json:"cases"`
+	Kind          string              `json:"kind"`
+	PackageCwd    string              `json:"package_cwd"`
+	TestFiles     []string            `json:"test_files"`
+	FixtureFiles  []string            `json:"fixture_files"`
+	Cases         map[string][]string `json:"cases"`
+	ExpectedSkips []string            `json:"expected_skips,omitempty"`
 }
 
 type nativeGoEnvironment struct {
@@ -58,7 +59,13 @@ func nativeOracleSelector(m nativeGoOracleManifest, c OracleControl) ([]string, 
 	if err != nil {
 		return nil, err
 	}
-	selector := "^(" + strings.Join(names, "|") + ")$"
+	if m.Kind == nativeGoPackageKind {
+		if !slices.Equal(c.Argv, []string{"go", "test", "-count=1", "."}) {
+			return nil, nativeUnavailable("control argv is not the exact complete-package go test command")
+		}
+		return names, nil
+	}
+	selector := "^(" + strings.Join(nativeGoWitnessRoots(names), "|") + ")$"
 	if len("-test.run="+selector) > maxWorktreeVerifyCommandPart {
 		return nil, oracleFailure(KindLimitExceeded, "rendered test selector exceeds 256 bytes", "select a bounded literal-name union")
 	}
@@ -72,27 +79,39 @@ func nativeOracleSelector(m nativeGoOracleManifest, c OracleControl) ([]string, 
 	return names, nil
 }
 
-// nativeOracleCaseTests returns the sorted distinct top-level tests the
+// nativeOracleCaseTests returns the sorted distinct literal witnesses the
 // manifest maps the control's cases to: the witness set an execute run must
 // observe running and passing.
 func nativeOracleCaseTests(m nativeGoOracleManifest, c OracleControl) ([]string, error) {
-	if len(m.Cases) != len(c.CaseIDs) {
-		return nil, nativeUnavailable("manifest cases differ from the control")
+	if len(c.CaseIDs) == 0 || len(c.CaseIDs) > OracleCasesMax {
+		return nil, nativeUnavailable("control must select a bounded nonempty case subset")
 	}
 	set := map[string]bool{}
+	caseSeen := map[string]bool{}
 	for _, id := range c.CaseIDs {
+		if caseSeen[id] {
+			return nil, nativeUnavailable("duplicate control case identity")
+		}
+		caseSeen[id] = true
 		names, ok := m.Cases[id]
 		if !ok || len(names) < 1 || len(names) > 8 {
 			return nil, nativeUnavailable("each case must select 1 to 8 literal top-level tests")
 		}
 		local := map[string]bool{}
 		for _, name := range names {
-			if !nativeOracleTestName.MatchString(name) || len(name) > 64 || local[name] {
-				return nil, nativeUnavailable("manifest test names must be unique ASCII top-level Test names of at most 64 bytes")
+			valid := nativeGoWitnessValid(name)
+			if m.Kind == nativeGoPackageKind {
+				valid = name == "go_package:./"+m.PackageCwd
+			}
+			if !valid || local[name] {
+				return nil, nativeUnavailable("manifest witnesses must be unique bounded literal Go test paths or the exact package witness")
 			}
 			local[name] = true
 			set[name] = true
 		}
+	}
+	if len(set) > nativeGoSelectedWitnessLimit {
+		return nil, oracleFailure(KindLimitExceeded, "selected Go witnesses exceed 40 entries", "select at most 40 distinct literal witnesses")
 	}
 	names := make([]string, 0, len(set))
 	for name := range set {
@@ -270,22 +289,18 @@ func nativeGitFile(ctx context.Context, r GitRunner, repo, commit, name string) 
 
 func normalizeNativeGoOraclePlan(ctx context.Context, r GitRunner, entry WorktreeEntry, p nativeOraclePlan, f NativeOracleFile, raw []byte, req WorktreeVerifyRequest) (nativeOraclePlan, error) {
 	b := p.Bundle
-	d := json.NewDecoder(bytes.NewReader(raw))
-	d.DisallowUnknownFields()
-	if err := d.Decode(&p.Manifest); err != nil {
-		return p, nativeUnavailable("recipe is not one closed Go manifest")
-	}
-	var trailing any
-	if d.Decode(&trailing) != io.EOF {
-		return p, nativeUnavailable("recipe contains trailing input")
+	var err error
+	p.Manifest, err = decodeNativeGoManifest(raw)
+	if err != nil {
+		return p, err
 	}
 	p.ManifestFile = f
 	m := p.Manifest
-	if m.Kind != "go_top_level_v1" || m.PackageCwd != b.Control.Cwd || len(m.TestFiles) < 1 || len(m.TestFiles) > 16 || len(m.FixtureFiles) > 16 {
-		return p, nativeUnavailable("unsupported recipe family, cwd, or file inventory")
-	}
-	if err := validateWorkContextRepoPath(m.PackageCwd); err != nil {
+	if err := validateNativeGoManifest(m); err != nil {
 		return p, err
+	}
+	if m.PackageCwd != b.Control.Cwd {
+		return p, nativeUnavailable("manifest cwd differs from control")
 	}
 	// The harness removes the recipe from the snapshot before it writes the
 	// declared files. A recipe that names a Go source, a module file, or a
@@ -296,6 +311,14 @@ func normalizeNativeGoOraclePlan(ctx context.Context, r GitRunner, entry Worktre
 	}
 	if _, err := nativeOracleSelector(m, b.Control); err != nil {
 		return p, err
+	}
+	p.Manifest.Cases = nativeSelectedCaseMap(m.Cases, b.Control.CaseIDs)
+	if m.Kind == nativeGoPackageKind {
+		// A package recipe is reviewed metadata, not a replacement harness.
+		_, candidate, err := nativeGitFile(ctx, r, entry.Path, p.SubjectCommit, f.Path)
+		if err != nil || !bytes.Equal(candidate, raw) {
+			return p, nativeUnavailable("candidate package recipe differs from pinned declaration")
+		}
 	}
 	if err := collectNativeGoHarnessFiles(ctx, r, entry, &p); err != nil {
 		return p, err
@@ -315,7 +338,11 @@ func normalizeNativeGoOraclePlan(ctx context.Context, r GitRunner, entry Worktre
 	p.Environment.Digest = nativeDigest([]byte(p.Environment.Digest + "\x00" + p.Environment.ModuleInputsDigest))
 	p.Stages = []NativeOracleStage{{Name: "dependencies", Argv: []string{"go", "mod", "verify"}}, {Name: "metadata", Argv: []string{"go", "list", "-json", "-deps", "-test", "."}}, {Name: "compile", Argv: []string{"go", "test", "-c", "-o", "$scratch/oracle.test", "."}}, {Name: "converter_compile", Argv: []string{"go", "build", "-o", "$scratch/test2json", "cmd/test2json"}}}
 	if req.Oracle.Phase == "execute" {
-		p.Stages = append(p.Stages, NativeOracleStage{Name: "test", Argv: []string{"$scratch/oracle.test", "-test.count=1", "-test.run=" + b.Control.Argv[4], "-test.v=test2json", "-test.paniconexit0"}}, NativeOracleStage{Name: "convert", Argv: []string{"$scratch/test2json", "-p", "$package"}})
+		args := []string{"$scratch/oracle.test", "-test.count=1", "-test.v=test2json", "-test.paniconexit0"}
+		if m.Kind != nativeGoPackageKind {
+			args = append(args, "-test.run="+b.Control.Argv[4])
+		}
+		p.Stages = append(p.Stages, NativeOracleStage{Name: "test", Argv: args}, NativeOracleStage{Name: "convert", Argv: []string{"$scratch/test2json", "-p", "$package"}})
 	}
 	for _, stage := range p.Stages {
 		if err := validateWorktreeVerifyCommand(stage.Argv); err != nil {
@@ -331,7 +358,7 @@ func collectNativeGoHarnessFiles(ctx context.Context, r GitRunner, entry Worktre
 	total := 0
 	for i, names := range [][]string{m.TestFiles, m.FixtureFiles} {
 		for _, name := range names {
-			if seen[name] || !strings.HasPrefix(name, m.PackageCwd+"/") || (i == 0 && !strings.HasSuffix(name, "_test.go")) || (i == 1 && (strings.HasSuffix(name, ".go") || path.Base(name) == "go.mod" || path.Base(name) == "go.sum")) {
+			if seen[name] || validateWorkContextRepoPath(name) != nil || (i == 0 && (!nativeTargetContainedName(m.PackageCwd, name) || !strings.HasSuffix(name, "_test.go"))) || (i == 1 && !nativeFixtureDataPath(name)) {
 				return nativeUnavailable("manifest paths must be unique contained test or data files, never production/module replacements")
 			}
 			seen[name] = true
@@ -339,14 +366,25 @@ func collectNativeGoHarnessFiles(ctx context.Context, r GitRunner, entry Worktre
 			if err != nil {
 				return err
 			}
+			if i == 1 {
+				_, candidate, err := nativeGitFile(ctx, r, entry.Path, p.SubjectCommit, name)
+				if err != nil || !bytes.Equal(candidate, data) {
+					return nativeUnavailable("candidate fixture differs from pinned assertion data: " + name)
+				}
+			}
 			total += len(data)
-			if total > 4*1024*1024 {
-				return oracleFailure(KindLimitExceeded, "named harness inputs exceed 4 MiB", "bound the declared test and fixture bytes")
+			if total > nativeGoInputByteLimit {
+				return oracleFailure(KindLimitExceeded, "named harness inputs exceed 32 MiB", "bound the declared test and fixture bytes")
 			}
 			p.Files = append(p.Files, file)
 		}
 	}
 	slices.SortFunc(p.Files, func(a, b NativeOracleFile) int { return strings.Compare(a.Path, b.Path) })
+	if len(p.Files) > 32 {
+		p.HarnessInputCount = len(p.Files)
+		p.HarnessInputDigest = nativeDigest([]byte(workflowJSON(p.Files)))
+		p.Files = nil
+	}
 	return nil
 }
 
@@ -508,6 +546,9 @@ func nativeReplaceHarness(ctx context.Context, r GitRunner, repo, root string, p
 		return err
 	}
 	defer func() { _ = rooted.Close() }()
+	if p.Manifest.Kind == nativeGoPackageKind {
+		return nil
+	}
 	// The recipe is producer metadata, not an undeclared runtime fixture.
 	if err := rooted.Remove(p.ManifestFile.Path); err != nil && !os.IsNotExist(err) {
 		return err
@@ -524,7 +565,11 @@ func nativeReplaceHarness(ctx context.Context, r GitRunner, repo, root string, p
 			}
 		}
 	}
-	for _, f := range p.Files {
+	files, err := nativeGoPinnedFiles(ctx, r, repo, p)
+	if err != nil {
+		return err
+	}
+	for _, f := range files {
 		observed, data, err := nativeGitFile(ctx, r, repo, p.Bundle.Control.RecipeSource.CommitOID, f.Path)
 		if err != nil {
 			return err
@@ -572,7 +617,7 @@ func validateNativeOraclePackageInputs(root string, p nativeOraclePlan) (string,
 		if err != nil {
 			return err
 		}
-		allowed := strings.HasSuffix(rel, ".go") || rel == "go.mod" || rel == "go.sum"
+		allowed := p.Manifest.Kind == nativeGoPackageKind || strings.HasSuffix(rel, ".go") || rel == "go.mod" || rel == "go.sum"
 		if f, ok := fixtures[rel]; ok {
 			allowed = f.SHA256 == nativeDigest(data)
 		}
@@ -684,8 +729,10 @@ func validateNativeGoMetadata(raw []byte, root string, p nativeOraclePlan) (stri
 				return "", err
 			}
 		}
-		if err := validateNativeGoEmbeds(rooted, root, pkg, fixtures); err != nil {
-			return "", err
+		if p.Manifest.Kind != nativeGoPackageKind {
+			if err := validateNativeGoEmbeds(rooted, root, pkg, fixtures); err != nil {
+				return "", err
+			}
 		}
 	}
 	if target == nil {
@@ -698,21 +745,37 @@ func validateNativeGoMetadata(raw []byte, root string, p nativeOraclePlan) (stri
 }
 
 func validateNativeGoSelectedTests(rooted *os.Root, root, cwd string, target nativeGoPackage, p nativeOraclePlan) error {
+	if p.Manifest.Kind == nativeGoPackageKind {
+		_, names, err := nativeGoPackageTestInventory(rooted, p.Manifest.PackageCwd, target)
+		if err != nil {
+			return err
+		}
+		for _, skip := range p.Manifest.ExpectedSkips {
+			if !slices.Contains(names, skip) {
+				return nativeUnavailable("expected skip is not a build-selected package test: " + skip)
+			}
+		}
+		return nil
+	}
 	selected, err := nativeGoSelectedTestFiles(root, cwd, target, p.Manifest.TestFiles)
 	if err != nil {
 		return err
 	}
 	found := map[string]bool{}
+	mains := 0
 	for _, name := range selected {
-		if err := nativeGoFileTests(rooted, path.Join(p.Bundle.Control.Cwd, name), found); err != nil {
+		if err := nativeGoFileTests(rooted, path.Join(p.Bundle.Control.Cwd, name), found, &mains); err != nil {
 			return err
 		}
+	}
+	if mains > 1 {
+		return nativeUnavailable("more than one selected file declares a TestMain harness")
 	}
 	names, err := nativeOracleSelector(p.Manifest, p.Bundle.Control)
 	if err != nil {
 		return err
 	}
-	for _, name := range names {
+	for _, name := range nativeGoWitnessRoots(names) {
 		if !found[name] {
 			return nativeUnavailable("selected top-level test is not build-selected: " + name)
 		}
@@ -772,7 +835,7 @@ func nativeGoSelectedTestFiles(root, cwd string, target nativeGoPackage, testFil
 	return selected, nil
 }
 
-func nativeGoFileTests(rooted *os.Root, name string, found map[string]bool) error {
+func nativeGoFileTests(rooted *os.Root, name string, found map[string]bool, mains *int) error {
 	data, err := rooted.ReadFile(name)
 	if err != nil {
 		return err
@@ -797,7 +860,15 @@ func nativeGoFileTests(rooted *os.Root, name string, found map[string]bool) erro
 			continue
 		}
 		if fn.Name.Name == "TestMain" {
-			return nativeUnavailable("custom TestMain is unsupported")
+			// One pinned TestMain harness is admitted: the producer pins its
+			// bytes like any declared test file, and the test binary runs it
+			// exactly as an ordinary go test would. It is never a Test
+			// witness and selects nothing.
+			if err := validateNativeGoTestMainSignature(fn, aliases); err != nil {
+				return err
+			}
+			*mains++
+			continue
 		}
 		if !nativeOracleTestName.MatchString(fn.Name.Name) {
 			continue
@@ -809,6 +880,27 @@ func nativeGoFileTests(rooted *os.Root, name string, found map[string]bool) erro
 			return err
 		}
 		found[fn.Name.Name] = true
+	}
+	return nil
+}
+
+// validateNativeGoTestMainSignature requires the exact run-harness shape
+// func TestMain(m *testing.M) with no results.
+func validateNativeGoTestMainSignature(fn *ast.FuncDecl, aliases map[string]bool) error {
+	if fn.Type.TypeParams != nil || (fn.Type.Results != nil && len(fn.Type.Results.List) != 0) || fn.Type.Params == nil || len(fn.Type.Params.List) != 1 || len(fn.Type.Params.List[0].Names) > 1 {
+		return nativeUnavailable("TestMain signature is not func TestMain(*testing.M)")
+	}
+	star, ok := fn.Type.Params.List[0].Type.(*ast.StarExpr)
+	if !ok {
+		return nativeUnavailable("unsupported TestMain signature")
+	}
+	sel, ok := star.X.(*ast.SelectorExpr)
+	if !ok || sel.Sel.Name != "M" {
+		return nativeUnavailable("unsupported TestMain signature")
+	}
+	ident, ok := sel.X.(*ast.Ident)
+	if !ok || !aliases[ident.Name] {
+		return nativeUnavailable("TestMain parameter must be testing.M")
 	}
 	return nil
 }
@@ -858,7 +950,7 @@ func validateNativeLocalPackageClosure(root, dir string, p nativeOraclePlan) err
 			return nativeUnavailable("repository dependency contains a nonregular input")
 		}
 		rel := name
-		if strings.HasSuffix(rel, ".go") || rel == "go.mod" || rel == "go.sum" {
+		if p.Manifest.Kind == nativeGoPackageKind || strings.HasSuffix(rel, ".go") || rel == "go.mod" || rel == "go.sum" {
 			return nil
 		}
 		for _, f := range p.Files {
@@ -887,82 +979,7 @@ func nativeOracleWitnesses(raw []byte, pkg string, selected []string, stdout []b
 }
 
 func validateNativeOracleWitnessEvents(raw []byte, pkg string, selected []string) error {
-	state := map[string]int{}
-	for _, name := range selected {
-		state[name] = 0
-	}
-	terminal := false
-	started := false
-	d := json.NewDecoder(bytes.NewReader(raw))
-	for {
-		var e struct{ Action, Package, Test string }
-		err := d.Decode(&e)
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			return nativeUnavailable("test2json conversion is malformed")
-		}
-		if terminal || e.Package != pkg || e.Action == "fail" {
-			return nativeUnavailable("test2json contains conflicting or post-terminal events")
-		}
-		if e.Action == "start" {
-			if started || e.Test != "" {
-				return nativeUnavailable("test2json contains a conflicting package start")
-			}
-			started = true
-			continue
-		}
-		if e.Action == "pass" && e.Test == "" {
-			for _, phase := range state {
-				if phase != 2 {
-					return nativeUnavailable("package passed before every selected witness passed")
-				}
-			}
-			terminal = true
-			continue
-		}
-		if err := applyNativeOracleWitnessEvent(state, e.Action, e.Test); err != nil {
-			return err
-		}
-	}
-	if !terminal || len(state) == 0 {
-		return nativeUnavailable("test2json has no complete package pass")
-	}
-	return nil
-}
-
-func applyNativeOracleWitnessEvent(state map[string]int, action, test string) error {
-	root, _, nested := strings.Cut(test, "/")
-	phase, known := state[root]
-	switch action {
-	case "output":
-	case "pause", "cont":
-		if !known || phase != 1 {
-			return nativeUnavailable("test2json continues a witness that is not running")
-		}
-	case "run":
-		if !known || (!nested && phase != 0) || (nested && phase != 1) {
-			return nativeUnavailable("test2json contains duplicate or undeclared witness runs")
-		}
-		if !nested {
-			state[root] = 1
-		}
-	case "pass":
-		if !known || phase != 1 {
-			return nativeUnavailable("test2json contains a duplicate or unordered witness pass")
-		}
-		if !nested {
-			state[root] = 2
-		}
-	case "skip":
-		if !nested || !known || phase != 1 {
-			return nativeUnavailable("selected witness was skipped or undeclared")
-		}
-	default:
-		return nativeUnavailable("test2json contains an unsupported action")
-	}
-	return nil
+	return nativeGoGradeBytes(raw, pkg, selected)
 }
 
 func validateNativeOracleWitnessFrames(stdout []byte, selected []string) error {
@@ -978,7 +995,7 @@ func validateNativeOracleWitnessFrames(stdout []byte, selected []string) error {
 		}
 		rest = frame
 		lineBytes, _, _ := bytes.Cut(frame, []byte{'\n'})
-		line := string(lineBytes)
+		line := strings.TrimLeft(string(lineBytes), " \t")
 		if line == "PASS" {
 			trailers++
 		}
@@ -1003,6 +1020,13 @@ func validateNativeOracleWitnessFrames(stdout []byte, selected []string) error {
 }
 
 func (s *Store) runNativeGoOracle(ctx context.Context, r GitRunner, entry WorktreeEntry, req WorktreeVerifyRequest, p nativeOraclePlan, capture *nativeStreamCapture, result *NativeOracleResult) (returnErr error) {
+	if p.HarnessInputCount > 32 {
+		var err error
+		p.Files, err = nativeGoPinnedFiles(ctx, r, entry.Path, p)
+		if err != nil {
+			return err
+		}
+	}
 	root, err := os.MkdirTemp("", "concord-native-oracle-")
 	if err != nil {
 		return err
@@ -1074,6 +1098,9 @@ type nativeGoOracleRun struct {
 	testStdout                         []byte
 	programExit                        int
 	converterDigest                    string
+	packageTests                       []string
+	packageInventory                   NativeGoPackageInventory
+	eventGrade                         *nativeGoEventGrade
 }
 
 func (n *nativeGoOracleRun) execute(ctx context.Context) error {
@@ -1163,7 +1190,32 @@ func (n *nativeGoOracleRun) runStage(ctx context.Context, stage NativeOracleStag
 		}
 	}
 	stageCapture := nativeOracleStageCapture(stage.Name, capture)
-	exit, runErr := runNativeOracleStage(stageCtx, n.cwd, argv, n.env, stdin, stageCapture, launched)
+	var exit int
+	var runErr error
+	if stage.Name == "convert" && n.programExit != 0 {
+		exit, runErr = runNativeOracleStageOutput(stageCtx, n.cwd, argv, n.env, stdin, stageCapture, launched, io.Discard)
+	} else if stage.Name == "convert" {
+		names := n.result.SelectedTestNames
+		packageMode := n.plan.Manifest.Kind == nativeGoPackageKind
+		if packageMode {
+			names = n.packageTests
+		}
+		n.eventGrade = newNativeGoEventGrade(n.packagePath, names, packageMode, n.plan.Manifest.ExpectedSkips)
+		reader, writer := io.Pipe()
+		graded := make(chan error, 1)
+		go func() {
+			err := gradeNativeGoEvents(reader, n.eventGrade)
+			_ = reader.CloseWithError(err)
+			graded <- err
+		}()
+		exit, runErr = runNativeOracleStageOutput(stageCtx, n.cwd, argv, n.env, stdin, stageCapture, launched, writer)
+		_ = writer.CloseWithError(runErr)
+		if gradeErr := <-graded; gradeErr != nil && n.programExit == 0 {
+			runErr = gradeErr
+		}
+	} else {
+		exit, runErr = runNativeOracleStage(stageCtx, n.cwd, argv, n.env, stdin, stageCapture, launched)
+	}
 	cancel()
 	stage.ExitCode = exit
 	stage.StdoutOffset = so
@@ -1189,6 +1241,30 @@ func (n *nativeGoOracleRun) consumeStage(name string, exit int, stdout []byte) e
 		if err != nil {
 			return err
 		}
+		if n.plan.Manifest.Kind == nativeGoPackageKind {
+			d := json.NewDecoder(bytes.NewReader(stdout))
+			for {
+				var pkg nativeGoPackage
+				if err := d.Decode(&pkg); err == io.EOF {
+					break
+				} else if err != nil {
+					return err
+				}
+				if pkg.ImportPath != n.packagePath {
+					continue
+				}
+				rooted, err := os.OpenRoot(n.snapshot)
+				if err != nil {
+					return err
+				}
+				n.packageInventory, n.packageTests, err = nativeGoPackageTestInventory(rooted, n.plan.Manifest.PackageCwd, pkg)
+				_ = rooted.Close()
+				if err != nil {
+					return err
+				}
+				break
+			}
+		}
 	case "compile":
 		stat, err := n.scratchRoot.Stat("oracle.test")
 		if err != nil || !stat.Mode().IsRegular() || stat.Mode().Perm()&0111 == 0 {
@@ -1211,14 +1287,26 @@ func (n *nativeGoOracleRun) consumeStage(name string, exit int, stdout []byte) e
 		n.converterDigest = nativeDigest(binary)
 	case "test":
 		n.programExit = exit
-		n.testStdout = bytes.Clone(stdout)
+		n.testStdout = stdout
 	case "convert":
 		if n.programExit != 0 {
 			result.Qualification = "fail"
 		} else {
-			result.ObservedTestNames, err = nativeOracleWitnesses(stdout, n.packagePath, result.SelectedTestNames, n.testStdout)
-			if err != nil {
-				return err
+			if n.eventGrade == nil {
+				return nativeUnavailable("missing incremental event grade")
+			}
+			if n.plan.Manifest.Kind == nativeGoPackageKind {
+				if err := validateNativeGoPackageFrames(n.testStdout, n.packageTests, n.eventGrade.skipped); err != nil {
+					return err
+				}
+				nativeGoPackageGrade(&n.packageInventory, n.eventGrade, n.converterDigest)
+				result.PackageInventory = &n.packageInventory
+				result.ObservedWitnessIDs = slices.Clone(result.SelectedWitnessIDs)
+			} else {
+				if err := validateNativeOracleWitnessFrames(n.testStdout, result.SelectedTestNames); err != nil {
+					return err
+				}
+				result.ObservedTestNames = slices.Clone(result.SelectedTestNames)
 			}
 			result.Qualification = "pass"
 		}

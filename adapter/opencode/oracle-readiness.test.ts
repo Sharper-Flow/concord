@@ -66,6 +66,91 @@ function targetPacket(pair: { materializer: string; runner: string } = { materia
   return candidate
 }
 
+function packagePacket(): AgentLanePacket {
+  const candidate = packet()
+  const control = candidate.inputs.worker_job!.acceptance_oracle!.controls[0]
+  control.cwd = "internal/example"
+  control.argv = ["go", "test", "-count=1", "."]
+  const preparation = candidate.inputs.work_context!.oracle_preparations![0] as unknown as Record<string, unknown>
+  delete preparation.selected_test_names
+  delete preparation.case_to_test_map
+  preparation.recipe_kind = "go_package_v1"
+  preparation.files = null
+  preparation.logical_cwd = control.cwd
+  preparation.logical_argv_digest = `sha256:${createHash("sha256").update(JSON.stringify(control.argv)).digest("hex")}`
+  preparation.selected_witness_ids = ["go_package:./internal/example"]
+  preparation.case_to_witness_map = { "case:subject": ["go_package:./internal/example"] }
+  return candidate
+}
+
+test("complete-package readiness admits one cwd-bound package witness without a test catalog", async () => {
+  expect(await verifyPacketOracleReadiness(packagePacket())).toBeNull()
+  const candidate = packagePacket()
+  const preparation = candidate.inputs.work_context!.oracle_preparations![0] as unknown as Record<string, unknown>
+  preparation.case_to_witness_map = {
+    "case:subject": ["go_package:./internal/example"],
+    "case:other-recipe-case": ["go_package:./internal/example"],
+  }
+  expect(await verifyPacketOracleReadiness(candidate)).toBeNull()
+})
+
+test("qualified package preparation reaches authorization without any readiness subprocess", async () => {
+  configureCoreBinary("concord-test")
+  let authorizations = 0
+  await dispatchWorker(packagePacket(), {
+    credentials: testCredentials, runner: runner(), workerDirectory: process.cwd(), sessionID: "session-package",
+    authorize: async () => { authorizations++; return { outcome: "ok" } },
+  })
+  expect(authorizations).toBe(1)
+})
+
+test("package readiness keeps the native complete-package command grammar", async () => {
+  const candidate = packagePacket()
+  const control = candidate.inputs.worker_job!.acceptance_oracle!.controls[0]
+  control.argv = ["go", "test", "-count=1", "-run", "TestSubject", "."]
+  candidate.inputs.work_context!.oracle_preparations![0].logical_argv_digest = `sha256:${createHash("sha256").update(JSON.stringify(control.argv)).digest("hex")}`
+  expect(await verifyPacketOracleReadiness(candidate)).not.toBeNull()
+})
+
+test("package readiness refuses mixed, mismatched, empty and fabricated package populations", async () => {
+  for (const mutate of [
+    (p: Record<string, unknown>) => { p.selected_test_names = ["TestSubject"] },
+    (p: Record<string, unknown>) => { p.case_to_test_map = { "case:subject": ["TestSubject"] } },
+    (p: Record<string, unknown>) => { p.target_runner = "check" },
+    (p: Record<string, unknown>) => { p.target_materializer = "none" },
+    (p: Record<string, unknown>) => { p.selected_witness_ids = [] },
+    (p: Record<string, unknown>) => { p.selected_witness_ids = ["go_package:./other"] },
+    (p: Record<string, unknown>) => { p.selected_witness_ids = ["go_package:./internal/example", "go_package:./internal/example"] },
+    (p: Record<string, unknown>) => { p.selected_distinct_count = 2 },
+    (p: Record<string, unknown>) => { p.case_to_witness_map = {} },
+    (p: Record<string, unknown>) => { p.case_to_witness_map = { "case:other": ["go_package:./internal/example"] } },
+    (p: Record<string, unknown>) => { p.case_to_witness_map = { "case:subject": ["go_package:./other"] } },
+    (p: Record<string, unknown>) => { p.files = [{ path: "replacement_test.go" }] },
+    (p: Record<string, unknown>) => { p.harness_input_count = 33 },
+    (p: Record<string, unknown>) => { p.harness_input_digest = `sha256:${"a".repeat(64)}` },
+  ]) {
+    const candidate = packagePacket()
+    mutate(candidate.inputs.work_context!.oracle_preparations![0] as unknown as Record<string, unknown>)
+    expect(await verifyPacketOracleReadiness(candidate)).not.toBeNull()
+  }
+})
+
+test("selected nested Go readiness caps the actual witnesses rather than just their roots", async () => {
+  const candidate = packet()
+  const preparation = candidate.inputs.work_context!.oracle_preparations![0] as unknown as Record<string, unknown>
+  const control = candidate.inputs.worker_job!.acceptance_oracle!.controls[0]
+  for (const count of [40, 41]) {
+    const names = Array.from({ length: count }, (_, i) => `TestSubject/scenario-${i}`)
+    const cases: Record<string, string[]> = {}
+    names.forEach((name, i) => { (cases[`case:group-${Math.floor(i / 8)}`] ??= []).push(name) })
+    control.case_ids = Object.keys(cases)
+    preparation.selected_test_names = names
+    preparation.case_to_test_map = cases
+    preparation.selected_distinct_count = count
+    expect(await verifyPacketOracleReadiness(candidate) === null).toBe(count === 40)
+  }
+})
+
 function runner(head = oid, status = ""): DispatchRunner {
   return { async run(argv) {
     const args = argv.slice(3)

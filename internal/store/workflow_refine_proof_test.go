@@ -73,6 +73,7 @@ func refineProofCandidate(t *testing.T, s *Store, workID string) string {
 
 func refineProofDelivery(t *testing.T, s *Store, workID string, tooling *ProjectToolingManifest) error {
 	t.Helper()
+	resolved := ResolveWorkflowFootprint(context.Background(), s, BuiltinWorkflowRegistry(), workID, "record_delivery", nil)
 	version := readWorkVersion(t, s, workID)
 	actor := reviewGateAcceptor(workID)
 	tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
@@ -85,7 +86,7 @@ func refineProofDelivery(t *testing.T, s *Store, workID string, tooling *Project
 		EvidenceRefs: actionEvidenceRefs("record_delivery", payload), WorkID: workID, ExpectedVersion: version, ActionID: "record_delivery", Payload: payload, Actor: actor,
 		AcceptedInputsDigest: "sha256:" + strings.Repeat("c", 64) + fmt.Sprint(version), IdempotencyIdentity: "record_delivery-refine-proof-" + workID + "-" + fmt.Sprint(version), OperationID: "record_delivery-refine-proof-" + workID + "-" + fmt.Sprint(version),
 		PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "record_delivery-refine-proof-" + workID + "-" + fmt.Sprint(version), RequestID: "request:refine-proof-" + workID, ContractDigest: testManifestDigest, Now: time.Unix(9, 0).UTC(),
-		ProjectTooling: tooling,
+		ProjectTooling: tooling, ResolvedFootprint: resolved,
 	})
 	if err != nil {
 		return err
@@ -359,6 +360,14 @@ func TestRefineProofStartRecorded(t *testing.T) {
 	}
 }
 
+// refineProofPinnedCommit and refineProofPinnedBlob are the immutable OID
+// identities the resolution fake pins: the default ref resolves to the commit,
+// and the manifest blob is read by its OID, never by a mutable ref or path.
+const (
+	refineProofPinnedCommit = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	refineProofPinnedBlob   = "1111111111111111111111111111111111111111"
+)
+
 type refineProofFakeRunner struct {
 	responses map[string][]byte
 	absent    bool
@@ -394,10 +403,17 @@ func TestRefineToolingResolutionReadsTheDefaultRefOnly(t *testing.T) {
 		t.Fatal(err)
 	}
 	seedWorkCanonicalPath(t, s, repo)
+	// The resolution pins the default ref to one immutable commit OID before
+	// any blob read (rev-parse), probes the manifest's presence on that OID
+	// (ls-tree), and reads the blob by OID (cat-file). The working tree's
+	// manifest stays unread: git is faked, so the only way it could leak is an
+	// os read, which the resolution never performs.
 	runner := refineProofFakeRunner{responses: map[string][]byte{
-		"symbolic-ref refs/remotes/origin/HEAD":           []byte("refs/remotes/origin/main\n"),
-		"ls-tree origin/main -- .concord/tooling.v1.json": []byte("100644 blob 1111111111111111111111111111111111111111\t.concord/tooling.v1.json\n"),
-		"show origin/main:.concord/tooling.v1.json":       []byte(`{"schema_version":"1.0","project":"concord","tools":[{"id":"default-ref-check","invocation":"bin/check default","tier":"fast"}]}`),
+		"symbolic-ref refs/remotes/origin/HEAD":                                  []byte("refs/remotes/origin/main\n"),
+		"rev-parse --verify origin/main^{commit}":                                []byte(refineProofPinnedCommit + "\n"),
+		"ls-tree " + refineProofPinnedCommit + " -- .concord/tooling.v1.json":    []byte("100644 blob " + refineProofPinnedBlob + "\t.concord/tooling.v1.json\n"),
+		"ls-tree -z " + refineProofPinnedCommit + " -- .concord/tooling.v1.json": []byte("100644 blob " + refineProofPinnedBlob + "\t.concord/tooling.v1.json\x00"),
+		"cat-file blob " + refineProofPinnedBlob:                                 []byte(`{"schema_version":"1.0","project":"concord","tools":[{"id":"default-ref-check","invocation":"bin/check default","tier":"fast"}]}`),
 	}}
 
 	tooling, err := resolveWorkProjectTooling(ctx, s, "refine-proof-tooling", runner)

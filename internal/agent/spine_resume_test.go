@@ -27,6 +27,7 @@ type spineFixture struct {
 	work, path, base, proof string
 	proofCommit             string
 	packetDigest            string
+	preparation             string
 	request                 int
 }
 
@@ -136,7 +137,7 @@ func newSpineFixtureForFamily(t *testing.T, family string) *spineFixture {
 	f.verify(t)
 	f.recordJob(t)
 	f.completeWorker(t)
-	f.proof = f.verify(t)
+	f.proveFootprint(t)
 	f.recordJob(t)
 	f.review(t, "ready_for_final_proof", f.proof)
 	spineOK(t, f.action(t, "bind_evidence", map[string]any{"evidence_kind": "verification", "evidence_ref": f.proof}))
@@ -168,13 +169,22 @@ func newSpineExecutionFixtureForFamily(t *testing.T, family string) *spineFixtur
 		t.Fatal(err)
 	}
 	repo := home.RepoPath
+	if err := s.EnsureKnowledgeIndexFresh(context.Background(), home); err != nil {
+		t.Fatal(err)
+	}
+	var root string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT root_domain_id FROM domain_registries WHERE product_id='product-1'`).Scan(&root); err != nil {
+		t.Fatal(err)
+	}
 	// The fixture repository is deliberately self-contained: preparation needs
 	// no downloaded modules and executes none of the acceptance test body.
 	for name, data := range map[string]string{
 		"go.mod":            "module example.invalid/spine\n\ngo 1.26.0\ntoolchain " + goruntime.Version() + "\n",
 		"pkg/value.go":      "package spine\n\nfunc Value() int { return 7 }\n",
 		"pkg/value_test.go": "package spine\nimport \"testing\"\nfunc TestValue(t *testing.T) { if Value() != 7 { t.Fatal(\"wrong value\") } }\n",
-		"pkg/oracle.json":   `{"kind":"go_top_level_v1","package_cwd":"pkg","test_files":["pkg/value_test.go"],"fixture_files":[],"cases":{"case:spine-value":["TestValue"]}}`,
+		"pkg/oracle.json":   `{"kind":"go_package_v1","package_cwd":"pkg","cases":{"case:spine-value":["go_package:./pkg"]}}`,
+		".concord/docs/knowledge/package-domains.json": fmt.Sprintf(`{"schema_version":"1.0","packages":[{"path":"pkg","domain_ids":[%q]}]}`, root),
+		".concord/tooling.v1.json":                     `{"schema_version":"1.0","project":"spine","tools":[{"id":"go-test","invocation":"go test ./...","coverage":[{"anchor":{"kind":"go_package","value":"./pkg"},"recipe_path":"pkg/oracle.json","case_id":"case:spine-value"}]},{"id":"native-test","invocation":"go test -count=1 ."}]}`,
 	} {
 		if err := os.MkdirAll(filepath.Dir(filepath.Join(repo, name)), 0o700); err != nil {
 			t.Fatal(err)
@@ -185,6 +195,9 @@ func newSpineExecutionFixtureForFamily(t *testing.T, family string) *spineFixtur
 	}
 	gitRun(t, repo, "add", ".")
 	gitRun(t, repo, "commit", "-qm", "fixture oracle")
+	if err := s.EnsureKnowledgeIndexFresh(context.Background(), home); err != nil {
+		t.Fatal(err)
+	}
 	seedClaimOrigin(t, repo)
 	base := gitRun(t, repo, "rev-parse", "HEAD")
 	scope, _, err := s.ScopeVersion(context.Background(), "project-1")
@@ -196,6 +209,7 @@ func newSpineExecutionFixtureForFamily(t *testing.T, family string) *spineFixtur
 		"title": "Resume a checked value change", "value_statement": "Fresh sessions must recover actionable checked work.",
 		"task": "The synthetic value needs a checked implementation; close when its predicate passes.",
 		"kind": "task", "project_ids": []string{"project-1"}, "workflow_type_ref": family, "idempotency_key": "spine-capture",
+		"size_inputs": map[string]any{"paths": []string{".concord/docs/decisions/CD-0001-fixture-law.md"}, "security": false, "user_visible": false, "blast_radius": "contained", "estimated_production_lines": 1},
 	}
 	if family == "workflow.break_fix" {
 		capture["kind"] = "bug"
@@ -267,7 +281,7 @@ func (f *spineFixture) recordJobAs(t *testing.T, jobID string) {
 		Mechanism:  store.OracleMechanism{ProjectID: "project-1", Path: "pkg/value.go", EntryPoint: "Value"},
 		Obligation: "The checked value is available.", PredicateIDs: []string{"predicate:primary"}}
 	control := store.OracleControl{ControlID: "control:spine-value", OwnerID: owner.OwnerID, PredicateIDs: owner.PredicateIDs,
-		CaseIDs: []string{"case:spine-value"}, Cwd: "pkg", Argv: []string{"go", "test", "-count=1", "-run", "^(TestValue)$", "."},
+		CaseIDs: []string{"case:spine-value"}, Cwd: "pkg", Argv: []string{"go", "test", "-count=1", "."},
 		RecipeSource:   store.WorkContextReadingSource{Kind: store.WorkContextSourceRepositoryFile, ProjectID: "project-1", Path: "pkg/oracle.json", CommitOID: f.base},
 		ExpectedResult: store.OracleExpectedResultPass, RequiredEvidenceRole: store.OracleEvidenceRoleReported}
 	cases := []store.OracleCase{{CaseID: "case:spine-value", OwnerID: owner.OwnerID, EntryPoint: "Value", InputClass: "checked value", ExpectedState: "value is seven", ControlIDs: []string{control.ControlID}}}
@@ -290,6 +304,7 @@ func (f *spineFixture) recordJobAs(t *testing.T, jobID string) {
 		t.Fatalf("native preparation not ready: %+v", result)
 	}
 	control.ReadinessEvidenceRefs = []string{result.OperationRef}
+	f.preparation = result.OperationRef
 	spineOK(t, f.action(t, "record_worker_job", map[string]any{
 		"job_id": jobID, "objective": "Carry out the approved value change.", "stopping_condition": "The value check passes.",
 		"ready": true, "checks": []string{"go test ./..."}, "readiness_evidence": []string{result.OperationRef}, "path_scope": []string{"pkg/value.go"},
@@ -337,11 +352,10 @@ func (f *spineFixture) startWorker(t *testing.T, laneID, attempt string) (store.
 		t.Fatalf("dispatch omitted its actual packet digest: %s (%v)", authorized.Result, err)
 	}
 	f.packetDigest = authorization.PacketDigest
-	state := f.read(t)
-	if state.Pinned.Pin.Attempt == nil {
-		t.Fatal("dispatch omitted current attempt")
+	var epoch int64
+	if err := f.s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.attempt_epoch') FROM worker_authorizations WHERE work_id=? AND attempt_id=?`, f.work, attempt).Scan(&epoch); err != nil || epoch == 0 {
+		t.Fatalf("dispatch omitted its authorized attempt epoch: %d (%v)", epoch, err)
 	}
-	epoch := state.Pinned.Pin.Attempt.Epoch
 	dispatch := store.Event{EventID: "spine-host-dispatched-" + attempt, Kind: store.WorkerDispatched, SubjectType: store.SubjectWorkItem, SubjectID: f.work,
 		Actor: "worker:test", OccurredAt: time.Now().UTC(), PayloadVersion: store.CurrentEventPayloadVersion(store.WorkerDispatched), Payload: retryJSON(store.WorkerDispatchedPayload{
 			AttemptID: attempt, LaneID: lane.ID, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass,
@@ -359,7 +373,7 @@ func (f *spineFixture) startWorker(t *testing.T, laneID, attempt string) (store.
 	return lane, job, epoch
 }
 
-func (f *spineFixture) finishWorker(t *testing.T, lane store.LaneDefinition, attempt string, job *store.WorkerJobBinding, review *store.WorkerReviewBlock) {
+func (f *spineFixture) finishWorker(t *testing.T, lane store.LaneDefinition, attempt string, job *store.WorkerJobBinding, review *store.WorkerReviewBlock, receipts ...*store.WorkerOracleReceipt) {
 	t.Helper()
 	ctx := context.Background()
 	evidence := []store.WorkerReportEvidence{}
@@ -368,6 +382,9 @@ func (f *spineFixture) finishWorker(t *testing.T, lane store.LaneDefinition, att
 			continue
 		}
 		evidence = append(evidence, store.WorkerReportEvidence{Obligation: obligation, Detail: "Checked value implementation."})
+	}
+	if len(receipts) != 0 {
+		evidence[0].OracleReceipt = receipts[0]
 	}
 	completion := store.Event{EventID: "spine-host-completed-" + attempt, Kind: store.WorkerCompleted, SubjectType: store.SubjectWorkItem, SubjectID: f.work,
 		Actor: "worker:test", OccurredAt: time.Now().UTC(), PayloadVersion: store.CurrentEventPayloadVersion(store.WorkerCompleted),
@@ -384,6 +401,30 @@ func (f *spineFixture) finishWorker(t *testing.T, lane store.LaneDefinition, att
 	}); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func (f *spineFixture) proveFootprint(t *testing.T) {
+	t.Helper()
+	f.recordJobAs(t, "job:spine-footprint")
+	attempt := fmt.Sprintf("attempt:spine-footprint-%d", f.request)
+	lane, job, epoch := f.startWorker(t, "verify", attempt)
+	response := spineOK(t, f.call(t, "concord_work_transition", "worktree_verify", map[string]any{
+		"work_id": f.work, "idempotency_key": fmt.Sprintf("spine-footprint-execute-%d", f.request), "oracle": map[string]any{
+			"phase": "execute", "attempt_id": attempt, "attempt_epoch": epoch, "worker_packet_digest": f.packetDigest,
+			"worker_job_binding": job, "control_id": "control:spine-value", "preparation_run_ref": f.preparation,
+		},
+	}))
+	var result store.WorktreeVerifyResult
+	if err := json.Unmarshal(response.Result, &result); err != nil || result.Oracle == nil || result.Oracle.Qualification != "pass" {
+		t.Fatalf("package execution = %+v, %v", result, err)
+	}
+	code := 0
+	source := result.Oracle.RecipeSource
+	receipt := &store.WorkerOracleReceipt{ControlIDs: []string{"control:spine-value"}, CaseIDs: []string{"case:spine-value"}, SubjectCommit: result.Oracle.SubjectCommit,
+		RecipeSource: store.WorkerOracleRecipeSource{Kind: source.Kind, ProjectID: source.ProjectID, Path: source.Path, CommitOID: source.CommitOID}, Result: "pass", ExitCode: &code, RunRef: result.OperationRef, EvidenceRefs: []string{result.OperationRef}}
+	f.finishWorker(t, lane, attempt, job, nil, receipt)
+	spineOK(t, f.action(t, "accept_worker_result", map[string]any{"attempt_id": attempt, "attempt_epoch": epoch}))
+	f.proof, f.proofCommit = result.OperationRef, result.Oracle.SubjectCommit
 }
 
 func (f *spineFixture) review(t *testing.T, disposition, proof string) {

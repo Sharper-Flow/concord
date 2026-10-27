@@ -785,7 +785,7 @@ func preflightWorkflowActionRequestWithRegistry(ctx context.Context, s *store.St
 			return err
 		}
 	}
-	preflightErr := store.WorkflowActionPreflightWithRegistry(ctx, s, registry, store.WorkflowActionPreflightRequest{
+	preflight := store.WorkflowActionPreflightRequest{
 		WorkID:                in.WorkID,
 		ExpectedVersion:       in.ExpectedVersion,
 		ActionID:              in.ActionID,
@@ -794,7 +794,19 @@ func preflightWorkflowActionRequestWithRegistry(ctx context.Context, s *store.St
 		Payload:               payload,
 		Actor:                 store.WorkflowActor{PrincipalRef: actor.PrincipalRef, ClientRef: actor.ClientRef, AgentRef: actor.AgentRef, SessionRef: actor.SessionRef, ActorClass: store.ActorAgent},
 		SessionWorktree:       env.Worktree,
-	})
+	}
+	preflight.ProjectTooling, preflight.ResolvedFootprint, err = resolveWorkflowActionSources(ctx, s, registry, in.WorkID, in.ActionID, payload)
+	if err != nil {
+		return err
+	}
+	if in.ActionID == "complete" && preflight.ResolvedFootprint != nil {
+		preparation, err := store.PrepareWorkflowAcceptanceFreshness(ctx, s, store.PrepareWorkerDispatchRequest{WorkID: in.WorkID, SessionWorktree: env.Worktree})
+		if err != nil {
+			return err
+		}
+		ctx = store.WithWorkerDispatchPreparation(ctx, preparation)
+	}
+	preflightErr := store.WorkflowActionPreflightWithRegistry(ctx, s, registry, preflight)
 	if preflightErr == nil {
 		return nil
 	}
@@ -1249,14 +1261,16 @@ func (m *workflowActionMutation) execute(ctx context.Context, action store.Workf
 	// default-ref manifest for that accept exactly as record_delivery does.
 	// bind_evidence on a size-capable pin that holds a split
 	// resolves the same manifest, so the automatic integration discharge
-	// keeps only runs of declared tools.
-	if in.ActionID == "record_delivery" || in.ActionID == "accept_worker_result" || in.ActionID == "bind_evidence" {
-		tooling, toolingErr := r.refineProofToolingForAction(ctx, in.WorkID, in.ActionID)
-		if toolingErr != nil {
-			return failureEnvelope(base, toolingErr), nil
-		}
-		actionRequest.ProjectTooling = tooling
+	// keeps only runs of declared tools. The complete action resolves the
+	// same manifest for the footprint proof gate: completion and
+	// delivery consume one typed required-proof state.
+	tooling, resolvedFootprint, sourcesErr := resolveWorkflowActionSources(ctx, r.Store, registry, in.WorkID, in.ActionID, payload)
+	if sourcesErr != nil {
+		return failureEnvelope(base, sourcesErr), nil
 	}
+	actionRequest.ProjectTooling, preflight.ProjectTooling = tooling, tooling
+	actionRequest.ResolvedFootprint = resolvedFootprint
+	preflight.ResolvedFootprint = resolvedFootprint
 	// CD-0200: the approval, supersession, and completion gates each run the
 	// mandated-law boundary inside their transaction, so their registered
 	// source set verifies before the transaction opens (store connection
@@ -1425,21 +1439,27 @@ func (r runtime) prepareWorkerDispatchContext(ctx context.Context, workID, actio
 	return ctx, nil
 }
 
-// refineProofToolingForAction resolves the Project tooling manifest the
-// refine-exit proof consumes (CD-0192): record_delivery wherever the guard is
-// gated, and the CD-0198 D4 combined accept at its admitting refinement step.
-// The resolution reads git outside the store transaction, so the caller runs
-// it before the action's transaction opens; nil reports that the Project
-// declares no manifest on its default ref.
-func (r runtime) refineProofToolingForAction(ctx context.Context, workID, actionID string) (*store.ProjectToolingManifest, error) {
-	required, requiredErr := store.RefineProofManifestRequired(ctx, r.Store, workID, actionID)
+// Discovery and mutation resolve exactly the same internal inputs before
+// opening a transaction. Footprint coverage is required at every delivery
+// boundary, not only at the legacy refinement exit.
+func resolveWorkflowActionSources(ctx context.Context, s *store.Store, registry store.DefinitionRegistry, workID, actionID string, payload json.RawMessage) (*store.ProjectToolingManifest, *store.ResolvedWorkflowFootprint, error) {
+	resolved := store.ResolveWorkflowFootprint(ctx, s, registry, workID, actionID, payload)
+	if actionID != "record_delivery" && actionID != "accept_worker_result" && actionID != "bind_evidence" && (actionID != "complete" || resolved == nil) {
+		return nil, resolved, nil
+	}
+	if resolved != nil {
+		tooling, err := store.ResolveWorkProjectTooling(ctx, s, workID)
+		return tooling, resolved, err
+	}
+	required, requiredErr := store.RefineProofManifestRequired(ctx, s, workID, actionID)
 	if requiredErr != nil {
-		return nil, requiredErr
+		return nil, resolved, requiredErr
 	}
 	if !required {
-		return nil, nil
+		return nil, resolved, nil
 	}
-	return store.ResolveWorkProjectTooling(ctx, r.Store, workID)
+	tooling, err := store.ResolveWorkProjectTooling(ctx, s, workID)
+	return tooling, resolved, err
 }
 
 func workKindMutationRefusal(kind string, allowed bool, fallback string) (string, bool) {

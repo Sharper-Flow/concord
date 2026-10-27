@@ -1,0 +1,21 @@
+{
+  "kind": "target_runner_v1",
+  "materializer": "none",
+  "runner": "check",
+  "root": ".",
+  "harness_files": [
+    "scripts/generate-agent-lanes.py",
+    "scripts/generate-agent-contracts.py",
+    "scripts/check-primary-prompts.py",
+    "scripts/test-generate-agent-lanes.py"
+  ],
+  "support_files": [],
+  "cases": {
+    "case:lanes-parity": ["lanes-generated-parity", "lanes-generator-tests"]
+  },
+  "checks": [
+    {"witness": "lanes-generated-parity", "argv": ["python3", "scripts/generate-agent-lanes.py", "--check"]},
+    {"witness": "lanes-generator-tests", "argv": ["python3", "scripts/test-generate-agent-lanes.py"]}
+  ],
+  "pin": {"python": "3.13.7"}
+}

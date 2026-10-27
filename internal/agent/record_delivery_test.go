@@ -42,14 +42,19 @@ func TestRecordDeliveryExitsTheStepTheSessionExecuted(t *testing.T) {
 		attempt++
 		identity := fmt.Sprintf("delivery-%s-%d", actionID, attempt)
 		raw, _ := json.Marshal(payload)
+		tooling, resolved, err := resolveWorkflowActionSources(ctx, s, store.BuiltinWorkflowRegistry(), f.work, actionID, raw)
+		if err != nil {
+			return err
+		}
 		v := version()
 		request := store.WorkflowActionExecutionRequest{
 			WorkID: f.work, ExpectedVersion: v, ActionID: actionID, Payload: raw,
 			Actor: execActor, AcceptedInputsDigest: "sha256:" + strings.Repeat("3", 64), IdempotencyIdentity: identity,
 			OperationID: "delivery-op-" + identity, PrincipalRef: "human-1", Tool: "concord-test", IdempotencyKey: "delivery-key-" + identity,
 			RequestID: "delivery-request-" + identity, AcceptedScope: `{"project":"project-1"}`, ContractDigest: ManifestDigest, Now: fixedTime(),
+			ProjectTooling: tooling, ResolvedFootprint: resolved,
 		}
-		preflight := store.WorkflowActionPreflightRequest{WorkID: f.work, ExpectedVersion: v, ActionID: actionID, Payload: raw, Actor: execActor}
+		preflight := store.WorkflowActionPreflightRequest{WorkID: f.work, ExpectedVersion: v, ActionID: actionID, Payload: raw, Actor: execActor, ProjectTooling: tooling, ResolvedFootprint: resolved}
 		return store.AuthorizeWorkflowActionAtBoundaryTx(ctx, s, store.BuiltinWorkflowRegistry(), preflight, nil, func(tx *store.Transaction) error {
 			_, err := store.ApplyWorkflowActionTx(ctx, tx, store.BuiltinWorkflowRegistry(), request)
 			return err

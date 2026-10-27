@@ -25,6 +25,25 @@
     { "if": { "properties": { "tools": { "maxItems": 0 } } }, "then": { "required": ["domain_shape"] } }
   ],
   "$defs": {
+    "coverage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["anchor", "recipe_path", "case_id"],
+      "properties": {
+        "anchor": {
+          "type": "object", "additionalProperties": false, "required": ["kind", "value"],
+          "properties": {
+            "kind": { "enum": ["adapter_test", "generated", "go_test", "scenario", "validator", "go_package"] },
+            "value": { "type": "string", "minLength": 1, "maxLength": 512, "pattern": "^\\S(?:[^\\u0000-\\u001F\\u007F]*\\S)?$" }
+          }
+        },
+        "recipe_path": {
+          "type": "string", "minLength": 3, "maxLength": 512,
+          "pattern": "^(?!tmp(?:/|$))(?!/)(?!.*//)(?!\\.{1,2}(?:/|$))(?!.*\\/\\.{1,2}(?:/|$))[A-Za-z0-9._-]+(?:/[A-Za-z0-9._-]+)*$"
+        },
+        "case_id": { "type": "string", "maxLength": 128, "pattern": "^case:[A-Za-z0-9][A-Za-z0-9._:-]*$" }
+      }
+    },
     "domain_shape": {
       "type": "object",
       "additionalProperties": false,
@@ -73,6 +92,11 @@
           "type": "string",
           "enum": ["fast", "standard", "slow"],
           "description": "Cost class. fast runs in seconds, standard in minutes, slow beyond that."
+        },
+        "coverage": {
+          "type": "array", "maxItems": 64, "uniqueItems": true,
+          "items": { "$ref": "#/$defs/coverage" },
+          "description": "Explicit anchor-to-native-case bindings. The checker rejects conflicting bindings and requires a direct allowlisted invocation; old wrappers declare no inferred coverage."
         },
         "cost_hint": {
           "type": "string",

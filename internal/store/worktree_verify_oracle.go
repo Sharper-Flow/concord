@@ -69,6 +69,8 @@ type NativeOraclePreparation struct {
 	TargetRunner       string              `json:"target_runner,omitempty"`
 	SelectedWitnessIDs []string            `json:"selected_witness_ids,omitempty"`
 	CaseToWitnessMap   map[string][]string `json:"case_to_witness_map,omitempty"`
+	HarnessInputCount  int                 `json:"harness_input_count,omitempty"`
+	HarnessInputDigest string              `json:"harness_input_digest,omitempty"`
 }
 
 type NativeOracleStage struct {
@@ -98,8 +100,9 @@ type NativeOracleResult struct {
 	ObservedTestNames    []string            `json:"observed_test_names,omitempty"`
 	// ObservedWitnessIDs is the target-runner analog of
 	// ObservedTestNames: the witnesses the host actually observed passing.
-	ObservedWitnessIDs []string `json:"observed_witness_ids,omitempty"`
-	Detail             string   `json:"detail,omitempty"`
+	ObservedWitnessIDs []string                  `json:"observed_witness_ids,omitempty"`
+	PackageInventory   *NativeGoPackageInventory `json:"package_inventory,omitempty"`
+	Detail             string                    `json:"detail,omitempty"`
 }
 
 type nativeOracleAuthorization struct {
@@ -114,25 +117,27 @@ type nativeOracleAuthorization struct {
 // historical plans are read strictly by family: a target plan never falls
 // back to the Go reader, and an old Go plan never gains host fields.
 type nativeOraclePlan struct {
-	RequestID        string                    `json:"request_id"`
-	Request          NativeOracleRequest       `json:"request"`
-	WorkID           string                    `json:"work_id"`
-	ProjectID        string                    `json:"project_id"`
-	ContractVersion  int64                     `json:"contract_version"`
-	SubjectCommit    string                    `json:"subject_commit"`
-	WorktreeIdentity string                    `json:"worktree_identity"`
-	Bundle           NativeOracleControlBundle `json:"bundle"`
-	BundleDigest     string                    `json:"bundle_digest"`
-	Manifest         nativeGoOracleManifest    `json:"manifest"`
-	ManifestFile     NativeOracleFile          `json:"manifest_file"`
-	Files            []NativeOracleFile        `json:"files"`
-	Environment      nativeGoEnvironment       `json:"environment"`
-	Target           *nativeTargetOraclePlan   `json:"target,omitempty"`
-	Authorization    nativeOracleAuthorization `json:"authorization"`
-	Stages           []NativeOracleStage       `json:"stages"`
-	StreamLimit      int                       `json:"stream_limit"`
-	CachePolicy      string                    `json:"cache_policy"`
-	ReviewRepair     *nativeReviewRepair       `json:"review_repair,omitempty"`
+	RequestID          string                    `json:"request_id"`
+	Request            NativeOracleRequest       `json:"request"`
+	WorkID             string                    `json:"work_id"`
+	ProjectID          string                    `json:"project_id"`
+	ContractVersion    int64                     `json:"contract_version"`
+	SubjectCommit      string                    `json:"subject_commit"`
+	WorktreeIdentity   string                    `json:"worktree_identity"`
+	Bundle             NativeOracleControlBundle `json:"bundle"`
+	BundleDigest       string                    `json:"bundle_digest"`
+	Manifest           nativeGoOracleManifest    `json:"manifest"`
+	ManifestFile       NativeOracleFile          `json:"manifest_file"`
+	Files              []NativeOracleFile        `json:"files"`
+	Environment        nativeGoEnvironment       `json:"environment"`
+	Target             *nativeTargetOraclePlan   `json:"target,omitempty"`
+	Authorization      nativeOracleAuthorization `json:"authorization"`
+	Stages             []NativeOracleStage       `json:"stages"`
+	StreamLimit        int                       `json:"stream_limit"`
+	CachePolicy        string                    `json:"cache_policy"`
+	ReviewRepair       *nativeReviewRepair       `json:"review_repair,omitempty"`
+	HarnessInputCount  int                       `json:"harness_input_count,omitempty"`
+	HarnessInputDigest string                    `json:"harness_input_digest,omitempty"`
 }
 
 // nativePlanEnvironment returns the family-owned environment identity the
@@ -181,7 +186,7 @@ func normalizeNativeOraclePlan(ctx context.Context, r GitRunner, entry WorktreeE
 		return p, err
 	}
 	switch kind {
-	case "go_top_level_v1":
+	case "go_top_level_v1", nativeGoPackageKind:
 		return normalizeNativeGoOraclePlan(ctx, r, entry, p, f, raw, req)
 	case nativeTargetKind:
 		return normalizeNativeTargetOraclePlan(ctx, r, entry, p, f, raw, req)
@@ -437,6 +442,9 @@ func nativePreparationComplete(o *NativeOracleResult, p nativeOraclePlan) bool {
 	if p.Target != nil {
 		return nativeTargetPreparationWitnessesComplete(o, p)
 	}
+	if p.Manifest.Kind == nativeGoPackageKind {
+		return nativeGoPackageSelectionMatches(p, o) && o.PackageInventory == nil
+	}
 	names, err := nativeOracleSelector(p.Manifest, p.Bundle.Control)
 	if err != nil {
 		return false
@@ -463,7 +471,7 @@ func nativePreparationJoinsValid(o *NativeOracleResult, p nativeOraclePlan) bool
 	if o.BundleDigest != p.BundleDigest || p.BundleDigest != nativeBundleDigest(p.Bundle) || o.LogicalArgvDigest != nativeDigest([]byte(workflowJSON(p.Bundle.Control.Argv))) || o.LogicalCwd == "" || o.LogicalCwd != p.Bundle.Control.Cwd || o.RecipeSource != p.Bundle.Control.RecipeSource {
 		return false
 	}
-	if !worktreeSHAPattern.MatchString(o.ManifestBlob) || o.ManifestBlob != p.ManifestFile.BlobOID || !workflowDigest(o.ManifestDigest) || o.ManifestDigest != p.ManifestFile.SHA256 || len(o.Files) < 1 || len(o.Files) > 32 || !oracleEntryIdentical(o.Files, p.Files) {
+	if !worktreeSHAPattern.MatchString(o.ManifestBlob) || o.ManifestBlob != p.ManifestFile.BlobOID || !workflowDigest(o.ManifestDigest) || o.ManifestDigest != p.ManifestFile.SHA256 || !nativeGoHarnessReceiptMatches(p, o) {
 		return false
 	}
 	digest, identity := nativePlanEnvironment(p)
@@ -843,7 +851,7 @@ func validateNativeExecutionPreparation(ctx context.Context, q queryer, req Work
 		return err
 	}
 	digest, identity := nativePlanEnvironment(plan)
-	if prep == nil || prep.BuildEnvironmentDigest != digest || prep.ToolchainIdentity != identity || prep.ManifestDigest != plan.ManifestFile.SHA256 || !oracleEntryIdentical(prep.Files, plan.Files) {
+	if prep == nil || prep.BuildEnvironmentDigest != digest || prep.ToolchainIdentity != identity || prep.ManifestDigest != plan.ManifestFile.SHA256 || !oracleEntryIdentical(prep.Files, plan.Files) || prep.HarnessInputCount != plan.HarnessInputCount || prep.HarnessInputDigest != plan.HarnessInputDigest {
 		return oracleFailure(KindUnauthorizedDispatch, "preparation environment or pinned inputs differ from execution", "request explicit preparation for this environment and bundle")
 	}
 	return nil
@@ -941,7 +949,7 @@ func nativeLeaseRef(leaseID string) SubjectCurrentVersion {
 
 func nativeOracleInitialResult(req WorktreeVerifyRequest, entry WorktreeEntry, p nativeOraclePlan) WorktreeVerifyResult {
 	r := WorktreeVerifyResult{WorkID: req.WorkID, ProjectID: req.ProjectID, Path: entry.Path, Branch: entry.Branch, LeaseID: req.LeaseID, OperationRef: worktreeVerifyOperationRef(req.LeaseID), Command: req.Command}
-	base := NativeOraclePreparation{Protocol: "native_oracle_v2", Phase: req.Oracle.Phase, Qualification: "unavailable", RunRef: r.OperationRef, WorkID: req.WorkID, ProjectID: req.ProjectID, ContractVersion: p.ContractVersion, SubjectCommit: p.SubjectCommit, BundleDigest: p.BundleDigest, LogicalArgvDigest: nativeDigest([]byte(workflowJSON(p.Bundle.Control.Argv))), LogicalCwd: p.Bundle.Control.Cwd, RecipeSource: p.Bundle.Control.RecipeSource, ManifestBlob: p.ManifestFile.BlobOID, ManifestDigest: p.ManifestFile.SHA256, Files: p.Files, NativePlanSHA256: req.nativePlanSHA256}
+	base := NativeOraclePreparation{Protocol: "native_oracle_v2", Phase: req.Oracle.Phase, Qualification: "unavailable", RunRef: r.OperationRef, WorkID: req.WorkID, ProjectID: req.ProjectID, ContractVersion: p.ContractVersion, SubjectCommit: p.SubjectCommit, BundleDigest: p.BundleDigest, LogicalArgvDigest: nativeDigest([]byte(workflowJSON(p.Bundle.Control.Argv))), LogicalCwd: p.Bundle.Control.Cwd, RecipeSource: p.Bundle.Control.RecipeSource, ManifestBlob: p.ManifestFile.BlobOID, ManifestDigest: p.ManifestFile.SHA256, Files: p.Files, NativePlanSHA256: req.nativePlanSHA256, HarnessInputCount: p.HarnessInputCount, HarnessInputDigest: p.HarnessInputDigest}
 	digest, identity := nativePlanEnvironment(p)
 	base.ToolchainIdentity = identity
 	base.BuildEnvironmentDigest = digest
@@ -952,6 +960,12 @@ func nativeOracleInitialResult(req WorktreeVerifyRequest, entry WorktreeEntry, p
 		base.TargetRunner = p.Target.Environment.Runner
 		base.SelectedWitnessIDs = names
 		base.CaseToWitnessMap = p.Target.Recipe.Cases
+		base.SelectedDistinctCount = len(names)
+	} else if p.Manifest.Kind == nativeGoPackageKind {
+		names, _ := nativeOracleSelector(p.Manifest, p.Bundle.Control)
+		base.RecipeKind = nativeGoPackageKind
+		base.SelectedWitnessIDs = names
+		base.CaseToWitnessMap = p.Manifest.Cases
 		base.SelectedDistinctCount = len(names)
 	} else {
 		names, _ := nativeOracleSelector(p.Manifest, p.Bundle.Control)

@@ -1,0 +1,5 @@
+{
+  "kind": "go_package_v1",
+  "package_cwd": "internal/predecessor",
+  "cases": {"case:package-predecessor": ["go_package:./internal/predecessor"]}
+}

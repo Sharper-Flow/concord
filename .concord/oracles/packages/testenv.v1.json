@@ -1,0 +1,5 @@
+{
+  "kind": "go_package_v1",
+  "package_cwd": "internal/testenv",
+  "cases": {"case:package-testenv": ["go_package:./internal/testenv"]}
+}

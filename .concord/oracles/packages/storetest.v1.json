@@ -1,0 +1,5 @@
+{
+  "kind": "go_package_v1",
+  "package_cwd": "internal/store/storetest",
+  "cases": {"case:package-storetest": ["go_package:./internal/store/storetest"]}
+}

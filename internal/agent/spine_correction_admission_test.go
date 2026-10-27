@@ -15,7 +15,7 @@ func TestSpineCurrentReviewCorrectionAdmission(t *testing.T) {
 	f.verify(t)
 	f.recordJob(t)
 	f.completeWorker(t)
-	f.proof = f.verify(t)
+	f.proveFootprint(t)
 	f.recordJob(t)
 	beforeReview := f.read(t)
 	candidate := *beforeReview.Pinned.Pin.Review.Candidate
@@ -119,6 +119,7 @@ func TestSpineCurrentReviewCorrectionAdmission(t *testing.T) {
 	f.finishWorker(t, lane, correctiveAttempt, job, nil)
 	spineOK(t, f.action(t, "accept_worker_result", map[string]any{"attempt_id": correctiveAttempt, "attempt_epoch": epoch}))
 	t.Run("corrective intake still requires current ready Review", func(t *testing.T) { refuse(t, "record_delivery", delivery) })
+	f.proveFootprint(t)
 	f.recordJob(t)
 	f.review(t, "ready_for_final_proof", f.proof)
 	t.Run("ready Review closes the correction prerequisite", func(t *testing.T) { refuse(t, "request_correction", fields) })

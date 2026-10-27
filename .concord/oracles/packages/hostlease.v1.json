@@ -1,0 +1,5 @@
+{
+  "kind": "go_package_v1",
+  "package_cwd": "internal/hostlease",
+  "cases": {"case:package-hostlease": ["go_package:./internal/hostlease"]}
+}

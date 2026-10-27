@@ -14,11 +14,17 @@ func smallImplementationAtRelease(t *testing.T) acceptDeliveryCandidate {
 	t.Helper()
 	c := acceptDeliveryCandidateAt(t, "small-route-outcomes", "workflow.implementation", "execution", false)
 	inputs := workSizeInputsFixture()
+	record, _, err := readWorkSize(t.Context(), c.f.store.db, c.f.workID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	inputs.PathCount, inputs.DomainCount = len(record.Footprint.Paths), len(record.Footprint.DomainIDs)
+	inputs.PackageCount, inputs.UnmappedPathCount = footprintPathCounts(record.Footprint.Paths)
 	size, err := DecideWorkSize(WorkSizeModelVersion, inputs, nil)
 	if err != nil || size != WorkSizeSmall {
 		t.Fatalf("small fixture model = %q, %v", size, err)
 	}
-	if err := applyWorkEvent(t, c.f.store, workSizedEvent("small-route-size", c.f.workID, WorkSizeModelVersion, size, inputs), nil); err != nil {
+	if err := applyWorkEvent(t, c.f.store, workSizedEventWith("small-route-size", c.f.workID, WorkSizeModelVersion, size, inputs, record.Footprint), nil); err != nil {
 		t.Fatal(err)
 	}
 	recorded, ok, err := readWorkSize(t.Context(), c.f.store.db, c.f.workID)

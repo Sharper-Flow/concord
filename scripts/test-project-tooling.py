@@ -278,6 +278,86 @@ class ProjectToolingTests(unittest.TestCase):
             self.assertEqual({"pattern": checker.SINGLE_LINE_PATTERN} in patterns, single_line)
         invocation_patterns = properties["invocation"]["allOf"]
         self.assertIn({"pattern": checker.PLAIN_ARGV_PATTERN}, invocation_patterns)
+        coverage = schema["$defs"]["coverage"]
+        self.assertEqual(properties["coverage"]["maxItems"], checker.MAX_COVERAGE)
+        self.assertTrue(properties["coverage"]["uniqueItems"])
+        self.assertFalse(coverage["additionalProperties"])
+        self.assertEqual(set(coverage["required"]), {"anchor", "recipe_path", "case_id"})
+        self.assertEqual(set(coverage["properties"]["anchor"]["properties"]["kind"]["enum"]), checker.ANCHOR_KINDS)
+        self.assertEqual(coverage["properties"]["anchor"]["properties"]["value"]["pattern"], checker.ANCHOR_VALUE_PATTERN)
+        self.assertEqual(coverage["properties"]["recipe_path"]["pattern"], checker.RECIPE_PATH_PATTERN)
+        self.assertEqual(coverage["properties"]["case_id"]["pattern"], checker.CASE_PATTERN)
+
+    def coverage(self, **overrides: object) -> dict[str, object]:
+        entry = {"anchor": {"kind": "go_test", "value": "internal/demo.TestDemo"},
+                 "recipe_path": ".concord/oracles/demo.json", "case_id": "case:demo"}
+        entry.update(overrides)
+        recipe = self.root / ".concord/oracles/demo.json"
+        recipe.parent.mkdir(exist_ok=True)
+        recipe.write_text(json.dumps({"kind": "go_top_level_v1", "package_cwd": "internal/demo",
+                                     "test_files": ["internal/demo/demo_test.go"], "fixture_files": [],
+                                     "cases": {"case:demo": ["TestDemo"], "case:other": ["TestOther"]}}), encoding="utf-8")
+        source = self.root / "internal/demo/demo_test.go"
+        source.parent.mkdir(parents=True, exist_ok=True)
+        source.write_text('package demo\nimport "testing"\nfunc TestDemo(t *testing.T) { t.Fatal("bad") }\n', encoding="utf-8")
+        return entry
+
+    def test_explicit_coverage_and_shared_binding_pass(self) -> None:
+        coverage = [self.coverage()]
+        self.manifest([tool("first", invocation="go test -count=1 ./internal/demo", coverage=coverage),
+                       tool("second", invocation="go test -race ./internal/demo", coverage=coverage)])
+        self.assertEqual(checker.check(root=self.root), [])
+
+    def test_unrelated_recipe_case_cannot_cover_named_test(self) -> None:
+        entry = self.coverage()
+        (self.root / entry["recipe_path"]).write_text(json.dumps({
+            "kind": "go_top_level_v1", "package_cwd": "internal/demo",
+            "test_files": ["internal/demo/demo_test.go"], "fixture_files": [],
+            "cases": {"case:demo": ["TestUnrelated"]},
+        }), encoding="utf-8")
+        self.manifest([tool(invocation="go test ./internal/demo", coverage=[entry])])
+        self.assertTrue(any("anchor" in f and "case" in f for f in checker.check(root=self.root)))
+
+    def test_coverage_closed_bounds_and_conflicts(self) -> None:
+        for coverage in (None, {}, [self.coverage(extra=True)], [self.coverage(anchor={"kind": "other", "value": "x"})],
+                         [self.coverage(recipe_path="../out.json")], [self.coverage(case_id="case:bad space")],
+                         [self.coverage(), self.coverage()], [self.coverage()] * 65):
+            with self.subTest(coverage=coverage):
+                self.manifest([tool(invocation="go test ./internal/demo", coverage=coverage)])
+                self.assertTrue(checker.check(root=self.root))
+        self.manifest([tool("first", invocation="go test ./internal/demo", coverage=[self.coverage()]),
+                       tool("second", invocation="go test ./internal/demo", coverage=[self.coverage(case_id="case:other")])])
+        self.assertTrue(any("conflicting" in f for f in checker.check(root=self.root)))
+
+    def test_coverage_requires_direct_allowlisted_command(self) -> None:
+        for invocation in ("go test -exec=helper ./internal/demo", "go test -run TestDemo ./internal/demo",
+                           "go test -short ./internal/demo", "go test -tags=x ./internal/demo", "go test -unknown ./internal/demo",
+                           "bun test --todo adapter/opencode/demo.test.ts", "python3 scripts/check-demo.py --skip",
+                           "bin/oc-test targeted -- go test ./internal/demo"):
+            with self.subTest(invocation=invocation):
+                self.manifest([tool(invocation=invocation, coverage=[self.coverage()])])
+                self.assertTrue(any("direct" in f for f in checker.check(root=self.root)))
+
+    def test_coverage_path_requires_contained_file(self) -> None:
+        entry = self.coverage()
+        (self.root / entry["recipe_path"]).unlink()
+        self.manifest([tool(invocation="go test ./internal/demo", coverage=[entry])])
+        self.assertTrue(any("recipe_path does not resolve" in f for f in checker.check(root=self.root)))
+
+    def test_manifest_byte_bound(self) -> None:
+        self.manifest([tool(notes="x" * 65536)])
+        self.assertTrue(any("65536 bytes" in f for f in checker.check(root=self.root)))
+
+    def test_direct_grammar_positive_and_flag_bounds(self) -> None:
+        for invocation in ("go test ./...", "go test -race -v -json -count 1 -timeout=20m -p=2 -parallel 4 ./internal/...",
+                           "bun test --timeout=1000 ./adapter/opencode/demo.test.ts", "python3 scripts/check-demo.py"):
+            with self.subTest(invocation=invocation):
+                self.assertTrue(checker.direct_command(invocation))
+        for invocation in ("go test -count=0 ./...", "go test -timeout=0s ./...", "go test -v=false ./...",
+                           "go test -v -v ./...", "go test -coverpkg=./other ./...", "go test ../other",
+                           "go test ./../other", "go test ./tmp/...", "go\ttest ./...", "go test ./internal//demo", "bun test --timeout=0 adapter/opencode/demo.test.ts"):
+            with self.subTest(invocation=invocation):
+                self.assertFalse(checker.direct_command(invocation))
 
     def test_domain_shape_empty_product_and_declared_tools(self) -> None:
         document = self.document([])

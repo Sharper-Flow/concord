@@ -268,6 +268,106 @@ def test_adapter_test_anchor_resolves() -> None:
     assert findings == [], findings
 
 
+def test_scenario_identity_is_not_an_arbitrary_nested_json_id(tmp: Path) -> None:
+    from unittest import mock
+    corpus = tmp / ".concord/scenarios"
+    corpus.mkdir(parents=True)
+    (corpus / "synthetic.json").write_text('{"fixtures":{"id":"not-a-scenario"},"scenarios":[]}')
+    with mock.patch.object(anchors, "ROOT", tmp):
+        assert not anchors.scenario_exists("not-a-scenario"), "fixture id became a scenario"
+
+
+def test_ambiguous_scenario_declarations_do_not_resolve(tmp: Path) -> None:
+    from unittest import mock
+    corpus = tmp / ".concord/scenarios"
+    corpus.mkdir(parents=True)
+    (corpus / "one.json").write_text('{"scenarios":[{"id":"scenario-duplicate"}]}')
+    (corpus / "two.json").write_text('{"scenarios":[{"id":"scenario-duplicate"}]}')
+    with mock.patch.object(anchors, "ROOT", tmp):
+        assert not anchors.scenario_exists("scenario-duplicate")
+
+
+def test_corpus_presence_without_source_owner_proves_nothing(tmp: Path) -> None:
+    from unittest import mock
+    corpus = tmp / ".concord/scenarios"
+    corpus.mkdir(parents=True)
+    (corpus / "synthetic.json").write_text('{"scenarios":[{"id":"unbound-scenario"}]}')
+    with mock.patch.object(anchors, "ROOT", tmp):
+        findings = []
+        anchors.check_anchor({"kind": "scenario", "value": "unbound-scenario"}, "fixture", findings)
+        assert findings, "corpus registration became execution coverage"
+
+
+def test_continuity_source_binds_seven_scenarios_and_leaves_the_excluded_owner_unproved() -> None:
+    declarations = anchors.scenario_declarations()
+    scenarios = {identity for identity, (path, _) in declarations.items() if path == ".concord/scenarios/adapter-continuity.v1.json"}
+    assert len(scenarios) == 8, scenarios
+    unbound = {identity for identity in scenarios if anchors.scenario_adapter_test(identity) is None}
+    assert unbound == {"adapter-continuity-session-vacate-then-reclaim-passes-occupancy-gate"}, unbound
+
+
+def test_continuity_source_must_check_every_assertion_and_reject_mentions(tmp: Path) -> None:
+    import json
+    from unittest import mock
+    corpus_dir = tmp / ".concord/scenarios"
+    corpus_dir.mkdir(parents=True)
+    corpus_path = corpus_dir / "adapter-continuity.v1.json"
+    document = json.loads((ROOT / ".concord/scenarios/adapter-continuity.v1.json").read_text())
+    corpus_path.write_text(json.dumps(document))
+    adapter = tmp / "adapter/opencode"
+    adapter.mkdir(parents=True)
+    source = (ROOT / "adapter/opencode/continuity_hook.test.ts").read_text()
+    target = adapter / "continuity_hook.test.ts"
+    identity = "adapter-continuity-byte-stable-across-turns"
+    with mock.patch.object(anchors, "ROOT", tmp):
+        target.write_text(source)
+        assert anchors.scenario_adapter_test(identity) == "adapter/opencode/continuity_hook.test.ts"
+        for changed in (
+            source.replace('test("' + identity + '"', 'test.skip("' + identity + '"'),
+            source.replace('test("' + identity + '"', 'test("not-the-scenario"'),
+            source.replace("system_prompt_byte_identical: () => expect(first.system[0]).toBe(second.system[0])",
+                           "system_prompt_byte_identical: () => true"),
+            source.replace("no_duplicate_sentinel: () =>", "missing_assertion: () =>"),
+            "/*" + source + "*/",
+            source + '\ntest("' + identity + '", async () => {})',
+        ):
+            target.write_text(changed)
+            assert anchors.scenario_adapter_test(identity) is None, "source mention or incomplete assertions became proof"
+        target.write_text(source)
+        document["scenarios"][0]["then"].append({"assertion": "new_unchecked_assertion"})
+        corpus_path.write_text(json.dumps(document))
+        assert anchors.scenario_adapter_test(identity) is None, "new corpus assertion acquired invented coverage"
+
+
+def test_go_scenario_source_requires_exact_nested_witness_and_pinned_corpus(tmp: Path) -> None:
+    import json
+    from unittest import mock
+    corpus = tmp / ".concord/scenarios"
+    corpus.mkdir(parents=True)
+    (corpus / "fixture.json").write_text('{"scenarios":[{"id":"scenario-exact"}]}')
+    package = tmp / "internal/fixture"
+    package.mkdir(parents=True)
+    (package / "corpus_test.go").write_text('package fixture\nfunc TestCorpus(t *testing.T) { t.Fatal("fixture") }')
+    recipes = tmp / ".concord/oracles"
+    recipes.mkdir()
+    recipe = {"kind": "go_top_level_v1", "package_cwd": "internal/fixture",
+              "test_files": ["internal/fixture/corpus_test.go"],
+              "fixture_files": [".concord/scenarios/fixture.json"],
+              "cases": {"case:corpus": ["TestCorpus/scenario-exact"]}}
+    path = recipes / "fixture.json"
+    with mock.patch.object(anchors, "ROOT", tmp), mock.patch.object(anchors, "go_test_asserts", return_value=True):
+        path.write_text(json.dumps(recipe))
+        assert anchors.scenario_source_bound("scenario-exact")
+        for witness in ("TestCorpus", "TestCorpus/scenario-other"):
+            recipe["cases"]["case:corpus"] = [witness]
+            path.write_text(json.dumps(recipe))
+            assert not anchors.scenario_source_bound("scenario-exact")
+        recipe["cases"]["case:corpus"] = ["TestCorpus/scenario-exact"]
+        recipe["fixture_files"] = []
+        path.write_text(json.dumps(recipe))
+        assert not anchors.scenario_source_bound("scenario-exact")
+
+
 def test_adapter_test_anchor_rejects_unknown_test() -> None:
     findings: list[str] = []
     anchors.check_anchor(

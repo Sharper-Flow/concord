@@ -1,0 +1,20 @@
+{
+  "kind": "go_top_level_v1",
+  "package_cwd": "internal/store",
+  "test_files": [
+    "internal/store/query_corpus_test.go"
+  ],
+  "fixture_files": [
+    ".concord/scenarios/product-memory-query.v1.json",
+    "internal/store/knowledge_authority_defaults.v1.json",
+    "internal/store/testdata/native-target-uv/pyproject.toml",
+    "internal/store/testdata/native-target-uv/uv.lock"
+  ],
+  "cases": {
+    "case:project-membership-queries": [
+      "TestAcceptedQ1ToQ10Corpus/Q1-project-to-product",
+      "TestAcceptedQ1ToQ10Corpus/Q6-cross-project",
+      "TestAcceptedQ1ToQ10Corpus/Q6-project-to-work"
+    ]
+  }
+}

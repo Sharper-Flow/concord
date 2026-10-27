@@ -26,6 +26,13 @@ import (
 // host-observed pinned invocations. No stage runs while any SQL transaction
 // is open; the caller holds no lease transaction here.
 func (s *Store) runNativeTargetOracle(ctx context.Context, r GitRunner, entry WorktreeEntry, req WorktreeVerifyRequest, p nativeOraclePlan, capture *nativeStreamCapture, result *NativeOracleResult) (returnErr error) {
+	if p.HarnessInputCount > 32 {
+		var err error
+		p.Files, err = nativeGoPinnedFiles(ctx, r, entry.Path, p)
+		if err != nil {
+			return err
+		}
+	}
 	t := p.Target
 	m := t.Recipe
 	pair, err := nativeTargetPairOf(m)

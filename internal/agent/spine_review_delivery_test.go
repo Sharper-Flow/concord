@@ -67,7 +67,7 @@ func TestSpineReviewRepairsCandidateThroughMainDelivery(t *testing.T) {
 	if checked.Oracle == nil || checked.Oracle.Qualification != "pass" || checked.Oracle.SubjectCommit != c.Commit || checked.Oracle.InputManifestDigest == "" || checked.Oracle.BinaryDigest == "" || checked.Oracle.BuildEnvironmentDigest == "" || checked.Oracle.InputManifestDigest == broken.Oracle.InputManifestDigest {
 		t.Fatalf("C lacks captured execution proof: subject=%q oracle=%+v", checked.SubjectRef, checked.Oracle)
 	}
-	if !reflect.DeepEqual(checked.Command, []string{"go", "test", "-count=1", "-run", "^(TestValue)$", "."}) {
+	if !reflect.DeepEqual(checked.Command, []string{"go", "test", "-count=1", "."}) {
 		t.Fatalf("producer executed another command: %v", checked.Command)
 	}
 	f.proof = f.verify(t)
@@ -116,6 +116,7 @@ func TestSpineReviewRepairsCandidateThroughMainDelivery(t *testing.T) {
 	if conflict.Outcome != OutcomeError || conflict.Error == nil || conflict.Error.EffectState != EffectNone || afterConflict.Version != accepted.Version || afterConflict.Lifecycle != accepted.Lifecycle || !reflect.DeepEqual(afterConflict.Review, accepted.Review) {
 		t.Fatalf("a conflicting rejection changed the accepted repair: %+v", conflict)
 	}
+	spineOK(t, f.action(t, "bind_evidence", map[string]any{"evidence_kind": "verification", "evidence_ref": checked.OperationRef}))
 	spineOK(t, f.action(t, "bind_evidence", map[string]any{"evidence_kind": "verification", "evidence_ref": f.proof}))
 	f.advanceToAcceptance(t)
 	spineOK(t, f.call(t, "concord_work_define", "observation_record", map[string]any{"work_id": f.work, "statement": "The declared value check passes on the repaired candidate; Main accepted its attributed Review and native producer proof.", "refs": []string{f.read(t).Pinned.Contract.ArchitectureBinding.HomeDomainID, checked.OperationRef}, "idempotency_key": "spine-premise-investigation"}))
@@ -164,6 +165,7 @@ func TestSpineReviewRepairsCandidateThroughMainDelivery(t *testing.T) {
 	}
 	pin := f.read(t).Pinned.Pin
 	spineOK(t, f.call(t, "concord_work_transition", "workflow_action", map[string]any{"work_id": f.work, "expected_version": pin.Version, "action_id": "confirm_premise", "selected_choice": "confirm", "idempotency_key": "spine-confirm"}))
+	spineOK(t, f.action(t, "bind_evidence", map[string]any{"evidence_kind": "review", "evidence_ref": "sha256:" + strings.Repeat("a", 64)}))
 	if err := os.WriteFile(filepath.Join(f.path, "pkg/value.go"), []byte("package spine\nfunc Value() int { return 8 }\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -176,10 +178,9 @@ func TestSpineReviewRepairsCandidateThroughMainDelivery(t *testing.T) {
 	changedSubject := f.action(t, "complete", map[string]any{"impact_verdict": "non-breaking"})
 	afterChangedSubject := f.read(t).Pinned.Pin
 	if changedSubject.Outcome != OutcomeError || changedSubject.Error == nil || changedSubject.Error.Kind != "stale_requires_review" || changedSubject.Error.EffectState != EffectNone || afterChangedSubject.Version != beforeChangedSubject.Version || afterChangedSubject.Lifecycle != beforeChangedSubject.Lifecycle || !reflect.DeepEqual(afterChangedSubject.Review, beforeChangedSubject.Review) {
-		t.Fatalf("completion did not revalidate the final checkout against C: %+v", changedSubject)
+		t.Fatalf("completion did not revalidate the final checkout against C: %+v", changedSubject.Error)
 	}
 	gitRun(t, f.path, "checkout", "--detach", c.Commit)
-	spineOK(t, f.action(t, "bind_evidence", map[string]any{"evidence_kind": "review", "evidence_ref": "sha256:" + strings.Repeat("a", 64)}))
 	spineOK(t, f.action(t, "complete", map[string]any{"impact_verdict": "non-breaking"}))
 	done := f.read(t).Pinned.Pin
 	if done.Lifecycle != "completed" || done.Review.Candidate == nil || *done.Review.Candidate != c || !done.Review.PublicationOutstanding || len(done.VerifiedCriteria) != 1 {

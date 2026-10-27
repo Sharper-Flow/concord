@@ -11,6 +11,7 @@ import (
 
 func TestAdapterDispatchRecipeGenerated(t *testing.T) {
 	root := filepath.Join("..", "..")
+	requireNativeRecipeGitMetadata(t, root)
 	cmd := exec.Command("python3", "scripts/generate-adapter-oracle.py", "--check")
 	cmd.Dir = root
 	if out, err := cmd.CombinedOutput(); err != nil {

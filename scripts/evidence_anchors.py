@@ -15,10 +15,9 @@ What an anchor is:
 - `go_test`: a Go test identified as `<package>.<TestName>`; resolves when the
   test is declared in that package and its body, or a same-package helper it
   calls, reaches a testing failure call. `go test ./...` is a required CI step.
-- `scenario`: a corpus scenario id; resolves when the id appears in a corpus
-  file under `.concord/scenarios/` and nothing in `internal/` defers it. A deferred
-  scenario is executed by nothing and accepting it as evidence would assert a
-  rule that no test enforces.
+- `scenario`: an exact corpus scenario id with a checked source owner. Corpus
+  presence alone is citation presence, not coverage. Adapter owners bind every
+  declared assertion; Go owners require an explicit nested native witness.
 - `validator`: a Python checker or harness identified by `scripts/<prefix>-<name>.py`;
   resolves when the script exists and either the required CI workflow invokes
   it directly, or `scripts/check-json.py` nests it. A checker that exists but
@@ -206,33 +205,182 @@ def deferred_scenarios() -> set[str]:
     return found
 
 
-def collect_ids(value: object) -> set[str]:
-    found: set[str] = set()
-    if isinstance(value, dict):
-        for key, item in value.items():
-            if key in {"id", "scenario_id", "scenario"} and isinstance(item, str):
-                found.add(item)
-            found |= collect_ids(item)
-    elif isinstance(value, list):
-        for item in value:
-            found |= collect_ids(item)
-    return found
-
-
 def scenario_exists(scenario_id: str) -> bool:
-    """A scenario anchor resolves when a corpus declares the id and nothing defers it."""
-    if scenario_id in deferred_scenarios():
-        return False
-    directory = ROOT / ".concord/scenarios"
-    if not directory.is_dir():
-        return False
-    for path in directory.rglob("*.json"):
+    """Citation presence, not the stronger executable coverage verdict."""
+    return scenario_id in scenario_declarations() and scenario_id not in deferred_scenarios()
+
+
+def scenario_declarations() -> dict[str, tuple[str, dict]]:
+    """Return unique exact scenario ids, refusing ambiguous declarations."""
+    found: dict[str, tuple[str, dict]] = {}
+    duplicates: set[str] = set()
+
+    def visit(items: object, path: str) -> None:
+        if not isinstance(items, list):
+            return
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            identity = item.get("id")
+            if isinstance(identity, str):
+                if identity in found:
+                    duplicates.add(identity)
+                found[identity] = (path, item)
+            visit(item.get("cases"), path)
+
+    for path in (ROOT / ".concord/scenarios").rglob("*.json"):
         try:
             corpus = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        except (OSError, ValueError):
             continue
-        if scenario_id in collect_ids(corpus):
-            return True
+        if isinstance(corpus, dict):
+            visit(corpus.get("scenarios"), path.relative_to(ROOT).as_posix())
+    return {identity: entry for identity, entry in found.items() if identity not in duplicates}
+
+
+# This is a deliberately closed lexical source check, not a TypeScript parser.
+# Only literal test registrations and literal assertion callbacks are admitted.
+# Comments and strings remain opaque; mentions cannot become registrations.
+SOURCE_TOKEN = re.compile(r'//[^\n]*|/\*[\s\S]*?\*/|"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'|`(?:\\.|[^`\\])*`|[A-Za-z_$][\w$]*|=>|[^\s]')
+SCENARIO_ASSERTION_BODY = '''
+  const matches = corpus.scenarios.filter((scenario: { id: string }) => scenario.id === id)
+  expect(matches.length).toBe(1)
+  const required = matches[0].then.map((entry: { assertion: string }) => entry.assertion)
+  expect(new Set(required).size).toBe(required.length)
+  expect(Object.keys(assertions).sort()).toEqual([...required].sort())
+  for (const name of required) await assertions[name]!()
+'''
+
+
+def source_tokens(text: str) -> list[str]:
+    return [token for token in SOURCE_TOKEN.findall(text) if not token.startswith(("//", "/*"))]
+
+
+def source_group(tokens: list[str], start: int) -> tuple[list[str], int]:
+    pairs = {"(": ")", "{": "}", "[": "]"}
+    stack = [pairs[tokens[start]]]
+    for index in range(start + 1, len(tokens)):
+        token = tokens[index]
+        if token in pairs:
+            stack.append(pairs[token])
+        elif token in pairs.values():
+            if token != stack.pop():
+                raise ValueError("unbalanced source group")
+            if not stack:
+                return tokens[start + 1:index], index + 1
+    raise ValueError("unterminated source group")
+
+
+def scenario_adapter_test(scenario_id: str) -> str | None:
+    declaration = scenario_declarations().get(scenario_id)
+    if declaration is None or scenario_id in deferred_scenarios():
+        return None
+    corpus_path, scenario = declaration
+    assertions = scenario.get("then")
+    if not isinstance(assertions, list) or not assertions or any(
+        not isinstance(item, dict) or set(item) != {"assertion"} or not isinstance(item["assertion"], str)
+        for item in assertions
+    ):
+        return None
+    required = [item["assertion"] for item in assertions]
+    if len(set(required)) != len(required):
+        return None
+    identity = json.dumps(scenario_id)
+    owners = []
+    registrations = 0
+    for path in (ROOT / "adapter/opencode").glob("*.test.ts"):
+        text = path.read_text(encoding="utf-8")
+        tokens = source_tokens(text)
+        registrations += sum(tokens[i:i + 4] == ["test", "(", identity, ","] for i in range(len(tokens) - 3))
+        # The owner must consume the actual corpus and check assertion keys at
+        # runtime as well as exposing assertion-producing source callbacks.
+        helper = source_tokens("async function assertScenario(id: string, assertions: Record<string, () => unknown>) {"
+                               + SCENARIO_ASSERTION_BODY + "}")
+        if json.dumps("../../" + corpus_path) not in tokens or not any(
+            tokens[i:i + len(helper)] == helper for i in range(len(tokens) - len(helper) + 1)
+        ):
+            continue
+        for index in range(len(tokens) - 3):
+            if tokens[index:index + 4] != ["test", "(", identity, ","] or (index and tokens[index - 1] == "."):
+                continue
+            try:
+                body, _ = source_group(tokens, index + 1)
+                calls = [i for i in range(len(body) - 4) if body[i:i + 4] == ["assertScenario", "(", identity, ","]]
+                if len(calls) != 1 or body[calls[0] + 4] != "{":
+                    continue
+                properties, _ = source_group(body, calls[0] + 4)
+                keys = []
+                cursor = 0
+                while cursor < len(properties):
+                    key = properties[cursor].strip('"')
+                    if properties[cursor + 1:cursor + 5] != [":", "(", ")", "=>"]:
+                        raise ValueError("assertion must be a literal callback")
+                    cursor += 5
+                    value = []
+                    while cursor < len(properties) and properties[cursor] != ",":
+                        if properties[cursor] in ("(", "{", "["):
+                            group, end = source_group(properties, cursor)
+                            value.extend([properties[cursor], *group])
+                            cursor = end
+                        else:
+                            value.append(properties[cursor])
+                            cursor += 1
+                    if not any(value[i:i + 2] == ["expect", "("] for i in range(len(value) - 1)):
+                        raise ValueError("assertion callback has no expectation")
+                    keys.append(key)
+                    cursor += 1
+                if sorted(keys) == sorted(required):
+                    owners.append(path.relative_to(ROOT).as_posix())
+            except (ValueError, IndexError):
+                continue
+    return owners[0] if len(owners) == 1 and registrations == 1 else None
+
+
+def scenario_source_bound(scenario_id: str) -> bool:
+    if scenario_adapter_test(scenario_id) is not None:
+        return adapter_suite_runs_in_ci()
+    # An unrecognized owner remains unproved. A Go parent pass cannot stand in
+    # for the exact scenario subtest's observed run/pass in the native recipe.
+    declaration = scenario_declarations().get(scenario_id)
+    if declaration is None or scenario_id in deferred_scenarios():
+        return False
+    corpus_path, _ = declaration
+    for path in (ROOT / ".concord/oracles").rglob("*.json"):
+        try:
+            recipe = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if (not isinstance(recipe, dict) or recipe.get("kind") != "go_top_level_v1"
+                or not isinstance(recipe.get("fixture_files"), list)
+                or not isinstance(recipe.get("test_files"), list)
+                or corpus_path not in recipe["fixture_files"]):
+            continue
+        package = recipe.get("package_cwd")
+        cases = recipe.get("cases")
+        if (not isinstance(package, str) or not isinstance(cases, dict)
+                or Path(package).is_absolute() or ".." in Path(package).parts
+                or Path(package).as_posix() != package):
+            continue
+        for witnesses in cases.values():
+            if not isinstance(witnesses, list):
+                continue
+            for witness in witnesses:
+                if not isinstance(witness, str) or "/" not in witness or witness.rsplit("/", 1)[1] != scenario_id:
+                    continue
+                test = witness.split("/", 1)[0]
+                if not GO_TEST_ANCHOR.fullmatch(f"{package}.{test}"):
+                    continue
+                for name in recipe.get("test_files", []):
+                    if (not isinstance(name, str) or not name.startswith(package + "/")
+                            or not name.endswith("_test.go") or ".." in Path(name).parts
+                            or Path(name).as_posix() != name):
+                        continue
+                    source = ROOT / name
+                    if not source.is_file():
+                        continue
+                    tokens = source_tokens(source.read_text(encoding="utf-8"))
+                    if any(tokens[i:i + 3] == ["func", test, "("] for i in range(len(tokens) - 2)) and go_test_asserts(package, test):
+                        return True
     return False
 
 
@@ -415,6 +563,14 @@ def check_anchor(anchor: object, prefix: str, findings: list[str]) -> None:
     elif kind == "scenario":
         if not scenario_exists(value):
             findings.append(f"{prefix}: scenario anchor is in no corpus under .concord/scenarios/: {value!r}")
+        else:
+            try:
+                resolved = scenario_source_bound(value)
+            except GoTestProjectionError as exc:
+                findings.append(f"{prefix}: scenario go_test projector failed: {exc}")
+            else:
+                if not resolved:
+                    findings.append(f"{prefix}: scenario anchor has no checked executable source owner: {value!r}")
     elif kind == "validator":
         if not VALIDATOR_ANCHOR.fullmatch(value):
             findings.append(

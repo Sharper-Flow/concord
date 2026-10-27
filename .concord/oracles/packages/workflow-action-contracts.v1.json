@@ -1,0 +1,5 @@
+{
+  "kind": "go_package_v1",
+  "package_cwd": "scripts/workflow-action-contracts",
+  "cases": {"case:package-workflow-action-contracts": ["go_package:./scripts/workflow-action-contracts"]}
+}

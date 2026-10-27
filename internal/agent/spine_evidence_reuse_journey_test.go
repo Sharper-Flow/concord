@@ -16,7 +16,7 @@ func TestCriterion13ProducerFactsSurviveStageExitAndFreshSession(t *testing.T) {
 	f.verify(t)
 	f.recordJob(t)
 	f.completeWorker(t)
-	f.proof = f.verify(t)
+	f.proveFootprint(t)
 	f.recordJob(t)
 	f.review(t, "ready_for_final_proof", f.proof)
 	before := f.read(t)

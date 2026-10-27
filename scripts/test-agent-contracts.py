@@ -507,7 +507,11 @@ class AdapterOracleGenerationTests(unittest.TestCase):
         for name in harness:
             self.assertTrue((ROOT / name).is_file(), name)
         for check in recipe["checks"]:
-            for name in check["argv"][1:]:
+            files = check["argv"][1:]
+            if "--expect" in files:
+                self.assertEqual(files[-2:], ["--expect", check["witness"]])
+                files = files[:-2]
+            for name in files:
                 self.assertIn(f"adapter/opencode/{name}", harness)
 
     def test_a_dependency_change_cannot_regenerate_an_empty_lock(self):
@@ -2364,6 +2368,88 @@ class NativeOracleRequestProjectionTests(unittest.TestCase):
 
     def validate(self, value, name):
         generator.schema_validate(value, self.projected["$defs"][name], self.projected)
+
+    def native_preparation(self):
+        value = _schema_sample(self.projected["$defs"]["native_oracle_preparation"], self.projected)
+        value.update(selected_test_names=["TestOne"], case_to_test_map={"case:one": ["TestOne"]},
+                     selected_distinct_count=1, streams_complete=True)
+        for stream in ("stdout", "stderr"):
+            value[stream].update(stream=stream, complete=True, ref="oracle_output:" + stream)
+        return value
+
+    def test_literal_nested_go_witnesses_keep_selector_and_path_bounds(self):
+        value = self.native_preparation()
+        witness = "TestOne/scenario:one/exact-id"
+        value.update(selected_test_names=[witness], case_to_test_map={"case:one": [witness]})
+        self.validate(value, "native_oracle_preparation")
+        for witness in ("TestOne/", "TestOne//child", "TestOne/.*", "TestOne/a b",
+                        "TestOne/" + "x" * 249, "TestOne/" + "/".join(["x"] * 8)):
+            with self.assertRaises(ValueError, msg=witness):
+                self.validate(value | {"selected_test_names": [witness]}, "native_oracle_preparation")
+        with self.assertRaises(ValueError):
+            self.validate(value | {"selected_test_names": [f"TestOne/c{i}" for i in range(41)]}, "native_oracle_preparation")
+
+    def test_package_preparation_and_inventory_results_are_explicit_disjoint_branches(self):
+        value = self.native_preparation()
+        del value["selected_test_names"], value["case_to_test_map"]
+        witness = "go_package:./internal/example"
+        value.update(recipe_kind="go_package_v1", files=None, selected_witness_ids=[witness],
+                     case_to_witness_map={"case:one": [witness]})
+        self.validate(value, "native_oracle_preparation")
+        self.validate(value, "retained_native_oracle_preparation")
+        generator.schema_validate(value, packet_schema["$defs"]["lane_native_oracle_preparation"], packet_schema)
+        for candidate_witness in ("go_package:./.", "go_package:./.hidden/pkg", "go_package:./" + "x" * 512):
+            self.validate(value | {"selected_witness_ids": [candidate_witness], "case_to_witness_map": {"case:one": [candidate_witness]}},
+                          "native_oracle_preparation")
+        for candidate_witness in ("go_package:./../pkg", "go_package:./pkg/../escape", "go_package:./tmp/pkg",
+                        "go_package:./pkg//other", "go_package:./pkg/./other", "go_package:./pkg/",
+                        "go_package:./na\x00l", "go_package:./" + "x" * 513):
+            with self.assertRaises(ValueError, msg=candidate_witness):
+                self.validate(value | {"selected_witness_ids": [candidate_witness]}, "native_oracle_preparation")
+        prepare = value | {"control_id": "control:one", "stages": []}
+        self.validate(prepare, "native_oracle_result")
+        inventory = dict(test_file_count=4096, test_input_bytes=33554432, test_count=65536, passed_count=65536,
+                         skipped_tests=None, nested_skipped_tests=None,
+                         **{field: "sha256:" + "a" * 64 for field in
+                            ("test_files_digest", "test_names_digest", "outcomes_digest", "converter_digest")})
+        execute = prepare | dict(phase="execute", qualification="pass", attempt_id="attempt-1", attempt_epoch=1,
+            worker_packet_digest="sha256:" + "a" * 64,
+            worker_job_binding={"job_id": "job:one", "revision": 1, "digest": "sha256:" + "b" * 64},
+            preparation_run_ref="run:prepare", authorization_event_id="event:dispatch", authorization_seq=9, start_seq=8,
+            input_manifest_digest="sha256:" + "c" * 64, binary_digest="sha256:" + "d" * 64,
+            observed_witness_ids=[witness], package_inventory=inventory)
+        self.validate(execute, "native_oracle_result")
+        host_result = _schema_sample(self.projected["$defs"]["worktree_verify_result"], self.projected)
+        self.validate(host_result | {"oracle": execute}, "worktree_verify_result")
+        for invalid in (value | {"selected_test_names": ["TestOne"]}, value | {"target_runner": "check"},
+                        value | {"recipe_kind": "future"}, value | {"selected_distinct_count": 2},
+                        value | {"selected_witness_ids": ["go_package:../escape"]}):
+            with self.assertRaises(ValueError):
+                self.validate(invalid, "native_oracle_preparation")
+        for invalid in (execute | {"observed_test_names": ["TestOne"]},
+                        execute | {"observed_witness_ids": ["TestOne"]},
+                        {k: v for k, v in execute.items() if k != "package_inventory"},
+                        prepare | {"package_inventory": inventory}):
+            with self.assertRaises(ValueError):
+                self.validate(invalid, "native_oracle_result")
+        for field, invalid in (("test_file_count", 4097), ("test_input_bytes", 33554433), ("test_count", 65537),
+                               ("nested_skipped_tests", [f"TestOne/n{i}" for i in range(65)]),
+                               ("skipped_tests", ["TestOne/subtest"]), ("converter_digest", "not-a-digest")):
+            with self.assertRaises(ValueError, msg=field):
+                self.validate(execute | {"package_inventory": inventory | {field: invalid}}, "native_oracle_result")
+        for stream in ("stdout", "stderr"):
+            with self.assertRaises(ValueError):
+                self.validate(execute | {stream: execute[stream] | {"length": 2097153}}, "native_oracle_result")
+
+    def test_compact_harness_identity_keeps_file_array_bound(self):
+        value = self.native_preparation()
+        compact = value | {"files": None, "harness_input_count": 4096, "harness_input_digest": "sha256:" + "a" * 64}
+        self.validate(compact, "native_oracle_preparation")
+        for invalid in (compact | {"harness_input_count": 4097}, compact | {"harness_input_count": 32},
+                        {k: v for k, v in compact.items() if k != "harness_input_digest"},
+                        value | {"files": value["files"] * 33}):
+            with self.assertRaises(ValueError):
+                self.validate(invalid, "native_oracle_preparation")
 
     def test_prepare_and_execute_are_closed_disjoint_native_requests(self):
         defs = self.projected["$defs"]

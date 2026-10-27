@@ -1,0 +1,15 @@
+{
+  "kind": "go_package_v1",
+  "package_cwd": "internal/store",
+  "cases": {"case:package-store": ["go_package:./internal/store"]},
+  "expected_skips": [
+    "TestAdapterDispatchRecipeGenerated",
+    "TestAdapterDispatchRecipeRecordsReady",
+    "TestMergeEvidenceSchemaAlignsWithFoldRule",
+    "TestOutsideRepairOutcomeKindParity",
+    "TestOutsideRepairRecordVerdictGroupSubsets",
+    "TestOutsideRepairUnicodeParity",
+    "TestStoreOracleRecipeRecordsReady",
+    "TestStoreTemplateOracleRecipeExecutes"
+  ]
+}

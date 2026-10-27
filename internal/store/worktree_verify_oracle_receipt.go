@@ -114,7 +114,7 @@ func nativeOraclePlanMatchesReceipt(p nativeOraclePlan, work, projectID string, 
 		p.Request.AttemptID == o.AttemptID && p.Request.AttemptEpoch == o.AttemptEpoch && p.Request.WorkerPacketDigest == o.WorkerPacketDigest && p.Request.ControlID == o.ControlID && p.Request.PreparationRunRef == o.PreparationRunRef &&
 		p.Request.WorkerJobBinding != nil && o.WorkerJobBinding != nil && *p.Request.WorkerJobBinding == *o.WorkerJobBinding &&
 		p.Authorization.EventID == o.AuthorizationEventID && p.Authorization.Seq == o.AuthorizationSeq && p.Authorization.StartSeq == o.StartSeq &&
-		p.Bundle.Control.Cwd == o.LogicalCwd && p.Bundle.Control.RecipeSource == o.RecipeSource && oracleEntryIdentical(p.Files, o.Files) && o.InputManifestDigest != ""
+		p.Bundle.Control.Cwd == o.LogicalCwd && p.Bundle.Control.RecipeSource == o.RecipeSource && nativeGoHarnessReceiptMatches(p, o) && o.InputManifestDigest != ""
 }
 
 // readNativeOracleAuthorizingDispatchTx reads the dispatch_worker completion the plan's
@@ -150,11 +150,14 @@ func nativeOraclePreparationJoins(prep *NativeOraclePreparation, p nativeOracleP
 	if p.ReviewRepair != nil {
 		preparationSubject = p.ReviewRepair.Base
 	}
-	if prep == nil || prep.SubjectCommit != preparationSubject || prep.ContractVersion != p.ContractVersion || prep.BundleDigest != p.BundleDigest || prep.ManifestDigest != p.ManifestFile.SHA256 || prep.ManifestBlob != p.ManifestFile.BlobOID || !oracleEntryIdentical(prep.Files, p.Files) || prep.ToolchainIdentity != envIdentity || prep.BuildEnvironmentDigest != envDigest {
+	if prep == nil || prep.SubjectCommit != preparationSubject || prep.ContractVersion != p.ContractVersion || prep.BundleDigest != p.BundleDigest || prep.ManifestDigest != p.ManifestFile.SHA256 || prep.ManifestBlob != p.ManifestFile.BlobOID || !oracleEntryIdentical(prep.Files, p.Files) || prep.HarnessInputCount != p.HarnessInputCount || prep.HarnessInputDigest != p.HarnessInputDigest || prep.ToolchainIdentity != envIdentity || prep.BuildEnvironmentDigest != envDigest {
 		return false
 	}
 	if p.Target != nil {
 		return oracleEntryIdentical(prep.CaseToWitnessMap, p.Target.Recipe.Cases) && len(prep.SelectedWitnessIDs) > 0 && len(prep.CaseToTestMap) == 0 && len(prep.SelectedTestNames) == 0
+	}
+	if p.Manifest.Kind == nativeGoPackageKind {
+		return prep.RecipeKind == nativeGoPackageKind && oracleEntryIdentical(prep.CaseToWitnessMap, p.Manifest.Cases) && slices.Equal(prep.SelectedWitnessIDs, o.SelectedWitnessIDs) && len(prep.SelectedTestNames) == 0 && prep.HarnessInputCount == o.HarnessInputCount && prep.HarnessInputDigest == o.HarnessInputDigest
 	}
 	return oracleEntryIdentical(prep.CaseToTestMap, p.Manifest.Cases)
 }
@@ -178,6 +181,9 @@ func nativeOracleSelectionMatches(command []string, p nativeOraclePlan, o *Nativ
 			return false
 		}
 		return slices.Equal(o.SelectedWitnessIDs, witnesses) && o.RecipeKind == nativeTargetKind && o.TargetMaterializer == pair.Materializer && o.TargetRunner == pair.Runner && o.TargetMaterializer == p.Target.Environment.Materializer && o.TargetRunner == p.Target.Environment.Runner && o.SelectedDistinctCount == len(witnesses) && len(o.SelectedTestNames) == 0 && len(o.CaseToTestMap) == 0 && oracleEntryIdentical(o.CaseToWitnessMap, p.Target.Recipe.Cases)
+	}
+	if p.Manifest.Kind == nativeGoPackageKind {
+		return nativeGoPackageSelectionMatches(p, o)
 	}
 	names, err := nativeOracleCaseTests(p.Manifest, p.Bundle.Control)
 	if err != nil {
@@ -220,7 +226,11 @@ func nativeOraclePassComplete(p nativeOraclePlan, o *NativeOracleResult) bool {
 	if len(o.Stages) != len(p.Stages) || o.BinaryDigest == "" || o.SelectedDistinctCount == 0 {
 		return false
 	}
-	if p.Target != nil {
+	if p.Manifest.Kind == nativeGoPackageKind && p.Target == nil {
+		if !nativeGoPackageProofComplete(p, o) {
+			return false
+		}
+	} else if p.Target != nil {
 		if !slices.Equal(o.SelectedWitnessIDs, o.ObservedWitnessIDs) || o.SelectedDistinctCount != len(o.SelectedWitnessIDs) || len(o.ObservedTestNames) != 0 {
 			return false
 		}

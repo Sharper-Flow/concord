@@ -109,6 +109,9 @@ func TestSpineCompleteStepContractRecovery(t *testing.T) {
 				entry = "checkpoint_repair"
 			}
 			spineOK(t, f.action(t, entry, map[string]any{}))
+			// Reuse the candidate and Review, but bind native proof to this contract.
+			f.proveFootprint(t)
+			proof["verdicts"] = []map[string]any{{"predicate_id": "predicate:primary", "receipt_refs": []string{f.proof}}}
 			for _, binding := range []store.WorkPinEvidence{
 				{EvidenceKind: "verification", ImmutableSubjectRef: f.proof},
 				{EvidenceKind: "review", ImmutableSubjectRef: after.Pinned.Pin.Review.Accepted.ReportRef},
@@ -116,6 +119,8 @@ func TestSpineCompleteStepContractRecovery(t *testing.T) {
 			} {
 				spineOK(t, f.action(t, "bind_evidence", map[string]any{"evidence_kind": binding.EvidenceKind, "evidence_ref": binding.ImmutableSubjectRef}))
 			}
+			f.recordJob(t)
+			f.review(t, "ready_for_final_proof", f.proof)
 			f.advanceToAcceptance(t)
 			spineOK(t, f.call(t, "concord_work_define", "observation_record", map[string]any{
 				"work_id": f.work, "statement": "Reassessment retains the checked candidate and unchanged approved criterion.",
@@ -129,7 +134,7 @@ func TestSpineCompleteStepContractRecovery(t *testing.T) {
 			spineOK(t, f.action(t, "bind_evidence", map[string]any{"evidence_kind": "review", "evidence_ref": "sha256:" + strings.Repeat("a", 64)}))
 			spineOK(t, f.action(t, "complete", map[string]any{"impact_verdict": "non-breaking"}))
 			done := f.read(t)
-			if done.WorkID != before.WorkID || done.Pinned.Pin.Lifecycle != "completed" || !reflect.DeepEqual(done.Pinned.Pin.Review.Candidate, before.Pinned.Pin.Review.Candidate) || len(done.Pinned.Pin.VerifiedCriteria) != 1 || countRows(t, f.s.DatabaseForTesting(), `SELECT count(*) FROM worker_attempts`) != attempts {
+			if done.WorkID != before.WorkID || done.Pinned.Pin.Lifecycle != "completed" || !reflect.DeepEqual(done.Pinned.Pin.Review.Candidate, before.Pinned.Pin.Review.Candidate) || len(done.Pinned.Pin.VerifiedCriteria) != 1 || countRows(t, f.s.DatabaseForTesting(), `SELECT count(*) FROM worker_attempts`) != attempts+2 {
 				t.Fatalf("successor completion lost applicable proof or forced another worker: %+v", done.Pinned)
 			}
 		})

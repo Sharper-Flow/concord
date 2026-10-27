@@ -746,6 +746,10 @@ func schemaFixtureValue(t *testing.T, schema map[string]any, defs map[string]map
 			return out
 		case "object":
 			return schemaFixtureObject(t, schema, defs, depth)
+		case "null":
+			// A null-only property (a package preparation's absent
+			// selected-file list) admits exactly one value.
+			return nil
 		default:
 			t.Fatalf("schema type %q has no fixture rule", kind)
 		}

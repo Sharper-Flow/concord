@@ -666,7 +666,7 @@ RETAINED_OUTPUT_TWINS = {
     "workflow_law_context_law": ("/properties/path/maxLength",),
     "work_context_finding_view": ("/properties/source_event_id/maxLength",),
     "research_source": tuple(f"/properties/{name}/maxLength" for name in ("locator", "title", "publisher_or_author", "published_at", "accessed_at")),
-    "native_oracle_preparation": tuple(f"{branch}/properties/{name}/maxLength" for branch in ("", "/oneOf/0", "/oneOf/1") for name in ("project_id", "toolchain_identity")),
+    "native_oracle_preparation": tuple(f"{branch}/properties/{name}/maxLength" for branch in ("", "/oneOf/0", "/oneOf/1", "/oneOf/2") for name in ("project_id", "toolchain_identity")),
     "work_context_research_finding": ("/properties/statement/maxLength", "/properties/source_ids/maxItems", "/properties/source_ids/items/maxLength"),
     "work_context_research_finding_view": ("/oneOf/0/properties/selection_event_id/maxLength", "/oneOf/0/properties/sources/maxItems", "/oneOf/1/properties/selection_event_id/maxLength"),
     "work_context_view": (),
@@ -1251,6 +1251,8 @@ def project_native_oracle_metadata(defs: dict, packet_defs: dict) -> None:
         "lane_native_oracle_stream": "native_oracle_stream",
         "lane_native_oracle_file": "native_oracle_file",
         "lane_native_oracle_test_name": "native_oracle_test_name",
+        "lane_native_oracle_go_witness": "native_oracle_go_witness",
+        "lane_native_oracle_package_witness": "native_oracle_package_witness",
         "lane_native_oracle_preparation": "native_oracle_preparation",
         "lane_work_context_reading_source_repository_file": "work_context_reading_source_repository_file",
         "lane_work_context_research_selection": "work_context_research_selection",
@@ -1305,6 +1307,25 @@ def project_native_oracle_metadata(defs: dict, packet_defs: dict) -> None:
     stage.update({field: {"type": "integer", "minimum": 0, "maximum": 2097152} for field in
                   ("stdout_offset", "stdout_length", "stderr_offset", "stderr_length")})
     defs["native_oracle_stage"] = {"type": "object", "additionalProperties": False, "required": list(stage), "properties": stage}
+    inventory = {
+        "test_file_count": {"type": "integer", "minimum": 1, "maximum": 4096},
+        "test_input_bytes": {"type": "integer", "minimum": 1, "maximum": 33554432},
+        "test_files_digest": {"$ref": "#/$defs/native_oracle_digest"},
+        "test_count": {"type": "integer", "minimum": 1, "maximum": 65536},
+        "test_names_digest": {"$ref": "#/$defs/native_oracle_digest"},
+        "passed_count": {"type": "integer", "minimum": 0, "maximum": 65536},
+        "skipped_tests": {"type": ["array", "null"], "maxItems": 64, "uniqueItems": True,
+                          "items": {"type": "string", "minLength": 5, "maxLength": 128,
+                                    "pattern": "^Test[A-Z][A-Za-z0-9_]*$"}},
+        "nested_skipped_tests": {"type": ["array", "null"], "maxItems": 64, "uniqueItems": True,
+                                 "items": {"type": "string", "minLength": 1, "maxLength": 256}},
+        "outcomes_digest": {"$ref": "#/$defs/native_oracle_digest"},
+        "converter_digest": {"$ref": "#/$defs/native_oracle_digest"},
+    }
+    defs["native_oracle_package_inventory"] = {
+        "type": "object", "additionalProperties": False, "required": list(inventory), "properties": inventory,
+        "description": "Candidate package inventory and terminal outcome counts/digests from the native producer. Named skips are unproved and cannot replace required independent witnesses. Count equality, recipe identity and digest provenance remain producer and admission obligations.",
+    }
 
     def project_phase_into_branches(node: dict, properties: dict, required: list[str]) -> None:
         """Each closed family branch carries the phase's own fields: a
@@ -1341,11 +1362,15 @@ def project_native_oracle_metadata(defs: dict, packet_defs: dict) -> None:
         "authorization_seq": {"type": "integer", "minimum": 1, "maximum": 9223372036854775807},
         "start_seq": {"type": "integer", "minimum": 1, "maximum": 9223372036854775807},
         "observed_test_names": {"type": "array", "minItems": 0, "maxItems": 40, "uniqueItems": True,
-                                "items": {"$ref": "#/$defs/native_oracle_test_name"}},
+                                "items": {"$ref": "#/$defs/native_oracle_go_witness"}},
         "observed_witness_ids": {"type": "array", "minItems": 0, "maxItems": 40, "uniqueItems": True,
                                  "items": {"type": "string", "minLength": 1, "maxLength": 256,
                                            "pattern": "^[^\\x00-\\x1f\\x7f]*$"}},
     })
+    execute["properties"]["package_inventory"] = {"$ref": "#/$defs/native_oracle_package_inventory"}
+    # Package identity width derives from the contained cwd, not the target
+    # runner's 256-byte witness grammar. Its branch still admits exactly one.
+    execute["properties"]["observed_witness_ids"]["items"]["maxLength"] = 525
     execute["required"].extend(["authorization_event_id", "authorization_seq", "start_seq"])
     project_phase_into_branches(execute, {name: copy.deepcopy(execute["properties"][name]) for name in
                                           ("attempt_id", "attempt_epoch", "worker_packet_digest", "worker_job_binding",
@@ -1358,6 +1383,20 @@ def project_native_oracle_metadata(defs: dict, packet_defs: dict) -> None:
     for branch in execute.get("oneOf", []):
         branch["properties"]["phase"] = {"type": "string", "const": "execute"}
         branch["properties"]["qualification"] = {"type": "string", "enum": ["pass", "fail", "unavailable"]}
+        kind = branch["properties"].get("recipe_kind", {}).get("const")
+        if kind == "go_package_v1":
+            branch["properties"].pop("observed_test_names")
+            branch["properties"]["package_inventory"] = {"$ref": "#/$defs/native_oracle_package_inventory"}
+            branch["properties"]["observed_witness_ids"] = {
+                "type": "array", "minItems": 0, "maxItems": 1,
+                "items": {"$ref": "#/$defs/native_oracle_package_witness"}}
+            branch["if"] = {"properties": {"qualification": {"const": "pass"}}, "required": ["qualification"]}
+            branch["then"] = {"required": ["package_inventory"]}
+        elif kind == "target_runner_v1":
+            branch["properties"].pop("observed_test_names")
+            branch["properties"]["observed_witness_ids"]["items"]["maxLength"] = 256
+        else:
+            branch["properties"].pop("observed_witness_ids")
     execute["if"] = {"properties": {"qualification": {"const": "pass"}}, "required": ["qualification"]}
     # A pass names the witnesses the run actually observed, in the record's
     # own family grammar: observed_test_names for a Go preparation and
@@ -1375,7 +1414,7 @@ def project_native_oracle_metadata(defs: dict, packet_defs: dict) -> None:
     defs["native_oracle_result"] = {"oneOf": [prepare, execute], "description": (
         "Native producer observations only. The canonical plan/digest are immutable in the existing lease; command remains bare argv. "
         "Prepare grants readiness only. Execute pass requires actual run/pass witnesses in the record's own family grammar "
-        "(observed test names for Go, observed witness IDs for target_runner_v1), complete streams, pinned inputs/cwd/environment, "
+        "(literal Go paths for selected Go, package witness plus candidate inventory proof for go_package_v1, or target witness IDs), complete streams, pinned inputs/cwd/environment, "
         "and the persisted live dispatch's three-way clean subject equality. "
         "Qualified green result metadata is byte-identical to lease result_json. "
         "Raw BLOBs never enter result metadata or idempotency records. Replay starts no process. No semantic acceptance or independent evidence role is implied."

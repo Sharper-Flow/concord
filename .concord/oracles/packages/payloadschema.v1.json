@@ -1,0 +1,5 @@
+{
+  "kind": "go_package_v1",
+  "package_cwd": "internal/payloadschema",
+  "cases": {"case:package-payloadschema": ["go_package:./internal/payloadschema"]}
+}

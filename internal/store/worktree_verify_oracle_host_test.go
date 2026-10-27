@@ -234,9 +234,6 @@ func TestNativeTargetAxisManifestValidation(t *testing.T) {
 		{"nine_witnesses", func(m *nativeTargetOracleManifest) {
 			m.Cases["case:fixture"] = []string{"a::1", "a::2", "a::3", "a::4", "a::5", "a::6", "a::7", "a::8", "a::9"}
 		}},
-		{"extra_case", func(m *nativeTargetOracleManifest) {
-			m.Cases["case:extra"] = []string{"tests/test_value.py::test_value"}
-		}},
 		{"oversize_witness", func(m *nativeTargetOracleManifest) {
 			m.Cases["case:fixture"] = []string{"tests/test_value.py::" + strings.Repeat("x", 256)}
 		}},
@@ -259,6 +256,14 @@ func TestNativeTargetAxisManifestValidation(t *testing.T) {
 	// poison every later case in the table.
 	if workflowJSON(m) != before {
 		t.Fatal("table case mutation leaked into the base fixture")
+	}
+	m.Cases["case:extra"] = []string{"tests/test_value.py::test_unrelated"}
+	if err := validateNativeTargetManifest(m, c); err != nil {
+		t.Fatalf("checked case subset refused: %v", err)
+	}
+	witnesses, err := nativeTargetCaseWitnesses(m, c)
+	if err != nil || slices.Contains(witnesses, "tests/test_value.py::test_unrelated") {
+		t.Fatalf("unselected witness credited: %v %v", witnesses, err)
 	}
 }
 

@@ -30,6 +30,7 @@ func TestSpineFactualDocumentationCorrectionWithoutApproval(t *testing.T) {
 	f.proof = f.verify(t)
 	f.finishWorker(t, lane, "attempt:doc-correction", job, nil)
 	spineOK(t, f.action(t, "accept_worker_result", map[string]any{"attempt_id": "attempt:doc-correction", "attempt_epoch": epoch}))
+	f.proveFootprint(t)
 	f.recordJob(t)
 	f.review(t, "ready_for_final_proof", f.proof)
 	spineOK(t, f.action(t, "bind_evidence", map[string]any{"evidence_kind": "verification", "evidence_ref": f.proof}))
@@ -51,7 +52,10 @@ func TestSpineFactualDocumentationCorrectionWithoutApproval(t *testing.T) {
 	if countWorkflowApprovalChallenges(t, f.s) != 0 || countRows(t, f.s.DatabaseForTesting(), `SELECT count(*) FROM agent_approvals`) != 0 || f.env.HostApproval != nil {
 		t.Fatal("factual documentation correction required an operator prompt")
 	}
-	if attempts := countRows(t, f.s.DatabaseForTesting(), `SELECT count(*) FROM worker_attempts`); attempts != 2 {
+	if attempts := countRows(t, f.s.DatabaseForTesting(), `SELECT count(*) FROM worker_attempts WHERE capability_class IN ('implementation','review')`); attempts != 2 {
 		t.Fatalf("factual correction triggered extra implementation/review attempts: %d", attempts)
+	}
+	if attempts := countRows(t, f.s.DatabaseForTesting(), `SELECT count(*) FROM worker_attempts WHERE capability_class='verification'`); attempts != 1 {
+		t.Fatalf("factual correction needs one native package-proof attempt: %d", attempts)
 	}
 }

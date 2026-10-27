@@ -1,0 +1,46 @@
+{
+  "authority": {
+    "tier": "derived"
+  },
+  "date": "2026-10-27T00:00:00Z",
+  "doc_contract_profile": "current",
+  "home_domain_id": "workflow-engine",
+  "id": "CD-0247",
+  "kind": "decision",
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0074"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0090"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0205"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0229"
+    }
+  ],
+  "path": ".concord/docs/decisions/CD-0247-footprint-checks-require-candidate-bound-native-execution-proof.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:86ab6dd09baffb1313d2f5015bc08968dfcffa82fcc2b082edc612c920804477",
+  "status": "accepted",
+  "summary": "Shared delivery/completion requires checked typed footprint bindings and current-candidate native execution proof independent of work size. All eight continuity scenarios remain required. A distinct bounded package-complete native Go recipe uses candidate package tests, explicitly amending CD-0205 D1/D2 for that claim only; independently pinned required witnesses, default-ref pins, refinement grammar, packet/result limits and accepted Review remain. Integrated proof remains outstanding.",
+  "tags": [
+    "workflow",
+    "verification",
+    "footprint",
+    "native-evidence"
+  ],
+  "title": "Footprint checks require candidate-bound native execution proof"
+}

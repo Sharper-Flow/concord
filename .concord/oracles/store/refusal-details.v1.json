@@ -11,8 +11,8 @@
     "internal/store/testdata/native-target-uv/uv.lock"
   ],
   "cases": {
-    "case:coexisting-refusal-details": [
-      "TestRefusalRemedyAndAdmittedKindsCoexist"
+    "case:preserved-refusal-remedy": [
+      "TestRefusalRemedyIsPreserved"
     ]
   }
 }

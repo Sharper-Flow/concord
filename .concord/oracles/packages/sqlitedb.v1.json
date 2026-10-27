@@ -1,0 +1,5 @@
+{
+  "kind": "go_package_v1",
+  "package_cwd": "internal/store/internal/sqlitedb",
+  "cases": {"case:package-sqlitedb": ["go_package:./internal/store/internal/sqlitedb"]}
+}

@@ -117,41 +117,64 @@ func completeWorkflowInScopeTx(ctx context.Context, tx *sql.Tx, registry Definit
 	if err := workflowCompletionCallerAuthority(ctx, tx, event.SubjectID, event.Actor); err != nil {
 		return err
 	}
+	warnings, err := workflowCompletionProofTx(ctx, tx, event.SubjectID, contract, definition)
+	if err != nil {
+		return err
+	}
+	return appendWorkflowCompletionTx(ctx, tx, event, scope, payload, contract.Version, warnings)
+}
+
+// The action and its preflight check existing completion obligations before
+// footprint admission. The fold uses the same read-only proof, not a second
+// implementation or an exemption for missing scope.
+func workflowCompletionProofTx(ctx context.Context, tx *sql.Tx, workID string, contract workflowCompletionContractData, definition WorkflowDefinition) ([]string, error) {
 	if workflowDefinitionProducesDelivery(definition) {
-		review, err := loadWorkflowReviewState(ctx, tx, event.SubjectID)
+		review, err := loadWorkflowReviewState(ctx, tx, workID)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		if err := workflowAdmitReview(review, ""); err != nil {
-			return err
+			return nil, err
 		}
 	}
 
 	// The complete-step correction's supersession bounds the evidence history
 	// the completion clauses read: the successor accepts only bindings
 	// recorded after the supersession that approved it.
-	evidenceCutoff, err := workflowCompleteStepCorrectionEvidenceCutoff(ctx, tx, event.SubjectID, contract.Version)
+	evidenceCutoff, err := workflowCompleteStepCorrectionEvidenceCutoff(ctx, tx, workID, contract.Version)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	if err := verifyWorkflowCompletionEvidenceAndScopeTx(ctx, tx, event.SubjectID, contract, definition, evidenceCutoff); err != nil {
-		return err
+	if err := verifyWorkflowCompletionEvidenceAndScopeTx(ctx, tx, workID, contract, definition, evidenceCutoff); err != nil {
+		return nil, err
 	}
-	if err := verifyWorkflowCompletionVerdictsTx(ctx, tx, event.SubjectID, contract); err != nil {
-		return err
+	if err := verifyWorkflowCompletionVerdictsTx(ctx, tx, workID, contract); err != nil {
+		return nil, err
 	}
-	if err := verifyWorkflowCompletionPremiseTx(ctx, tx, event.SubjectID, contract, definition); err != nil {
-		return err
+	if err := verifyWorkflowCompletionPremiseTx(ctx, tx, workID, contract, definition); err != nil {
+		return nil, err
 	}
-	if err := verifyBlockingStaleness(ctx, tx, event.SubjectID, definition, contract.RequiredEvidence); err != nil {
-		return workflowClauseError(err, 6)
+	if err := verifyBlockingStaleness(ctx, tx, workID, definition, contract.RequiredEvidence); err != nil {
+		return nil, workflowClauseError(err, 6)
 	}
-	warnings, err := workflowStalenessWarnings(ctx, tx, event.SubjectID, definition, contract.RequiredEvidence)
+	warnings, err := workflowStalenessWarnings(ctx, tx, workID, definition, contract.RequiredEvidence)
 	if err != nil {
-		return workflowClauseError(err, 6)
+		return nil, workflowClauseError(err, 6)
 	}
-	return appendWorkflowCompletionTx(ctx, tx, event, scope, payload, contract.Version, warnings)
+	return warnings, nil
+}
+
+func workflowCompletionProofForDefinitionTx(ctx context.Context, tx *sql.Tx, workID string, definition WorkflowDefinition) error {
+	contract, err := workflowCompletionContractRows(ctx, tx, workID)
+	if err != nil {
+		return err
+	}
+	if err := validateWorkflowCompletionContractPredicates(contract, definition); err != nil {
+		return err
+	}
+	_, err = workflowCompletionProofTx(ctx, tx, workID, contract, definition)
+	return err
 }
 
 func verifyWorkflowCompletionEvidenceAndScopeTx(ctx context.Context, tx *sql.Tx, workID string, contract workflowCompletionContractData, definition WorkflowDefinition, evidenceCutoff int64) error {

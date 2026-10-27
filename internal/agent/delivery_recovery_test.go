@@ -3,6 +3,9 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -29,7 +32,7 @@ func deliveryRecoveryLane(t *testing.T, capabilityClass string) store.LaneDefini
 
 // deliveryRecoveryPacket builds the worker packet for one dispatch on the
 // given lane, consuming the pin's correction when one is durable.
-func deliveryRecoveryPacket(t *testing.T, s *store.Store, stepID, attemptID, capabilityClass string) map[string]any {
+func deliveryRecoveryPacket(t *testing.T, s *store.Store, stepID, attemptID, capabilityClass string, jobIDs ...string) map[string]any {
 	t.Helper()
 	const workID = "work-1"
 	lane := deliveryRecoveryLane(t, capabilityClass)
@@ -49,7 +52,20 @@ func deliveryRecoveryPacket(t *testing.T, s *store.Store, stepID, attemptID, cap
 		t.Fatal(snapshotErr)
 	}
 	if len(snapshot.ReadyWorkerJobs) > 0 {
-		selected, selectErr := json.Marshal(snapshot.ReadyWorkerJobs[len(snapshot.ReadyWorkerJobs)-1])
+		job := snapshot.ReadyWorkerJobs[len(snapshot.ReadyWorkerJobs)-1]
+		if len(jobIDs) != 0 {
+			found := false
+			for _, candidate := range snapshot.ReadyWorkerJobs {
+				if candidate.JobID == jobIDs[0] {
+					job, found = candidate, true
+					break
+				}
+			}
+			if !found {
+				t.Fatalf("delivery recovery job %s is not ready", jobIDs[0])
+			}
+		}
+		selected, selectErr := json.Marshal(job)
 		if selectErr != nil {
 			t.Fatal(selectErr)
 		}
@@ -107,7 +123,7 @@ func deliveryRecoveryCompletion(t *testing.T, s *store.Store, grant Authority, a
 }
 
 func TestDeliveryGateRecoveryReturnsStaleReviewThroughAgent(t *testing.T) {
-	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_transition", "worker_dispatch"})
+	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_transition", "worker_dispatch", "product_read"})
 	ctx := context.Background()
 	home, err := pm1fixture.SeedCommittedProductDomain(ctx, s, "product-1", "project-1", t.TempDir())
 	if err != nil {
@@ -147,6 +163,7 @@ func TestDeliveryGateRecoveryReturnsStaleReviewThroughAgent(t *testing.T) {
 	env := mutationEnvelope(grant, scopeVersion)
 	fixture := oAgentFixture(t, s, service, env, "work-1")
 	oAgentControlRepository(t, fixture)
+	recordDeliveryJourneyFootprint(t, fixture)
 	invoke := func(input map[string]any) Envelope {
 		t.Helper()
 		response, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: retryJSON(input)}, env)
@@ -176,16 +193,32 @@ func TestDeliveryGateRecoveryReturnsStaleReviewThroughAgent(t *testing.T) {
 		t.Helper()
 		// Each dispatch binds its own recorded ready revision: an accepted
 		// job is satisfied and never redispatches (CD-0205).
-		recordReadyRetryJob(t, s, service, env, "job:"+attemptID)
-		if stepID == "refine" && capabilityClass == "implementation" {
-			oAgentReview(t, oAgentFixture(t, s, service, env, "work-1"), "continue", false)
+		jobID := "job:" + attemptID
+		if capabilityClass == "implementation" {
+			oAgentNativeJob(t, fixture)
+			jobID = "job:o-agent-native"
+		} else {
+			recordReadyRetryJob(t, s, service, env, jobID)
 		}
-		response := invoke(map[string]any{"work_id": "work-1", "expected_version": version(), "action_id": "dispatch_worker", "fields": map[string]any{"attempt_id": attemptID, "worker_packet": deliveryRecoveryPacket(t, s, stepID, attemptID, capabilityClass)}, "idempotency_key": "gate-dispatch-" + attemptID})
+		if stepID == "refine" && capabilityClass == "implementation" {
+			architectureJob := "job:" + attemptID + "-architecture"
+			recordReadyRetryJob(t, s, service, env, architectureJob)
+			oAgentReviewJob(t, oAgentFixture(t, s, service, env, "work-1"), architectureJob, "continue", false)
+		}
+		response := invoke(map[string]any{"work_id": "work-1", "expected_version": version(), "action_id": "dispatch_worker", "fields": map[string]any{"attempt_id": attemptID, "worker_packet": deliveryRecoveryPacket(t, s, stepID, attemptID, capabilityClass, jobID)}, "idempotency_key": "gate-dispatch-" + attemptID})
 		if response.Outcome != OutcomeOK {
 			t.Fatalf("gate recovery dispatch %s: %+v", attemptID, response.Error)
 		}
 		if capabilityClass == "implementation" {
-			deliverAgentFixtureChange(t, s, "work-1", attemptID)
+			expression := "3 + 4"
+			if stepID == "refine" {
+				expression = "2 + 5"
+			}
+			if err := os.WriteFile(filepath.Join(fixture.path, "o_fixture/value.go"), []byte("package fixture\nfunc Value() int { return "+expression+" }\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			gitRun(t, fixture.path, "add", "o_fixture/value.go")
+			gitRun(t, fixture.path, "commit", "-qm", "checked gate recovery value")
 		}
 		deliveryRecoveryCompletion(t, s, grant, attemptID, capabilityClass)
 	}
@@ -219,6 +252,7 @@ func TestDeliveryGateRecoveryReturnsStaleReviewThroughAgent(t *testing.T) {
 	// The job-bound accept is local acceptance and holds execution; the step
 	// exits through its delivery assertion, which requires qualifying
 	// core-owned worktree verification covering the job's Project (CD-0205 D3).
+	proveDeliveryJourneyFootprint(t, fixture)
 	integrationRef := oAgentVerify(t, fixture, []string{"go", "vet", "./..."})
 	if response := invoke(map[string]any{"work_id": "work-1", "expected_version": version(), "action_id": "bind_evidence", "fields": map[string]any{"evidence_kind": "verification", "evidence_ref": integrationRef}, "idempotency_key": "gate-execution-integration"}); response.Outcome != OutcomeOK {
 		t.Fatalf("gate recovery integration bind: %+v", response.Error)
@@ -325,6 +359,141 @@ func TestDeliveryGateRecoveryReturnsStaleReviewThroughAgent(t *testing.T) {
 	if definitionDigest != currentDefinition.Digest {
 		t.Fatalf("definition after recovery = %s, want the current definition %s", definitionDigest, currentDefinition.Digest)
 	}
+}
+
+func recordDeliveryJourneyFootprint(t *testing.T, f *oAgentFixtureState) {
+	t.Helper()
+	ctx := context.Background()
+	var project, locator, root, canonical string
+	if err := f.s.DatabaseForTesting().QueryRow(`SELECT h.project_id,h.locator_id,r.root_domain_id FROM product_knowledge_homes h JOIN domain_registries r ON r.product_id=h.product_id WHERE h.product_id='product-1'`).Scan(&project, &locator, &root); err != nil {
+		t.Fatal(err)
+	}
+	home, err := f.s.KnowledgeHomeForLocator(ctx, project, locator, "HEAD")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.s.DatabaseForTesting().QueryRow(`SELECT normalized_value FROM project_locators WHERE kind=? AND project_id='project-1' ORDER BY locator_id LIMIT 1`, store.LocatorCanonicalPath).Scan(&canonical); err != nil {
+		t.Fatal(err)
+	}
+	const recipe = `{"kind":"go_package_v1","package_cwd":"o_fixture","cases":{"case:delivery-package":["go_package:./o_fixture"]}}`
+	for _, path := range []string{canonical, f.path} {
+		for _, name := range []string{"go.mod", "o_fixture/value.go", "o_fixture/value_test.go"} {
+			data, err := os.ReadFile(filepath.Join(f.path, name))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.MkdirAll(filepath.Dir(filepath.Join(path, name)), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(path, name), data, 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := os.WriteFile(filepath.Join(path, "delivery-package-oracle.json"), []byte(recipe), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		gitRun(t, path, "add", "go.mod", "o_fixture", "delivery-package-oracle.json")
+		gitRun(t, path, "commit", "-qm", "declare delivery package proof")
+	}
+	for name, content := range map[string]string{
+		".concord/docs/knowledge/package-domains.json": fmt.Sprintf(`{"schema_version":"1.0","packages":[{"path":"o_fixture","domain_ids":[%q]}]}`, root),
+		".concord/tooling.v1.json":                     `{"schema_version":"1.0","project":"fixture","tools":[{"id":"go-test","invocation":"go test ./...","coverage":[{"anchor":{"kind":"go_package","value":"./o_fixture"},"recipe_path":"delivery-package-oracle.json","case_id":"case:delivery-package"}]},{"id":"go-vet","invocation":"go vet ./..."},{"id":"native-test","invocation":"go test -count=1 ."}]}`,
+	} {
+		path := filepath.Join(home.RepoPath, name)
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	gitRun(t, home.RepoPath, "add", ".concord")
+	gitRun(t, home.RepoPath, "commit", "-qm", "declare delivery footprint ownership and checks")
+	if canonical != home.RepoPath {
+		data, err := os.ReadFile(filepath.Join(home.RepoPath, ".concord/tooling.v1.json"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(canonical, ".concord/tooling.v1.json"), data, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		gitRun(t, canonical, "add", ".concord/tooling.v1.json")
+		gitRun(t, canonical, "commit", "-qm", "declare delivery package coverage")
+	}
+	gitRun(t, canonical, "push", "-q", "origin", "HEAD:main")
+	gitRun(t, canonical, "fetch", "-q", "origin")
+	gitRun(t, f.path, "fetch", "-q", canonical, "HEAD")
+	if err := f.s.EnsureKnowledgeIndexFresh(ctx, home); err != nil {
+		t.Fatal(err)
+	}
+	service, _, grant := newAuthorizedService(t, f.s, "client-delivery-size", f.env.PrincipalRef, []Capability{"work_define"}, []string{"product-1"}, []string{"project-1"}, store.ProjectResolution{ProjectID: "project-1"})
+	service.Now = f.service.Now
+	env := mutationEnvelope(grant, mustScopeVersion(t, f.s))
+	response, _ := dispatchRevise(t, f.s, service, env, map[string]any{
+		"work_id": f.work, "expected_version": workVersion(t, f.s, f.work), "kind": "task",
+		"title": "Check the delivered value", "value_statement": "Delivery needs a checked value on its current candidate.",
+		"task":   "The fixture value needs checked delivery; close when its declared criterion passes.",
+		"reason": "Record the value change's scope before delivery.", "idempotency_key": "delivery-journey-footprint",
+		"size_inputs": map[string]any{"paths": []string{"o_fixture/value.go"}, "security": false, "user_visible": false, "blast_radius": "contained", "estimated_production_lines": 1},
+	})
+	spineOK(t, response)
+}
+
+func proveDeliveryJourneyFootprint(t *testing.T, f *oAgentFixtureState) {
+	t.Helper()
+	spineOK(t, f.call(t, "concord_work_transition", "worktree_verify", map[string]any{
+		"work_id": f.work, "command": []string{"git", "rev-parse", "--verify", "HEAD^{commit}"}, "idempotency_key": fmt.Sprintf("delivery-package-subject-%d", f.request),
+	}))
+	current := f.read(t)
+	tooling, _, err := resolveWorkflowActionSources(context.Background(), f.s, store.BuiltinWorkflowRegistry(), f.work, "record_delivery", retryJSON(map[string]any{"delivery_artifact": "artifact:delivery-package", "delivery_state": "asserted"}))
+	if err != nil || tooling == nil || len(tooling.ResolvedCoverage) != 1 {
+		t.Fatalf("delivery package coverage: %+v (%v)", tooling, err)
+	}
+	owner := store.OracleOwner{OwnerID: "owner:delivery-package", DomainID: current.Pinned.Contract.ArchitectureBinding.HomeDomainID,
+		Mechanism:  store.OracleMechanism{ProjectID: "project-1", Path: "o_fixture/value.go", EntryPoint: "Value"},
+		Obligation: "The delivered value passes its complete package checks.", PredicateIDs: []string{"predicate:primary"}}
+	control := store.OracleControl{ControlID: "control:delivery-package", OwnerID: owner.OwnerID, PredicateIDs: owner.PredicateIDs,
+		CaseIDs: []string{"case:delivery-package"}, Cwd: "o_fixture", Argv: []string{"go", "test", "-count=1", "."},
+		RecipeSource:   tooling.ResolvedCoverage[0].RecipeSource,
+		ExpectedResult: store.OracleExpectedResultPass, RequiredEvidenceRole: store.OracleEvidenceRoleReported}
+	cases := []store.OracleCase{{CaseID: "case:delivery-package", OwnerID: owner.OwnerID, EntryPoint: "Value", InputClass: "delivered value", ExpectedState: "value is seven", ControlIDs: []string{control.ControlID}}}
+	var bundle map[string]any
+	if err := json.Unmarshal(retryJSON(store.NativeOracleControlBundle{Owner: owner, Control: control, Cases: cases}), &bundle); err != nil {
+		t.Fatal(err)
+	}
+	delete(bundle["control"].(map[string]any), "readiness_evidence_refs")
+	prepared := spineOK(t, f.call(t, "concord_work_transition", "worktree_verify", map[string]any{
+		"work_id": f.work, "idempotency_key": fmt.Sprintf("delivery-package-prepare-%d", f.request),
+		"oracle": map[string]any{"phase": "prepare", "expected_contract_version": current.Pinned.Contract.Version, "control_bundle": bundle},
+	}))
+	var preparation store.WorktreeVerifyResult
+	if err := json.Unmarshal(prepared.Result, &preparation); err != nil || preparation.Oracle == nil || preparation.Oracle.Qualification != "ready" {
+		t.Fatalf("delivery package preparation: %s (%v)", prepared.Result, err)
+	}
+	control.ReadinessEvidenceRefs = []string{preparation.OperationRef}
+	oAgentAction(t, f, "record_worker_job", map[string]any{
+		"job_id": "job:delivery-package", "objective": "Check the delivered value's complete package.", "stopping_condition": "All package checks pass.",
+		"ready": true, "checks": []string{"go test ./..."}, "path_scope": []string{"o_fixture/value.go"}, "readiness_evidence": []string{preparation.OperationRef},
+		"acceptance_oracle": store.AcceptanceOracle{Owners: []store.OracleOwner{owner}, Controls: []store.OracleControl{control}, Cases: cases},
+	})
+	attempt := fmt.Sprintf("attempt:delivery-package-%d", f.request)
+	lane, job, epoch := f.startWorker(t, "verify", attempt)
+	executed := spineOK(t, f.call(t, "concord_work_transition", "worktree_verify", map[string]any{
+		"work_id": f.work, "idempotency_key": fmt.Sprintf("delivery-package-execute-%d", f.request),
+		"oracle": map[string]any{"phase": "execute", "attempt_id": attempt, "attempt_epoch": epoch, "worker_packet_digest": f.packetDigest,
+			"worker_job_binding": job, "control_id": control.ControlID, "preparation_run_ref": preparation.OperationRef},
+	}))
+	var result store.WorktreeVerifyResult
+	if err := json.Unmarshal(executed.Result, &result); err != nil || result.Oracle == nil || result.Oracle.Qualification != "pass" {
+		t.Fatalf("delivery package execution: %s (%v)", executed.Result, err)
+	}
+	code := 0
+	source := result.Oracle.RecipeSource
+	receipt := &store.WorkerOracleReceipt{ControlIDs: []string{control.ControlID}, CaseIDs: control.CaseIDs, SubjectCommit: result.Oracle.SubjectCommit,
+		RecipeSource: store.WorkerOracleRecipeSource{Kind: source.Kind, ProjectID: source.ProjectID, Path: source.Path, CommitOID: source.CommitOID}, Result: "pass", ExitCode: &code, RunRef: result.OperationRef, EvidenceRefs: []string{result.OperationRef}}
+	f.finishWorker(t, lane, attempt, job, nil, receipt)
+	oAgentAction(t, f, "accept_worker_result", map[string]any{"attempt_id": attempt, "attempt_epoch": epoch})
+	oAgentAction(t, f, "bind_evidence", map[string]any{"evidence_kind": "verification", "evidence_ref": result.OperationRef})
 }
 
 // agentWorkerCompletedThroughSeam records one completed report through the

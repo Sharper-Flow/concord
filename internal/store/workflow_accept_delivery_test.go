@@ -33,6 +33,7 @@ func acceptDeliveryRunDigest(workID, attemptID string) string {
 // outside the transaction (CD-0192).
 func runDeliveryAdmissionAction(t *testing.T, s *Store, workID, action string, payload json.RawMessage, tooling *ProjectToolingManifest, owner WorkflowActor) error {
 	t.Helper()
+	resolved := ResolveWorkflowFootprint(context.Background(), s, BuiltinWorkflowRegistry(), workID, action, payload)
 	version := readWorkVersion(t, s, workID)
 	tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
 	if err != nil {
@@ -43,7 +44,7 @@ func runDeliveryAdmissionAction(t *testing.T, s *Store, workID, action string, p
 		EvidenceRefs: actionEvidenceRefs(action, payload), WorkID: workID, ExpectedVersion: version, ActionID: action, Payload: payload, Actor: owner,
 		AcceptedInputsDigest: "sha256:" + strings.Repeat("d", 64) + fmt.Sprint(version), IdempotencyIdentity: action + "-accept-delivery-" + workID + "-" + fmt.Sprint(version), OperationID: action + "-accept-delivery-" + workID + "-" + fmt.Sprint(version),
 		PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: action + "-accept-delivery-" + workID + "-" + fmt.Sprint(version), RequestID: "request:accept-delivery-" + workID, ContractDigest: testManifestDigest, Now: time.Unix(9, 0).UTC(),
-		ProjectTooling: tooling,
+		ProjectTooling: tooling, ResolvedFootprint: resolved,
 	}); err != nil {
 		return err
 	}
@@ -173,11 +174,18 @@ type acceptDeliveryCandidate struct {
 // acceptDeliveryCandidateAt seeds the candidate at the named step. At the
 // refinement step the fenced start runs after the early receipt, so that
 // receipt predates the refine start.
-func acceptDeliveryCandidateAt(t *testing.T, workID, ref, step string, pending bool) acceptDeliveryCandidate {
+func acceptDeliveryCandidateAt(t *testing.T, workID, ref, step string, pending bool, setup ...func(*Store)) acceptDeliveryCandidate {
 	t.Helper()
 	definition := mustBuiltinDefinition(t, ref)
 	// No verification binding is seeded; the producer receipt is still applicable.
-	route := seedWorkflowReturnRouteFixtureWithDefinition(t, workID, definition, step, []string{"verification"}, []string{"review", "artifact"})
+	var prepare func(*Store)
+	var footprintProduct string
+	if len(setup) != 0 {
+		prepare = setup[0]
+	} else {
+		prepare = func(s *Store) { footprintProduct = footprintProofKnowledge(t, s, workID) }
+	}
+	route := seedWorkflowReturnRouteFixtureWithSetup(t, workID, definition, step, []string{"verification"}, []string{"review", "artifact"}, prepare)
 	f := workContextFixture{store: route.store, workID: workID, owner: route.owner, operator: route.operator}
 	repo, _ := reviewSubjectClaim(t, f.store, workID)
 	var branch string
@@ -194,6 +202,12 @@ func acceptDeliveryCandidateAt(t *testing.T, workID, ref, step string, pending b
 	if pending {
 		c.attempt = "attempt:" + workID + ":review"
 		c.epoch = acceptDeliveryCompleteReview(t, c, c.attempt, "ready_for_final_proof")
+	}
+	if len(setup) == 0 {
+		// These text-only journeys carry a complete, known-empty footprint.
+		// Missing scope is tested separately; it cannot exempt this fixture.
+		footprintProofBaseline(t, f.store, workID, repo)
+		footprintProofRecordPath(t, f.store, workID, footprintProduct, ".concord/docs/decisions/CD-0003-empty.md")
 	}
 	return c
 }

@@ -1040,6 +1040,7 @@ func readPopulationInputs(fx readPopulationFixture) map[string]string {
 		"concord_work_trace.research":              `{"product_id":"prod-alpha","work_id":"` + fx.workID + `","result_version":2,"page":{"cursor":null,"limit":20}}`,
 		"concord_knowledge.search":                 `{"product_id":"prod-alpha","page":{"cursor":null,"limit":20}}`,
 		"concord_knowledge.resolve_note":           `{"work_id":"` + fx.workID + `"}`,
+		"concord_knowledge.observe_publication":    `{"product_id":"prod-alpha","source_project_id":"proj-knowledge","source_locator_id":"population-knowledge-locator"}`,
 		"concord_domain.list":                      `{"product_id":"prod-alpha","page":{"cursor":null,"limit":20}}`,
 		"concord_domain.detail":                    `{"product_id":"prod-alpha","domain_id":"` + fx.domainID + `"}`,
 		"concord_domain.attachments":               `{"product_id":"prod-alpha","domain_id":"` + fx.domainID + `"}`,
@@ -1143,8 +1144,9 @@ var readPopulationRows = map[string][]string{
 // cannot apply: its answer is a scalar summary, or its only arrays populate on
 // states the probed input cannot reach.
 var readPopulationRowExemptions = map[string]string{
-	"concord_work_browse.worktree_inspect": "the probed status mode answers a scalar status summary and carries no row collection",
-	"concord_knowledge.resolve_note":       "an unambiguous resolution answers one located note; candidates populate only when resolution is ambiguous",
+	"concord_work_browse.worktree_inspect":  "the probed status mode answers a scalar status summary and carries no row collection",
+	"concord_knowledge.resolve_note":        "an unambiguous resolution answers one located note; candidates populate only when resolution is ambiguous",
+	"concord_knowledge.observe_publication": "one registered source answers a scalar provenance record, not a row collection",
 }
 
 // populationRowPathLength decodes one dotted JSON path against a dispatched

@@ -575,7 +575,6 @@ routeDeclaration("accepts an unchanged new-law baseline Review before implementa
       outcome_predicates: [WORKFLOW_PREDICATE], required_evidence: ["verification", "review"], route_conventions: [],
       spec_mandate: [lawID], law_modifies: [], decision_domains: ["product"],
       law_change_reason: "The synthetic Product needs its missing route rule.",
-      law_change_removes_user_visible_behavior: false, law_change_touches_security_or_data_safety: true,
       law_change_text_pins: [{ law_id: lawID, content_hash: lawHash }],
       architecture_binding: {
         domain_registry_content_hash: domains.result.registry.content_hash, home_domain_id: rootDomain,

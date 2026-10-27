@@ -22,9 +22,11 @@ type knowledgeSourceSetProof struct {
 	productID string
 	sources   []KnowledgeHome
 	revisions map[string]knowledgeSourceVerifiedRevision
-	// Single-home refresh errors belong to a nonempty mandate's boundary,
-	// not to law-free transitions that share the pre-transaction preparation.
-	refreshErr error
+	// Standalone failures are demand-driven: a mandate consumes refreshErr;
+	// an inventory read also requires strict verification. Neither blocks a
+	// law-free legacy transition that shares the preparation.
+	refreshErr   error
+	inventoryErr error
 }
 
 // knowledgeSourceVerifiedRevision keeps PM1 §3.3's two revisions apart. The
@@ -99,7 +101,15 @@ func (s *Store) establishKnowledgeSourceSetProofAtHome(ctx context.Context, home
 		}
 		for _, home := range homes {
 			if home.HomeLocatorID == homeLocatorID {
-				return withKnowledgeSourceSetProof(ctx, &knowledgeSourceSetProof{refreshErr: s.EnsureKnowledgeIndexFresh(ctx, home)}), nil
+				proof := &knowledgeSourceSetProof{sources: []KnowledgeHome{home}, refreshErr: s.EnsureKnowledgeIndexFresh(ctx, home)}
+				if proof.refreshErr == nil {
+					verified, err := s.verifyKnowledgeSourceRevision(ctx, home)
+					proof.inventoryErr = err
+					if err == nil {
+						proof.revisions = map[string]knowledgeSourceVerifiedRevision{home.HomeProjectID + "/" + home.HomeLocatorID: verified}
+					}
+				}
+				return withKnowledgeSourceSetProof(ctx, proof), nil
 			}
 		}
 		return ctx, nil
@@ -118,36 +128,38 @@ func (s *Store) establishKnowledgeSourceSetProofAtHome(ctx context.Context, home
 		if err := s.EnsureKnowledgeIndexFresh(ctx, source); err != nil {
 			return ctx, err
 		}
-		verified, _, err := validateKnowledgeHomeForQueryCore(ctx, s.db, source, false, "check_mandated_laws")
+		verified, err := s.verifyKnowledgeSourceRevision(ctx, source)
 		if err != nil {
 			return ctx, err
 		}
-		// PM1 §3.3 separates the projection revision from the head: capture
-		// both at verification time, so the admission below can admit a
-		// content-fresh head that moved past the scanned revision and still
-		// refuse a head that moved after this verification.
-		verifiedHead, err := resolveKnowledgeHead(ctx, source)
-		if err != nil {
-			return ctx, err
-		}
-		// A commit that landed between the freshness probe and the head read
-		// must not bind a proof the probe never verified: re-validate that
-		// the captured head still freshens the same scanned revision before
-		// recording it. A content commit fails the strict probe here; a
-		// code-only commit rechecks clean and becomes part of the verified
-		// head.
-		if verifiedHead != verified {
-			rechecked, _, err := validateKnowledgeHomeForQueryCore(ctx, s.db, source, false, "check_mandated_laws")
-			if err != nil {
-				return ctx, err
-			}
-			if rechecked != verified {
-				return ctx, newFailure(KindInvalidOperation, "check_mandated_laws", "registered source "+key+" moved while its verification ran", false, "verify the Product's registered sources again before the consequential transaction opens")
-			}
-		}
-		revisions[key] = knowledgeSourceVerifiedRevision{scanned: verified, head: verifiedHead}
+		revisions[key] = verified
 	}
 	return withKnowledgeSourceSetProof(ctx, &knowledgeSourceSetProof{productID: productID, sources: sources, revisions: revisions}), nil
+}
+
+func (s *Store) verifyKnowledgeSourceRevision(ctx context.Context, source KnowledgeHome) (knowledgeSourceVerifiedRevision, error) {
+	verified, _, err := validateKnowledgeHomeForQueryCore(ctx, s.db, source, false, "check_mandated_laws")
+	if err != nil {
+		return knowledgeSourceVerifiedRevision{}, err
+	}
+	// PM1 §3.3 separates the projection revision from the head: a code-only
+	// commit before verification can leave the scanned revision behind.
+	verifiedHead, err := resolveKnowledgeHead(ctx, source)
+	if err != nil {
+		return knowledgeSourceVerifiedRevision{}, err
+	}
+	// A commit between the freshness probe and the head read must not bind
+	// a proof the probe never verified. Recheck the captured head's content.
+	if verifiedHead != verified {
+		rechecked, _, err := validateKnowledgeHomeForQueryCore(ctx, s.db, source, false, "check_mandated_laws")
+		if err != nil {
+			return knowledgeSourceVerifiedRevision{}, err
+		}
+		if rechecked != verified {
+			return knowledgeSourceVerifiedRevision{}, newFailure(KindInvalidOperation, "check_mandated_laws", "knowledge source "+source.HomeProjectID+"/"+source.HomeLocatorID+" moved while its verification ran", false, "verify the knowledge sources again before the consequential transaction opens")
+		}
+	}
+	return knowledgeSourceVerifiedRevision{scanned: verified, head: verifiedHead}, nil
 }
 
 // requireKnowledgeSourceSetProof refuses a transaction-scoped mandated-law
@@ -172,9 +184,21 @@ func requireKnowledgeSourceSetProof(ctx context.Context, q queryer, homeProjectI
 	if err != nil {
 		return err
 	}
+	return requireKnowledgeSourcesProof(ctx, q, productID, sources)
+}
+
+// Both Product and standalone inventory reads revalidate the same canonical
+// location, projection watermark, and small-file head proof in the transaction.
+func requireKnowledgeSourcesProof(ctx context.Context, q queryer, productID string, sources []KnowledgeHome) error {
 	proof := knowledgeSourceSetProofFrom(ctx)
 	if proof == nil {
 		return newFailure(KindInvalidOperation, "check_mandated_laws", "the registered knowledge source set was not verified before this transaction", false, "verify the Product's registered sources before the consequential transaction opens")
+	}
+	if proof.refreshErr != nil {
+		return proof.refreshErr
+	}
+	if proof.inventoryErr != nil {
+		return proof.inventoryErr
 	}
 	if proof.productID != productID || knowledgeSourceSetDigest(proof.sources) != knowledgeSourceSetDigest(sources) {
 		return newFailure(KindInvalidOperation, "check_mandated_laws", "the registered knowledge source set changed after its verification", false, "verify the Product's registered sources again before the consequential transaction opens")

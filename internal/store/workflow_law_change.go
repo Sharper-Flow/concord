@@ -87,8 +87,6 @@ func validateWorkflowLawChangeApproval(change *WorkflowLawChange) error {
 
 const (
 	workflowLawChangeReasonField       = "law_change_reason"
-	workflowLawChangeBehaviorField     = "law_change_removes_user_visible_behavior"
-	workflowLawChangeSecurityField     = "law_change_touches_security_or_data_safety"
 	workflowLawChangeTextPinsField     = "law_change_text_pins"
 	workflowLawChangeRegistryHashField = "law_change_registry_content_hash"
 	workflowLawChangeReasonMaxBytes    = 1024
@@ -96,12 +94,9 @@ const (
 	workflowLawChangeTextPinSchema     = "workflow_law_text_pin"
 )
 
-// The P12 booleans are readable optional input, not consent declarations.
 func workflowLawChangeFields() []WorkflowPayloadField {
 	return []WorkflowPayloadField{
 		actionStringField(workflowLawChangeReasonField, false, workflowLawChangeReasonMaxBytes),
-		{Name: workflowLawChangeBehaviorField, ValueType: PayloadBoolean},
-		{Name: workflowLawChangeSecurityField, ValueType: PayloadBoolean},
 		actionItemArrayField(workflowLawChangeTextPinsField, false, 1, workflowLawChangeTextPinsMax, workflowLawChangeTextPinSchema),
 		actionStringField(workflowLawChangeRegistryHashField, false, 71),
 	}
@@ -223,7 +218,7 @@ func deriveWorkflowLawChangeScopeTx(ctx context.Context, q queryer, workID strin
 	for _, canonical := range workflowLawInventoryDifferences(before, after) {
 		reference, exists := aliases[canonical]
 		if !exists {
-			return newFailure(KindOutcomeMismatch, "workflow_law_change", "law "+canonical+" changed outside the declared law scope", false, "restore the law or declare it in law_modifies or law_additions")
+			return newFailure(KindOutcomeMismatch, "workflow_law_change", "law "+canonical+" changed outside the declared law scope", false, "wait for the actual owner's verified completion; for this item's own change, restore the law or declare it in law_modifies or law_additions")
 		}
 		laws = append(laws, reference)
 	}
@@ -290,14 +285,6 @@ func validateWorkflowLawChangePins(change *WorkflowLawChange, op string, needsAp
 	return nil
 }
 
-func workflowWorkIsCrucial(ctx context.Context, q queryer, workID string) (bool, error) {
-	size, sized, err := readEffectiveWorkSize(ctx, q, workID)
-	if err != nil {
-		return false, err
-	}
-	return sized && size.Effective == WorkSizeCrucial, nil
-}
-
 // readWorkflowLawDomainsTx reads the Domains one resolved law is homed in or
 // applies to, sorted and unique, the root included.
 func readWorkflowLawDomainsTx(ctx context.Context, q queryer, resolution federatedLawResolution) ([]string, error) {
@@ -343,9 +330,8 @@ func resolveWorkflowChangedLawsTx(ctx context.Context, q queryer, homeProjectID,
 }
 
 // validateWorkflowLawChangeShape holds a recorded fact to its closed form. It
-// reads nothing, so replay folds recorded bytes under it. productChanging is
-// the pinned definition's Product-changing flag.
-func validateWorkflowLawChangeShape(change *WorkflowLawChange, decisionDomains, lawModifies []string, binding *WorkflowArchitectureBinding, productChanging bool) error {
+// reads nothing, so replay folds recorded bytes under it.
+func validateWorkflowLawChangeShape(change *WorkflowLawChange, decisionDomains, lawModifies []string, binding *WorkflowArchitectureBinding) error {
 	if strings.TrimSpace(change.Reason) == "" || len(change.Reason) > workflowLawChangeReasonMaxBytes {
 		return newFailure(KindInvalidPayload, "fold_event", "law_change reason must be 1 to 1024 bytes", false, "record why the law changes")
 	}
@@ -421,7 +407,7 @@ func validateWorkflowLawBeforeStates(before []workflowLawState) error {
 }
 
 // The live guard refuses stale scope or a substituted start snapshot.
-func validateLiveWorkflowLawChangeTx(ctx context.Context, tx *sql.Tx, workID string, p workflowContractApprovedPayload, productChanging bool) error {
+func validateLiveWorkflowLawChangeTx(ctx context.Context, tx *sql.Tx, workID string, p workflowContractApprovedPayload) error {
 	if p.DecisionDomains == nil && p.LawChange == nil {
 		return nil
 	}
@@ -475,7 +461,7 @@ func checkWorkflowLawChangeEnactmentTx(ctx context.Context, tx *sql.Tx, workID s
 	}
 	for _, id := range workflowLawInventoryDifferences(before, after) {
 		if !declaredLaws[id] {
-			return newFailure(KindOutcomeMismatch, "complete_workflow", "law "+id+" changed outside the active contract (CD-0230 D4)", false, "restore the law, or supersede the contract to declare it")
+			return newFailure(KindOutcomeMismatch, "complete_workflow", "law "+id+" changed outside the active contract (CD-0230 D4)", false, "wait for the actual owner's verified completion; for this item's own change, restore the law or supersede the contract to declare it")
 		}
 	}
 	if err := checkWorkflowLawRegistryScope(before.Registry, after.Registry, binding); err != nil {

@@ -201,6 +201,6 @@ func initializeWorkflowRawTx(ctx context.Context, tx *sql.Tx, request WorkflowIn
 	if err != nil {
 		return err
 	}
-	defer guard.close(ctx)
+	defer func() { _ = guard.close(ctx) }()
 	return initializeWorkflowLawBaselineTx(ctx, tx, request.WorkID)
 }

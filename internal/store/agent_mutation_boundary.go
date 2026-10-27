@@ -479,7 +479,7 @@ func workflowApprovalBoundaryCore(ctx context.Context, q queryer, registry Defin
 	if state.EvaluatorAuthority, err = workflowEvaluationAuthority(ctx, q, request.WorkID, actorRef); err != nil {
 		return state, err
 	}
-	facts, err := workflowApprovalBoundaryFacts(ctx, q, request, state)
+	facts, err := workflowApprovalBoundaryFacts(request, state)
 	if err != nil {
 		return state, err
 	}
@@ -489,7 +489,7 @@ func workflowApprovalBoundaryCore(ctx context.Context, q queryer, registry Defin
 	return state, nil
 }
 
-func workflowApprovalBoundaryFacts(ctx context.Context, q queryer, request WorkflowActionPreflightRequest, state WorkflowApprovalBoundaryState) (WorkflowApprovalFacts, error) {
+func workflowApprovalBoundaryFacts(request WorkflowActionPreflightRequest, state WorkflowApprovalBoundaryState) (WorkflowApprovalFacts, error) {
 	facts := WorkflowApprovalFacts{ActiveDecisionDomains: state.DecisionDomains}
 	if workflowOperatorVerdictActions[request.ActionID] {
 		// The existing legacy fact: an independent evaluator never becomes consent.

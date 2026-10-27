@@ -35,9 +35,7 @@ func pOverlapContractFacts(t *testing.T, s *Store, event Event) Event {
 	declarations := map[string]json.RawMessage{}
 	if workflowContractChangesLaw(modifies, binding) {
 		declarations = lawChangeFields(t, map[string]any{
-			"law_change_reason":                          "exercise the declared overlap footprint",
-			"law_change_removes_user_visible_behavior":   false,
-			"law_change_touches_security_or_data_safety": false,
+			"law_change_reason": "exercise the declared overlap footprint",
 		})
 	}
 	ctx, err := s.EstablishKnowledgeSourceSetProof(context.Background(), event.SubjectID)

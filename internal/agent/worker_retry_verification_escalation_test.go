@@ -370,6 +370,12 @@ func runVerificationStoreAction(t *testing.T, s *store.Store, action string, fie
 		ContractDigest: ManifestDigest, Now: fixedTime(),
 	}
 	ctx := context.Background()
+	if action == "approve_contract" || action == "supersede_contract" || action == "complete" {
+		ctx, err = s.EstablishKnowledgeSourceSetProof(ctx, request.WorkID)
+		if err != nil {
+			t.Fatalf("prepare %s for %s: %v", action, suffix, err)
+		}
+	}
 	if store.WorkflowActionRequiresSubjectFreshness(action) {
 		preparation, prepErr := store.PrepareWorkflowAcceptanceFreshness(ctx, s, store.PrepareWorkerDispatchRequest{WorkID: request.WorkID})
 		if prepErr != nil {

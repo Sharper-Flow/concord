@@ -102,7 +102,7 @@ func TestDerivedLawRevisionOnNonProductChangingContract(t *testing.T) {
 		seedWorkflowLaw(t, s)
 		seedDerivedLawExtension(t, s)
 		version := seedDerivedRevisionWorkflow(t, s, workID, actor)
-		payload := json.RawMessage(`{"premise":"Revise the derived record inside this contract.","spec_mandate":["spec:one"],"law_modifies":["spec:one"],"law_change_reason":"Record why the derived revision moves into this contract.","law_change_removes_user_visible_behavior":false,"law_change_touches_security_or_data_safety":false,"outcome_predicates":[{"predicate_id":"predicate:primary","ordinal":0,"outcome_kind":"outcome","outcome_payload":{"kind":"outcome","allowed":["resolved"]}}]}`)
+		payload := json.RawMessage(`{"premise":"Revise the derived record inside this contract.","spec_mandate":["spec:one"],"law_modifies":["spec:one"],"law_change_reason":"Record why the derived revision moves into this contract.","outcome_predicates":[{"predicate_id":"predicate:primary","ordinal":0,"outcome_kind":"outcome","outcome_payload":{"kind":"outcome","allowed":["resolved"]}}]}`)
 		if err := runDerivedLawApproval(t, s, workID, version, actor, payload); err != nil {
 			t.Fatalf("a derived-only law_modifies was refused: %v", err)
 		}
@@ -123,7 +123,7 @@ func TestDerivedLawRevisionOnNonProductChangingContract(t *testing.T) {
 		seedWorkflowLaw(t, s)
 		seedDerivedLawExtension(t, s)
 		version := seedDerivedRevisionWorkflow(t, s, workID, actor)
-		payload := json.RawMessage(`{"premise":"Attempt to revise legislated law without a Product-changing workflow.","spec_mandate":["spec:legislated"],"law_modifies":["spec:legislated"],"law_change_reason":"Attempt the legislated revision.","law_change_removes_user_visible_behavior":false,"law_change_touches_security_or_data_safety":false,"outcome_predicates":[{"predicate_id":"predicate:primary","ordinal":0,"outcome_kind":"outcome","outcome_payload":{"kind":"outcome","allowed":["resolved"]}}]}`)
+		payload := json.RawMessage(`{"premise":"Attempt to revise legislated law without a Product-changing workflow.","spec_mandate":["spec:legislated"],"law_modifies":["spec:legislated"],"law_change_reason":"Attempt the legislated revision.","outcome_predicates":[{"predicate_id":"predicate:primary","ordinal":0,"outcome_kind":"outcome","outcome_payload":{"kind":"outcome","allowed":["resolved"]}}]}`)
 		err := runDerivedLawApproval(t, s, workID, version, actor, payload)
 		if err == nil {
 			t.Fatal("a legislated law_modifies was admitted on a non-Product-changing contract")
@@ -202,7 +202,7 @@ func TestTierAdmittedConflictRecordsTheContractRevisionLine(t *testing.T) {
 		// empty law_modifies changes no law and must not declare them.
 		lawChange := ""
 		if modifies != `[]` {
-			lawChange = `,"law_change_reason":"Resolve the declared conflict inside this contract.","law_change_removes_user_visible_behavior":false,"law_change_touches_security_or_data_safety":false`
+			lawChange = `,"law_change_reason":"Resolve the declared conflict inside this contract."`
 		}
 		payload := json.RawMessage(`{"premise":"Resolve the conflict inside this contract.","spec_mandate":["spec:legislated","spec:one"],"law_modifies":` + modifies + lawChange + `,"outcome_predicates":[{"predicate_id":"predicate:primary","ordinal":0,"outcome_kind":"outcome","outcome_payload":{"kind":"outcome","allowed":["resolved"]}}]}`)
 		return s, runDerivedLawApproval(t, s, workID, version, actor, payload)

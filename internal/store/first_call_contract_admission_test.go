@@ -162,8 +162,6 @@ func firstCallActionInput(t *testing.T, defs map[string]any, variant string, wor
 			if binding, ok := fields["architecture_binding"].(map[string]any); ok {
 				if additions, ok := binding["law_additions"].([]map[string]any); ok && len(additions) > 0 {
 					fields[workflowLawChangeReasonField] = "Add the law for the bounded contract."
-					fields[workflowLawChangeBehaviorField] = false
-					fields[workflowLawChangeSecurityField] = false
 				}
 			}
 			input[name] = fields

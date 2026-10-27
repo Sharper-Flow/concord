@@ -11,10 +11,10 @@ import (
 	"github.com/sharper-flow/concord/internal/store"
 )
 
-func largeMembershipApprovalFixture(t *testing.T, projectCount int) (*store.Store, *Service, Authority, []string, []string) {
+func largeMembershipApprovalFixture(t *testing.T, projectCount int) (*store.Store, *Service, Authority, []string) {
 	t.Helper()
 	ctx := context.Background()
-	s, _, _, _ := crossProductPolicyFixture(t, []Capability{"work_relate", "cross_scope"})
+	s, _, _ := crossProductPolicyFixture(t, []Capability{"work_relate", "cross_scope"})
 	products := []string{"product-1", "product-2"}
 	projects := []string{"project-1", "project-2"}
 	for i := 3; i <= 9; i++ {
@@ -37,7 +37,7 @@ func largeMembershipApprovalFixture(t *testing.T, projectCount int) (*store.Stor
 	}
 	sort.Strings(projects)
 	service, _, grant := newAuthorizedService(t, s, "large-client", "human-1", []Capability{"work_relate", "cross_scope"}, products, projects, store.ProjectResolution{ProjectID: "project-1"})
-	return s, service, grant, products, projects
+	return s, service, grant, projects
 }
 
 // CD-0243 D3/D7 retire ordinary membership consent. Approval summary bounds
@@ -53,7 +53,7 @@ func TestLargeCrossProductMembershipWithoutConsent(t *testing.T) {
 func testLargeMembershipApprovalRoundTrip(t *testing.T, projectCount int) {
 	t.Helper()
 	ctx := context.Background()
-	s, service, grant, _, projects := largeMembershipApprovalFixture(t, projectCount)
+	s, service, grant, projects := largeMembershipApprovalFixture(t, projectCount)
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
 	if err != nil {
 		t.Fatal(err)
@@ -103,7 +103,7 @@ func testLargeMembershipApprovalRoundTrip(t *testing.T, projectCount int) {
 
 func TestMembershipScopeDoesNotUseApprovalSummaryCapacity(t *testing.T) {
 	ctx := context.Background()
-	s, service, grant, _, projects := largeMembershipApprovalFixture(t, 21)
+	s, service, grant, projects := largeMembershipApprovalFixture(t, 21)
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
 	if err != nil {
 		t.Fatal(err)

@@ -38,7 +38,7 @@ func TestLawChangeGenericRegistryEditCannotComplete(t *testing.T) {
 		t.Fatal(err)
 	}
 	lawChangeFold(t, s, `UPDATE domains SET purpose='edited without a binding' WHERE domain_id='workflow-engine'`)
-	requireFailureKind(t, enactLawChange(t, s, workID, change, nil, nil), KindOutcomeMismatch, "generic registry edit")
+	requireFailureKind(t, enactLawChange(t, s, workID, change, nil), KindOutcomeMismatch, "generic registry edit")
 }
 
 func TestLawChangeUnnamedNewAndRemovedLawsRefuse(t *testing.T) {
@@ -57,7 +57,7 @@ func TestLawChangeUnnamedNewAndRemovedLawsRefuse(t *testing.T) {
 				lawChangeFold(t, s, `DELETE FROM law_domain_homes WHERE law_id='law-agent'`)
 				lawChangeFold(t, s, `DELETE FROM law_subjects WHERE law_id='law-agent'`)
 			}
-			requireFailureKind(t, enactLawChange(t, s, id, nil, nil, nil), KindOutcomeMismatch, "law-free contract changed a source law")
+			requireFailureKind(t, enactLawChange(t, s, id, nil, nil), KindOutcomeMismatch, "law-free contract changed a source law")
 			_, err := deriveLawChange(t, s, id, lawChangeV1, nil, nil, nil, []string{})
 			requireFailureKind(t, err, KindOutcomeMismatch, "cannot omit a made delta from a successor")
 		})
@@ -69,29 +69,29 @@ func TestLawChangeStartAbsenceAndSourceGraph(t *testing.T) {
 		s := openTemp(t)
 		seedWork(t, s, "no-home")
 		startLawChange(t, s, "no-home")
-		if err := enactLawChange(t, s, "no-home", nil, nil, nil); err != nil {
+		if err := enactLawChange(t, s, "no-home", nil, nil); err != nil {
 			t.Fatal(err)
 		}
 		seedWorkflowLaw(t, s)
-		requireFailureKind(t, enactLawChange(t, s, "no-home", nil, nil, nil), KindMissingEvidence, "new home has no original baseline")
+		requireFailureKind(t, enactLawChange(t, s, "no-home", nil, nil), KindMissingEvidence, "new home has no original baseline")
 	})
 	t.Run("no registry does not stop lawless work", func(t *testing.T) {
 		s := openTemp(t)
 		seedWork(t, s, "no-registry")
 		seedWorkflowLaw(t, s)
 		startLawChange(t, s, "no-registry")
-		if err := enactLawChange(t, s, "no-registry", nil, nil, nil); err != nil {
+		if err := enactLawChange(t, s, "no-registry", nil, nil); err != nil {
 			t.Fatal(err)
 		}
 		seedIssue31DomainRegistry(t, s)
-		requireFailureKind(t, enactLawChange(t, s, "no-registry", nil, nil, nil), KindOutcomeMismatch, "new registry is not original state")
+		requireFailureKind(t, enactLawChange(t, s, "no-registry", nil, nil), KindOutcomeMismatch, "new registry is not original state")
 	})
 	t.Run("in-flight item has no invented start", func(t *testing.T) {
 		s := seedLawChangeFixture(t, "old-item")
 		seedLawChangeLaw(t, s, "law-agent", "derived", "agent-surface")
 		_, err := deriveLawChange(t, s, "old-item", lawChangeV1, lawChangeFields(t, map[string]any{workflowLawChangeReasonField: "revise"}), []string{"law-agent"}, nil, []string{})
 		requireFailureKind(t, err, KindMissingEvidence, "missing start baseline")
-		requireFailureKind(t, enactLawChange(t, s, "old-item", nil, nil, nil), KindMissingEvidence, "completion cannot infer historic start")
+		requireFailureKind(t, enactLawChange(t, s, "old-item", nil, nil), KindMissingEvidence, "completion cannot infer historic start")
 		var count int
 		if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM workflow_law_baselines`).Scan(&count); err != nil || count != 0 {
 			t.Fatalf("invented baseline: %d %v", count, err)
@@ -183,7 +183,7 @@ func TestLawChangeBaselineCoversRegisteredSources(t *testing.T) {
 				requireFailureKind(t, err, KindInvalidOperation, "stale source proof cannot certify a law-free contract")
 			} else {
 				lawChangeFold(t, s, `DELETE FROM product_knowledge_sources WHERE project_id=?`, source.HomeProjectID)
-				requireFailureKind(t, enactLawChange(t, s, id, nil, nil, nil), KindMissingEvidence, "source removal must not hide its law delta")
+				requireFailureKind(t, enactLawChange(t, s, id, nil, nil), KindMissingEvidence, "source removal must not hide its law delta")
 			}
 		})
 	}
@@ -235,7 +235,7 @@ func TestLawChangeNewLawRequiresAdditionScope(t *testing.T) {
 	if len(change.LawBefore) != 1 || !change.LawBefore[0].Absent {
 		t.Fatalf("new law was not absent at start: %+v", change)
 	}
-	if err := enactLawChange(t, s, id, change, nil, binding); err != nil {
+	if err := enactLawChange(t, s, id, change, binding); err != nil {
 		t.Fatal(err)
 	}
 	binding.LawAdditions = append(binding.LawAdditions, WorkflowLawAddition{LawID: "law-existing", HomeDomainID: "agent-surface"})

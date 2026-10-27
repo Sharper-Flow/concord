@@ -151,7 +151,13 @@ func completeWorkflowInScopeTx(ctx context.Context, tx *sql.Tx, registry Definit
 	if err != nil {
 		return workflowClauseError(err, 6)
 	}
-	return appendWorkflowCompletionTx(ctx, tx, event, scope, payload, contract.Version, warnings)
+	if err := appendWorkflowCompletionTx(ctx, tx, event, scope, payload, contract.Version, warnings); err != nil {
+		return err
+	}
+	if contract.LawBoundaryVersion == 1 {
+		return recordWorkflowLawEnactmentTx(ctx, tx, event)
+	}
+	return nil
 }
 
 func verifyWorkflowCompletionEvidenceAndScopeTx(ctx context.Context, tx *sql.Tx, workID string, contract workflowCompletionContractData, definition WorkflowDefinition, evidenceCutoff int64) error {

@@ -152,6 +152,7 @@ func advanceWorkflowBoundaryToExecution(t *testing.T, s *store.Store, service *S
 	}
 	challengeInput := map[string]any{"work_id": "work-1", "expected_version": version, "action_id": "approve_contract", "fields": map[string]any{}, "idempotency_key": "boundary-approve"}
 	addWorkflowContractApprovalFields(challengeInput)
+	challengeInput["fields"].(map[string]any)["architecture_binding"] = workflowArchitectureBindingForSeededRegistry(t, s)
 	challenge := invokeWorkflowBoundary(t, s, service, env, challengeInput, store.BuiltinWorkflowRegistry())
 	if challenge.Error == nil || challenge.Error.Kind != "approval_required" {
 		t.Fatalf("approval challenge outcome=%s error=%+v", challenge.Outcome, challenge.Error)

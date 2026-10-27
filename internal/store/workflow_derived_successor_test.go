@@ -28,6 +28,13 @@ func TestNonProductChangingSuccessorPreservesDerivedLaw(t *testing.T) {
 			seedWork(t, s, workID)
 			seedWorkflowLaw(t, s)
 			seedDerivedLawExtension(t, s)
+			// Both successor mandate candidates exist before this item's start.
+			// A research contract revises derived law; it cannot add new law.
+			if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1);
+				INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('project','workflow-law-locator','spec:two','spec','accepted','.concord/docs/spec-two.md','Synthetic successor law','sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb','test');
+				DELETE FROM write_guard`); err != nil {
+				t.Fatal(err)
+			}
 			version := seedDerivedRevisionWorkflow(t, s, workID, actor)
 			// The initial contract declares spec:one in every scenario, so the
 			// CD-0230 D4 law-change inputs ride on the shared map; the
@@ -36,9 +43,7 @@ func TestNonProductChangingSuccessorPreservesDerivedLaw(t *testing.T) {
 			fields := map[string]any{
 				"premise":      "Revise the derived record inside this contract.",
 				"spec_mandate": []string{"spec:one"}, "law_modifies": []string{"spec:one"},
-				"law_change_reason":                          "Move the derived revision into this contract.",
-				"law_change_removes_user_visible_behavior":   false,
-				"law_change_touches_security_or_data_safety": false,
+				"law_change_reason": "Move the derived revision into this contract.",
 				"outcome_predicates": []map[string]any{{
 					"predicate_id": "predicate:primary", "ordinal": 0, "outcome_kind": "outcome",
 					"outcome_payload": map[string]any{"kind": "outcome", "allowed": []string{"resolved"}},
@@ -47,8 +52,8 @@ func TestNonProductChangingSuccessorPreservesDerivedLaw(t *testing.T) {
 			if err := runDerivedLawApproval(t, s, workID, version, actor, mustJSONValue(fields)); err != nil {
 				t.Fatalf("live approval: %v", err)
 			}
-			// The accepted successor law makes the real recovery action reachable.
-			cutoverLawProjection(t, s)
+			// Re-pin to the other existing derived law without enacting an
+			// unrelated deletion of the predecessor's mandate.
 			fields["contract_version"] = 2
 			fields["spec_mandate"] = []string{"spec:two"}
 			fields["law_modifies"] = scenario.modifies
@@ -58,10 +63,17 @@ func TestNonProductChangingSuccessorPreservesDerivedLaw(t *testing.T) {
 			fields["supersede_reason"] = "Revise the contract under the accepted successor law."
 			fields["audit_evidence"] = []string{"evidence:law-successor"}
 			fields["decision_domains"] = []string{}
+			if len(scenario.modifies) == 0 {
+				delete(fields, "law_change_reason")
+			}
 			if scenario.refused {
 				fields["spec_mandate"] = []string{"spec:two", "spec:legislated"}
 			}
 			version = readWorkVersion(t, s, workID)
+			ctx, err := s.EstablishKnowledgeSourceSetProof(ctx, workID)
+			if err != nil {
+				t.Fatal(err)
+			}
 			tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
 			if err != nil {
 				t.Fatal(err)

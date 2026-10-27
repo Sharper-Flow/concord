@@ -131,7 +131,7 @@ func applyOutsideRepairMutationTx(ctx context.Context, transaction *Transaction,
 		return ApplyOperationResult{}, newFailure(KindInvalidPayload, "outside_repair", "work, reason, event identity or version is invalid", false, "supply bounded outside-repair fields")
 	}
 	actorIdentity := request.Actor
-	actorRef := ""
+	var actorRef string
 	if request.OutsideRepairApproval != (OutsideRepairApproval{}) {
 		operator, err := workflowOperatorFromConsumedApprovalTx(ctx, tx, request.binding(), "outside_repair")
 		if err != nil {

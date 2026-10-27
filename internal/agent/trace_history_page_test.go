@@ -182,7 +182,7 @@ func TestTraceHistoryBindsTheContractVersionSelector(t *testing.T) {
 		invokeWorkflowIssue31Action(t, s, service, env, actionID, version, "history-selector-"+actionID)
 		version = workOneVersion(t, s)
 	}
-	if approved, _ := approvedWorkflowContract(t, s, service, grant, privateKey, env, version, workflowContractFieldsFixture(), "history-selector-approve"); approved.Outcome != OutcomeOK {
+	if approved, _ := approvedWorkflowContract(t, s, service, grant, privateKey, env, version, workflowContractFieldsForSeededRegistry(t, s), "history-selector-approve"); approved.Outcome != OutcomeOK {
 		t.Fatalf("approve_contract = %+v", approved.Error)
 	}
 

@@ -2,7 +2,6 @@ package agent
 
 import (
 	"context"
-	"crypto/ed25519"
 	"encoding/json"
 	"reflect"
 	"strings"
@@ -18,7 +17,7 @@ import (
 // resolving in project-1 holds an explicit policy grant for product-2 that no
 // ambient membership covers. This is the shape a shared work identity runs
 // under when one Product's work carries another Product's remote records.
-func crossProductPolicyFixture(t *testing.T, capabilities []Capability) (*store.Store, *Service, Authority, ed25519.PrivateKey) {
+func crossProductPolicyFixture(t *testing.T, capabilities []Capability) (*store.Store, *Service, Authority) {
 	t.Helper()
 	ctx := context.Background()
 	s, err := storetest.Open(t.TempDir())
@@ -42,8 +41,7 @@ func crossProductPolicyFixture(t *testing.T, capabilities []Capability) (*store.
 		t.Fatal(err)
 	}
 	service, _, grant := newAuthorizedService(t, s, "client-1", "human-1", capabilities, []string{"product-1", "product-2"}, []string{"project-1", "project-2"}, store.ProjectResolution{ProjectID: "project-1"})
-	privateKey := mustKey(t)
-	return s, service, grant, privateKey
+	return s, service, grant
 }
 
 // A policy Product the ambient Project does not own must still sit in the
@@ -52,7 +50,7 @@ func crossProductPolicyFixture(t *testing.T, capabilities []Capability) (*store.
 // capability unreachable. The ambient candidates stay the selection set.
 func TestPolicyProductsAuthorizeBeyondAmbientProject(t *testing.T) {
 	ctx := context.Background()
-	_, service, grant, _ := crossProductPolicyFixture(t, []Capability{"product_read", "cross_scope"})
+	_, service, grant := crossProductPolicyFixture(t, []Capability{"product_read", "cross_scope"})
 	inv := Invocation{ClientRef: grant.ClientRef, PrincipalRef: grant.PrincipalRef, SessionRef: grant.SessionRef, AgentRef: grant.AgentRef, Directory: grant.Directory, Worktree: grant.Worktree, ManifestDigest: ManifestDigest, RequiredCapability: "product_read", ProductID: "product-1"}
 	authority, err := service.Authorize(ctx, inv)
 	if err != nil {
@@ -74,7 +72,7 @@ func TestPolicyProductsAuthorizeBeyondAmbientProject(t *testing.T) {
 // ambient Project does not bound reads.
 func TestAuthorizedProductReadBeyondAmbientProjectSucceeds(t *testing.T) {
 	ctx := context.Background()
-	s, service, grant, _ := crossProductPolicyFixture(t, []Capability{"product_read"})
+	s, service, grant := crossProductPolicyFixture(t, []Capability{"product_read"})
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
 	if err != nil {
 		t.Fatal(err)
@@ -102,7 +100,7 @@ func TestAuthorizedProductReadBeyondAmbientProjectSucceeds(t *testing.T) {
 // admission does not widen to every Product.
 func TestReadOfProductOutsidePolicyRefuses(t *testing.T) {
 	ctx := context.Background()
-	s, service, grant, _ := crossProductPolicyFixture(t, []Capability{"product_read"})
+	s, service, grant := crossProductPolicyFixture(t, []Capability{"product_read"})
 	applyAgentFixtureProduct(ctx, t, s, "cross-policy-3", "product-3", "project-3", "Product Three", "Third Project", "fixture")
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
 	if err != nil {
@@ -121,7 +119,7 @@ func TestReadOfProductOutsidePolicyRefuses(t *testing.T) {
 // CD-0243 D3/D7 retire cross-Product coordination consent, not cross_scope.
 func TestCrossProductMembershipNeedsNoConsentUnderCrossScope(t *testing.T) {
 	ctx := context.Background()
-	s, service, grant, _ := crossProductPolicyFixture(t, []Capability{"work_relate", "cross_scope"})
+	s, service, grant := crossProductPolicyFixture(t, []Capability{"work_relate", "cross_scope"})
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
 	if err != nil {
 		t.Fatal(err)
@@ -147,7 +145,7 @@ func TestCrossProductMembershipNeedsNoConsentUnderCrossScope(t *testing.T) {
 // the client policy actually authorizes.
 func TestCrossProductMembershipWithoutCrossScopeRefusesBeforeEffect(t *testing.T) {
 	ctx := context.Background()
-	s, service, grant, _ := crossProductPolicyFixture(t, []Capability{"work_relate"})
+	s, service, grant := crossProductPolicyFixture(t, []Capability{"work_relate"})
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
 	if err != nil {
 		t.Fatal(err)

@@ -159,7 +159,7 @@ func handoffDispatchFixture(t *testing.T) (*store.Store, *Service, *Service, Cal
 			t.Fatal(err)
 		}
 	}
-	contractFields := workflowContractFieldsFixture()
+	contractFields := workflowContractFieldsForSeededRegistry(t, s)
 	approved, _ := approvedWorkflowActionWithVersions(t, s, sourceService, sourceGrant, mustKey(t), sourceEnv, version, "approve_contract", contractFields, "handoff-approve-contract", map[string]any{"work": version})
 	if approved.Outcome != OutcomeOK {
 		t.Fatalf("approve_contract failed: %+v", approved.Error)

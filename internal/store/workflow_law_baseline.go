@@ -9,8 +9,8 @@ import (
 	"strings"
 )
 
-// One current before-state belongs to the item's owning start. It is not a
-// replay source, edit attribution, or a reconstruction of an older item's start.
+// The owning-start inventory stays immutable. Completion attribution advances
+// only the comparison cursor, never this recorded before-state.
 type workflowLawBaseline struct {
 	Home     workflowLawBaselineSource    `json:"home"`
 	Sources  []workflowLawBaselineSource  `json:"sources"`
@@ -89,7 +89,7 @@ func initializeWorkflowLawBaselineTx(ctx context.Context, tx *sql.Tx, workID str
 		return err
 	}
 	if !baseline.NoHome {
-		if err := requireKnowledgeSourceSetProof(ctx, tx, baseline.Home.ProjectID, baseline.Home.LocatorID); err != nil {
+		if err := requireWorkflowLawInventoryProof(ctx, tx, baseline.Home.ProjectID, baseline.Home.LocatorID); err != nil {
 			return err
 		}
 	}
@@ -97,7 +97,7 @@ func initializeWorkflowLawBaselineTx(ctx context.Context, tx *sql.Tx, workID str
 	if err != nil || len(encoded) > 4*1024*1024 {
 		return newFailure(KindInvalidPayload, "workflow_law_change", "the start law inventory exceeds its bounded storage", false, "reduce the Product source inventory before starting work")
 	}
-	_, err = tx.ExecContext(ctx, `INSERT INTO workflow_law_baselines(work_id,baseline_json) VALUES(?,?)`, workID, string(encoded))
+	_, err = tx.ExecContext(ctx, `INSERT INTO workflow_law_baselines(work_id,baseline_json,start_effect_seq) SELECT ?,?,COALESCE(max(effect_seq),0) FROM effect_receipts`, workID, string(encoded))
 	if err != nil {
 		return workflowProjectionError(err, "cannot record the owning start law baseline")
 	}
@@ -106,9 +106,10 @@ func initializeWorkflowLawBaselineTx(ctx context.Context, tx *sql.Tx, workID str
 
 func readWorkflowLawBaselineTx(ctx context.Context, q queryer, workID string) (*workflowLawBaseline, *workflowLawBaseline, error) {
 	var encoded string
-	if err := q.QueryRowContext(ctx, `SELECT baseline_json FROM workflow_law_baselines WHERE work_id=?`, workID).Scan(&encoded); err != nil {
+	var startSeq int64
+	if err := q.QueryRowContext(ctx, `SELECT baseline_json,start_effect_seq FROM workflow_law_baselines WHERE work_id=?`, workID).Scan(&encoded, &startSeq); err != nil {
 		if err == sql.ErrNoRows {
-			return nil, nil, newFailure(KindMissingEvidence, "workflow_law_change", "the item has no law before-state anchored at its owning start", false, "retain the item without inventing a baseline; start new work before editing law")
+			return nil, nil, newFailure(KindMissingEvidence, "workflow_law_change", "the item has no law before-state anchored at its owning start", false, "retain the historical item without inventing a baseline; cancel and re-capture the remaining work, or use boundary-authenticated outside repair and reconcile its delivery evidence")
 		}
 		return nil, nil, workflowProjectionError(err, "cannot read the owning start law baseline")
 	}
@@ -124,11 +125,36 @@ func readWorkflowLawBaselineTx(ctx context.Context, q queryer, workID string) (*
 		return nil, nil, newFailure(KindMissingEvidence, "workflow_law_change", "the item's law source graph differs from its owning start", false, "restore the pinned source graph; a new graph has no verified start baseline")
 	}
 	if !after.NoHome {
-		if err := requireKnowledgeSourceSetProof(ctx, q, after.Home.ProjectID, after.Home.LocatorID); err != nil {
+		if err := requireWorkflowLawInventoryProof(ctx, q, after.Home.ProjectID, after.Home.LocatorID); err != nil {
 			return nil, nil, err
 		}
 	}
+	if err := applyCompletedWorkflowLawEnactmentsTx(ctx, q, workID, startSeq, &before); err != nil {
+		return nil, nil, err
+	}
 	return &before, after, nil
+}
+
+// Inventory admission has its own seam: unlike a mandate read, it must prove
+// the complete inventory even when the contract names no law.
+func requireWorkflowLawInventoryProof(ctx context.Context, q queryer, project, locator string) error {
+	productID, _, err := resolveKnowledgeSourceRole(ctx, q, KnowledgeHome{HomeProjectID: project, HomeLocatorID: locator})
+	if err != nil {
+		return err
+	}
+	if productID != "" {
+		return requireKnowledgeSourceSetProof(ctx, q, project, locator)
+	}
+	homes, err := projectCanonicalHomeCandidates(ctx, q, project)
+	if err != nil {
+		return err
+	}
+	for _, home := range homes {
+		if home.HomeLocatorID == locator {
+			return requireKnowledgeSourcesProof(ctx, q, "", []KnowledgeHome{home})
+		}
+	}
+	return newFailure(KindUnknownScope, "workflow_law_change", "the standalone inventory has no canonical law home", false, "resolve one canonical Git knowledge home before verifying the inventory")
 }
 
 func workflowLawInventoryMap(b *workflowLawBaseline) map[string]workflowLawState {

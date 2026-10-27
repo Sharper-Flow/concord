@@ -36,16 +36,14 @@ func testSupersedeContractDispatch(t *testing.T, stage string) {
 		invokeWorkflowIssue31Action(t, s, service, env, actionID, version, "supersede-"+actionID)
 		version = workOneVersion(t, s)
 	}
-	binding := workflowArchitectureBindingFixture()
+	binding := workflowArchitectureBindingForSeededRegistry(t, s)
 	if stage == "overlap" || stage == "pending-dispatch-overlap" || stage == "self-repair" {
-		binding["domain_modifies"] = []string{"root"}
+		binding["domain_modifies"] = []string{binding["home_domain_id"].(string)}
 	}
 	contractFields := workflowContractFieldsFixture()
 	contractFields["architecture_binding"] = binding
 	if len(binding["domain_modifies"].([]string)) != 0 {
 		contractFields["law_change_reason"] = "Correct the declared Domain registry."
-		contractFields["law_change_removes_user_visible_behavior"] = false
-		contractFields["law_change_touches_security_or_data_safety"] = false
 	}
 	contract, _ := approvedWorkflowContract(t, s, service, grant, privateKey, env, version, contractFields, "supersede-approve-contract")
 	if contract.Outcome != OutcomeOK {
@@ -127,17 +125,15 @@ func testSupersedeContractDispatch(t *testing.T, stage string) {
 		t.Errorf("correction advertised=%v at %s: %+v", advertised, stage, pin.NextValidIntents)
 	}
 
-	successorBinding := workflowArchitectureBindingFixture()
-	successorBinding["domain_modifies"] = []string{"root"}
+	successorBinding := workflowArchitectureBindingForSeededRegistry(t, s)
+	successorBinding["domain_modifies"] = []string{successorBinding["home_domain_id"].(string)}
 	fields := map[string]any{
-		"decision_domains":     []string{},
-		"contract_version":     2,
-		"premise":              "corrected premise",
-		"architecture_binding": successorBinding,
-		"law_change_reason":    "Correct the security-relevant Domain registry declaration.",
-		"law_change_removes_user_visible_behavior":   false,
-		"law_change_touches_security_or_data_safety": true,
-		"law_change_registry_content_hash":           successorBinding["domain_registry_content_hash"],
+		"decision_domains":                 []string{"security"},
+		"contract_version":                 2,
+		"premise":                          "corrected premise",
+		"architecture_binding":             successorBinding,
+		"law_change_reason":                "Correct the security-relevant Domain registry declaration.",
+		"law_change_registry_content_hash": successorBinding["domain_registry_content_hash"],
 		"outcome_predicates": []map[string]any{{
 			"predicate_id": "predicate:primary", "ordinal": 0, "outcome_kind": "check",
 			"outcome_payload": map[string]any{"kind": "check", "check_ref": "check:workflow", "immutable_subject_ref": "commit:workflow", "expected_result": "pass"},

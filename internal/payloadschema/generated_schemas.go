@@ -17807,13 +17807,6 @@ const GeneratedPayloadSchemaDocument = `{
                   "type": "string",
                   "x-maxBytes": 71
                 },
-                "law_change_removes_user_visible_behavior": {
-                  "description": "Accepted shape: boolean; example: false",
-                  "examples": [
-                    false
-                  ],
-                  "type": "boolean"
-                },
                 "law_change_text_pins": {
                   "description": "Accepted shape: array of object; Bounds: 1..64 items inclusive; example: [{\"content_hash\":\"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"law_id\":\"aa\"}]",
                   "examples": [
@@ -17837,13 +17830,6 @@ const GeneratedPayloadSchemaDocument = `{
                   "maxItems": 64,
                   "minItems": 1,
                   "type": "array"
-                },
-                "law_change_touches_security_or_data_safety": {
-                  "description": "Accepted shape: boolean; example: false",
-                  "examples": [
-                    false
-                  ],
-                  "type": "boolean"
                 },
                 "law_modifies": {
                   "description": "Accepted shape: array of string matching ^\\S(?:[\\s\\S]*\\S)?$; Bounds: 0..32 items inclusive; example: []",
@@ -23897,13 +23883,6 @@ const GeneratedPayloadSchemaDocument = `{
                   "type": "string",
                   "x-maxBytes": 71
                 },
-                "law_change_removes_user_visible_behavior": {
-                  "description": "Accepted shape: boolean; example: false",
-                  "examples": [
-                    false
-                  ],
-                  "type": "boolean"
-                },
                 "law_change_text_pins": {
                   "description": "Accepted shape: array of object; Bounds: 1..64 items inclusive; example: [{\"content_hash\":\"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"law_id\":\"aa\"}]",
                   "examples": [
@@ -23927,13 +23906,6 @@ const GeneratedPayloadSchemaDocument = `{
                   "maxItems": 64,
                   "minItems": 1,
                   "type": "array"
-                },
-                "law_change_touches_security_or_data_safety": {
-                  "description": "Accepted shape: boolean; example: false",
-                  "examples": [
-                    false
-                  ],
-                  "type": "boolean"
                 },
                 "law_modifies": {
                   "description": "Accepted shape: array of string matching ^\\S(?:[\\s\\S]*\\S)?$; Bounds: 0..32 items inclusive; example: []",

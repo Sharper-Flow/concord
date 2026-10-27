@@ -165,7 +165,7 @@ func workflowActionApprovalCall(t *testing.T) (*store.Store, *Service, CallEnvel
 	if got := advanceCapturedWorkToContract(t, s, service, env, "work-1", "wf-advance"); got != 8 {
 		t.Fatalf("pre-contract version=%d, want 8", got)
 	}
-	return s, service, env, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: workflowContractActionInput(t, "wf-approve-read-fault", "")}
+	return s, service, env, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: workflowContractActionInput(t, s, "wf-approve-read-fault", "")}
 }
 
 func knowledgePublicationApprovalCall(t *testing.T) (*store.Store, *Service, CallEnvelope, InvokeRequest) {

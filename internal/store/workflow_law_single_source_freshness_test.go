@@ -129,7 +129,7 @@ func TestLawBaselineMissingCurrentPinKeepsOutsideRepairRoute(t *testing.T) {
 	if _, err := ReadWorkPin(t.Context(), s, id); err != nil {
 		t.Fatal(err)
 	}
-	requireFailureKind(t, enactLawChange(t, s, id, nil, nil, nil), KindMissingEvidence, "cannot infer owning start from a current pin")
+	requireFailureKind(t, enactLawChange(t, s, id, nil, nil), KindMissingEvidence, "cannot infer owning start from a current pin")
 	if err := outsideRepairApply(t, s, outsideRepairTestRequest(t, s, id, "hold"), WorkflowOutsideRepairDispositionSet, OutsideRepairEvidence{}); err != nil {
 		t.Fatal(err)
 	}

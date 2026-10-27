@@ -133,10 +133,10 @@ func deriveLawChange(t *testing.T, s *Store, workID string, definition WorkflowD
 	return change, err
 }
 
-func enactLawChange(t *testing.T, s *Store, workID string, change *WorkflowLawChange, laws []string, binding *WorkflowArchitectureBinding) error {
+func enactLawChange(t *testing.T, s *Store, workID string, change *WorkflowLawChange, binding *WorkflowArchitectureBinding) error {
 	t.Helper()
 	if change != nil && change.LawIDs == nil {
-		change.LawIDs = uniqueSorted(workflowChangedLawIDs(laws, binding))
+		change.LawIDs = uniqueSorted(workflowChangedLawIDs(nil, binding))
 	}
 	ctx, err := s.EstablishKnowledgeSourceSetProof(t.Context(), workID)
 	if err != nil {
@@ -180,7 +180,7 @@ func TestLawChangeAgentOwnedReasonAndTier(t *testing.T) {
 	startLawChange(t, s, workID)
 	_, err := deriveLawChange(t, s, workID, lawChangeV1, nil, []string{"law-agent"}, nil, []string{})
 	requireFailureKind(t, err, KindInvalidPayload, "missing reason")
-	fields := lawChangeFields(t, map[string]any{workflowLawChangeReasonField: "revise", workflowLawChangeBehaviorField: true, workflowLawChangeSecurityField: true})
+	fields := lawChangeFields(t, map[string]any{workflowLawChangeReasonField: "revise"})
 	change, err := deriveLawChange(t, s, workID, lawChangeV1, fields, []string{"law-agent"}, nil, []string{})
 	if err != nil {
 		t.Fatal(err)
@@ -188,9 +188,9 @@ func TestLawChangeAgentOwnedReasonAndTier(t *testing.T) {
 	if change.Version != 2 || change.Serious || change.Crucial || change.Approval != nil || len(change.DomainIDs) != 0 {
 		t.Fatalf("retired consent facts: %+v", change)
 	}
-	requireFailureKind(t, enactLawChange(t, s, workID, change, nil, nil), KindMissingEvidence, "unapproved legislated tier")
+	requireFailureKind(t, enactLawChange(t, s, workID, change, nil), KindMissingEvidence, "unapproved legislated tier")
 	lawChangeFold(t, s, `UPDATE law_subjects SET authority_tier='derived' WHERE law_id='law-agent'`)
-	if err := enactLawChange(t, s, workID, change, nil, nil); err != nil {
+	if err := enactLawChange(t, s, workID, change, nil); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -210,16 +210,16 @@ func TestLawChangeSixClassesPinExactText(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			requireFailureKind(t, validateWorkflowLawChangeShape(change, []string{class}, []string{"law-agent"}, nil, true), KindApprovalRequired, "no consumed proof")
+			requireFailureKind(t, validateWorkflowLawChangeShape(change, []string{class}, []string{"law-agent"}, nil), KindApprovalRequired, "no consumed proof")
 			change.Approval = lawChangeApprovalProof()
-			if err := validateWorkflowLawChangeShape(change, []string{class}, []string{"law-agent"}, nil, true); err != nil {
+			if err := validateWorkflowLawChangeShape(change, []string{class}, []string{"law-agent"}, nil); err != nil {
 				t.Fatal(err)
 			}
-			if err := enactLawChange(t, s, workID, change, nil, nil); err != nil {
+			if err := enactLawChange(t, s, workID, change, nil); err != nil {
 				t.Fatal(err)
 			}
 			change.TextPins[0].ContentHash = "sha256:" + strings.Repeat("e", 64)
-			requireFailureKind(t, enactLawChange(t, s, workID, change, nil, nil), KindApprovalRequired, "different enacted text")
+			requireFailureKind(t, enactLawChange(t, s, workID, change, nil), KindApprovalRequired, "different enacted text")
 		})
 	}
 }
@@ -287,13 +287,13 @@ func TestLawChangeCurrentScopeAndLiveTampering(t *testing.T) {
 		t.Fatal(err)
 	}
 	editLawChangeLaw(t, s, "law-other")
-	requireFailureKind(t, enactLawChange(t, s, workID, change, nil, nil), KindOutcomeMismatch, "unnamed law edited")
+	requireFailureKind(t, enactLawChange(t, s, workID, change, nil), KindOutcomeMismatch, "unnamed law edited")
 	ctx, err := s.EstablishKnowledgeSourceSetProof(t.Context(), workID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	tx := lawChangeTx(t, s)
-	err = validateLiveWorkflowLawChangeTx(ctx, tx, workID, workflowContractApprovedPayload{DecisionDomains: []string{}, LawChange: change, LawModifies: []string{"law-agent"}}, true)
+	err = validateLiveWorkflowLawChangeTx(ctx, tx, workID, workflowContractApprovedPayload{DecisionDomains: []string{}, LawChange: change, LawModifies: []string{"law-agent"}})
 	_ = tx.Rollback()
 	requireFailureKind(t, err, KindOutcomeMismatch, "stale scope fact")
 	change, err = deriveLawChange(t, s, workID, lawChangeV1, lawChangeFields(t, map[string]any{workflowLawChangeReasonField: "revise"}), []string{"law-agent", "law-other"}, nil, []string{})
@@ -305,7 +305,7 @@ func TestLawChangeCurrentScopeAndLiveTampering(t *testing.T) {
 	}
 	change.LawBefore[0].ContentHash = "sha256:" + strings.Repeat("9", 64)
 	tx = lawChangeTx(t, s)
-	err = validateLiveWorkflowLawChangeTx(ctx, tx, workID, workflowContractApprovedPayload{DecisionDomains: []string{}, LawChange: change, LawModifies: []string{"law-agent", "law-other"}}, true)
+	err = validateLiveWorkflowLawChangeTx(ctx, tx, workID, workflowContractApprovedPayload{DecisionDomains: []string{}, LawChange: change, LawModifies: []string{"law-agent", "law-other"}})
 	_ = tx.Rollback()
 	requireFailureKind(t, err, KindInvalidPayload, "rewritten before-state")
 }
@@ -322,9 +322,9 @@ func TestLawChangeRegistryScopeIncludesRoot(t *testing.T) {
 				t.Fatal(err)
 			}
 			lawChangeFold(t, s, `UPDATE domains SET purpose='edited' WHERE domain_id=?`, id)
-			requireFailureKind(t, enactLawChange(t, s, workID, change, nil, binding), KindOutcomeMismatch, "undeclared registry entry")
+			requireFailureKind(t, enactLawChange(t, s, workID, change, binding), KindOutcomeMismatch, "undeclared registry entry")
 			binding.DomainModifies = append(binding.DomainModifies, id)
-			if err := enactLawChange(t, s, workID, change, nil, binding); err != nil {
+			if err := enactLawChange(t, s, workID, change, binding); err != nil {
 				t.Fatal(err)
 			}
 		})
@@ -357,20 +357,20 @@ func TestLawChangeShapeValidation(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			c := well()
 			mutate(c)
-			if err := validateWorkflowLawChangeShape(c, []string{}, []string{"law-agent"}, nil, true); err == nil {
+			if err := validateWorkflowLawChangeShape(c, []string{}, []string{"law-agent"}, nil); err == nil {
 				t.Fatal("invalid fact admitted")
 			}
 		})
 	}
-	if err := validateWorkflowLawChangeShape(well(), []string{}, []string{"law-agent"}, nil, false); err != nil {
+	if err := validateWorkflowLawChangeShape(well(), []string{}, []string{"law-agent"}, nil); err != nil {
 		t.Fatal(err)
 	}
 	c := well()
 	c.RegistryBefore = &workflowLawRegistrySnapshot{RootDomainID: "root", Entries: []workflowLawRegistryPin{}}
-	if err := validateWorkflowLawChangeShape(c, []string{}, []string{"law-agent"}, nil, false); err != nil {
+	if err := validateWorkflowLawChangeShape(c, []string{}, []string{"law-agent"}, nil); err != nil {
 		t.Fatal(err)
 	}
-	requireFailureKind(t, validateWorkflowLawChangeShape(c, []string{}, []string{"law-agent"}, &WorkflowArchitectureBinding{DomainModifies: []string{"root"}}, true), KindInvalidPayload, "missing registry edit declaration")
+	requireFailureKind(t, validateWorkflowLawChangeShape(c, []string{}, []string{"law-agent"}, &WorkflowArchitectureBinding{DomainModifies: []string{"root"}}), KindInvalidPayload, "missing registry edit declaration")
 }
 
 func TestLawChangeClassifiedRegistryAndMissingText(t *testing.T) {
@@ -392,16 +392,16 @@ func TestLawChangeClassifiedRegistryAndMissingText(t *testing.T) {
 		t.Fatal(err)
 	}
 	change.Approval = lawChangeApprovalProof()
-	if err := enactLawChange(t, s, id, change, nil, binding); err != nil {
+	if err := enactLawChange(t, s, id, change, binding); err != nil {
 		t.Fatal(err)
 	}
 	change.RegistryContentHash = lawChangeHashA
-	requireFailureKind(t, enactLawChange(t, s, id, change, nil, binding), KindApprovalRequired, "registry differs from the approved text")
+	requireFailureKind(t, enactLawChange(t, s, id, change, binding), KindApprovalRequired, "registry differs from the approved text")
 	change = &WorkflowLawChange{Version: 2, Reason: "revise law", LawIDs: []string{"law-missing"}, TextPins: lawChangePins("law-missing"), Approval: lawChangeApprovalProof()}
-	requireFailureKind(t, enactLawChange(t, s, id, change, nil, nil), KindMissingEvidence, "approved text missing")
+	requireFailureKind(t, enactLawChange(t, s, id, change, nil), KindMissingEvidence, "approved text missing")
 	change.Approval = nil
 	change.TextPins = nil
-	requireFailureKind(t, enactLawChange(t, s, id, change, nil, nil), KindMissingEvidence, "unapproved revision missing")
+	requireFailureKind(t, enactLawChange(t, s, id, change, nil), KindMissingEvidence, "unapproved revision missing")
 }
 
 func TestLawChangeSuccessorKeepsOwningStart(t *testing.T) {
@@ -420,11 +420,11 @@ func TestLawChangeSuccessorKeepsOwningStart(t *testing.T) {
 		t.Fatal(err)
 	}
 	editLawChangeLaw(t, s, "law-agent")
-	if err := enactLawChange(t, s, id, narrow, nil, nil); err != nil {
+	if err := enactLawChange(t, s, id, narrow, nil); err != nil {
 		t.Fatal(err)
 	}
 	editLawChangeLaw(t, s, "law-other")
-	requireFailureKind(t, enactLawChange(t, s, id, narrow, nil, nil), KindOutcomeMismatch, "dropped unchanged law changed later")
+	requireFailureKind(t, enactLawChange(t, s, id, narrow, nil), KindOutcomeMismatch, "dropped unchanged law changed later")
 	_, err = deriveLawChange(t, s, id, lawChangeV1, fields, []string{"law-agent"}, nil, []string{})
 	requireFailureKind(t, err, KindOutcomeMismatch, "successor cannot drop an enacted law delta")
 }
@@ -555,7 +555,7 @@ func TestLawChangeThroughTheRealConstructors(t *testing.T) {
 		if v2 != nil {
 			t.Fatal(v2)
 		}
-		if err := enactLawChange(t, s, id, v2, nil, b); err != nil {
+		if err := enactLawChange(t, s, id, v2, b); err != nil {
 			t.Fatal(err)
 		}
 	})
@@ -573,6 +573,6 @@ func TestLawChangeThroughTheRealConstructors(t *testing.T) {
 		md, mr, mo := lawChangeConstructorItem(t, s, mover, true)
 		constructLawChangeContract(t, s, md, mr, mover, mo, lawChangeConstructorFields(t, s, 1, []string{}, []string{"agent-surface"}))
 		lawChangeFold(t, s, `UPDATE domains SET purpose='amended' WHERE domain_id='agent-surface'`)
-		requireFailureKind(t, enactLawChange(t, s, id, change, nil, nil), KindOutcomeMismatch, "unattributed registry edit")
+		requireFailureKind(t, enactLawChange(t, s, id, change, nil), KindOutcomeMismatch, "unattributed registry edit")
 	})
 }

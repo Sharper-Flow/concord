@@ -38,7 +38,7 @@ func TestPublicDuplicateContractRecoveryUsesRoutineAuthorityAndKeepsWorkID(t *te
 			t.Fatalf("advance action=%s response=%+v err=%v", action, response, dispatchErr)
 		}
 	}
-	initialInput := workflowContractActionInput(t, "public-recovery-approve", "")
+	initialInput := workflowContractActionInput(t, s, "public-recovery-approve", "")
 	challenge, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: initialInput}, env)
 	if err != nil || challenge.Outcome != OutcomeError || challenge.Error == nil || challenge.Error.Kind != "approval_required" {
 		t.Fatalf("initial approval challenge response=%+v err=%v", challenge, err)
@@ -47,7 +47,7 @@ func TestPublicDuplicateContractRecoveryUsesRoutineAuthorityAndKeepsWorkID(t *te
 	env.HostApproval = signedHostApproval(privateKey, challengeRef, mutationDigest("concord_work_transition", "workflow_action", env, initialInput), map[string]any{
 		"product_id": "product-1", "project_ids": []string{"project-1"}, "work_ids": []string{"work-1"}, "scope_version": scopeVersion,
 	}, map[string]any{"work": 8}, grant.SessionRef, grant.AgentRef, grant.Worktree, fixedTime(), "public-recovery-initial")
-	if approved, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: workflowContractActionInput(t, "public-recovery-approve", challengeRef)}, env); err != nil || approved.Outcome != OutcomeOK {
+	if approved, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: workflowContractActionInput(t, s, "public-recovery-approve", challengeRef)}, env); err != nil || approved.Outcome != OutcomeOK {
 		t.Fatalf("initial approval response=%+v err=%v", approved, err)
 	}
 
@@ -68,7 +68,7 @@ DELETE FROM write_guard`); err != nil {
 			"predicate_id": "predicate:primary", "ordinal": 0, "outcome_kind": "check",
 			"outcome_payload": map[string]any{"kind": "check", "check_ref": "check:public-recovery", "immutable_subject_ref": "commit:work-1", "expected_result": "pass"},
 		}}, "required_evidence": []string{"verification"}, "route_conventions": []string{},
-		"spec_mandate": []string{}, "law_modifies": []string{}, "architecture_binding": workflowArchitectureBindingFixture(), "rigor_class": "prototype_internal",
+		"spec_mandate": []string{}, "law_modifies": []string{}, "architecture_binding": workflowArchitectureBindingForSeededRegistry(t, s), "rigor_class": "prototype_internal",
 		"decision_domains": []string{},
 		"supersede_reason": "repair the duplicate projection", "audit_evidence": []string{"evidence:public-recovery"},
 	}

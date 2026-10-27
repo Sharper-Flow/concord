@@ -14709,8 +14709,12 @@
         },
         "approval_ref": {
           "oneOf": [
-            {"const": ""},
-            {"$ref": "#/$defs/id"}
+            {
+              "const": ""
+            },
+            {
+              "$ref": "#/$defs/id"
+            }
           ]
         },
         "state": {
@@ -16952,20 +16956,6 @@
                   "description": "Accepted shape: string matching \\S; Bounds: 1..1024 code points inclusive; <=1024 UTF-8 bytes inclusive; example: \"a\"",
                   "examples": [
                     "a"
-                  ]
-                },
-                "law_change_removes_user_visible_behavior": {
-                  "type": "boolean",
-                  "description": "Accepted shape: boolean; example: false",
-                  "examples": [
-                    false
-                  ]
-                },
-                "law_change_touches_security_or_data_safety": {
-                  "type": "boolean",
-                  "description": "Accepted shape: boolean; example: false",
-                  "examples": [
-                    false
                   ]
                 },
                 "law_change_text_pins": {
@@ -22923,20 +22913,6 @@
                   "description": "Accepted shape: string matching \\S; Bounds: 1..1024 code points inclusive; <=1024 UTF-8 bytes inclusive; example: \"a\"",
                   "examples": [
                     "a"
-                  ]
-                },
-                "law_change_removes_user_visible_behavior": {
-                  "type": "boolean",
-                  "description": "Accepted shape: boolean; example: false",
-                  "examples": [
-                    false
-                  ]
-                },
-                "law_change_touches_security_or_data_safety": {
-                  "type": "boolean",
-                  "description": "Accepted shape: boolean; example: false",
-                  "examples": [
-                    false
                   ]
                 },
                 "law_change_text_pins": {

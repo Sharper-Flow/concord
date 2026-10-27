@@ -9,8 +9,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
 	"reflect"
 	"sort"
 	"strings"
@@ -62,8 +60,12 @@ func routineCoordinationFixture(t *testing.T) (*store.Store, *Service, ed25519.P
 	}
 	actor := store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}
 	for _, workID := range []string{"work-1", "work-2"} {
-		if err := s.Transact(ctx, func(tx *store.Transaction) error {
-			return store.InitializeWorkflowTx(ctx, tx, store.WorkflowInitializationRequest{WorkID: workID, Definition: definition, Actor: actor, Now: fixedTime()})
+		verified, err := s.EstablishKnowledgeSourceSetProof(ctx, workID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := s.Transact(verified, func(tx *store.Transaction) error {
+			return store.InitializeWorkflowTx(verified, tx, store.WorkflowInitializationRequest{WorkID: workID, Definition: definition, Actor: actor, Now: fixedTime()})
 		}); err != nil {
 			t.Fatalf("initialize %s: %v", workID, err)
 		}
@@ -87,13 +89,8 @@ func routineCoordinationFixture(t *testing.T) (*store.Store, *Service, ed25519.P
 	return s, service, privateKey, env
 }
 
-// seedRoutineCoordinationDomainFixture seeds the fixture Product's current
-// Domain law. The canonical-path locator the home pair references is applied
-// as a project.locator_added event at the Project's current version, so the
-// rebuild refolds the locator the restored registry and Domain rows point at.
-// The registry, knowledge home, and root Domain rows are direct-authority
-// state the rebuild snapshots and restores; their identity values match the
-// shared current-Domain fixture the contract binding validation reads.
+// seedRoutineCoordinationDomainFixture commits the Product law source. The
+// event-owned locator survives rebuild; source preparation derives its registry.
 func seedRoutineCoordinationDomainFixture(t *testing.T, s *store.Store, ctx context.Context) {
 	t.Helper()
 	homeDir := t.TempDir()
@@ -104,39 +101,11 @@ func seedRoutineCoordinationDomainFixture(t *testing.T, s *store.Store, ctx cont
 	if err := s.AddProjectLocator(ctx, "project-1", store.ProjectLocator{ID: "domain-locator-product-1", Kind: store.LocatorCanonicalPath, Value: homeDir}, projectVersion); err != nil {
 		t.Fatalf("add the event-owned fixture locator: %v", err)
 	}
-	registry := fmt.Sprintf(`{"schema_version":"1.0","product_key":"fixture-%s","root_domain_id":%q,"domains":[]}`, "product-1", pm1fixture.FixtureRootDomainID)
-	docsKnowledge := filepath.Join(homeDir, filepath.FromSlash(".concord/docs/knowledge"))
-	if err := os.MkdirAll(docsKnowledge, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(docsKnowledge, "domain-registry.json"), []byte(registry+"\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(docsKnowledge, "manifest.json"), []byte("{}\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
+	home, err := pm1fixture.SeedCommittedProductDomain(ctx, s, "product-1", "project-1", homeDir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	statements := []struct {
-		name  string
-		query string
-		args  []any
-	}{
-		{"write guard", `INSERT INTO write_guard(active) VALUES(1)`, nil},
-		{"knowledge home", `INSERT INTO product_knowledge_homes(product_id,project_id,locator_id) VALUES('product-1','project-1','domain-locator-product-1')`, nil},
-		{"registry", `INSERT INTO domain_registries(product_id,home_project_id,home_locator_id,product_key,root_domain_id,schema_version,content_hash,scanned_commit_oid) VALUES('product-1','project-1','domain-locator-product-1','fixture-product-1',?,'1.0',?,'fixture')`, []any{pm1fixture.FixtureRootDomainID, pm1fixture.FixtureDomainRegistryContentHash}},
-		{"root domain", `INSERT INTO domains(home_project_id,home_locator_id,product_id,domain_id,name,purpose,parent_domain_id,status,registry_content_hash,scanned_commit_oid) VALUES('project-1','domain-locator-product-1','product-1',?,'Fixture root','Product law fixture',NULL,'current',?,'fixture')`, []any{pm1fixture.FixtureRootDomainID, pm1fixture.FixtureDomainRegistryContentHash}},
-		{"leave write", `DELETE FROM write_guard`, nil},
-	}
-	for _, statement := range statements {
-		if _, err := tx.ExecContext(ctx, statement.query, statement.args...); err != nil {
-			tx.Rollback()
-			t.Fatalf("seed %s: %v", statement.name, err)
-		}
-	}
-	if err := tx.Commit(); err != nil {
+	if err := s.UpdateProjectLocator(ctx, "project-1", store.ProjectLocator{ID: home.HomeLocatorID, Kind: store.LocatorCanonicalPath, Value: home.RepoPath}, projectVersion+1); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -171,8 +140,12 @@ func routineCoordinationDriveWorkflow(t *testing.T, s *store.Store, workID strin
 			RequestID: "routine-coordination-request-" + identity, AcceptedScope: `{"project":"project-1"}`, ContractDigest: ManifestDigest, Now: fixedTime(),
 		}
 		preflight := store.WorkflowActionPreflightRequest{WorkID: workID, ExpectedVersion: version, ActionID: actionID, Payload: raw, Actor: actor}
-		if err := store.AuthorizeWorkflowActionAtBoundaryTx(ctx, s, store.BuiltinWorkflowRegistry(), preflight, nil, func(tx *store.Transaction) error {
-			_, err := store.ApplyWorkflowActionTx(ctx, tx, store.BuiltinWorkflowRegistry(), request)
+		verified, err := s.EstablishKnowledgeSourceSetProof(ctx, workID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := store.AuthorizeWorkflowActionAtBoundaryTx(verified, s, store.BuiltinWorkflowRegistry(), preflight, nil, func(tx *store.Transaction) error {
+			_, err := store.ApplyWorkflowActionTx(verified, tx, store.BuiltinWorkflowRegistry(), request)
 			return err
 		}); err != nil {
 			t.Fatalf("%s %s at v%d: %v", workID, actionID, version, err)
@@ -186,11 +159,9 @@ func routineCoordinationDriveWorkflow(t *testing.T, s *store.Store, workID strin
 	})
 	fields := workflowContractFieldsFixture()
 	binding := workflowArchitectureBindingForSeededRegistry(t, s)
-	binding["domain_modifies"] = []string{pm1fixture.FixtureRootDomainID}
+	binding["domain_modifies"] = []string{binding["home_domain_id"].(string)}
 	fields["architecture_binding"] = binding
 	fields["law_change_reason"] = "The bounded repair changes the declared Domain."
-	fields["law_change_removes_user_visible_behavior"] = false
-	fields["law_change_touches_security_or_data_safety"] = false
 	fields["outcome_predicates"] = []map[string]any{{"predicate_id": "predicate:primary", "ordinal": 0, "outcome_kind": "absent", "outcome_payload": map[string]any{
 		"kind": "absent", "surface": "behavior:defect", "subjects": []string{workID}, "distinguish_from": []string{"disabled"},
 	}}}
@@ -977,8 +948,12 @@ func crossProductRoutineCoordinationFixture(t *testing.T, capabilities []Capabil
 	}
 	actor := store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}
 	for _, workID := range []string{"work-1", "work-2"} {
-		if err := s.Transact(ctx, func(tx *store.Transaction) error {
-			return store.InitializeWorkflowTx(ctx, tx, store.WorkflowInitializationRequest{WorkID: workID, Definition: definition, Actor: actor, Now: fixedTime()})
+		verified, err := s.EstablishKnowledgeSourceSetProof(ctx, workID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := s.Transact(verified, func(tx *store.Transaction) error {
+			return store.InitializeWorkflowTx(verified, tx, store.WorkflowInitializationRequest{WorkID: workID, Definition: definition, Actor: actor, Now: fixedTime()})
 		}); err != nil {
 			t.Fatalf("initialize %s: %v", workID, err)
 		}

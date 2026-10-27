@@ -1147,11 +1147,11 @@ func validateWorkflowContractApprovalPolicy(ctx context.Context, tx *sql.Tx, eve
 		return newFailure(KindInvalidPayload, "fold_event", "a consequence_v1 contract that changes law must record law_change", false, "record the law change with its reason")
 	}
 	if p.LawChange != nil {
-		if err := validateWorkflowLawChangeShape(p.LawChange, p.DecisionDomains, p.LawModifies, p.ArchitectureBinding, changesProductTruth); err != nil {
+		if err := validateWorkflowLawChangeShape(p.LawChange, p.DecisionDomains, p.LawModifies, p.ArchitectureBinding); err != nil {
 			return err
 		}
 	}
-	if err := validateLiveWorkflowLawChangeTx(ctx, tx, event.SubjectID, p, changesProductTruth); err != nil {
+	if err := validateLiveWorkflowLawChangeTx(ctx, tx, event.SubjectID, p); err != nil {
 		return err
 	}
 	if err := validateWorkflowContractApprovalLaw(ctx, tx, event, registered, contractFields, p, changesProductTruth); err != nil {

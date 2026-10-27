@@ -50,11 +50,21 @@ func seedCurrentWorkflowReturnRouteFixture(t *testing.T, workID, definitionRef, 
 
 func seedWorkflowReturnRouteFixtureWithDefinition(t *testing.T, workID string, registered RegisteredDefinition, verdictStep string, requiredEvidence, boundKinds []string, predicates ...map[string]any) workflowReturnRouteFixture {
 	t.Helper()
+	return seedWorkflowReturnRouteFixtureWithSource(t, workID, registered, verdictStep, requiredEvidence, boundKinds, nil, predicates...)
+}
+
+// beforeInitialize models source state already delivered before this item's
+// owning start. The initializer records that state; the hook never edits a baseline.
+func seedWorkflowReturnRouteFixtureWithSource(t *testing.T, workID string, registered RegisteredDefinition, verdictStep string, requiredEvidence, boundKinds []string, beforeInitialize func(*Store), predicates ...map[string]any) workflowReturnRouteFixture {
+	t.Helper()
 	ctx := context.Background()
 	s := openTemp(t)
 	seedWork(t, s, workID)
 	seedWorkflowLaw(t, s)
 	seedIssue31DomainRegistry(t, s)
+	if beforeInitialize != nil {
+		beforeInitialize(s)
+	}
 	owner := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/owner", SessionRef: "session/" + workID, ActorClass: ActorAgent}
 	operator := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/operator", SessionRef: "session/" + workID + "-operator", ActorClass: ActorOperator}
 	ownerRef, err := WorkflowActorRef(owner)
@@ -69,15 +79,9 @@ func seedWorkflowReturnRouteFixtureWithDefinition(t *testing.T, workID string, r
 	if err != nil {
 		t.Fatal(err)
 	}
-	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := initializeWorkflowRawTx(ctx, tx, WorkflowInitializationRequest{WorkID: workID, Definition: registered, Actor: owner, Now: time.Date(2026, 9, 12, 0, 0, 0, 0, time.UTC)}); err != nil {
-		_ = tx.Rollback()
-		t.Fatal(err)
-	}
-	if err := tx.Commit(); err != nil {
+	if err := s.Transact(ctx, func(tx *Transaction) error {
+		return InitializeWorkflowTx(ctx, tx, WorkflowInitializationRequest{WorkID: workID, Definition: registered, Actor: owner, Now: time.Date(2026, 9, 12, 0, 0, 0, 0, time.UTC)})
+	}); err != nil {
 		t.Fatal(err)
 	}
 	version := int64(4)

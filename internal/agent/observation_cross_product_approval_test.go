@@ -10,7 +10,7 @@ import (
 func TestCrossProductObservationRecordNeedsNoConsent(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	s, service, grant, _ := crossProductPolicyFixture(t, []Capability{"product_read", "work_define", "cross_scope"})
+	s, service, grant := crossProductPolicyFixture(t, []Capability{"product_read", "work_define", "cross_scope"})
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
 	if err != nil {
 		t.Fatal(err)
@@ -36,7 +36,7 @@ func TestCrossProductObservationRecordNeedsNoConsent(t *testing.T) {
 func TestCrossProductObservationRecordReplay(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	s, service, grant, _ := crossProductPolicyFixture(t, []Capability{"product_read", "work_define", "cross_scope"})
+	s, service, grant := crossProductPolicyFixture(t, []Capability{"product_read", "work_define", "cross_scope"})
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
 	if err != nil {
 		t.Fatal(err)

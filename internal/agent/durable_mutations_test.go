@@ -15,7 +15,7 @@ func durableCommitCount(t *testing.T, s *store.Store) uint64 {
 
 func TestOrdinaryObservationKeepsNormalDurability(t *testing.T) {
 	ctx := context.Background()
-	s, service, grant, _ := crossProductPolicyFixture(t, []Capability{"product_read", "work_define", "cross_scope"})
+	s, service, grant := crossProductPolicyFixture(t, []Capability{"product_read", "work_define", "cross_scope"})
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
 	if err != nil {
 		t.Fatal(err)
@@ -98,7 +98,7 @@ func TestMutationReplayDurabilityBindings(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := context.Background()
-			s, service, grant, _ := crossProductPolicyFixture(t, []Capability{"product_read", "work_define", "cross_scope"})
+			s, service, grant := crossProductPolicyFixture(t, []Capability{"product_read", "work_define", "cross_scope"})
 			scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
 			if err != nil {
 				t.Fatal(err)

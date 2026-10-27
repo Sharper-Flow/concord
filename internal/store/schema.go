@@ -8015,10 +8015,18 @@ CREATE TRIGGER outside_repair_reconciliations_guard_delete BEFORE DELETE ON outs
 -- Absence on an existing item is unknown before-state, never today's law.
 CREATE TABLE workflow_law_baselines (
     work_id TEXT PRIMARY KEY REFERENCES work_items(id) ON DELETE RESTRICT,
-    baseline_json TEXT NOT NULL CHECK(json_valid(baseline_json) AND json_type(baseline_json)='object' AND length(CAST(baseline_json AS BLOB)) <= 4194304)
+    baseline_json TEXT NOT NULL CHECK(json_valid(baseline_json) AND json_type(baseline_json)='object' AND length(CAST(baseline_json AS BLOB)) <= 4194304),
+    start_effect_seq INTEGER NOT NULL DEFAULT 0 CHECK(start_effect_seq >= 0),
+    enactment_json TEXT CHECK(enactment_json IS NULL OR (json_valid(enactment_json) AND json_type(enactment_json)='object' AND length(CAST(enactment_json AS BLOB)) <= 8388608)),
+    enactment_effect_seq INTEGER UNIQUE REFERENCES effect_receipts(effect_seq) ON DELETE RESTRICT,
+    CHECK((enactment_json IS NULL) = (enactment_effect_seq IS NULL)),
+    CHECK(enactment_effect_seq IS NULL OR enactment_effect_seq > start_effect_seq)
 );
 CREATE TRIGGER workflow_law_baselines_guard_insert BEFORE INSERT ON workflow_law_baselines BEGIN SELECT RAISE(ABORT, 'workflow_law_baselines is write-seam-only') WHERE NOT EXISTS (SELECT 1 FROM write_guard WHERE active=1); END;
-CREATE TRIGGER workflow_law_baselines_immutable BEFORE UPDATE ON workflow_law_baselines BEGIN SELECT RAISE(ABORT, 'workflow_law_baselines is immutable'); END;
+CREATE TRIGGER workflow_law_baselines_start_only BEFORE INSERT ON workflow_law_baselines WHEN NEW.enactment_json IS NOT NULL OR NEW.enactment_effect_seq IS NOT NULL BEGIN SELECT RAISE(ABORT, 'workflow_law_baselines enactment requires completion'); END;
+CREATE TRIGGER workflow_law_baselines_guard_update BEFORE UPDATE ON workflow_law_baselines BEGIN SELECT RAISE(ABORT, 'workflow_law_baselines is write-seam-only') WHERE NOT EXISTS (SELECT 1 FROM write_guard WHERE active=1); END;
+CREATE TRIGGER workflow_law_baselines_immutable BEFORE UPDATE ON workflow_law_baselines WHEN NEW.work_id IS NOT OLD.work_id OR NEW.baseline_json IS NOT OLD.baseline_json OR NEW.start_effect_seq IS NOT OLD.start_effect_seq OR OLD.enactment_json IS NOT NULL BEGIN SELECT RAISE(ABORT, 'workflow_law_baselines start and recorded enactment are immutable'); END;
+CREATE TRIGGER workflow_law_baselines_completed BEFORE UPDATE ON workflow_law_baselines WHEN NEW.enactment_effect_seq IS NOT NULL BEGIN SELECT RAISE(ABORT, 'workflow_law_baselines enactment requires its completed effect receipt') WHERE NOT EXISTS (SELECT 1 FROM effect_receipts r JOIN workflow_instances i ON i.work_id=r.subject_id JOIN work_items w ON w.id=i.work_id WHERE r.effect_seq=NEW.enactment_effect_seq AND r.kind='workflow.completed' AND r.subject_type='work_item' AND r.subject_id=NEW.work_id AND i.instance_state='completed' AND w.lifecycle='completed'); END;
 CREATE TRIGGER workflow_law_baselines_guard_delete BEFORE DELETE ON workflow_law_baselines BEGIN SELECT RAISE(ABORT, 'workflow_law_baselines is write-seam-only') WHERE NOT EXISTS (SELECT 1 FROM write_guard WHERE active=1); END;
 `,
 	},

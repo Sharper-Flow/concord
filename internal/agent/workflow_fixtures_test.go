@@ -97,9 +97,18 @@ func workflowContractFieldsFixture() map[string]any {
 	}
 }
 
-func workflowContractActionInput(t *testing.T, key, approvalRef string) json.RawMessage {
+func workflowContractActionInput(t *testing.T, s *store.Store, key, approvalRef string) json.RawMessage {
 	t.Helper()
-	return workflowContractActionInputWithFields(t, key, approvalRef, workflowDecisionContractFieldsFixture())
+	fields := workflowDecisionContractFieldsFixture()
+	fields["architecture_binding"] = workflowArchitectureBindingForSeededRegistry(t, s)
+	return workflowContractActionInputWithFields(t, key, approvalRef, fields)
+}
+
+func workflowContractFieldsForSeededRegistry(t *testing.T, s *store.Store) map[string]any {
+	t.Helper()
+	fields := workflowContractFieldsFixture()
+	fields["architecture_binding"] = workflowArchitectureBindingForSeededRegistry(t, s)
+	return fields
 }
 
 // workflowLegacyContractActionInput is the approval input for a pin under the

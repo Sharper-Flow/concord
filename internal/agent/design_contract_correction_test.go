@@ -23,7 +23,7 @@ func TestContractReassessmentPreservesDesignUntilExplicitReplacement(t *testing.
 		invokeWorkflowIssue31Action(t, s, service, env, action, version, "design-correction-"+action)
 		version = workOneVersion(t, s)
 	}
-	fields := workflowContractFieldsFixture()
+	fields := workflowContractFieldsForSeededRegistry(t, s)
 	fields["required_evidence"] = []string{"verification"}
 	fields["route_conventions"] = []string{}
 	fields["rigor_class"] = "prototype_internal"

@@ -16,17 +16,17 @@ func TestRecordWorkerJobInputCorrection(t *testing.T) {
 		t.Fatal(err)
 	}
 	grant.Worktree = seedWorkerRetryMutationFixtureAt(t, s, grant, live)
-	fields := map[string]any{
-		"job_id": "job:input-correction", "objective": "Carry out the approved objective.",
-		"stopping_condition": "The recorded checks pass.", "ready": true,
-		"checks": []string{"go test ./..."}, "acceptance_oracle": agentOracleFieldsForWork(t, s, "work-1"),
-	}
-	addAgentJobCallerMembers(t, s, "work-1", fields)
 	scope, _, err := s.ScopeVersion(context.Background(), "project-1")
 	if err != nil {
 		t.Fatal(err)
 	}
 	env := mutationEnvelope(grant, scope)
+	fields := map[string]any{
+		"job_id": "job:input-correction", "objective": "Carry out the approved objective.",
+		"stopping_condition": "The recorded checks pass.", "ready": true,
+		"checks": []string{"go test ./..."}, "acceptance_oracle": agentNativeOracle(t, s, service, env),
+	}
+	addAgentJobCallerMembers(t, s, "work-1", fields)
 	version := workVersion(t, s, "work-1")
 	key := "job-input-correction"
 	invoke := func() Envelope {

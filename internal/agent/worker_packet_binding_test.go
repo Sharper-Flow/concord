@@ -9,7 +9,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -141,38 +140,6 @@ func recordReadyRetryJob(t *testing.T, s *store.Store, service *Service, env Cal
 	recordReadyRetryJobWithChecks(t, s, service, env, jobID, 1, nil)
 }
 
-// recordReadyRetryJobForWork records one dispatch-ready worker-job revision
-// for a captured work item whose id is not the work-1 fixture default, so a
-// job-capable canonical pin admits its dispatches.
-func recordReadyRetryJobForWork(t *testing.T, s *store.Store, service *Service, env CallEnvelope, workID, jobID string) {
-	t.Helper()
-	var version int64
-	if err := s.DatabaseForTesting().QueryRow(`SELECT version FROM work_items WHERE id=?`, workID).Scan(&version); err != nil {
-		t.Fatal(err)
-	}
-	fields := map[string]any{
-		"job_id": jobID, "objective": "Carry out the approved objective.",
-		"stopping_condition": "The approved objective's checks pass.",
-		"ready":              true, "readiness_evidence": []string{"contract:" + workID + ":1"},
-		// The verify lane is a verification worker job: its recorded checks
-		// cannot be empty (CD-0205).
-		"checks":            []string{"go vet ./..."},
-		"acceptance_oracle": agentOracleFieldsForWork(t, s, workID),
-	}
-	addAgentJobCallerMembers(t, s, workID, fields)
-	raw, err := json.Marshal(map[string]any{
-		"work_id": workID, "expected_version": version, "action_id": "record_worker_job", "idempotency_key": "record-ready-" + jobID,
-		"fields": fields,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	result := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: raw}, env)
-	if result.Outcome != OutcomeOK {
-		t.Fatalf("record the ready job for %s: %+v", workID, result.Error)
-	}
-}
-
 // recordReadyRetryJobUnderContract records one dispatch-ready worker-job
 // revision through the public record_worker_job action under the named active
 // contract version. A revision recorded under a predecessor contract stays
@@ -243,9 +210,7 @@ func addAgentJobCallerMembers(t *testing.T, s *store.Store, workID string, field
 const (
 	oracleFixtureWork      = "work-1"
 	oracleFixtureProject   = "project-1"
-	oracleFixtureOwnerID   = "owner:agent-fixture"
-	oracleFixtureCaseID    = "case:agent-fixture"
-	oracleFixtureControlID = "control:agent-fixture"
+	oracleFixtureControlID = "control:o-agent-value"
 )
 
 // oracleFixtureDigest is the native digest shape the prepare producer writes:
@@ -253,26 +218,6 @@ const (
 func oracleFixtureDigest(b []byte) string {
 	sum := sha256.Sum256(b)
 	return "sha256:" + hex.EncodeToString(sum[:])
-}
-
-// oracleFixtureTestName maps a fixture label to the literal top-level test
-// the closed selector names, one distinct test per label.
-func oracleFixtureTestName(label string) string {
-	name := "TestOracle"
-	for _, part := range strings.FieldsFunc(label, func(r rune) bool {
-		return !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9')
-	}) {
-		name += strings.ToUpper(part[:1]) + part[1:]
-	}
-	return name
-}
-
-// oracleFixtureStream mirrors the producer's completed empty-stream
-// descriptor for one named stream of one run.
-func oracleFixtureStream(runRef, stream string) store.NativeOracleStream {
-	sum := oracleFixtureDigest(nil)
-	return store.NativeOracleStream{Stream: stream, SHA256: sum, Complete: true,
-		Ref: "oracle_output:" + oracleFixtureDigest([]byte(runRef+"\x00"+stream+"\x00"+sum))}
 }
 
 // oracleFixtureControlBundle derives one control's native bundle: the
@@ -301,16 +246,6 @@ func oracleFixtureControlBundle(graph *store.AcceptanceOracle, controlID string)
 		}
 	}
 	return bundle, nil
-}
-
-// oracleFixtureActiveClaim reads the active claim the fixture receipts bind,
-// the store's own active-entry selection for the primary Project, so a
-// receipt's path and branch name a live claim. A fixture store that never
-// claimed the oracle fixture's work gets one synthetic active claim here,
-// so the subject fixture qualifies once regardless of the caller's journey.
-func oracleFixtureActiveClaim(t *testing.T, s *store.Store) (string, string) {
-	t.Helper()
-	return oracleFixtureActiveClaimFor(t, s, oracleFixtureWork)
 }
 
 func oracleFixtureActiveClaimFor(t *testing.T, s *store.Store, workID string) (string, string) {
@@ -459,116 +394,9 @@ func recordedJobDeliveryPath(t *testing.T, s *store.Store, workID, attemptID str
 	return job.PathScope[0] + "/delivery.txt"
 }
 
-// seedOraclePreparationReceiptForWork records the exact native preparation
-// receipt against one work item, so a captured work's recorded oracle binds
-// its own readiness ledger row.
-func seedOraclePreparationReceiptForWork(t *testing.T, s *store.Store, receiptWork string, contractVersion int64, subject string, control store.OracleControl, bundle store.NativeOracleControlBundle, bundleDigest string) string {
-	t.Helper()
-	if len(control.Argv) != 6 || !strings.HasPrefix(control.Argv[4], "^(") || !strings.HasSuffix(control.Argv[4], ")$") {
-		t.Fatalf("oracle fixture control %s argv %q is not one closed native selector", control.ControlID, control.Argv)
-	}
-	name := strings.TrimSuffix(strings.TrimPrefix(control.Argv[4], "^("), ")$")
-	cases := map[string][]string{}
-	for _, caseID := range control.CaseIDs {
-		cases[caseID] = []string{name}
-	}
-	testSet := map[string]bool{}
-	for _, tests := range cases {
-		for _, test := range tests {
-			testSet[test] = true
-		}
-	}
-	names := slices.Sorted(maps.Keys(testSet))
-	id := "fixture-prepare-" + receiptWork + "-v" + strconv.FormatInt(contractVersion, 10) + "-" + strings.TrimPrefix(bundleDigest, "sha256:") + "-" + subject
-	ref := "worktree_verify:" + id
-	db := s.DatabaseForTesting()
-	var existing int
-	if err := db.QueryRow(`SELECT count(*) FROM worktree_verify_leases WHERE lease_id=?`, id).Scan(&existing); err != nil {
-		t.Fatal(err)
-	}
-	if existing == 1 {
-		return ref
-	}
-	path, branch := oracleFixtureActiveClaim(t, s)
-	testFile := control.Cwd + "/oracle_fixture_test.go"
-	manifest := map[string]any{"kind": "go_top_level_v1", "package_cwd": control.Cwd, "test_files": []string{testFile}, "fixture_files": []string{}, "cases": cases}
-	manifestRaw, err := json.Marshal(manifest)
-	if err != nil {
-		t.Fatal(err)
-	}
-	manifestFile := store.NativeOracleFile{Path: control.RecipeSource.Path, BlobOID: strings.TrimPrefix(oracleFixtureDigest(manifestRaw), "sha256:")[:40], SHA256: oracleFixtureDigest(manifestRaw)}
-	files := []store.NativeOracleFile{{Path: testFile, BlobOID: strings.TrimPrefix(oracleFixtureDigest([]byte("package fixture")), "sha256:")[:40], SHA256: oracleFixtureDigest([]byte("package fixture"))}}
-	environment := map[string]any{"go_executable": "go", "go_root": "goroot", "module_cache": "modcache", "version": "go1.26", "goos": "linux", "goarch": "amd64", "toolchain_identity": "go1.26 linux/amd64", "module_inputs_digest": oracleFixtureDigest([]byte("fixture module inputs"))}
-	environment["digest"] = oracleFixtureDigest([]byte("fixture environment\x00" + environment["module_inputs_digest"].(string)))
-	stages := []store.NativeOracleStage{
-		{Name: "dependencies", Argv: []string{"go", "mod", "verify"}},
-		{Name: "metadata", Argv: []string{"go", "list", "-json", "-deps", "-test", "."}},
-		{Name: "compile", Argv: []string{"go", "test", "-c", "-o", "$scratch/oracle.test", "."}},
-		{Name: "converter_compile", Argv: []string{"go", "build", "-o", "$scratch/test2json", "cmd/test2json"}},
-		{Name: "dependencies_final", Argv: []string{"go", "mod", "verify"}},
-	}
-	request := store.NativeOracleRequest{Phase: "prepare", ExpectedContractVersion: contractVersion, ControlBundle: &bundle}
-	argvJSON, err := json.Marshal(control.Argv)
-	if err != nil {
-		t.Fatal(err)
-	}
-	plan := map[string]any{
-		"request_id": id, "request": request,
-		"work_id": receiptWork, "project_id": oracleFixtureProject,
-		"contract_version": contractVersion, "subject_commit": subject,
-		"bundle": bundle, "bundle_digest": bundleDigest,
-		"manifest": manifest, "manifest_file": manifestFile, "files": files, "environment": environment,
-		"authorization": map[string]any{"event_id": "", "seq": 0, "start_seq": 0},
-		"stages":        stages, "stream_limit": 2097152, "cache_policy": "private-disposable-per-lease",
-	}
-	planRaw, err := json.Marshal(plan)
-	if err != nil {
-		t.Fatal(err)
-	}
-	planSHA := oracleFixtureDigest(planRaw)
-	result := store.WorktreeVerifyResult{WorkID: receiptWork, ProjectID: oracleFixtureProject, Branch: branch, Path: path, LeaseID: id, OperationRef: ref, Command: slices.Clone(control.Argv)}
-	result.Oracle = &store.NativeOracleResult{
-		NativeOraclePreparation: store.NativeOraclePreparation{
-			Protocol: "native_oracle_v2", Phase: "prepare", Qualification: "ready",
-			RunRef: ref, WorkID: receiptWork, ProjectID: oracleFixtureProject,
-			ContractVersion: contractVersion, SubjectCommit: subject, BundleDigest: bundleDigest,
-			LogicalArgvDigest: oracleFixtureDigest(argvJSON), LogicalCwd: control.Cwd, RecipeSource: control.RecipeSource,
-			ManifestBlob: manifestFile.BlobOID, ManifestDigest: manifestFile.SHA256, Files: files,
-			ToolchainIdentity: "go1.26 linux/amd64", BuildEnvironmentDigest: environment["digest"].(string),
-			SelectedTestNames: names, CaseToTestMap: cases, SelectedDistinctCount: len(names),
-			NativePlanSHA256: planSHA,
-			Stdout:           oracleFixtureStream(ref, "stdout"), Stderr: oracleFixtureStream(ref, "stderr"), StreamsComplete: true,
-		},
-		ControlID: control.ControlID,
-		Stages:    slices.Clone(stages),
-	}
-	raw, err := json.Marshal(result)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Exec(`INSERT OR IGNORE INTO worktree_verify_leases(lease_id,work_id,project_id,principal_ref,client_ref,agent_ref,session_ref,path,command_json,acquired_at,state,released_at,exit_code,outcome,result_json,native_plan_json,native_plan_sha256,stdout_blob,stderr_blob) VALUES(?,?,?,?,?,?,?,?,?,'2026-10-09T00:00:00Z','released','2026-10-09T00:00:00Z',0,'completed',?,?,?,x'',x'')`,
-		id, receiptWork, oracleFixtureProject, "principal/fixture", "client/fixture", "agent/fixture", "session/fixture", path, "[]", string(raw), string(planRaw), planSHA); err != nil {
-		t.Fatalf("seed oracle preparation receipt: %v", err)
-	}
-	return ref
-}
-
-// agentOracleFieldsForTest authors one valid, authority-joined oracle from
-// work-1's live fixture state: the active contract's approved predicates, the
-// primary Project, the Product registry's root Domain, and one exact native
-// preparation receipt per control, produced the way the prepare producer
-// writes it and keyed to the work's qualified verify subject. The readiness
-// reference the fixture binds is that receipt, so the recording authority's
-// exact native preparation join admits it.
-func agentOracleFieldsForTest(t *testing.T, s *store.Store) map[string]any {
-	t.Helper()
-	return agentOracleFieldsForWork(t, s, oracleFixtureWork)
-}
-
-// agentOracleFieldsForWork builds the fixture acceptance oracle against one
-// work item's own active contract, so a captured work item's recorded job
-// binds predicates its contract actually approved.
-func agentOracleFieldsForWork(t *testing.T, s *store.Store, workID string) map[string]any {
+// agentContractPredicates reads the approved predicates of the work's
+// active contract in their recorded order.
+func agentContractPredicates(t *testing.T, s *store.Store, workID string) []string {
 	t.Helper()
 	db := s.DatabaseForTesting()
 	var contractVersion int64
@@ -598,59 +426,7 @@ func agentOracleFieldsForWork(t *testing.T, s *store.Store, workID string) map[s
 	if len(predicates) == 0 {
 		t.Fatal("the oracle fixture requires an approved contract predicate")
 	}
-	var project, product, rootDomain string
-	if err := db.QueryRow(`SELECT project_id FROM work_projects WHERE work_id=? AND role='primary'`, workID).Scan(&project); err != nil {
-		t.Fatal(err)
-	}
-	if err := db.QueryRow(`SELECT pp.product_id FROM work_projects wp JOIN product_projects pp ON pp.project_id=wp.project_id WHERE wp.work_id=? AND wp.role='primary' LIMIT 1`, workID).Scan(&product); err != nil {
-		t.Fatal(err)
-	}
-	if err := db.QueryRow(`SELECT root_domain_id FROM domain_registries WHERE product_id=?`, product).Scan(&rootDomain); err != nil {
-		t.Fatalf("read the fixture Domain registry for %s: %v", product, err)
-	}
-	seedOracleVerifySubjectForWork(t, s, workID)
-	graph := store.AcceptanceOracle{
-		Owners: []store.OracleOwner{{
-			OwnerID: oracleFixtureOwnerID, DomainID: rootDomain,
-			Mechanism:    store.OracleMechanism{ProjectID: project, Path: "internal/store/worker_jobs.go", EntryPoint: "foldWorkerJobRecorded"},
-			Obligation:   "the agent fixture oracle obligates the recorded revision",
-			PredicateIDs: predicates,
-		}},
-		Cases: []store.OracleCase{{
-			CaseID: oracleFixtureCaseID, OwnerID: oracleFixtureOwnerID, EntryPoint: "record",
-			InputClass: "agent fixture recording", ExpectedState: "revision recorded",
-			ControlIDs: []string{oracleFixtureControlID},
-		}},
-		Controls: []store.OracleControl{{
-			ControlID: oracleFixtureControlID, OwnerID: oracleFixtureOwnerID,
-			PredicateIDs: predicates, CaseIDs: []string{oracleFixtureCaseID},
-			RecipeSource:         store.WorkContextReadingSource{Kind: store.WorkContextSourceRepositoryFile, ProjectID: project, Path: "internal/agent/worker_oracle_fixture_test.go", CommitOID: strings.Repeat("1c9f", 10)},
-			Argv:                 []string{"go", "test", "-count=1", "-run", "^(" + oracleFixtureTestName("agent-fixture") + ")$", "."},
-			Cwd:                  "internal/agent",
-			ExpectedResult:       store.OracleExpectedResultPass,
-			RequiredEvidenceRole: store.OracleEvidenceRoleReported,
-		}},
-	}
-	bundle, err := oracleFixtureControlBundle(&graph, oracleFixtureControlID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	bundle.Control.ReadinessEvidenceRefs = nil
-	bundleJSON, err := json.Marshal(bundle)
-	if err != nil {
-		t.Fatal(err)
-	}
-	ref := seedOraclePreparationReceiptForWork(t, s, workID, contractVersion, fixtureOracleSubjectFor(t, s, workID), graph.Controls[0], bundle, oracleFixtureDigest(bundleJSON))
-	graph.Controls[0].ReadinessEvidenceRefs = []string{ref}
-	raw, err := json.Marshal(graph)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var fields map[string]any
-	if err := json.Unmarshal(raw, &fields); err != nil {
-		t.Fatal(err)
-	}
-	return fields
+	return predicates
 }
 
 // oracleFixturePredicateIDs reads one authored oracle part's predicate ids,
@@ -706,7 +482,12 @@ func TestOwnerOracleAgentFixtureTracksApprovedPredicatesAndRetainedReadiness(t *
 		DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
 	}
-	oracle := agentOracleFieldsForTest(t, s)
+	scopeVersion, _, err := s.ScopeVersion(context.Background(), oracleFixtureProject)
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := mutationEnvelope(grant, scopeVersion)
+	oracle := agentNativeOracle(t, s, service, env)
 	owner := oracle["owners"].([]any)[0].(map[string]any)
 	control := oracle["controls"].([]any)[0].(map[string]any)
 	for _, entry := range []map[string]any{owner, control} {
@@ -724,11 +505,7 @@ func TestOwnerOracleAgentFixtureTracksApprovedPredicatesAndRetainedReadiness(t *
 	// preparation join runs inside the record action, so an admitted
 	// recording proves the readiness reference is the control's exact
 	// qualified preparation and never a seeded claim.
-	scopeVersion, _, err := s.ScopeVersion(context.Background(), oracleFixtureProject)
-	if err != nil {
-		t.Fatal(err)
-	}
-	recordReadyRetryJobWithChecks(t, s, service, mutationEnvelope(grant, scopeVersion), "job:owner-oracle-fixture", 1, nil)
+	recordReadyRetryJobWithChecks(t, s, service, env, "job:owner-oracle-fixture", 1, nil)
 	var phase, qualification string
 	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(result_json,'$.oracle.phase'),json_extract(result_json,'$.oracle.qualification') FROM worktree_verify_leases WHERE work_id=? AND project_id=? AND json_extract(result_json,'$.operation_ref')=?`, oracleFixtureWork, oracleFixtureProject, ref).Scan(&phase, &qualification); err != nil {
 		t.Fatalf("readiness ref %s has no preparation receipt: %v", ref, err)
@@ -792,7 +569,7 @@ func recordReadyRetryJobWithChecks(t *testing.T, s *store.Store, service *Servic
 		}
 		return
 	}
-	fields["acceptance_oracle"] = agentOracleFieldsForTest(t, s)
+	fields["acceptance_oracle"] = agentNativeOracle(t, s, service, env)
 	addAgentJobCallerMembers(t, s, workID, fields)
 	raw, err := json.Marshal(map[string]any{
 		"work_id": workID, "expected_version": version, "action_id": "record_worker_job", "idempotency_key": "record-ready-" + jobID,

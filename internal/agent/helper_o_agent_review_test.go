@@ -23,11 +23,7 @@ type oAgentFixtureState struct {
 
 func oAgentFixture(t *testing.T, s *store.Store, service *Service, env CallEnvelope, workID string) *oAgentFixtureState {
 	t.Helper()
-	path, branch := oracleFixtureActiveClaimFor(t, s, workID)
-	fixtureClaimSubject(t, path)
-	if gitRun(t, path, "branch", "--show-current") != branch {
-		gitRun(t, path, "branch", "-m", branch)
-	}
+	f := oAgentClaimFixture(t, s, service, env, workID)
 	// Refine acceptance resolves checks from the Project's default ref, not
 	// from the claimed candidate or the knowledge repository's mere presence.
 	var canonical string
@@ -53,6 +49,18 @@ func oAgentFixture(t *testing.T, s *store.Store, service *Service, env CallEnvel
 		gitRun(t, canonical, "fetch", "-q", "origin")
 		gitRun(t, canonical, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main")
 	}
+	return f
+}
+
+// oAgentClaimFixture turns the work's claimed worktree into a real Git
+// candidate on its claimed branch and binds the caller's session to it.
+func oAgentClaimFixture(t *testing.T, s *store.Store, service *Service, env CallEnvelope, workID string) *oAgentFixtureState {
+	t.Helper()
+	path, branch := oracleFixtureActiveClaimFor(t, s, workID)
+	fixtureClaimSubject(t, path)
+	if gitRun(t, path, "branch", "--show-current") != branch {
+		gitRun(t, path, "branch", "-m", branch)
+	}
 	env.Directory, env.Worktree = path, path
 	env.ScopeVersion = mustScopeVersion(t, s)
 	return &oAgentFixtureState{spineFixture: &spineFixture{s: s, service: service, env: env, work: workID, path: path, base: gitRun(t, path, "rev-parse", "HEAD"), request: int(workVersion(t, s, workID) * 100)}}
@@ -74,10 +82,40 @@ func oAgentAction(t *testing.T, f *oAgentFixtureState, action string, fields map
 // Review projection is inserted: the host producer owns preparation bytes.
 func oAgentNativeJob(t *testing.T, f *oAgentFixtureState) {
 	t.Helper()
+	oracle := oAgentPreparedOracle(t, f, []string{"predicate:primary"})
+	spineOK(t, oAgentAction(t, f, "record_worker_job", map[string]any{
+		"job_id": "job:o-agent-native", "objective": "Check the approved fixture value.", "stopping_condition": "The value check passes.",
+		"ready": true, "checks": []string{"go test ./..."}, "path_scope": []string{"o_fixture/value.go"},
+		"readiness_evidence": oracle.Controls[0].ReadinessEvidenceRefs,
+		"acceptance_oracle":  oracle,
+	}))
+}
+
+// agentNativeOracle returns an acceptance oracle over every approved
+// predicate of the fixture work's active contract. Its one control is a real Go
+// recipe committed in the claimed worktree and prepared through the public
+// worktree_verify producer on the current candidate, so Review dispatch can
+// requalify it on the observed runtime (CD-0205).
+func agentNativeOracle(t *testing.T, s *store.Store, service *Service, env CallEnvelope) map[string]any {
+	t.Helper()
+	oracle := oAgentPreparedOracle(t, oAgentClaimFixture(t, s, service, env, oracleFixtureWork), agentContractPredicates(t, s, oracleFixtureWork))
+	var fields map[string]any
+	if err := json.Unmarshal(retryJSON(oracle), &fields); err != nil {
+		t.Fatal(err)
+	}
+	return fields
+}
+
+// oAgentPreparedOracle qualifies the claimed candidate and prepares the real
+// fixture control for the given approved predicates. A new job revision on
+// unchanged inputs consumes the same qualified preparation; preparation is
+// not a per-consumer acceptance execution.
+func oAgentPreparedOracle(t *testing.T, f *oAgentFixtureState, predicates []string) store.AcceptanceOracle {
+	t.Helper()
 	oAgentControlRepository(t, f)
 	f.base = gitRun(t, f.path, "rev-parse", "HEAD")
 	spineOK(t, f.call(t, "concord_work_transition", "worktree_verify", map[string]any{
-		"work_id": f.work, "command": []string{"git", "rev-parse", "--verify", "HEAD^{commit}"}, "idempotency_key": fmt.Sprintf("o-subject-%d", f.request),
+		"work_id": f.work, "command": []string{"git", "rev-parse", "--verify", "HEAD^{commit}"}, "idempotency_key": fmt.Sprintf("o-subject-%d-%.12s", f.request, f.base),
 	}))
 	snapshot, err := store.ReadWorkflowContinuity(context.Background(), f.s, store.ContinuityRequest{Work: f.work})
 	if err != nil || snapshot.Contract == nil {
@@ -89,7 +127,7 @@ func oAgentNativeJob(t *testing.T, f *oAgentFixtureState) {
 	}
 	owner := store.OracleOwner{OwnerID: "owner:o-agent-value", DomainID: domain,
 		Mechanism:  store.OracleMechanism{ProjectID: "project-1", Path: "o_fixture/value.go", EntryPoint: "Value"},
-		Obligation: "The fixture value satisfies the approved check.", PredicateIDs: []string{"predicate:primary"}}
+		Obligation: "The fixture value satisfies the approved check.", PredicateIDs: predicates}
 	control := store.OracleControl{ControlID: "control:o-agent-value", OwnerID: owner.OwnerID, PredicateIDs: owner.PredicateIDs,
 		CaseIDs: []string{"case:o-agent-value"}, Cwd: "o_fixture", Argv: []string{"go", "test", "-count=1", "-run", "^(TestValue)$", "."},
 		RecipeSource:   store.WorkContextReadingSource{Kind: store.WorkContextSourceRepositoryFile, ProjectID: "project-1", Path: "o_fixture/oracle.json", CommitOID: f.base},
@@ -100,12 +138,10 @@ func oAgentNativeJob(t *testing.T, f *oAgentFixtureState) {
 		t.Fatal(err)
 	}
 	delete(bundle["control"].(map[string]any), "readiness_evidence_refs")
-	// A new job revision on unchanged inputs consumes the same qualified
-	// preparation; preparation is not a per-consumer acceptance execution.
-	key := fmt.Sprintf("%s:%d", f.base, snapshot.Contract.Version)
+	key := fmt.Sprintf("%s:%d:%v", f.base, snapshot.Contract.Version, predicates)
 	if f.preparationRef == "" || f.preparationKey != key {
 		prepared := spineOK(t, f.call(t, "concord_work_transition", "worktree_verify", map[string]any{
-			"work_id": f.work, "idempotency_key": fmt.Sprintf("o-prepare-%d", f.request),
+			"work_id": f.work, "idempotency_key": fmt.Sprintf("o-prepare-%d-%.12s-v%d", f.request, f.base, snapshot.Contract.Version),
 			"oracle": map[string]any{"phase": "prepare", "expected_contract_version": snapshot.Contract.Version, "control_bundle": bundle},
 		}))
 		var result store.WorktreeVerifyResult
@@ -115,23 +151,23 @@ func oAgentNativeJob(t *testing.T, f *oAgentFixtureState) {
 		f.preparationRef, f.preparationKey = result.OperationRef, key
 	}
 	control.ReadinessEvidenceRefs = []string{f.preparationRef}
-	spineOK(t, oAgentAction(t, f, "record_worker_job", map[string]any{
-		"job_id": "job:o-agent-native", "objective": "Check the approved fixture value.", "stopping_condition": "The value check passes.",
-		"ready": true, "checks": []string{"go test ./..."}, "path_scope": []string{"o_fixture/value.go"},
-		"readiness_evidence": []string{f.preparationRef},
-		"acceptance_oracle":  store.AcceptanceOracle{Owners: []store.OracleOwner{owner}, Controls: []store.OracleControl{control}, Cases: cases},
-	}))
+	return store.AcceptanceOracle{Owners: []store.OracleOwner{owner}, Controls: []store.OracleControl{control}, Cases: cases}
 }
 
+// oAgentControlRepository commits the fixture control. A worktree that
+// already holds a Go module keeps it, so the control joins that module.
 func oAgentControlRepository(t *testing.T, f *oAgentFixtureState) {
 	t.Helper()
 	if _, err := os.Stat(filepath.Join(f.path, "o_fixture/oracle.json")); os.IsNotExist(err) {
-		for name, content := range map[string]string{
-			"go.mod":                  "module example.invalid/o-fixture\n\ngo 1.26.0\ntoolchain " + goruntime.Version() + "\n",
+		files := map[string]string{
 			"o_fixture/value.go":      "package fixture\nfunc Value() int { return 7 }\n",
 			"o_fixture/value_test.go": "package fixture\nimport \"testing\"\nfunc TestValue(t *testing.T) { if Value() != 7 { t.Fatal(\"wrong value\") } }\n",
 			"o_fixture/oracle.json":   `{"kind":"go_top_level_v1","package_cwd":"o_fixture","test_files":["o_fixture/value_test.go"],"fixture_files":[],"cases":{"case:o-agent-value":["TestValue"]}}`,
-		} {
+		}
+		if _, err := os.Stat(filepath.Join(f.path, "go.mod")); os.IsNotExist(err) {
+			files["go.mod"] = "module example.invalid/o-fixture\n\ngo 1.26.0\ntoolchain " + goruntime.Version() + "\n"
+		}
+		for name, content := range files {
 			if err := os.MkdirAll(filepath.Dir(filepath.Join(f.path, name)), 0o700); err != nil {
 				t.Fatal(err)
 			}

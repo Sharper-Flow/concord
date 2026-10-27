@@ -1,8 +1,11 @@
 package store
 
 import (
+	"context"
 	"os"
 	"path/filepath"
+	"slices"
+	"strings"
 	"testing"
 )
 
@@ -53,5 +56,41 @@ func TestCommittedSQLiteMechanismFacts(t *testing.T) {
 				t.Fatalf("mechanism is not exclusively owned: %+v", owner)
 			}
 		})
+	}
+}
+
+// The committed corpus places many laws on durable-authority's parent. Fact
+// reads for the SQLite mechanism must stay inside the result bound, holding
+// only law homed to, applicable to, or cited by the selected Domain.
+func TestCommittedSQLiteMechanismShapeFitsBound(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	root := repositoryRootForTest(t)
+	runner := CommittedReadGitRunner{}
+	head, err := runner.Run(ctx, root, "rev-parse", "HEAD")
+	if err != nil {
+		t.Fatal(err)
+	}
+	commit := strings.TrimSpace(string(head))
+	manifest, shards, missing, err := readKnowledgeManifestShardsRunner(ctx, runner, root, commit, manifestSharedHomeRole)
+	if err != nil || missing {
+		t.Fatalf("committed manifest missing=%v: %v", missing, err)
+	}
+	architecture, err := prepareKnowledgeArchitecture(shards, manifest, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot := &newDomainShapeProjection(commit, manifest, architecture).Snapshot
+	if err := reconstructDomainShapeReadingSnapshot(ctx, runner, &dispatchReadingWitness{sourceRepo: root}, shards, snapshot); err != nil {
+		t.Fatal(err)
+	}
+	selector := DomainShapeSelector{Path: "internal/store/internal/sqlitedb/snapshot.go"}
+	selection := selectDomainShape(*snapshot, KnowledgeHome{HomeProjectID: "concord", HomeLocatorID: "main"}, "concord", selector)
+	if !slices.Equal(selection.DomainIDs, []string{"durable-authority"}) || len(selection.Facts) == 0 {
+		t.Fatalf("mechanism path selects Domains %v with %d facts", selection.DomainIDs, len(selection.Facts))
+	}
+	selection.GoverningLaw = domainShapeManifestGoverningLaw(manifest, selection)
+	if _, err := boundDomainShapeResult(selection); err != nil {
+		t.Fatal(err)
 	}
 }

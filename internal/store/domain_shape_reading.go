@@ -308,34 +308,22 @@ func proveDomainShapeReadingTooling(ctx context.Context, runner GitRunner, repo 
 }
 
 // This is the immutable equivalent of domainShapeGoverningLawTx's join: accepted
-// law must have a home, and match a selected Domain or ancestor, applicability,
+// law must have a home, and match a selected Domain by home or applicability,
 // or an explicit fact citation. Metadata comes only from the pinned manifest.
 func domainShapeManifestGoverningLaw(manifest KnowledgeManifest, selection DomainShapeResult) []DomainLawRecord {
-	parents := map[string]string{}
-	for _, domain := range manifest.DomainRegistry.Domains {
-		parents[domain.DomainID] = domain.ParentDomainID
-	}
-	governing := map[string]bool{}
-	for _, domain := range selection.DomainIDs {
-		for id := domain; id != "" && !governing[id]; id = parents[id] {
-			if _, exists := parents[id]; !exists {
-				break
-			}
-			governing[id] = true
-		}
-	}
 	explicit := map[string]bool{}
 	for _, item := range selection.Facts {
 		for _, law := range item.Fact.GoverningLawIDs {
 			explicit[law] = true
 		}
 	}
+	selected := func(id string) bool { return slices.Contains(selection.DomainIDs, id) }
 	laws := []DomainLawRecord{}
 	for _, record := range manifest.Records {
 		if record.Status != "accepted" || !manifestLawBearingKinds[record.Kind] || record.HomeDomainID == "" {
 			continue
 		}
-		if explicit[record.ID] || governing[record.HomeDomainID] || slices.ContainsFunc(record.AppliesToDomainIDs, func(id string) bool { return governing[id] }) {
+		if explicit[record.ID] || selected(record.HomeDomainID) || slices.ContainsFunc(record.AppliesToDomainIDs, selected) {
 			laws = append(laws, DomainLawRecord{LawID: record.ID, Kind: record.Kind, Title: record.Title, Path: record.Path, ContentHash: record.SHA256, ScannedCommit: selection.KnowledgeCommit})
 		}
 	}

@@ -246,27 +246,41 @@ func TestDomainShapeReadingReconstructsGoverningLawMembership(t *testing.T) {
 	defer f.store.Close()
 	ctx := context.Background()
 	fixtures := []manifestFixture{}
-	for _, id := range []string{"CD-0001", "CD-0003", "CD-0004", "CD-0005", "CD-0006"} {
-		fixtures = append(fixtures, manifestFixture{ID: id, Kind: "decision", Path: ".concord/docs/decisions/" + id + "-synthetic.md", Status: "accepted", Date: "2026-08-10T00:00:00Z", Title: "Synthetic law " + id, Summary: "Synthetic owner invariant", RootHomed: id == "CD-0003", Scopes: KnowledgeRecordScopes{Mode: "explicit", DomainIDs: []string{"fixture-law", "domain-b"}}})
+	for _, id := range []string{"CD-0001", "CD-0003", "CD-0004", "CD-0005", "CD-0006", "CD-0007", "CD-0008", "CD-0009"} {
+		fixtures = append(fixtures, manifestFixture{ID: id, Kind: "decision", Path: ".concord/docs/decisions/" + id + "-synthetic.md", Status: "accepted", Date: "2026-08-10T00:00:00Z", Title: "Synthetic law " + id, Summary: "Synthetic owner invariant", RootHomed: id == "CD-0003" || id == "CD-0008" || id == "CD-0009", Scopes: KnowledgeRecordScopes{Mode: "explicit", DomainIDs: []string{"fixture-law", "domain-b"}}})
 	}
 	writeManifestFixture(t, home.RepoPath, fixtures...)
 	manifest := composeWorkingTreeManifest(t, home.RepoPath)
 	for i := range manifest.Records {
 		r := &manifest.Records[i]
-		if r.ID == "CD-0004" || r.ID == "CD-0005" || r.ID == "CD-0006" {
+		if r.ID == "CD-0004" || r.ID == "CD-0005" || r.ID == "CD-0006" || r.ID == "CD-0007" {
 			r.HomeDomainID = "domain-b"
 		}
-		if r.ID == "CD-0004" {
+		if r.ID == "CD-0004" || r.ID == "CD-0008" {
 			r.AppliesToDomainIDs = []string{"fixture-law"}
+		}
+		if r.ID == "CD-0007" {
+			r.AppliesToDomainIDs = []string{manifest.DomainRegistry.RootDomainID}
 		}
 	}
 	writeManifestShards(t, home.RepoPath, manifest)
 	fact, _ := domainFactFixture(DomainFactInvariant)
 	fact.ID, fact.OwnerDomainID = "invariant-a", "fixture-law"
-	fact.Standing, fact.GoverningLawIDs = "law", []string{"CD-0001", "CD-0005"}
+	fact.Standing, fact.GoverningLawIDs = "law", []string{"CD-0001", "CD-0005", "CD-0009"}
 	fact.Invariant.AppliesToDomainIDs = []string{"fixture-law", "domain-b"}
 	writeKnowledgeFile(t, home.RepoPath, knowledgeFactTreeDir+fact.ID+".json", string(marshalDomainFact(t, fact)))
-	commitKnowledgeRepo(t, home.RepoPath, "synthetic inherited applicable and explicitly cited law")
+	commitKnowledgeRepo(t, home.RepoPath, "synthetic scoped applicable and explicitly cited law")
+	wantIDs := "CD-0001,CD-0004,CD-0005,CD-0008,CD-0009"
+	t.Run("manifest-membership", func(t *testing.T) {
+		selection := DomainShapeResult{DomainIDs: []string{"fixture-law"}, Facts: []DomainShapeFact{{Fact: fact}}}
+		ids := []string{}
+		for _, law := range domainShapeManifestGoverningLaw(manifest, selection) {
+			ids = append(ids, law.LawID)
+		}
+		if strings.Join(ids, ",") != wantIDs {
+			t.Fatalf("manifest law selection differs: %v", ids)
+		}
+	})
 	reading, expected := shapeReading(t, f.store, product, DomainShapeSelector{Subject: "invariant-a"})
 	var selected DomainShapeResult
 	if err := json.Unmarshal(expected, &selected); err != nil {
@@ -276,7 +290,7 @@ func TestDomainShapeReadingReconstructsGoverningLawMembership(t *testing.T) {
 	for _, law := range selected.GoverningLaw {
 		ids = append(ids, law.LawID)
 	}
-	if strings.Join(ids, ",") != "CD-0001,CD-0003,CD-0004,CD-0005" {
+	if strings.Join(ids, ",") != wantIDs {
 		t.Fatalf("SQL law selection differs: %v", ids)
 	}
 	if err := declareShapeReading(t, f, reading); err != nil {

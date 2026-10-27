@@ -235,12 +235,12 @@ func (w publicationWitness) unchanged() bool {
 	return true
 }
 
-func publicationFileDigest(name string) (string, error) {
+func publicationFileDigest(name string) (digest string, err error) {
 	file, err := os.Open(name) //nolint:gosec // private local Git configuration/HEAD witnesses, never served content.
 	if err != nil {
 		return "", err
 	}
-	defer file.Close()
+	defer func() { err = errors.Join(err, file.Close()) }()
 	info, err := file.Stat()
 	if err != nil || !info.Mode().IsRegular() || info.Size() > 64*1024 {
 		return "", errors.New("configuration witness is not a bounded regular file")
@@ -304,12 +304,13 @@ func observePublicationGit(ctx context.Context, runner FreshnessRunner, home Kno
 	}
 	oldRaw, err := runner.Run(ctx, home.RepoPath, "rev-parse", "--verify", "--quiet", tracking)
 	old := strings.TrimSpace(string(oldRaw))
-	if publicationExitOne(err) {
+	switch {
+	case publicationExitOne(err):
 		old = strings.Repeat("0", len(commit))
-	} else if err != nil {
+	case err != nil:
 		publicationGitFailure(&result, ctx, "tracking reference value probe", err, publicationRaceRecovery)
 		return result, witness
-	} else if validateCommitOID(old) != nil {
+	case validateCommitOID(old) != nil:
 		result.Cause, result.Recovery = "tracking reference value probe returned an invalid object identity", publicationRaceRecovery
 		return result, witness
 	}

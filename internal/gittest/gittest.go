@@ -50,13 +50,13 @@ func ScrubRepositoryEnvironment() error {
 func repositoryEnvironmentKeys(output []byte) (map[string]bool, error) {
 	names := strings.Fields(string(output))
 	if len(names) == 0 {
-		return nil, fmt.Errorf("Git reported an empty repository environment namespace")
+		return nil, fmt.Errorf("git reported an empty repository environment namespace")
 	}
 	valid := regexp.MustCompile(`^GIT_[A-Z0-9_]+$`)
 	keys := map[string]bool{"GIT_QUARANTINE_PATH": true}
 	for _, name := range names {
 		if !valid.MatchString(name) {
-			return nil, fmt.Errorf("Git reported an invalid repository environment variable: %q", name)
+			return nil, fmt.Errorf("git reported an invalid repository environment variable: %q", name)
 		}
 		keys[name] = true
 	}

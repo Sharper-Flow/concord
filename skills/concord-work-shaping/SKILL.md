@@ -53,9 +53,10 @@ a reason to split.
   finishes. Do not invent sequencing for tidiness.
 - Do enabling restructuring first, as its own outcome, when it makes the later
   change simple.
-- A wide mechanical change that cannot land green in one step uses
-  expand-migrate-contract: add the new form beside the old, migrate callers in
-  batches that each stay green, then remove the old form once no caller remains.
+- Keep a mechanical change together when it can land green atomically. If it
+  cannot, establish the actual dependency and cutover constraints before
+  proposing a sequence. Temporary coexistence needs a current requirement and
+  a retirement outcome; do not add compatibility machinery automatically.
 - The next work to take is any outcome whose dependencies are all done.
 
 Present the proposed outcomes with what each delivers and what blocks it.

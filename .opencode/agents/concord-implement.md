@@ -211,8 +211,9 @@ and its passing run with it in `verification_commands`.
 ### Interface design
 
 When the job adds or changes a module's interface (a function, type, package,
-command, or component boundary), keep the interface smaller than the behavior
-behind it. The interface is everything a caller must know: types, invariants,
+command, or component boundary), judge how much behavior it hides for what a
+caller must learn; depth is a design aid, not a target every module must meet.
+The interface is everything a caller must know: types, invariants,
 ordering, error modes, and required configuration. Before adding a layer, apply
 the deletion test: if deleting it would leave its callers no more complex, it is
 a pass-through, so do not add it, and prefer removing one the job supersedes.

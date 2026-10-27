@@ -140,6 +140,7 @@ class EngineeringMethodProjectionTests(unittest.TestCase):
                 continue
             with self.subTest(lane=lane["id"]):
                 text = " ".join(lane_projection(lane).split())
+                self.assertIn("depth is a design aid, not a target every module must meet", text)
                 self.assertIn("apply the deletion test", text)
                 self.assertIn("one adapter is indirection", text)
                 self.assertIn("only when the governing retirement clause covers it", text)

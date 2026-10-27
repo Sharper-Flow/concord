@@ -60,7 +60,11 @@ func TestInstallationKeyLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer tx.Rollback()
+	defer func() {
+		if err := tx.Rollback(); err != nil {
+			t.Error(err)
+		}
+	}()
 	readCtx, cancel := context.WithTimeout(ctx, time.Second)
 	defer cancel()
 	if err := EnsureInstallationKey(readCtx, db, when.Add(time.Hour)); err != nil {

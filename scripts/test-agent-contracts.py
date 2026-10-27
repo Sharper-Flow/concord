@@ -34,7 +34,6 @@ class ApprovalDeclarationTests(unittest.TestCase):
         conditional = {
             "concord_work_define.capture", "concord_work_define.revise_intent",
             "concord_work_transition.workflow_action", "concord_work_transition.worktree_destroy",
-            "concord_work_transition.lifecycle",
         }
         for operation in manifest["operations"]:
             with self.subTest(operation=operation["id"]):

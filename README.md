@@ -9,8 +9,8 @@
 
 Concord is a local coordination engine for AI coding agents. It turns approved
 goals, delegated work, and delivery evidence into a typed, durable workflow.
-One operator coordinates multiple agents on one workstation; the engine
-determines whether each requested transition is admissible.
+One operator coordinates multiple agents on one workstation; the engine gates
+every state transition on verified evidence.
 
 [Why Concord](#why-concord-exists) ·
 [Completion example](#completion-in-practice) ·

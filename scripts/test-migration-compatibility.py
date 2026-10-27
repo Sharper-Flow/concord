@@ -4632,9 +4632,9 @@ finally:
     connection.close()
 
 
-# The owning-start law baseline table (159), which the write path maintains
+# The owning-start law baseline table (161), which the write path maintains
 # per effect, sets the live compatibility floor. The ordinary-consent CHECK
-# rebuilds (158) and the six-class decision-domain column replacement (157)
+# rebuilds (160) and the six-class decision-domain column replacement (159)
 # also constrain older binaries.
 # Member-scoped claims and sole group admission ownership (155) also require
 # current writers; current writers no longer use the dropped job columns.
@@ -4661,7 +4661,7 @@ with open(check.SCHEMA, encoding="utf-8", newline="") as handle:
 live_failures, live_breaking = check.evaluate(check.migrations(live_source))
 if live_failures:
     FAILURES.append(f"live manifest drew refusals: {live_failures}")
-required_breaking = {110, 111, 119, 120, 121, 123, 124, 125, 126, 128, 134, 136, 137, 139, 140, 141, 142, 143, 144, 145, 146, 147, 148, 149, 150, 151, 152, 153, 154, 155, 157, 158, 159}
+required_breaking = {110, 111, 119, 120, 121, 123, 124, 125, 126, 128, 134, 136, 137, 139, 140, 141, 142, 143, 144, 145, 146, 147, 148, 149, 150, 151, 152, 153, 154, 155, 159, 160, 161}
 if max(live_breaking, default=0) != max(required_breaking):
     FAILURES.append(
         f"live compatibility floor moved: {max(live_breaking, default=0)}")

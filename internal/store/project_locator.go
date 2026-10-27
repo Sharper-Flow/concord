@@ -16,6 +16,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/sharper-flow/concord/internal/store/internal/sqlitedb"
 )
 
 // LocatorKind is deliberately closed. Display names, paths, and clone names
@@ -752,7 +754,7 @@ func foldProjectLocatorUpdated(ctx context.Context, tx *sql.Tx, event Event) err
 	}
 	result, err := tx.ExecContext(ctx, `UPDATE project_locators SET kind=?,locator_value=?,normalized_value=?,updated_at=?,normalization_version=? WHERE locator_id=? AND project_id=?`, p.Kind, p.Value, p.NormalizedValue, event.OccurredAt.UTC().Format(time.RFC3339Nano), projectLocatorEventVersion(event), p.LocatorID, p.ProjectID)
 	if err != nil {
-		if isUniqueViolation(err) {
+		if sqlitedb.IsUniqueViolation(err) {
 			return newFailure(KindMembershipConflict, "fold_event", "Project locator is already claimed", false, "choose a unique normalized locator")
 		}
 		return wrapFailure(KindUnavailable, "fold_event", "cannot update Project locator", true, "retry once the database is writable", err)
@@ -808,10 +810,10 @@ func insertProjectLocator(ctx context.Context, tx *sql.Tx, p projectLocatorPaylo
 	if err == nil {
 		return nil
 	}
-	if isUniqueViolation(err) {
+	if sqlitedb.IsUniqueViolation(err) {
 		return newFailure(KindMembershipConflict, "fold_event", "Project locator is already claimed", false, "choose a unique normalized locator")
 	}
-	if isForeignKeyViolation(err) {
+	if sqlitedb.IsForeignKeyViolation(err) {
 		return newFailure(KindProjectionNotFound, "fold_event", "Project does not exist", false, "create the Project before adding a locator")
 	}
 	return wrapFailure(KindUnavailable, "fold_event", "cannot add Project locator", true, "retry once the database is writable", err)

@@ -841,7 +841,7 @@ func foldProductCreated(ctx context.Context, tx *sql.Tx, event Event) error {
 		VALUES (?, ?, ?, ?, 1, ?, ?)`, event.SubjectID, payload.DisplayName,
 		payload.StageMaturity, payload.StageAudienceCommitment, now, now)
 	if err != nil {
-		if isUniqueViolation(err) {
+		if sqlitedb.IsUniqueViolation(err) {
 			return newFailure(KindProjectionConflict, "fold_event", "Product already exists", false,
 				"append a rename or update event for the existing Product")
 		}
@@ -921,7 +921,7 @@ func foldProjectCreated(ctx context.Context, tx *sql.Tx, event Event) error {
 		INSERT INTO projects (id, display_name, stage_maturity_override, stage_audience_commitment_override, version, created_at, updated_at)
 		VALUES (?, ?, ?, ?, 1, ?, ?)`, event.SubjectID, payload.DisplayName, valueOrNil(overrideMaturity), valueOrNil(overrideAudience), now, now)
 	if err != nil {
-		if isUniqueViolation(err) {
+		if sqlitedb.IsUniqueViolation(err) {
 			return newFailure(KindProjectionConflict, "fold_event", "Project already exists", false,
 				"append a rename event for the existing Project")
 		}

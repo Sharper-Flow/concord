@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/sharper-flow/concord/internal/hostlease"
+	"github.com/sharper-flow/concord/internal/store/internal/sqlitedb"
 )
 
 // CD-0008 D1 worktree lifecycle. Worktrees and branches are native git
@@ -909,7 +910,7 @@ func pinWorktreeClaimTx(ctx context.Context, tx *sql.Tx, req WorktreeClaimReques
 		// storage failure.
 		if _, err := tx.ExecContext(ctx, `INSERT INTO worktree_claims(op_id,work_id,project_id,set_id,repository_id,pinned_branch,pinned_base_sha,pinned_path,state,principal_ref,request_id,observed_at,updated_at,member_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 			req.OpID, req.WorkID, req.ProjectID, setID, repoRoot, derivedBranch, req.BaseSHA, derivedPath, worktreeStatePending, req.PrincipalRef, req.RequestID, now.Format(time.RFC3339Nano), now.Format(time.RFC3339Nano), memberID); err != nil {
-			if isUniqueViolation(err) {
+			if sqlitedb.IsUniqueViolation(err) {
 				return false, newFailure(KindProjectionConflict, "worktree_claim", "another active claim already pins this repository's branch or this native path", false, "reclaim the holding worktree before claiming again")
 			}
 			return false, wrapFailure(KindUnavailable, "worktree_claim", "cannot persist claim", true, "retry once the database is writable", err)

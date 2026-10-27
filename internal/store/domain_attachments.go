@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"time"
+
+	"github.com/sharper-flow/concord/internal/store/internal/sqlitedb"
 )
 
 // DomainProjectAttachment is one local Domain→Project edge.
@@ -127,7 +129,7 @@ func foldDomainProjectAttachmentsReplaced(ctx context.Context, tx *sql.Tx, event
 	}
 	for _, link := range p.Attachments {
 		if _, err := tx.ExecContext(ctx, `INSERT INTO domain_project_attachment_edges(product_id,domain_id,project_id,role) VALUES(?,?,?,?)`, p.ProductID, p.DomainID, link.ProjectID, link.Role); err != nil {
-			if isUniqueViolation(err) {
+			if sqlitedb.IsUniqueViolation(err) {
 				return newFailure(KindProjectionConflict, "fold_event", "duplicate Domain Project attachment or primary role", false, "supply unique Project links and at most one primary")
 			}
 			return wrapFailure(KindUnavailable, "fold_event", "cannot write Domain Project attachment", true, "retry once the database is writable", err)
@@ -161,7 +163,7 @@ func foldDomainResourceAttachmentsReplaced(ctx context.Context, tx *sql.Tx, even
 	}
 	for _, link := range p.Attachments {
 		if _, err := tx.ExecContext(ctx, `INSERT INTO domain_resource_attachment_edges(product_id,domain_id,resource_id,purpose,environments) VALUES(?,?,?,?,?)`, p.ProductID, p.DomainID, link.ResourceID, link.Purpose, marshalStrings(link.Environments)); err != nil {
-			if isUniqueViolation(err) {
+			if sqlitedb.IsUniqueViolation(err) {
 				return newFailure(KindProjectionConflict, "fold_event", "duplicate Domain resource attachment", false, "supply unique resource links")
 			}
 			return wrapFailure(KindUnavailable, "fold_event", "cannot write Domain resource attachment", true, "retry once the database is writable", err)

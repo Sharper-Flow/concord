@@ -8,6 +8,8 @@ import (
 	"encoding/json"
 	"errors"
 	"sort"
+
+	"github.com/sharper-flow/concord/internal/store/internal/sqlitedb"
 )
 
 // knowledgeSourcePayload is the shared event payload for Product
@@ -98,7 +100,7 @@ func foldProductKnowledgeSourceRegistered(ctx context.Context, tx *sql.Tx, event
 		INSERT INTO product_knowledge_sources(product_id, project_id, locator_id, registered_at)
 		VALUES (?, ?, ?, ?)`,
 		payload.ProductID, payload.ProjectID, payload.LocatorID, event.OccurredAt); err != nil {
-		if isUniqueViolation(err) {
+		if sqlitedb.IsUniqueViolation(err) {
 			return newFailure(KindProjectionConflict, "fold_event", "locator already serves another Product's knowledge home or source set", false,
 				"remove the other Product's registration or register a different locator")
 		}

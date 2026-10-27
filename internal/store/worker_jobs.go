@@ -1173,8 +1173,10 @@ func validateWorkerPacketJob(ctx context.Context, q queryer, definition Workflow
 			repairReview = &binding
 		} else if lane.CapabilityClass != "review" {
 			return nil, nil, err
-		} else if finalErr := requireWorkerReviewJobRevisionStateTx(ctx, q, workID, binding); finalErr != nil {
+		} else if final, finalErr := finalReviewWorkerJobTx(ctx, q, workID); finalErr != nil {
 			return nil, nil, finalErr
+		} else if final == nil || *final != binding {
+			return nil, nil, err
 		}
 	}
 	views, err := readWorkerJobRevisions(ctx, q, workID)

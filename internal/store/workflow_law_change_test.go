@@ -584,32 +584,30 @@ func TestLawChangeThroughTheRealConstructors(t *testing.T) {
 			}
 			requireFailureKind(t, enactLawChange(t, s, id, change, binding), KindOutcomeMismatch, "retained registry fact cannot replace typed registry scope")
 		}
+		fields := lawChangeConstructorFields(t, s, 4, []string{}, []string{})
+		_, err := deriveLawChange(t, s, id, d, fields, nil, nil, []string{})
+		requireFailureKind(t, err, KindInvalidPayload, "retained own delta still requires a reason")
+		fields[workflowLawChangeReasonField] = mustJSONValue("retain already enacted own changes")
+		fields["decision_domains"] = mustJSONValue([]string{"product"})
+		_, err = deriveLawChange(t, s, id, d, fields, nil, nil, []string{"product"})
+		requireFailureKind(t, err, KindInvalidPayload, "retained own delta still requires exact pins for classified decisions")
 	})
-	t.Run("earlier own scope survives an unchanged intermediate successor", func(t *testing.T) {
+	t.Run("a dropped unchanged declaration claims no later delta", func(t *testing.T) {
 		const id = "law-real-historic-scope"
 		s := seedLawChangeFixture(t, id)
 		seedLawChangeLaw(t, s, "law-agent", "derived", "agent-surface")
 		d, r, o := lawChangeConstructorItem(t, s, id, true)
-		v1, _ := constructLawChangeContract(t, s, d, r, id, o, lawChangeConstructorFields(t, s, 1, []string{"law-agent"}, []string{}))
+		constructLawChangeContract(t, s, d, r, id, o, lawChangeConstructorFields(t, s, 1, []string{"law-agent"}, []string{}))
 		v2, _ := constructLawChangeContract(t, s, d, r, id, o, lawChangeConstructorFields(t, s, 2, []string{}, []string{}))
 		if v2 != nil {
 			t.Fatalf("unchanged law cannot force cumulative scope: %+v", v2)
 		}
 		editLawChangeLaw(t, s, "law-agent")
-		fields := lawChangeConstructorFields(t, s, 3, []string{}, []string{})
-		_, err := deriveLawChange(t, s, id, d, fields, nil, nil, []string{})
-		requireFailureKind(t, err, KindInvalidPayload, "retained own delta still requires a reason")
-		fields[workflowLawChangeReasonField] = mustJSONValue("retain the already approved own change")
-		v3, binding := constructLawChangeContract(t, s, d, r, id, o, fields)
-		if v3 == nil || !slices.Equal(v3.LawIDs, v1.LawIDs) || !reflect.DeepEqual(v3.LawBefore, v1.LawBefore) {
-			t.Fatalf("intermediate successor erased own scope: %+v", v3)
+		v3, binding := constructLawChangeContract(t, s, d, r, id, o, lawChangeConstructorFields(t, s, 3, []string{}, []string{}))
+		if v3 != nil {
+			t.Fatalf("successor claimed a delta made after its predecessor dropped the law: %+v", v3)
 		}
-		if err := enactLawChange(t, s, id, v3, binding); err != nil {
-			t.Fatal(err)
-		}
-		fields["decision_domains"] = mustJSONValue([]string{"product"})
-		_, err = deriveLawChange(t, s, id, d, fields, nil, nil, []string{"product"})
-		requireFailureKind(t, err, KindInvalidPayload, "retained own delta still requires exact pins for classified decisions")
+		requireFailureKind(t, enactLawChange(t, s, id, v3, binding), KindOutcomeMismatch, "an unnamed delta after narrowing still blocks completion")
 	})
 	t.Run("unchanged registry can drop its declaration", func(t *testing.T) {
 		const id = "law-real-narrow"

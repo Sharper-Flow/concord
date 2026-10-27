@@ -177,9 +177,10 @@ func deriveWorkflowLawChangeTx(ctx context.Context, q queryer, definition Workfl
 	return change, nil
 }
 
-// Approval records declared scope and retains enacted scope from this item's
-// prior contracts. Unattributed inventory deltas stay visible to completion;
-// they do not become this item's declarations or obstruct successor recovery.
+// Approval records declared scope and retains the still-enacted scope of the
+// immediate predecessor, which already carries every earlier retained law.
+// Unattributed inventory deltas stay visible to completion; they do not become
+// this item's declarations or obstruct successor recovery.
 func deriveWorkflowLawChangeScopeTx(ctx context.Context, q queryer, workID string, change *WorkflowLawChange, lawModifies []string, binding *WorkflowArchitectureBinding) error {
 	before, after, err := readWorkflowLawBaselineTx(ctx, q, workID)
 	if err != nil {
@@ -263,7 +264,7 @@ func deriveWorkflowLawChangeScopeTx(ctx context.Context, q queryer, workID strin
 }
 
 func readWorkflowLawChangeHistoryTx(ctx context.Context, q queryer, workID string) ([]WorkflowLawChange, error) {
-	rows, err := q.QueryContext(ctx, `SELECT law_change FROM workflow_contracts WHERE work_id=? AND law_change IS NOT NULL ORDER BY contract_version`, workID)
+	rows, err := q.QueryContext(ctx, `SELECT law_change FROM workflow_contracts WHERE work_id=?1 AND law_change IS NOT NULL AND contract_version=(SELECT max(contract_version) FROM workflow_contracts WHERE work_id=?1)`, workID)
 	if err != nil {
 		return nil, workflowProjectionError(err, "cannot read the item's approved law scope")
 	}

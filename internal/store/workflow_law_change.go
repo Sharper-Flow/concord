@@ -188,33 +188,9 @@ func deriveWorkflowLawChangeScopeTx(ctx context.Context, q queryer, workID strin
 	}
 	declared := workflowChangedLawIDs(lawModifies, binding)
 	old := workflowLawInventoryMap(before)
-	additions := map[string]bool{}
-	if binding != nil {
-		for _, addition := range binding.LawAdditions {
-			canonical, err := workflowLawInventoryReference(addition.LawID, before, after)
-			if err != nil {
-				return err
-			}
-			additions[canonical] = true
-		}
-	}
-	aliases := map[string]string{}
-	for _, reference := range declared {
-		canonical, err := workflowLawInventoryReference(reference, before, after)
-		if err != nil {
-			return err
-		}
-		if previous, exists := aliases[canonical]; exists && previous != reference {
-			return newFailure(KindInvalidPayload, "workflow_law_change", "one law is declared through multiple source aliases", false, "declare each source law once")
-		}
-		_, existed := old[canonical]
-		if !existed && !additions[canonical] {
-			return newFailure(KindOutcomeMismatch, "workflow_law_change", "law "+reference+" was absent at the owning start and requires a declared law_additions entry", false, "declare the new law and its home in a Product-changing contract")
-		}
-		if existed && additions[canonical] {
-			return newFailure(KindInvalidPayload, "workflow_law_change", "law addition already existed at the owning start: "+reference, false, "declare an existing law through law_modifies")
-		}
-		aliases[canonical] = reference
+	aliases, err := workflowDeclaredLawAliases(before, after, old, declared, binding)
+	if err != nil {
+		return err
 	}
 	prior, err := readWorkflowLawChangeHistoryTx(ctx, q, workID)
 	if err != nil {
@@ -261,6 +237,38 @@ func deriveWorkflowLawChangeScopeTx(ctx context.Context, q queryer, workID strin
 		}
 	}
 	return nil
+}
+
+func workflowDeclaredLawAliases(before, after *workflowLawBaseline, old map[string]workflowLawState, declared []string, binding *WorkflowArchitectureBinding) (map[string]string, error) {
+	additions := map[string]bool{}
+	if binding != nil {
+		for _, addition := range binding.LawAdditions {
+			canonical, err := workflowLawInventoryReference(addition.LawID, before, after)
+			if err != nil {
+				return nil, err
+			}
+			additions[canonical] = true
+		}
+	}
+	aliases := map[string]string{}
+	for _, reference := range declared {
+		canonical, err := workflowLawInventoryReference(reference, before, after)
+		if err != nil {
+			return nil, err
+		}
+		if previous, exists := aliases[canonical]; exists && previous != reference {
+			return nil, newFailure(KindInvalidPayload, "workflow_law_change", "one law is declared through multiple source aliases", false, "declare each source law once")
+		}
+		_, existed := old[canonical]
+		if !existed && !additions[canonical] {
+			return nil, newFailure(KindOutcomeMismatch, "workflow_law_change", "law "+reference+" was absent at the owning start and requires a declared law_additions entry", false, "declare the new law and its home in a Product-changing contract")
+		}
+		if existed && additions[canonical] {
+			return nil, newFailure(KindInvalidPayload, "workflow_law_change", "law addition already existed at the owning start: "+reference, false, "declare an existing law through law_modifies")
+		}
+		aliases[canonical] = reference
+	}
+	return aliases, nil
 }
 
 func readWorkflowLawChangeHistoryTx(ctx context.Context, q queryer, workID string) ([]WorkflowLawChange, error) {

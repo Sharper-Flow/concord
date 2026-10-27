@@ -5,6 +5,75 @@ import (
 	"testing"
 )
 
+func TestWorkerRepeatedAcceptancePreservesDependentJobReadiness(t *testing.T) {
+	const work = "repeated-acceptance-dependent"
+	f := oSeedReviewRoute(t, work, "workflow.break_fix", "repair")
+	s := f.store
+	defer s.Close()
+	lane := reviewGateLane(t, "implementation")
+	older := &WorkerJobBinding{JobID: "job:older-input", Revision: 1}
+	input := &WorkerJobBinding{JobID: "job:input", Revision: 1}
+	recordWorkerJobRevisionForTest(t, s, work, f.owner, older)
+	recordWorkerJobRevisionForTest(t, s, work, f.owner, input)
+	dispatchJobBoundAttempt(t, s, work, "repair", "attempt:older", nil, f.owner, 0, "older-dispatch", older)
+	if err := completeJobBoundAttemptForTest(s, work, "attempt:older", lane, older); err != nil {
+		t.Fatal(err)
+	}
+	oDispatchJobBoundAttempt(t, s, work, "attempt:input", nil, f.owner, 0, "input-dispatch", input)
+	completeAndAcceptAttempt(t, s, work, "attempt:input", lane, reviewGateAcceptor(work))
+	var firstRef string
+	if err := s.db.QueryRow(`SELECT satisfied_result_ref FROM worker_job_revisions WHERE work_id=? AND job_id=? AND revision=?`, work, input.JobID, input.Revision).Scan(&firstRef); err != nil {
+		t.Fatal(err)
+	}
+	if firstRef == "" {
+		t.Fatal("accepted input has no satisfaction reference")
+	}
+	if err := recordWorkerJobFieldsForTest(t, s, work, f.owner, map[string]any{
+		"job_id": "job:dependent", "objective": "Consume the exact accepted input",
+		"stopping_condition": "The dependent check passes", "checks": []string{"check dependent"},
+		"path_scope":    []string{"internal/store/dependent"},
+		"prerequisites": []WorkerJobPrerequisite{{JobID: input.JobID, Revision: input.Revision, ResultRef: firstRef}},
+		"ready":         true, "readiness_evidence": []string{"evidence:coordinator-ready"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	views, err := readWorkerJobRevisions(t.Context(), s.db, work)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var dependent WorkerJobBinding
+	for _, view := range views {
+		if view.Binding.JobID == "job:dependent" {
+			if !view.Ready {
+				t.Fatal("dependent is not ready before repeated acceptance")
+			}
+			dependent = view.Binding
+		}
+	}
+	if dependent.Digest == "" {
+		t.Fatal("dependent job was not recorded")
+	}
+	if err := runVerdictActionAs(t, s, work, "accept_worker_result", mustJSONValue(map[string]any{
+		"attempt_id": "attempt:input", "attempt_epoch": latestStepStartEpoch(t, s, work, "repair"),
+	}), 0, reviewGateAcceptor(work)); err != nil {
+		t.Fatalf("repeated acceptance: %v", err)
+	}
+	var currentRef string
+	if err := s.db.QueryRow(`SELECT satisfied_result_ref FROM worker_job_revisions WHERE work_id=? AND job_id=? AND revision=?`, work, input.JobID, input.Revision).Scan(&currentRef); err != nil {
+		t.Fatal(err)
+	}
+	if currentRef != firstRef {
+		t.Errorf("repeated acceptance replaced the input satisfaction reference %q with %q", firstRef, currentRef)
+	}
+	acceptCurrentReviewForBoundJobForTest(t, workContextFixture{store: s, workID: work, owner: f.owner}, workerFixtureDirectory(t, s, work), "continue", dependent)
+	packet := dispatchWorkerPacket(t, s, work, "repair", "attempt:dependent")
+	packet["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, s, work, dependent, "implement")
+	if err := dispatchJobPacketForTest(t, s, work, "attempt:dependent", f.owner, "dependent-dispatch", packet); err != nil {
+		t.Fatalf("dependent dispatch after repeated acceptance: %v", err)
+	}
+	recordJobBoundWorkerDispatch(t, s, work, "attempt:dependent", &dependent)
+}
+
 func TestWorkerRepeatedAcceptancePreservesFrozenPopulation(t *testing.T) {
 	const work = "repeated-acceptance-watermark"
 	f := oSeedReviewRoute(t, work, "workflow.break_fix", "repair")
@@ -66,8 +135,8 @@ func TestWorkerRepeatedAcceptancePreservesFrozenPopulation(t *testing.T) {
 	if err := s.db.QueryRow(`SELECT satisfied_seq FROM worker_job_revisions WHERE work_id=? AND job_id=? AND revision=?`, work, latest.JobID, latest.Revision).Scan(&satisfiedSeq); err != nil {
 		t.Fatal(err)
 	}
-	if satisfiedSeq != latestSeq {
-		t.Fatalf("current job satisfaction=%d, want latest acceptance=%d", satisfiedSeq, latestSeq)
+	if satisfiedSeq != firstSeq {
+		t.Fatalf("current job satisfaction=%d, want first acceptance=%d", satisfiedSeq, firstSeq)
 	}
 	assertWorkerWindowsMigration143Parity(t, s)
 	assertEventLogAbsent(t, s)

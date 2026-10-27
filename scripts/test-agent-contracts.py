@@ -33,6 +33,7 @@ class ApprovalDeclarationTests(unittest.TestCase):
         required = {"concord_work_relate.product_project_add", "concord_work_relate.client_policy_grant_request"}
         conditional = {
             "concord_work_define.capture", "concord_work_define.revise_intent",
+            "concord_work_relate.resolve_overlap",
             "concord_work_transition.workflow_action", "concord_work_transition.worktree_destroy",
         }
         for operation in manifest["operations"]:

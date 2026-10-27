@@ -6,9 +6,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sharper-flow/concord/internal/store"
-
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/payloadschema"
+	"github.com/sharper-flow/concord/internal/store"
 )
 
 // A Domain read crosses two joins no compiler checks. The store result type
@@ -37,7 +37,7 @@ func TestDomainReadPayloadTypesPinResultFieldsAndSchema(t *testing.T) {
 		{operation: "shape", result: store.DomainShapeResult{}, payload: store.DomainShapeResult{}},
 	} {
 		t.Run(testCase.operation, func(t *testing.T) {
-			contract, ok := ValidateContractOperation("concord_domain", testCase.operation)
+			contract, ok := agentcontract.ValidateContractOperation("concord_domain", testCase.operation)
 			if !ok {
 				t.Fatalf("concord_domain.%s is not a contract operation", testCase.operation)
 			}

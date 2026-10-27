@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/pm1fixture"
 	"github.com/sharper-flow/concord/internal/store"
 	"github.com/sharper-flow/concord/internal/store/storetest"
@@ -36,7 +37,7 @@ func TestAuditReclaimReportsCommittedEffectWithThePhysicalTree(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	op, ok := ValidateContractOperation("concord_work_transition", "worktree_audit_reclaim")
+	op, ok := agentcontract.ValidateContractOperation("concord_work_transition", "worktree_audit_reclaim")
 	if !ok {
 		t.Fatal("worktree_audit_reclaim is not registered")
 	}
@@ -76,7 +77,7 @@ func TestSupersedeContractPayloadIsRepresentableAtAgentBoundary(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := ValidateOperationPayload("concord_work_transition", "workflow_action", payload, false); err != nil {
+	if err := agentcontract.ValidateOperationPayload("concord_work_transition", "workflow_action", payload, false); err != nil {
 		t.Fatalf("supersede_contract payload is not representable at the agent boundary: %v", err)
 	}
 }
@@ -96,7 +97,7 @@ func TestDispatchProductResolveReturnsGeneratedPayload(t *testing.T) {
 	if err := store.ApplyOperation(ctx, s, store.Operation{Events: events, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectProduct, "product-1"): 0, store.VersionRef(store.SubjectProject, "project-1"): 0}}); err != nil {
 		t.Fatal(err)
 	}
-	service, _, grant := newAuthorizedService(t, s, "client-1", "human-1", []Capability{"product_read"}, []string{"product-1"}, []string{"project-1"}, store.ProjectResolution{ProjectID: "project-1"})
+	service, _, grant := newAuthorizedService(t, s, "client-1", "human-1", []agentcontract.Capability{"product_read"}, []string{"product-1"}, []string{"project-1"}, store.ProjectResolution{ProjectID: "project-1"})
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
 	if err != nil {
 		t.Fatal(err)
@@ -114,7 +115,7 @@ func TestDispatchProductResolveReturnsGeneratedPayload(t *testing.T) {
 
 func TestRetiredPlanningOperationsRefuseBeforeEffects(t *testing.T) {
 	t.Parallel()
-	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"product_read", "work_define", "work_transition", "work_relate", "work_compact"})
+	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"product_read", "work_define", "work_transition", "work_relate", "work_compact"})
 	scopeVersion, _, err := s.ScopeVersion(context.Background(), "project-1")
 	if err != nil {
 		t.Fatal(err)
@@ -148,7 +149,7 @@ func TestRetiredPlanningOperationsRefuseBeforeEffects(t *testing.T) {
 		{"concord_knowledge", "unprocessed"},
 	} {
 		t.Run(pair.tool+"."+pair.operation, func(t *testing.T) {
-			if _, ok := ValidateContractOperation(pair.tool, pair.operation); ok {
+			if _, ok := agentcontract.ValidateContractOperation(pair.tool, pair.operation); ok {
 				t.Fatal("retired operation is still registered")
 			}
 			_, err := Dispatch(context.Background(), s, service, InvokeRequest{Tool: pair.tool, Operation: pair.operation, Input: json.RawMessage(`{}`)}, env)
@@ -215,7 +216,7 @@ func TestDispatchCaptureCreatesWorkAndMembershipsAtomically(t *testing.T) {
 	if err := store.ApplyOperation(ctx, s, store.Operation{Events: events, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectProduct, "product-1"): 0, store.VersionRef(store.SubjectProject, "project-1"): 0}}); err != nil {
 		t.Fatal(err)
 	}
-	service, _, grant := newAuthorizedService(t, s, "client-1", "human-1", []Capability{"work_define"}, []string{"product-1"}, []string{"project-1"}, store.ProjectResolution{ProjectID: "project-1"})
+	service, _, grant := newAuthorizedService(t, s, "client-1", "human-1", []agentcontract.Capability{"work_define"}, []string{"product-1"}, []string{"project-1"}, store.ProjectResolution{ProjectID: "project-1"})
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
 	if err != nil {
 		t.Fatal(err)
@@ -335,12 +336,12 @@ func TestBudgetObjectIsRetiredEverywhereOnTheSurface(t *testing.T) {
 	// retired. Size is bounded by limit/page, time by requested_budget_seconds,
 	// so no result path consults a caller budget object and the seconds
 	// parser cannot resurrect one.
-	for _, op := range ContractOperations {
+	for _, op := range agentcontract.ContractOperations {
 		payload := []byte(`{"budget":{"max_bytes":65536,"max_items":1,"max_millis":1}}`)
-		if err := ValidateOperationPayload(op.Tool, op.Operation, payload, false); err == nil {
+		if err := agentcontract.ValidateOperationPayload(op.Tool, op.Operation, payload, false); err == nil {
 			t.Fatalf("%s admitted the retired budget object", op.ID)
 		}
-		if err := ValidateOperationPayload(op.Tool, op.Operation, []byte(`{}`), false); err != nil && strings.Contains(err.Error(), "budget") {
+		if err := agentcontract.ValidateOperationPayload(op.Tool, op.Operation, []byte(`{}`), false); err != nil && strings.Contains(err.Error(), "budget") {
 			t.Fatalf("%s refusal names the retired object: %v", op.ID, err)
 		}
 	}
@@ -362,7 +363,7 @@ func TestKnowledgeReferenceHonorsSelectedProductContainment(t *testing.T) {
 		t.Fatal(err)
 	}
 	request := InvokeRequest{Input: json.RawMessage(`{"knowledge_id":"knowledge-b"}`)}
-	err = validateRequestedScope(context.Background(), s, CallEnvelope{SelectedProductID: "product-a"}, Authority{ProductScope: []string{"product-a", "product-b"}}, request, OperationRead)
+	err = validateRequestedScope(context.Background(), s, CallEnvelope{SelectedProductID: "product-a"}, Authority{ProductScope: []string{"product-a", "product-b"}}, request, agentcontract.OperationRead)
 	var failure *runtimeFailure
 	if !errors.As(err, &failure) || failure.kind != "unauthorized" {
 		t.Fatalf("knowledge outside selected Product accepted: %v", err)
@@ -374,7 +375,7 @@ func TestKnowledgeResolveNoteDelegatesHomeScopeToQ10(t *testing.T) {
 	s := runtimeKnowledgeStore(t, "home-knowledge", "lesson", nil, map[string]string{"product-a": "member"})
 	defer s.Close()
 	request := InvokeRequest{Tool: "concord_knowledge", Operation: "resolve_note", Input: json.RawMessage(`{"knowledge_id":"home-knowledge"}`)}
-	if err := validateRequestedScope(context.Background(), s, CallEnvelope{SelectedProductID: "product-a"}, Authority{ProductScope: []string{"product-a"}}, request, OperationRead); err != nil {
+	if err := validateRequestedScope(context.Background(), s, CallEnvelope{SelectedProductID: "product-a"}, Authority{ProductScope: []string{"product-a"}}, request, agentcontract.OperationRead); err != nil {
 		t.Fatalf("Q10 runtime pre-scope validation rejected home record: %v", err)
 	}
 	response := runtimeResolveNote(t, s, "product-a", request.Input)
@@ -593,9 +594,9 @@ func runRuntimeGit(t *testing.T, repo string, args ...string) string {
 	return string(out)
 }
 
-func contractOpFor(t *testing.T, tool, operation string) ContractOperation {
+func contractOpFor(t *testing.T, tool, operation string) agentcontract.ContractOperation {
 	t.Helper()
-	op, ok := ValidateContractOperation(tool, operation)
+	op, ok := agentcontract.ValidateContractOperation(tool, operation)
 	if !ok {
 		t.Fatalf("no contract operation %s.%s", tool, operation)
 	}

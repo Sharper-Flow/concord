@@ -3,10 +3,12 @@ package agent
 import (
 	"strings"
 	"testing"
+
+	"github.com/sharper-flow/concord/internal/agentcontract"
 )
 
 func TestOrdinaryRetryReplayPreservesUnknownLaunchFence(t *testing.T) {
-	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_transition", "worker_dispatch"})
+	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_transition", "worker_dispatch"})
 	_, failedID, grantWorktree := seedFailedWorkerRetryMutation(t, s, service, grant)
 	grant.Worktree = grantWorktree
 	env := mutationEnvelope(grant, mustScopeVersion(t, s))

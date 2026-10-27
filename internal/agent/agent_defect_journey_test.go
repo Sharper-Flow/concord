@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -22,7 +23,7 @@ import (
 func TestPublicDefectJourneyThroughRealResearchCompletion(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"product_read", "work_define", "work_transition", "research"})
+	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"product_read", "work_define", "work_transition", "research"})
 	// The operator question gate reads a current Domain registry; the home is
 	// a real committed knowledge repository, the way production derives it.
 	worktree := recoveryDomainRepository(t, s)

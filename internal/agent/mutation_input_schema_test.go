@@ -6,6 +6,8 @@ import (
 	"sort"
 	"strings"
 	"testing"
+
+	"github.com/sharper-flow/concord/internal/agentcontract"
 )
 
 // A mutation input schema and the Go struct that decodes it cross a join no
@@ -64,8 +66,8 @@ func TestMutationInputSchemasBindDecodingStructs(t *testing.T) {
 		"concord_work_transition.worktree_verify":          worktreeVerifyInput{},
 		"concord_work_transition.worker_reconcile":         workerReconcileInput{},
 	}
-	for _, entry := range ContractOperations {
-		if entry.Kind != OperationKind("mutation") {
+	for _, entry := range agentcontract.ContractOperations {
+		if entry.Kind != agentcontract.OperationKind("mutation") {
 			continue
 		}
 		t.Run(entry.ID, func(t *testing.T) {
@@ -73,7 +75,7 @@ func TestMutationInputSchemasBindDecodingStructs(t *testing.T) {
 			if !bound {
 				t.Fatalf("mutation operation has no decoding struct bound in this test")
 			}
-			rule, ok := GeneratedPayloadRules[entry.InputSchema]
+			rule, ok := agentcontract.GeneratedPayloadRules[entry.InputSchema]
 			if !ok {
 				t.Fatalf("input schema %q is not in the generated payload rules", entry.InputSchema)
 			}
@@ -105,8 +107,8 @@ func TestMutationInputSchemasBindDecodingStructs(t *testing.T) {
 	// Every bound target must correspond to a contract mutation, so a renamed
 	// operation cannot leave a stale entry behind.
 	boundOperations := map[string]bool{}
-	for _, entry := range ContractOperations {
-		if entry.Kind == OperationKind("mutation") {
+	for _, entry := range agentcontract.ContractOperations {
+		if entry.Kind == agentcontract.OperationKind("mutation") {
 			boundOperations[entry.ID] = true
 		}
 	}

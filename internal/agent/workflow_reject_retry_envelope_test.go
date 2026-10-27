@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/pm1fixture"
 	"github.com/sharper-flow/concord/internal/store"
 )
@@ -184,7 +185,7 @@ func combinedRejectRefusalEvents(t *testing.T, s *store.Store) int {
 // identical fixture commits the same combined call.
 func TestCombinedRejectOversizedResultRefusesZeroWrite(t *testing.T) {
 	ctx := context.Background()
-	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"product_read", "work_transition", "worker_dispatch"})
+	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"product_read", "work_transition", "worker_dispatch"})
 	_, worktree := seedDerivedFailureWorkerForCombinedReject(t, s, service, grant)
 	grant.Worktree = worktree
 	recordOversizedWorkContext(t, s, service, grant)
@@ -242,7 +243,7 @@ func TestCombinedRejectOversizedResultRefusesZeroWrite(t *testing.T) {
 // rejection, one retry attempt, the ok envelope with the derived dispatch.
 func TestCombinedRejectNormalSizeCommits(t *testing.T) {
 	ctx := context.Background()
-	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"product_read", "work_transition", "worker_dispatch"})
+	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"product_read", "work_transition", "worker_dispatch"})
 	version, worktree := seedDerivedFailureWorkerForCombinedReject(t, s, service, grant)
 	grant.Worktree = worktree
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
@@ -397,7 +398,7 @@ func assertCombinedRejectRetryTransport(t *testing.T, s *store.Store, committed 
 // authorization.
 func TestCombinedRejectResearchHeadTransportsAdmittedPacket3(t *testing.T) {
 	ctx := context.Background()
-	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"product_read", "work_transition", "worker_dispatch"})
+	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"product_read", "work_transition", "worker_dispatch"})
 	_, worktree := seedDerivedFailureWorkerForCombinedReject(t, s, service, grant)
 	grant.Worktree = worktree
 	seedCombinedRejectResearchPack(t, s, "pack-combined-reject-rc")
@@ -447,7 +448,7 @@ func TestCombinedRejectResearchHeadTransportsAdmittedPacket3(t *testing.T) {
 // invents no research member.
 func TestCombinedRejectResearchHeadPlainPacketCommits(t *testing.T) {
 	ctx := context.Background()
-	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"product_read", "work_transition", "worker_dispatch"})
+	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"product_read", "work_transition", "worker_dispatch"})
 	version, worktree := seedDerivedFailureWorkerForCombinedReject(t, s, service, grant)
 	grant.Worktree = worktree
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")

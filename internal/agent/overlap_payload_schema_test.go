@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -21,7 +22,7 @@ func TestLawOnlyDomainOverlapReadPayloadValidates(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		err = ValidateOperationPayload("concord_domain", "overlaps", raw, true)
+		err = agentcontract.ValidateOperationPayload("concord_domain", "overlaps", raw, true)
 		if !null && err != nil {
 			t.Fatalf("law-only read payload must validate: %v", err)
 		}
@@ -49,7 +50,7 @@ func TestLawOnlyDomainOverlapContinuityPayloadValidates(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		err = ValidateOperationPayload("concord_work_trace", "continuity", raw, true)
+		err = agentcontract.ValidateOperationPayload("concord_work_trace", "continuity", raw, true)
 		if !null && err != nil {
 			t.Fatalf("law-only continuity payload must validate: %v", err)
 		}

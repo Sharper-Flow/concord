@@ -7,18 +7,19 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
 func seedAgentOverlapFixture(t *testing.T) (*store.Store, *Service, Authority, ed25519.PrivateKey, CallEnvelope, []byte) {
 	t.Helper()
-	return seedAgentOverlapFixtureWith(t, []Capability{"work_relate"})
+	return seedAgentOverlapFixtureWith(t, []agentcontract.Capability{"work_relate"})
 }
 
 // seedAgentOverlapFixtureWith builds the same unresolved-overlap fixture under
 // a caller-chosen capability set, so a test may probe operations on tools other
 // than concord_work_relate.
-func seedAgentOverlapFixtureWith(t *testing.T, capabilities []Capability) (*store.Store, *Service, Authority, ed25519.PrivateKey, CallEnvelope, []byte) {
+func seedAgentOverlapFixtureWith(t *testing.T, capabilities []agentcontract.Capability) (*store.Store, *Service, Authority, ed25519.PrivateKey, CallEnvelope, []byte) {
 	t.Helper()
 	ctx := context.Background()
 	s, service, grant, privateKey := mutationDispatchFixture(t, capabilities)

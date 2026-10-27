@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+
+	"github.com/sharper-flow/concord/internal/agentcontract"
 )
 
 func TestWorkPinOutstandingEvidenceKindsTypedEnvelope(t *testing.T) {
@@ -29,7 +31,7 @@ func TestWorkPinOutstandingEvidenceKindsTypedEnvelope(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := ValidateOperationPayload("concord_work_transition", "workflow_action", payload, true); err != nil {
+		if err := agentcontract.ValidateOperationPayload("concord_work_transition", "workflow_action", payload, true); err != nil {
 			t.Fatalf("typed envelope with debt present=%t: %v", present, err)
 		}
 		response := NewOKMutation(NewBase("debt-envelope", "concord_work_transition", "workflow_action"), payload,

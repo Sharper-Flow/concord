@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -71,7 +72,7 @@ func TestReadPublishesProjectionVersion(t *testing.T) {
 // workflow action must pin.
 func transitionFixture(t *testing.T) (*store.Store, *Service, CallEnvelope, string) {
 	t.Helper()
-	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_define", "work_transition"})
+	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_define", "work_transition"})
 	scopeVersion, _, err := s.ScopeVersion(context.Background(), "project-1")
 	if err != nil {
 		t.Fatal(err)

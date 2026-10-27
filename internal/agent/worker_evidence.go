@@ -9,6 +9,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -17,7 +18,7 @@ import (
 // operation maps to it and no grant assertion may request it, so it is never
 // reachable by a bearer token an agent holds. Worker evidence is authorized by
 // a per-write signature from the registered client, never by a grant.
-const CapabilityWorkerEvidence Capability = "worker_evidence"
+const CapabilityWorkerEvidence agentcontract.Capability = "worker_evidence"
 
 // CapabilityWorkerDispatch authorizes a registered client to invoke the
 // dispatch_worker registered workflow action (CD-0059 D3). It mirrors
@@ -26,7 +27,7 @@ const CapabilityWorkerEvidence Capability = "worker_evidence"
 // work_transition cannot dispatch a nested worker. The capability lives
 // in the policy boundary so CD-0017 D4's nested-worker rule is structural,
 // not a host-side convention.
-const CapabilityWorkerDispatch Capability = "worker_dispatch"
+const CapabilityWorkerDispatch agentcontract.Capability = "worker_dispatch"
 
 // The three evidence-recording verbs a trusted client may sign for. The verb is
 // part of the signed bytes so a dispatch assertion cannot be presented as a

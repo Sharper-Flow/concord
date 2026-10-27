@@ -6,6 +6,7 @@ import (
 	"sort"
 	"testing"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/pm1fixture"
 )
 
@@ -64,8 +65,8 @@ var readMarshalInputs = map[string]string{
 // from the other in silence.
 func TestReadMarshalInputsCoverEveryDeclaredRead(t *testing.T) {
 	declared := map[string]bool{}
-	for _, op := range ContractOperations {
-		if op.Kind == OperationRead {
+	for _, op := range agentcontract.ContractOperations {
+		if op.Kind == agentcontract.OperationRead {
 			declared[op.ID] = true
 		}
 	}
@@ -144,11 +145,11 @@ func TestEveryDeclaredReadMarshalsItsEnvelope(t *testing.T) {
 	}
 }
 
-func contractOperationByID(id string) (ContractOperation, bool) {
-	for _, op := range ContractOperations {
+func contractOperationByID(id string) (agentcontract.ContractOperation, bool) {
+	for _, op := range agentcontract.ContractOperations {
 		if op.ID == id {
 			return op, true
 		}
 	}
-	return ContractOperation{}, false
+	return agentcontract.ContractOperation{}, false
 }

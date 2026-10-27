@@ -6,12 +6,14 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+
+	"github.com/sharper-flow/concord/internal/agentcontract"
 )
 
 func TestInvokeContinuityLimitCorrection(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"product_read"})
+	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"product_read"})
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
 	if err != nil {
 		t.Fatal(err)

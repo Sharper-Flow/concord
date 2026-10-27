@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"strconv"
 	"testing"
+
+	"github.com/sharper-flow/concord/internal/agentcontract"
 )
 
 func TestTraceHistoryRejectsLegacySelectors(t *testing.T) {
@@ -12,13 +14,13 @@ func TestTraceHistoryRejectsLegacySelectors(t *testing.T) {
 		`{"work_id":"work-1","record_kinds":["work.created"]}`,
 		`{"work_id":"work-1","record_kinds":["worker.unknown"]}`,
 	} {
-		if err := ValidateOperationPayload("concord_work_trace", "history", []byte(input), false); err == nil {
+		if err := agentcontract.ValidateOperationPayload("concord_work_trace", "history", []byte(input), false); err == nil {
 			t.Fatalf("legacy or unknown selector accepted: %s", input)
 		}
 	}
 	for _, kind := range []string{"lifecycle", "relation", "phase_exit", "evidence_binding"} {
 		input := `{"work_id":"work-1","record_kinds":["` + kind + `"]}`
-		if err := ValidateOperationPayload("concord_work_trace", "history", []byte(input), false); err != nil {
+		if err := agentcontract.ValidateOperationPayload("concord_work_trace", "history", []byte(input), false); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -42,7 +44,7 @@ func TestHistoryEntriesAreClosedVariants(t *testing.T) {
 			}
 			page := map[string]any{"entries": []any{entry}}
 			raw, _ := json.Marshal(page)
-			if err := ValidateOperationPayload("concord_work_trace", "history", raw, true); err != nil {
+			if err := agentcontract.ValidateOperationPayload("concord_work_trace", "history", raw, true); err != nil {
 				t.Fatalf("valid %s: %v", tc.kind, err)
 			}
 			entry[tc.foreign] = "foreign"
@@ -50,7 +52,7 @@ func TestHistoryEntriesAreClosedVariants(t *testing.T) {
 				entry[tc.foreign] = "needed"
 			}
 			raw, _ = json.Marshal(page)
-			if err := ValidateOperationPayload("concord_work_trace", "history", raw, true); err == nil {
+			if err := agentcontract.ValidateOperationPayload("concord_work_trace", "history", raw, true); err == nil {
 				t.Fatalf("%s admitted %s from another variant", tc.kind, tc.foreign)
 			}
 		})

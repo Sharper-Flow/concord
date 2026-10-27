@@ -11,10 +11,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
-func workerControlProofFixture(t *testing.T, caps []Capability) (*Service, WorkerControlAssertion, ed25519.PrivateKey) {
+func workerControlProofFixture(t *testing.T, caps []agentcontract.Capability) (*Service, WorkerControlAssertion, ed25519.PrivateKey) {
 	t.Helper()
 	db := openAgentDB(t)
 	seedSimpleAuthorityScope(t, db)
@@ -28,7 +29,7 @@ func workerControlProofFixture(t *testing.T, caps []Capability) (*Service, Worke
 	if err := service.RegisterTrustedClient(context.Background(), ClientRegistration{ClientRef: "client-1", KeyID: "key-control", PublicKey: pub, Policy: TrustedClientPolicy{PrincipalRef: "human-1", Capabilities: caps, ProductScope: []string{"product-1"}, ProjectScope: []string{"project-1"}, AgentScope: []string{"agent-1"}}}); err != nil {
 		t.Fatal(err)
 	}
-	a := WorkerControlAssertion{ClientRef: "client-1", AgentRef: "agent-1", SessionRef: "child-session", Directory: "/repo", Worktree: "/repo-wt", ManifestDigest: ManifestDigest, WorkID: "work-control", ProductID: "product-1", ProjectID: "project-1", AttemptID: "attempt-control", PacketDigest: "sha256:" + strings.Repeat("a", 64), WorktreeIdentity: "sha256:" + strings.Repeat("b", 64), ControlID: "control:fixture", LeaseID: "lease-control", RequestID: "request-control", IssuedAt: fixedTime().Format(time.RFC3339Nano), Nonce: "control-proof-nonce"}
+	a := WorkerControlAssertion{ClientRef: "client-1", AgentRef: "agent-1", SessionRef: "child-session", Directory: "/repo", Worktree: "/repo-wt", ManifestDigest: agentcontract.ManifestDigest, WorkID: "work-control", ProductID: "product-1", ProjectID: "project-1", AttemptID: "attempt-control", PacketDigest: "sha256:" + strings.Repeat("a", 64), WorktreeIdentity: "sha256:" + strings.Repeat("b", 64), ControlID: "control:fixture", LeaseID: "lease-control", RequestID: "request-control", IssuedAt: fixedTime().Format(time.RFC3339Nano), Nonce: "control-proof-nonce"}
 	a.Signature = ed25519.Sign(key, CanonicalWorkerControlAssertion(a))
 	return service, a, key
 }
@@ -45,7 +46,7 @@ func checkWorkerControlProof(t *testing.T, service *Service, a WorkerControlAsse
 }
 
 func TestWorkerControlProofRequiresActualAgentExecutionPolicy(t *testing.T) {
-	service, a, key := workerControlProofFixture(t, []Capability{"work_transition"})
+	service, a, key := workerControlProofFixture(t, []agentcontract.Capability{"work_transition"})
 	result, err := checkWorkerControlProof(t, service, a)
 	if err != nil || result.AgentRef != a.AgentRef || result.SessionRef != a.SessionRef || result.PrincipalRef != "human-1" {
 		t.Fatalf("signed actual child was not authorized: %+v %v", result, err)
@@ -75,14 +76,14 @@ func TestWorkerControlCanonicalSharedHostVector(t *testing.T) {
 }
 
 func TestWorkerControlProofNeverUsesEvidenceOnlyCapability(t *testing.T) {
-	service, a, _ := workerControlProofFixture(t, []Capability{CapabilityWorkerEvidence})
+	service, a, _ := workerControlProofFixture(t, []agentcontract.Capability{CapabilityWorkerEvidence})
 	if _, err := checkWorkerControlProof(t, service, a); err == nil || !strings.Contains(err.Error(), "capability outside trusted client policy") {
 		t.Fatalf("evidence-only client acquired execution authority: %v", err)
 	}
 }
 
 func TestWorkerControlProofSignsEveryIdentityField(t *testing.T) {
-	service, original, _ := workerControlProofFixture(t, []Capability{"work_transition"})
+	service, original, _ := workerControlProofFixture(t, []agentcontract.Capability{"work_transition"})
 	value := reflect.ValueOf(original)
 	for i := 0; i < value.NumField(); i++ {
 		if value.Field(i).Kind() != reflect.String {
@@ -100,7 +101,7 @@ func TestWorkerControlProofSignsEveryIdentityField(t *testing.T) {
 }
 
 func TestWorkerControlProofRefusesRevokedClient(t *testing.T) {
-	service, a, _ := workerControlProofFixture(t, []Capability{"work_transition"})
+	service, a, _ := workerControlProofFixture(t, []agentcontract.Capability{"work_transition"})
 	if err := service.RevokeClient(context.Background(), a.ClientRef); err != nil {
 		t.Fatal(err)
 	}
@@ -110,7 +111,7 @@ func TestWorkerControlProofRefusesRevokedClient(t *testing.T) {
 }
 
 func TestWorkerControlScopeRejectsForeignWorkBeforeProducerBinding(t *testing.T) {
-	service, a, key := workerControlProofFixture(t, []Capability{"work_transition"})
+	service, a, key := workerControlProofFixture(t, []agentcontract.Capability{"work_transition"})
 	events := agentFixtureProductEvents("foreign-control", "product-foreign", "project-foreign", "Foreign", "Foreign Project", "control scope fixture")
 	events = append(events,
 		store.Event{EventID: "foreign-control-work", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: "foreign-control-work", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: store.CurrentEventPayloadVersion("work.created"), Payload: json.RawMessage(`{"work_kind":"task","title":"Foreign control","priority":1}`)},
@@ -132,7 +133,7 @@ func TestWorkerControlScopeRejectsForeignWorkBeforeProducerBinding(t *testing.T)
 }
 
 func TestWorkerControlScopeUsesSignedHostProductWithoutInventingPacketFields(t *testing.T) {
-	service, a, _ := workerControlProofFixture(t, []Capability{"work_transition"})
+	service, a, _ := workerControlProofFixture(t, []agentcontract.Capability{"work_transition"})
 	events := []store.Event{
 		{EventID: "control-work", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: a.WorkID, Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: store.CurrentEventPayloadVersion("work.created"), Payload: json.RawMessage(`{"work_kind":"task","title":"Control","priority":1}`)},
 		{EventID: "control-work-membership", Kind: "work.memberships_replaced", SubjectType: store.SubjectWorkItem, SubjectID: a.WorkID, Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"memberships":[{"project_id":"project-1","role":"primary"}],"expected_version":1,"resulting_version":2}`)},

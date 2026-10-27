@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -264,7 +265,7 @@ func approvedWorkflowActionWithVersions(t *testing.T, s *store.Store, service *S
 // the recorded-history shape the frozen journals cover.
 func bindAJ8HealthFailureRollback(t *testing.T, sc jobScenario) jobObservation {
 	t.Helper()
-	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_transition"})
+	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_transition"})
 	seedCurrentWorkflowDomainFixture(t, s)
 	scopeVersion, _, err := s.ScopeVersion(context.Background(), "project-1")
 	if err != nil {

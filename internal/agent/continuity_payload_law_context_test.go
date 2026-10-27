@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
+	"github.com/sharper-flow/concord/internal/payloadschema"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -66,7 +68,7 @@ func TestContinuityPayloadValidatesResolvedConstitutionAgainstSchema(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := ValidatePayloadSchema("continuity_snapshot", raw); err != nil {
+	if err := payloadschema.Validate("continuity_snapshot", raw); err != nil {
 		t.Fatalf("continuity payload carrying a resolved constitution law is not schema-valid: %v", err)
 	}
 }
@@ -102,10 +104,10 @@ func TestContinuityPayloadPreservesStaleLawRevisionAgainstSchema(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := ValidatePayloadSchema("continuity_snapshot", raw); err != nil {
+	if err := payloadschema.Validate("continuity_snapshot", raw); err != nil {
 		t.Fatalf("stale-law continuity document rejected: %v", err)
 	}
-	if err := ValidateOperationPayload("concord_work_trace", "continuity", raw, true); err != nil {
+	if err := agentcontract.ValidateOperationPayload("concord_work_trace", "continuity", raw, true); err != nil {
 		t.Fatalf("stale-law continuity result rejected: %v", err)
 	}
 	payload["pinned"].(map[string]any)["stale_law_revision"] = map[string]any{
@@ -115,7 +117,7 @@ func TestContinuityPayloadPreservesStaleLawRevisionAgainstSchema(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := ValidatePayloadSchema("continuity_snapshot", invalid); err == nil {
+	if err := payloadschema.Validate("continuity_snapshot", invalid); err == nil {
 		t.Fatal("continuity admitted malformed stale-law identity")
 	}
 }

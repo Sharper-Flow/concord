@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/pm1fixture"
 	"github.com/sharper-flow/concord/internal/store"
 )
@@ -24,7 +25,7 @@ const singleDomainRootID = pm1fixture.SingleDomainRootID
 func domainEvidenceFixture(t *testing.T) (*store.Store, *Service, CallEnvelope) {
 	t.Helper()
 	ctx := context.Background()
-	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"product_read"})
+	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"product_read"})
 
 	if err := pm1fixture.SeedWorkItem(ctx, s, "project-1", "work-2", "Second work", 2); err != nil {
 		t.Fatal(err)
@@ -42,7 +43,7 @@ func domainEvidenceFixture(t *testing.T) (*store.Store, *Service, CallEnvelope) 
 // keep distinguishable from an authoritative empty answer.
 func domainRegistryAbsentFixture(t *testing.T) (*store.Store, *Service, CallEnvelope) {
 	t.Helper()
-	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"product_read"})
+	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"product_read"})
 	return s, service, mutationEnvelope(grant, scopeVersionForProject(t, s, "project-1"))
 }
 

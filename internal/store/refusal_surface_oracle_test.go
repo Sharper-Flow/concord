@@ -10,6 +10,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/sharper-flow/concord/internal/agent"
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -28,7 +29,7 @@ func invokeRefusal(t *testing.T, failure *store.Failure) (agent.Envelope, []byte
 	key := ed25519.NewKeyFromSeed(make([]byte, ed25519.SeedSize))
 	if err := service.RegisterTrustedClient(ctx, agent.ClientRegistration{
 		ClientRef: "oracle-client", KeyID: "oracle-key", PublicKey: key.Public().(ed25519.PublicKey),
-		Policy: agent.TrustedClientPolicy{PrincipalRef: "oracle-operator", Capabilities: []agent.Capability{"product_read"}, AgentScope: []string{"oracle-primary"}},
+		Policy: agent.TrustedClientPolicy{PrincipalRef: "oracle-operator", Capabilities: []agentcontract.Capability{"product_read"}, AgentScope: []string{"oracle-primary"}},
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -46,7 +47,7 @@ func invokeRefusal(t *testing.T, failure *store.Failure) (agent.Envelope, []byte
 		"call_envelope": agent.CallEnvelope{
 			SchemaVersion: "1.0", RequestID: "oracle-refusal", ClientRef: "oracle-client",
 			PrincipalRef: "oracle-operator", SessionRef: "oracle-session", AgentRef: "oracle-primary",
-			ManifestDigest: agent.ManifestDigest, ScopeVersion: "oracle-scope",
+			ManifestDigest: agentcontract.ManifestDigest, ScopeVersion: "oracle-scope",
 		},
 	})
 	if err != nil {

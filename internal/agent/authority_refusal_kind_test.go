@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -61,7 +62,7 @@ func TestAuthorityRefusalsCarryTheUnauthorizedKind(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			db := openAgentDB(t)
 			seedSimpleAuthorityScope(t, db)
-			service, invocation, _ := newAuthorizedService(t, db, "client-1", "principal-1", []Capability{"product_read", "work_define", "work_transition"}, []string{"product-1"}, []string{"project-1"}, store.ProjectResolution{ProjectID: "project-1"})
+			service, invocation, _ := newAuthorizedService(t, db, "client-1", "principal-1", []agentcontract.Capability{"product_read", "work_define", "work_transition"}, []string{"product-1"}, []string{"project-1"}, store.ProjectResolution{ProjectID: "project-1"})
 			tc.mutate(&invocation, service)
 			_, err := service.Authorize(context.Background(), invocation)
 			if err == nil {

@@ -41,6 +41,11 @@
       "role": "mixed"
     },
     {
+      "owner_domain_id": "agent-surface",
+      "path": "internal/agentcontract",
+      "role": "domain"
+    },
+    {
       "path": "internal/gittest",
       "role": "test_support"
     },

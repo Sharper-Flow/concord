@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -27,7 +28,7 @@ import (
 func TestWorkerJobCallerRepairAcceptanceThroughAgent(t *testing.T) {
 	for _, scenario := range []string{"contained", "missing repair", "wrong owner", "foreign owner"} {
 		t.Run(scenario, func(t *testing.T) {
-			s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_transition", "worker_dispatch"})
+			s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_transition", "worker_dispatch"})
 			// Caller repair needs the allowance member absent from legacy
 			// consent pins.
 			live, err := store.LiveWorkflowDefinitionForRef("workflow.implementation")

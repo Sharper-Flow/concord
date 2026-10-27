@@ -3,6 +3,8 @@ package agent
 import (
 	"encoding/json"
 	"testing"
+
+	"github.com/sharper-flow/concord/internal/agentcontract"
 )
 
 func TestUniqueJSONAdmissionCallers(t *testing.T) {
@@ -13,7 +15,7 @@ func TestUniqueJSONAdmissionCallers(t *testing.T) {
 			return err
 		},
 		"operation": func(raw []byte) error {
-			return ValidateOperationPayload("unregistered", "unregistered", raw, false)
+			return agentcontract.ValidateOperationPayload("unregistered", "unregistered", raw, false)
 		},
 		"workflow fields": func(raw []byte) error {
 			_, err := workflowActionFields(json.RawMessage(raw))

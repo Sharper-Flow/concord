@@ -343,7 +343,16 @@ def tag_facts(repo: Path, tag: str) -> dict:
     main_src = _git_show(repo, tag, "cmd/concord/main.go")
     authority = _git_show(repo, tag, "internal/agent/authority.go")
     names = re.search(r"names := \[\]string\{([^}]*)\}", authority)
-    manifest = subprocess.run(["git", "-C", str(repo), "grep", "-h", "ManifestDigest = ", tag, "--", "internal/agent"],
+    sources = subprocess.run(["git", "-C", str(repo), "ls-tree", "--name-only", tag, "--",
+                              "internal/agent/generated_contracts.go", "internal/agentcontract/generated_contracts.go"],
+                             capture_output=True, text=True, timeout=120)
+    if sources.returncode != 0:
+        raise InvokeError("tag-facts", f"git ls-tree {tag} exited {sources.returncode}: {sources.stderr.strip()[-200:]}")
+    paths = sources.stdout.splitlines()
+    if len(paths) != 1:
+        raise InvokeError("tag-facts", f"{tag} shows {len(paths)} generated contract sources, want exactly one")
+    contracts_path = paths[0]
+    manifest = subprocess.run(["git", "-C", str(repo), "grep", "-h", "ManifestDigest = ", tag, "--", str(Path(contracts_path).parent)],
                               capture_output=True, text=True, timeout=120)
     digest = re.search(r'"(sha256:[0-9a-f]{64})"', manifest.stdout) if manifest.returncode == 0 else None
     if digest is None:
@@ -371,7 +380,7 @@ def tag_facts(repo: Path, tag: str) -> dict:
             facts["surface"] = f"{major}.{minor}.{patch}"
     locator = _git_show(repo, tag, "internal/store/project_locator.go")
     facts["scope_formula"] = "triples" if "product_id,project_id,role" in locator else "pairs"
-    contracts = _git_show(repo, tag, "internal/agent/generated_contracts.go")
+    contracts = _git_show(repo, tag, contracts_path)
     bindings = _git_show(repo, tag, "internal/agent/payload_validation.go") if _needs_legacy_bindings(contracts) else ""
     facts["has_messages"] = message_support(contracts, tag, bindings)
     facts["has_resources"] = resource_support(contracts, tag, bindings)

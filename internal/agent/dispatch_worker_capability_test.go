@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
 	"github.com/sharper-flow/concord/internal/store/storetest"
 )
@@ -22,7 +23,7 @@ import (
 func TestDispatchWorkerRefusesPrincipalWithoutWorkerDispatchCapability(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_transition"})
+	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_transition"})
 	defer s.Close()
 
 	// Drive the runtime directly: bypass DispatchWithRegistry's
@@ -50,7 +51,7 @@ func TestDispatchWorkerRefusesPrincipalWithoutWorkerDispatchCapability(t *testin
 		SessionRef: grant.SessionRef, AgentRef: grant.AgentRef,
 		Directory: grant.Directory, Worktree: grant.Worktree,
 		ManifestDigest:     grant.ManifestDigest,
-		RequiredCapability: Capability(foundCapability),
+		RequiredCapability: agentcontract.Capability(foundCapability),
 	}
 	_, err := service.Authorize(ctx, inv)
 	if err == nil {
@@ -64,16 +65,16 @@ func TestDispatchWorkerRefusesPrincipalWithoutWorkerDispatchCapability(t *testin
 func TestWorkerDispatchCapabilityIsStructurallyNonAuthorizable(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	_, service, authority, _ := mutationDispatchFixture(t, []Capability{"work_transition"})
+	_, service, authority, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_transition"})
 	registry := store.BuiltinWorkflowRegistry()
 	entry, ok := registry.Current("workflow.implementation")
 	if !ok {
 		t.Fatal("workflow.implementation is not registered")
 	}
-	var required Capability
+	var required agentcontract.Capability
 	for _, action := range entry.Definition.ActionDefinitions {
 		if action.ID == "dispatch_worker" {
-			required = Capability(action.RequiredCapability)
+			required = agentcontract.Capability(action.RequiredCapability)
 		}
 	}
 	if required != CapabilityWorkerDispatch {
@@ -114,7 +115,7 @@ func TestWorkerDispatchCapabilityIsInTheClientPolicyAllowList(t *testing.T) {
 	}
 	policy := TrustedClientPolicy{
 		PrincipalRef: "principal-cd0059",
-		Capabilities: []Capability{CapabilityWorkerDispatch, "work_transition"},
+		Capabilities: []agentcontract.Capability{CapabilityWorkerDispatch, "work_transition"},
 		ProductScope: []string{"product-1"},
 		ProjectScope: []string{"project-1"},
 		AgentScope:   testFixtureAgents,
@@ -130,7 +131,7 @@ func TestWorkerDispatchCapabilityIsInTheClientPolicyAllowList(t *testing.T) {
 	// future change cannot silently widen it.
 	bogusPolicy := TrustedClientPolicy{
 		PrincipalRef: "principal-bogus",
-		Capabilities: []Capability{"worker_dispatch_v2"},
+		Capabilities: []agentcontract.Capability{"worker_dispatch_v2"},
 		ProductScope: []string{"product-1"},
 		ProjectScope: []string{"project-1"},
 	}

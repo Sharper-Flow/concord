@@ -7,6 +7,7 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -28,7 +29,7 @@ func domainEventCount(t *testing.T, s *store.Store) int {
 func TestStaleUnchangedScopePermitsReadAndRejectsMutationBeforeAnyEffect(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"product_read", "work_define"})
+	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"product_read", "work_define"})
 	current, _, err := s.ScopeVersion(ctx, "project-1")
 	if err != nil {
 		t.Fatal(err)
@@ -67,7 +68,7 @@ func TestStaleUnchangedScopePermitsReadAndRejectsMutationBeforeAnyEffect(t *test
 func TestInvalidSelectedProductFailsAsContextNotAuthorization(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	s, service, authority, _ := mutationDispatchFixture(t, []Capability{"product_read"})
+	s, service, authority, _ := mutationDispatchFixture(t, []agentcontract.Capability{"product_read"})
 	version, _, err := s.ScopeVersion(ctx, "project-1")
 	if err != nil {
 		t.Fatal(err)
@@ -84,7 +85,7 @@ func TestInvalidSelectedProductFailsAsContextNotAuthorization(t *testing.T) {
 	}
 	env := mutationEnvelope(authorized, version)
 	env.SelectedProductID = "product-granted"
-	failure := validateRuntimeScope(ctx, s, env, authorized, OperationRead)
+	failure := validateRuntimeScope(ctx, s, env, authorized, agentcontract.OperationRead)
 	if failure == nil {
 		t.Fatal("invalid selected Product was accepted")
 	}
@@ -106,7 +107,7 @@ func TestInvalidSelectedProductFailsAsContextNotAuthorization(t *testing.T) {
 func TestInvalidSelectedProductUnderAmbiguousScopeResolvesByCandidate(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	s, service, authority, _ := mutationDispatchFixture(t, []Capability{"product_read"})
+	s, service, authority, _ := mutationDispatchFixture(t, []agentcontract.Capability{"product_read"})
 	events := []store.Event{
 		{EventID: "ambiguity-product", Kind: "product.created", SubjectType: store.SubjectProduct, SubjectID: "product-2", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"display_name":"Second","stage_maturity":"prototype","stage_audience_commitment":"operator_only"}`)},
 		{EventID: "ambiguity-membership", Kind: "product_project.added", SubjectType: store.SubjectProduct, SubjectID: "product-2", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"product_id":"product-2","project_id":"project-1","role":"secondary","reason":"ambiguity","expected_version":1,"resulting_version":2}`)},
@@ -133,7 +134,7 @@ func TestInvalidSelectedProductUnderAmbiguousScopeResolvesByCandidate(t *testing
 	}
 	env := mutationEnvelope(authorized, version)
 	env.SelectedProductID = "product-granted"
-	failure := validateRuntimeScope(ctx, s, env, authorized, OperationRead)
+	failure := validateRuntimeScope(ctx, s, env, authorized, agentcontract.OperationRead)
 	if failure == nil {
 		t.Fatal("invalid selected Product was accepted")
 	}

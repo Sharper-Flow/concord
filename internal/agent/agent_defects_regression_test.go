@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -97,7 +98,7 @@ func TestRegressionDefect2_SupersededLifecycleInWorkSummaryValidates(t *testing.
 	t.Parallel()
 	payload := []byte(`{"items":[{"id":"work-old","kind":"task","title":"Old","lifecycle":"superseded","version":3}],"next_cursor":null}`)
 	// work_browse.list returns work_page which is a list of work_summary.
-	if err := ValidateOperationPayload("concord_work_browse", "list", payload, true); err != nil {
+	if err := agentcontract.ValidateOperationPayload("concord_work_browse", "list", payload, true); err != nil {
 		t.Fatalf("superseded lifecycle in work_summary must validate, got %v", err)
 	}
 }
@@ -118,14 +119,14 @@ func TestRegressionDefect2_SupersededLifecycleInWorkSummaryValidates(t *testing.
 func TestRegressionDefect2_TransitionTargetRejectsSuperseded(t *testing.T) {
 	t.Parallel()
 	payload := []byte(`{"work_id":"work-x","expected_version":1,"target":"superseded","reason":"probe","idempotency_key":"probe-superseded"}`)
-	err := ValidateOperationPayload("concord_work_transition", "lifecycle", payload, false)
+	err := agentcontract.ValidateOperationPayload("concord_work_transition", "lifecycle", payload, false)
 	if err == nil {
 		t.Fatalf("work_transition_lifecycle_input with target=superseded must be rejected by the schema; the structural guarantee forbids direct transitions")
 	}
 	// The remaining four targets must still validate.
 	for _, target := range []string{"needed", "in_progress", "completed", "cancelled"} {
 		ok := []byte(`{"work_id":"work-x","expected_version":1,"target":"` + target + `","reason":"probe","idempotency_key":"probe-` + target + `"}`)
-		if err := ValidateOperationPayload("concord_work_transition", "lifecycle", ok, false); err != nil {
+		if err := agentcontract.ValidateOperationPayload("concord_work_transition", "lifecycle", ok, false); err != nil {
 			t.Fatalf("work_transition_lifecycle_input with target=%s must validate, got %v", target, err)
 		}
 	}
@@ -140,7 +141,7 @@ func TestRegressionDefect2_TransitionTargetRejectsSuperseded(t *testing.T) {
 func TestRegressionDefect2_LifecycleFilterAcceptsSuperseded(t *testing.T) {
 	t.Parallel()
 	payload := []byte(`{"page":{"cursor":null,"limit":20},"lifecycle":"superseded"}`)
-	if err := ValidateOperationPayload("concord_work_browse", "list", payload, false); err != nil {
+	if err := agentcontract.ValidateOperationPayload("concord_work_browse", "list", payload, false); err != nil {
 		t.Fatalf("work_browse_list_input with lifecycle=superseded must validate, got %v", err)
 	}
 }
@@ -171,7 +172,7 @@ func TestRegressionDefect2_LifecycleFilterAcceptsSuperseded(t *testing.T) {
 // agent has nothing to approve until it supplies evidence).
 func TestRegressionDefect3_TerminalWithoutEvidenceReturnsMissingEvidence(t *testing.T) {
 	t.Parallel()
-	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_transition"})
+	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_transition"})
 	scopeVersion, _, err := s.ScopeVersion(context.Background(), "project-1")
 	if err != nil {
 		t.Fatal(err)
@@ -212,7 +213,7 @@ func TestRegressionDefect3_TerminalWithoutEvidenceReturnsMissingEvidence(t *test
 // correct evidence — the entire lifecycle workflow is unreachable.
 func TestRegressionDefect3_TerminalWithEvidenceMintsApprovalChallenge(t *testing.T) {
 	t.Parallel()
-	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_transition"})
+	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_transition"})
 	scopeVersion, _, err := s.ScopeVersion(context.Background(), "project-1")
 	if err != nil {
 		t.Fatal(err)
@@ -262,7 +263,7 @@ func TestRegressionDefect3_TerminalWithEvidenceMintsApprovalChallenge(t *testing
 // CurrentVersions entry the agent can read without parsing prose.
 func TestRegressionDefect4_VersionConflictCarriesTypedCurrentVersion(t *testing.T) {
 	t.Parallel()
-	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_transition"})
+	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_transition"})
 	scopeVersion, _, err := s.ScopeVersion(context.Background(), "project-1")
 	if err != nil {
 		t.Fatal(err)

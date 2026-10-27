@@ -8,13 +8,14 @@ import (
 	"sort"
 	"testing"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
 func largeMembershipApprovalFixture(t *testing.T, projectCount int) (*store.Store, *Service, Authority, []string, []string) {
 	t.Helper()
 	ctx := context.Background()
-	s, _, _, _ := crossProductPolicyFixture(t, []Capability{"work_relate", "cross_scope"})
+	s, _, _, _ := crossProductPolicyFixture(t, []agentcontract.Capability{"work_relate", "cross_scope"})
 	products := []string{"product-1", "product-2"}
 	projects := []string{"project-1", "project-2"}
 	for i := 3; i <= 9; i++ {
@@ -36,7 +37,7 @@ func largeMembershipApprovalFixture(t *testing.T, projectCount int) (*store.Stor
 		projects = append(projects, project)
 	}
 	sort.Strings(projects)
-	service, _, grant := newAuthorizedService(t, s, "large-client", "human-1", []Capability{"work_relate", "cross_scope"}, products, projects, store.ProjectResolution{ProjectID: "project-1"})
+	service, _, grant := newAuthorizedService(t, s, "large-client", "human-1", []agentcontract.Capability{"work_relate", "cross_scope"}, products, projects, store.ProjectResolution{ProjectID: "project-1"})
 	return s, service, grant, products, projects
 }
 

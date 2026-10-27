@@ -16,6 +16,8 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
+	"github.com/sharper-flow/concord/internal/payloadschema"
 	"github.com/sharper-flow/concord/internal/pm1fixture"
 	"github.com/sharper-flow/concord/internal/store"
 )
@@ -840,7 +842,7 @@ func TestContinuityProjectionReferenceContract(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := ValidatePayloadSchema("continuity_boot_projection_reference", raw); err != nil {
+	if err := payloadschema.Validate("continuity_boot_projection_reference", raw); err != nil {
 		t.Fatalf("projection reference failed its closed schema: %v", err)
 	}
 	if len(raw) > 4096 {
@@ -1037,7 +1039,7 @@ func oversizedContinuationFixture(t *testing.T) (*store.Store, context.Context) 
 			Actor:                store.WorkflowActor{PrincipalRef: "human-1", ClientRef: "client-session-exec-aaaa", AgentRef: "agent-exec", SessionRef: "session-exec-aaaa", ActorClass: store.ActorAgent},
 			AcceptedInputsDigest: "sha256:" + strings.Repeat("3", 64), IdempotencyIdentity: "continuation-research-declaration",
 			OperationID: "continuation-research-op", PrincipalRef: "human-1", Tool: "concord-test", IdempotencyKey: "continuation-research-key",
-			RequestID: "continuation-research-request", AcceptedScope: `{"project":"project-1"}`, ContractDigest: ManifestDigest, Now: fixedTime(),
+			RequestID: "continuation-research-request", AcceptedScope: `{"project":"project-1"}`, ContractDigest: agentcontract.ManifestDigest, Now: fixedTime(),
 			ResearchBindings: []store.ResearchBindingDeclaration{{PackID: continuationResearchPack, Revision: 1, UseRole: store.UseContext, Required: true}},
 		})
 		return err

@@ -15,6 +15,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/payloadschema"
 	"github.com/sharper-flow/concord/internal/store"
 )
@@ -324,7 +325,7 @@ func DispatchWithRegistry(ctx context.Context, s *store.Store, authority *Servic
 		registry = store.BuiltinWorkflowRegistry()
 	}
 	base := NewBase(env.RequestID, request.Tool, request.Operation)
-	op, ok := ValidateContractOperation(request.Tool, request.Operation)
+	op, ok := agentcontract.ValidateContractOperation(request.Tool, request.Operation)
 	if !ok {
 		return base, errors.New("unsupported tool operation")
 	}
@@ -334,7 +335,7 @@ func DispatchWithRegistry(ctx context.Context, s *store.Store, authority *Servic
 		if refusal != nil {
 			return *refusal, nil
 		}
-	} else if err := ValidateOperationPayload(request.Tool, request.Operation, request.Input, false); err != nil {
+	} else if err := agentcontract.ValidateOperationPayload(request.Tool, request.Operation, request.Input, false); err != nil {
 		return coreError(base, "invalid_input", err.Error(), "correct_request", false), nil
 	}
 	ctx, cancel, budget, budgetErr := applyBudget(ctx, op, request.Input)
@@ -350,7 +351,7 @@ func DispatchWithRegistry(ctx context.Context, s *store.Store, authority *Servic
 	// a read happens here, immediately after strict input validation. A
 	// mutation must not refuse here — its idempotency lookup precedes budget
 	// admission, and the mutation paths enforce the ceiling themselves.
-	if op.Kind == OperationRead && budget.CeilingRefused {
+	if op.Kind == agentcontract.OperationRead && budget.CeilingRefused {
 		readRefusal := runtime{Tool: request.Tool, Operation: request.Operation, Budget: budget}
 		return readRefusal.budgetRefusal(base, fmt.Sprintf("requested_budget_seconds %d exceeds supported %d", budget.RequestedSeconds, budget.SupportedSeconds)), nil
 	}
@@ -360,12 +361,12 @@ func DispatchWithRegistry(ctx context.Context, s *store.Store, authority *Servic
 	return dispatchAuthorizedRequest(ctx, s, authority, request, env, registry, op, base, budget)
 }
 
-func preflightDispatchWorkflowAction(ctx context.Context, s *store.Store, authority *Service, request InvokeRequest, env CallEnvelope, registry store.DefinitionRegistry, op ContractOperation, base Envelope) (context.Context, *Envelope) {
+func preflightDispatchWorkflowAction(ctx context.Context, s *store.Store, authority *Service, request InvokeRequest, env CallEnvelope, registry store.DefinitionRegistry, op agentcontract.ContractOperation, base Envelope) (context.Context, *Envelope) {
 	refuse := func(out Envelope) (context.Context, *Envelope) { return ctx, &out }
 	// Generated outer-shape validation rejects duplicate or missing action
 	// fields. Semantic workflow payload validation remains below the registry
 	// availability check.
-	if err := ValidateOperationPayload(request.Tool, request.Operation, request.Input, false); err != nil {
+	if err := agentcontract.ValidateOperationPayload(request.Tool, request.Operation, request.Input, false); err != nil {
 		return refuse(coreError(base, "invalid_input", err.Error(), "correct_request", false))
 	}
 	var strictAction actionMutationInput
@@ -420,9 +421,9 @@ func workflowRegistryUnavailableMessage(ctx context.Context, s *store.Store, reg
 	return message
 }
 
-func dispatchAuthorizedRequest(ctx context.Context, s *store.Store, authority *Service, request InvokeRequest, env CallEnvelope, registry store.DefinitionRegistry, op ContractOperation, base Envelope, budget budgetInput) (Envelope, error) {
+func dispatchAuthorizedRequest(ctx context.Context, s *store.Store, authority *Service, request InvokeRequest, env CallEnvelope, registry store.DefinitionRegistry, op agentcontract.ContractOperation, base Envelope, budget budgetInput) (Envelope, error) {
 	inv := Invocation{ClientRef: env.ClientRef, PrincipalRef: env.PrincipalRef, SessionRef: env.SessionRef, AgentRef: env.AgentRef, Directory: env.Directory, Worktree: env.Worktree, ManifestDigest: env.ManifestDigest, HostAssertionDigest: env.HostAssertionDigest, RequiredCapability: op.Capability, RequiredOperation: request.Operation, ProductID: env.SelectedProductID}
-	if op.Kind != OperationRead && op.ID != "concord_work_transition.workflow_action" {
+	if op.Kind != agentcontract.OperationRead && op.ID != "concord_work_transition.workflow_action" {
 		if _, identityExtractErr := extractMutationWorkIdentity(request.Input); identityExtractErr != nil {
 			return base, identityExtractErr
 		}
@@ -459,7 +460,7 @@ func dispatchAuthorizedRequest(ctx context.Context, s *store.Store, authority *S
 	}
 	if err := validateRuntimeScope(ctx, s, env, grant, op.Kind); err != nil {
 		var stale *runtimeFailure
-		if errors.As(err, &stale) && stale.Refreshable && op.Kind == OperationRead && slices.Equal(stale.Candidates, grant.CandidateProducts) {
+		if errors.As(err, &stale) && stale.Refreshable && op.Kind == agentcontract.OperationRead && slices.Equal(stale.Candidates, grant.CandidateProducts) {
 			base.Warnings = append(base.Warnings, Notice{Kind: "context_refreshed"})
 			env.ScopeVersion = stale.CurrentScopeVersion
 		} else {
@@ -470,7 +471,7 @@ func dispatchAuthorizedRequest(ctx context.Context, s *store.Store, authority *S
 		return failureEnvelope(base, err), nil
 	}
 	r := runtime{Store: s, Authority: authority, Registry: registry, Envelope: env, Tool: request.Tool, Operation: request.Operation, Budget: budget, Reader: grant}
-	if op.Kind != OperationRead {
+	if op.Kind != agentcontract.OperationRead {
 		return r.mutate(ctx, base, request.Input, grant, op)
 	}
 	return r.read(ctx, base, request.Input, op.QueryID)
@@ -486,7 +487,7 @@ type budgetFailure struct {
 	message string
 }
 
-func applyBudget(ctx context.Context, op ContractOperation, raw []byte) (context.Context, context.CancelFunc, budgetInput, *budgetFailure) {
+func applyBudget(ctx context.Context, op agentcontract.ContractOperation, raw []byte) (context.Context, context.CancelFunc, budgetInput, *budgetFailure) {
 	var envelope struct {
 		RequestedSeconds int `json:"requested_budget_seconds"`
 	}
@@ -517,7 +518,7 @@ func applyBudget(ctx context.Context, op ContractOperation, raw []byte) (context
 func (r runtime) budgetRefusal(base Envelope, message string) Envelope {
 	supported := r.Budget.SupportedSeconds
 	if supported < 1 {
-		if op, ok := ValidateContractOperation(r.Tool, r.Operation); ok {
+		if op, ok := agentcontract.ValidateContractOperation(r.Tool, r.Operation); ok {
 			supported = op.SupportedBudgetSeconds
 		}
 	}
@@ -530,7 +531,7 @@ func (r runtime) budgetRefusal(base Envelope, message string) Envelope {
 // names against the grant before dispatch. A Product the policy authorizes is
 // readable across the ambient selection (TS5 §2.3); spanning outside the
 // selected Product by mutation keeps the cross_scope capability gate.
-func validateRequestedScope(ctx context.Context, s *store.Store, env CallEnvelope, grant Authority, request InvokeRequest, kind OperationKind) error {
+func validateRequestedScope(ctx context.Context, s *store.Store, env CallEnvelope, grant Authority, request InvokeRequest, kind agentcontract.OperationKind) error {
 	var fields map[string]json.RawMessage
 	if err := json.Unmarshal(request.Input, &fields); err != nil {
 		return err
@@ -605,7 +606,7 @@ func validateKnowledgeReferenceScope(ctx context.Context, s *store.Store, env Ca
 	return nil
 }
 
-func validateProjectReferenceScope(ctx context.Context, s *store.Store, env CallEnvelope, grant Authority, kind OperationKind, fields map[string]json.RawMessage) error {
+func validateProjectReferenceScope(ctx context.Context, s *store.Store, env CallEnvelope, grant Authority, kind agentcontract.OperationKind, fields map[string]json.RawMessage) error {
 	if raw, ok := fields["project_ids"]; ok {
 		var projectIDs []string
 		if json.Unmarshal(raw, &projectIDs) == nil && len(projectIDs) > 0 {
@@ -621,7 +622,7 @@ func validateProjectReferenceScope(ctx context.Context, s *store.Store, env Call
 				if !scopeIntersects(products, grant.ProductScope) {
 					return newRuntimeFailure("unauthorized", "Project is outside authorized Product scope", "contact_operator", false)
 				}
-				if kind != OperationRead && env.SelectedProductID != "" && !slices.Contains(products, env.SelectedProductID) && !containsCapability(grant.Capabilities, Capability("cross_scope")) {
+				if kind != agentcontract.OperationRead && env.SelectedProductID != "" && !slices.Contains(products, env.SelectedProductID) && !containsCapability(grant.Capabilities, agentcontract.Capability("cross_scope")) {
 					return newRuntimeFailure("unauthorized", "cross-Product mutation requires cross_scope capability", "contact_operator", false)
 				}
 			}
@@ -634,7 +635,7 @@ func validateProjectReferenceScope(ctx context.Context, s *store.Store, env Call
 // a direct work ID or a research pack owner. Every
 // referenced work's Products must intersect the grant, and a mutation outside
 // the selected Product also needs cross_scope.
-func validateWorkReferenceScope(env CallEnvelope, grant Authority, kind OperationKind, workIDs []string, scopes map[string][]string) error {
+func validateWorkReferenceScope(env CallEnvelope, grant Authority, kind agentcontract.OperationKind, workIDs []string, scopes map[string][]string) error {
 	for _, id := range workIDs {
 		products, ok := scopes[id]
 		if !ok {
@@ -643,7 +644,7 @@ func validateWorkReferenceScope(env CallEnvelope, grant Authority, kind Operatio
 		if !scopeIntersects(products, grant.ProductScope) {
 			return newRuntimeFailure("unauthorized", "work reference is outside authorized Product scope", "contact_operator", false)
 		}
-		if kind != OperationRead && env.SelectedProductID != "" && !slices.Contains(products, env.SelectedProductID) && !containsCapability(grant.Capabilities, Capability("cross_scope")) {
+		if kind != agentcontract.OperationRead && env.SelectedProductID != "" && !slices.Contains(products, env.SelectedProductID) && !containsCapability(grant.Capabilities, agentcontract.Capability("cross_scope")) {
 			return newRuntimeFailure("unauthorized", "cross-Product mutation requires cross_scope capability", "contact_operator", false)
 		}
 	}
@@ -671,7 +672,7 @@ func (r runtime) authorizeWorkflowActionTx(ctx context.Context, tx *store.Transa
 	if err != nil {
 		return err
 	}
-	return validateWorkReferenceScope(r.Envelope, grant, OperationMutation, owners, scopes)
+	return validateWorkReferenceScope(r.Envelope, grant, agentcontract.OperationMutation, owners, scopes)
 }
 
 // combinedResearchPackIDs merges the declared binding packs and the
@@ -787,7 +788,7 @@ func shapeInvokeFailure(response Envelope, dispatchErr error, request InvokeRequ
 	return NewCoreError(base, TypedError{Kind: "invalid_input", RetrySafe: false, RecoveryAction: RecoveryAction{Kind: "restart_query"}, EffectState: EffectNone, Message: dispatchErr.Error()})
 }
 
-func validateRuntimeScope(ctx context.Context, s *store.Store, env CallEnvelope, grant Authority, kind OperationKind) error {
+func validateRuntimeScope(ctx context.Context, s *store.Store, env CallEnvelope, grant Authority, kind agentcontract.OperationKind) error {
 	if env.AmbientProjectID == "" {
 		return newRuntimeFailure("unknown_scope", "ambient Project is required", "resolve_ambiguity", false)
 	}
@@ -799,7 +800,7 @@ func validateRuntimeScope(ctx context.Context, s *store.Store, env CallEnvelope,
 		return err
 	}
 	if env.ScopeVersion != "" && env.ScopeVersion != version {
-		f := newRuntimeFailure("stale_context", "scope version is stale", "refresh_context", kind == OperationRead)
+		f := newRuntimeFailure("stale_context", "scope version is stale", "refresh_context", kind == agentcontract.OperationRead)
 		f.Candidates = candidates
 		f.CurrentScopeVersion = version
 		f.Refreshable = true
@@ -1547,7 +1548,7 @@ func (r runtime) resultEnvelope(base Envelope, meta store.ResultMeta, scope *Sco
 	base = applyMeta(base, meta, scope)
 	base.Outcome = OutcomeOK
 	base.Result = raw
-	if err := ValidateOperationPayload(base.Tool, base.Operation, raw, true); err != nil {
+	if err := agentcontract.ValidateOperationPayload(base.Tool, base.Operation, raw, true); err != nil {
 		return base, err
 	}
 	return base, nil

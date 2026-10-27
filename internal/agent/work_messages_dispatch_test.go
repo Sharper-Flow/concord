@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"testing"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
 	"github.com/sharper-flow/concord/internal/store/storetest"
 )
@@ -38,7 +39,7 @@ func messagesFixture(t *testing.T) (*store.Store, *Service, Authority) {
 			t.Fatal(err)
 		}
 	}
-	service, _, grant := newAuthorizedService(t, s, "client-1", "human-1", []Capability{"product_read", "work_relate", "work_transition"}, []string{"product-1"}, []string{"project-1"}, store.ProjectResolution{ProjectID: "project-1"})
+	service, _, grant := newAuthorizedService(t, s, "client-1", "human-1", []agentcontract.Capability{"product_read", "work_relate", "work_transition"}, []string{"product-1"}, []string{"project-1"}, store.ProjectResolution{ProjectID: "project-1"})
 	return s, service, grant
 }
 

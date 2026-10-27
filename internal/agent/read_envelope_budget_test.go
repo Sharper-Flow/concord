@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/payloadschema"
 	"github.com/sharper-flow/concord/internal/pm1fixture"
 	"github.com/sharper-flow/concord/internal/store"
@@ -25,7 +26,7 @@ func assertBoundedRead(t *testing.T, response Envelope) {
 		t.Fatalf("read failed closed envelope schema: %v", err)
 	}
 	if response.Outcome == OutcomeOK {
-		if err := ValidateOperationPayload(response.Tool, response.Operation, response.Result, true); err != nil {
+		if err := agentcontract.ValidateOperationPayload(response.Tool, response.Operation, response.Result, true); err != nil {
 			t.Fatalf("read failed closed result schema: %v", err)
 		}
 	}

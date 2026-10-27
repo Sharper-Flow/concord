@@ -7,6 +7,7 @@ import (
 	"sort"
 	"testing"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -19,7 +20,7 @@ import (
 func TestMutationEnvelopePublishesPinnedObligationsAndDefinitionIdentity(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	s, service, grant, privateKey := mutationDispatchFixture(t, []Capability{"work_define", "work_transition"})
+	s, service, grant, privateKey := mutationDispatchFixture(t, []agentcontract.Capability{"work_define", "work_transition"})
 	seedCurrentWorkflowDomainFixture(t, s)
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
 	if err != nil {

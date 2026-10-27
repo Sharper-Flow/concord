@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/pm1fixture"
 )
 
@@ -52,7 +53,7 @@ func TestKnowledgeReadEnvelopeMarshalsWithRealisticIdentifiers(t *testing.T) {
 func TestDomainReadEnvelopeMarshalsWithoutFreshness(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"product_read"})
+	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"product_read"})
 	if _, err := pm1fixture.SeedCommittedProductDomain(ctx, s, "product-1", "project-1", t.TempDir()); err != nil {
 		t.Fatalf("pm1fixture.SeedCommittedProductDomain: %v", err)
 	}
@@ -125,13 +126,13 @@ func containsNoticeKind(notices []Notice, want string) bool {
 func TestEveryReadOperationMarshalsAsARead(t *testing.T) {
 	t.Parallel()
 	checked := 0
-	for _, op := range ContractOperations {
-		if op.Kind != OperationRead {
+	for _, op := range agentcontract.ContractOperations {
+		if op.Kind != agentcontract.OperationRead {
 			continue
 		}
 		checked++
 		t.Run(op.Tool+"."+op.Operation, func(t *testing.T) {
-			e := Envelope{SchemaVersion: "1.0", ManifestDigest: ManifestDigest, RequestID: "r", Origin: "core", Tool: op.Tool, Operation: op.Operation, QueryID: op.QueryID, Outcome: OutcomeOK, Authority: AuthorityAuthoritative, SourceVersionWatermark: []Watermark{}, OrderingKeys: []string{}, Omissions: []Notice{}, Warnings: []Notice{}, EvidenceRefs: []EvidenceRef{}, Items: []json.RawMessage{json.RawMessage(`{}`)}}
+			e := Envelope{SchemaVersion: "1.0", ManifestDigest: agentcontract.ManifestDigest, RequestID: "r", Origin: "core", Tool: op.Tool, Operation: op.Operation, QueryID: op.QueryID, Outcome: OutcomeOK, Authority: AuthorityAuthoritative, SourceVersionWatermark: []Watermark{}, OrderingKeys: []string{}, Omissions: []Notice{}, Warnings: []Notice{}, EvidenceRefs: []EvidenceRef{}, Items: []json.RawMessage{json.RawMessage(`{}`)}}
 			if _, err := json.Marshal(e); err != nil {
 				t.Fatalf("read does not marshal without mutation metadata: %v", err)
 			}

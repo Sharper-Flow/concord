@@ -11,6 +11,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
+	"github.com/sharper-flow/concord/internal/payloadschema"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -137,7 +139,7 @@ func agentCorrectionDispatchInput(t *testing.T, s *store.Store, targetEventID st
 // recorded. No authority row is fabricated anywhere.
 func freshCoordinatorSessionGrant(t *testing.T, service *Service) Authority {
 	t.Helper()
-	grant, err := service.Authorize(context.Background(), Invocation{ClientRef: "client-1", PrincipalRef: "human-1", SessionRef: "session-coordinator-fresh", AgentRef: "agent-other", Directory: "/repo", Worktree: "/repo-wt", ManifestDigest: ManifestDigest, RequiredCapability: "work_transition", ProductID: "product-1", ProjectID: "project-1"})
+	grant, err := service.Authorize(context.Background(), Invocation{ClientRef: "client-1", PrincipalRef: "human-1", SessionRef: "session-coordinator-fresh", AgentRef: "agent-other", Directory: "/repo", Worktree: "/repo-wt", ManifestDigest: agentcontract.ManifestDigest, RequiredCapability: "work_transition", ProductID: "product-1", ProjectID: "project-1"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -149,7 +151,7 @@ func TestDeliveryCorrectionAgentContract(t *testing.T) {
 
 	t.Run("the unsigned correction appends once without any approval claim", func(t *testing.T) {
 		t.Parallel()
-		s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_transition", "product_read"})
+		s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_transition", "product_read"})
 		targetEventID, version, targetPayloadVersion, targetSeq := completedDeliveryAgentFixture(t, s, grant)
 		scopeVersion, _, err := s.ScopeVersion(context.Background(), "project-1")
 		if err != nil {
@@ -308,7 +310,7 @@ func TestDeliveryCorrectionAgentContract(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := ValidatePayloadSchema("workflow_read", publishedJSON); err != nil {
+		if err := payloadschema.Validate("workflow_read", publishedJSON); err != nil {
 			t.Fatalf("published workflow_read subset does not round-trip through the closed contract: %v", err)
 		}
 		assertionShape, ok := published["delivery_assertion"].(map[string]any)
@@ -323,7 +325,7 @@ func TestDeliveryCorrectionAgentContract(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := ValidatePayloadSchema("workflow_read", withoutVersion); err == nil || !strings.Contains(err.Error(), "target_payload_version") {
+		if err := payloadschema.Validate("workflow_read", withoutVersion); err == nil || !strings.Contains(err.Error(), "target_payload_version") {
 			t.Fatalf("dropped target_payload_version validated as %v, want a required-field refusal naming it", err)
 		}
 		delete(assertionShape, "effective_artifact")
@@ -332,7 +334,7 @@ func TestDeliveryCorrectionAgentContract(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := ValidatePayloadSchema("workflow_read", withoutEffective); err == nil || !strings.Contains(err.Error(), "effective_artifact") {
+		if err := payloadschema.Validate("workflow_read", withoutEffective); err == nil || !strings.Contains(err.Error(), "effective_artifact") {
 			t.Fatalf("dropped effective_artifact validated as %v, want a required-field refusal naming it", err)
 		}
 
@@ -390,7 +392,7 @@ func TestDeliveryCorrectionAgentContract(t *testing.T) {
 	// authority row.
 	t.Run("a fresh coordinator session records its actor and corrects once", func(t *testing.T) {
 		t.Parallel()
-		s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_transition"})
+		s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_transition"})
 		targetEventID, version, targetPayloadVersion, targetSeq := completedDeliveryAgentFixture(t, s, grant)
 		freshGrant := freshCoordinatorSessionGrant(t, service)
 		freshActorRef, err := store.WorkflowActorRef(store.WorkflowActor{PrincipalRef: freshGrant.PrincipalRef, ClientRef: freshGrant.ClientRef, AgentRef: freshGrant.AgentRef, SessionRef: freshGrant.SessionRef, ActorClass: store.ActorAgent})
@@ -518,7 +520,7 @@ func TestDeliveryCorrectionAgentContract(t *testing.T) {
 	} {
 		t.Run(race.name, func(t *testing.T) {
 			t.Parallel()
-			s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_transition", "product_read"})
+			s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_transition", "product_read"})
 			targetEventID, version, targetPayloadVersion, targetSeq := completedDeliveryAgentFixture(t, s, grant)
 			scopeVersion, _, err := s.ScopeVersion(context.Background(), "project-1")
 			if err != nil {
@@ -546,7 +548,7 @@ func TestDeliveryCorrectionAgentContract(t *testing.T) {
 
 	t.Run("a supplied approval claim refuses without consumption or effects", func(t *testing.T) {
 		t.Parallel()
-		suppliedStore, suppliedService, suppliedGrant, _ := mutationDispatchFixture(t, []Capability{"work_transition"})
+		suppliedStore, suppliedService, suppliedGrant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_transition"})
 		suppliedTarget, suppliedVersion, suppliedPayloadVersion, suppliedSeq := completedDeliveryAgentFixture(t, suppliedStore, suppliedGrant)
 		suppliedScopeVersion, _, err := suppliedStore.ScopeVersion(context.Background(), "project-1")
 		if err != nil {
@@ -607,7 +609,7 @@ func TestDeliveryCorrectionCrossProductBoundarySettlesThroughAConsumedHostApprov
 	t.Parallel()
 	// product_read authorizes the read-surface assertions below; the
 	// correction boundary itself needs work_transition and cross_scope only.
-	s, service, grant, privateKey := crossProductDispatchFixture(t, []Capability{"work_transition", "cross_scope", "product_read"})
+	s, service, grant, privateKey := crossProductDispatchFixture(t, []agentcontract.Capability{"work_transition", "cross_scope", "product_read"})
 	targetEventID, version, targetPayloadVersion, targetSeq := completedDeliveryAgentFixture(t, s, grant)
 	scopeVersion, _, err := s.ScopeVersion(context.Background(), "project-1")
 	if err != nil {
@@ -789,7 +791,7 @@ func TestDeliveryCorrectionCrossProductBoundarySettlesThroughAConsumedHostApprov
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := ValidatePayloadSchema("workflow_read", publishedJSON); err != nil {
+	if err := payloadschema.Validate("workflow_read", publishedJSON); err != nil {
 		t.Fatalf("published workflow_read subset does not round-trip through the closed contract: %v", err)
 	}
 	assertionShape, ok := published["delivery_assertion"].(map[string]any)
@@ -804,7 +806,7 @@ func TestDeliveryCorrectionCrossProductBoundarySettlesThroughAConsumedHostApprov
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := ValidatePayloadSchema("workflow_read", withoutVersion); err == nil || !strings.Contains(err.Error(), "target_payload_version") {
+	if err := payloadschema.Validate("workflow_read", withoutVersion); err == nil || !strings.Contains(err.Error(), "target_payload_version") {
 		t.Fatalf("dropped target_payload_version validated as %v, want a required-field refusal naming it", err)
 	}
 	delete(assertionShape, "effective_artifact")
@@ -813,7 +815,7 @@ func TestDeliveryCorrectionCrossProductBoundarySettlesThroughAConsumedHostApprov
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := ValidatePayloadSchema("workflow_read", withoutEffective); err == nil || !strings.Contains(err.Error(), "effective_artifact") {
+	if err := payloadschema.Validate("workflow_read", withoutEffective); err == nil || !strings.Contains(err.Error(), "effective_artifact") {
 		t.Fatalf("dropped effective_artifact validated as %v, want a required-field refusal naming it", err)
 	}
 
@@ -872,7 +874,7 @@ func TestDeliveryCorrectionCrossProductBoundarySettlesThroughAConsumedHostApprov
 // changed refs.
 func TestDeliveryCorrectionCachedReplayPreservesOriginalResultWithoutNewEffects(t *testing.T) {
 	t.Parallel()
-	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_transition"})
+	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_transition"})
 	targetEventID, version, targetPayloadVersion, targetSeq := completedDeliveryAgentFixture(t, s, grant)
 	scopeVersion, _, err := s.ScopeVersion(context.Background(), "project-1")
 	if err != nil {

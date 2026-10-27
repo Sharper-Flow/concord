@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/sharper-flow/concord/internal/agentcontract"
 )
 
 // The agent-facing budget object is retired: time is bounded only by
@@ -24,9 +26,9 @@ func TestAdmissionRefusesTheRetiredBudgetObject(t *testing.T) {
 		`{"max_items":1}`,
 		`{"max_millis":30000}`,
 	}
-	for _, op := range ContractOperations {
+	for _, op := range agentcontract.ContractOperations {
 		for _, payload := range payloads {
-			err := ValidateOperationPayload(op.Tool, op.Operation, []byte(payload), false)
+			err := agentcontract.ValidateOperationPayload(op.Tool, op.Operation, []byte(payload), false)
 			if err == nil {
 				t.Errorf("%s admitted the retired budget field in %s", op.ID, payload)
 				continue

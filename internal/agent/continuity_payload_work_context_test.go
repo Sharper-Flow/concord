@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/sharper-flow/concord/internal/payloadschema"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -78,7 +79,7 @@ func TestContinuityPayloadWorkContextValidatesAgainstSchema(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := ValidatePayloadSchema("continuity_snapshot", raw); err != nil {
+	if err := payloadschema.Validate("continuity_snapshot", raw); err != nil {
 		t.Fatalf("continuity payload carrying the work context view is not schema-valid: %v", err)
 	}
 }
@@ -132,7 +133,7 @@ func TestContinuityPayloadWorkContextUnavailable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := ValidatePayloadSchema("continuity_snapshot", raw); err != nil {
+	if err := payloadschema.Validate("continuity_snapshot", raw); err != nil {
 		t.Fatalf("continuity payload carrying the unavailable marker is not schema-valid: %v", err)
 	}
 }

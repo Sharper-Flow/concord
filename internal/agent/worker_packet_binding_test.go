@@ -19,6 +19,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -698,7 +699,7 @@ func oracleFixtureBundleDigest(t *testing.T, oracle map[string]any, controlID st
 }
 
 func TestOwnerOracleAgentFixtureTracksApprovedPredicatesAndRetainedReadiness(t *testing.T) {
-	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_transition", "worker_dispatch"})
+	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_transition", "worker_dispatch"})
 	grant.Worktree = seedWorkerRetryMutationFixture(t, s, service, grant)
 	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1);
 		INSERT INTO workflow_contract_predicates(work_id,contract_version,predicate_id,ordinal,outcome_kind,outcome_payload)
@@ -784,7 +785,7 @@ func recordReadyRetryJobWithChecks(t *testing.T, s *store.Store, service *Servic
 				WorkID: workID, ExpectedVersion: version, ActionID: "record_worker_job", Payload: raw, Actor: actor,
 				AcceptedInputsDigest: "sha256:" + strings.Repeat("f", 64) + operationID, IdempotencyIdentity: operationID, OperationID: operationID,
 				PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: operationID, RequestID: "request:" + operationID,
-				ContractDigest: ManifestDigest, Now: fixedTime(),
+				ContractDigest: agentcontract.ManifestDigest, Now: fixedTime(),
 			})
 			return err
 		}); err != nil {

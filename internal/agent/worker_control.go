@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"time"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -85,7 +86,7 @@ func (s *Service) resolveAuthorizedWorkerControlTx(ctx context.Context, tx *stor
 	if err != nil {
 		return store.WorkerControlPlan{}, Authority{}, err
 	}
-	if err := validateWorkReferenceScope(CallEnvelope{SelectedProductID: a.ProductID}, authority, OperationMutation, []string{req.WorkID}, scopes); err != nil {
+	if err := validateWorkReferenceScope(CallEnvelope{SelectedProductID: a.ProductID}, authority, agentcontract.OperationMutation, []string{req.WorkID}, scopes); err != nil {
 		return store.WorkerControlPlan{}, Authority{}, err
 	}
 	plan, err := store.ResolveWorkerControlTx(ctx, tx, req)
@@ -110,7 +111,7 @@ func (s *Service) ExecuteWorkerControl(ctx context.Context, req store.WorkerCont
 	if err := s.authorityReady("worker_control"); err != nil {
 		return store.WorktreeVerifyResult{}, err
 	}
-	operation, ok := ValidateContractOperation("concord_work_transition", "worktree_verify")
+	operation, ok := agentcontract.ValidateContractOperation("concord_work_transition", "worktree_verify")
 	if !ok || operation.SupportedBudgetSeconds < 1 {
 		return store.WorktreeVerifyResult{}, authorityRefusal("native execution operation or budget is unavailable")
 	}

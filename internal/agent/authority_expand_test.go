@@ -6,6 +6,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -67,10 +68,10 @@ func TestExpandTrustedClientPolicyPreservesEveryExistingGrant(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	service := expandService(t)
-	if err := service.RegisterTrustedClient(ctx, testClientRegistration("client-1", "human-1", []Capability{"product_read", "work_define"}, []string{"product-1"}, []string{"project-1", "project-2"})); err != nil {
+	if err := service.RegisterTrustedClient(ctx, testClientRegistration("client-1", "human-1", []agentcontract.Capability{"product_read", "work_define"}, []string{"product-1"}, []string{"project-1", "project-2"})); err != nil {
 		t.Fatal(err)
 	}
-	if err := service.ExpandTrustedClientPolicy(ctx, "client-1", TrustedClientPolicy{Capabilities: []Capability{"cross_scope"}, ProductScope: []string{"pokeedge"}, ProjectScope: []string{"pokeedge-main"}}); err != nil {
+	if err := service.ExpandTrustedClientPolicy(ctx, "client-1", TrustedClientPolicy{Capabilities: []agentcontract.Capability{"cross_scope"}, ProductScope: []string{"pokeedge"}, ProjectScope: []string{"pokeedge-main"}}); err != nil {
 		t.Fatalf("expand: %v", err)
 	}
 	capabilities, products, projects, principal := readBackPolicy(t, service)
@@ -86,10 +87,10 @@ func TestExpandTrustedClientPolicyReplayIsIdempotent(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	service := expandService(t)
-	if err := service.RegisterTrustedClient(ctx, testClientRegistration("client-1", "human-1", []Capability{"product_read"}, []string{"product-1"}, []string{"project-1"})); err != nil {
+	if err := service.RegisterTrustedClient(ctx, testClientRegistration("client-1", "human-1", []agentcontract.Capability{"product_read"}, []string{"product-1"}, []string{"project-1"})); err != nil {
 		t.Fatal(err)
 	}
-	additions := TrustedClientPolicy{Capabilities: []Capability{"work_define"}, ProductScope: []string{"pokeedge"}, ProjectScope: []string{"pokeedge-main"}}
+	additions := TrustedClientPolicy{Capabilities: []agentcontract.Capability{"work_define"}, ProductScope: []string{"pokeedge"}, ProjectScope: []string{"pokeedge-main"}}
 	for run := 1; run <= 2; run++ {
 		if err := service.ExpandTrustedClientPolicy(ctx, "client-1", additions); err != nil {
 			t.Fatalf("expand run %d: %v", run, err)
@@ -108,7 +109,7 @@ func TestExpandTrustedClientPolicyEmptyAdditionsChangeNothing(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	service := expandService(t)
-	if err := service.RegisterTrustedClient(ctx, testClientRegistration("client-1", "human-1", []Capability{"product_read"}, []string{"product-1"}, []string{"project-1"})); err != nil {
+	if err := service.RegisterTrustedClient(ctx, testClientRegistration("client-1", "human-1", []agentcontract.Capability{"product_read"}, []string{"product-1"}, []string{"project-1"})); err != nil {
 		t.Fatal(err)
 	}
 	if err := service.ExpandTrustedClientPolicy(ctx, "client-1", TrustedClientPolicy{}); err != nil {
@@ -124,7 +125,7 @@ func TestExpandTrustedClientPolicyRefusesInvalidAdditionsAndKeepsPolicyUnchanged
 	t.Parallel()
 	ctx := context.Background()
 	service := expandService(t)
-	if err := service.RegisterTrustedClient(ctx, testClientRegistration("client-1", "human-1", []Capability{"product_read"}, []string{"product-1"}, []string{"project-1"})); err != nil {
+	if err := service.RegisterTrustedClient(ctx, testClientRegistration("client-1", "human-1", []agentcontract.Capability{"product_read"}, []string{"product-1"}, []string{"project-1"})); err != nil {
 		t.Fatal(err)
 	}
 	cases := []struct {
@@ -132,11 +133,11 @@ func TestExpandTrustedClientPolicyRefusesInvalidAdditionsAndKeepsPolicyUnchanged
 		clientRef string
 		additions TrustedClientPolicy
 	}{
-		{"unknown capability", "client-1", TrustedClientPolicy{Capabilities: []Capability{"root_everything"}}},
-		{"duplicate capability", "client-1", TrustedClientPolicy{Capabilities: []Capability{"product_read", "product_read"}}},
+		{"unknown capability", "client-1", TrustedClientPolicy{Capabilities: []agentcontract.Capability{"root_everything"}}},
+		{"duplicate capability", "client-1", TrustedClientPolicy{Capabilities: []agentcontract.Capability{"product_read", "product_read"}}},
 		{"empty product scope entry", "client-1", TrustedClientPolicy{ProductScope: []string{""}}},
 		{"oversized scope entry", "client-1", TrustedClientPolicy{ProjectScope: []string{string(make([]byte, 129))}}},
-		{"empty client reference", "", TrustedClientPolicy{Capabilities: []Capability{"product_read"}}},
+		{"empty client reference", "", TrustedClientPolicy{Capabilities: []agentcontract.Capability{"product_read"}}},
 	}
 	for _, testCase := range cases {
 		if err := service.ExpandTrustedClientPolicy(ctx, testCase.clientRef, testCase.additions); err == nil {
@@ -151,7 +152,7 @@ func TestExpandTrustedClientPolicyRefusesInvalidAdditionsAndKeepsPolicyUnchanged
 
 func TestExpandTrustedClientPolicyRefusesUnknownClientTyped(t *testing.T) {
 	t.Parallel()
-	err := expandService(t).ExpandTrustedClientPolicy(context.Background(), "missing-client", TrustedClientPolicy{Capabilities: []Capability{"product_read"}})
+	err := expandService(t).ExpandTrustedClientPolicy(context.Background(), "missing-client", TrustedClientPolicy{Capabilities: []agentcontract.Capability{"product_read"}})
 	var failure *store.Failure
 	if !errors.As(err, &failure) || failure.Kind != store.KindProjectionNotFound {
 		t.Fatalf("expand unknown client error = %v, want KindProjectionNotFound", err)
@@ -166,7 +167,7 @@ func TestExpandTrustedClientPolicyRefusesWhenUnionExceedsTheScopeBound(t *testin
 	for i := 0; i < 100; i++ {
 		full = append(full, "product-"+string(rune('a'+i%26))+"-"+string(rune('0'+i/26)))
 	}
-	if err := service.RegisterTrustedClient(ctx, testClientRegistration("client-1", "human-1", []Capability{"product_read"}, full, []string{"project-1"})); err != nil {
+	if err := service.RegisterTrustedClient(ctx, testClientRegistration("client-1", "human-1", []agentcontract.Capability{"product_read"}, full, []string{"project-1"})); err != nil {
 		t.Fatal(err)
 	}
 	expandErr := service.ExpandTrustedClientPolicy(ctx, "client-1", TrustedClientPolicy{ProductScope: []string{"pokeedge"}})
@@ -187,10 +188,10 @@ func TestExpandTrustedClientPolicyLeavesReplaceVerbSemanticsUnchanged(t *testing
 	t.Parallel()
 	ctx := context.Background()
 	service := expandService(t)
-	if err := service.RegisterTrustedClient(ctx, testClientRegistration("client-1", "human-1", []Capability{"product_read", "work_define"}, []string{"product-1", "pokeedge"}, []string{"project-1"})); err != nil {
+	if err := service.RegisterTrustedClient(ctx, testClientRegistration("client-1", "human-1", []agentcontract.Capability{"product_read", "work_define"}, []string{"product-1", "pokeedge"}, []string{"project-1"})); err != nil {
 		t.Fatal(err)
 	}
-	if err := service.UpdateTrustedClientPolicy(ctx, "client-1", TrustedClientPolicy{PrincipalRef: "human-2", Capabilities: []Capability{"product_read"}, ProductScope: []string{"pokeedge"}, ProjectScope: []string{"project-1"}}); err != nil {
+	if err := service.UpdateTrustedClientPolicy(ctx, "client-1", TrustedClientPolicy{PrincipalRef: "human-2", Capabilities: []agentcontract.Capability{"product_read"}, ProductScope: []string{"pokeedge"}, ProjectScope: []string{"project-1"}}); err != nil {
 		t.Fatal(err)
 	}
 	capabilities, products, _, principal := readBackPolicy(t, service)

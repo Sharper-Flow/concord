@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -247,7 +248,7 @@ func TestDefaultCheckoutShelvingTransactionRaces(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			op, _ := ValidateContractOperation("concord_work_transition", "remove")
+			op, _ := agentcontract.ValidateContractOperation("concord_work_transition", "remove")
 			r := runtime{Store: s, Authority: service, Envelope: env, Tool: op.Tool, Operation: op.Operation, Reader: grant}
 			plan := newMutationPlan(env, op)
 			base := NewBase("shelving-race", op.Tool, op.Operation)

@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/sharper-flow/concord/internal/agent"
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -26,7 +27,7 @@ func serializeSelectorRefusal(t *testing.T, failure *store.Failure) []byte {
 	key := ed25519.NewKeyFromSeed(make([]byte, ed25519.SeedSize))
 	if err := service.RegisterTrustedClient(ctx, agent.ClientRegistration{
 		ClientRef: "selector-client", KeyID: "selector-key", PublicKey: key.Public().(ed25519.PublicKey),
-		Policy: agent.TrustedClientPolicy{PrincipalRef: "selector-operator", Capabilities: []agent.Capability{"product_read"}, AgentScope: []string{"selector-primary"}},
+		Policy: agent.TrustedClientPolicy{PrincipalRef: "selector-operator", Capabilities: []agentcontract.Capability{"product_read"}, AgentScope: []string{"selector-primary"}},
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -44,7 +45,7 @@ func serializeSelectorRefusal(t *testing.T, failure *store.Failure) []byte {
 		"call_envelope": agent.CallEnvelope{
 			SchemaVersion: "1.0", RequestID: "selector-refusal", ClientRef: "selector-client",
 			PrincipalRef: "selector-operator", SessionRef: "selector-session", AgentRef: "selector-primary",
-			ManifestDigest: agent.ManifestDigest, ScopeVersion: "selector-scope",
+			ManifestDigest: agentcontract.ManifestDigest, ScopeVersion: "selector-scope",
 		},
 	})
 	if err != nil {

@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/pm1fixture"
 	"github.com/sharper-flow/concord/internal/store"
 )
@@ -54,7 +55,7 @@ func workVersionForWorkflow(t *testing.T, s *store.Store) (int64, error) {
 func TestWorkflowReplayTransactionUsesCommittedResponse(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_transition"})
+	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_transition"})
 	version := seedAgentWorkflow(t, s, grant)
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
 	if err != nil {
@@ -120,7 +121,7 @@ func workflowReplayEffectCounts(t *testing.T, s *store.Store) workflowReplayEffe
 
 func TestWorkflowReplayStoresCommittedResponse(t *testing.T) {
 	t.Parallel()
-	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_transition"})
+	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_transition"})
 	version := seedAgentWorkflow(t, s, grant)
 	scopeVersion, _, err := s.ScopeVersion(context.Background(), "project-1")
 	if err != nil {
@@ -183,7 +184,7 @@ func TestWorkflowReplayOwnerClassifications(t *testing.T) {
 		{name: "unauthorized original scope", kind: "completed", scope: `{"product_id":"another-product","project_ids":["project-1"]}`, want: OutcomeError},
 	} {
 		t.Run(vector.name, func(t *testing.T) {
-			s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_transition"})
+			s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_transition"})
 			version := seedAgentWorkflow(t, s, grant)
 			scopeVersion, _, err := s.ScopeVersion(context.Background(), "project-1")
 			if err != nil {
@@ -362,7 +363,7 @@ func TestIdempotencyDeduplicationBackupRestore(t *testing.T) {
 
 func committedWorkflowReplay(t *testing.T) (runtime, Authority, json.RawMessage, Envelope) {
 	t.Helper()
-	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_transition"})
+	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_transition"})
 	ctx := context.Background()
 	if _, err := pm1fixture.SeedCommittedProductDomain(ctx, s, "product-1", "project-1", t.TempDir()); err != nil {
 		t.Fatal(err)
@@ -423,7 +424,7 @@ func workflowReplayIndex(t *testing.T, s *store.Store) string {
 
 func TestWorkflowActionDispatchUsesStrictPreflightAuthApprovalAndReplayPath(t *testing.T) {
 	t.Parallel()
-	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_transition"})
+	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_transition"})
 	version := seedAgentWorkflow(t, s, grant)
 	if version != 4 {
 		t.Fatalf("workflow seed version=%d, want 4", version)
@@ -489,8 +490,8 @@ func TestWorkflowActionDispatchUsesStrictPreflightAuthApprovalAndReplayPath(t *t
 	if err := s.DatabaseForTesting().QueryRow(`SELECT contract_digest FROM durable_operations WHERE op_id LIKE 'workflow-%'`).Scan(&contractVersion); err != nil {
 		t.Fatal(err)
 	}
-	if contractVersion != ManifestDigest {
-		t.Fatalf("workflow durable contract digest=%s, want %s", contractVersion, ManifestDigest)
+	if contractVersion != agentcontract.ManifestDigest {
+		t.Fatalf("workflow durable contract digest=%s, want %s", contractVersion, agentcontract.ManifestDigest)
 	}
 
 	replay, err := Dispatch(context.Background(), s, service, request, env)
@@ -510,7 +511,7 @@ func TestWorkflowActionDispatchUsesStrictPreflightAuthApprovalAndReplayPath(t *t
 
 func TestWorkflowActionAvailabilityPrecedesPayloadAndAuthorityValidation(t *testing.T) {
 	t.Parallel()
-	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_transition"})
+	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_transition"})
 	scopeVersion, _, err := s.ScopeVersion(context.Background(), "project-1")
 	if err != nil {
 		t.Fatal(err)
@@ -545,7 +546,7 @@ func TestWorkflowActionReplayVectorsUseInvokeAndAuthoritativeDurableResults(t *t
 		{name: "failed stale", resultKind: "failed_stale", want: OutcomePartial, operationState: OperationFailed},
 	} {
 		t.Run(vector.name, func(t *testing.T) {
-			s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_transition"})
+			s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_transition"})
 			if got := seedAgentWorkflow(t, s, grant); got != 4 {
 				t.Fatalf("workflow seed version=%d, want 4", got)
 			}
@@ -614,7 +615,7 @@ func TestWorkflowActionReplayVectorsUseInvokeAndAuthoritativeDurableResults(t *t
 
 func TestWorkflowActionRejectsLegacyEventReplay(t *testing.T) {
 	t.Parallel()
-	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_transition"})
+	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_transition"})
 	if got := seedAgentWorkflow(t, s, grant); got != 4 {
 		t.Fatalf("workflow seed version=%d, want 4", got)
 	}
@@ -640,7 +641,7 @@ func TestWorkflowActionRejectsLegacyEventReplay(t *testing.T) {
 
 func TestWorkflowActionReplayRejectsOldSurfaceResultShapeAndDigest(t *testing.T) {
 	t.Parallel()
-	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_transition"})
+	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_transition"})
 	if got := seedAgentWorkflow(t, s, grant); got != 4 {
 		t.Fatalf("workflow seed version=%d, want 4", got)
 	}
@@ -685,7 +686,7 @@ func seedCurrentWorkflowActionReplay(t *testing.T, s *store.Store, env CallEnvel
 	if defErr != nil {
 		t.Fatal(defErr)
 	}
-	_, err := s.DatabaseForTesting().Exec(`INSERT INTO durable_operations(op_id,attempt_epoch,work_id,workflow_type_ref,workflow_type_digest,step_id,step_kind,accepted_inputs_digest,accepted_scope_snapshot,result_kind,result_payload,evidence_refs,changed_refs,principal_ref,request_id,observed_at,completed_at,contract_digest) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, opID, 1, "work-1", definition.Definition.Ref, definition.Digest, "proposal", "internal_sqlite", "sha256:legacy-input", scope, "completed", resultPayload, "[]", changedRefs, env.PrincipalRef, env.RequestID, fixedTime().Format(time.RFC3339Nano), fixedTime().Format(time.RFC3339Nano), ManifestDigest)
+	_, err := s.DatabaseForTesting().Exec(`INSERT INTO durable_operations(op_id,attempt_epoch,work_id,workflow_type_ref,workflow_type_digest,step_id,step_kind,accepted_inputs_digest,accepted_scope_snapshot,result_kind,result_payload,evidence_refs,changed_refs,principal_ref,request_id,observed_at,completed_at,contract_digest) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, opID, 1, "work-1", definition.Definition.Ref, definition.Digest, "proposal", "internal_sqlite", "sha256:legacy-input", scope, "completed", resultPayload, "[]", changedRefs, env.PrincipalRef, env.RequestID, fixedTime().Format(time.RFC3339Nano), fixedTime().Format(time.RFC3339Nano), agentcontract.ManifestDigest)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -761,7 +762,7 @@ func countWorkflowApprovalChallenges(t *testing.T, s *store.Store) int {
 
 func TestWorkflowActionDispatchUsesDefinitionApprovalChallenge(t *testing.T) {
 	t.Parallel()
-	s, service, grant, privateKey := mutationDispatchFixture(t, []Capability{"work_transition"})
+	s, service, grant, privateKey := mutationDispatchFixture(t, []agentcontract.Capability{"work_transition"})
 	if got := seedAgentWorkflow(t, s, grant); got != 4 {
 		t.Fatalf("workflow seed version=%d, want 4", got)
 	}
@@ -840,7 +841,7 @@ func TestWorkflowActionDispatchUsesDefinitionApprovalChallenge(t *testing.T) {
 // same approved action advances without a second challenge or second ask.
 func TestWorkflowLateHostApprovalNeedsOneChallenge(t *testing.T) {
 	t.Parallel()
-	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_transition"})
+	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_transition"})
 	if got := seedAgentWorkflow(t, s, grant); got != 4 {
 		t.Fatalf("workflow seed version=%d, want 4", got)
 	}

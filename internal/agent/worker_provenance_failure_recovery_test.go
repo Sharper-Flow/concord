@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -13,7 +14,7 @@ func TestRefusedWorkerProvenanceRecoversWithoutAcceptedEvidence(t *testing.T) {
 	for _, defect := range []string{"invalid_digest", "too_many_sources"} {
 		t.Run(defect, func(t *testing.T) {
 			ctx := context.Background()
-			s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_transition", "worker_dispatch"})
+			s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_transition", "worker_dispatch"})
 			grant.Worktree = seedWorkerRetryMutationFixture(t, s, service, grant)
 			scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
 			if err != nil {

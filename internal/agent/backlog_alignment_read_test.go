@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -16,7 +17,7 @@ func TestTraceHistoryReadsBacklogAlignment(t *testing.T) {
 	for _, workflow := range []string{"workflow.implementation", "workflow.break_fix"} {
 		for _, matches := range []int{0, 2, 64} {
 			t.Run(fmt.Sprintf("%s/%d", workflow, matches), func(t *testing.T) {
-				s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_transition", "product_read"})
+				s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_transition", "product_read"})
 				registered, err := store.LiveWorkflowDefinitionForRef(workflow)
 				if err != nil {
 					t.Fatal(err)

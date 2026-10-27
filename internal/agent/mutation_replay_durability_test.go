@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -88,7 +89,7 @@ func TestWorkflowReplayCommitsDurablyUnderPinnedReader(t *testing.T) {
 		}
 		t.Run(name, func(t *testing.T) {
 			ctx := context.Background()
-			s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_transition"})
+			s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_transition"})
 			if version := seedAgentWorkflow(t, s, grant); version != 4 {
 				t.Fatalf("fixture workflow version=%d, want 4", version)
 			}
@@ -149,7 +150,7 @@ func TestWorkflowReplayCommitsDurablyUnderPinnedReader(t *testing.T) {
 func TestWorkflowReplayDurableWriteFailureDoesNotAcknowledge(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_transition"})
+	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_transition"})
 	seedAgentWorkflow(t, s, grant)
 	env := grantRequestEnvelope(t, s, grant)
 	release := holdReplayDurabilityReader(t, s)
@@ -206,7 +207,7 @@ func TestCompactionReplayCommitsDurablyUnderPinnedReader(t *testing.T) {
 		for _, kind := range []store.ResultKind{store.ResultCompleted, store.ResultPending} {
 			t.Run(operation+"/"+string(kind), func(t *testing.T) {
 				ctx := context.Background()
-				s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_compact"})
+				s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_compact"})
 				env := grantRequestEnvelope(t, s, grant)
 				release := holdReplayDurabilityReader(t, s)
 				raw := json.RawMessage(`{"work_id":"work-1","idempotency_key":"compaction-replay"}`)
@@ -215,7 +216,7 @@ func TestCompactionReplayCommitsDurablyUnderPinnedReader(t *testing.T) {
 					OpID: "compaction-replay", WorkID: "work-1", WorkflowTypeRef: "concord.pm6.compaction",
 					StepID: "git_proof", StepKind: store.StepCrossAuthority, AcceptedInputsDigest: mutationDigest("concord_work_compact", operation, env, raw),
 					AcceptedScopeSnapshot: scope, PrincipalRef: grant.PrincipalRef, Tool: "concord_work_compact", IdempotencyKey: "compaction-replay",
-					RequestID: env.RequestID, ObservedAt: fixedTime(), ContractDigest: ManifestDigest,
+					RequestID: env.RequestID, ObservedAt: fixedTime(), ContractDigest: agentcontract.ManifestDigest,
 				}, nil)
 				if err != nil {
 					t.Fatal(err)
@@ -235,7 +236,7 @@ func TestCompactionReplayCommitsDurablyUnderPinnedReader(t *testing.T) {
 				beforeEvents := countWorkflowEvents(t, s)
 				beforeVersion := workOneVersion(t, s)
 				r := runtime{Store: s, Authority: service, Envelope: env, Tool: "concord_work_compact", Operation: operation}
-				op, ok := ValidateContractOperation(r.Tool, r.Operation)
+				op, ok := agentcontract.ValidateContractOperation(r.Tool, r.Operation)
 				if !ok {
 					t.Fatal("fixture operation is not registered")
 				}
@@ -273,7 +274,7 @@ func TestCompactionReplayCommitsDurablyUnderPinnedReader(t *testing.T) {
 func TestOrdinaryMutationReplayDoesNotRequireDurability(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_define"})
+	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_define"})
 	env := grantRequestEnvelope(t, s, grant)
 	release := holdReplayDurabilityReader(t, s)
 	request := InvokeRequest{Tool: "concord_work_define", Operation: "capture", Input: json.RawMessage(`{"title":"Replay","value_statement":"Replay value","kind":"task","project_ids":["project-1"],"idempotency_key":"ordinary-replay"}`)}

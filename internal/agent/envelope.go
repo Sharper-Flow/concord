@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/payloadschema"
 	"github.com/sharper-flow/concord/internal/store"
 )
@@ -305,8 +306,8 @@ type Envelope struct {
 }
 
 func NewBase(requestID, tool, operation string) Envelope {
-	e := Envelope{SchemaVersion: "1.0", ManifestDigest: ManifestDigest, RequestID: requestID, Origin: OriginCore, Tool: tool, Operation: operation, ResolvedScope: nil, Authority: AuthorityAuthoritative, Freshness: nil, SourceVersionWatermark: []Watermark{}, OrderingKeys: []string{}, NextCursor: nil, Omissions: []Notice{}, Warnings: []Notice{}, EvidenceRefs: []EvidenceRef{}, Replayed: false}
-	for _, op := range ContractOperations {
+	e := Envelope{SchemaVersion: "1.0", ManifestDigest: agentcontract.ManifestDigest, RequestID: requestID, Origin: OriginCore, Tool: tool, Operation: operation, ResolvedScope: nil, Authority: AuthorityAuthoritative, Freshness: nil, SourceVersionWatermark: []Watermark{}, OrderingKeys: []string{}, NextCursor: nil, Omissions: []Notice{}, Warnings: []Notice{}, EvidenceRefs: []EvidenceRef{}, Replayed: false}
+	for _, op := range agentcontract.ContractOperations {
 		if op.Tool == tool && op.Operation == operation {
 			e.QueryID = op.QueryID
 			break
@@ -398,7 +399,7 @@ func (e Envelope) Validate() error {
 }
 func (e Envelope) validateInvariants() error {
 	unresolvedWrapper := e.Operation == "" && e.Origin == OriginAdapter && e.Error != nil && e.Error.AdapterReason == "invalid_request_wrapper"
-	if e.SchemaVersion != "1.0" || e.ManifestDigest != ManifestDigest || e.RequestID == "" || len(e.RequestID) > 128 || e.Tool == "" || e.Operation == "" && !unresolvedWrapper {
+	if e.SchemaVersion != "1.0" || e.ManifestDigest != agentcontract.ManifestDigest || e.RequestID == "" || len(e.RequestID) > 128 || e.Tool == "" || e.Operation == "" && !unresolvedWrapper {
 		return errors.New("invalid envelope identity")
 	}
 	if e.Origin != OriginCore && e.Origin != OriginAdapter {
@@ -497,7 +498,7 @@ func (e Envelope) validateOK() error {
 		}
 	}
 	if hasResult {
-		if err := ValidateOperationPayload(e.Tool, e.Operation, e.Result, true); err != nil {
+		if err := agentcontract.ValidateOperationPayload(e.Tool, e.Operation, e.Result, true); err != nil {
 			return fmt.Errorf("invalid result payload: %w", err)
 		}
 	}
@@ -637,7 +638,7 @@ func childValueIsArray(value any) bool {
 }
 
 func validateOperation(tool, operation, query string) error {
-	for _, op := range ContractOperations {
+	for _, op := range agentcontract.ContractOperations {
 		if op.Tool == tool && op.Operation == operation {
 			if op.QueryID != query {
 				return fmt.Errorf("query id %q does not match %s.%s", query, tool, operation)
@@ -652,9 +653,9 @@ func validateOperation(tool, operation, query string) error {
 // on such a tool must be validated as a read: it has no mutation metadata to
 // carry, and demanding it refuses every ok answer the read can produce.
 func isMutation(tool, operation string) bool {
-	for _, op := range ContractOperations {
+	for _, op := range agentcontract.ContractOperations {
 		if op.Tool == tool && op.Operation == operation {
-			return op.Kind == OperationMutation
+			return op.Kind == agentcontract.OperationMutation
 		}
 	}
 	return false

@@ -7,6 +7,7 @@ import (
 	"sort"
 	"testing"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/payloadschema"
 )
 
@@ -83,7 +84,7 @@ func TestKnowledgeSearchKindsEnumSpansTheClosedVocabulary(t *testing.T) {
 func TestKnowledgeSearchInputAdmitsReferenceAndConstitution(t *testing.T) {
 	t.Parallel()
 	payload := []byte(`{"product_id":"concord","kinds":["reference","constitution"],"page":{"cursor":null,"limit":5}}`)
-	if err := ValidateOperationPayload("concord_knowledge", "search", payload, false); err != nil {
+	if err := agentcontract.ValidateOperationPayload("concord_knowledge", "search", payload, false); err != nil {
 		t.Fatalf("reference and constitution refused by the search input: %v", err)
 	}
 }
@@ -96,7 +97,7 @@ func TestKnowledgeSearchInputRefusesTimeWindow(t *testing.T) {
 		`{"product_id":"concord","since":"2026-01-01T00:00:00Z","page":{"cursor":null,"limit":5}}`,
 		`{"product_id":"concord","until":"2026-01-01T00:00:00Z","page":{"cursor":null,"limit":5}}`,
 	} {
-		if err := ValidateOperationPayload("concord_knowledge", "search", []byte(payload), false); err == nil {
+		if err := agentcontract.ValidateOperationPayload("concord_knowledge", "search", []byte(payload), false); err == nil {
 			t.Errorf("search input accepted a time window: %s", payload)
 		}
 	}

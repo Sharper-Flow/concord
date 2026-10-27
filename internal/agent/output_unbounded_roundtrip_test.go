@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -71,7 +72,7 @@ func seedWorkflowConditionAuthority(t *testing.T, s *store.Store, workID, opID, 
 		t.Fatal(err)
 	}
 	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO durable_operations(op_id,attempt_epoch,work_id,workflow_type_ref,workflow_type_digest,step_id,step_kind,accepted_inputs_digest,accepted_scope_snapshot,result_kind,result_payload,evidence_refs,principal_ref,request_id,observed_at,completed_at,contract_digest) VALUES(?,1,?,?,?,?,'external_effect',?,?,'completed','{}',?,'principal/operator',?,?,?,?)`,
-		opID, workID, typeRef, typeDigest, step, ManifestDigest, "{}", string(evidence), "req-"+opID, at, at, ManifestDigest); err != nil {
+		opID, workID, typeRef, typeDigest, step, agentcontract.ManifestDigest, "{}", string(evidence), "req-"+opID, at, at, agentcontract.ManifestDigest); err != nil {
 		t.Fatalf("seed the condition authority %s: %v", opID, err)
 	}
 }
@@ -113,7 +114,7 @@ func seedDistinctStalenessWarnings(t *testing.T, s *store.Store, workID string, 
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := store.AppendWorkflowStalenessObservation(context.Background(), s, fmt.Sprintf("staleness-observed-w%02d", i), workID, "operator", ManifestDigest, payload, fixedTime()); err != nil {
+		if err := store.AppendWorkflowStalenessObservation(context.Background(), s, fmt.Sprintf("staleness-observed-w%02d", i), workID, "operator", agentcontract.ManifestDigest, payload, fixedTime()); err != nil {
 			t.Fatalf("record staleness observation %s: %v", ruleID, err)
 		}
 		ids = append(ids, ruleID)
@@ -165,7 +166,7 @@ func buildClassifiedReadFixture(t *testing.T, blockingCount, idWidth, warningCou
 			t.Fatal(err)
 		}
 	}
-	grant, err := service.Authorize(context.Background(), Invocation{ClientRef: "client-session-exec-aaaa", PrincipalRef: "human-1", SessionRef: "session-exec-aaaa", AgentRef: "agent-exec", Directory: "/repo", Worktree: "/repo-wt", ManifestDigest: ManifestDigest, RequiredCapability: "product_read", ProductID: "product-1", ProjectID: "project-1"})
+	grant, err := service.Authorize(context.Background(), Invocation{ClientRef: "client-session-exec-aaaa", PrincipalRef: "human-1", SessionRef: "session-exec-aaaa", AgentRef: "agent-exec", Directory: "/repo", Worktree: "/repo-wt", ManifestDigest: agentcontract.ManifestDigest, RequiredCapability: "product_read", ProductID: "product-1", ProjectID: "project-1"})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -6,6 +6,7 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -21,7 +22,7 @@ var routeVacate = []string{"session_vacate", "worktree_reclaim"}
 func TestMainCheckoutRefusalNamesVacateRoute(t *testing.T) {
 	t.Parallel()
 	service := trunkFirewallFixture(t, true)
-	_, err := service.Authorize(context.Background(), Invocation{ClientRef: "client-1", PrincipalRef: "human-1", SessionRef: "session-1", AgentRef: "agent-1", Directory: "/repo", Worktree: "/repo-wt", ManifestDigest: ManifestDigest, RequiredCapability: "work_transition", RequiredOperation: "worktree_destroy", ProductID: "product-1", ProjectID: "project-1"})
+	_, err := service.Authorize(context.Background(), Invocation{ClientRef: "client-1", PrincipalRef: "human-1", SessionRef: "session-1", AgentRef: "agent-1", Directory: "/repo", Worktree: "/repo-wt", ManifestDigest: agentcontract.ManifestDigest, RequiredCapability: "work_transition", RequiredOperation: "worktree_destroy", ProductID: "product-1", ProjectID: "project-1"})
 	if err == nil {
 		t.Fatal("worktree_destroy is not a main-checkout operation; the invocation must refuse")
 	}

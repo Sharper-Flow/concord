@@ -1,0 +1,36 @@
+{
+  "id": "agent-operation-admission",
+  "invariant": {
+    "applies_to_domain_ids": [
+      "agent-surface"
+    ],
+    "enforced_by": [
+      {
+        "check_id": "go-test-race",
+        "kind": "go_test",
+        "value": "internal/agentcontract.TestValidateOperationPayloadJSONPrecedesOperationLookup"
+      },
+      {
+        "check_id": "go-test-race",
+        "kind": "go_test",
+        "value": "internal/agentcontract.TestValidateOperationPayloadOrdersMissingUnknownAndSiblingFields"
+      },
+      {
+        "check_id": "go-test-race",
+        "kind": "go_test",
+        "value": "internal/agentcontract.TestValidateOperationPayloadPreservesSelectedGuidance"
+      },
+      {
+        "check_id": "go-test-race",
+        "kind": "go_test",
+        "value": "internal/agentcontract.TestGeneratedContractDeclarations"
+      }
+    ],
+    "statement": "Operation payload admission first rejects duplicate members and trailing JSON through payloadschema, then resolves the generated operation and selects its input or result schema. Generated field rules report missing fields in declared order and unknown fields in sorted order, naming sibling owners. Input refusals prefer selected schema guidance; detailed validation remains in payloadschema. Registry capability, approval and availability declarations do not themselves authorize execution."
+  },
+  "kind": "invariant",
+  "owner_domain_id": "agent-surface",
+  "owning_root": "internal/agentcontract",
+  "schema_version": "1.0",
+  "standing": "observed"
+}

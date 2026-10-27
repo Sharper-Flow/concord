@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
 	"github.com/sharper-flow/concord/internal/store/storetest"
 )
@@ -13,7 +14,7 @@ import (
 func TestWorkflowActionRefusesRetiredInitiativeBeforeNativePlanning(t *testing.T) {
 	for _, actionID := range []string{"approve_contract", "dispatch_worker"} {
 		t.Run(actionID, func(t *testing.T) {
-			s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_transition"})
+			s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_transition"})
 			version := seedAgentWorkflow(t, s, grant)
 			// Model the historical kind in the temporary projection. Capture of
 			// a new initiative is independently refused at the append boundary.
@@ -39,7 +40,7 @@ func TestWorkflowActionRefusesRetiredInitiativeBeforeNativePlanning(t *testing.T
 			if err != nil {
 				t.Fatal(err)
 			}
-			response, err := r.mutateWorkflowAction(context.Background(), Envelope{}, raw, grant, ContractOperation{})
+			response, err := r.mutateWorkflowAction(context.Background(), Envelope{}, raw, grant, agentcontract.ContractOperation{})
 			if err != nil || response.Error == nil || response.Error.Kind != "invalid_input" || !strings.Contains(response.Error.Message, "CD-0213") {
 				t.Errorf("response=%+v err=%v, want retired-kind refusal", response.Error, err)
 			}
@@ -51,7 +52,7 @@ func TestWorkflowActionRefusesRetiredInitiativeBeforeNativePlanning(t *testing.T
 }
 
 func TestWorkflowActionPreflightRefusesRetiredInitiative(t *testing.T) {
-	s, _, grant, _ := mutationDispatchFixture(t, []Capability{"work_transition"})
+	s, _, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_transition"})
 	version := seedAgentWorkflow(t, s, grant)
 	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1);
 		UPDATE work_items SET kind='initiative' WHERE id='work-1';
@@ -102,7 +103,7 @@ func captureTaskFixture(t *testing.T) (*store.Store, *Service, Authority, string
 	if err := store.ApplyOperation(ctx, s, store.Operation{Events: events, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectProduct, "product-1"): 0, store.VersionRef(store.SubjectProject, "project-1"): 0}}); err != nil {
 		t.Fatal(err)
 	}
-	service, _, grant := newAuthorizedService(t, s, "client-1", "human-1", []Capability{"work_define", "product_read"}, []string{"product-1"}, []string{"project-1"}, store.ProjectResolution{ProjectID: "project-1"})
+	service, _, grant := newAuthorizedService(t, s, "client-1", "human-1", []agentcontract.Capability{"work_define", "product_read"}, []string{"product-1"}, []string{"project-1"}, store.ProjectResolution{ProjectID: "project-1"})
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
 	if err != nil {
 		t.Fatal(err)

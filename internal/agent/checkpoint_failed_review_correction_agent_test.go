@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sharper-flow/concord/internal/payloadschema"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -30,7 +31,7 @@ func TestFailedReviewCorrectionContextFitsTheClosedSchemas(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := ValidatePayloadSchema("workflow_correction_context", raw); err != nil {
+	if err := payloadschema.Validate("workflow_correction_context", raw); err != nil {
 		t.Fatalf("failed-review correction context rejected by the closed pin schema: %v", err)
 	}
 	input := map[string]any{
@@ -45,7 +46,7 @@ func TestFailedReviewCorrectionContextFitsTheClosedSchemas(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := ValidatePayloadSchema("work_transition_action_input", inputRaw); err != nil {
+	if err := payloadschema.Validate("work_transition_action_input", inputRaw); err != nil {
 		t.Fatalf("failed-review request_correction input rejected by the closed input schema: %v", err)
 	}
 	padded := checkpointFailedReviewCorrectionContext()
@@ -54,7 +55,7 @@ func TestFailedReviewCorrectionContextFitsTheClosedSchemas(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := ValidatePayloadSchema("workflow_correction_context", paddedRaw); err == nil {
+	if err := payloadschema.Validate("workflow_correction_context", paddedRaw); err == nil {
 		t.Fatal("the closed correction schema accepted an undeclared accepted-delivery claim")
 	}
 }

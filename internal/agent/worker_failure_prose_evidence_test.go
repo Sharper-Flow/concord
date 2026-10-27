@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -18,7 +19,7 @@ import (
 // born-bound reference, so every correction evidence ref stays a storable
 // reference by construction.
 func TestDerivedWorkerFailureCorrectionKeepsStorableEvidenceRefs(t *testing.T) {
-	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_transition", "worker_dispatch"})
+	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_transition", "worker_dispatch"})
 	grant.Worktree = seedWorkerRetryMutationFixture(t, s, service, grant)
 	scopeVersion, _, err := s.ScopeVersion(context.Background(), "project-1")
 	if err != nil {

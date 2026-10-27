@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -857,7 +858,7 @@ func (r runtime) outsideRepairMergeAncestor(ctx context.Context, base Envelope, 
 // planOutsideRepairDisposition plans the hold: durably record the
 // operator-approved outside-repair disposition on live work. No workflow pin
 // and no managed step is required to enter the route.
-func (r runtime) planOutsideRepairDisposition(ctx context.Context, base Envelope, raw []byte, digest string, _ Authority, _ ContractOperation, plan *mutationPlan) (Envelope, error, bool) {
+func (r runtime) planOutsideRepairDisposition(ctx context.Context, base Envelope, raw []byte, digest string, _ Authority, _ agentcontract.ContractOperation, plan *mutationPlan) (Envelope, error, bool) {
 	var in outsideRepairDispositionInput
 	if err := decodeOperationInput(raw, &in); err != nil {
 		return base, err, true
@@ -874,7 +875,7 @@ func (r runtime) planOutsideRepairDisposition(ctx context.Context, base Envelope
 
 // planOutsideRepairReconcile plans the one reconcile action: completed mode
 // closes the held work from collected evidence, resume mode clears the hold.
-func (r runtime) planOutsideRepairReconcile(ctx context.Context, base Envelope, raw []byte, digest string, _ Authority, _ ContractOperation, plan *mutationPlan) (Envelope, error, bool) {
+func (r runtime) planOutsideRepairReconcile(ctx context.Context, base Envelope, raw []byte, digest string, _ Authority, _ agentcontract.ContractOperation, plan *mutationPlan) (Envelope, error, bool) {
 	var in outsideRepairReconcileInput
 	if err := decodeOperationInput(raw, &in); err != nil {
 		return base, err, true

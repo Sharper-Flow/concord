@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"path/filepath"
 	"testing"
+
+	"github.com/sharper-flow/concord/internal/agentcontract"
 )
 
 // Issue #757: the audit commits each reclaimed row in its own transaction,
@@ -28,7 +30,7 @@ func TestWorktreeAuditReclaimMixedSweepCommitsAndConverges(t *testing.T) {
 		t.Fatal(err)
 	}
 	env := mutationEnvelope(secondGrant, scopeVersion)
-	op, ok := ValidateContractOperation("concord_work_transition", "worktree_audit_reclaim")
+	op, ok := agentcontract.ValidateContractOperation("concord_work_transition", "worktree_audit_reclaim")
 	if !ok {
 		t.Fatal("worktree_audit_reclaim operation is not registered")
 	}

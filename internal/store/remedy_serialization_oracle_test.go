@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/sharper-flow/concord/internal/agent"
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -27,7 +28,7 @@ func serializeRemedyRefusal(t *testing.T, failure *store.Failure, wantKind strin
 	key := ed25519.NewKeyFromSeed(make([]byte, ed25519.SeedSize))
 	if err := service.RegisterTrustedClient(ctx, agent.ClientRegistration{
 		ClientRef: "remedy-client", KeyID: "remedy-key", PublicKey: key.Public().(ed25519.PublicKey),
-		Policy: agent.TrustedClientPolicy{PrincipalRef: "remedy-operator", Capabilities: []agent.Capability{"product_read"}, AgentScope: []string{"remedy-primary"}},
+		Policy: agent.TrustedClientPolicy{PrincipalRef: "remedy-operator", Capabilities: []agentcontract.Capability{"product_read"}, AgentScope: []string{"remedy-primary"}},
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -45,7 +46,7 @@ func serializeRemedyRefusal(t *testing.T, failure *store.Failure, wantKind strin
 		"call_envelope": agent.CallEnvelope{
 			SchemaVersion: "1.0", RequestID: "remedy-refusal", ClientRef: "remedy-client",
 			PrincipalRef: "remedy-operator", SessionRef: "remedy-session", AgentRef: "remedy-primary",
-			ManifestDigest: agent.ManifestDigest, ScopeVersion: "remedy-scope",
+			ManifestDigest: agentcontract.ManifestDigest, ScopeVersion: "remedy-scope",
 		},
 	})
 	if err != nil {

@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -29,7 +30,7 @@ func TestWorktreeClaimEffectReportsCreationAndCleanupCompensates(t *testing.T) {
 	worktreePath := filepath.Join(filepath.Dir(s.Path()), "worktrees", "project-1", "work-1")
 	env := mutationEnvelope(grant, scopeVersion)
 	r := runtime{Store: s, Authority: service, Envelope: env, Tool: "concord_work_transition", Operation: "worktree_claim"}
-	op, ok := ValidateContractOperation("concord_work_transition", "worktree_claim")
+	op, ok := agentcontract.ValidateContractOperation("concord_work_transition", "worktree_claim")
 	if !ok {
 		t.Fatal("worktree_claim is not a registered contract operation")
 	}

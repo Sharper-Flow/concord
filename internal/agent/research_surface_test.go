@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
 	"github.com/sharper-flow/concord/internal/store/storetest"
 )
@@ -17,10 +18,10 @@ import (
 // freshness fail-closed; a stale required revision refuses the action.
 
 func researchSurfaceFixture(t *testing.T) (*store.Store, *Service, Authority, string) {
-	return researchSurfaceFixtureWithCapabilities(t, []Capability{"product_read", "work_define", "work_transition", "research"})
+	return researchSurfaceFixtureWithCapabilities(t, []agentcontract.Capability{"product_read", "work_define", "work_transition", "research"})
 }
 
-func researchSurfaceFixtureWithCapabilities(t *testing.T, capabilities []Capability) (*store.Store, *Service, Authority, string) {
+func researchSurfaceFixtureWithCapabilities(t *testing.T, capabilities []agentcontract.Capability) (*store.Store, *Service, Authority, string) {
 	t.Helper()
 	ctx := context.Background()
 	s, err := storetest.Open(t.TempDir())
@@ -347,7 +348,7 @@ func TestResearchMutationCapabilityFollowsContract(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 
-	scopedInvoke := func(capabilities []Capability, op string, input any) Envelope {
+	scopedInvoke := func(capabilities []agentcontract.Capability, op string, input any) Envelope {
 		t.Helper()
 		s, service, grant, _ := researchSurfaceFixtureWithCapabilities(t, capabilities)
 		scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
@@ -362,7 +363,7 @@ func TestResearchMutationCapabilityFollowsContract(t *testing.T) {
 		return response
 	}
 
-	create := scopedInvoke([]Capability{"product_read", "research"}, "research_pack_create", map[string]any{
+	create := scopedInvoke([]agentcontract.Capability{"product_read", "research"}, "research_pack_create", map[string]any{
 		"owner_work_id":   "work-1",
 		"revision":        map[string]any{"question": "Which capability authorizes this pack?", "method": "contract registry"},
 		"idempotency_key": "cap-research-only-1",
@@ -371,7 +372,7 @@ func TestResearchMutationCapabilityFollowsContract(t *testing.T) {
 		t.Fatalf("research-only grant must execute research_pack_create: %+v", create.Error)
 	}
 
-	refused := scopedInvoke([]Capability{"product_read", "work_define"}, "research_pack_create", map[string]any{
+	refused := scopedInvoke([]agentcontract.Capability{"product_read", "work_define"}, "research_pack_create", map[string]any{
 		"owner_work_id":   "work-1",
 		"revision":        map[string]any{"question": "Which capability authorizes this pack?", "method": "contract registry"},
 		"idempotency_key": "cap-work-define-only-1",
@@ -397,7 +398,7 @@ func toolForOperation(op string) string {
 	}
 }
 
-func researchRetireFixture(t *testing.T, capabilities []Capability) (*store.Store, *Service, Authority, []store.ResearchRetirementCandidate) {
+func researchRetireFixture(t *testing.T, capabilities []agentcontract.Capability) (*store.Store, *Service, Authority, []store.ResearchRetirementCandidate) {
 	t.Helper()
 	ctx := context.Background()
 	s, err := storetest.Open(t.TempDir())
@@ -462,13 +463,13 @@ func invokeResearchRetire(t *testing.T, s *store.Store, service *Service, grant 
 func TestResearchRetireAuthorizationBeforeBatchEffects(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
-		caps    []Capability
+		caps    []agentcontract.Capability
 		product string
 		indices []int
 	}{
-		{"capability", []Capability{"product_read", "work_define"}, "product-1", []int{0}},
-		{"product", []Capability{"product_read", "research"}, "product-2", []int{2}},
-		{"later owner", []Capability{"product_read", "research"}, "product-1", []int{0, 2}},
+		{"capability", []agentcontract.Capability{"product_read", "work_define"}, "product-1", []int{0}},
+		{"product", []agentcontract.Capability{"product_read", "research"}, "product-2", []int{2}},
+		{"later owner", []agentcontract.Capability{"product_read", "research"}, "product-1", []int{0, 2}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			s, service, grant, all := researchRetireFixture(t, tc.caps)
@@ -495,7 +496,7 @@ func TestResearchRetireAuthorizationBeforeBatchEffects(t *testing.T) {
 }
 
 func TestResearchRetireDryRunAndReplay(t *testing.T) {
-	s, service, grant, all := researchRetireFixture(t, []Capability{"product_read", "research"})
+	s, service, grant, all := researchRetireFixture(t, []agentcontract.Capability{"product_read", "research"})
 	candidates := all[:2]
 	revisionBefore, err := s.Revision(t.Context())
 	if err != nil {
@@ -555,7 +556,7 @@ func TestResearchRetireDryRunAndReplay(t *testing.T) {
 // close and reopen, the same request still replays the one cached result with
 // Replayed set, writes no second receipt, and the retired packs stay absent.
 func TestResearchRetireReplaySurvivesCloseAndReopen(t *testing.T) {
-	s, service, grant, candidates := researchRetireFixture(t, []Capability{"product_read", "research"})
+	s, service, grant, candidates := researchRetireFixture(t, []agentcontract.Capability{"product_read", "research"})
 	retired := invokeResearchRetire(t, s, service, grant, "product-1", candidates[:2], false, "restart-retirement")
 	if retired.Outcome != OutcomeOK {
 		t.Fatalf("retirement error=%+v", retired.Error)
@@ -596,7 +597,7 @@ func TestResearchRetireReplaySurvivesCloseAndReopen(t *testing.T) {
 // terminal for the caller rather than a context-freshness signal. This
 // witness pins the fail-closed behavior; it does not weaken it.
 func TestResearchRetireReplayAfterOwnerRemovalFailsClosed(t *testing.T) {
-	s, service, grant, candidates := researchRetireFixture(t, []Capability{"product_read", "research"})
+	s, service, grant, candidates := researchRetireFixture(t, []agentcontract.Capability{"product_read", "research"})
 	if retired := invokeResearchRetire(t, s, service, grant, "product-1", candidates[:1], false, "removal-replay"); retired.Outcome != OutcomeOK {
 		t.Fatalf("retirement error=%+v", retired.Error)
 	}
@@ -627,7 +628,7 @@ func TestResearchRetireReplayAfterOwnerRemovalFailsClosed(t *testing.T) {
 }
 
 func TestResearchRetireReplayRechecksRetainedOwnerScope(t *testing.T) {
-	s, service, grant, candidates := researchRetireFixture(t, []Capability{"product_read", "research"})
+	s, service, grant, candidates := researchRetireFixture(t, []agentcontract.Capability{"product_read", "research"})
 	if retired := invokeResearchRetire(t, s, service, grant, "product-1", candidates[:1], false, "scope-replay"); retired.Outcome != OutcomeOK {
 		t.Fatalf("retirement error=%+v", retired.Error)
 	}
@@ -642,7 +643,7 @@ func TestResearchRetireReplayRechecksRetainedOwnerScope(t *testing.T) {
 }
 
 func TestResearchRetireChecksEveryOwnerProduct(t *testing.T) {
-	s, service, grant, candidates := researchRetireFixture(t, []Capability{"product_read", "research"})
+	s, service, grant, candidates := researchRetireFixture(t, []agentcontract.Capability{"product_read", "research"})
 	event := store.Event{EventID: "retire-owner-shared", Kind: "work.memberships_replaced", SubjectType: store.SubjectWorkItem, SubjectID: "retire-owner-0", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"memberships":[{"project_id":"project-1","role":"primary"},{"project_id":"project-2","role":"secondary"}],"expected_version":3,"resulting_version":4}`)}
 	if err := store.ApplyOperation(context.Background(), s, store.Operation{Events: []store.Event{event}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, "retire-owner-0"): 3}}); err != nil {
 		t.Fatal(err)
@@ -660,7 +661,7 @@ func TestResearchRetireChecksEveryOwnerProduct(t *testing.T) {
 }
 
 func TestResearchRetireDuplicatePackRefusesBeforeEffects(t *testing.T) {
-	s, service, grant, candidates := researchRetireFixture(t, []Capability{"product_read", "research"})
+	s, service, grant, candidates := researchRetireFixture(t, []agentcontract.Capability{"product_read", "research"})
 	duplicate := []store.ResearchRetirementCandidate{candidates[0], {PackID: candidates[0].PackID, ExpectedVersion: 2}}
 	response := invokeResearchRetire(t, s, service, grant, "product-1", duplicate, false, "duplicate-retirement")
 	if response.Outcome != OutcomeError {
@@ -687,13 +688,13 @@ func TestResearchRetireCrossProductAdmission(t *testing.T) {
 		{"deletion requires approval", true, false, "approval_required"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			s, service, grant, candidates := researchRetireFixture(t, []Capability{"product_read", "research"})
+			s, service, grant, candidates := researchRetireFixture(t, []agentcontract.Capability{"product_read", "research"})
 			ctx := context.Background()
 			event := store.Event{EventID: "cross-retire-owner", Kind: "work.memberships_replaced", SubjectType: store.SubjectWorkItem, SubjectID: "retire-owner-0", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"memberships":[{"project_id":"project-1","role":"primary"},{"project_id":"project-2","role":"secondary"}],"expected_version":3,"resulting_version":4}`)}
 			if err := store.ApplyOperation(ctx, s, store.Operation{Events: []store.Event{event}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, "retire-owner-0"): 3}}); err != nil {
 				t.Fatal(err)
 			}
-			caps := []Capability{"product_read", "research"}
+			caps := []agentcontract.Capability{"product_read", "research"}
 			if tc.cross {
 				caps = append(caps, "cross_scope")
 			}
@@ -740,7 +741,7 @@ func TestResearchRetireSchemaBounds(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if err := ValidateOperationPayload("concord_work_define", "research_retire", raw, false); err == nil {
+			if err := agentcontract.ValidateOperationPayload("concord_work_define", "research_retire", raw, false); err == nil {
 				t.Fatal("invalid retirement input passed schema validation")
 			}
 		})
@@ -752,14 +753,14 @@ func TestResearchRetireSchemaBounds(t *testing.T) {
 		}
 		valid["candidates"] = candidates
 		raw, _ := json.Marshal(valid)
-		if err := ValidateOperationPayload("concord_work_define", "research_retire", raw, false); err != nil {
+		if err := agentcontract.ValidateOperationPayload("concord_work_define", "research_retire", raw, false); err != nil {
 			t.Fatalf("batch size %d refused: %v", count, err)
 		}
 	}
 }
 
 func TestResearchRetireMaximumBatchAndReplay(t *testing.T) {
-	s, service, grant, _ := researchRetireFixture(t, []Capability{"product_read", "research"})
+	s, service, grant, _ := researchRetireFixture(t, []agentcontract.Capability{"product_read", "research"})
 	ctx := context.Background()
 	events := []store.Event{
 		{EventID: "batch-owner-create", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: "batch-owner", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: store.CurrentEventPayloadVersion("work.created"), Payload: json.RawMessage(`{"work_kind":"task","title":"Batch Owner","priority":1}`)},

@@ -1,6 +1,10 @@
 package agent
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/sharper-flow/concord/internal/agentcontract"
+)
 
 // CD-0222 prohibits component as an authority identity on the live agent
 // surface. These assertions bind that prohibition at the
@@ -24,7 +28,7 @@ func TestComponentInputsAreProhibitedOnTheAgentSurface(t *testing.T) {
 		{"concord_research", "record_finding", `{"pack_id":"pack-1","revision":1,"finding":{"kind":"observation","statement":"s","scopes":{"mode":"explicit","component_ids":["auth"]}},"idempotency_key":"probe"}`},
 	}
 	for _, probe := range prohibited {
-		if err := ValidateOperationPayload(probe.tool, probe.operation, []byte(probe.payload), false); err == nil {
+		if err := agentcontract.ValidateOperationPayload(probe.tool, probe.operation, []byte(probe.payload), false); err == nil {
 			t.Fatalf("%s.%s must reject the retired component identity; the closed schema is the structural guarantee", probe.tool, probe.operation)
 		}
 	}
@@ -39,7 +43,7 @@ func TestComponentInputsAreProhibitedOnTheAgentSurface(t *testing.T) {
 func TestResearchScopeDomainIDsAreAcceptedOnTheResultSurface(t *testing.T) {
 	t.Parallel()
 	pack := `{"pack_id":"pack-1","owner_work_id":"owner-1","current_revision":1,"freshness":"current","expected_version":1,"created_at":"2026-01-01T00:00:00Z","updated_at":"2026-01-01T00:00:00Z","revisions":[{"pack_id":"pack-1","revision":1,"created_at":"2026-01-01T00:00:00Z","question":"q","method":"m","freshness":"current","findings":[{"pack_id":"pack-1","revision":1,"finding_id":"f1","kind":"observation","statement":"s","confidence":"high","freshness":"current","status":"active","scopes":{"mode":"explicit","product_ids":["p"],"domain_ids":["d"],"tag_ids":["t"]}}]}]}`
-	if err := ValidateOperationPayload("concord_work_trace", "research", []byte(pack), true); err != nil {
+	if err := agentcontract.ValidateOperationPayload("concord_work_trace", "research", []byte(pack), true); err != nil {
 		t.Fatalf("research scope surface must accept domain_ids on the result schema: %v", err)
 	}
 }
@@ -58,11 +62,11 @@ func TestDomainReadInputsValidate(t *testing.T) {
 		{"concord_knowledge", "search", `{"product_id":"product-1","domain_id":"root","page":{"cursor":null,"limit":20}}`},
 	}
 	for _, probe := range valid {
-		if err := ValidateOperationPayload(probe.tool, probe.operation, []byte(probe.payload), false); err != nil {
+		if err := agentcontract.ValidateOperationPayload(probe.tool, probe.operation, []byte(probe.payload), false); err != nil {
 			t.Fatalf("%s.%s must validate: %v", probe.tool, probe.operation, err)
 		}
 	}
-	if err := ValidateOperationPayload("concord_domain", "list", []byte(`{"product_id":"product-1","component_id":"auth"}`), false); err == nil {
+	if err := agentcontract.ValidateOperationPayload("concord_domain", "list", []byte(`{"product_id":"product-1","component_id":"auth"}`), false); err == nil {
 		t.Fatal("concord_domain must not accept component identity")
 	}
 }

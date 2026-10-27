@@ -11,12 +11,13 @@ import (
 	sqlite "modernc.org/sqlite"
 	sqlitelib "modernc.org/sqlite/lib"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
 func workerEvidenceNonceFixture(t *testing.T, nonce string) (*Service, WorkerEvidenceAssertion, WorkerEvidenceBinding) {
 	t.Helper()
-	service, control, key := workerControlProofFixture(t, []Capability{CapabilityWorkerEvidence})
+	service, control, key := workerControlProofFixture(t, []agentcontract.Capability{CapabilityWorkerEvidence})
 	env := workerEvidenceV2Envelope(t, nonce)
 	env.ClientRef = control.ClientRef
 	var assertion WorkerEvidenceAssertion

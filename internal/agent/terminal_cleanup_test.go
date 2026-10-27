@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -108,7 +109,7 @@ func TestTerminalCleanupAfterCompactionSettlement(t *testing.T) {
 						response = dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_compact", Operation: "publish", Input: input}, env)
 					} else {
 						r := runtime{Store: s, Authority: service, Envelope: env, Tool: "concord_work_compact", Operation: "publish"}
-						op, _ := ValidateContractOperation(r.Tool, r.Operation)
+						op, _ := agentcontract.ValidateContractOperation(r.Tool, r.Operation)
 						var err error
 						response, err = r.mutateCompaction(t.Context(), NewBase(env.RequestID, r.Tool, r.Operation), input, mutationDigest(r.Tool, r.Operation, env, input), op)
 						if err != nil {

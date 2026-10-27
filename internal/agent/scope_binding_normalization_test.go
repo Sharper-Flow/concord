@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -231,7 +232,7 @@ func TestMessageSendSelfRecipientRefusedAsInvariantSingleProduct(t *testing.T) {
 func TestMessageSendSelfRecipientRefusedAsInvariantCrossProduct(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	s, service, grant, _ := crossProductDispatchFixture(t, []Capability{"work_relate", "cross_scope"})
+	s, service, grant, _ := crossProductDispatchFixture(t, []agentcontract.Capability{"work_relate", "cross_scope"})
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
 	if err != nil {
 		t.Fatal(err)
@@ -246,7 +247,7 @@ func TestMessageSendSelfRecipientRefusedAsInvariantCrossProduct(t *testing.T) {
 func TestMembershipApprovalCanonicalScopeRoundTrip(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	s, service, grant, privateKey := mutationDispatchFixture(t, []Capability{"work_relate"})
+	s, service, grant, privateKey := mutationDispatchFixture(t, []agentcontract.Capability{"work_relate"})
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
 	if err != nil {
 		t.Fatal(err)

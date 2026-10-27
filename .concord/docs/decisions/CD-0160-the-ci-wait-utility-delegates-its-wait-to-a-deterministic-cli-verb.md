@@ -82,7 +82,7 @@ All selectors apply the common classification and reporting rule in
 Skipped checks are terminal and counted, not failures. Without a relevant
 failure, an empty check set stays pending and times out at the bound; it is
 never a success. The run-id selector
-queries `gh run view`, the SHA selector queries `gh run list --commit`, and the
+queries `gh run view`, the SHA selector reads the commit's workflow runs, and the
 PR selector uses the rollup and page boundary in CD-0168 D1. Workflow-run and
 job reads follow CD-0228 D1. Failure entries carry the observed name, URL, and a
 coarse class derived from the name; a first-error line quotes available

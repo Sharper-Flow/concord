@@ -187,6 +187,25 @@ func TestCiWaitKnownRunFailureSurvivesMissingJobDetail(t *testing.T) {
 	}
 }
 
+func TestCiWaitCompletedRunFailureQuotesItsLog(t *testing.T) {
+	head := ciWaitMergeHeadFixture(t, "CLEAN", "OPEN", "", ciWaitWorkflowSHA, nil)
+	ghStubPath(t, ghStubDir(t, `case "$*" in
+ *"pr view"*) echo '`+head+`';;
+ *"api repos/o/r/actions/runs?"*) echo '`+ciWaitWorkflowPages(t, "workflow_runs", ciWaitWorkflowRunFixture(10, 1, 2, "pull_request", ciWaitAttemptOld, "completed", "failure"))+`';;
+ *"/attempts/2/jobs?"*) echo '`+ciWaitWorkflowPages(t, "jobs", ciWaitWorkflowJobFixture(1, "build", "completed", "success"), ciWaitWorkflowJobFixture(2, "tests", "completed", "failure"))+`';;
+ "run view 10 --repo o/r --log-failed") printf 'tests\tstep\tsetup\ntests\tstep\t--- FAIL: TestThing (0.1s)\n';;
+ `+ciWaitQuietReads+`
+ *) echo "unexpected read: $*" >&2; exit 97;;
+esac`))
+	report, terminal, err := ciWaitPoll(context.Background(), ciWaitChecksState())
+	if err != nil || !terminal || report.Status != "failure" || len(report.Failures) != 1 {
+		t.Fatalf("a completed run's failed job is a failure: terminal=%t err=%v report=%+v", terminal, err, report)
+	}
+	if detail := report.Failures[0]; detail.Name != "tests" || detail.FirstError != "--- FAIL: TestThing (0.1s)" {
+		t.Fatalf("a completed run's failure must quote its failed log: %+v", detail)
+	}
+}
+
 func TestCiWaitQueuedWorkflows(t *testing.T) {
 	for _, status := range []string{"queued", "in_progress"} {
 		t.Run(status, func(t *testing.T) {

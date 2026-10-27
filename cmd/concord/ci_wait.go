@@ -603,6 +603,9 @@ func ciWaitPRCheckPopulation(checks []ghPRCheck, rollup []ghPRRollup) []ciWaitCh
 	positions := make(map[string]int, len(checks)+len(rollup))
 	for _, check := range checks {
 		observed := ciWaitCheck{Name: check.Name, URL: check.Link, Bucket: check.Bucket}
+		if observed.Bucket == "cancel" {
+			observed.Bucket, observed.Classification = "fail", "cancelled"
+		}
 		key := ciWaitCheckKey(observed.Name)
 		if key == "" {
 			key = fmt.Sprintf("snapshot-%d", len(population))

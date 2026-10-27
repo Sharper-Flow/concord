@@ -508,7 +508,7 @@ for (const reply of ["parented", "none"] as const) {
       deadline_seconds: 240,
     }
     // A failure stays terminal even when its report includes a pending peer.
-    const { calls, spawner } = verbFixture([{ stdout: JSON.stringify(report), exitCode: 1 }])
+    const { calls, spawner } = verbFixture([{ stdout: JSON.stringify(report) }])
     configureCiWatch({ spawner })
     const started = await startWatch(fixture, { ...watchArgs, head_sha: sha })
     expect(started.status).toBe("started")

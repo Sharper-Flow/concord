@@ -368,6 +368,27 @@ case "$*" in
 	}
 }
 
+func TestCiWaitPaginatedCancelledCheckIsFailure(t *testing.T) {
+	rollup := make([]ghPRRollup, ciWaitPRRollupPageSize)
+	for i := range rollup {
+		rollup[i] = ghPRRollup{Name: fmt.Sprintf("check-%d", i), Status: "COMPLETED", Conclusion: "SUCCESS"}
+	}
+	encoded, err := json.Marshal(rollup)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ghStubPath(t, ghStubDir(t, `case "$*" in
+	*"pr view"*) echo '{"baseRefName":"main","headRefOid":"aabb","url":"u","statusCheckRollup":`+string(encoded)+`}';;
+	*"pr checks"*) echo '[{"name":"external-scan","state":"CANCELLED","link":"https://ci.example/1","bucket":"cancel"}]';;
+`+ciWaitQuietReads+`esac`))
+	_, report := runCiWaitStdin(t, ciWaitJSON(t, ciWaitRequest{
+		Selector: &ciWaitSelector{Kind: "pr", Value: "5"}, Repo: "o/r", TimeSecondsMax: ciWaitBudget(8),
+	}))
+	if report.Status != "failure" || len(report.Failures) != 1 || report.Failures[0].Classification != "cancelled" {
+		t.Fatalf("a cancelled check beyond the rollup page is a failure, got %+v", report)
+	}
+}
+
 func TestCiWaitPollIntervalStagesOnElapsedWaitTime(t *testing.T) {
 	for _, tc := range []struct {
 		elapsed time.Duration
@@ -817,20 +838,20 @@ func TestCiWaitPRMergeModeCheckFailures(t *testing.T) {
 			failName:    "verify-tests",
 		},
 		{
-			name:       "UNSTABLE does not hide failure",
-			mergeState: "UNSTABLE",
-			rollup:     []ghPRRollup{ciWaitRollupPass("verify-go"), ciWaitRollupFail("verify-tests", failureJob)},
-			wantStatus: "failure",
+			name:        "UNSTABLE does not hide failure",
+			mergeState:  "UNSTABLE",
+			rollup:      []ghPRRollup{ciWaitRollupPass("verify-go"), ciWaitRollupFail("verify-tests", failureJob)},
+			wantStatus:  "failure",
 			wantFailing: 1,
-			failName: "verify-tests",
+			failName:    "verify-tests",
 		},
 		{
-			name:       "unstable matches case-insensitively",
-			mergeState: "unstable",
-			rollup:     []ghPRRollup{ciWaitRollupFail("verify-tests", failureJob)},
-			wantStatus: "failure",
+			name:        "unstable matches case-insensitively",
+			mergeState:  "unstable",
+			rollup:      []ghPRRollup{ciWaitRollupFail("verify-tests", failureJob)},
+			wantStatus:  "failure",
 			wantFailing: 1,
-			failName: "verify-tests",
+			failName:    "verify-tests",
 		},
 		{
 			name:        "failure overrides pending peers",

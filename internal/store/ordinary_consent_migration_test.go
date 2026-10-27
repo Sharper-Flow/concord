@@ -8,6 +8,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/sharper-flow/concord/internal/store/internal/sqlitedb"
 )
 
 var ordinaryConsentMigrationTables = []string{"workflow_overlap_resolutions", "outside_repair_dispositions", "outside_repair_reconciliations"}
@@ -47,7 +49,7 @@ INSERT INTO outside_repair_reconciliations VALUES('ordinary-reconciliation','ord
 		`UPDATE outside_repair_dispositions SET approval_ref=''`,
 		`UPDATE outside_repair_reconciliations SET approval_ref=''`,
 	} {
-		if _, err := db.Exec(query); err == nil || !isCheckViolation(err) {
+		if _, err := db.Exec(query); err == nil || !sqlitedb.IsCheckViolation(err) {
 			t.Fatalf("prefix did not refuse the ordinary empty claim: %s: %v", query, err)
 		}
 	}
@@ -107,7 +109,7 @@ func TestOrdinaryConsentMigrationPreservesRowsAndConstraints(t *testing.T) {
 	}
 	for _, table := range []string{"outside_repair_dispositions", "outside_repair_reconciliations"} {
 		for _, claim := range []string{"short", strings.Repeat("a", 129)} {
-			if _, err := db.Exec(`UPDATE `+table+` SET approval_ref=?`, claim); err == nil || !isCheckViolation(err) {
+			if _, err := db.Exec(`UPDATE `+table+` SET approval_ref=?`, claim); err == nil || !sqlitedb.IsCheckViolation(err) {
 				t.Fatalf("invalid nonempty claim accepted by %s: %v", table, err)
 			}
 		}
@@ -120,7 +122,7 @@ func TestOrdinaryConsentMigrationPreservesRowsAndConstraints(t *testing.T) {
 		`UPDATE outside_repair_dispositions SET reason=''`,
 		`UPDATE outside_repair_reconciliations SET evidence_json='[]'`,
 	} {
-		if _, err := db.Exec(query); err == nil || !isCheckViolation(err) {
+		if _, err := db.Exec(query); err == nil || !sqlitedb.IsCheckViolation(err) {
 			t.Fatalf("lost non-consent constraint: %s: %v", query, err)
 		}
 	}

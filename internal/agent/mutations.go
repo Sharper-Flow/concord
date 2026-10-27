@@ -1564,6 +1564,8 @@ func (r runtime) planCapture(ctx context.Context, base Envelope, raw []byte, dig
 	if requirementErr != nil {
 		return failureEnvelope(base, requirementErr), nil, true
 	}
+	governingScope := store.NewGoverningRequirementScope(applicable, in.GoverningRequirements)
+	plan.scope["governing_requirements"] = governingScope.Digest()
 	if missing := store.MissingGoverningRequirements(applicable, in.GoverningRequirements); len(missing) > 0 {
 		// The conflict is consequential, so it routes through the same
 		// approval machinery as every other governed consequence. That is
@@ -1601,6 +1603,9 @@ func (r runtime) planCapture(ctx context.Context, base Envelope, raw []byte, dig
 		return failureEnvelope(base, proofErr), nil, true
 	}
 	plan.effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
+		if err := store.ValidateCaptureGoverningRequirementsTx(ctx, tx, in.ProjectIDs, governingScope); err != nil {
+			return nil, nil, nil, err
+		}
 		return r.applyCaptureTx(verifiedCtx, tx, grant, in, digest, workID, registeredDefinition, sizePlan)
 	}
 	return Envelope{}, nil, false
@@ -1633,6 +1638,7 @@ func (r runtime) applyCaptureTx(ctx context.Context, tx *store.Transaction, gran
 	// defect intake rides the same payload at the current version; the
 	// membership fold owns its admission.
 	payloadFields := map[string]any{"work_kind": in.Kind, "title": in.Title, "value_statement": in.ValueStatement, "priority": priority, "urgency": urgency, "tags": in.Tags, "workflow_type_ref": in.WorkflowTypeRef, "external_ref": in.ExternalRef, "raised_from_work_id": in.RaisedFromWorkID}
+	payloadFields["governing_requirements"] = append([]string{}, in.GoverningRequirements...)
 	if in.DefectIntake != nil {
 		payloadFields["defect_intake"] = in.DefectIntake
 	}
@@ -4237,14 +4243,9 @@ func (m *clientPolicyGrantMutation) recordExpansionTx(ctx context.Context, tx *s
 
 // planResolveOverlap plans concord_work_relate.resolve_overlap.
 //
-// The routine kinds — depends_on, compatible_with, blocks — record the
-// caller's coordination answer without operator consent. The destructive
-// kinds — merged_into and supersedes — settle only through the consumed
-// one-use operator approval whose binding the event carries. Routine
-// consent and the transaction-derived cross-Product consent stay distinct:
-// the tail owns the final decision, so the effect alone rejects a routine
-// claim the tail did not consume.
-func (r runtime) planResolveOverlap(_ context.Context, base Envelope, raw []byte, digest string, _ Authority, _ ContractOperation, plan *mutationPlan) (Envelope, error, bool) {
+// A merger or supersession requires consent only when it discards a declared
+// governing requirement. A supplied terminal claim still binds exactly.
+func (r runtime) planResolveOverlap(ctx context.Context, base Envelope, raw []byte, digest string, _ Authority, _ ContractOperation, plan *mutationPlan) (Envelope, error, bool) {
 	var in resolveOverlapMutationInput
 	if err := decodeOperationInput(raw, &in); err != nil {
 		return base, err, true
@@ -4256,6 +4257,17 @@ func (r runtime) planResolveOverlap(_ context.Context, base Envelope, raw []byte
 	// CD-0243 D3/D7: merger and supersession alone require no consent.
 	// A supplied approval remains an exact, validated claim.
 	plan.requiresApproval = terminalResolution && in.Approval != nil
+	if terminalResolution {
+		scope, err := r.Store.OverlapGoverningRequirementScope(ctx, in.FromWorkID, in.ToWorkID, in.ResolutionKind)
+		if err != nil {
+			return failureEnvelope(base, err), nil, true
+		}
+		plan.scope["governing_requirements"] = scope.Digest()
+		if missing := scope.Missing(); len(missing) > 0 {
+			plan.requiresApproval = true
+			plan.governingConflict = missing
+		}
+	}
 	plan.declareInitialDurability(in.ResolutionKind != "depends_on")
 	plan.versions["from"] = in.FromExpectedVersion
 	plan.versions["to"] = in.ToExpectedVersion
@@ -5764,7 +5776,7 @@ func (r runtime) consumeApprovalTx(ctx context.Context, tx *store.Transaction, h
 func boundedApprovalScope(scope map[string]any) map[string]any {
 	out := make(map[string]any, len(scope))
 	for key, value := range scope {
-		if key != "product_id" && key != "product_ids" && key != "project_ids" && key != "work_ids" && key != "failed_attempt_id" && key != "held_attempt_holder" && key != "scope_version" && key != "project_id" && key != "role" && key != "client_ref" && key != "policy_version" && key != "capabilities" && key != "product_scope" && key != "project_scope" && key != "agent_scope" && key != "release_tag" && key != "pull_requests" {
+		if key != "governing_requirements" && key != "product_id" && key != "product_ids" && key != "project_ids" && key != "work_ids" && key != "failed_attempt_id" && key != "held_attempt_holder" && key != "scope_version" && key != "project_id" && key != "role" && key != "client_ref" && key != "policy_version" && key != "capabilities" && key != "product_scope" && key != "project_scope" && key != "agent_scope" && key != "release_tag" && key != "pull_requests" {
 			continue
 		}
 		switch typed := value.(type) {

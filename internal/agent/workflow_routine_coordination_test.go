@@ -48,7 +48,7 @@ func routineCoordinationFixture(t *testing.T) (*store.Store, *Service, ed25519.P
 	s, service, grant, privateKey := mutationDispatchFixture(t, []Capability{"work_relate"})
 	seedRoutineCoordinationDomainFixture(t, s, ctx)
 	events := []store.Event{
-		{EventID: "routine-coordination-work-2", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: "work-2", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: store.CurrentEventPayloadVersion("work.created"), Payload: json.RawMessage(`{"work_kind":"bug","title":"Routine coordination peer","priority":1,"defect_intake":{"failure_shape":"routine-coordination-peer","reproduction":"Exercise coordination with a distinct peer work item.","searched":"The fixture contains no earlier defect with this failure shape.","related_defect_ids":[]}}`)},
+		{EventID: "routine-coordination-work-2", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: "work-2", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: store.CurrentEventPayloadVersion("work.created"), Payload: json.RawMessage(`{"work_kind":"bug","title":"Routine coordination peer","priority":1,"governing_requirements":[],"defect_intake":{"failure_shape":"routine-coordination-peer","reproduction":"Exercise coordination with a distinct peer work item.","searched":"The fixture contains no earlier defect with this failure shape.","related_defect_ids":[]}}`)},
 		{EventID: "routine-coordination-work-2-membership", Kind: "work.memberships_replaced", SubjectType: store.SubjectWorkItem, SubjectID: "work-2", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"memberships":[{"project_id":"project-1","role":"primary"}],"expected_version":1,"resulting_version":2}`)},
 	}
 	if err := store.ApplyOperation(ctx, s, store.Operation{Events: events, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, "work-2"): 0}}); err != nil {
@@ -208,6 +208,13 @@ func routineOverlapApprovalBindings(t *testing.T, s *store.Store, env CallEnvelo
 		t.Fatal("stale binding: an endpoint version moved before the approval was signed")
 	}
 	scope := map[string]any{"product_id": "product-1", "product_ids": []string{"product-1"}, "project_ids": []string{"project-1"}, "work_ids": []string{binding.fromWorkID, binding.toWorkID}, "scope_version": env.ScopeVersion}
+	if binding.kind == store.ResolutionMergedInto || binding.kind == store.ResolutionSupersedes {
+		governing, err := s.OverlapGoverningRequirementScope(context.Background(), binding.fromWorkID, binding.toWorkID, binding.kind)
+		if err != nil {
+			t.Fatal(err)
+		}
+		scope["governing_requirements"] = governing.Digest()
+	}
 	versions := map[string]any{"from": binding.fromVersion, "to": binding.toVersion, "from_contract": binding.fromContractVersion, "to_contract": binding.toContractVersion}
 	return scope, versions
 }
@@ -988,6 +995,13 @@ func routineOverlapCrossScopeBindings(t *testing.T, s *store.Store, env CallEnve
 	scope := map[string]any{"product_ids": derivedProducts, "project_ids": []string{"project-1"}, "work_ids": []string{binding.fromWorkID, binding.toWorkID}, "scope_version": env.ScopeVersion}
 	if env.SelectedProductID != "" {
 		scope["product_id"] = env.SelectedProductID
+	}
+	if binding.kind == store.ResolutionMergedInto || binding.kind == store.ResolutionSupersedes {
+		governing, err := s.OverlapGoverningRequirementScope(context.Background(), binding.fromWorkID, binding.toWorkID, binding.kind)
+		if err != nil {
+			t.Fatal(err)
+		}
+		scope["governing_requirements"] = governing.Digest()
 	}
 	versions := map[string]any{"from": binding.fromVersion, "to": binding.toVersion, "from_contract": binding.fromContractVersion, "to_contract": binding.toContractVersion}
 	return scope, versions

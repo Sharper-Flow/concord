@@ -74,7 +74,11 @@ func qAssociateCurrentProofAt(t *testing.T, f workContextFixture, verdictStep, a
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := advanceWorkflowTestInstanceToStep(t.Context(), f.store, workID, verdictStep, actor); err != nil {
+	ctx, err := f.store.EstablishKnowledgeSourceSetProof(t.Context(), workID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := advanceWorkflowTestInstanceToStep(ctx, f.store, workID, verdictStep, actor); err != nil {
 		t.Fatal(err)
 	}
 	fixture := acceptanceRecoveryFixture{store: f.store, workID: workID, owner: f.owner, operator: f.operator, repo: repo, receipt: run.OperationRef}

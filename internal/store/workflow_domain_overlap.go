@@ -748,6 +748,9 @@ func ResolveWorkflowDomainOverlapTx(ctx context.Context, tx *Transaction, reques
 			return ApplyOperationResult{}, err
 		}
 	}
+	if err := checkOverlapGoverningScope(ctx, sqlTx, request); err != nil {
+		return ApplyOperationResult{}, err
+	}
 	payload, err := json.Marshal(map[string]any{
 		"work_id": request.FromWorkID, "expected_version": request.FromExpectedVersion, "resulting_version": request.FromExpectedVersion + 1,
 		"to_work_id": request.ToWorkID, "to_expected_version": request.ToExpectedVersion, "to_resulting_version": request.ToExpectedVersion + 1,
@@ -995,6 +998,9 @@ func foldWorkflowOverlapResolved(ctx context.Context, tx *sql.Tx, event Event) e
 	fromExpected, fromResulting := *payload.ExpectedVersion, *payload.ResultingVersion
 	from, to, err := readWorkflowOverlapResolutionWorks(ctx, tx, event, payload)
 	if err != nil {
+		return err
+	}
+	if err := checkOverlapGoverningScope(ctx, tx, WorkflowDomainOverlapResolutionRequest{FromWorkID: event.SubjectID, ToWorkID: payload.ToWorkID, ResolutionKind: payload.ResolutionKind, ApprovalRef: payload.ApprovalRef, ApprovalOperationDigest: payload.ApprovalOperationDigest, ApprovalScopeJSON: payload.ApprovalScopeJSON, ApprovalVersionsJSON: payload.ApprovalVersionsJSON, ApprovalConsequence: payload.ApprovalConsequence}); err != nil {
 		return err
 	}
 	left, right, err := readWorkflowOverlapResolutionFootprints(ctx, tx, event, payload)

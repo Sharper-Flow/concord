@@ -12,25 +12,31 @@ import (
 )
 
 type workCreatedPayload struct {
-	WorkID           string        `json:"work_id,omitempty"`
-	WorkKind         string        `json:"work_kind"`
-	Title            string        `json:"title"`
-	Task             string        `json:"task,omitempty"`
-	From             string        `json:"from,omitempty"`
-	To               string        `json:"to,omitempty"`
-	ValueStatement   string        `json:"value_statement,omitempty"`
-	Priority         *int64        `json:"priority"`
-	Urgency          string        `json:"urgency,omitempty"`
-	Tags             []string      `json:"tags,omitempty"`
-	ComponentID      string        `json:"component_id,omitempty"`
-	WorkflowTypeRef  string        `json:"workflow_type_ref,omitempty"`
-	ExternalRef      string        `json:"external_ref,omitempty"`
-	RaisedFromWorkID string        `json:"raised_from_work_id,omitempty"`
-	DefectIntake     *DefectIntake `json:"defect_intake,omitempty"`
+	WorkID                string        `json:"work_id,omitempty"`
+	WorkKind              string        `json:"work_kind"`
+	Title                 string        `json:"title"`
+	Task                  string        `json:"task,omitempty"`
+	From                  string        `json:"from,omitempty"`
+	To                    string        `json:"to,omitempty"`
+	ValueStatement        string        `json:"value_statement,omitempty"`
+	Priority              *int64        `json:"priority"`
+	Urgency               string        `json:"urgency,omitempty"`
+	Tags                  []string      `json:"tags,omitempty"`
+	ComponentID           string        `json:"component_id,omitempty"`
+	WorkflowTypeRef       string        `json:"workflow_type_ref,omitempty"`
+	ExternalRef           string        `json:"external_ref,omitempty"`
+	RaisedFromWorkID      string        `json:"raised_from_work_id,omitempty"`
+	DefectIntake          *DefectIntake `json:"defect_intake,omitempty"`
+	GoverningRequirements *[]string     `json:"governing_requirements,omitempty"`
 }
 
-// validateWorkCreatedPayload enforces the defect intake kind rules.
+// validateWorkCreatedPayload enforces capture fact bounds and defect kind rules.
 func validateWorkCreatedPayload(event Event, payload workCreatedPayload) error {
+	if payload.GoverningRequirements != nil {
+		if err := validateDeclaredGoverningRequirements(*payload.GoverningRequirements); err != nil {
+			return err
+		}
+	}
 	return ValidateDefectIntake(payload.WorkKind, payload.DefectIntake)
 }
 
@@ -61,9 +67,9 @@ type workIntentPayload struct {
 
 // workIntentProjection is the stored intent_json shape. Creation and revision
 // both encode exactly this block: the closed mutable intent plus the
-// capture-owned external reference and defect classification. Event
+// capture-owned external reference, governing scope and defect classification. Event
 // bookkeeping (reason, versions) never enters the projection, and revision
-// carries external_ref and the defect classification forward unchanged.
+// carries those capture facts forward unchanged.
 type workIntentProjection struct {
 	Title           string                `json:"title"`
 	Task            string                `json:"task,omitempty"`
@@ -76,6 +82,8 @@ type workIntentProjection struct {
 	WorkflowTypeRef string                `json:"workflow_type_ref"`
 	ExternalRef     string                `json:"external_ref"`
 	Defect          *DefectClassification `json:"defect,omitempty"`
+	// nil is unknown historical scope; a non-nil empty set is a known capture.
+	GoverningRequirements *[]string `json:"governing_requirements,omitempty"`
 }
 
 type workMembershipsPayload struct {
@@ -221,7 +229,8 @@ func foldWorkCreated(ctx context.Context, tx *sql.Tx, event Event) error {
 		Title: payload.Title, Task: payload.Task, ValueStatement: payload.ValueStatement, Kind: payload.WorkKind,
 		Priority: *payload.Priority, Urgency: urgency, Tags: payload.Tags,
 		ComponentID: payload.ComponentID, WorkflowTypeRef: payload.WorkflowTypeRef, ExternalRef: payload.ExternalRef,
-		Defect: defectIntakeFromProjection(payload.DefectIntake),
+		Defect:                defectIntakeFromProjection(payload.DefectIntake),
+		GoverningRequirements: payload.GoverningRequirements,
 	})
 	if err != nil {
 		return wrapFailure(KindInvalidPayload, "fold_event", "cannot encode work intent", false, "supply a JSON-safe intent", err)

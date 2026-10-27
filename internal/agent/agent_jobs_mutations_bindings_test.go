@@ -812,10 +812,11 @@ func TestOperatorApprovedScopeCutProceeds(t *testing.T) {
 		t.Fatalf("inject approval: %v", err)
 	}
 	scope := map[string]any{
-		"product_id":    "prod-alpha",
-		"product_ids":   []string{"prod-alpha"},
-		"project_ids":   []string{"proj-web"},
-		"scope_version": env.ScopeVersion,
+		"product_id":             "prod-alpha",
+		"product_ids":            []string{"prod-alpha"},
+		"project_ids":            []string{"proj-web"},
+		"scope_version":          env.ScopeVersion,
+		"governing_requirements": store.NewGoverningRequirementScope([]string{"audit_required"}, nil).Digest(),
 	}
 	digest := mutationDigest("concord_work_define", "capture", env, withApproval)
 	env.HostApproval = signedHostApproval(privateKey, challengeRef, digest, scope, map[string]any{}, env.SessionRef, env.AgentRef, env.Worktree, fixedTime(), nonceForChallenge(challengeRef))
@@ -829,6 +830,13 @@ func TestOperatorApprovedScopeCutProceeds(t *testing.T) {
 	}
 	if lifecycle, _ := readWorkFromStore(t, s, (*approved.ChangedRefs)[0].ID); lifecycle != "needed" {
 		t.Fatalf("approved capture produced lifecycle %q, want needed", lifecycle)
+	}
+	var declared string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(intent_json,'$.governing_requirements') FROM work_items WHERE id=?`, (*approved.ChangedRefs)[0].ID).Scan(&declared); err != nil {
+		t.Fatal(err)
+	}
+	if declared != "[]" {
+		t.Fatalf("approved cut invented scope %s", declared)
 	}
 }
 

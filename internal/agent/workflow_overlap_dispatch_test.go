@@ -23,7 +23,7 @@ func seedAgentOverlapFixtureWith(t *testing.T, capabilities []Capability) (*stor
 	ctx := context.Background()
 	s, service, grant, privateKey := mutationDispatchFixture(t, capabilities)
 	events := []store.Event{
-		{EventID: "overlap-agent-work", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: "work-2", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: store.CurrentEventPayloadVersion("work.created"), Payload: json.RawMessage(`{"work_kind":"task","title":"Other work","priority":1}`)},
+		{EventID: "overlap-agent-work", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: "work-2", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: store.CurrentEventPayloadVersion("work.created"), Payload: json.RawMessage(`{"work_kind":"task","title":"Other work","priority":1,"governing_requirements":[]}`)},
 		{EventID: "overlap-agent-membership", Kind: "work.memberships_replaced", SubjectType: store.SubjectWorkItem, SubjectID: "work-2", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"memberships":[{"project_id":"project-1","role":"primary"}],"expected_version":1,"resulting_version":2}`)},
 	}
 	if err := store.ApplyOperation(ctx, s, store.Operation{Events: events, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, "work-2"): 0}}); err != nil {
@@ -84,13 +84,11 @@ func seedAgentOverlapFixtureWith(t *testing.T, capabilities []Capability) (*stor
 func TestResolveOverlapRoutineDispatchRecordsUnsignedAndRefusesASuppliedApproval(t *testing.T) {
 	t.Parallel()
 	s, service, _, _, env, input := seedAgentOverlapFixture(t)
-	// The genuine claim: one challenge a destructive dispatch through this
-	// Service minted on this fixture. The routine request below presents it,
-	// so the refusal is the planner's routine-branch decision and not an
-	// unknown-reference guess.
+	// A genuine governing-cut challenge, not an unknown-reference guess.
+	setAgentDeclaredRequirements(t, s, "work-1", []string{"audit_required"})
 	destructive := []byte(strings.Replace(string(input), `"resolution_kind":"compatible_with"`, `"resolution_kind":"merged_into"`, 1))
 	challenged := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_relate", Operation: "resolve_overlap", Input: destructive}, env)
-	if challenged.Error == nil || challenged.Error.Kind != "approval_required" {
+	if challenged.Error == nil || challenged.Error.Kind != "invariant_violation" {
 		t.Fatalf("destructive challenge dispatch outcome=%s error=%+v", challenged.Outcome, challenged.Error)
 	}
 	challengeRef, ok := challenged.Error.Details["approval_ref"].(string)

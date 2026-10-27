@@ -48,7 +48,7 @@ func seedOverlapProjection(t *testing.T, left, right string, relation bool) (*St
 		// CD-0183: a contract holds its Domains once its workflow instance
 		// carries the execution-start fact, so an overlap fixture puts both
 		// items there with the fact set.
-		if _, err := tx.ExecContext(ctx, `UPDATE work_items SET lifecycle='in_progress' WHERE id=?`, workID); err != nil {
+		if _, err := tx.ExecContext(ctx, `UPDATE work_items SET lifecycle='in_progress',intent_json=json_set(intent_json,'$.governing_requirements',json('[]')) WHERE id=?`, workID); err != nil {
 			tx.Rollback()
 			t.Fatal(err)
 		}

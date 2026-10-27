@@ -21,10 +21,19 @@ every state transition on verified evidence.
 
 ## Why Concord exists
 
-When agents make independent changes across related parts of a project, each
-change can pass review in isolation while their combined effect breaks an
-approved requirement. Concord records approved goals and enforces workflow
-conditions that govern managed execution.
+Human intent is typed at the highest level of abstraction: goals, architectural
+boundaries, and product invariants. Machine code, by contrast, operates at the
+lowest: byte offsets, transaction boundaries, and exit codes.
+
+Delegating a specification to an AI agent is an unverified downcast across that
+semantic gap. In traditional programming, casting from an abstract interface to
+a concrete type without a runtime guard invites undefined behavior and crashes.
+You cannot fix an unsafe cast by shouting at the compiler, and you cannot fix an
+agent's semantic drift by stuffing more instructions into a prompt.
+
+Concord supplies the structural runtime guard. It enforces workflow conditions,
+outcome predicates, and cryptographic receipts outside the model's context
+window before state transitions commit:
 
 - **Completion requires evidence.** Concord refuses completion requests until
   the required evidence types are durably bound. An agent's claim that work is

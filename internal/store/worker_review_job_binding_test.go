@@ -103,10 +103,10 @@ func TestFinalReviewRefusesSupersededAnchorRevision(t *testing.T) {
 	}
 }
 
-// CD-0205 D2: when accepted implementation attempts of two different jobs
-// both delivered the current candidate, the anchor is ambiguous and Review
-// binds neither; the core invents no choice.
-func TestFinalReviewRefusesAmbiguousDeliveryAnchors(t *testing.T) {
+// CD-0205 D2: the delivery anchor is the newest accepted implementation
+// delivery. When two jobs' accepted results both delivered the current
+// candidate, Review binds the newer job only.
+func TestFinalReviewBindsNewestDeliveryAnchor(t *testing.T) {
 	workID := "final-review-ambiguous"
 	f := seedOracleRepairFixture(t, workID)
 	s := f.store
@@ -142,13 +142,14 @@ func TestFinalReviewRefusesAmbiguousDeliveryAnchors(t *testing.T) {
 		t.Fatalf("final Review binding over one delivery anchor = %#v, %v; want %#v", final, err, first)
 	}
 	second := acceptNoChange("job:final-review-second", true)
-	if final, err := finalReviewWorkerJobTx(ctx, q, workID); err != nil || final != nil {
-		t.Fatalf("final Review binding over two delivery anchors = %#v, %v; want none", final, err)
+	if final, err := finalReviewWorkerJobTx(ctx, q, workID); err != nil || final == nil || *final != second {
+		t.Fatalf("final Review binding after a newer delivery = %#v, %v; want %#v", final, err, second)
 	}
-	for _, binding := range []WorkerJobBinding{first, second} {
-		if err := requireWorkerReviewJobRevisionStateTx(ctx, q, workID, binding); err == nil || !strings.Contains(err.Error(), "is not ready") {
-			t.Fatalf("Review admission of %s beside another anchor = %v, want the readiness refusal", binding.JobID, err)
-		}
+	if err := requireWorkerReviewJobRevisionStateTx(ctx, q, workID, second); err != nil {
+		t.Fatalf("Review admission of the newest delivery anchor: %v", err)
+	}
+	if err := requireWorkerReviewJobRevisionStateTx(ctx, q, workID, first); err == nil || !strings.Contains(err.Error(), "is not ready") {
+		t.Fatalf("Review admission of the older delivery = %v, want the readiness refusal", err)
 	}
 }
 

@@ -25,6 +25,19 @@ and may consult an advisor. Never answer a Concord approval challenge: it goes t
 Do not answer another session's permission request or operator-reserved question.
 Relay it unchanged, without inventing an actor, approval, or evidence.
 
+Apply current accepted CD-0243 D2-D3 before asking for consent. Outside the six
+classes, proceed with engineering and work management within the assigned scope.
+Assigning a worker, making an in-scope dependency repair, and publishing or merging
+its PR do not independently require operator approval. A repair restoring existing
+security protections is not a request to waive a security gate or accept its risk.
+
+For an approval request, identify the applicable class and concrete consequence,
+or the existing operator-only waiver being requested. A new ticket or implementation
+step is not itself new Product direction. Preserve explicit scope limits, host
+permissions, and non-consent gates. If a tool still demands consent outside these
+classes, report the implementation mismatch and follow its admitted recovery;
+neither invent another discretionary question nor bypass the refusal.
+
 ## Start with scope and record ownership
 
 Establish scope once before the first pass. Reuse an explicit assignment; if

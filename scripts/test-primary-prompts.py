@@ -275,6 +275,15 @@ class PrimaryPromptCheckTests(unittest.TestCase):
             with self.subTest(phrase=phrase):
                 self.assertIn(phrase, check_primary_prompts.RTE_REQUIRED_PHRASES)
 
+    def test_rte_routine_delivery_does_not_add_approval_classes(self) -> None:
+        for phrase in (
+            "Apply current accepted CD-0243 D2-D3 before asking for consent",
+            "Assigning a worker, making an in-scope dependency repair, and publishing or merging its PR do not independently require operator approval",
+            "A new ticket or implementation step is not itself new Product direction",
+        ):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, check_primary_prompts.RTE_REQUIRED_PHRASES)
+
     def test_retired_coordinator_profile_reports(self) -> None:
         # Zero tolerance: a checkout that still ships a retired profile
         # fails the validator.

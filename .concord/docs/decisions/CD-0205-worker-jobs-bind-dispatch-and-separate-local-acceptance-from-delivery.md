@@ -17,6 +17,12 @@
   authority. The repair reason is a caller-supplied claim that feeds the
   admission checks. The Domain test counts one
   child Domain, `workflow-engine`. It changes no UI/UX.
+- **Amended:** 2026-10-27, approved by the operator as exact text for
+  [Concord (CON) issue 947](https://linear.app/sharper-flow/issue/CON-947).
+  D1 adds optional recipe-required, producer-enforced isolation and makes the
+  network evidence limit conditional on it. It is a compatible amendment under
+  CD-0036 D2: recipes that do not require isolation keep their contract. It is
+  a security-policy meaning change.
 - **Approval:** The operator approved contract version 1 of
   `work-e46f4308fb5dad191fcbe259`. That contract names CD-0198 as
   modified law and adds this record.
@@ -72,7 +78,8 @@ each prerequisite revision is satisfied.
 Oracle readiness references support harness availability and a nonempty
 selector. Native preparation resolves the exact pinned recipe, cwd, declared
 case witnesses, and runtime environment. The producer and generated schema
-declare the closed set of supported recipe families, materializers, and runners.
+declare the closed set of supported recipe families, materializers, runners,
+and isolation policies.
 Changes to the supported set require an approved design and executable tests
 for the obligations below. Concrete members belong to code and schema, not law.
 The Project keeps its own language and tests. No unrelated module is required
@@ -132,10 +139,48 @@ that bundle through `worktree_verify`. No preparation runs automatically. The
 job content, recorded readiness references, and digest stay unchanged. Other
 lanes keep their recorded-reference rule.
 
+A recipe may require producer-enforced isolation. The producer derives the
+policy from the pinned recipe; callers cannot supply isolation commands,
+mounts, host paths, or network exceptions.
+
+For a required loopback-only policy, the producer must establish the following
+boundary before workload launch and keep it for all configuration and
+registration hooks, collection, checks, acceptance bodies, and descendants in
+both preparation and execution:
+
+- Required loopback bind and connect operations remain usable within the
+  isolated workload. Host loopback, host services, and external networks are
+  unreachable. Inherited sockets, host IPC, descriptors, or helper processes
+  must not bridge that boundary.
+- Filesystem changes remain inside per-run private scratch. Verified source,
+  harness, runtime, and dependency inputs are read-only. The real user home,
+  shared caches, ambient credentials, and undeclared user configuration are not
+  exposed to the workload.
+- Descendants cannot escape the boundary by replacing their environment,
+  changing sessions, or changing process groups. Completion, cancellation,
+  timeout, and output overflow terminate all workload descendants before
+  cleanup or a qualified result.
+
+Existing native environment, readiness, and result bindings distinguish the
+required policy and observed enforcement state and bind the enforcing
+executable identity. Producer-owned observations, not recipe prose or candidate
+assertions, establish enforcement. Missing, unsupported, unestablished, or
+changed required isolation produces `unavailable`, never unconfined fallback,
+reduced check coverage, installation, or a readiness exception. Fresh readiness
+follows the existing explicit preparation recovery.
+
+A recipe that does not require isolation retains its existing execution
+contract. Its evidence cannot satisfy a control that requires isolation. This
+policy grants no additional execution, verification, host-provisioning, or
+Product-law authority. It does not sandbox agent sessions or unmanaged host
+work.
+
 The following evidence limits apply to every recipe family, including Go:
 
 - Same-UID changes between digest observations can escape those observations.
-- Native test and collection processes have no enforced network isolation.
+- Native test and collection processes have no enforced network isolation
+  unless the pinned recipe requires it and the producer establishes the
+  required isolation.
 - `PATH`, `LANG`, and `LC_ALL` remain inherited environment inputs.
 - Candidate initialization or shared-interpreter code can forge reporter output.
 

@@ -1,0 +1,66 @@
+{
+  "id": "sqlite-finite-snapshot",
+  "invariant": {
+    "applies_to_domain_ids": [
+      "durable-authority"
+    ],
+    "enforced_by": [
+      {
+        "check_id": "go-test-race",
+        "kind": "go_test",
+        "value": "internal/store/internal/sqlitedb.TestSnapshotRoundTrip"
+      },
+      {
+        "check_id": "go-test-race",
+        "kind": "go_test",
+        "value": "internal/store/internal/sqlitedb.TestSnapshotBackupPinsSourceAcrossWriterCommit"
+      },
+      {
+        "check_id": "go-test-race",
+        "kind": "go_test",
+        "value": "internal/store/internal/sqlitedb.TestSnapshotBackupCancellationReleasesConnection"
+      },
+      {
+        "check_id": "go-test-race",
+        "kind": "go_test",
+        "value": "internal/store/internal/sqlitedb.TestSnapshotCopyFailureFieldsAndDSNs"
+      },
+      {
+        "check_id": "go-test-race",
+        "kind": "go_test",
+        "value": "internal/store/internal/sqlitedb.TestSnapshotCurrentStateDigestStableFraming"
+      },
+      {
+        "check_id": "go-test-race",
+        "kind": "go_test",
+        "value": "internal/store/internal/sqlitedb.TestSnapshotSQLiteVerificationForeignKeyRows"
+      },
+      {
+        "check_id": "go-test-race",
+        "kind": "go_test",
+        "value": "internal/store.TestSnapshotStoreAcquisitionFailurePreservesDestination"
+      },
+      {
+        "check_id": "go-test-race",
+        "kind": "go_test",
+        "value": "internal/store.TestBackupDatabaseReadOnlyWALBounded"
+      },
+      {
+        "check_id": "go-test-race",
+        "kind": "go_test",
+        "value": "internal/store.TestRestoreBackupReadOnlyWALBounded"
+      },
+      {
+        "check_id": "go-test-race",
+        "kind": "go_test",
+        "value": "internal/store.TestRestoreStageRejectsCurrentStateTampering"
+      }
+    ],
+    "statement": "Online image copies hold one pinned source read snapshot across page batches, finish the driver-owned destination before releasing the source, and release source handles before verification. Live backup retains its bounded BUSY/LOCKED retry policy; restore reports its first step failure. Integrity probes report integrity_check, quick_check and foreign_key_check results without deciding promotion. Current-state hashing includes persistent schema definitions and typed, length-framed table rows in binary order, excluding only store_revision row content, not its schema. Store adapters retain destination admission, cleanup, manifests, migration and promotion policy."
+  },
+  "kind": "invariant",
+  "owner_domain_id": "durable-authority",
+  "owning_root": "internal/store/internal/sqlitedb",
+  "schema_version": "1.0",
+  "standing": "observed"
+}

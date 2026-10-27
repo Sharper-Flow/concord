@@ -1230,11 +1230,6 @@ jobs:
           if-no-files-found: error
           retention-days: 90
 
-  # Race detector on store tests that coordinate concurrent Go callers.
-  # SQLite lock-wait tests coordinate through database locks and channels rather
-  # than unsynchronized mutable Go state. The ordinary suite covers them without
-  # multiplying fixed lock delays. The full tree races in the nightly workflow.
-
   verify-tests-agent-1:
     name: verify-tests-agent-1
     runs-on: ubuntu-latest
@@ -1385,6 +1380,10 @@ jobs:
           if-no-files-found: error
           retention-days: 90
 
+  # Race detector on store tests that coordinate concurrent Go callers.
+  # SQLite lock-wait tests coordinate through database locks and channels rather
+  # than unsynchronized mutable Go state. The ordinary suite covers them without
+  # multiplying fixed lock delays. The full tree races in the nightly workflow.
   verify-race:
     name: verify-race
     runs-on: ubuntu-latest

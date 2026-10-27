@@ -476,13 +476,20 @@ def ci_reaches(root: Path, owner: dict[str, str], *, nested: bool = True) -> boo
             commands = workflow_commands(path.read_text(encoding="utf-8")).replace("\\\n", " ")
             for command in commands.splitlines():
                 command = command.strip()
-                # The required tooling battery is a conjunction of literal Python
-                # commands. Do not interpret arbitrary shell expressions or split
-                # quoted data that only resembles a command boundary.
-                parts = command.split(" && ") if re.fullmatch(
-                    r"python3 scripts/[a-z0-9-]+\.py(?: && python3 scripts/[a-z0-9-]+\.py)+", command
-                ) else [command]
-                if any(invocation_reaches(root, part, owner, nested=nested) for part in parts):
+                # Preserve quotes while separating literal conjunctions. Arguments
+                # may contain && as data; no shell expression is evaluated here.
+                lexer = shlex.shlex(command, posix=False, punctuation_chars="&")
+                lexer.whitespace_split = True
+                parts: list[list[str]] = [[]]
+                try:
+                    for token in lexer:
+                        if token == "&&":
+                            parts.append([])
+                        else:
+                            parts[-1].append(token)
+                except ValueError:
+                    continue
+                if any(invocation_reaches(root, " ".join(part), owner, nested=nested) for part in parts):
                     return True
     return False
 

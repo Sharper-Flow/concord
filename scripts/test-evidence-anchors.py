@@ -221,15 +221,15 @@ def test_ci_reaches_each_validator_in_a_required_conjunction(tmp: Path) -> None:
     workflow.mkdir(parents=True)
     (workflow / "ci.yml").write_text(
         '      - name: scripts/check-mention.py\n'
-        '        run: python3 scripts/check-first.py && python3 scripts/test-second.py\n'
+        '        run: python3 scripts/check-first.py && python3 scripts/test-second.py --base-ref "$CHANGE_BASE_REF"\n'
     )
     assert anchors.ci_reaches(tmp, {"kind": "validator", "value": "scripts/check-first.py"})
     assert anchors.ci_reaches(tmp, {"kind": "validator", "value": "scripts/test-second.py"})
     assert not anchors.ci_reaches(tmp, {"kind": "validator", "value": "scripts/check-mention.py"})
-    (workflow / "ci.yml").write_text(
-        '        run: python3 scripts/check-first.py --label "x && python3 scripts/test-second.py"\n'
-    )
-    assert not anchors.ci_reaches(tmp, {"kind": "validator", "value": "scripts/test-second.py"})
+    for arguments in ('--label "x && python3 scripts/test-second.py"',
+                      '--label "&&" python3 scripts/test-second.py'):
+        (workflow / "ci.yml").write_text(f'        run: python3 scripts/check-first.py {arguments}\n')
+        assert not anchors.ci_reaches(tmp, {"kind": "validator", "value": "scripts/test-second.py"})
 
 
 def test_nested_invocations_find_subprocess_calls(tmp: Path) -> None:

@@ -55,13 +55,12 @@ func sampleNativeReviewDispatchTx(ctx context.Context, q queryer, request Prepar
 	if !review || binding == nil {
 		return nil, nil
 	}
-	// Only a final Review selects preparations on the current candidate.
-	final, err := finalReviewWorkerJobTx(ctx, q, request.WorkID)
-	if err != nil || final == nil || *final != *binding {
-		return nil, err
+	// Authoritative job admission supplies the refusal for any other binding.
+	if requireWorkerReviewJobRevisionStateTx(ctx, q, request.WorkID, *binding) != nil {
+		return nil, nil
 	}
 	var raw []byte
-	err = q.QueryRowContext(ctx, `SELECT recorded_payload FROM worker_job_revisions WHERE work_id=? AND job_id=? AND revision=? AND digest=? AND recorded_seq>0`, request.WorkID, binding.JobID, binding.Revision, binding.Digest).Scan(&raw)
+	err := q.QueryRowContext(ctx, `SELECT recorded_payload FROM worker_job_revisions WHERE work_id=? AND job_id=? AND revision=? AND digest=? AND recorded_seq>0`, request.WorkID, binding.JobID, binding.Revision, binding.Digest).Scan(&raw)
 	if err == sql.ErrNoRows {
 		return nil, nil // Authoritative job admission supplies the refusal.
 	}
@@ -115,10 +114,12 @@ func recordedReviewPreparationRefTx(ctx context.Context, q queryer, work string,
 // This observes the same family-owned runtime and pinned inputs as execute,
 // after the freshness read snapshot closes. Normalization runs no test stages
 // and creates no preparation receipt. Its output is sealed, never caller JSON.
-func observeNativeReviewDispatch(ctx context.Context, runner GitRunner, entry WorktreeEntry, work, subject, identity string, sample *nativeReviewDispatchSample) (*nativeReviewDispatchProof, error) {
-	if sample == nil {
+// A terminal acceptance or an unclean observation observes nothing.
+func observeNativeReviewDispatch(ctx context.Context, runner GitRunner, entry WorktreeEntry, work string, dispatch *workerDispatchProof, sample *nativeReviewDispatchSample) (*nativeReviewDispatchProof, error) {
+	if sample == nil || dispatch.acceptance || dispatch.observation.State != "clean" {
 		return nil, nil
 	}
+	subject, identity := dispatch.observation.Commit, dispatch.sessionIdentity
 	proof := &nativeReviewDispatchProof{binding: sample.binding}
 	if len(sample.job.AcceptanceOracle.Controls) == 0 || len(sample.job.AcceptanceOracle.Controls) > OracleControlsMax {
 		return nil, missingReviewPreparation()
@@ -240,6 +241,27 @@ func bindNativeReviewPreparationsTx(ctx context.Context, q queryer, work string,
 		selected = append(selected, WorkerOraclePreparationBinding{ControlID: control.ControlID, PreparationRunRef: ref})
 	}
 	return selected, nil
+}
+
+// freezeReviewDispatchPreparationsTx records, in a Review dispatch
+// authorization, one qualified preparation per control on the current
+// candidate, or refuses before an attempt; job content stays unchanged
+// (CD-0205 D1). A checks-repair confirming Review keeps its own binding.
+func freezeReviewDispatchPreparationsTx(ctx context.Context, q queryer, work string, lane LaneDefinition, job, repairReview *WorkerJobBinding, completionValues map[string]any) error {
+	if lane.CapabilityClass != "review" || job == nil || repairReview != nil {
+		return nil
+	}
+	oracle, err := readWorkerJobOracle(ctx, q, work, *job)
+	if err != nil || oracle == nil {
+		return err
+	}
+	subject, _ := completionValues["worker_subject_commit"].(string)
+	selected, err := bindNativeReviewPreparationsTx(ctx, q, work, *job, oracle, subject)
+	if err != nil {
+		return err
+	}
+	completionValues["worker_oracle_preparations"] = selected
+	return nil
 }
 
 // No execution path selects latest. A Review authorization that froze

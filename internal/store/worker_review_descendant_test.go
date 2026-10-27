@@ -218,8 +218,10 @@ func TestReviewDescendantPreparedSubjectDriftRefuses(t *testing.T) {
 	}
 	descendantCommit(t, j, "c")
 	before := j.effects(t)
-	if err := descendantDispatch(t, j, "review", "drift-review", job, prepared); failureKind(err) != KindMissingEvidence {
-		t.Fatalf("prepared subject drift = %v, want missing_evidence for the stale job preparation", err)
+	// Review binds its preparation after subject freshness (CD-0205 D1), so
+	// the drifted subject refuses first.
+	if err := descendantDispatch(t, j, "review", "drift-review", job, prepared); failureKind(err) != KindProjectionConflict {
+		t.Fatalf("prepared subject drift = %v, want the subject freshness refusal", err)
 	}
 	if after := j.effects(t); after != before {
 		t.Fatal("prepared-subject refusal changed durable state")

@@ -645,9 +645,12 @@ routeDeclaration("accepts an unchanged new-law baseline Review before implementa
   }
 }, 180_000)
 
-for (const mode of ["ordinary", "revised", "final-proof"]) {
+for (const mode of ["ordinary", "revised", "final-proof", "ready-preparation"]) {
 const revised = mode === "revised"
-routeDeclaration(`required Review leaves the ${mode} job ready for implementation in Main's session`, async () => {
+const routeName = mode === "ready-preparation"
+  ? "Review of the ready job freezes a later qualified preparation in Main's session"
+  : `required Review leaves the ${mode} job ready for implementation in Main's session`
+routeDeclaration(routeName, async () => {
   const root = await fixtureTempRoot("dispatch-required-review")
   const previousConfig = process.env.OPENCODE_CONFIG
   try {
@@ -685,6 +688,40 @@ routeDeclaration(`required Review leaves the ${mode} job ready for implementatio
       return task
     }
     await driveWorkflowToContract(workID, invoke, context, APPROVED_OBJECTIVE, [WORKFLOW_PREDICATE], [], [".concord/docs/dispatch-marker.txt"])
+    if (mode === "ready-preparation") {
+      // Main qualifies a moved candidate; the ready job's recorded readiness
+      // reference no longer qualifies on it (CD-0205 D1).
+      await Bun.write(join(worktree, ".concord/docs/dispatch-marker.txt"), "Main moved the candidate before Review.\n")
+      await git(worktree, "add", ".concord/docs/dispatch-marker.txt")
+      await git(worktree, "-c", "user.name=Synthetic Test", "-c", "user.email=test@example.invalid", "commit", "--quiet", "-m", "synthetic moved candidate")
+      const subject = (await runProcess(["git", "rev-parse", "HEAD"], "", worktree)).stdout.trim()
+      const verify = async (key: string, input: JSONRecord) => {
+        const response = await invoke("concord_work_transition", { operation: "worktree_verify", input: { work_id: workID, idempotency_key: key, requested_budget_seconds: 300, ...input } }, context)
+        expect(response.outcome, JSON.stringify(response)).toBe("ok")
+        return response.result
+      }
+      await verify("ready-preparation-subject", { command: ["git", "status", "--porcelain"] })
+      const before = version()
+      const unprepared = await dispatchLaneWorker({ work_id: workID, expected_version: before, idempotency_key: "ready-preparation-unprepared", lane_id: "review" }, {
+        context, invoke, credentials: { async getPrivateKey() { return PRIVATE_SEED } }, windows: new DispatchWindows(),
+      })
+      expect(unprepared.outcome, JSON.stringify(unprepared)).toBe("error")
+      expect(JSON.stringify(unprepared)).toContain("qualified native preparation")
+      expect(version()).toBe(before)
+      const ready = await invoke("concord_work_trace", { operation: "continuity", input: { work_id: workID } }, context)
+      const job = ready.result.pinned.ready_worker_jobs[0]
+      const { readiness_evidence_refs: recordedRefs, ...control } = job.acceptance_oracle.controls[0]
+      const prepared = await verify("ready-preparation-prepare", { oracle: { phase: "prepare", expected_contract_version: 1, control_bundle: { owner: job.acceptance_oracle.owners[0], cases: job.acceptance_oracle.cases, control } } })
+      expect(prepared.oracle.qualification).toBe("ready")
+      expect(prepared.oracle.subject_commit).toBe(subject)
+      expect(recordedRefs).not.toContain(prepared.oracle.run_ref)
+      const reviewed = await review("ready-preparation-review")
+      expect(reviewed.packet.inputs.worker_job.acceptance_oracle).toEqual(job.acceptance_oracle)
+      const frozen = dbValue(dbPath, `SELECT json_extract(payload,'$.worker_oracle_preparations') AS refs FROM worker_authorizations WHERE work_id='${workID}' AND attempt_id='${reviewed.packet.attempt_id}'`).refs
+      expect(JSON.parse(frozen)).toEqual([{ control_id: control.control_id, preparation_run_ref: prepared.oracle.run_ref }])
+      expect(dbValue(dbPath, `SELECT count(DISTINCT job_id) AS n FROM worker_job_revisions WHERE work_id='${workID}'`).n).toBe(1)
+      return
+    }
     if (revised) {
       const firstReview = await review("required-review-baseline")
       const job = firstReview.packet.inputs.worker_job

@@ -2,6 +2,9 @@ package store
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -151,29 +154,137 @@ func TestFinalReviewBindsNewestDeliveryAnchor(t *testing.T) {
 	if err := requireWorkerReviewJobRevisionStateTx(ctx, q, workID, first); err == nil || !strings.Contains(err.Error(), "is not ready") {
 		t.Fatalf("Review admission of the older delivery = %v, want the readiness refusal", err)
 	}
+	// A member result delivers on its member worktree, not the claimed
+	// worktree Review judges, so the newer member delivery is no anchor.
+	var actor, project string
+	if err := s.db.QueryRow(`SELECT json_extract(payload,'$.actor_ref') FROM worker_authorizations WHERE work_id=? AND attempt_id=?`, workID, "attempt:"+second.JobID).Scan(&actor); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.db.QueryRow(`SELECT project_id FROM work_projects WHERE work_id=? AND role='primary'`, workID).Scan(&project); err != nil {
+		t.Fatal(err)
+	}
+	for _, seed := range []struct {
+		query string
+		args  []any
+	}{
+		{`INSERT INTO write_guard(active) VALUES(1)`, nil},
+		{`INSERT INTO workflow_member_groups(work_id,group_id,base_subject,permission) VALUES(?,'group:member-anchor',json_object('commit',?,'verification_ref','verify:member-anchor'),'continue')`, []any{workID, strings.Repeat("1", 40)}},
+		{`INSERT INTO workflow_group_members(work_id,group_id,member_id,job_id,job_revision,job_digest,project_id,actor_ref) VALUES(?,'group:member-anchor','member:anchor',?,?,?,?,?)`, []any{workID, second.JobID, second.Revision, second.Digest, project, actor}},
+		{`DELETE FROM write_guard`, nil},
+	} {
+		if _, err := s.db.Exec(seed.query, seed.args...); err != nil {
+			t.Fatalf("seed member roster: %v", err)
+		}
+	}
+	if final, err := finalReviewWorkerJobTx(ctx, q, workID); err != nil || final == nil || *final != first {
+		t.Fatalf("final Review binding after a newer member delivery = %#v, %v; want the claimed-worktree delivery %#v", final, err, first)
+	}
 }
 
-// CD-0205 D1: a Review of a ready revision whose recorded preparation no
-// longer qualifies on the current candidate refuses before an attempt; the
-// final-Review fallback never admits a ready revision state-only.
-func TestReadyReviewRefusesStalePreparationBeforeAttempt(t *testing.T) {
-	workID := "ready-review-stale-preparation"
+// CD-0205 D2: only the newest accepted implementation delivery anchors final
+// Review. When that delivery carries no clean core observation, or its job
+// has a later revision, no anchor exists and the older delivery never stands
+// in for it.
+func TestFinalReviewNeverFallsBackFromNewestAnchor(t *testing.T) {
+	for _, shape := range []string{"unobserved", "superseded"} {
+		t.Run(shape, func(t *testing.T) {
+			workID := "final-review-no-fallback-" + shape
+			f, first := seedFinalReviewAnchor(t, workID)
+			s := f.store
+			defer s.Close()
+			advanceOracleFixtureSubject(t, f, workID, "2")
+			second := recordOracleJobRevision(t, s, workID, f.owner, "job:final-review-newest", twoPathOracleFields(t, s, workID, nil))
+			oAcceptOracleFixtureReview(t, f, workID, "continue")
+			attempt := "attempt:" + workID + ":newest"
+			dispatchChangeAcceptanceAttempt(t, f, workID, attempt, second)
+			if shape == "unobserved" {
+				if err := completeJobBoundAttemptForTest(s, workID, attempt, reviewGateLane(t, "implementation"), &second); err != nil {
+					t.Fatal(err)
+				}
+			} else {
+				completeChangeAcceptanceAttempt(t, f, workID, attempt, strings.Repeat("3", 40))
+			}
+			if err := acceptChangeTestAttempt(t, f, workID, attempt); err != nil {
+				t.Fatalf("accept the newest implementation: %v", err)
+			}
+			ctx := context.Background()
+			q := s.DatabaseForTesting()
+			if shape == "superseded" {
+				if final, err := finalReviewWorkerJobTx(ctx, q, workID); err != nil || final == nil || *final != second {
+					t.Fatalf("final Review binding of the newest delivery = %#v, %v; want %#v", final, err, second)
+				}
+				recordOracleJobRevisionWith(t, s, workID, f.owner, second.JobID, twoPathOracleFields(t, s, workID, nil), map[string]any{
+					"objective": "A changed objective awaiting readiness", "ready": false, "readiness_evidence": []string{},
+				})
+			}
+			if final, err := finalReviewWorkerJobTx(ctx, q, workID); err != nil || final != nil {
+				t.Fatalf("final Review binding without a valid newest anchor = %#v, %v; want none", final, err)
+			}
+			if err := requireWorkerReviewJobRevisionStateTx(ctx, q, workID, first); err == nil || !strings.Contains(err.Error(), "is not ready") {
+				t.Fatalf("Review admission of the older delivery = %v, want the readiness refusal", err)
+			}
+		})
+	}
+}
+
+// CD-0205 D1: a Review of a ready revision freezes its recorded preparation
+// when it qualifies on the current candidate. When the candidate has moved
+// and no qualified preparation of the unchanged bundle exists, the dispatch
+// refuses before an attempt.
+func TestReadyReviewFreezesQualifiedPreparationOrRefusesBeforeAttempt(t *testing.T) {
+	workID := "ready-review-preparation"
 	f := seedOracleRepairFixture(t, workID)
 	s := f.store
 	defer s.Close()
-	job := recordOracleJobRevision(t, s, workID, f.owner, "job:ready-review-stale", twoPathOracleFields(t, s, workID, nil))
-	advanceOracleFixtureSubject(t, f, workID, "2")
-	var review LaneDefinition
-	for _, lane := range BuiltinLaneDefinitions() {
-		if lane.CapabilityClass == "review" {
-			review = lane
-		}
+	job := recordOracleJobRevision(t, s, workID, f.owner, "job:ready-review", twoPathOracleFields(t, s, workID, nil))
+	oracle, err := readWorkerJobOracle(context.Background(), s.db, workID, job)
+	if err != nil || oracle == nil {
+		t.Fatalf("job oracle = %v, %v", oracle, err)
 	}
-	definition := mustBuiltinDefinition(t, "workflow.break_fix").Definition
-	packet := joinPacketFor(t, s, workID, "repair", "attempt:"+workID, review.ID, review.Digest)
-	packet["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, s, workID, job, review.ID)
-	if _, _, err := validateWorkerPacketJob(context.Background(), s.DatabaseForTesting(), definition, workID, review, mustJSONValue(packet)); err == nil || !strings.Contains(err.Error(), "stale for its bundle and candidate") {
-		t.Fatalf("Review admission of a ready revision with stale preparation = %v, want the preparation refusal", err)
+	review := reviewGateLane(t, "review")
+	reviewPacket := func(attempt string) map[string]any {
+		packet := joinPacketFor(t, s, workID, "repair", attempt, review.ID, review.Digest)
+		packet["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, s, workID, job, review.ID)
+		return packet
+	}
+	authorized := func(attempt string) int {
+		var n int
+		if err := s.db.QueryRow(`SELECT count(*) FROM worker_authorizations WHERE work_id=? AND attempt_id=?`, workID, attempt).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+
+	stale := "attempt:" + workID + ":stale"
+	advanceOracleFixtureSubject(t, f, workID, "2")
+	err = dispatchJobPacketForTest(t, s, workID, stale, f.owner, "dispatch-stale", reviewPacket(stale))
+	var failure *Failure
+	if !errors.As(err, &failure) || !strings.Contains(failure.Detail, "qualified native preparation") || !strings.Contains(failure.RecoveryAction, "worktree_verify") {
+		t.Fatalf("Review of a ready revision with a stale preparation = %v, want the preparation refusal", err)
+	}
+	if authorized(stale) != 0 {
+		t.Fatal("the refused Review dispatch recorded an authorization")
+	}
+
+	fresh := "attempt:" + workID + ":fresh"
+	advanceOracleFixtureSubject(t, f, workID, "1")
+	if err := dispatchJobPacketForTest(t, s, workID, fresh, f.owner, "dispatch-fresh", reviewPacket(fresh)); err != nil {
+		t.Fatalf("Review of a ready revision with a qualifying recorded preparation: %v", err)
+	}
+	var raw string
+	if err := s.db.QueryRow(`SELECT json_extract(payload,'$.worker_oracle_preparations') FROM worker_authorizations WHERE work_id=? AND attempt_id=?`, workID, fresh).Scan(&raw); err != nil {
+		t.Fatal(err)
+	}
+	var frozen []WorkerOraclePreparationBinding
+	if err := json.Unmarshal([]byte(raw), &frozen); err != nil {
+		t.Fatal(err)
+	}
+	var want []WorkerOraclePreparationBinding
+	for _, control := range oracle.Controls {
+		want = append(want, WorkerOraclePreparationBinding{ControlID: control.ControlID, PreparationRunRef: control.ReadinessEvidenceRefs[0]})
+	}
+	if !slices.Equal(frozen, want) {
+		t.Fatalf("frozen Review preparations = %#v, want the recorded references %#v", frozen, want)
 	}
 }
 

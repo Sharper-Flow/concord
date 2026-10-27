@@ -34,7 +34,9 @@ func TestCiWaitTerminalErrorRemovesState(t *testing.T) {
 }
 
 func TestCiWaitReapsAbandonedPendingAndDeadOwnerState(t *testing.T) {
-	ghStubPath(t, ghStubDir(t, `echo '{"status":"in_progress"}'`))
+	ghStubPath(t, ghStubDir(t, `case "$*" in
+	*"run view"*) echo '{"status":"in_progress","attempt":1,"headSha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}';;
+	`+ciWaitQuietReads+`esac`))
 	dir := filepath.Join(os.Getenv("XDG_STATE_HOME"), "concord")
 	_, pending := runCiWaitStdin(t, ciWaitJSON(t, ciWaitRequest{
 		Selector: &ciWaitSelector{Kind: "run", Value: "1"}, Repo: "o/r", TimeSecondsMax: ciWaitBudget(8),

@@ -87,6 +87,7 @@ case "$*" in
 ;;
 	*"api repos/o/r/branches/"*) `+answer(branch)+`
 ;;
+	*"/actions/runs?"*) echo '[{"total_count":0,"workflow_runs":[]}]';;
 	*) exit 97;;
 esac`))
 	return fixture
@@ -302,6 +303,7 @@ func TestCiWaitPRChecksModeStalledRequiredReadIsPending(t *testing.T) {
 EOC
 ;;
 	*"rules/branches/"*) sleep 500;;
+	*"/actions/runs?"*) echo '[{"total_count":0,"workflow_runs":[]}]';;
 	*) exit 97;;
 esac`))
 	saved := ciWaitCommandTimeout

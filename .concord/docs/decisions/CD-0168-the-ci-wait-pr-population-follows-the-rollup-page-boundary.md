@@ -1,11 +1,11 @@
-# CD-0168: The ci-wait PR population follows the rollup page boundary
+# CD-0168: The ci-wait PR rollup query follows the page boundary
 
 - **Status:** Accepted
 - **Date:** 2026-09-21
 - **Scope:** The `ci-wait` CLI verb: its PR check population, its poll interval, and its classification of a stalled `gh` command
 - **Approval:** The operator approved dropping the second query, staging the interval, and reclassifying a stalled command as pending, on 2026-09-21.
 - **Related:** CD-0160, CD-0161
-- **Preserves:** The bounded slice, the state-carried deadline, the closed report status set, and the checks-mode terminal rules
+- **Preserves:** The bounded slice, the state-carried deadline, and the closed report status set
 
 ## Context
 
@@ -31,24 +31,19 @@ requests again.
 
 ## Decision
 
-### D1. The rollup is the population, and the page cap is the exception
+### D1. The rollup supplies checks, and the page cap requires pagination
 
-Checks mode builds its check population from the
+Checks mode builds its rollup check population from the
 `gh pr view` status-check rollup. It queries `gh pr checks` only when that
 rollup holds exactly the full 100-context page, where pagination still decides
-the set. Merge mode classifies the newest attempt per check identity from
-the rollup already read,
-without a second population query, under
-[CD-0228](CD-0228-merge-waits-report-observed-check-failures-unless-github-reports-unstable.md).
-The greatest exported `startedAt` selects each attempt. CheckRun identity is
-`(name, workflowName)` because the export omits event. StatusContext identity
-is its context, in a separate namespace. A newer passing or pending rerun
-replaces an older failure, but different identities stay distinct.
-A failed or cancelled selected attempt ends an open merge wait unless GitHub
-reports `UNSTABLE`. Failure takes precedence over pending peers, but not over
-head supersession, merged, or closed outcomes. A full rollup page suffices to
-establish an observed failure, without establishing population completeness.
-An empty population stays pending. Checks-mode terminal rules remain unchanged.
+the rollup set. Merge mode uses the rollup already read without a second
+`gh pr checks` population query. Both modes apply the common classification
+and reporting rule in
+[CD-0228 D1](CD-0228-merge-waits-report-observed-check-failures-unless-github-reports-unstable.md#d1-common-classification-and-reporting-rule),
+including its workflow-run and job reads. Non-Actions rollup identities and
+attempt ordering follow CD-0228 D2. A full rollup page can establish an
+observed failure without establishing population completeness. Without a
+relevant failure, an empty population stays pending.
 Under [CD-0233](CD-0233-a-checks-wait-waits-for-every-required-context.md),
 checks mode then adds each required context the population lacks as a
 pending entry. That read is not a population query.
@@ -77,7 +72,10 @@ no verdict about the checks.
 - `TestCiWaitFullRollupPageStillReadsThePaginatedSource` proves a full
   100-context page still queries the paginated source.
 - `cmd/concord.TestCiWaitPRMergeModeNewestAttempts` proves merge mode selects
-  the newest attempt without a second population query.
+  the newest non-Actions rollup attempt without a `gh pr checks` query.
+- [CD-0228 Verification](CD-0228-merge-waits-report-observed-check-failures-unless-github-reports-unstable.md#verification)
+  names the required fail-fast, queued-workflow and newest-workflow-attempt
+  checks beyond the rollup population.
 - `TestCiWaitPollIntervalStagesOnElapsedWaitTime` proves the interval stages at
   the one-minute and five-minute boundaries.
 - `TestCiWaitTimedOutCommandRetriesOnceThenReportsPending` proves a timed-out

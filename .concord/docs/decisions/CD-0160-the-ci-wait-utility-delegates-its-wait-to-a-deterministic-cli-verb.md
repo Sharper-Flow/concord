@@ -77,15 +77,18 @@ termination.
 
 ### D4. Classification derives from observed results only
 
-`success` requires at least one observed check and no failed, cancelled, or
-pending check. Skipped checks are terminal and counted, not failures. Any
-failed or cancelled check is a `failure`. An empty check set stays pending and
-times out at the bound; it is never a success. The run-id selector queries
-`gh run view`, the SHA selector queries `gh run list --commit`, and the PR
-selector queries `gh pr checks`. Failure entries carry the observed name, URL,
-and a coarse class derived from the name; a first-error line is quoted from a
-failed-log read when one succeeds, and stays empty when it does not. An empty
-field is missing detail, not a verdict.
+All selectors apply the common classification and reporting rule in
+[CD-0228 D1](CD-0228-merge-waits-report-observed-check-failures-unless-github-reports-unstable.md#d1-common-classification-and-reporting-rule).
+Skipped checks are terminal and counted, not failures. Without a relevant
+failure, an empty check set stays pending and times out at the bound; it is
+never a success. The run-id selector
+queries `gh run view`, the SHA selector queries `gh run list --commit`, and the
+PR selector uses the rollup and page boundary in CD-0168 D1. Workflow-run and
+job reads follow CD-0228 D1. Failure entries carry the observed name, URL, and a
+coarse class derived from the name; a first-error line quotes available
+diagnostic evidence and stays empty when unavailable. A failed-log read must
+not delay failure delivery from an unfinished workflow. An empty field is
+missing detail, not a verdict.
 
 ### D5. A changed pull request head supersedes the wait
 
@@ -137,6 +140,8 @@ own words, never a success.
   projection matches the manifest and templates.
 - `python3 scripts/test-ci-wait-contract.py` proves the CLI verb, its
   refusal paths, its deadline behavior, and the generated body's delegation.
+- [CD-0228 Verification](CD-0228-merge-waits-report-observed-check-failures-unless-github-reports-unstable.md#verification)
+  names the required fail-fast, queued-workflow and newest-attempt checks.
 - The Go tests in `cmd/concord/ci_wait_test.go` prove terminal outcomes for
   passing, failing, cancelled, skipped, pending, and empty check sets; the
   hung-command kill; the carried deadline; the head-SHA policy, including

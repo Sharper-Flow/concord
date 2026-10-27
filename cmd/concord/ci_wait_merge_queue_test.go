@@ -89,6 +89,7 @@ EOC
 	*"run list"*) ` + runListCase + `
 ;;
 	*"log-failed"*) printf 'job\tstep\t--- FAIL: TestQueueGate (0.1s)\n';;
+	*"/actions/runs?"*) echo '[{"total_count":0,"workflow_runs":[]}]';;
 	*) exit 97;;
 esac`
 	ghStubPath(t, ghStubDir(t, stub))

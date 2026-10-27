@@ -477,6 +477,94 @@ test("an unconfirmed wake queues the report and the next chat.message injects it
   expect(calls).toHaveLength(1)
 })
 
+for (const reply of ["parented", "none"] as const) {
+  test(`a CLI fail-fast failure with a pending peer is terminal and ${reply === "parented" ? "delivered to its caller" : "retained for its caller after unanswered wakes"}`, async () => {
+    const fixture = hostFixture({
+      reply,
+      session: { id: SESSION, agent: "concord-1", model: { id: "glm-test", providerID: "zai", variant: "high" } },
+    })
+    hostControlPlane().bind(fixture.client)
+    bindCiWatchClient(fixture.client)
+    configureCoreBinary("/synthetic/concord")
+    configureCiWatch({ stateDir: STATE_DIR, idlePollMs: 2, confirmPollMs: 2, confirmWindowMs: 40 })
+    const sha = "6459f13778fcad4b42f771ac4988f55897f635f5"
+    const jobURL = "https://github.com/owner/name/actions/runs/77/job/88"
+    const report = {
+      status: "failure",
+      reason: "failure observed; population may be incomplete, pending peers do not delay this report",
+      sha,
+      head_sha: sha,
+      run_url: "https://github.com/owner/name/actions/runs/77",
+      checks: {
+        total: 2, passing: 0, failing: 1, skipped: 0, pending: 1,
+        entries: [
+          { name: "adapter tests", url: jobURL, bucket: "fail" },
+          { name: "store tests", url: "https://github.com/owner/name/actions/runs/77/job/89", bucket: "pending" },
+        ],
+      },
+      failures: [{ name: "adapter tests", url: jobURL, classification: "unknown" }],
+      iterations: 1,
+      elapsed_seconds: 2,
+      deadline_seconds: 240,
+    }
+    // A failure stays terminal even when its report includes a pending peer.
+    const { calls, spawner } = verbFixture([{ stdout: JSON.stringify(report), exitCode: 1 }])
+    configureCiWatch({ spawner })
+    const started = await startWatch(fixture, { ...watchArgs, head_sha: sha })
+    expect(started.status).toBe("started")
+    await ciWatchSettled(String(started.watch_id))
+    await ciWatchRedelivery(SESSION)
+
+    expect(calls).toHaveLength(1)
+    expect(JSON.parse(calls[0])).toEqual({ ...watchArgs, head_sha: sha, state_file: started.state_file })
+    expect(fixture.posts.some((post) => post.url.endsWith("/abort"))).toBe(false)
+    const expectedText = `[concord ci-watch ${String(started.watch_id)}] CI wait failure for owner/name pr:12.\n\n\`\`\`json\n${JSON.stringify(report, null, 2)}\n\`\`\``
+    const prompts = fixture.posts.filter((post) => post.url === "/session/{id}/prompt_async")
+    expect(prompts).toHaveLength(reply === "parented" ? 1 : 2)
+    for (const prompt of prompts) {
+      const body = prompt.body as { agent: string; model: unknown; variant: string; parts: Array<{ type: string; synthetic: boolean; text: string }> }
+      expect(body.agent).toBe("concord-1")
+      expect(body.model).toEqual({ providerID: "zai", modelID: "glm-test" })
+      expect(body.variant).toBe("high")
+      expect(body.parts).toHaveLength(1)
+      expect(body.parts[0]).toMatchObject({ type: "text", synthetic: true })
+      expect(body.parts[0].text).toContain(expectedText)
+    }
+    expect(fixture.gets.filter((get) => get.url === "/session/{id}").every((get) => get.path?.id === SESSION)).toBe(true)
+    const receipt = receiptFor(ciWatchSnapshot(SESSION), String(started.watch_id))!
+    expect(receipt.session_id).toBe(SESSION)
+    expect(receipt.delivery_state).toBe(reply === "parented" ? "delivered" : "queued")
+    expect(receipt.terminal_observation).toMatchObject({
+      status: "failure", sha, head_sha: sha, run_url: report.run_url,
+      checks: { total: 2, passing: 0, failing: 1, skipped: 0, pending: 1 },
+      evidence: "exact_head", gaps: [],
+    })
+    if (reply === "parented") expect(ciWatchSnapshot(SESSION).active).toEqual([])
+    else expect(activeRecord(ciWatchSnapshot(SESSION), String(started.watch_id))!.phase).toBe("queued")
+
+    const other = { parts: [] as unknown[] }
+    drainQueuedCiReports("another-session", "msg_other_fail_fast", other)
+    expect(other.parts).toEqual([])
+    const missingID = { parts: [] as unknown[] }
+    drainQueuedCiReportsForMessage(SESSION, undefined, missingID)
+    expect(missingID.parts).toEqual([])
+    const output = { parts: [] as unknown[] }
+    drainQueuedCiReports(SESSION, "msg_fail_fast", output)
+    expect(output.parts).toHaveLength(reply === "parented" ? 0 : 1)
+    if (reply === "none") {
+      expect(output.parts[0]).toMatchObject({
+        sessionID: SESSION, messageID: "msg_fail_fast", type: "text", synthetic: true, text: expectedText,
+      })
+      expect(receiptFor(ciWatchSnapshot(SESSION), String(started.watch_id))!.delivery_state).toBe("drained")
+    }
+    const again = { parts: [] as unknown[] }
+    drainQueuedCiReports(SESSION, "msg_fail_fast_again", again)
+    expect(again.parts).toEqual([])
+    expect(ciWatchSnapshot(SESSION).active).toEqual([])
+    expect(calls).toHaveLength(1)
+  })
+}
+
 test("a session that stays busy past the idle window queues the report without prompting", async () => {
   const fixture = hostFixture({ status: "busy" })
   hostControlPlane().bind(fixture.client)

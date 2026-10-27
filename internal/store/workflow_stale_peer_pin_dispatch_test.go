@@ -49,9 +49,7 @@ func TestStaleRegistryRescanStrandsCurrentPinDispatchBesideStalePeer(t *testing.
 	}
 	repin["decision_domains"] = []string{}
 	repin["law_change_reason"] = "Re-pin the shared root Domain modification to the rescanned registry."
-	repin["law_change_removes_user_visible_behavior"] = false
-	repin["law_change_touches_security_or_data_safety"] = false
-	if err := runApprovalActionTx(t, s, BuiltinWorkflowRegistry(), workID, "supersede_contract", owner, nil, "", "", string(mustJSONValue(repin))); err != nil {
+	if err := runVerdictActionAs(t, s, workID, "supersede_contract", mustJSONValue(repin), 0, owner); err != nil {
 		t.Fatalf("subject re-pin to the current hash: %v", err)
 	}
 

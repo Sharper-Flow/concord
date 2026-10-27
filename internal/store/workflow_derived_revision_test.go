@@ -25,11 +25,15 @@ func seedDerivedLawExtension(t *testing.T, s *Store) {
 func runDerivedLawApproval(t *testing.T, s *Store, workID string, version int64, actor WorkflowActor, payload json.RawMessage) error {
 	t.Helper()
 	payload = testApprovalPayload(t, s, workID, "approve_contract", payload)
-	tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
+	ctx, err := s.EstablishKnowledgeSourceSetProof(context.Background(), workID)
+	if err != nil {
+		return err
+	}
+	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = applyWorkflowActionRawTx(context.Background(), tx, newWriteScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
+	_, err = applyWorkflowActionRawTx(ctx, tx, newWriteScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
 		WorkID: workID, ExpectedVersion: version, ActionID: "approve_contract", Payload: payload, Actor: actor,
 		AcceptedInputsDigest: "sha256:derived-revision", IdempotencyIdentity: "approve-derived-" + workID, OperationID: "approve-derived-" + workID,
 		PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "approve-derived-" + workID,
@@ -62,11 +66,15 @@ func seedDerivedRevisionWorkflow(t *testing.T, s *Store, workID string, actor Wo
 // given registered pin.
 func seedDerivedRevisionWorkflowAt(t *testing.T, s *Store, workID string, actor WorkflowActor, registered RegisteredDefinition) int64 {
 	t.Helper()
-	tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
+	ctx, err := s.EstablishKnowledgeSourceSetProof(context.Background(), workID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := initializeWorkflowRawTx(context.Background(), tx, WorkflowInitializationRequest{WorkID: workID, Definition: registered, Actor: actor, Now: time.Date(2026, 8, 9, 0, 0, 0, 0, time.UTC)}); err != nil {
+	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := initializeWorkflowRawTx(ctx, tx, WorkflowInitializationRequest{WorkID: workID, Definition: registered, Actor: actor, Now: time.Date(2026, 8, 9, 0, 0, 0, 0, time.UTC)}); err != nil {
 		tx.Rollback()
 		t.Fatal(err)
 	}
@@ -94,7 +102,7 @@ func TestDerivedLawRevisionOnNonProductChangingContract(t *testing.T) {
 		seedWorkflowLaw(t, s)
 		seedDerivedLawExtension(t, s)
 		version := seedDerivedRevisionWorkflow(t, s, workID, actor)
-		payload := json.RawMessage(`{"premise":"Revise the derived record inside this contract.","spec_mandate":["spec:one"],"law_modifies":["spec:one"],"law_change_reason":"Record why the derived revision moves into this contract.","law_change_removes_user_visible_behavior":false,"law_change_touches_security_or_data_safety":false,"outcome_predicates":[{"predicate_id":"predicate:primary","ordinal":0,"outcome_kind":"outcome","outcome_payload":{"kind":"outcome","allowed":["resolved"]}}]}`)
+		payload := json.RawMessage(`{"premise":"Revise the derived record inside this contract.","spec_mandate":["spec:one"],"law_modifies":["spec:one"],"law_change_reason":"Record why the derived revision moves into this contract.","outcome_predicates":[{"predicate_id":"predicate:primary","ordinal":0,"outcome_kind":"outcome","outcome_payload":{"kind":"outcome","allowed":["resolved"]}}]}`)
 		if err := runDerivedLawApproval(t, s, workID, version, actor, payload); err != nil {
 			t.Fatalf("a derived-only law_modifies was refused: %v", err)
 		}
@@ -115,7 +123,7 @@ func TestDerivedLawRevisionOnNonProductChangingContract(t *testing.T) {
 		seedWorkflowLaw(t, s)
 		seedDerivedLawExtension(t, s)
 		version := seedDerivedRevisionWorkflow(t, s, workID, actor)
-		payload := json.RawMessage(`{"premise":"Attempt to revise legislated law without a Product-changing workflow.","spec_mandate":["spec:legislated"],"law_modifies":["spec:legislated"],"law_change_reason":"Attempt the legislated revision.","law_change_removes_user_visible_behavior":false,"law_change_touches_security_or_data_safety":false,"outcome_predicates":[{"predicate_id":"predicate:primary","ordinal":0,"outcome_kind":"outcome","outcome_payload":{"kind":"outcome","allowed":["resolved"]}}]}`)
+		payload := json.RawMessage(`{"premise":"Attempt to revise legislated law without a Product-changing workflow.","spec_mandate":["spec:legislated"],"law_modifies":["spec:legislated"],"law_change_reason":"Attempt the legislated revision.","outcome_predicates":[{"predicate_id":"predicate:primary","ordinal":0,"outcome_kind":"outcome","outcome_payload":{"kind":"outcome","allowed":["resolved"]}}]}`)
 		err := runDerivedLawApproval(t, s, workID, version, actor, payload)
 		if err == nil {
 			t.Fatal("a legislated law_modifies was admitted on a non-Product-changing contract")
@@ -194,7 +202,7 @@ func TestTierAdmittedConflictRecordsTheContractRevisionLine(t *testing.T) {
 		// empty law_modifies changes no law and must not declare them.
 		lawChange := ""
 		if modifies != `[]` {
-			lawChange = `,"law_change_reason":"Resolve the declared conflict inside this contract.","law_change_removes_user_visible_behavior":false,"law_change_touches_security_or_data_safety":false`
+			lawChange = `,"law_change_reason":"Resolve the declared conflict inside this contract."`
 		}
 		payload := json.RawMessage(`{"premise":"Resolve the conflict inside this contract.","spec_mandate":["spec:legislated","spec:one"],"law_modifies":` + modifies + lawChange + `,"outcome_predicates":[{"predicate_id":"predicate:primary","ordinal":0,"outcome_kind":"outcome","outcome_payload":{"kind":"outcome","allowed":["resolved"]}}]}`)
 		return s, runDerivedLawApproval(t, s, workID, version, actor, payload)

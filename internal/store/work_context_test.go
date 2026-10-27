@@ -227,6 +227,15 @@ func seedWorkContextReadingSources(t *testing.T, s *Store, workID string) workCo
 	}
 	writeKnowledgeFile(t, lawRepo, knowledgeRecordTree+"/spec-one.json", string(recordJSON)+"\n")
 	out.lawCommit = commitKnowledgeRepo(t, lawRepo, "synthetic law home with manifest record")
+	home := KnowledgeHome{HomeProjectID: homeProject, HomeLocatorID: homeLocator, RepoPath: lawRepo, HeadRef: "HEAD"}
+	digest, err := knowledgeContentDigest(ctx, home, out.lawCommit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest, err = domainShapeKnowledgeDigest(ctx, home, out.lawCommit, digest, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
 	// The git-derived projection rows pin the exact committed identity the
 	// reading resolution discovers in the snapshot. The knowledge tables are
 	// write-seam-only, so the writes run under the write guard and release it.
@@ -240,7 +249,7 @@ func seedWorkContextReadingSources(t *testing.T, s *Store, workID string) workCo
 		{"archived", `INSERT OR REPLACE INTO archived_work(id,type,title,completed_at,outcome_tag,lesson_tags,terminal_state,priority,summary,home_project_id,home_locator_id,note_path,commit_oid,content_hash,scope_mode,manifest_schema_version)
 			VALUES(?, 'spec', 'Synthetic dispatch law', '2026-10-01T00:00:00Z', 'accepted', '[]', 'completed', 2, 'the fixture committed law record for declared reading resolution', ?, ?, ?, ?, ?, 'home', '1.2')`, []any{out.lawID, homeProject, homeLocator, ".concord/docs/spec.md", out.lawCommit, out.lawHash}},
 		{"watermark", `INSERT OR REPLACE INTO knowledge_index_watermark(home_project_id,home_locator_id,head_ref,scanned_commit_oid,scanned_content_digest,scanned_at,complete,projection_version)
-			VALUES(?,?,'HEAD',?,'sha256:seed','test',1,?)`, []any{homeProject, homeLocator, out.lawCommit, knowledgeProjectionVersion}},
+			VALUES(?,?,'HEAD',?,?,'test',1,?)`, []any{homeProject, homeLocator, out.lawCommit, digest, knowledgeProjectionVersion}},
 		{"law domain home", `INSERT OR REPLACE INTO law_domain_homes(home_project_id,home_locator_id,law_id,product_id,domain_id,law_content_hash,scanned_commit_oid,product_wide_rationale) VALUES(?,?,?,?,?,?, 'test', '')`,
 			[]any{homeProject, homeLocator, out.lawID, "product", workContextTestChild, out.lawHash}},
 		{"guard release", `DELETE FROM write_guard`, nil},
@@ -326,7 +335,7 @@ func seedWorkContextReadingSources(t *testing.T, s *Store, workID string) workCo
 			// record lives in that registered source: the committed
 			// manifest, the law blob, and the git-derived projection rows
 			// under the registered source's own locator.
-			seedRegisteredSourceProjection(t, s, member.project, member.locator, out.lawID, out.lawHash, out.lawCommit)
+			seedRegisteredSourceProjection(t, s, member.project, member.locator, repo, out.lawID, out.lawHash, out.lawCommit)
 		}
 	}
 	return out
@@ -336,8 +345,17 @@ func seedWorkContextReadingSources(t *testing.T, s *Store, workID string) workCo
 // git-derived projection rows to the exact committed identity, one statement
 // per Exec: modernc binds ? parameters per statement, so a multi-statement
 // batch misbinds.
-func seedRegisteredSourceProjection(t *testing.T, s *Store, projectID, locatorID, lawID, lawHash, lawCommit string) {
+func seedRegisteredSourceProjection(t *testing.T, s *Store, projectID, locatorID, repo, lawID, lawHash, lawCommit string) {
 	t.Helper()
+	home := KnowledgeHome{HomeProjectID: projectID, HomeLocatorID: locatorID, RepoPath: repo, HeadRef: "HEAD"}
+	digest, err := knowledgeContentDigest(t.Context(), home, lawCommit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest, err = domainShapeKnowledgeDigest(t.Context(), home, lawCommit, digest, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
 	db := s.DatabaseForTesting()
 	exec := func(tag, query string, args ...any) {
 		t.Helper()
@@ -353,7 +371,7 @@ func seedRegisteredSourceProjection(t *testing.T, s *Store, projectID, locatorID
 	exec("archived record", `INSERT OR REPLACE INTO archived_work(id,type,title,completed_at,outcome_tag,lesson_tags,terminal_state,priority,summary,home_project_id,home_locator_id,note_path,commit_oid,content_hash,scope_mode,manifest_schema_version)
 		VALUES(?, 'spec', 'Synthetic dispatch law', '2026-10-01T00:00:00Z', 'accepted', '[]', 'completed', 2, 'the fixture committed law record for declared reading resolution', ?, ?, ?, ?, ?, 'home', '1.2')`, lawID, projectID, locatorID, ".concord/docs/spec.md", lawCommit, lawHash)
 	exec("watermark", `INSERT OR REPLACE INTO knowledge_index_watermark(home_project_id,home_locator_id,head_ref,scanned_commit_oid,scanned_content_digest,scanned_at,complete,projection_version)
-		VALUES(?,?,'HEAD',?,'sha256:seed','test',1,?)`, projectID, locatorID, lawCommit, knowledgeProjectionVersion)
+		VALUES(?,?,'HEAD',?,?,'test',1,?)`, projectID, locatorID, lawCommit, digest, knowledgeProjectionVersion)
 	exec("law domain home", `INSERT OR REPLACE INTO law_domain_homes(home_project_id,home_locator_id,law_id,product_id,domain_id,law_content_hash,scanned_commit_oid,product_wide_rationale) VALUES(?,?,?,?,?,?, 'test', '')`, projectID, locatorID, lawID, "product", workContextTestChild, lawHash)
 	if _, err := db.Exec(`DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
@@ -402,9 +420,14 @@ func seedWorkContextFixtureWithDefinition(t *testing.T, workID string, registere
 	seedWork(t, s, workID)
 	seedWorkflowLaw(t, s)
 	seedWorkContextDomainRegistry(t, s)
+	sources := seedWorkContextReadingSources(t, s, workID)
 	owner := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/owner", SessionRef: "session/" + workID, ActorClass: ActorAgent}
 	operator := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/operator", SessionRef: "session/" + workID + "-operator", ActorClass: ActorOperator}
 	ownerRef, err := WorkflowActorRef(owner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, err = s.EstablishKnowledgeSourceSetProof(ctx, workID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -442,7 +465,6 @@ func seedWorkContextFixtureWithDefinition(t *testing.T, workID string, registere
 	if err := advanceWorkflowTestInstanceToStep(ctx, s, workID, "repair", ownerRef); err != nil {
 		t.Fatal(err)
 	}
-	sources := seedWorkContextReadingSources(t, s, workID)
 	return workContextFixture{store: s, workID: workID, owner: owner, operator: operator, sources: sources}
 }
 

@@ -46,9 +46,9 @@ func productAuthorityInvocation(grant Authority) Invocation {
 	return Invocation{ClientRef: grant.ClientRef, PrincipalRef: grant.PrincipalRef, SessionRef: grant.SessionRef, AgentRef: grant.AgentRef, Directory: grant.Directory, Worktree: grant.Worktree, ManifestDigest: agentcontract.ManifestDigest, RequiredCapability: "work_relate", ProductID: "product-1"}
 }
 
-func TestSameProductSiblingMembershipMutationPassesApprovalChallenge(t *testing.T) {
+func TestSameProductSiblingMembershipMutationNeedsNoConsent(t *testing.T) {
 	ctx := context.Background()
-	s, service, grant, privateKey := mutationDispatchFixture(t, []agentcontract.Capability{"work_relate"})
+	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_relate"})
 	addAuthoritySibling(t, s)
 
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
@@ -56,16 +56,8 @@ func TestSameProductSiblingMembershipMutationPassesApprovalChallenge(t *testing.
 		t.Fatal(err)
 	}
 	env := mutationEnvelope(grant, scopeVersion)
-	version := workVersion(t, s, "work-1")
 	request := InvokeRequest{Tool: "concord_work_relate", Operation: "set_memberships", Input: json.RawMessage(`{"work_id":"work-1","expected_version":2,"memberships":[{"project_id":"project-2","role":"primary"}],"idempotency_key":"sibling-move"}`)}
-	challenge, err := Dispatch(ctx, s, service, request, env)
-	if err != nil || challenge.Error == nil || challenge.Error.Kind != "approval_required" {
-		t.Fatalf("sibling membership challenge = %+v, err = %v", challenge, err)
-	}
-	ref := challenge.Error.Details["approval_ref"].(string)
-	scope := map[string]any{"product_id": "product-1", "product_ids": []string{"product-1"}, "project_ids": []string{"project-2"}, "work_ids": []string{"work-1"}, "scope_version": scopeVersion}
-	env.HostApproval = signedHostApproval(privateKey, ref, mutationDigest(request.Tool, request.Operation, env, request.Input), scope, map[string]any{"work": version}, env.SessionRef, env.AgentRef, env.Worktree, fixedTime(), "sibling-approval")
-	request.Input = json.RawMessage(`{"work_id":"work-1","expected_version":2,"memberships":[{"project_id":"project-2","role":"primary"}],"idempotency_key":"sibling-move","approval":{"approval_ref":"` + ref + `"}}`)
+	// CD-0243 D3/D7 retire ordinary membership consent, not scope checks.
 	approved, err := Dispatch(ctx, s, service, request, env)
 	if err != nil || approved.Outcome != OutcomeOK {
 		t.Fatalf("approved sibling membership = %+v, err = %v", approved, err)
@@ -76,33 +68,33 @@ func TestSameProductSiblingMembershipMutationPassesApprovalChallenge(t *testing.
 	}
 }
 
-func TestSameProductMembershipApprovalWireRoundTrip(t *testing.T) {
+func TestProductAccessApprovalWireRoundTrip(t *testing.T) {
+	// CD-0243 D3/D7 retire membership consent, not security access grants.
 	// The elapsed set walks the pending-challenge boundary: an answer before
 	// the ten-minute mint deadline exchanges the live invitation, an answer
 	// at or after it re-arms the expired unused invitation for its original
 	// interval, and an answer far beyond 24 hours still needs no second ask.
 	for _, elapsed := range []time.Duration{0, 10*time.Minute - time.Second, 10 * time.Minute, 10*time.Minute + time.Second, 14 * time.Minute, 27 * time.Minute, 25 * time.Hour} {
 		t.Run(elapsed.String(), func(t *testing.T) {
-			testMembershipApprovalWireRoundTrip(t, elapsed, false)
+			testProductAccessApprovalWireRoundTrip(t, elapsed, false)
 		})
 	}
 }
 
-func TestMembershipApprovalPreservesHostTimestampFailure(t *testing.T) {
-	testMembershipApprovalWireRoundTrip(t, 0, true)
+func TestProductAccessApprovalPreservesHostTimestampFailure(t *testing.T) {
+	testProductAccessApprovalWireRoundTrip(t, 0, true)
 }
 
-func testMembershipApprovalWireRoundTrip(t *testing.T, elapsed time.Duration, malformedTimestamp bool) {
+func testProductAccessApprovalWireRoundTrip(t *testing.T, elapsed time.Duration, malformedTimestamp bool) {
 	t.Helper()
 	ctx := context.Background()
-	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_relate"})
-	addAuthoritySibling(t, s)
+	s, service, grant, _ := productProjectLinkFixture(t, []agentcontract.Capability{"work_relate", "cross_scope"})
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
 	if err != nil {
 		t.Fatal(err)
 	}
 	env := mutationEnvelope(grant, scopeVersion)
-	request := InvokeRequest{Tool: "concord_work_relate", Operation: "set_memberships", Input: json.RawMessage(`{"work_id":"work-1","expected_version":2,"memberships":[{"project_id":"project-1","role":"primary"},{"project_id":"project-2","role":"secondary"}],"idempotency_key":"membership-wire-round-trip"}`)}
+	request := InvokeRequest{Tool: "concord_work_relate", Operation: "product_project_add", Input: productProjectLinkRequest("", "project-2")}
 	dispatchWire := func(request InvokeRequest, env CallEnvelope) Envelope {
 		t.Helper()
 		request.CallEnvelope, err = json.Marshal(env)
@@ -132,7 +124,7 @@ func testMembershipApprovalWireRoundTrip(t *testing.T, elapsed time.Duration, ma
 	}
 	challenge := dispatchWire(request, env)
 	if challenge.Error == nil || challenge.Error.Kind != "approval_required" || challenge.Error.ConsequenceSummary == nil {
-		t.Fatalf("membership challenge = %+v", challenge)
+		t.Fatalf("access challenge = %+v", challenge)
 	}
 	ref, ok := challenge.Error.Details["approval_ref"].(string)
 	if !ok || len(ref) != 64 {
@@ -186,23 +178,17 @@ func testMembershipApprovalWireRoundTrip(t *testing.T, elapsed time.Duration, ma
 		}
 	}
 	if approved.Outcome != OutcomeOK {
-		t.Fatalf("approved membership = %+v, error = %+v", approved, approved.Error)
+		t.Fatalf("approved access grant = %+v, error = %+v", approved, approved.Error)
 	}
-	memberships, err := s.ProjectsForWork(ctx, "work-1")
-	if err != nil || len(memberships) != 2 {
-		t.Fatalf("work memberships = %+v, err = %v", memberships, err)
+	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM product_projects WHERE product_id='product-1' AND project_id='project-2'`); got != 1 {
+		t.Fatalf("recorded access grants = %d, want 1", got)
 	}
-	for _, membership := range memberships {
-		if (membership.ID != "project-1" || membership.Role != "primary") && (membership.ID != "project-2" || membership.Role != "secondary") {
-			t.Fatalf("unexpected membership = %+v", membership)
-		}
-	}
-	if workVersion(t, s, "work-1") != 3 || usedCount(t, s.DatabaseForTesting(), `SELECT used_count FROM agent_approval_challenges WHERE challenge_ref=?`, ref) != 1 || countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM agent_approvals WHERE used_count=1`) != 1 {
-		t.Fatal("membership approval did not produce exactly one mutation, one consumed challenge, and one consumed approval")
+	if workVersion(t, s, "work-1") != 2 || usedCount(t, s.DatabaseForTesting(), `SELECT used_count FROM agent_approval_challenges WHERE challenge_ref=?`, ref) != 1 || countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM agent_approvals WHERE used_count=1`) != 1 {
+		t.Fatal("access approval changed work or did not consume exactly one challenge and approval")
 	}
 	replayed := dispatchWire(request, env)
-	if replayed.Outcome != OutcomeOK || !replayed.Replayed || workVersion(t, s, "work-1") != 3 {
-		t.Fatalf("membership replay = %+v", replayed)
+	if replayed.Outcome != OutcomeOK || !replayed.Replayed || workVersion(t, s, "work-1") != 2 {
+		t.Fatalf("access replay = %+v", replayed)
 	}
 }
 

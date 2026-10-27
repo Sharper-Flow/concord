@@ -201,7 +201,7 @@ func TestInvalidDecisionDomainsNamesItsEnumThroughTheDeclaringVariant(t *testing
 		t.Fatal("an unknown decision domain was accepted")
 	}
 	got := err.Error()
-	if !strings.Contains(got, `enum mismatch at $.fields.decision_domains[0]: accepted values are ["preference","product","ui_ux"]`) {
+	if !strings.Contains(got, `enum mismatch at $.fields.decision_domains[0]: accepted values are ["increased_spending","legal","product","production_data","security","ui_ux"]`) {
 		t.Errorf("refusal does not name the invalid decision domain through its declaring variant: %s", got)
 	}
 	if strings.Contains(got, "unknown property $.fields.decision_domains") {

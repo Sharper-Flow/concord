@@ -65,6 +65,7 @@ func TestDispatchRequiredReadingReplayAfterSourceRemoval(t *testing.T) {
 		t.Fatal(err)
 	}
 	grantActor := store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}
+	ctx = agentWorkflowSourceProof(t, ctx, s, "work-1")
 	if err := s.Transact(ctx, func(tx *store.Transaction) error {
 		return store.InitializeWorkflowTx(ctx, tx, store.WorkflowInitializationRequest{WorkID: "work-1", Definition: definition, Actor: grantActor, Now: fixedTime()})
 	}); err != nil {

@@ -17,7 +17,8 @@ func workSizeCaptureFixture() *WorkSizeCaptureInput {
 }
 
 // sizedBootstrapStore is the bootstrap fixture whose Product designates the
-// footprint fixture's knowledge home; index rebuilds the home.
+// footprint fixture's knowledge home when indexed. Otherwise the committed
+// home has no knowledge manifest, so freshness cannot create a Domain registry.
 func sizedBootstrapStore(t *testing.T, index bool) *Store {
 	t.Helper()
 	if _, err := exec.LookPath("git"); err != nil {
@@ -26,7 +27,14 @@ func sizedBootstrapStore(t *testing.T, index bool) *Store {
 	repo := initBootstrapStoreRepo(t)
 	s := openTemp(t)
 	seedBootstrapStoreAuthority(t, s, repo)
-	knowledgeRepo := footprintFixtureRepo(t, true)
+	var knowledgeRepo string
+	if index {
+		knowledgeRepo = footprintFixtureRepo(t, true)
+	} else {
+		knowledgeRepo = initKnowledgeRepo(t)
+		writeKnowledgeFile(t, knowledgeRepo, "README.md", "# Unindexed knowledge home\n")
+		commitKnowledgeRepo(t, knowledgeRepo, "knowledge home without a registry")
+	}
 	home := KnowledgeHome{HomeProjectID: "foot-project", HomeLocatorID: "foot-locator", RepoPath: knowledgeRepo, HeadRef: "HEAD"}
 	authorizeKnowledgeProductHome(t, s, "product-bootstrap", home)
 	if index {

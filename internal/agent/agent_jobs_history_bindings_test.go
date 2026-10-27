@@ -29,7 +29,7 @@ func bindAJ4HistoryOfASupersededContract(t *testing.T, _ jobScenario) jobObserva
 		invokeWorkflowIssue31Action(t, s, service, env, actionID, version, "aj4-history-"+actionID)
 		version = workOneVersion(t, s)
 	}
-	approved, _ := approvedWorkflowContract(t, s, service, grant, privateKey, env, version, workflowContractFieldsFixture(), "aj4-history-approve")
+	approved, _ := approvedWorkflowContract(t, s, service, grant, privateKey, env, version, workflowContractFieldsForSeededRegistry(t, s), "aj4-history-approve")
 	if approved.Outcome != OutcomeOK {
 		t.Fatalf("approve_contract = %+v", approved.Error)
 	}
@@ -37,7 +37,7 @@ func bindAJ4HistoryOfASupersededContract(t *testing.T, _ jobScenario) jobObserva
 	superseded, _ := approvedWorkflowActionWithVersions(t, s, service, grant, privateKey, env, version, "supersede_contract", map[string]any{
 		"contract_version":     2,
 		"premise":              "corrected premise",
-		"architecture_binding": workflowArchitectureBindingFixture(),
+		"architecture_binding": workflowArchitectureBindingForSeededRegistry(t, s),
 		"outcome_predicates": []map[string]any{{
 			"predicate_id": "predicate:primary", "ordinal": 0, "outcome_kind": "check",
 			"outcome_payload": map[string]any{"kind": "check", "check_ref": "check:workflow", "immutable_subject_ref": "commit:workflow", "expected_result": "pass"},

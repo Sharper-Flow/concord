@@ -1273,9 +1273,9 @@ func actionEnumListField(name string, required bool, lower, upper int64, values 
 
 // workflowDecisionFactField declares the copied decision-fact field a
 // consequence_v1 contract carries: a required closed string list whose
-// members answer to workflowDecisionDomainSet, where the empty list records
-// engineering and absence has no declared shape. The enum storage is copied,
-// so the field never aliases the canonical set.
+// members answer to CD-0243's six-class workflowDecisionDomainSet. The empty
+// list records engineering and absence has no declared shape. The enum storage
+// is copied, so the field never aliases the canonical set.
 func workflowDecisionFactField() WorkflowPayloadField {
 	return actionEnumListField("decision_domains", true, 0, int64(len(workflowDecisionDomainSet)), slices.Clone(workflowDecisionDomainSet)...)
 }

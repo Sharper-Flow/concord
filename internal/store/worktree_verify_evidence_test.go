@@ -31,10 +31,14 @@ func verifyEvidenceFixture(t *testing.T, workID string) (*Store, *fakeWorktreeGi
 	}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 0}}); err != nil {
 		t.Fatal(err)
 	}
-	repoRoot := t.TempDir()
+	repoRoot := initKnowledgeRepo(t)
 	if err := s.AddProjectLocator(ctx, "project-w", ProjectLocator{ID: "path-w", Kind: LocatorCanonicalPath, Value: repoRoot}, 1); err != nil {
 		t.Fatal(err)
 	}
+	manifest := lawTestManifest()
+	manifest.Records = []KnowledgeRecord{}
+	writeAggregateAsShards(t, repoRoot, mustJSONValue(manifest))
+	bindWorkflowFixtureKnowledgeSource(t, s, KnowledgeHome{HomeProjectID: "project-w", HomeLocatorID: "path-w", RepoPath: repoRoot, HeadRef: "HEAD"})
 	git := newFakeWorktreeGit(repoRoot)
 
 	owner := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/owner", SessionRef: "session/" + workID, ActorClass: ActorAgent}

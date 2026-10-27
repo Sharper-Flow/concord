@@ -88,11 +88,15 @@ func TestApproveContractRefusesUnproducibleRequiredEvidence(t *testing.T) {
 	seedWork(t, s, workID)
 	seedWorkflowLaw(t, s)
 	actor := WorkflowActor{PrincipalRef: "principal:reachability", ClientRef: "client:reachability", AgentRef: "agent:reachability", SessionRef: "session:reachability", ActorClass: ActorAgent}
-	tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
+	ctx, err := s.EstablishKnowledgeSourceSetProof(context.Background(), workID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := initializeWorkflowRawTx(context.Background(), tx, WorkflowInitializationRequest{WorkID: workID, Definition: workflowEvidenceGapRegistration, Actor: actor, Now: time.Date(2026, 8, 9, 0, 0, 0, 0, time.UTC)}); err != nil {
+	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := initializeWorkflowRawTx(ctx, tx, WorkflowInitializationRequest{WorkID: workID, Definition: workflowEvidenceGapRegistration, Actor: actor, Now: time.Date(2026, 8, 9, 0, 0, 0, 0, time.UTC)}); err != nil {
 		tx.Rollback()
 		t.Fatal(err)
 	}
@@ -106,11 +110,11 @@ func TestApproveContractRefusesUnproducibleRequiredEvidence(t *testing.T) {
 
 	runApprove := func(operationID string, requiredEvidence string) error {
 		payload := testApprovalPayload(t, s, workID, "approve_contract", json.RawMessage(`{"required_evidence":[`+requiredEvidence+`]}`))
-		tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
+		tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
-		_, err = applyWorkflowActionRawTx(context.Background(), tx, newWriteScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
+		_, err = applyWorkflowActionRawTx(ctx, tx, newWriteScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
 			WorkID: workID, ExpectedVersion: version, ActionID: "approve_contract", Payload: payload, Actor: actor,
 			AcceptedInputsDigest: "sha256:reachability", IdempotencyIdentity: operationID, OperationID: operationID,
 			PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: operationID,

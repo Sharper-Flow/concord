@@ -360,6 +360,10 @@ func TestProductChangingContractPersistsArchitectureBindingAndReadSurfaces(t *te
 	if !ok {
 		t.Fatal("latest implementation definition missing")
 	}
+	ctx, err = s.EstablishKnowledgeSourceSetProof(ctx, workID)
+	if err != nil {
+		t.Fatal(err)
+	}
 	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -579,6 +583,7 @@ func TestProductChangingCompletionRequiresVerificationObligation(t *testing.T) {
 		successor["contract_version"] = 2
 		successor["required_evidence"] = []string{"verification", "review"}
 		successor["spec_mandate"] = []string{"spec:one"}
+		successor["law_modifies"] = []string{"spec:one"}
 		successor["law_revisions"] = []WorkflowLawRevision{{LawID: "spec:one", ContentHash: lawHash}}
 		successor["architecture_binding"].(map[string]any)["verification_obligations"] = []WorkflowVerificationObligation{{LawID: "spec:one", ObligationID: "verification"}}
 		version := readWorkVersion(t, s, workID)
@@ -588,6 +593,7 @@ func TestProductChangingCompletionRequiresVerificationObligation(t *testing.T) {
 			"supersede_reason": "Require law-bound verification.", "audit_evidence": []string{"evidence:architecture-obligation"}, "successor_contract": successor,
 		})
 		event.PayloadVersion = CurrentEventPayloadVersion(WorkflowContractSuperseded)
+		event = pOverlapContractFacts(t, s, event)
 		if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}); err != nil {
 			t.Fatal(err)
 		}

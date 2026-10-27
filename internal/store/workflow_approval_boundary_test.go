@@ -110,16 +110,21 @@ func TestWorkflowApprovalBoundary(t *testing.T) {
 		}
 
 		// Both policies answer every pin-absent engine-owned entry:
-		// consequence_v1 classifies routine record-keeping, and legacy
-		// echoes the consent the canonical engine owner declares.
+		// consequence_v1 records recovery without consent, including the
+		// engineering successor decision, and legacy echoes the consent
+		// the canonical engine owner declares.
 		for _, actionID := range absent {
-			result, err := ClassifyWorkflowApproval(newPolicy, actionID, WorkflowApprovalFacts{})
+			result, err := ClassifyWorkflowApproval(newPolicy, actionID, WorkflowApprovalFacts{ProposedDecisionDomains: []string{}})
 			if err != nil {
 				t.Errorf("consequence_v1 classification of engine-owned recovery action %s refused: %v", actionID, err)
 				continue
 			}
-			if result.Policy != WorkflowApprovalPolicyConsequenceV1 || result.Class != WorkflowApprovalClassRoutine || result.Consent != WorkflowConsentNone {
-				t.Errorf("consequence_v1 engine recovery %s classified policy %q class %q consent %q, want consequence_v1 routine/none", actionID, result.Policy, result.Class, result.Consent)
+			wantClass := WorkflowApprovalClassRoutine
+			if actionID == "supersede_contract" {
+				wantClass = WorkflowApprovalClassDecision
+			}
+			if result.Policy != WorkflowApprovalPolicyConsequenceV1 || result.Class != wantClass || result.Consent != WorkflowConsentNone {
+				t.Errorf("consequence_v1 engine recovery %s classified policy %q class %q consent %q, want consequence_v1 %s/none", actionID, result.Policy, result.Class, result.Consent, wantClass)
 			}
 			owner, owned := workflowRecoveryActionDefinition(actionID)
 			if !owned {
@@ -411,8 +416,12 @@ func TestWorkflowApprovalBoundary(t *testing.T) {
 		}
 		initialize := func(t *testing.T, s *Store, workID string, entry RegisteredDefinition, reg DefinitionRegistry) error {
 			t.Helper()
-			return s.Transact(ctx, func(tx *Transaction) error {
-				return InitializeWorkflowTx(ctx, tx, WorkflowInitializationRequest{WorkID: workID, Definition: entry, Actor: ownerFor(workID), Now: time.Unix(5, 0).UTC(), Registry: reg})
+			verified, err := s.EstablishKnowledgeSourceSetProof(ctx, workID)
+			if err != nil {
+				return err
+			}
+			return s.Transact(verified, func(tx *Transaction) error {
+				return InitializeWorkflowTx(verified, tx, WorkflowInitializationRequest{WorkID: workID, Definition: entry, Actor: ownerFor(workID), Now: time.Unix(5, 0).UTC(), Registry: reg})
 			})
 		}
 

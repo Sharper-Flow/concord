@@ -70,6 +70,7 @@ func workflowEngineFixture(t *testing.T, premise string) (*store.Store, *Service
 		t.Fatal(defErr)
 	}
 	execActor := store.WorkflowActor{PrincipalRef: "human-1", ClientRef: "client-session-exec-aaaa", AgentRef: "agent-exec", SessionRef: "session-exec-aaaa", ActorClass: store.ActorAgent}
+	ctx = agentWorkflowSourceProof(t, ctx, s, "work-1")
 	if err := s.Transact(ctx, func(tx *store.Transaction) error {
 		return store.InitializeWorkflowTx(ctx, tx, store.WorkflowInitializationRequest{WorkID: "work-1", Definition: definition, Actor: execActor, Now: fixedTime()})
 	}); err != nil {
@@ -116,7 +117,7 @@ func workflowEngineFixture(t *testing.T, premise string) (*store.Store, *Service
 		"outcome":      "none_found",
 		"root_cause":   "The bounded root cause statement.",
 	})
-	contractFields := workflowContractFieldsFixture()
+	contractFields := workflowContractFieldsForSeededRegistry(t, s)
 	contractFields["outcome_predicates"] = []map[string]any{{"predicate_id": "predicate:primary", "ordinal": 0, "outcome_kind": "absent", "outcome_payload": map[string]any{
 		"kind": "absent", "surface": "behavior:defect", "subjects": []string{"work-1"}, "distinguish_from": []string{"disabled"},
 	}}}

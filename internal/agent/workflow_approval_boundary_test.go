@@ -78,6 +78,7 @@ func TestWorkflowApprovalBoundaryConsent(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+			ctx = agentWorkflowSourceProof(t, ctx, s, "work-1")
 			if err := s.Transact(ctx, func(tx *store.Transaction) error {
 				return store.InitializeWorkflowTx(ctx, tx, store.WorkflowInitializationRequest{WorkID: "work-1", Definition: registered, Actor: store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}, Registry: registry, Now: fixedTime()})
 			}); err != nil {

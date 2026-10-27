@@ -6,7 +6,6 @@ import (
 	"path/filepath"
 	"slices"
 	"testing"
-	"time"
 
 	"github.com/sharper-flow/concord/internal/store"
 )
@@ -15,27 +14,18 @@ import (
 // preserves the candidate, contract, and step and needs no forge simulation.
 func (f *spineFixture) administrativeRecovery(t *testing.T) {
 	t.Helper()
+	challenges := countWorkflowApprovalChallenges(t, f.s)
 	for _, operation := range []string{"outside_repair", "outside_repair_reconcile"} {
 		input := map[string]any{"work_id": f.work, "expected_version": f.read(t).Pinned.Pin.Version,
 			"reason": "Return the unchanged checked candidate to managed work.", "idempotency_key": "spine-" + operation}
 		if operation == "outside_repair_reconcile" {
 			input["mode"] = "resume"
 		}
-		challenge := f.call(t, "concord_work_transition", operation, input)
-		if challenge.Error == nil || challenge.Error.Kind != "approval_required" {
-			t.Fatalf("recovery did not require approval: %+v", challenge.Error)
-		}
-		ref, _ := challenge.Error.Details["approval_ref"].(string)
-		if ref == "" {
-			t.Fatal("recovery omitted approval challenge")
-		}
-		scope, versions := challengeApprovalBindings(t, challenge.Error.ConsequenceSummary)
-		input["approval"] = map[string]any{"approval_ref": ref}
-		f.env.HostApproval = signedHostApproval(mustKey(t), ref,
-			mutationDigest("concord_work_transition", operation, f.env, retryJSON(input)), scope, versions,
-			f.env.SessionRef, f.env.AgentRef, f.env.Worktree, time.Now(), nonceForChallenge(ref))
+		// CD-0243 D3/D7 retire ordinary hold/resume consent, not recovery gates.
 		spineOK(t, f.call(t, "concord_work_transition", operation, input))
-		f.env.HostApproval = nil
+	}
+	if got := countWorkflowApprovalChallenges(t, f.s); got != challenges {
+		t.Fatalf("administrative recovery minted %d challenges", got-challenges)
 	}
 }
 

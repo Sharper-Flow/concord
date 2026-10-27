@@ -627,6 +627,10 @@ func readOperatorQuestionFromWorkPinForTest(ctx context.Context, s *Store, workI
 // livenessApply runs one action against the store and commits it, so the
 // explorer's moves land the state the next move reads.
 func livenessApply(ctx context.Context, s *Store, workID string, move livenessMove, sequence int) error {
+	ctx, err := prepareTerminalTestContext(ctx, s, workID, move.action)
+	if err != nil {
+		return err
+	}
 	version, err := livenessWorkVersion(ctx, s, workID)
 	if err != nil {
 		return err
@@ -1082,7 +1086,10 @@ func livenessInitialize(t *testing.T, s *Store, workID string, definition Workfl
 	if err != nil {
 		t.Fatal(err)
 	}
-	ctx := context.Background()
+	ctx, err := s.EstablishKnowledgeSourceSetProof(t.Context(), workID)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := s.Transact(ctx, func(tx *Transaction) error {
 		return InitializeWorkflowTx(ctx, tx, WorkflowInitializationRequest{WorkID: workID, Definition: registered, Actor: livenessActor(), Now: time.Unix(5, 0).UTC()})
 	}); err != nil {
@@ -1093,6 +1100,10 @@ func livenessInitialize(t *testing.T, s *Store, workID string, definition Workfl
 func livenessSeedInvestigation(t *testing.T, s *Store, workID string) {
 	t.Helper()
 	ctx := context.Background()
+	repo := initKnowledgeRepo(t)
+	manifest := lawTestManifest()
+	manifest.Records = []KnowledgeRecord{}
+	writeAggregateAsShards(t, repo, mustJSONValue(manifest))
 	peerID := livenessPeerWorkID
 	if err := ApplyOperation(ctx, s, Operation{Events: []Event{
 		{EventID: peerID + "-create", Kind: "work.created", SubjectType: SubjectWorkItem, SubjectID: peerID, Actor: "operator", OccurredAt: time.Unix(3, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion("work.created"), Payload: jsonRaw(`{"work_kind":"task","title":"Peer work","priority":1}`)},
@@ -1113,7 +1124,7 @@ func livenessSeedInvestigation(t *testing.T, s *Store, workID string) {
 		query string
 		args  []any
 	}{
-		{`INSERT OR IGNORE INTO project_locators(locator_id,project_id,kind,locator_value,normalized_value,created_at,updated_at) VALUES('liveness-locator','project-s','canonical_path','/liveness','/liveness','t','t')`, nil},
+		{`INSERT OR IGNORE INTO project_locators(locator_id,project_id,kind,locator_value,normalized_value,created_at,updated_at) VALUES('liveness-locator','project-s','canonical_path',?,?,'t','t')`, []any{repo, repo}},
 		{`INSERT OR IGNORE INTO product_knowledge_homes(product_id,project_id,locator_id) VALUES('product-s','project-s','liveness-locator')`, nil},
 		{`INSERT INTO domain_registries(product_id,home_project_id,home_locator_id,product_key,root_domain_id,schema_version,content_hash,scanned_commit_oid) VALUES('product-s','project-s','liveness-locator','liveness','root','1.0',?,'liveness')`, []any{hash}},
 		{`INSERT INTO domains(home_project_id,home_locator_id,product_id,domain_id,name,purpose,status,registry_content_hash,scanned_commit_oid) VALUES('project-s','liveness-locator','product-s','root','Root','Product law','current',?,'liveness')`, []any{hash}},
@@ -1140,6 +1151,7 @@ func livenessSeedInvestigation(t *testing.T, s *Store, workID string) {
 	if err := tx.Commit(); err != nil {
 		t.Fatal(err)
 	}
+	bindWorkflowFixtureKnowledgeSource(t, s, KnowledgeHome{HomeProjectID: "project-s", HomeLocatorID: "liveness-locator", RepoPath: repo, HeadRef: "HEAD"})
 }
 
 // livenessStateMoves builds every action variant the step declares.

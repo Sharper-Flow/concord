@@ -27,11 +27,15 @@ func crossProductBindingApprovalFixture(t *testing.T, workID string) (*Store, Wo
 	if err != nil {
 		t.Fatal(err)
 	}
-	tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
+	ctx, err := s.EstablishKnowledgeSourceSetProof(context.Background(), workID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := initializeWorkflowRawTx(context.Background(), tx, WorkflowInitializationRequest{WorkID: workID, Definition: registered, Actor: actor, Now: time.Date(2026, 9, 27, 0, 0, 0, 0, time.UTC)}); err != nil {
+	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := initializeWorkflowRawTx(ctx, tx, WorkflowInitializationRequest{WorkID: workID, Definition: registered, Actor: actor, Now: time.Date(2026, 9, 27, 0, 0, 0, 0, time.UTC)}); err != nil {
 		tx.Rollback()
 		t.Fatal(err)
 	}

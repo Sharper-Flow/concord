@@ -195,13 +195,24 @@ func activeWorkflowContract(ctx context.Context, q queryer, workID string) (Work
 	return contract, nil
 }
 
+func (s *Store) WorkflowInstanceDefinition(ctx context.Context, workID string) (WorkflowInstanceDefinition, bool, error) {
+	if s == nil || s.db == nil {
+		return WorkflowInstanceDefinition{}, false, newFailure(KindUnavailable, "workflow_instance", "store is not open", false, "open the authority database")
+	}
+	return workflowInstanceDefinition(ctx, s.db, workID)
+}
+
 func WorkflowInstanceDefinitionTx(ctx context.Context, transaction *Transaction, workID string) (WorkflowInstanceDefinition, bool, error) {
 	tx, err := transactionSQL(transaction, "workflow_instance")
 	if err != nil {
 		return WorkflowInstanceDefinition{}, false, err
 	}
+	return workflowInstanceDefinition(ctx, tx, workID)
+}
+
+func workflowInstanceDefinition(ctx context.Context, q queryer, workID string) (WorkflowInstanceDefinition, bool, error) {
 	var definition WorkflowInstanceDefinition
-	err = tx.QueryRowContext(ctx, `SELECT definition_ref,definition_digest FROM workflow_instances WHERE work_id=?`, workID).Scan(&definition.DefinitionRef, &definition.DefinitionDigest)
+	err := q.QueryRowContext(ctx, `SELECT definition_ref,definition_digest FROM workflow_instances WHERE work_id=?`, workID).Scan(&definition.DefinitionRef, &definition.DefinitionDigest)
 	if err == sql.ErrNoRows {
 		return WorkflowInstanceDefinition{}, false, nil
 	}
@@ -468,7 +479,7 @@ func workflowApprovalBoundaryCore(ctx context.Context, q queryer, registry Defin
 	if state.EvaluatorAuthority, err = workflowEvaluationAuthority(ctx, q, request.WorkID, actorRef); err != nil {
 		return state, err
 	}
-	facts, err := workflowApprovalBoundaryFacts(ctx, q, request, state)
+	facts, err := workflowApprovalBoundaryFacts(request, state)
 	if err != nil {
 		return state, err
 	}
@@ -478,7 +489,7 @@ func workflowApprovalBoundaryCore(ctx context.Context, q queryer, registry Defin
 	return state, nil
 }
 
-func workflowApprovalBoundaryFacts(ctx context.Context, q queryer, request WorkflowActionPreflightRequest, state WorkflowApprovalBoundaryState) (WorkflowApprovalFacts, error) {
+func workflowApprovalBoundaryFacts(request WorkflowActionPreflightRequest, state WorkflowApprovalBoundaryState) (WorkflowApprovalFacts, error) {
 	facts := WorkflowApprovalFacts{ActiveDecisionDomains: state.DecisionDomains}
 	if workflowOperatorVerdictActions[request.ActionID] {
 		// The existing legacy fact: an independent evaluator never becomes consent.
@@ -494,19 +505,12 @@ func workflowApprovalBoundaryFacts(ctx context.Context, q queryer, request Workf
 		role := "successor"
 		if request.ActionID == "approve_contract" {
 			role = "approval"
-			domains, err := workflowSubmittedDecisionDomains(state.Definition.Definition, role, fields)
-			if err != nil {
-				return facts, err
-			}
-			facts.ProposedDecisionDomains = domains
 		}
-		// CD-0230 D4: a serious law change needs the operator's approval of
-		// its exact text; a non-serious one records its reason instead.
-		serious, err := workflowProposedLawChangeSeriousTx(ctx, q, state.Definition.Definition, request.WorkID, role, fields)
+		domains, err := workflowSubmittedDecisionDomains(state.Definition.Definition, role, fields)
 		if err != nil {
 			return facts, err
 		}
-		facts.SeriousLawChange = serious
+		facts.ProposedDecisionDomains = domains
 	}
 	return facts, nil
 }

@@ -106,10 +106,6 @@ func durableVerifyOperationCount(t *testing.T, s *Store, leaseID string) int {
 	return count
 }
 
-// A green worktree-verify run claims a completed durable producer operation,
-// the bind route names it, and the acceptance gate accepts the item. The
-// run's authority carries the whole chain: binding, outstanding-requirement
-// calculation, premise confirmation, and completion.
 func footprintProofReceiptPackageScope(t *testing.T, s *Store) {
 	t.Helper()
 	var home string
@@ -127,6 +123,10 @@ func footprintProofReceiptPackageScope(t *testing.T, s *Store) {
 		`UPDATE law_subjects SET scanned_commit_oid='`+commit+`',content_hash='`+nativeDigest([]byte("# Synthetic test law\n"))+`' WHERE home_project_id='project' AND home_locator_id='workflow-law-locator'`)
 }
 
+// A green worktree-verify run claims a completed durable producer operation,
+// the bind route names it, and the acceptance gate accepts the item. The
+// run's authority carries the whole chain: binding, outstanding-requirement
+// calculation, premise confirmation, and completion.
 func TestGreenVerifyRunBindsAsVerificationEvidence(t *testing.T) {
 	ctx := context.Background()
 	f, repo, refs := pReceiptFixture(t, "verify-evidence-route", 1, 1, func(f workContextFixture) {

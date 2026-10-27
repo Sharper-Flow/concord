@@ -2,10 +2,12 @@
 """Native Bun JUnit acceptance controls; process success alone proves nothing."""
 import importlib.util
 import json
+import os
 import shutil
 import subprocess
 import tempfile
 import unittest
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -25,6 +27,19 @@ class JUnitGradingTests(unittest.TestCase):
     def test_exact_native_pass(self):
         self.assertEqual(self.grade('<testcase file="suite.test.ts" name="alpha"/>'),
                          [{"file": "suite.test.ts", "name": "alpha", "outcome": "pass"}])
+
+    def test_flat_suite_metadata_cannot_supply_or_hide_outcomes(self):
+        metadata = '<properties><property name="git.commit" value="synthetic"/></properties>'
+        passed = '<testcase file="suite.test.ts" name="alpha"/>'
+        self.assertEqual(self.grade(metadata + passed), self.grade(passed))
+        for cases in (metadata, metadata + '<testcase file="suite.test.ts" name="alpha"><failure/></testcase>',
+                      '<properties>' + passed + '</properties>' + passed,
+                      '<properties><property name="x" value="y"><failure/></property></properties>' + passed,
+                      '<properties><property name="x"/></properties>' + passed,
+                      '<properties><property name="x" value="y" status="pass"/></properties>' + passed,
+                      '<properties><property name="" value="y"/></properties>' + passed):
+            with self.subTest(cases=cases), self.assertRaises(ValueError):
+                self.grade(cases)
 
     def test_missing_empty_foreign_ambiguous_and_nonpass_refuse(self):
         cases = ["", '<testcase file="suite.test.ts" name="other"/>',
@@ -75,6 +90,26 @@ class JUnitGradingTests(unittest.TestCase):
 
 
 class BunNativeTests(unittest.TestCase):
+    def test_native_ci_properties_are_metadata_not_test_outcomes(self):
+        with tempfile.TemporaryDirectory(dir=ROOT) as temporary:
+            root = Path(temporary)
+            (root / "suite.test.ts").write_text('import {test,expect} from "bun:test"; test("alpha",()=>expect(true).toBe(true));')
+            report = root / "native.xml"
+            environment = {**os.environ, "CI": "true", "GITHUB_ACTIONS": "true",
+                           "GITHUB_REPOSITORY": "example/project", "GITHUB_SHA": "a" * 40,
+                           "GITHUB_RUN_ID": "1", "GITHUB_RUN_NUMBER": "1", "GITHUB_JOB": "test",
+                           "GITHUB_WORKFLOW": "test", "GITHUB_REF": "refs/heads/test"}
+            run = subprocess.run(["bun", "test", "--reporter=junit", f"--reporter-outfile={report}", "./suite.test.ts"],
+                                 cwd=root, env=environment, capture_output=True, text=True, timeout=20)
+            self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+            properties = ET.parse(report).find("./testsuite/properties")
+            self.assertIsNotNone(properties)
+            self.assertGreater(len(properties), 0)
+            self.assertTrue(all(item.tag == "property" and set(item.attrib) == {"name", "value"}
+                                and len(item) == 0 for item in properties), ET.tostring(properties, encoding="unicode"))
+            self.assertEqual(acceptance.grade_report(report, ["suite.test.ts"], ["alpha"]),
+                             [{"file": "suite.test.ts", "name": "alpha", "outcome": "pass"}])
+
     def test_generator_keeps_the_corpus_pinned_and_only_emits_checked_owners(self):
         spec = importlib.util.spec_from_file_location("adapter_generator", ROOT / "scripts/generate-adapter-oracle.py")
         generator = importlib.util.module_from_spec(spec)

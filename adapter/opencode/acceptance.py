@@ -17,6 +17,16 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 
 
+def validate_suite_properties(properties: ET.Element) -> None:
+    if properties.attrib or (properties.text or "").strip():
+        raise ValueError("malformed native Bun suite properties")
+    for item in properties:
+        if (item.tag != "property" or set(item.attrib) != {"name", "value"}
+                or not item.get("name", "").strip() or len(item)
+                or (item.text or "").strip() or (item.tail or "").strip()):
+            raise ValueError("malformed native Bun suite property")
+
+
 def grade_report(report: Path, files: list[str], expected: list[str]) -> list[dict[str, str]]:
     if not report.is_file() or report.stat().st_size > 2 * 1024 * 1024:
         raise ValueError("missing or oversized native Bun JUnit report")
@@ -35,6 +45,9 @@ def grade_report(report: Path, files: list[str], expected: list[str]) -> list[di
     while pending:
         suite = pending.pop()
         for case in suite:
+            if case.tag == "properties":
+                validate_suite_properties(case)
+                continue
             if case.tag == "testsuite":
                 pending.append(case)
                 continue

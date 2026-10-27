@@ -196,12 +196,8 @@ func bindNativeReviewPreparationsTx(ctx context.Context, q queryer, work string,
 	}
 	selected := make([]WorkerOraclePreparationBinding, 0, len(oracle.Controls))
 	for _, control := range oracle.Controls {
-		bundle, err := nativeBundleForControl(oracle, control.ControlID)
-		if err != nil {
-			return nil, err
-		}
 		plan, ok := plans[control.ControlID]
-		if !ok || nativeBundleDigest(plan.Bundle) != nativeBundleDigest(bundle) {
+		if !ok {
 			return nil, missingReviewPreparation()
 		}
 		ref, err := selectNativeReviewPreparationTx(ctx, q, plan)

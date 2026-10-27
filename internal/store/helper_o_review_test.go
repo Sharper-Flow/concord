@@ -70,7 +70,7 @@ func oCompleteOracleFixtureReview(t *testing.T, f oracleRepairFixture, workID, d
 	if checkpoint != nil {
 		packet["inputs"].(map[string]any)["checkpoint"] = checkpoint
 	}
-	prepared, err := PrepareWorkerDispatchFreshness(t.Context(), s, PrepareWorkerDispatchRequest{WorkID: workID, SessionWorktree: f.entry.Path, Runner: f.git})
+	prepared, err := PrepareWorkerDispatchFreshness(t.Context(), s, PrepareWorkerDispatchRequest{WorkID: workID, SessionWorktree: f.entry.Path, Runner: f.git, DispatchPayload: mustJSONValue(map[string]any{"attempt_id": attempt, "worker_packet": packet}), reviewPlanner: oracleFixtureReviewPlanner(t, oracleFixtureRuntime)})
 	if err != nil {
 		t.Fatal(err)
 	}

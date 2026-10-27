@@ -380,7 +380,7 @@ func dispatchConfirmingReview(t *testing.T, s *Store, workID, attemptID string, 
 		}
 		payload = mustJSONValue(map[string]any{"attempt_id": attemptID, "worker_packet": json.RawMessage(rebuilt)})
 	}
-	ctx, prepErr := reviewSubjectPrepareDispatch(s, workID, sessionWorktree)
+	ctx, prepErr := reviewSubjectPrepareDispatch(t, s, workID, sessionWorktree, payload)
 	if prepErr != nil {
 		return prepErr
 	}

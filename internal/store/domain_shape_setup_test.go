@@ -166,6 +166,125 @@ func TestDomainShapeSetupAddsOnlyMissingToolingDeclaration(t *testing.T) {
 	}
 }
 
+func TestDomainShapeSetupPreservesCoverageMetadata(t *testing.T) {
+	var relations []any
+	for index := range 64 {
+		anchorKind := []string{"go_test", "scenario", "validator", "generated", "adapter_test", "go_package"}[index%6]
+		ownerKind := []string{"go_package", "go_test", "adapter_test", "validator"}[index%4]
+		value := fmt.Sprintf("synthetic-%d", index)
+		if index == 0 {
+			value = strings.Repeat("果", 512)
+		} else if index == 1 {
+			value = "果実園"
+		}
+		relations = append(relations, map[string]any{
+			"anchor": map[string]string{"kind": anchorKind, "value": value},
+			"owner":  map[string]string{"kind": ownerKind, "value": value},
+		})
+	}
+	coverage, err := json.MarshalIndent(relations, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, declared := range []bool{false, true} {
+		t.Run(fmt.Sprintf("domain-shape-%v", declared), func(t *testing.T) {
+			request := setupShapeRequest(t, "orchard")
+			tooling := "{\n  \"schema_version\":\"1.0\",\"project\":\"orchard-home\",\"tools\":[{\"id\":\"unit-check\",\"purpose\":\"Check units.\",\"invocation\":\"go test ./...\",\"tier\":\"fast\",\"coverage\":" + string(coverage) + "}]"
+			if declared {
+				tooling += ",\"domain_shape\":{}"
+			}
+			tooling += "\n}\n\t"
+			writeSetupInput(t, request, projectToolingManifestPath, tooling)
+			before := setupShapeSnapshot(t, request.RepoPath)
+			plan, err := PrepareDomainShapeSetup(request)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(before, setupShapeSnapshot(t, request.RepoPath)) {
+				t.Fatal("prepare changed authored metadata")
+			}
+			result, err := plan.Apply()
+			if err != nil {
+				t.Fatal(err)
+			}
+			expected := tooling
+			if !declared {
+				trimmed := strings.TrimRight(tooling, " \t\r\n")
+				expected = trimmed[:len(trimmed)-1] + ",\n  \"domain_shape\": {}\n}" + tooling[len(trimmed):]
+			}
+			actual, err := os.ReadFile(filepath.Join(request.RepoPath, projectToolingManifestPath))
+			if err != nil || string(actual) != expected {
+				t.Fatalf("authored tooling bytes changed: %v", err)
+			}
+			if declared && len(result.Updated) != 0 || !declared && !reflect.DeepEqual(result.Updated, []string{projectToolingManifestPath}) {
+				t.Fatalf("unexpected tooling updates: %+v", result)
+			}
+		})
+	}
+}
+
+func TestDomainShapeSetupRefusesMalformedCoverageMetadata(t *testing.T) {
+	anchor := `{"kind":"scenario","value":"corpus:example"}`
+	owner := `{"kind":"go_test","value":"store_test.go:TestExample"}`
+	relation := `{"anchor":` + anchor + `,"owner":` + owner + `}`
+	cases := []struct{ name, coverage string }{
+		{"null", `null`},
+		{"object", `{}`},
+		{"empty", `[]`},
+		{"too-many", `[` + strings.Repeat(relation+`,`, 64) + relation + `]`},
+		{"duplicate", `[` + relation + `,` + relation + `]`},
+		{"null-relation", `[null]`},
+		{"array-relation", `[[]]`},
+		{"missing-anchor", `[{"owner":` + owner + `}]`},
+		{"missing-owner", `[{"anchor":` + anchor + `}]`},
+		{"unknown-relation-field", `[{"anchor":` + anchor + `,"owner":` + owner + `,"extra":true}]`},
+		{"duplicate-key", `[{"anchor":` + anchor + `,"anchor":` + anchor + `,"owner":` + owner + `}]`},
+	}
+	for _, endpoint := range []string{"anchor", "owner"} {
+		for _, bad := range []struct{ name, value string }{
+			{"null", `null`},
+			{"array", `[]`},
+			{"missing-kind", `{"value":"example"}`},
+			{"missing-value", `{"kind":"go_test"}`},
+			{"unknown-field", `{"kind":"go_test","value":"example","extra":true}`},
+			{"noncanonical-field", `{"Kind":"go_test","value":"example"}`},
+			{"null-kind", `{"kind":null,"value":"example"}`},
+			{"unknown-kind", `{"kind":"recipe","value":"example"}`},
+			{"wrong-kind-type", `{"kind":1,"value":"example"}`},
+			{"null-value", `{"kind":"go_test","value":null}`},
+			{"wrong-value-type", `{"kind":"go_test","value":1}`},
+			{"short-value", `{"kind":"go_test","value":"ab"}`},
+			{"long-value", `{"kind":"go_test","value":"` + strings.Repeat("果", 513) + `"}`},
+			{"leading-space", `{"kind":"go_test","value":" example"}`},
+			{"trailing-space", `{"kind":"go_test","value":"example\n"}`},
+			{"blank", `{"kind":"go_test","value":"   "}`},
+		} {
+			entry := `{"anchor":` + anchor + `,"owner":` + bad.value + `}`
+			if endpoint == "anchor" {
+				entry = `{"anchor":` + bad.value + `,"owner":` + owner + `}`
+			}
+			cases = append(cases, struct{ name, coverage string }{endpoint + "-" + bad.name, `[` + entry + `]`})
+		}
+	}
+	for _, kind := range []string{"scenario", "generated"} {
+		cases = append(cases, struct{ name, coverage string }{"owner-" + kind, `[{"anchor":` + anchor + `,"owner":{"kind":"` + kind + `","value":"example"}}]`})
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			request := setupShapeRequest(t, "orchard")
+			tooling := `{"schema_version":"1.0","project":"orchard-home","tools":[{"id":"unit-check","purpose":"Check units.","invocation":"go test ./...","tier":"fast","coverage":` + test.coverage + `}],"domain_shape":{}}`
+			writeSetupInput(t, request, projectToolingManifestPath, tooling)
+			before := setupShapeSnapshot(t, request.RepoPath)
+			if _, err := PrepareDomainShapeSetup(request); err == nil {
+				t.Fatal("accepted malformed coverage metadata")
+			}
+			if !reflect.DeepEqual(before, setupShapeSnapshot(t, request.RepoPath)) {
+				t.Fatal("failed preparation changed filesystem")
+			}
+		})
+	}
+}
+
 func TestDomainShapeSetupRefusesBeforeWriting(t *testing.T) {
 	for _, test := range []struct{ name, path, data string }{
 		{"registry", knowledgeRegistryPath, `{}`},

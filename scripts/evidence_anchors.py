@@ -15,10 +15,10 @@ What an anchor is:
 - `go_test`: a Go test identified as `<package>.<TestName>`; resolves when the
   test is declared in that package and its body, or a same-package helper it
   calls, reaches a testing failure call. `go test ./...` is a required CI step.
-- `scenario`: a corpus scenario id; resolves when the id appears in a corpus
-  file under `.concord/scenarios/` and nothing in `internal/` defers it. A deferred
-  scenario is executed by nothing and accepting it as evidence would assert a
-  rule that no test enforces.
+- `scenario`: a unique direct corpus entry under `.concord/scenarios/` that
+  nothing in `internal/` defers. Continuity entries also require an executable
+  consuming-test binding in tooling. This is structural reachability only;
+  native results and Review establish execution and assertion adequacy.
 - `validator`: a Python checker or harness identified by `scripts/<prefix>-<name>.py`;
   resolves when the script exists and either the required CI workflow invokes
   it directly, or `scripts/check-json.py` nests it. A checker that exists but
@@ -39,9 +39,11 @@ unchanged in principle: the script must appear in a required workflow file
 from __future__ import annotations
 
 import ast
+import fnmatch
 import json
 import os
 import re
+import shlex
 import subprocess
 import sys
 from pathlib import Path
@@ -190,7 +192,7 @@ def go_test_asserts(package: str, test: str) -> bool:
 DEFERRAL = re.compile(r"""Deferrals\[\s*["'](?P<id>[^"']+)["']\s*\]\s*=""")
 
 
-def deferred_scenarios() -> set[str]:
+def deferred_scenarios(root: Path | None = None) -> set[str]:
     """Scenario ids the corpus harnesses record as deferred rather than bound.
 
     A deferred scenario sits in the corpus and is executed by nothing. Accepting
@@ -200,40 +202,32 @@ def deferred_scenarios() -> set[str]:
     the two answers from diverging.
     """
     found: set[str] = set()
-    for path in (ROOT / "internal").rglob("*_test.go"):
+    for path in ((ROOT if root is None else root) / "internal").rglob("*_test.go"):
         for match in DEFERRAL.finditer(path.read_text(encoding="utf-8", errors="replace")):
             found.add(match.group("id"))
     return found
 
 
-def collect_ids(value: object) -> set[str]:
-    found: set[str] = set()
-    if isinstance(value, dict):
-        for key, item in value.items():
-            if key in {"id", "scenario_id", "scenario"} and isinstance(item, str):
-                found.add(item)
-            found |= collect_ids(item)
-    elif isinstance(value, list):
-        for item in value:
-            found |= collect_ids(item)
-    return found
-
-
-def scenario_exists(scenario_id: str) -> bool:
-    """A scenario anchor resolves when a corpus declares the id and nothing defers it."""
-    if scenario_id in deferred_scenarios():
-        return False
-    directory = ROOT / ".concord/scenarios"
-    if not directory.is_dir():
-        return False
-    for path in directory.rglob("*.json"):
+def scenario_entries(root: Path, scenario_id: str) -> list[Path]:
+    """Only direct entries of a corpus's scenarios array define identities."""
+    entries: list[Path] = []
+    for path in (root / ".concord/scenarios").rglob("*.json"):
+        if repository_file(root, str(path.relative_to(root))) is None:
+            continue
         try:
             corpus = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, UnicodeDecodeError, json.JSONDecodeError):
             continue
-        if scenario_id in collect_ids(corpus):
-            return True
-    return False
+        scenarios = corpus.get("scenarios") if isinstance(corpus, dict) else None
+        if isinstance(scenarios, list):
+            entries.extend(path for entry in scenarios if isinstance(entry, dict) and entry.get("id") == scenario_id)
+    return entries
+
+
+def scenario_exists(scenario_id: str, root: Path | None = None) -> bool:
+    """An unambiguous, non-deferred corpus entry is presence, not execution."""
+    root = ROOT if root is None else root
+    return scenario_id not in deferred_scenarios(root) and len(scenario_entries(root, scenario_id)) == 1
 
 
 SCRIPT_REFERENCE = re.compile(r"^scripts/[a-z0-9-]+\.py$")
@@ -269,13 +263,6 @@ def workflow_commands(text: str) -> str:
     return "\n".join(commands)
 
 
-def _script_constant(node: ast.AST) -> str | None:
-    for child in ast.walk(node):
-        if isinstance(child, ast.Constant) and isinstance(child.value, str) and SCRIPT_REFERENCE.fullmatch(child.value):
-            return child.value
-    return None
-
-
 def _is_subprocess_run(func: ast.AST) -> bool:
     return (
         isinstance(func, ast.Attribute)
@@ -297,28 +284,342 @@ def nested_invocations(path: Path) -> set[str]:
         tree = ast.parse(path.read_text(encoding="utf-8"))
     except (OSError, SyntaxError, ValueError):
         return set()
-    bindings: dict[str, str] = {}
+    bindings: dict[str, ast.AST] = {}
+    assigned: set[str] = set()
+    conflicting: set[str] = set()
     for node in ast.walk(tree):
-        if not isinstance(node, ast.Assign):
+        if not isinstance(node, (ast.Assign, ast.AnnAssign, ast.AugAssign)):
             continue
-        script = _script_constant(node.value)
-        if script is None:
-            continue
-        for target in node.targets:
+        targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+        for target in targets:
             if isinstance(target, ast.Name):
-                bindings[target.id] = script
+                if target.id in assigned:
+                    conflicting.add(target.id)
+                assigned.add(target.id)
+                if node.value is not None:
+                    bindings[target.id] = node.value
+    stores: dict[str, int] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store):
+            stores[node.id] = stores.get(node.id, 0) + 1
+        elif isinstance(node, ast.arg):
+            conflicting.add(node.arg)
+        elif isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and isinstance(node.func.value, ast.Name):
+            if node.func.attr in {"append", "extend", "insert", "pop", "remove", "clear", "reverse", "sort"}:
+                conflicting.add(node.func.value.id)
+        elif isinstance(node, ast.Subscript) and isinstance(node.ctx, ast.Store) and isinstance(node.value, ast.Name):
+            conflicting.add(node.value.id)
+    conflicting.update(name for name, count in stores.items() if count > 1)
+
+    def literal(node: ast.AST, seen: frozenset[str] = frozenset()) -> str | None:
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            return node.value
+        if isinstance(node, ast.Name) and node.id not in seen and node.id not in conflicting and node.id in bindings:
+            return literal(bindings[node.id], seen | {node.id})
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "str" and len(node.args) == 1:
+            return literal(node.args[0], seen)
+        if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Div) and isinstance(node.left, ast.Name) and node.left.id == "ROOT":
+            return literal(node.right, seen)
+        if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name) and node.value.id == "sys" and node.attr == "executable":
+            return "python3"
+        return None
+
+    def command(node: ast.AST) -> list[str]:
+        if isinstance(node, ast.Name) and node.id not in conflicting and node.id in bindings:
+            node = bindings[node.id]
+        if not isinstance(node, (ast.List, ast.Tuple)):
+            return []
+        # A dynamic tail cannot change the executable and script positions.
+        return [literal(item) or "" for item in node.elts[:2]]
+
     invoked: set[str] = set()
     for node in ast.walk(tree):
-        if not isinstance(node, ast.Call) or not _is_subprocess_run(node.func):
+        if not isinstance(node, ast.Call) or not _is_subprocess_run(node.func) or not node.args:
             continue
-        for argument in node.args:
-            for child in ast.walk(argument):
-                if isinstance(child, ast.Constant) and isinstance(child.value, str):
-                    if SCRIPT_REFERENCE.fullmatch(child.value):
-                        invoked.add(child.value)
-                elif isinstance(child, ast.Name) and child.id in bindings:
-                    invoked.add(bindings[child.id])
+        if any(keyword.arg == "shell" and not (isinstance(keyword.value, ast.Constant) and keyword.value.value is False)
+               or keyword.arg == "cwd" and not (isinstance(keyword.value, ast.Name) and keyword.value.id == "ROOT")
+               for keyword in node.keywords):
+            continue
+        argv = command(node.args[0])
+        if len(argv) == 2 and argv[0] in {"python", "python3"} and SCRIPT_REFERENCE.fullmatch(argv[1]):
+            invoked.add(argv[1])
     return invoked
+
+
+OWNER_KINDS = ("go_package", "go_test", "adapter_test", "validator")
+COVERAGE_KINDS = ANCHOR_KINDS + ("go_package",)
+MAX_COVERAGE = 64
+GO_PACKAGE = re.compile(r"^[a-z0-9_]+(?:/[a-z0-9_]+)*$")
+
+
+def repository_file(root: Path, value: str) -> Path | None:
+    target = root / value
+    try:
+        target.resolve(strict=True).relative_to(root.resolve())
+    except (OSError, ValueError):
+        return None
+    return target if target.is_file() else None
+
+
+def invocation_argv(invocation: str) -> list[str]:
+    """Read known argv transports only; shell/dynamic lineage proves nothing."""
+    try:
+        argv = shlex.split(invocation, comments=True)
+    except ValueError:
+        return []
+    if argv[:1] == ["bin/oc-test"]:
+        if len(argv) < 4 or argv[1] not in {"targeted", "broad"} or argv[2] != "--":
+            return []
+        argv = argv[3:]
+    if argv[:2] == ["python3", "scripts/go-test-results.py"] and "--" in argv:
+        argv = argv[argv.index("--") + 1:]
+    return argv
+
+
+def reachable_validators(root: Path, argv: list[str]) -> set[str]:
+    if len(argv) < 2 or argv[0] not in {"python", "python3"} or not SCRIPT_REFERENCE.fullmatch(argv[1]):
+        return set()
+    pending = [argv[1]]
+    found: set[str] = set()
+    while pending:
+        script = pending.pop()
+        if script in found:
+            continue
+        path = repository_file(root, script)
+        if path is not None:
+            found.add(script)
+            pending.extend(nested_invocations(path) - found)
+    return found
+
+
+def invocation_reaches(root: Path, invocation: str, owner: dict[str, str]) -> bool:
+    """Structural selection, never an execution or semantic-adequacy verdict."""
+    argv = invocation_argv(invocation)
+    kind, value = owner["kind"], owner["value"]
+    if kind == "validator":
+        return value in reachable_validators(root, argv)
+    if kind == "adapter_test":
+        match = ADAPTER_TEST_ANCHOR.fullmatch(value)
+        if not match or argv[:2] != ["bun", "test"]:
+            return False
+        targets: list[str] = []
+        ignored: list[str] = []
+        for part in argv[2:]:
+            if part.startswith("--path-ignore-patterns="):
+                ignored.append(part.split("=", 1)[1])
+            elif part.startswith(("--reporter=", "--reporter-outfile=", "--timings=")) or part == "--update-timings":
+                continue
+            elif part.startswith("-") or "$" in part:
+                return False
+            else:
+                targets.append(part)
+        file = value.split("#", 1)[0]
+        if any(fnmatch.fnmatchcase(file, pattern) for pattern in ignored):
+            return False
+        return bool(targets) and any(
+            part.rstrip("/") == "adapter/opencode" or part == file for part in targets
+        )
+    if kind not in {"go_package", "go_test"} or argv[:2] != ["go", "test"]:
+        return False
+    package, test = (value, None) if kind == "go_package" else value.rsplit(".", 1)
+    packages: list[str] = []
+    selector: str | None = None
+    flags = {"-race", "-v", "-json", "-short", "-shuffle", "-count", "-timeout", "-parallel", "-p", "-run"}
+    i = 2
+    while i < len(argv):
+        part = argv[i]
+        if part.startswith("-"):
+            key, equal, argument = part.partition("=")
+            if key not in flags:
+                return False
+            if key not in {"-race", "-v", "-json", "-short"}:
+                if not equal:
+                    i += 1
+                    if i == len(argv):
+                        return False
+                    argument = argv[i]
+                if key == "-run":
+                    selector = argument
+                if key == "-count" and argument == "0":
+                    return False
+        elif part.startswith("./"):
+            packages.append(part[2:].rstrip("/"))
+        else:
+            return False
+        i += 1
+    selected = any(part == package or part == "..." or (
+        part.endswith("/...") and (package == part[:-4] or package.startswith(part[:-3]))
+    ) for part in packages)
+    if not selected:
+        return False
+    if selector is None:
+        return True
+    # Go's regexp dialect and slash-separated subtest selectors are not Python
+    # regexps. Admit only exact top-level names and finite exact alternatives.
+    if test is None or not selector.startswith("^") or not selector.endswith("$"):
+        return False
+    choices = selector[1:-1]
+    if choices.startswith("(") and choices.endswith(")"):
+        choices = choices[1:-1]
+    return all(re.fullmatch(r"Test[A-Za-z0-9_]+", name) for name in choices.split("|")) and test in choices.split("|")
+
+
+def ci_reaches(root: Path, owner: dict[str, str]) -> bool:
+    for relative in ("ci.yml", "release.yml", "pr-linear-link.yml"):
+        path = repository_file(root, f".github/workflows/{relative}")
+        if path is not None:
+            commands = workflow_commands(path.read_text(encoding="utf-8")).replace("\\\n", " ")
+            for command in commands.splitlines():
+                command = command.strip()
+                # The required tooling battery is a conjunction of literal Python
+                # commands. Do not interpret arbitrary shell expressions or split
+                # quoted data that only resembles a command boundary.
+                parts = command.split(" && ") if re.fullmatch(
+                    r"python3 scripts/[a-z0-9-]+\.py(?: && python3 scripts/[a-z0-9-]+\.py)+", command
+                ) else [command]
+                if any(invocation_reaches(root, part, owner) for part in parts):
+                    return True
+    return False
+
+
+def owner_exists(root: Path, owner: dict[str, str]) -> bool:
+    kind, value = owner["kind"], owner["value"]
+    if kind == "validator":
+        path = repository_file(root, value) if VALIDATOR_ANCHOR.fullmatch(value) else None
+        try:
+            return path is not None and isinstance(ast.parse(path.read_text(encoding="utf-8")), ast.Module)
+        except (OSError, ValueError, SyntaxError):
+            return False
+    if kind == "go_package":
+        return bool(GO_PACKAGE.fullmatch(value)) and any(_load_go_test_facts(root).get(value, {}).values())
+    if kind == "go_test":
+        match = GO_TEST_ANCHOR.fullmatch(value)
+        return bool(match) and _load_go_test_facts(root).get(match["package"], {}).get(match["test"]) is True
+    if kind == "adapter_test":
+        match = ADAPTER_TEST_ANCHOR.fullmatch(value)
+        path = repository_file(root, value.split("#", 1)[0]) if match else None
+        return path is not None and re.search(r"(?m)^\s*test\(\s*" + re.escape(json.dumps(match["test"])) + r"\s*,", uncomment_source(path.read_text(encoding="utf-8"))) is not None
+    return False
+
+
+def uncomment_source(text: str) -> str:
+    """Ignore source comments while preserving quoted strings and line starts."""
+    tokens = r'''"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`(?:\\.|[^`\\])*`|//[^\n]*|/\*[\s\S]*?\*/'''
+    return re.sub(tokens, lambda match: re.sub(r"[^\n]", " ", match[0]) if match[0].startswith(("//", "/*")) else match[0], text)
+
+
+def scenario_consumer(root: Path, scenario: str, owner: dict[str, str]) -> bool:
+    """Bind a named registration to an id; Review judges its assertions."""
+    if owner["kind"] == "adapter_test":
+        match = ADAPTER_TEST_ANCHOR.fullmatch(owner["value"])
+        return bool(match) and match["test"] == scenario
+    if owner["kind"] == "go_test":
+        match = GO_TEST_ANCHOR.fullmatch(owner["value"])
+        if match:
+            for path in (root / match["package"]).glob("*_test.go"):
+                text = uncomment_source(path.read_text(encoding="utf-8"))
+                literal = re.escape(json.dumps(scenario))
+                names = re.findall(r"(?m)^const\s+([A-Za-z_][A-Za-z0-9_]*)\s*=\s*" + literal + r"\s*$", text)
+                argument = "(?:" + "|".join([literal, *(re.escape(name) for name in names)]) + ")"
+                functions = re.split(r"(?m)^func ", text)
+                for function in functions[1:]:
+                    if function.startswith(match["test"] + "(") and re.search(r"\b[A-Za-z_][A-Za-z0-9_]*\.Run\(\s*" + argument + r"\s*,", function):
+                        return True
+    return False
+
+
+def coverage_bindings(root: Path, tools: list[object]) -> tuple[list[str], dict[tuple[str, str], dict[str, str]]]:
+    """Validate explicit irreducible relations, not a second command inventory."""
+    findings: list[str] = []
+    bindings: dict[tuple[str, str], dict[str, str]] = {}
+    for tool in tools:
+        if not isinstance(tool, dict) or "coverage" not in tool:
+            continue
+        prefix = f"tool {tool.get('id')}: coverage"
+        coverage = tool["coverage"]
+        if not isinstance(coverage, list) or not 1 <= len(coverage) <= MAX_COVERAGE:
+            findings.append(f"{prefix} must be a non-empty array of at most {MAX_COVERAGE} bindings")
+            continue
+        seen: set[tuple[str, str]] = set()
+        for relation in coverage:
+            if not isinstance(relation, dict) or set(relation) != {"anchor", "owner"}:
+                findings.append(f"{prefix}: binding must carry exactly anchor and owner")
+                continue
+            anchor, owner = relation["anchor"], relation["owner"]
+            if any(not isinstance(item, dict) or set(item) != {"kind", "value"} or
+                   not isinstance(item["kind"], str) or item["kind"] not in kinds or
+                   not bounded_text(item["value"], 3, 512)
+                   for item, kinds in ((anchor, COVERAGE_KINDS), (owner, OWNER_KINDS))):
+                findings.append(f"{prefix}: anchor/owner must carry a supported kind and trimmed value")
+                continue
+            key = (anchor["kind"], anchor["value"])
+            if key in seen:
+                findings.append(f"{prefix}: duplicate anchor binding: {key}")
+            seen.add(key)
+            if key in bindings and bindings[key] != owner:
+                findings.append(f"{prefix}: conflicting coverage owners: {key}")
+            bindings[key] = owner
+            try:
+                exists = owner_exists(root, owner)
+            except GoTestProjectionError as exc:
+                findings.append(f"{prefix}: owner projector failed: {exc}")
+                continue
+            if not exists:
+                findings.append(f"{prefix}: owner does not resolve to an executable check: {owner['value']}")
+            invocation = tool.get("invocation")
+            if not isinstance(invocation, str) or not invocation_reaches(root, invocation, owner):
+                findings.append(f"{prefix}: owner is not reachable from the declared invocation: {owner['value']}")
+            if not ci_reaches(root, owner):
+                findings.append(f"{prefix}: owner is not structurally reachable from a required workflow: {owner['value']}")
+            if anchor["kind"] == "scenario":
+                if not scenario_exists(anchor["value"], root):
+                    findings.append(f"{prefix}: scenario must be a unique non-deferred corpus entry: {anchor['value']}")
+                if not scenario_consumer(root, anchor["value"], owner):
+                    findings.append(f"{prefix}: scenario owner is not its named consuming test: {anchor['value']}")
+            elif anchor["kind"] == "generated":
+                match = GENERATED_ANCHOR.fullmatch(anchor["value"])
+                path = repository_file(root, match["file"]) if match else None
+                if path is None or GENERATED_MARKER not in path.read_text(encoding="utf-8") or not re.search(rf"\b{re.escape(match['symbol'])}\b", path.read_text(encoding="utf-8")):
+                    findings.append(f"{prefix}: generated anchor does not resolve: {anchor['value']}")
+                elif owner["kind"] != "validator" or not validator_references(root, owner["value"], match["file"]):
+                    findings.append(f"{prefix}: generated parity owner does not reference the artifact: {anchor['value']}")
+            elif anchor != owner:
+                findings.append(f"{prefix}: executable anchor must equal its owner; invocation selection is derived")
+    continuity = root / ".concord/scenarios/adapter-continuity.v1.json"
+    if continuity.is_file():
+        try:
+            corpus = json.loads(continuity.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            findings.append("continuity corpus cannot be read")
+        else:
+            entries = corpus.get("scenarios", []) if isinstance(corpus, dict) else []
+            for entry in entries:
+                if isinstance(entry, dict) and isinstance(entry.get("id"), str) and ("scenario", entry["id"]) not in bindings:
+                    findings.append(f"continuity scenario has no consuming-test owner: {entry['id']}")
+    return findings, bindings
+
+
+def validator_references(root: Path, script: str, artifact: str) -> bool:
+    path = repository_file(root, script)
+    try:
+        tree = ast.parse(path.read_text(encoding="utf-8")) if path else None
+    except (OSError, ValueError, SyntaxError):
+        return False
+    return tree is not None and any(isinstance(node, ast.Constant) and node.value == artifact for node in ast.walk(tree))
+
+
+def scenario_binding_findings(root: Path, scenario: str) -> list[str]:
+    try:
+        manifest = json.loads((root / ".concord/tooling.v1.json").read_text(encoding="utf-8"))
+        tools = manifest.get("tools") if isinstance(manifest, dict) else None
+    except (OSError, ValueError):
+        tools = None
+    if not isinstance(tools, list):
+        return ["scenario consumer requires tooling coverage metadata"]
+    findings, bindings = coverage_bindings(root, tools)
+    if ("scenario", scenario) not in bindings:
+        findings.append(f"scenario has no consuming-test owner: {scenario}")
+    return findings
 
 
 def validator_runs_in_ci(script: str) -> bool:
@@ -336,12 +637,7 @@ def validator_runs_in_ci(script: str) -> bool:
     graph. Substring matching over whole files accepted a name in a comment as
     proof, which is presence standing in for enforcement.
     """
-    if not (ROOT / script).is_file():
-        return False
-    for workflow in REQUIRED_WORKFLOWS:
-        if workflow.is_file() and script in workflow_commands(workflow.read_text(encoding="utf-8")):
-            return True
-    return script in nested_invocations(ROOT / "scripts/check-json.py")
+    return ci_reaches(ROOT, {"kind": "validator", "value": script})
 
 
 def adapter_test_exists(file: str, test: str) -> bool:
@@ -414,7 +710,9 @@ def check_anchor(anchor: object, prefix: str, findings: list[str]) -> None:
                     findings.append(f"{prefix}: go_test anchor does not resolve: {value!r}")
     elif kind == "scenario":
         if not scenario_exists(value):
-            findings.append(f"{prefix}: scenario anchor is in no corpus under .concord/scenarios/: {value!r}")
+            findings.append(f"{prefix}: scenario anchor is in no unique non-deferred corpus entry under .concord/scenarios/: {value!r}")
+        elif any(path.name == "adapter-continuity.v1.json" for path in scenario_entries(ROOT, value)):
+            findings.extend(f"{prefix}: {finding}" for finding in scenario_binding_findings(ROOT, value))
     elif kind == "validator":
         if not VALIDATOR_ANCHOR.fullmatch(value):
             findings.append(

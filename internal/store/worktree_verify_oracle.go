@@ -256,7 +256,11 @@ func readNativeOracleDispatchTx(ctx context.Context, q queryer, req WorktreeVeri
 	if err != nil && !oracleSubjectMoved(err) {
 		return b, version, auth, err
 	}
-	if !slices.Contains(b.Control.ReadinessEvidenceRefs, req.Oracle.PreparationRunRef) {
+	dispatch, _, dispatchErr := readNativeOracleDispatchBindingTx(ctx, q, req.WorkID, req.Oracle.AttemptID)
+	if dispatchErr != nil {
+		return b, version, auth, dispatchErr
+	}
+	if ref, ok := nativeDispatchPreparationRef(dispatch, b, req.Oracle.PreparationRunRef); !ok || ref != req.Oracle.PreparationRunRef {
 		return b, version, auth, oracleFailure(KindUnauthorizedDispatch, "native oracle execution lacks the exact live dispatch and candidate binding", "authorize a fresh exact job/packet/candidate before execution")
 	}
 	return b, version, auth, err
@@ -374,13 +378,13 @@ func readNativeOracleAuthorizationTx(ctx context.Context, tx queryer, req Worktr
 	if err != nil {
 		return b, version, auth, err
 	}
+	dispatch, _, err := readNativeOracleDispatchBindingTx(ctx, tx, req.WorkID, req.Oracle.AttemptID)
+	if err != nil {
+		return b, version, auth, err
+	}
 	repair := nativeReviewRepairFrom(ctx)
 	preparationSubject := observed.head
 	if repair != nil {
-		dispatch, _, err := readNativeOracleDispatchBindingTx(ctx, tx, req.WorkID, req.Oracle.AttemptID)
-		if err != nil {
-			return b, version, auth, err
-		}
 		if repair.Commit != observed.head || validateNativeReviewRepairTx(ctx, tx, req.WorkID, dispatch, repair) != nil {
 			return refuse()
 		}
@@ -389,7 +393,13 @@ func readNativeOracleAuthorizationTx(ctx context.Context, tx queryer, req Worktr
 	if core == "" || (core != observed.head && (repair == nil || core != repair.Base)) {
 		return refuse()
 	}
-	if repair == nil {
+	if repair == nil && dispatch.WorkerCapabilityClass == "review" && len(dispatch.WorkerOraclePreparations) != 0 {
+		// The final Review authorization froze its preparation (CD-0205 D1);
+		// job admission is state-only and the receipt join below binds the subject.
+		if err := requireWorkerReviewJobRevisionStateTx(ctx, tx, req.WorkID, *req.Oracle.WorkerJobBinding); err != nil {
+			return b, version, auth, err
+		}
+	} else if repair == nil {
 		if err := requireWorkerJobRevisionReadyTx(ctx, tx, req.WorkID, *req.Oracle.WorkerJobBinding); err != nil {
 			return b, version, auth, err
 		}
@@ -527,6 +537,21 @@ func readSelectedOraclePreparations(ctx context.Context, q queryer, work string)
 			selected = &jobs[i]
 		}
 	}
+	finalReview := false
+	if selected == nil {
+		// CD-0205 D2/D1: with no ready job, Review's packet carries the delivery
+		// anchor job's recorded preparations plus the latest qualified one on
+		// the current candidate, which dispatch then freezes.
+		final, err := finalReviewWorkerJobTx(ctx, q, work)
+		if err != nil {
+			return nil, err
+		}
+		for i := range jobs {
+			if final != nil && jobs[i].Binding == *final {
+				selected, finalReview = &jobs[i], true
+			}
+		}
+	}
 	if selected == nil || selected.AcceptanceOracle == nil {
 		return nil, nil
 	}
@@ -550,6 +575,16 @@ func readSelectedOraclePreparations(ctx context.Context, q queryer, work string)
 				return nil, oracleFailure(KindMissingEvidence, "selected job has no exact native preparation", "prepare and record the exact bundle")
 			}
 			preparations = append(preparations, *p)
+		}
+		if finalReview {
+			p, err := latestNativeBundlePreparationTx(ctx, q, work, control.RecipeSource.ProjectID, selected.ContractVersion, bundle)
+			if err != nil {
+				return nil, err
+			}
+			if p != nil && !seen[p.RunRef] {
+				seen[p.RunRef] = true
+				preparations = append(preparations, *p)
+			}
 		}
 	}
 	raw, _ := json.Marshal(preparations)
@@ -1029,7 +1064,8 @@ func (s *Store) releaseNativeOracle(ctx context.Context, req WorktreeVerifyReque
 	version, versionErr := activeWorkflowContractVersion(ctx, tx, req.WorkID, "worktree_verify")
 	outsideErr := requireNoOutsideRepairTx(ctx, tx, req.WorkID, "worktree_verify")
 	if req.Oracle.Phase == "execute" && valid && current == stamp {
-		if readyErr := requireWorkerJobRevisionStateReadyTx(ctx, tx, req.WorkID, *req.Oracle.WorkerJobBinding); readyErr != nil {
+		dispatch, _, dispatchErr := readNativeOracleDispatchBindingTx(ctx, tx, req.WorkID, req.Oracle.AttemptID)
+		if dispatchErr != nil || nativeDispatchJobStateTx(ctx, tx, req.WorkID, dispatch, *req.Oracle.WorkerJobBinding) != nil {
 			valid = false
 		}
 	}

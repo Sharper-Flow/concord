@@ -67,7 +67,9 @@ function preparationMatches(preparation: NativeOraclePreparation, control: Recor
   const refs = strings(control.readiness_evidence_refs)
   const argv = strings(control.argv)
   return preparation.protocol === "native_oracle_v2" && preparation.phase === "prepare" && preparation.qualification === "ready"
-    && refs.includes(preparation.run_ref) && preparation.work_id === packet.work_id
+    // Review may use a later qualified preparation of the unchanged bundle on
+    // the current candidate; the core selects and freezes it (CD-0205 D1).
+    && (refs.includes(preparation.run_ref) || packet.lane_id === "review") && preparation.work_id === packet.work_id
     && preparation.contract_version === packet.inputs.binding.contract_version && preparation.subject_commit === packet.inputs.work_context?.subject_commit
     && preparation.logical_cwd === control.cwd && argv.length > 0
     && preparation.logical_argv_digest === `sha256:${createHash("sha256").update(JSON.stringify(argv)).digest("hex")}`

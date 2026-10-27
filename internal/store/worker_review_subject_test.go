@@ -245,6 +245,21 @@ func reviewSubjectReadyRevision(t *testing.T, f workContextFixture) WorkerJobBin
 	return job
 }
 
+// reviewSubjectReviewJob binds a Review to the job it permits or judges
+// (CD-0205 D3): the one existing ready revision when there is one, otherwise
+// a fresh ready revision.
+func reviewSubjectReviewJob(t *testing.T, f workContextFixture) WorkerJobBinding {
+	t.Helper()
+	ready, err := readyWorkerJobRevisions(context.Background(), f.store.db, f.workID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ready) == 1 {
+		return ready[0].Binding
+	}
+	return reviewSubjectReadyRevision(t, f)
+}
+
 func reviewSubjectWindow(t *testing.T, s *Store, workID, attemptID string) WorkerDispatchWindow {
 	t.Helper()
 	var window WorkerDispatchWindow

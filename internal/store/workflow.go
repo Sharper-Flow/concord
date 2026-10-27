@@ -294,10 +294,11 @@ type workflowActionCompletedPayload struct {
 	// the attempt in flight from the durable record alone. The completion
 	// builder writes the quartet together; a completion without one is a
 	// pre-binding authorization the fold leaves unbound.
-	WorkerLaneDigest      string `json:"worker_lane_digest,omitempty"`
-	WorkerCapabilityClass string `json:"worker_capability_class,omitempty"`
-	WorkerPacketDigest    string `json:"worker_packet_digest,omitempty"`
-	WorkerSubjectCommit   string `json:"worker_subject_commit,omitempty"`
+	WorkerLaneDigest         string                           `json:"worker_lane_digest,omitempty"`
+	WorkerCapabilityClass    string                           `json:"worker_capability_class,omitempty"`
+	WorkerPacketDigest       string                           `json:"worker_packet_digest,omitempty"`
+	WorkerSubjectCommit      string                           `json:"worker_subject_commit,omitempty"`
+	WorkerOraclePreparations []WorkerOraclePreparationBinding `json:"worker_oracle_preparations,omitempty"`
 	// WorkerPacketPredicateIDs carries the typed outcome predicate ids the
 	// dispatch_worker authorization extracted from the same packet bytes it
 	// digested. The worker completion fold reads them as the immutable
@@ -2342,6 +2343,9 @@ func validateWorkflowActionCompletedShape(p workflowActionCompletedPayload) erro
 }
 
 func validateWorkflowCompletionDispatchMetadata(p workflowActionCompletedPayload) error {
+	if err := validateWorkerOraclePreparationBindings(p); err != nil {
+		return err
+	}
 	if p.WorkerSubjectCommit != "" && (p.ActionID != "dispatch_worker" || !worktreeSHAPattern.MatchString(p.WorkerSubjectCommit)) {
 		return newFailure(KindInvalidPayload, "fold_event", "worker_subject_commit is reserved for dispatch_worker and must be one raw commit OID", false, "record the admitted dispatch subject only")
 	}

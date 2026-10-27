@@ -155,12 +155,16 @@ function projectCorrectionContext(value: unknown): AgentLanePacketCorrection | u
 // job-executing lane, so that declaration, not a version table, decides
 // whether the packet must bind a job. The revision content rides verbatim:
 // the core refuses any packet whose worker_job differs from the recorded
-// ready revision. Zero ready revisions, or more than one, refuse: the
-// dispatcher never chooses between ready jobs or authors job content.
+// revision. Review alone may use the typed final-Review population when no
+// ready or checks-repair revision is eligible. The dispatcher never chooses
+// between eligible jobs or authors job content.
 function selectReadyWorkerJob(workId: string, pinned: Record<string, unknown>, capability: AgentLane["capability_class"]): { job?: Record<string, unknown>; failure?: AgentLanePacketFailure } {
   const ready = Array.isArray(pinned.ready_worker_jobs) ? pinned.ready_worker_jobs.filter(isRecord) : []
   if (capability === "review" && Array.isArray(pinned.checks_repair_review_jobs)) {
     ready.push(...pinned.checks_repair_review_jobs.filter(isRecord))
+  }
+  if (capability === "review" && ready.length === 0 && Array.isArray(pinned.review_worker_jobs)) {
+    ready.push(...pinned.review_worker_jobs.filter(isRecord))
   }
   if (ready.length === 0) {
     return failure("worker_job_unavailable", `work ${workId} holds no dispatch-ready worker-job revision; inspect continuity's worker jobs and resolve readiness or prerequisites; do not re-record unchanged content just to obtain Review. Record and prepare a revision only for changed work. When Review is required, use typed dispatch_worker with lane_id=review, run its native concord-review Task subagent under Main's own session, then have Main accept its exact report; continue permits implementation of the same bound job without another job record`)

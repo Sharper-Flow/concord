@@ -204,7 +204,7 @@ func acceptDeliveryCandidateAt(t *testing.T, workID, ref, step string, pending b
 func acceptDeliveryCompleteReview(t *testing.T, c acceptDeliveryCandidate, attempt, disposition string) int64 {
 	t.Helper()
 	s, workID := c.f.store, c.f.workID
-	job := reviewSubjectReadyRevision(t, c.f)
+	job := reviewSubjectReviewJob(t, c.f)
 	if err := descendantDispatch(t, c.j, "review", attempt, job, nil); err != nil {
 		t.Fatalf("review dispatch %s: %v", attempt, err)
 	}

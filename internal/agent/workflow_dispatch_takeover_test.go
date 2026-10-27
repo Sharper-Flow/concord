@@ -53,7 +53,7 @@ func newDispatchTakeoverFixture(t *testing.T) dispatchTakeoverFixture {
 	if start := f.invoke(t, f.owner, map[string]any{"work_id": "work-1", "expected_version": workVersion(t, s, "work-1"), "action_id": "start_execution", "idempotency_key": "owner-start"}); start.Outcome != OutcomeOK {
 		t.Fatalf("owner start_execution: %+v", start.Error)
 	}
-	recordReadyRetryJob(t, s, service, f.owner, "job:retry-objective")
+	recordReviewedRetryJob(t, s, service, f.owner, "job:retry-objective")
 	return f
 }
 

@@ -1853,6 +1853,9 @@ func ContinuityPayload(snapshot store.ContinuitySnapshot) map[string]any {
 	if len(snapshot.ChecksRepairReviewJobs) > 0 {
 		pinned["checks_repair_review_jobs"] = snapshot.ChecksRepairReviewJobs
 	}
+	if len(snapshot.ReviewWorkerJobs) > 0 {
+		pinned["review_worker_jobs"] = snapshot.ReviewWorkerJobs
+	}
 	// Resumed sessions receive available context or explicit unavailability.
 	// Absence keeps context-free payload bytes unchanged.
 	if snapshot.WorkContext != nil {

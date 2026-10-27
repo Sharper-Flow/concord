@@ -73,7 +73,8 @@ type workerDispatchProof struct {
 	// readings carries one sealed witness per declared required reading:
 	// the SQL-sampled source identities sampled in the same read snapshot,
 	// plus the Git resolution resolved after that snapshot closed.
-	readings []dispatchReadingWitness
+	readings     []dispatchReadingWitness
+	nativeReview *nativeReviewDispatchProof
 }
 
 // WorkerDispatchPreparation is the opaque prepared proof the authenticated
@@ -118,6 +119,9 @@ type PrepareWorkerDispatchRequest struct {
 	WorkID          string
 	SessionWorktree string
 	Runner          GitRunner
+	// DispatchPayload identifies the Review lane and exact job to sample for
+	// runtime qualification. Admission still validates the original packet.
+	DispatchPayload json.RawMessage
 	// WorkerJob is the dispatched job binding the dispatch payload carried,
 	// resolved by the authenticated mutation boundary before preparation.
 	// When it names a capped job, its recorded base_commit anchors the
@@ -146,6 +150,7 @@ type workerDispatchSample struct {
 	readings        []dispatchReadingWitness
 	pinReceipt      *WorktreeVerifyResult
 	memberAncestors []string
+	nativeReview    *nativeReviewDispatchSample
 }
 
 // sampleWorkerDispatchStateInto samples the dispatch state into the
@@ -225,6 +230,12 @@ func sampleWorkerDispatchState(ctx context.Context, q queryer, request PrepareWo
 		return sample, err
 	}
 	sample.memberAncestors = join.Ancestors
+	if len(request.DispatchPayload) != 0 || request.WorkerAttemptID != "" {
+		sample.nativeReview, err = sampleNativeReviewDispatchTx(ctx, q, request)
+		if err != nil {
+			return sample, err
+		}
+	}
 	return sample, nil
 }
 
@@ -326,6 +337,12 @@ func prepareWorkerSubjectFreshness(ctx context.Context, s *Store, request Prepar
 		return nil, err
 	}
 	proof.observation = observation
+	if !acceptance && sample.nativeReview != nil && observation.State == "clean" {
+		proof.nativeReview, err = observeNativeReviewDispatch(ctx, runner, entry, request.WorkID, observation.Commit, proof.sessionIdentity, sample.nativeReview)
+		if err != nil {
+			return nil, err
+		}
+	}
 	if entry.MemberID == "" && observation.State == "clean" && len(sample.memberAncestors) != 0 {
 		proof.memberCandidate = dispatchSubjectIncludesMembers(ctx, runner, probePath, observation.Commit, sample.memberAncestors)
 	}

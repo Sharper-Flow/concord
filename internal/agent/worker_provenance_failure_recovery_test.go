@@ -21,7 +21,7 @@ func TestRefusedWorkerProvenanceRecoversWithoutAcceptedEvidence(t *testing.T) {
 			}
 			env := mutationEnvelope(grant, scopeVersion)
 			const failedID = "attempt:work-1:refused-provenance"
-			recordReadyRetryJob(t, s, service, env, "job:authorize-refused-provenance")
+			recordReviewedRetryJob(t, s, service, env, "job:authorize-refused-provenance")
 			first := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: retryJSON(map[string]any{
 				"work_id": "work-1", "expected_version": workOneVersion(t, s), "action_id": "dispatch_worker", "idempotency_key": "authorize-refused-provenance",
 				"fields": map[string]any{"attempt_id": failedID, "worker_packet": retryMutationPacket(t, s, failedID, nil)},

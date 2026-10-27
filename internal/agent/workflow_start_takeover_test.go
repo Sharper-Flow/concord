@@ -251,7 +251,7 @@ func TestStartExecutionOverLiveLaneRequiresApprovalUntilLaneRelinquishes(t *test
 	if first := start("lane-owner-start"); first.Outcome != OutcomeOK {
 		t.Fatalf("owner start_execution: %+v", first.Error)
 	}
-	recordReadyRetryJob(t, s, service, env, "job:retry-objective")
+	recordReviewedRetryJob(t, s, service, env, "job:retry-objective")
 	const attemptID = "attempt:work-1:live-lane"
 	if dispatched := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: retryJSON(map[string]any{
 		"work_id": "work-1", "expected_version": workVersion(t, s, "work-1"), "action_id": "dispatch_worker", "idempotency_key": "live-lane-dispatch",

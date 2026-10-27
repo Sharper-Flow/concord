@@ -68,7 +68,7 @@ func TestWorkerRetryRequiresTerminalReconciliationAndCurrentPacket(t *testing.T)
 	}
 	env := mutationEnvelope(grant, scopeVersion)
 	const failedID = "attempt:work-1:concurrent-abandonment"
-	recordReadyRetryJob(t, s, service, env, "job:concurrent-abandonment")
+	recordReviewedRetryJob(t, s, service, env, "job:concurrent-abandonment")
 	first := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: retryJSON(map[string]any{
 		"work_id": "work-1", "expected_version": workOneVersion(t, s), "action_id": "dispatch_worker", "idempotency_key": "authorize-concurrent-abandonment",
 		"fields": map[string]any{"attempt_id": failedID, "worker_packet": retryMutationPacket(t, s, failedID, nil)},
@@ -132,11 +132,16 @@ func seedWorkerRetryMutationFixture(t *testing.T, s *store.Store, service *Servi
 	if err != nil {
 		t.Fatal(err)
 	}
-	grant.Worktree = seedWorkerRetryMutationFixtureAt(t, s, grant, registered)
-	env := mutationEnvelope(grant, mustScopeVersion(t, s))
-	recordReadyRetryJob(t, s, service, env, "job:retry-architecture-review")
+	return seedWorkerRetryMutationFixtureAt(t, s, grant, registered)
+}
+
+// recordReviewedRetryJob records one ready job and accepts the architecture
+// Review that binds it; continue leaves the job ready for implementation
+// (CD-0205 D3).
+func recordReviewedRetryJob(t *testing.T, s *store.Store, service *Service, env CallEnvelope, jobID string) {
+	t.Helper()
+	recordReadyRetryJob(t, s, service, env, jobID)
 	oAgentReview(t, oAgentFixture(t, s, service, env, "work-1"), "continue", false)
-	return grant.Worktree
 }
 
 func seedWorkerRetryMutationFixtureAt(t *testing.T, s *store.Store, grant Authority, registered store.RegisteredDefinition) string {
@@ -221,7 +226,7 @@ func seedFailedWorkerRetryMutation(t *testing.T, s *store.Store, service *Servic
 	if start.Outcome != OutcomeOK {
 		t.Fatalf("seed retry start: %+v", start.Error)
 	}
-	recordReadyRetryJob(t, s, service, mutationEnvelope(grant, scopeVersion), "job:retry-objective")
+	recordReviewedRetryJob(t, s, service, mutationEnvelope(grant, scopeVersion), "job:retry-objective")
 	env := mutationEnvelope(grant, scopeVersion)
 	version := workVersion(t, s, "work-1")
 	dispatch := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: retryJSON(map[string]any{

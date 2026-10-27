@@ -1385,6 +1385,14 @@ const GeneratedPayloadSchemaDocument = `{
             "review_input": {
               "$ref": "#/$defs/worker_packet_review_input"
             },
+            "review_worker_jobs": {
+              "description": "CD-0205 D2: when no revision is ready, the one satisfied revision of the job whose accepted implementation attempt delivered the current integrated candidate. These are not ordinary ready jobs. Only a review lane may bind it, and only without another eligible job; core dispatch admission re-derives the binding.",
+              "items": {
+                "$ref": "#/$defs/worker_packet_worker_job"
+              },
+              "maxItems": 1,
+              "type": "array"
+            },
             "spec_mandate": {
               "items": {
                 "$ref": "#/$defs/law_id"

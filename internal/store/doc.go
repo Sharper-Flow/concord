@@ -25,7 +25,9 @@
 // Seams, each owned by its file and its adjacent tests:
 //
 //   - internal/sqlitedb: connection, pragma, revision, commit, current-row guard,
-//     effect-receipt storage and sequence mechanics.
+//     effect-receipt storage, sequence and finite-snapshot mechanics.
+//   - backup.go: snapshot admission, manifest, restore verification and promotion
+//     policy; SQLite copy, integrity probes and state hashing stay in sqlitedb.
 //   - store.go, transaction.go: domain-facing open and transaction lifecycles.
 //   - events.go, operation.go, fold.go: domain-facing effect identity, registered
 //     current-row writers, and transaction-owned write scopes.

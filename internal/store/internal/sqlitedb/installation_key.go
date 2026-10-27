@@ -25,11 +25,13 @@ func EnsureInstallationKey(ctx context.Context, db *sql.DB, createdAt time.Time)
 		return failure(Unavailable, "open", "cannot create the installation cursor key", true,
 			"retry once the operating system random source is available", err)
 	}
-	tx, err := BeginWrite(ctx, db, nil, StateWriteAdmission)
+	write, err := BeginWrite(ctx, db, nil, StateWriteAdmission)
 	if err != nil {
 		return failure(Unavailable, "open", "cannot begin installation cursor key creation", true,
 			"retry once the database is writable", err)
 	}
+	// State admission advances the revision; ordinary writes retain raw lifecycle errors.
+	tx := write.Tx
 	defer tx.Rollback()
 	result, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO agent_installation_keys(key_name,key_bytes,created_at) VALUES('cursor',?,?)`, key, createdAt.UTC().Format(time.RFC3339Nano))
 	if err != nil {

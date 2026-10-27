@@ -11,7 +11,7 @@ import (
 
 func TestInstallationKeyFailureFieldsAndCauses(t *testing.T) {
 	t.Parallel()
-	for _, mode := range []string{"missing row", "invalid length", "canceled inspection", "missing revision", "insert refusal"} {
+	for _, mode := range []string{"missing row", "invalid length", "canceled inspection", "missing revision", "insert refusal", "ignored insert rollback failure"} {
 		t.Run(mode, func(t *testing.T) {
 			s := openTemp(t)
 			ctx := t.Context()
@@ -64,6 +64,21 @@ func TestInstallationKeyFailureFieldsAndCauses(t *testing.T) {
 					t.Fatalf("insert refusal lost cause or committed revision: %v", err)
 				}
 				want = Failure{Kind: KindUnavailable, Op: "open", Detail: "cannot persist the installation cursor key", RetrySafe: true, RecoveryAction: "retry once the database is writable"}
+			case "ignored insert rollback failure":
+				if _, err := s.db.Exec(`DELETE FROM agent_installation_keys; CREATE TRIGGER ignore_key BEFORE INSERT ON agent_installation_keys BEGIN SELECT RAISE(IGNORE); END`); err != nil {
+					t.Fatal(err)
+				}
+				connector := &restoreFaultConnector{dsn: dataSourceName(s.Path())}
+				connector.failRollback.Store(true)
+				db := sql.OpenDB(connector)
+				db.SetMaxOpenConns(1)
+				defer db.Close()
+				err = ensureInstallationKey(ctx, db)
+				var outer *Failure
+				if !errors.As(err, &outer) || outer.Err == nil || outer.Err.Error() != "injected uncertain rollback outcome" {
+					t.Fatalf("ignored insert rollback cause changed: %v", err)
+				}
+				want = Failure{Kind: KindUnavailable, Op: "open", Detail: "cannot roll back ignored installation cursor key creation", RetrySafe: true, RecoveryAction: "retry once the database is writable"}
 			}
 			var got *Failure
 			if !errors.As(err, &got) || got.Kind != want.Kind || got.Op != want.Op || got.Detail != want.Detail || got.RetrySafe != want.RetrySafe || got.RecoveryAction != want.RecoveryAction || got.EffectPossible {

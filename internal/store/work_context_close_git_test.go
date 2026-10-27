@@ -28,11 +28,6 @@ func TestWorkContextCloseGit(t *testing.T) {
 	if err := s.DatabaseForTesting().QueryRow(`SELECT locator_value FROM project_locators WHERE project_id='project' AND locator_id='workflow-law-locator'`).Scan(&repository); err != nil {
 		t.Fatal(err)
 	}
-	gitRunStore(t, repository, "init", "-b", "main")
-	gitRunStore(t, repository, "config", "user.email", "concord@example.invalid")
-	gitRunStore(t, repository, "config", "user.name", "Concord Context Test")
-	gitRunStore(t, repository, "add", ".")
-	gitRunStore(t, repository, "commit", "-m", "synthetic law home")
 	origin := filepath.Join(t.TempDir(), "origin.git")
 	gitRunStore(t, repository, "clone", "--bare", repository, origin)
 	gitRunStore(t, repository, "remote", "add", "origin", origin)
@@ -57,6 +52,10 @@ func TestWorkContextCloseGit(t *testing.T) {
 	}
 	owner := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/context-owner", SessionRef: "session/" + workID, ActorClass: ActorAgent}
 	ownerRef, err := WorkflowActorRef(owner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, err = s.EstablishKnowledgeSourceSetProof(ctx, workID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -262,7 +261,11 @@ func closeGitWorkflowEvent(t *testing.T, s *Store, actor, kind string, fields ma
 		t.Fatalf("unregistered fixture event %s", kind)
 	}
 	event.PayloadVersion = registration.CurrentVersion
-	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}); err != nil {
+	ctx, err := s.EstablishKnowledgeSourceSetProof(context.Background(), workID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}); err != nil {
 		t.Fatalf("seed %s: %v", kind, err)
 	}
 }

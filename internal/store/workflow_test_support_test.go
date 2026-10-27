@@ -250,6 +250,20 @@ func applyWorkflowTestOperation(ctx context.Context, s *Store, operation Operati
 }
 
 func applyWorkflowTestOperationDirect(ctx context.Context, s *Store, operation Operation) error {
+	// Model the owning contract route without replacing a proof supplied by a
+	// caller that is exercising a source change after verification.
+	if knowledgeSourceSetProofFrom(ctx) == nil {
+		for _, event := range operation.Events {
+			if event.Kind == WorkflowContractApproved || event.Kind == WorkflowContractSuperseded {
+				var err error
+				ctx, err = s.EstablishKnowledgeSourceSetProof(ctx, event.SubjectID)
+				if err != nil {
+					return err
+				}
+				break
+			}
+		}
+	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err

@@ -306,6 +306,23 @@ func assertEvidenceSupersession142(t *testing.T) {
 	}
 	c := historicalFactCorpus{parents: func(t *testing.T, s *Store, guard string) {
 		copyFixtureDataToPrefix(t, base.store, s.db, []string{"products", "projects", "product_projects", "work_items", "work_projects", "workflow_actors", "workflow_instances", "workflow_contracts", "workflow_contract_predicates"}, map[string]map[string]string{"workflow_instances": {"definition_version": "26"}, "workflow_contracts": {"definition_version": "26"}}, guard)
+		if guard == "write_guard" {
+			// This current corpus starts without a law home. Capture that
+			// explicit state before its first effect; historical prefixes
+			// retain their absent baseline through migration.
+			if err := s.Transact(t.Context(), func(tx *Transaction) error {
+				scope, err := beginWrite(t.Context(), tx.tx)
+				if err != nil {
+					return err
+				}
+				if err := initializeWorkflowLawBaselineTx(t.Context(), tx.tx, work); err != nil {
+					return err
+				}
+				return scope.close(t.Context())
+			}); err != nil {
+				t.Fatal(err)
+			}
+		}
 	}}
 	e := corpusEvent("supersession-corpus:successor", WorkflowContractSuperseded, work, map[string]any{
 		"work_id": work, "expected_version": version, "resulting_version": version + 1,

@@ -40,7 +40,11 @@ func pOverlapContractFacts(t *testing.T, s *Store, event Event) Event {
 			"law_change_touches_security_or_data_safety": false,
 		})
 	}
-	change, err := deriveWorkflowLawChangeTx(context.Background(), s.DatabaseForTesting(), definition, event.SubjectID, declarations, modifies, binding, []string{})
+	ctx, err := s.EstablishKnowledgeSourceSetProof(context.Background(), event.SubjectID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	change, err := deriveWorkflowLawChangeTx(ctx, s.DatabaseForTesting(), definition, event.SubjectID, declarations, modifies, binding, []string{})
 	if err != nil {
 		t.Fatal(err)
 	}

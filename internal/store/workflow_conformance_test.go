@@ -768,6 +768,10 @@ func TestWorkflowInlineTransactionRollbackLeavesNoSemanticOrActionEvents(t *test
 	seedWorkflowLaw(t, s)
 	seedIssue31DomainRegistry(t, s)
 	actor := WorkflowActor{PrincipalRef: "principal:corpus", ClientRef: "client:corpus", AgentRef: "agent:corpus-main", SessionRef: "session:corpus-inline", ActorClass: ActorAgent}
+	ctx, err := s.EstablishKnowledgeSourceSetProof(ctx, workID)
+	if err != nil {
+		t.Fatal(err)
+	}
 	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -871,6 +875,13 @@ func createCorpusCurrentWorkflow(ctx context.Context, s *Store, workID string, r
 	}
 	priority := int64(1)
 	created := Event{EventID: workID + ":capture", Kind: "work.created", SubjectType: SubjectWorkItem, SubjectID: workID, Actor: actor.PrincipalRef, OccurredAt: corpusNow, PayloadVersion: registration.CurrentVersion, Payload: mustJSONValue(workCreatedPayload{WorkID: workID, WorkKind: "task", Title: title, ValueStatement: value, Priority: &priority, WorkflowTypeRef: registered.Definition.Ref})}
+	if len(projectIDs) > 0 {
+		var err error
+		ctx, err = s.EstablishKnowledgeSourceSetProofForProject(ctx, projectIDs[0])
+		if err != nil {
+			return err
+		}
+	}
 	return s.Transact(ctx, func(transaction *Transaction) error {
 		events := []Event{created}
 		for i, projectID := range projectIDs {

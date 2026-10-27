@@ -45,7 +45,7 @@ func TestCompleteFootprintRefusalPrecedence(t *testing.T) {
 			preflight := WorkflowActionPreflightWithRegistry(ctx, s, BuiltinWorkflowRegistry(), WorkflowActionPreflightRequest{
 				WorkID: work, ExpectedVersion: readWorkVersion(t, s, work), ActionID: "complete", Payload: payload, Actor: actor, SessionWorktree: c.j.repo, ResolvedFootprint: resolved,
 			})
-			mutation := c.j.terminalActionContext(t, ctx, "complete", payload, actor, nil)
+			mutation := c.j.terminalActionContext(t, ctx, "complete", payload, actor, nil, nil)
 			for route, err := range map[string]error{"preflight": preflight, "execution": mutation} {
 				var failure *Failure
 				if !failureAs(err, &failure) || failure.Kind != kind || !strings.Contains(failure.Detail, detail) {

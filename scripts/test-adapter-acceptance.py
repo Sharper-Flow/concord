@@ -37,6 +37,10 @@ class JUnitGradingTests(unittest.TestCase):
                       '<properties><property name="x" value="y"><failure/></property></properties>' + passed,
                       '<properties><property name="x"/></properties>' + passed,
                       '<properties><property name="x" value="y" status="pass"/></properties>' + passed,
+                      '<properties status="pass"><property name="x" value="y"/></properties>' + passed,
+                      '<properties>pass<property name="x" value="y"/></properties>' + passed,
+                      '<properties><property name="x" value="y">pass</property></properties>' + passed,
+                      '<properties><property name="x" value="y"/>pass</properties>' + passed,
                       '<properties><property name="" value="y"/></properties>' + passed):
             with self.subTest(cases=cases), self.assertRaises(ValueError):
                 self.grade(cases)

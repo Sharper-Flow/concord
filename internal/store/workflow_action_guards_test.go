@@ -52,6 +52,19 @@ func TestCorrectedContractExternalCheckRecoveryAtAcceptance(t *testing.T) {
 	subject := "ci:required-checks:corrected-subject"
 	f, repo, refs := pReceiptFixture(t, workID, 1, 1, func(f workContextFixture) {
 		s := f.store
+		var home string
+		if err := s.db.QueryRow(`SELECT locator_value FROM project_locators WHERE project_id='project' AND locator_id='workflow-law-locator'`).Scan(&home); err != nil {
+			t.Fatal(err)
+		}
+		packageMap := `{"schema_version":"1.0","packages":[{"path":"internal/store","domain_ids":["root"]}]}` + "\n"
+		writeKnowledgeFile(t, home, knowledgePackageMapPath, packageMap)
+		gitRunStore(t, home, "init", "-b", "main")
+		gitRunStore(t, home, "config", "user.email", "concord@example.invalid")
+		gitRunStore(t, home, "config", "user.name", "Concord Recovery Test")
+		commit := commitKnowledgeRepo(t, home, "synthetic recovery package ownership")
+		footprintProofGuard(t, s,
+			`INSERT INTO knowledge_package_domains(home_project_id,home_locator_id,package_path,domain_id,map_content_hash,scanned_commit_oid) VALUES('project','workflow-law-locator','internal/store','root','`+nativeDigest([]byte(packageMap))+`','`+commit+`')`,
+			`UPDATE law_subjects SET scanned_commit_oid='`+commit+`',content_hash='`+nativeDigest([]byte("# Synthetic test law\n"))+`' WHERE home_project_id='project' AND home_locator_id='workflow-law-locator'`)
 		// Fold the successor to isolate evidence recovery from correction routing.
 		version := readWorkVersion(t, s, workID)
 		actor, _ := WorkflowActorRef(f.owner)
@@ -85,6 +98,7 @@ func TestCorrectedContractExternalCheckRecoveryAtAcceptance(t *testing.T) {
 		}
 	})
 	s := f.store
+	footprintProofSyntheticScope(t, s, workID)
 	payload := pReceiptBatch(refs, 0)
 	entry, err := VerifyWorkflowInstanceDefinition(t.Context(), s, BuiltinWorkflowRegistry(), workID)
 	if err != nil {

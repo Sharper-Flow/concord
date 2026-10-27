@@ -237,12 +237,14 @@ func (j *candidateJourney) terminalAction(t *testing.T, action string, payload j
 		return err
 	}
 	ctx = WithWorkerDispatchPreparation(ctx, prepared)
-	return j.terminalActionContext(t, ctx, action, payload, actor, nil)
+	return j.terminalActionContext(t, ctx, action, payload, actor, nil, nil)
 }
 
-func (j *candidateJourney) terminalActionContext(t *testing.T, ctx context.Context, action string, payload json.RawMessage, actor WorkflowActor, operator *WorkflowActor) error {
+func (j *candidateJourney) terminalActionContext(t *testing.T, ctx context.Context, action string, payload json.RawMessage, actor WorkflowActor, operator *WorkflowActor, resolved *ResolvedWorkflowFootprint) error {
 	t.Helper()
-	resolved := ResolveWorkflowFootprint(ctx, j.s, BuiltinWorkflowRegistry(), j.workID, action, payload)
+	if resolved == nil {
+		resolved = ResolveWorkflowFootprint(ctx, j.s, BuiltinWorkflowRegistry(), j.workID, action, payload)
+	}
 	version := readWorkVersion(t, j.s, j.workID)
 	id := fmt.Sprintf("%s-%s-%d", action, j.workID, version)
 	choice := ""

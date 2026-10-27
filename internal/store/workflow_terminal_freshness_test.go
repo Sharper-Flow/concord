@@ -137,12 +137,13 @@ func TestManagedCandidateTerminalPostObservationMovementKeepsObservedSubject(t *
 	if err != nil {
 		t.Fatal(err)
 	}
+	resolved := footprintProofResolved(t, j.s, j.workID)
 	j.commitB(t)
 	if j.pinned(t) != j.a || j.head(t) != j.b {
 		t.Fatal("fixture must preserve pin A while live HEAD moves to B")
 	}
 	ctx := WithWorkerDispatchPreparation(context.Background(), prepared)
-	err = j.terminalActionContext(t, ctx, "complete", json.RawMessage(`{"impact_verdict":"non-breaking"}`), j.fixture.owner, nil)
+	err = j.terminalActionContext(t, ctx, "complete", json.RawMessage(`{"impact_verdict":"non-breaking"}`), j.fixture.owner, nil, resolved)
 	if err != nil {
 		t.Fatalf("complete over sealed A observation: %v", err)
 	}

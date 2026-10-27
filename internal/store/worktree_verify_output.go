@@ -134,7 +134,7 @@ func runNativeOracleStageOutput(ctx context.Context, dir string, argv, env []str
 		}
 		go func() {
 			_, err := io.Copy(w, r)
-			if err != nil {
+			if err != nil && !errors.Is(err, os.ErrClosed) {
 				cancel()
 			}
 			copied <- err

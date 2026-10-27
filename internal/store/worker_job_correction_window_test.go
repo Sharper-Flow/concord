@@ -848,7 +848,15 @@ func TestWorkerJobLocalAcceptAtRefineHoldsWithoutDelivery(t *testing.T) {
 			f := acceptDeliveryFixtureFor(t, workID, family, "refine", "start_refine")
 			s := f.fixture.store
 			defer s.Close()
+			footprintProofSyntheticScope(t, s, workID)
 			owner := f.fixture.owner
+			repo, _ := reviewSubjectClaim(t, s, workID)
+			var branch string
+			if err := s.db.QueryRow(`SELECT branch FROM worktree_entries WHERE set_id=? AND state='active'`, WorktreeSetID(workID)).Scan(&branch); err != nil {
+				t.Fatal(err)
+			}
+			gitRunStore(t, repo, "branch", "-m", branch)
+			w := workContextFixture{store: s, workID: workID, owner: owner, operator: f.fixture.operator}
 			acceptor := reviewGateAcceptor(workID)
 			lane := reviewGateLane(t, "implementation")
 			reviewGateStartStep(t, s, workID, "refine", "start_refine", owner)
@@ -885,9 +893,11 @@ func TestWorkerJobLocalAcceptAtRefineHoldsWithoutDelivery(t *testing.T) {
 				t.Fatalf("plain accept of an unbound attempt at refine error = %v, want the delivery-assertion refusal", err)
 			}
 
-			oracleFixture := oracleRepairFixtureFrom(t, workID, f.fixture)
-			oAcceptOracleFixtureReview(t, oracleFixture, workID, "continue")
-			finalAttempt := oCompleteOracleFixtureReview(t, oracleFixture, workID, "ready_for_final_proof")
+			acceptCurrentReviewForTest(t, w, repo, "continue")
+			j := &candidateJourney{fixture: w, s: s, workID: workID, repo: repo}
+			c := acceptDeliveryCandidate{f: w, j: j, definition: f.definition, early: j.observeRun(t, "refine-review")}
+			finalAttempt := "review:refine-final"
+			acceptDeliveryCompleteReview(t, c, finalAttempt, "ready_for_final_proof")
 			finalEpoch := epoch()
 			asserted := mustJSONValue(map[string]any{"attempt_id": finalAttempt, "attempt_epoch": finalEpoch, "delivery_artifact": "artifact:accept-delivery-" + workID, "delivery_state": "asserted"})
 			refineProofCandidateRun(t, s, workID, "refine-final", refineProofCandidate(t, s, workID), []string{"true"})

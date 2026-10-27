@@ -6,10 +6,12 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"io"
 	"net/url"
 	"os"
 	"os/exec"
@@ -73,6 +75,21 @@ func TestNativeOracleStageStreamCutByWaitDelayIsIncomplete(t *testing.T) {
 				t.Fatalf("complete=%v stdout=%q exit=%d err=%v, want complete=%v stdout=%q exit=%d err=%v", capture.complete, capture.stdout, exit, err, tc.complete, tc.stdout, tc.exit, tc.err)
 			}
 		})
+	}
+}
+
+func TestNativeOracleStageRejectedOutputCancelsChild(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	reader, writer := io.Pipe()
+	defer writer.Close()
+	if err := reader.CloseWithError(errors.New("synthetic grader refusal")); err != nil {
+		t.Fatal(err)
+	}
+	capture := &nativeStreamCapture{complete: true}
+	exit, err := runNativeOracleStageOutput(ctx, t.TempDir(), []string{"sh", "-c", "printf rejected; sleep 30"}, nil, nil, capture, nil, writer)
+	if exit != -1 || !errors.Is(err, context.Canceled) || ctx.Err() != nil {
+		t.Fatalf("exit=%d err=%v parent=%v, want child cancellation before parent deadline", exit, err, ctx.Err())
 	}
 }
 

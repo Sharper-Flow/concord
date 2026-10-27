@@ -90,6 +90,7 @@ func runApprovalActionTx(t *testing.T, s *Store, registry DefinitionRegistry, wo
 	if payload != "" {
 		request.Payload = json.RawMessage(payload)
 	}
+	request.ResolvedFootprint = ResolveWorkflowFootprint(ctx, s, registry, workID, actionID, request.Payload)
 	return s.Transact(ctx, func(tx *Transaction) error {
 		_, err := ApplyWorkflowActionTx(ctx, tx, registry, request)
 		return err

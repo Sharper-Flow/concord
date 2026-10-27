@@ -162,6 +162,9 @@ class CIWorkflowDriftTests(unittest.TestCase):
         producer_argv = shlex.split(producer["run"])
         self.assertEqual(producer_argv[:4], ["python3", "scripts/go-test-results.py", "--output-dir", go[2]])
         self.assertIn(go_owner, producer_argv[producer_argv.index("-run") + 1])
+        suite = "python3 scripts/test-adapter-acceptance.py"
+        self.assertTrue(any(step.get("run") == suite for step in block["verify-tooling"]["steps"]))
+        self.assertFalse(any(step.get("run") == suite for step in block["verify-contracts"]["steps"]))
 
     def test_ci_keeps_pull_request_and_merge_group_triggers(self) -> None:
         block = triggers(load_workflow(CI_WORKFLOW))

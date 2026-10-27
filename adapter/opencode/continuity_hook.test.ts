@@ -302,12 +302,25 @@ test("adapter-continuity-failure-is-absence", async () => {
     runner: { run: async () => ({ exitCode: 0, stdout: "unexpected", stderr: "" }) },
   }) as Transform)({ sessionID: "ses-gone" }, unreadable)
   expect(unreadable.system[0]).toBe(original)
+
+  // An unclaimed session directory gets the core's empty continuity answer.
+  const manual = output(original)
+  const directories: string[] = []
+  await (createContinuityTransform({
+    sessions: fakeSessions("/manual/project"),
+    runner: { run: async (argv) => {
+      directories.push(argv[2] ?? "")
+      return { exitCode: 0, stdout: "", stderr: "" }
+    } },
+  }) as Transform)({ sessionID: "ses-manual" }, manual)
+  expect(directories).toEqual(["/manual/project"])
   await assertScenario("adapter-continuity-failure-is-absence", {
     system_prompt_untouched: () => {
       expect(failed.system[0]).toBe(original)
       expect(nonzero.system[0]).toBe(original)
       expect(empty.system[0]).toBe(original)
       expect(unreadable.system[0]).toBe(original)
+      expect(manual.system[0]).toBe(original)
     },
   })
 })
@@ -381,7 +394,10 @@ test("adapter-continuity-ttl-gates-spawn", async () => {
   expect(calls).toBe(1)
   await assertScenario("adapter-continuity-ttl-gates-spawn", {
     no_child_spawn: () => expect(calls).toBe(1),
-    system_prompt_byte_identical: () => expect(second.system[0]).toBe(first.system[0]),
+    system_prompt_byte_identical: () => {
+      expect(first.system[0]).toBe(`system prefix${START}\nfixture\n${END}`)
+      expect(second.system[0]).toBe(first.system[0])
+    },
   })
 })
 

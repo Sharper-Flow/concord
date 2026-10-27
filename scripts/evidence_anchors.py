@@ -46,6 +46,7 @@ import re
 import shlex
 import subprocess
 import sys
+from functools import lru_cache
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -278,14 +279,19 @@ def nested_invocations(path: Path) -> set[str]:
     Derived from the call graph rather than from the file containing a string,
     because a mention is not a call. A script named in a comment, a docstring,
     or a variable that nothing runs must not count as proof that a law record
-    is enforced.
+    is enforced. Reuse parses by exact source content, not by timestamps, so
+    repeated checks stay cheap and same-size edits cannot leave stale lineage.
     """
     try:
-        tree = ast.parse(path.read_text(encoding="utf-8"))
+        return set(_nested_invocations(path.read_text(encoding="utf-8")))
     except (OSError, SyntaxError, ValueError):
         return set()
+
+
+@lru_cache(maxsize=256)
+def _nested_invocations(source: str) -> frozenset[str]:
+    tree = ast.parse(source)
     bindings: dict[str, ast.AST] = {}
-    assigned: set[str] = set()
     conflicting: set[str] = set()
     for node in ast.walk(tree):
         if not isinstance(node, (ast.Assign, ast.AnnAssign, ast.AugAssign)):
@@ -293,9 +299,6 @@ def nested_invocations(path: Path) -> set[str]:
         targets = node.targets if isinstance(node, ast.Assign) else [node.target]
         for target in targets:
             if isinstance(target, ast.Name):
-                if target.id in assigned:
-                    conflicting.add(target.id)
-                assigned.add(target.id)
                 if node.value is not None:
                     bindings[target.id] = node.value
     stores: dict[str, int] = {}
@@ -343,7 +346,7 @@ def nested_invocations(path: Path) -> set[str]:
         argv = command(node.args[0])
         if len(argv) == 2 and argv[0] in {"python", "python3"} and SCRIPT_REFERENCE.fullmatch(argv[1]):
             invoked.add(argv[1])
-    return invoked
+    return frozenset(invoked)
 
 
 OWNER_KINDS = ("go_package", "go_test", "adapter_test", "validator")
@@ -376,9 +379,11 @@ def invocation_argv(invocation: str) -> list[str]:
     return argv
 
 
-def reachable_validators(root: Path, argv: list[str]) -> set[str]:
+def reachable_validators(root: Path, argv: list[str], *, nested: bool = True) -> set[str]:
     if len(argv) < 2 or argv[0] not in {"python", "python3"} or not SCRIPT_REFERENCE.fullmatch(argv[1]):
         return set()
+    if not nested:
+        return {argv[1]} if repository_file(root, argv[1]) is not None else set()
     pending = [argv[1]]
     found: set[str] = set()
     while pending:
@@ -392,12 +397,12 @@ def reachable_validators(root: Path, argv: list[str]) -> set[str]:
     return found
 
 
-def invocation_reaches(root: Path, invocation: str, owner: dict[str, str]) -> bool:
+def invocation_reaches(root: Path, invocation: str, owner: dict[str, str], *, nested: bool = True) -> bool:
     """Structural selection, never an execution or semantic-adequacy verdict."""
     argv = invocation_argv(invocation)
     kind, value = owner["kind"], owner["value"]
     if kind == "validator":
-        return value in reachable_validators(root, argv)
+        return value in reachable_validators(root, argv, nested=nested)
     if kind == "adapter_test":
         match = ADAPTER_TEST_ANCHOR.fullmatch(value)
         if not match or argv[:2] != ["bun", "test"]:
@@ -464,9 +469,9 @@ def invocation_reaches(root: Path, invocation: str, owner: dict[str, str]) -> bo
     return all(re.fullmatch(r"Test[A-Za-z0-9_]+", name) for name in choices.split("|")) and test in choices.split("|")
 
 
-def ci_reaches(root: Path, owner: dict[str, str]) -> bool:
-    for relative in ("ci.yml", "release.yml", "pr-linear-link.yml"):
-        path = repository_file(root, f".github/workflows/{relative}")
+def ci_reaches(root: Path, owner: dict[str, str], *, nested: bool = True) -> bool:
+    for declared in REQUIRED_WORKFLOWS:
+        path = repository_file(root, f".github/workflows/{declared.name}")
         if path is not None:
             commands = workflow_commands(path.read_text(encoding="utf-8")).replace("\\\n", " ")
             for command in commands.splitlines():
@@ -477,7 +482,7 @@ def ci_reaches(root: Path, owner: dict[str, str]) -> bool:
                 parts = command.split(" && ") if re.fullmatch(
                     r"python3 scripts/[a-z0-9-]+\.py(?: && python3 scripts/[a-z0-9-]+\.py)+", command
                 ) else [command]
-                if any(invocation_reaches(root, part, owner) for part in parts):
+                if any(invocation_reaches(root, part, owner, nested=nested) for part in parts):
                     return True
     return False
 
@@ -579,7 +584,8 @@ def coverage_bindings(root: Path, tools: list[object]) -> tuple[list[str], dict[
             elif anchor["kind"] == "generated":
                 match = GENERATED_ANCHOR.fullmatch(anchor["value"])
                 path = repository_file(root, match["file"]) if match else None
-                if path is None or GENERATED_MARKER not in path.read_text(encoding="utf-8") or not re.search(rf"\b{re.escape(match['symbol'])}\b", path.read_text(encoding="utf-8")):
+                text = path.read_text(encoding="utf-8") if path else ""
+                if path is None or GENERATED_MARKER not in text or not re.search(rf"\b{re.escape(match['symbol'])}\b", text):
                     findings.append(f"{prefix}: generated anchor does not resolve: {anchor['value']}")
                 elif owner["kind"] != "validator" or not validator_references(root, owner["value"], match["file"]):
                     findings.append(f"{prefix}: generated parity owner does not reference the artifact: {anchor['value']}")
@@ -637,7 +643,10 @@ def validator_runs_in_ci(script: str) -> bool:
     graph. Substring matching over whole files accepted a name in a comment as
     proof, which is presence standing in for enforcement.
     """
-    return ci_reaches(ROOT, {"kind": "validator", "value": script})
+    if ci_reaches(ROOT, {"kind": "validator", "value": script}, nested=False):
+        return True
+    hub = "scripts/check-json.py"
+    return ci_reaches(ROOT, {"kind": "validator", "value": hub}, nested=False) and script in reachable_validators(ROOT, ["python3", hub])
 
 
 def adapter_test_exists(file: str, test: str) -> bool:

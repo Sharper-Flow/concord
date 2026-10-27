@@ -632,13 +632,45 @@ def test_validator_ci_reachability_requires_invocation_and_reaches_nested_cycles
     (tmp / "scripts").mkdir()
     (tmp / ".github/workflows").mkdir(parents=True)
     workflow = tmp / ".github/workflows/ci.yml"
-    (tmp / "scripts/check-outer.py").write_text("import subprocess\nsubprocess.run(['python3', 'scripts/check-inner.py'])")
-    (tmp / "scripts/check-inner.py").write_text("import subprocess\nsubprocess.run(['python3', 'scripts/check-outer.py'])")
+    (tmp / "scripts/check-json.py").write_text("import subprocess\nsubprocess.run(['python3', 'scripts/check-inner.py'])")
+    (tmp / "scripts/check-inner.py").write_text("import subprocess\nsubprocess.run(['python3', 'scripts/check-json.py'])")
+    (tmp / "scripts/check-outer.py").write_text("import subprocess\nsubprocess.run(['python3', 'scripts/check-other.py'])")
+    (tmp / "scripts/check-other.py").write_text("raise SystemExit(0)")
     with mock.patch.object(anchors, "ROOT", tmp):
         workflow.write_text("        run: echo scripts/check-inner.py\n")
         assert not anchors.validator_runs_in_ci("scripts/check-inner.py")
-        workflow.write_text("        run: python3 scripts/check-outer.py\n")
+        workflow.write_text("        run: python3 scripts/check-json.py\n")
         assert anchors.validator_runs_in_ci("scripts/check-inner.py")
+        workflow.write_text("        run: python3 scripts/check-outer.py\n")
+        assert anchors.validator_runs_in_ci("scripts/check-outer.py")
+        assert not anchors.validator_runs_in_ci("scripts/check-other.py"), "CD-0047 D3 nests law validators only through check-json.py"
+        assert anchors.ci_reaches(tmp, {"kind": "validator", "value": "scripts/check-other.py"}), "tooling owners keep derived nesting"
+
+
+def test_validator_ci_reachability_reuses_unchanged_parses_and_tracks_edits(tmp: Path) -> None:
+    from unittest import mock
+
+    (tmp / "scripts").mkdir()
+    (tmp / ".github/workflows").mkdir(parents=True)
+    (tmp / ".github/workflows/ci.yml").write_text("        run: python3 scripts/check-json.py\n")
+    hub = tmp / "scripts/check-json.py"
+    hub.write_text("import subprocess\nsubprocess.run(['python3', 'scripts/check-inner.py'])\n")
+    (tmp / "scripts/check-inner.py").write_text("raise SystemExit(0)\n")
+    (tmp / "scripts/check-other.py").write_text("raise SystemExit(0)\n")
+    parse = anchors.ast.parse
+    with mock.patch.object(anchors, "ROOT", tmp), mock.patch.object(anchors.ast, "parse", side_effect=parse) as parsed:
+        assert anchors.validator_runs_in_ci("scripts/check-inner.py")
+        first = parsed.call_count
+        for _ in range(20):
+            assert anchors.validator_runs_in_ci("scripts/check-inner.py")
+            assert not anchors.validator_runs_in_ci("scripts/check-other.py")
+        assert parsed.call_count == first, (first, parsed.call_count)
+        before = hub.stat()
+        hub.write_text("import subprocess\nsubprocess.run(['python3', 'scripts/check-other.py'])\n")
+        os.utime(hub, ns=(before.st_atime_ns, before.st_mtime_ns))
+        assert hub.stat().st_size == before.st_size
+        assert anchors.validator_runs_in_ci("scripts/check-other.py"), "an edited script was read from a stale parse"
+        assert not anchors.validator_runs_in_ci("scripts/check-inner.py")
 
 
 def main() -> int:

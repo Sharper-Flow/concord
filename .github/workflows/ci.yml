@@ -325,8 +325,6 @@ jobs:
         run: python3 scripts/test-go-test-results.py
       - name: Test verification phase reporting
         run: python3 scripts/test-oc-test.py
-      - name: Test named adapter result consumption
-        run: python3 scripts/test-adapter-acceptance.py
 
   verify-tooling:
     name: verify-tooling
@@ -384,6 +382,8 @@ jobs:
           chmod -R a-w "$UV_CACHE_DIR"
       - name: Validate the package-to-Domain map
         run: python3 scripts/check-package-domains.py
+      - name: Test named adapter result consumption
+        run: python3 scripts/test-adapter-acceptance.py
       - name: Test legislative reference grammar and defaults
         run: python3 scripts/test-knowledge-authority.py
       - name: Test isolated rapid integration

@@ -98,6 +98,7 @@ func init() {
 	for _, keyword := range []string{"maxLength", "x-maxBytes"} {
 		registerOutputBound(obligation+"needed_proof/"+keyword, neededProof)
 		registerOutputBound("/$defs/lane_report_review_finding/properties/detail/"+keyword, detail)
+		registerOutputBound("/$defs/workflow_review_unidentified_finding/properties/detail/"+keyword, detail)
 		registerOutputBound("/$defs/lane_report_review_refs/items/"+keyword, reference)
 	}
 	registerOutputBound("/$defs/lane_report_review_finding/properties/finding_id/maxLength", reference)

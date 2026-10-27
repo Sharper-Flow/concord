@@ -1901,6 +1901,19 @@ def project_review_report_types(payload: dict, lane_report: dict) -> None:
         "$ref": "#/$defs/workflow_review_candidate_view"
     }
 
+    unidentified = copy.deepcopy(target["lane_report_review_finding"])
+    observed = {"severity", "confidence", "detail", "oracle"}
+    unidentified["properties"] = {
+        name: schema for name, schema in unidentified["properties"].items() if name in observed
+    }
+    unidentified["required"] = [name for name in unidentified["required"] if name in observed]
+    unidentified["description"] = "A retained current finding without recorded identity, status, scope, blocking or reference fields. Only its observed content is exposed; it grants no worker-report, closure or acceptance authority."
+    target["workflow_review_unidentified_finding"] = unidentified
+    target["workflow_review_state"]["properties"]["findings"]["items"] = {"anyOf": [
+        {"$ref": "#/$defs/lane_report_review_finding"},
+        {"$ref": "#/$defs/workflow_review_unidentified_finding"},
+    ]}
+
 
 def check_schema_keywords(node, path="schema"):
     if not isinstance(node, dict): return

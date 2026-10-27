@@ -19,6 +19,21 @@ func TestRetainedReviewCandidateReadback(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			candidate := WorkerReviewCandidate{ProjectID: tc.project, Commit: strings.Repeat("a", 40), Tree: tc.tree}
 			state := WorkflowReviewState{Candidate: &candidate, Findings: []WorkerReviewFinding{}, PublicationOutstanding: true}
+			if tc.name == "complete" {
+				report := reviewBlockFixture()
+				report.InputCandidate, report.OutputCandidate = candidate, candidate
+				state.Dependencies = &report.Dependencies
+				state.Accepted = &WorkflowAcceptedReview{
+					AttemptID: "attempt-one", ReportRef: "worker-report:one", ActorRef: "actor-one",
+					ReportDigest: "sha256:" + strings.Repeat("c", 64), Report: *report,
+				}
+				state.Findings = report.Findings
+				state.ContinueConsumed, state.DependenciesCurrent = true, true
+				state.GroupID = "group-one"
+				state.Groups = map[string]workflowAssignmentGroup{"group-one": {}}
+				state.StaleJobs = map[string]bool{"job-one": true}
+				state.ExecutionProgressed = true
+			}
 			raw := mustJSONValue(state)
 			if err := payloadschema.Validate("workflow_review_state", raw); err != nil {
 				t.Fatalf("retained review readback rejected: %v", err)

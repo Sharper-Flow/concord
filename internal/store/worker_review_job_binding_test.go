@@ -2,6 +2,9 @@ package store
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -153,27 +156,64 @@ func TestFinalReviewBindsNewestDeliveryAnchor(t *testing.T) {
 	}
 }
 
-// CD-0205 D1: a Review of a ready revision whose recorded preparation no
-// longer qualifies on the current candidate refuses before an attempt; the
-// final-Review fallback never admits a ready revision state-only.
-func TestReadyReviewRefusesStalePreparationBeforeAttempt(t *testing.T) {
-	workID := "ready-review-stale-preparation"
+// CD-0205 D1: a Review of a ready revision freezes its recorded preparation
+// when it qualifies on the current candidate. When the candidate has moved
+// and no qualified preparation of the unchanged bundle exists, the dispatch
+// refuses before an attempt.
+func TestReadyReviewFreezesQualifiedPreparationOrRefusesBeforeAttempt(t *testing.T) {
+	workID := "ready-review-preparation"
 	f := seedOracleRepairFixture(t, workID)
 	s := f.store
 	defer s.Close()
-	job := recordOracleJobRevision(t, s, workID, f.owner, "job:ready-review-stale", twoPathOracleFields(t, s, workID, nil))
-	advanceOracleFixtureSubject(t, f, workID, "2")
-	var review LaneDefinition
-	for _, lane := range BuiltinLaneDefinitions() {
-		if lane.CapabilityClass == "review" {
-			review = lane
-		}
+	job := recordOracleJobRevision(t, s, workID, f.owner, "job:ready-review", twoPathOracleFields(t, s, workID, nil))
+	oracle, err := readWorkerJobOracle(context.Background(), s.db, workID, job)
+	if err != nil || oracle == nil {
+		t.Fatalf("job oracle = %v, %v", oracle, err)
 	}
-	definition := mustBuiltinDefinition(t, "workflow.break_fix").Definition
-	packet := joinPacketFor(t, s, workID, "repair", "attempt:"+workID, review.ID, review.Digest)
-	packet["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, s, workID, job, review.ID)
-	if _, _, err := validateWorkerPacketJob(context.Background(), s.DatabaseForTesting(), definition, workID, review, mustJSONValue(packet)); err == nil || !strings.Contains(err.Error(), "stale for its bundle and candidate") {
-		t.Fatalf("Review admission of a ready revision with stale preparation = %v, want the preparation refusal", err)
+	review := reviewGateLane(t, "review")
+	reviewPacket := func(attempt string) map[string]any {
+		packet := joinPacketFor(t, s, workID, "repair", attempt, review.ID, review.Digest)
+		packet["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, s, workID, job, review.ID)
+		return packet
+	}
+	authorized := func(attempt string) int {
+		var n int
+		if err := s.db.QueryRow(`SELECT count(*) FROM worker_authorizations WHERE work_id=? AND attempt_id=?`, workID, attempt).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+
+	stale := "attempt:" + workID + ":stale"
+	advanceOracleFixtureSubject(t, f, workID, "2")
+	err = dispatchJobPacketForTest(t, s, workID, stale, f.owner, "dispatch-stale", reviewPacket(stale))
+	var failure *Failure
+	if !errors.As(err, &failure) || !strings.Contains(failure.Detail, "qualified native preparation") || !strings.Contains(failure.RecoveryAction, "worktree_verify") {
+		t.Fatalf("Review of a ready revision with a stale preparation = %v, want the preparation refusal", err)
+	}
+	if authorized(stale) != 0 {
+		t.Fatal("the refused Review dispatch recorded an authorization")
+	}
+
+	fresh := "attempt:" + workID + ":fresh"
+	advanceOracleFixtureSubject(t, f, workID, "1")
+	if err := dispatchJobPacketForTest(t, s, workID, fresh, f.owner, "dispatch-fresh", reviewPacket(fresh)); err != nil {
+		t.Fatalf("Review of a ready revision with a qualifying recorded preparation: %v", err)
+	}
+	var raw string
+	if err := s.db.QueryRow(`SELECT json_extract(payload,'$.worker_oracle_preparations') FROM worker_authorizations WHERE work_id=? AND attempt_id=?`, workID, fresh).Scan(&raw); err != nil {
+		t.Fatal(err)
+	}
+	var frozen []WorkerOraclePreparationBinding
+	if err := json.Unmarshal([]byte(raw), &frozen); err != nil {
+		t.Fatal(err)
+	}
+	var want []WorkerOraclePreparationBinding
+	for _, control := range oracle.Controls {
+		want = append(want, WorkerOraclePreparationBinding{ControlID: control.ControlID, PreparationRunRef: control.ReadinessEvidenceRefs[0]})
+	}
+	if !slices.Equal(frozen, want) {
+		t.Fatalf("frozen Review preparations = %#v, want the recorded references %#v", frozen, want)
 	}
 }
 

@@ -337,11 +337,8 @@ func prepareWorkerSubjectFreshness(ctx context.Context, s *Store, request Prepar
 		return nil, err
 	}
 	proof.observation = observation
-	if !acceptance && sample.nativeReview != nil && observation.State == "clean" {
-		proof.nativeReview, err = observeNativeReviewDispatch(ctx, runner, entry, request.WorkID, observation.Commit, proof.sessionIdentity, sample.nativeReview)
-		if err != nil {
-			return nil, err
-		}
+	if proof.nativeReview, err = observeNativeReviewDispatch(ctx, runner, entry, request.WorkID, &proof, sample.nativeReview); err != nil {
+		return nil, err
 	}
 	if entry.MemberID == "" && observation.State == "clean" && len(sample.memberAncestors) != 0 {
 		proof.memberCandidate = dispatchSubjectIncludesMembers(ctx, runner, probePath, observation.Commit, sample.memberAncestors)

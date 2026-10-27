@@ -265,6 +265,10 @@ func TestWitnessCombinedAcceptAfterEarlierReview(t *testing.T) {
 			if changed {
 				workerDiffCommit(t, c.j, "final-result", "the final job changes the candidate\n")
 				c.early = c.j.observeRun(t, "integrated-final-result")
+				// The integrated candidate moved past the job's recorded
+				// preparation, so Main prepares the unchanged job again on it
+				// before Review binds it (CD-0205 D1).
+				workerDiffJob(t, c.j, "integrate-final-result")
 				qAcceptCriterionReview(t, c.f, c.j.repo, c.early.OperationRef)
 			}
 			candidate := "commit:" + refineProofCandidate(t, s, id)

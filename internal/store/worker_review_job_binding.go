@@ -153,9 +153,9 @@ func dispatchBoundFinalReviewTx(ctx context.Context, q queryer, workID, attemptI
 }
 
 // nativeDispatchJobStateTx applies the dispatch's job admission at native
-// execution: a final Review whose authorization froze its preparations keeps
-// the state-only final-Review rule; every other dispatch keeps the ordinary
-// state readiness its admission already proved preparations for.
+// execution: a Review whose authorization froze its preparations keeps the
+// state-only Review rule; every other dispatch keeps the ordinary state
+// readiness its admission already proved preparations for.
 func nativeDispatchJobStateTx(ctx context.Context, q queryer, workID string, dispatch workflowActionCompletedPayload, binding WorkerJobBinding) error {
 	if dispatch.WorkerCapabilityClass == "review" && len(dispatch.WorkerOraclePreparations) != 0 {
 		return requireWorkerReviewJobRevisionStateTx(ctx, q, workID, binding)

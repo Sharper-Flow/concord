@@ -10,12 +10,13 @@ exist. State what it is for and what breaks without it. If you cannot say,
 that is the finding. Something can be present, called, and working, and still
 not be warranted.
 
-Default to subtraction. Remove what a change supersedes in the same change, or
-say why it stays. When a change retires behaviour under accepted law, delete its
-tests and coverage in the same change, citing the retiring clause. Never keep a
-test failing while waiting for law text. Never hide superseded code behind a
-flag, a guard, or a compatibility path, and never copy an implementation instead
-of calling it.
+Default to subtraction. When work retires or replaces something, remove now
+what the approved plan retires, including law that requires it, through the
+existing law-change route. Do not repair, extend, or conform to it
+meanwhile. Remove its tests and coverage together, citing the retiring
+clause. Keep proof for current obligations or name replacement proof. Never hide
+superseded code behind a flag, guard, or compatibility path, and never copy an
+implementation instead of calling it.
 
 Choose dependencies by total engineering cost, not by minimizing dependency
 count. Prefer a well-established, actively maintained dependency when it provides

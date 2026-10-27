@@ -1,6 +1,6 @@
 ---
 name: concord-domain-shape-stewardship
-description: Initialize, migrate and reorganise, refine, or audit a Product's Concord Domain shape. Use when establishing exclusive code-root ownership, reconciling typed facts, or investigating gaps in Product knowledge.
+description: Initialize, migrate and reorganise, refine, or audit a Product's Concord Domain shape. Use when establishing exclusive code-root ownership, reconciling typed facts, clarifying overloaded Domain terms, or investigating gaps in Product knowledge.
 ---
 
 # Domain-shape stewardship
@@ -114,6 +114,26 @@ The `domain_shape` declaration references existing tool IDs for `boundary_check`
 Product observations with facts. A complete inventory is not a pass. Missing and
 orphan extractor facts are findings; an absent extractor remains unverified even
 when a command exits successfully. Reads never execute these commands.
+
+### Clarify terms
+
+When a term is overloaded, vague, or used differently by the request, the code,
+and accepted law, resolve it before proposing structure:
+
+1. Name the conflict directly: the two meanings in use and where each appears.
+   Propose one canonical term for each distinct concept.
+2. Test each concept with concrete scenarios, including edge cases that force a
+   boundary decision, such as a partial operation or a shared resource.
+3. Check every stated claim against the code. Report a contradiction between
+   what is said and what the code does; do not resolve it silently.
+4. Separate the behavior, the invariant that must hold, and the Domain that
+   owns it. Semantic agreement does not prove exclusive code ownership; only the
+   checks above do.
+
+Record a resolved term with the law or fact that owns its concept, using the
+law-writing skill for an accepted-law change. Do not start a separate glossary
+or decision log beside the Product's knowledge home. An observation does not
+become law because it was written down.
 
 ## Initialize
 

@@ -57,13 +57,21 @@ owner of prose it cannot verify and would age exactly as
 This extends the split CD-0017 D4 already draws. That decision separated worker
 labor from workflow authority. This one separates worker method from worker contract.
 
+[CD-0246](CD-0246-concord-ships-portable-engineering-methods.md) amends this
+clause: Concord may ship a portable engineering method that names no host tool,
+machine, model, or private source, and a lane's generated definition carries
+the method that lane's purpose uses. Procedure that depends on a host's tools,
+models, or configuration stays host-owned and reaches a worker through D2.
+
 ### D2. `CONCORD_HOST_INSTRUCTIONS` is the sole legal channel
 
-Methodology reaches a worker only as a host prompt surface, through the enumerable
-instruction path CD-0034 declared. The adapter binds each file with its kind, path,
-and content hash, and folds it into the `host_provenance` total digest.
+Host-specific methodology reaches a worker only as a host prompt surface, through
+the enumerable instruction path CD-0034 declared. The adapter binds each file with
+its kind, path, and content hash, and folds it into the `host_provenance` total
+digest. A portable method shipped under CD-0246 reaches a worker in its generated
+lane definition instead.
 
-Methodology delivered through any other route is invisible drift. CD-0034 already
+Host-specific methodology delivered through any other route is invisible drift. CD-0034 already
 refuses v3 dispatch evidence without `host_provenance`, so the emitter gate is the
 enforcement point and no new mechanism is required.
 
@@ -77,9 +85,9 @@ prefer the enumerable path.
 [CD-0245](CD-0245-concord-ships-the-skill-that-operates-its-domain-shape.md) D1
 admits a skill when it operates a structure that accepted Concord law defines,
 and Concord's checks verify the result. The first such skill is Domain-shape
-stewardship. Lane methodology stays host-owned under D1 and reaches a worker
-through D2; a skill that tells a worker how to review, verify, or implement
-inside its lane is not admitted.
+stewardship. [CD-0246](CD-0246-concord-ships-portable-engineering-methods.md)
+D3 also admits a skill that carries a portable engineering method. A worker
+receives its method in its generated lane definition under CD-0246 D2.
 
 ### D4. The coverage rows name the owner
 

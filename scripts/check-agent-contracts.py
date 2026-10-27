@@ -60,9 +60,29 @@ SKILL_REFERENCES = {
         "conflicts": ".concord/docs/decisions/CD-0230-the-conflict-rules-are-one-checked-table-and-an-agent-changes-law-that-is-not-serious.md",
         "approval": ".concord/docs/decisions/CD-0243-four-roles-and-six-operator-approval-classes.md",
     },
+    # Portable engineering methods (CD-0246 D1 and D3).
+    "concord-diagnosis": {
+        "admission": ".concord/docs/decisions/CD-0245-concord-ships-the-skill-that-operates-its-domain-shape.md",
+        "intake": ".concord/docs/decisions/CD-0211-defect-intake-classifies-recurrence-before-fix.md",
+    },
+    "concord-codebase-design": {
+        "admission": ".concord/docs/decisions/CD-0245-concord-ships-the-skill-that-operates-its-domain-shape.md",
+        "ownership": ".concord/docs/decisions/CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md",
+    },
+    "concord-work-shaping": {
+        "admission": ".concord/docs/decisions/CD-0245-concord-ships-the-skill-that-operates-its-domain-shape.md",
+        "approval": ".concord/docs/decisions/CD-0243-four-roles-and-six-operator-approval-classes.md",
+        "size": ".concord/docs/decisions/CD-0229-workflows-are-composed-from-shared-parts-and-a-decision-model-sets-each-work-items-size.md",
+    },
+    "concord-retrospective": {
+        "admission": ".concord/docs/decisions/CD-0245-concord-ships-the-skill-that-operates-its-domain-shape.md",
+        "conduct": ".concord/docs/decisions/CD-0063-shipped-operator-conduct-rules.md",
+        "ladder": ".concord/docs/decisions/CD-0106-lesson-owns-the-knowledge-ladder.md",
+    },
 }
-ADMITTED_SKILLS = frozenset(SKILL_REFERENCES)  # CD-0245 D1
-SKILL_SUPPORT_FILES = {"concord-law-writing": frozenset({"LICENSE"})}
+ADMITTED_SKILLS = frozenset(SKILL_REFERENCES)  # CD-0245 D1, CD-0246 D3
+# Each skill adapting upstream MIT-licensed method text keeps its notice.
+SKILL_SUPPORT_FILES = {name: frozenset({"LICENSE"}) for name in ADMITTED_SKILLS}
 SKILL_REFERENCE = re.compile(r"https://github\.com/Sharper-Flow/concord/(?:tree|blob)/([0-9a-f]{40})/([^#\s]+)(?:#[a-z0-9-]+)?")
 
 HOST_PIN = ROOT / ".concord/docs/adapter-host-pin.v1.json"
@@ -681,9 +701,10 @@ def check_workflow_contracts() -> list[str]:
     return findings
 
 def _check_cd0043_lane_methodology() -> list[str]:
-    """Check host-owned methodology and the CD-0245 admitted skill inventory.
+    """Check the packet carries no methodology and the admitted skill inventory.
 
-    A skill operates Concord's structure, not a worker's lane methodology.
+    A skill operates Concord's structure (CD-0245) or carries a portable method
+    (CD-0246 D3); a worker's method lives in its generated lane definition.
     CD-0242 D14 requires content identity without an authored registry counter.
     """
     packet = json.loads((ROOT / "contracts/agent-lane-packet.schema.json").read_text(encoding="utf-8"))
@@ -711,7 +732,7 @@ def _check_cd0043_lane_methodology() -> list[str]:
     return findings
 
 def cd0043_lane_methodology_findings(packet_schema: object, registry: object, skills_entries: list[str]) -> list[str]:
-    """Pure methodology/admission check under CD-0043 D1 and CD-0245 D1."""
+    """Pure methodology/admission check under CD-0043 D2, CD-0245 D1, and CD-0246 D3."""
     findings: list[str] = []
     properties = packet_schema.get("properties", {}) if isinstance(packet_schema, dict) else {}
     if not isinstance(properties, dict):

@@ -1207,6 +1207,45 @@ class LawWritingSkillTests(unittest.TestCase):
             self.assertTrue(any("symlink" in finding for finding in lane_checker.shipped_skill_inventory_findings(skills)))
 
 
+class MethodSkillTests(unittest.TestCase):
+    """CD-0246 D1 and D3: portable method skills ship like any admitted skill."""
+
+    NAMES = ("concord-diagnosis", "concord-codebase-design", "concord-work-shaping", "concord-retrospective")
+    OPERATIONS = {"concord_domain.footprint", "concord_knowledge.search"}
+
+    def content(self, name):
+        return (ROOT / "skills" / name / "SKILL.md").read_text(encoding="utf-8")
+
+    def findings(self, name, content):
+        return lane_checker.shipped_skill_content_findings(
+            content, skill_name=name, commands=set(), operations=self.OPERATIONS,
+        )
+
+    def test_method_skills_are_admitted_portable_and_resolve_in_delivered_history(self):
+        for name in self.NAMES:
+            with self.subTest(skill=name):
+                self.assertIn(name, lane_checker.ADMITTED_SKILLS)
+                self.assertEqual(self.findings(name, self.content(name)), [])
+                self.assertEqual(lane_checker.shipped_skill_reference_findings(ROOT, self.content(name)), [])
+
+    def test_a_host_tool_in_a_method_skill_is_refused(self):
+        content = self.content("concord-diagnosis") + "\nSearch with github_search_code first.\n"
+        self.assertTrue(any("host tool" in finding for finding in self.findings("concord-diagnosis", content)))
+
+    def test_every_skill_keeps_the_upstream_notice(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            skills = Path(temporary) / "skills"
+            shutil.copytree(ROOT / "skills", skills)
+            for name in sorted(lane_checker.ADMITTED_SKILLS):
+                with self.subTest(skill=name):
+                    license_path = skills / name / "LICENSE"
+                    self.assertIn("Copyright (c) 2026 Matt Pocock", license_path.read_text(encoding="utf-8"))
+                    license_path.unlink()
+                    findings = lane_checker.shipped_skill_inventory_findings(skills)
+                    self.assertTrue(any(f"{name}/LICENSE: missing admitted file" in finding for finding in findings))
+                    shutil.copy(ROOT / "skills" / name / "LICENSE", license_path)
+
+
 class EvidenceBoundParityTests(unittest.TestCase):
     """The request evidence declaration owns every evidence field bound.
 

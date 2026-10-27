@@ -66,11 +66,12 @@ models, or configuration stays host-owned and reaches a worker through D2.
 ### D2. `CONCORD_HOST_INSTRUCTIONS` is the sole legal channel
 
 Host-specific methodology reaches a worker only as a host prompt surface, through
-the enumerable instruction path CD-0034 declared. A portable method shipped under
-CD-0246 reaches a worker in its generated lane definition instead. The adapter binds each file with its kind, path,
-and content hash, and folds it into the `host_provenance` total digest.
+the enumerable instruction path CD-0034 declared. The adapter binds each file with
+its kind, path, and content hash, and folds it into the `host_provenance` total
+digest. A portable method shipped under CD-0246 reaches a worker in its generated
+lane definition instead.
 
-Methodology delivered through any other route is invisible drift. CD-0034 already
+Host-specific methodology delivered through any other route is invisible drift. CD-0034 already
 refuses v3 dispatch evidence without `host_provenance`, so the emitter gate is the
 enforcement point and no new mechanism is required.
 

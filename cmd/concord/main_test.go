@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/sharper-flow/concord/internal/agent"
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
 	"github.com/sharper-flow/concord/internal/store/storetest"
 )
@@ -1215,7 +1216,7 @@ func TestCLIEndToEndRegistersClientAndInvokesRead(t *testing.T) {
 			"schema_version": "1.0", "request_id": "request-e2e", "client_ref": "client-1", "principal_ref": "operator-1",
 			"session_ref": "session-1", "agent_ref": "agent-1", "directory": repo, "worktree": repo,
 			"ambient_project_id": "project-1", "selected_product_id": "product-1", "scope_version": resolved.ScopeVersion,
-			"manifest_digest": agent.ManifestDigest,
+			"manifest_digest": agentcontract.ManifestDigest,
 		},
 		"tool": "concord_product_view", "operation": "resolve", "input": map[string]any{"project_id": "project-1"},
 	})

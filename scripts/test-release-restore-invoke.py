@@ -278,6 +278,53 @@ class InvokeUnitTest(unittest.TestCase):
             self.assertEqual(modern["scope_formula"], "triples")
             self.assertEqual(modern["manifest_digest"], "sha256:" + "c" * 64)
 
+    def test_tag_facts_read_moved_contracts_from_selected_tag(self) -> None:
+        with tempfile.TemporaryDirectory() as name:
+            repo = fixture_repository(Path(name))
+            historical = invoke.tag_facts(repo, "v4.6.0")
+            source = repo / "internal/agent/generated_contracts.go"
+            contracts = source.read_text(encoding="utf-8")
+            source.unlink()
+            moved = "internal/agentcontract/generated_contracts.go"
+            commit(repo, {moved: contracts.replace("sha256:" + "c" * 64, "sha256:" + "e" * 64)
+                          + RESOURCE_CONTRACTS + OBSERVATION_CONTRACTS}, "moved-contracts")
+            # Neither an uncommitted old owner nor changed checkout bytes select tag facts.
+            source.write_text(CONTRACTS.format(digest="sha256:" + "f" * 64), encoding="utf-8")
+            (repo / moved).write_text("uncommitted unreadable contracts", encoding="utf-8")
+            self.assertEqual(invoke.tag_facts(repo, "moved-contracts"),
+                             historical | {"manifest_digest": "sha256:" + "e" * 64,
+                                           "has_resources": True, "has_observation": True})
+            self.assertEqual(invoke.tag_facts(repo, "v4.6.0"), historical)
+
+    def test_tag_facts_hold_when_both_generated_owners_are_tagged(self) -> None:
+        with tempfile.TemporaryDirectory() as name:
+            repo = fixture_repository(Path(name))
+            contracts = (repo / "internal/agent/generated_contracts.go").read_text(encoding="utf-8")
+            commit(repo, {"internal/agentcontract/generated_contracts.go": contracts}, "ambiguous-contracts")
+            error = self.assert_tag_facts_hold(repo, "ambiguous-contracts")
+            self.assertIn("generated contract sources", error.detail)
+
+    def test_tag_facts_hold_when_no_generated_owner_is_tagged(self) -> None:
+        with tempfile.TemporaryDirectory() as name:
+            repo = fixture_repository(Path(name))
+            (repo / "internal/agent/generated_contracts.go").unlink()
+            commit(repo, {}, "missing-contracts")
+            error = self.assert_tag_facts_hold(repo, "missing-contracts")
+            self.assertIn("generated contract sources", error.detail)
+
+    def test_moved_contracts_do_not_use_a_digest_from_the_old_package(self) -> None:
+        with tempfile.TemporaryDirectory() as name:
+            repo = fixture_repository(Path(name))
+            source = repo / "internal/agent/generated_contracts.go"
+            contracts = source.read_text(encoding="utf-8")
+            source.unlink()
+            commit(repo, {"internal/agentcontract/generated_contracts.go":
+                          contracts.replace(CONTRACTS.format(digest="sha256:" + "c" * 64), ""),
+                          "internal/agent/manifest.go": CONTRACTS.format(digest="sha256:" + "f" * 64)},
+                   "moved-missing-digest")
+            error = self.assert_tag_facts_hold(repo, "moved-missing-digest")
+            self.assertIn("no ManifestDigest constant", error.detail)
+
     def test_tag_facts_flag_resources_and_observation_independent_of_messages(self) -> None:
         with tempfile.TemporaryDirectory() as name:
             facts = invoke.tag_facts(fixture_repository(Path(name)), "v0.31.0")

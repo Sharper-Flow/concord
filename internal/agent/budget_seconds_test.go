@@ -5,13 +5,15 @@ import (
 	"encoding/json"
 	"testing"
 	"time"
+
+	"github.com/sharper-flow/concord/internal/agentcontract"
 )
 
 // CD-0038 D1/D3/D4: the seconds budget is the only agent-facing operation
 // budget, refuses against the declared ceiling before any effect, and becomes
 // a real deadline when accepted. Result size is bounded by limit/page.
 
-func budgetOpFor(t *testing.T) ContractOperation {
+func budgetOpFor(t *testing.T) agentcontract.ContractOperation {
 	t.Helper()
 	return contractOpFor(t, "concord_work_transition", "workflow_action")
 }
@@ -34,7 +36,7 @@ func TestApplyBudgetParsesRequestedSecondsAndCeiling(t *testing.T) {
 func TestApplyBudgetUniformCeilingCoversTheSurface(t *testing.T) {
 	t.Parallel()
 	byID := map[string]int{}
-	for _, op := range ContractOperations {
+	for _, op := range agentcontract.ContractOperations {
 		byID[op.ID] = op.SupportedBudgetSeconds
 	}
 	// CD-0038 D2: every operation shares the uniform 300 ceiling except the

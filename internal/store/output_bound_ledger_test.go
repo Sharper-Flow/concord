@@ -3115,21 +3115,21 @@ func TestLedgerPointerTraversal(t *testing.T) {
 		{"/$defs/work_transition_action_variant_*/properties/fields/properties/evidence_refs/maxItems", "/$defs/work_transition_action_variant_x/properties/other/maxItems", false},
 		{"/$defs/*/maxItems", "/$defs/a/properties/b/maxItems", false},
 		{"/$defs/a/maxItems", "/$defs/a/maxLength", false},
-		{"internal/agent/generated_contracts.go#/$defs/tool_result/maxItems", "internal/agent/generated_contracts.go#/$defs/tool_result/maxItems", true},
-		{"internal/agent/generated_contracts.go#/$defs/tool_result/maxItems", "/$defs/tool_result/maxItems", false},
+		{"internal/agentcontract/generated_contracts.go#/$defs/tool_result/maxItems", "internal/agentcontract/generated_contracts.go#/$defs/tool_result/maxItems", true},
+		{"internal/agentcontract/generated_contracts.go#/$defs/tool_result/maxItems", "/$defs/tool_result/maxItems", false},
 	}
 	for _, tc := range matchCases {
 		if got := pointerMatches(tc.pattern, tc.key); got != tc.want {
 			t.Fatalf("pointerMatches(%q, %q) = %v, want %v", tc.pattern, tc.key, got, tc.want)
 		}
 	}
-	if parent := ledgerParentPattern("internal/agent/generated_contracts.go#/$defs/tool_result/maxItems"); parent != "internal/agent/generated_contracts.go#/$defs/tool_result" {
+	if parent := ledgerParentPattern("internal/agentcontract/generated_contracts.go#/$defs/tool_result/maxItems"); parent != "internal/agentcontract/generated_contracts.go#/$defs/tool_result" {
 		t.Fatalf("a registered-root parent pattern = %q, want the document-prefixed node", parent)
 	}
 	if err := validateLedgerPattern("/$defs/a/maxItems"); err != nil {
 		t.Fatalf("valid pattern refused: %v", err)
 	}
-	if err := validateLedgerPattern("internal/agent/generated_contracts.go#/$defs/tool_result/maxItems"); err != nil {
+	if err := validateLedgerPattern("internal/agentcontract/generated_contracts.go#/$defs/tool_result/maxItems"); err != nil {
 		t.Fatalf("a registered-root file#pointer pattern was refused: %v", err)
 	}
 	for _, bad := range []string{"$defs/a/maxItems", "/$defs/a/maxProperties", "/$defs/a/maxItems/x", "/$defs/a/?maxItems", "/$defs/a~b/maxItems", "generated.go#$defs/a/maxItems", "a#b#/$defs/a/maxItems", "/a#/$defs/a/maxItems", "a.go#/$defs/a/maxItems/x", "a.go#/$defs/a/max*"} {

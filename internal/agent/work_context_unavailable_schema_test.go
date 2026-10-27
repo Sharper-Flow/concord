@@ -107,7 +107,7 @@ func TestWorkContextUnavailableSchema(t *testing.T) {
 					if err != nil {
 						t.Fatal(err)
 					}
-					err = ValidatePayloadSchema(location.schema, raw)
+					err = payloadschema.Validate(location.schema, raw)
 					if testCase.valid != (err == nil) {
 						t.Fatalf("valid=%v, schema error=%v", testCase.valid, err)
 					}

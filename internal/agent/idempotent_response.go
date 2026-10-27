@@ -3,6 +3,7 @@ package agent
 import (
 	"encoding/json"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -21,7 +22,7 @@ type mutationResponseSnapshot struct {
 func mutationResponseScope(scope map[string]any, response Envelope, pinless []string, approvalConsumed bool) map[string]any {
 	snapshot := boundedApprovalScope(scope)
 	snapshot["mutation_response"] = mutationResponseSnapshot{
-		ManifestDigest: ManifestDigest, ResolvedScope: response.ResolvedScope, Omissions: response.Omissions,
+		ManifestDigest: agentcontract.ManifestDigest, ResolvedScope: response.ResolvedScope, Omissions: response.Omissions,
 		NextValidIntents: *response.NextValidIntents, EvidenceRefs: response.EvidenceRefs,
 		PinlessWorkIDs: pinless, ApprovalConsumed: approvalConsumed,
 	}
@@ -36,7 +37,7 @@ func retainedMutationResponse(scopeJSON string) (mutationResponseSnapshot, error
 		Response map[string]json.RawMessage `json:"mutation_response"`
 	}
 	incomplete := newRuntimeFailure("operation_conflict", "committed mutation response is incomplete or belongs to another contract; reconcile the retained record before retrying", "reconcile_operation", false)
-	if err := json.Unmarshal([]byte(scopeJSON), &snapshot); err != nil || snapshot.Response == nil || snapshot.Response.ManifestDigest != ManifestDigest {
+	if err := json.Unmarshal([]byte(scopeJSON), &snapshot); err != nil || snapshot.Response == nil || snapshot.Response.ManifestDigest != agentcontract.ManifestDigest {
 		return mutationResponseSnapshot{}, incomplete
 	}
 	if err := json.Unmarshal([]byte(scopeJSON), &fields); err != nil {

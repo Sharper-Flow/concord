@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/pm1fixture"
 	"github.com/sharper-flow/concord/internal/store"
 )
@@ -149,7 +150,7 @@ func TestCompactionCompletedReplaysKeepTransactionPin(t *testing.T) {
 				input = map[string]any{"operation_id": operationID, "expected_operation_version": 1, "idempotency_key": "completed-reconcile-pin"}
 			}
 			raw, _ := json.Marshal(input)
-			op, _ := ValidateContractOperation(r.Tool, r.Operation)
+			op, _ := agentcontract.ValidateContractOperation(r.Tool, r.Operation)
 			base := NewBase(env.RequestID, r.Tool, r.Operation)
 			base.ResolvedScope = &Scope{ProductID: "prod-alpha", ProjectIDs: []string{"proj-api"}, WorkIDs: []string{"work-cancelled"}, ScopeVersion: env.ScopeVersion}
 			var response Envelope
@@ -235,8 +236,8 @@ func TestAuditReclaimEnvelopeSizingIncludesPinNotice(t *testing.T) {
 func TestEveryMutationResultGuardsWorkPins(t *testing.T) {
 	_, workID, pin := enrichmentPinFixture(t)
 	defs := payloadSchemaDefs(t)
-	for _, op := range ContractOperations {
-		if op.Kind != OperationMutation {
+	for _, op := range agentcontract.ContractOperations {
+		if op.Kind != agentcontract.OperationMutation {
 			continue
 		}
 		changed := enrichmentChangedRefs(workID, pin.Version, op.ID)
@@ -258,7 +259,7 @@ func TestEveryMutationResultGuardsWorkPins(t *testing.T) {
 			delete(object, "work_pins")
 			object["changed_refs"], _ = json.Marshal(mutationResultChangedRefs(changed))
 			raw, _ = json.Marshal(object)
-			if err := ValidateOperationPayload(op.Tool, op.Operation, raw, true); err != nil {
+			if err := agentcontract.ValidateOperationPayload(op.Tool, op.Operation, raw, true); err != nil {
 				t.Fatalf("unenriched fixture must pass the payload schema: %v", err)
 			}
 			r := runtime{Tool: op.Tool, Operation: op.Operation}

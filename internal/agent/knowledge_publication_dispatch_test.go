@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -39,7 +40,7 @@ func publicationResult(t *testing.T, response Envelope) store.KnowledgePublicati
 }
 
 func TestKnowledgePublicationDispatchReaderAndWriter(t *testing.T) {
-	for _, capabilities := range [][]Capability{{"product_read"}, {"product_read", "work_define", "work_transition"}} {
+	for _, capabilities := range [][]agentcontract.Capability{{"product_read"}, {"product_read", "work_define", "work_transition"}} {
 		t.Run(fmt.Sprint(capabilities), func(t *testing.T) {
 			s, _, _, home, _ := agentJobsKnowledgeFixture(t, false)
 			seedClaimOrigin(t, home.RepoPath)
@@ -69,11 +70,11 @@ func TestKnowledgePublicationDispatchReaderAndWriter(t *testing.T) {
 func TestKnowledgePublicationDispatchScopeAndCapability(t *testing.T) {
 	for _, tc := range []struct {
 		name, product, locator, want string
-		capabilities                 []Capability
+		capabilities                 []agentcontract.Capability
 	}{
-		{"missing capability", "prod-alpha", "", "unauthorized", []Capability{"work_define"}},
-		{"foreign product", "prod-outside", "", "unauthorized", []Capability{"product_read"}},
-		{"unregistered tuple", "prod-alpha", "not-registered", "unknown_scope", []Capability{"product_read"}},
+		{"missing capability", "prod-alpha", "", "unauthorized", []agentcontract.Capability{"work_define"}},
+		{"foreign product", "prod-outside", "", "unauthorized", []agentcontract.Capability{"product_read"}},
+		{"unregistered tuple", "prod-alpha", "not-registered", "unknown_scope", []agentcontract.Capability{"product_read"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			s, _, _, home, _ := agentJobsKnowledgeFixture(t, false)
@@ -164,7 +165,7 @@ func TestKnowledgePublicationInputClosedTuple(t *testing.T) {
 			}
 		}
 		raw, _ := json.Marshal(input)
-		if err := ValidateOperationPayload("concord_knowledge", "observe_publication", raw, false); err == nil {
+		if err := agentcontract.ValidateOperationPayload("concord_knowledge", "observe_publication", raw, false); err == nil {
 			t.Errorf("missing %s admitted", key)
 		}
 	}
@@ -175,13 +176,13 @@ func TestKnowledgePublicationInputClosedTuple(t *testing.T) {
 		}
 		input[key] = "arbitrary"
 		raw, _ := json.Marshal(input)
-		if err := ValidateOperationPayload("concord_knowledge", "observe_publication", raw, false); err == nil {
+		if err := agentcontract.ValidateOperationPayload("concord_knowledge", "observe_publication", raw, false); err == nil {
 			t.Errorf("arbitrary %s admitted", key)
 		}
 	}
 	base["requested_budget_seconds"] = 1
 	raw, _ := json.Marshal(base)
-	if err := ValidateOperationPayload("concord_knowledge", "observe_publication", raw, false); err != nil {
+	if err := agentcontract.ValidateOperationPayload("concord_knowledge", "observe_publication", raw, false); err != nil {
 		t.Fatal(err)
 	}
 }

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/payloadschema"
 	"github.com/sharper-flow/concord/internal/store"
 )
@@ -33,7 +34,7 @@ func TestDomainShapeInputSchema(t *testing.T) {
 		{`{"product_id":"prod-alpha","domain_id":"` + strings.Repeat("d", 257) + `"}`, false},
 		{`{"product_id":"prod-alpha","subject":"` + strings.Repeat("é", 513) + `"}`, false},
 	} {
-		if err := ValidateOperationPayload("concord_domain", "shape", json.RawMessage(tc.input), false); (err == nil) != tc.valid {
+		if err := agentcontract.ValidateOperationPayload("concord_domain", "shape", json.RawMessage(tc.input), false); (err == nil) != tc.valid {
 			t.Errorf("input %s: valid=%t, err=%v", tc.input, tc.valid, err)
 		}
 	}
@@ -85,11 +86,11 @@ func TestDomainShapeHandlerMatchesCoreAndFootprint(t *testing.T) {
 func TestDomainShapeProductReadAuthority(t *testing.T) {
 	for _, tc := range []struct {
 		name, product, want string
-		capabilities        []Capability
+		capabilities        []agentcontract.Capability
 	}{
-		{"explicit authorized foreign Product", "product-2", "unknown_scope", []Capability{"product_read"}},
-		{"outside policy", "product-3", "unauthorized", []Capability{"product_read"}},
-		{"missing read capability", "product-2", "unauthorized", []Capability{"work_define"}},
+		{"explicit authorized foreign Product", "product-2", "unknown_scope", []agentcontract.Capability{"product_read"}},
+		{"outside policy", "product-3", "unauthorized", []agentcontract.Capability{"product_read"}},
+		{"missing read capability", "product-2", "unauthorized", []agentcontract.Capability{"work_define"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			s, service, grant, _ := crossProductPolicyFixture(t, tc.capabilities)
@@ -162,7 +163,7 @@ func TestDomainShapeTypedFactResults(t *testing.T) {
 				ReferenceVerification: "unverified", ExtractorVerification: "unverified",
 			}
 			raw, _ := json.Marshal(result)
-			if err := ValidateOperationPayload("concord_domain", "shape", raw, true); err != nil {
+			if err := agentcontract.ValidateOperationPayload("concord_domain", "shape", raw, true); err != nil {
 				t.Fatal(err)
 			}
 			var object map[string]any
@@ -171,18 +172,18 @@ func TestDomainShapeTypedFactResults(t *testing.T) {
 			body := selected[kind].(map[string]any)
 			body["unknown"] = true
 			bad, _ := json.Marshal(object)
-			if err := ValidateOperationPayload("concord_domain", "shape", bad, true); err == nil {
+			if err := agentcontract.ValidateOperationPayload("concord_domain", "shape", bad, true); err == nil {
 				t.Fatal("nested unknown fact field accepted")
 			}
 			delete(body, "unknown")
 			selected["standing"] = "law"
 			bad, _ = json.Marshal(object)
-			if err := ValidateOperationPayload("concord_domain", "shape", bad, true); err == nil {
+			if err := agentcontract.ValidateOperationPayload("concord_domain", "shape", bad, true); err == nil {
 				t.Fatal("law fact without governing law accepted")
 			}
 			selected["governing_law_ids"] = []string{"law"}
 			good, _ := json.Marshal(object)
-			if err := ValidateOperationPayload("concord_domain", "shape", good, true); err != nil {
+			if err := agentcontract.ValidateOperationPayload("concord_domain", "shape", good, true); err != nil {
 				t.Fatalf("law fact: %v", err)
 			}
 			field, limit := "statement", 1024
@@ -197,19 +198,19 @@ func TestDomainShapeTypedFactResults(t *testing.T) {
 			original := body[field]
 			body[field] = strings.Repeat("x", limit+1)
 			bad, _ = json.Marshal(object)
-			if err := ValidateOperationPayload("concord_domain", "shape", bad, true); err == nil {
+			if err := agentcontract.ValidateOperationPayload("concord_domain", "shape", bad, true); err == nil {
 				t.Fatal("over-bound nested fact field accepted")
 			}
 			body[field] = original
 			selected["owning_root"] = "source/../other"
 			bad, _ = json.Marshal(object)
-			if err := ValidateOperationPayload("concord_domain", "shape", bad, true); err == nil {
+			if err := agentcontract.ValidateOperationPayload("concord_domain", "shape", bad, true); err == nil {
 				t.Fatal("parent traversal fact root accepted")
 			}
 			selected["owning_root"] = "source"
 			selected["kind"] = "unknown"
 			bad, _ = json.Marshal(object)
-			if err := ValidateOperationPayload("concord_domain", "shape", bad, true); err == nil {
+			if err := agentcontract.ValidateOperationPayload("concord_domain", "shape", bad, true); err == nil {
 				t.Fatal("unknown fact kind accepted")
 			}
 			t.Logf("typed result bytes=%d", len(raw))
@@ -246,7 +247,7 @@ func TestDomainShapeMaximumResultFitsEnvelope(t *testing.T) {
 	if remaining != 0 || len(raw) != store.DomainShapeResultMaxBytes {
 		t.Fatalf("boundary fixture bytes=%d remaining=%d", len(raw), remaining)
 	}
-	if err := ValidateOperationPayload("concord_domain", "shape", raw, true); err != nil {
+	if err := agentcontract.ValidateOperationPayload("concord_domain", "shape", raw, true); err != nil {
 		t.Fatal(err)
 	}
 	response.Result = raw

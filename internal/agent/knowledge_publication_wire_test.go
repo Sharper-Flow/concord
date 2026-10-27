@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -68,11 +69,11 @@ func TestKnowledgePublicationQ10Wire(t *testing.T) {
 }
 
 func TestKnowledgePublicationOperationUsesProductRead(t *testing.T) {
-	op, ok := ValidateContractOperation("concord_knowledge", "observe_publication")
+	op, ok := agentcontract.ValidateContractOperation("concord_knowledge", "observe_publication")
 	if !ok {
 		t.Fatal("explicit publication observation is not registered")
 	}
-	if op.Kind != OperationRead || op.Capability != Capability("product_read") || op.QueryID != "CD-0020.R1" || op.Approval != ApprovalClass("none") {
+	if op.Kind != agentcontract.OperationRead || op.Capability != agentcontract.Capability("product_read") || op.QueryID != "CD-0020.R1" || op.Approval != agentcontract.ApprovalClass("none") {
 		t.Fatalf("publication observation changed authorization route: %+v", op)
 	}
 }

@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sharper-flow/concord/internal/store"
-
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/payloadschema"
+	"github.com/sharper-flow/concord/internal/store"
 )
 
 // The store's write validation and the generated continuity read schema must
@@ -182,7 +182,7 @@ func TestBoundEvidenceReceiptsRoundTripThroughHistory(t *testing.T) {
 			for _, ref := range refs {
 				engine("bind_evidence", map[string]any{"evidence_kind": "verification", "evidence_ref": ref})
 			}
-			grant, err := service.Authorize(ctx, Invocation{ClientRef: "client-session-exec-aaaa", PrincipalRef: "human-1", SessionRef: "session-exec-aaaa", AgentRef: "agent-exec", Directory: "/repo", Worktree: "/repo-wt", ManifestDigest: ManifestDigest, RequiredCapability: "product_read", ProductID: "product-1", ProjectID: "project-1"})
+			grant, err := service.Authorize(ctx, Invocation{ClientRef: "client-session-exec-aaaa", PrincipalRef: "human-1", SessionRef: "session-exec-aaaa", AgentRef: "agent-exec", Directory: "/repo", Worktree: "/repo-wt", ManifestDigest: agentcontract.ManifestDigest, RequiredCapability: "product_read", ProductID: "product-1", ProjectID: "project-1"})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -241,7 +241,7 @@ func TestContinuityRoundTripLegalMaximum(t *testing.T) {
 	for _, kind := range []string{"verification", "review", "approval", "commit", "durable_note", "artifact"} {
 		engine("bind_evidence", map[string]any{"evidence_kind": kind, "evidence_ref": "roundtrip:" + kind})
 	}
-	grant, err := service.Authorize(ctx, Invocation{ClientRef: "client-session-exec-aaaa", PrincipalRef: "human-1", SessionRef: "session-exec-aaaa", AgentRef: "agent-exec", Directory: "/repo", Worktree: "/repo-wt", ManifestDigest: ManifestDigest, RequiredCapability: "product_read", ProductID: "product-1", ProjectID: "project-1"})
+	grant, err := service.Authorize(ctx, Invocation{ClientRef: "client-session-exec-aaaa", PrincipalRef: "human-1", SessionRef: "session-exec-aaaa", AgentRef: "agent-exec", Directory: "/repo", Worktree: "/repo-wt", ManifestDigest: agentcontract.ManifestDigest, RequiredCapability: "product_read", ProductID: "product-1", ProjectID: "project-1"})
 	if err != nil {
 		t.Fatal(err)
 	}

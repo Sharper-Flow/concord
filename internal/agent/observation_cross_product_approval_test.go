@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"testing"
+
+	"github.com/sharper-flow/concord/internal/agentcontract"
 )
 
 // A session whose ambient Product differs from the observed work item's
@@ -16,7 +18,7 @@ import (
 func TestCrossProductObservationRecordReachesApprovalChallenge(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	s, service, grant, _ := crossProductPolicyFixture(t, []Capability{"product_read", "work_define", "cross_scope"})
+	s, service, grant, _ := crossProductPolicyFixture(t, []agentcontract.Capability{"product_read", "work_define", "cross_scope"})
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
 	if err != nil {
 		t.Fatal(err)
@@ -49,7 +51,7 @@ func TestCrossProductObservationRecordReachesApprovalChallenge(t *testing.T) {
 func TestCrossProductObservationRecordApprovalRoundTrip(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	s, service, grant, privateKey := crossProductPolicyFixture(t, []Capability{"product_read", "work_define", "cross_scope"})
+	s, service, grant, privateKey := crossProductPolicyFixture(t, []agentcontract.Capability{"product_read", "work_define", "cross_scope"})
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
 	if err != nil {
 		t.Fatal(err)

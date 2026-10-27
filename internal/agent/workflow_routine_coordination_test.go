@@ -18,6 +18,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/pm1fixture"
 	"github.com/sharper-flow/concord/internal/store"
 	"github.com/sharper-flow/concord/internal/store/storetest/neighbor"
@@ -48,7 +49,7 @@ type routineOverlapBinding struct {
 func routineCoordinationFixture(t *testing.T) (*store.Store, *Service, ed25519.PrivateKey, CallEnvelope) {
 	t.Helper()
 	ctx := context.Background()
-	s, service, grant, privateKey := mutationDispatchFixture(t, []Capability{"work_relate"})
+	s, service, grant, privateKey := mutationDispatchFixture(t, []agentcontract.Capability{"work_relate"})
 	seedRoutineCoordinationDomainFixture(t, s, ctx)
 	events := []store.Event{
 		{EventID: "routine-coordination-work-2", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: "work-2", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: store.CurrentEventPayloadVersion("work.created"), Payload: json.RawMessage(`{"work_kind":"bug","title":"Routine coordination peer","priority":1,"defect_intake":{"failure_shape":"routine-coordination-peer","reproduction":"Exercise coordination with a distinct peer work item.","searched":"The fixture contains no earlier defect with this failure shape.","related_defect_ids":[]}}`)},
@@ -169,7 +170,7 @@ func routineCoordinationDriveWorkflow(t *testing.T, s *store.Store, workID strin
 			WorkID: workID, ExpectedVersion: version, ActionID: actionID, Payload: raw,
 			Actor: actor, AcceptedInputsDigest: "sha256:" + strings.Repeat("2", 64), IdempotencyIdentity: identity,
 			OperationID: "routine-coordination-op-" + identity, PrincipalRef: actor.PrincipalRef, Tool: "concord-test", IdempotencyKey: "routine-coordination-key-" + identity,
-			RequestID: "routine-coordination-request-" + identity, AcceptedScope: `{"project":"project-1"}`, ContractDigest: ManifestDigest, Now: fixedTime(),
+			RequestID: "routine-coordination-request-" + identity, AcceptedScope: `{"project":"project-1"}`, ContractDigest: agentcontract.ManifestDigest, Now: fixedTime(),
 		}
 		preflight := store.WorkflowActionPreflightRequest{WorkID: workID, ExpectedVersion: version, ActionID: actionID, Payload: raw, Actor: actor}
 		if err := store.AuthorizeWorkflowActionAtBoundaryTx(ctx, s, store.BuiltinWorkflowRegistry(), preflight, nil, func(tx *store.Transaction) error {
@@ -949,7 +950,7 @@ func seedRoutineCoordinationPrimaryProjectFixture(t *testing.T, s *store.Store, 
 // scope derivation reports a cross-Product request for any envelope that
 // selects one of the two. The workflow drives, the Domain law, and the
 // derived unresolved overlap match routineCoordinationFixture exactly.
-func crossProductRoutineCoordinationFixture(t *testing.T, capabilities []Capability) (*store.Store, *Service, Authority, ed25519.PrivateKey, CallEnvelope) {
+func crossProductRoutineCoordinationFixture(t *testing.T, capabilities []agentcontract.Capability) (*store.Store, *Service, Authority, ed25519.PrivateKey, CallEnvelope) {
 	t.Helper()
 	ctx := context.Background()
 	s, service, grant, privateKey := crossProductDispatchFixture(t, capabilities)
@@ -1025,7 +1026,7 @@ func routineOverlapConsumedApprovalWitness(t *testing.T, s *store.Store, label s
 // durable with the derived cross-Product set bound.
 func TestRoutineCoordinationCrossProductRoutineKindSettlesThroughAConsumedHostApproval(t *testing.T) {
 	t.Parallel()
-	s, service, grant, privateKey, env := crossProductRoutineCoordinationFixture(t, []Capability{"work_relate", "cross_scope"})
+	s, service, grant, privateKey, env := crossProductRoutineCoordinationFixture(t, []agentcontract.Capability{"work_relate", "cross_scope"})
 	binding := routineOverlapExactBinding(t, s, store.ResolutionCompatibleWith)
 	input := routineOverlapResolveInput(t, binding, "routine-cross-product-compatible")
 	challengeRef := routineOverlapChallenge(t, s, service, env, binding, input)
@@ -1125,7 +1126,7 @@ func TestRoutineCoordinationCrossProductRoutineKindSettlesThroughAConsumedHostAp
 // resolution row, or resolution event exists, and no endpoint version moves.
 func TestRoutineCoordinationCrossProductRoutineKindRefusesWithoutCrossScope(t *testing.T) {
 	t.Parallel()
-	s, service, _, _, env := crossProductRoutineCoordinationFixture(t, []Capability{"work_relate"})
+	s, service, _, _, env := crossProductRoutineCoordinationFixture(t, []agentcontract.Capability{"work_relate"})
 	binding := routineOverlapExactBinding(t, s, store.ResolutionCompatibleWith)
 	input := routineOverlapResolveInput(t, binding, "routine-cross-product-no-grant")
 	refused := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_relate", Operation: "resolve_overlap", Input: input}, env)
@@ -1213,7 +1214,7 @@ func TestRoutineCoordinationDestructiveKindWithEmptySelectedProductSettlesThroug
 // selected Product and no host scope field beyond the bounded keys.
 func TestRoutineCoordinationDestructiveKindWithAnotherSelectedProductSettlesThroughAConsumedHostApproval(t *testing.T) {
 	t.Parallel()
-	s, service, _, privateKey, env := crossProductRoutineCoordinationFixture(t, []Capability{"work_relate", "cross_scope"})
+	s, service, _, privateKey, env := crossProductRoutineCoordinationFixture(t, []agentcontract.Capability{"work_relate", "cross_scope"})
 	selectedEnv := env
 	selectedEnv.SelectedProductID = "product-2"
 	binding := routineOverlapExactBinding(t, s, store.ResolutionSupersedes)

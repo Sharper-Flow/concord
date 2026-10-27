@@ -77,8 +77,9 @@ GENERATED = frozenset(
         "adapter/opencode/generated-contracts.ts",
         "contracts/agent-lanes.digest",
         ".concord/docs/agent-lanes-contract.md",
-        "internal/agent/generated_contracts.go",
-        "internal/agent/generated_payload_schemas.go",
+        "internal/agentcontract/generated_contracts.go",
+        "internal/payloadschema/generated_schemas.go",
+        "internal/payloadschema/generated_envelope_schema.go",
         "internal/store/generated_agent_lanes.go",
         "internal/store/generated_typed_error_kinds.go",
     }

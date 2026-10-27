@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/payloadschema"
 	"github.com/sharper-flow/concord/internal/pm1fixture"
 	"github.com/sharper-flow/concord/internal/store"
@@ -344,7 +345,7 @@ func TestFullyPopulatedResultPayloadsValidate(t *testing.T) {
 			if err != nil {
 				t.Fatalf("marshal %s.%s: %v", testCase.tool, testCase.operation, err)
 			}
-			if err := ValidateOperationPayload(testCase.tool, testCase.operation, raw, true); err != nil {
+			if err := agentcontract.ValidateOperationPayload(testCase.tool, testCase.operation, raw, true); err != nil {
 				t.Fatalf("fully populated %s.%s result rejected: %v", testCase.tool, testCase.operation, err)
 			}
 		})
@@ -443,7 +444,7 @@ func TestPublishedWorkflowReadMatchesDerivedContractSet(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := ValidatePayloadSchema("workflow_read", raw); err != nil {
+	if err := payloadschema.Validate("workflow_read", raw); err != nil {
 		t.Fatalf("published workflow_read does not validate against the generated contract: %v", err)
 	}
 }
@@ -466,14 +467,14 @@ func TestPublishedReadsQualifiedContractLaw(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		return ValidatePayloadSchema("workflow_read", raw)
+		return payloadschema.Validate("workflow_read", raw)
 	}
 	result := func(t *testing.T, tool, operation string, payload any) error {
 		raw, err := json.Marshal(payload)
 		if err != nil {
 			t.Fatal(err)
 		}
-		return ValidateOperationPayload(tool, operation, raw, true)
+		return agentcontract.ValidateOperationPayload(tool, operation, raw, true)
 	}
 	for _, testCase := range []struct {
 		field    string
@@ -1194,8 +1195,8 @@ func TestAllReadEnvelopesValidateAtPopulationScale(t *testing.T) {
 	}
 	fx := seedReadPopulationFixture(t)
 	inputs := readPopulationInputs(fx)
-	for _, op := range ContractOperations {
-		if op.Kind != OperationRead {
+	for _, op := range agentcontract.ContractOperations {
+		if op.Kind != agentcontract.OperationRead {
 			continue
 		}
 		input, ok := inputs[op.ID]
@@ -1215,7 +1216,7 @@ func TestAllReadEnvelopesValidateAtPopulationScale(t *testing.T) {
 			if response.Outcome != OutcomeOK {
 				t.Fatalf("%s refused at population scale: %s %s", op.ID, response.Error.Kind, response.Error.Message)
 			}
-			if err := ValidateOperationPayload(op.Tool, op.Operation, response.Result, true); err != nil {
+			if err := agentcontract.ValidateOperationPayload(op.Tool, op.Operation, response.Result, true); err != nil {
 				t.Fatalf("%s answered ok with a result its schema rejects: %v", op.ID, err)
 			}
 			if witness, ok := readPopulationWitnesses[op.ID]; ok {
@@ -1270,8 +1271,8 @@ func TestClosedMutationResultPayloadsSurviveEnrichment(t *testing.T) {
 	ctx := context.Background()
 	s, workID, pin := enrichmentPinFixture(t)
 	defs := payloadSchemaDefs(t)
-	for _, op := range ContractOperations {
-		if op.Kind != OperationMutation {
+	for _, op := range agentcontract.ContractOperations {
+		if op.Kind != agentcontract.OperationMutation {
 			continue
 		}
 		resultSchema, ok := defs[op.ResultSchema]
@@ -1291,7 +1292,7 @@ func TestClosedMutationResultPayloadsSurviveEnrichment(t *testing.T) {
 			if err != nil {
 				t.Fatalf("marshal %s base result: %v", op.ID, err)
 			}
-			if err := ValidateOperationPayload(op.Tool, op.Operation, raw, true); err != nil {
+			if err := agentcontract.ValidateOperationPayload(op.Tool, op.Operation, raw, true); err != nil {
 				t.Fatalf("fully populated %s base result rejected: %v", op.ID, err)
 			}
 			var enriched json.RawMessage
@@ -1313,7 +1314,7 @@ func TestClosedMutationResultPayloadsSurviveEnrichment(t *testing.T) {
 					t.Fatalf("enrichment stamped no work_pins onto the %s result", op.ID)
 				}
 			}
-			if err := ValidateOperationPayload(op.Tool, op.Operation, enriched, true); err != nil {
+			if err := agentcontract.ValidateOperationPayload(op.Tool, op.Operation, enriched, true); err != nil {
 				t.Fatalf("enriched %s result rejected by its closed schema: %v", op.ID, err)
 			}
 		})

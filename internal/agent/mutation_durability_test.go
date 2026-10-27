@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/pm1fixture"
 	"github.com/sharper-flow/concord/internal/store"
 )
@@ -24,13 +25,13 @@ import (
 // exactly one even though no approval is required or consumed.
 func TestMutationDurabilityDeclaresEffectIndependentlyOfConsent(t *testing.T) {
 	ctx := context.Background()
-	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"product_read", "work_transition"})
+	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"product_read", "work_transition"})
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
 	if err != nil {
 		t.Fatal(err)
 	}
 	env := mutationEnvelope(grant, scopeVersion)
-	op, registered := ValidateContractOperation("concord_work_transition", "correct_delivery")
+	op, registered := agentcontract.ValidateContractOperation("concord_work_transition", "correct_delivery")
 	if !registered {
 		t.Fatal("correct_delivery is not a registered contract operation")
 	}
@@ -96,12 +97,12 @@ func TestMutationDurabilityDeclaresEffectIndependentlyOfConsent(t *testing.T) {
 func TestMutationDurabilityDeclarations(t *testing.T) {
 	t.Parallel()
 
-	legacyInitialBaseline := func(op ContractOperation) bool {
-		return op.Approval == ApprovalClass("required") ||
+	legacyInitialBaseline := func(op agentcontract.ContractOperation) bool {
+		return op.Approval == agentcontract.ApprovalClass("required") ||
 			(op.Tool == "concord_work_transition" && op.Operation == "worktree_claim")
 	}
-	legacyReplayBaseline := func(op ContractOperation) bool {
-		return op.Approval == ApprovalClass("required") ||
+	legacyReplayBaseline := func(op agentcontract.ContractOperation) bool {
+		return op.Approval == agentcontract.ApprovalClass("required") ||
 			op.ID == "concord_work_transition.workflow_action" ||
 			op.ID == "concord_work_transition.worktree_claim" ||
 			op.ID == "concord_work_relate.client_policy_grant_request" ||
@@ -113,15 +114,15 @@ func TestMutationDurabilityDeclarations(t *testing.T) {
 		declared[id] = true
 	}
 	var missing []string
-	for _, op := range ContractOperations {
+	for _, op := range agentcontract.ContractOperations {
 		switch op.Kind {
-		case OperationRead:
+		case agentcontract.OperationRead:
 			if _, err := mutationDurabilityFor(op); err == nil {
 				t.Errorf("lookup served mutation durability for read operation %s", op.ID)
 			} else if !errors.As(err, new(*mutationDurabilityError)) {
 				t.Errorf("read operation %s refusal is not a typed durability invariant error: %v", op.ID, err)
 			}
-		case OperationMutation:
+		case agentcontract.OperationMutation:
 			delete(declared, op.ID)
 			want := mutationDurability{initial: legacyInitialBaseline(op), replay: legacyReplayBaseline(op)}
 			got, err := mutationDurabilityFor(op)
@@ -151,15 +152,15 @@ func TestMutationDurabilityDeclarations(t *testing.T) {
 	// operation identity, so a copy whose Approval class is altered in any
 	// direction, including a class no manifest ever assigns, resolves to the
 	// same declaration.
-	for _, op := range ContractOperations {
-		if op.Kind != OperationMutation {
+	for _, op := range agentcontract.ContractOperations {
+		if op.Kind != agentcontract.OperationMutation {
 			continue
 		}
 		baseline, err := mutationDurabilityFor(op)
 		if err != nil {
 			t.Fatalf("registered mutation %s has no declaration: %v", op.ID, err)
 		}
-		for _, class := range []ApprovalClass{ApprovalClass("none"), ApprovalClass("conditional"), ApprovalClass("required"), ApprovalClass("revoked")} {
+		for _, class := range []agentcontract.ApprovalClass{agentcontract.ApprovalClass("none"), agentcontract.ApprovalClass("conditional"), agentcontract.ApprovalClass("required"), agentcontract.ApprovalClass("revoked")} {
 			altered := op
 			altered.Approval = class
 			got, err := mutationDurabilityFor(altered)
@@ -174,7 +175,7 @@ func TestMutationDurabilityDeclarations(t *testing.T) {
 
 	// A mutation the manifest does not register refuses as a typed invariant
 	// failure instead of defaulting to the ordinary transaction.
-	unknown := ContractOperation{ID: "concord_work_transition.absent", Tool: "concord_work_transition", Operation: "absent", Kind: OperationMutation}
+	unknown := agentcontract.ContractOperation{ID: "concord_work_transition.absent", Tool: "concord_work_transition", Operation: "absent", Kind: agentcontract.OperationMutation}
 	_, err := mutationDurabilityFor(unknown)
 	if err == nil {
 		t.Fatal("lookup served a durability declaration for an unregistered mutation")
@@ -200,9 +201,9 @@ func TestMutationDurabilityConditionalPlans(t *testing.T) {
 	r := runtime{}
 	envelope := CallEnvelope{SelectedProductID: "product-1", AmbientProjectID: "project-1", ScopeVersion: "scope-version-1"}
 	digest := "sha256:" + strings.Repeat("b", 64)
-	registeredOp := func(t *testing.T, tool, operation string) ContractOperation {
+	registeredOp := func(t *testing.T, tool, operation string) agentcontract.ContractOperation {
 		t.Helper()
-		contractOp, registered := ValidateContractOperation(tool, operation)
+		contractOp, registered := agentcontract.ValidateContractOperation(tool, operation)
 		if !registered {
 			t.Fatalf("%s.%s is not a registered contract operation", tool, operation)
 		}

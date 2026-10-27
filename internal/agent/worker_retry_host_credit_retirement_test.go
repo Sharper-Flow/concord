@@ -9,12 +9,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/hostlease"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
 func TestHostRestartDoesNotSupplyRetryAuthority(t *testing.T) {
-	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_transition", "worker_dispatch"})
+	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_transition", "worker_dispatch"})
 	_, _, grant.Worktree = seedFailedWorkerRetryMutation(t, s, service, grant)
 	env := mutationEnvelope(grant, mustScopeVersion(t, s))
 	for round := 2; round <= 3; round++ {
@@ -66,7 +67,7 @@ func TestHostRestartDoesNotSupplyRetryAuthority(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := hostlease.Write(filepath.Dir(s.Path()), hostlease.Lease{PID: os.Getpid(), PidStart: start, ReleaseRoot: filepath.Dir(self), CoreBinary: self, SchemaVersion: 1, ManifestDigest: ManifestDigest}); err != nil {
+	if err := hostlease.Write(filepath.Dir(s.Path()), hostlease.Lease{PID: os.Getpid(), PidStart: start, ReleaseRoot: filepath.Dir(self), CoreBinary: self, SchemaVersion: 1, ManifestDigest: agentcontract.ManifestDigest}); err != nil {
 		t.Fatal(err)
 	}
 	if leases := s.ReadHostLeases(); leases.Err != nil || len(leases.Leases) != 1 {

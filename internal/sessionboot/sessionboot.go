@@ -8,6 +8,8 @@ import (
 	"slices"
 
 	"github.com/sharper-flow/concord/internal/agent"
+	"github.com/sharper-flow/concord/internal/agentcontract"
+	"github.com/sharper-flow/concord/internal/payloadschema"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -74,7 +76,7 @@ func bootPacket(productID, workID string, continuity map[string]any) Packet {
 	return Packet{
 		SchemaVersion: SchemaVersion, SessionType: SessionType,
 		SessionContractVersion: SessionContractVersion,
-		ManifestDigest:         agent.ManifestDigest,
+		ManifestDigest:         agentcontract.ManifestDigest,
 		ProductID:              productID, WorkID: workID,
 		Continuity: continuity,
 	}
@@ -84,7 +86,7 @@ func Validate(raw []byte) error {
 	if len(raw) > MaxBootPacketBytes {
 		return fmt.Errorf("session boot packet exceeds %d bytes", MaxBootPacketBytes)
 	}
-	if err := agent.ValidatePayloadSchema("session_boot_packet", raw); err != nil {
+	if err := payloadschema.Validate("session_boot_packet", raw); err != nil {
 		return fmt.Errorf("session boot packet schema: %w", err)
 	}
 	var packet Packet
@@ -94,7 +96,7 @@ func Validate(raw []byte) error {
 	if packet.SchemaVersion != SchemaVersion || packet.SessionType != SessionType || packet.SessionContractVersion != SessionContractVersion {
 		return fmt.Errorf("session boot packet identity is not supported")
 	}
-	if packet.ManifestDigest != agent.ManifestDigest {
+	if packet.ManifestDigest != agentcontract.ManifestDigest {
 		return fmt.Errorf("session boot manifest digest mismatch")
 	}
 	return nil

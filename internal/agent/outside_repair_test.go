@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -112,7 +113,7 @@ func (f *fakeOutsideBoundary) resolvedBody() string {
 
 func outsideFixture(t *testing.T) (*store.Store, *Service, CallEnvelope, *fakeOutsideBoundary) {
 	t.Helper()
-	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_transition", "product_read"})
+	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_transition", "product_read"})
 	env := mutationEnvelope(grant, scopeVersionForProject(t, s, "project-1"))
 	bindOutsideRepositoryFixture(t, s)
 	seedOutsideLinearLink(t, s)

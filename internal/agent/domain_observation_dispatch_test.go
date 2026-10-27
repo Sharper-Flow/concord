@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/pm1fixture"
 	"github.com/sharper-flow/concord/internal/store"
 )
@@ -15,7 +16,7 @@ import (
 func TestDomainDetailReadsExistingOpenObservations(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"product_read"})
+	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"product_read"})
 	if err := pm1fixture.SeedCurrentProductDomain(ctx, s, "product-1", "project-1", t.TempDir()); err != nil {
 		t.Fatal(err)
 	}

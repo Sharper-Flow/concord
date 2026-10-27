@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/sharper-flow/concord/internal/agent"
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/hostlease"
 	"github.com/sharper-flow/concord/internal/store"
 	"github.com/sharper-flow/concord/internal/version"
@@ -62,7 +63,7 @@ func writeCoreDescriptor(out, errOut io.Writer) int {
 		"version":         version.Value,
 		"schema_version":  store.CurrentSchemaVersion(),
 		"fence_protocol":  hostlease.CurrentFenceProtocol,
-		"manifest_digest": agent.ManifestDigest,
+		"manifest_digest": agentcontract.ManifestDigest,
 		"release_root":    root,
 		"core_binary":     binary,
 	}, errOut)
@@ -111,7 +112,7 @@ func runHostLeaseCommand(args []string, in io.Reader, out, errOut io.Writer) int
 		ReleaseRoot:    root,
 		CoreBinary:     binary,
 		SchemaVersion:  store.CurrentSchemaVersion(),
-		ManifestDigest: agent.ManifestDigest,
+		ManifestDigest: agentcontract.ManifestDigest,
 		RecordedAt:     nowUTC(),
 		FenceProtocol:  hostlease.CurrentFenceProtocol,
 		Directory:      request.Directory,

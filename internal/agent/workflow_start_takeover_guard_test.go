@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -31,7 +32,7 @@ func TestStartExecutionStoreGuardRefusesUnapprovedOrMismatchedTakeover(t *testin
 		{name: "other-epoch", approved: &store.WorkflowStartTakeover{HeldEpoch: 2, HolderActorRef: actorRefOf(f.ownerGrant)}, want: store.KindApprovalInvalid},
 	} {
 		operationID := "direct-takeover-" + tc.name
-		request := store.WorkflowActionExecutionRequest{WorkID: "work-1", ExpectedVersion: workVersion(t, f.s, "work-1"), ActionID: "start_execution", Payload: json.RawMessage(`{}`), Actor: actor, SessionWorktree: f.otherGrant.Worktree, ApprovedTakeover: tc.approved, AcceptedInputsDigest: "sha256:" + strings.Repeat("d", 64), IdempotencyIdentity: operationID, OperationID: operationID, PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: operationID, RequestID: "request:" + operationID, ContractDigest: ManifestDigest, Now: fixedTime()}
+		request := store.WorkflowActionExecutionRequest{WorkID: "work-1", ExpectedVersion: workVersion(t, f.s, "work-1"), ActionID: "start_execution", Payload: json.RawMessage(`{}`), Actor: actor, SessionWorktree: f.otherGrant.Worktree, ApprovedTakeover: tc.approved, AcceptedInputsDigest: "sha256:" + strings.Repeat("d", 64), IdempotencyIdentity: operationID, OperationID: operationID, PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: operationID, RequestID: "request:" + operationID, ContractDigest: agentcontract.ManifestDigest, Now: fixedTime()}
 		err := f.s.Transact(ctx, func(tx *store.Transaction) error {
 			_, err := store.ApplyWorkflowActionTx(ctx, tx, store.BuiltinWorkflowRegistry(), request)
 			return err

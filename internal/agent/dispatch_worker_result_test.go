@@ -3,6 +3,8 @@ package agent
 import (
 	"strings"
 	"testing"
+
+	"github.com/sharper-flow/concord/internal/agentcontract"
 )
 
 // The store places worker_packet_digest on the dispatch_worker result (CD-0067
@@ -12,7 +14,7 @@ import (
 func TestDispatchWorkerResultAdmitsWorkerPacketDigest(t *testing.T) {
 	t.Parallel()
 	payload := []byte(`{"changed_refs":[{"entity_kind":"work_item","id":"work-1","version":3}],"next_valid_intents":[],"operation_id":"workflow-1","worker_packet_digest":"sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"}`)
-	if err := ValidateOperationPayload("concord_work_transition", "workflow_action", payload, true); err != nil {
+	if err := agentcontract.ValidateOperationPayload("concord_work_transition", "workflow_action", payload, true); err != nil {
 		t.Fatalf("dispatch_worker result with worker_packet_digest refused: %v", err)
 	}
 }
@@ -24,7 +26,7 @@ func TestDispatchWorkerResultAdmitsWorkerPacketDigest(t *testing.T) {
 func TestDispatchWorkerResultAdmitsWorkerWorktree(t *testing.T) {
 	t.Parallel()
 	payload := []byte(`{"changed_refs":[{"entity_kind":"work_item","id":"work-1","version":3}],"next_valid_intents":[],"operation_id":"workflow-1","worker_packet_digest":"sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef","worker_worktree":"/tmp/worktrees/work-1"}`)
-	if err := ValidateOperationPayload("concord_work_transition", "workflow_action", payload, true); err != nil {
+	if err := agentcontract.ValidateOperationPayload("concord_work_transition", "workflow_action", payload, true); err != nil {
 		t.Fatalf("dispatch_worker result with worker_worktree refused: %v", err)
 	}
 }
@@ -32,7 +34,7 @@ func TestDispatchWorkerResultAdmitsWorkerWorktree(t *testing.T) {
 func TestMutationResultRefusesMalformedWorkerPacketDigest(t *testing.T) {
 	t.Parallel()
 	payload := []byte(`{"changed_refs":[],"next_valid_intents":[],"worker_packet_digest":"not-a-digest"}`)
-	err := ValidateOperationPayload("concord_work_transition", "workflow_action", payload, true)
+	err := agentcontract.ValidateOperationPayload("concord_work_transition", "workflow_action", payload, true)
 	if err == nil {
 		t.Fatal("malformed worker_packet_digest passed validation")
 	}
@@ -43,7 +45,7 @@ func TestMutationResultRefusesMalformedWorkerPacketDigest(t *testing.T) {
 
 func TestDispatchWorkerPacketAdmitsCorrectionContext(t *testing.T) {
 	payload := []byte(`{"work_id":"work-1","expected_version":2,"action_id":"dispatch_worker","idempotency_key":"dispatch-1","fields":{"attempt_id":"attempt-1","worker_packet":{"schema_version":"2.0","attempt_id":"attempt-1","lane_id":"verify","lane_digest":"sha256:0000000000000000000000000000000000000000000000000000000000000000","work_id":"work-1","step_id":"repair","inputs":{"task":"verify the change","binding":{"objective_source":"contract_premise","work_version":1,"contract_version":1,"assigned_result":"exit_codes"},"correction":{"disposition":"rejected","predicate_ids":["predicate:primary"],"evidence_refs":["evidence:review"],"diagnosis":"the result misses the boundary case","strategy":"change the helper and add a test","source_event_id":"reject_worker_result-work-1-7:semantic","source_event_seq":7}}}}}`)
-	if err := ValidateOperationPayload("concord_work_transition", "workflow_action", payload, false); err != nil {
+	if err := agentcontract.ValidateOperationPayload("concord_work_transition", "workflow_action", payload, false); err != nil {
 		t.Fatalf("dispatch_worker worker_packet with correction refused: %v", err)
 	}
 }

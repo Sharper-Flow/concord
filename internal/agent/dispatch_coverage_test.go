@@ -8,6 +8,8 @@ import (
 	"sort"
 	"strconv"
 	"testing"
+
+	"github.com/sharper-flow/concord/internal/agentcontract"
 )
 
 // The manifest declares a closed operation set and scripts/generate-agent-contracts.py
@@ -103,7 +105,7 @@ func TestEveryContractOperationReachesADispatchArm(t *testing.T) {
 	t.Parallel()
 	dispatched := dispatchedOperationIDs(t)
 	var missing []string
-	for _, operation := range ContractOperations {
+	for _, operation := range agentcontract.ContractOperations {
 		if _, ok := dispatched[operation.ID]; !ok {
 			missing = append(missing, operation.ID)
 		}
@@ -119,7 +121,7 @@ func TestEveryContractOperationReachesADispatchArm(t *testing.T) {
 func TestEveryDispatchArmNamesAContractOperation(t *testing.T) {
 	t.Parallel()
 	declared := map[string]bool{}
-	for _, operation := range ContractOperations {
+	for _, operation := range agentcontract.ContractOperations {
 		declared[operation.ID] = true
 	}
 	var orphaned []string

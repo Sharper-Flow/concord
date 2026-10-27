@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -18,7 +19,7 @@ func TestApprovalChallengeBindingDiagnostics(t *testing.T) {
 		t.Run(reason, func(t *testing.T) {
 			db := openAgentDB(t)
 			seedSimpleAuthorityScope(t, db)
-			service, inv, _ := newAuthorizedService(t, db, "client-1", "human-1", []Capability{"product_read"}, []string{"product-1"}, []string{"project-1"}, store.ProjectResolution{ProjectID: "project-1"})
+			service, inv, _ := newAuthorizedService(t, db, "client-1", "human-1", []agentcontract.Capability{"product_read"}, []string{"product-1"}, []string{"project-1"}, store.ProjectResolution{ProjectID: "project-1"})
 			inv.HostAssertionDigest = "sha256:host-resolution"
 			ctx := context.Background()
 			check := ApprovalCheck{OperationDigest: "sha256:operation", Scope: map[string]any{"product_id": "product-1"}, Versions: map[string]any{"work": 3}, Consequence: "publication", ClientRef: inv.ClientRef, SessionRef: inv.SessionRef}
@@ -96,7 +97,7 @@ func TestExpiredChallengeExchangeRearmsForFreshAnswer(t *testing.T) {
 	t.Parallel()
 	db := openAgentDB(t)
 	seedSimpleAuthorityScope(t, db)
-	service, inv, _ := newAuthorizedService(t, db, "client-1", "human-1", []Capability{"product_read"}, []string{"product-1"}, []string{"project-1"}, store.ProjectResolution{ProjectID: "project-1"})
+	service, inv, _ := newAuthorizedService(t, db, "client-1", "human-1", []agentcontract.Capability{"product_read"}, []string{"product-1"}, []string{"project-1"}, store.ProjectResolution{ProjectID: "project-1"})
 	inv.HostAssertionDigest = "sha256:host-resolution"
 	ctx := context.Background()
 	check := ApprovalCheck{OperationDigest: "sha256:operation", Scope: map[string]any{"product_id": "product-1"}, Versions: map[string]any{"work": 3}, Consequence: "publication", ClientRef: inv.ClientRef, SessionRef: inv.SessionRef}
@@ -163,7 +164,7 @@ func TestInvalidChallengeIntervalRefusesLateExchange(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			db := openAgentDB(t)
 			seedSimpleAuthorityScope(t, db)
-			service, inv, _ := newAuthorizedService(t, db, "client-1", "human-1", []Capability{"product_read"}, []string{"product-1"}, []string{"project-1"}, store.ProjectResolution{ProjectID: "project-1"})
+			service, inv, _ := newAuthorizedService(t, db, "client-1", "human-1", []agentcontract.Capability{"product_read"}, []string{"product-1"}, []string{"project-1"}, store.ProjectResolution{ProjectID: "project-1"})
 			inv.HostAssertionDigest = "sha256:host-resolution"
 			ctx := context.Background()
 			check := ApprovalCheck{OperationDigest: "sha256:operation", Scope: map[string]any{"product_id": "product-1"}, Versions: map[string]any{"work": 3}, Consequence: "publication", ClientRef: inv.ClientRef, SessionRef: inv.SessionRef}
@@ -234,7 +235,7 @@ func TestExpiredChallengeWithChangedDecisionBindingRefuses(t *testing.T) {
 		t.Run(binding, func(t *testing.T) {
 			db := openAgentDB(t)
 			seedSimpleAuthorityScope(t, db)
-			service, inv, _ := newAuthorizedService(t, db, "client-1", "human-1", []Capability{"product_read"}, []string{"product-1"}, []string{"project-1"}, store.ProjectResolution{ProjectID: "project-1"})
+			service, inv, _ := newAuthorizedService(t, db, "client-1", "human-1", []agentcontract.Capability{"product_read"}, []string{"product-1"}, []string{"project-1"}, store.ProjectResolution{ProjectID: "project-1"})
 			inv.HostAssertionDigest = "sha256:host-resolution"
 			ctx := context.Background()
 			check := ApprovalCheck{OperationDigest: "sha256:operation", Scope: map[string]any{"product_id": "product-1"}, Versions: map[string]any{"work": 3}, Consequence: "publication", ClientRef: inv.ClientRef, SessionRef: inv.SessionRef}

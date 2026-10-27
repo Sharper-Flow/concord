@@ -3,11 +3,13 @@ package agent
 import (
 	"strings"
 	"testing"
+
+	"github.com/sharper-flow/concord/internal/agentcontract"
 )
 
 func TestEnumValidationErrorNamesPathAndAcceptedValues(t *testing.T) {
 	t.Parallel()
-	err := ValidateOperationPayload(
+	err := agentcontract.ValidateOperationPayload(
 		"concord_work_define",
 		"capture",
 		[]byte(`{"title":"Expose schemas","value_statement":"Expose machine-readable fields.","kind":"bug","project_ids":["concord"],"idempotency_key":"schema-probe","urgency":"normal"}`),

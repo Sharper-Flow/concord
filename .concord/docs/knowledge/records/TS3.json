@@ -5,7 +5,7 @@
   "criterion_bindings": [
     {
       "criterion": 1,
-      "exemption": "The closed operation union is a surface identity property, not a scenario outcome. It is proved by the generated manifest drift validator scripts/check-agent-contracts.py together with ValidateContractOperation in internal/agent/generated_contracts.go, exercised by TestDispatchProductResolveReturnsGeneratedPayload (internal/agent/runtime_test.go)."
+      "exemption": "The closed operation union is a surface identity property, not a scenario outcome. It is proved by the generated manifest drift validator scripts/check-agent-contracts.py together with ValidateContractOperation in internal/agentcontract/generated_contracts.go, exercised by TestDispatchProductResolveReturnsGeneratedPayload (internal/agent/runtime_test.go)."
     },
     {
       "criterion": 2,
@@ -42,7 +42,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:6a5877e5cb8e2062f8de1da8c987eda77c151fbc9c84e64b07bc584f012bee6c",
+  "sha256": "sha256:2b96987cc5843b7d7cbf000e111178da235b88a304fc25d17d1a4b775b7aa477",
   "status": "accepted",
   "summary": "Defines bounded read tools including the durable knowledge surface.",
   "tags": [

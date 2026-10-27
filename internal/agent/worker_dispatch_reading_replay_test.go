@@ -13,13 +13,14 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/pm1fixture"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
 func TestDispatchRequiredReadingReplayAfterSourceRemoval(t *testing.T) {
 	ctx := context.Background()
-	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_transition", "worker_dispatch"})
+	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_transition", "worker_dispatch"})
 
 	// The Product's knowledge home is one real Git repository with a
 	// committed manifest and a committed law record; rebuilding the index

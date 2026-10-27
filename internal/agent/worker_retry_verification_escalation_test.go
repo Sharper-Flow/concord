@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -30,7 +31,7 @@ func runVerificationCorrectionWall(t *testing.T) {
 		{"shrinking request predicates", []string{"predicate:primary"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_transition", "worker_dispatch"})
+			s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_transition", "worker_dispatch"})
 			version, worktree := seedEscalatedVerificationWorkerMutation(t, s, service, grant, tc.finalPredicate)
 			grant.Worktree = worktree
 			scopeVersion, _, err := s.ScopeVersion(context.Background(), "project-1")
@@ -369,7 +370,7 @@ func runVerificationStoreAction(t *testing.T, s *store.Store, action string, fie
 		WorkID: "work-1", ExpectedVersion: version, ActionID: action, Payload: raw, Actor: actor,
 		AcceptedInputsDigest: "sha256:" + strings.Repeat("f", 64) + operationID, IdempotencyIdentity: operationID, OperationID: operationID,
 		PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: operationID, RequestID: "request:" + operationID,
-		ContractDigest: ManifestDigest, Now: fixedTime(),
+		ContractDigest: agentcontract.ManifestDigest, Now: fixedTime(),
 	}
 	ctx := context.Background()
 	if store.WorkflowActionRequiresSubjectFreshness(action) {

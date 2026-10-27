@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -48,11 +49,11 @@ var paginationBaseInputs = map[string]map[string]any{
 func paginatedReadOperations(t *testing.T) []string {
 	t.Helper()
 	var ops []string
-	for _, entry := range ContractOperations {
-		if entry.Kind != OperationRead {
+	for _, entry := range agentcontract.ContractOperations {
+		if entry.Kind != agentcontract.OperationRead {
 			continue
 		}
-		rule, ok := GeneratedPayloadRules[entry.InputSchema]
+		rule, ok := agentcontract.GeneratedPayloadRules[entry.InputSchema]
 		if !ok {
 			t.Fatalf("read op %s has no generated input rule", entry.ID)
 		}
@@ -110,7 +111,7 @@ func TestPaginationInputContract(t *testing.T) {
 			t.Run(op+"/"+variant.name, func(t *testing.T) {
 				tool := splitToolOperationID(op)
 				raw := paginationVariant(base, variant.add)
-				if err := ValidateOperationPayload(tool.tool, tool.operation, raw, false); err != nil {
+				if err := agentcontract.ValidateOperationPayload(tool.tool, tool.operation, raw, false); err != nil {
 					t.Fatalf("input %s refused: %v", raw, err)
 				}
 			})

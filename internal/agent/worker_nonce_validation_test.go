@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -41,7 +42,7 @@ func TestWorkerEvidenceNonceValidationUsesTheStoreCodePointUnit(t *testing.T) {
 	for _, testCase := range workerNonceValidationCases() {
 		t.Run(testCase.name, func(t *testing.T) {
 			t.Parallel()
-			service, control, key := workerControlProofFixture(t, []Capability{CapabilityWorkerEvidence})
+			service, control, key := workerControlProofFixture(t, []agentcontract.Capability{CapabilityWorkerEvidence})
 			env := workerEvidenceV2Envelope(t, "nonce-unit-placeholder")
 			env.ClientRef = control.ClientRef
 			var assertion WorkerEvidenceAssertion
@@ -83,7 +84,7 @@ func TestWorkerControlNonceValidationUsesTheStoreCodePointUnit(t *testing.T) {
 	for _, testCase := range workerNonceValidationCases() {
 		t.Run(testCase.name, func(t *testing.T) {
 			t.Parallel()
-			service, assertion, key := workerControlProofFixture(t, []Capability{"work_transition"})
+			service, assertion, key := workerControlProofFixture(t, []agentcontract.Capability{"work_transition"})
 			assertion.Nonce = testCase.nonce
 			assertion.Signature = ed25519.Sign(key, CanonicalWorkerControlAssertion(assertion))
 			authority, err := checkWorkerControlProof(t, service, assertion)

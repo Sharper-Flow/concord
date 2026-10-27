@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/sharper-flow/concord/internal/payloadschema"
 	"github.com/sharper-flow/concord/internal/pm1fixture"
 	"github.com/sharper-flow/concord/internal/store"
 )
@@ -247,7 +248,7 @@ func TestArchitectureBindingSchemaPreservesCurrentIdentifierBounds(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := ValidatePayloadSchema("work_transition_action_input", raw); err != nil {
+	if err := payloadschema.Validate("work_transition_action_input", raw); err != nil {
 		t.Fatalf("current-width architecture identifiers rejected: %v", err)
 	}
 	for _, invalidDomainID := range []string{" " + domainID, domainID + " "} {
@@ -262,7 +263,7 @@ func TestArchitectureBindingSchemaPreservesCurrentIdentifierBounds(t *testing.T)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := ValidatePayloadSchema("work_transition_action_input", payload); err == nil {
+		if err := payloadschema.Validate("work_transition_action_input", payload); err == nil {
 			t.Fatalf("Domain identifier with boundary whitespace accepted: %q", invalidDomainID)
 		}
 	}
@@ -287,22 +288,22 @@ func TestApproveContractSchemaAcceptsExplicitEvidenceAndRigor(t *testing.T) {
 		}
 		return raw
 	}
-	if err := ValidatePayloadSchema("work_transition_action_input", payload("complete-approve-contract-fields")); err != nil {
+	if err := payloadschema.Validate("work_transition_action_input", payload("complete-approve-contract-fields")); err != nil {
 		t.Fatalf("approve_contract evidence or rigor rejected: %v", err)
 	}
 
 	fields["required_evidence"] = []string{"unknown"}
-	if err := ValidatePayloadSchema("work_transition_action_input", payload("unknown-evidence-kind")); err == nil {
+	if err := payloadschema.Validate("work_transition_action_input", payload("unknown-evidence-kind")); err == nil {
 		t.Fatal("approve_contract schema accepted an unknown evidence kind")
 	}
 	fields["required_evidence"] = []string{"verification", "review"}
 	fields["rigor_class"] = "unknown"
-	if err := ValidatePayloadSchema("work_transition_action_input", payload("unknown-rigor-class")); err == nil {
+	if err := payloadschema.Validate("work_transition_action_input", payload("unknown-rigor-class")); err == nil {
 		t.Fatal("approve_contract schema accepted an unknown rigor class")
 	}
 	fields["rigor_class"] = "prototype_internal"
 	fields["unknown_contract_field"] = true
-	if err := ValidatePayloadSchema("work_transition_action_input", payload("unknown-approve-contract-field")); err == nil {
+	if err := payloadschema.Validate("work_transition_action_input", payload("unknown-approve-contract-field")); err == nil {
 		t.Fatal("approve_contract schema accepted an unknown field")
 	}
 }

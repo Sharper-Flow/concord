@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+
+	"github.com/sharper-flow/concord/internal/agentcontract"
 )
 
 func TestRecordedContractCallRetry(t *testing.T) {
@@ -30,7 +32,7 @@ func TestRecordedContractCallRetry(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		return ValidateOperationPayload("concord_work_transition", "workflow_action", raw, false)
+		return agentcontract.ValidateOperationPayload("concord_work_transition", "workflow_action", raw, false)
 	}
 	if err := validate(); err == nil || !strings.Contains(err.Error(), "pattern at $.fields.outcome_predicates[0].outcome_payload.subjects[0]") {
 		t.Fatalf("recorded predicate did not reproduce its refusal: %v", err)

@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -62,7 +63,7 @@ func TestWorktreeVerifyNewRequestRunsAgain(t *testing.T) {
 			// start of its own and the verdict route reads the execution
 			// production it needs.
 			verifyIdentityAction(t, s, "start_execution", map[string]any{}, grantActor, now)
-			reviewService, _, reviewGrant := newAuthorizedService(t, s, "client-o-review", grant.PrincipalRef, []Capability{"work_transition", "worker_dispatch"}, []string{"product-1"}, []string{"project-1"}, store.ProjectResolution{ProjectID: "project-1"})
+			reviewService, _, reviewGrant := newAuthorizedService(t, s, "client-o-review", grant.PrincipalRef, []agentcontract.Capability{"work_transition", "worker_dispatch"}, []string{"product-1"}, []string{"project-1"}, store.ProjectResolution{ProjectID: "project-1"})
 			reviewService.Now = func() time.Time { return now }
 			fixture := oAgentFixture(t, s, reviewService, mutationEnvelope(reviewGrant, mustScopeVersion(t, s)), "work-2")
 			oAgentNativeJob(t, fixture)
@@ -172,7 +173,7 @@ func verifyIdentityAction(t *testing.T, s *store.Store, action string, fields ma
 		WorkID: "work-2", ExpectedVersion: version, ActionID: action, Payload: raw, Actor: actor,
 		AcceptedInputsDigest: "sha256:" + strings.Repeat("f", 64) + operationID, IdempotencyIdentity: operationID, OperationID: operationID,
 		PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: operationID, RequestID: "request:" + operationID,
-		ContractDigest: ManifestDigest, Now: now,
+		ContractDigest: agentcontract.ManifestDigest, Now: now,
 	}
 	ctx := context.Background()
 	if store.WorkflowActionRequiresSubjectFreshness(action) {

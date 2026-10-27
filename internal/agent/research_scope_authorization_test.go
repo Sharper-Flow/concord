@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
 	"github.com/sharper-flow/concord/internal/store/storetest"
 )
@@ -35,7 +36,7 @@ type researchScopeEnv struct {
 	grant   Authority
 }
 
-func researchScopeFixture(t *testing.T, capabilities []Capability, products []string) researchScopeEnv {
+func researchScopeFixture(t *testing.T, capabilities []agentcontract.Capability, products []string) researchScopeEnv {
 	t.Helper()
 	ctx := context.Background()
 	s, err := storetest.Open(t.TempDir())
@@ -374,7 +375,7 @@ func researchScopeAuthoringInputs() []struct {
 // selectors stay deliverable for an in-scope control pack.
 func TestResearchScopePackReadRefusesForeignOwner(t *testing.T) {
 	t.Parallel()
-	f := researchScopeFixture(t, []Capability{"product_read"}, []string{"product-a"})
+	f := researchScopeFixture(t, []agentcontract.Capability{"product_read"}, []string{"product-a"})
 	variants := []struct {
 		name  string
 		input func(pack string) map[string]any
@@ -450,12 +451,12 @@ func TestResearchScopePackReadRefusesForeignOwner(t *testing.T) {
 func TestResearchScopeOwnerPagesKeepTheirGate(t *testing.T) {
 	t.Parallel()
 	t.Run("foreign_owner_page_refused", func(t *testing.T) {
-		f := researchScopeFixture(t, []Capability{"product_read"}, []string{"product-a"})
+		f := researchScopeFixture(t, []agentcontract.Capability{"product_read"}, []string{"product-a"})
 		read := researchScopeInvoke(t, f, "research", map[string]any{"product_id": "product-a", "work_id": researchScopeOwnerB, "result_version": 2})
 		researchScopeAssertRefused(t, read, "unauthorized", researchScopePackB, researchScopeMarkerB)
 	})
 	t.Run("covered_owner_page_readable_without_cross_scope", func(t *testing.T) {
-		f := researchScopeFixture(t, []Capability{"product_read"}, []string{"product-a", "product-b"})
+		f := researchScopeFixture(t, []agentcontract.Capability{"product_read"}, []string{"product-a", "product-b"})
 		read := researchScopeInvoke(t, f, "research", map[string]any{"product_id": "product-a", "work_id": researchScopeOwnerB, "result_version": 2})
 		if read.Outcome != OutcomeOK {
 			t.Fatalf("covered owner page failed: %+v", read.Error)
@@ -472,7 +473,7 @@ func TestResearchScopeOwnerPagesKeepTheirGate(t *testing.T) {
 		}
 	})
 	t.Run("legacy_owner_read_still_refused", func(t *testing.T) {
-		f := researchScopeFixture(t, []Capability{"product_read"}, []string{"product-a"})
+		f := researchScopeFixture(t, []agentcontract.Capability{"product_read"}, []string{"product-a"})
 		read := researchScopeInvoke(t, f, "research", map[string]any{"product_id": "product-a", "work_id": researchScopeOwnerA})
 		if read.Error == nil || read.Error.Kind != "invalid_input" || !strings.Contains(read.Error.Message, "result_version") {
 			t.Fatalf("legacy owner read must refuse invalid_input naming result_version, got %+v", read.Error)
@@ -488,17 +489,17 @@ func TestResearchScopeBindingRefusesForeignPack(t *testing.T) {
 	t.Parallel()
 	for _, test := range []struct {
 		name         string
-		capabilities []Capability
+		capabilities []agentcontract.Capability
 		stale        bool
 		binding      func(pack string) map[string]any
 		wantKind     string
 		wantNoDetail string
 	}{
-		{"required_current", []Capability{"product_read", "work_transition"}, false, func(pack string) map[string]any { return researchScopeBinding(pack, 1, true) }, "unauthorized", ""},
-		{"optional_current", []Capability{"product_read", "work_transition"}, false, func(pack string) map[string]any { return researchScopeBinding(pack, 1, false) }, "unauthorized", ""},
-		{"optional_stale", []Capability{"product_read", "work_transition"}, true, func(pack string) map[string]any { return researchScopeBinding(pack, 1, false) }, "unauthorized", ""},
-		{"forbidden_revision", []Capability{"product_read", "work_transition"}, false, func(pack string) map[string]any { return researchScopeBinding(pack, 999, false) }, "unauthorized", "revision"},
-		{"transition_capability_only", []Capability{"work_transition"}, false, func(pack string) map[string]any { return researchScopeBinding(pack, 1, true) }, "unauthorized", ""},
+		{"required_current", []agentcontract.Capability{"product_read", "work_transition"}, false, func(pack string) map[string]any { return researchScopeBinding(pack, 1, true) }, "unauthorized", ""},
+		{"optional_current", []agentcontract.Capability{"product_read", "work_transition"}, false, func(pack string) map[string]any { return researchScopeBinding(pack, 1, false) }, "unauthorized", ""},
+		{"optional_stale", []agentcontract.Capability{"product_read", "work_transition"}, true, func(pack string) map[string]any { return researchScopeBinding(pack, 1, false) }, "unauthorized", ""},
+		{"forbidden_revision", []agentcontract.Capability{"product_read", "work_transition"}, false, func(pack string) map[string]any { return researchScopeBinding(pack, 999, false) }, "unauthorized", "revision"},
+		{"transition_capability_only", []agentcontract.Capability{"work_transition"}, false, func(pack string) map[string]any { return researchScopeBinding(pack, 1, true) }, "unauthorized", ""},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			f := researchScopeFixture(t, test.capabilities, []string{"product-a"})
@@ -529,7 +530,7 @@ func TestResearchScopeBindingRefusesForeignPack(t *testing.T) {
 func TestResearchScopeBindingReplacementAndBatchRefuseAtomically(t *testing.T) {
 	t.Parallel()
 	t.Run("replacement_by_foreign_declaration", func(t *testing.T) {
-		f := researchScopeFixture(t, []Capability{"product_read", "work_transition", "research"}, []string{"product-a"})
+		f := researchScopeFixture(t, []agentcontract.Capability{"product_read", "work_transition", "research"}, []string{"product-a"})
 		pinned := researchScopeInvoke(t, f, "workflow_action", researchScopeBindingAction(t, f, "record_proposal", "pin-a", []map[string]any{researchScopeBinding(researchScopePackA, 1, true)}))
 		if pinned.Outcome != OutcomeOK {
 			t.Fatalf("in-scope pin failed: %+v", pinned.Error)
@@ -553,7 +554,7 @@ func TestResearchScopeBindingReplacementAndBatchRefuseAtomically(t *testing.T) {
 		}
 	})
 	t.Run("mixed_allowed_and_foreign_batch", func(t *testing.T) {
-		f := researchScopeFixture(t, []Capability{"product_read", "work_transition"}, []string{"product-a"})
+		f := researchScopeFixture(t, []agentcontract.Capability{"product_read", "work_transition"}, []string{"product-a"})
 		beforeA := researchScopeSnapshot(t, f.store, researchScopePackA)
 		beforeB := researchScopeSnapshot(t, f.store, researchScopePackB)
 		refused := researchScopeInvoke(t, f, "workflow_action", researchScopeBindingAction(t, f, "record_proposal", "mixed-batch", []map[string]any{
@@ -565,7 +566,7 @@ func TestResearchScopeBindingReplacementAndBatchRefuseAtomically(t *testing.T) {
 		researchScopeAssertNoEffects(t, beforeB, researchScopeSnapshot(t, f.store, researchScopePackB))
 	})
 	t.Run("narrowed_caller_replaces_nothing", func(t *testing.T) {
-		f := researchScopeFixture(t, []Capability{"product_read", "work_transition"}, []string{"product-a"})
+		f := researchScopeFixture(t, []agentcontract.Capability{"product_read", "work_transition"}, []string{"product-a"})
 		pack := "pack-scope-moved"
 		seedResearchScopePack(t, f.store, pack, "owner-move", researchScopeMarkerA+" moved question", researchScopeMarkerA+" moved finding")
 		initial := researchScopeInvoke(t, f, "workflow_action", researchScopeBindingAction(t, f, "record_proposal", "pin-moved", []map[string]any{researchScopeBinding(pack, 1, true)}))
@@ -590,7 +591,7 @@ func TestResearchScopeBindingReplacementAndBatchRefuseAtomically(t *testing.T) {
 // any effect, and stay deliverable on an in-scope control pack.
 func TestResearchScopeAuthoringRefusesForeignPack(t *testing.T) {
 	t.Parallel()
-	f := researchScopeFixture(t, []Capability{"product_read", "research"}, []string{"product-a"})
+	f := researchScopeFixture(t, []agentcontract.Capability{"product_read", "research"}, []string{"product-a"})
 	for _, operation := range researchScopeAuthoringInputs() {
 		t.Run("foreign_"+operation.name, func(t *testing.T) {
 			before := researchScopeSnapshot(t, f.store, researchScopePackB)
@@ -639,9 +640,9 @@ func TestResearchScopePolicyMatrix(t *testing.T) {
 		{"grant_ab_cross_scope", []string{"product-a", "product-b"}, true, true, true, true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			capabilities := []Capability{"product_read", "work_transition", "research"}
+			capabilities := []agentcontract.Capability{"product_read", "work_transition", "research"}
 			if test.crossScope {
-				capabilities = append(capabilities, Capability("cross_scope"))
+				capabilities = append(capabilities, agentcontract.Capability("cross_scope"))
 			}
 			f := researchScopeFixture(t, capabilities, test.products)
 			// Separate subtests over one fixture: a red read must not conceal
@@ -700,7 +701,7 @@ func TestResearchScopePolicyMatrix(t *testing.T) {
 func TestResearchScopeSpecialOwners(t *testing.T) {
 	t.Parallel()
 	t.Run("secondary_membership_reads_and_binds_authoring_needs_every_owner_product", func(t *testing.T) {
-		f := researchScopeFixture(t, []Capability{"product_read", "work_transition", "research"}, []string{"product-a"})
+		f := researchScopeFixture(t, []agentcontract.Capability{"product_read", "work_transition", "research"}, []string{"product-a"})
 		pack := "pack-scope-mixed"
 		seedResearchScopePack(t, f.store, pack, "owner-mixed", researchScopeMarkerA+" mixed question", researchScopeMarkerA+" mixed finding")
 		// Authoring scopes the owner through the mutation plan, the same
@@ -723,7 +724,7 @@ func TestResearchScopeSpecialOwners(t *testing.T) {
 		}
 	})
 	t.Run("membershipless_owner_refuses_unknown_scope", func(t *testing.T) {
-		f := researchScopeFixture(t, []Capability{"product_read", "work_transition", "research"}, []string{"product-a"})
+		f := researchScopeFixture(t, []agentcontract.Capability{"product_read", "work_transition", "research"}, []string{"product-a"})
 		pack := "pack-scope-orphan"
 		seedResearchScopePack(t, f.store, pack, "owner-none", researchScopeMarkerA+" orphan question", researchScopeMarkerA+" orphan finding")
 		// A missing membership is corrupt retained state, not a legal work
@@ -741,7 +742,7 @@ func TestResearchScopeSpecialOwners(t *testing.T) {
 		researchScopeAssertNoEffects(t, before, researchScopeSnapshot(t, f.store, pack))
 	})
 	t.Run("missing_pack_keeps_typed_absence", func(t *testing.T) {
-		f := researchScopeFixture(t, []Capability{"product_read", "work_transition", "research"}, []string{"product-a"})
+		f := researchScopeFixture(t, []agentcontract.Capability{"product_read", "work_transition", "research"}, []string{"product-a"})
 		read := researchScopeInvoke(t, f, "research", map[string]any{"product_id": "product-a", "pack_id": "pack-absent", "result_version": 2})
 		researchScopeAssertRefused(t, read, "unknown_scope")
 		bound := researchScopeInvoke(t, f, "workflow_action", researchScopeBindingAction(t, f, "record_proposal", "bind-absent", []map[string]any{researchScopeBinding("pack-absent", 1, true)}))
@@ -752,7 +753,7 @@ func TestResearchScopeSpecialOwners(t *testing.T) {
 		}
 	})
 	t.Run("terminal_owner_keeps_read_and_bind_refuses_authoring", func(t *testing.T) {
-		f := researchScopeFixture(t, []Capability{"product_read", "work_transition", "research"}, []string{"product-a"})
+		f := researchScopeFixture(t, []agentcontract.Capability{"product_read", "work_transition", "research"}, []string{"product-a"})
 		pack := "pack-scope-done"
 		seedResearchScopePack(t, f.store, pack, "owner-done", researchScopeMarkerA+" done question", researchScopeMarkerA+" done finding")
 		researchScopeCompleteWork(t, f.store, "owner-done")
@@ -781,7 +782,7 @@ func TestResearchScopeSpecialOwners(t *testing.T) {
 func TestResearchScopeBindingReplayAndRetainedPins(t *testing.T) {
 	t.Parallel()
 	t.Run("allowed_replay_bumps_once_then_narrowed_grant", func(t *testing.T) {
-		f := researchScopeFixture(t, []Capability{"product_read", "work_transition", "cross_scope"}, []string{"product-a", "product-b"})
+		f := researchScopeFixture(t, []agentcontract.Capability{"product_read", "work_transition", "cross_scope"}, []string{"product-a", "product-b"})
 		input := researchScopeBindingAction(t, f, "record_proposal", "bind-replay", []map[string]any{researchScopeBinding(researchScopePackB, 1, true)})
 		first := researchScopeInvoke(t, f, "workflow_action", input)
 		if first.Outcome != OutcomeOK {
@@ -802,7 +803,7 @@ func TestResearchScopeBindingReplayAndRetainedPins(t *testing.T) {
 		researchScopeAssertRefused(t, fresh, "unauthorized", researchScopeMarkerB)
 	})
 	t.Run("forbidden_call_leaves_no_replay_receipt", func(t *testing.T) {
-		f := researchScopeFixture(t, []Capability{"product_read", "work_transition"}, []string{"product-a"})
+		f := researchScopeFixture(t, []agentcontract.Capability{"product_read", "work_transition"}, []string{"product-a"})
 		input := researchScopeBindingAction(t, f, "record_proposal", "bind-forbidden-replay", []map[string]any{researchScopeBinding(researchScopePackB, 1, true)})
 		refused := researchScopeInvoke(t, f, "workflow_action", input)
 		researchScopeAssertRefused(t, refused, "unauthorized", researchScopeMarkerB)

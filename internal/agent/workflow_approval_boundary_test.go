@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -40,7 +41,7 @@ func TestWorkflowApprovalBoundaryConsent(t *testing.T) {
 		t.Run(vector.name, func(t *testing.T) {
 			t.Parallel()
 			ctx := context.Background()
-			s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_transition"})
+			s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_transition"})
 			seedCurrentWorkflowDomainFixture(t, s)
 			// The local definition deep-clones the live implementation head
 			// through JSON so the edits below touch no shared slice or map.

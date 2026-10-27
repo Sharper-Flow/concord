@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -26,7 +27,7 @@ func TestWorkflowNonSeriousLawChangeAdmission(t *testing.T) {
 func testWorkflowLawChangeApproval(t *testing.T, serious bool, tier string) {
 	t.Helper()
 	ctx := context.Background()
-	s, service, grant, privateKey := mutationDispatchFixture(t, []Capability{"work_transition"})
+	s, service, grant, privateKey := mutationDispatchFixture(t, []agentcontract.Capability{"work_transition"})
 	seedRoutineCoordinationDomainFixture(t, s, ctx)
 	registered, err := store.LiveWorkflowDefinitionForRef("workflow.break_fix")
 	if err != nil {

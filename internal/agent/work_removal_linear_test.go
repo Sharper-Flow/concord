@@ -7,13 +7,14 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
 func TestDispatchWorkRemovalCommitsWithRecordedLinearIssue(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	s, service, grant, privateKey := mutationDispatchFixture(t, []Capability{"work_transition"})
+	s, service, grant, privateKey := mutationDispatchFixture(t, []agentcontract.Capability{"work_transition"})
 	if err := s.Transact(ctx, func(tx *store.Transaction) error {
 		_, err := store.RecordLinearIssueLinkTx(ctx, tx, store.LinearIssueLink{WorkID: "work-1", RemoteIssueUUID: "remote-removal-1", HumanKey: "CON-1", URL: "https://linear.app/example/issue/CON-1"})
 		return err

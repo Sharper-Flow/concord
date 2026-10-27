@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
 	"github.com/sharper-flow/concord/internal/store/storetest"
 )
@@ -54,7 +55,7 @@ func workflowEngineFixture(t *testing.T, premise string) (*store.Store, *Service
 	keys := []ed25519.PrivateKey{}
 	for _, client := range clients {
 		publicKey, privateKey, _ := ed25519.GenerateKey(cryptorand.Reader)
-		policy := TrustedClientPolicy{PrincipalRef: "human-1", Capabilities: []Capability{"product_read"}, ProductScope: []string{"product-1"}, ProjectScope: []string{"project-1"}, AgentScope: testFixtureAgents}
+		policy := TrustedClientPolicy{PrincipalRef: "human-1", Capabilities: []agentcontract.Capability{"product_read"}, ProductScope: []string{"product-1"}, ProjectScope: []string{"project-1"}, AgentScope: testFixtureAgents}
 		if err := service.RegisterTrustedClient(ctx, ClientRegistration{ClientRef: client, KeyID: "key-" + client, PublicKey: publicKey, Policy: policy}); err != nil {
 			t.Fatal(err)
 		}
@@ -88,7 +89,7 @@ func workflowEngineFixture(t *testing.T, premise string) (*store.Store, *Service
 			WorkID: "work-1", ExpectedVersion: version, ActionID: actionID, Payload: raw,
 			Actor: execActor, AcceptedInputsDigest: "sha256:" + strings.Repeat("2", 64), IdempotencyIdentity: identity,
 			OperationID: "verdict-seed-op-" + identity, PrincipalRef: "human-1", Tool: "concord-test", IdempotencyKey: "verdict-seed-key-" + identity,
-			RequestID: "verdict-seed-request-" + identity, AcceptedScope: `{"project":"project-1"}`, ContractDigest: ManifestDigest, Now: fixedTime(),
+			RequestID: "verdict-seed-request-" + identity, AcceptedScope: `{"project":"project-1"}`, ContractDigest: agentcontract.ManifestDigest, Now: fixedTime(),
 		}
 		preflight := store.WorkflowActionPreflightRequest{WorkID: "work-1", ExpectedVersion: version, ActionID: actionID, Payload: raw, Actor: execActor}
 		if err := store.AuthorizeWorkflowActionAtBoundaryTx(ctx, s, store.BuiltinWorkflowRegistry(), preflight, nil, func(tx *store.Transaction) error {
@@ -160,7 +161,7 @@ func scopeReadFor(t *testing.T, s *store.Store, service *Service, privateKey ed2
 	ctx := context.Background()
 	_ = privateKey
 	_ = nonce
-	grant, err := service.Authorize(ctx, Invocation{ClientRef: client, PrincipalRef: "human-1", SessionRef: session, AgentRef: agent, Directory: "/repo", Worktree: "/repo-wt", ManifestDigest: ManifestDigest, RequiredCapability: "product_read", ProductID: "product-1", ProjectID: "project-1"})
+	grant, err := service.Authorize(ctx, Invocation{ClientRef: client, PrincipalRef: "human-1", SessionRef: session, AgentRef: agent, Directory: "/repo", Worktree: "/repo-wt", ManifestDigest: agentcontract.ManifestDigest, RequiredCapability: "product_read", ProductID: "product-1", ProjectID: "project-1"})
 	if err != nil {
 		t.Fatal(err)
 	}

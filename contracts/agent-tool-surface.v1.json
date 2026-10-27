@@ -1944,18 +1944,20 @@
   },
   "generation": {
     "targets": [
-      "internal/agent/generated_contracts.go",
-      "internal/agent/generated_payload_schemas.go",
+      "internal/agentcontract/generated_contracts.go",
+      "internal/payloadschema/generated_schemas.go",
+      "internal/payloadschema/generated_envelope_schema.go",
+      "internal/store/generated_typed_error_kinds.go",
       "adapter/opencode/generated-contracts.ts",
       "adapter/opencode/generated-contract-tests.ts",
       "contracts/agent-tool-surface.digest",
       "contracts/agent-tool-surface.fixtures.json",
-      "docs/generated-agent-tool-surface.md"
+      ".concord/docs/generated-agent-tool-surface.md"
     ],
     "digest_excludes": [
       "digest"
     ]
   },
   "payload_digest": "sha256:bbcbe2ee48025c733a8fcc126bc4024b693a24e85f01a9319916c9d0f56e0265",
-  "digest": "sha256:92471ae0a52ac4f996d30af1bb5caf77372a527c0504dcd478ed0bff645a2140"
+  "digest": "sha256:419f6eb6cc5d86df0e20e853a999eeb9fa1ad3999346500606b993d163a1700e"
 }

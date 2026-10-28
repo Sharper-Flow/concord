@@ -36,8 +36,11 @@ func retainedMutationResponse(scopeJSON string) (mutationResponseSnapshot, error
 	var fields struct {
 		Response map[string]json.RawMessage `json:"mutation_response"`
 	}
-	incomplete := newRuntimeFailure("operation_conflict", "committed mutation response is incomplete or belongs to another contract; reconcile the retained record before retrying", "reconcile_operation", false)
-	if err := json.Unmarshal([]byte(scopeJSON), &snapshot); err != nil || snapshot.Response == nil || snapshot.Response.ManifestDigest != agentcontract.ManifestDigest {
+	incomplete := newRuntimeFailure("malformed_response", "committed mutation response is incomplete; contact the operator to repair the retained response before retrying the same request", "contact_operator", false)
+	// This digest records the producer, not a second invocation contract. The
+	// caller binds the current manifest; consumers validate the retained facts
+	// against the current result schema without conversion or a repeated effect.
+	if err := json.Unmarshal([]byte(scopeJSON), &snapshot); err != nil || snapshot.Response == nil || snapshot.Response.ManifestDigest == "" {
 		return mutationResponseSnapshot{}, incomplete
 	}
 	if err := json.Unmarshal([]byte(scopeJSON), &fields); err != nil {
@@ -55,7 +58,7 @@ func retainedMutationResponse(scopeJSON string) (mutationResponseSnapshot, error
 }
 
 func incompleteMutationResponse(base agentcontract.Envelope, message string) agentcontract.Envelope {
-	response := coreError(base, "operation_conflict", message, "reconcile_operation", false)
+	response := coreError(base, "malformed_response", message, "contact_operator", false)
 	response.Error.EffectState = agentcontract.EffectPossible
 	return response
 }
@@ -69,7 +72,7 @@ func (r runtime) recordedMutationResult(base agentcontract.Envelope, prior store
 	}
 	var changed []agentcontract.ChangedRef
 	if err := json.Unmarshal([]byte(prior.ChangedRefs), &changed); err != nil || changed == nil {
-		return incompleteMutationResponse(base, "committed mutation changed references are incomplete; reconcile the retained record")
+		return incompleteMutationResponse(base, "committed mutation changed references are incomplete; contact the operator to repair the retained response before retrying the same request")
 	}
 	base.Replayed = true
 	base.ResolvedScope = snapshot.ResolvedScope

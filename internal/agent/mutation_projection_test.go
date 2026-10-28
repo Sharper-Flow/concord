@@ -328,6 +328,12 @@ func TestMutationProjectionRejectsUntrustedRetainedDocuments(t *testing.T) {
 	}
 	r := runtime{Store: source.Store, Tool: "concord_work_trace", Operation: "mutation_result", Envelope: source.Envelope, Reader: grant}
 	base := agentcontract.NewBase("invalid-document", r.Tool, r.Operation)
+	compatible := prior
+	compatible.AuthorizedScopeSnapshot = strings.ReplaceAll(prior.AuthorizedScopeSnapshot, agentcontract.ManifestDigest, "sha256:"+strings.Repeat("0", 64))
+	document, _, err := r.retainedMutationDocument(compatible, mutationResultReadInput{SourceTool: key.Tool, SourceOperation: key.OperationKind})
+	if err != nil || string(document) != prior.ResultPayload {
+		t.Fatalf("current-schema retained facts were rejected after manifest change: %v", err)
+	}
 	for _, vector := range []struct {
 		name   string
 		change func(*store.MutationIdempotencyRecord)
@@ -341,8 +347,8 @@ func TestMutationProjectionRejectsUntrustedRetainedDocuments(t *testing.T) {
 		{"missing snapshot", func(p *store.MutationIdempotencyRecord) {
 			p.AuthorizedScopeSnapshot = `{"product_id":"product-1","project_ids":["project-1"]}`
 		}},
-		{"wrong snapshot contract", func(p *store.MutationIdempotencyRecord) {
-			p.AuthorizedScopeSnapshot = strings.ReplaceAll(p.AuthorizedScopeSnapshot, agentcontract.ManifestDigest, "sha256:"+strings.Repeat("0", 64))
+		{"missing snapshot producer", func(p *store.MutationIdempotencyRecord) {
+			p.AuthorizedScopeSnapshot = strings.ReplaceAll(p.AuthorizedScopeSnapshot, agentcontract.ManifestDigest, "")
 		}},
 		{"snapshot intent authority", func(p *store.MutationIdempotencyRecord) {
 			var object map[string]any

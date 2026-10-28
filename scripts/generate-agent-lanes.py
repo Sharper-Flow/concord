@@ -321,6 +321,7 @@ def report_projection_constraints(report_schema: dict, lane: dict) -> list[str]:
         f"additionalProperties={json.dumps(oracle_finding['additionalProperties'])}, "
         f"required={json.dumps(oracle_finding['required'], ensure_ascii=False)}. "
         "When `inputs.worker_job.acceptance_oracle` is present, every `review.findings` entry requires this object. "
+        "When it is absent, omit this object. "
         "`classification` is one of "
         f"{', '.join(f'`{item}`' for item in oracle_finding['properties']['classification']['enum'])}. "
         "A `delivery_blocker` or `uncovered_case` names the `owner_id` it blocks and the "

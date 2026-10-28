@@ -380,12 +380,16 @@ class SubagentMethodProjectionTests(unittest.TestCase):
                     self.assertIn(f"review.{field}: {json.dumps(block['properties'][field], ensure_ascii=False)}.", text)
                 for name in ("review_assessment", "review_obligation", "review_refs"):
                     self.assertIn(f"{name} shape: {json.dumps(schema['$defs'][name], ensure_ascii=False)}.", text)
+                definitions = {name: schema["$defs"][name] for name in ("review_assessment", "review_obligation", "review_refs")}
+                references = set(re.findall(r'"\$ref": "#/\$defs/([^"]+)"', json.dumps(definitions)))
+                self.assertLessEqual(references, definitions.keys(), "project every referenced entry definition")
 
     def test_review_classifies_every_finding_on_an_oracle_bound_dispatch(self):
         manifest, _ = generator.load_manifest()
         review = next(lane for lane in manifest["lanes"] if lane["id"] == "review")
         text = lane_projection(review)
         self.assertIn("When `inputs.worker_job.acceptance_oracle` is present, every `review.findings` entry requires this object.", text)
+        self.assertTrue("When it is absent, omit this object." in text, "oracle-free dispatches must omit the finding's oracle object")
         self.assertNotIn("finding the oracle governs", text)
         self.assertNotIn("oracle-governed finding", text)
 

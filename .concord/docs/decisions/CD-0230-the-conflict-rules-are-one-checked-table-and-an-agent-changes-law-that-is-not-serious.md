@@ -270,8 +270,9 @@ R1/A2-1 claims; the same source-binding controls protect their inputs.
 fix-made bloat, older bloat with and without a follow-up item, older bloat removed
 outside the change's scope, and unknown-origin cases for independent application
 of the existing method. Review judges whether the fix made the bloat against the
-change's recorded base, not the author's claim; missing base evidence leaves the
-outcome unproved. Carrier tests do not prove those judgments; the delivery's
+change's recorded base, not the author's claim. When a follow-up item covers the
+bloat, missing base evidence leaves the outcome unproved; bloat shipped without
+one violates R1 whatever its origin. Carrier tests do not prove those judgments; the delivery's
 recorded independent review supplies the application evidence. The follow-up
 item's rule label, raising-change link enforcement and saved view remain D6's
 open duty below.

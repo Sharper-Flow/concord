@@ -55,5 +55,7 @@ change's scope does not include that package.
 ## origin-unknown
 
 The candidate contains two near-identical validation helpers. Its description
-says the second helper predates the fix. The supplied material contains no
-recorded base, comparison or history that shows which helper the change added.
+says both helpers predate the fix, and the change files a follow-up item that
+names the duplicate and links the change. The supplied material contains no
+recorded base, comparison or history that shows whether the change added either
+helper.

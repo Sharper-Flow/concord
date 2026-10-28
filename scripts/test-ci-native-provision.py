@@ -1121,7 +1121,7 @@ print(json.dumps(args))
             with self.subTest(job=name):
                 self.assertIn("needs: [verify-upstream-compatibility]", body)
                 self.assertIn("CONCORD_UPSTREAM_BWRAP_SHA256: ${{ needs.verify-upstream-compatibility.outputs.bwrap-sha256 }}", body)
-        for aggregate in ("verify", "verify-tests", "verify-adapter"):
+        for aggregate in ("verify", "verify-tests"):
             self.assertIn("needs.verify-upstream-compatibility.result", jobs[aggregate])
             self.assertIn('test "$COMPATIBILITY_RESULT" = success', jobs[aggregate])
 

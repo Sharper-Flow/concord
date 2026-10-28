@@ -175,7 +175,7 @@ jobs:
 
   verify-adapter:
     name: verify-adapter
-    needs: [verify-adapter-rest, verify-adapter-dispatch, verify-upstream-compatibility]
+    needs: [verify-adapter-rest, verify-adapter-dispatch]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -183,11 +183,9 @@ jobs:
         env:
           REST_RESULT: ${{ needs.verify-adapter-rest.result }}
           DISPATCH_RESULT: ${{ needs.verify-adapter-dispatch.result }}
-          COMPATIBILITY_RESULT: ${{ needs.verify-upstream-compatibility.result }}
         run: |
           test "$REST_RESULT" = success
           test "$DISPATCH_RESULT" = success
-          test "$COMPATIBILITY_RESULT" = success
 
   # The dispatch-route journey file sets most of the adapter suite's wall time,
   # so it runs alone in verify-adapter-dispatch. Every other file, including a

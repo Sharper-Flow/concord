@@ -366,6 +366,7 @@ class SubagentMethodProjectionTests(unittest.TestCase):
                 "the recorded change size, the outcome",
                 "missing rule, size or evidence; never guess a settlement or size",
                 "does not prove a rule was applied",
+                "a whole-change hold covers only the shared-step window and has recorded release",
                 "Linear rule label, raising-change link and closure evidence supplied in the work context",
                 "judge the consequence rather than trusting an authored class",
                 "missing recovery alone creates no new approval class",

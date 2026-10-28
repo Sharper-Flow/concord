@@ -4,7 +4,7 @@
 - **Date:** 2026-09-05
 - **Scope:** the exit from an external-effect step with no dispatched lane
   attempt, failed lane-result recording and retry, the execution mode of the
-  two context-continuity actions, and the architecture-spike exits
+  two context-continuity actions, and the exits of a pinned architecture-spike definition
 - **Approval:** The operator selected the explicit delivery action over an
   advancing hand-off summary on 2026-09-05 in Concord
   work-cabca4e5913be1f9519322f0. The operator selected a dedicated
@@ -42,6 +42,10 @@ Admission refuses `record_delivery` after a lane dispatch in that attempt ([CD-0
 holds the step until the owner records the failure and starts a fresh attempt.
 
 ### D3. The decision record advances, and acceptance of it lives on review
+
+New execution selects only the retained families in
+[CD-0218 D1](CD-0218-the-live-workflow-catalog-retains-three-execution-families.md#d1-three-families-own-new-execution).
+The following exits apply to a pinned architecture-spike definition.
 
 `record_decision` records its typed checkpoint and advances
 `decision_record` to `review`, and an action may record a typed checkpoint and

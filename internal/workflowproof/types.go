@@ -5,9 +5,11 @@ import (
 	"time"
 )
 
-// RequiredCheck records a successful required check on the PR's immutable
-// head. Native identities distinguish checks within one run and preserve the
-// exact attempt the collector authenticated.
+// RequiredCheck records a successful required check on the PR's
+// immutable head, not a check name or a caller-supplied success boolean. The
+// native identities name the exact check-run, workflow run and job the
+// boundary authenticated (CD-0210 D2), so distinct checks inside one run stay
+// distinguishable and a later rerun cannot rewrite what the receipt proves.
 type RequiredCheck struct {
 	Name       string `json:"name"`
 	URL        string `json:"url"`
@@ -27,9 +29,11 @@ type PullRequestEvidence struct {
 	RequiredChecks []RequiredCheck `json:"required_checks"`
 }
 
-// Evidence records authenticated merged PRs, complete required checks and a
-// published release containing every merge. The store validates and preserves
-// this receipt without contacting the forge or inferring ancestry from strings.
+// Evidence is supplied only by the authenticated external boundary.
+// That boundary must fetch the merged PRs, the complete required-check set and
+// published release, and prove every merge is an ancestor of ReleaseSHA. The
+// store validates and preserves the receipt; it does not contact the forge or
+// infer ancestry from strings. AuthorityRef and ObservedAt identify the receipt.
 type Evidence struct {
 	AuthorityRef string                `json:"authority_ref"`
 	ObservedAt   time.Time             `json:"observed_at"`

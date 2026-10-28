@@ -86,13 +86,27 @@ func TestOutsideRepairProofHasExclusiveOwner(t *testing.T) {
 				switch node := node.(type) {
 				case *ast.TypeSpec:
 					switch node.Name.Name {
-					case "OutsideRepairEvidence", "OutsideRepairPullRequestEvidence", "OutsideRepairRequiredCheck", "ghOutsideCheckRun", "ghOutsideWorkflowRun", "ghOutsideRulesResponse":
+					case "OutsideRepairEvidence", "OutsideRepairPullRequestEvidence", "OutsideRepairRequiredCheck",
+						"ghPullRequestView", "ghOutsideProtection", "ghOutsideRulesResponse", "ghOutsideRepoView",
+						"ghOutsideBranchRule", "ghOutsideCheckRun", "ghOutsideWorkflowRun", "ghOutsideJob",
+						"ghReleaseView", "ghRefObject", "ghCompareView", "publishedRelease",
+						"outsideRepairRequiredNames", "ghOutsideCheckRunPage", "ghOutsideJobPage":
 						t.Errorf("%s/%s still owns proof declaration %s", pkg, entry.Name(), node.Name.Name)
 					}
 				case *ast.FuncDecl:
 					switch node.Name.Name {
-					case "outsideRepairRequiredNames", "outsideRepairRequiredChecks", "outsideRepairRunProof", "outsideRepairPublishedRelease", "outsideRepairTagCommit", "outsideRepairMergeAncestor", "selectedOutsideRepairPullRequest":
+					case "outsideRepairGitSHAValid", "outsideRepairCanonicalPullRequestURL", "outsideRepairCanonicalReleaseURL",
+						"outsideRepairCanonicalRepository", "selectedOutsideRepairPullRequest", "outsideRepairReadJSON",
+						"outsideRepairRequiredNames", "outsideRepairRequiredChecks", "outsideRepairLatestChecks",
+						"outsideRepairRetainLatestCheck", "outsideRepairRunProof", "outsideRepairMatchedJob",
+						"outsideRepairPublishedRelease", "outsideRepairTagCommit", "outsideRepairMergeAncestor":
 						t.Errorf("%s/%s still implements completion proof %s", pkg, entry.Name(), node.Name.Name)
+					}
+				case *ast.ValueSpec:
+					for _, name := range node.Names {
+						if name.Name == "outsideRepairSHAPattern" || name.Name == "outsideRepairLinearTokenPattern" {
+							t.Errorf("%s/%s still owns proof pattern %s", pkg, entry.Name(), name.Name)
+						}
 					}
 				}
 				return true

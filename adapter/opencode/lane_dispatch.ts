@@ -24,7 +24,7 @@ import { AdapterContractDefect } from "./adapter-contract-defect"
 import { canonicalDirectory, type DispatchWindows } from "./dispatch-window"
 import { computeHostPromptProvenance, dispatchRetriedWorker, dispatchWorker, errorEnvelopeForLane, coreDispatchFailure, contextPreflightRefusal, provenanceRefusal, type AgentLanePacket, type AgentResultEnvelope, type DispatchRunner, type HostProvenance } from "./dispatch"
 import { agentLanes, agentUtilities, type AgentLane, type AgentUtility } from "./generated-agent-lanes"
-import { buildAgentLanePacket, readContinuityProjection, type AgentLanePacketFailureKind } from "./packet"
+import { buildAgentLanePacket, mutationResult, readContinuityProjection, type AgentLanePacketFailureKind } from "./packet"
 import { hostControlPlane } from "./move-session"
 import { dispatchRequiresNextTurn, TURN_MOVE_DISPATCH_REFUSAL } from "./turn-move-boundary"
 
@@ -51,6 +51,12 @@ export interface LaneDispatchDeps {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value)
+}
+
+function withProjectionReceipt(response: Record<string, unknown>, directive: AgentResultEnvelope): AgentResultEnvelope {
+  if (!isRecord(response.result) || !Object.hasOwn(response.result, "projection_reference")) return directive
+  return { ...directive, result: response.result, changed_refs: response.changed_refs as AgentResultEnvelope["changed_refs"],
+    next_valid_intents: [], ...(Array.isArray(response.warnings) ? { warnings: response.warnings } : {}) }
 }
 
 // laneForId looks up a registered lane by id only. The full packet schema
@@ -251,7 +257,7 @@ export async function dispatchLaneWorker(input: LaneDispatchInput, deps: LaneDis
   if (isRecord(coreResponse) && coreResponse.outcome === "ok" && coreResponse.replayed === true) {
     const refusal = errorEnvelopeForLane(laneForId(packet.lane_id), packet, "error", "unauthorized_dispatch", `replayed authorization for attempt ${packet.attempt_id} cannot recreate a dispatch window; recover the original attempt with worker_reconcile, or worker_abandon when no worker report exists`, "reconcile_operation")
     refusal.error!.retry_safe = false
-    return refusal
+    return withProjectionReceipt(coreResponse, refusal)
   }
 
   // A retry-safe failure with a possible effect means the dispatch boundary
@@ -288,10 +294,11 @@ export async function dispatchLaneWorker(input: LaneDispatchInput, deps: LaneDis
   // the core that authored the window, so it cannot be trusted to gate
   // evidence against it. The refusal is transport_failure because it is
   // a server contract break, not an operator-fixable input.
-  const resultRecord = isRecord(coreResponse.result) ? coreResponse.result : null
+  const resultRecord = mutationResult(coreResponse)
   const packetDigest = resultRecord && typeof resultRecord.worker_packet_digest === "string" ? resultRecord.worker_packet_digest : ""
   if (packetDigest === "") {
-    return errorEnvelopeForLane(laneForId(packet.lane_id), packet as Partial<AgentLanePacket>, "error", "transport_failure", "dispatch_worker response carried no worker_packet_digest", "reconcile_operation")
+    const refused = errorEnvelopeForLane(laneForId(packet.lane_id), packet as Partial<AgentLanePacket>, "error", "transport_failure", "dispatch_worker response carried no worker_packet_digest", "reconcile_operation")
+    return withProjectionReceipt(coreResponse, refused)
   }
 
   // Dispatch: the worker authorizer is the core response we just received;
@@ -302,7 +309,8 @@ export async function dispatchLaneWorker(input: LaneDispatchInput, deps: LaneDis
   //
   // The window binds to the calling session, because that is the session whose
   // next Task call the plugin hook rewrites (CD-0102 D1).
-  const workPins = resultRecord && Array.isArray(resultRecord.work_pins) ? resultRecord.work_pins : undefined
+  const projected = isRecord(coreResponse.result) && Object.hasOwn(coreResponse.result, "projection_reference")
+  const workPins = !projected && resultRecord && Array.isArray(resultRecord.work_pins) ? resultRecord.work_pins : undefined
   // Issue #1322: the dispatch_worker response also carries worker_worktree,
   // the durable claimed worktree the authorization rested on. A core that
   // answers ok without naming it is not an authorization whose tool-context
@@ -311,7 +319,7 @@ export async function dispatchLaneWorker(input: LaneDispatchInput, deps: LaneDis
   // that empties the adapter's in-memory claim records.
   const authorizedWorktree = resultRecord && typeof resultRecord.worker_worktree === "string" ? resultRecord.worker_worktree : ""
   if (authorizedWorktree === "") {
-    return errorEnvelopeForLane(laneForId(packet.lane_id), packet as Partial<AgentLanePacket>, "error", "transport_failure", "dispatch_worker response carried no worker_worktree", "reconcile_operation")
+    return withProjectionReceipt(coreResponse, errorEnvelopeForLane(laneForId(packet.lane_id), packet as Partial<AgentLanePacket>, "error", "transport_failure", "dispatch_worker response carried no worker_worktree", "reconcile_operation"))
   }
   // contextDirectory is the directory the calling tool call runs in, the
   // observable that proves the session's tool context has landed in the
@@ -322,7 +330,7 @@ export async function dispatchLaneWorker(input: LaneDispatchInput, deps: LaneDis
   const directive = await dispatchWorker(packet, { authorize: async () => coreResponse, credentials: deps.credentials, runner: deps.runner, evidenceRunner: deps.evidenceRunner, concordBinary: deps.concordBinary, packetDigest, sessionID: deps.context.sessionID, windows: deps.windows, workPins, workerDirectory, pinnedWorkerDirectory, authorizedWorktree, resolveWorkerDirectory: () => hostControlPlane().sessionDirectory(deps.context.sessionID, deps.context.abort), contextDirectory, provenance })
   // Native execution selects the persisted dispatch through the core's receipt,
   // which stays beside the launch directive just as on the combined retry route.
-  return { ...directive, result: resultRecord ?? undefined }
+  return withProjectionReceipt(coreResponse, { ...directive, result: isRecord(coreResponse.result) ? coreResponse.result : undefined })
 }
 
 // RetriedDispatchRecord is what a combined rejection's core response

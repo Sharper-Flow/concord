@@ -373,6 +373,36 @@ class SubagentMethodProjectionTests(unittest.TestCase):
         self.assertIn("inputs.review_input.input_candidate", text)
         self.assertIn("inputs.review_input.dependencies", text)
 
+    def test_review_report_entry_shapes_follow_the_owning_schema(self):
+        manifest, _ = generator.load_manifest()
+        review = next(lane for lane in manifest["lanes"] if lane["id"] == "review")
+        changed = copy.deepcopy(REPORT_SCHEMA)
+        changed["$defs"]["review_block"]["properties"]["assessments"]["maxItems"] = 7
+        changed["$defs"]["review_block"]["properties"]["remaining_obligations"]["maxItems"] = 13
+        changed["$defs"]["review_obligation"]["properties"]["needed_proof"]["maxLength"] = 384
+        changed["$defs"]["review_obligation"]["properties"]["needed_proof"]["x-maxBytes"] = 384
+        changed["$defs"]["review_refs"]["maxItems"] = 11
+        for schema in (REPORT_SCHEMA, changed):
+            with self.subTest(schema=schema["$defs"]["review_refs"]["maxItems"]):
+                text = lane_projection(review, schema)
+                block = schema["$defs"]["review_block"]
+                for field in ("assessments", "remaining_obligations"):
+                    self.assertIn(f"review.{field}: {json.dumps(block['properties'][field], ensure_ascii=False)}.", text)
+                for name in ("review_assessment", "review_obligation", "review_refs"):
+                    self.assertIn(f"{name} shape: {json.dumps(schema['$defs'][name], ensure_ascii=False)}.", text)
+                definitions = {name: schema["$defs"][name] for name in ("review_assessment", "review_obligation", "review_refs")}
+                references = set(re.findall(r'"\$ref": "#/\$defs/([^"]+)"', json.dumps(definitions)))
+                self.assertLessEqual(references, definitions.keys(), "project every referenced entry definition")
+
+    def test_review_classifies_every_finding_on_an_oracle_bound_dispatch(self):
+        manifest, _ = generator.load_manifest()
+        review = next(lane for lane in manifest["lanes"] if lane["id"] == "review")
+        text = lane_projection(review)
+        self.assertIn("When `inputs.worker_job.acceptance_oracle` is present, every `review.findings` entry requires this object.", text)
+        self.assertTrue("When it is absent, omit this object." in text, "oracle-free dispatches must omit the finding's oracle object")
+        self.assertNotIn("finding the oracle governs", text)
+        self.assertNotIn("oracle-governed finding", text)
+
 
 class LaneContentIdentityTests(unittest.TestCase):
     def test_generation_accepts_changed_content_without_a_counter_or_alias(self):
@@ -498,24 +528,31 @@ class AgentProjectionTests(unittest.TestCase):
         self.assertIn("`status` `failed`", projection)
 
     def test_projection_states_the_predicate_tie_rule(self):
-        # The store refuses a completed worker report only when an evidence
-        # entry ties a predicate id the dispatch did not declare
-        # (internal/store/worker_lanes.go verifyWorkerPredicateTies); the
-        # predicates no entry proves are decided by the completion verdicts
-        # (CD-0180). The generated contract text is the only place a lane
-        # agent learns that rule, so every lane definition must state it
-        # while predicate_ids stays schema-optional.
-        projection = lane_projection(self.LANE, REPORT_SCHEMA)
-        normalized = " ".join(projection.split())
-        self.assertIn("evidence_entry.predicate_ids: optional array", normalized)
-        self.assertIn("minItems=0, maxItems=8", normalized)
-        self.assertIn("omit it or use an empty array on an entry that proves no declared predicate", normalized)
-        self.assertIn("Both forms mean no predicate tie", normalized)
-        self.assertNotIn("an empty array fails", normalized)
-        self.assertIn("Tie a declared `predicate_id` only to an entry whose evidence proves that predicate", normalized)
-        self.assertIn("the store refuses a completed report that ties a `predicate_id` the packet's `inputs.outcome_predicates` did not declare with `invalid_report`", normalized)
-        self.assertIn("decided by the completion verdicts, never by this report", normalized)
-        self.assertNotIn("must name every declared", normalized)
+        # verifyWorkerCompletedPredicateTies selects the job or packet list
+        # from the pinned capability and dispatch binding, never from the
+        # report. Unproved predicates remain completion-verdict decisions.
+        manifest, _ = generator.load_manifest()
+        for lane in manifest["lanes"]:
+            with self.subTest(lane=lane["id"]):
+                normalized = " ".join(lane_projection(lane).split())
+                for required in (
+                    "On workflow pins with `failure_attribution` and a dispatched job",
+                    "that exact dispatched job revision's `inputs.worker_job.predicate_ids`",
+                    "On pins without `failure_attribution` and on job-free attempts",
+                    "the dispatched packet's `inputs.outcome_predicates[].predicate_id`",
+                    "Current live job-capable workflows all carry `failure_attribution`",
+                    "for current live dispatches with `inputs.worker_job`, use only its `predicate_ids`",
+                    "a `predicate_id` outside the applicable list with `invalid_report`",
+                ):
+                    self.assertTrue(required in normalized, f"{lane['id']} is missing tie guidance: {required}")
+                self.assertIn("evidence_entry.predicate_ids: optional array", normalized)
+                self.assertIn("minItems=0, maxItems=8", normalized)
+                self.assertIn("omit it or use an empty array on an entry that proves no declared predicate", normalized)
+                self.assertIn("Both forms mean no predicate tie", normalized)
+                self.assertNotIn("an empty array fails", normalized)
+                self.assertIn("Tie a declared `predicate_id` only to an entry whose evidence proves that predicate", normalized)
+                self.assertIn("decided by the completion verdicts, never by this report", normalized)
+                self.assertNotIn("must name every declared", normalized)
 
     def test_projection_teaches_the_work_context_first_read(self):
         # CON-887: when the packet carries inputs.work_context the worker

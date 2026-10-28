@@ -271,6 +271,7 @@ func TestEveryMutationResultGuardsWorkPins(t *testing.T) {
 				t.Fatal("work refs in the payload also require pins")
 			}
 			object["work_pins"], _ = json.Marshal([]store.WorkPin{pin})
+			object["next_valid_intents"], _ = json.Marshal(mutationResultIntents(nextIntentsFromPin(pin)))
 			valid, _ := json.Marshal(object)
 			if response := r.mutationResult(base, valid, changed, nil); response.Outcome != agentcontract.OutcomeOK {
 				t.Fatalf("matching pin rejected: %+v", response.Error)

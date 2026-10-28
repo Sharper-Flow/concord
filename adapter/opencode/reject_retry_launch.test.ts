@@ -11,7 +11,8 @@ import { test, expect, mock, beforeEach, afterEach } from "bun:test"
 import { mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { manifestDigest } from "./generated-contracts"
+import { manifestDigest, maxEnvelopeBytes } from "./generated-contracts"
+import { largeMutationPayload, mutationProjectionFixture } from "./mutation-projection.fixture"
 import { configureCoreBinary } from "./dispatch"
 import { dispatchWindows, serializeLanePacket, TASK_TOOL_ID } from "./dispatch-window"
 import { resetClaimedWorktrees } from "./claimed-worktree"
@@ -172,6 +173,47 @@ test("a combined rejection arms one window, writes no subtask, and the exact nat
   expect(dispatchWindows().has(SESSION)).toBe(false)
   await expect(bindTaskArgs().bind()).rejects.toThrow("no authorized dispatch window")
 })
+
+for (const replayed of [false, true]) {
+  test(`combined retry consumes projected authority privately; replayed=${replayed}`, async () => {
+    const large = largeMutationPayload()
+    large.work_pins[0].work_id = "work-retry"
+    large.work_pins[0].version = 10
+    large.changed_refs[0] = { entity_kind: "work_item", id: "work-retry", version: 10 }
+    const combined: Record<string, unknown> = combinedOkEnvelope()
+    const payload = { ...(combined.result as Record<string, unknown>), ...large }
+    const fixture = mutationProjectionFixture(payload, "concord_work_transition", "workflow_action", "reject-retry-1")
+    let reads = 0
+    let writes = 0
+    adapter.configureConcordAdapter({ credentials: testCredentials, runner: { async run(argv, stdin) {
+      if (argv[1] === "project-resolve") return contextAnswer()
+      const request = JSON.parse(stdin)
+      if (request.operation === "workflow_action") {
+        writes++
+        return { exitCode: 0, stdout: JSON.stringify(coreEnvelope({ ...fixture.envelope, replayed })), stderr: "" }
+      }
+      expect(request.operation).toBe("mutation_result")
+      const page = fixture.pages[reads++]
+      return { exitCode: 0, stdout: JSON.stringify(coreEnvelope({ ...page, query_id: "C19.MutationResult" })), stderr: "" }
+    } } })
+    const raw = await adapter.work_transition.execute(rejectCall(), contextFor())
+    const output = typeof raw === "string" ? raw : raw.output
+    const result = JSON.parse(output.split("\n")[0])
+    expect(result.outcome).toBe(replayed ? "error" : "ok")
+    expect(result.result).toEqual(fixture.envelope.result)
+    expect(result.changed_refs).toEqual(fixture.envelope.changed_refs)
+    expect(result.result.retry_worker_packet).toBeUndefined()
+    expect(Buffer.byteLength(output)).toBeLessThan(maxEnvelopeBytes)
+    expect(writes).toBe(1)
+    expect(reads).toBe(fixture.pages.length)
+    expect(dispatchWindows().has(SESSION)).toBe(!replayed)
+    if (!replayed) {
+      const { args, bind } = bindTaskArgs()
+      await bind()
+      expect(args.prompt).toBe(serializeLanePacket(retryPacket() as any))
+    }
+  })
+}
 
 test("a replayed combined response never launches twice and names the exact original identity", async () => {
   const answer = () => ({ exitCode: 0, stdout: JSON.stringify(combinedOkEnvelope()), stderr: "" })

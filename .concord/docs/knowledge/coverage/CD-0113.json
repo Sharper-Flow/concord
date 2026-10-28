@@ -115,6 +115,18 @@
     {
       "kind": "go_test",
       "value": "internal/store.TestWorkPinNamesTheRecoveryWithDuplicateActiveContracts"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/agent.TestMutationProjectionFailedAttemptMutations"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/agent.TestMutationProjectionRejectsUntrustedRetainedDocuments"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/agent.TestSingleFullWorkItemTooLargeReturnsLosslessProjectionPages"
     }
   ],
   "id": "CD-0113",

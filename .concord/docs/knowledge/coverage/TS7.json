@@ -7,6 +7,18 @@
     {
       "kind": "adapter_test",
       "value": "adapter/opencode/concord.test.ts#a read answered by a newer core contract is typed as version skew"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/agent.TestMutationProjectionFailedAttemptMutations"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/agent.TestFullWorkListProjectionCursorIntegrity"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/agent.TestFullWorkListProjectionMultibyteEnvelopeFit"
     }
   ],
   "id": "TS7",

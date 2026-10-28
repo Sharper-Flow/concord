@@ -337,10 +337,11 @@ func TestCombinedRejectRetryDispatchesThroughTheDispatchOwner(t *testing.T) {
 	if resultWorktree == "" {
 		t.Fatal("the combined result carries no claimed worktree the retry authorization rested on")
 	}
-	// The combined result rides the agent envelope with the packet inline.
-	// The byte budget is owned at the public mutation boundary, which
-	// validates the fully enriched result inside the transaction and rolls
-	// the whole call back on overflow: TestCombinedRejectOversizedResultRefusesZeroWrite
+	// The combined result rides the agent envelope with the packet inline when
+	// it fits. The byte budget is owned at the public mutation boundary, which
+	// validates the fully enriched result inside the transaction and retains an
+	// oversized one through the TS7 §8.2 projection reference:
+	// TestCombinedRejectOversizedResultRetainsCompleteDispatch
 	// and TestCombinedRejectNormalSizeCommits (internal/agent) carry that
 	// evidence, so no second, hand-picked byte constant stands in for the
 	// owner here.

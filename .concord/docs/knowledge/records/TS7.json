@@ -13,7 +13,7 @@
     },
     {
       "criterion": 3,
-      "exemption": "Output bounds are producer-enforced per call. The guarantee is proved by TestEnvelopeHasHardSerializedLimit (internal/agentcontract/envelope_test.go), TestMutationResultProducerAcceptsCanonicalPayload (internal/agent/envelope_test.go), and TestBudgetFieldsRefuseOrBoundResultsStructurally (internal/agent/runtime_test.go)."
+      "exemption": "Output bounds are producer-enforced per call. Inline bounds are proved by TestEnvelopeHasHardSerializedLimit (internal/agentcontract/envelope_test.go), TestMutationResultProducerAcceptsCanonicalPayload (internal/agent/envelope_test.go), and TestBudgetFieldsRefuseOrBoundResultsStructurally (internal/agent/runtime_test.go). TestMutationProjectionFailedAttemptMutations, TestFullWorkListProjectionCursorIntegrity and TestFullWorkListProjectionMultibyteEnvelopeFit prove oversized projection transport."
     },
     {
       "criterion": 4,
@@ -44,9 +44,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:7565ed45650c699c84731e91ad12f63b99b9652211b7b2a3ce9e5f0dd792c200",
+  "sha256": "sha256:d4ca7c919134cc7811c23d575fdde6de9e018d13e10f93d34fbdd58a26b7c2f2",
   "status": "accepted",
-  "summary": "Defines typed results, recovery, pagination, and bounded omissions.",
+  "summary": "Defines typed results, recovery, pagination, bounded omissions, and lossless oversized-result transport within the unchanged 51,200-byte envelope cap. Closed projection references require authenticated reconstruction and identity, length, digest and schema validation before authority; mutation documents are retained atomically and full-list paging preserves complete items and continuation. Size refusals name executable operation-specific recovery.",
   "tags": [
     "ts7",
     "agents",

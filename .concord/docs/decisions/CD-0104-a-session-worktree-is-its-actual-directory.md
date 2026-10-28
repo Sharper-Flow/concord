@@ -64,11 +64,15 @@ digest and replays the same operation on the same `idempotency_key`.
 no-op when the session already runs at the destination. The read-back asks
 the host where the session runs.
 
-No step records intent ahead of its effect, so there is no partial state. A
-failure at any step returns a typed refusal with `effect_state: none` and
-`retry_same_request`, carrying the identity of what exists. A replay under the
-same key adopts what exists and runs the rest. The `partial` outcome is removed
-from the `work_start` contract.
+A failure returns a typed refusal carrying the verified identity of retained
+work and claims. It reports `effect_state: none` only when no durable work,
+relation, bootstrap journal, or claim effect exists; `partial` when verified
+effects remain but the start has not completed; and `possible` when the effect
+cannot be established. Effect state does not determine retry safety. A retryable
+refusal uses `retry_same_request`; replay under the same key adopts the recorded
+identity and runs the remaining steps. A deterministic refusal retains its
+applicable recovery action. The `partial` outcome remains removed from the
+`work_start` contract: success is `ok`, and refusal is `error`.
 
 ### D4. Transient exclusion is `resource_busy`
 
@@ -127,7 +131,7 @@ the moment of refusal, not as a stored column.
   migrates a populated `bootstrap_operations` row through 69 and reads it back.
 - `adapter/opencode/concord.test.ts#work start replays to convergence after an
   interrupted step` interrupts `session-prepare`, asserts a `retry_same_request`
-  refusal with `effect_state: none` carrying the work identity, replays the
+  refusal with `effect_state: partial` carrying the work identity, replays the
   same key, and asserts `ok`.
 - `adapter/opencode/concord.test.ts#work start leaves a resumable claim when
   the move is refused` asserts no compensation runs.

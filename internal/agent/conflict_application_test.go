@@ -684,6 +684,45 @@ func TestConflictObservationHistoryRoundTrip(t *testing.T) {
 	}
 }
 
+func TestConflictObservationHistoryReadsCrucialSize(t *testing.T) {
+	t.Parallel()
+	s, service, grant, scopeVersion := indexedCaptureFixture(t)
+	inputs := strings.Replace(sizedCaptureInputs, `"security":false`, `"security":true`, 1)
+	captured := dispatchCapture(t, s, service, grant, scopeVersion, "history-crucial-capture", sizedCaptureInput("history-crucial-capture", inputs))
+	if captured.Outcome != agentcontract.OutcomeOK || captured.ChangedRefs == nil || len(*captured.ChangedRefs) != 1 {
+		t.Fatalf("capture = %+v", captured)
+	}
+	workID := (*captured.ChangedRefs)[0].ID
+	if size := readWorkSizeSummary(t, s, service, mutationEnvelope(grant, scopeVersion), workID); size == nil || size.Size != store.WorkSizeCrucial {
+		t.Fatalf("recorded size = %+v, want crucial", size)
+	}
+	written, err := dispatchConflictObservation(t, s, service, grant, scopeVersion, map[string]any{"work_id": workID, "idempotency_key": "history-crucial-settlement", "conflict": map[string]any{"rule_id": "P3", "outcome": "settled"}})
+	if err != nil || written.Error != nil || written.Outcome != agentcontract.OutcomeOK {
+		t.Fatalf("record = %+v, %v", written, err)
+	}
+	input, err := json.Marshal(map[string]any{"work_id": workID, "record_kinds": []string{"conflict_application"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	read, err := Dispatch(context.Background(), s, service, InvokeRequest{Tool: "concord_work_trace", Operation: "history", Input: input}, mutationEnvelope(grant, scopeVersion))
+	if err != nil || read.Error != nil || read.Outcome != agentcontract.OutcomeOK {
+		t.Fatalf("history outcome=%s, error=%+v, dispatch error=%v", read.Outcome, read.Error, err)
+	}
+	if _, err := read.Encode(); err != nil {
+		t.Fatalf("encode history: %v", err)
+	}
+	var page struct {
+		Entries []store.HistoryEntry `json:"entries"`
+	}
+	if err := json.Unmarshal(read.Result, &page); err != nil {
+		t.Fatal(err)
+	}
+	want := expectedConflictSettlement(t, s, workID, grant.PrincipalRef, "history-crucial-settlement", "P3", "settled", 1)
+	if len(page.Entries) != 1 || page.Entries[0].ConflictApplication == nil || *page.Entries[0].ConflictApplication != want.Application || page.Entries[0].Actor != want.Actor {
+		t.Fatalf("history lost crucial settlement: %+v, want %+v", page.Entries, want)
+	}
+}
+
 func TestConflictObservationHistoryRespectsScope(t *testing.T) {
 	t.Parallel()
 	s, service, grant, scopeVersion := conflictCrossProductFixture(t)

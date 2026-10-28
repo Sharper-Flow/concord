@@ -120,6 +120,18 @@ export class HostControlPlane {
     return this.#client !== null
   }
 
+  async runningVersion(signal: AbortSignal = AbortSignal.timeout(5_000)): Promise<string | null> {
+    try {
+      const result = await this.#client?.get({ url: "/global/health", signal })
+      const data = result?.data
+      if (!result?.response.ok || data === null || typeof data !== "object" || Array.isArray(data)) return null
+      const version = (data as Record<string, unknown>).version
+      return typeof version === "string" && version.length > 0 ? version : null
+    } catch {
+      return null
+    }
+  }
+
   async promptSession(sessionID: string, text: string, metadata: Record<string, unknown>, beforePost: () => Promise<boolean>): Promise<"delivered" | "unconfirmed"> {
     return promptAndConfirm(this.#require("the native session prompt route is unavailable"), sessionID, text,
       { confirmWindowMs: 30_000, confirmPollMs: 100 }, metadata, beforePost)

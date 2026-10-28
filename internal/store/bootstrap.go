@@ -73,8 +73,13 @@ type BootstrapRequest struct {
 	ResolvedRef string `json:"-"`
 }
 
-// BootstrapResult is the durable result of a bootstrap operation.
+// BootstrapResult is the durable result of a bootstrap operation. On capture
+// failure, EffectState describes retained effects and identity comes only from
+// the matching journal, work item, and claim, not from derived identifiers.
+// Entry.Path on failure is pinned intent, not proof of a native worktree.
 type BootstrapResult struct {
+	// EffectState is empty on success; capture failures use none, partial, or possible.
+	EffectState string
 	OperationID string
 	Replayed    bool
 	ProductID   string
@@ -550,10 +555,19 @@ func (s *Store) BootstrapWorktree(ctx context.Context, req BootstrapRequest, pha
 	return s.bootstrapWorktree(ctx, req, phaseHook, ExecGitRunner{})
 }
 
-func (s *Store) bootstrapWorktree(ctx context.Context, req BootstrapRequest, phaseHook BootstrapPhaseHook, runner GitRunner) (BootstrapResult, error) {
+func (s *Store) bootstrapWorktree(ctx context.Context, req BootstrapRequest, phaseHook BootstrapPhaseHook, runner GitRunner) (result BootstrapResult, retErr error) {
 	if s == nil || s.db == nil {
-		return BootstrapResult{}, newFailure(KindUnavailable, "work_bootstrap", "store is not open", false, "open the authority database")
+		return BootstrapResult{EffectState: "possible"}, newFailure(KindUnavailable, "work_bootstrap", "store is not open", false, "open the authority database")
 	}
+	// Probe outside all phase transactions, including on a replay refusal that
+	// occurs before prepare. Keep the original input: ref resolution can change
+	// its digest, but must not change which retained capture this caller owns.
+	originalRequest := req
+	defer func() {
+		if retErr != nil {
+			result = s.bootstrapFailureResult(ctx, originalRequest, retErr)
+		}
+	}()
 	operationID, workID, digest, err := CanonicalBootstrapIdentity(req)
 	if err != nil {
 		return BootstrapResult{}, wrapFailure(KindInvalidOperation, "work_bootstrap", "cannot derive bootstrap identity", false, "supply JSON-safe input", err)
@@ -566,6 +580,50 @@ func (s *Store) bootstrapWorktree(ctx context.Context, req BootstrapRequest, pha
 		req.Ref = req.ResolvedRef
 	}
 	return s.bootstrapWorktreeMode(ctx, req, operationID, workID, digest, false, req, phaseHook, runner)
+}
+
+func (s *Store) bootstrapFailureResult(ctx context.Context, req BootstrapRequest, cause error) BootstrapResult {
+	absent := BootstrapResult{EffectState: "none"}
+	var failure *Failure
+	if failureEffectPossible(cause) || errors.As(cause, &failure) && len(failure.CommittedRefs) != 0 {
+		absent.EffectState = "possible"
+	}
+	_, _, digest, err := CanonicalBootstrapIdentity(req)
+	if err != nil {
+		return BootstrapResult{EffectState: "possible"}
+	}
+	var retained BootstrapResult
+	var storedDigest, requestJSON string
+	var workVersion sql.NullInt64
+	var path sql.NullString
+	// One statement reads a coherent retained snapshot without taking a second
+	// connection inside a phase transaction. A missing work or claim is not
+	// mistaken for an absent journal, and no unverified binding is exposed.
+	err = s.db.QueryRowContext(ctx, `
+		SELECT b.request_digest,b.request_json,b.operation_id,b.product_id,b.project_id,b.work_id,w.version,c.pinned_path
+		FROM bootstrap_operations b
+		LEFT JOIN work_items w ON w.id=b.work_id
+		LEFT JOIN worktree_claims c ON c.op_id=b.operation_id AND c.work_id=b.work_id
+		  AND c.project_id=b.project_id AND c.state IN ('pending','verified')
+		WHERE b.idempotency_key=?`, req.IdempotencyKey).
+		Scan(&storedDigest, &requestJSON, &retained.OperationID, &retained.ProductID, &retained.ProjectID, &retained.WorkID, &workVersion, &path)
+	if err == sql.ErrNoRows {
+		return absent
+	}
+	if err != nil {
+		return BootstrapResult{EffectState: "possible"}
+	}
+	if storedDigest != digest && !bootstrapRowMatchesCallerIntent(requestJSON, req) {
+		return absent
+	}
+	retained.EffectState = "partial"
+	if workVersion.Valid {
+		retained.WorkVersion = workVersion.Int64
+	} else {
+		retained.WorkID = ""
+	}
+	retained.Entry.Path = path.String
+	return retained
 }
 
 // resolveBootstrapRowIntent reconciles a digest against the row the

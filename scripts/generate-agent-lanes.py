@@ -400,6 +400,7 @@ export const laneRegistryManifestDigest = %s as const;
 export const agentLanes = %s as const;
 export const agentUtilities = %s as const;
 export const laneToolRequirements = %s as const;
+export const laneMcpToolIDs = %s as const;
 export const agentLanePacketSchema = %s as const;
 export const agentLaneReportSchema = %s as const;
 export const workerScopeAssignments = %s as const;
@@ -417,7 +418,7 @@ export function workerScopeAssignedResult(laneId: string): string | null {
 export function laneForIdentity(laneId: string, laneDigest: string): AgentLane | null {
   return agentLanes.find((candidate) => candidate.id === laneId && candidate.digest === laneDigest) ?? null;
 }
-""" % (json.dumps(manifest_digest), json.dumps(manifest["lanes"], ensure_ascii=False, indent=2), json.dumps(manifest["utilities"], ensure_ascii=False, indent=2), json.dumps(lane_tool_requirements(), ensure_ascii=False, indent=2), json.dumps(packet_schema, ensure_ascii=False, separators=(",", ":")), json.dumps(report_schema, ensure_ascii=False, separators=(",", ":")), assignments)
+""" % (json.dumps(manifest_digest), json.dumps(manifest["lanes"], ensure_ascii=False, indent=2), json.dumps(manifest["utilities"], ensure_ascii=False, indent=2), json.dumps(lane_tool_requirements(), ensure_ascii=False, indent=2), json.dumps(lane_mcp_tool_ids(), ensure_ascii=False, indent=2), json.dumps(packet_schema, ensure_ascii=False, separators=(",", ":")), json.dumps(report_schema, ensure_ascii=False, separators=(",", ":")), assignments)
 
 
 def packet_refusal_instructions() -> str:
@@ -473,12 +474,17 @@ def lane_tool_requirements() -> dict[str, list[list[str]]]:
         ["edit_scoped_files", execution]
         for execution in ("run_tests", "run_targeted_checks", "run_validators")
     ]
+    requirements["execute"] = [["read_repository"], ["search_public_sources"]]
     return requirements
 
 
 def lane_allows(lane: dict, tool_id: str) -> bool:
     capabilities = set(lane.get("capabilities", []))
     return any(set(required) <= capabilities for required in lane_tool_requirements().get(tool_id, []))
+
+
+def lane_mcp_tool_ids() -> list[str]:
+    return [tool_id for tool_id in lane_tool_requirements() if tool_id.startswith(("lgrep_", "context7_", "exa_", "github_"))]
 
 
 def lane_tool_grants(lane: dict) -> dict[str, bool]:

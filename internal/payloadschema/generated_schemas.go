@@ -3548,6 +3548,47 @@ const GeneratedPayloadSchemaDocument = `{
       "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$",
       "type": "string"
     },
+    "json_fragment_page": {
+      "additionalProperties": false,
+      "description": "Exact whole-code-point UTF-8 fragments of one captured canonical JSON result payload. Digest hashes the complete original payload bytes, not an envelope. Join contiguous offsets, verify total bytes and digest, parse once, and validate the source schema before using authority. envelope.next_cursor advances an incomplete document.",
+      "properties": {
+        "data": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "digest": {
+          "$ref": "#/$defs/projection_digest"
+        },
+        "document_complete": {
+          "type": "boolean"
+        },
+        "encoding": {
+          "const": "json-fragment"
+        },
+        "fragment_bytes": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "offset": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "total_bytes": {
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "encoding",
+        "digest",
+        "total_bytes",
+        "offset",
+        "data",
+        "fragment_bytes",
+        "document_complete"
+      ],
+      "type": "object"
+    },
     "knowledge_id": {
       "maxLength": 256,
       "minLength": 1,
@@ -4535,6 +4576,168 @@ const GeneratedPayloadSchemaDocument = `{
         "version"
       ],
       "type": "object"
+    },
+    "mutation_projection_reference_result": {
+      "additionalProperties": false,
+      "properties": {
+        "projection_reference": {
+          "additionalProperties": false,
+          "allOf": [
+            {
+              "$ref": "#/$defs/mutation_projection_source"
+            }
+          ],
+          "properties": {
+            "digest": {
+              "$ref": "#/$defs/projection_digest"
+            },
+            "encoding": {
+              "const": "json-fragment"
+            },
+            "read_pointer": {
+              "additionalProperties": false,
+              "properties": {
+                "input": {
+                  "additionalProperties": false,
+                  "allOf": [
+                    {
+                      "$ref": "#/$defs/mutation_projection_source"
+                    }
+                  ],
+                  "properties": {
+                    "digest": {
+                      "$ref": "#/$defs/projection_digest"
+                    },
+                    "idempotency_key": {
+                      "maxLength": 128,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "source_operation": {
+                      "enum": [
+                        "message_send",
+                        "workflow_action"
+                      ],
+                      "type": "string"
+                    },
+                    "source_tool": {
+                      "enum": [
+                        "concord_work_relate",
+                        "concord_work_transition"
+                      ],
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "source_tool",
+                    "source_operation",
+                    "idempotency_key",
+                    "digest"
+                  ],
+                  "type": "object"
+                },
+                "operation": {
+                  "const": "mutation_result"
+                },
+                "tool": {
+                  "const": "concord_work_trace"
+                }
+              },
+              "required": [
+                "tool",
+                "operation",
+                "input"
+              ],
+              "type": "object"
+            },
+            "source_operation": {
+              "enum": [
+                "message_send",
+                "workflow_action"
+              ],
+              "type": "string"
+            },
+            "source_tool": {
+              "enum": [
+                "concord_work_relate",
+                "concord_work_transition"
+              ],
+              "type": "string"
+            },
+            "total_bytes": {
+              "minimum": 1,
+              "type": "integer"
+            },
+            "work_refs": {
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "id": {
+                    "$ref": "#/$defs/id"
+                  },
+                  "version": {
+                    "minimum": 1,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "id",
+                  "version"
+                ],
+                "type": "object"
+              },
+              "maxItems": 32,
+              "type": "array"
+            }
+          },
+          "required": [
+            "encoding",
+            "digest",
+            "total_bytes",
+            "source_tool",
+            "source_operation",
+            "work_refs",
+            "read_pointer"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "projection_reference"
+      ],
+      "type": "object"
+    },
+    "mutation_projection_source": {
+      "oneOf": [
+        {
+          "properties": {
+            "source_operation": {
+              "const": "message_send"
+            },
+            "source_tool": {
+              "const": "concord_work_relate"
+            }
+          },
+          "required": [
+            "source_tool",
+            "source_operation"
+          ]
+        },
+        {
+          "properties": {
+            "source_operation": {
+              "const": "workflow_action"
+            },
+            "source_tool": {
+              "const": "concord_work_transition"
+            }
+          },
+          "required": [
+            "source_tool",
+            "source_operation"
+          ]
+        }
+      ]
     },
     "mutation_result": {
       "additionalProperties": false,
@@ -9148,6 +9351,40 @@ const GeneratedPayloadSchemaDocument = `{
       ],
       "type": "object"
     },
+    "projectable_mutation_result": {
+      "additionalProperties": false,
+      "oneOf": [
+        {
+          "$ref": "#/$defs/mutation_result"
+        },
+        {
+          "$ref": "#/$defs/mutation_projection_reference_result"
+        }
+      ],
+      "properties": {
+        "assignment_group": {},
+        "changed_refs": {},
+        "delivery": {},
+        "next_valid_intents": {},
+        "operation_id": {},
+        "projection_reference": {},
+        "retry_attempt_id": {},
+        "retry_worker_packet": {},
+        "vacate_target": {},
+        "work_pins": {},
+        "worker_packet_digest": {},
+        "worker_recovery": {},
+        "worker_worktree": {}
+      },
+      "type": "object"
+    },
+    "projection_digest": {
+      "description": "Bounds: 71..71 code points inclusive",
+      "maxLength": 71,
+      "minLength": 71,
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "type": "string"
+    },
     "proposal_affected_text": {
       "description": "Bounds: 1..256 code points inclusive",
       "maxLength": 256,
@@ -12132,6 +12369,31 @@ const GeneratedPayloadSchemaDocument = `{
       },
       "type": "object"
     },
+    "work_browse_list_result": {
+      "additionalProperties": false,
+      "oneOf": [
+        {
+          "$ref": "#/$defs/work_page"
+        },
+        {
+          "$ref": "#/$defs/work_list_projection_page"
+        }
+      ],
+      "properties": {
+        "data": {},
+        "digest": {},
+        "document_complete": {},
+        "encoding": {},
+        "fragment_bytes": {},
+        "items": {},
+        "next_cursor": {},
+        "next_kind": {},
+        "offset": {},
+        "readiness_evidence": {},
+        "total_bytes": {}
+      },
+      "type": "object"
+    },
     "work_browse_messages_input": {
       "additionalProperties": false,
       "properties": {
@@ -14698,6 +14960,58 @@ const GeneratedPayloadSchemaDocument = `{
       ],
       "type": "string"
     },
+    "work_list_projection_page": {
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "digest": {
+          "$ref": "#/$defs/projection_digest"
+        },
+        "document_complete": {
+          "type": "boolean"
+        },
+        "encoding": {
+          "const": "json-fragment"
+        },
+        "fragment_bytes": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "next_kind": {
+          "enum": [
+            "projection",
+            "items",
+            null
+          ],
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "offset": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "total_bytes": {
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "encoding",
+        "digest",
+        "total_bytes",
+        "offset",
+        "data",
+        "fragment_bytes",
+        "document_complete",
+        "next_kind"
+      ],
+      "type": "object"
+    },
     "work_liveness": {
       "additionalProperties": false,
       "properties": {
@@ -16455,6 +16769,84 @@ const GeneratedPayloadSchemaDocument = `{
       },
       "required": [
         "work_id"
+      ],
+      "type": "object"
+    },
+    "work_trace_mutation_result_input": {
+      "additionalProperties": false,
+      "description": "Read the immutable original mutation result payload retained under this caller's idempotency identity. A fragment grants no complete pin or intent authority; reconstruct, verify the byte length and SHA-256 digest, then validate the original operation result schema before use.",
+      "oneOf": [
+        {
+          "properties": {
+            "source_operation": {
+              "const": "message_send"
+            },
+            "source_tool": {
+              "const": "concord_work_relate"
+            }
+          },
+          "required": [
+            "source_tool",
+            "source_operation"
+          ]
+        },
+        {
+          "properties": {
+            "source_operation": {
+              "const": "workflow_action"
+            },
+            "source_tool": {
+              "const": "concord_work_transition"
+            }
+          },
+          "required": [
+            "source_tool",
+            "source_operation"
+          ]
+        }
+      ],
+      "properties": {
+        "digest": {
+          "$ref": "#/$defs/projection_digest",
+          "description": "Bounds: 71..71 code points inclusive"
+        },
+        "idempotency_key": {
+          "description": "Bounds: 1..128 code points inclusive",
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "limit": {
+          "$ref": "#/$defs/limit",
+          "description": "Bounds: 1..100 value inclusive"
+        },
+        "page": {
+          "$ref": "#/$defs/page"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds",
+          "description": "Bounds: >=1 value inclusive"
+        },
+        "source_operation": {
+          "enum": [
+            "message_send",
+            "workflow_action"
+          ],
+          "type": "string"
+        },
+        "source_tool": {
+          "enum": [
+            "concord_work_relate",
+            "concord_work_transition"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "source_tool",
+        "source_operation",
+        "idempotency_key",
+        "digest"
       ],
       "type": "object"
     },

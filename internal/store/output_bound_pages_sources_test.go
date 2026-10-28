@@ -1127,6 +1127,17 @@ func init() {
 		pkSubsetLink{file: "internal/agent/mutations.go", function: "enrichMutationPayloadTx", source: "refs", target: "pins"},
 	))
 	registerOutputBound("/$defs/mutation_result/properties/worker_packet_digest/maxLength", goPatternBound("internal/store/worker_lanes.go", "workerProvenancePattern"))
+	registerOutputBound("/$defs/mutation_projection_reference_result/properties/projection_reference/properties/read_pointer/properties/input/properties/idempotency_key/maxLength", inputBound("/$defs/work_trace_mutation_result_input/properties/idempotency_key/maxLength"))
+	// Projection references map the already validated original changed refs;
+	// they cannot introduce another work item beyond that result's bound.
+	registerOutputBound("/$defs/mutation_projection_reference_result/properties/projection_reference/properties/work_refs/maxItems", goConstantBound("internal/agentcontract/envelope.go", "MaxChangedRefs", boundItems))
+	registerOutputBound("/$defs/projection_digest/maxLength", outputBoundSource{kind: "derived", derive: func(rt *ledgerRuntime, census *boundCensus) (evaluatedBound, error) {
+		width, err := nativeDigestShape(rt, "internal/agent/mutation_projection.go", "mutationDocumentDigest")
+		if err != nil {
+			return evaluatedBound{}, err
+		}
+		return nativeASCIIWidth(width, "mutationDocumentDigest derives the exact SHA-256 prefix and hex width"), nil
+	}})
 
 	// The output readback omits the anchor_token cap: ValidateObservedUniverse
 	// bounds the anchor only when coverage is complete.

@@ -89,7 +89,8 @@ Mutation success additionally returns:
 
 Routine success must be enough to choose the next action. An agent must not call a
 separate status/show tool merely to learn the resulting version, canonical reference,
-or next valid intent.
+or next valid intent. The oversized-result transport in [§8.2](#82-lossless-oversized-result-transport)
+is the exception.
 
 ## 4. Durable outcomes
 
@@ -179,7 +180,9 @@ will succeed; `recovery_action` owns preparation.
 
 Error kind structurally constrains recovery: ambiguity resolves candidates; stale
 context refreshes; version/domain conflicts reread entities; approval/evidence errors
-request their missing proof; limit errors reduce the limit; budget refusal adjusts
+request their missing proof; limit errors reduce the limit where the operation
+exposes one, or name an executable recovery for that operation under
+[§8.2](#82-lossless-oversized-result-transport); budget refusal adjusts
 the budget; invalid cursors restart the query; operation conflicts reconcile.
 An adapter-origin `session_vacate` error with reason `unknown_effect` and
 effect `possible` reports the possible effect with a working recovery, per
@@ -262,7 +265,8 @@ retrieve bounded evidence from its authority only when needed.
 
 If the requested page would cross any bound, the core returns fewer complete items
 plus a non-null cursor and explicit omission/continuation metadata. It never cuts an
-item, emits malformed JSON, silently truncates, or substitutes an unbounded file.
+item except through the lossless transport in [§8.2](#82-lossless-oversized-result-transport),
+emits malformed JSON, silently truncates, or substitutes an unbounded file.
 
 The opaque authenticated cursor binds tool, operation, resolved scope, filters,
 detail, ordering, source watermark, and last emitted key. Cursor tampering, wrong
@@ -280,8 +284,9 @@ Every delegated or mutation-result producer validates the exact tool/operation
 payload against its closed generated output schema before exchange. It also
 checks the 51,200-byte serialized envelope cap, per-operation pagination and
 cardinality bounds, and the envelope's completeness markers before returning
-`ok`. A producer refuses an over-budget result; it does not silently cut an
-item, array, cursor, omission, or evidence reference.
+`ok`. A producer refuses an over-budget result unless it uses the bounded
+lossless transport in [§8.2](#82-lossless-oversized-result-transport); it does not
+silently cut an item, array, cursor, omission, or evidence reference.
 
 One repair attempt is permitted only for a stored result carrying a recognized,
 durable legacy contract version with an existing migration path. Fresh current
@@ -294,6 +299,18 @@ Consumers reject malformed or oversized structured output. They never replace a
 rejected result with a head, tail, middle, or other excerpt; legitimate partial
 coverage uses only the existing `partial`, `omissions`, pagination, and
 `evidence_refs` mechanisms.
+
+### 8.2 Lossless oversized-result transport
+
+Mutation results and full work reads carry complete WorkPins inline whenever the final serialized envelope fits the unchanged 51,200-byte limit. When it does not fit, the producer may return a closed projection reference instead of the oversized content. The reference identifies the affected work items and versions, the source operation, the exact document digest and byte length, and the declared read route that returns that document as lossless authenticated pages.
+
+For a mutation, the complete document is computed inside the mutation transaction and retained atomically with the write. Replay and projection reads refer to that same immutable post-state document, not a later WorkPin. Changed references and truthful effect metadata remain in the mutation envelope. An unavailable or unretainable document refuses the mutation before effect.
+
+A projection reference or fragment grants no complete pin, intent, question, or acceptance authority. A consumer reconstructs the complete document, verifies its identity, length and digest, and validates its schema before using that authority. The reconstructed mutation result carries every required WorkPin at its changed-reference version and every intent derived from those pins. This oversized-result transport is the exception to the routine-success rule against a follow-up status read.
+
+A full work-list read may page within an otherwise oversized single item by the same lossless transport. It preserves the complete item and the list continuation, with no missing or duplicated item. Pages bind one captured document and the original query; drift refuses before emitting a fragment from a different document. Existing inline and item-count paging remain unchanged when they fit.
+
+Tests prove both inline and reconstructed results meet the same completeness, version, derivation and schema obligations. No recorded failure, context, evidence or other required content is discarded to fit the envelope. A size refusal names an executable recovery for that operation; it does not prescribe reducing a limit the operation does not expose.
 
 ## 9. Adapter failures and local refusals
 
@@ -433,8 +450,9 @@ compatibility treatment. Prose convenience is not sufficient evidence.
 
 - Given a requested page that would cross any output bound
   When the core responds
-  Then it returns fewer complete items plus a non-null cursor, and a producer
-  refuses an over-budget result rather than silently cutting content.
+  Then it returns fewer complete items plus a non-null cursor or uses the
+  lossless oversized-result transport in §8.2, and a producer refuses an
+  over-budget result rather than silently cutting content.
 
 - Given a cursor from one operation
   When another operation, scope, or tampering attempt consumes it

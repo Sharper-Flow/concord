@@ -199,11 +199,16 @@ def report_projection_constraints(report_schema: dict, lane: dict) -> list[str]:
         f"minItems={evidence_entry['properties']['predicate_ids']['minItems']}, "
         f"maxItems={evidence_entry['properties']['predicate_ids']['maxItems']}, "
         f"items={json.dumps(evidence_entry['properties']['predicate_ids']['items'], ensure_ascii=False)}. "
-        "Name here the predicate_id of each inputs.outcome_predicates entry this entry's evidence proves. "
+        "On workflow pins with `failure_attribution` and a dispatched job, use only "
+        "that exact dispatched job revision's `inputs.worker_job.predicate_ids`, not the broader parent list. "
+        "On pins without `failure_attribution` and on job-free attempts, use "
+        "the dispatched packet's `inputs.outcome_predicates[].predicate_id`. "
+        "Current live job-capable workflows all carry `failure_attribution`, so "
+        "for current live dispatches with `inputs.worker_job`, use only its `predicate_ids`. "
         "Tie rule: `predicate_ids` is optional per entry; omit it or use an empty array on an entry that proves no declared predicate. "
         "Both forms mean no predicate tie. Tie a declared `predicate_id` only to an entry whose evidence "
-        "proves that predicate; the store refuses a completed report that ties a `predicate_id` the packet's "
-        "`inputs.outcome_predicates` did not declare with `invalid_report`. Predicates no entry proves are decided "
+        "proves that predicate; the store refuses a completed report that ties "
+        "a `predicate_id` outside the applicable list with `invalid_report`. Predicates no entry proves are decided "
         "by the completion verdicts, never by this report.",
         "evidence_entry.obligation: "
         f"enum={json.dumps(lane['evidence_obligations'], ensure_ascii=False)}.",
@@ -293,6 +298,11 @@ def report_projection_constraints(report_schema: dict, lane: dict) -> list[str]:
         "criterion assessments with producer receipt references, explicit finding identities, "
         "scope/blocking/status and evidenced closures, and remaining obligations. "
         "A repair binds input B and clean output C. Proof on B does not prove C.",
+        f"review.assessments: {json.dumps(review['properties']['assessments'], ensure_ascii=False)}.",
+        f"review_assessment shape: {json.dumps(report_schema['$defs']['review_assessment'], ensure_ascii=False)}.",
+        f"review_refs shape: {json.dumps(report_schema['$defs']['review_refs'], ensure_ascii=False)}.",
+        f"review.remaining_obligations: {json.dumps(review['properties']['remaining_obligations'], ensure_ascii=False)}.",
+        f"review_obligation shape: {json.dumps(report_schema['$defs']['review_obligation'], ensure_ascii=False)}.",
         "review.findings: "
         f"type={review_findings['type']}, "
         f"minItems={review_findings['minItems']}, "
@@ -315,7 +325,9 @@ def report_projection_constraints(report_schema: dict, lane: dict) -> list[str]:
         f"type={oracle_finding['type']}, "
         f"additionalProperties={json.dumps(oracle_finding['additionalProperties'])}, "
         f"required={json.dumps(oracle_finding['required'], ensure_ascii=False)}. "
-        "Tie a finding on an oracle-capable job to the oracle: `classification` is one of "
+        "When `inputs.worker_job.acceptance_oracle` is present, every `review.findings` entry requires this object. "
+        "When it is absent, omit this object. "
+        "`classification` is one of "
         f"{', '.join(f'`{item}`' for item in oracle_finding['properties']['classification']['enum'])}. "
         "A `delivery_blocker` or `uncovered_case` names the `owner_id` it blocks and the "
         "`predicate_ids` and/or `law_bindings` that govern it, with `case_ids`/`control_ids` and "
@@ -732,7 +744,7 @@ checkpoint.
 """
 
 
-def acceptance_oracle_instructions(packet_schema: dict, lane: dict) -> str:
+def acceptance_oracle_instructions(packet_schema: dict) -> str:
     # When the packet's worker job carries the acceptance oracle, every lane
     # reads the same recorded copy. The block adds no acceptance criteria and
     # keeps the native-oracle teaching CD-0223 requires: the host owns
@@ -744,11 +756,6 @@ def acceptance_oracle_instructions(packet_schema: dict, lane: dict) -> str:
     owners_max = oracle["properties"]["owners"]["maxItems"]
     cases_max = oracle["properties"]["cases"]["maxItems"]
     controls_max = oracle["properties"]["controls"]["maxItems"]
-    findings = (
-        "Classify each finding the oracle governs with `review_finding.oracle`.\n"
-        if "review" in lane.get("required_report_blocks", [])
-        else ""
-    )
     return f"""## Acceptance oracle
 
 When `inputs.worker_job.acceptance_oracle` is present, it is the owner-level
@@ -779,7 +786,7 @@ entry. When no producing route issued an immutable locator, report
 never a measured failure. Never author `subject_commit`: the dispatch owns that
 identity. Receipts from earlier subjects are regression baselines only: report
 current-subject evidence for current acceptance.
-{findings}"""
+"""
 
 
 def job_size_instructions(report_schema: dict, lane: dict) -> str:
@@ -948,7 +955,8 @@ with one adapter is indirection. Tests should cross the interface callers use.
 
 For each defect, state the triggering input or state, impact, and exact source
 location. Distinguish proven defects, missing required evidence, and optional
-suggestions using the existing finding detail. For an oracle-governed finding,
+suggestions using the existing finding detail. When the report constraints
+require an oracle classification,
 use `review_finding.oracle.classification` and keep the detail consistent with
 it; do not invent report fields. Missing required evidence remains a gap, not a
 reason to invent a defect. Do not turn style preferences into defects or a
@@ -1147,7 +1155,7 @@ record workflow transitions, verdicts, completion, or spawn nested workers.
 {recorded_work_instructions()}
 {work_context_instructions(packet_schema)}{review_subject_instructions(lane)}
 {checkpoint_instructions()}
-{acceptance_oracle_instructions(packet_schema, lane)}
+{acceptance_oracle_instructions(packet_schema)}
 {job_size_instructions(report_schema, lane)}
 {objective_binding_instructions()}
 {engineering_method_instructions(lane)}{research_method_instructions(lane)}{review_method_instructions(lane)}{concord_context_boundary_instructions()}

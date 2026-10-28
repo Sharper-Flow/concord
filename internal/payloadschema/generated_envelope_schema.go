@@ -258,6 +258,7 @@ const GeneratedEnvelopeSchemaDocument = `{
             "message_send",
             "message_withdraw",
             "messages",
+            "mutation_result",
             "observation_record",
             "observations",
             "overlaps",
@@ -335,7 +336,7 @@ const GeneratedEnvelopeSchemaDocument = `{
           "type": "string"
         },
         "query_id": {
-          "pattern": "^(PM1\\.Q(1[0-46]|[1-9])|CD-0020\\.R1|CD-0030\\.R1|CD-0040\\.R1|CD-0096\\.R1|CD-0182\\.R1|C15\\.Resources|C19\\.Continuity|C22\\.Domain(List|Detail|Attachments|Overlaps|Footprint|Shape))$",
+          "pattern": "^(PM1\\.Q(1[0-46]|[1-9])|CD-0020\\.R1|CD-0030\\.R1|CD-0040\\.R1|CD-0096\\.R1|CD-0182\\.R1|C15\\.Resources|C19\\.(Continuity|MutationResult)|C22\\.Domain(List|Detail|Attachments|Overlaps|Footprint|Shape))$",
           "type": "string"
         },
         "replayed": {
@@ -1034,6 +1035,7 @@ const GeneratedEnvelopeSchemaDocument = `{
             "message_send",
             "message_withdraw",
             "messages",
+            "mutation_result",
             "observation_record",
             "observations",
             "overlaps",
@@ -1086,7 +1088,7 @@ const GeneratedEnvelopeSchemaDocument = `{
           "type": "string"
         },
         "query_id": {
-          "pattern": "^(PM1\\.Q(1[0-46]|[1-9])|CD-0020\\.R1|CD-0030\\.R1|CD-0040\\.R1|CD-0096\\.R1|CD-0182\\.R1|C15\\.Resources|C19\\.Continuity|C22\\.Domain(List|Detail|Attachments|Overlaps|Footprint|Shape))$",
+          "pattern": "^(PM1\\.Q(1[0-46]|[1-9])|CD-0020\\.R1|CD-0030\\.R1|CD-0040\\.R1|CD-0096\\.R1|CD-0182\\.R1|C15\\.Resources|C19\\.(Continuity|MutationResult)|C22\\.Domain(List|Detail|Attachments|Overlaps|Footprint|Shape))$",
           "type": "string"
         },
         "reason_code": {
@@ -1407,6 +1409,48 @@ const GeneratedEnvelopeSchemaDocument = `{
                 }
               ]
             }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "result": {
+                "required": [
+                  "projection_reference"
+                ]
+              }
+            },
+            "required": [
+              "result"
+            ]
+          },
+          "then": {
+            "properties": {
+              "next_valid_intents": {
+                "maxItems": 0
+              },
+              "warnings": {
+                "not": {
+                  "items": {
+                    "not": {
+                      "properties": {
+                        "kind": {
+                          "const": "mutation_result_projected"
+                        }
+                      },
+                      "required": [
+                        "kind"
+                      ]
+                    }
+                  }
+                }
+              }
+            },
+            "required": [
+              "changed_refs",
+              "next_valid_intents",
+              "warnings"
+            ]
           }
         }
       ],
@@ -1867,6 +1911,24 @@ const GeneratedEnvelopeSchemaDocument = `{
             },
             "query_id": {
               "const": "C19.Continuity"
+            },
+            "tool": {
+              "const": "concord_work_trace"
+            }
+          },
+          "required": [
+            "tool",
+            "operation",
+            "query_id"
+          ]
+        },
+        {
+          "properties": {
+            "operation": {
+              "const": "mutation_result"
+            },
+            "query_id": {
+              "const": "C19.MutationResult"
             },
             "tool": {
               "const": "concord_work_trace"
@@ -2550,7 +2612,11 @@ const GeneratedEnvelopeSchemaDocument = `{
               "recovery_action": {
                 "properties": {
                   "kind": {
-                    "const": "reduce_limit"
+                    "enum": [
+                      "reduce_limit",
+                      "contact_operator"
+                    ],
+                    "type": "string"
                   }
                 }
               }

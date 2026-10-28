@@ -2,8 +2,8 @@ package store
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
+	"slices"
 	"time"
 )
 
@@ -47,7 +47,7 @@ func (s *Store) BlockedSessions(ctx context.Context, now time.Time, products []s
 		return BlockedSessionsResult{}, err
 	}
 	defer tx.Rollback()
-	out, err := blockedSessionsTx(ctx, tx, now, products, limit)
+	out, err := blockedSessionsCore(ctx, tx, now, products, limit)
 	if err != nil {
 		return BlockedSessionsResult{}, err
 	}
@@ -55,13 +55,6 @@ func (s *Store) BlockedSessions(ctx context.Context, now time.Time, products []s
 		return BlockedSessionsResult{}, wrapFailure(KindUnavailable, "blocked_sessions", "cannot close the read", true, "retry once the database is readable", err)
 	}
 	return out, nil
-}
-
-// blockedSessionsTx is the read core on a caller's transaction: the
-// Product-row query embeds it inside its own read transaction, and a second
-// connection would deadlock on SQLite's single writer.
-func blockedSessionsTx(ctx context.Context, tx *sql.Tx, now time.Time, products []string, limit int) (BlockedSessionsResult, error) {
-	return blockedSessionsCore(ctx, tx, now, products, limit)
 }
 
 func blockedSessionsCore(ctx context.Context, q queryer, now time.Time, products []string, limit int) (BlockedSessionsResult, error) {
@@ -99,21 +92,8 @@ func blockedSessionsCore(ctx context.Context, q queryer, now time.Time, products
 		if err := rows.Scan(&session.SessionRef, &session.AgentRef, &session.Worktree, &session.Directory, &session.Consequence, &session.BlockedSince, &productJSON); err != nil {
 			return out, wrapFailure(KindUnavailable, "blocked_sessions", "cannot decode blocked session", true, "retry once the database is readable", err)
 		}
-		if len(want) > 0 {
-			var sessionProducts []string
-			if json.Unmarshal([]byte(productJSON), &sessionProducts) != nil {
-				continue
-			}
-			matched := false
-			for _, product := range sessionProducts {
-				if want[product] {
-					matched = true
-					break
-				}
-			}
-			if !matched {
-				continue
-			}
+		if len(want) > 0 && !challengeScopeIntersects(productJSON, want) {
+			continue
 		}
 		out.Sessions = append(out.Sessions, session)
 	}
@@ -124,12 +104,19 @@ func blockedSessionsCore(ctx context.Context, q queryer, now time.Time, products
 	// Age is computed at read time against the caller's clock.
 	for i := range out.Sessions {
 		if issued, err := time.Parse(time.RFC3339Nano, out.Sessions[i].BlockedSince); err == nil {
-			out.Sessions[i].BlockAgeSec = int64(now.Sub(issued).Seconds())
-			if out.Sessions[i].BlockAgeSec < 0 {
-				out.Sessions[i].BlockAgeSec = 0
-			}
+			out.Sessions[i].BlockAgeSec = max(0, int64(now.Sub(issued).Seconds()))
 		}
 	}
 	out.ResultMeta = ResultMeta{QueryID: "PM1.Q12", ContractVersion: "PM1/1.0", Authority: "authoritative", Freshness: Freshness{ObservedAt: now.UTC().Format(time.RFC3339Nano)}, OrderingKeys: []string{"issued_at"}}
 	return out, nil
+}
+
+// challengeScopeIntersects reports whether a challenge's captured Product
+// scope names any wanted Product. An unreadable scope intersects nothing.
+func challengeScopeIntersects(productJSON string, want map[string]bool) bool {
+	var products []string
+	if json.Unmarshal([]byte(productJSON), &products) != nil {
+		return false
+	}
+	return slices.ContainsFunc(products, func(product string) bool { return want[product] })
 }

@@ -1260,7 +1260,7 @@ class LawWritingSkillTests(unittest.TestCase):
 class MethodSkillTests(unittest.TestCase):
     """CD-0246 D1 and D3: portable method skills ship like any admitted skill."""
 
-    NAMES = ("concord-diagnosis", "concord-codebase-design", "concord-work-shaping", "concord-retrospective")
+    NAMES = ("concord-diagnosis", "concord-codebase-design", "concord-work-shaping", "concord-retrospective", "concord-instruction-writing")
     OPERATIONS = {"concord_domain.footprint", "concord_knowledge.search"}
 
     def content(self, name):
@@ -1281,6 +1281,16 @@ class MethodSkillTests(unittest.TestCase):
     def test_a_host_tool_in_a_method_skill_is_refused(self):
         content = self.content("concord-diagnosis") + "\nSearch with github_search_code first.\n"
         self.assertTrue(any("host tool" in finding for finding in self.findings("concord-diagnosis", content)))
+
+    def test_instruction_writing_description_names_each_instruction_surface(self):
+        description = self.content("concord-instruction-writing").split("description: ", 1)[1].split("\n", 1)[0]
+        for surface in ("agent instructions", "agent and role profiles", "shared instruction files", "skills", "AGENTS.md", "agent-definition manifests"):
+            with self.subTest(surface=surface):
+                self.assertIn(surface, description)
+
+    def test_law_writing_routes_to_the_general_method(self):
+        content = self.content("concord-law-writing")
+        self.assertIn("Load the shipped `concord-instruction-writing` skill", content)
 
     def test_every_skill_keeps_the_upstream_notice(self):
         with tempfile.TemporaryDirectory() as temporary:

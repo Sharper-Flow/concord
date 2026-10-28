@@ -426,6 +426,13 @@ class ReleaseTests(unittest.TestCase):
                 self.assertNotEqual(result.returncode, 0, f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}")
                 self.assertIn(f"omits files the installer requires: {omitted}", result.stderr)
 
+    def test_release_workflow_rejects_archive_missing_instruction_skill_or_its_license(self) -> None:
+        for omitted in ("skills/concord-instruction-writing/SKILL.md", "skills/concord-instruction-writing/LICENSE"):
+            with self.subTest(omitted=omitted):
+                result = self.run_archive_verification(omitted)
+                self.assertNotEqual(result.returncode, 0, f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}")
+                self.assertIn(f"omits files the installer requires: {omitted}", result.stderr)
+
     def test_release_workflow_verifies_the_archive_against_installer_requirements(self) -> None:
         for omitted in (
             "bin/concord",

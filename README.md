@@ -191,7 +191,7 @@ overhead:
 - **`concord-law-writing`**: Draft, amend, or prune Product specifications and
   decisions without altering obligations or approval boundaries.
 - **Engineering methods**: Portable skills for diagnosis, codebase design,
-  work shaping, and retrospectives.
+  work shaping, instruction writing, and retrospectives.
 - **Dependency selection by total cost**: Evaluates dependencies by total
   engineering cost rather than minimizing dependency counts, favoring
   established libraries over bespoke reinvention.

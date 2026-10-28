@@ -45,25 +45,16 @@ observable result. Make conjunctions, exceptions, refusal behavior and authority
 explicit where they change the outcome. Keep implementation recipes, evidence
 logs and delivery plans in their owning artifacts, not inside the obligation.
 
-Give each meaning one canonical home. Link an existing safety or approval rule
-instead of repeating it. Keep a definition beside its conditions and exceptions.
-Keep every requirement needed to decide this rule visible; disclose supporting
-reference only when its branch is needed. Use the Product's vocabulary rather
-than inventing another name for an existing concept.
+Load the shipped `concord-instruction-writing` skill for the general writing
+method: canonical ownership, pointers, organization and pruning. Use the Product's
+vocabulary for its obligations.
 
 ## Prune without changing meaning
 
-- Delete a sentence that changes no decision or behavior. Prefer deleting the
-  sentence to shortening each of its words. Retain rationale that explains a
-  non-obvious constraint; remove repetition and history already held by Git.
-- State the target behavior positively. Keep prohibitions that enforce a real
-  boundary, with the permitted next action when one exists.
-- Compare old and new actor, scope, trigger, required outcome, exception,
-  evidence, timing and authority. Test both an admitted case and a refused case
-  in review. A shorter rule that admits another case is a behavior change.
-- Classify each changed obligation as preserved, changed or retired in the work
-  record. Word count is not acceptance. Preserve current protections during an
-  editorial edit; route an intended change through the existing law-change path.
+Classify each changed obligation as preserved, changed or retired in the work
+record. A shorter rule that admits another case is a behavior change. Preserve
+current protections during an editorial edit; route an intended change through
+the existing law-change path.
 
 ## Authorize, verify and publish
 

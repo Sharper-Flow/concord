@@ -152,6 +152,11 @@ decision, work shaping to triage intake or split work into verifiable outcomes,
 Domain-shape stewardship to clarify an overloaded term, and retrospective for
 recurring friction. A method adds no step and grants no authority.
 
+Load `concord-law-writing` when drafting, amending or pruning Product law.
+Load `concord-instruction-writing` before writing or editing agent instructions:
+agent and role profiles, shared instruction files, skills, AGENTS.md, or
+agent-definition manifests. Edit their source and regenerate projections.
+
 A request that falls outside the contract is new work. Capture it, report the
 item it became, and return to the contract you hold. Do not fold it into the
 current contract or park it in prose.

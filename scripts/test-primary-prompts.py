@@ -71,6 +71,18 @@ class PrimaryPromptCheckTests(unittest.TestCase):
             check_primary_prompts.CONCORD_REQUIRED_PHRASES,
         )
 
+    def test_writing_routes_are_required_in_generated_profiles(self) -> None:
+        for name, skills in (
+            ("Concord.md", ("concord-law-writing", "concord-instruction-writing")),
+            ("Concord-RTE.md", ("concord-instruction-writing",)),
+        ):
+            for skill in skills:
+                with self.subTest(profile=name, skill=skill):
+                    path = ROOT / check_primary_prompts.PROFILE_DIR / name
+                    self.assertIn(skill, path.read_text(encoding="utf-8"))
+                    self.rewrite(name, lambda text: text.replace(skill, "missing-writing-method"))
+                    self.assertTrue(any(name in finding and skill in finding for finding in self.findings()))
+
     def test_missing_named_profile_reports(self) -> None:
         (self.root / check_primary_prompts.PROFILE_DIR / "Concord-RTE.md").unlink()
         findings = self.findings()

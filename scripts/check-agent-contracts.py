@@ -61,6 +61,9 @@ SKILL_REFERENCES = {
         "approval": ".concord/docs/decisions/CD-0243-four-roles-and-six-operator-approval-classes.md",
     },
     # Portable engineering methods (CD-0246 D1 and D3).
+    "concord-instruction-writing": {
+        "admission": ".concord/docs/decisions/CD-0246-concord-ships-portable-engineering-methods.md",
+    },
     "concord-diagnosis": {
         "admission": ".concord/docs/decisions/CD-0245-concord-ships-the-skill-that-operates-its-domain-shape.md",
         "intake": ".concord/docs/decisions/CD-0211-defect-intake-classifies-recurrence-before-fix.md",

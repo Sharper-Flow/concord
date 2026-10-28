@@ -18,6 +18,8 @@ the Product's existing authority and checks still own acceptance and publication
 
 ## Portable engineering methods
 
+- [Instruction writing](concord-instruction-writing/SKILL.md): write, edit, or
+  prune agent profiles, shared instructions, skills and definition manifests.
 - [Diagnosis](concord-diagnosis/SKILL.md): a defect or regression whose cause is
   not yet proven.
 - [Codebase design](concord-codebase-design/SKILL.md): an interface, seam, or
@@ -34,7 +36,7 @@ field, capability, or check, and it authorizes no source or live-state change.
 
 These skills adapt methods from
 [Matt Pocock's skills](https://github.com/mattpocock/skills/commit/5beb35b040e3de97e54fa9e386d7e42d15c295c2):
-writing-for-agents for law writing; diagnosing-bugs, codebase-design, triage,
+writing-for-agents for instruction writing and law writing; diagnosing-bugs, codebase-design, triage,
 to-tickets, and retro for the method skills; and domain-modeling for term
 clarification in Domain-shape stewardship. Each adapting skill keeps the
 upstream MIT notice in its `LICENSE` file.

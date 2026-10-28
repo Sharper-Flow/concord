@@ -723,12 +723,15 @@ def compatibility_crash_metadata(report: dict) -> dict:
     result = {"availability": "unavailable", "records": [], "record_limit": 256,
               "absence_is_not_proof": True, "evidence_kind": "diagnostic metadata only; never qualification"}
     try:
+        if not isinstance(report, dict):
+            raise ValueError("invalid diagnostic report")
         start, end = report["started_unix_seconds"], report["finished_unix_seconds"]
         if type(start) is not int or type(end) is not int or not 0 < start <= end <= start + 600:
             raise ValueError("invalid diagnostic time window")
         process = subprocess.run(
             ["/usr/bin/journalctl", "--no-pager", "--output=json", "--output-fields=" + ",".join(fields),
-             "--lines=256", f"--since=@{start}", f"--until=@{end + 1}"],
+             "--lines=256", f"--since=@{start}", f"--until=@{end + 1}",
+             "MESSAGE_ID=fc2e22bc6ee647b6b90729ab34a250b1"],
             stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=10,
             env={"PATH": "/usr/bin:/bin", "LANG": "C.UTF-8"})
         if process.returncode != 0 or process.stderr:
@@ -755,7 +758,7 @@ def upstream_compatibility(work: Path) -> None:
     report = {"evidence_kind": "upstream compatibility only; not native isolation",
               "coverage_limits": ["root skips unreadable-directory checks", "caller-readable /etc/shadow checks short-circuit",
                                   "root capability branch replaces non-root branch", "native optional seccomp/FUSE skips retained"],
-               "errors": [], "started_unix_seconds": int(time.time())}
+              "errors": [], "started_unix_seconds": int(time.time())}
     build = work / "build"
     env = {"HOME": str(work), "PATH": "/usr/bin:/bin", "LANG": "C.UTF-8", "NINJA": "/usr/bin/ninja",
            "BWRAP_MUST_WORK": "1", "PYTHONDONTWRITEBYTECODE": "1"}
@@ -839,7 +842,11 @@ def main() -> None:
     elif mode == "upstream-compatibility":
         upstream_compatibility(Path(args[0]))
     elif mode == "compatibility-crash-metadata":
-        print(json.dumps(compatibility_crash_metadata(json.loads(Path(args[0]).read_text())), indent=2))
+        try:
+            report = json.loads(Path(args[0]).read_text())
+        except (OSError, ValueError):
+            report = {}
+        print(json.dumps(compatibility_crash_metadata(report), indent=2))
     elif mode == "stage-parser":
         stage_parser(Path(args[0]), [Path(name) for name in args[1:]])
     elif mode == "parser-effect":

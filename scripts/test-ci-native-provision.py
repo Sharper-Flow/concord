@@ -970,6 +970,7 @@ print(json.dumps(args))
         for flag in ("--since=@100", "--until=@111", "--lines=256", "--no-pager", "--output=json"):
             self.assertIn(flag, argv)
         self.assertNotIn("sudo", argv)
+        self.assertIn("MESSAGE_ID=fc2e22bc6ee647b6b90729ab34a250b1", argv)
         self.assertEqual(run.call_args.kwargs["timeout"], 10)
         self.assertNotIn("COREDUMP_ENVIRON", " ".join(argv))
         with patch.object(os, "geteuid", return_value=0), patch.object(subprocess, "run") as run:
@@ -1004,6 +1005,24 @@ print(json.dumps(args))
                 self.assertNotIn("private", json.dumps(result))
         text = (ROOT / ".github/workflows/ci.yml").read_text()
         self.assertIn('python3 scripts/ci-native-provision.py compatibility-crash-metadata', text)
+
+    def test_crash_diagnostic_cli_retains_unavailable_for_missing_or_malformed_report(self):
+        for data in (FileNotFoundError("private path"), "", "not json", "[]", "null"):
+            output = io.StringIO()
+            with self.subTest(data=type(data).__name__), patch.object(os, "geteuid", return_value=1000), \
+                 patch.object(sys, "argv", ["helper", "compatibility-crash-metadata", "synthetic"]), \
+                 patch.object(Path, "read_text") as read, patch.object(subprocess, "run") as run, \
+                 contextlib.redirect_stdout(output):
+                if isinstance(data, Exception):
+                    read.side_effect = data
+                else:
+                    read.return_value = data
+                HELPER.main()
+                result = json.loads(output.getvalue())
+                self.assertEqual(result["availability"], "unavailable")
+                self.assertEqual(result["records"], [])
+                self.assertNotIn("private", output.getvalue())
+                run.assert_not_called()
 
     def test_runtime_fingerprints_include_loader_and_symlink_target(self):
         with patch.object(subprocess, "check_output", return_value="libcap.so.2 => /lib/libcap.so.2 (0x1)\n/lib/ld.so (0x2)\n"):

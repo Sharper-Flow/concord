@@ -1347,7 +1347,7 @@ EOC
 // latches the pushed commit once the pull request reaches it.
 func TestCiWaitPRExpectedHeadJudgesOnlyThePushedCommit(t *testing.T) {
 	// Keep fixture setup and gh process scheduling off the wait's clock while
-	// exercising the real deadline and persisted head latch across invocations.
+	// exercising the production deadline and persisted head latch across invocations.
 	synctest.Test(t, func(t *testing.T) {
 		const replaced = "79dfa01fdc5852f7bdbe9510c91dc75a1a4712f9"
 		const pushed = "6459f13778fcad4b42f771ac4988f55897f635f5"

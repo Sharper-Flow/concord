@@ -2587,15 +2587,10 @@ func deleteBranchPinned(ctx context.Context, runner GitRunner, removal *Worktree
 		// deleted it while another worktree held it checked out, leaving
 		// restoration debt. Only a complete inventory that observes no
 		// holder converges the debt (CD-0212 D4).
-		return classifyAbsentPinnedDeletion(ctx, runner, run)
+		return settlePinnedDeletionByCheckouts(ctx, runner, run, WorktreeRefStepObserveCheckouts, absentPinnedRefConverged)
 	}
-	if resolved.symbolic {
-		return retain(resolved.tip, "the ref became a symbolic ref; deleting through it would delete its target", WorktreeRefRefusalSymbolicRef,
-			newFailure(KindProjectionConflict, removal.Op, "branch "+deletion.Branch+" became a symbolic ref after its tip was pinned; the ref and its target were retained", false, "inspect the symbolic ref and delete it by hand if its content is disposable"))
-	}
-	if resolved.tip != deletion.ExpectedTip {
-		return retain(resolved.tip, "the ref moved from its pinned tip", WorktreeRefRefusalMovedTip,
-			newFailure(KindProjectionConflict, removal.Op, "branch "+deletion.Branch+" moved from its pinned tip; the ref was retained and not deleted", false, "inspect the branch and delete it by hand if its new content is disposable"))
+	if reason, refusal, err := pinnedRefChange(removal.Op, deletion, resolved); err != nil {
+		return retain(resolved.tip, reason, refusal, err)
 	}
 	// The default ownership is re-derived here, not trusted from the plan:
 	// the repository's default may have moved onto this branch after the
@@ -2649,15 +2644,10 @@ func deleteBranchPinned(ctx context.Context, runner GitRunner, removal *Worktree
 		if !after.exists {
 			// The ref vanished at the boundary; only a complete inventory
 			// that observes no holder may converge the debt.
-			return classifyAbsentPinnedDeletion(ctx, runner, run)
+			return settlePinnedDeletionByCheckouts(ctx, runner, run, WorktreeRefStepObserveCheckouts, absentPinnedRefConverged)
 		}
-		if after.symbolic {
-			return retain(after.tip, "the ref became a symbolic ref; deleting through it would delete its target", WorktreeRefRefusalSymbolicRef,
-				newFailure(KindProjectionConflict, removal.Op, "branch "+deletion.Branch+" became a symbolic ref after its tip was pinned; the ref and its target were retained", false, "inspect the symbolic ref and delete it by hand if its content is disposable"))
-		}
-		if after.tip != deletion.ExpectedTip {
-			return retain(after.tip, "the ref moved from its pinned tip", WorktreeRefRefusalMovedTip,
-				newFailure(KindProjectionConflict, removal.Op, "branch "+deletion.Branch+" moved from its pinned tip; the ref was retained and not deleted", false, "inspect the branch and delete it by hand if its new content is disposable"))
+		if reason, refusal, changeErr := pinnedRefChange(removal.Op, deletion, after); changeErr != nil {
+			return retain(after.tip, reason, refusal, changeErr)
 		}
 		return WorktreeNativeOutcome{}, wrapFailure(KindGitUnreachable, removal.Op, "cannot delete branch "+deletion.Branch+" at its pinned tip", true, "inspect the retained branch and retry the same cleanup operation", err)
 	}
@@ -2671,55 +2661,50 @@ func deleteBranchPinned(ctx context.Context, runner GitRunner, removal *Worktree
 	// observed once more on this side of the deletion, from the complete
 	// inventory: a worktree that gained the branch between the pre-check and
 	// the mutation would otherwise strand an unborn HEAD.
-	return settleDeletedBranchUnderCheckouts(ctx, runner, run)
+	return settlePinnedDeletionByCheckouts(ctx, runner, run, WorktreeRefStepObservePostDelete, "the pinned deletion ran at its pinned tip")
 }
 
-// classifyAbsentPinnedDeletion resolves an absent ref the recorded plan
-// pinned: verified absence — a complete inventory that observes no worktree
-// holding the branch — converges the debt, while a checkout that still names
-// the absent branch owes its restoration at the immutable pinned tip, and
-// that debt is persisted before the restore runs so the restore step starts
-// from its recorded predecessor. An observation that cannot run leaves
-// durable restoration debt; it never settles an absence it could not verify
-// (CD-0212 D4).
-func classifyAbsentPinnedDeletion(ctx context.Context, runner GitRunner, run *pinnedDeletionRun) (WorktreeNativeOutcome, error) {
+// pinnedRefChange names why an existing ref no longer matches its pinned
+// deletion — it became a symbolic ref, or it moved from its pinned tip — and
+// returns a nil error while the ref is still the direct ref at that tip.
+func pinnedRefChange(op string, deletion WorktreeBranchDeletion, ref branchRefResolution) (reason, refusal string, err error) {
+	if ref.symbolic {
+		return "the ref became a symbolic ref; deleting through it would delete its target", WorktreeRefRefusalSymbolicRef,
+			newFailure(KindProjectionConflict, op, "branch "+deletion.Branch+" became a symbolic ref after its tip was pinned; the ref and its target were retained", false, "inspect the symbolic ref and delete it by hand if its content is disposable")
+	}
+	if ref.tip != deletion.ExpectedTip {
+		return "the ref moved from its pinned tip", WorktreeRefRefusalMovedTip,
+			newFailure(KindProjectionConflict, op, "branch "+deletion.Branch+" moved from its pinned tip; the ref was retained and not deleted", false, "inspect the branch and delete it by hand if its new content is disposable")
+	}
+	return "", "", nil
+}
+
+// absentPinnedRefConverged is the settlement reason for a ref the pinned
+// deletion finds already absent.
+const absentPinnedRefConverged = "the ref no longer exists and no worktree holds it; the pinned deletion converged"
+
+// settlePinnedDeletionByCheckouts observes the complete worktree inventory
+// for a pinned ref that no longer exists, recording each phase under step
+// (CD-0212 D4). Verified absence — a complete inventory that observes no
+// worktree holding the branch — settles with settledReason. A checkout that
+// still names the absent branch owes its restoration at the immutable pinned
+// tip; that debt is persisted before the restore runs, so the restore step
+// starts from its recorded predecessor. An observation that cannot run
+// leaves durable restoration debt; it never settles an absence it could not
+// verify.
+func settlePinnedDeletionByCheckouts(ctx context.Context, runner GitRunner, run *pinnedDeletionRun, step, settledReason string) (WorktreeNativeOutcome, error) {
 	held, err := observeBranchCheckouts(ctx, runner, run.removal.RepoRoot, run.deletion.Branch, run.removal.Op)
 	if err != nil {
-		return run.restorationOwedRun(WorktreeRefStepObserveCheckouts, "cannot inspect worktree checkouts after the pinned deletion; the restoration at the pinned tip is still owed"), err
+		return run.restorationOwedRun(step, "cannot inspect worktree checkouts after the pinned deletion; the restoration at the pinned tip is still owed"), err
 	}
 	if held {
-		// The restoration debt is persisted before the restore runs.
-		if recordErr := run.recordPhase(WorktreeRefStepObserveCheckouts, WorktreeRefPhaseRestorationOwed, run.deletion.ExpectedTip, "a worktree holds the deleted branch checked out; the restoration at the pinned tip is owed"); recordErr != nil {
+		if recordErr := run.recordPhase(step, WorktreeRefPhaseRestorationOwed, run.deletion.ExpectedTip, "a worktree holds the deleted branch checked out; the restoration at the pinned tip is owed"); recordErr != nil {
 			return WorktreeNativeOutcome{}, recordErr
 		}
 		return restoreDeletedBranchAtPinnedTip(ctx, runner, run)
 	}
-	outcome := WorktreeNativeOutcome{Branch: run.deletion.Branch, Tip: run.deletion.ExpectedTip, Phase: WorktreeRefPhaseSettled, Reason: "the ref no longer exists and no worktree holds it; the pinned deletion converged"}
-	if recordErr := run.recordPhase(WorktreeRefStepObserveCheckouts, WorktreeRefPhaseSettled, run.deletion.ExpectedTip, outcome.Reason); recordErr != nil {
-		return WorktreeNativeOutcome{}, recordErr
-	}
-	return outcome, nil
-}
-
-// settleDeletedBranchUnderCheckouts observes the complete worktree inventory
-// after a successful pinned deletion. No holder settles the deletion; a
-// holder owes the restoration at the pinned tip and, once restored, leaves
-// the ref retained; an unobservable inventory leaves durable restoration
-// debt.
-func settleDeletedBranchUnderCheckouts(ctx context.Context, runner GitRunner, run *pinnedDeletionRun) (WorktreeNativeOutcome, error) {
-	held, err := observeBranchCheckouts(ctx, runner, run.removal.RepoRoot, run.deletion.Branch, run.removal.Op)
-	if err != nil {
-		return run.restorationOwedRun(WorktreeRefStepObservePostDelete, "cannot inspect worktree checkouts after the pinned deletion; the restoration at the pinned tip is still owed"), err
-	}
-	if held {
-		// The restoration debt is persisted before the restore runs.
-		if recordErr := run.recordPhase(WorktreeRefStepObservePostDelete, WorktreeRefPhaseRestorationOwed, run.deletion.ExpectedTip, "a worktree holds the deleted branch checked out; the restoration at the pinned tip is owed"); recordErr != nil {
-			return WorktreeNativeOutcome{}, recordErr
-		}
-		return restoreDeletedBranchAtPinnedTip(ctx, runner, run)
-	}
-	outcome := WorktreeNativeOutcome{Branch: run.deletion.Branch, Tip: run.deletion.ExpectedTip, Phase: WorktreeRefPhaseSettled, Reason: "the pinned deletion ran at its pinned tip"}
-	if recordErr := run.recordPhase(WorktreeRefStepObservePostDelete, WorktreeRefPhaseSettled, run.deletion.ExpectedTip, outcome.Reason); recordErr != nil {
+	outcome := WorktreeNativeOutcome{Branch: run.deletion.Branch, Tip: run.deletion.ExpectedTip, Phase: WorktreeRefPhaseSettled, Reason: settledReason}
+	if recordErr := run.recordPhase(step, WorktreeRefPhaseSettled, run.deletion.ExpectedTip, outcome.Reason); recordErr != nil {
 		return WorktreeNativeOutcome{}, recordErr
 	}
 	return outcome, nil

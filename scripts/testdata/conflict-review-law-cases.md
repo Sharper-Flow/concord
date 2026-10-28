@@ -79,12 +79,34 @@ The agent cites the resolving anchor as permission to remove the codec.
 
 ## one-candidate-retirement
 
-One proposed candidate contains a law retirement and the corresponding codec
-removal. Its description says that listing the law edit first proves P2's
-required ordering. There is no retained evidence that the law disposition was
-enacted before removal, nor a governing interpretation of this same-candidate
-situation. The candidate has not executed any irreversible operation. Its
-author asks review to accept the order based only on the description.
+One candidate retires the law that requires an obsolete codec, through the
+existing law route with its reason and applicable authority recorded, and in
+the same candidate removes that codec and its tests. No other current law
+requires the codec. Review reads the candidate's law and source changes
+together, traces each removal to the retirement, and verifies the surviving
+behavior. The candidate merges as one change.
+
+## removal-ahead-of-law
+
+One candidate removes a codec and its tests. The accepted law that requires the
+codec is unchanged in that candidate. A separate open candidate proposes the
+law's retirement and has not merged. The author asks review to accept the
+removal because both candidates are expected to merge on the same day.
+
+## partial-retirement
+
+One candidate removes a codec and its tests and edits the governing law in the
+same change. The edited law renames the requirement and moves it to another
+section, but still requires the codec behavior. The author cites the law edit
+as the retirement that permits the removal.
+
+## unverified-earlier-retirement
+
+One candidate removes a codec and its tests and changes no law. Its description
+says an earlier change retired the requirement for the codec. The supplied
+material contains no retirement record, merged law revision or current law text
+that shows whether any law still requires the codec. The author asks review to
+accept the removal based only on the description.
 
 ## existing-check
 

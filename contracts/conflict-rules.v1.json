@@ -1,9 +1,9 @@
 {
   "schema_version": "1.1",
-  "catalog_generation": 13,
+  "catalog_generation": 14,
   "source": {
     "path": ".concord/docs/goals.md",
-    "sha256": "sha256:adf0c40f264dbcd2bc3c4d5f9184a0b82656b58b5cbf15bac36799b46541ad67"
+    "sha256": "sha256:0d0ad1c84035706373dc1fdf26066a5e8e542f91b84684efe7618a8fffef57d9"
   },
   "rules": [
     {
@@ -95,8 +95,13 @@
         "agent",
         "operator"
       ],
-      "state": "outstanding",
-      "issue": "CON-1097"
+      "state": "satisfied",
+      "mechanism": "recorded_review",
+      "evidence": [
+        {"kind": "go_test", "value": "internal/store.TestReviewCompletionRetainsAppliedRuleContextClaims"},
+        {"kind": "go_test", "value": "internal/store.TestDispatchRefusesStaleWorkContextPacket"},
+        {"kind": "go_test", "value": "internal/store.TestDispatchRefusesTamperedWorkContextPacket"}
+      ]
     },
     {
       "id": "P3",

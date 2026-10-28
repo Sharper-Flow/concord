@@ -8,6 +8,31 @@ import { defaultRunner } from "./dispatch"
 import { reviewSubjectFailure } from "./worker_subject"
 import { DispatchWindows, serializeLanePacket } from "./dispatch-window"
 import type { AgentLanePacket, DispatchRunner } from "./dispatch"
+import { HostControlPlane } from "./move-session"
+
+test("running-host qualification uses the bound health route and fails closed", async () => {
+  const host = new HostControlPlane()
+  expect(await host.runningVersion()).toBeNull()
+  const cases: Array<[unknown, string | null]> = [[null, null], [[], null], ["1.18.35", null], [{}, null], [{ version: "" }, null], [{ version: 11835 }, null], [{ version: "1.18.35" }, "1.18.35"]]
+  for (const [data, expected] of cases) {
+    host.bind({
+      get: async request => {
+        expect(request.url).toBe("/global/health")
+        expect(request.signal).toBeInstanceOf(AbortSignal)
+        return { data, response: new Response(null, { status: 200 }) }
+      },
+      post: async () => { throw new Error("health must not write") },
+    })
+    expect(await host.runningVersion()).toBe(expected)
+  }
+  for (const unreachable of [false, true]) {
+    host.bind({ get: async () => {
+      if (unreachable) throw new Error("host unavailable")
+      return { data: { version: "1.18.35" }, response: new Response(null, { status: 503 }) }
+    }, post: async () => { throw new Error("health must not write") } })
+    expect(await host.runningVersion()).toBeNull()
+  }
+})
 
 async function fixture(laneID = "verify", subject?: string, subjectRunner?: DispatchRunner, directory = process.cwd(), readOnly = false) {
   const lane = agentLanes.find((entry) => entry.id === laneID)!
@@ -20,7 +45,7 @@ async function fixture(laneID = "verify", subject?: string, subjectRunner?: Disp
   const windows = new DispatchWindows()
   windows.open("parent", packet, "sha256:" + "a".repeat(64), directory)
   await windows.bind("task", "parent", { subagent_type: `concord-${laneID}`, prompt: "capability-attempt", description: "bounded worker" }, "task-call", async () => directory, directory)
-  const state = { agent: `concord-${laneID}`, openingAgent: `concord-${laneID}`, openingRole: "user", openingSession: undefined as string | undefined, parentScope: "managed" as "managed" | "unmanaged" | null, opening: serializeLanePacket(packet), extraPart: false, readerUnavailable: false, paginate: false, messageReads: 0, nestedParent: false, failedReads: new Set<string>(), failedAncestry: new Set<string>() }
+  const state = { agent: `concord-${laneID}`, openingAgent: `concord-${laneID}`, openingRole: "user", openingSession: undefined as string | undefined, parentScope: "managed" as "managed" | "unmanaged" | null, opening: serializeLanePacket(packet), extraPart: false, readerUnavailable: false, paginate: false, messageReads: 0, nestedParent: false, failedReads: new Set<string>(), failedAncestry: new Set<string>(), hostVersion: "1.18.35" as string | null }
   const placement = { directory }
   const reader = {
     get: async (id: string) => {
@@ -37,6 +62,7 @@ async function fixture(laneID = "verify", subject?: string, subjectRunner?: Disp
     },
   }
   const guard = createWorkerCapabilityGuard({ windows, subjectRunner, sessions: {
+    runningVersion: async () => state.hostVersion,
     sessionReader: () => state.readerUnavailable ? null : reader,
     taskScope: async () => state.parentScope,
     hasManagedParent: async (id: string) => {
@@ -44,7 +70,7 @@ async function fixture(laneID = "verify", subject?: string, subjectRunner?: Disp
       return id === "parent" ? state.nestedParent : id !== "root"
     },
   } })
-  const before = (tool: string, args: Record<string, unknown> = {}, sessionID = "child") => guard.before({ tool, sessionID }, { args })
+  const before = (tool: string, args: Record<string, unknown> = {}, sessionID = "child", callID = "call-native") => guard.before({ tool, sessionID, callID }, { args })
   const isNativeChild = (sessionID: string) => guard.isNativeChildOf(sessionID, "parent")
   return { state, windows, guard, before, isNativeChild, placement }
 }
@@ -69,16 +95,79 @@ test("authoring and execution grants follow capabilities without expanding them"
   expect(toolAllowedByCapabilities(["search_public_sources"], "exa_web_fetch_exa")).toBe(true)
 })
 
-test("the authenticated worker guard refuses opaque Code Mode and direct mutation keys", async () => {
+test("the authenticated worker guard refuses direct mutation keys", async () => {
   const f = await fixture()
-  for (const tool of ["execute", "bash", "apply_patch", "morph_edit", "vision_vision_remove", "linear_update_issue"]) {
+  for (const tool of ["bash", "apply_patch", "morph_edit", "vision_vision_remove", "linear_update_issue"]) {
     await expect(f.before(tool)).rejects.toThrow("does not grant")
   }
   await f.before("read")
 })
 
-test("no lane grants opaque Code Mode execution without nested host-path proof", () => {
-  for (const lane of agentLanes) expect(toolAllowedByCapabilities(lane.capabilities, "execute")).toBe(false)
+test("Code Mode grants only its existing leaf capabilities on a qualified host", async () => {
+  for (const lane of agentLanes) {
+    const f = await fixture(lane.id)
+    await f.before("execute", { code: "return tools.lgrep.search_text({path: 'ignored'})" })
+    await f.before("lgrep_search_text", { path: process.cwd() })
+    await expect(f.before("lgrep_search_text", { path: "/tmp" })).rejects.toThrow("dispatched repository")
+    for (const tool of ["linear_update_issue", "vision_vision_remove", "lgrep_invalidate_cache", "unknown_server_read"]) {
+      await expect(f.before(tool)).rejects.toThrow("does not grant")
+    }
+    const publicAccess = (lane.capabilities as readonly string[]).includes("search_public_sources")
+    for (const tool of ["exa_web_search_exa", "context7_query-docs"]) {
+      if (publicAccess) await f.before(tool)
+      else await expect(f.before(tool)).rejects.toThrow("does not grant")
+    }
+    f.windows.takeInFlight("parent")
+    await expect(f.before("lgrep_search_text", { path: process.cwd() })).rejects.toThrow("active authorized attempt")
+  }
+  expect(toolAllowedByCapabilities([], "execute")).toBe(false)
+  expect(toolAllowedByCapabilities(["run_tests"], "execute")).toBe(false)
+})
+
+test("Code Mode refuses unknown and unqualified running hosts without blocking direct tools", async () => {
+  for (const version of [null, "", "1.18.34", "1.18.36", "2.0.0"]) {
+    const f = await fixture()
+    f.state.hostVersion = version
+    await expect(f.before("execute", { code: "return 1" })).rejects.toThrow("qualified running host")
+    await f.before("read")
+    await f.before("lgrep_search_text", { path: process.cwd() })
+  }
+})
+
+test("nested MCP names cannot impersonate plugin or native tools", async () => {
+  for (const lane of agentLanes) {
+    const f = await fixture(lane.id)
+    await f.before("execute", {}, "child", "outer")
+    for (const tool of ["concord_worker_read", "concord_worker_check", "concord_worker_diff", "concord_knowledge", "apply_patch", "morph_edit", "execute"]) {
+      await expect(f.before(tool, {}, "child", "outer/1")).rejects.toThrow("does not grant MCP tool")
+    }
+    await f.before("lgrep_search_text", { path: process.cwd() }, "child", "outer/2")
+    await expect(f.before("lgrep_search_text", { path: "/tmp" }, "child", "outer/3")).rejects.toThrow("dispatched repository")
+    await f.before("concord_worker_read", {}, "child", "a/b/1")
+    expect(f.guard.isNestedMcp({ sessionID: "other", callID: "outer/1" })).toBe(false)
+    f.guard.after({ tool: "execute", sessionID: "child", callID: "outer" })
+    expect(f.guard.isNestedMcp({ sessionID: "child", callID: "outer/1" })).toBe(false)
+    await f.before("concord_worker_read", {}, "child", "outer/1")
+  }
+})
+
+test("admitted native identities survive session errors and clear at settlement", async () => {
+  const unknown = await fixture()
+  unknown.state.hostVersion = null
+  await expect(unknown.before("execute", {}, "child", "unqualified")).rejects.toThrow("qualified running host")
+  expect(unknown.guard.isNestedMcp({ sessionID: "child", callID: "unqualified/1" })).toBe(false)
+  for (const type of ["session.idle", "session.error", "session.deleted"]) {
+    const f = await fixture()
+    await expect(f.guard.before({ tool: "execute", sessionID: "child" }, { args: {} })).rejects.toThrow("native host call identity")
+    await f.before("execute", {}, "child", "outer")
+    f.guard.event({ type, properties: type === "session.deleted" ? { info: { id: "child" } } : { sessionID: "child" } })
+    expect(f.guard.isNestedMcp({ sessionID: "child", callID: "outer/1" })).toBe(type === "session.error")
+    if (type === "session.error") {
+      await expect(f.before("concord_worker_read", {}, "child", "outer/1")).rejects.toThrow("does not grant MCP tool")
+      f.guard.after({ tool: "execute", sessionID: "child", callID: "outer" })
+      expect(f.guard.isNestedMcp({ sessionID: "child", callID: "outer/1" })).toBe(false)
+    }
+  }
 })
 
 test("local MCP reads and cache preparation stay in the dispatched repository", async () => {

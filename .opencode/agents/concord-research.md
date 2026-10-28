@@ -4,7 +4,6 @@ mode: subagent
 hidden: true
 tools:
   task: false
-  execute: false
   bash: false
   edit: false
   write: false

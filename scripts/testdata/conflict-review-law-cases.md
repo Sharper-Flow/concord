@@ -130,6 +130,15 @@ source establishes that a law is registered under an existing Domain that does
 not own the behavior. The agent calls that validator adequate solely because it
 passes. No semantic ownership review or other means addresses that violation.
 
+## unbound-check-claim
+
+The changed law has the same closed-enumeration obligation as `existing-check`.
+The change names that existing check as its means of upholding the law. The
+supplied material contains no consumer trace and no evidence that the check
+derives the changed enumeration or runs in required verification. The only
+attached result passed on an earlier candidate. No new runtime mechanism is
+proposed.
+
 ## letter-conflict-raised
 
 The source law requires a source record to name its owning Domain; its stated

@@ -8062,6 +8062,24 @@ CREATE TRIGGER workflow_law_baselines_completed BEFORE UPDATE ON workflow_law_ba
 CREATE TRIGGER workflow_law_baselines_guard_delete BEFORE DELETE ON workflow_law_baselines BEGIN SELECT RAISE(ABORT, 'workflow_law_baselines is write-seam-only') WHERE NOT EXISTS (SELECT 1 FROM write_guard WHERE active=1); END;
 `,
 	},
+	{
+		Version:        162,
+		Name:           "work_conflict_applications",
+		Breaking:       true,
+		FoldMaintained: "advance",
+		SQL: `
+CREATE TABLE work_conflict_applications (
+    event_id TEXT PRIMARY KEY REFERENCES effect_receipts(event_id) ON DELETE RESTRICT,
+    work_id TEXT NOT NULL REFERENCES work_items(id) ON DELETE RESTRICT,
+    record_version INTEGER NOT NULL CHECK(record_version > 0),
+    payload TEXT NOT NULL CHECK(json_valid(payload) AND json_type(payload)='object')
+);
+CREATE INDEX work_conflict_applications_work ON work_conflict_applications(work_id,event_id);
+CREATE TRIGGER work_conflict_applications_guard_insert BEFORE INSERT ON work_conflict_applications BEGIN SELECT RAISE(ABORT, 'work_conflict_applications is write-seam-only') WHERE NOT EXISTS (SELECT 1 FROM write_guard WHERE active=1); END;
+CREATE TRIGGER work_conflict_applications_guard_update BEFORE UPDATE ON work_conflict_applications BEGIN SELECT RAISE(ABORT, 'work_conflict_applications is write-seam-only') WHERE NOT EXISTS (SELECT 1 FROM write_guard WHERE active=1); END;
+CREATE TRIGGER work_conflict_applications_guard_delete BEFORE DELETE ON work_conflict_applications BEGIN SELECT RAISE(ABORT, 'work_conflict_applications is write-seam-only') WHERE NOT EXISTS (SELECT 1 FROM write_guard WHERE active=1); END;
+`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any

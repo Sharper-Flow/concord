@@ -10,31 +10,32 @@ import (
 // HistoryEntry describes a retained current row, not a replayable mutation.
 // Version belongs to VersionWorkID at the effect that wrote this row.
 type HistoryEntry struct {
-	EntryID             string          `json:"entry_id"`
-	EntryKind           string          `json:"entry_kind"`
-	Position            HistoryPosition `json:"position"`
-	Version             int64           `json:"version"`
-	VersionWorkID       string          `json:"version_work_id"`
-	Actor               string          `json:"actor,omitempty"`
-	Reason              string          `json:"reason,omitempty"`
-	EvidenceRefs        []string        `json:"evidence_refs"`
-	Lifecycle           string          `json:"lifecycle,omitempty"`
-	From                *string         `json:"from,omitempty"`
-	WorkIDFrom          string          `json:"work_id_from,omitempty"`
-	WorkIDTo            string          `json:"work_id_to,omitempty"`
-	RelationKind        string          `json:"relation_kind,omitempty"`
-	CreatedAt           string          `json:"created_at,omitempty"`
-	ResolutionID        string          `json:"resolution_id,omitempty"`
-	ActionID            string          `json:"action_id,omitempty"`
-	StepID              string          `json:"step_id,omitempty"`
-	ContractVersion     int64           `json:"contract_version,omitempty"`
-	BindingID           string          `json:"binding_id,omitempty"`
-	EvidenceKind        string          `json:"evidence_kind,omitempty"`
-	ImmutableSubjectRef string          `json:"immutable_subject_ref,omitempty"`
-	ProducerID          string          `json:"producer_id,omitempty"`
-	ProducerRunRef      string          `json:"producer_run_ref,omitempty"`
-	ProducerWatermark   string          `json:"producer_watermark,omitempty"`
-	ObservedAt          string          `json:"observed_at,omitempty"`
+	EntryID             string               `json:"entry_id"`
+	EntryKind           string               `json:"entry_kind"`
+	Position            HistoryPosition      `json:"position"`
+	Version             int64                `json:"version"`
+	VersionWorkID       string               `json:"version_work_id"`
+	Actor               string               `json:"actor,omitempty"`
+	Reason              string               `json:"reason,omitempty"`
+	EvidenceRefs        []string             `json:"evidence_refs"`
+	Lifecycle           string               `json:"lifecycle,omitempty"`
+	From                *string              `json:"from,omitempty"`
+	WorkIDFrom          string               `json:"work_id_from,omitempty"`
+	WorkIDTo            string               `json:"work_id_to,omitempty"`
+	RelationKind        string               `json:"relation_kind,omitempty"`
+	CreatedAt           string               `json:"created_at,omitempty"`
+	ResolutionID        string               `json:"resolution_id,omitempty"`
+	ActionID            string               `json:"action_id,omitempty"`
+	StepID              string               `json:"step_id,omitempty"`
+	ContractVersion     int64                `json:"contract_version,omitempty"`
+	BindingID           string               `json:"binding_id,omitempty"`
+	EvidenceKind        string               `json:"evidence_kind,omitempty"`
+	ImmutableSubjectRef string               `json:"immutable_subject_ref,omitempty"`
+	ProducerID          string               `json:"producer_id,omitempty"`
+	ProducerRunRef      string               `json:"producer_run_ref,omitempty"`
+	ProducerWatermark   string               `json:"producer_watermark,omitempty"`
+	ObservedAt          string               `json:"observed_at,omitempty"`
+	ConflictApplication *ConflictApplication `json:"conflict_application,omitempty"`
 }
 
 type HistoryPosition struct {
@@ -42,7 +43,7 @@ type HistoryPosition struct {
 	Basis     string `json:"basis"`
 }
 
-var q7RecordKinds = []string{"evidence_binding", "lifecycle", "phase_exit", "relation"}
+var q7RecordKinds = []string{"conflict_application", "evidence_binding", "lifecycle", "phase_exit", "relation"}
 
 type currentQ7Cursor struct {
 	Version         int      `json:"version"`
@@ -170,7 +171,7 @@ func currentQ7Kinds(requested []string) ([]string, error) {
 	kinds = slices.Compact(kinds)
 	for _, kind := range kinds {
 		if !slices.Contains(q7RecordKinds, kind) {
-			return nil, newFailure(KindInvalidFilter, "PM1.Q7", "record kind is not recognized", false, "choose lifecycle, relation, phase_exit, or evidence_binding")
+			return nil, newFailure(KindInvalidFilter, "PM1.Q7", "record kind is not recognized", false, "choose lifecycle, relation, phase_exit, evidence_binding, or conflict_application")
 		}
 	}
 	return kinds, nil
@@ -186,6 +187,8 @@ func q7EntryHasCurrentFields(entry HistoryEntry) bool {
 		return entry.ActionID != "" && entry.StepID != ""
 	case "evidence_binding":
 		return entry.BindingID != "" && entry.EvidenceKind != "" && entry.ImmutableSubjectRef != "" && entry.ProducerID != "" && entry.ProducerRunRef != "" && entry.ProducerWatermark != "" && entry.ObservedAt != ""
+	case "conflict_application":
+		return entry.ConflictApplication != nil && entry.Actor != "" && validateWorkConflictAppliedPayload(Event{}, *entry.ConflictApplication) == nil
 	default:
 		return false
 	}
@@ -212,4 +215,9 @@ const currentQ7EntriesSQL = `WITH selected_work AS (SELECT * FROM work_items WHE
  'producer_run_ref',json_extract(b.payload,'$.producer_run_ref'),'producer_watermark',json_extract(b.payload,'$.producer_watermark'),
  'observed_at',json_extract(b.payload,'$.observed_at'))
  FROM workflow_evidence_bindings b JOIN selected_work w ON w.id=b.work_id
+ UNION ALL
+ SELECT 'conflict_application:'||c.event_id,'conflict_application',r.effect_seq,c.record_version,c.work_id,r.actor,'','[]',
+ json_object('conflict_application',json(c.payload))
+ FROM work_conflict_applications c JOIN selected_work w ON w.id=c.work_id
+ JOIN effect_receipts r ON r.event_id=c.event_id
 )`

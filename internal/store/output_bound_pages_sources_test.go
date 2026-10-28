@@ -1221,8 +1221,10 @@ func init() {
 	))
 	registerOutputBound("/$defs/session_vacate_result/properties/work_pins/maxItems", pkEffectReturnsEmptySliceItemsBound("internal/agent/mutations.go", "planSessionVacate", "applySessionVacateTx"))
 
-	// CD-0242 D2 retires the event trace and frozen conflict payload. Current
-	// transition refs and proof observations keep their producer's actual bounds.
+	// Current transition refs and proof observations keep their producer's bounds.
+	// Settlement text comes only from the live recorder's validated payload.
+	registerOutputBound("/$defs/work_event_page/properties/entries/items/properties/conflict_application/properties/outcome/maxLength", goInlineBound("internal/store/conflict_application.go", "RecordConflictApplicationTx", "len(request.Outcome)", boundBytes))
+	registerOutputBound("/$defs/work_event_page/properties/entries/items/properties/conflict_application/properties/settlement_ref/maxLength", goInlineBound("internal/store/conflict_application.go", "RecordConflictApplicationTx", "len(request.SettlementRef)", boundBytes))
 	registerOutputBound("/$defs/work_event_page/properties/entries/items/properties/evidence_refs/maxItems", unboundedOutput("internal/store/lifecycle.go:updateWorkLifecycle preserves transition evidence_refs without a count guard", "internal/agent/runtime.go:readSizeRefusal"))
 	registerOutputBound("/$defs/work_event_page/properties/entries/items/properties/entry_id/maxLength", unboundedOutput("internal/store/q7_current.go:currentQ7EntriesSQL composes current row identities without a global length guard", "internal/agent/runtime.go:readSizeRefusal"))
 	registerOutputBound("/$defs/work_event_page/properties/entries/items/properties/observed_at/maxLength", unboundedOutput("internal/store/workflow.go:foldWorkflowEvidenceBound requires nonempty observed_at but imposes no length guard", "internal/agent/runtime.go:readSizeRefusal"))

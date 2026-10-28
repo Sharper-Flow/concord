@@ -2420,7 +2420,7 @@ func (r runtime) planObservationRecord(_ context.Context, base Envelope, raw []b
 		// The settlement reference comes from the authenticated principal and
 		// idempotency key, never an asserted actor; the recorder derives the
 		// event identity and returns the one recorded ID.
-		plan.intents = []NextIntent{{Tool: "concord_work_trace", Operation: "continuity", QueryID: "C19.Continuity", ReasonCode: "verify_settlement_recorded", RequiredFields: []string{"work_id"}}}
+		plan.intents = []NextIntent{{Tool: "concord_work_trace", Operation: "history", QueryID: "PM1.Q7", ReasonCode: "verify_settlement_recorded", RequiredFields: []string{"work_id"}}}
 		plan.effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
 			id, err := store.RecordConflictApplicationTx(ctx, tx, store.ConflictApplicationRequest{WorkID: in.WorkID, Actor: grant.PrincipalRef, OccurredAt: r.Authority.now(), RuleID: in.Conflict.RuleID, Outcome: in.Conflict.Outcome, SettlementRef: conflictSettlementRef(grant.PrincipalRef, r.Tool, r.Operation, idempotencyKey(raw))})
 			if err != nil {

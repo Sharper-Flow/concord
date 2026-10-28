@@ -17,12 +17,15 @@ import (
 // WorkConflictApplied records a settlement identity and payload digest after
 // validating the applied rule, effective size, and outcome. It grants no
 // approval, law authority, verification result, or permission to execute a
-// blocked action, and never advances the work version or writes a projection.
+// blocked action, and never advances the work version. Only the live recorder
+// retains the validated payload as current per-work evidence.
 const WorkConflictApplied = "work.conflict_applied"
 
 // ConflictApplication is one recorded conflict-rule application. The JSON
 // names are the closed v1 payload shape; the recorded copy of the size is
-// historical evidence, never a second current-size owner.
+// historical evidence, never a second current-size owner. The operator's D3
+// spot check reads live-recorder evidence through Q7. Its catalog and assessment
+// identify applicability; terminal cleanup removes it with the work record.
 type ConflictApplication struct {
 	RuleID                 string   `json:"rule_id"`
 	RuleSourceHash         string   `json:"rule_source_hash"`
@@ -156,8 +159,8 @@ func conflictApplicationEventID(request ConflictApplicationRequest, sequence int
 // RecordConflictApplicationTx records one conflict-rule application inside the
 // caller's transaction. It refuses an unsized work item without any effects,
 // validates the rule against the current generated table, binds the live source
-// hash and catalog generation into the payload digest, and applies the effect
-// through its registered writer.
+// hash and catalog generation into current evidence and its payload digest,
+// and applies the effect through its registered writer.
 //
 // Event identity is settlement identity, derived from the settlement inputs
 // and the stored assessment sequence: an exact retry carrying the same
@@ -245,6 +248,13 @@ func RecordConflictApplicationTx(ctx context.Context, transaction *Transaction, 
 	event.Seq = seq
 	if err := applyEffect(ctx, tx, event, scope); err != nil {
 		return "", err
+	}
+	// Keep this write at the live recorder, not the generic fold. Generic
+	// append validates the frozen payload but cannot attest its source catalog.
+	// A duplicate receipt returns above without reconstructing missing evidence.
+	if _, err := tx.ExecContext(ctx, `INSERT INTO work_conflict_applications(event_id,work_id,record_version,payload)
+		SELECT ?,id,version,? FROM work_items WHERE id=?`, eventID, string(encoded), request.WorkID); err != nil {
+		return "", wrapFailure(KindUnavailable, op, "cannot retain the conflict application", true, "retry the settlement transaction", err)
 	}
 	if err := advanceWorkEffectSeqTx(ctx, tx, event); err != nil {
 		return "", err

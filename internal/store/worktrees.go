@@ -819,7 +819,7 @@ func claimWorktreeStoreTx(ctx context.Context, tx *sql.Tx, req WorktreeClaimRequ
 		return out, newFailure(KindUnauthorized, "worktree_claim", "member binding changed after native preparation", false, "refresh the recorded assignment before claiming")
 	}
 	derivedBranch, derivedPath := location.Branch, location.Path
-	if err := validateWorktreeProjectMembershipTx(ctx, tx, req.WorkID, req.ProjectID, "worktree_claim"); err != nil {
+	if err := worktreeProjectMember(ctx, tx, req.WorkID, req.ProjectID, "worktree_claim"); err != nil {
 		return out, err
 	}
 	if err := refuseWhenSessionOccupiesAnotherWorktreeTx(ctx, tx, req.SessionRef, WorktreeSetID(req.WorkID)); err != nil {
@@ -1542,7 +1542,13 @@ type WorktreeDestroyRequest struct {
 // probes with PrepareWorktreeReclaim before its transaction opens and runs
 // the returned removal after its commit.
 func DestroyWorktreeTx(ctx context.Context, transaction *Transaction, req WorktreeReclaimRequest, probe WorktreeReclaimProbe) (WorktreeReclaimResult, error) {
-	tx, err := transactionSQL(transaction, "worktree_destroy")
+	return reclaimWorktreeOnTransaction(ctx, transaction, "worktree_destroy", req, probe)
+}
+
+// reclaimWorktreeOnTransaction runs the reclaim store phase on the caller's
+// transaction; op names the verb in a transaction failure.
+func reclaimWorktreeOnTransaction(ctx context.Context, transaction *Transaction, op string, req WorktreeReclaimRequest, probe WorktreeReclaimProbe) (WorktreeReclaimResult, error) {
+	tx, err := transactionSQL(transaction, op)
 	if err != nil {
 		return WorktreeReclaimResult{}, err
 	}
@@ -1758,15 +1764,7 @@ func settledRefOutcomeEventID(base, fromPhase, toPhase string, sequence int, inc
 // probes with PrepareWorktreeReclaim before its transaction opens and runs
 // the returned removal after its commit.
 func ReclaimWorktreeTx(ctx context.Context, transaction *Transaction, req WorktreeReclaimRequest, probe WorktreeReclaimProbe) (WorktreeReclaimResult, error) {
-	tx, err := transactionSQL(transaction, "worktree_reclaim")
-	if err != nil {
-		return WorktreeReclaimResult{}, err
-	}
-	if req.Now.IsZero() {
-		req.Now = transaction.now()
-	}
-	entry, removal, err := reclaimWorktreeStoreTx(ctx, tx, req, probe)
-	return WorktreeReclaimResult{Entry: entry, Removal: removal}, err
+	return reclaimWorktreeOnTransaction(ctx, transaction, "worktree_reclaim", req, probe)
 }
 
 // PrepareWorktreeReclaim derives the reclaim's git facts with no transaction
@@ -3033,7 +3031,7 @@ func reclaimWorktreeStoreTx(ctx context.Context, tx *sql.Tx, req WorktreeReclaim
 	if err := validateWorktreeReclaimIdentity(req); err != nil {
 		return out, nil, err
 	}
-	if err := validateWorktreeProjectMembershipTx(ctx, tx, req.WorkID, req.ProjectID, "worktree_reclaim"); err != nil {
+	if err := worktreeProjectMember(ctx, tx, req.WorkID, req.ProjectID, "worktree_reclaim"); err != nil {
 		return out, nil, err
 	}
 	op := reclaimOperation(req)
@@ -3189,23 +3187,12 @@ func validateWorktreeReclaimIdentity(req WorktreeReclaimRequest) error {
 	return nil
 }
 
-// worktreeProjectMember is the plain-read membership check the
-// pre-transaction probe runs; the transaction re-validates through its own
-// handle.
+// worktreeProjectMember refuses a Project the work item does not hold. The
+// pre-transaction probe runs it on a plain read; the claim and reclaim
+// transactions re-validate through their own handle.
 func worktreeProjectMember(ctx context.Context, q queryer, workID, projectID, operation string) error {
 	var member bool
 	if err := q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM work_projects WHERE work_id=? AND project_id=?)`, workID, projectID).Scan(&member); err != nil {
-		return wrapFailure(KindUnavailable, operation, "cannot read work Project membership", true, "retry once the database is readable", err)
-	}
-	if !member {
-		return newFailure(KindUnknownScope, operation, "work item does not hold Project "+projectID, false, "use a Project the work item belongs to")
-	}
-	return nil
-}
-
-func validateWorktreeProjectMembershipTx(ctx context.Context, tx *sql.Tx, workID, projectID, operation string) error {
-	var member bool
-	if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM work_projects WHERE work_id=? AND project_id=?)`, workID, projectID).Scan(&member); err != nil {
 		return wrapFailure(KindUnavailable, operation, "cannot read work Project membership", true, "retry once the database is readable", err)
 	}
 	if !member {
@@ -4201,6 +4188,14 @@ func collectAuditQuery[T any](ctx context.Context, db *sql.DB, cannotRead string
 	return out, nil
 }
 
+// scanAuditIDPair scans one two-column audit row, such as a work ID and its
+// lifecycle.
+func scanAuditIDPair(r *sql.Rows) ([2]string, error) {
+	var pair [2]string
+	err := r.Scan(&pair[0], &pair[1])
+	return pair, err
+}
+
 func worktreeAudit(ctx context.Context, db *sql.DB, root string, productID string, runner GitRunner, now time.Time, defaultRefOverride string, refRequired bool) (WorktreeAudit, error) {
 	if productID == "" {
 		return WorktreeAudit{}, newFailure(KindUnknownScope, "worktree_audit", "worktree audit requires one Product scope", false, "select one Product before auditing worktrees")
@@ -4390,13 +4385,7 @@ func readWorktreeAuditRows(ctx context.Context, db *sql.DB, productID string) (w
 	}
 	// Terminal work with an active entry: the same join, the other side of
 	// the lifecycle. The lifecycle rides along so the row can say which.
-	terminal, err := collectAuditQuery(ctx, db, "cannot read terminal work", `SELECT w.id, w.lifecycle FROM work_items w JOIN worktree_entries e ON e.set_id=?||w.id JOIN product_projects pp ON pp.project_id=e.project_id WHERE pp.product_id=? AND e.state='active' AND w.lifecycle IN `+terminalLifecycleSQLList(), []any{worktreeSetPrefix, productID}, func(r *sql.Rows) ([2]string, error) { //nolint:gosec // the IN list is the closed terminal set, never caller input
-		var pair [2]string
-		if err := r.Scan(&pair[0], &pair[1]); err != nil {
-			return pair, err
-		}
-		return pair, nil
-	})
+	terminal, err := collectAuditQuery(ctx, db, "cannot read terminal work", `SELECT w.id, w.lifecycle FROM work_items w JOIN worktree_entries e ON e.set_id=?||w.id JOIN product_projects pp ON pp.project_id=e.project_id WHERE pp.product_id=? AND e.state='active' AND w.lifecycle IN `+terminalLifecycleSQLList(), []any{worktreeSetPrefix, productID}, scanAuditIDPair) //nolint:gosec // the IN list is the closed terminal set, never caller input
 	if err != nil {
 		return out, err
 	}
@@ -4404,13 +4393,7 @@ func readWorktreeAuditRows(ctx context.Context, db *sql.DB, productID string) (w
 	for _, pair := range terminal {
 		out.terminalLifecycle[pair[0]] = pair[1]
 	}
-	lifecycles, err := collectAuditQuery(ctx, db, "cannot read worktree lifecycle", `SELECT DISTINCT w.id,w.lifecycle FROM work_items w JOIN worktree_entries e ON e.set_id=?||w.id JOIN product_projects pp ON pp.project_id=e.project_id WHERE pp.product_id=? AND e.state='active' ORDER BY w.id`, []any{worktreeSetPrefix, productID}, func(r *sql.Rows) ([2]string, error) {
-		var pair [2]string
-		if err := r.Scan(&pair[0], &pair[1]); err != nil {
-			return pair, err
-		}
-		return pair, nil
-	})
+	lifecycles, err := collectAuditQuery(ctx, db, "cannot read worktree lifecycle", `SELECT DISTINCT w.id,w.lifecycle FROM work_items w JOIN worktree_entries e ON e.set_id=?||w.id JOIN product_projects pp ON pp.project_id=e.project_id WHERE pp.product_id=? AND e.state='active' ORDER BY w.id`, []any{worktreeSetPrefix, productID}, scanAuditIDPair)
 	if err != nil {
 		return out, err
 	}

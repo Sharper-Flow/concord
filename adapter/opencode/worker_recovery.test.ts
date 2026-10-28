@@ -400,6 +400,6 @@ test("invalid worker content without a schema echo still refuses before signing 
   await expect(reconcileRetainedWorker(recovery, packet.work_id, packet.attempt_id, "retained-part", {
     sessionReader: transcript.reader, workerDirectory: process.cwd(),
     credentials: { getPrivateKey: forbidden }, evidenceRunner: { run: forbidden },
-  }, new AbortController().signal)).rejects.toThrow("retained report is invalid or incomplete")
+  }, new AbortController().signal)).rejects.toThrow("retained report is invalid or incomplete: worker report failed the closed agent-lane-report.v1 schema: evidence: is not of type array")
   expect(calls).toBe(0)
 })

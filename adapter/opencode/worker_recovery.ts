@@ -60,7 +60,8 @@ export async function reconcileRetainedWorker(
   const readback = readExportSession(childRead.body, task.sessionID)
   if (!opening.ok || !readback.ok || readback.metadata.readback_agent !== `concord-${lane.id}`) throw new Error("retained child opening or agent differs from its original dispatch")
   const report = resolveWorkerReportFromText(task.text, packet, readback.metadata.readback_model)
-  if ("detail" in report || report.report.status !== "completed") throw new Error("retained report is invalid or incomplete")
+  if ("detail" in report) throw new Error(`retained report is invalid or incomplete: ${report.detail}`)
+  if (report.report.status !== "completed") throw new Error("retained report is invalid or incomplete")
   if (typeof part.callID === "string") dispatchWindows().observeTerminalPart(recovery.coordinator_session, part.callID, part.id, part.state.input.prompt)
   // The existing completion path rechecks child opening, agent and model. Its
   // signed dispatch append also sends the packet to the Go canonical-digest

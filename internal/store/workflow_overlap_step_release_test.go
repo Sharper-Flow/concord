@@ -15,7 +15,6 @@ func TestWorkflowDomainOverlapCoordinatorReleasesAfterStepBeforeTerminal(t *test
 	ctx := context.Background()
 	s, definition, binding, _, _, _ := architectureValidationFixture(t, leader)
 	seedWork(t, s, follower)
-	overlapFixtureExec(t, s, `UPDATE work_items SET intent_json=json_set(intent_json,'$.governing_requirements',json('[]')) WHERE id IN (?,?)`, leader, follower)
 	binding.VerificationObligations = []WorkflowVerificationObligation{}
 	actor := livenessActor()
 	actorRef, err := WorkflowActorRef(actor)

@@ -2,27 +2,27 @@
   "evidence": [
     {
       "kind": "go_test",
-      "value": "cmd/concord.TestCiWaitPRChecksModeWaitsForRequiredContexts"
+      "value": "internal/ciwait.TestCiWaitPRChecksModeWaitsForRequiredContexts"
     },
     {
       "kind": "go_test",
-      "value": "cmd/concord.TestCiWaitPRChecksModeRequiredContextAtTheFullPage"
+      "value": "internal/ciwait.TestCiWaitPRChecksModeRequiredContextAtTheFullPage"
     },
     {
       "kind": "go_test",
-      "value": "cmd/concord.TestCiWaitPRChecksModeReadsRequiredContextsOncePerBase"
+      "value": "internal/ciwait.TestCiWaitPRChecksModeReadsRequiredContextsOncePerBase"
     },
     {
       "kind": "go_test",
-      "value": "cmd/concord.TestCiWaitPRChecksModeRequiredReadFailureIsError"
+      "value": "internal/ciwait.TestCiWaitPRChecksModeRequiredReadFailureIsError"
     },
     {
       "kind": "go_test",
-      "value": "cmd/concord.TestCiWaitPRChecksModeStalledRequiredReadIsPending"
+      "value": "internal/ciwait.TestCiWaitPRChecksModeStalledRequiredReadIsPending"
     },
     {
       "kind": "go_test",
-      "value": "cmd/concord.TestCiWaitPRMergeModeQueueRemovalEndsTheWait"
+      "value": "internal/ciwait.TestCiWaitPRMergeModeQueueRemovalEndsTheWait"
     }
   ],
   "id": "CD-0233",

@@ -2,27 +2,27 @@
   "evidence": [
     {
       "kind": "go_test",
-      "value": "cmd/concord.TestCiWaitChecksModePollsOnceBelowThePageCap"
+      "value": "internal/ciwait.TestCiWaitChecksModePollsOnceBelowThePageCap"
     },
     {
       "kind": "go_test",
-      "value": "cmd/concord.TestCiWaitFullRollupPageStillReadsThePaginatedSource"
+      "value": "internal/ciwait.TestCiWaitFullRollupPageStillReadsThePaginatedSource"
     },
     {
       "kind": "go_test",
-      "value": "cmd/concord.TestCiWaitPollIntervalStagesOnElapsedWaitTime"
+      "value": "internal/ciwait.TestCiWaitPollIntervalStagesOnElapsedWaitTime"
     },
     {
       "kind": "go_test",
-      "value": "cmd/concord.TestCiWaitTimedOutCommandRetriesOnceThenReportsPending"
+      "value": "internal/ciwait.TestCiWaitTimedOutCommandRetriesOnceThenReportsPending"
     },
     {
       "kind": "go_test",
-      "value": "cmd/concord.TestCiWaitPRPartialPopulationNeverSucceeds"
+      "value": "internal/ciwait.TestCiWaitPRPartialPopulationNeverSucceeds"
     },
     {
       "kind": "go_test",
-      "value": "cmd/concord.TestCiWaitPRMergeModeCleanCanMergeIsNotSuccess"
+      "value": "internal/ciwait.TestCiWaitPRMergeModeCleanCanMergeIsNotSuccess"
     }
   ],
   "id": "CD-0168",

@@ -133,19 +133,19 @@ The `concord_ci_watch` input schema already refuses every such value.
 
 ## Verification
 
-- `cmd/concord.TestCiWaitPRMergeModeQueueRemovalEndsTheWait` proves a fresh
+- `internal/ciwait.TestCiWaitPRMergeModeQueueRemovalEndsTheWait` proves a fresh
   removal ends the wait and names the failed merge-group run.
-- `cmd/concord.TestCiWaitPRMergeModeQueueRemovalPrecedesCheckFailures` proves
+- `internal/ciwait.TestCiWaitPRMergeModeQueueRemovalPrecedesCheckFailures` proves
   D2: the removal wins over a failed head check, including with `UNSTABLE`.
-- `cmd/concord.TestCiWaitPRMergeModeQueueEventsThatKeepTheWaitOpen` proves a
+- `internal/ciwait.TestCiWaitPRMergeModeQueueEventsThatKeepTheWaitOpen` proves a
   merge removal, a closed, merged, or changed head, the baseline removal, a
   re-enqueue, and no event stay pending.
-- `cmd/concord.TestCiWaitPRMergeModeQueueBaselineIsTheFirstRead` proves an
+- `internal/ciwait.TestCiWaitPRMergeModeQueueBaselineIsTheFirstRead` proves an
   older removal stays pending and an empty baseline survives the state file.
-- `cmd/concord.TestCiWaitPRMergeModeQueueRemovalWithoutRunDetail` proves a
+- `internal/ciwait.TestCiWaitPRMergeModeQueueRemovalWithoutRunDetail` proves a
   manual dequeue reports `failure` and run naming stays best effort.
-- `cmd/concord.TestCiWaitPRMergeModeQueueReadFailureIsError` and
-  `cmd/concord.TestCiWaitPRMergeModeStalledQueueReadIsPending` prove D4.
-- `cmd/concord.TestCiWaitRepoMustBeOwnerName` and
-  `cmd/concord.TestCiWaitResumedStateMustNameAValidSubject` prove the D5
+- `internal/ciwait.TestCiWaitPRMergeModeQueueReadFailureIsError` and
+  `internal/ciwait.TestCiWaitPRMergeModeStalledQueueReadIsPending` prove D4.
+- `internal/ciwait.TestCiWaitRepoMustBeOwnerName` and
+  `internal/ciwait.TestCiWaitResumedStateMustNameAValidSubject` prove the D5
   subject checks for a request and for a resumed state file.

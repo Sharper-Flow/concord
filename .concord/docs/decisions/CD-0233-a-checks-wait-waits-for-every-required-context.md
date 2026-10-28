@@ -102,17 +102,17 @@ until the deadline.
 
 ## Verification
 
-- `cmd/concord.TestCiWaitPRChecksModeWaitsForRequiredContexts` proves that a
+- `internal/ciwait.TestCiWaitPRChecksModeWaitsForRequiredContexts` proves that a
   context required only by a ruleset or only by classic protection holds the
   wait. It also proves required pass, required failure, and no required
   context. [CD-0228 Verification](CD-0228-merge-waits-report-observed-check-failures-unless-github-reports-unstable.md#verification)
   also requires fail-fast and queued-workflow checks: missing contexts cannot
   delay failure, and their presence alone cannot establish success.
-- `cmd/concord.TestCiWaitPRChecksModeRequiredContextAtTheFullPage` proves the
+- `internal/ciwait.TestCiWaitPRChecksModeRequiredContextAtTheFullPage` proves the
   paginated snapshot counts as observed.
-- `cmd/concord.TestCiWaitPRChecksModeReadsRequiredContextsOncePerBase` proves
+- `internal/ciwait.TestCiWaitPRChecksModeReadsRequiredContextsOncePerBase` proves
   D2 and the per-segment escape.
-- `cmd/concord.TestCiWaitPRChecksModeRequiredReadFailureIsError` and
-  `cmd/concord.TestCiWaitPRChecksModeStalledRequiredReadIsPending` prove D3.
-- `cmd/concord.TestCiWaitPRMergeModeQueueRemovalEndsTheWait` proves merge mode
+- `internal/ciwait.TestCiWaitPRChecksModeRequiredReadFailureIsError` and
+  `internal/ciwait.TestCiWaitPRChecksModeStalledRequiredReadIsPending` prove D3.
+- `internal/ciwait.TestCiWaitPRMergeModeQueueRemovalEndsTheWait` proves merge mode
   reads no requiredness source.

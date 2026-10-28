@@ -71,7 +71,7 @@ no verdict about the checks.
   the poll without the `gh pr checks` query.
 - `TestCiWaitFullRollupPageStillReadsThePaginatedSource` proves a full
   100-context page still queries the paginated source.
-- `cmd/concord.TestCiWaitPRMergeModeNewestAttempts` proves merge mode selects
+- `internal/ciwait.TestCiWaitPRMergeModeNewestAttempts` proves merge mode selects
   the newest non-Actions rollup attempt without a `gh pr checks` query.
 - [CD-0228 Verification](CD-0228-merge-waits-report-observed-check-failures-unless-github-reports-unstable.md#verification)
   names the required fail-fast, queued-workflow and newest-workflow-attempt

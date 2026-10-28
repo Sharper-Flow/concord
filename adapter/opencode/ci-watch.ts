@@ -42,7 +42,7 @@ export const CI_WATCH_NOTICE_METADATA = "concord.ci_watch_notice"
 // carries under this metadata key.
 const CI_WATCH_REDELIVERY_METADATA = "concord.ci_watch_redelivery"
 
-// The verb's own request contract (cmd/concord/ci_wait.go): one JSON object
+// The verb's own request contract (internal/ciwait/ci_wait.go): one JSON object
 // on stdin, one JSON report on stdout, one bounded slice per invocation.
 export type CiWatchArgs = {
   repo: string

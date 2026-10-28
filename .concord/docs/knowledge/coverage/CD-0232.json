@@ -2,39 +2,39 @@
   "evidence": [
     {
       "kind": "go_test",
-      "value": "cmd/concord.TestCiWaitPRMergeModeQueueRemovalEndsTheWait"
+      "value": "internal/ciwait.TestCiWaitPRMergeModeQueueRemovalEndsTheWait"
     },
     {
       "kind": "go_test",
-      "value": "cmd/concord.TestCiWaitPRMergeModeQueueRemovalPrecedesCheckFailures"
+      "value": "internal/ciwait.TestCiWaitPRMergeModeQueueRemovalPrecedesCheckFailures"
     },
     {
       "kind": "go_test",
-      "value": "cmd/concord.TestCiWaitPRMergeModeQueueEventsThatKeepTheWaitOpen"
+      "value": "internal/ciwait.TestCiWaitPRMergeModeQueueEventsThatKeepTheWaitOpen"
     },
     {
       "kind": "go_test",
-      "value": "cmd/concord.TestCiWaitPRMergeModeQueueBaselineIsTheFirstRead"
+      "value": "internal/ciwait.TestCiWaitPRMergeModeQueueBaselineIsTheFirstRead"
     },
     {
       "kind": "go_test",
-      "value": "cmd/concord.TestCiWaitPRMergeModeQueueRemovalWithoutRunDetail"
+      "value": "internal/ciwait.TestCiWaitPRMergeModeQueueRemovalWithoutRunDetail"
     },
     {
       "kind": "go_test",
-      "value": "cmd/concord.TestCiWaitPRMergeModeQueueReadFailureIsError"
+      "value": "internal/ciwait.TestCiWaitPRMergeModeQueueReadFailureIsError"
     },
     {
       "kind": "go_test",
-      "value": "cmd/concord.TestCiWaitPRMergeModeStalledQueueReadIsPending"
+      "value": "internal/ciwait.TestCiWaitPRMergeModeStalledQueueReadIsPending"
     },
     {
       "kind": "go_test",
-      "value": "cmd/concord.TestCiWaitRepoMustBeOwnerName"
+      "value": "internal/ciwait.TestCiWaitRepoMustBeOwnerName"
     },
     {
       "kind": "go_test",
-      "value": "cmd/concord.TestCiWaitResumedStateMustNameAValidSubject"
+      "value": "internal/ciwait.TestCiWaitResumedStateMustNameAValidSubject"
     }
   ],
   "id": "CD-0232",

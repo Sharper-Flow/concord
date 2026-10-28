@@ -10,7 +10,7 @@
     },
     {
       "kind": "go_test",
-      "value": "cmd/concord.TestCiWaitTerminalOutcomes"
+      "value": "internal/ciwait.TestCiWaitTerminalOutcomes"
     },
     {
       "kind": "generated",

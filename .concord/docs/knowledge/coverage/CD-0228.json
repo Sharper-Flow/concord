@@ -2,55 +2,55 @@
   "evidence": [
     {
       "kind": "go_test",
-      "value": "cmd/concord.TestCiWaitQueuedWorkflows"
+      "value": "internal/ciwait.TestCiWaitQueuedWorkflows"
     },
     {
       "kind": "go_test",
-      "value": "cmd/concord.TestCiWaitFailFastReports"
+      "value": "internal/ciwait.TestCiWaitFailFastReports"
     },
     {
       "kind": "go_test",
-      "value": "cmd/concord.TestCiWaitNewestWorkflowAttempts"
+      "value": "internal/ciwait.TestCiWaitNewestWorkflowAttempts"
     },
     {
       "kind": "go_test",
-      "value": "cmd/concord.TestCiWaitWorkflowPaginationAndReadFailures"
+      "value": "internal/ciwait.TestCiWaitWorkflowPaginationAndReadFailures"
     },
     {
       "kind": "go_test",
-      "value": "cmd/concord.TestCiWaitWorkflowAttemptIdentity"
+      "value": "internal/ciwait.TestCiWaitWorkflowAttemptIdentity"
     },
     {
       "kind": "go_test",
-      "value": "cmd/concord.TestCiWaitFailureDoesNotWaitForRequiredness"
+      "value": "internal/ciwait.TestCiWaitFailureDoesNotWaitForRequiredness"
     },
     {
       "kind": "go_test",
-      "value": "cmd/concord.TestCiWaitFailFastServedReport"
+      "value": "internal/ciwait.TestCiWaitFailFastServedReport"
     },
     {
       "kind": "go_test",
-      "value": "cmd/concord.TestCiWaitWorkflowSubjectAndCurrentAttempt"
+      "value": "internal/ciwait.TestCiWaitWorkflowSubjectAndCurrentAttempt"
     },
     {
       "kind": "go_test",
-      "value": "cmd/concord.TestCiWaitKnownRunFailureSurvivesMissingJobDetail"
+      "value": "internal/ciwait.TestCiWaitKnownRunFailureSurvivesMissingJobDetail"
     },
     {
       "kind": "go_test",
-      "value": "cmd/concord.TestCiWaitPRChecksModeMixedFailureAndPendingFails"
+      "value": "internal/ciwait.TestCiWaitPRChecksModeMixedFailureAndPendingFails"
     },
     {
       "kind": "go_test",
-      "value": "cmd/concord.TestCiWaitPRMergeModeNewestAttempts"
+      "value": "internal/ciwait.TestCiWaitPRMergeModeNewestAttempts"
     },
     {
       "kind": "go_test",
-      "value": "cmd/concord.TestCiWaitPRMergeModeFailurePrecedence"
+      "value": "internal/ciwait.TestCiWaitPRMergeModeFailurePrecedence"
     },
     {
       "kind": "go_test",
-      "value": "cmd/concord.TestCiWaitPRMergeModeFullPageRollupNeedsNoChecksQuery"
+      "value": "internal/ciwait.TestCiWaitPRMergeModeFullPageRollupNeedsNoChecksQuery"
     }
   ],
   "id": "CD-0228",

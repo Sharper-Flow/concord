@@ -59,6 +59,14 @@ func TestCommittedWorkflowCompletionProofFactFitsBound(t *testing.T) {
 	)
 }
 
+func TestCommittedCIWaitFactFitsBound(t *testing.T) {
+	t.Parallel()
+	assertCommittedDomainFactFitsBound(t, "agent-surface", "internal/ciwait", "ci-wait-deadline",
+		DomainShapeSelector{Path: "internal/ciwait/ci_wait.go"},
+		DomainShapeSelector{Subject: "ci-wait-deadline"},
+	)
+}
+
 func assertCommittedDomainFactFitsBound(t *testing.T, domainID, owningRoot, factID string, selectors ...DomainShapeSelector) {
 	t.Helper()
 	ctx := context.Background()

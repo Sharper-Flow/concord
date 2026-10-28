@@ -4,6 +4,10 @@
   },
   "date": "2026-10-15T00:00:00Z",
   "doc_contract_profile": "current",
+  "evidence": [
+    "internal/ciwait/ci_wait.go",
+    "internal/ciwait/ci_wait_workflows.go"
+  ],
   "home_domain_id": "operator-surface",
   "id": "CD-0228",
   "kind": "decision",
@@ -25,7 +29,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:6677cd93f8d64998eb66bfa38b5f242cbe6e002689e3b56f2b9f9ddb8f04431a",
+  "sha256": "sha256:3c3ae4f13250bda8397d00184761bf0f1467ea9c0a49a4164aecedc28273abdc",
   "status": "accepted",
   "summary": "After subject qualification, relevant terminal failed or cancelled checks or jobs end CI waits without waiting for peers, registration or workflow completion, including UNSTABLE. Newest applicable Actions runs remain distinct by workflow ID and event; non-Actions rollup ordering stays unchanged. Checks-mode success needs the complete observed workflow and check population and every required context. Failure reports name the exact subject and actual URL without claiming full-suite completeness. Lifecycle precedence, read-only queries and adapter delivery remain unchanged.",
   "tags": [

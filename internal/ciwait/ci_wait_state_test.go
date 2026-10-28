@@ -1,4 +1,4 @@
-package main
+package ciwait
 
 import (
 	"bytes"
@@ -17,8 +17,8 @@ func TestCiWaitTerminalErrorRemovesState(t *testing.T) {
 		t.Run(script, func(t *testing.T) {
 			ghStubPath(t, ghStubDir(t, script))
 			stateFile := filepath.Join(t.TempDir(), "ci-wait-test.json")
-			code, report := runCiWaitStdin(t, ciWaitJSON(t, ciWaitRequest{
-				Selector: &ciWaitSelector{Kind: "run", Value: "1"}, Repo: "o/r", StateFile: stateFile,
+			code, report := runCiWaitStdin(t, ciWaitJSON(t, Request{
+				Selector: &Selector{Kind: "run", Value: "1"}, Repo: "o/r", StateFile: stateFile,
 			}))
 			if code != 1 || report.Status != "error" {
 				t.Fatalf("want error, got code=%d report=%+v", code, report)
@@ -38,8 +38,8 @@ func TestCiWaitReapsAbandonedPendingAndDeadOwnerState(t *testing.T) {
 	*"run view"*) echo '{"status":"in_progress","attempt":1,"headSha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}';;
 	`+ciWaitQuietReads+`esac`))
 	dir := filepath.Join(os.Getenv("XDG_STATE_HOME"), "concord")
-	_, pending := runCiWaitStdin(t, ciWaitJSON(t, ciWaitRequest{
-		Selector: &ciWaitSelector{Kind: "run", Value: "1"}, Repo: "o/r", TimeSecondsMax: ciWaitBudget(8),
+	_, pending := runCiWaitStdin(t, ciWaitJSON(t, Request{
+		Selector: &Selector{Kind: "run", Value: "1"}, Repo: "o/r", TimeSecondsMax: ciWaitBudget(8),
 	}))
 	if pending.Status != "pending" {
 		t.Fatalf("want a resumable pending slice, got %+v", pending)
@@ -49,7 +49,7 @@ func TestCiWaitReapsAbandonedPendingAndDeadOwnerState(t *testing.T) {
 		t.Fatal("pending slice lost its state")
 	}
 	deadline := state.DeadlineAt
-	_, resumed, err := ciWaitLoadOrCreate(ciWaitRequest{StateFile: pending.StateFile})
+	_, resumed, err := ciWaitLoadOrCreate(Request{StateFile: pending.StateFile})
 	if err != nil || resumed != pending.StateFile {
 		t.Fatalf("pending state cannot resume: %v", err)
 	}
@@ -88,8 +88,8 @@ func TestCiWaitReapsAbandonedPendingAndDeadOwnerState(t *testing.T) {
 			if err := os.WriteFile(file, []byte(ciWaitJSON(t, body)), 0o600); err != nil {
 				t.Fatal(err)
 			}
-			_, _, err := ciWaitLoadOrCreate(ciWaitRequest{
-				Selector: &ciWaitSelector{Kind: "run", Value: "1"}, Repo: "o/r",
+			_, _, err := ciWaitLoadOrCreate(Request{
+				Selector: &Selector{Kind: "run", Value: "1"}, Repo: "o/r",
 			})
 			if err != nil {
 				t.Fatal(err)
@@ -121,7 +121,7 @@ func TestCiWaitReaperPreservesUnknownFilesAndSelectedDeadline(t *testing.T) {
 	selected := filepath.Join(dir, "ci-wait-selected.json")
 	deadline := time.Now().Add(-48 * time.Hour)
 	ciWaitSaveState(&ciWaitState{SchemaVersion: 1, DeadlineAt: deadline, OwnerPID: 2147483647}, selected)
-	state, _, err := ciWaitLoadOrCreate(ciWaitRequest{StateFile: selected})
+	state, _, err := ciWaitLoadOrCreate(Request{StateFile: selected})
 	if err != nil || !state.DeadlineAt.Equal(deadline) {
 		t.Fatalf("selected expired wait must keep its deadline for a timeout report: %v", err)
 	}
@@ -134,12 +134,12 @@ func TestCiWaitReaperPreservesUnknownFilesAndSelectedDeadline(t *testing.T) {
 
 func TestCiWaitKilledInvocationState(t *testing.T) {
 	if os.Getenv("CI_WAIT_KILL_HELPER") == "1" {
-		var out, errOut bytes.Buffer
-		os.Exit(runCiWait([]byte(os.Getenv("CI_WAIT_KILL_REQUEST")), &out, &errOut))
+		var out bytes.Buffer
+		os.Exit(Run(ciWaitRequestFixture(t, os.Getenv("CI_WAIT_KILL_REQUEST")), &out))
 	}
 	ghStubPath(t, ghStubDir(t, `kill -KILL "$PPID"`))
 	file := filepath.Join(os.Getenv("XDG_STATE_HOME"), "concord", "ci-wait-watch-killed.json")
-	request := ciWaitJSON(t, ciWaitRequest{Selector: &ciWaitSelector{Kind: "run", Value: "1"}, Repo: "o/r", StateFile: file})
+	request := ciWaitJSON(t, Request{Selector: &Selector{Kind: "run", Value: "1"}, Repo: "o/r", StateFile: file})
 	child := exec.Command(os.Args[0], "-test.run=^TestCiWaitKilledInvocationState$")
 	child.Env = append(os.Environ(), "CI_WAIT_KILL_HELPER=1", "CI_WAIT_KILL_REQUEST="+request)
 	err := child.Run()
@@ -164,14 +164,14 @@ func TestCiWaitKilledInvocationState(t *testing.T) {
 	state.DeadlineAt = time.Now().Add(-time.Minute)
 	ciWaitSaveState(state, file)
 	// Even an expired killed slice stays while its caller is live.
-	_, _, err = ciWaitLoadOrCreate(ciWaitRequest{Selector: &ciWaitSelector{Kind: "run", Value: "2"}, Repo: "o/r"})
+	_, _, err = ciWaitLoadOrCreate(Request{Selector: &Selector{Kind: "run", Value: "2"}, Repo: "o/r"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(file); err != nil {
 		t.Fatal("sweep removed a live caller's state")
 	}
-	_, report := runCiWaitStdin(t, ciWaitJSON(t, ciWaitRequest{StateFile: file}))
+	_, report := runCiWaitStdin(t, ciWaitJSON(t, Request{StateFile: file}))
 	if report.Status != "timeout" {
 		t.Fatalf("expired resume must time out, got %+v", report)
 	}

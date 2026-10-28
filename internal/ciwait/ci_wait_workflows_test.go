@@ -1,4 +1,4 @@
-package main
+package ciwait
 
 import (
 	"context"
@@ -136,7 +136,7 @@ func TestCiWaitFailFastServedReport(t *testing.T) {
 		ciWaitWorkflowRunFixture(10, 1, 2, "pull_request", ciWaitAttemptOld, "in_progress", "")),
 		ciWaitWorkflowPages(t, "jobs", ciWaitWorkflowJobFixture(1, "tests", "completed", "failure"), ciWaitWorkflowJobFixture(2, "race", "queued", "")))
 	stateFile := filepath.Join(t.TempDir(), "state.json")
-	code, report := runCiWaitStdin(t, ciWaitJSON(t, ciWaitRequest{Repo: "o/r", Selector: &ciWaitSelector{Kind: "pr", Value: "5"}, HeadSHA: ciWaitWorkflowSHA, StateFile: stateFile, TimeSecondsMax: ciWaitBudget(8)}))
+	code, report := runCiWaitStdin(t, ciWaitJSON(t, Request{Repo: "o/r", Selector: &Selector{Kind: "pr", Value: "5"}, HeadSHA: ciWaitWorkflowSHA, StateFile: stateFile, TimeSecondsMax: ciWaitBudget(8)}))
 	if code != 0 || report.Status != "failure" || report.Iterations != 1 || report.Checks.Failing != 1 || report.Checks.Pending == 0 || report.StateFile != "" {
 		t.Fatalf("terminal observation is delivered on the first slice: code=%d report=%+v", code, report)
 	}
@@ -232,9 +232,9 @@ func TestCiWaitFailFastReports(t *testing.T) {
 			state := ciWaitChecksState()
 			switch selector {
 			case "sha":
-				state.Selector = ciWaitSelector{Kind: "sha", Value: ciWaitWorkflowSHA}
+				state.Selector = Selector{Kind: "sha", Value: ciWaitWorkflowSHA}
 			case "run":
-				state.Selector = ciWaitSelector{Kind: "run", Value: "10"}
+				state.Selector = Selector{Kind: "run", Value: "10"}
 			case "merge":
 				state.Mode = "merge"
 			}
@@ -268,7 +268,7 @@ func TestCiWaitNewestWorkflowAttempts(t *testing.T) {
 			state.Mode = mode
 			if mode == "sha" {
 				state.Mode = "checks"
-				state.Selector = ciWaitSelector{Kind: "sha", Value: ciWaitWorkflowSHA}
+				state.Selector = Selector{Kind: "sha", Value: ciWaitWorkflowSHA}
 			}
 			report, terminal, err := ciWaitPoll(context.Background(), state)
 			if err != nil || terminal || report.Status != "pending" || report.Checks.Failing != 0 {

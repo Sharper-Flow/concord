@@ -36,7 +36,7 @@ func TestDerivedWorkerFailureCorrectionKeepsStorableEvidenceRefs(t *testing.T) {
 		"work_id": "work-1", "expected_version": version, "action_id": "dispatch_worker", "idempotency_key": "prose-evidence-dispatch",
 		"fields": map[string]any{"attempt_id": attemptID, "worker_packet": retryMutationPacket(t, s, attemptID, nil)},
 	})}, env)
-	if dispatch.Outcome != OutcomeOK {
+	if dispatch.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("seed derived-failure dispatch: %+v", dispatch.Error)
 	}
 	detail := "report envelope failed the closed schema: readback_model carried two slashes where the pattern admits one"

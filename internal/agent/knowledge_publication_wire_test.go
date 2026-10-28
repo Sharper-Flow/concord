@@ -23,7 +23,7 @@ func TestKnowledgePublicationQ9Wire(t *testing.T) {
 	p := publicationWireFixture()
 	meta := store.ResultMeta{QueryID: "PM1.Q9", ContractVersion: "PM1/1.0", Authority: "authoritative", Freshness: store.Freshness{ObservedAt: p.ObservedAt}, OrderingKeys: []string{"knowledge_id"}}
 	r := runtime{Tool: "concord_knowledge", Operation: "search"}
-	response, err := r.q9(NewBase("publication-q9", r.Tool, r.Operation), store.Q9Result{ResultMeta: meta, IndexWatermark: p.ServedCommit, Publications: []store.KnowledgePublication{p}})
+	response, err := r.q9(agentcontract.NewBase("publication-q9", r.Tool, r.Operation), store.Q9Result{ResultMeta: meta, IndexWatermark: p.ServedCommit, Publications: []store.KnowledgePublication{p}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -49,7 +49,7 @@ func TestKnowledgePublicationQ10Wire(t *testing.T) {
 	meta := store.ResultMeta{QueryID: "PM1.Q10", ContractVersion: "PM1/1.0", Authority: "authoritative", Freshness: store.Freshness{ObservedAt: p.ObservedAt}, OrderingKeys: []string{"knowledge_id"}}
 	note := &store.CanonicalNote{HomeProjectID: p.ProjectID, HomeLocatorID: p.LocatorID, NotePath: "law.md", CommitOID: p.ServedCommit, ContentHash: "sha256:" + strings.Repeat("d", 64)}
 	r := runtime{Tool: "concord_knowledge", Operation: "resolve_note"}
-	response, err := r.q10(NewBase("publication-q10", r.Tool, r.Operation), store.Q10Result{ResultMeta: meta, Status: "canonical", Note: note, Publication: &p})
+	response, err := r.q10(agentcontract.NewBase("publication-q10", r.Tool, r.Operation), store.Q10Result{ResultMeta: meta, Status: "canonical", Note: note, Publication: &p})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -90,7 +90,7 @@ func TestKnowledgePublicationWireBasisAndHistoricalSuccess(t *testing.T) {
 			}
 			meta := store.ResultMeta{QueryID: "PM1.Q10", ContractVersion: "PM1/1.0", Authority: "degraded", Freshness: store.Freshness{ObservedAt: "2026-10-26T14:00:00Z"}, OrderingKeys: []string{"knowledge_id"}, Omissions: []string{"source_unreachable"}}
 			r := runtime{Tool: "concord_knowledge", Operation: "resolve_note"}
-			response, err := r.q10(NewBase("publication-basis", r.Tool, r.Operation), store.Q10Result{ResultMeta: meta, Status: "canonical", Publication: &p})
+			response, err := r.q10(agentcontract.NewBase("publication-basis", r.Tool, r.Operation), store.Q10Result{ResultMeta: meta, Status: "canonical", Publication: &p})
 			if err != nil {
 				t.Fatal(err)
 			}

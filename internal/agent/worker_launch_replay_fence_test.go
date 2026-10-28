@@ -24,12 +24,12 @@ func TestOrdinaryRetryReplayPreservesUnknownLaunchFence(t *testing.T) {
 	}
 	const attempt = "attempt:work-1:unknown-launch"
 	launch := request(attempt, workVersion(t, s, "work-1"))
-	if result := dispatchMutation(t, s, service, launch, env); result.Outcome != OutcomeOK {
+	if result := dispatchMutation(t, s, service, launch, env); result.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("ordinary retry = %+v", result.Error)
 	}
 	version := workVersion(t, s, "work-1")
 	events := agentCurrentEffects(t, s)
-	if result := dispatchMutation(t, s, service, launch, env); result.Outcome != OutcomeOK || !result.Replayed {
+	if result := dispatchMutation(t, s, service, launch, env); result.Outcome != agentcontract.OutcomeOK || !result.Replayed {
 		t.Fatalf("exact launch replay = %+v", result)
 	}
 	if verifyWallDispatchCompletions(t, s, attempt) != 1 {

@@ -34,7 +34,7 @@ func TestCommittedLifecycleEnvelopeSatisfiesGeneratedContract(t *testing.T) {
 	}
 	request := InvokeRequest{Tool: "concord_work_transition", Operation: "lifecycle", Input: json.RawMessage(`{"work_id":"work-1","expected_version":2,"target":"in_progress","reason":"begin work","idempotency_key":"701-lifecycle"}`)}
 	committed, err := Dispatch(ctx, s, service, request, mutationEnvelope(grant, scopeVersion))
-	if err != nil || committed.Outcome != OutcomeOK {
+	if err != nil || committed.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("lifecycle response=%+v err=%v", committed, err)
 	}
 	encoded, err := committed.Encode()
@@ -44,7 +44,7 @@ func TestCommittedLifecycleEnvelopeSatisfiesGeneratedContract(t *testing.T) {
 	if err := payloadschema.ValidateEnvelope(encoded); err != nil {
 		t.Fatalf("committed lifecycle envelope failed the generated TS7 contract: %v; envelope=%s", err, encoded)
 	}
-	var read Envelope
+	var read agentcontract.Envelope
 	if err := json.Unmarshal(encoded, &read); err != nil {
 		t.Fatalf("committed lifecycle envelope cannot be re-read as a TS7 envelope: %v", err)
 	}
@@ -76,7 +76,7 @@ func TestCommittedReclaimEnvelopeSatisfiesGeneratedContract(t *testing.T) {
 		"expected_version": 2, "idempotency_key": "701-claim",
 	})
 	claim, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "worktree_claim", Input: claimInput}, mutationEnvelope(grant, scopeVersion))
-	if err != nil || claim.Outcome != OutcomeOK {
+	if err != nil || claim.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("claim response=%+v err=%v", claim, err)
 	}
 	// The claim recorded this session as the worktree occupant, and the
@@ -86,7 +86,7 @@ func TestCommittedReclaimEnvelopeSatisfiesGeneratedContract(t *testing.T) {
 	vacateEnv := mutationEnvelope(grant, scopeVersion)
 	vacateEnv.Worktree = worktreePath
 	vacate, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "session_vacate", Input: json.RawMessage(`{"idempotency_key":"701-vacate"}`)}, vacateEnv)
-	if err != nil || vacate.Outcome != OutcomeOK {
+	if err != nil || vacate.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("vacate response=%+v err=%v", vacate, err)
 	}
 	if _, err := s.RecordSessionVacateLanding(ctx, store.SessionVacateLandingRequest{
@@ -100,7 +100,7 @@ func TestCommittedReclaimEnvelopeSatisfiesGeneratedContract(t *testing.T) {
 	})
 	reclaim := InvokeRequest{Tool: "concord_work_transition", Operation: "worktree_reclaim", Input: reclaimInput}
 	committed, err := Dispatch(ctx, s, service, reclaim, mutationEnvelope(grant, scopeVersion))
-	if err != nil || committed.Outcome != OutcomeOK {
+	if err != nil || committed.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("reclaim response=%+v err=%v", committed, err)
 	}
 	encoded, err := committed.Encode()
@@ -136,7 +136,7 @@ func TestGeneratedContractRejectsUndeclaredScopeMembers(t *testing.T) {
 	}
 	request := InvokeRequest{Tool: "concord_work_transition", Operation: "lifecycle", Input: json.RawMessage(`{"work_id":"work-1","expected_version":2,"target":"in_progress","reason":"begin work","idempotency_key":"701-negative"}`)}
 	committed, err := Dispatch(ctx, s, service, request, mutationEnvelope(grant, scopeVersion))
-	if err != nil || committed.Outcome != OutcomeOK {
+	if err != nil || committed.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("lifecycle response=%+v err=%v", committed, err)
 	}
 	encoded, err := committed.Encode()
@@ -162,8 +162,8 @@ func TestGeneratedContractRejectsUndeclaredScopeMembers(t *testing.T) {
 }
 
 func TestGeneratedContractRejectsUndeclaredAllOfMembers(t *testing.T) {
-	base := NewBase("allof-unknown", "concord_work_transition", "lifecycle")
-	errorEnvelope := NewCoreError(base, TypedError{Kind: "invalid_input", RetrySafe: false, RecoveryAction: RecoveryAction{Kind: "reread_entities"}, EffectState: EffectNone})
+	base := agentcontract.NewBase("allof-unknown", "concord_work_transition", "lifecycle")
+	errorEnvelope := agentcontract.NewCoreError(base, agentcontract.TypedError{Kind: "invalid_input", RetrySafe: false, RecoveryAction: agentcontract.RecoveryAction{Kind: "reread_entities"}, EffectState: agentcontract.EffectNone})
 	raw, err := json.Marshal(map[string]any{
 		"schema_version":           errorEnvelope.SchemaVersion,
 		"manifest_digest":          errorEnvelope.ManifestDigest,
@@ -175,12 +175,12 @@ func TestGeneratedContractRejectsUndeclaredAllOfMembers(t *testing.T) {
 		"resolved_scope":           nil,
 		"authority":                errorEnvelope.Authority,
 		"freshness":                nil,
-		"source_version_watermark": []Watermark{},
+		"source_version_watermark": []agentcontract.Watermark{},
 		"ordering_keys":            []string{},
 		"next_cursor":              nil,
-		"omissions":                []Notice{},
-		"warnings":                 []Notice{},
-		"evidence_refs":            []EvidenceRef{},
+		"omissions":                []agentcontract.Notice{},
+		"warnings":                 []agentcontract.Notice{},
+		"evidence_refs":            []agentcontract.EvidenceRef{},
 		"replayed":                 false,
 		"error":                    errorEnvelope.Error,
 		"unknown_top_level":        true,
@@ -194,9 +194,9 @@ func TestGeneratedContractRejectsUndeclaredAllOfMembers(t *testing.T) {
 }
 
 func TestErrorOutcomeContractAdmitsChangedRefs(t *testing.T) {
-	base := NewBase("error-changed-refs", "concord_work_transition", "worktree_audit_reclaim")
-	errorEnvelope := NewCoreError(base, TypedError{Kind: "budget_refused", RetrySafe: false, RecoveryAction: RecoveryAction{Kind: "adjust_budget"}, EffectState: EffectPossible, SupportedBudgetSeconds: 300})
-	refs := []ChangedRef{{EntityKind: "work_item", ID: "work-2", Version: "5"}}
+	base := agentcontract.NewBase("error-changed-refs", "concord_work_transition", "worktree_audit_reclaim")
+	errorEnvelope := agentcontract.NewCoreError(base, agentcontract.TypedError{Kind: "budget_refused", RetrySafe: false, RecoveryAction: agentcontract.RecoveryAction{Kind: "adjust_budget"}, EffectState: agentcontract.EffectPossible, SupportedBudgetSeconds: 300})
+	refs := []agentcontract.ChangedRef{{EntityKind: "work_item", ID: "work-2", Version: "5"}}
 	errorEnvelope.ChangedRefs = &refs
 	if err := errorEnvelope.Validate(); err != nil {
 		t.Fatalf("error outcome with committed refs is invalid: %v", err)

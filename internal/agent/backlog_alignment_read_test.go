@@ -31,7 +31,7 @@ func TestTraceHistoryReadsBacklogAlignment(t *testing.T) {
 				read := func() map[string]json.RawMessage {
 					t.Helper()
 					response := dispatchRead(t, s, service, InvokeRequest{Tool: "concord_work_trace", Operation: "history", Input: json.RawMessage(`{"work_id":"work-1","limit":1}`)}, env)
-					if response.Outcome != OutcomeOK {
+					if response.Outcome != agentcontract.OutcomeOK {
 						t.Fatalf("history: %+v", response.Error)
 					}
 					var page struct {
@@ -85,7 +85,7 @@ func TestTraceHistoryReadsBacklogAlignment(t *testing.T) {
 					t.Fatal(err)
 				}
 				response := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: raw}, env)
-				if response.Outcome != OutcomeOK {
+				if response.Outcome != agentcontract.OutcomeOK {
 					t.Fatalf("%s: %+v", action, response.Error)
 				}
 				var alignment struct {

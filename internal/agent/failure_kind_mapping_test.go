@@ -3,6 +3,7 @@ package agent
 import (
 	"testing"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/payloadschema"
 	"github.com/sharper-flow/concord/internal/store"
 )
@@ -34,7 +35,7 @@ func TestEveryPublicKindHasADeliberateRecovery(t *testing.T) {
 	t.Parallel()
 	contactByDesign := map[string]bool{"unauthorized": true, "unreachable": true, "internal_error": true, "unknown_scope": true, "malformed_response": true, "transport_failure": true, "outcome_mismatch": true}
 	for _, kind := range payloadschema.TypedErrorKinds() {
-		got := publicRecovery(kind, "free prose the store proposed")
+		got := agentcontract.PublicRecovery(kind, "free prose the store proposed")
 		if got == "contact_operator" && !contactByDesign[kind] {
 			t.Errorf("public kind %q resolves to contact_operator by default; name its recovery or add it to contactByDesign with a reason", kind)
 		}
@@ -51,10 +52,10 @@ func TestNotTerminalRefusalKeepsAnActionableRecovery(t *testing.T) {
 	if public != "not_terminal" {
 		t.Fatalf("mapFailureKind(KindNotTerminal) = %q", public)
 	}
-	if got := publicRecovery(public, "reread_entities"); got != "reread_entities" {
+	if got := agentcontract.PublicRecovery(public, "reread_entities"); got != "reread_entities" {
 		t.Errorf("a valid proposed action must survive, got %q", got)
 	}
-	if got := publicRecovery(public, "promote the observation through capture instead"); got == "contact_operator" {
+	if got := agentcontract.PublicRecovery(public, "promote the observation through capture instead"); got == "contact_operator" {
 		t.Errorf("free-prose proposal on a typed refusal resolved to contact_operator; the kind should decide")
 	}
 }

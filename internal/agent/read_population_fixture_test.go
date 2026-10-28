@@ -392,7 +392,7 @@ func (fx readPopulationFixture) seedWorktreeClaim(t *testing.T) {
 	execPopulationStatement(t, fx.store, `INSERT INTO project_locators(locator_id,project_id,kind,locator_value,normalized_value,created_at,updated_at) VALUES('population-project-repo','proj-web','canonical_path',?,?,'now','now')`, repo, repo)
 	_, version := readWorkFromStore(t, fx.store, fx.workID)
 	claim := dispatchMutation(t, fx.store, fx.service, InvokeRequest{Tool: "concord_work_transition", Operation: "worktree_claim", Input: json.RawMessage(`{"work_id":"` + fx.workID + `","project_id":"proj-web","base_sha":"` + gitRun(t, repo, "rev-parse", "HEAD") + `","expected_version":` + fmt.Sprintf("%d", version) + `,"host_pid":` + strconv.Itoa(os.Getpid()) + `,"idempotency_key":"population-claim"}`)}, fx.envelope(t))
-	if claim.Outcome != OutcomeOK {
+	if claim.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("worktree claim outcome=%s err=%+v", claim.Outcome, claim.Error)
 	}
 }
@@ -460,12 +460,12 @@ func (fx readPopulationFixture) seedPopulationPeerWork(t *testing.T) {
 	}
 	_, peerVersion = readWorkFromStore(t, fx.store, readPopulationPeer)
 	send := dispatchMutation(t, fx.store, fx.service, InvokeRequest{Tool: "concord_work_relate", Operation: "message_send", Input: json.RawMessage(`{"work_id":"` + readPopulationPeer + `","recipient_work_id":"` + fx.workID + `","body":"population message row","expected_version":` + strconv.FormatInt(peerVersion, 10) + `,"idempotency_key":"population-message"}`)}, fx.envelope(t))
-	if send.Outcome != OutcomeOK {
+	if send.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("population message_send outcome=%s err=%+v", send.Outcome, send.Error)
 	}
 	_, focusVersion = readWorkFromStore(t, fx.store, fx.workID)
 	claim := dispatchMutation(t, fx.store, fx.service, InvokeRequest{Tool: "concord_work_relate", Operation: "resource_claim", Input: json.RawMessage(`{"work_id":"` + fx.workID + `","resource_key":"queue:population-claim","reason":"population claim row","expected_version":` + strconv.FormatInt(focusVersion, 10) + `,"idempotency_key":"population-claim-row"}`)}, fx.envelope(t))
-	if claim.Outcome != OutcomeOK {
+	if claim.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("population resource_claim outcome=%s err=%+v", claim.Outcome, claim.Error)
 	}
 	// The unresolved overlap must follow setup mutations that enforce admission.

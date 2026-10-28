@@ -45,7 +45,7 @@ func TestResourceClaimLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	invoke := func(op string, input any) Envelope {
+	invoke := func(op string, input any) agentcontract.Envelope {
 		t.Helper()
 		raw, _ := json.Marshal(input)
 		response, err := Dispatch(ctx, s, service, InvokeRequest{Tool: toolForClaimsOp(op), Operation: op, Input: raw}, mutationEnvelope(grant, scopeVersion))
@@ -57,16 +57,16 @@ func TestResourceClaimLifecycle(t *testing.T) {
 
 	// Uncontended claim.
 	claim := invoke("resource_claim", map[string]any{"work_id": "work-holder", "resource_key": "fence:prod/pause", "reason": "Holding the fleet pause while data cleanup runs.", "expected_version": 2, "idempotency_key": "claim-1"})
-	if claim.Outcome != OutcomeOK {
+	if claim.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("uncontended claim failed: %+v", claim.Error)
 	}
-	if claim.ChangedRefs == nil || len(*claim.ChangedRefs) != 1 || (*claim.ChangedRefs)[0] != (ChangedRef{EntityKind: "work_item", ID: "work-holder", Version: "3"}) {
+	if claim.ChangedRefs == nil || len(*claim.ChangedRefs) != 1 || (*claim.ChangedRefs)[0] != (agentcontract.ChangedRef{EntityKind: "work_item", ID: "work-holder", Version: "3"}) {
 		t.Fatalf("claim receipt=%+v, want the stored work identity and version", claim.ChangedRefs)
 	}
 
 	// Contended claim: another work item sees a typed refusal naming coordination.
 	contended := invoke("resource_claim", map[string]any{"work_id": "work-contender", "resource_key": "fence:prod/pause", "reason": "Designing hardened tooling for the same pause.", "expected_version": 2, "idempotency_key": "claim-2"})
-	if contended.Outcome == OutcomeOK || contended.Error == nil {
+	if contended.Outcome == agentcontract.OutcomeOK || contended.Error == nil {
 		t.Fatal("contended claim must refuse")
 	}
 	raw, _ := json.Marshal(contended.Error)
@@ -76,7 +76,7 @@ func TestResourceClaimLifecycle(t *testing.T) {
 
 	// Discovery: exact key shows holder and reason.
 	discover := invoke("resource_claims", map[string]any{"product_id": "product-1", "resource_key": "fence:prod/pause"})
-	if discover.Outcome != OutcomeOK {
+	if discover.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("discovery failed: %+v", discover.Error)
 	}
 	var page struct {
@@ -91,16 +91,16 @@ func TestResourceClaimLifecycle(t *testing.T) {
 
 	// Release by the holder.
 	release := invoke("resource_release", map[string]any{"work_id": "work-holder", "resource_key": "fence:prod/pause", "expected_version": 3, "idempotency_key": "release-1"})
-	if release.Outcome != OutcomeOK {
+	if release.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("release failed: %+v", release.Error)
 	}
-	if release.ChangedRefs == nil || len(*release.ChangedRefs) != 1 || (*release.ChangedRefs)[0] != (ChangedRef{EntityKind: "work_item", ID: "work-holder", Version: "4"}) {
+	if release.ChangedRefs == nil || len(*release.ChangedRefs) != 1 || (*release.ChangedRefs)[0] != (agentcontract.ChangedRef{EntityKind: "work_item", ID: "work-holder", Version: "4"}) {
 		t.Fatalf("release receipt=%+v, want the stored work identity and version", release.ChangedRefs)
 	}
 
 	// After release the contender may claim.
 	reclaim := invoke("resource_claim", map[string]any{"work_id": "work-contender", "resource_key": "fence:prod/pause", "reason": "Now free to exercise the pause tooling.", "expected_version": 2, "idempotency_key": "claim-3"})
-	if reclaim.Outcome != OutcomeOK {
+	if reclaim.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("post-release claim failed: %+v", reclaim.Error)
 	}
 
@@ -129,7 +129,7 @@ func TestResourceClaimGrantsNoAuthority(t *testing.T) {
 	// Hold a claim.
 	raw, _ := json.Marshal(map[string]any{"work_id": "work-holder", "resource_key": "db:test-migration", "reason": "Migration in flight.", "expected_version": 2, "idempotency_key": "auth-claim"})
 	claim, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_relate", Operation: "resource_claim", Input: raw}, mutationEnvelope(grant, scopeVersion))
-	if err != nil || claim.Outcome != OutcomeOK {
+	if err != nil || claim.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("claim=%+v kind=%s msg=%s err=%v", claim, claim.Error.Kind, claim.Error.Message, err)
 	}
 	// CD-0243 D3/D7 retire terminal consent, not verification evidence.
@@ -139,7 +139,7 @@ func TestResourceClaimGrantsNoAuthority(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if response.Outcome != OutcomeError || response.Error == nil || response.Error.Kind != "missing_evidence" {
+	if response.Outcome != agentcontract.OutcomeError || response.Error == nil || response.Error.Kind != "missing_evidence" {
 		t.Fatalf("claim holder must still need evidence, got %+v", response.Error)
 	}
 	withEvidence, _ := json.Marshal(map[string]any{"work_id": "work-holder", "expected_version": 3, "target": "completed", "reason": "done", "idempotency_key": "auth-terminal-evidence",
@@ -148,7 +148,7 @@ func TestResourceClaimGrantsNoAuthority(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if completed.Outcome != OutcomeOK {
+	if completed.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("claim holder with verification evidence must complete without consent, got %+v", completed.Error)
 	}
 	if lifecycle, version := readWorkFromStore(t, s, "work-holder"); lifecycle != "completed" || version != 4 {
@@ -167,7 +167,7 @@ func TestResourceClaimReplayRefusalsAndAtomicity(t *testing.T) {
 		t.Fatal(err)
 	}
 	input := map[string]any{"work_id": "work-holder", "resource_key": "fence:prod/pause", "reason": "Holding the fleet pause while data cleanup runs.", "expected_version": 2, "idempotency_key": "claim-replay"}
-	invoke := func(op string, value any) Envelope {
+	invoke := func(op string, value any) agentcontract.Envelope {
 		t.Helper()
 		raw, _ := json.Marshal(value)
 		response, dispatchErr := Dispatch(ctx, s, service, InvokeRequest{Tool: toolForClaimsOp(op), Operation: op, Input: raw}, mutationEnvelope(grant, scopeVersion))
@@ -177,11 +177,11 @@ func TestResourceClaimReplayRefusalsAndAtomicity(t *testing.T) {
 		return response
 	}
 	first := invoke("resource_claim", input)
-	if first.Outcome != OutcomeOK {
+	if first.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("claim failed: %+v", first.Error)
 	}
 	replay := invoke("resource_claim", input)
-	if replay.Outcome != OutcomeOK || !replay.Replayed {
+	if replay.Outcome != agentcontract.OutcomeOK || !replay.Replayed {
 		t.Fatalf("replay=%+v", replay)
 	}
 	var version int64
@@ -194,7 +194,7 @@ func TestResourceClaimReplayRefusalsAndAtomicity(t *testing.T) {
 	}
 
 	stale := invoke("resource_claim", map[string]any{"work_id": "work-holder", "resource_key": "fence:other/pause", "reason": "A stale claim.", "expected_version": 2, "idempotency_key": "claim-stale"})
-	if stale.Outcome != OutcomeError || stale.Error == nil {
+	if stale.Outcome != agentcontract.OutcomeError || stale.Error == nil {
 		t.Fatalf("stale claim=%+v", stale)
 	}
 	if versionErr := s.DatabaseForTesting().QueryRow(`SELECT version FROM work_items WHERE id=?`, "work-holder").Scan(&version); versionErr != nil || version != 3 {
@@ -202,7 +202,7 @@ func TestResourceClaimReplayRefusalsAndAtomicity(t *testing.T) {
 	}
 
 	ownership := invoke("resource_release", map[string]any{"work_id": "work-contender", "resource_key": "fence:prod/pause", "expected_version": 2, "idempotency_key": "release-not-owner"})
-	if ownership.Outcome != OutcomeError || ownership.Error == nil {
+	if ownership.Outcome != agentcontract.OutcomeError || ownership.Error == nil {
 		t.Fatalf("ownership refusal=%+v", ownership)
 	}
 	var state, holder string

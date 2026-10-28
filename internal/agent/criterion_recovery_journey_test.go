@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -84,7 +85,7 @@ func TestCriterion38RecoveryReevaluationJourney(t *testing.T) {
 	delivery := map[string]any{"delivery_artifact": "artifact:spine-value", "delivery_state": "asserted"}
 	version := f.read(t).Pinned.Pin.Version
 	refused := f.action(t, "record_delivery", delivery)
-	if refused.Error == nil || refused.Error.Kind != "missing_evidence" || refused.Error.EffectState != EffectNone || f.read(t).Pinned.Pin.Version != version {
+	if refused.Error == nil || refused.Error.Kind != "missing_evidence" || refused.Error.EffectState != agentcontract.EffectNone || f.read(t).Pinned.Pin.Version != version {
 		t.Fatalf("changed obligation used the old Review or committed an effect: %+v", refused.Error)
 	}
 	f.recordJob(t)

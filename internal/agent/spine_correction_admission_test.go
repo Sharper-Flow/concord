@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -47,7 +48,7 @@ func TestSpineCurrentReviewCorrectionAdmission(t *testing.T) {
 		}
 		response := f.action(t, action, payload)
 		after := f.read(t)
-		if response.Outcome != OutcomeError || response.Error == nil || response.Error.Kind != mapFailureKind(failure.Kind) || response.Error.Message != failure.Detail || response.Error.EffectState != EffectNone {
+		if response.Outcome != agentcontract.OutcomeError || response.Error == nil || response.Error.Kind != mapFailureKind(failure.Kind) || response.Error.Message != failure.Detail || response.Error.EffectState != agentcontract.EffectNone {
 			t.Fatalf("mutation disagrees with preflight: preflight=%v mutation=%+v", err, response.Error)
 		}
 		if !reflect.DeepEqual(effects, premiseConsentSnapshot(t, f.s)) || !reflect.DeepEqual(before.Pinned.Pin.Review, after.Pinned.Pin.Review) || !reflect.DeepEqual(before.Pinned.Contract, after.Pinned.Contract) {

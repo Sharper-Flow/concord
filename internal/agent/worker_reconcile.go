@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -17,7 +18,7 @@ type workerReconcileInput struct {
 
 // Preparation and the post-settlement receipt use the same scoped read of the
 // existing attempt. Neither opens a dispatch window or accepts worker evidence.
-func (r runtime) planWorkerReconcile(_ context.Context, base Envelope, raw []byte, plan *mutationPlan) (Envelope, error, bool) {
+func (r runtime) planWorkerReconcile(_ context.Context, base agentcontract.Envelope, raw []byte, plan *mutationPlan) (agentcontract.Envelope, error, bool) {
 	var in workerReconcileInput
 	if err := decodeOperationInput(raw, &in); err != nil {
 		return base, err, true
@@ -26,7 +27,7 @@ func (r runtime) planWorkerReconcile(_ context.Context, base Envelope, raw []byt
 	if in.Approval != nil {
 		plan.approval = in.Approval.ApprovalRef
 	}
-	plan.effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
+	plan.effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []agentcontract.ChangedRef, error) {
 		recovery, err := store.WorkerRecoveryContextTx(ctx, tx, in.WorkID, in.AttemptID, r.Envelope.AmbientProjectID, r.Envelope.Worktree, "client:"+grant.ClientRef+":"+grant.PrincipalRef)
 		if err != nil {
 			return nil, nil, nil, err
@@ -34,5 +35,5 @@ func (r runtime) planWorkerReconcile(_ context.Context, base Envelope, raw []byt
 		payload, err := json.Marshal(map[string]any{"changed_refs": []any{}, "next_valid_intents": []any{}, "worker_recovery": recovery})
 		return payload, nil, nil, err
 	}
-	return Envelope{}, nil, false
+	return agentcontract.Envelope{}, nil, false
 }

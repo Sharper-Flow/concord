@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -97,7 +98,7 @@ func TestSpineReviewRepairsCandidateThroughMainDelivery(t *testing.T) {
 	}
 	held := f.action(t, "record_delivery", delivery)
 	afterHeld := f.read(t).Pinned.Pin
-	if held.Outcome != OutcomeError || held.Error == nil || held.Error.Kind != "missing_evidence" || held.Error.Message != preflightFailure.Detail || held.Error.EffectState != EffectNone || afterHeld.Version != unaccepted.Version || afterHeld.Lifecycle != unaccepted.Lifecycle || !reflect.DeepEqual(afterHeld.Review, unaccepted.Review) {
+	if held.Outcome != agentcontract.OutcomeError || held.Error == nil || held.Error.Kind != "missing_evidence" || held.Error.Message != preflightFailure.Detail || held.Error.EffectState != agentcontract.EffectNone || afterHeld.Version != unaccepted.Version || afterHeld.Lifecycle != unaccepted.Lifecycle || !reflect.DeepEqual(afterHeld.Review, unaccepted.Review) {
 		t.Fatalf("an unaccepted ready report advanced execution: %+v", held)
 	}
 	acceptInput := map[string]any{"work_id": f.work, "expected_version": unaccepted.Version, "action_id": "accept_worker_result", "idempotency_key": "spine-main-accept-repair", "fields": map[string]any{"attempt_id": attempt, "attempt_epoch": epoch}}
@@ -113,7 +114,7 @@ func TestSpineReviewRepairsCandidateThroughMainDelivery(t *testing.T) {
 	}
 	conflict := f.action(t, "reject_worker_result", map[string]any{"attempt_id": attempt, "attempt_epoch": epoch, "diagnosis": "Conflicting disposition of the accepted repair.", "strategy": "Retain the accepted candidate.", "predicate_ids": []string{"predicate:primary"}, "evidence_refs": []string{checked.OperationRef}})
 	afterConflict := f.read(t).Pinned.Pin
-	if conflict.Outcome != OutcomeError || conflict.Error == nil || conflict.Error.EffectState != EffectNone || afterConflict.Version != accepted.Version || afterConflict.Lifecycle != accepted.Lifecycle || !reflect.DeepEqual(afterConflict.Review, accepted.Review) {
+	if conflict.Outcome != agentcontract.OutcomeError || conflict.Error == nil || conflict.Error.EffectState != agentcontract.EffectNone || afterConflict.Version != accepted.Version || afterConflict.Lifecycle != accepted.Lifecycle || !reflect.DeepEqual(afterConflict.Review, accepted.Review) {
 		t.Fatalf("a conflicting rejection changed the accepted repair: %+v", conflict)
 	}
 	spineOK(t, f.action(t, "bind_evidence", map[string]any{"evidence_kind": "verification", "evidence_ref": f.proof}))
@@ -122,7 +123,7 @@ func TestSpineReviewRepairsCandidateThroughMainDelivery(t *testing.T) {
 	beforeMissingProof := f.read(t).Pinned.Pin
 	missingProof := f.action(t, "complete", map[string]any{"impact_verdict": "non-breaking"})
 	afterMissingProof := f.read(t).Pinned.Pin
-	if missingProof.Outcome != OutcomeError || missingProof.Error == nil || missingProof.Error.Kind != "missing_evidence" || missingProof.Error.Message != "premise confirmation requires a recorded workflow verdict" || missingProof.Error.EffectState != EffectNone || afterMissingProof.Version != beforeMissingProof.Version || afterMissingProof.Lifecycle != beforeMissingProof.Lifecycle || !reflect.DeepEqual(afterMissingProof.Review, beforeMissingProof.Review) {
+	if missingProof.Outcome != agentcontract.OutcomeError || missingProof.Error == nil || missingProof.Error.Kind != "missing_evidence" || missingProof.Error.Message != "premise confirmation requires a recorded workflow verdict" || missingProof.Error.EffectState != agentcontract.EffectNone || afterMissingProof.Version != beforeMissingProof.Version || afterMissingProof.Lifecycle != beforeMissingProof.Lifecycle || !reflect.DeepEqual(afterMissingProof.Review, beforeMissingProof.Review) {
 		t.Fatalf("completion before criterion proof: outcome=%s error=%+v", missingProof.Outcome, missingProof.Error)
 	}
 	unrelatedResponse := spineOK(t, f.call(t, "concord_work_transition", "worktree_verify", map[string]any{"work_id": f.work, "command": []string{"git", "status", "--porcelain"}, "idempotency_key": "spine-unrelated-green"}))
@@ -141,7 +142,7 @@ func TestSpineReviewRepairsCandidateThroughMainDelivery(t *testing.T) {
 			before := f.read(t).Pinned.Pin
 			response := f.action(t, "record_verdict", map[string]any{"verdicts": []map[string]any{{"predicate_id": tc.predicate, "receipt_refs": []string{tc.ref}}}})
 			after := f.read(t).Pinned.Pin
-			if response.Outcome != OutcomeError || response.Error == nil || response.Error.Kind != tc.kind || response.Error.EffectState != EffectNone || before.Version != after.Version || before.Lifecycle != after.Lifecycle || !reflect.DeepEqual(before.Review, after.Review) {
+			if response.Outcome != agentcontract.OutcomeError || response.Error == nil || response.Error.Kind != tc.kind || response.Error.EffectState != agentcontract.EffectNone || before.Version != after.Version || before.Lifecycle != after.Lifecycle || !reflect.DeepEqual(before.Review, after.Review) {
 				t.Fatalf("proof refusal changed current state or returned the wrong requirement: %+v", response)
 			}
 		})
@@ -159,7 +160,7 @@ func TestSpineReviewRepairsCandidateThroughMainDelivery(t *testing.T) {
 	}
 	missingConfirmation := f.action(t, "complete", map[string]any{"impact_verdict": "non-breaking"})
 	afterConfirmationRefusal := f.read(t).Pinned.Pin
-	if missingConfirmation.Outcome != OutcomeError || missingConfirmation.Error == nil || missingConfirmation.Error.Kind != "invalid_transition" || missingConfirmation.Error.Message != "workflow action is not declared on the current step" || missingConfirmation.Error.EffectState != EffectNone || afterConfirmationRefusal.Version != beforeConfirmation.Version || afterConfirmationRefusal.Lifecycle != beforeConfirmation.Lifecycle || !reflect.DeepEqual(afterConfirmationRefusal.Review, beforeConfirmation.Review) {
+	if missingConfirmation.Outcome != agentcontract.OutcomeError || missingConfirmation.Error == nil || missingConfirmation.Error.Kind != "invalid_transition" || missingConfirmation.Error.Message != "workflow action is not declared on the current step" || missingConfirmation.Error.EffectState != agentcontract.EffectNone || afterConfirmationRefusal.Version != beforeConfirmation.Version || afterConfirmationRefusal.Lifecycle != beforeConfirmation.Lifecycle || !reflect.DeepEqual(afterConfirmationRefusal.Review, beforeConfirmation.Review) {
 		t.Fatalf("completion before premise confirmation: outcome=%s error=%+v", missingConfirmation.Outcome, missingConfirmation.Error)
 	}
 	pin := f.read(t).Pinned.Pin
@@ -175,7 +176,7 @@ func TestSpineReviewRepairsCandidateThroughMainDelivery(t *testing.T) {
 	beforeChangedSubject := f.read(t).Pinned.Pin
 	changedSubject := f.action(t, "complete", map[string]any{"impact_verdict": "non-breaking"})
 	afterChangedSubject := f.read(t).Pinned.Pin
-	if changedSubject.Outcome != OutcomeError || changedSubject.Error == nil || changedSubject.Error.Kind != "stale_requires_review" || changedSubject.Error.EffectState != EffectNone || afterChangedSubject.Version != beforeChangedSubject.Version || afterChangedSubject.Lifecycle != beforeChangedSubject.Lifecycle || !reflect.DeepEqual(afterChangedSubject.Review, beforeChangedSubject.Review) {
+	if changedSubject.Outcome != agentcontract.OutcomeError || changedSubject.Error == nil || changedSubject.Error.Kind != "stale_requires_review" || changedSubject.Error.EffectState != agentcontract.EffectNone || afterChangedSubject.Version != beforeChangedSubject.Version || afterChangedSubject.Lifecycle != beforeChangedSubject.Lifecycle || !reflect.DeepEqual(afterChangedSubject.Review, beforeChangedSubject.Review) {
 		t.Fatalf("completion did not revalidate the final checkout against C: %+v", changedSubject)
 	}
 	gitRun(t, f.path, "checkout", "--detach", c.Commit)

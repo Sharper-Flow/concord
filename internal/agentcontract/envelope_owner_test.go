@@ -113,27 +113,7 @@ func TestEnvelopeModelHasOneExclusiveOwner(t *testing.T) {
 
 func TestRecoveryActionVocabularyHasOneExclusiveOwner(t *testing.T) {
 	t.Parallel()
-	raw, err := os.ReadFile(filepath.Join("..", "..", "contracts", "agent-tool-envelope.schema.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	var schema struct {
-		Defs map[string]struct {
-			Properties map[string]struct {
-				Enum []string `json:"enum"`
-			} `json:"properties"`
-		} `json:"$defs"`
-	}
-	if err := json.Unmarshal(raw, &schema); err != nil {
-		t.Fatal(err)
-	}
-	allowed := map[string]bool{}
-	for _, kind := range schema.Defs["recoveryAction"].Properties["kind"].Enum {
-		allowed[kind] = true
-	}
-	if len(allowed) == 0 {
-		t.Fatal("contract has no recovery action vocabulary")
-	}
+	allowed := contractRecoveryKinds(t)
 	var copies []string
 	for _, source := range envelopeOwnerSources(t) {
 		ast.Inspect(source.file, func(node ast.Node) bool {
@@ -193,4 +173,32 @@ func TestRecoveryActionVocabularyHasOneExclusiveOwner(t *testing.T) {
 	if len(copies) != 1 {
 		t.Errorf("recovery vocabulary has %d declarations, want one: %v", len(copies), copies)
 	}
+}
+
+// contractRecoveryKinds reads the recovery action enum from the envelope
+// contract, which owns it.
+func contractRecoveryKinds(t *testing.T) map[string]bool {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join("..", "..", "contracts", "agent-tool-envelope.schema.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var schema struct {
+		Defs map[string]struct {
+			Properties map[string]struct {
+				Enum []string `json:"enum"`
+			} `json:"properties"`
+		} `json:"$defs"`
+	}
+	if err := json.Unmarshal(raw, &schema); err != nil {
+		t.Fatal(err)
+	}
+	allowed := map[string]bool{}
+	for _, kind := range schema.Defs["recoveryAction"].Properties["kind"].Enum {
+		allowed[kind] = true
+	}
+	if len(allowed) == 0 {
+		t.Fatal("contract has no recovery action vocabulary")
+	}
+	return allowed
 }

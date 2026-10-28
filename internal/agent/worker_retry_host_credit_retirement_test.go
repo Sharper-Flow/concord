@@ -28,7 +28,7 @@ func TestHostRestartDoesNotSupplyRetryAuthority(t *testing.T) {
 			"work_id": "work-1", "expected_version": pin.Version, "action_id": "dispatch_worker", "idempotency_key": attemptID,
 			"fields": map[string]any{"attempt_id": attemptID, "worker_packet": retryMutationPacket(t, s, attemptID, pin.Correction)},
 		})}
-		if result := dispatchMutation(t, s, service, request, env); result.Outcome != OutcomeOK {
+		if result := dispatchMutation(t, s, service, request, env); result.Outcome != agentcontract.OutcomeOK {
 			t.Fatalf("authorize round %d: %+v", round, result.Error)
 		}
 		failure := agentWorkerFailedAttributedEvent("host-terminal:"+attemptID, store.WorkerFailedPayload{
@@ -95,7 +95,7 @@ func TestHostRestartDoesNotSupplyRetryAuthority(t *testing.T) {
 		if got := verifyWallDispatchCompletions(t, s, "attempt:work-1:no-host-credit"); got != 0 {
 			t.Fatalf("host-credit refusal recorded %d dispatch completions", got)
 		}
-	} else if result.Outcome != OutcomeOK || verifyWallDispatchCompletions(t, s, "attempt:work-1:no-host-credit") != 1 {
+	} else if result.Outcome != agentcontract.OutcomeOK || verifyWallDispatchCompletions(t, s, "attempt:work-1:no-host-credit") != 1 {
 		t.Fatalf("ordinary admission did not record exactly one authorization: %+v", result)
 	}
 	// Process identity is not an admission basis, even when the request can

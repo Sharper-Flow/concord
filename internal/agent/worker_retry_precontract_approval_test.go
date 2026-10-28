@@ -36,7 +36,7 @@ func TestPreContractWorkerRetryOpensFreshAttemptWithoutConsent(t *testing.T) {
 	}
 	before := verifyWallChallenges(t, s)
 	result := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: raw}, env)
-	if result.Outcome != OutcomeOK {
+	if result.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("pre-contract retry without consent = %+v, want ok", result.Error)
 	}
 	if got := verifyWallChallenges(t, s); got != before {
@@ -51,7 +51,7 @@ func TestPreContractWorkerRetryOpensFreshAttemptWithoutConsent(t *testing.T) {
 	}
 	launches := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM worker_attempts WHERE work_id='work-1'`)
 	replay := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: raw}, env)
-	if replay.Outcome != OutcomeOK || !replay.Replayed {
+	if replay.Outcome != agentcontract.OutcomeOK || !replay.Replayed {
 		t.Fatalf("retry replay did not return its original response: %+v", replay)
 	}
 	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM worker_attempts WHERE work_id='work-1'`); got != launches {
@@ -140,7 +140,7 @@ func seedFailedPreContractResearchRetry(t *testing.T, s *store.Store, service *S
 	initialEnv := mutationEnvelope(grant, scopeVersion)
 	initialInput := retryJSON(map[string]any{"work_id": "work-1", "expected_version": 4, "action_id": "dispatch_worker", "idempotency_key": "precontract-initial", "fields": map[string]any{"attempt_id": attemptID, "worker_packet": preContractRetryPacket(t, s, "work-1", "investigate", attemptID, nil)}})
 	initial := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: initialInput}, initialEnv)
-	if initial.Outcome != OutcomeOK {
+	if initial.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("seed initial pre-contract research dispatch: %+v", initial.Error)
 	}
 	// The worker session's own lane dispatch precedes its terminal fact;

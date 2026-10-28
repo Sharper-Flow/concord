@@ -47,7 +47,7 @@ func testSupersedeContractDispatch(t *testing.T, stage string) {
 		contractFields["law_change_reason"] = "Correct the declared Domain registry."
 	}
 	contract, _ := approvedWorkflowContract(t, s, service, grant, privateKey, env, version, contractFields, "supersede-approve-contract")
-	if contract.Outcome != OutcomeOK {
+	if contract.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("approve_contract=%+v", contract.Error)
 	}
 	version = recordApprovedWorkDesign(t, s, service, env, "work-1", "supersede-design")
@@ -98,7 +98,7 @@ func testSupersedeContractDispatch(t *testing.T, stage string) {
 			t.Fatal(err)
 		}
 		dispatched := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: payload}, env)
-		if dispatched.Outcome != OutcomeOK {
+		if dispatched.Outcome != agentcontract.OutcomeOK {
 			t.Fatalf("authorize dispatch window: %+v", dispatched.Error)
 		}
 		version = workOneVersion(t, s)
@@ -162,7 +162,7 @@ func testSupersedeContractDispatch(t *testing.T, stage string) {
 	}
 	challenge := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: raw}, env)
 	if stage == "pending-dispatch" {
-		if challenge.Outcome != OutcomeError || challenge.Error == nil || challenge.Error.Kind == "approval_required" {
+		if challenge.Outcome != agentcontract.OutcomeError || challenge.Error == nil || challenge.Error.Kind == "approval_required" {
 			t.Fatalf("pending dispatch admitted correction: %+v", challenge.Error)
 		}
 		if workOneVersion(t, s) != version {
@@ -170,7 +170,7 @@ func testSupersedeContractDispatch(t *testing.T, stage string) {
 		}
 		return
 	}
-	if challenge.Outcome != OutcomeError || challenge.Error == nil || challenge.Error.Kind != "approval_required" {
+	if challenge.Outcome != agentcontract.OutcomeError || challenge.Error == nil || challenge.Error.Kind != "approval_required" {
 		t.Fatalf("challenge outcome=%s error=%+v", challenge.Outcome, challenge.Error)
 	}
 	challengeRef, ok := challenge.Error.Details["approval_ref"].(string)
@@ -190,12 +190,12 @@ func testSupersedeContractDispatch(t *testing.T, stage string) {
 	env.HostApproval = signedHostApproval(privateKey, challengeRef, mutationDigest("concord_work_transition", "workflow_action", env, approvedRaw), scope, versions, grant.SessionRef, grant.AgentRef, env.Worktree, fixedTime(), nonceForChallenge(challengeRef))
 	tampered := bytes.Replace(approvedRaw, []byte("corrected premise"), []byte("unapproved premise"), 1)
 	refused := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: tampered}, env)
-	if refused.Outcome != OutcomeError || refused.Error == nil || refused.Error.Kind != "approval_invalid" || workOneVersion(t, s) != version {
+	if refused.Outcome != agentcontract.OutcomeError || refused.Error == nil || refused.Error.Kind != "approval_invalid" || workOneVersion(t, s) != version {
 		t.Fatalf("changed contract reused approval: outcome=%s error=%+v", refused.Outcome, refused.Error)
 	}
 	tamperedDesign := bytes.Replace(approvedRaw, []byte("corrected design"), []byte("unapproved design"), 1)
 	refused = dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: tamperedDesign}, env)
-	if refused.Outcome != OutcomeError || refused.Error == nil || refused.Error.Kind != "approval_invalid" || workOneVersion(t, s) != version {
+	if refused.Outcome != agentcontract.OutcomeError || refused.Error == nil || refused.Error.Kind != "approval_invalid" || workOneVersion(t, s) != version {
 		t.Fatalf("changed design reused approval: outcome=%s error=%+v", refused.Outcome, refused.Error)
 	}
 	var stale map[string]any
@@ -208,11 +208,11 @@ func testSupersedeContractDispatch(t *testing.T, stage string) {
 		t.Fatal(err)
 	}
 	refused = dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: staleRaw}, env)
-	if refused.Outcome != OutcomeError || refused.Error == nil || refused.Error.Kind != "version_conflict" || workOneVersion(t, s) != version {
+	if refused.Outcome != agentcontract.OutcomeError || refused.Error == nil || refused.Error.Kind != "version_conflict" || workOneVersion(t, s) != version {
 		t.Fatalf("stale version admitted correction: outcome=%s error=%+v", refused.Outcome, refused.Error)
 	}
 	response := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: approvedRaw}, env)
-	if response.Outcome != OutcomeOK {
+	if response.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("approved supersede=%+v", response.Error)
 	}
 	var activeVersion int
@@ -281,7 +281,7 @@ func testSupersedeContractDispatch(t *testing.T, stage string) {
 		if !errors.As(boundaryErr, &failure) || failure.Kind != store.KindDomainOverlap {
 			t.Fatalf("correction bypassed subsequent overlap admission: %v", boundaryErr)
 		}
-		if _, err := json.Marshal(failureEnvelope(NewBase("overlap-check", "concord_work_transition", "workflow_action"), boundaryErr)); err != nil {
+		if _, err := json.Marshal(failureEnvelope(agentcontract.NewBase("overlap-check", "concord_work_transition", "workflow_action"), boundaryErr)); err != nil {
 			t.Fatalf("overlap refusal cannot be serialized: %v", err)
 		}
 	}
@@ -314,7 +314,7 @@ func testSupersedeContractDispatch(t *testing.T, stage string) {
 	}
 	committedVersion := workOneVersion(t, s)
 	replayed := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: approvedRaw}, env)
-	if replayed.Outcome != OutcomeOK || !replayed.Replayed || workOneVersion(t, s) != committedVersion {
+	if replayed.Outcome != agentcontract.OutcomeOK || !replayed.Replayed || workOneVersion(t, s) != committedVersion {
 		t.Fatalf("correction replay mutated work or failed: outcome=%s replayed=%v error=%+v", replayed.Outcome, replayed.Replayed, replayed.Error)
 	}
 	if designs := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM workflow_design_records WHERE work_id='work-1'`); designs != 2 {

@@ -27,7 +27,7 @@ func TestRefusedWorkerProvenanceRecoversWithoutAcceptedEvidence(t *testing.T) {
 				"work_id": "work-1", "expected_version": workOneVersion(t, s), "action_id": "dispatch_worker", "idempotency_key": "authorize-refused-provenance",
 				"fields": map[string]any{"attempt_id": failedID, "worker_packet": retryMutationPacket(t, s, failedID, nil)},
 			})}, env)
-			if first.Outcome != OutcomeOK {
+			if first.Outcome != agentcontract.OutcomeOK {
 				t.Fatalf("authorize worker: %+v", first.Error)
 			}
 			before, err := store.ReadWorkPin(ctx, s, "work-1")
@@ -108,7 +108,7 @@ func TestRefusedWorkerProvenanceRecoversWithoutAcceptedEvidence(t *testing.T) {
 			receipt := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "worker_abandon", Input: retryJSON(map[string]any{
 				"work_id": "work-1", "attempt_id": failedID, "lane_id": lane.ID, "detail": "host provenance refused", "idempotency_key": "abandon-refused-provenance",
 			})}, env)
-			if receipt.Outcome != OutcomeOK {
+			if receipt.Outcome != agentcontract.OutcomeOK {
 				t.Fatalf("abandonment receipt: %+v", receipt.Error)
 			}
 			// A distinct coordinator retries after the derived disposition.
@@ -146,7 +146,7 @@ func TestRefusedWorkerProvenanceRecoversWithoutAcceptedEvidence(t *testing.T) {
 			// consequence_v1 keeps this engineering retry on ordinary authority.
 			challengesBefore := verifyWallChallenges(t, s)
 			retry := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: retryJSON(retryInput)}, env)
-			if retry.Outcome != OutcomeOK {
+			if retry.Outcome != agentcontract.OutcomeOK {
 				t.Fatalf("fresh retry: %+v", retry.Error)
 			}
 			if got := verifyWallChallenges(t, s); got != challengesBefore {

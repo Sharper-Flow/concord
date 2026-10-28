@@ -67,29 +67,6 @@ func contractRecoveryKinds(t *testing.T) map[string]bool {
 	return kinds
 }
 
-// TestValidatorRecoveryKindsMatchTheContract holds the validator's copy of the
-// enum to the contract that owns it. A kind added to the contract and not to
-// the validator is refused at marshal despite being contractual; a kind added
-// to the validator alone is accepted despite not being contractual.
-func TestValidatorRecoveryKindsMatchTheContract(t *testing.T) {
-	for kind := range contractRecoveryKinds(t) {
-		if err := validateRecovery(kind); err != nil {
-			t.Errorf("the contract declares recovery action %q and the validator refuses it: %v", kind, err)
-		}
-	}
-	// The reverse direction: a value the validator accepts must be contractual.
-	// validateRecovery holds its set privately, so probe it with the contract's
-	// complement rather than reading the map.
-	for _, notContractual := range []string{"", "supply_pack_or_work", "check_the_owner", "use_initiative_operation"} {
-		if contractRecoveryKinds(t)[notContractual] {
-			continue
-		}
-		if err := validateRecovery(notContractual); err == nil {
-			t.Errorf("the validator accepts recovery action %q, which the contract does not declare", notContractual)
-		}
-	}
-}
-
 // refusalConstructors names the functions that build a refusal from a literal
 // recovery action, against the zero-based position of that argument. Both
 // reach the same marshal validator, so both must carry a contractual kind.

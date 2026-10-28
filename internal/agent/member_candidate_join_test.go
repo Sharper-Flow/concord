@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -181,7 +182,7 @@ func memberJoinJob(t *testing.T, f *spineFixture, name string) {
 	}))
 }
 
-func memberJoinDispatch(t *testing.T, f *spineFixture, laneID, attempt string, job store.WorkerPacketJob, admit bool) (Envelope, int64) {
+func memberJoinDispatch(t *testing.T, f *spineFixture, laneID, attempt string, job store.WorkerPacketJob, admit bool) (agentcontract.Envelope, int64) {
 	t.Helper()
 	lane, _ := builtinLane(laneID)
 	job.CallerExclusions = nil

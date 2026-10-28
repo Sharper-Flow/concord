@@ -95,15 +95,15 @@ func assertWorkerEvidenceNonceCause(t *testing.T, err error, code int) {
 
 func assertWorkerEvidenceNonceEnvelope(t *testing.T, err error, detail string) {
 	t.Helper()
-	out := failureEnvelope(NewBase("worker-evidence-nonce-fault", "concord_product_view", "resolve"), err)
+	out := failureEnvelope(agentcontract.NewBase("worker-evidence-nonce-fault", "concord_product_view", "resolve"), err)
 	if out.Error == nil || out.Error.Kind != "unreachable" {
 		t.Fatalf("public kind = %+v for fault %v, want unreachable", out.Error, err)
 	}
 	if !out.Error.RetrySafe {
 		t.Fatal("the public envelope must keep the fault retry-safe")
 	}
-	if out.Authority != AuthorityUnreachable {
-		t.Fatalf("authority = %q, want %q", out.Authority, AuthorityUnreachable)
+	if out.Authority != agentcontract.AuthorityUnreachable {
+		t.Fatalf("authority = %q, want %q", out.Authority, agentcontract.AuthorityUnreachable)
 	}
 	if !strings.HasPrefix(out.Error.Message, detail+": ") {
 		t.Fatalf("public message = %q, want the detail followed by its driver cause", out.Error.Message)

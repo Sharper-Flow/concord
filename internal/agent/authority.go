@@ -182,7 +182,7 @@ func canonicalPolicy(policy TrustedClientPolicy) canonicalPolicyJSON {
 	return canonicalPolicyJSON{string(a), string(b), string(c), string(d)}
 }
 func validTrustedPolicy(policy TrustedClientPolicy) bool {
-	if !bounded(policy.PrincipalRef, 1, 128) {
+	if !agentcontract.BoundedBytes(policy.PrincipalRef, 1, 128) {
 		return false
 	}
 	return validPolicyGrants(policy)
@@ -193,7 +193,7 @@ func validTrustedPolicy(policy TrustedClientPolicy) bool {
 // and scope-string bounds. The principal is deliberately absent because an
 // expansion cannot change it.
 func validPolicyGrants(policy TrustedClientPolicy) bool {
-	if len(policy.Capabilities) > 32 || len(policy.ProductScope) > 100 || len(policy.ProjectScope) > 100 || len(policy.AgentScope) > 100 || !unique(capabilityStrings(policy.Capabilities)) || !unique(policy.ProductScope) || !unique(policy.ProjectScope) || !unique(policy.AgentScope) {
+	if len(policy.Capabilities) > 32 || len(policy.ProductScope) > 100 || len(policy.ProjectScope) > 100 || len(policy.AgentScope) > 100 || !agentcontract.UniqueNonEmpty(capabilityStrings(policy.Capabilities)) || !agentcontract.UniqueNonEmpty(policy.ProductScope) || !agentcontract.UniqueNonEmpty(policy.ProjectScope) || !agentcontract.UniqueNonEmpty(policy.AgentScope) {
 		return false
 	}
 	for _, capability := range policy.Capabilities {
@@ -203,12 +203,12 @@ func validPolicyGrants(policy TrustedClientPolicy) bool {
 		// grant can carry either. worker_dispatch is policy-bound because
 		// CD-0059 D3 makes the nested-worker prohibition structural by
 		// denying workers the capability at the policy layer.
-		if !oneOf(string(capability), "product_read", "work_define", "work_transition", "work_relate", "work_compact", "cross_scope", "research", string(CapabilityWorkerEvidence), string(CapabilityWorkerDispatch)) {
+		if !slices.Contains([]string{"product_read", "work_define", "work_transition", "work_relate", "work_compact", "cross_scope", "research", string(CapabilityWorkerEvidence), string(CapabilityWorkerDispatch)}, string(capability)) {
 			return false
 		}
 	}
 	for _, value := range append(append(append([]string{}, policy.ProductScope...), policy.ProjectScope...), policy.AgentScope...) {
-		if !bounded(value, 1, 128) {
+		if !agentcontract.BoundedBytes(value, 1, 128) {
 			return false
 		}
 	}
@@ -657,7 +657,7 @@ func authorityRefusal(detail string) error {
 // authorityRouteRefusal marks an authorization refusal whose remedy is a
 // declared route of workflow actions. route is ordered: the caller executes
 // it front to back. unauthorized is deliberately absent from
-// enforcedRecoveryCouplings, so the refusal carries the route it admits in
+// the agentcontract recovery coupling table, so the refusal carries the route it admits in
 // RecoveryAction.RequiredRefs instead of the standing contact_operator
 // default that names no operation.
 func authorityRouteRefusal(detail string, route ...string) error {
@@ -1042,7 +1042,7 @@ func (s *Service) CreateApprovalChallengeTx(ctx context.Context, tx *store.Trans
 	}
 	// A challenge must fit the typed prompt before it enters durable state.
 	// Details are not a second owner or an overflow channel for its bindings.
-	if len(approvalScopeBindings(spec.Scope)) > maxConsequenceSummaryBindings || len(approvalVersionBindings(spec.Versions)) > maxConsequenceSummaryBindings {
+	if len(approvalScopeBindings(spec.Scope)) > agentcontract.MaxConsequenceSummaryBindings || len(approvalVersionBindings(spec.Versions)) > agentcontract.MaxConsequenceSummaryBindings {
 		return "", newRuntimeFailure("limit_exceeded", "approval scope or version bindings exceed the consequence summary capacity", "reduce_limit", false)
 	}
 	now := s.now()
@@ -1200,7 +1200,7 @@ func validChallengeScopeBinding(key string, value any) bool {
 		return err == nil
 	case "product_id", "scope_version", "project_id", "client_ref", "policy_version", "failed_attempt_id", "held_attempt_holder":
 		text, ok := value.(string)
-		return ok && bounded(text, 1, 128)
+		return ok && agentcontract.BoundedBytes(text, 1, 128)
 	case "role":
 		text, ok := value.(string)
 		return ok && (text == "primary" || text == "secondary")
@@ -1226,7 +1226,7 @@ func validChallengeScopeIDs(value any, bound int) bool {
 		}
 		for _, raw := range ids {
 			text, ok := raw.(string)
-			if !ok || !bounded(text, 1, 128) {
+			if !ok || !agentcontract.BoundedBytes(text, 1, 128) {
 				return false
 			}
 		}
@@ -1235,7 +1235,7 @@ func validChallengeScopeIDs(value any, bound int) bool {
 			return false
 		}
 		for _, text := range ids {
-			if !bounded(text, 1, 128) {
+			if !agentcontract.BoundedBytes(text, 1, 128) {
 				return false
 			}
 		}
@@ -1409,8 +1409,8 @@ func (s *Service) ApprovalAuthorityActorTx(ctx context.Context, tx *store.Transa
 // summary is never stored, so nothing it describes can drift without
 // invalidating the challenge that carries the same facts. Tool and operation
 // come from the validated invocation, never from caller input.
-func consequenceSummaryFor(tool, operation string, spec ApprovalChallengeSpec) *ConsequenceSummary {
-	return &ConsequenceSummary{
+func consequenceSummaryFor(tool, operation string, spec ApprovalChallengeSpec) *agentcontract.ConsequenceSummary {
+	return &agentcontract.ConsequenceSummary{
 		Tool:            tool,
 		Operation:       operation,
 		Consequence:     spec.Consequence,

@@ -34,7 +34,7 @@ func TestPublicDefectJourneyThroughRealResearchCompletion(t *testing.T) {
 	}
 	env := mutationEnvelope(grant, scopeVersion)
 	env.Worktree = worktree
-	capture := func(requestID, input string) Envelope {
+	capture := func(requestID, input string) agentcontract.Envelope {
 		t.Helper()
 		env.RequestID = requestID
 		response, dispatchErr := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_define", Operation: "capture", Input: json.RawMessage(input)}, env)
@@ -43,7 +43,7 @@ func TestPublicDefectJourneyThroughRealResearchCompletion(t *testing.T) {
 		}
 		return response
 	}
-	action := func(actorEnv CallEnvelope, workID, actionID string, fields map[string]any, key string) Envelope {
+	action := func(actorEnv CallEnvelope, workID, actionID string, fields map[string]any, key string) agentcontract.Envelope {
 		t.Helper()
 		version := workVersion(t, s, workID)
 		input := map[string]any{"work_id": workID, "expected_version": version, "action_id": actionID, "idempotency_key": key}
@@ -62,13 +62,13 @@ func TestPublicDefectJourneyThroughRealResearchCompletion(t *testing.T) {
 	// challenge binds. The typed consequence summary is the only wire owner
 	// of the challenge's scope and version bindings; the details carry the
 	// reference metadata alone.
-	approvedAction := func(actorEnv CallEnvelope, input map[string]any, key string) Envelope {
+	approvedAction := func(actorEnv CallEnvelope, input map[string]any, key string) agentcontract.Envelope {
 		t.Helper()
 		raw := retryJSON(input)
 		request := InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: raw}
 		actorEnv.RequestID = "request:" + key
 		challenge := dispatchMutation(t, s, service, request, actorEnv)
-		if challenge.Outcome == OutcomeOK {
+		if challenge.Outcome == agentcontract.OutcomeOK {
 			return challenge
 		}
 		if challenge.Error == nil || challenge.Error.Kind != "approval_required" {
@@ -109,7 +109,7 @@ func TestPublicDefectJourneyThroughRealResearchCompletion(t *testing.T) {
 	// 1. The first bug of the shape is admitted with its intake.
 	first := capture("defect-journey-first",
 		`{"title":"Checksum mismatch","value_statement":"Uploads lose their checksum","kind":"bug","project_ids":["project-1"],"idempotency_key":"defect-journey-first","defect_intake":{"failure_shape":"journey-upload-checksum","reproduction":"upload the fixture and compare digests","searched":"the Product work list and the public tracker","related_defect_ids":[]}}`)
-	if first.Outcome != OutcomeOK {
+	if first.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("first bug capture=%+v", first.Error)
 	}
 	bugID := (*first.ChangedRefs)[0].ID
@@ -117,7 +117,7 @@ func TestPublicDefectJourneyThroughRealResearchCompletion(t *testing.T) {
 	// 2. The repeat refuses and names the research route.
 	repeat := capture("defect-journey-repeat",
 		`{"title":"Checksum mismatch again","value_statement":"Uploads still lose their checksum","kind":"bug","project_ids":["project-1"],"idempotency_key":"defect-journey-repeat","defect_intake":{"failure_shape":"journey-upload-checksum","reproduction":"upload the fixture and compare digests again","searched":"the Product work list and the public tracker","related_defect_ids":[]}}`)
-	if repeat.Outcome != OutcomeError || repeat.Error == nil {
+	if repeat.Outcome != agentcontract.OutcomeError || repeat.Error == nil {
 		t.Fatalf("repeat capture outcome=%s, want typed refusal", repeat.Outcome)
 	}
 	for _, needle := range []string{"journey-upload-checksum", bugID, "research", "root_cause_work_id"} {
@@ -129,7 +129,7 @@ func TestPublicDefectJourneyThroughRealResearchCompletion(t *testing.T) {
 	// 3. The research capture carries the same intake as the cluster identity.
 	research := capture("defect-journey-research",
 		`{"title":"Why uploads lose checksums","value_statement":"The cluster needs a root cause","kind":"research","project_ids":["project-1"],"idempotency_key":"defect-journey-research","defect_intake":{"failure_shape":"journey-upload-checksum","reproduction":"upload the fixture and compare digests","searched":"the Product work list and the public tracker","related_defect_ids":["`+bugID+`"]}}`)
-	if research.Outcome != OutcomeOK {
+	if research.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("research capture=%+v", research.Error)
 	}
 	rcaID := (*research.ChangedRefs)[0].ID
@@ -143,10 +143,10 @@ func TestPublicDefectJourneyThroughRealResearchCompletion(t *testing.T) {
 		"decision_domains":   []string{"product"},
 	}
 	approved := approvedAction(env, map[string]any{"work_id": rcaID, "expected_version": workVersion(t, s, rcaID), "action_id": "approve_contract", "fields": contractFields, "idempotency_key": "defect-journey-contract"}, "defect-journey-contract")
-	if approved.Outcome != OutcomeOK {
+	if approved.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("approve_contract=%+v", approved.Error)
 	}
-	if response := action(env, rcaID, "record_finding", map[string]any{}, "defect-journey-finding"); response.Outcome != OutcomeOK {
+	if response := action(env, rcaID, "record_finding", map[string]any{}, "defect-journey-finding"); response.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("record_finding=%+v", response.Error)
 	}
 	const reportEvidence = "evidence:defect-journey-report"
@@ -156,10 +156,10 @@ func TestPublicDefectJourneyThroughRealResearchCompletion(t *testing.T) {
 		"evidence":        []map[string]any{{"kind": "artifact", "authority": "concord", "locator_kind": "reference", "locator": reportEvidence}},
 		"idempotency_key": "defect-journey-report",
 	})}, env)
-	if report.Outcome != OutcomeOK {
+	if report.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("record_report=%+v", report.Error)
 	}
-	if response := action(env, rcaID, "record_conclusion", map[string]any{}, "defect-journey-conclusion"); response.Outcome != OutcomeOK {
+	if response := action(env, rcaID, "record_conclusion", map[string]any{}, "defect-journey-conclusion"); response.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("record_conclusion=%+v", response.Error)
 	}
 
@@ -170,17 +170,17 @@ func TestPublicDefectJourneyThroughRealResearchCompletion(t *testing.T) {
 		"work_id": rcaID, "observation_id": "obs:a1b2c3d4e5f60718", "statement": "The checksum cluster investigation names its scope",
 		"refs": []string{rootDomain, bugID}, "idempotency_key": "defect-journey-observation",
 	})}, env)
-	if observation.Outcome != OutcomeOK {
+	if observation.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("observation_record=%+v", observation.Error)
 	}
 
 	// 5. Main associates the approved criterion with a selected sourced
 	// research finding. A report reference alone is not criterion proof.
-	researchMutation := func(operation string, input map[string]any) Envelope {
+	researchMutation := func(operation string, input map[string]any) agentcontract.Envelope {
 		t.Helper()
 		env.RequestID = input["idempotency_key"].(string)
 		response := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_define", Operation: operation, Input: retryJSON(input)}, env)
-		if response.Outcome != OutcomeOK {
+		if response.Outcome != agentcontract.OutcomeOK {
 			t.Fatalf("%s=%+v", operation, response.Error)
 		}
 		return response
@@ -204,7 +204,7 @@ func TestPublicDefectJourneyThroughRealResearchCompletion(t *testing.T) {
 		"research_bindings": []map[string]any{{"pack_id": packID, "revision": 1, "use_role": "verification_basis", "required": true}},
 	}
 	selected := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: retryJSON(contextInput)}, env)
-	if selected.Outcome != OutcomeOK {
+	if selected.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("research proof selection=%+v", selected.Error)
 	}
 	pin, err := store.ReadWorkPin(ctx, s, rcaID)
@@ -213,13 +213,13 @@ func TestPublicDefectJourneyThroughRealResearchCompletion(t *testing.T) {
 	}
 	proof := pin.WorkContext.ResearchFindings[0].ViewID
 	beforeProof := workVersion(t, s, rcaID)
-	if response := action(env, rcaID, "record_verdict", map[string]any{"verdicts": []map[string]any{{"predicate_id": "predicate:primary", "receipt_refs": []string{reportEvidence}}}}, "defect-journey-report-not-proof"); response.Outcome != OutcomeError || response.Error == nil || response.Error.Kind != "missing_evidence" || response.Error.EffectState != "none" {
+	if response := action(env, rcaID, "record_verdict", map[string]any{"verdicts": []map[string]any{{"predicate_id": "predicate:primary", "receipt_refs": []string{reportEvidence}}}}, "defect-journey-report-not-proof"); response.Outcome != agentcontract.OutcomeError || response.Error == nil || response.Error.Kind != "missing_evidence" || response.Error.EffectState != "none" {
 		t.Fatalf("unselected report became criterion proof: %+v", response)
 	}
 	if got := workVersion(t, s, rcaID); got != beforeProof {
 		t.Fatalf("refused research proof changed work version from %d to %d", beforeProof, got)
 	}
-	if response := action(env, rcaID, "record_verdict", map[string]any{"verdicts": []map[string]any{{"predicate_id": "predicate:primary", "receipt_refs": []string{proof}}}}, "defect-journey-verdict"); response.Outcome != OutcomeOK {
+	if response := action(env, rcaID, "record_verdict", map[string]any{"verdicts": []map[string]any{{"predicate_id": "predicate:primary", "receipt_refs": []string{proof}}}}, "defect-journey-verdict"); response.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("research criterion association=%+v", response.Error)
 	}
 
@@ -228,11 +228,11 @@ func TestPublicDefectJourneyThroughRealResearchCompletion(t *testing.T) {
 	}) {
 		t.Fatal("premise consent boundary failed")
 	}
-	if response := action(env, rcaID, "bind_evidence", map[string]any{"evidence_kind": "review", "evidence_ref": "sha256:" + strings.Repeat("a", 64)}, "defect-journey-closure"); response.Outcome != OutcomeOK {
+	if response := action(env, rcaID, "bind_evidence", map[string]any{"evidence_kind": "review", "evidence_ref": "sha256:" + strings.Repeat("a", 64)}, "defect-journey-closure"); response.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("bind reviewed closure=%+v", response.Error)
 	}
 	completed := approvedAction(env, map[string]any{"work_id": rcaID, "expected_version": workVersion(t, s, rcaID), "action_id": "complete", "fields": map[string]any{"impact_verdict": "non-breaking"}, "idempotency_key": "defect-journey-complete"}, "defect-journey-complete")
-	if completed.Outcome != OutcomeOK {
+	if completed.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("complete=%+v", completed.Error)
 	}
 	if lifecycle := workLifecycle(t, s, rcaID); lifecycle != "completed" {
@@ -256,7 +256,7 @@ func TestPublicDefectJourneyThroughRealResearchCompletion(t *testing.T) {
 	// 7. The recurrent retry is admitted behind the completed root cause.
 	retry := capture("defect-journey-retry",
 		`{"title":"Checksum mismatch returned","value_statement":"The checksum failure returned after the fix","kind":"bug","project_ids":["project-1"],"idempotency_key":"defect-journey-retry","defect_intake":{"failure_shape":"journey-upload-checksum","reproduction":"upload the fixture and compare digests after the repair","searched":"the Product work list and the public tracker","related_defect_ids":[],"root_cause_work_id":"`+rcaID+`"}}`)
-	if retry.Outcome != OutcomeOK {
+	if retry.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("retry behind completed root cause=%+v", retry.Error)
 	}
 	retryID := (*retry.ChangedRefs)[0].ID

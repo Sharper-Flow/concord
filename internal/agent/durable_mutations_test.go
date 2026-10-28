@@ -24,14 +24,14 @@ func TestOrdinaryObservationKeepsNormalDurability(t *testing.T) {
 	before := durableCommitCount(t, s)
 	request := InvokeRequest{Tool: "concord_work_define", Operation: "observation_record", Input: json.RawMessage(`{"work_id":"work-1","statement":"ordinary progress","idempotency_key":"normal-observation"}`)}
 	result, err := Dispatch(ctx, s, service, request, mutationEnvelope(grant, scopeVersion))
-	if err != nil || result.Outcome != OutcomeOK {
+	if err != nil || result.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("ordinary observation=%+v err=%v", result, err)
 	}
 	if after := durableCommitCount(t, s); after != before {
 		t.Fatalf("ordinary observation changed durability marker: %d -> %d", before, after)
 	}
 	replay, err := Dispatch(ctx, s, service, request, mutationEnvelope(grant, scopeVersion))
-	if err != nil || replay.Outcome != OutcomeOK || !replay.Replayed {
+	if err != nil || replay.Outcome != agentcontract.OutcomeOK || !replay.Replayed {
 		t.Fatalf("ordinary replay=%+v err=%v", replay, err)
 	}
 	if after := durableCommitCount(t, s); after != before {
@@ -66,14 +66,14 @@ func TestDerivedApprovalAuthorityCommitsDurably(t *testing.T) {
 	env.HostApproval = signedHostApproval(key, ref, mutationDigest(request.Tool, request.Operation, env, input), scope, map[string]any{"product": 2}, env.SessionRef, env.AgentRef, env.Worktree, fixedTime(), "durable-access-approval")
 	request.Input = productProjectLinkRequest(ref, "project-2")
 	approved, err := Dispatch(ctx, s, service, request, env)
-	if err != nil || approved.Error != nil || approved.Outcome != OutcomeOK {
+	if err != nil || approved.Error != nil || approved.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("approved access grant=%+v err=%v", approved, err)
 	}
 	if after := durableCommitCount(t, s); after != before+2 {
 		t.Fatalf("approval consumption did not commit a durable boundary: want count %d, got %d", before+2, after)
 	}
 	replay, err := Dispatch(ctx, s, service, request, env)
-	if err != nil || replay.Outcome != OutcomeOK || !replay.Replayed {
+	if err != nil || replay.Outcome != agentcontract.OutcomeOK || !replay.Replayed {
 		t.Fatalf("approved replay=%+v err=%v", replay, err)
 	}
 	if after := durableCommitCount(t, s); after != before+3 {
@@ -107,7 +107,7 @@ func TestMutationReplayDurabilityBindings(t *testing.T) {
 			env := mutationEnvelope(grant, scopeVersion)
 			request := InvokeRequest{Tool: "concord_work_define", Operation: "observation_record", Input: json.RawMessage(`{"work_id":"work-1","statement":"replay binding","idempotency_key":"replay-binding"}`)}
 			result, err := Dispatch(ctx, s, service, request, env)
-			if err != nil || result.Outcome != OutcomeOK {
+			if err != nil || result.Outcome != agentcontract.OutcomeOK {
 				t.Fatalf("initial observation=%+v err=%v", result, err)
 			}
 			key := store.MutationIdempotencyKey{PrincipalRef: grant.PrincipalRef, Tool: request.Tool, OperationKind: request.Operation, IdempotencyKey: "replay-binding"}
@@ -140,7 +140,7 @@ func TestMutationReplayDurabilityBindings(t *testing.T) {
 			}
 			before := s.DurableCommits()
 			r := runtime{Store: s, Authority: service, Tool: request.Tool, Operation: request.Operation, Envelope: env}
-			replay, handled, err := r.replayMutationBeforeScope(ctx, NewBase("binding-replay", request.Tool, request.Operation), request.Input, grant, op)
+			replay, handled, err := r.replayMutationBeforeScope(ctx, agentcontract.NewBase("binding-replay", request.Tool, request.Operation), request.Input, grant, op)
 			if err != nil || !handled {
 				t.Fatalf("replay: handled=%t err=%v", handled, err)
 			}
@@ -148,7 +148,7 @@ func TestMutationReplayDurabilityBindings(t *testing.T) {
 				if replay.Error == nil || replay.Error.Kind != tc.wantError {
 					t.Fatalf("replay error=%+v, want %s", replay.Error, tc.wantError)
 				}
-			} else if replay.Outcome != OutcomeOK || !replay.Replayed {
+			} else if replay.Outcome != agentcontract.OutcomeOK || !replay.Replayed {
 				t.Fatalf("replay=%+v", replay)
 			}
 			want := before
@@ -163,10 +163,10 @@ func TestMutationReplayDurabilityBindings(t *testing.T) {
 }
 
 func TestDurableCommitFailureEnvelopePreservesPossibleEffect(t *testing.T) {
-	base := NewBase("durable-failure", "concord_work_relate", "client_policy_grant_request")
+	base := agentcontract.NewBase("durable-failure", "concord_work_relate", "client_policy_grant_request")
 	err := &store.Failure{Kind: store.KindUnavailable, Op: "durable_transaction", Detail: "cannot finish the durable commit", RetrySafe: true, EffectPossible: true}
 	response := failureEnvelope(base, err)
-	if response.Error == nil || response.Error.Kind != "unreachable" || response.Error.EffectState != EffectPossible {
+	if response.Error == nil || response.Error.Kind != "unreachable" || response.Error.EffectState != agentcontract.EffectPossible {
 		t.Fatalf("durable commit failure lost its possible effect: %+v", response)
 	}
 	if err := response.Validate(); err != nil {
@@ -184,7 +184,7 @@ func TestProductProjectApprovalCommitsDurably(t *testing.T) {
 	}
 	request := InvokeRequest{Tool: "concord_work_relate", Operation: "product_project_add", Input: productProjectLinkRequest(ref, "project-2")}
 	approved, err := Dispatch(ctx, s, service, request, env)
-	if err != nil || approved.Outcome != OutcomeOK {
+	if err != nil || approved.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("approved Product membership=%+v err=%v", approved, err)
 	}
 	if after := durableCommitCount(t, s); after != before+2 {

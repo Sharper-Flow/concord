@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -61,7 +62,7 @@ func testWorkListRetainedText(t *testing.T, detail string) {
 		Tool: "concord_work_browse", Operation: "list",
 		Input: input,
 	}, mutationEnvelope(grant, scopeVersion))
-	if err != nil || out.Outcome != OutcomeOK {
+	if err != nil || out.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("a retained work row below the envelope ceiling must publish intact: err=%v refusal=%+v", err, out.Error)
 	}
 	var result struct {

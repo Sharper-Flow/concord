@@ -121,7 +121,7 @@ func TestResolveOverlapRoutineDispatchRecordsUnsignedAndRefusesASuppliedApproval
 	if err != nil {
 		t.Fatal(err)
 	}
-	if response.Outcome != OutcomeOK {
+	if response.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("routine overlap resolution outcome=%s error=%+v", response.Outcome, response.Error)
 	}
 	var fromID, toID, kind, approvalRef string
@@ -179,7 +179,7 @@ func TestResolveOverlapBlocksRemovesWorkFromReady(t *testing.T) {
 	input = []byte(strings.Replace(string(input), `"resolution_kind":"compatible_with"`, `"resolution_kind":"blocks"`, 1))
 	request := InvokeRequest{Tool: "concord_work_relate", Operation: "resolve_overlap", Input: input}
 	resolved := dispatchMutation(t, s, service, request, env)
-	if resolved.Outcome != OutcomeOK {
+	if resolved.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("routine blocks resolution=%+v", resolved.Error)
 	}
 	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM relations WHERE kind='blocks' AND work_id_from='work-1' AND work_id_to='work-2' AND resolution_id IS NOT NULL`); got != 1 {
@@ -194,7 +194,7 @@ func TestResolveOverlapBlocksRemovesWorkFromReady(t *testing.T) {
 	}
 	beforeEvents := agentCurrentEffects(t, s)
 	replay := dispatchMutation(t, s, service, request, env)
-	if replay.Outcome != OutcomeOK || !replay.Replayed || agentCurrentEffects(t, s) != beforeEvents {
+	if replay.Outcome != agentcontract.OutcomeOK || !replay.Replayed || agentCurrentEffects(t, s) != beforeEvents {
 		t.Fatalf("blocks resolution replay=%+v", replay)
 	}
 }

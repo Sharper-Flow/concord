@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -17,7 +18,7 @@ import (
 // refusal crosses the envelope with the sibling cluster and the research
 // route, and a revision cannot bypass admission by kind conversion.
 
-func dispatchDefectCapture(t *testing.T, s *store.Store, service *Service, grant Authority, scopeVersion, requestID, input string) (Envelope, error) {
+func dispatchDefectCapture(t *testing.T, s *store.Store, service *Service, grant Authority, scopeVersion, requestID, input string) (agentcontract.Envelope, error) {
 	t.Helper()
 	env := mutationEnvelope(grant, scopeVersion)
 	env.RequestID = requestID
@@ -25,7 +26,7 @@ func dispatchDefectCapture(t *testing.T, s *store.Store, service *Service, grant
 }
 
 // dispatchDefectCaptureOK asserts the dispatch reached a typed envelope.
-func dispatchDefectCaptureOK(t *testing.T, s *store.Store, service *Service, grant Authority, scopeVersion, requestID, input string) Envelope {
+func dispatchDefectCaptureOK(t *testing.T, s *store.Store, service *Service, grant Authority, scopeVersion, requestID, input string) agentcontract.Envelope {
 	t.Helper()
 	response, err := dispatchDefectCapture(t, s, service, grant, scopeVersion, requestID, input)
 	if err != nil {
@@ -45,7 +46,7 @@ func TestPublicCaptureBugWithoutIntakeRefused(t *testing.T) {
 		if !strings.Contains(dispatchErr.Error(), "defect_intake") {
 			t.Fatalf("dispatch refusal %q does not name defect_intake", dispatchErr.Error())
 		}
-	} else if response.Outcome != OutcomeError || response.Error == nil || !strings.Contains(response.Error.Message, "defect_intake") {
+	} else if response.Outcome != agentcontract.OutcomeError || response.Error == nil || !strings.Contains(response.Error.Message, "defect_intake") {
 		t.Fatalf("unclassified bug capture outcome=%s error=%+v, want a refusal naming defect_intake", response.Outcome, response.Error)
 	}
 	var count int
@@ -64,7 +65,7 @@ func TestPublicCaptureBugWithIntakeAdmitted(t *testing.T) {
 	s, service, grant, scopeVersion := captureTaskFixture(t)
 	response := dispatchDefectCaptureOK(t, s, service, grant, scopeVersion, "defect-agent-first",
 		`{"title":"Checksum mismatch","value_statement":"Uploads lose their checksum","kind":"bug","project_ids":["project-1"],"idempotency_key":"defect-agent-first","defect_intake":{"failure_shape":"upload-checksum-mismatch","reproduction":"upload the fixture and compare digests","searched":"the Product work list and the public tracker","related_defect_ids":[]}}`)
-	if response.Outcome != OutcomeOK {
+	if response.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("classified first bug capture response=%+v", response)
 	}
 	workID := (*response.ChangedRefs)[0].ID
@@ -85,13 +86,13 @@ func TestPublicCaptureRepeatShapeRefusedWithRoute(t *testing.T) {
 	s, service, grant, scopeVersion := captureTaskFixture(t)
 	first := dispatchDefectCaptureOK(t, s, service, grant, scopeVersion, "defect-agent-repeat-1",
 		`{"title":"Checksum mismatch","value_statement":"Uploads lose their checksum","kind":"bug","project_ids":["project-1"],"idempotency_key":"defect-agent-repeat-1","defect_intake":{"failure_shape":"upload-checksum-mismatch","reproduction":"upload the fixture and compare digests","searched":"the Product work list and the public tracker","related_defect_ids":[]}}`)
-	if first.Outcome != OutcomeOK {
+	if first.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("first capture response=%+v", first)
 	}
 	sibling := (*first.ChangedRefs)[0].ID
 	repeat := dispatchDefectCaptureOK(t, s, service, grant, scopeVersion, "defect-agent-repeat-2",
 		`{"title":"Checksum mismatch again","value_statement":"Uploads still lose their checksum","kind":"bug","project_ids":["project-1"],"idempotency_key":"defect-agent-repeat-2","defect_intake":{"failure_shape":"upload-checksum-mismatch","reproduction":"upload the fixture and compare digests again","searched":"the Product work list and the public tracker","related_defect_ids":[]}}`)
-	if repeat.Outcome != OutcomeError || repeat.Error == nil {
+	if repeat.Outcome != agentcontract.OutcomeError || repeat.Error == nil {
 		t.Fatalf("repeat capture outcome=%s error=%+v, want typed refusal", repeat.Outcome, repeat.Error)
 	}
 	for _, needle := range []string{"upload-checksum-mismatch", sibling, "research", "root_cause_work_id"} {
@@ -118,13 +119,13 @@ func TestPublicCaptureResearchWithIntakeAdmitted(t *testing.T) {
 	s, service, grant, scopeVersion := captureTaskFixture(t)
 	first := dispatchDefectCaptureOK(t, s, service, grant, scopeVersion, "defect-agent-research-bug",
 		`{"title":"Checksum mismatch","value_statement":"Uploads lose their checksum","kind":"bug","project_ids":["project-1"],"idempotency_key":"defect-agent-research-bug","defect_intake":{"failure_shape":"upload-checksum-mismatch","reproduction":"upload the fixture and compare digests","searched":"the Product work list and the public tracker","related_defect_ids":[]}}`)
-	if first.Outcome != OutcomeOK {
+	if first.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("bug capture response=%+v", first)
 	}
 	sibling := (*first.ChangedRefs)[0].ID
 	research := dispatchDefectCaptureOK(t, s, service, grant, scopeVersion, "defect-agent-research",
 		`{"title":"Why uploads lose checksums","value_statement":"The cluster needs a root cause","kind":"research","project_ids":["project-1"],"idempotency_key":"defect-agent-research","defect_intake":{"failure_shape":"upload-checksum-mismatch","reproduction":"upload the fixture and compare digests","searched":"the Product work list and the public tracker","related_defect_ids":["`+sibling+`"]}}`)
-	if research.Outcome != OutcomeOK {
+	if research.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("research capture with intake response=%+v", research)
 	}
 }
@@ -135,7 +136,7 @@ func TestPublicCaptureTaskWithIntakeRefused(t *testing.T) {
 	s, service, grant, scopeVersion := captureTaskFixture(t)
 	response := dispatchDefectCaptureOK(t, s, service, grant, scopeVersion, "defect-agent-task-intake",
 		`{"title":"Ordinary task","value_statement":"No defect shape here","kind":"task","project_ids":["project-1"],"idempotency_key":"defect-agent-task-intake","defect_intake":{"failure_shape":"upload-checksum-mismatch","reproduction":"upload the fixture and compare digests","searched":"the Product work list and the public tracker","related_defect_ids":[]}}`)
-	if response.Outcome != OutcomeError || response.Error == nil {
+	if response.Outcome != agentcontract.OutcomeError || response.Error == nil {
 		t.Fatalf("task capture with intake outcome=%s error=%+v, want typed refusal", response.Outcome, response.Error)
 	}
 	if !strings.Contains(response.Error.Message, "defect_intake") {
@@ -150,7 +151,7 @@ func TestPublicReviseCannotConvertTaskIntoBug(t *testing.T) {
 	s, service, grant, scopeVersion := captureTaskFixture(t)
 	captured := dispatchDefectCaptureOK(t, s, service, grant, scopeVersion, "defect-agent-convert-capture",
 		`{"title":"Plain task","value_statement":"A task that stays a task","kind":"task","project_ids":["project-1"],"idempotency_key":"defect-agent-convert-capture"}`)
-	if captured.Outcome != OutcomeOK {
+	if captured.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("task capture response=%+v", captured)
 	}
 	workID := (*captured.ChangedRefs)[0].ID
@@ -164,7 +165,7 @@ func TestPublicReviseCannotConvertTaskIntoBug(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if revise.Outcome != OutcomeError || revise.Error == nil {
+	if revise.Outcome != agentcontract.OutcomeError || revise.Error == nil {
 		t.Fatalf("bug conversion revise outcome=%s error=%+v, want typed refusal", revise.Outcome, revise.Error)
 	}
 	if !strings.Contains(revise.Error.Message, "bug") {
@@ -186,11 +187,11 @@ func TestPublicCaptureReplayRecordsNoDuplicate(t *testing.T) {
 	s, service, grant, scopeVersion := captureTaskFixture(t)
 	input := `{"title":"Checksum mismatch","value_statement":"Uploads lose their checksum","kind":"bug","project_ids":["project-1"],"idempotency_key":"defect-agent-replay","defect_intake":{"failure_shape":"upload-checksum-mismatch","reproduction":"upload the fixture and compare digests","searched":"the Product work list and the public tracker","related_defect_ids":[]}}`
 	first := dispatchDefectCaptureOK(t, s, service, grant, scopeVersion, "defect-agent-replay-1", input)
-	if first.Outcome != OutcomeOK {
+	if first.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("first capture response=%+v", first)
 	}
 	replay := dispatchDefectCaptureOK(t, s, service, grant, scopeVersion, "defect-agent-replay-2", input)
-	if replay.Outcome != OutcomeOK {
+	if replay.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("replayed capture response=%+v", replay)
 	}
 	if !replay.Replayed {
@@ -217,7 +218,7 @@ func dispatchDefectRead(t *testing.T, s *store.Store, service *Service, grant Au
 	if err != nil {
 		t.Fatal(err)
 	}
-	if response.Outcome != OutcomeOK {
+	if response.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("%s read outcome=%s error=%+v", operation, response.Outcome, response.Error)
 	}
 	return response.Result

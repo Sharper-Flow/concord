@@ -331,13 +331,13 @@ func TestResearchContextSelectionOwnerScope(t *testing.T) {
 		f := researchScopeFixture(t, []agentcontract.Capability{"product_read", "work_transition"}, []string{"product-a"})
 		input := researchScopeBindingAction(t, f, "record_proposal", "rc-replay-bind", []map[string]any{researchScopeBinding(researchScopePackA, 1, true)})
 		first := researchScopeInvoke(t, f, "workflow_action", input)
-		if first.Outcome != OutcomeOK {
+		if first.Outcome != agentcontract.OutcomeOK {
 			t.Fatalf("allowed declaration failed: %+v", first.Error)
 		}
 		researchScopeMoveWorkToProjectB(t, f.store, researchScopeOwnerA)
 		afterMove := researchScopeSnapshot(t, f.store, researchScopePackA)
 		replay := researchScopeInvoke(t, f, "workflow_action", input)
-		if replay.Outcome != OutcomeOK || !replay.Replayed || !bytes.Equal(first.Result, replay.Result) {
+		if replay.Outcome != agentcontract.OutcomeOK || !replay.Replayed || !bytes.Equal(first.Result, replay.Result) {
 			t.Fatalf("exact replay outcome=%s replayed=%v error=%+v", replay.Outcome, replay.Replayed, replay.Error)
 		}
 		researchScopeAssertNoEffects(t, afterMove, researchScopeSnapshot(t, f.store, researchScopePackA))
@@ -354,7 +354,7 @@ func TestResearchContextSelectionOwnerScope(t *testing.T) {
 	t.Run("retained_reads_survive_unavailable_author_grant", func(t *testing.T) {
 		f := researchScopeFixture(t, []agentcontract.Capability{"product_read", "work_transition"}, []string{"product-a"})
 		bound := researchScopeInvoke(t, f, "workflow_action", researchScopeBindingAction(t, f, "record_proposal", "rc-retained-bind", []map[string]any{researchScopeBinding(researchScopePackA, 1, true)}))
-		if bound.Outcome != OutcomeOK {
+		if bound.Outcome != agentcontract.OutcomeOK {
 			t.Fatalf("in-scope binding failed: %+v", bound.Error)
 		}
 		researchContextDeclareRetainedSelection(t, f, []string{researchScopePackA, researchScopePackB})

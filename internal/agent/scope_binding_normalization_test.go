@@ -65,7 +65,7 @@ func TestNormalizeScopeListPreservesUniqueOrderBytesAndOwnership(t *testing.T) {
 	if !reflect.DeepEqual(resolved.WorkIDs, []string{"w-1", "w-2"}) || !reflect.DeepEqual(resolved.ProjectIDs, []string{"p-2", "p-1"}) {
 		t.Fatalf("resolved scope work=%v project=%v want unique first-occurrence order", resolved.WorkIDs, resolved.ProjectIDs)
 	}
-	if err := validateScope(resolved); err != nil {
+	if err := validateThroughEnvelope(resolved, nil); err != nil {
 		t.Fatalf("resolved scope with repeated identities rejected: %v", err)
 	}
 }
@@ -111,7 +111,7 @@ func TestApprovalScopeBindingsRenderUniqueSortedBindingsForRepeatedIdentities(t 
 		"scope_version": "sv-1",
 	}
 	bindings := approvalScopeBindings(scope)
-	if !sortedBoundedList(bindings, maxConsequenceSummaryBindings) {
+	if len(bindings) > agentcontract.MaxConsequenceSummaryBindings || validateThroughEnvelope(nil, summaryWithScope(bindings)) != nil {
 		t.Fatalf("bindings are not strictly sorted and unique: %v", bindings)
 	}
 	duplicates := 0
@@ -140,23 +140,19 @@ func TestApprovalScopeBindingsRenderUniqueSortedBindingsForRepeatedIdentities(t 
 	}
 }
 
-// TestConsequenceSummaryStillRejectsNonCanonicalBindings pins the strict
-// envelope half of the contract: canonicalization happens at the scope-list
-// owner, never by loosening the summary validator.
-func TestConsequenceSummaryStillRejectsNonCanonicalBindings(t *testing.T) {
-	t.Parallel()
-	duplicate := &ConsequenceSummary{Tool: "concord_work_relate", Operation: "message_send", Consequence: "relation", OperationDigest: "sha256:" + strings.Repeat("0", 64), Scope: []string{"work_ids:work-a", "work_ids:work-a"}, Versions: []string{}, ExpiresAt: fixedTime().Format(time.RFC3339Nano)}
-	if err := validateConsequenceSummaryShape(duplicate); err == nil {
-		t.Fatal("duplicate summary bindings accepted")
-	}
-	unsorted := &ConsequenceSummary{Tool: "concord_work_relate", Operation: "message_send", Consequence: "relation", OperationDigest: "sha256:" + strings.Repeat("0", 64), Scope: []string{"work_ids:work-b", "work_ids:work-a"}, Versions: []string{}, ExpiresAt: fixedTime().Format(time.RFC3339Nano)}
-	if err := validateConsequenceSummaryShape(unsorted); err == nil {
-		t.Fatal("unsorted summary bindings accepted")
-	}
-	canonical := &ConsequenceSummary{Tool: "concord_work_relate", Operation: "message_send", Consequence: "relation", OperationDigest: "sha256:" + strings.Repeat("0", 64), Scope: []string{"work_ids:work-a", "work_ids:work-b"}, Versions: []string{}, ExpiresAt: fixedTime().Format(time.RFC3339Nano)}
-	if err := validateConsequenceSummaryShape(canonical); err != nil {
-		t.Fatalf("canonical summary bindings rejected: %v", err)
-	}
+// validateThroughEnvelope runs the owner's full envelope validation, Go
+// invariants before the schema, over a minimal approval refusal that carries
+// scope and summary. It proves a positive runtime output only; Go-only
+// rejections are held by the owner's tests.
+func validateThroughEnvelope(scope *agentcontract.Scope, summary *agentcontract.ConsequenceSummary) error {
+	refusal := agentcontract.NewCoreError(agentcontract.NewBase("scope-binding", "concord_work_relate", "message_send"), agentcontract.TypedError{Kind: "approval_required", RecoveryAction: agentcontract.RecoveryAction{Kind: "request_approval"}, EffectState: agentcontract.EffectNone, ConsequenceSummary: summary})
+	refusal.ResolvedScope = scope
+	return refusal.Validate()
+}
+
+// summaryWithScope wraps scope bindings in an otherwise canonical summary.
+func summaryWithScope(scope []string) *agentcontract.ConsequenceSummary {
+	return &agentcontract.ConsequenceSummary{Tool: "concord_work_relate", Operation: "message_send", Consequence: "relation", OperationDigest: "sha256:" + strings.Repeat("0", 64), Scope: scope, Versions: []string{}, ExpiresAt: fixedTime().Format(time.RFC3339Nano)}
 }
 
 // assertSelfSendInvariantRefusal holds the shared regression shape:
@@ -164,15 +160,15 @@ func TestConsequenceSummaryStillRejectsNonCanonicalBindings(t *testing.T) {
 // encodable typed invariant_violation, effect state none, naming the store
 // invariant's two sources, and leaves no message, version, or approval
 // challenge effect behind.
-func assertSelfSendInvariantRefusal(t *testing.T, s *store.Store, response Envelope, workID string, dispatchErr error) {
+func assertSelfSendInvariantRefusal(t *testing.T, s *store.Store, response agentcontract.Envelope, workID string, dispatchErr error) {
 	t.Helper()
 	if dispatchErr != nil {
 		t.Fatalf("self-addressed send returned err=%v", dispatchErr)
 	}
-	if response.Outcome != OutcomeError || response.Error == nil || response.Error.Kind != "invariant_violation" {
+	if response.Outcome != agentcontract.OutcomeError || response.Error == nil || response.Error.Kind != "invariant_violation" {
 		t.Fatalf("self-addressed send wants invariant_violation: outcome=%s error=%+v", response.Outcome, response.Error)
 	}
-	if response.Error.EffectState != EffectNone {
+	if response.Error.EffectState != agentcontract.EffectNone {
 		t.Fatalf("self-addressed send effect_state=%s want none", response.Error.EffectState)
 	}
 	if response.Error.RetrySafe {
@@ -257,14 +253,14 @@ func TestAccessApprovalCanonicalScopeRoundTrip(t *testing.T) {
 	request := InvokeRequest{Tool: "concord_work_relate", Operation: "product_project_add", Input: input}
 
 	missing, err := Dispatch(ctx, s, service, request, env)
-	if err != nil || missing.Outcome != OutcomeError || missing.Error == nil || missing.Error.Kind != "approval_required" {
+	if err != nil || missing.Outcome != agentcontract.OutcomeError || missing.Error == nil || missing.Error.Kind != "approval_required" {
 		t.Fatalf("missing approval response=%+v err=%v", missing.Error, err)
 	}
 	summary := missing.Error.ConsequenceSummary
 	if summary == nil {
 		t.Fatalf("challenge carries no consequence summary: %+v", missing.Error.Details)
 	}
-	if !sortedBoundedList(summary.Scope, maxConsequenceSummaryBindings) {
+	if validateThroughEnvelope(nil, summary) != nil {
 		t.Fatalf("summary bindings are not strictly sorted and unique: %v", summary.Scope)
 	}
 	duplicateScope := map[string]any{"product_id": "product-1", "product_ids": []string{"product-1", "product-2", "product-1"}, "project_id": "project-2", "role": "secondary", "scope_version": scopeVersion}
@@ -292,18 +288,18 @@ func TestAccessApprovalCanonicalScopeRoundTrip(t *testing.T) {
 	env.HostApproval = signedHostApproval(privateKey, challengeRef, digest, duplicateScope, map[string]any{"product": 2}, "session-1", "agent-1", env.Worktree, fixedTime(), "access-canonical-approval")
 
 	approved, err := Dispatch(ctx, s, service, request, env)
-	if err != nil || approved.Outcome != OutcomeOK {
+	if err != nil || approved.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("approved access response=%+v err=%v", approved.Error, err)
 	}
 	if approved.ResolvedScope == nil || !reflect.DeepEqual(approved.ResolvedScope.ProjectIDs, []string{"project-1"}) {
 		t.Fatalf("resolved Project scope=%v want [project-1] once", approved.ResolvedScope)
 	}
-	if err := validateScope(approved.ResolvedScope); err != nil {
+	if err := validateThroughEnvelope(approved.ResolvedScope, nil); err != nil {
 		t.Fatalf("resolved scope invalid: %v", err)
 	}
 	// An exact retry resolves its wire scope from the stored snapshot.
 	replay, err := Dispatch(ctx, s, service, request, env)
-	if err != nil || replay.Outcome != OutcomeOK || !replay.Replayed {
+	if err != nil || replay.Outcome != agentcontract.OutcomeOK || !replay.Replayed {
 		t.Fatalf("replay=%+v err=%v", replay, err)
 	}
 	var snapshot string

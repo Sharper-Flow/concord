@@ -39,7 +39,7 @@ func TestStaleUnchangedScopePermitsReadAndRejectsMutationBeforeAnyEffect(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	if response.Outcome != OutcomeOK {
+	if response.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("stale read outcome=%v error=%+v", response.Outcome, response.Error)
 	}
 	refreshed := false
@@ -57,7 +57,7 @@ func TestStaleUnchangedScopePermitsReadAndRejectsMutationBeforeAnyEffect(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	if response.Outcome != OutcomeError || response.Error == nil || response.Error.Kind != "stale_context" {
+	if response.Outcome != agentcontract.OutcomeError || response.Error == nil || response.Error.Kind != "stale_context" {
 		t.Fatalf("stale mutation response=%+v", response)
 	}
 	if domainEventCount(t, s) != before {

@@ -60,7 +60,7 @@ func bindAJ3CaptureWork(t *testing.T, sc jobScenario) jobObservation {
 
 	input := []byte(fmt.Sprintf(`{"title":"Add passkey login","value_statement":"reducing account takeover risk","kind":"task","project_ids":["proj-web"],"idempotency_key":"%s"}`, idempotencySeed))
 	first := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_define", Operation: "capture", Input: input}, env)
-	if first.Outcome != OutcomeOK {
+	if first.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("capture failed outcome=%s err=%+v", first.Outcome, first.Error)
 	}
 
@@ -100,7 +100,7 @@ func bindAJ3CaptureWork(t *testing.T, sc jobScenario) jobObservation {
 		t.Fatalf("pre-replay work_items count: %v", err)
 	}
 	replay := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_define", Operation: "capture", Input: input}, env)
-	if replay.Outcome != OutcomeOK {
+	if replay.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("replay failed outcome=%s err=%+v", replay.Outcome, replay.Error)
 	}
 	if !replay.Replayed {
@@ -164,7 +164,7 @@ func bindAJ4StartValidWork(t *testing.T, sc jobScenario) jobObservation {
 	}
 	input := []byte(fmt.Sprintf(`{"work_id":"work-ready-high","expected_version":2,"target":"in_progress","reason":"start","idempotency_key":"%s"}`, idempotencySeed))
 	resp := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "lifecycle", Input: input}, env)
-	if resp.Outcome != OutcomeOK {
+	if resp.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("lifecycle failed outcome=%s err=%+v", resp.Outcome, resp.Error)
 	}
 
@@ -184,7 +184,7 @@ func bindAJ4StartValidWork(t *testing.T, sc jobScenario) jobObservation {
 	// to see a replay outcome with Replayed=true AND the durable
 	// state unchanged (still 1 transition, still version 3).
 	replay := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "lifecycle", Input: input}, env)
-	if !replay.Replayed || replay.Outcome != OutcomeOK {
+	if !replay.Replayed || replay.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("replay outcome=%s replayed=%v err=%+v", replay.Outcome, replay.Replayed, replay.Error)
 	}
 	if _, v := readWorkFromStore(t, s, "work-ready-high"); v != 3 {
@@ -248,7 +248,7 @@ func bindAJ4CompleteValidWork(t *testing.T, sc jobScenario) jobObservation {
 	input := []byte(fmt.Sprintf(`{"work_id":"work-cross","expected_version":%d,"target":"completed","reason":"complete with verification","idempotency_key":"%s","evidence":[{"kind":"verification","authority":"agent-verifier","locator_kind":"test","locator":"verification-pass"}]}`, preVersion, idempotencyKey))
 
 	approved := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "lifecycle", Input: input}, env)
-	if approved.Outcome != OutcomeOK {
+	if approved.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("approved dispatch failed outcome=%s err=%+v", approved.Outcome, approved.Error)
 	}
 
@@ -275,7 +275,7 @@ func bindAJ4CompleteValidWork(t *testing.T, sc jobScenario) jobObservation {
 	}
 
 	replay := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "lifecycle", Input: input}, env)
-	if !replay.Replayed || replay.Outcome != OutcomeOK {
+	if !replay.Replayed || replay.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("replay did not set Replayed=true")
 	}
 	if _, v := readWorkFromStore(t, s, "work-cross"); v != version {
@@ -347,7 +347,7 @@ func bindAJ4CompletionMissingEvidence(t *testing.T, sc jobScenario) jobObservati
 	preEffects := agentCurrentEffects(t, s)
 	input := []byte(fmt.Sprintf(`{"work_id":"work-cross","expected_version":%d,"target":"completed","reason":"complete without evidence","idempotency_key":"%s"}`, preVersion, idempotencyKey))
 	resp := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "lifecycle", Input: input}, env)
-	if resp.Outcome != OutcomeError || resp.Error == nil {
+	if resp.Outcome != agentcontract.OutcomeError || resp.Error == nil {
 		t.Fatalf("expected typed error outcome=%s err=%+v", resp.Outcome, resp.Error)
 	}
 	if resp.Error.Kind != "missing_evidence" {
@@ -450,7 +450,7 @@ func bindAJ4StaleVersion(t *testing.T, sc jobScenario) jobObservation {
 	idempotencyKey := fmt.Sprintf("stale-version-%d", preVersion)
 	input := []byte(fmt.Sprintf(`{"work_id":"work-ready-low","expected_version":1,"target":"in_progress","reason":"stale start","idempotency_key":"%s"}`, idempotencyKey))
 	resp := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "lifecycle", Input: input}, env)
-	if resp.Outcome != OutcomeError || resp.Error == nil {
+	if resp.Outcome != agentcontract.OutcomeError || resp.Error == nil {
 		t.Fatalf("expected typed error outcome=%s err=%+v", resp.Outcome, resp.Error)
 	}
 	if resp.Error.Kind != "version_conflict" {
@@ -560,7 +560,7 @@ func bindAJ5ResolveDomainOverlap(t *testing.T, sc jobScenario) jobObservation {
 	}
 
 	routine := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_relate", Operation: "resolve_overlap", Input: input}, env)
-	if routine.Outcome != OutcomeOK || routine.Error != nil {
+	if routine.Outcome != agentcontract.OutcomeOK || routine.Error != nil {
 		t.Fatalf("unsigned routine overlap resolution failed: %+v", routine.Error)
 	}
 	var kind, approvalRef string
@@ -610,7 +610,7 @@ func bindAJ5ResolveDomainOverlap(t *testing.T, sc jobScenario) jobObservation {
 	scope, versions := routineOverlapApprovalBindings(t, destructiveStore, destructiveEnv, binding)
 	digest := mutationDigest("concord_work_relate", "resolve_overlap", destructiveEnv, withApproval)
 	approved := routineOverlapApprovedDispatch(t, destructiveStore, destructiveService, destructiveKey, destructiveEnv, challengeRef, digest, scope, versions, withApproval)
-	if approved.Outcome != OutcomeOK {
+	if approved.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("approved destructive merged_into resolution failed: %+v", approved.Error)
 	}
 	var destructiveKind, destructiveRef string
@@ -683,7 +683,7 @@ func bindAJ3SpecConflict(t *testing.T, sc jobScenario) jobObservation {
 	input := []byte(`{"title":"Add passkey login","value_statement":"reducing account takeover risk","kind":"task","project_ids":["proj-web"],"idempotency_key":"spec-conflict-1"}`)
 	resp := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_define", Operation: "capture", Input: input}, env)
 
-	if resp.Outcome != OutcomeError || resp.Error == nil {
+	if resp.Outcome != agentcontract.OutcomeError || resp.Error == nil {
 		t.Fatalf("expected typed refusal outcome=%s err=%+v", resp.Outcome, resp.Error)
 	}
 	if resp.Error.Kind != "invariant_violation" {
@@ -787,7 +787,7 @@ func TestOperatorApprovedScopeCutProceeds(t *testing.T) {
 	env.HostApproval = signedHostApproval(privateKey, challengeRef, digest, scope, map[string]any{}, env.SessionRef, env.AgentRef, env.Worktree, fixedTime(), nonceForChallenge(challengeRef))
 
 	approved := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_define", Operation: "capture", Input: withApproval}, env)
-	if approved.Outcome != OutcomeOK {
+	if approved.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("operator-approved scope cut was refused outcome=%s err=%+v", approved.Outcome, approved.Error)
 	}
 	if len(*approved.ChangedRefs) == 0 {
@@ -818,7 +818,7 @@ func TestGoverningRequirementCoveredCapturePassesUngated(t *testing.T) {
 
 	input := []byte(`{"title":"Add passkey login with audit","value_statement":"reducing account takeover risk","kind":"task","project_ids":["proj-web"],"governing_requirements":["audit_required"],"idempotency_key":"covered-1"}`)
 	resp := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_define", Operation: "capture", Input: input}, env)
-	if resp.Outcome != OutcomeOK {
+	if resp.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("covered capture was refused outcome=%s err=%+v", resp.Outcome, resp.Error)
 	}
 }
@@ -829,7 +829,7 @@ func TestCaptureRefusesUnknownGoverningRequirement(t *testing.T) {
 	env := agentJobsMutationEnvelope(t, s, grant, "proj-web")
 	input := []byte(`{"title":"Unknown requirement","value_statement":"reject an invalid governing reference","kind":"task","project_ids":["proj-web"],"governing_requirements":["fabricated_requirement"],"idempotency_key":"unknown-requirement-1"}`)
 	resp := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_define", Operation: "capture", Input: input}, env)
-	if resp.Outcome != OutcomeError || resp.Error == nil {
+	if resp.Outcome != agentcontract.OutcomeError || resp.Error == nil {
 		t.Fatalf("unknown requirement capture outcome=%s error=%+v, want typed refusal", resp.Outcome, resp.Error)
 	}
 	if resp.Error.Kind != "unknown_scope" {
@@ -860,7 +860,7 @@ func TestCaptureAcceptsRequirementFromSiblingProjectOfTheProduct(t *testing.T) {
 
 	input := []byte(`{"title":"Sibling obligation","value_statement":"declaring a sibling Project requirement","kind":"task","project_ids":["proj-web"],"governing_requirements":["cross_project_review"],"idempotency_key":"sibling-requirement-1"}`)
 	resp := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_define", Operation: "capture", Input: input}, env)
-	if resp.Outcome != OutcomeOK {
+	if resp.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("sibling-requirement capture was refused outcome=%s err=%+v", resp.Outcome, resp.Error)
 	}
 }
@@ -882,7 +882,7 @@ func TestCaptureAcceptsAcceptedLawID(t *testing.T) {
 
 	input := []byte(`{"title":"Law-bound capture","value_statement":"declaring an accepted law id","kind":"task","project_ids":["proj-web"],"governing_requirements":["CD-0001"],"idempotency_key":"accepted-law-1"}`)
 	resp := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_define", Operation: "capture", Input: input}, env)
-	if resp.Outcome != OutcomeOK {
+	if resp.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("accepted-law capture was refused outcome=%s err=%+v", resp.Outcome, resp.Error)
 	}
 }
@@ -927,13 +927,13 @@ func bindAJ8BudgetRefused(t *testing.T, sc jobScenario) jobObservation {
 
 	overBudget := []byte(fmt.Sprintf(`{"work_id":%q,"expected_version":%d,"action_id":%q,"fields":{"problem":"The bounded problem statement.","affected":["The affected system."],"stakes":"The bounded stakes statement.","user_outcomes":["The expected user outcome."]},"requested_budget_seconds":60,"idempotency_key":%q}`, workID, version, actionID, key))
 	resp := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: overBudget}, env)
-	if resp.Outcome != OutcomeError || resp.Error == nil || resp.Error.Kind != "budget_refused" {
+	if resp.Outcome != agentcontract.OutcomeError || resp.Error == nil || resp.Error.Kind != "budget_refused" {
 		t.Fatalf("60-second request was not refused outcome=%s err=%+v", resp.Outcome, resp.Error)
 	}
 	if resp.Error.SupportedBudgetSeconds != 30 {
 		t.Fatalf("refusal ceiling=%d, want the TS1-fixed 30", resp.Error.SupportedBudgetSeconds)
 	}
-	if resp.Error.EffectState != EffectNone {
+	if resp.Error.EffectState != agentcontract.EffectNone {
 		t.Fatalf("refusal claims effect state %q", resp.Error.EffectState)
 	}
 	if resp.Replayed {
@@ -951,7 +951,7 @@ func bindAJ8BudgetRefused(t *testing.T, sc jobScenario) jobObservation {
 	// the key or fabricated a completion; either fails here.
 	withinBudget := []byte(fmt.Sprintf(`{"work_id":%q,"expected_version":%d,"action_id":%q,"fields":{"problem":"The bounded problem statement.","affected":["The affected system."],"stakes":"The bounded stakes statement.","user_outcomes":["The expected user outcome."]},"requested_budget_seconds":30,"idempotency_key":%q}`, workID, version, actionID, key))
 	retry := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: withinBudget}, env)
-	if retry.Outcome != OutcomeOK {
+	if retry.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("lowered-budget retry on the same key was refused outcome=%s err=%+v", retry.Outcome, retry.Error)
 	}
 	if retry.Replayed {
@@ -1011,7 +1011,7 @@ func bindAJ8ApprovalRequired(t *testing.T, sc jobScenario) jobObservation {
 	}
 	before := agentCurrentEffects(t, s)
 	resp := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: input}, env)
-	if resp.Outcome != OutcomeError || resp.Error == nil || resp.Error.Kind != "approval_required" {
+	if resp.Outcome != agentcontract.OutcomeError || resp.Error == nil || resp.Error.Kind != "approval_required" {
 		t.Fatalf("unapproved consequential transition was not an approval refusal outcome=%s err=%+v", resp.Outcome, resp.Error)
 	}
 	summary := resp.Error.ConsequenceSummary

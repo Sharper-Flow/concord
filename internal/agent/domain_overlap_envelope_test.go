@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -25,7 +26,7 @@ func TestLawOnlyDomainOverlapRefusalIsDeliverable(t *testing.T) {
 			TotalOverlaps: 1, ReturnedOverlaps: 1,
 		},
 	}
-	out := failureEnvelope(NewBase("overlap-law", "concord_work_transition", "workflow_action"), failure)
+	out := failureEnvelope(agentcontract.NewBase("overlap-law", "concord_work_transition", "workflow_action"), failure)
 	if out.Error == nil || out.Error.Kind != "domain_overlap" {
 		t.Fatalf("error=%+v, want kind domain_overlap", out.Error)
 	}
@@ -33,7 +34,7 @@ func TestLawOnlyDomainOverlapRefusalIsDeliverable(t *testing.T) {
 	if err != nil {
 		t.Fatalf("a law-only overlap refusal must be deliverable, got %v", err)
 	}
-	var decoded Envelope
+	var decoded agentcontract.Envelope
 	if err := json.Unmarshal(raw, &decoded); err != nil {
 		t.Fatal(err)
 	}
@@ -45,14 +46,6 @@ func TestLawOnlyDomainOverlapRefusalIsDeliverable(t *testing.T) {
 		t.Fatalf("law-only overlap detail lost or Domain list is null: %s", raw)
 	}
 
-	t.Run("no_shared_item", func(t *testing.T) {
-		empty := row
-		empty.SharedLawIDs = []string{}
-		empty.SharedLawCount = 0
-		if err := validateDomainOverlapRow(empty); err == nil {
-			t.Fatal("an overlap without any shared item must be refused")
-		}
-	})
 	t.Run("null_domain_list", func(t *testing.T) {
 		out.Error.DomainOverlap.Overlaps[0].SharedAffectedDomainIDs = nil
 		if _, err := out.Encode(); err == nil {
@@ -86,7 +79,7 @@ func TestArchitectureOnlyDomainOverlapRefusalIsDeliverable(t *testing.T) {
 			TotalOverlaps: 1, ReturnedOverlaps: 1,
 		},
 	}
-	out := failureEnvelope(NewBase("overlap-1", "concord_work_transition", "workflow_action"), failure)
+	out := failureEnvelope(agentcontract.NewBase("overlap-1", "concord_work_transition", "workflow_action"), failure)
 	if out.Error == nil || out.Error.Kind != "domain_overlap" {
 		t.Fatalf("error=%+v, want kind domain_overlap", out.Error)
 	}
@@ -147,7 +140,7 @@ func TestDomainOverlapRefusalAboveEnvelopeCapIsRefused(t *testing.T) {
 			Overlaps: overlaps, TotalOverlaps: 21, ReturnedOverlaps: 21, Truncated: false,
 		},
 	}
-	out := failureEnvelope(NewBase("overlap-cap", "concord_work_transition", "workflow_action"), failure)
+	out := failureEnvelope(agentcontract.NewBase("overlap-cap", "concord_work_transition", "workflow_action"), failure)
 	if _, err := out.Encode(); err == nil {
 		t.Fatal("an envelope carrying twenty-one overlaps must be refused, not delivered")
 	}

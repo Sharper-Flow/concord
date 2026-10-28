@@ -144,7 +144,7 @@ func TestRecordDeliveryRequiresTheFencedStart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if response.Outcome != OutcomeError || response.Error == nil || response.Error.Kind != "invalid_input" {
+	if response.Outcome != agentcontract.OutcomeError || response.Error == nil || response.Error.Kind != "invalid_input" {
 		t.Fatalf("record_delivery without a start outcome=%q error=%+v, want a refusal", response.Outcome, response.Error)
 	}
 	if !strings.Contains(response.Error.Message, "fenced start") {

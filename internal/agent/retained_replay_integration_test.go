@@ -27,8 +27,8 @@ func TestRetainedReplayKeepsCommittedEmptyChangedRefs(t *testing.T) {
 	digest := mutationDigest(r.Tool, r.Operation, r.Envelope, raw)
 	scope := map[string]any{"product_id": "product-1", "project_ids": []string{"project-1"}, "work_ids": []string{"work-1"}}
 	effects := 0
-	execute := func(request string) Envelope {
-		response, err := r.executeMutation(ctx, NewBase(request, r.Tool, r.Operation), raw, digest, scope, nil, "", "", false, nil, nil, nil, func(context.Context, *store.Transaction, Authority) (json.RawMessage, []string, []ChangedRef, error) {
+	execute := func(request string) agentcontract.Envelope {
+		response, err := r.executeMutation(ctx, agentcontract.NewBase(request, r.Tool, r.Operation), raw, digest, scope, nil, "", "", false, nil, nil, nil, func(context.Context, *store.Transaction, Authority) (json.RawMessage, []string, []agentcontract.ChangedRef, error) {
 			effects++
 			return json.RawMessage(`{"changed_refs":[],"next_valid_intents":[]}`), nil, nil, nil
 		}, nil, nil)
@@ -38,7 +38,7 @@ func TestRetainedReplayKeepsCommittedEmptyChangedRefs(t *testing.T) {
 		return response
 	}
 	first := execute("first")
-	if first.Outcome != OutcomeOK || first.Replayed || effects != 1 {
+	if first.Outcome != agentcontract.OutcomeOK || first.Replayed || effects != 1 {
 		t.Fatalf("first outcome=%s replayed=%t effects=%d error=%+v", first.Outcome, first.Replayed, effects, first.Error)
 	}
 	key := store.MutationIdempotencyKey{PrincipalRef: grant.PrincipalRef, Tool: r.Tool, OperationKind: r.Operation, IdempotencyKey: "retained-reconcile"}
@@ -46,9 +46,9 @@ func TestRetainedReplayKeepsCommittedEmptyChangedRefs(t *testing.T) {
 	if err != nil || !found || prior.ChangedRefs != "[]" || prior.ResultPayload != string(first.Result) {
 		t.Fatalf("committed response not retained as reported: found=%t err=%v record=%+v", found, err, prior)
 	}
-	same := func(label string, replay Envelope) {
+	same := func(label string, replay agentcontract.Envelope) {
 		t.Helper()
-		if replay.Outcome != OutcomeOK || !replay.Replayed {
+		if replay.Outcome != agentcontract.OutcomeOK || !replay.Replayed {
 			t.Fatalf("%s outcome=%s replayed=%t error=%+v", label, replay.Outcome, replay.Replayed, replay.Error)
 		}
 		if string(replay.Result) != string(first.Result) || !reflect.DeepEqual(replay.ChangedRefs, first.ChangedRefs) || !reflect.DeepEqual(replay.NextValidIntents, first.NextValidIntents) || !reflect.DeepEqual(replay.ResolvedScope, first.ResolvedScope) {
@@ -56,7 +56,7 @@ func TestRetainedReplayKeepsCommittedEmptyChangedRefs(t *testing.T) {
 		}
 	}
 	for attempt := 0; attempt < 2; attempt++ {
-		early, handled, err := r.replayMutationBeforeScope(ctx, NewBase("early", r.Tool, r.Operation), raw, grant, op)
+		early, handled, err := r.replayMutationBeforeScope(ctx, agentcontract.NewBase("early", r.Tool, r.Operation), raw, grant, op)
 		if err != nil || !handled {
 			t.Fatalf("early replay handled=%t err=%v", handled, err)
 		}
@@ -73,16 +73,16 @@ func TestRetainedReplayKeepsCommittedEmptyChangedRefs(t *testing.T) {
 // possible-effect reconciliation, never a successful empty placeholder.
 func TestRetainedReplayRefusesUncapturedChangedRefs(t *testing.T) {
 	r := runtime{Tool: "concord_work_transition", Operation: "worker_reconcile"}
-	base := NewBase("uncaptured", r.Tool, r.Operation)
-	complete := NewOKMutation(base, mutationPayload(nil, nil), nil, nil)
+	base := agentcontract.NewBase("uncaptured", r.Tool, r.Operation)
+	complete := agentcontract.NewOKMutation(base, mutationPayload(nil, nil), nil, nil)
 	scopeJSON, _ := json.Marshal(mutationResponseScope(nil, complete, nil, false))
 	captured := r.recordedMutationResult(base, store.MutationIdempotencyRecord{ResultPayload: string(mutationPayload(nil, nil)), ChangedRefs: `[]`, AuthorizedScopeSnapshot: string(scopeJSON)})
-	if captured.Outcome != OutcomeOK || !captured.Replayed || captured.ChangedRefs == nil || len(*captured.ChangedRefs) != 0 {
+	if captured.Outcome != agentcontract.OutcomeOK || !captured.Replayed || captured.ChangedRefs == nil || len(*captured.ChangedRefs) != 0 {
 		t.Fatalf("captured empty list did not replay: %+v", captured)
 	}
 	for _, changed := range []string{`null`, ``, `{}`} {
 		response := r.recordedMutationResult(base, store.MutationIdempotencyRecord{ResultPayload: string(mutationPayload(nil, nil)), ChangedRefs: changed, AuthorizedScopeSnapshot: string(scopeJSON)})
-		if response.Outcome != OutcomeError || response.Error == nil || response.Error.Kind != "operation_conflict" || response.Error.EffectState != EffectPossible || response.Error.RecoveryAction.Kind != "reconcile_operation" || response.Error.RetrySafe {
+		if response.Outcome != agentcontract.OutcomeError || response.Error == nil || response.Error.Kind != "operation_conflict" || response.Error.EffectState != agentcontract.EffectPossible || response.Error.RecoveryAction.Kind != "reconcile_operation" || response.Error.RetrySafe {
 			t.Fatalf("changed_refs=%q became success or a no-effect retry: %+v", changed, response)
 		}
 	}

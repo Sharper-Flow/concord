@@ -1,0 +1,46 @@
+{
+  "id": "agent-envelope-model",
+  "invariant": {
+    "applies_to_domain_ids": [
+      "agent-surface"
+    ],
+    "enforced_by": [
+      {
+        "check_id": "go-test-race",
+        "kind": "go_test",
+        "value": "internal/agentcontract.TestEnvelopeModelHasOneExclusiveOwner"
+      },
+      {
+        "check_id": "go-test-race",
+        "kind": "go_test",
+        "value": "internal/agentcontract.TestRecoveryActionVocabularyHasOneExclusiveOwner"
+      },
+      {
+        "check_id": "go-test-race",
+        "kind": "go_test",
+        "value": "internal/agentcontract.TestEnvelopeGoldenOutcomes"
+      },
+      {
+        "check_id": "go-test-race",
+        "kind": "go_test",
+        "value": "internal/agentcontract.TestValidateErrorStillRefusesABrokenCoupling"
+      },
+      {
+        "check_id": "go-test-race",
+        "kind": "go_test",
+        "value": "internal/agentcontract.TestPublicRecoveryHonorsEnforcedCouplings"
+      },
+      {
+        "check_id": "go-test-race",
+        "kind": "go_test",
+        "value": "internal/agent.TestCarrierRefusalsAreDeliverableWhateverTheStoreProposes"
+      }
+    ],
+    "statement": "The operation-admission owner holds the TS7 result-envelope model, its builders, Go invariants and serialized result bound, the closed recovery-action vocabulary and the pure public-recovery decision once. Envelope validation runs those Go invariants before the generated schema check. The coupling table stays private: the validator refuses against it and the projection builds from it. Agent runtime keeps store-failure mapping, remedy prose, authority, admission and request transport limits."
+  },
+  "kind": "invariant",
+  "owner_domain_id": "agent-surface",
+  "owning_root": "internal/agentcontract",
+  "schema_version": "1.0",
+  "standing": "observed"
+}

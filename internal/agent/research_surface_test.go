@@ -60,7 +60,7 @@ func TestResearchAuthorBindProveAndRead(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	invoke := func(op string, input any) Envelope {
+	invoke := func(op string, input any) agentcontract.Envelope {
 		t.Helper()
 		raw, _ := json.Marshal(input)
 		response, err := Dispatch(ctx, s, service, InvokeRequest{Tool: toolForOperation(op), Operation: op, Input: raw}, mutationEnvelope(grant, scopeVersion))
@@ -76,7 +76,7 @@ func TestResearchAuthorBindProveAndRead(t *testing.T) {
 		"revision":        map[string]any{"question": "Which store path owns research?", "method": "source inspection"},
 		"idempotency_key": "rs-create-1",
 	})
-	if create.Outcome != OutcomeOK {
+	if create.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("pack create failed: %+v", create.Error)
 	}
 	var created struct {
@@ -94,7 +94,7 @@ func TestResearchAuthorBindProveAndRead(t *testing.T) {
 		"pack_id": packID, "expected_version": 1,
 		"source":          map[string]any{"source_id": "s-1", "kind": "source_code", "locator": "internal/store/research_mutations.go", "title": "Pack operation boundary", "publisher_or_author": "concord", "accessed_at": "2026-08-14T00:00:00Z"},
 		"idempotency_key": "rs-source-1",
-	}); r.Outcome != OutcomeOK {
+	}); r.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("source record failed: %+v", r.Error)
 	}
 	if r := invoke("research_finding_record", map[string]any{
@@ -102,13 +102,13 @@ func TestResearchAuthorBindProveAndRead(t *testing.T) {
 		"finding":         map[string]any{"finding_id": "f-1", "kind": "observation", "statement": "The store owns the pack-operation boundary.", "confidence": "high"},
 		"source_ids":      []string{"s-1"},
 		"idempotency_key": "rs-finding-1",
-	}); r.Outcome != OutcomeOK {
+	}); r.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("finding record failed: %+v", r.Error)
 	}
 
 	// 3. Read the pack back through the trace surface.
 	read := invoke("research", map[string]any{"product_id": "product-1", "pack_id": packID})
-	if read.Outcome != OutcomeOK {
+	if read.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("research read failed: %+v", read.Error)
 	}
 	var pack store.ResearchPack
@@ -137,7 +137,7 @@ func TestResearchAuthorBindProveAndRead(t *testing.T) {
 		},
 		"research_bindings": []map[string]any{{"pack_id": packID, "revision": 1, "use_role": "context", "required": true}},
 	})
-	if action.Outcome != OutcomeOK {
+	if action.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("action with fresh required binding failed: %+v", action.Error)
 	}
 	bound, err := s.ReadResearchPack(ctx, store.ResearchReadRequest{PackID: packID, Limit: 100})
@@ -149,7 +149,7 @@ func TestResearchAuthorBindProveAndRead(t *testing.T) {
 	// refused fail-closed at the boundary (CD-0215 D6 / CD-0216).
 	if r := invoke("research_freshness_set", map[string]any{
 		"pack_id": packID, "expected_version": 4, "freshness": "stale", "idempotency_key": "rs-stale-1",
-	}); r.Outcome != OutcomeOK {
+	}); r.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("freshness set failed: %+v", r.Error)
 	}
 	refused := invoke("workflow_action", map[string]any{
@@ -157,7 +157,7 @@ func TestResearchAuthorBindProveAndRead(t *testing.T) {
 		"fields":            map[string]any{"required_reading": []any{}, "finding_refs": []any{}, "context_findings": []any{}},
 		"research_bindings": []map[string]any{{"pack_id": packID, "revision": 1, "use_role": "context", "required": true}},
 	})
-	if refused.Outcome == OutcomeOK {
+	if refused.Outcome == agentcontract.OutcomeOK {
 		t.Fatal("required reliance on stale revision must refuse the action")
 	}
 	if refused.Error == nil || refused.Error.Kind != "stale_requires_review" || !strings.Contains(refused.Error.Message, "stale") {
@@ -197,7 +197,7 @@ func TestResearchFindingUnknownSourceHasNoEffects(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	invoke := func(op string, input any) Envelope {
+	invoke := func(op string, input any) agentcontract.Envelope {
 		t.Helper()
 		raw, err := json.Marshal(input)
 		if err != nil {
@@ -212,7 +212,7 @@ func TestResearchFindingUnknownSourceHasNoEffects(t *testing.T) {
 	snapshot := func() (json.RawMessage, [3]int64) {
 		t.Helper()
 		read := invoke("research", map[string]any{"product_id": "product-1", "pack_id": pack.PackID})
-		if read.Outcome != OutcomeOK {
+		if read.Outcome != agentcontract.OutcomeOK {
 			t.Fatalf("research read failed: %+v", read.Error)
 		}
 		var state [3]int64
@@ -228,7 +228,7 @@ func TestResearchFindingUnknownSourceHasNoEffects(t *testing.T) {
 			"finding":    map[string]any{"finding_id": findingID, "kind": "observation", "statement": "Replacement finding", "confidence": "high"},
 			"source_ids": []string{"s-1", "missing-source"}, "idempotency_key": "unknown-source-" + findingID,
 		})
-		if refused.Outcome != OutcomeError || refused.Error == nil || refused.Error.Kind != "unknown_scope" || refused.Error.EffectState != "none" || !strings.Contains(refused.Error.Message, "cannot cite a source that is absent from this revision") {
+		if refused.Outcome != agentcontract.OutcomeError || refused.Error == nil || refused.Error.Kind != "unknown_scope" || refused.Error.EffectState != "none" || !strings.Contains(refused.Error.Message, "cannot cite a source that is absent from this revision") {
 			t.Fatalf("%s: expected unknown-source refusal with no effects, got outcome=%s error=%+v", findingID, refused.Outcome, refused.Error)
 		}
 		afterPack, afterState := snapshot()
@@ -248,14 +248,14 @@ func TestResearchRecordUpsertsCurrentRevision(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			invoke := func(op string, input any) Envelope {
+			invoke := func(op string, input any) agentcontract.Envelope {
 				t.Helper()
 				raw, err := json.Marshal(input)
 				if err != nil {
 					t.Fatal(err)
 				}
 				response, err := Dispatch(ctx, s, service, InvokeRequest{Tool: toolForOperation(op), Operation: op, Input: raw}, mutationEnvelope(grant, scopeVersion))
-				if err != nil || response.Outcome != OutcomeOK {
+				if err != nil || response.Outcome != agentcontract.OutcomeOK {
 					t.Fatalf("%s outcome=%s error=%+v err=%v", op, response.Outcome, response.Error, err)
 				}
 				return response
@@ -348,7 +348,7 @@ func TestResearchMutationCapabilityFollowsContract(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 
-	scopedInvoke := func(capabilities []agentcontract.Capability, op string, input any) Envelope {
+	scopedInvoke := func(capabilities []agentcontract.Capability, op string, input any) agentcontract.Envelope {
 		t.Helper()
 		s, service, grant, _ := researchSurfaceFixtureWithCapabilities(t, capabilities)
 		scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
@@ -368,7 +368,7 @@ func TestResearchMutationCapabilityFollowsContract(t *testing.T) {
 		"revision":        map[string]any{"question": "Which capability authorizes this pack?", "method": "contract registry"},
 		"idempotency_key": "cap-research-only-1",
 	})
-	if create.Outcome != OutcomeOK {
+	if create.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("research-only grant must execute research_pack_create: %+v", create.Error)
 	}
 
@@ -377,7 +377,7 @@ func TestResearchMutationCapabilityFollowsContract(t *testing.T) {
 		"revision":        map[string]any{"question": "Which capability authorizes this pack?", "method": "contract registry"},
 		"idempotency_key": "cap-work-define-only-1",
 	})
-	if refused.Outcome == OutcomeOK {
+	if refused.Outcome == agentcontract.OutcomeOK {
 		t.Fatal("grant without research capability must not execute research_pack_create")
 	}
 	if refused.Error == nil || refused.Error.Kind != "unauthorized" {
@@ -443,7 +443,7 @@ func researchRetireFixture(t *testing.T, capabilities []agentcontract.Capability
 	return s, service, grant, candidates
 }
 
-func invokeResearchRetire(t *testing.T, s *store.Store, service *Service, grant Authority, product string, candidates []store.ResearchRetirementCandidate, dry bool, key string) Envelope {
+func invokeResearchRetire(t *testing.T, s *store.Store, service *Service, grant Authority, product string, candidates []store.ResearchRetirementCandidate, dry bool, key string) agentcontract.Envelope {
 	t.Helper()
 	version, _, err := s.ScopeVersion(context.Background(), "project-1")
 	if err != nil {
@@ -507,7 +507,7 @@ func TestResearchRetireDryRunAndReplay(t *testing.T) {
 		t.Fatal(err)
 	}
 	dry := invokeResearchRetire(t, s, service, grant, "product-1", candidates, true, "dry-retirement")
-	if dry.Outcome != OutcomeOK || dry.Replayed {
+	if dry.Outcome != agentcontract.OutcomeOK || dry.Replayed {
 		t.Fatalf("dry run outcome=%s error=%+v", dry.Outcome, dry.Error)
 	}
 	var classification store.RetireResearchPacksResult
@@ -524,7 +524,7 @@ func TestResearchRetireDryRunAndReplay(t *testing.T) {
 		t.Fatalf("dry run revision %d -> %d err=%v", revisionBefore, revisionAfter, err)
 	}
 	repeatedDry := invokeResearchRetire(t, s, service, grant, "product-1", candidates, true, "dry-retirement")
-	if repeatedDry.Outcome != OutcomeOK || repeatedDry.Replayed || !bytes.Equal(dry.Result, repeatedDry.Result) {
+	if repeatedDry.Outcome != agentcontract.OutcomeOK || repeatedDry.Replayed || !bytes.Equal(dry.Result, repeatedDry.Result) {
 		t.Fatalf("repeated dry outcome=%s error=%+v replayed=%v", repeatedDry.Outcome, repeatedDry.Error, repeatedDry.Replayed)
 	}
 	var receipts int
@@ -532,11 +532,11 @@ func TestResearchRetireDryRunAndReplay(t *testing.T) {
 		t.Fatalf("dry receipts=%d err=%v", receipts, err)
 	}
 	retired := invokeResearchRetire(t, s, service, grant, "product-1", candidates, false, "retirement")
-	if retired.Outcome != OutcomeOK {
+	if retired.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("retire error=%+v", retired.Error)
 	}
 	replay := invokeResearchRetire(t, s, service, grant, "product-1", candidates, false, "retirement")
-	if replay.Outcome != OutcomeOK || !replay.Replayed || !bytes.Equal(retired.Result, replay.Result) {
+	if replay.Outcome != agentcontract.OutcomeOK || !replay.Replayed || !bytes.Equal(retired.Result, replay.Result) {
 		t.Fatalf("replay outcome=%s error=%+v replayed=%v results=%s / %s", replay.Outcome, replay.Error, replay.Replayed, retired.Result, replay.Result)
 	}
 	conflict := invokeResearchRetire(t, s, service, grant, "product-1", candidates[:1], false, "retirement")
@@ -558,7 +558,7 @@ func TestResearchRetireDryRunAndReplay(t *testing.T) {
 func TestResearchRetireReplaySurvivesCloseAndReopen(t *testing.T) {
 	s, service, grant, candidates := researchRetireFixture(t, []agentcontract.Capability{"product_read", "research"})
 	retired := invokeResearchRetire(t, s, service, grant, "product-1", candidates[:2], false, "restart-retirement")
-	if retired.Outcome != OutcomeOK {
+	if retired.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("retirement error=%+v", retired.Error)
 	}
 	path := s.Path()
@@ -574,7 +574,7 @@ func TestResearchRetireReplaySurvivesCloseAndReopen(t *testing.T) {
 	restarted.Now = fixedTime
 	resolveProjectAuthority(restarted, store.ProjectResolution{ProjectID: "project-1"})
 	replay := invokeResearchRetire(t, reopened, restarted, grant, "product-1", candidates[:2], false, "restart-retirement")
-	if replay.Outcome != OutcomeOK || !replay.Replayed || !bytes.Equal(retired.Result, replay.Result) {
+	if replay.Outcome != agentcontract.OutcomeOK || !replay.Replayed || !bytes.Equal(retired.Result, replay.Result) {
 		t.Fatalf("reopened replay outcome=%s error=%+v replayed=%v results=%s / %s", replay.Outcome, replay.Error, replay.Replayed, retired.Result, replay.Result)
 	}
 	var receipts int
@@ -598,7 +598,7 @@ func TestResearchRetireReplaySurvivesCloseAndReopen(t *testing.T) {
 // witness pins the fail-closed behavior; it does not weaken it.
 func TestResearchRetireReplayAfterOwnerRemovalFailsClosed(t *testing.T) {
 	s, service, grant, candidates := researchRetireFixture(t, []agentcontract.Capability{"product_read", "research"})
-	if retired := invokeResearchRetire(t, s, service, grant, "product-1", candidates[:1], false, "removal-replay"); retired.Outcome != OutcomeOK {
+	if retired := invokeResearchRetire(t, s, service, grant, "product-1", candidates[:1], false, "removal-replay"); retired.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("retirement error=%+v", retired.Error)
 	}
 	req := store.WorkRemovalRequest{
@@ -629,7 +629,7 @@ func TestResearchRetireReplayAfterOwnerRemovalFailsClosed(t *testing.T) {
 
 func TestResearchRetireReplayRechecksRetainedOwnerScope(t *testing.T) {
 	s, service, grant, candidates := researchRetireFixture(t, []agentcontract.Capability{"product_read", "research"})
-	if retired := invokeResearchRetire(t, s, service, grant, "product-1", candidates[:1], false, "scope-replay"); retired.Outcome != OutcomeOK {
+	if retired := invokeResearchRetire(t, s, service, grant, "product-1", candidates[:1], false, "scope-replay"); retired.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("retirement error=%+v", retired.Error)
 	}
 	event := store.Event{EventID: "retire-owner-moved", Kind: "work.memberships_replaced", SubjectType: store.SubjectWorkItem, SubjectID: "retire-owner-0", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"memberships":[{"project_id":"project-2","role":"primary"}],"expected_version":3,"resulting_version":4}`)}
@@ -664,7 +664,7 @@ func TestResearchRetireDuplicatePackRefusesBeforeEffects(t *testing.T) {
 	s, service, grant, candidates := researchRetireFixture(t, []agentcontract.Capability{"product_read", "research"})
 	duplicate := []store.ResearchRetirementCandidate{candidates[0], {PackID: candidates[0].PackID, ExpectedVersion: 2}}
 	response := invokeResearchRetire(t, s, service, grant, "product-1", duplicate, false, "duplicate-retirement")
-	if response.Outcome != OutcomeError {
+	if response.Outcome != agentcontract.OutcomeError {
 		t.Fatalf("duplicate pack retired: %s", response.Result)
 	}
 	var packs, receipts int
@@ -704,7 +704,7 @@ func TestResearchRetireCrossProductAdmission(t *testing.T) {
 			}
 			response := invokeResearchRetire(t, s, service, grant, "product-1", candidates[:1], tc.dry, "cross-retirement")
 			if tc.want == "" {
-				if response.Outcome != OutcomeOK {
+				if response.Outcome != agentcontract.OutcomeOK {
 					t.Fatalf("dry run failed: %+v", response.Error)
 				}
 			} else if response.Error == nil || response.Error.Kind != tc.want {
@@ -792,7 +792,7 @@ func TestResearchRetireMaximumBatchAndReplay(t *testing.T) {
 		t.Fatal(err)
 	}
 	retired := invokeResearchRetire(t, s, service, grant, "product-1", candidates, false, "maximum-retirement")
-	if retired.Outcome != OutcomeOK {
+	if retired.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("maximum batch failed: %+v", retired.Error)
 	}
 	var result store.RetireResearchPacksResult
@@ -804,11 +804,11 @@ func TestResearchRetireMaximumBatchAndReplay(t *testing.T) {
 			t.Fatalf("candidate did not retire: %+v", candidate)
 		}
 	}
-	if retired.ChangedRefs == nil || len(*retired.ChangedRefs) != MaxChangedRefs || len(retired.Omissions) != 1 || retired.Omissions[0].Count != 100-MaxChangedRefs {
+	if retired.ChangedRefs == nil || len(*retired.ChangedRefs) != agentcontract.MaxChangedRefs || len(retired.Omissions) != 1 || retired.Omissions[0].Count != 100-agentcontract.MaxChangedRefs {
 		t.Fatalf("batch change refs=%+v omissions=%+v", retired.ChangedRefs, retired.Omissions)
 	}
 	replay := invokeResearchRetire(t, s, service, grant, "product-1", candidates, false, "maximum-retirement")
-	if replay.Outcome != OutcomeOK || !replay.Replayed || !bytes.Equal(retired.Result, replay.Result) || len(replay.Omissions) != 1 || replay.Omissions[0].Count != 100-MaxChangedRefs {
+	if replay.Outcome != agentcontract.OutcomeOK || !replay.Replayed || !bytes.Equal(retired.Result, replay.Result) || len(replay.Omissions) != 1 || replay.Omissions[0].Count != 100-agentcontract.MaxChangedRefs {
 		t.Fatalf("maximum replay outcome=%s error=%+v replayed=%v omissions=%+v", replay.Outcome, replay.Error, replay.Replayed, replay.Omissions)
 	}
 }

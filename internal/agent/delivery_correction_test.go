@@ -190,7 +190,7 @@ func TestDeliveryCorrectionAgentContract(t *testing.T) {
 		// approval claim and mints no challenge.
 		unsignedRaw := correctionInput("delivery-correction-1", nil)
 		approved := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "correct_delivery", Input: unsignedRaw}, env)
-		if approved.Outcome != OutcomeOK || approved.Error != nil {
+		if approved.Outcome != agentcontract.OutcomeOK || approved.Error != nil {
 			t.Fatalf("unsigned correction outcome=%+v error=%+v", approved.Outcome, approved.Error)
 		}
 		if challenges, approvals := agentApprovalRowCounts(t, s); challenges != 0 || approvals != 0 {
@@ -261,7 +261,7 @@ func TestDeliveryCorrectionAgentContract(t *testing.T) {
 		// The idempotent replay of the same request returns a result and
 		// appends nothing.
 		replayedDispatch := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "correct_delivery", Input: unsignedRaw}, env)
-		if replayedDispatch.Outcome != OutcomeOK || replayedDispatch.Error != nil {
+		if replayedDispatch.Outcome != agentcontract.OutcomeOK || replayedDispatch.Error != nil {
 			t.Fatalf("idempotent replay outcome=%+v error=%+v", replayedDispatch.Outcome, replayedDispatch.Error)
 		}
 		if corrections := agentDeliveryCorrectionEvents(t, s); corrections != 1 {
@@ -346,7 +346,7 @@ func TestDeliveryCorrectionAgentContract(t *testing.T) {
 		// projection's internal fields, so an ok outcome proves the published
 		// subset shape.
 		history := dispatchRead(t, s, service, InvokeRequest{Tool: "concord_work_trace", Operation: "history", Input: json.RawMessage(`{"work_id":"work-1","page":{"cursor":null,"limit":20}}`)}, env)
-		if history.Outcome != OutcomeOK || history.Error != nil {
+		if history.Outcome != agentcontract.OutcomeOK || history.Error != nil {
 			t.Fatalf("history read outcome=%+v error=%+v", history.Outcome, history.Error)
 		}
 		var page struct {
@@ -424,7 +424,7 @@ func TestDeliveryCorrectionAgentContract(t *testing.T) {
 
 		raw := agentCorrectionDispatchInput(t, s, targetEventID, targetSeq, targetPayloadVersion, "delivery-correction-fresh-session", nil)
 		corrected := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "correct_delivery", Input: raw}, env)
-		if corrected.Outcome != OutcomeOK || corrected.Error != nil {
+		if corrected.Outcome != agentcontract.OutcomeOK || corrected.Error != nil {
 			t.Fatalf("fresh-session correction outcome=%+v error=%+v, want the unsigned success with no challenge", corrected.Outcome, corrected.Error)
 		}
 		if challenges, approvals := agentApprovalRowCounts(t, s); challenges != 0 || approvals != 0 {
@@ -570,7 +570,7 @@ func TestDeliveryCorrectionAgentContract(t *testing.T) {
 			t.Fatal(err)
 		}
 		supplied := dispatchMutation(t, suppliedStore, suppliedService, InvokeRequest{Tool: "concord_work_transition", Operation: "correct_delivery", Input: suppliedInput}, suppliedEnv)
-		if supplied.Outcome != OutcomeError || supplied.Error == nil || supplied.Error.Kind != "invalid_input" || !strings.Contains(supplied.Error.Message, "approval") {
+		if supplied.Outcome != agentcontract.OutcomeError || supplied.Error == nil || supplied.Error.Kind != "invalid_input" || !strings.Contains(supplied.Error.Message, "approval") {
 			t.Fatalf("supplied approval input outcome=%+v error=%+v, want invalid_input rejecting the approval claim", supplied.Outcome, supplied.Error)
 		}
 		if challenges, approvals := agentApprovalRowCounts(t, suppliedStore); challenges != 0 || approvals != 0 {
@@ -590,7 +590,7 @@ func TestDeliveryCorrectionAgentContract(t *testing.T) {
 // digest, mirroring the overlap route's approved retry. At this Service layer
 // the helper constructs the structurally accepted assertion; it performs no
 // signature of its own.
-func correctionApprovedDispatch(t *testing.T, s *store.Store, service *Service, privateKey ed25519.PrivateKey, env CallEnvelope, approvalRef, digest string, scope, versions map[string]any, input []byte) Envelope {
+func correctionApprovedDispatch(t *testing.T, s *store.Store, service *Service, privateKey ed25519.PrivateKey, env CallEnvelope, approvalRef, digest string, scope, versions map[string]any, input []byte) agentcontract.Envelope {
 	t.Helper()
 	approvedEnv := env
 	approvedEnv.HostApproval = signedHostApproval(privateKey, approvalRef, digest, scope, versions, env.SessionRef, env.AgentRef, env.Worktree, fixedTime(), nonceForChallenge(approvalRef))
@@ -629,7 +629,7 @@ func TestDeliveryCorrectionCrossProductBoundaryNeedsNoConsent(t *testing.T) {
 	input := agentCorrectionDispatchInput(t, s, targetEventID, targetSeq, targetPayloadVersion, "delivery-correction-cross-product", nil)
 	request := InvokeRequest{Tool: "concord_work_transition", Operation: "correct_delivery", Input: input}
 	approved := dispatchMutation(t, s, service, request, env)
-	if approved.Outcome != OutcomeOK || approved.Error != nil {
+	if approved.Outcome != agentcontract.OutcomeOK || approved.Error != nil {
 		t.Fatalf("approved cross-Product correction outcome=%s error=%+v, want the appended correction", approved.Outcome, approved.Error)
 	}
 	if challenges, approvals := agentApprovalRowCounts(t, s); challenges != 0 || approvals != 0 {
@@ -785,7 +785,7 @@ func TestDeliveryCorrectionCrossProductBoundaryNeedsNoConsent(t *testing.T) {
 	// closed work_event_page contract refuses the projection's internal
 	// fields, so an ok outcome proves the published subset shape.
 	history := dispatchRead(t, s, service, InvokeRequest{Tool: "concord_work_trace", Operation: "history", Input: json.RawMessage(`{"work_id":"work-1","page":{"cursor":null,"limit":20}}`)}, env)
-	if history.Outcome != OutcomeOK || history.Error != nil {
+	if history.Outcome != agentcontract.OutcomeOK || history.Error != nil {
 		t.Fatalf("history read outcome=%+v error=%+v", history.Outcome, history.Error)
 	}
 	var page struct {
@@ -842,7 +842,7 @@ func TestDeliveryCorrectionCachedReplayPreservesOriginalResultWithoutNewEffects(
 	env := mutationEnvelope(grant, scopeVersion)
 	unsignedRaw := agentCorrectionDispatchInput(t, s, targetEventID, targetSeq, targetPayloadVersion, "delivery-correction-cached-replay", nil)
 	unsigned := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "correct_delivery", Input: unsignedRaw}, env)
-	if unsigned.Outcome != OutcomeOK || unsigned.Error != nil {
+	if unsigned.Outcome != agentcontract.OutcomeOK || unsigned.Error != nil {
 		t.Fatalf("unsigned correction outcome=%s error=%+v, want the routine success", unsigned.Outcome, unsigned.Error)
 	}
 	// The baseline populations the claim replay is measured against: one
@@ -871,7 +871,7 @@ func TestDeliveryCorrectionCachedReplayPreservesOriginalResultWithoutNewEffects(
 		t.Fatal(err)
 	}
 	claimReplay := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "correct_delivery", Input: withClaim}, env)
-	if claimReplay.Outcome != OutcomeError || claimReplay.Error == nil || claimReplay.Error.Kind != "invalid_input" || claimReplay.Error.Message != "a routine delivery correction accepts no approval claim" {
+	if claimReplay.Outcome != agentcontract.OutcomeError || claimReplay.Error == nil || claimReplay.Error.Kind != "invalid_input" || claimReplay.Error.Message != "a routine delivery correction accepts no approval claim" {
 		t.Errorf("cached correction replay with an unneeded claim outcome=%s error=%+v, want the same fresh invalid_input refusal the unsigned claim path returns", claimReplay.Outcome, claimReplay.Error)
 	}
 	// The replay must settle nothing new: these probes measure the reply
@@ -907,7 +907,7 @@ func TestDeliveryCorrectionCachedReplayPreservesOriginalResultWithoutNewEffects(
 	// and changed refs, with the single receipt observation the replay
 	// touch records.
 	unchanged := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "correct_delivery", Input: unsignedRaw}, env)
-	if unchanged.Outcome != OutcomeOK || unchanged.Error != nil {
+	if unchanged.Outcome != agentcontract.OutcomeOK || unchanged.Error != nil {
 		t.Fatalf("the unchanged unsigned replay outcome=%s error=%+v, want the cached success", unchanged.Outcome, unchanged.Error)
 	}
 	if !unchanged.Replayed {

@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/pm1fixture"
 	"github.com/sharper-flow/concord/internal/store"
 )
@@ -123,12 +124,12 @@ func (p cancelledNotePublication) approvedBy(t *testing.T, privateKey ed25519.Pr
 
 // publishCancelledNote drives the durable publication intent. CD-0243 D3/D7
 // retire ordinary consent, not exact content/home proof or publication order.
-func publishCancelledNote(t *testing.T, s *store.Store, service *Service, grant Authority, privateKey ed25519.PrivateKey, home store.KnowledgeHome) Envelope {
+func publishCancelledNote(t *testing.T, s *store.Store, service *Service, grant Authority, privateKey ed25519.PrivateKey, home store.KnowledgeHome) agentcontract.Envelope {
 	t.Helper()
 	return publishCancelledNoteWithKey(t, s, service, grant, privateKey, home, "compact-cancelled-approval-roundtrip-1")
 }
 
-func publishCancelledNoteWithKey(t *testing.T, s *store.Store, service *Service, grant Authority, _ ed25519.PrivateKey, home store.KnowledgeHome, idempotencyKey string) Envelope {
+func publishCancelledNoteWithKey(t *testing.T, s *store.Store, service *Service, grant Authority, _ ed25519.PrivateKey, home store.KnowledgeHome, idempotencyKey string) agentcontract.Envelope {
 	t.Helper()
 	publication := newCancelledNotePublication(t, s, grant, home, idempotencyKey)
 
@@ -138,7 +139,7 @@ func publishCancelledNoteWithKey(t *testing.T, s *store.Store, service *Service,
 func TestPredicateFirstCallPublishesWithoutConsent(t *testing.T) {
 	s, service, grant, privateKey, home := agentJobsCompactionFixture(t)
 	response := publishCancelledNote(t, s, service, grant, privateKey, home)
-	if response.Outcome != OutcomeOK {
+	if response.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("publish response=%+v", response)
 	}
 	if archivedCancelledWorkCount(t, s) != 1 {
@@ -165,7 +166,7 @@ func bindAJ6CompactTerminalWork(t *testing.T, sc jobScenario) jobObservation {
 		return nil
 	}
 	resp := publishCancelledNote(t, s, service, grant, privateKey, home)
-	if resp.Outcome != OutcomeOK {
+	if resp.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("publish outcome=%s err=%+v", resp.Outcome, resp.Error)
 	}
 
@@ -182,7 +183,7 @@ func bindAJ6CompactTerminalWork(t *testing.T, sc jobScenario) jobObservation {
 	// canonical note count below is what proves nothing was written twice.
 	observed = observed[:0]
 	replay := publishCancelledNote(t, s, service, grant, privateKey, home)
-	if replay.Outcome != OutcomeOK {
+	if replay.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("replayed publish outcome=%s err=%+v", replay.Outcome, replay.Error)
 	}
 	replayLocator, _, replayOK := archivedWorkLocator(t, s)
@@ -295,7 +296,7 @@ func bindAJ6PartialPublication(t *testing.T, sc jobScenario) jobObservation {
 	// an ok outcome, a recorded locator, or a completed durable operation; the
 	// probe checks all three rather than reading the outcome alone.
 	switch {
-	case resp.Outcome == OutcomeOK:
+	case resp.Outcome == agentcontract.OutcomeOK:
 		obs.Effects = map[string]any{"success_verdict": "publication reported ok after a failed verification"}
 	case recorded:
 		obs.Effects = map[string]any{"success_verdict": "locator recorded without git proof"}
@@ -359,7 +360,7 @@ func TestPartialPublicationLeavesNoDraftUntracked(t *testing.T) {
 		return nil
 	}
 	resp := publishCancelledNote(t, s, service, grant, privateKey, home)
-	if resp.Outcome != OutcomePartial {
+	if resp.Outcome != agentcontract.OutcomePartial {
 		t.Fatalf("outcome=%s, want partial", resp.Outcome)
 	}
 	entries, err := os.ReadDir(filepath.Join(home.RepoPath, ".concord", "docs", "work"))

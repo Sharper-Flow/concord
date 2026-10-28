@@ -75,7 +75,7 @@ func testLargeMembershipApprovalRoundTrip(t *testing.T, projectCount int) {
 	}
 	request := InvokeRequest{Tool: "concord_work_relate", Operation: "set_memberships", Input: raw}
 	approved, err := Dispatch(ctx, s, service, request, env)
-	if err != nil || approved.Error != nil || approved.Outcome != OutcomeOK {
+	if err != nil || approved.Error != nil || approved.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("ordinary membership failed: %+v, err = %v", approved.Error, err)
 	}
 	if _, err := approved.Encode(); err != nil {
@@ -97,7 +97,7 @@ func testLargeMembershipApprovalRoundTrip(t *testing.T, projectCount int) {
 		t.Fatalf("approved Project identities = %v, want %v", gotIDs, projects)
 	}
 	replay, err := Dispatch(ctx, s, service, request, env)
-	if err != nil || replay.Outcome != OutcomeOK || !replay.Replayed || workVersion(t, s, "work-1") != 3 {
+	if err != nil || replay.Outcome != agentcontract.OutcomeOK || !replay.Replayed || workVersion(t, s, "work-1") != 3 {
 		t.Fatalf("large membership replay=%+v err=%v", replay.Error, err)
 	}
 }
@@ -122,7 +122,7 @@ func TestMembershipScopeDoesNotUseApprovalSummaryCapacity(t *testing.T) {
 		t.Fatal(err)
 	}
 	response, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_relate", Operation: "set_memberships", Input: raw}, mutationEnvelope(grant, scopeVersion))
-	if err != nil || response.Outcome != OutcomeOK {
+	if err != nil || response.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("ordinary large membership = %+v, err = %v", response.Error, err)
 	}
 	if _, err := json.Marshal(response); err != nil {

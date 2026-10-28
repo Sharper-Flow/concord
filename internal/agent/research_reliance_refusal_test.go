@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -30,7 +31,7 @@ func TestResearchRelianceRefusalHasNoEffects(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			invoke := func(input any) Envelope {
+			invoke := func(input any) agentcontract.Envelope {
 				t.Helper()
 				raw, err := json.Marshal(input)
 				if err != nil {
@@ -54,7 +55,7 @@ func TestResearchRelianceRefusalHasNoEffects(t *testing.T) {
 				binding["revision"] = 999
 			} else {
 				accepted := invoke(map[string]any{"work_id": "work-1", "expected_version": 4, "action_id": "record_diagnosis", "idempotency_key": "pin", "fields": diagnosisFields, "research_bindings": []any{binding}})
-				if accepted.Outcome != OutcomeOK {
+				if accepted.Outcome != agentcontract.OutcomeOK {
 					t.Fatalf("pin: %+v", accepted.Error)
 				}
 				input["expected_version"] = 6
@@ -77,7 +78,7 @@ func TestResearchRelianceRefusalHasNoEffects(t *testing.T) {
 				}
 			}
 			out := invoke(input)
-			if out.Error == nil || out.Error.Kind != test.kind || out.Error.EffectState != EffectNone {
+			if out.Error == nil || out.Error.Kind != test.kind || out.Error.EffectState != agentcontract.EffectNone {
 				t.Fatalf("refusal=%+v, want %s/effect none", out.Error, test.kind)
 			}
 			for query, expected := range map[string]int{"SELECT last FROM store_sequences WHERE name='effect'": beforeEvents, "SELECT count(*) FROM active_research_consumers": beforePins, "SELECT expected_version FROM active_research_packs": beforeVersion} {
@@ -107,7 +108,7 @@ func TestResearchRelianceDeclarationReplacesPin(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			invoke := func(version int, action, key string, fields map[string]any, binding map[string]any) Envelope {
+			invoke := func(version int, action, key string, fields map[string]any, binding map[string]any) agentcontract.Envelope {
 				t.Helper()
 				input := map[string]any{"work_id": "work-1", "expected_version": version, "action_id": action, "idempotency_key": key, "fields": fields}
 				if binding != nil {
@@ -129,7 +130,7 @@ func TestResearchRelianceDeclarationReplacesPin(t *testing.T) {
 				"searched":     "The bounded backlog.",
 				"outcome":      "none_found",
 				"root_cause":   "The bounded root cause statement.",
-			}, binding); out.Outcome != OutcomeOK {
+			}, binding); out.Outcome != agentcontract.OutcomeOK {
 				t.Fatalf("pin: %+v", out.Error)
 			}
 			packVersion := int64(2)
@@ -154,7 +155,7 @@ func TestResearchRelianceDeclarationReplacesPin(t *testing.T) {
 			if name == "role_change" {
 				binding["use_role"], wantRole = "design_input", "design_input"
 			}
-			if out := invoke(6, "record_work_context", "replace", map[string]any{"required_reading": []any{}, "finding_refs": []any{}, "context_findings": []any{}}, binding); out.Outcome != OutcomeOK || out.Error != nil {
+			if out := invoke(6, "record_work_context", "replace", map[string]any{"required_reading": []any{}, "finding_refs": []any{}, "context_findings": []any{}}, binding); out.Outcome != agentcontract.OutcomeOK || out.Error != nil {
 				t.Fatalf("replacement: %+v", out.Error)
 			}
 			var pins int
@@ -174,7 +175,7 @@ func TestResearchRelianceDeclarationReplacesPin(t *testing.T) {
 			if err := s.DatabaseForTesting().QueryRow(`SELECT expected_version FROM active_research_packs WHERE pack_id=?`, pack.PackID).Scan(&gotVersion); err != nil || gotVersion != packVersion+1 {
 				t.Fatalf("version=%d, want %d err=%v", gotVersion, packVersion+1, err)
 			}
-			if out := invoke(7, "record_work_context", "omitted", map[string]any{"required_reading": []any{}, "finding_refs": []any{}, "context_findings": []any{}}, nil); out.Outcome != OutcomeOK {
+			if out := invoke(7, "record_work_context", "omitted", map[string]any{"required_reading": []any{}, "finding_refs": []any{}, "context_findings": []any{}}, nil); out.Outcome != agentcontract.OutcomeOK {
 				t.Fatalf("following action: %+v", out.Error)
 			}
 		})

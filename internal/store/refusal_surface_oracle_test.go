@@ -17,7 +17,7 @@ import (
 // This external-package harness drives the public byte boundary. The host probe
 // injects a store refusal so the assertion tests projection, not a second
 // implementation of the store's admission rules.
-func invokeRefusal(t *testing.T, failure *store.Failure) (agent.Envelope, []byte) {
+func invokeRefusal(t *testing.T, failure *store.Failure) (agentcontract.Envelope, []byte) {
 	t.Helper()
 	ctx := context.Background()
 	s, err := store.Open(ctx, filepath.Join(t.TempDir(), "authority.db"))
@@ -57,7 +57,7 @@ func invokeRefusal(t *testing.T, failure *store.Failure) (agent.Envelope, []byte
 	if err != nil {
 		t.Fatal(err)
 	}
-	if calls != 1 || out.Error == nil || out.Error.Kind != "missing_evidence" || out.Error.RecoveryAction.Kind != "provide_evidence" || out.Error.EffectState != agent.EffectNone || out.Error.RetrySafe {
+	if calls != 1 || out.Error == nil || out.Error.Kind != "missing_evidence" || out.Error.RecoveryAction.Kind != "provide_evidence" || out.Error.EffectState != agentcontract.EffectNone || out.Error.RetrySafe {
 		t.Fatalf("typed refusal changed: calls=%d error=%+v", calls, out.Error)
 	}
 	encoded, err := out.Encode()
@@ -94,7 +94,7 @@ func TestRefusalRemedyIsModelVisible(t *testing.T) {
 func TestRefusalRemedyKeepsEnvelopeBounds(t *testing.T) {
 	for _, text := range []string{strings.Repeat("x", 2000), strings.Repeat("界", 1000)} {
 		out, encoded := invokeRefusal(t, &store.Failure{Kind: store.KindMissingEvidence, Detail: text, RecoveryAction: text})
-		if !utf8.Valid(encoded) || !json.Valid(encoded) || len(encoded) > agent.MaxResultEnvelopeBytes || len(out.Error.Message) > 1000 {
+		if !utf8.Valid(encoded) || !json.Valid(encoded) || len(encoded) > agentcontract.MaxResultEnvelopeBytes || len(out.Error.Message) > 1000 {
 			t.Fatalf("refusal escaped existing output bounds: message=%d envelope=%d", len(out.Error.Message), len(encoded))
 		}
 	}

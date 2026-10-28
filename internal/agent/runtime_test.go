@@ -43,11 +43,11 @@ func TestAuditReclaimReportsCommittedEffectWithThePhysicalTree(t *testing.T) {
 	}
 	raw, _ := json.Marshal(map[string]any{"product_id": "product-1", "default_ref": "main", "idempotency_key": "post-commit-budget"})
 	r := runtime{Store: s, Authority: service, Envelope: mutationEnvelope(grant, scopeVersion), Tool: "concord_work_transition", Operation: "worktree_audit_reclaim", Reader: grant}
-	response, err := r.mutateWorktreeAuditReclaim(context.Background(), NewBase("post-commit", r.Tool, r.Operation), raw, grant, op)
+	response, err := r.mutateWorktreeAuditReclaim(context.Background(), agentcontract.NewBase("post-commit", r.Tool, r.Operation), raw, grant, op)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if response.Outcome != OutcomeOK {
+	if response.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("response=%+v", response)
 	}
 	if response.ChangedRefs == nil || len(*response.ChangedRefs) != 1 || (*response.ChangedRefs)[0].ID != "work-2" {
@@ -108,7 +108,7 @@ func TestDispatchProductResolveReturnsGeneratedPayload(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if response.Outcome != OutcomeOK {
+	if response.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("response=%+v", response)
 	}
 }
@@ -224,7 +224,7 @@ func TestDispatchCaptureCreatesWorkAndMembershipsAtomically(t *testing.T) {
 	request := InvokeRequest{Tool: "concord_work_define", Operation: "capture", Input: json.RawMessage(`{"title":"Need","value_statement":"Need value","kind":"task","project_ids":["project-1"],"idempotency_key":"capture-idem-1"}`)}
 	env := CallEnvelope{SchemaVersion: "1.0", RequestID: "capture-request-1", ClientRef: grant.ClientRef, PrincipalRef: grant.PrincipalRef, SessionRef: grant.SessionRef, AgentRef: grant.AgentRef, Directory: grant.Directory, Worktree: grant.Worktree, AmbientProjectID: "project-1", SelectedProductID: "product-1", ScopeVersion: scopeVersion, ManifestDigest: grant.ManifestDigest}
 	response, err := Dispatch(ctx, s, service, request, env)
-	if err != nil || response.Outcome != OutcomeOK {
+	if err != nil || response.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("capture response=%+v err=%v", response, err)
 	}
 	// Every capture pins a workflow instance (#650), so the changed version
@@ -238,13 +238,13 @@ func TestDispatchCaptureCreatesWorkAndMembershipsAtomically(t *testing.T) {
 	}
 	env.RequestID = "capture-request-2"
 	replay, err := Dispatch(ctx, s, service, request, env)
-	if err != nil || replay.Outcome != OutcomeOK || !replay.Replayed {
+	if err != nil || replay.Outcome != agentcontract.OutcomeOK || !replay.Replayed {
 		t.Fatalf("capture replay=%+v err=%v", replay, err)
 	}
 	revise := InvokeRequest{Tool: "concord_work_define", Operation: "revise_intent", Input: json.RawMessage(`{"work_id":"work-` + (*replay.ChangedRefs)[0].ID[len("work-"):] + `","expected_version":4,"title":"Need revised","value_statement":"Revised value","kind":"task","priority":3,"tags":[],"reason":"clarified","evidence":[{"kind":"commit","authority":"git","locator_kind":"commit","locator":"commit:7b83cbf41af2f9fa7990294a41a50cb75a1d6d1e"}],"idempotency_key":"revise-idem-1"}`)}
 	env.RequestID = "revise-request-1"
 	revised, err := Dispatch(ctx, s, service, revise, env)
-	if err != nil || revised.Outcome != OutcomeOK {
+	if err != nil || revised.Outcome != agentcontract.OutcomeOK {
 		errorJSON, _ := json.Marshal(revised.Error)
 		t.Fatalf("revise response=%+v error=%s err=%v", revised, errorJSON, err)
 	}
@@ -312,7 +312,7 @@ func TestResultPayloadNeverSerializesUnsignedStoreCursor(t *testing.T) {
 	t.Parallel()
 	rawCursor := "store-offset-cursor"
 	r := runtime{}
-	response, err := r.q3(NewBase("request", "concord_work_browse", "list"), store.Q3Result{
+	response, err := r.q3(agentcontract.NewBase("request", "concord_work_browse", "list"), store.Q3Result{
 		ResultMeta: store.ResultMeta{QueryID: "PM1.Q3", ContractVersion: "PM1/1.0", Authority: "authoritative", Freshness: store.Freshness{ObservedAt: time.Now().UTC().Format(time.RFC3339Nano)}, NextCursor: &rawCursor},
 	})
 	if err != nil {
@@ -400,14 +400,14 @@ func TestConcurrentKnowledgeResolveNoteFailuresStayTyped(t *testing.T) {
 
 	const calls = 8
 	type result struct {
-		response Envelope
+		response agentcontract.Envelope
 		err      error
 	}
 	results := make(chan result, calls)
 	for i := range calls {
 		go func() {
 			r := runtime{Store: s, Tool: "concord_knowledge", Operation: "resolve_note", Envelope: CallEnvelope{}}
-			response, err := r.read(context.Background(), NewBase(fmt.Sprintf("runtime-q10-%d", i), r.Tool, r.Operation), json.RawMessage(`{"knowledge_id":"drifted-knowledge"}`), "PM1.Q10")
+			response, err := r.read(context.Background(), agentcontract.NewBase(fmt.Sprintf("runtime-q10-%d", i), r.Tool, r.Operation), json.RawMessage(`{"knowledge_id":"drifted-knowledge"}`), "PM1.Q10")
 			results <- result{response: response, err: err}
 		}()
 	}
@@ -416,7 +416,7 @@ func TestConcurrentKnowledgeResolveNoteFailuresStayTyped(t *testing.T) {
 		if got.err != nil {
 			t.Fatalf("concurrent read returned an adapter error: %v", got.err)
 		}
-		if got.response.Outcome != OutcomeError || got.response.Error == nil || got.response.Error.Kind != "invalid_input" {
+		if got.response.Outcome != agentcontract.OutcomeError || got.response.Error == nil || got.response.Error.Kind != "invalid_input" {
 			t.Fatalf("concurrent read lost the typed core failure: %+v", got.response)
 		}
 		if _, err := json.Marshal(got.response); err != nil {
@@ -432,7 +432,7 @@ func TestKnowledgeResolveNotePreservesFrozenWorkNoteScope(t *testing.T) {
 	request := json.RawMessage(`{"work_id":"frozen-work"}`)
 	assertRuntimeKnowledgeState(t, runtimeResolveNote(t, s, "product-a", request), "canonical")
 	response := runtimeResolveNote(t, s, "product-b", request)
-	if response.Outcome != OutcomeError || response.Error == nil || response.Error.Kind != "unknown_scope" {
+	if response.Outcome != agentcontract.OutcomeError || response.Error == nil || response.Error.Kind != "unknown_scope" {
 		t.Fatalf("frozen work note followed current membership: %+v", response)
 	}
 }
@@ -442,24 +442,24 @@ func TestKnowledgeResolveNoteRejectsUnrelatedSelectedProduct(t *testing.T) {
 	s := runtimeKnowledgeStore(t, "scoped-knowledge", "lesson", nil, map[string]string{"product-a": "member"})
 	defer s.Close()
 	response := runtimeResolveNote(t, s, "product-b", json.RawMessage(`{"knowledge_id":"scoped-knowledge"}`))
-	if response.Outcome != OutcomeError || response.Error == nil || response.Error.Kind != "unknown_scope" {
+	if response.Outcome != agentcontract.OutcomeError || response.Error == nil || response.Error.Kind != "unknown_scope" {
 		t.Fatalf("unrelated Product was not typed unknown_scope: %+v", response)
 	}
 }
 
-func runtimeResolveNote(t *testing.T, s *store.Store, product string, input json.RawMessage) Envelope {
+func runtimeResolveNote(t *testing.T, s *store.Store, product string, input json.RawMessage) agentcontract.Envelope {
 	t.Helper()
 	r := runtime{Store: s, Tool: "concord_knowledge", Operation: "resolve_note", Envelope: CallEnvelope{SelectedProductID: product}}
-	response, err := r.read(context.Background(), NewBase("runtime-q10", r.Tool, r.Operation), input, "PM1.Q10")
+	response, err := r.read(context.Background(), agentcontract.NewBase("runtime-q10", r.Tool, r.Operation), input, "PM1.Q10")
 	if err != nil {
 		t.Fatal(err)
 	}
 	return response
 }
 
-func assertRuntimeKnowledgeState(t *testing.T, response Envelope, want string) {
+func assertRuntimeKnowledgeState(t *testing.T, response agentcontract.Envelope, want string) {
 	t.Helper()
-	if response.Outcome != OutcomeOK {
+	if response.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("Q10 response=%+v error=%#v", response, response.Error)
 	}
 	var result struct {

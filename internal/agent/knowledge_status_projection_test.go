@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/payloadschema"
 	"github.com/sharper-flow/concord/internal/store"
 )
@@ -16,7 +17,7 @@ func TestKnowledgeSearchProjectsAcceptedLawStatus(t *testing.T) {
 	result := store.Q9Result{ResultMeta: meta, IndexWatermark: "commit", Items: []store.KnowledgeItem{
 		{ID: "CD-0001", Kind: "decision", OutcomeTag: "accepted", NotePath: ".concord/docs/decisions/CD-0001.md"},
 	}}
-	response, err := (runtime{Tool: "concord_knowledge", Operation: "search"}).q9(NewBase("q9-status", "concord_knowledge", "search"), result)
+	response, err := (runtime{Tool: "concord_knowledge", Operation: "search"}).q9(agentcontract.NewBase("q9-status", "concord_knowledge", "search"), result)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -46,7 +47,7 @@ func TestKnowledgeSearchOmitsNonLawOutcomeTags(t *testing.T) {
 	result := store.Q9Result{ResultMeta: meta, IndexWatermark: "commit", Items: []store.KnowledgeItem{
 		{ID: "work-1", Kind: "work_note", OutcomeTag: "shipped", NotePath: "notes/work-1.md", SuccessorID: "work-2"},
 	}}
-	response, err := (runtime{Tool: "concord_knowledge", Operation: "search"}).q9(NewBase("q9-worknote", "concord_knowledge", "search"), result)
+	response, err := (runtime{Tool: "concord_knowledge", Operation: "search"}).q9(agentcontract.NewBase("q9-worknote", "concord_knowledge", "search"), result)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -78,7 +79,7 @@ func TestKnowledgeSearchOmitsWorkNoteTagsThatNameLawStatuses(t *testing.T) {
 		result := store.Q9Result{ResultMeta: meta, IndexWatermark: "commit", Items: []store.KnowledgeItem{
 			{ID: "work-1", Kind: "work_note", OutcomeTag: tag, NotePath: "notes/work-1.md"},
 		}}
-		response, err := (runtime{Tool: "concord_knowledge", Operation: "search"}).q9(NewBase("q9-worknote-law-tag", "concord_knowledge", "search"), result)
+		response, err := (runtime{Tool: "concord_knowledge", Operation: "search"}).q9(agentcontract.NewBase("q9-worknote-law-tag", "concord_knowledge", "search"), result)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -105,7 +106,7 @@ func TestKnowledgeResolveNoteProjectsAcceptedLawStatus(t *testing.T) {
 	meta := store.ResultMeta{QueryID: "PM1.Q10", ContractVersion: "PM1/1.0", Authority: "authoritative", Freshness: store.Freshness{ObservedAt: time.Now().UTC().Format(time.RFC3339Nano)}}
 	note := &store.CanonicalNote{HomeProjectID: "home", HomeLocatorID: "locator", NotePath: ".concord/docs/decisions/CD-0001.md", Commit: "c0ffee", ContentHash: "sha256:deadbeef"}
 	result := store.Q10Result{ResultMeta: meta, Status: "canonical", Note: note, Result: &store.Q10Payload{Status: "canonical", Note: note, LawStatus: "accepted"}}
-	response, err := (runtime{Tool: "concord_knowledge", Operation: "resolve_note"}).q10(NewBase("q10-status", "concord_knowledge", "resolve_note"), result)
+	response, err := (runtime{Tool: "concord_knowledge", Operation: "resolve_note"}).q10(agentcontract.NewBase("q10-status", "concord_knowledge", "resolve_note"), result)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -142,7 +143,7 @@ func TestKnowledgeResolveNoteWithoutLawStatusOmitsTheField(t *testing.T) {
 	t.Parallel()
 	meta := store.ResultMeta{QueryID: "PM1.Q10", ContractVersion: "PM1/1.0", Authority: "authoritative", Freshness: store.Freshness{ObservedAt: time.Now().UTC().Format(time.RFC3339Nano)}}
 	result := store.Q10Result{ResultMeta: meta, Status: "not_compacted", Result: &store.Q10Payload{Status: "not_compacted"}}
-	response, err := (runtime{Tool: "concord_knowledge", Operation: "resolve_note"}).q10(NewBase("q10-nostatus", "concord_knowledge", "resolve_note"), result)
+	response, err := (runtime{Tool: "concord_knowledge", Operation: "resolve_note"}).q10(agentcontract.NewBase("q10-nostatus", "concord_knowledge", "resolve_note"), result)
 	if err != nil {
 		t.Fatal(err)
 	}

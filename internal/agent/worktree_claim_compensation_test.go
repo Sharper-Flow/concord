@@ -39,7 +39,7 @@ func TestWorktreeClaimEffectReportsCreationAndCleanupCompensates(t *testing.T) {
 		t.Fatal(err)
 	}
 	plan := newMutationPlan(env, op)
-	if _, _, handled := r.planWorktreeClaim(ctx, Envelope{}, raw, "sha256:"+strings.Repeat("c", 64), grant, op, plan); handled {
+	if _, _, handled := r.planWorktreeClaim(ctx, agentcontract.Envelope{}, raw, "sha256:"+strings.Repeat("c", 64), grant, op, plan); handled {
 		t.Fatal("planWorktreeClaim must defer to the effect, not answer directly")
 	}
 	if plan.effect == nil || plan.nativeCleanup == nil {
@@ -103,7 +103,7 @@ func TestExecuteMutationCompensatesNativeCreationWhenTheResultIsRefused(t *testi
 		return cause
 	}
 	probeKey := store.MutationIdempotencyKey{PrincipalRef: "principal-1", Tool: "concord_work_transition", OperationKind: "worktree_claim", IdempotencyKey: "cleanup-window-probe"}
-	effect := func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
+	effect := func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []agentcontract.ChangedRef, error) {
 		// A durable write in the effect's transaction; the refusal after the
 		// effect must roll it back with the rest of the claim.
 		if err := store.InsertMutationIdempotencyTx(ctx, tx, store.MutationIdempotencyInsert{
@@ -117,11 +117,11 @@ func TestExecuteMutationCompensatesNativeCreationWhenTheResultIsRefused(t *testi
 		// refused after the effect and before the commit.
 		return json.RawMessage(`{}`), nil, nil, nil
 	}
-	response, err := r.executeMutation(ctx, Envelope{}, raw, digest, scope, versions, "lifecycle", "", false, nil, nil, nil, effect, cleanup, nil)
+	response, err := r.executeMutation(ctx, agentcontract.Envelope{}, raw, digest, scope, versions, "lifecycle", "", false, nil, nil, nil, effect, cleanup, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if response.Outcome != OutcomeError {
+	if response.Outcome != agentcontract.OutcomeError {
 		t.Fatalf("schema-invalid result must refuse the mutation: outcome=%+v", response.Outcome)
 	}
 	if cleanupCalls != 1 {

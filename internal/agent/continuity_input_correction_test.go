@@ -19,7 +19,7 @@ func TestInvokeContinuityLimitCorrection(t *testing.T) {
 		t.Fatal(err)
 	}
 	env := mutationEnvelope(grant, scopeVersion)
-	invoke := func(input map[string]any) Envelope {
+	invoke := func(input map[string]any) agentcontract.Envelope {
 		t.Helper()
 		raw, err := json.Marshal(input)
 		if err != nil {
@@ -65,13 +65,13 @@ func TestInvokeContinuityLimitCorrection(t *testing.T) {
 					t.Fatalf("refusal mutated work version/events: %v -> %v", before, after)
 				}
 				bounds["limit"] = 20
-				if corrected := invoke(input); corrected.Outcome != OutcomeOK {
+				if corrected := invoke(input); corrected.Outcome != agentcontract.OutcomeOK {
 					t.Fatalf("correcting only %s under unchanged authority failed: %+v", field, corrected.Error)
 				}
 			})
 		}
 	}
-	if defaulted := invoke(map[string]any{"work_id": "work-1"}); defaulted.Outcome != OutcomeOK {
+	if defaulted := invoke(map[string]any{"work_id": "work-1"}); defaulted.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("default continuity page failed: %+v", defaulted.Error)
 	}
 	if after := snapshot(); after != before {

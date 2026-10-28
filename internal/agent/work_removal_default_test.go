@@ -68,7 +68,7 @@ func defaultRemovalGenerationsFixture(t *testing.T, generations int, retain bool
 	return s, service, env, input, claim.Entry.Path
 }
 
-func removalDispatch(t *testing.T, s *store.Store, service *Service, env CallEnvelope, input map[string]any) Envelope {
+func removalDispatch(t *testing.T, s *store.Store, service *Service, env CallEnvelope, input map[string]any) agentcontract.Envelope {
 	t.Helper()
 	raw, err := json.Marshal(input)
 	if err != nil {
@@ -91,7 +91,7 @@ func assertShelvingNoConsent(t *testing.T, s *store.Store) {
 func TestDefaultCheckoutShelvingRemoval(t *testing.T) {
 	s, service, env, input, _ := defaultRemovalFixture(t)
 	out := removalDispatch(t, s, service, env, input)
-	if out.Outcome != OutcomeOK {
+	if out.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("consent-free shelving: %+v", out.Error)
 	}
 	assertShelvingNoConsent(t, s)
@@ -102,7 +102,7 @@ func TestDefaultCheckoutShelvingRemoval(t *testing.T) {
 		t.Fatal("missing committed receipt")
 	}
 	replay := removalDispatch(t, s, service, env, input)
-	if replay.Outcome != OutcomeOK || !replay.Replayed {
+	if replay.Outcome != agentcontract.OutcomeOK || !replay.Replayed {
 		t.Fatalf("committed replay: %+v", replay.Error)
 	}
 	assertShelvingNoConsent(t, s)
@@ -119,12 +119,12 @@ func TestDefaultCheckoutShelvingRemoval(t *testing.T) {
 	restarted.Now = fixedTime
 	resolveProjectAuthority(restarted, store.ProjectResolution{ProjectID: "project-1", MainWorktree: true})
 	replay = removalDispatch(t, reopened, restarted, env, input)
-	if replay.Outcome != OutcomeOK || !replay.Replayed {
+	if replay.Outcome != agentcontract.OutcomeOK || !replay.Replayed {
 		t.Fatalf("reopened removal replay: %+v", replay.Error)
 	}
 	assertShelvingNoConsent(t, reopened)
 	snapshot, err := Dispatch(t.Context(), reopened, restarted, InvokeRequest{Tool: "concord_product_view", Operation: "snapshot", Input: json.RawMessage(`{"product_id":"product-1"}`)}, env)
-	if err != nil || snapshot.Outcome != OutcomeOK || strings.Contains(string(snapshot.Result), `"work-1"`) {
+	if err != nil || snapshot.Outcome != agentcontract.OutcomeOK || strings.Contains(string(snapshot.Result), `"work-1"`) {
 		t.Fatalf("removed identity appears in restarted snapshot: %+v %v", snapshot, err)
 	}
 	if _, err := reopened.ClaimWorktree(t.Context(), store.WorktreeClaimRequest{OpID: "renew-removed", WorkID: "work-1", ProjectID: "project-1", BaseSHA: gitRun(t, env.Directory, "rev-parse", "HEAD"), ExpectedVersion: 1, PrincipalRef: "human-1", RequestID: "renew-removed", Now: fixedTime()}); err == nil {
@@ -243,7 +243,7 @@ func TestDefaultCheckoutShelvingTransactionRaces(t *testing.T) {
 			op, _ := agentcontract.ValidateContractOperation("concord_work_transition", "remove")
 			r := runtime{Store: s, Authority: service, Envelope: env, Tool: op.Tool, Operation: op.Operation, Reader: grant}
 			plan := newMutationPlan(env, op)
-			base := NewBase("shelving-race", op.Tool, op.Operation)
+			base := agentcontract.NewBase("shelving-race", op.Tool, op.Operation)
 			digest := mutationDigest(op.Tool, op.Operation, env, raw)
 			if out, err, handled := r.planWorkRemoval(t.Context(), base, raw, digest, grant, op, plan); err != nil || handled {
 				t.Fatalf("plan: %+v %v", out, err)
@@ -284,7 +284,7 @@ func TestDefaultCheckoutShelvingRollbackAndReplay(t *testing.T) {
 		t.Fatal(err)
 	}
 	out = removalDispatch(t, s, service, env, in)
-	if out.Outcome != OutcomeOK {
+	if out.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("consent-free retry after rollback: %+v", out.Error)
 	}
 	assertShelvingNoConsent(t, s)
@@ -319,7 +319,7 @@ func TestDefaultCheckoutShelvingRollbackAndReplay(t *testing.T) {
 	env.SessionRef = "new-authorized-session"
 	env.HostAssertionDigest = "sha256:new-host"
 	out = removalDispatch(t, s, restarted, env, in)
-	if out.Outcome != OutcomeOK || !out.Replayed {
+	if out.Outcome != agentcontract.OutcomeOK || !out.Replayed {
 		t.Fatalf("same-operation reconciliation: %+v", out.Error)
 	}
 	if countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM work_removal_operations`) != 1 || countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM work_items WHERE id='work-1'`) != 0 {
@@ -347,7 +347,7 @@ func TestDefaultCheckoutShelvingHistoricalRetirement(t *testing.T) {
 			t.Fatal("fixture lacks native retained-ref proof")
 		}
 		out := removalDispatch(t, s, service, env, in)
-		if out.Outcome != OutcomeOK {
+		if out.Outcome != agentcontract.OutcomeOK {
 			t.Fatalf("retained candidate: %+v", out.Error)
 		}
 		assertShelvingNoConsent(t, s)
@@ -456,13 +456,13 @@ func TestDefaultCheckoutShelvingManagedRestore(t *testing.T) {
 	env.HostAssertionDigest = "sha256:managed-shelving-host"
 	version := workVersion(t, s, "work-1")
 	cancel := map[string]any{"work_id": "work-1", "expected_version": version, "target": "cancelled", "reason": "Preserve planning while retiring execution", "idempotency_key": "managed-cancellation",
-		"evidence": []EvidenceRef{{Kind: "verification", Authority: "fixture-verifier", LocatorKind: "artifact", Locator: "evidence:managed-cancellation"}}}
+		"evidence": []agentcontract.EvidenceRef{{Kind: "verification", Authority: "fixture-verifier", LocatorKind: "artifact", Locator: "evidence:managed-cancellation"}}}
 	raw, _ := json.Marshal(cancel)
 	req := InvokeRequest{Tool: "concord_work_transition", Operation: "lifecycle", Input: raw}
 	// CD-0243 D3 and D7's terminal-transition clause remove cancellation
 	// consent, while its evidence and pinned workflow/law facts remain required.
 	cancelled, err := Dispatch(ctx, s, service, req, env)
-	if err != nil || cancelled.Outcome != OutcomeOK {
+	if err != nil || cancelled.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("managed cancellation: %+v %v", cancelled.Error, err)
 	}
 	assertShelvingNoConsent(t, s)
@@ -522,7 +522,7 @@ func TestDefaultCheckoutShelvingManagedRestore(t *testing.T) {
 	})
 	out := removalDispatch(t, s, service, env, in)
 	assertShelvingNoConsent(t, s)
-	if out.Outcome != OutcomeOK {
+	if out.Outcome != agentcontract.OutcomeOK {
 		if countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM work_items WHERE id='work-1'`) != 1 || countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM work_removal_operations`) != 0 || countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM workflow_law_baselines WHERE work_id='work-1'`) != 1 {
 			t.Fatalf("failed managed shelving left a partial removal effect: %+v", out.Error)
 		}
@@ -569,12 +569,12 @@ func TestDefaultCheckoutShelvingManagedRestore(t *testing.T) {
 	resolveProjectAuthority(restarted, store.ProjectResolution{ProjectID: "project-1", MainWorktree: true})
 	env.SessionRef = "restored-session"
 	out = removalDispatch(t, restored, restarted, env, in)
-	if out.Outcome != OutcomeOK || !out.Replayed {
+	if out.Outcome != agentcontract.OutcomeOK || !out.Replayed {
 		t.Fatalf("restored retained replay: %+v", out.Error)
 	}
 	assertShelvingNoConsent(t, restored)
 	snapshot, err := Dispatch(ctx, restored, restarted, InvokeRequest{Tool: "concord_product_view", Operation: "snapshot", Input: json.RawMessage(`{"product_id":"product-1"}`)}, env)
-	if err != nil || snapshot.Outcome != OutcomeOK || strings.Contains(string(snapshot.Result), `"work-1"`) {
+	if err != nil || snapshot.Outcome != agentcontract.OutcomeOK || strings.Contains(string(snapshot.Result), `"work-1"`) {
 		t.Fatalf("restored snapshot resurrected execution: %+v %v", snapshot, err)
 	}
 }

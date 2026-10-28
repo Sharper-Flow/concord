@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -43,7 +44,7 @@ func TestWorkTraceObservationsReadsAllRowsForRequestedWork(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if response.Outcome != OutcomeOK {
+	if response.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("observation read failed: %+v", response.Error)
 	}
 	var page struct {
@@ -77,14 +78,14 @@ func TestWorkTraceExternalObservationsReadPreservesD9StateWithoutEvents(t *testi
 		t.Fatal(err)
 	}
 	captured := dispatchObservation(t, s, service, grant, scopeVersion, externalCaptureInput("external-read-capture", "xobs:0123456789abcdef"))
-	if captured.Outcome != OutcomeOK {
+	if captured.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("external capture failed: %+v", captured.Error)
 	}
 	if len(*captured.NextValidIntents) != 1 || (*captured.NextValidIntents)[0].Operation != "external_observations" || (*captured.NextValidIntents)[0].QueryID != "CD-0040.R1" {
 		t.Fatalf("external capture next intent=%+v, want external_observations/CD-0040.R1", captured.NextValidIntents)
 	}
 	verified := dispatchObservation(t, s, service, grant, scopeVersion, externalVerificationInput("external-read-verification", "xobs:0123456789abcdef"))
-	if verified.Outcome != OutcomeOK {
+	if verified.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("external verification failed: %+v", verified.Error)
 	}
 
@@ -97,7 +98,7 @@ func TestWorkTraceExternalObservationsReadPreservesD9StateWithoutEvents(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	if response.Outcome != OutcomeOK {
+	if response.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("external observation read failed: %+v", response.Error)
 	}
 	var page struct {

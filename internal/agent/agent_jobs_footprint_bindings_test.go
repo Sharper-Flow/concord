@@ -30,7 +30,7 @@ func bindAJ5FootprintOfAChange(t *testing.T, sc jobScenario) jobObservation {
 		Operation: "footprint",
 		Input:     json.RawMessage(`{"product_id":"prod-alpha","paths":["` + document + `","internal/store/store.go"],"behavior":"sqlite","page":{"cursor":null,"limit":20}}`),
 	}, agentJobsEnvelope(grant, ambient, "prod-alpha"))
-	if resp.Outcome != OutcomeOK {
+	if resp.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("footprint outcome=%s error=%+v", resp.Outcome, resp.Error)
 	}
 	var page struct {

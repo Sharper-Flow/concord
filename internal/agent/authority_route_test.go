@@ -37,7 +37,7 @@ func TestMainCheckoutRefusalNamesVacateRoute(t *testing.T) {
 		t.Fatalf("refs=%v, want %v in execution order", refusal.recoveryRefs, routeVacate)
 	}
 
-	out := failureEnvelope(NewBase("route-1", "concord_work_transition", "worktree_destroy"), err)
+	out := failureEnvelope(agentcontract.NewBase("route-1", "concord_work_transition", "worktree_destroy"), err)
 	if out.Error == nil || out.Error.Kind != "unauthorized" {
 		t.Fatalf("envelope error=%+v, want kind unauthorized", out.Error)
 	}
@@ -58,7 +58,7 @@ func TestMainCheckoutRefusalNamesVacateRoute(t *testing.T) {
 // contact_operator, because unauthorized couples to no single action.
 func TestOccupancyRouteSurvivesTheEnvelope(t *testing.T) {
 	t.Parallel()
-	base := NewBase("route-2", "concord_work_transition", "worktree_reclaim")
+	base := agentcontract.NewBase("route-2", "concord_work_transition", "worktree_reclaim")
 	build := func(proposed string, refs []string) *store.Failure {
 		return &store.Failure{
 			Kind:           store.KindWorktreeOwnershipConflict,
@@ -95,21 +95,4 @@ func TestOccupancyRouteSurvivesTheEnvelope(t *testing.T) {
 			t.Fatalf("recovery action=%+v, want bare contact_operator", out.Error)
 		}
 	})
-}
-
-// A declared route without refs is the names-no-operation defect in typed
-// form, so the envelope validator refuses the pair wherever it appears.
-func TestUseDeclaredRouteRequiresRefs(t *testing.T) {
-	t.Parallel()
-	err := validateError(TypedError{Kind: "unauthorized", RetrySafe: false, RecoveryAction: RecoveryAction{Kind: "use_declared_route"}, EffectState: EffectNone})
-	if err == nil {
-		t.Fatal("a declared route without required refs must refuse validation")
-	}
-	err = validateError(TypedError{Kind: "unauthorized", RetrySafe: false, RecoveryAction: RecoveryAction{Kind: "use_declared_route", RequiredRefs: routeVacate}, EffectState: EffectNone})
-	if err != nil {
-		t.Fatalf("a declared route with required refs must validate: %v", err)
-	}
-	if routeVacate[0] != "session_vacate" || routeVacate[1] != "worktree_reclaim" {
-		t.Fatalf("route=%v, want session_vacate then worktree_reclaim", routeVacate)
-	}
 }

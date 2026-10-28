@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -61,7 +62,7 @@ func TestNativeOracleInputDecodesFixedStoreRequest(t *testing.T) {
 func TestNativeOracleExecuteForgedAttemptRefusesBeforeLeaseThroughAgent(t *testing.T) {
 	s, service, grant, _, _, _ := tiersFixture(t)
 	response := tiersInvoke(t, s, service, grant, "concord_work_transition", "worktree_verify", nativeExecuteInput())
-	if response.Error == nil || response.Error.Kind != "unauthorized" || response.Error.EffectState != EffectNone {
+	if response.Error == nil || response.Error.Kind != "unauthorized" || response.Error.EffectState != agentcontract.EffectNone {
 		t.Fatalf("forged execution did not reach native authorization refusal: %+v", response.Error)
 	}
 	var leases int
@@ -78,7 +79,7 @@ func TestNativeOracleBudgetRefusesBeforeLeaseThroughAgent(t *testing.T) {
 	input := nativeExecuteInput()
 	input["requested_budget_seconds"] = 1801
 	response := tiersInvoke(t, s, service, grant, "concord_work_transition", "worktree_verify", input)
-	if response.Error == nil || response.Error.Kind != "budget_refused" || response.Error.EffectState != EffectNone {
+	if response.Error == nil || response.Error.Kind != "budget_refused" || response.Error.EffectState != agentcontract.EffectNone {
 		t.Fatalf("native request bypassed the existing budget: %+v", response.Error)
 	}
 	var leases int
@@ -99,7 +100,7 @@ func TestNativeOracleOutputReadUsesRetainedRouteWithoutIdempotency(t *testing.T)
 	input := map[string]any{"work_id": "work-1", "mode": "oracle_output", "run_ref": "worktree_verify:absent", "stream": "stdout", "offset": 0, "length": 16384}
 	for range 2 {
 		response := tiersInvoke(t, s, service, grant, "concord_work_browse", "worktree_inspect", input)
-		if response.Error == nil || !strings.Contains(response.Error.Message, "no retained oracle output") || response.Error.EffectState != EffectNone {
+		if response.Error == nil || !strings.Contains(response.Error.Message, "no retained oracle output") || response.Error.EffectState != agentcontract.EffectNone {
 			t.Fatalf("output read did not use the retained same-work/Project route: %+v", response.Error)
 		}
 	}
@@ -128,13 +129,13 @@ func TestNativeOracleMaximumPageFitsExistingEnvelope(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	base := NewBase("page-boundary", "concord_work_browse", "worktree_inspect")
-	base.Outcome, base.QueryID, base.Result = OutcomeOK, "CD-0096.R1", raw
+	base := agentcontract.NewBase("page-boundary", "concord_work_browse", "worktree_inspect")
+	base.Outcome, base.QueryID, base.Result = agentcontract.OutcomeOK, "CD-0096.R1", raw
 	encoded, err := base.Encode()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if MaxEnvelopeBytes != 65536 || MaxResultEnvelopeBytes != 51200 || len(page.OracleOutput.DataBase64) != 21848 || len(encoded) > MaxResultEnvelopeBytes {
+	if MaxEnvelopeBytes != 65536 || agentcontract.MaxResultEnvelopeBytes != 51200 || len(page.OracleOutput.DataBase64) != 21848 || len(encoded) > agentcontract.MaxResultEnvelopeBytes {
 		t.Fatalf("page changed a bound or exceeded the envelope: raw=%d encoded=%d", len(raw), len(encoded))
 	}
 }

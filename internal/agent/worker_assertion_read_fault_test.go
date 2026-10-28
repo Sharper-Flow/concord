@@ -50,7 +50,7 @@ func TestWorkerControlProofSeparatesClientRefusalsFromStoreFaults(t *testing.T) 
 				if err == nil || err.Error() != message {
 					t.Fatalf("refusal = %v, want %q", err, message)
 				}
-				out := failureEnvelope(NewBase("worker-control-refusal", "concord_work_transition", "worktree_verify"), err)
+				out := failureEnvelope(agentcontract.NewBase("worker-control-refusal", "concord_work_transition", "worktree_verify"), err)
 				if out.Error == nil || out.Error.Kind != "unauthorized" || out.Error.RetrySafe || out.Error.RecoveryAction.Kind != "contact_operator" {
 					t.Fatalf("refusal envelope = %+v, want non-retryable unauthorized", out.Error)
 				}

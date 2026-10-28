@@ -5,6 +5,7 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -26,7 +27,7 @@ func TestCheckMandatedLawsAmbiguousScopeCarriesCandidates(t *testing.T) {
 		RecoveryAction: "resolve one Product knowledge home",
 		CandidateIDs:   []string{"concord-project/locator-a", "toolbox-project/locator-b"},
 	}
-	out := failureEnvelope(NewBase("law-home-ambiguous", "concord_work_transition", "workflow_action"), failure)
+	out := failureEnvelope(agentcontract.NewBase("law-home-ambiguous", "concord_work_transition", "workflow_action"), failure)
 	if out.Error == nil {
 		t.Fatalf("failureEnvelope produced no typed error")
 	}
@@ -56,7 +57,7 @@ func TestEnvelopeStillRefusesACandidateLessAmbiguousScope(t *testing.T) {
 		RetrySafe:      false,
 		RecoveryAction: "resolve one Product knowledge home",
 	}
-	out := failureEnvelope(NewBase("law-home-bare", "concord_work_transition", "workflow_action"), failure)
+	out := failureEnvelope(agentcontract.NewBase("law-home-bare", "concord_work_transition", "workflow_action"), failure)
 	if err := out.Validate(); err == nil {
 		t.Fatalf("an ambiguous scope naming no candidates must still be refused at the envelope boundary")
 	}

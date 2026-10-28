@@ -55,7 +55,7 @@ func TestDispatchWorkRemovalCommitsWithRecordedLinearIssue(t *testing.T) {
 	env := mutationEnvelope(grant, scopeVersion)
 	// CD-0243 D3/D7 retire ordinary removal consent, not the Linear handoff.
 	response, err := Dispatch(ctx, s, service, request, env)
-	if err != nil || response.Outcome != OutcomeOK {
+	if err != nil || response.Outcome != agentcontract.OutcomeOK {
 		if response.Error != nil {
 			t.Fatalf("approved work removal outcome=%s kind=%s message=%s details=%v err=%v", response.Outcome, response.Error.Kind, response.Error.Message, response.Error.Details, err)
 		}
@@ -98,7 +98,7 @@ func TestDispatchWorkRemovalCommitsWithRecordedLinearIssue(t *testing.T) {
 		t.Fatal("a later undeclared missing work item must not inherit the old removal's exception")
 	}
 	replay, err := Dispatch(ctx, s, service, request, env)
-	if err != nil || replay.Outcome != OutcomeOK || !replay.Replayed {
+	if err != nil || replay.Outcome != agentcontract.OutcomeOK || !replay.Replayed {
 		t.Fatalf("own removal receipt must support replay: response=%+v error=%v", replay.Error, err)
 	}
 }

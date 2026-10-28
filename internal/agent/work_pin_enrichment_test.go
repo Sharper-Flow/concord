@@ -25,7 +25,7 @@ func TestMutationEnrichmentRefusesAPinThatDisagreesWithItsChangedRef(t *testing.
 	ctx := context.Background()
 	s, workID, pin := enrichmentPinFixture(t)
 	enrich := func(version int64) (json.RawMessage, error) {
-		changed := []ChangedRef{{EntityKind: "work_item", ID: workID, Version: strconv.FormatInt(version, 10)}}
+		changed := []agentcontract.ChangedRef{{EntityKind: "work_item", ID: workID, Version: strconv.FormatInt(version, 10)}}
 		var enriched json.RawMessage
 		err := s.Transact(ctx, func(tx *store.Transaction) error {
 			var txErr error

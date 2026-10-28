@@ -7,6 +7,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -16,7 +17,7 @@ import (
 // call — decodeOperationInput, the ambient-product fallbacks, unwrapCursor and
 // wrapCursor, failureEnvelope and resultEnvelope — stays in runtime.go.
 
-func (r runtime) readProductResolve(ctx context.Context, base Envelope, input []byte) (Envelope, error) {
+func (r runtime) readProductResolve(ctx context.Context, base agentcontract.Envelope, input []byte) (agentcontract.Envelope, error) {
 	var in productResolveInput
 	if err := decodeOperationInput(input, &in); err != nil {
 		return base, err
@@ -42,7 +43,7 @@ func (r runtime) readProductResolve(ctx context.Context, base Envelope, input []
 	return r.wrapCursor(ctx, response, string(binding), "summary")
 }
 
-func (r runtime) readProductSnapshot(ctx context.Context, base Envelope, input []byte) (Envelope, error) {
+func (r runtime) readProductSnapshot(ctx context.Context, base agentcontract.Envelope, input []byte) (agentcontract.Envelope, error) {
 	var in productSnapshotInput
 	if err := decodeOperationInput(input, &in); err != nil {
 		return base, err
@@ -67,7 +68,7 @@ func (r runtime) readProductSnapshot(ctx context.Context, base Envelope, input [
 	return r.q2(base, q)
 }
 
-func (r runtime) readProductBlockedSessions(ctx context.Context, base Envelope, input []byte) (Envelope, error) {
+func (r runtime) readProductBlockedSessions(ctx context.Context, base agentcontract.Envelope, input []byte) (agentcontract.Envelope, error) {
 	var in blockedSessionsInput
 	if err := decodeOperationInput(input, &in); err != nil {
 		return base, err
@@ -86,7 +87,7 @@ func (r runtime) readProductBlockedSessions(ctx context.Context, base Envelope, 
 	return r.resultEnvelope(base, result.ResultMeta, r.scope(result.ResultMeta), map[string]any{"sessions": result.Sessions})
 }
 
-func (r runtime) readProductResources(ctx context.Context, base Envelope, input []byte) (Envelope, error) {
+func (r runtime) readProductResources(ctx context.Context, base agentcontract.Envelope, input []byte) (agentcontract.Envelope, error) {
 	var in resourcesInput
 	if err := decodeOperationInput(input, &in); err != nil {
 		return base, err
@@ -101,7 +102,7 @@ func (r runtime) readProductResources(ctx context.Context, base Envelope, input 
 	return r.resultEnvelope(base, result.ResultMeta, r.scope(result.ResultMeta), map[string]any{"resources": result.Resources})
 }
 
-func (r runtime) readWorkList(ctx context.Context, base Envelope, input []byte) (Envelope, error) {
+func (r runtime) readWorkList(ctx context.Context, base agentcontract.Envelope, input []byte) (agentcontract.Envelope, error) {
 	var in workListInput
 	if err := decodeOperationInput(input, &in); err != nil {
 		return base, err
@@ -124,7 +125,7 @@ func (r runtime) readWorkList(ctx context.Context, base Envelope, input []byte) 
 // builder. Byte fitting selects complete prefixes of one captured store page;
 // no fit iteration reads a different snapshot. The public binding keeps the
 // caller's limit, so the cursor works with the unchanged request.
-func pagedQuery[Req any, Resp interface{ LimitPage(Req, int) (Resp, error) }](r runtime, ctx context.Context, base Envelope, page pageInput, limit int, binding string, request func(inner string, limit int) Req, query func(context.Context, Req) (Resp, error), respond func(Envelope, Resp) (Envelope, error)) (Envelope, error) {
+func pagedQuery[Req any, Resp interface{ LimitPage(Req, int) (Resp, error) }](r runtime, ctx context.Context, base agentcontract.Envelope, page pageInput, limit int, binding string, request func(inner string, limit int) Req, query func(context.Context, Req) (Resp, error), respond func(agentcontract.Envelope, Resp) (agentcontract.Envelope, error)) (agentcontract.Envelope, error) {
 	inner, err := r.unwrapCursor(ctx, cursorValue(page), binding, "summary")
 	if err != nil {
 		return failureEnvelope(base, err), nil
@@ -138,7 +139,7 @@ func pagedQuery[Req any, Resp interface{ LimitPage(Req, int) (Resp, error) }](r 
 	if err != nil {
 		return failureEnvelope(base, err), nil
 	}
-	var best Envelope
+	var best agentcontract.Envelope
 	var size int
 	low, high := 0, requestedLimit
 	for low < high {
@@ -155,19 +156,19 @@ func pagedQuery[Req any, Resp interface{ LimitPage(Req, int) (Resp, error) }](r 
 			return response, err
 		}
 		if limit < requestedLimit && response.NextCursor != nil {
-			if len(response.Omissions) >= MaxNotices {
+			if len(response.Omissions) >= agentcontract.MaxNotices {
 				return coreError(base, "limit_exceeded", "byte-bounded page needs a continuation notice but the omission limit is exhausted", "reduce_limit", false), nil
 			}
-			response.Omissions = append(response.Omissions, Notice{Kind: "byte_bounded_page", Details: map[string]any{"requested_limit": requestedLimit, "effective_limit": limit, "maximum_bytes": MaxResultEnvelopeBytes}})
+			response.Omissions = append(response.Omissions, agentcontract.Notice{Kind: "byte_bounded_page", Details: map[string]any{"requested_limit": requestedLimit, "effective_limit": limit, "maximum_bytes": agentcontract.MaxResultEnvelopeBytes}})
 		}
 		size, err = readEnvelopeSize(response)
 		if err != nil {
 			return response, err
 		}
-		if response.Outcome != OutcomeOK {
+		if response.Outcome != agentcontract.OutcomeOK {
 			return response, nil
 		}
-		if size <= MaxResultEnvelopeBytes {
+		if size <= agentcontract.MaxResultEnvelopeBytes {
 			best, low = response, limit
 		} else {
 			high = limit - 1
@@ -189,7 +190,7 @@ func pageBinding[T any](in T, clearCursor func(*T)) string {
 	return string(binding)
 }
 
-func (r runtime) readWorkReady(ctx context.Context, base Envelope, input []byte) (Envelope, error) {
+func (r runtime) readWorkReady(ctx context.Context, base agentcontract.Envelope, input []byte) (agentcontract.Envelope, error) {
 	var in workReadyInput
 	if err := decodeOperationInput(input, &in); err != nil {
 		return base, err
@@ -201,7 +202,7 @@ func (r runtime) readWorkReady(ctx context.Context, base Envelope, input []byte)
 		r.Store.QueryQ5, r.q5)
 }
 
-func (r runtime) readWorkBlocked(ctx context.Context, base Envelope, input []byte) (Envelope, error) {
+func (r runtime) readWorkBlocked(ctx context.Context, base agentcontract.Envelope, input []byte) (agentcontract.Envelope, error) {
 	var in workBlockedInput
 	if err := decodeOperationInput(input, &in); err != nil {
 		return base, err
@@ -213,7 +214,7 @@ func (r runtime) readWorkBlocked(ctx context.Context, base Envelope, input []byt
 		r.Store.QueryQ4, r.q4)
 }
 
-func (r runtime) readWorkScope(ctx context.Context, base Envelope, input []byte) (Envelope, error) {
+func (r runtime) readWorkScope(ctx context.Context, base agentcontract.Envelope, input []byte) (agentcontract.Envelope, error) {
 	var in workScopeInput
 	if err := decodeOperationInput(input, &in); err != nil {
 		return base, err
@@ -225,7 +226,7 @@ func (r runtime) readWorkScope(ctx context.Context, base Envelope, input []byte)
 		r.Store.QueryQ6, r.q6)
 }
 
-func (r runtime) readResourceClaims(ctx context.Context, base Envelope, input []byte) (Envelope, error) {
+func (r runtime) readResourceClaims(ctx context.Context, base agentcontract.Envelope, input []byte) (agentcontract.Envelope, error) {
 	var in resourceClaimsInput
 	if err := decodeOperationInput(input, &in); err != nil {
 		return base, err
@@ -241,7 +242,7 @@ func (r runtime) readResourceClaims(ctx context.Context, base Envelope, input []
 	return r.resultEnvelope(base, meta, r.scope(meta), map[string]any{"claims": claims})
 }
 
-func (r runtime) readWorkMessages(ctx context.Context, base Envelope, input []byte) (Envelope, error) {
+func (r runtime) readWorkMessages(ctx context.Context, base agentcontract.Envelope, input []byte) (agentcontract.Envelope, error) {
 	var in messagesInput
 	if err := decodeOperationInput(input, &in); err != nil {
 		return base, err
@@ -254,7 +255,7 @@ func (r runtime) readWorkMessages(ctx context.Context, base Envelope, input []by
 	return r.resultEnvelope(base, meta, r.scope(meta), map[string]any{"messages": messages})
 }
 
-func (r runtime) readWorktreeAudit(ctx context.Context, base Envelope, input []byte) (Envelope, error) {
+func (r runtime) readWorktreeAudit(ctx context.Context, base agentcontract.Envelope, input []byte) (agentcontract.Envelope, error) {
 	var in worktreeAuditInput
 	if err := decodeOperationInput(input, &in); err != nil {
 		return base, err
@@ -289,7 +290,7 @@ func (r runtime) readWorktreeAudit(ctx context.Context, base Envelope, input []b
 	return r.wrapCursor(ctx, response, string(binding), "summary")
 }
 
-func (r runtime) readWorktreeInspect(ctx context.Context, base Envelope, input []byte) (Envelope, error) {
+func (r runtime) readWorktreeInspect(ctx context.Context, base agentcontract.Envelope, input []byte) (agentcontract.Envelope, error) {
 	var in worktreeInspectInput
 	if err := decodeOperationInput(input, &in); err != nil {
 		return base, err
@@ -312,7 +313,7 @@ func (r runtime) readWorktreeInspect(ctx context.Context, base Envelope, input [
 	return r.resultEnvelope(base, meta, r.scope(meta), inspect)
 }
 
-func (r runtime) readTraceHistory(ctx context.Context, base Envelope, input []byte) (Envelope, error) {
+func (r runtime) readTraceHistory(ctx context.Context, base agentcontract.Envelope, input []byte) (agentcontract.Envelope, error) {
 	var in historyInput
 	if err := decodeOperationInput(input, &in); err != nil {
 		return base, err
@@ -335,7 +336,7 @@ func (r runtime) readTraceHistory(ctx context.Context, base Envelope, input []by
 	return r.wrapCursor(ctx, response, string(binding), "summary")
 }
 
-func (r runtime) readTraceObservations(ctx context.Context, base Envelope, input []byte) (Envelope, error) {
+func (r runtime) readTraceObservations(ctx context.Context, base agentcontract.Envelope, input []byte) (agentcontract.Envelope, error) {
 	var in observationReadInput
 	if err := decodeOperationInput(input, &in); err != nil {
 		return base, err
@@ -347,11 +348,11 @@ func (r runtime) readTraceObservations(ctx context.Context, base Envelope, input
 		r.Store.ReadWorkObservations, r.observationPage)
 }
 
-func (r runtime) observationPage(base Envelope, page store.WorkObservationPage) (Envelope, error) {
+func (r runtime) observationPage(base agentcontract.Envelope, page store.WorkObservationPage) (agentcontract.Envelope, error) {
 	return r.resultEnvelope(base, page.ResultMeta, r.scope(page.ResultMeta), map[string]any{"observations": page.Observations, "total": page.Total})
 }
 
-func (r runtime) readTraceExternalObservations(ctx context.Context, base Envelope, input []byte) (Envelope, error) {
+func (r runtime) readTraceExternalObservations(ctx context.Context, base agentcontract.Envelope, input []byte) (agentcontract.Envelope, error) {
 	var in externalObservationReadInput
 	if err := decodeOperationInput(input, &in); err != nil {
 		return base, err
@@ -365,7 +366,7 @@ func (r runtime) readTraceExternalObservations(ctx context.Context, base Envelop
 	return r.resultEnvelope(base, meta, r.scope(meta), map[string]any{"external_observations": externalObservations})
 }
 
-func (r runtime) readTraceContinuity(ctx context.Context, base Envelope, input []byte) (Envelope, error) {
+func (r runtime) readTraceContinuity(ctx context.Context, base agentcontract.Envelope, input []byte) (agentcontract.Envelope, error) {
 	var in continuityInput
 	if err := decodeOperationInput(input, &in); err != nil {
 		return base, err
@@ -408,7 +409,7 @@ func (r runtime) readTraceContinuity(ctx context.Context, base Envelope, input [
 	// reductions name their omissions explicitly; the paged observations read
 	// and the boundary cursor recover everything they drop.
 	requested := len(snapshot.Boundaries)
-	response, size, err := FitContinuity(snapshot, continuityReq, MaxResultEnvelopeBytes, func(fitted store.ContinuitySnapshot) (Envelope, int, error) {
+	response, size, err := FitContinuity(snapshot, continuityReq, agentcontract.MaxResultEnvelopeBytes, func(fitted store.ContinuitySnapshot) (agentcontract.Envelope, int, error) {
 		response, err := r.continuity(base, fitted)
 		if err != nil {
 			return response, 0, err
@@ -417,16 +418,16 @@ func (r runtime) readTraceContinuity(ctx context.Context, base Envelope, input [
 			return response, 0, err
 		}
 		if len(fitted.Observations) < len(snapshot.Observations) {
-			if len(response.Omissions) >= MaxNotices {
+			if len(response.Omissions) >= agentcontract.MaxNotices {
 				return coreError(base, "limit_exceeded", "byte-bounded continuity page needs an observation omission notice but the omission limit is exhausted", "reduce_limit", false), 0, nil
 			}
-			response.Omissions = append(response.Omissions, Notice{Kind: "continuity_observations_reduced", Details: map[string]any{"captured": len(snapshot.Observations), "retained": len(fitted.Observations), "maximum_bytes": MaxResultEnvelopeBytes}})
+			response.Omissions = append(response.Omissions, agentcontract.Notice{Kind: "continuity_observations_reduced", Details: map[string]any{"captured": len(snapshot.Observations), "retained": len(fitted.Observations), "maximum_bytes": agentcontract.MaxResultEnvelopeBytes}})
 		}
 		if len(fitted.Boundaries) < requested {
-			if len(response.Omissions) >= MaxNotices {
+			if len(response.Omissions) >= agentcontract.MaxNotices {
 				return coreError(base, "limit_exceeded", "byte-bounded continuity page needs a continuation notice but the omission limit is exhausted", "reduce_limit", false), 0, nil
 			}
-			response.Omissions = append(response.Omissions, Notice{Kind: "byte_bounded_page", Details: map[string]any{"requested_limit": requested, "effective_limit": len(fitted.Boundaries), "maximum_bytes": MaxResultEnvelopeBytes}})
+			response.Omissions = append(response.Omissions, agentcontract.Notice{Kind: "byte_bounded_page", Details: map[string]any{"requested_limit": requested, "effective_limit": len(fitted.Boundaries), "maximum_bytes": agentcontract.MaxResultEnvelopeBytes}})
 		}
 		size, err := readEnvelopeSize(response)
 		return response, size, err
@@ -441,7 +442,7 @@ func (r runtime) readTraceContinuity(ctx context.Context, base Envelope, input [
 	// document, and the first page renders the very snapshot this read
 	// captured. A frame-only breach is not caused by the projection and is
 	// refused honestly by the measured-size refusal.
-	if size > MaxResultEnvelopeBytes {
+	if size > agentcontract.MaxResultEnvelopeBytes {
 		return r.continuityProjectionPage(ctx, base, string(binding), limit, continuityProjectionCursor{Version: 2, Work: in.WorkID, BoundaryCursor: inner}, &snapshot)
 	}
 	return response, nil
@@ -456,8 +457,8 @@ func (r runtime) readTraceContinuity(ctx context.Context, base Envelope, input [
 // completed page sequence is exactly one projection. Each fragment is the
 // largest whole-code-point prefix that keeps the measured final envelope
 // inside the unchanged cap.
-func (r runtime) continuityProjectionPage(ctx context.Context, base Envelope, binding string, limit int, cursor continuityProjectionCursor, captured *store.ContinuitySnapshot) (Envelope, error) {
-	if cursor.Work == "" || (cursor.Digest != "" && !validSHA256Proof(cursor.Digest)) || cursor.NextByteOffset < 0 {
+func (r runtime) continuityProjectionPage(ctx context.Context, base agentcontract.Envelope, binding string, limit int, cursor continuityProjectionCursor, captured *store.ContinuitySnapshot) (agentcontract.Envelope, error) {
+	if cursor.Work == "" || (cursor.Digest != "" && !agentcontract.ValidSHA256Proof(cursor.Digest)) || cursor.NextByteOffset < 0 {
 		return coreError(base, "invalid_cursor", "continuity projection cursor is malformed", "restart_query", false), nil
 	}
 	snapshot, err := r.continuityProjectionSnapshot(ctx, limit, cursor, captured)
@@ -486,7 +487,7 @@ func (r runtime) continuityProjectionPage(ctx context.Context, base Envelope, bi
 	// One freshness instant for the whole page render, so the searched
 	// candidate and the emitted page measure the same bytes.
 	observedAt := time.Now().UTC().Format(time.RFC3339Nano)
-	at := func(n int) (Envelope, int, error) {
+	at := func(n int) (agentcontract.Envelope, int, error) {
 		fragment := string(doc[offset : offset+n])
 		end := offset + n
 		var next any
@@ -523,7 +524,7 @@ func (r runtime) continuityProjectionPage(ctx context.Context, base Envelope, bi
 		if renderErr != nil {
 			return false, renderErr
 		}
-		return size <= MaxResultEnvelopeBytes, nil
+		return size <= agentcontract.MaxResultEnvelopeBytes, nil
 	})
 	if err != nil {
 		return base, err
@@ -577,7 +578,7 @@ type researchOwnerReadV2 struct {
 
 // readTraceResearch returns bare full packs at version 1. Exact selections and
 // owner descriptor pages require an explicit version 2 result.
-func (r runtime) readTraceResearch(ctx context.Context, base Envelope, input []byte) (Envelope, error) {
+func (r runtime) readTraceResearch(ctx context.Context, base agentcontract.Envelope, input []byte) (agentcontract.Envelope, error) {
 	var in researchReadInput
 	if err := decodeOperationInput(input, &in); err != nil {
 		return base, err
@@ -645,7 +646,7 @@ func (r runtime) readTraceResearch(ctx context.Context, base Envelope, input []b
 	return r.wrapCursor(ctx, response, string(binding), "research_owner")
 }
 
-func (r runtime) readTraceRelations(ctx context.Context, base Envelope, input []byte) (Envelope, error) {
+func (r runtime) readTraceRelations(ctx context.Context, base agentcontract.Envelope, input []byte) (agentcontract.Envelope, error) {
 	var in relationInput
 	if err := decodeOperationInput(input, &in); err != nil {
 		return base, err
@@ -662,7 +663,7 @@ func (r runtime) readTraceRelations(ctx context.Context, base Envelope, input []
 // context, never from the input: the ambient Project is the session's own,
 // and the envelope session reference is the acting session. The derivation
 // is read-only and writes nothing.
-func (r runtime) readTraceProjectRetirement(ctx context.Context, base Envelope, input []byte) (Envelope, error) {
+func (r runtime) readTraceProjectRetirement(ctx context.Context, base agentcontract.Envelope, input []byte) (agentcontract.Envelope, error) {
 	var in workIDInput
 	if err := decodeOperationInput(input, &in); err != nil {
 		return base, err
@@ -679,7 +680,7 @@ func (r runtime) readTraceProjectRetirement(ctx context.Context, base Envelope, 
 	return r.resultEnvelope(base, store.ResultMeta{QueryID: "CD-0182.R1", ContractVersion: "CD-0182/1.0", ResolvedScope: store.ResolvedScope{WorkID: in.WorkID, ProjectIDs: []string{project}}, Authority: "authoritative", Freshness: store.Freshness{ObservedAt: r.Authority.now().UTC().Format(time.RFC3339Nano)}, OrderingKeys: []string{"retirement:" + in.WorkID}}, r.scope(store.ResultMeta{}), retirement)
 }
 
-func (r runtime) readKnowledgeSearch(ctx context.Context, base Envelope, input []byte) (Envelope, error) {
+func (r runtime) readKnowledgeSearch(ctx context.Context, base agentcontract.Envelope, input []byte) (agentcontract.Envelope, error) {
 	var in knowledgeSearchInput
 	if err := decodeOperationInput(input, &in); err != nil {
 		return base, err
@@ -761,14 +762,14 @@ func (r runtime) knowledgeSearchDemand(ctx context.Context, in knowledgeSearchIn
 	return demandFailures, registrationsUnread, nil
 }
 
-func knowledgeSourceNotices(omissions []store.KnowledgeSourceOmission) []Notice {
-	out := make([]Notice, 0, len(omissions))
+func knowledgeSourceNotices(omissions []store.KnowledgeSourceOmission) []agentcontract.Notice {
+	out := make([]agentcontract.Notice, 0, len(omissions))
 	for _, omission := range omissions {
 		details := map[string]any{"project_id": omission.ProjectID, "locator": omission.LocatorID}
 		if omission.Kind == store.KnowledgeSourceDemandFailed {
 			details["cause"] = omission.Cause
 		}
-		out = append(out, Notice{Kind: string(omission.Kind), Details: details})
+		out = append(out, agentcontract.Notice{Kind: string(omission.Kind), Details: details})
 	}
 	return out
 }
@@ -786,7 +787,7 @@ func demandFailureKind(err error) string {
 // This explicit cache/provenance exception uses product_read admission. It is
 // not an ordinary knowledge read: the store performs bounded origin discovery
 // and one selected-branch fetch, then persists the observation, not Product law.
-func (r runtime) readKnowledgeObservePublication(ctx context.Context, base Envelope, input []byte) (Envelope, error) {
+func (r runtime) readKnowledgeObservePublication(ctx context.Context, base agentcontract.Envelope, input []byte) (agentcontract.Envelope, error) {
 	var in struct {
 		ProductID       string `json:"product_id"`
 		SourceProjectID string `json:"source_project_id"`
@@ -806,7 +807,7 @@ func (r runtime) readKnowledgeObservePublication(ctx context.Context, base Envel
 	return r.resultEnvelope(base, meta, r.scope(meta), publication)
 }
 
-func (r runtime) readKnowledgeResolveNote(ctx context.Context, base Envelope, input []byte) (Envelope, error) {
+func (r runtime) readKnowledgeResolveNote(ctx context.Context, base agentcontract.Envelope, input []byte) (agentcontract.Envelope, error) {
 	var in knowledgeResolveInput
 	if err := decodeOperationInput(input, &in); err != nil {
 		return base, err
@@ -827,14 +828,14 @@ func (r runtime) readKnowledgeResolveNote(ctx context.Context, base Envelope, in
 		return response, err
 	}
 	if authority := q.UnverifiedAuthority; authority != nil {
-		response.Warnings = boundedNotices(response.Warnings, []Notice{{Kind: "legislated_authority_unverified", Details: map[string]any{
+		response.Warnings = boundedNotices(response.Warnings, []agentcontract.Notice{{Kind: "legislated_authority_unverified", Details: map[string]any{
 			"law_id": authority.LawID, "work_id": authority.WorkID, "contract_version": authority.ContractVersion,
 		}}})
 	}
 	return response, nil
 }
 
-func (r runtime) readDomain(ctx context.Context, base Envelope, input []byte, queryID string) (Envelope, error) {
+func (r runtime) readDomain(ctx context.Context, base agentcontract.Envelope, input []byte, queryID string) (agentcontract.Envelope, error) {
 	var in domainReadInput
 	if err := decodeOperationInput(input, &in); err != nil {
 		return base, err
@@ -898,7 +899,7 @@ func (r runtime) readDomain(ctx context.Context, base Envelope, input []byte, qu
 	}
 }
 
-func (r runtime) readDomainShape(ctx context.Context, base Envelope, input []byte) (Envelope, error) {
+func (r runtime) readDomainShape(ctx context.Context, base agentcontract.Envelope, input []byte) (agentcontract.Envelope, error) {
 	var in domainShapeInput
 	if err := decodeOperationInput(input, &in); err != nil {
 		return base, err
@@ -917,7 +918,7 @@ func (r runtime) readDomainShape(ctx context.Context, base Envelope, input []byt
 // readDomainFootprint answers concord_domain.footprint. It freshens the
 // Product's knowledge like every Domain read, then fits the law page to the
 // envelope through pagedQuery, so an oversize page shrinks and says so.
-func (r runtime) readDomainFootprint(ctx context.Context, base Envelope, input []byte) (Envelope, error) {
+func (r runtime) readDomainFootprint(ctx context.Context, base agentcontract.Envelope, input []byte) (agentcontract.Envelope, error) {
 	var in domainFootprintInput
 	if err := decodeOperationInput(input, &in); err != nil {
 		return base, err
@@ -930,7 +931,7 @@ func (r runtime) readDomainFootprint(ctx context.Context, base Envelope, input [
 			return store.DomainFootprintRequest{Product: in.ProductID, Paths: in.Paths, Behavior: in.Behavior, Limit: limit, Cursor: inner}
 		},
 		r.Store.QueryDomainFootprint,
-		func(base Envelope, result store.DomainFootprintResult) (Envelope, error) {
+		func(base agentcontract.Envelope, result store.DomainFootprintResult) (agentcontract.Envelope, error) {
 			return r.resultEnvelope(base, result.ResultMeta, r.scope(result.ResultMeta), store.NewDomainFootprintPayload(result))
 		})
 }

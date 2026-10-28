@@ -1,6 +1,4 @@
-// Package agent contains the core-owned, generated-contract-backed agent runtime
-// primitives. It deliberately does not dispatch domain operations.
-package agent
+package agentcontract
 
 import (
 	"bytes"
@@ -9,29 +7,19 @@ import (
 	"fmt"
 	"io"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
-	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/payloadschema"
-	"github.com/sharper-flow/concord/internal/store"
 )
-
-// MaxEnvelopeBytes is the shared envelope-era cap that bounds the response
-// output and the standalone body caps (receipt render, release input, launch
-// prompt). It is not the request transport limit.
-const MaxEnvelopeBytes = 65536
-
-// MaxRequestBytes is the request transport limit for the whole invoke
-// request — the plugin request envelope and the CLI stdin body. It aliases
-// the store's shared action payload ceiling, which the widest-shape
-// derivation in internal/agent pins. It never bounds a response, whose caps
-// stay MaxEnvelopeBytes and MaxResultEnvelopeBytes.
-const MaxRequestBytes = store.MaxWorkflowActionPayloadBytes
 
 // MaxResultEnvelopeBytes is the serialized result envelope's hard maximum.
 const MaxResultEnvelopeBytes = 51200
-const maxConsequenceSummaryBindings = 32
+
+// MaxConsequenceSummaryBindings bounds each canonical binding list a
+// consequence summary carries.
+const MaxConsequenceSummaryBindings = 32
 
 type Outcome string
 
@@ -247,7 +235,7 @@ func validateOptions(err TypedError) error {
 		return nil
 	}
 	allowed := map[string]bool{"clarify": true, "amend_contract": true, "accept_scope_cut": true}
-	if len(err.Options) > len(allowed) || !unique(err.Options) {
+	if len(err.Options) > len(allowed) || !UniqueNonEmpty(err.Options) {
 		return errors.New("invalid operator options")
 	}
 	for _, option := range err.Options {
@@ -306,8 +294,8 @@ type Envelope struct {
 }
 
 func NewBase(requestID, tool, operation string) Envelope {
-	e := Envelope{SchemaVersion: "1.0", ManifestDigest: agentcontract.ManifestDigest, RequestID: requestID, Origin: OriginCore, Tool: tool, Operation: operation, ResolvedScope: nil, Authority: AuthorityAuthoritative, Freshness: nil, SourceVersionWatermark: []Watermark{}, OrderingKeys: []string{}, NextCursor: nil, Omissions: []Notice{}, Warnings: []Notice{}, EvidenceRefs: []EvidenceRef{}, Replayed: false}
-	for _, op := range agentcontract.ContractOperations {
+	e := Envelope{SchemaVersion: "1.0", ManifestDigest: ManifestDigest, RequestID: requestID, Origin: OriginCore, Tool: tool, Operation: operation, ResolvedScope: nil, Authority: AuthorityAuthoritative, Freshness: nil, SourceVersionWatermark: []Watermark{}, OrderingKeys: []string{}, NextCursor: nil, Omissions: []Notice{}, Warnings: []Notice{}, EvidenceRefs: []EvidenceRef{}, Replayed: false}
+	for _, op := range ContractOperations {
 		if op.Tool == tool && op.Operation == operation {
 			e.QueryID = op.QueryID
 			break
@@ -399,7 +387,7 @@ func (e Envelope) Validate() error {
 }
 func (e Envelope) validateInvariants() error {
 	unresolvedWrapper := e.Operation == "" && e.Origin == OriginAdapter && e.Error != nil && e.Error.AdapterReason == "invalid_request_wrapper"
-	if e.SchemaVersion != "1.0" || e.ManifestDigest != agentcontract.ManifestDigest || e.RequestID == "" || len(e.RequestID) > 128 || e.Tool == "" || e.Operation == "" && !unresolvedWrapper {
+	if e.SchemaVersion != "1.0" || e.ManifestDigest != ManifestDigest || e.RequestID == "" || len(e.RequestID) > 128 || e.Tool == "" || e.Operation == "" && !unresolvedWrapper {
 		return errors.New("invalid envelope identity")
 	}
 	if e.Origin != OriginCore && e.Origin != OriginAdapter {
@@ -450,7 +438,7 @@ func (e Envelope) validateChangedReferences() error {
 			return errors.New("changed reference bound exceeded")
 		}
 		for _, ref := range *e.ChangedRefs {
-			if !bounded(ref.EntityKind, 1, 64) || !bounded(ref.ID, 1, 128) || !bounded(ref.Version, 1, 128) {
+			if !BoundedBytes(ref.EntityKind, 1, 64) || !BoundedBytes(ref.ID, 1, 128) || !BoundedBytes(ref.Version, 1, 128) {
 				return errors.New("invalid changed reference")
 			}
 		}
@@ -492,13 +480,13 @@ func (e Envelope) validateOK() error {
 			if err := validateOperation(intent.Tool, intent.Operation, intent.QueryID); err != nil {
 				return fmt.Errorf("invalid next intent: %w", err)
 			}
-			if intent.ReasonCode == "" || len(intent.ReasonCode) > 64 || len(intent.RequiredFields) > 16 || !unique(intent.RequiredFields) || !boundedStrings(intent.RequiredFields, 64) {
+			if intent.ReasonCode == "" || len(intent.ReasonCode) > 64 || len(intent.RequiredFields) > 16 || !UniqueNonEmpty(intent.RequiredFields) || !boundedStrings(intent.RequiredFields, 64) {
 				return errors.New("invalid next intent bounds")
 			}
 		}
 	}
 	if hasResult {
-		if err := agentcontract.ValidateOperationPayload(e.Tool, e.Operation, e.Result, true); err != nil {
+		if err := ValidateOperationPayload(e.Tool, e.Operation, e.Result, true); err != nil {
 			return fmt.Errorf("invalid result payload: %w", err)
 		}
 	}
@@ -534,7 +522,7 @@ func (e Envelope) validatePending() error {
 	return validateRecoveryAction(*e.NextAction)
 }
 func (e Envelope) validatePartial() error {
-	if (e.Tool != "concord_work_compact" && e.Tool != "concord_work_transition") || e.OperationRef == nil || (e.OperationRef.State != OperationPartial && e.OperationRef.State != OperationFailed) || len(e.CompletedSteps) == 0 || len(e.CompletedSteps) > 32 || !boundedStrings(e.CompletedSteps, 64) || (e.FailedStep != "" && !bounded(e.FailedStep, 1, 64)) || e.Error == nil || e.Error.EffectState != EffectPartial || e.Error.AdapterReason != "" {
+	if (e.Tool != "concord_work_compact" && e.Tool != "concord_work_transition") || e.OperationRef == nil || (e.OperationRef.State != OperationPartial && e.OperationRef.State != OperationFailed) || len(e.CompletedSteps) == 0 || len(e.CompletedSteps) > 32 || !boundedStrings(e.CompletedSteps, 64) || (e.FailedStep != "" && !BoundedBytes(e.FailedStep, 1, 64)) || e.Error == nil || e.Error.EffectState != EffectPartial || e.Error.AdapterReason != "" {
 		return errors.New("invalid partial envelope")
 	}
 	if err := validateOperationRef(*e.OperationRef); err != nil {
@@ -543,7 +531,7 @@ func (e Envelope) validatePartial() error {
 	return validateError(*e.Error)
 }
 func validateOperationRef(ref OperationRef) error {
-	if !bounded(ref.ID, 1, 128) || !bounded(ref.Kind, 1, 64) || !bounded(ref.Version, 1, 128) || !bounded(ref.CurrentStep, 1, 64) || ref.UpdatedAt.IsZero() {
+	if !BoundedBytes(ref.ID, 1, 128) || !BoundedBytes(ref.Kind, 1, 64) || !BoundedBytes(ref.Version, 1, 128) || !BoundedBytes(ref.CurrentStep, 1, 64) || ref.UpdatedAt.IsZero() {
 		return errors.New("invalid operation reference")
 	}
 	return nil
@@ -566,18 +554,18 @@ func (e Envelope) validateError() error {
 
 func validateEnvelopeCollections(e Envelope) error {
 	for _, watermark := range e.SourceVersionWatermark {
-		if !oneOf(watermark.SourceKind, "product_memory", "git_knowledge", "native_authority", "adapter") || !bounded(watermark.SourceID, 1, 256) || !bounded(watermark.Version, 1, 256) {
+		if !slices.Contains([]string{"product_memory", "git_knowledge", "native_authority", "adapter"}, watermark.SourceKind) || !BoundedBytes(watermark.SourceID, 1, 256) || !BoundedBytes(watermark.Version, 1, 256) {
 			return errors.New("invalid source watermark")
 		}
 	}
 	for _, key := range e.OrderingKeys {
-		if !bounded(key, 1, 64) {
+		if !BoundedBytes(key, 1, 64) {
 			return errors.New("invalid ordering key")
 		}
 	}
 	notices := append(append([]Notice{}, e.Omissions...), e.Warnings...)
 	for _, notice := range notices {
-		if !bounded(notice.Kind, 1, 64) || len(notice.Details) > 16 || !scalarDetails(notice.Details) || (notice.SourceID != "" && !bounded(notice.SourceID, 1, 256)) || notice.Count < 0 {
+		if !BoundedBytes(notice.Kind, 1, 64) || len(notice.Details) > 16 || !scalarDetails(notice.Details) || (notice.SourceID != "" && !BoundedBytes(notice.SourceID, 1, 256)) || notice.Count < 0 {
 			return errors.New("invalid notice")
 		}
 	}
@@ -586,14 +574,10 @@ func validateEnvelopeCollections(e Envelope) error {
 	}
 	return nil
 }
-func bounded(value string, lower, upper int) bool { return len(value) >= lower && len(value) <= upper }
-func oneOf(value string, allowed ...string) bool {
-	for _, candidate := range allowed {
-		if value == candidate {
-			return true
-		}
-	}
-	return false
+
+// BoundedBytes reports whether value's byte length lies within [lower, upper].
+func BoundedBytes(value string, lower, upper int) bool {
+	return len(value) >= lower && len(value) <= upper
 }
 func scalarDetails(values map[string]any) bool {
 	for _, value := range values {
@@ -638,7 +622,7 @@ func childValueIsArray(value any) bool {
 }
 
 func validateOperation(tool, operation, query string) error {
-	for _, op := range agentcontract.ContractOperations {
+	for _, op := range ContractOperations {
 		if op.Tool == tool && op.Operation == operation {
 			if op.QueryID != query {
 				return fmt.Errorf("query id %q does not match %s.%s", query, tool, operation)
@@ -653,9 +637,9 @@ func validateOperation(tool, operation, query string) error {
 // on such a tool must be validated as a read: it has no mutation metadata to
 // carry, and demanding it refuses every ok answer the read can produce.
 func isMutation(tool, operation string) bool {
-	for _, op := range agentcontract.ContractOperations {
+	for _, op := range ContractOperations {
 		if op.Tool == tool && op.Operation == operation {
-			return op.Kind == agentcontract.OperationMutation
+			return op.Kind == OperationMutation
 		}
 	}
 	return false
@@ -664,15 +648,17 @@ func validateScope(s *Scope) error {
 	if s == nil {
 		return nil
 	}
-	if s.ProductID != "" && !bounded(s.ProductID, 1, 128) || len(s.ProjectIDs) > 100 || len(s.WorkIDs) > 100 || (s.ScopeVersion != "" && !bounded(s.ScopeVersion, 1, 128)) {
+	if s.ProductID != "" && !BoundedBytes(s.ProductID, 1, 128) || len(s.ProjectIDs) > 100 || len(s.WorkIDs) > 100 || (s.ScopeVersion != "" && !BoundedBytes(s.ScopeVersion, 1, 128)) {
 		return errors.New("scope bound exceeded")
 	}
-	if !unique(s.ProjectIDs) || !unique(s.WorkIDs) {
+	if !UniqueNonEmpty(s.ProjectIDs) || !UniqueNonEmpty(s.WorkIDs) {
 		return errors.New("scope identifiers are not unique")
 	}
 	return nil
 }
-func unique(values []string) bool {
+
+// UniqueNonEmpty reports whether every value is non-empty and appears once.
+func UniqueNonEmpty(values []string) bool {
 	seen := map[string]bool{}
 	for _, value := range values {
 		if value == "" || seen[value] {
@@ -682,9 +668,17 @@ func unique(values []string) bool {
 	}
 	return true
 }
+
+// recoveryActions is the closed recovery-action vocabulary the envelope
+// contract admits.
+var recoveryActions = map[string]bool{"none": true, "correct_request": true, "retry_same_request": true, "refresh_context": true, "reread_entities": true, "request_approval": true, "provide_evidence": true, "reduce_limit": true, "use_declared_route": true, "use_next_cursor": true, "restart_query": true, "adjust_budget": true, "reconcile_operation": true, "resolve_ambiguity": true, "contact_operator": true}
+
+// RecoveryActionAllowed reports whether kind names a contractual recovery
+// action. Any other authored recovery text is remedy prose, not an action.
+func RecoveryActionAllowed(kind string) bool { return recoveryActions[kind] }
+
 func validateRecovery(kind string) error {
-	allowed := map[string]bool{"none": true, "correct_request": true, "retry_same_request": true, "refresh_context": true, "reread_entities": true, "request_approval": true, "provide_evidence": true, "reduce_limit": true, "use_declared_route": true, "use_next_cursor": true, "restart_query": true, "adjust_budget": true, "reconcile_operation": true, "resolve_ambiguity": true, "contact_operator": true}
-	if !allowed[kind] {
+	if !recoveryActions[kind] {
 		return fmt.Errorf("unknown recovery action %q", kind)
 	}
 	return nil
@@ -693,11 +687,11 @@ func validateRecoveryAction(action RecoveryAction) error {
 	if err := validateRecovery(action.Kind); err != nil {
 		return err
 	}
-	if len(action.RequiredRefs) > 20 || !unique(action.RequiredRefs) {
+	if len(action.RequiredRefs) > 20 || !UniqueNonEmpty(action.RequiredRefs) {
 		return errors.New("invalid recovery references")
 	}
 	for _, ref := range action.RequiredRefs {
-		if !bounded(ref, 1, 128) {
+		if !BoundedBytes(ref, 1, 128) {
 			return errors.New("invalid recovery reference")
 		}
 	}
@@ -732,7 +726,7 @@ func sortedBoundedList(values []string, limit int) bool {
 	}
 	previous := ""
 	for i, value := range values {
-		if !bounded(value, 3, 256) || (i > 0 && value <= previous) {
+		if !BoundedBytes(value, 3, 256) || (i > 0 && value <= previous) {
 			return false
 		}
 		previous = value
@@ -742,12 +736,12 @@ func sortedBoundedList(values []string, limit int) bool {
 
 // enforcedRecoveryCouplings binds an error kind to the one recovery action a
 // caller can act on for that kind. validateError refuses an envelope that
-// breaks a coupling, and publicRecovery derives the action from this same
+// breaks a coupling, and PublicRecovery derives the action from this same
 // table, so a producer cannot compose a pair the validator will then reject.
 //
 // One table, two consumers. A coupling added here reaches the producer and the
 // validator together. A coupling that lived in the validator alone is the
-// defect this table removes: the store proposes operator prose, publicRecovery
+// defect this table removes: the store proposes operator prose, PublicRecovery
 // fell through to "contact_operator", and the resulting envelope failed to
 // marshal, so the caller received a transport error in place of the typed
 // refusal the core had already decided.
@@ -757,7 +751,7 @@ func sortedBoundedList(values []string, limit int) bool {
 // need an empty effect state. Those stay as their own checks, because they
 // constrain the payload rather than the action a caller takes next.
 // enforcedRecoveryCouplings names every error kind that admits exactly one
-// recovery action. It is the single owner of that rule: publicRecovery builds
+// recovery action. It is the single owner of that rule: PublicRecovery builds
 // from it and validateError refuses against it. A kind enforced by only one of
 // the two halves is a refusal the core decided and the caller never receives,
 // because the pair reaches the transport as a marshal fault.
@@ -784,6 +778,45 @@ var enforcedRecoveryCouplings = map[string]string{
 	"outside_repair_active": "use_declared_route",
 }
 
+// PublicRecovery projects a store-proposed recovery onto the contract. A
+// coupled kind takes its one admitted action; otherwise a proposal that names
+// a contractual action survives, and anything else takes the kind's default.
+func PublicRecovery(kind, proposed string) string {
+	// A coupled kind admits exactly one recovery action, and validateError
+	// refuses every other pairing. The coupling therefore decides before the
+	// proposed value is read: the store proposes free operator prose, and a
+	// proposal that is merely a valid action is still the wrong one here.
+	// Letting either reach the envelope produces a pair that cannot marshal,
+	// which reaches the caller as a transport fault rather than the refusal
+	// the core decided.
+	if coupled, ok := enforcedRecoveryCouplings[kind]; ok {
+		return coupled
+	}
+	if recoveryActions[proposed] {
+		return proposed
+	}
+	switch kind {
+	case "unauthorized", "unreachable", "internal_error":
+		return "contact_operator"
+	case "approval_required", "approval_invalid":
+		return "request_approval"
+	case "invalid_transition", "invalid_relation", "invariant_violation", "invalid_input":
+		return "reread_entities"
+	case "not_terminal", "stale_requires_review", "idempotency_conflict", "degraded_not_allowed":
+		// The caller acts on state it can reread: a lifecycle, a review
+		// pin, a conflicting key, an index it may opt into degraded for.
+		return "reread_entities"
+	case "unknown_scope", "malformed_response", "transport_failure":
+		return "contact_operator"
+	default:
+		// Every public kind is named above or coupled; reaching here means
+		// a kind the vocabulary added without a recovery decision. That is
+		// a contract defect, and contact_operator is the honest answer for
+		// it, not a default any ordinary refusal should fall into.
+		return "contact_operator"
+	}
+}
+
 func validateError(err TypedError) error {
 	if !payloadschema.TypedErrorKindAllowed(err.Kind) {
 		return fmt.Errorf("unknown error kind %q", err.Kind)
@@ -804,7 +837,7 @@ func validateError(err TypedError) error {
 		return errors.New("error bound exceeded")
 	}
 	for _, ref := range err.CurrentVersions {
-		if !bounded(ref.EntityKind, 1, 64) || !bounded(ref.ID, 1, 128) || !bounded(ref.Version, 1, 128) {
+		if !BoundedBytes(ref.EntityKind, 1, 64) || !BoundedBytes(ref.ID, 1, 128) || !BoundedBytes(ref.Version, 1, 128) {
 			return errors.New("invalid current version reference")
 		}
 	}
@@ -817,7 +850,7 @@ func validateError(err TypedError) error {
 func validateErrorReferenceCouplings(err TypedError) error {
 	if err.Kind == "cross_repository_claim" || err.SessionPlacement != nil {
 		placement := err.SessionPlacement
-		if err.Kind != "cross_repository_claim" || placement == nil || !bounded(placement.WorkID, 1, 128) || !bounded(placement.ProjectID, 1, 128) || !bounded(placement.Directory, 1, 4096) || !strings.HasPrefix(placement.Directory, "/") || strings.ContainsRune(placement.Directory, '\x00') {
+		if err.Kind != "cross_repository_claim" || placement == nil || !BoundedBytes(placement.WorkID, 1, 128) || !BoundedBytes(placement.ProjectID, 1, 128) || !BoundedBytes(placement.Directory, 1, 4096) || !strings.HasPrefix(placement.Directory, "/") || strings.ContainsRune(placement.Directory, '\x00') {
 			return errors.New("session placement coupling violated")
 		}
 	}
@@ -832,7 +865,7 @@ func validateErrorReferenceCouplings(err TypedError) error {
 		}
 	}
 	if err.ExternalRefConflict != nil {
-		if err.Kind != "operation_conflict" || !bounded(err.ExternalRefConflict.ExistingWorkID, 1, 128) || !bounded(err.ExternalRefConflict.ExternalRef, 1, 256) {
+		if err.Kind != "operation_conflict" || !BoundedBytes(err.ExternalRefConflict.ExistingWorkID, 1, 128) || !BoundedBytes(err.ExternalRefConflict.ExternalRef, 1, 256) {
 			return errors.New("external reference conflict coupling violated")
 		}
 	}
@@ -864,7 +897,7 @@ func validateErrorRecoveryCouplings(err TypedError) error {
 		return errors.New("invalid intervening workflow actions")
 	}
 	for _, action := range err.InterveningActions {
-		if !bounded(action.ActionID, 1, 128) || !bounded(action.SessionRef, 1, 128) {
+		if !BoundedBytes(action.ActionID, 1, 128) || !BoundedBytes(action.SessionRef, 1, 128) {
 			return errors.New("invalid intervening workflow action")
 		}
 	}
@@ -895,7 +928,7 @@ func validateErrorRecoveryCouplings(err TypedError) error {
 // the kind requires: the deleted law's bounded ID and pinned hash, and one to four
 // bounded recovery actions.
 func validateStaleLawRevisionCoupling(revision *StaleLawRevision) error {
-	if revision == nil || !bounded(revision.OldLawID, 2, 256) || !validSHA256Proof(revision.OldContentHash) || len(revision.RecoveryActions) == 0 || len(revision.RecoveryActions) > 4 || !boundedStrings(revision.RecoveryActions, 128) {
+	if revision == nil || !BoundedBytes(revision.OldLawID, 2, 256) || !ValidSHA256Proof(revision.OldContentHash) || len(revision.RecoveryActions) == 0 || len(revision.RecoveryActions) > 4 || !boundedStrings(revision.RecoveryActions, 128) {
 		return errors.New("stale law revision coupling violated")
 	}
 	return nil
@@ -918,7 +951,7 @@ func validateDomainOverlapCoupling(overlap *DomainOverlap) error {
 // validateDomainOverlapRow validates one overlap row's bounds, counts,
 // resolution state, and recovery actions.
 func validateDomainOverlapRow(overlap DomainOverlapDetail) error {
-	if !bounded(overlap.ProductID, 1, 128) || !bounded(overlap.FromWorkID, 1, 128) || !bounded(overlap.ToWorkID, 1, 128) || overlap.FromContractVersion <= 0 || overlap.ToContractVersion <= 0 || (len(overlap.SharedAffectedDomainIDs) == 0 && len(overlap.SharedLawIDs) == 0 && len(overlap.SharedDomainModifications) == 0 && len(overlap.SharedRelationTuples) == 0) || len(overlap.SharedAffectedDomainIDs) > 20 || len(overlap.SharedLawIDs) > 20 || len(overlap.SharedDomainModifications) > 20 || len(overlap.SharedRelationTuples) > 20 || overlap.SharedAffectedDomainCount < len(overlap.SharedAffectedDomainIDs) || overlap.SharedLawCount < len(overlap.SharedLawIDs) || overlap.SharedDomainModificationCount < len(overlap.SharedDomainModifications) || overlap.SharedRelationTupleCount < len(overlap.SharedRelationTuples) || len(overlap.OverlapClasses) == 0 || len(overlap.OverlapClasses) > 4 || len(overlap.RecoveryActions) == 0 || len(overlap.RecoveryActions) > 4 || (overlap.ResolutionState != "unresolved" && overlap.ResolutionState != "stale" && overlap.ResolutionState != "sequenced") {
+	if !BoundedBytes(overlap.ProductID, 1, 128) || !BoundedBytes(overlap.FromWorkID, 1, 128) || !BoundedBytes(overlap.ToWorkID, 1, 128) || overlap.FromContractVersion <= 0 || overlap.ToContractVersion <= 0 || (len(overlap.SharedAffectedDomainIDs) == 0 && len(overlap.SharedLawIDs) == 0 && len(overlap.SharedDomainModifications) == 0 && len(overlap.SharedRelationTuples) == 0) || len(overlap.SharedAffectedDomainIDs) > 20 || len(overlap.SharedLawIDs) > 20 || len(overlap.SharedDomainModifications) > 20 || len(overlap.SharedRelationTuples) > 20 || overlap.SharedAffectedDomainCount < len(overlap.SharedAffectedDomainIDs) || overlap.SharedLawCount < len(overlap.SharedLawIDs) || overlap.SharedDomainModificationCount < len(overlap.SharedDomainModifications) || overlap.SharedRelationTupleCount < len(overlap.SharedRelationTuples) || len(overlap.OverlapClasses) == 0 || len(overlap.OverlapClasses) > 4 || len(overlap.RecoveryActions) == 0 || len(overlap.RecoveryActions) > 4 || (overlap.ResolutionState != "unresolved" && overlap.ResolutionState != "stale" && overlap.ResolutionState != "sequenced") {
 		return errors.New("domain overlap detail bounds violated")
 	}
 	if overlap.ResolutionState == "sequenced" && overlap.ResolutionKind != "depends_on" && overlap.ResolutionKind != "blocks" {
@@ -936,7 +969,7 @@ func validateDomainOverlapRow(overlap DomainOverlapDetail) error {
 // validateConsequenceSummaryShape validates the closed object of
 // challenge-bound facts a consequence summary carries.
 func validateConsequenceSummaryShape(summary *ConsequenceSummary) error {
-	if !toolIDRE.MatchString(summary.Tool) || !operationIDRE.MatchString(summary.Operation) || !bounded(summary.Consequence, 2, 64) || !validSHA256Proof(summary.OperationDigest) {
+	if !toolIDRE.MatchString(summary.Tool) || !operationIDRE.MatchString(summary.Operation) || !BoundedBytes(summary.Consequence, 2, 64) || !ValidSHA256Proof(summary.OperationDigest) {
 		return errors.New("consequence summary identity fields are invalid")
 	}
 	if summary.ExpiresAt == "" {
@@ -945,13 +978,14 @@ func validateConsequenceSummaryShape(summary *ConsequenceSummary) error {
 	if _, err := time.Parse(time.RFC3339Nano, summary.ExpiresAt); err != nil {
 		return errors.New("consequence summary expiry is not RFC3339")
 	}
-	if !sortedBoundedList(summary.Scope, maxConsequenceSummaryBindings) || !sortedOptionalBindings(summary.Versions, maxConsequenceSummaryBindings) {
+	if !sortedBoundedList(summary.Scope, MaxConsequenceSummaryBindings) || !sortedOptionalBindings(summary.Versions, MaxConsequenceSummaryBindings) {
 		return errors.New("consequence summary scope or versions are not canonical sorted bindings")
 	}
 	return nil
 }
 
-func validSHA256Proof(value string) bool {
+// ValidSHA256Proof reports whether value is a lowercase sha256:<64 hex> digest.
+func ValidSHA256Proof(value string) bool {
 	if !strings.HasPrefix(value, "sha256:") || len(value) != len("sha256:")+64 {
 		return false
 	}
@@ -964,7 +998,7 @@ func validSHA256Proof(value string) bool {
 }
 func boundedStrings(values []string, upper int) bool {
 	for _, value := range values {
-		if !bounded(value, 1, upper) {
+		if !BoundedBytes(value, 1, upper) {
 			return false
 		}
 	}

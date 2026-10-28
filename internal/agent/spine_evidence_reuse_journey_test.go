@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -66,7 +67,7 @@ func TestCriterion13ProducerFactsSurviveStageExitAndFreshSession(t *testing.T) {
 	before = f.read(t)
 	refused := f.action(t, "record_verdict", verdict)
 	after = f.read(t)
-	if refused.Outcome != OutcomeError || refused.Error == nil || refused.Error.Kind != "stale_requires_review" || refused.Error.EffectState != EffectNone || before.Pinned.Pin.Version != after.Pinned.Pin.Version || !reflect.DeepEqual(before.Pinned.Pin.Review, after.Pinned.Pin.Review) {
+	if refused.Outcome != agentcontract.OutcomeError || refused.Error == nil || refused.Error.Kind != "stale_requires_review" || refused.Error.EffectState != agentcontract.EffectNone || before.Pinned.Pin.Version != after.Pinned.Pin.Version || !reflect.DeepEqual(before.Pinned.Pin.Review, after.Pinned.Pin.Review) {
 		t.Fatalf("changed candidate reused the original pass or changed its attribution: %+v", refused.Error)
 	}
 }

@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/payloadschema"
 	"github.com/sharper-flow/concord/internal/store"
 )
@@ -89,7 +90,7 @@ func TestFailedReviewCorrectionBoundaryRequiresAcceptedCurrentReview(t *testing.
 	// class and records nothing.
 	before := premiseConsentSnapshot(t, f.s)
 	refused := f.action(t, "request_correction", fields)
-	if refused.Outcome != OutcomeError || refused.Error == nil || !strings.Contains(refused.Error.Message, "current non-ok verification verdict") || refused.Error.EffectState != EffectNone {
+	if refused.Outcome != agentcontract.OutcomeError || refused.Error == nil || !strings.Contains(refused.Error.Message, "current non-ok verification verdict") || refused.Error.EffectState != agentcontract.EffectNone {
 		t.Fatalf("failed review granted correction authority: %+v", refused.Error)
 	}
 	if !reflect.DeepEqual(before, premiseConsentSnapshot(t, f.s)) {
@@ -121,7 +122,7 @@ func TestFailedReviewCorrectionBoundaryRequiresAcceptedCurrentReview(t *testing.
 			invalid[vector.field] = vector.value
 			before := premiseConsentSnapshot(t, f.s)
 			response := f.action(t, "request_correction", invalid)
-			if response.Outcome != OutcomeError || response.Error == nil || !strings.Contains(response.Error.Message, vector.message) || response.Error.EffectState != EffectNone {
+			if response.Outcome != agentcontract.OutcomeError || response.Error == nil || !strings.Contains(response.Error.Message, vector.message) || response.Error.EffectState != agentcontract.EffectNone {
 				t.Fatalf("invalid correction = %+v, want %s refusal", response.Error, vector.name)
 			}
 			if !reflect.DeepEqual(before, premiseConsentSnapshot(t, f.s)) {
@@ -155,7 +156,7 @@ func TestFailedReviewCorrectionBoundaryRequiresAcceptedCurrentReview(t *testing.
 	// disposition cannot reopen the return.
 	before = premiseConsentSnapshot(t, f.s)
 	stale := f.action(t, "request_correction", fields)
-	if stale.Outcome != OutcomeError || stale.Error == nil || stale.Error.EffectState != EffectNone || !reflect.DeepEqual(before, premiseConsentSnapshot(t, f.s)) {
+	if stale.Outcome != agentcontract.OutcomeError || stale.Error == nil || stale.Error.EffectState != agentcontract.EffectNone || !reflect.DeepEqual(before, premiseConsentSnapshot(t, f.s)) {
 		t.Fatalf("superseded correction disposition reopened the return: %+v", stale.Error)
 	}
 }

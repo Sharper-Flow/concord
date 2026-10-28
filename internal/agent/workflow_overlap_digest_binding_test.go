@@ -342,7 +342,7 @@ func TestRoutineCoordinationExplicitBudgetResolvesThroughRealDispatch(t *testing
 	scope, versions := routineOverlapApprovalBindings(t, s, env, binding)
 	digest := mutationDigest("concord_work_relate", "resolve_overlap", env, withApproval)
 	approved := routineOverlapApprovedDispatch(t, s, service, privateKey, env, challengeRef, digest, scope, versions, withApproval)
-	if approved.Outcome != OutcomeOK {
+	if approved.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("the budgeted destructive resolution outcome=%s error=%+v", approved.Outcome, approved.Error)
 	}
 	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM workflow_overlap_resolutions`); got != 1 {

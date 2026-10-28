@@ -27,7 +27,7 @@ func TestInvokeShapesUnsupportedOperationAsTypedEnvelope(t *testing.T) {
 	if err != nil {
 		t.Fatalf("dispatch refusal must not surface as a transport error: %v", err)
 	}
-	if response.Outcome != OutcomeError || response.Error == nil || response.Error.Kind != "invalid_input" {
+	if response.Outcome != agentcontract.OutcomeError || response.Error == nil || response.Error.Kind != "invalid_input" {
 		t.Fatalf("response=%+v, want an invalid_input error outcome", response)
 	}
 	if response.Error.RecoveryAction.Kind != "restart_query" {
@@ -48,7 +48,7 @@ func TestInvokePreEffectInputCorrection(t *testing.T) {
 	}
 	env := mutationEnvelope(grant, scopeVersion)
 	input := map[string]any{"work_id": "work-holder", "statement": strings.Repeat("x", 832), "idempotency_key": "input-correction"}
-	invoke := func() Envelope {
+	invoke := func() agentcontract.Envelope {
 		t.Helper()
 		raw, _ := json.Marshal(input)
 		response, err := Invoke(ctx, s, service, mustMarshalInvoke(t, InvokeRequest{Tool: "concord_work_define", Operation: "observation_record", Input: raw}, env))
@@ -73,17 +73,17 @@ func TestInvokePreEffectInputCorrection(t *testing.T) {
 	}
 	input["statement"] = "A corrected bounded observation."
 	corrected := invoke()
-	if corrected.Outcome != OutcomeOK || corrected.Replayed {
+	if corrected.Outcome != agentcontract.OutcomeOK || corrected.Replayed {
 		t.Fatalf("correcting only statement under unchanged authority failed: %+v", corrected)
 	}
-	if replay := invoke(); replay.Outcome != OutcomeOK || !replay.Replayed {
+	if replay := invoke(); replay.Outcome != agentcontract.OutcomeOK || !replay.Replayed {
 		t.Fatalf("committed correction must keep idempotency: %+v", replay)
 	}
 }
 
-func assertInputCorrection(t *testing.T, response Envelope, err error, diagnostic string) {
+func assertInputCorrection(t *testing.T, response agentcontract.Envelope, err error, diagnostic string) {
 	t.Helper()
-	if err != nil || response.Outcome != OutcomeError || response.Error == nil || response.Error.Kind != "invalid_input" || response.Error.EffectState != EffectNone || response.Error.RetrySafe || response.Error.RecoveryAction.Kind != "correct_request" {
+	if err != nil || response.Outcome != agentcontract.OutcomeError || response.Error == nil || response.Error.Kind != "invalid_input" || response.Error.EffectState != agentcontract.EffectNone || response.Error.RetrySafe || response.Error.RecoveryAction.Kind != "correct_request" {
 		t.Fatalf("expected pre-effect input correction: response=%+v err=%v", response.Error, err)
 	}
 	if !strings.Contains(response.Error.Message, diagnostic) {

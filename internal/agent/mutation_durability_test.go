@@ -52,7 +52,7 @@ func TestMutationDurabilityDeclaresEffectIndependentlyOfConsent(t *testing.T) {
 	digest := mutationDigest("concord_work_transition", "correct_delivery", env, raw)
 	scope := map[string]any{"product_id": "product-1", "project_ids": []string{"project-1"}, "scope_version": scopeVersion, "work_ids": []string{"work-1"}}
 	versions := map[string]any{"work": 2}
-	effect := func(ctx context.Context, tx *store.Transaction, _ Authority) (json.RawMessage, []string, []ChangedRef, error) {
+	effect := func(ctx context.Context, tx *store.Transaction, _ Authority) (json.RawMessage, []string, []agentcontract.ChangedRef, error) {
 		// The committed effect rides the executor's own idempotency boundary;
 		// an empty changed-ref list and a closed-schema result payload are the
 		// whole domain surface this witness needs.
@@ -60,11 +60,11 @@ func TestMutationDurabilityDeclaresEffectIndependentlyOfConsent(t *testing.T) {
 	}
 	before := s.DurableCommits()
 	r := runtime{Store: s, Authority: service, Envelope: env, Tool: "concord_work_transition", Operation: "correct_delivery", Reader: grant}
-	response, err := r.executeMutation(ctx, NewBase("durability-consent", "concord_work_transition", "correct_delivery"), raw, digest, scope, versions, string(op.Consequence), "", false, nil, nil, nil, effect, nil, nil)
+	response, err := r.executeMutation(ctx, agentcontract.NewBase("durability-consent", "concord_work_transition", "correct_delivery"), raw, digest, scope, versions, string(op.Consequence), "", false, nil, nil, nil, effect, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if response.Outcome != OutcomeOK || response.Error != nil || response.Replayed {
+	if response.Outcome != agentcontract.OutcomeOK || response.Error != nil || response.Replayed {
 		t.Fatalf("consent-free mutation did not commit: outcome=%+v error=%+v replayed=%t", response.Outcome, response.Error, response.Replayed)
 	}
 	key := store.MutationIdempotencyKey{PrincipalRef: grant.PrincipalRef, Tool: "concord_work_transition", OperationKind: "correct_delivery", IdempotencyKey: "durability-consent-1"}
@@ -244,8 +244,8 @@ func TestMutationDurabilityConditionalPlans(t *testing.T) {
 			t.Fatal(err)
 		}
 		plan := newMutationPlan(envelope, lifecycleOp)
-		answer, planErr, handled := r.planLifecycle(context.Background(), NewBase("durability-plan", "concord_work_transition", "lifecycle"), raw, digest, Authority{}, lifecycleOp, plan)
-		if handled || planErr != nil || answer.Outcome == OutcomeError {
+		answer, planErr, handled := r.planLifecycle(context.Background(), agentcontract.NewBase("durability-plan", "concord_work_transition", "lifecycle"), raw, digest, Authority{}, lifecycleOp, plan)
+		if handled || planErr != nil || answer.Outcome == agentcontract.OutcomeError {
 			t.Fatalf("lifecycle %s planner refused: handled=%t err=%v answer=%+v", tc.target, handled, planErr, answer)
 		}
 		if got := plannedFact(t, plan); got != tc.durable {
@@ -268,8 +268,8 @@ func TestMutationDurabilityConditionalPlans(t *testing.T) {
 		t.Fatal(err)
 	}
 	approvedPlan := newMutationPlan(envelope, lifecycleOp)
-	approvedAnswer, approvedErr, approvedHandled := r.planLifecycle(context.Background(), NewBase("durability-plan", "concord_work_transition", "lifecycle"), approvedRaw, digest, Authority{}, lifecycleOp, approvedPlan)
-	if approvedHandled || approvedErr != nil || approvedAnswer.Outcome == OutcomeError {
+	approvedAnswer, approvedErr, approvedHandled := r.planLifecycle(context.Background(), agentcontract.NewBase("durability-plan", "concord_work_transition", "lifecycle"), approvedRaw, digest, Authority{}, lifecycleOp, approvedPlan)
+	if approvedHandled || approvedErr != nil || approvedAnswer.Outcome == agentcontract.OutcomeError {
 		t.Fatalf("approved lifecycle planner refused: handled=%t err=%v answer=%+v", approvedHandled, approvedErr, approvedAnswer)
 	}
 	if !plannedFact(t, approvedPlan) {
@@ -303,8 +303,8 @@ func TestMutationDurabilityConditionalPlans(t *testing.T) {
 			t.Fatal(err)
 		}
 		plan := newMutationPlan(envelope, overlapOp)
-		answer, planErr, handled := r.planResolveOverlap(context.Background(), NewBase("durability-plan", "concord_work_relate", "resolve_overlap"), raw, digest, Authority{}, overlapOp, plan)
-		if handled || planErr != nil || answer.Outcome == OutcomeError {
+		answer, planErr, handled := r.planResolveOverlap(context.Background(), agentcontract.NewBase("durability-plan", "concord_work_relate", "resolve_overlap"), raw, digest, Authority{}, overlapOp, plan)
+		if handled || planErr != nil || answer.Outcome == agentcontract.OutcomeError {
 			t.Fatalf("overlap %s planner refused: handled=%t err=%v answer=%+v", tc.kind, handled, planErr, answer)
 		}
 		if got := plannedFact(t, plan); got != tc.durable {
@@ -329,8 +329,8 @@ func TestMutationDurabilityConditionalPlans(t *testing.T) {
 		t.Fatal(err)
 	}
 	approvedOverlapPlan := newMutationPlan(envelope, overlapOp)
-	approvedOverlapAnswer, approvedOverlapErr, approvedOverlapHandled := r.planResolveOverlap(context.Background(), NewBase("durability-plan", "concord_work_relate", "resolve_overlap"), approvedOverlapRaw, digest, Authority{}, overlapOp, approvedOverlapPlan)
-	if approvedOverlapHandled || approvedOverlapErr != nil || approvedOverlapAnswer.Outcome == OutcomeError {
+	approvedOverlapAnswer, approvedOverlapErr, approvedOverlapHandled := r.planResolveOverlap(context.Background(), agentcontract.NewBase("durability-plan", "concord_work_relate", "resolve_overlap"), approvedOverlapRaw, digest, Authority{}, overlapOp, approvedOverlapPlan)
+	if approvedOverlapHandled || approvedOverlapErr != nil || approvedOverlapAnswer.Outcome == agentcontract.OutcomeError {
 		t.Fatalf("approved overlap planner refused: handled=%t err=%v answer=%+v", approvedOverlapHandled, approvedOverlapErr, approvedOverlapAnswer)
 	}
 	if !plannedFact(t, approvedOverlapPlan) {
@@ -353,8 +353,8 @@ func TestMutationDurabilityConditionalPlans(t *testing.T) {
 		t.Fatal(err)
 	}
 	plan := newMutationPlan(envelope, membershipsOp)
-	answer, planErr, handled := r.planSetMemberships(context.Background(), NewBase("durability-plan", "concord_work_relate", "set_memberships"), membershipsRaw, digest, Authority{}, membershipsOp, plan)
-	if handled || planErr != nil || answer.Outcome == OutcomeError {
+	answer, planErr, handled := r.planSetMemberships(context.Background(), agentcontract.NewBase("durability-plan", "concord_work_relate", "set_memberships"), membershipsRaw, digest, Authority{}, membershipsOp, plan)
+	if handled || planErr != nil || answer.Outcome == agentcontract.OutcomeError {
 		t.Fatalf("set_memberships planner refused: handled=%t err=%v answer=%+v", handled, planErr, answer)
 	}
 	if !plannedFact(t, plan) {
@@ -408,7 +408,7 @@ func TestMutationDurabilityStoreBoundPlannerFacts(t *testing.T) {
 		}
 		vacateLinkedWorktree(t, s, service, grant, filepath.Join(filepath.Dir(s.Path()), "worktrees", "project-1", "work-1"), "durability-nonterminal-vacate")
 		removed := authorityInvoke(t, s, service, grant, "concord_work_transition", "worktree_destroy", map[string]any{"work_id": "work-1", "expected_version": 3, "default_ref": "main", "idempotency_key": "durability-destroy-1"})
-		if removed.Outcome != OutcomeOK {
+		if removed.Outcome != agentcontract.OutcomeOK {
 			t.Fatalf("clean unoccupied non-terminal destroy = %+v", removed.Error)
 		}
 		if lifecycle, version := readWorkFromStore(t, s, "work-1"); lifecycle != "needed" || version != 4 {

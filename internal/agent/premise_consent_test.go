@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -36,7 +37,7 @@ func assertPublicPremiseConsent(t *testing.T, s *store.Store, service *Service, 
 		t.Helper()
 		before := premiseConsentSnapshot(t, s)
 		response := invokeWorkflowIssue31(t, s, service, actorEnv, retryJSON(request))
-		if response.Outcome != OutcomeError || response.Error == nil || response.Error.Kind != kind || response.Error.EffectState != "none" {
+		if response.Outcome != agentcontract.OutcomeError || response.Error == nil || response.Error.Kind != kind || response.Error.EffectState != "none" {
 			t.Fatalf("premise refusal=%+v, want %s with no effect", response.Error, kind)
 		}
 		if after := premiseConsentSnapshot(t, s); !reflect.DeepEqual(before, after) {
@@ -66,7 +67,7 @@ func assertPublicPremiseConsent(t *testing.T, s *store.Store, service *Service, 
 		})
 	}
 	challenge := invokeWorkflowIssue31(t, s, service, env, retryJSON(input))
-	if challenge.Outcome != OutcomeError || challenge.Error == nil || challenge.Error.Kind != "approval_required" {
+	if challenge.Outcome != agentcontract.OutcomeError || challenge.Error == nil || challenge.Error.Kind != "approval_required" {
 		t.Fatalf("product premise did not require operator consent: %+v", challenge.Error)
 	}
 	ref, _ := challenge.Error.Details["approval_ref"].(string)

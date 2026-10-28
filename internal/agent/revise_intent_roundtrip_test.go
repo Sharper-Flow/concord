@@ -191,7 +191,7 @@ func TestReviseIntentStaysBehindTheWorkDefineCapability(t *testing.T) {
 	}
 	env := CallEnvelope{SchemaVersion: "1.0", RequestID: "roundtrip-unauthorized", ClientRef: grant.ClientRef, PrincipalRef: grant.PrincipalRef, SessionRef: grant.SessionRef, AgentRef: grant.AgentRef, Directory: grant.Directory, Worktree: grant.Worktree, AmbientProjectID: "project-1", SelectedProductID: "product-1", ScopeVersion: scopeVersion, ManifestDigest: grant.ManifestDigest}
 	response, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_define", Operation: "revise_intent", Input: json.RawMessage(`{"work_id":"work-1","expected_version":1,"title":"T","value_statement":"V","kind":"task","reason":"probe","idempotency_key":"probe"}`)}, env)
-	if err == nil && response.Outcome == OutcomeOK {
+	if err == nil && response.Outcome == agentcontract.OutcomeOK {
 		t.Fatal("a product_read client must not revise intent; work_define still owns the mutation")
 	}
 }
@@ -236,11 +236,11 @@ func seedIntentRoundtripWork(t *testing.T, capture map[string]any) (*store.Store
 	return s, ctx, service, env, (*response.ChangedRefs)[0].ID
 }
 
-func roundtripDispatchOK(t *testing.T, ctx context.Context, s *store.Store, service *Service, env CallEnvelope, requestID, tool, operation string, input map[string]any) Envelope {
+func roundtripDispatchOK(t *testing.T, ctx context.Context, s *store.Store, service *Service, env CallEnvelope, requestID, tool, operation string, input map[string]any) agentcontract.Envelope {
 	t.Helper()
 	env.RequestID = requestID
 	response, err := Dispatch(ctx, s, service, InvokeRequest{Tool: tool, Operation: operation, Input: mustJSON(t, input)}, env)
-	if err != nil || response.Outcome != OutcomeOK {
+	if err != nil || response.Outcome != agentcontract.OutcomeOK {
 		errorJSON, _ := json.Marshal(response.Error)
 		t.Fatalf("%s.%s response=%+v error=%s err=%v", tool, operation, response, errorJSON, err)
 	}

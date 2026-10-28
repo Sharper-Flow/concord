@@ -24,11 +24,11 @@ func TestTraceHistoryPageAcceptsReasonlessEvents(t *testing.T) {
 			{EntryID: "lifecycle:declined", EntryKind: "lifecycle", Position: store.HistoryPosition{EffectSeq: 2, Basis: "effect"}, Version: 2, VersionWorkID: "declined", Lifecycle: "cancelled", Actor: "actor:operator", Reason: "declined by operator", EvidenceRefs: []string{"evidence-1"}},
 		},
 	}
-	envelope, err := (runtime{}).q7(NewBase("reasonless", "concord_work_trace", "history"), q)
+	envelope, err := (runtime{}).q7(agentcontract.NewBase("reasonless", "concord_work_trace", "history"), q)
 	if err != nil {
 		t.Fatalf("history page refused a legitimate reasonless page: %v", err)
 	}
-	if envelope.Outcome != OutcomeOK {
+	if envelope.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("outcome = %q, want ok", envelope.Outcome)
 	}
 	var page struct {
@@ -75,8 +75,8 @@ func TestTraceHistoryPageAcceptsStoredProducerReferences(t *testing.T) {
 					ProducerID: producer, ProducerRunRef: producer, ProducerWatermark: producer, ObservedAt: "2026-10-24T00:00:00Z",
 				}},
 			}
-			envelope, err := (runtime{}).q7(NewBase("producer", "concord_work_trace", "history"), q)
-			if err != nil || envelope.Outcome != OutcomeOK {
+			envelope, err := (runtime{}).q7(agentcontract.NewBase("producer", "concord_work_trace", "history"), q)
+			if err != nil || envelope.Outcome != agentcontract.OutcomeOK {
 				t.Fatalf("history page refused stored producer %q: %v %+v", producer, err, envelope.Error)
 			}
 		})
@@ -113,7 +113,7 @@ func TestTraceHistoryPageCarriesPublishedWorkflowRead(t *testing.T) {
 		OverdueAwaits:        []string{"cond-1"},
 		AwaitHealth:          []store.WorkflowReadCondition{{ID: "cond-1"}},
 	}
-	envelope, err := (runtime{}).q7(NewBase("workflow-page", "concord_work_trace", "history"), store.Q7Result{
+	envelope, err := (runtime{}).q7(agentcontract.NewBase("workflow-page", "concord_work_trace", "history"), store.Q7Result{
 		ResultMeta: store.ResultMeta{QueryID: "q7", ContractVersion: "1.0", ResolvedScope: store.ResolvedScope{ProductID: "product-1"}, Authority: "authoritative"},
 		Entries:    []store.HistoryEntry{},
 		Workflow:   &workflow,
@@ -121,7 +121,7 @@ func TestTraceHistoryPageCarriesPublishedWorkflowRead(t *testing.T) {
 	if err != nil {
 		t.Fatalf("history page refused a workflow projection: %v", err)
 	}
-	if envelope.Outcome != OutcomeOK {
+	if envelope.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("outcome = %q, want ok", envelope.Outcome)
 	}
 	var page struct {
@@ -183,11 +183,11 @@ func TestTraceHistoryBindsTheContractVersionSelector(t *testing.T) {
 		invokeWorkflowIssue31Action(t, s, service, env, actionID, version, "history-selector-"+actionID)
 		version = workOneVersion(t, s)
 	}
-	if approved, _ := approvedWorkflowContract(t, s, service, grant, privateKey, env, version, workflowContractFieldsForSeededRegistry(t, s), "history-selector-approve"); approved.Outcome != OutcomeOK {
+	if approved, _ := approvedWorkflowContract(t, s, service, grant, privateKey, env, version, workflowContractFieldsForSeededRegistry(t, s), "history-selector-approve"); approved.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("approve_contract = %+v", approved.Error)
 	}
 
-	history := func(contractVersion int) Envelope {
+	history := func(contractVersion int) agentcontract.Envelope {
 		raw, err := json.Marshal(map[string]any{"work_id": "work-1", "record_kinds": []string{"lifecycle"}, "contract_version": contractVersion})
 		if err != nil {
 			t.Fatal(err)
@@ -195,7 +195,7 @@ func TestTraceHistoryBindsTheContractVersionSelector(t *testing.T) {
 		return dispatchRead(t, s, service, InvokeRequest{Tool: "concord_work_trace", Operation: "history", Input: raw}, env)
 	}
 	selected := history(1)
-	if selected.Outcome != OutcomeOK {
+	if selected.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("history contract_version 1 = %+v", selected.Error)
 	}
 	var page struct {
@@ -213,7 +213,7 @@ func TestTraceHistoryBindsTheContractVersionSelector(t *testing.T) {
 		t.Fatalf("selected history = %s", selected.Result)
 	}
 	refused := history(9)
-	if refused.Outcome != OutcomeError || refused.Error == nil || refused.Error.Kind != "unknown_scope" {
+	if refused.Outcome != agentcontract.OutcomeError || refused.Error == nil || refused.Error.Kind != "unknown_scope" {
 		t.Fatalf("history contract_version 9 = outcome %s error %+v, want unknown_scope", refused.Outcome, refused.Error)
 	}
 }

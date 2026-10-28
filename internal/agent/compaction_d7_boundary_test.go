@@ -3,6 +3,7 @@ package agent
 import (
 	"testing"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -48,7 +49,7 @@ func TestCompactionPublishClaimRefusesStaleLawRevision(t *testing.T) {
 
 	response := publishCancelledNote(t, s, service, grant, privateKey, home)
 
-	if response.Outcome != OutcomeError || response.Error == nil {
+	if response.Outcome != agentcontract.OutcomeError || response.Error == nil {
 		t.Fatalf("compaction publish outcome=%v error=%+v, want a refusal", response.Outcome, response.Error)
 	}
 	if response.Error.Kind != "stale_law_revision" {

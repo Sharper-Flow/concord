@@ -53,22 +53,22 @@ type continuityProjectionPageWire struct {
 // readContinuityPage performs one continuity read. A paged response comes
 // back with its decoded page wire and a joined-nothing marker; the caller
 // decides whether to continue. An inline response returns a nil page.
-func readContinuityPage(t *testing.T, ctx context.Context, r runtime, requestID string, input map[string]any) (*continuityProjectionPageWire, Envelope) {
+func readContinuityPage(t *testing.T, ctx context.Context, r runtime, requestID string, input map[string]any) (*continuityProjectionPageWire, agentcontract.Envelope) {
 	t.Helper()
 	raw, err := json.Marshal(input)
 	if err != nil {
 		t.Fatal(err)
 	}
-	response, err := r.read(ctx, NewBase(requestID, r.Tool, r.Operation), raw, "C19.Continuity")
+	response, err := r.read(ctx, agentcontract.NewBase(requestID, r.Tool, r.Operation), raw, "C19.Continuity")
 	if err != nil {
 		t.Fatal(err)
 	}
 	assertBoundedRead(t, response)
-	if response.Outcome != OutcomeOK {
+	if response.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("continuity read refused: %+v", response.Error)
 	}
-	if size, err := readEnvelopeSize(response); err != nil || size > MaxResultEnvelopeBytes {
-		t.Fatalf("read measured %d serialized bytes (err=%v) against the %d-byte envelope", size, err, MaxResultEnvelopeBytes)
+	if size, err := readEnvelopeSize(response); err != nil || size > agentcontract.MaxResultEnvelopeBytes {
+		t.Fatalf("read measured %d serialized bytes (err=%v) against the %d-byte envelope", size, err, agentcontract.MaxResultEnvelopeBytes)
 	}
 	var probe map[string]json.RawMessage
 	if err := json.Unmarshal(response.Result, &probe); err != nil {
@@ -110,7 +110,7 @@ func readContinuityPage(t *testing.T, ctx context.Context, r runtime, requestID 
 // and digest, decodes the document exactly once, and returns the document
 // bytes with the digest, the page count, and the completing envelope. A nil
 // document is an inline response: the projection fit without paging.
-func readContinuityDocument(t *testing.T, ctx context.Context, r runtime, requestID string, input map[string]any) ([]byte, string, int, Envelope) {
+func readContinuityDocument(t *testing.T, ctx context.Context, r runtime, requestID string, input map[string]any) ([]byte, string, int, agentcontract.Envelope) {
 	t.Helper()
 	joined := []byte{}
 	digest, total := "", int64(0)
@@ -254,12 +254,12 @@ func TestContinuityFortyObservationsWindowAndContinuation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	response, err := r.read(ctx, NewBase("observation-window", r.Tool, r.Operation), []byte(`{"work_id":"work-1","limit":1}`), "C19.Continuity")
+	response, err := r.read(ctx, agentcontract.NewBase("observation-window", r.Tool, r.Operation), []byte(`{"work_id":"work-1","limit":1}`), "C19.Continuity")
 	if err != nil {
 		t.Fatal(err)
 	}
 	assertBoundedRead(t, response)
-	if response.Outcome != OutcomeOK {
+	if response.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("fixed observation projection must fit: %+v", response.Error)
 	}
 	// A projection whose complete-prefix fit succeeds stays typed and
@@ -305,12 +305,12 @@ func TestContinuityFortyObservationsWindowAndContinuation(t *testing.T) {
 	pages := 0
 	for {
 		raw, _ := json.Marshal(input)
-		page, err := r.read(ctx, NewBase("observations-continuation", r.Tool, r.Operation), raw, "CD-0030.R1")
+		page, err := r.read(ctx, agentcontract.NewBase("observations-continuation", r.Tool, r.Operation), raw, "CD-0030.R1")
 		if err != nil {
 			t.Fatal(err)
 		}
 		assertBoundedRead(t, page)
-		if page.Outcome != OutcomeOK {
+		if page.Outcome != agentcontract.OutcomeOK {
 			t.Fatalf("observation page refused: %+v", page.Error)
 		}
 		var result struct {
@@ -501,8 +501,8 @@ func TestContinuityFixedProjectionEnvelopeLiveness(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(fixedBytes) <= MaxResultEnvelopeBytes {
-		t.Fatalf("fixture must grow the fixed projection past %d serialized bytes with no observation window; measured %d", MaxResultEnvelopeBytes, len(fixedBytes))
+	if len(fixedBytes) <= agentcontract.MaxResultEnvelopeBytes {
+		t.Fatalf("fixture must grow the fixed projection past %d serialized bytes with no observation window; measured %d", agentcontract.MaxResultEnvelopeBytes, len(fixedBytes))
 	}
 	if captured.LatestCheckpoint == nil || len(captured.LatestCheckpoint.Hypothesis) != 4096 {
 		t.Fatal("fixture lost the escaped latest checkpoint")
@@ -519,7 +519,7 @@ func TestContinuityFixedProjectionEnvelopeLiveness(t *testing.T) {
 	if captured.ObservationsTotal != 40 {
 		t.Fatalf("fixture observation total = %d, want 40", captured.ObservationsTotal)
 	}
-	t.Logf("fixed projection with no observation window renders %d serialized bytes against the %d-byte envelope", len(fixedBytes), MaxResultEnvelopeBytes)
+	t.Logf("fixed projection with no observation window renders %d serialized bytes against the %d-byte envelope", len(fixedBytes), agentcontract.MaxResultEnvelopeBytes)
 
 	r := runtime{Store: s, Tool: "concord_work_trace", Operation: "continuity", Envelope: CallEnvelope{SelectedProductID: "product-1", AmbientProjectID: "project-1", ScopeVersion: "scope-fixture"}}
 	for _, limit := range []struct {
@@ -629,12 +629,12 @@ func TestContinuityFixedProjectionEnvelopeLiveness(t *testing.T) {
 			observed := map[string]bool{}
 			for pages := 0; ; pages++ {
 				pageRaw, _ := json.Marshal(observationInput)
-				page, err := observationReader.read(ctx, NewBase("fixed-projection-observations", observationReader.Tool, observationReader.Operation), pageRaw, "CD-0030.R1")
+				page, err := observationReader.read(ctx, agentcontract.NewBase("fixed-projection-observations", observationReader.Tool, observationReader.Operation), pageRaw, "CD-0030.R1")
 				if err != nil {
 					t.Fatal(err)
 				}
 				assertBoundedRead(t, page)
-				if page.Outcome != OutcomeOK {
+				if page.Outcome != agentcontract.OutcomeOK {
 					t.Fatalf("observation continuation refused: %+v", page.Error)
 				}
 				var result struct {
@@ -896,7 +896,7 @@ func TestContinuityProjectionPagePropagatesRenderErrors(t *testing.T) {
 	if err := s.Close(); err != nil {
 		t.Fatal(err)
 	}
-	response, err := r.continuityProjectionPage(ctx, NewBase("page-render-error", r.Tool, r.Operation), `{"limit":1,"work_id":"work-1"}`, 1, continuityProjectionCursor{Version: 2, Work: "work-1", Digest: digest, NextByteOffset: 0}, &snapshot)
+	response, err := r.continuityProjectionPage(ctx, agentcontract.NewBase("page-render-error", r.Tool, r.Operation), `{"limit":1,"work_id":"work-1"}`, 1, continuityProjectionCursor{Version: 2, Work: "work-1", Digest: digest, NextByteOffset: 0}, &snapshot)
 	if err == nil {
 		t.Fatalf("a real render failure must propagate unchanged; got outcome %+v error %+v", response.Outcome, response.Error)
 	}
@@ -1057,8 +1057,8 @@ func oversizedContinuationFixture(t *testing.T) (*store.Store, context.Context) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(fixedBytes) <= MaxResultEnvelopeBytes {
-		t.Fatalf("continuation fixture must page: fixed projection renders only %d bytes against the %d-byte envelope", len(fixedBytes), MaxResultEnvelopeBytes)
+	if len(fixedBytes) <= agentcontract.MaxResultEnvelopeBytes {
+		t.Fatalf("continuation fixture must page: fixed projection renders only %d bytes against the %d-byte envelope", len(fixedBytes), agentcontract.MaxResultEnvelopeBytes)
 	}
 	return s, ctx
 }
@@ -1111,12 +1111,12 @@ func TestContinuityProjectionContinuationContract(t *testing.T) {
 		}
 		wrong := map[string]any{"work_id": "work-2", "limit": 1, "page": map[string]any{"cursor": *first.NextCursor}}
 		raw, _ := json.Marshal(wrong)
-		response, err := r.read(ctx, NewBase("continuation-wrong-work-2", r.Tool, r.Operation), raw, "C19.Continuity")
+		response, err := r.read(ctx, agentcontract.NewBase("continuation-wrong-work-2", r.Tool, r.Operation), raw, "C19.Continuity")
 		if err != nil {
 			t.Fatal(err)
 		}
 		assertBoundedRead(t, response)
-		if response.Outcome == OutcomeOK || response.Error == nil || response.Error.Kind != "invalid_cursor" {
+		if response.Outcome == agentcontract.OutcomeOK || response.Error == nil || response.Error.Kind != "invalid_cursor" {
 			t.Fatalf("a projection cursor bound to work-1 must refuse on work-2: %+v", response.Error)
 		}
 		var probe map[string]json.RawMessage
@@ -1150,12 +1150,12 @@ func TestContinuityProjectionContinuationContract(t *testing.T) {
 		continued := request()
 		continued["page"] = map[string]any{"cursor": *first.NextCursor}
 		raw, _ := json.Marshal(continued)
-		response, err := r.read(ctx, NewBase("continuation-digest-2", r.Tool, r.Operation), raw, "C19.Continuity")
+		response, err := r.read(ctx, agentcontract.NewBase("continuation-digest-2", r.Tool, r.Operation), raw, "C19.Continuity")
 		if err != nil {
 			t.Fatal(err)
 		}
 		assertBoundedRead(t, response)
-		if response.Outcome == OutcomeOK || response.Error == nil || response.Error.Kind != "invalid_cursor" {
+		if response.Outcome == agentcontract.OutcomeOK || response.Error == nil || response.Error.Kind != "invalid_cursor" {
 			t.Fatalf("a changed projection must refuse its continuation: %+v", response.Error)
 		}
 		var probe map[string]json.RawMessage
@@ -1190,12 +1190,12 @@ func TestContinuityProjectionContinuationContract(t *testing.T) {
 		continued := request()
 		continued["page"] = map[string]any{"cursor": *first.NextCursor}
 		raw, _ := json.Marshal(continued)
-		response, err := r.read(ctx, NewBase("continuation-drift-2", r.Tool, r.Operation), raw, "C19.Continuity")
+		response, err := r.read(ctx, agentcontract.NewBase("continuation-drift-2", r.Tool, r.Operation), raw, "C19.Continuity")
 		if err != nil {
 			t.Fatal(err)
 		}
 		assertBoundedRead(t, response)
-		if response.Outcome == OutcomeOK || response.Error == nil || response.Error.Kind != "invalid_cursor" {
+		if response.Outcome == agentcontract.OutcomeOK || response.Error == nil || response.Error.Kind != "invalid_cursor" {
 			t.Fatalf("watermark drift must refuse the signed continuation: %+v", response.Error)
 		}
 	})
@@ -1234,12 +1234,12 @@ func TestContinuityProjectionContinuationContract(t *testing.T) {
 			return continuityProjectionCursor{Version: 2, Work: "work-1", Digest: digest, NextByteOffset: offset}
 		}
 		for name, offset := range map[string]int64{"negative": -1, "past_end": int64(len(doc)), "far_past_end": 1 << 40} {
-			response, err := r.continuityProjectionPage(ctx, NewBase("continuation-offsets", r.Tool, r.Operation), binding, 1, build(offset), nil)
+			response, err := r.continuityProjectionPage(ctx, agentcontract.NewBase("continuation-offsets", r.Tool, r.Operation), binding, 1, build(offset), nil)
 			if err != nil {
 				t.Fatal(err)
 			}
 			assertBoundedRead(t, response)
-			if response.Outcome == OutcomeOK || response.Error == nil || response.Error.Kind != "invalid_cursor" {
+			if response.Outcome == agentcontract.OutcomeOK || response.Error == nil || response.Error.Kind != "invalid_cursor" {
 				t.Fatalf("%s offset %d must refuse: %+v", name, offset, response.Error)
 			}
 		}
@@ -1249,22 +1249,22 @@ func TestContinuityProjectionContinuationContract(t *testing.T) {
 		if emoji < 0 {
 			t.Fatal("fixture lost its multibyte boundary text")
 		}
-		response, err := r.continuityProjectionPage(ctx, NewBase("continuation-offsets", r.Tool, r.Operation), binding, 1, build(int64(emoji+2)), nil)
+		response, err := r.continuityProjectionPage(ctx, agentcontract.NewBase("continuation-offsets", r.Tool, r.Operation), binding, 1, build(int64(emoji+2)), nil)
 		if err != nil {
 			t.Fatal(err)
 		}
 		assertBoundedRead(t, response)
-		if response.Outcome == OutcomeOK || response.Error == nil || response.Error.Kind != "invalid_cursor" {
+		if response.Outcome == agentcontract.OutcomeOK || response.Error == nil || response.Error.Kind != "invalid_cursor" {
 			t.Fatalf("a code-point-splitting offset must refuse: %+v", response.Error)
 		}
 		// The aligned offset directly before it still continues: the refusal
 		// is about the offset, never the document.
-		aligned, err := r.continuityProjectionPage(ctx, NewBase("continuation-offsets", r.Tool, r.Operation), binding, 1, build(int64(emoji)), nil)
+		aligned, err := r.continuityProjectionPage(ctx, agentcontract.NewBase("continuation-offsets", r.Tool, r.Operation), binding, 1, build(int64(emoji)), nil)
 		if err != nil {
 			t.Fatal(err)
 		}
 		assertBoundedRead(t, aligned)
-		if aligned.Outcome != OutcomeOK {
+		if aligned.Outcome != agentcontract.OutcomeOK {
 			t.Fatalf("the aligned continuation refused: %+v", aligned.Error)
 		}
 	})
@@ -1322,7 +1322,7 @@ func TestContinuityProjectionPageFrameBounds(t *testing.T) {
 	// The 30,720-byte fragment is this fixture's payload bound only; the
 	// runtime cap stays the measured envelope, never a fixed fragment size.
 	fragment := strings.Repeat("x", 30720)
-	envelope, err := r.continuityProjectionEnvelope(NewBase(requestID, r.Tool, r.Operation), meta, header, digest, math.MaxInt64, 0, fragment, false, any("projection"))
+	envelope, err := r.continuityProjectionEnvelope(agentcontract.NewBase(requestID, r.Tool, r.Operation), meta, header, digest, math.MaxInt64, 0, fragment, false, any("projection"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1340,8 +1340,8 @@ func TestContinuityProjectionPageFrameBounds(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if size > MaxResultEnvelopeBytes {
-		t.Fatalf("the maximal page envelope measured %d bytes against the unchanged %d-byte cap", size, MaxResultEnvelopeBytes)
+	if size > agentcontract.MaxResultEnvelopeBytes {
+		t.Fatalf("the maximal page envelope measured %d bytes against the unchanged %d-byte cap", size, agentcontract.MaxResultEnvelopeBytes)
 	}
 	pageResult := r.continuityProjectionResult(header, digest, math.MaxInt64, 0, fragment, false, any("projection"))
 	resultBytes, err := json.Marshal(pageResult)
@@ -1364,7 +1364,7 @@ func TestContinuityProjectionPageFrameBounds(t *testing.T) {
 	// The two bounds together guarantee at least one whole code point per
 	// page: the maximal escaped code point fits the fragment capacity the
 	// header and frame leave over.
-	if MaxResultEnvelopeBytes-frame < 12 {
+	if agentcontract.MaxResultEnvelopeBytes-frame < 12 {
 		t.Fatalf("frame reserve %d leaves fewer than 12 payload bytes", frame)
 	}
 }
@@ -1453,12 +1453,12 @@ func TestContinuityProjectionCarriesSelectedResearch(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		response, err := r.read(ctx, NewBase("continuation-research-drift-2", r.Tool, r.Operation), raw, "C19.Continuity")
+		response, err := r.read(ctx, agentcontract.NewBase("continuation-research-drift-2", r.Tool, r.Operation), raw, "C19.Continuity")
 		if err != nil {
 			t.Fatal(err)
 		}
 		assertBoundedRead(t, response)
-		if response.Outcome == OutcomeOK || response.Error == nil || response.Error.Kind != "invalid_cursor" {
+		if response.Outcome == agentcontract.OutcomeOK || response.Error == nil || response.Error.Kind != "invalid_cursor" {
 			t.Fatalf("changed required-research state must refuse the signed continuation: %+v", response.Error)
 		}
 		var probe map[string]json.RawMessage

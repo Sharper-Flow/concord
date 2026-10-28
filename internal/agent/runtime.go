@@ -1409,17 +1409,18 @@ func (r runtime) unwrapCursor(ctx context.Context, token, binding, detail string
 		return "", nil
 	}
 	expected := SignedCursor{Tool: r.Tool, Operation: r.Operation, Scope: r.Envelope.SelectedProductID + "|" + r.Envelope.AmbientProjectID, Filter: binding, Detail: detail, Order: "default"}
-	if r.Tool == "concord_work_trace" && r.Operation == "mutation_result" {
+	switch {
+	case r.Tool == "concord_work_trace" && r.Operation == "mutation_result":
 		// The retained document is immutable. Unrelated writes must not
 		// invalidate its continuation; the filter binds its exact identity.
 		expected.Source = binding
-	} else if r.Tool != "concord_knowledge" {
+	case r.Tool != "concord_knowledge":
 		watermark, err := r.Store.Revision(ctx)
 		if err != nil {
 			return "", err
 		}
 		expected.Source = strconv.FormatInt(watermark, 10)
-	} else {
+	default:
 		var watermark string
 		projectID := r.Envelope.AmbientProjectID
 		locatorID := ""

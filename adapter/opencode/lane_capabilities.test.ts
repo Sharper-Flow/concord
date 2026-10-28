@@ -13,7 +13,8 @@ import { HostControlPlane } from "./move-session"
 test("running-host qualification uses the bound health route and fails closed", async () => {
   const host = new HostControlPlane()
   expect(await host.runningVersion()).toBeNull()
-  for (const data of [null, [], "1.18.35", {}, { version: "" }, { version: 11835 }, { version: "1.18.35" }]) {
+  const cases: Array<[unknown, string | null]> = [[null, null], [[], null], ["1.18.35", null], [{}, null], [{ version: "" }, null], [{ version: 11835 }, null], [{ version: "1.18.35" }, "1.18.35"]]
+  for (const [data, expected] of cases) {
     host.bind({
       get: async request => {
         expect(request.url).toBe("/global/health")
@@ -22,7 +23,7 @@ test("running-host qualification uses the bound health route and fails closed", 
       },
       post: async () => { throw new Error("health must not write") },
     })
-    expect(await host.runningVersion()).toBe(data !== null && !Array.isArray(data) && typeof data === "object" && data.version === "1.18.35" ? "1.18.35" : null)
+    expect(await host.runningVersion()).toBe(expected)
   }
   for (const unreachable of [false, true]) {
     host.bind({ get: async () => {
@@ -69,7 +70,7 @@ async function fixture(laneID = "verify", subject?: string, subjectRunner?: Disp
       return id === "parent" ? state.nestedParent : id !== "root"
     },
   } })
-  const before = (tool: string, args: Record<string, unknown> = {}, sessionID = "child") => guard.before({ tool, sessionID }, { args })
+  const before = (tool: string, args: Record<string, unknown> = {}, sessionID = "child", callID = "call-native") => guard.before({ tool, sessionID, callID }, { args })
   const isNativeChild = (sessionID: string) => guard.isNativeChildOf(sessionID, "parent")
   return { state, windows, guard, before, isNativeChild, placement }
 }
@@ -130,6 +131,37 @@ test("Code Mode refuses unknown and unqualified running hosts without blocking d
     await expect(f.before("execute", { code: "return 1" })).rejects.toThrow("qualified running host")
     await f.before("read")
     await f.before("lgrep_search_text", { path: process.cwd() })
+  }
+})
+
+test("nested MCP names cannot impersonate plugin or native tools", async () => {
+  for (const lane of agentLanes) {
+    const f = await fixture(lane.id)
+    await f.before("execute", {}, "child", "outer")
+    for (const tool of ["concord_worker_read", "concord_worker_check", "concord_worker_diff", "concord_knowledge", "apply_patch", "morph_edit", "execute"]) {
+      await expect(f.before(tool, {}, "child", "outer/1")).rejects.toThrow("does not grant MCP tool")
+    }
+    await f.before("lgrep_search_text", { path: process.cwd() }, "child", "outer/2")
+    await expect(f.before("lgrep_search_text", { path: "/tmp" }, "child", "outer/3")).rejects.toThrow("dispatched repository")
+    await f.before("concord_worker_read", {}, "child", "a/b/1")
+    expect(f.guard.isNestedMcp({ sessionID: "other", callID: "outer/1" })).toBe(false)
+    f.guard.after({ tool: "execute", sessionID: "child", callID: "outer" })
+    expect(f.guard.isNestedMcp({ sessionID: "child", callID: "outer/1" })).toBe(false)
+    await f.before("concord_worker_read", {}, "child", "outer/1")
+  }
+})
+
+test("only admitted native executions register nested identities, and terminal events clear them", async () => {
+  const unknown = await fixture()
+  unknown.state.hostVersion = null
+  await expect(unknown.before("execute", {}, "child", "unqualified")).rejects.toThrow("qualified running host")
+  expect(unknown.guard.isNestedMcp({ sessionID: "child", callID: "unqualified/1" })).toBe(false)
+  for (const type of ["session.idle", "session.error", "session.deleted"]) {
+    const f = await fixture()
+    await expect(f.guard.before({ tool: "execute", sessionID: "child" }, { args: {} })).rejects.toThrow("native host call identity")
+    await f.before("execute", {}, "child", "outer")
+    f.guard.event({ type, properties: type === "session.deleted" ? { info: { id: "child" } } : { sessionID: "child" } })
+    expect(f.guard.isNestedMcp({ sessionID: "child", callID: "outer/1" })).toBe(false)
   }
 })
 

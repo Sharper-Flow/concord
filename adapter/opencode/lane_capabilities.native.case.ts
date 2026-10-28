@@ -22,7 +22,7 @@ const plugin = join(scratch, "fixture-plugin.ts")
 mkdirSync(directory)
 mkdirSync(join(configDirectory, "agents"), { recursive: true })
 writeFileSync(log, "")
-for (const lane of ["verify", "research"]) {
+for (const lane of ["verify", "research", "implement"]) {
   writeFileSync(join(configDirectory, "agents", `concord-${lane}.md`), readFileSync(new URL(`../../.opencode/agents/concord-${lane}.md`, import.meta.url)))
 }
 const adapterURL = (name: string) => new URL(name, import.meta.url).href
@@ -60,7 +60,7 @@ export default async input => {
 `)
 
 const transports: Array<{ server: string; tool: string; args: unknown }> = []
-const definitions: Record<string, string[]> = { lgrep: ["search_text", "invalidate_cache"], exa: ["web_search_exa"], context7: ["query-docs"], linear: ["update_issue"], vision: ["vision_remove"] }
+const definitions: Record<string, string[]> = { lgrep: ["search_text", "invalidate_cache"], exa: ["web_search_exa"], context7: ["query-docs"], linear: ["update_issue"], vision: ["vision_remove"], concord: ["worker_read"], apply: ["patch"] }
 const mcp = Bun.serve({ hostname: loopback, port: 0, async fetch(request) {
   if (request.method !== "POST") return new Response(null, { status: 405 })
   const server = new URL(request.url).pathname.slice(1)
@@ -85,7 +85,9 @@ const calls = [
   ["linear", () => tools.linear.update_issue({})],
   ["vision", () => tools.vision.vision_remove({})],
   ["exa", () => tools.exa.web_search_exa({})],
-  ["context7", () => tools.context7["query-docs"]({})]
+  ["context7", () => tools.context7["query-docs"]({})],
+  ["plugin_collision", () => tools.concord.worker_read({})],
+  ["native_collision", () => tools.apply.patch({})]
 ];
 for (const [key, call] of calls) { try { result[key] = await call(); } catch (error) { result[key] = { refused: true }; } }
 return result;
@@ -106,6 +108,9 @@ const provider = Bun.serve({ hostname: loopback, port: 0, async fetch(request) {
   } else if (!child && !text.includes("attempt-native-research")) {
     delta = { tool_calls: [{ index: 0, id: `call_${++sequence}`, type: "function", function: { name: "task", arguments: JSON.stringify({ subagent_type: "concord-research", prompt: "attempt-native-research", description: "Native public-source witness" }) } }] }
     finish = "tool_calls"
+  } else if (!child && !text.includes("attempt-native-implement")) {
+    delta = { tool_calls: [{ index: 0, id: `call_${++sequence}`, type: "function", function: { name: "task", arguments: JSON.stringify({ subagent_type: "concord-implement", prompt: "attempt-native-implement", description: "Native editor collision witness" }) } }] }
+    finish = "tool_calls"
   }
   const chunk = (delta: object, finish_reason: string | null) => `data: ${JSON.stringify({ id: "chatcmpl-native-capabilities", object: "chat.completion.chunk", created: 1, model: "test-model", choices: [{ index: 0, delta, finish_reason }] })}\n\n`
   return new Response(chunk(delta, null) + chunk({}, finish) + "data: [DONE]\n\n", { headers: { "content-type": "text/event-stream" } })
@@ -117,7 +122,7 @@ const config = {
   mcp: Object.fromEntries(Object.keys(definitions).map(server => [server, { type: "remote", url: `${mcp.url}${server}` }])),
   model: "test/test-model", small_model: "test/test-model", enabled_providers: ["test"],
   plugin: [pathToFileURL(plugin).href], share: "disabled", snapshot: false, permission: "allow",
-  default_agent: "native-parent", agent: { "native-parent": { mode: "primary", model: "test/test-model" }, "concord-verify": { model: "test/test-model" }, "concord-research": { model: "test/test-model" }, title: { disable: true } },
+  default_agent: "native-parent", agent: { "native-parent": { mode: "primary", model: "test/test-model" }, "concord-verify": { model: "test/test-model" }, "concord-research": { model: "test/test-model" }, "concord-implement": { model: "test/test-model" }, title: { disable: true } },
 }
 const env: NodeJS.ProcessEnv = { ...process.env, HOME: home, OPENCODE_TEST_HOME: home, XDG_CONFIG_HOME: join(home, "config"), XDG_DATA_HOME: join(home, "data"), XDG_STATE_HOME: join(home, "state"), XDG_CACHE_HOME: join(home, "cache"), OPENCODE_CONFIG_CONTENT: JSON.stringify(config), OPENCODE_DISABLE_PROJECT_CONFIG: "1", OPENCODE_PURE: "0", OPENCODE_DISABLE_DEFAULT_PLUGINS: "1", OPENCODE_DISABLE_AUTOUPDATE: "1", OPENCODE_DISABLE_AUTOCOMPACT: "1", OPENCODE_DISABLE_MODELS_FETCH: "1", OPENCODE_EXPERIMENTAL_CODE_MODE: "true", OPENCODE_AUTH_CONTENT: "{}", OPENCODE_SERVER_PASSWORD: "" }
 for (const key of Object.keys(env)) if (key.startsWith("CONCORD_") || ["OPENCODE_CONFIG", "OPENCODE_CONFIG_DIR"].includes(key)) delete env[key]
@@ -152,32 +157,36 @@ try {
     }
     assert.equal(((await call("/global/health")) as { version: string }).version, version)
     const completed = new Promise<void>(resolve => {
-      observer = watch(log, () => { if (records().filter(record => record.kind === "after" && record.tool === "task").length === 2) resolve() })
+      observer = watch(log, () => { if (records().filter(record => record.kind === "after" && record.tool === "task").length === 3) resolve() })
     })
     const parent = await call("/session", { title: "Native capability fixture" }) as { id: string }
-    await call(`/session/${parent.id}/prompt_async`, { agent: "native-parent", model: { providerID: "test", modelID: "test-model" }, parts: [{ type: "text", text: "Run both native capability witnesses." }] })
+    await call(`/session/${parent.id}/prompt_async`, { agent: "native-parent", model: { providerID: "test", modelID: "test-model" }, parts: [{ type: "text", text: "Run the native capability witnesses." }] })
     await completed
     const observed = records()
     const executions = observed.filter(record => record.kind === "after" && record.tool === "execute")
-    assert.equal(executions.length, 2)
-    for (const execution of executions) {
+    assert.equal(executions.length, 3)
+    for (const [index, execution] of executions.entries()) {
       const session = await call(`/session/${execution.sessionID}`) as { id: string; parentID: string }
       assert.equal(session.parentID, parent.id)
       const nested = observed.filter(record => record.kind === "before" && record.sessionID === session.id && record.callID.startsWith(execution.callID + "/"))
-      assert.equal(nested.length, 7)
-      assert.deepEqual(nested.map(record => record.tool), ["lgrep_search_text", "lgrep_search_text", "lgrep_invalidate_cache", "linear_update_issue", "vision_vision_remove", "exa_web_search_exa", "context7_query-docs"])
       const result = JSON.parse(execution.output.output)
+      assert.deepEqual(result.plugin_collision, { refused: true })
+      const expectedTools = ["lgrep_search_text", "lgrep_search_text", "lgrep_invalidate_cache", "linear_update_issue", "vision_vision_remove", "exa_web_search_exa", "context7_query-docs", "concord_worker_read"]
+      if (index === 2) expectedTools.push("apply_patch")
+      assert.deepEqual(nested.map(record => record.tool), expectedTools)
       assert.equal(result.repository, "native transport reached")
       const refusals = observed.filter(record => record.kind === "refused" && record.sessionID === session.id)
       assert.match(refusals.find(record => record.callID.endsWith("/2")).message, /dispatched repository/)
       for (const key of ["foreign", "cache_mutation", "linear", "vision"]) assert.deepEqual(result[key], { refused: true })
       for (const suffix of ["/3", "/4", "/5"]) assert.match(refusals.find(record => record.callID.endsWith(suffix)).message, /does not grant/)
+      assert.deepEqual(result.native_collision, { refused: true })
+      for (const suffix of index === 2 ? ["/8", "/9"] : ["/8"]) assert.match(refusals.find(record => record.callID.endsWith(suffix)).message, /does not grant MCP tool/)
     }
-    assert.deepEqual(transports.map(call => [call.server, call.tool]), [["lgrep", "search_text"], ["lgrep", "search_text"], ["exa", "web_search_exa"], ["context7", "query-docs"]])
+    assert.deepEqual(transports.map(call => [call.server, call.tool]), [["lgrep", "search_text"], ["lgrep", "search_text"], ["exa", "web_search_exa"], ["context7", "query-docs"], ["lgrep", "search_text"]])
     assert.deepEqual(JSON.parse(executions[0].output.output).exa, { refused: true })
     assert.deepEqual(JSON.parse(executions[0].output.output).context7, { refused: true })
     assert.equal(JSON.parse(executions[1].output.output).exa, "native transport reached")
-    console.log(JSON.stringify({ outcome: "pass", host_version: version, native_children: executions.map(record => record.sessionID), nested_hooks: 14, allowed_transports: transports.length, refused_before_transport: 10 }))
+    console.log(JSON.stringify({ outcome: "pass", host_version: version, native_children: executions.map(record => record.sessionID), nested_hooks: 25, allowed_transports: transports.length, refused_before_transport: 22 }))
   })(), expired])
   server.kill()
   await server.exited

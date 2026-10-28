@@ -162,6 +162,13 @@ class EngineeringMethodProjectionTests(unittest.TestCase):
 
 
 class CapabilityToolProjectionTests(unittest.TestCase):
+    def test_nested_mcp_ids_exclude_native_and_plugin_tools(self):
+        nested = set(generator.lane_mcp_tool_ids())
+        self.assertTrue({"lgrep_search_text", "exa_web_search_exa", "context7_query-docs"} <= nested)
+        self.assertTrue(nested <= set(generator.lane_tool_requirements()))
+        self.assertFalse(nested & set(generator.concord_tool_ids()))
+        self.assertFalse(nested & {"apply_patch", "morph_edit", "bash", "execute", "skill", "todowrite"})
+
     def test_code_mode_follows_mcp_capabilities_without_overriding_host_denials(self):
         manifest, _ = generator.load_manifest()
         for lane in manifest["lanes"]:

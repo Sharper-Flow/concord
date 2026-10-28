@@ -79,6 +79,11 @@ func TestOwnerOracleResolutionAuthority(t *testing.T) {
 	if err := validate([]string{result.OperationRef}, []WorkerOracleReceipt{receipt}); err != nil {
 		t.Errorf("matched current control closure refused: %v", err)
 	}
+	if err := validate([]string{"git:" + receipt.SubjectCommit}, []WorkerOracleReceipt{receipt}); !hasFailureKind(err, KindMissingEvidence) {
+		t.Errorf("commit locator supplied control proof: %v", err)
+	} else if failure, ok := err.(*Failure); !ok || !strings.Contains(failure.RecoveryAction, "operation_ref") || !strings.Contains(failure.RecoveryAction, "worker_reconcile") || !strings.Contains(failure.RecoveryAction, "no supported close") {
+		t.Errorf("closure refusal omits evidence or recovery requirements: %v", err)
+	}
 	failReq := verifyRequest(git, "oracle-later-fail", result.Command, func(context.Context, string, []string, int) (int, []byte, bool, error) { return 1, nil, false, nil })
 	failReq.ProjectID = "project"
 	failed, err := s.VerifyWorktree(ctx, failReq)
@@ -1203,7 +1208,7 @@ func TestOwnerOracleRepairFamily(t *testing.T) {
 			Findings:         []WorkerReviewFinding{},
 			ResolvedFindings: []WorkerOracleResolution{{FindingID: open[0], EvidenceRefs: []string{bPass1.OperationRef}}},
 		}
-	})}}); err == nil || !strings.Contains(err.Error(), "neither durably bound evidence nor a current-subject pass receipt") {
+	})}}); err == nil || !strings.Contains(err.Error(), "does not qualify as a current-subject pass receipt") {
 		t.Fatalf("prior-subject closure error = %v", err)
 	}
 	// The path-b control requires the independently-executed role, so even
@@ -1219,7 +1224,7 @@ func TestOwnerOracleRepairFamily(t *testing.T) {
 			Findings:         []WorkerReviewFinding{},
 			ResolvedFindings: []WorkerOracleResolution{{FindingID: open[0], EvidenceRefs: []string{bPass3.OperationRef}}},
 		}
-	})}}); err == nil || !strings.Contains(err.Error(), "neither durably bound evidence nor a current-subject pass receipt") {
+	})}}); err == nil || !strings.Contains(err.Error(), "does not qualify as a current-subject pass receipt") {
 		t.Fatalf("independent-role receipt closure error = %v", err)
 	}
 	// A later regression of the fixed first path reopens the owner with a

@@ -1,6 +1,6 @@
 {
   "schema_version": "1.1",
-  "catalog_generation": 7,
+  "catalog_generation": 9,
   "source": {
     "path": ".concord/docs/goals.md",
     "sha256": "sha256:f21896943972e1771e823b84c6aac7d29d8418f7b9b9cfcda1cebdbe8fc69d5f"
@@ -29,8 +29,30 @@
         "agent",
         "operator"
       ],
-      "state": "outstanding",
-      "issue": "CON-1100"
+      "state": "satisfied",
+      "mechanism": "programmed_check",
+      "evidence": [
+        {
+          "kind": "go_test",
+          "value": "internal/store.TestLawChangeAgentOwnedReasonAndTier"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/store.TestLawChangePreNamingUsesOwningStart"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/store.TestLawChangeGenericRegistryEditCannotComplete"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/agent.TestWorkflowUnclassifiedLawChangeAdmission"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/agent.TestWorkflowClassifiedLawChangeApproval"
+        }
+      ]
     },
     {
       "id": "S",
@@ -150,8 +172,34 @@
       "actors": [
         "agent"
       ],
-      "state": "outstanding",
-      "issue": "CON-1100"
+      "state": "satisfied",
+      "mechanism": "programmed_check",
+      "evidence": [
+        {
+          "kind": "go_test",
+          "value": "internal/store.TestSixClassApprovalPolicy"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/store.TestLawChangeSixClassesPinExactText"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/store.TestLawChangeTextPinsBindTheChange"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/store.TestLawChangeApprovalRequiresConsumedIdentity"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/store.TestLawChangeRetiredInputsRefuseCurrentContracts"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/agent.TestWorkflowClassifiedLawChangeApproval"
+        }
+      ]
     }
   ],
   "a1": [
@@ -321,8 +369,30 @@
         "agent",
         "operator"
       ],
-      "state": "outstanding",
-      "issue": "CON-1100"
+      "state": "satisfied",
+      "mechanism": "programmed_check",
+      "evidence": [
+        {
+          "kind": "go_test",
+          "value": "internal/store.TestLawChangeAgentOwnedReasonAndTier"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/store.TestLawChangeCurrentScopeAndLiveTampering"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/store.TestLawChangeUnnamedNewAndRemovedLawsRefuse"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/store.TestLawChangePreNamingUsesOwningStart"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/agent.TestWorkflowClassifiedLawChangeApproval"
+        }
+      ]
     },
     {
       "row": 4,

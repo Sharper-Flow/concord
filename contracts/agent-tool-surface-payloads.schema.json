@@ -5517,12 +5517,7 @@
                     "minimum": 1
                   },
                   "size": {
-                    "type": "string",
-                    "enum": [
-                      "small",
-                      "medium",
-                      "larger"
-                    ]
+                    "$ref": "#/$defs/work_size_class"
                   },
                   "outcome": {
                     "type": "string",

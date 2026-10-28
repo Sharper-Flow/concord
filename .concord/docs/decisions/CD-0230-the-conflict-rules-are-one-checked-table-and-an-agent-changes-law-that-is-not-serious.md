@@ -159,6 +159,22 @@ check D5's declared approval-point inventory, not six-class consent behavior.
 `python3 scripts/check-conflict-rules.py` reports both rule and approval-point
 gaps. Passing that validator does not satisfy an outstanding entry.
 
+R3, P12 and A2 row 3 reuse the managed-workflow law-change checks.
+`internal/store.TestLawChangeAgentOwnedReasonAndTier` proves a reason and
+derived-tier enactment without treating seriousness, size or Domain count as
+consent triggers. `internal/store.TestLawChangeSixClassesPinExactText` and
+`internal/store.TestLawChangeApprovalRequiresConsumedIdentity` check six-class
+consent, exact enacted text and consumed operator identity.
+`internal/agent.TestWorkflowClassifiedLawChangeApproval` exercises signed
+exact-text approval through public dispatch, including tampering refusal;
+`internal/agent.TestWorkflowUnclassifiedLawChangeAdmission` checks admission
+without approval for an unclassified change. These controls do not infer the
+consequence class or judge a reason's substance; review owns those judgments.
+They do not detect code that contradicts current law without a law edit;
+review and goal A's spot checks own that detection.
+They do not establish D4 enforcement on the ad-hoc development route or
+whole-record runtime alignment under CD-0243 D6.
+
 D3's live recorder retains readable current settlement evidence.
 `internal/agent.TestConflictObservationHistoryRoundTrip` records then reads
 the full rule, effective size and outcome through the existing history read,
@@ -182,7 +198,7 @@ pointer, not the remaining enforcement and proof assigned below:
 | P1, P2, P3; D3's letter-versus-intent conflict | [CON-1097](https://linear.app/sharper-flow/issue/CON-1097). Knowledge-index, document-contract and law-coverage validators check declared homes and evidence anchors; they do not establish semantic ownership, law-before-code retirement, or every changed law's cheapest adequate enforcement. |
 | R2, P4, P6, A2 rows 2 and 4 | [CON-1098](https://linear.app/sharper-flow/issue/CON-1098). `internal/agent.TestResolveOverlapDependsOnRecordsDirectedSequencingWithoutConsent` proves directed work-item sequencing, not holding only the shared-Domain step. Shared stages do not by themselves prove boundary-change or shared-part-variant handling. |
 | P7, P9, P11 | [CON-1099](https://linear.app/sharper-flow/issue/CON-1099). Shared parts alone do not prove second-occurrence handling, in-place part repair, or the rule's follow-up outcome. |
-| R3, S, U, P5, P8, P10, P12; A2 rows 3, 7 and 9; D4 and D5 | [CON-1100](https://linear.app/sharper-flow/issue/CON-1100). CD-0243 D2–D6 owns the six-class boundary and runtime alignment. The inventory's classifications and consent gates are not proof of that alignment. [CON-1343](https://linear.app/sharper-flow/issue/CON-1343) owns the final-candidate preview enforcement required by U and CD-0242 D9. |
+| S, U, P5, P8, P10; A2 rows 7 and 9; D4 and D5 | [CON-1100](https://linear.app/sharper-flow/issue/CON-1100). CD-0243 D2–D6 owns the six-class boundary and runtime alignment. The inventory's classifications and consent gates are not proof of that alignment. [CON-1343](https://linear.app/sharper-flow/issue/CON-1343) owns the final-candidate preview enforcement required by U and CD-0242 D9. |
 | R1, A2 rows 1, 5 and 6; D6 | [CON-1101](https://linear.app/sharper-flow/issue/CON-1101). Naming follow-up labels in the table does not enforce labels, raising-change links, the Linear view, or closure tracking. CD-0242 D5 and D9 own repairing review and final-candidate proof, not old size-specific review counts. |
 | A2 row 8 | [CON-1344](https://linear.app/sharper-flow/issue/CON-1344). Same-item resizing does not prove adding required stages while retaining completed work. CD-0229's Verification also retains the separate small-work proof and timing owners. |
 

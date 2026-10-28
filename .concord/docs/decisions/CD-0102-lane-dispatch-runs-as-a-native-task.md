@@ -272,8 +272,8 @@ authorization has nothing to bind.
 ## Verification
 
 - `internal/store.TestDispatchFoldOpensAFencedWindowAgainstTheStepEpoch` proves
-  that one `dispatch_worker` action opens D1's fenced authorization window
-  against the next step epoch, and
+  that one `dispatch_worker` action opens D1's fenced authorization window and
+  records a positive attempt epoch on the current execution-step start, and
   `internal/store.TestWorkerDispatchRejectsReuseOfAConsumedWindow` proves the
   window is single-use: after the authorized attempt consumes it, a second
   worker dispatch is refused.
@@ -309,7 +309,7 @@ authorization has nothing to bind.
 - `adapter/opencode/lane_completion.test.ts` checks native failure-part identity
   and leaves an absent after-hook result for the terminal event to settle.
 - `adapter/opencode/worker-report-selector.test.ts` proves D5's report
-  resolution: the shared report-protocol selector admits the designated
+  resolution: the shared report-protocol selector selects the designated
   `concord-worker-result-v1` frame of the worker output as the lane report, and
   `adapter/opencode/dispatch.test.ts` proves the missing-report failure: a
   worker result that carries no report is worker-fail with `invalid_report`,

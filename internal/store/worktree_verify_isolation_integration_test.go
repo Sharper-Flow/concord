@@ -3,6 +3,7 @@ package store
 import (
 	"bytes"
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -132,6 +133,24 @@ func TestNativeIsolationExportAssembly(t *testing.T) {
 				t.Fatal("unsafe mount admitted")
 			}
 		})
+	}
+	// Producer scratch normally lies beneath /tmp. Its parents must be created
+	// in a fresh tmpfs, never inside a writable slot an earlier stage changed.
+	nested, err := nativeIsolationAssemble(root, snapshot, snapshot, argv, append(slices.Clone(mounts), nativeIsolationMount{Source: runtime, Target: "/tmp/scratch/node"}), e)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tmpfs, dir := slices.Index(nested.Argv, "--tmpfs"), slices.Index(nested.Argv, "/tmp/scratch")
+	if tmpfs < 0 || nested.Argv[tmpfs+1] != "/tmp" || dir < tmpfs {
+		t.Fatalf("scratch parents are not created in a fresh private /tmp: %q", nested.Argv)
+	}
+	for i := 0; i+2 < len(nested.Argv)-len(argv); i++ {
+		if (nested.Argv[i] == "--bind" || nested.Argv[i] == "--ro-bind") && nested.Argv[i+2] == "/tmp" {
+			t.Fatalf("writable scratch slot mounted as default /tmp: %q", nested.Argv)
+		}
+	}
+	if _, err := nativeIsolationAssemble(root, snapshot, snapshot, argv, append(slices.Clone(mounts), nativeIsolationMount{Source: tmp, Target: "/tmp"}), e); err == nil {
+		t.Fatal("mount over the private /tmp admitted")
 	}
 	link := filepath.Join(root, "redirect")
 	if err := os.Symlink(home, link); err != nil {
@@ -288,6 +307,35 @@ func TestNativeIsolationCleanupProofIsNotOutputCompleteness(t *testing.T) {
 	}
 }
 
+// The private role reports a cancelled stage with a reason and exits 125.
+// Its bound established-and-reaped result still proves teardown: scratch is
+// released and the outcome stays an error, never a qualified result.
+func TestNativeIsolationCancelledTeardownProof(t *testing.T) {
+	cancelled := nativeSupervisorResult{Fingerprint: nativeDigest([]byte("export")), Exit: -1, Established: true, Reaped: true, Detail: "caller cancellation or lifetime loss"}
+	controller := errors.New("exit status 125")
+	capture := &nativeStreamCapture{complete: true}
+	if _, err := nativeIsolationStageOutcome(capture, cancelled, controller, nil, nil, nil, context.Canceled); err == nil {
+		t.Fatal("cancelled stage qualified")
+	}
+	if !capture.isolationEstablished || !capture.isolationReaped || !capture.complete {
+		t.Fatalf("cancelled stage lost its teardown proof or drained output: %+v", capture)
+	}
+	for name, tc := range map[string]struct {
+		result               nativeSupervisorResult
+		planErr, protocolErr error
+	}{
+		"protocol":      {cancelled, nil, errors.New("incomplete or excessive supervisor result")},
+		"plan":          {cancelled, errors.New("broken pipe"), nil},
+		"before gate":   {nativeSupervisorResult{Exit: -1, Reaped: true, Detail: "caller lifetime ended before gate release"}, nil, nil},
+		"lost teardown": {nativeSupervisorResult{Exit: -1, Established: true, Detail: "caller cancellation or lifetime loss"}, nil, nil},
+	} {
+		capture := &nativeStreamCapture{complete: true}
+		if _, err := nativeIsolationStageOutcome(capture, tc.result, controller, tc.planErr, tc.protocolErr, nil, context.Canceled); err == nil || capture.isolationReaped || capture.isolationEstablished {
+			t.Fatalf("%s: unproved teardown released scratch: %v %+v", name, err, capture)
+		}
+	}
+}
+
 func TestNativeIsolationExportIdentityFiles(t *testing.T) {
 	t.Setenv("LANG", "C")
 	t.Setenv("LC_ALL", "C")
@@ -387,7 +435,7 @@ func TestNativeIsolationVerifiedArtifactExports(t *testing.T) {
 	m.Isolation = nativeIsolationLoopback
 	raw := map[string][]byte{}
 	for _, name := range []string{m.Pin.DepManifest, m.Pin.DepLock} {
-		data, err := os.ReadFile(filepath.Join("testdata", "native-vitest", name))
+		data, err := os.ReadFile(filepath.Join("..", "..", "testdata", "native-vitest", name))
 		if err != nil {
 			t.Fatal(err)
 		}

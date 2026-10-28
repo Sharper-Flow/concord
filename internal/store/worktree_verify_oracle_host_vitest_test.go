@@ -290,7 +290,7 @@ func TestNativeTargetVitestFixture(t *testing.T) {
 	if requiredIsolation {
 		m.Isolation = nativeIsolationLoopback
 	}
-	fixture := os.DirFS("testdata/native-vitest")
+	fixture := os.DirFS("../../testdata/native-vitest")
 	manifest, err := fs.ReadFile(fixture, "package.json")
 	if err != nil {
 		t.Fatal(err)
@@ -471,7 +471,7 @@ func nativeTargetVitestAPI(t *testing.T, modules string, requiredIsolation bool)
 			if err := nativeScratchDirectories(root); err != nil {
 				t.Fatal(err)
 			}
-			fixture := os.DirFS("testdata/native-vitest")
+			fixture := os.DirFS("../../testdata/native-vitest")
 			if err := fs.WalkDir(fixture, ".", func(name string, d fs.DirEntry, err error) error {
 				if err != nil {
 					return err

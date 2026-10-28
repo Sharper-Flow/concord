@@ -30,7 +30,7 @@ async function main() {
   const cache = process.env.OC_NATIVE_NPM_CACHE;
   if (!cache || !cache.startsWith("/")) throw new Error("OC_NATIVE_NPM_CACHE must be an absolute private cache path");
   // One public fixture, one manifest/lock lookup. Never inspect consumer paths.
-  const fixture = resolve(import.meta.dir, "../internal/store/testdata/native-vitest");
+  const fixture = resolve(import.meta.dir, "../testdata/native-vitest");
   const manifest = JSON.parse(await readFile(join(fixture, "package.json"), "utf8"));
   const lock = (await import(pathToFileURL(join(fixture, "bun.lock")).href)).default;
   if (JSON.stringify(Object.entries(manifest.devDependencies ?? {}).sort()) !==

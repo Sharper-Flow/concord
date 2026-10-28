@@ -30,7 +30,7 @@ test("refuses malformed or non-registry closure before npm execution", () => {
 });
 
 test("the generated public fixture lock parses with Bun's actual JSONC loader", async () => {
-  const lock = (await import(pathToFileURL(resolve(import.meta.dir, "../internal/store/testdata/native-vitest/bun.lock")).href)).default;
+  const lock = (await import(pathToFileURL(resolve(import.meta.dir, "../testdata/native-vitest/bun.lock")).href)).default;
   const specs = archiveSpecs(lock);
   expect(specs).toContain("vitest@4.1.11");
   expect(specs).toContain("vite@8.2.2");
@@ -58,7 +58,7 @@ printf '%s\\0' "$@" >> "$cache/calls"
     expect(result.stderr.toString()).toBe("");
     expect(result.exitCode).toBe(0);
     const args = (await readFile(resolve(cache, "calls"), "utf8")).split("\0").slice(0, -1);
-    const lock = (await import(pathToFileURL(resolve(import.meta.dir, "../internal/store/testdata/native-vitest/bun.lock")).href)).default;
+    const lock = (await import(pathToFileURL(resolve(import.meta.dir, "../testdata/native-vitest/bun.lock")).href)).default;
     const specs = archiveSpecs(lock);
     expect(args.length).toBe(specs.length * 9);
     for (let i = 0; i < specs.length; i++) {

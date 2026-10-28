@@ -320,7 +320,7 @@ func TestNativeBunVersionTwoFixtureArchives(t *testing.T) {
 	}
 	inputs := map[string][]byte{}
 	for _, name := range []string{"package.json", "bun.lock"} {
-		raw, err := os.ReadFile(filepath.Join("testdata", "native-vitest", name))
+		raw, err := os.ReadFile(filepath.Join("..", "..", "testdata", "native-vitest", name))
 		if err != nil {
 			t.Fatal(err)
 		}

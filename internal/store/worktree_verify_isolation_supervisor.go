@@ -392,22 +392,29 @@ func runNativeIsolatedStage(ctx context.Context, dir string, argv, env []string,
 	_ = resultR.SetReadDeadline(time.Now().Add(worktreeVerifyFinalizeTimeout))
 	reply := <-resultDone
 	cut := drainNativeStreams(copied, readers)
-	result := reply.result
-	if waitErr != nil || planErr != nil || reply.err != nil || !result.Established || !result.Reaped || result.Detail != "" || result.Exit < 0 || result.Exit > 255 {
-		capture.complete = false
-		return -1, nativeIsolationUnavailable(fmt.Sprintf("supervisor setup/lifetime/teardown proof failed: %s (controller: %v; protocol: %v)", result.Detail, waitErr, reply.err))
-	}
+	return nativeIsolationStageOutcome(capture, reply.result, waitErr, planErr, reply.err, cut, runCtx.Err())
+}
+
+// Output overflow, timeout and caller cancellation remain unavailable
+// evidence. The private role reports them with a reason and exit 125, yet its
+// bound established-and-reaped result still proves teardown. The scratch
+// owner distinguishes that from a controller whose cleanup is still pending.
+func nativeIsolationStageOutcome(capture *nativeStreamCapture, result nativeSupervisorResult, waitErr, planErr, protocolErr, cut, cancelled error) (int, error) {
 	if cut != nil {
 		capture.complete = false
+	}
+	if cancelled != nil && planErr == nil && protocolErr == nil && result.Established && result.Reaped {
+		capture.isolationEstablished, capture.isolationReaped = true, true
+		return -1, cancelled
+	}
+	if waitErr != nil || planErr != nil || protocolErr != nil || !result.Established || !result.Reaped || result.Detail != "" || result.Exit < 0 || result.Exit > 255 {
+		capture.complete = false
+		return -1, nativeIsolationUnavailable(fmt.Sprintf("supervisor setup/lifetime/teardown proof failed: %s (controller: %v; protocol: %v)", result.Detail, waitErr, protocolErr))
+	}
+	if cut != nil {
 		return -1, nativeIsolationUnavailable(cut.Error())
 	}
-	// Output overflow and caller cancellation remain unavailable evidence,
-	// but must not erase independently observed teardown. The scratch owner
-	// distinguishes them from a controller whose cleanup is still pending.
 	nativeIsolationRecordProof(capture, result)
-	if runCtx.Err() != nil {
-		return -1, runCtx.Err()
-	}
 	return result.Exit, nil
 }
 

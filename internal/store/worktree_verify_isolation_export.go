@@ -149,11 +149,14 @@ func nativeIsolationAssemble(root, snapshot, cwd string, workload []string, moun
 	args := []string{"--unshare-user", "--unshare-pid", "--unshare-net", "--unshare-ipc", "--unshare-uts", "--disable-userns", "--assert-userns-disabled", "--new-session", "--cap-drop", "ALL", "--hostname", "sandbox"}
 	// The empty-root skeleton is built before any untrusted directory is
 	// mounted. No following operation may create a destination beneath one.
-	dirs := map[string]bool{"/proc": true, "/dev": true, "/tmp": true}
+	// Default /tmp is a fresh per-stage tmpfs mounted first: producer scratch
+	// usually lies beneath it, and an earlier stage's writable slot must
+	// never hold the parents of later mount destinations.
+	dirs := map[string]bool{"/proc": true, "/dev": true}
 	seen := map[string]nativeIsolationMount{}
 	var unique []nativeIsolationMount
 	for _, m := range mounts {
-		if !filepath.IsAbs(m.Source) || !filepath.IsAbs(m.Target) || filepath.Clean(m.Target) != m.Target || m.Target == "/" || slices.Contains([]string{"/usr", "/lib", "/lib64", "/opt", "/home", "/etc", "/run", "/var"}, m.Target) {
+		if !filepath.IsAbs(m.Source) || !filepath.IsAbs(m.Target) || filepath.Clean(m.Target) != m.Target || m.Target == "/" || slices.Contains([]string{"/usr", "/lib", "/lib64", "/opt", "/home", "/etc", "/run", "/var", "/tmp"}, m.Target) {
 			return nil, nativeIsolationUnavailable("export contains a broad or nonabsolute mount")
 		}
 		if nativeContained(snapshot, m.Target) && m.Target != snapshot {
@@ -191,15 +194,17 @@ func nativeIsolationAssemble(root, snapshot, cwd string, workload []string, moun
 			}
 		}
 	}
+	delete(dirs, "/tmp")
 	var ordered []string
 	for dir := range dirs {
 		ordered = append(ordered, dir)
 	}
 	slices.Sort(ordered)
+	args = append(args, "--tmpfs", "/tmp")
 	for _, dir := range ordered {
 		args = append(args, "--dir", dir)
 	}
-	args = append(args, "--proc", "/proc", "--dev", "/dev", "--bind", filepath.Join(root, "tmp"), "/tmp")
+	args = append(args, "--proc", "/proc", "--dev", "/dev")
 	var inventory []NativeOracleFile
 	for _, m := range unique {
 		flag := "--ro-bind"

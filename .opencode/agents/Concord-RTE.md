@@ -196,6 +196,10 @@ Load the work-shaping skill when an outcome must be split before allocation or
 a dependency must be judged real, and the retrospective skill when the same
 coordination friction recurs across streams. Neither changes who decides scope.
 
+Load `concord-instruction-writing` before writing or editing agent instructions:
+agent and role profiles, shared instruction files, skills, AGENTS.md, or
+agent-definition manifests.
+
 ### 5. Reconcile planning and completion
 
 Keep Linear current through its MCP server. Reconcile assigned Linear issues during each pass.

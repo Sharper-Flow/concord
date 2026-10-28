@@ -49,6 +49,7 @@ FULL_PROFILE_FILES = ("Concord-RTE.md", "Concord.md")
 PLANNER_PROFILE_FILE = "Concord-Planner.md"
 PRIMARY_BUILD_TOOLS = ("edit", "write", "patch")
 RTE_REQUIRED_PHRASES = (
+    "Load `concord-instruction-writing` before writing or editing agent instructions",
     "The RTE coordinates dependencies, not another session's technical choices or operator approvals",
     "They contact you for coordination, not permission",
     "Never answer a Concord approval challenge",
@@ -107,6 +108,8 @@ RTE_REQUIRED_PHRASES = (
     "Never make exact-wording approval an assignment condition outside that boundary",
 )
 CONCORD_REQUIRED_PHRASES = (
+    "Load `concord-law-writing` when drafting, amending or pruning Product law",
+    "Load `concord-instruction-writing` before writing or editing agent instructions",
     "You are Concord, the primary agent",
     "You do not need an RTE session",
     "The user may choose to start an RTE session",

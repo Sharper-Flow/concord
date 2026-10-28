@@ -35,6 +35,10 @@ STASH_DENIALS = tuple(
     f"    {json.dumps(pattern)}: deny"
     for pattern in ("git stash *", "git * stash *", "*/git stash *", "*/git * stash *")
 )
+TASK_SEND_DENIALS = tuple(
+    f"    {json.dumps(pattern)}: deny"
+    for pattern in ("herdr agent prompt*", "herdr agent send-keys*", "herdr pane run*", "herdr-notify*")
+)
 
 spec = importlib.util.spec_from_file_location("agent_contract_generator", ROOT / "scripts/generate-agent-contracts.py")
 if spec is None or spec.loader is None:
@@ -1069,7 +1073,7 @@ def agent_projection(lane: dict, report_schema: dict, packet_schema: dict) -> st
         concord_denies,
     ])
     edit_denies = (
-        "  bash:\n" + "\n".join(STASH_DENIALS) + "\n"
+        "  bash:\n" + "\n".join(STASH_DENIALS + TASK_SEND_DENIALS) + "\n"
         if edits_scoped_files(lane)
         else "  bash: deny\n  edit: deny\n  morph_edit: deny\n"
     )

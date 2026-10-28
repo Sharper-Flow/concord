@@ -1400,6 +1400,33 @@ class PrimaryProfileProjectionTests(unittest.TestCase):
                     self.assertIn(f"    {json.dumps(pattern)}: deny", bash)
                 self.assertNotIn(": allow", bash[bash.index('    "git stash *": deny'):])
 
+    def test_task_projections_deny_herdr_sends_without_removing_shell_reads(self):
+        commands = ("herdr agent prompt w1:p1 test", "herdr agent send-keys w1:p1 enter",
+                    "herdr pane run w1:p1 test", "herdr-notify --to w1:p1")
+        entries = [(lane["id"], lane_projection(lane), generator.edits_scoped_files(lane))
+                   for lane in self.manifest["lanes"]]
+        entries += [(utility["id"], generator.utility_projection(utility), False)
+                    for utility in self.manifest["utilities"]]
+        for name, projection, shell_reads in entries:
+            frontmatter = self.frontmatter(projection)
+            with self.subTest(agent=name):
+                self.assertIn("mode: subagent", frontmatter)
+                if "\n  bash: deny\n" in frontmatter:
+                    self.assertFalse(shell_reads)
+                    continue
+                match = re.search(r"\n  bash:\n((?:    .*\n?)*)", frontmatter)
+                rules = [(json.loads(pattern), action)
+                         for pattern, action in re.findall(r'    (".*"): (allow|deny)', match[1])]
+                for command in commands + (("herdr agent get w1:p1", "herdr pane read w1:p1") if shell_reads else ()):
+                    action = "allow"  # An inherited host allow must not reopen Task sends.
+                    for pattern, value in rules:
+                        if re.fullmatch(re.escape(pattern).replace(r"\*", ".*"), command):
+                            action = value
+                    self.assertEqual(action, "deny" if command in commands else "allow", command)
+        for profile in self.profiles["profiles"]:
+            # Primary coordination keeps its host route.
+            self.assertNotIn('"herdr-notify*": deny', self.frontmatter(self.projection(profile["id"])))
+
     def test_shared_conduct_forbids_stash_and_saves_permitted_edits_as_commits(self):
         text = " ".join(generator.CONDUCT_CHANGE.read_text(encoding="utf-8").split())
         self.assertIn("Never use `git stash`", text)

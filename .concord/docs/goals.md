@@ -185,8 +185,9 @@ Approved proposals (situation, then rule):
 - P1 Law vs Arch. A law's home domain no longer owns the behavior the law governs. The law states what must be
   true; the architecture states where it lives. Fix whichever is wrong, and move the law to the domain that
   owns the behavior. Apply R3's approval test.
-- P2 Law vs Quality. A current law requires code the agent judges bloat. Never delete what a current law
-  requires. Change or retire the law first under R3, then remove the code.
+- P2 Law vs Quality. A current law requires code the agent judges bloat. Never delete what a current law requires.
+  Change or retire the law under R3 in the change that removes the code, or in an earlier change. Never merge
+  the removal while the law still requires the code.
 - P3 Law vs Parts. A law needs enforcement that no reusable part provides. The change that adds or changes the
   law names how the law is upheld, using the cheapest adequate means: an existing check, a focused test,
   review, or clear guidance. Build a new programmed check only when none of these catches a violation that

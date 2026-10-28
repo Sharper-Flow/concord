@@ -151,6 +151,7 @@ export default async function ConcordAdapterPlugin(input?: Partial<PluginInput>,
       await publishWorkerDiffDefinition(definitionInput, output)
     },
     event: async ({ event }: { event: unknown }) => {
+      workerCapabilities.event(event)
       redeliverQueuedCiReports(event)
       continueWorkStartOnEvent(event, message => {
         if (input?.client?.app?.log) void input.client.app.log({ body: { service: "concord", level: "warn", message } }).catch(() => { console.warn(message) })
@@ -171,7 +172,7 @@ export default async function ConcordAdapterPlugin(input?: Partial<PluginInput>,
         throw new Error(TURN_MOVE_QUESTION_REFUSAL)
       }
       if (input.tool !== TASK_TOOL_ID) {
-        if (!Object.hasOwn(tools, input.tool)) await workerCapabilities.before(input, output)
+        if (workerCapabilities.isNestedMcp(input) || !Object.hasOwn(tools, input.tool)) await workerCapabilities.before(input, output)
         return
       }
       const windows = dispatchWindows()
@@ -210,6 +211,7 @@ export default async function ConcordAdapterPlugin(input?: Partial<PluginInput>,
       input: { tool: string; sessionID: string; callID: string; args: unknown },
       output: { title: string; output: string; metadata: unknown } | undefined,
     ) => {
+      workerCapabilities.after(input)
       await completeDispatchedWorker(input, output)
     },
     // The text-part channel. The work-state reporter queues operator-facing

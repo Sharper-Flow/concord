@@ -1148,32 +1148,25 @@ func scopeWithinAuthority(scope map[string]any, authority Authority) bool {
 	if product, ok := scope["product_id"].(string); ok && !slices.Contains(productScope, product) {
 		return false
 	}
-	switch products := scope["product_ids"].(type) {
+	return allScopeStrings(scope["product_ids"], func(product string) bool { return slices.Contains(productScope, product) }) &&
+		allScopeStrings(scope["project_ids"], func(project string) bool { return slices.Contains(projectScope, project) })
+}
+
+// allScopeStrings reports whether every element of a challenge scope list,
+// decoded as []any or built as []string, is a string that satisfies keep. A
+// value of any other type holds no list elements and passes.
+func allScopeStrings(value any, keep func(string) bool) bool {
+	switch ids := value.(type) {
 	case []any:
-		for _, raw := range products {
-			product, ok := raw.(string)
-			if !ok || !slices.Contains(productScope, product) {
+		for _, raw := range ids {
+			text, ok := raw.(string)
+			if !ok || !keep(text) {
 				return false
 			}
 		}
 	case []string:
-		for _, product := range products {
-			if !slices.Contains(productScope, product) {
-				return false
-			}
-		}
-	}
-	switch projects := scope["project_ids"].(type) {
-	case []any:
-		for _, raw := range projects {
-			project, ok := raw.(string)
-			if !ok || !slices.Contains(projectScope, project) {
-				return false
-			}
-		}
-	case []string:
-		for _, project := range projects {
-			if !slices.Contains(projectScope, project) {
+		for _, text := range ids {
+			if !keep(text) {
 				return false
 			}
 		}
@@ -1219,30 +1212,16 @@ func validChallengeScopeBinding(key string, value any) bool {
 }
 
 func validChallengeScopeIDs(value any, bound int) bool {
+	var count int
 	switch ids := value.(type) {
 	case []any:
-		if len(ids) > bound {
-			return false
-		}
-		for _, raw := range ids {
-			text, ok := raw.(string)
-			if !ok || !agentcontract.BoundedBytes(text, 1, 128) {
-				return false
-			}
-		}
+		count = len(ids)
 	case []string:
-		if len(ids) > bound {
-			return false
-		}
-		for _, text := range ids {
-			if !agentcontract.BoundedBytes(text, 1, 128) {
-				return false
-			}
-		}
+		count = len(ids)
 	default:
 		return false
 	}
-	return true
+	return count <= bound && allScopeStrings(value, func(text string) bool { return agentcontract.BoundedBytes(text, 1, 128) })
 }
 
 // The reconcile challenge binds the selected pull-request set as bounded

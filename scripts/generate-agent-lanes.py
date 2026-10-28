@@ -473,6 +473,7 @@ def lane_tool_requirements() -> dict[str, list[list[str]]]:
         ["edit_scoped_files", execution]
         for execution in ("run_tests", "run_targeted_checks", "run_validators")
     ]
+    requirements["execute"] = [["read_repository"], ["search_public_sources"]]
     return requirements
 
 

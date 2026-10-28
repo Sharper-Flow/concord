@@ -22,7 +22,7 @@ export type WorkerCapabilityContext = {
   lane: AgentLane
 }
 
-type Sessions = Pick<HostControlPlane, "sessionReader" | "taskScope" | "hasManagedParent">
+type Sessions = Pick<HostControlPlane, "sessionReader" | "taskScope" | "hasManagedParent" | "runningVersion">
 type Options = { sessions?: Sessions; windows?: DispatchWindows; subjectRunner?: DispatchRunner }
 
 export function isRecord(value: unknown): value is Record<string, unknown> {
@@ -50,6 +50,7 @@ export function createWorkerCapabilityGuard(options: Options = {}) {
   const unresolved = new Set<string>()
   // Only immutable host provenance is cached, never tool grants or attempt state.
   const nativeChildren = new Map<string, string>()
+  let codeModeHostQualified = false
 
   async function opening(sessionID: string, parentSessionID: string, result: RouteResult, reader: SessionReader, signal: AbortSignal): Promise<{ kind: "native" } | { kind: "lane"; agent: string; body: string }> {
     if (nativeChildren.get(sessionID) === parentSessionID) return { kind: "native" }
@@ -170,6 +171,13 @@ export function createWorkerCapabilityGuard(options: Options = {}) {
     if (!context) return
     if (!toolAllowedByCapabilities(context.lane.capabilities, input.tool)) {
       throw new WorkerCapabilityError(`lane ${context.lane.id} does not grant tool ${input.tool}`)
+    }
+    if (input.tool === "execute" && !codeModeHostQualified) {
+      // Only versions exercised by lane_capabilities.native.case.ts qualify.
+      // The bound client's health route identifies this host, not PATH's binary.
+      const version = await sessions.runningVersion()
+      if (version !== "1.18.35") throw new WorkerCapabilityError("Code Mode requires a qualified running host; nested capability admission is unproved for this version")
+      codeModeHostQualified = true
     }
     if (input.tool === "concord_worker_check") {
       const subjectFailure = await reviewSubjectFailure(context.lane, context.dispatch.packet, context.dispatch.workerDirectory, AbortSignal.timeout(5_000), options.subjectRunner ?? defaultRunner, "terminal")

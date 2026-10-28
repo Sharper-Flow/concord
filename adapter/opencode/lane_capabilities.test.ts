@@ -8,6 +8,30 @@ import { defaultRunner } from "./dispatch"
 import { reviewSubjectFailure } from "./worker_subject"
 import { DispatchWindows, serializeLanePacket } from "./dispatch-window"
 import type { AgentLanePacket, DispatchRunner } from "./dispatch"
+import { HostControlPlane } from "./move-session"
+
+test("running-host qualification uses the bound health route and fails closed", async () => {
+  const host = new HostControlPlane()
+  expect(await host.runningVersion()).toBeNull()
+  for (const data of [null, [], "1.18.35", {}, { version: "" }, { version: 11835 }, { version: "1.18.35" }]) {
+    host.bind({
+      get: async request => {
+        expect(request.url).toBe("/global/health")
+        expect(request.signal).toBeInstanceOf(AbortSignal)
+        return { data, response: new Response(null, { status: 200 }) }
+      },
+      post: async () => { throw new Error("health must not write") },
+    })
+    expect(await host.runningVersion()).toBe(data !== null && !Array.isArray(data) && typeof data === "object" && data.version === "1.18.35" ? "1.18.35" : null)
+  }
+  for (const unreachable of [false, true]) {
+    host.bind({ get: async () => {
+      if (unreachable) throw new Error("host unavailable")
+      return { data: { version: "1.18.35" }, response: new Response(null, { status: 503 }) }
+    }, post: async () => { throw new Error("health must not write") } })
+    expect(await host.runningVersion()).toBeNull()
+  }
+})
 
 async function fixture(laneID = "verify", subject?: string, subjectRunner?: DispatchRunner, directory = process.cwd(), readOnly = false) {
   const lane = agentLanes.find((entry) => entry.id === laneID)!
@@ -20,7 +44,7 @@ async function fixture(laneID = "verify", subject?: string, subjectRunner?: Disp
   const windows = new DispatchWindows()
   windows.open("parent", packet, "sha256:" + "a".repeat(64), directory)
   await windows.bind("task", "parent", { subagent_type: `concord-${laneID}`, prompt: "capability-attempt", description: "bounded worker" }, "task-call", async () => directory, directory)
-  const state = { agent: `concord-${laneID}`, openingAgent: `concord-${laneID}`, openingRole: "user", openingSession: undefined as string | undefined, parentScope: "managed" as "managed" | "unmanaged" | null, opening: serializeLanePacket(packet), extraPart: false, readerUnavailable: false, paginate: false, messageReads: 0, nestedParent: false, failedReads: new Set<string>(), failedAncestry: new Set<string>() }
+  const state = { agent: `concord-${laneID}`, openingAgent: `concord-${laneID}`, openingRole: "user", openingSession: undefined as string | undefined, parentScope: "managed" as "managed" | "unmanaged" | null, opening: serializeLanePacket(packet), extraPart: false, readerUnavailable: false, paginate: false, messageReads: 0, nestedParent: false, failedReads: new Set<string>(), failedAncestry: new Set<string>(), hostVersion: "1.18.35" as string | null }
   const placement = { directory }
   const reader = {
     get: async (id: string) => {
@@ -37,6 +61,7 @@ async function fixture(laneID = "verify", subject?: string, subjectRunner?: Disp
     },
   }
   const guard = createWorkerCapabilityGuard({ windows, subjectRunner, sessions: {
+    runningVersion: async () => state.hostVersion,
     sessionReader: () => state.readerUnavailable ? null : reader,
     taskScope: async () => state.parentScope,
     hasManagedParent: async (id: string) => {
@@ -69,16 +94,43 @@ test("authoring and execution grants follow capabilities without expanding them"
   expect(toolAllowedByCapabilities(["search_public_sources"], "exa_web_fetch_exa")).toBe(true)
 })
 
-test("the authenticated worker guard refuses opaque Code Mode and direct mutation keys", async () => {
+test("the authenticated worker guard refuses direct mutation keys", async () => {
   const f = await fixture()
-  for (const tool of ["execute", "bash", "apply_patch", "morph_edit", "vision_vision_remove", "linear_update_issue"]) {
+  for (const tool of ["bash", "apply_patch", "morph_edit", "vision_vision_remove", "linear_update_issue"]) {
     await expect(f.before(tool)).rejects.toThrow("does not grant")
   }
   await f.before("read")
 })
 
-test("no lane grants opaque Code Mode execution without nested host-path proof", () => {
-  for (const lane of agentLanes) expect(toolAllowedByCapabilities(lane.capabilities, "execute")).toBe(false)
+test("Code Mode grants only its existing leaf capabilities on a qualified host", async () => {
+  for (const lane of agentLanes) {
+    const f = await fixture(lane.id)
+    await f.before("execute", { code: "return tools.lgrep.search_text({path: 'ignored'})" })
+    await f.before("lgrep_search_text", { path: process.cwd() })
+    await expect(f.before("lgrep_search_text", { path: "/tmp" })).rejects.toThrow("dispatched repository")
+    for (const tool of ["linear_update_issue", "vision_vision_remove", "lgrep_invalidate_cache", "unknown_server_read"]) {
+      await expect(f.before(tool)).rejects.toThrow("does not grant")
+    }
+    const publicAccess = (lane.capabilities as readonly string[]).includes("search_public_sources")
+    for (const tool of ["exa_web_search_exa", "context7_query-docs"]) {
+      if (publicAccess) await f.before(tool)
+      else await expect(f.before(tool)).rejects.toThrow("does not grant")
+    }
+    f.windows.takeInFlight("parent")
+    await expect(f.before("lgrep_search_text", { path: process.cwd() })).rejects.toThrow("active authorized attempt")
+  }
+  expect(toolAllowedByCapabilities([], "execute")).toBe(false)
+  expect(toolAllowedByCapabilities(["run_tests"], "execute")).toBe(false)
+})
+
+test("Code Mode refuses unknown and unqualified running hosts without blocking direct tools", async () => {
+  for (const version of [null, "", "1.18.34", "1.18.36", "2.0.0"]) {
+    const f = await fixture()
+    f.state.hostVersion = version
+    await expect(f.before("execute", { code: "return 1" })).rejects.toThrow("qualified running host")
+    await f.before("read")
+    await f.before("lgrep_search_text", { path: process.cwd() })
+  }
 })
 
 test("local MCP reads and cache preparation stay in the dispatched repository", async () => {

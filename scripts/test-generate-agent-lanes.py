@@ -162,12 +162,15 @@ class EngineeringMethodProjectionTests(unittest.TestCase):
 
 
 class CapabilityToolProjectionTests(unittest.TestCase):
-    def test_opaque_code_mode_is_denied_for_every_lane(self):
+    def test_code_mode_follows_mcp_capabilities_without_overriding_host_denials(self):
         manifest, _ = generator.load_manifest()
         for lane in manifest["lanes"]:
             with self.subTest(lane=lane["id"]):
-                self.assertFalse(generator.lane_tool_grants(lane).get("execute", True))
-                self.assertIn("\n  execute: false\n", lane_projection(lane))
+                self.assertTrue(generator.lane_tool_grants(lane)["execute"])
+                tools = lane_projection(lane).split("\ntools:\n", 1)[1].split("\npermission:\n", 1)[0]
+                self.assertNotIn("  execute:", tools)
+        for capabilities in ([], ["run_tests"]):
+            self.assertFalse(generator.lane_allows({"capabilities": capabilities}, "execute"))
 
     def test_non_authoring_lanes_cannot_inherit_shell_or_file_authoring_tools(self):
         manifest, _ = generator.load_manifest()

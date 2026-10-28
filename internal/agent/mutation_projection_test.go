@@ -379,7 +379,11 @@ func TestMutationProjectionRejectsUntrustedRetainedDocuments(t *testing.T) {
 			}
 			before := mutationProjectionState(t, source.Store)
 			response, err := r.readMutationResult(t.Context(), base, retryJSON(map[string]any{"source_tool": key.Tool, "source_operation": key.OperationKind, "idempotency_key": newKey.IdempotencyKey, "digest": mutationDocumentDigest([]byte(p.ResultPayload))}))
-			if err != nil || response.Error == nil || response.Error.Kind != "operation_conflict" || len(response.Result) != 0 {
+			kind, recovery := "operation_conflict", "reconcile_operation"
+			if vector.name == "missing snapshot" || vector.name == "missing snapshot producer" {
+				kind, recovery = "malformed_response", "contact_operator"
+			}
+			if err != nil || response.Error == nil || response.Error.Kind != kind || response.Error.RecoveryAction.Kind != recovery || response.Error.EffectState != agentcontract.EffectNone || len(response.Result) != 0 {
 				t.Fatalf("untrusted document was exposed: %+v %v", response.Error, err)
 			}
 			if !reflect.DeepEqual(before, mutationProjectionState(t, source.Store)) {

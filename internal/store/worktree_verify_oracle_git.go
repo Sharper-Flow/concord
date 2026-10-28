@@ -32,7 +32,7 @@ const (
 	nativeGitRefMaxBytes = 256
 )
 
-// The descriptor binds semantics independently of Git's pack and index encoding.
+// NativeGitMetadata binds semantics independently of Git's pack and index encoding.
 // Both views are needed: collection consumes the recipe, acceptance the candidate.
 type NativeGitMetadata struct {
 	Mode      string        `json:"mode"`
@@ -96,7 +96,7 @@ type nativeGitBuffer struct{ bytes.Buffer }
 
 func (b *nativeGitBuffer) Write(p []byte) (int, error) {
 	if len(p) > 1024*1024-b.Len() {
-		return 0, errors.New("Git metadata output exceeds 1 MiB")
+		return 0, errors.New("git metadata output exceeds 1 MiB")
 	}
 	return b.Buffer.Write(p)
 }

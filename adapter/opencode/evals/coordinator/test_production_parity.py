@@ -575,7 +575,7 @@ class ProductionAdapterBoundaryTests(unittest.TestCase):
         observation = self.observed()
         # Input admitted: the adapter reached the work-resume child for the
         # corrected shape, and the typed refusal exit is classified as the
-        # genuine non-retry refusal. Its empty stdout proves no rollback, so
+        # genuine non-retry refusal. Its empty stdout cannot establish rollback, so
         # the effect remains possible independently of retry safety.
         for label in ("start-corrected", "start-issue-key-corrected"):
             with self.subTest(corpus=label):

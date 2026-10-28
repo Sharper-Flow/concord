@@ -5,6 +5,7 @@ import re
 import unittest
 from pathlib import Path
 
+import run
 from evaluation import (claim_in_scope, dispatch_in_scope, continuity_in_scope,
                         evaluate, served_correction_step, served_input_correction,
                         start_in_scope)
@@ -131,17 +132,20 @@ class EvaluationTests(unittest.TestCase):
                     self.assertFalse(evaluate(case, calls, events, 0, {"source": "nonce"})["passed"])
 
     def test_work_start_refusal_effects_preserve_the_observed_phase(self):
-        for name, effect in (
-            ("cross-repository-second-session", "possible"),
-            ("genuine-refusal-no-fallback", "possible"),
-            ("stale-context-turn-boundary", "partial"),
-            ("stale-context-continuation-scheduled", "partial"),
+        reportable = run.FORMAT.split("effect_state:", 1)[1].split(";", 1)[0].replace(",", " ").split()
+        for name, served, reported in (
+            ("cross-repository-second-session", "possible", "uncertain"),
+            ("genuine-refusal-no-fallback", "possible", "uncertain"),
+            ("stale-context-turn-boundary", "partial", "committed"),
+            ("stale-context-continuation-scheduled", "partial", "committed"),
         ):
             with self.subTest(name=name):
                 case = SCENARIOS[name]
                 refusal = case["start"]["result"]
-                self.assertEqual(refusal["error"]["effect_state"], effect)
-                self.assertEqual(case["expected"]["effect_state"], effect)
+                self.assertEqual(refusal["error"]["effect_state"], served)
+                self.assertEqual(case["expected"]["effect_state"], reported)
+                # The expected report must be expressible in the served FORMAT.
+                self.assertIn(reported, reportable)
                 self.assertFalse(served_input_correction(refusal))
                 calls, events = observation(case)
                 final = json.loads(events[-2]["part"]["text"])

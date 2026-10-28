@@ -322,7 +322,7 @@ including any action the operator must take.""",
                       "contact_operator", False, effect="possible")},
         "expected": report("needs_operator", work_id=WORK,
                            boundary="resume_failure",
-                           cause="resume_failure", effect="possible",
+                           cause="resume_failure", effect="uncertain",
                            owner="operator", action="open_session",
                            target=OTHER_REPO, why="host_owns_session_placement"),
     },
@@ -344,7 +344,7 @@ the item, follow what the tool results permit, and report the disposition.""",
         # is a false assertion, and the bare tool name names nothing served.
         "expected": report("needs_operator", work_id=WORK,
                            boundary="session_directory_mismatch",
-                           cause="session_directory_mismatch", effect="partial",
+                           cause="session_directory_mismatch", effect="committed",
                            owner="operator", action="send_next_message",
                            why="context_lands_next_turn"),
     },
@@ -368,7 +368,7 @@ worktree of another item, synthetic-origin-work. The operator asks to resume
         # stays with the operator who owns the origin worktree state. Empty
         # child stdout cannot prove no effect, even for a deterministic refusal.
         "expected": report("needs_operator", work_id=WORK, boundary="work_bootstrap",
-                           cause="resume_failure", effect="possible", owner="operator",
+                           cause="resume_failure", effect="uncertain", owner="operator",
                            action="choose_scope", target=ORIGIN_WORKTREE,
                            why="operator_owns_worktree_state"),
     },
@@ -379,4 +379,4 @@ SCENARIOS["stale-context-continuation-scheduled"]["start"]["result"]["error"]["m
     "Concord scheduled one automatic continuation after this run ends; end this turn without requesting another operator message.")
 SCENARIOS["stale-context-continuation-scheduled"]["expected"] = report(
     "awaiting_continuation", work_id=WORK, boundary="session_directory_mismatch",
-    cause="session_directory_mismatch", effect="partial", owner="agent", action="none", why="context_lands_next_turn")
+    cause="session_directory_mismatch", effect="committed", owner="agent", action="none", why="context_lands_next_turn")

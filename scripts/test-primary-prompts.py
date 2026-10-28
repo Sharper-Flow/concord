@@ -314,9 +314,33 @@ class PrimaryPromptCheckTests(unittest.TestCase):
             "Tell both owners when their streams change the same source owner",
             "Set merge order only for an actual conflict or dependency",
             "Compare each owner's retained posture, hold, or sequencing rule with your current directives",
+            "Hold this assignment in a Linear project",
+            "Add each assigned delivery issue that has no project",
+            "an issue in another project stays there, and the coordination project's description links it",
+            "mark it completed when the last issue it holds closes; linked issues finish in their own projects",
+            "Never create or reuse an issue as a coordination record",
+            "keep the assigned scope in the project description",
+            "Post material cross-stream dependencies, sequencing decisions, and changes to RTE directives as project status updates",
         ):
             with self.subTest(phrase=phrase):
                 self.assertIn(phrase, check_primary_prompts.RTE_REQUIRED_PHRASES)
+
+    def test_rte_coordination_issue_reports(self) -> None:
+        path = self.root / check_primary_prompts.PROFILE_DIR / "Concord-RTE.md"
+        original = path.read_text(encoding="utf-8")
+        for inserted in (
+            "Create a scoped coordination issue when the assignment needs one.",
+            "Record the directive on the Coordination\n  Issue.",
+            "Reuse the matching coordination issues.",
+        ):
+            with self.subTest(inserted=inserted):
+                self.rewrite("Concord-RTE.md", lambda _: original.replace(
+                    "## Run the coordination pass", f"{inserted}\n\n## Run the coordination pass", 1,
+                ))
+                findings = self.findings()
+                self.assertEqual(len(findings), 1, findings)
+                self.assertIn("Concord-RTE.md names", findings[0])
+                self.assertIn("never an issue", findings[0])
 
     def test_rte_routine_delivery_does_not_add_approval_classes(self) -> None:
         for phrase in (

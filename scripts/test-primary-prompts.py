@@ -259,6 +259,37 @@ class PrimaryPromptCheckTests(unittest.TestCase):
             with self.subTest(phrase=phrase):
                 self.assertIn(phrase, check_primary_prompts.RTE_REQUIRED_PHRASES)
 
+    def test_rte_workspace_inventory_omissions_report_individually(self) -> None:
+        phrases = (
+            "Inventory every agent session and account for every tab in the caller's workspace, not only assigned streams",
+            "Include your own tab and non-agent tabs explicitly so the tab inventory reconciles",
+            "Do not inventory other workspaces",
+            "Inventory does not expand assignment scope or grant lifecycle rights over unassigned sessions",
+            "A host session-state notice is an activation, not a timer or self-wakeup loop",
+            "Preserve blocked dialogs, permission requests, and non-consent gates",
+            "Respect operator pauses",
+            "name the missing evidence, who will recover it, and the concrete recovery action",
+            'Every workspace tab has a reconciled row; no non-working row is blank or says only "awaiting guidance"',
+            "On every pass, report a table with one row per workspace tab, keyed by observed tab title",
+            "For every non-working row, include its state, the event and actor it waits for, and the RTE action to unblock or supply that wait",
+            "Alternatively, mark it complete/retiring or outside scope and name its owner",
+            "Do not answer another session's permission request or operator-reserved question",
+            "Add no timer or self-wakeup loop",
+        )
+        path = self.root / check_primary_prompts.PROFILE_DIR / "Concord-RTE.md"
+        original = path.read_text(encoding="utf-8")
+        self.assertEqual(self.findings(), [])
+        for phrase in phrases:
+            with self.subTest(phrase=phrase):
+                def omit_rule(_: str) -> str:
+                    pattern = r"\s+".join(re.escape(word) for word in phrase.split())
+                    rewritten, count = re.subn(pattern, "", original)
+                    self.assertEqual(count, 1, phrase)
+                    return rewritten
+
+                self.rewrite("Concord-RTE.md", omit_rule)
+                self.assertEqual(self.findings(), [f"Concord-RTE.md lost the role rule {phrase!r}"])
+
     def test_rte_record_ownership_and_continuation_are_required(self) -> None:
         for phrase in (
             "An implementation issue is not the RTE's session journal",

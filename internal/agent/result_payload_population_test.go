@@ -671,6 +671,24 @@ func mergeFixtureSchema(base, constraints map[string]any) map[string]any {
 	return merged
 }
 
+func mergeFixtureUnionArm(arm, siblings map[string]any) map[string]any {
+	merged := mergeFixtureSchema(arm, siblings)
+	if arm["additionalProperties"] == false {
+		// A closed arm rejects sibling-only properties even when the union
+		// declares them for other arms. Shared properties keep both constraints.
+		declared, _ := arm["properties"].(map[string]any)
+		properties, _ := merged["properties"].(map[string]any)
+		properties = maps.Clone(properties)
+		merged["properties"] = properties
+		for name := range properties {
+			if _, ok := declared[name]; !ok {
+				delete(properties, name)
+			}
+		}
+	}
+	return merged
+}
+
 // schemaFixtureValue synthesizes one fully populated value for a schema node:
 // every declared object member, bound-respecting arrays, and bound-respecting scalars.
 // Optional members are populated on purpose, matching this file's fixture
@@ -707,7 +725,7 @@ func schemaFixtureValue(t *testing.T, schema map[string]any, defs map[string]map
 			if branchSchema["type"] == "null" {
 				continue
 			}
-			return schemaFixtureValue(t, mergeFixtureSchema(branchSchema, siblings), defs, depth+1)
+			return schemaFixtureValue(t, mergeFixtureUnionArm(branchSchema, siblings), defs, depth+1)
 		}
 		return nil
 	}
@@ -797,7 +815,7 @@ func schemaFixtureValue(t *testing.T, schema map[string]any, defs map[string]map
 				if branchSchema["type"] == "null" {
 					continue
 				}
-				return schemaFixtureValue(t, mergeFixtureSchema(branchSchema, siblings), defs, depth+1)
+				return schemaFixtureValue(t, mergeFixtureUnionArm(branchSchema, siblings), defs, depth+1)
 			}
 			return nil
 		}
@@ -954,6 +972,38 @@ func TestSchemaFixtureWorkPinRespectsOutsideRepairState(t *testing.T) {
 // union builds and validates whole.
 func TestSchemaFixtureUnionArmsRespectSiblingConstraints(t *testing.T) {
 	defs := payloadSchemaDefs(t)
+	t.Run("closed_empty_arm_does_not_mutate_sibling_schema", func(t *testing.T) {
+		properties := map[string]any{"foreign": map[string]any{"type": "string"}}
+		union := map[string]any{
+			"type": "object", "properties": properties,
+			"oneOf": []any{map[string]any{"type": "object", "additionalProperties": false}},
+		}
+		value := schemaFixtureValue(t, union, defs, 0)
+		if _, ok := properties["foreign"]; !ok {
+			t.Fatal("fixture construction mutated the source schema")
+		}
+		if err := payloadschema.ValidateValue(value, union, map[string]any{}, "$"); err != nil {
+			t.Fatalf("closed empty arm fixture violates the whole schema: %v", err)
+		}
+	})
+	t.Run("closed_arm_keeps_sibling_constraints_without_foreign_properties", func(t *testing.T) {
+		union := map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"kept":    map[string]any{"type": "string", "minLength": json.Number("12")},
+				"foreign": map[string]any{"type": "string"},
+			},
+			"oneOf": []any{map[string]any{
+				"type": "object", "additionalProperties": false,
+				"required":   []any{"kept"},
+				"properties": map[string]any{"kept": map[string]any{"type": "string"}},
+			}},
+		}
+		value := schemaFixtureValue(t, union, defs, 0)
+		if err := payloadschema.ValidateValue(value, union, map[string]any{}, "$"); err != nil {
+			t.Fatalf("closed union arm fixture violates the whole schema: %v", err)
+		}
+	})
 	t.Run("typeless_anyOf_selects_first_non_null_arm", func(t *testing.T) {
 		// CD-0242 D14 removes the packet ladder; keep the generic union witness synthetic.
 		union := map[string]any{"anyOf": []any{

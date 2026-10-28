@@ -160,6 +160,76 @@ def extract_parser_inputs(archive: Path, root: Path, package: str) -> None:
                 destination.chmod(0o700 if destination.name == "apparmor_parser" else 0o600)
 
 
+def derive_parser_defaults(root: Path) -> None:
+    """Read only the pinned postinst's two comment-only empty-default outputs."""
+    postinst = root / "apparmor-control/postinst"
+    identity(postinst)
+    control = postinst.read_bytes()
+    # Fixed control-flow delimiters select the empty-debconf branch, without
+    # evaluating shell, debconf, substitutions, or the nondefault branch.
+    delimiters = (
+        b'''\tdb_get apparmor/homedirs
+\ttmp=`mktemp`
+        cat > "$tmp" <<EOM
+''',
+        b'''EOM
+        if [ -n "$RET" ]; then
+            cat >> "$tmp" <<EOM
+@{HOMEDIRS}+=$RET
+EOM
+        else
+            cat >> "$tmp" <<EOM
+''',
+        b'''EOM
+        fi
+        mkdir -p /etc/apparmor.d/tunables/home.d 2>/dev/null || true
+        mv -Z -f "$tmp" /etc/apparmor.d/tunables/home.d/ubuntu
+        chmod 644 /etc/apparmor.d/tunables/home.d/ubuntu
+
+        if [ ! -e /etc/apparmor.d/tunables/xdg-user-dirs.d/site.local ]; then
+            tmp=`mktemp`
+            cat > "$tmp" <<EOM
+''',
+        b'''EOM
+
+            mkdir -p /etc/apparmor.d/tunables/xdg-user-dirs.d 2>/dev/null || true
+            mv -Z -n "$tmp" /etc/apparmor.d/tunables/xdg-user-dirs.d/site.local
+            chmod 644 /etc/apparmor.d/tunables/xdg-user-dirs.d/site.local
+        fi
+''',
+    )
+    if len(control) > 131072 or b"\r" in control or b"\0" in control or control.count(delimiters[0]) != 1:
+        raise ValueError("unsupported parser default control layout")
+    pattern = (rb"(?m)^" + re.escape(delimiters[0]) + rb"((?:[^\n]*\n){1,16})" + re.escape(delimiters[1]) +
+               rb"((?:[^\n]*\n){1,4})" + re.escape(delimiters[2]) + rb"((?:[^\n]*\n){1,40})" + re.escape(delimiters[3]))
+    matches = list(re.finditer(pattern, control))
+    if len(matches) != 1:
+        raise ValueError("unsupported parser default control layout")
+    header, empty_home, xdg = matches[0].groups()
+    if empty_home != b"#@{HOMEDIRS}+=\n" or header.count(b"# $ sudo dpkg-reconfigure apparmor\n") != 1:
+        raise ValueError("unsupported parser empty-home default")
+    outputs = {"tunables/home.d/ubuntu": header + empty_home, "tunables/xdg-user-dirs.d/site.local": xdg}
+    for name, data in outputs.items():
+        # '#include' is policy syntax, not an inert AppArmor comment. '$ sudo'
+        # is literal documentation; every other shell expansion marker refuses.
+        checked = data.replace(b"# $ sudo dpkg-reconfigure apparmor\n", b"") if name.endswith("/ubuntu") else data
+        if (not checked.isascii() or any(line and not line.startswith(b"#") for line in checked.splitlines()) or
+                any(marker in checked for marker in (b"$", b"`", b"\\")) or re.search(rb"(?m)^#\s*include\b", checked)):
+            raise ValueError(f"non-inert parser default refused: {name}")
+        target_name = b"/etc/apparmor.d/" + name.encode("ascii")
+        if control.count(target_name) != matches[0][0].count(target_name):
+            raise ValueError("ambiguous parser default output references")
+        if os.path.lexists(root / "base" / name):
+            raise ValueError(f"parser default output collision: {name}")
+    for name, data in outputs.items():
+        target = root / "base" / name
+        target.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        secure_path(target.parent)
+        with target.open("xb") as output:
+            output.write(data)
+        target.chmod(0o600)
+
+
 def policy_closure(profile: Path, base: Path) -> dict:
     """Mirror the producer's bounded closure, refusing links and path ambiguity."""
     seen: dict[str, object] = {}
@@ -285,9 +355,10 @@ def stage_parser(root: Path, archives: list[Path], base: Path = Path("/etc/appar
     for source, package, architecture in zip(archives, ("apparmor", "apparmor-profiles"), ("amd64", "all")):
         archive = root / (package + ".deb")
         sources.append(authenticated_archive(source, archive, package, architecture))
-        # Control scripts are evidence only. Never execute or install them.
+        # Control scripts are retained data only. Never execute or install them.
         subprocess.run(["dpkg-deb", "-e", str(archive), str(root / (package + "-control"))], check=True, timeout=30)
         extract_parser_inputs(archive, root, package)
+    derive_parser_defaults(root)
     config = (root / "parser.conf").read_text()
     if any(line.strip() and not line.lstrip().startswith("#") and
            not re.fullmatch(r"(?:quiet|verbose|(?:Optimize|optimize|warn)=[a-z0-9,-]+)", line.strip()) for line in config.splitlines()):

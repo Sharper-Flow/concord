@@ -27,9 +27,69 @@ HELPER = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(HELPER)
 
 
+# Exact heredoc bytes and surrounding control flow from the pinned official
+# debian/apparmor.postinst. Retained control fixtures are data, never shell input.
+HOME_HEADER = b"""# This file is auto-generated. It is recommended you update it using:
+# $ sudo dpkg-reconfigure apparmor
+#
+# The following is a space-separated list of where additional user home
+# directories are stored, each must have a trailing '/'. Directories added
+# here are appended to @{HOMEDIRS}.  See tunables/home for details.
+"""
+HOME_DEFAULT = b"#@{HOMEDIRS}+=\n"
+XDG_DEFAULT = b"""# ------------------------------------------------------------------
+#
+#    Copyright (C) 2014 Canonical Ltd.
+#    This program is free software; you can redistribute it and/or
+#    modify it under the terms of version 2 of the GNU General Public
+#    License published by the Free Software Foundation.
+#
+# ------------------------------------------------------------------
+
+# The following may be used to add additional entries such as for
+# translations. See tunables/xdg-user-dirs for details. Eg:
+#@{XDG_MUSIC_DIR}+="Musique"
+
+#@{XDG_DESKTOP_DIR}+=""
+#@{XDG_DOWNLOAD_DIR}+=""
+#@{XDG_TEMPLATES_DIR}+=""
+#@{XDG_PUBLICSHARE_DIR}+=""
+#@{XDG_DOCUMENTS_DIR}+=""
+#@{XDG_MUSIC_DIR}+=""
+#@{XDG_PICTURES_DIR}+=""
+#@{XDG_VIDEOS_DIR}+=""
+"""
+POSTINST_DEFAULTS = (b'''\tdb_get apparmor/homedirs
+\ttmp=`mktemp`
+        cat > "$tmp" <<EOM
+''' + HOME_HEADER + b'''EOM
+        if [ -n "$RET" ]; then
+            cat >> "$tmp" <<EOM
+@{HOMEDIRS}+=$RET
+EOM
+        else
+            cat >> "$tmp" <<EOM
+''' + HOME_DEFAULT + b'''EOM
+        fi
+        mkdir -p /etc/apparmor.d/tunables/home.d 2>/dev/null || true
+        mv -Z -f "$tmp" /etc/apparmor.d/tunables/home.d/ubuntu
+        chmod 644 /etc/apparmor.d/tunables/home.d/ubuntu
+
+        if [ ! -e /etc/apparmor.d/tunables/xdg-user-dirs.d/site.local ]; then
+            tmp=`mktemp`
+            cat > "$tmp" <<EOM
+''' + XDG_DEFAULT + b'''EOM
+
+            mkdir -p /etc/apparmor.d/tunables/xdg-user-dirs.d 2>/dev/null || true
+            mv -Z -n "$tmp" /etc/apparmor.d/tunables/xdg-user-dirs.d/site.local
+            chmod 644 /etc/apparmor.d/tunables/xdg-user-dirs.d/site.local
+        fi
+''')
+
+
 class ProvisionTests(unittest.TestCase):
     @staticmethod
-    def policy_fixture(root):
+    def policy_fixture(root, generated_defaults=False):
         private = root / "private"
         base = root / "installed-base"
         private.mkdir()
@@ -38,8 +98,12 @@ class ProvisionTests(unittest.TestCase):
             (directory / "abi").mkdir(parents=True)
             (directory / "abi/4.0").write_text("authenticated ABI\n")
             (directory / "tunables/home.d").mkdir(parents=True)
-            (directory / "tunables/global").write_text("include <tunables/home.d>\n")
+            (directory / "tunables/xdg-user-dirs.d").mkdir()
+            (directory / "tunables/global").write_text("include <tunables/home.d>\ninclude <tunables/xdg-user-dirs.d>\n")
             (directory / "tunables/home.d/site").write_text("@{HOME}=/home/*\n")
+        if generated_defaults:
+            (base / "tunables/home.d/ubuntu").write_bytes(HOME_HEADER + HOME_DEFAULT)
+            (base / "tunables/xdg-user-dirs.d/site.local").write_bytes(XDG_DEFAULT)
         return private, base, profile
 
     @staticmethod
@@ -56,7 +120,7 @@ class ProvisionTests(unittest.TestCase):
         for revision in ("8", "9"):
             with self.subTest(installed_revision=revision), tempfile.TemporaryDirectory() as name:
                 root = Path(name)
-                private, base, profile = self.policy_fixture(root)
+                private, base, profile = self.policy_fixture(root, generated_defaults=True)
                 archives = [root / "apparmor.deb", root / "apparmor-profiles.deb"]
                 for archive in archives:
                     archive.write_bytes(b"authenticated " + archive.name.encode())
@@ -83,18 +147,36 @@ class ProvisionTests(unittest.TestCase):
                         return payloads[Path(args[2]).name]
                     self.fail(f"unexpected host command: {args}")
 
+                def execute_command(args, **kwargs):
+                    if args[:2] == ["dpkg-deb", "-e"]:
+                        control = Path(args[3])
+                        control.mkdir()
+                        (control / "control").write_text("Package: " + Path(args[2]).stem + "\n")
+                        if Path(args[2]).stem == "apparmor":
+                            (control / "postinst").write_bytes(b"#!/bin/sh\nset -e\n" + POSTINST_DEFAULTS + b"exit 0\n")
+                    else:
+                        self.assertEqual(args[0], str(private / "apparmor_parser"))
+                    return subprocess.CompletedProcess(args, 0)
+
                 with patch.object(HELPER, "secure_path"), patch.object(os, "geteuid", return_value=0), \
                      patch.object(HELPER, "VENDOR_DIGEST", hashlib.sha256(profile).hexdigest()), \
                      patch.object(HELPER, "parser_runtime", return_value=([str(runtime)], {"mock ELF": "bound"})), \
-                     patch.object(subprocess, "check_output", side_effect=command), patch.object(subprocess, "run") as execute, \
+                     patch.object(subprocess, "check_output", side_effect=command), patch.object(subprocess, "run", side_effect=execute_command) as execute, \
                      contextlib.redirect_stdout(io.StringIO()):
                     # Both installed revisions use this identical authenticated .9
                     # route; installed package identity never chooses the parser.
+                    self.assertFalse((private / "base/tunables/home.d/ubuntu").exists())
+                    self.assertFalse((private / "base/tunables/xdg-user-dirs.d/site.local").exists())
                     HELPER.stage_parser(private, archives, base)
+                    self.assertEqual((private / "base/tunables/home.d/ubuntu").read_bytes(), HOME_HEADER + HOME_DEFAULT)
+                    self.assertEqual((private / "base/tunables/xdg-user-dirs.d/site.local").read_bytes(), XDG_DEFAULT)
                     self.assertFalse((private / "base/unrelated-policy").exists())
                     self.assertEqual([call.args[0][:2] for call in execute.call_args_list], [["dpkg-deb", "-e"]] * 2)
                     manifest = json.loads((private / "manifest.json").read_text())
                     self.assertEqual({source["Version"] for source in manifest["sources"]}, {HELPER.PINS["apparmor"]})
+                    for retained in ("apparmor-control/postinst", "base/tunables/home.d/ubuntu", "base/tunables/xdg-user-dirs.d/site.local"):
+                        path = private / retained
+                        self.assertEqual(manifest["private"][str(path)]["sha256"], hashlib.sha256(path.read_bytes()).hexdigest())
                     execute.reset_mock()
                     HELPER.parser_effect(private, "preprocess", base)
                     HELPER.parser_effect(private, "load", base)
@@ -106,7 +188,9 @@ class ProvisionTests(unittest.TestCase):
                         self.assertLessEqual(call.kwargs["timeout"], 300)
                     for path in (private / "apparmor.deb", private / "apparmor_parser", private / "parser.conf",
                                  private / "base/abi/4.0", private / "vendor-profile", runtime,
-                                 base / "tunables/home.d/site", base / "bwrap-userns-restrict"):
+                                 private / "apparmor-control/postinst", private / "base/tunables/home.d/ubuntu",
+                                 private / "base/tunables/xdg-user-dirs.d/site.local", base / "tunables/home.d/ubuntu",
+                                 base / "tunables/xdg-user-dirs.d/site.local", base / "tunables/home.d/site", base / "bwrap-userns-restrict"):
                         original = path.read_bytes()
                         path.write_bytes(original + b" drift")
                         execute.reset_mock()
@@ -114,10 +198,110 @@ class ProvisionTests(unittest.TestCase):
                             HELPER.parser_effect(private, "load", base)
                         execute.assert_not_called()
                         path.write_bytes(original)
+                    for path in (private / "apparmor-control/postinst", private / "base/tunables/home.d/ubuntu", private / "base/tunables/xdg-user-dirs.d/site.local",
+                                 base / "tunables/home.d/ubuntu", base / "tunables/xdg-user-dirs.d/site.local"):
+                        original = path.read_bytes()
+                        mode = path.stat().st_mode & 0o777
+                        path.unlink()
+                        execute.reset_mock()
+                        with self.subTest(missing=path), self.assertRaises(ValueError):
+                            HELPER.parser_effect(private, "load", base)
+                        execute.assert_not_called()
+                        path.write_bytes(original)
+                        path.chmod(mode)
                     (base / "tunables/home.d/extra").write_text("unapproved included input")
                     with self.assertRaisesRegex(ValueError, "closure differs"):
                         HELPER.parser_effect(private, "load", base)
                     execute.assert_not_called()
+
+    def test_private_default_derivation_rejects_control_changes_without_shell_execution(self):
+        variants = {
+            "commented selector": b"#" + POSTINST_DEFAULTS,
+            "wrong condition": POSTINST_DEFAULTS.replace(b'if [ -n "$RET" ]', b'if [ -z "$RET" ]'),
+            "wrong output": POSTINST_DEFAULTS.replace(b'home.d/ubuntu', b'home.d/other'),
+            "wrong redirect": POSTINST_DEFAULTS.replace(b'cat >> "$tmp"', b'cat > "$tmp"'),
+            "missing delimiter": POSTINST_DEFAULTS.replace(b'EOM\n', b'', 1),
+            "duplicate": POSTINST_DEFAULTS * 2,
+            "extra output reference": POSTINST_DEFAULTS + b'# /etc/apparmor.d/tunables/home.d/ubuntu\n',
+            "over bound": POSTINST_DEFAULTS + b'#' * 131072,
+            "nonempty home default": POSTINST_DEFAULTS.replace(HOME_DEFAULT, b'#@{HOMEDIRS}+=/srv/\n'),
+            "active home default": POSTINST_DEFAULTS.replace(HOME_DEFAULT, b'@{HOMEDIRS}+=/srv/\n'),
+            "active header": POSTINST_DEFAULTS.replace(b'# The following is', b'@{HOMEDIRS}=/srv/\n# The following is'),
+            "active XDG": POSTINST_DEFAULTS.replace(b'#@{XDG_MUSIC_DIR}', b'@{XDG_MUSIC_DIR}'),
+            "policy include": POSTINST_DEFAULTS.replace(b'# translations.', b'#include <outside>\n# translations.'),
+            "parameter": POSTINST_DEFAULTS.replace(b'# translations.', b'# $RET translations.'),
+            "braced parameter": POSTINST_DEFAULTS.replace(b'# translations.', b'# ${RET} translations.'),
+            "command substitution": POSTINST_DEFAULTS.replace(b'# translations.', b'# $(touch marker) translations.'),
+            "backtick": POSTINST_DEFAULTS.replace(b'# translations.', b'# `touch marker` translations.'),
+            "backslash": POSTINST_DEFAULTS.replace(b'# translations.', b'# \\ translations.'),
+        }
+        for label, control in variants.items():
+            with self.subTest(control=label), tempfile.TemporaryDirectory() as name, patch.object(HELPER, "secure_path"), \
+                 patch.object(subprocess, "run") as execute, patch.object(subprocess, "check_output") as output:
+                private, base, _ = self.policy_fixture(Path(name), generated_defaults=True)
+                (private / "apparmor-control").mkdir()
+                (private / "apparmor-control/postinst").write_bytes(control)
+                installed = {str(path): path.read_bytes() for path in base.rglob("*") if path.is_file()}
+                with self.assertRaises(ValueError):
+                    HELPER.derive_parser_defaults(private)
+                self.assertFalse((private / "base/tunables/home.d/ubuntu").exists())
+                self.assertFalse((private / "base/tunables/xdg-user-dirs.d/site.local").exists())
+                self.assertEqual(installed, {str(path): path.read_bytes() for path in base.rglob("*") if path.is_file()})
+                execute.assert_not_called()
+                output.assert_not_called()
+
+    def test_private_default_derivation_refuses_collisions_and_missing_control(self):
+        for generated in ("tunables/home.d/ubuntu", "tunables/xdg-user-dirs.d/site.local"):
+            for kind in ("file", "link", "directory"):
+                with self.subTest(generated=generated, kind=kind), tempfile.TemporaryDirectory() as name, patch.object(HELPER, "secure_path"), \
+                     patch.object(subprocess, "run") as execute, patch.object(subprocess, "check_output") as output:
+                    private, _, _ = self.policy_fixture(Path(name))
+                    (private / "apparmor-control").mkdir()
+                    (private / "apparmor-control/postinst").write_bytes(POSTINST_DEFAULTS)
+                    target = private / "base" / generated
+                    if kind == "file":
+                        target.write_bytes(b"archive collision; do not overwrite")
+                    elif kind == "link":
+                        target.symlink_to("missing-target")
+                    else:
+                        target.mkdir()
+                    before = sorted(str(path) for path in private.rglob("*"))
+                    with self.assertRaisesRegex(ValueError, "collision"):
+                        HELPER.derive_parser_defaults(private)
+                    self.assertEqual(before, sorted(str(path) for path in private.rglob("*")))
+                    if kind == "file":
+                        self.assertEqual(target.read_bytes(), b"archive collision; do not overwrite")
+                    execute.assert_not_called()
+                    output.assert_not_called()
+        with tempfile.TemporaryDirectory() as name, patch.object(HELPER, "secure_path"), patch.object(subprocess, "run") as execute:
+            with self.assertRaises(OSError):
+                HELPER.derive_parser_defaults(Path(name))
+            execute.assert_not_called()
+
+    def test_derived_defaults_still_refuse_installed_nondefaults_extras_and_absence(self):
+        changes = (("tunables/home.d/ubuntu", b"@{HOMEDIRS}+=/srv/\n"),
+                   ("tunables/xdg-user-dirs.d/site.local", b'@{XDG_MUSIC_DIR}+="Other"\n'),
+                   ("tunables/home.d/extra", b"# even comment-only extras refuse\n"),
+                   ("tunables/xdg-user-dirs.d/extra", b"# extra\n"),
+                   ("tunables/home.d/ubuntu", None), ("tunables/xdg-user-dirs.d/site.local", None))
+        for name, data in changes:
+            with self.subTest(installed=name, data=data), tempfile.TemporaryDirectory() as scratch, patch.object(HELPER, "secure_path"), \
+                 patch.object(subprocess, "run") as execute, patch.object(subprocess, "check_output") as output:
+                private, base, profile = self.policy_fixture(Path(scratch), generated_defaults=True)
+                (private / "apparmor-control").mkdir()
+                (private / "apparmor-control/postinst").write_bytes(POSTINST_DEFAULTS)
+                (private / "vendor-profile").write_bytes(profile)
+                HELPER.derive_parser_defaults(private)
+                with patch.object(HELPER, "VENDOR_DIGEST", hashlib.sha256(profile).hexdigest()):
+                    HELPER.verify_policy_base(private, base)
+                    if data is None:
+                        (base / name).unlink()
+                    else:
+                        (base / name).write_bytes(data)
+                    with self.assertRaisesRegex(ValueError, "closure differs"):
+                        HELPER.verify_policy_base(private, base)
+                execute.assert_not_called()
+                output.assert_not_called()
 
     def test_archive_authentication_refuses_metadata_and_digest_drift(self):
         with tempfile.TemporaryDirectory() as name:

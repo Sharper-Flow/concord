@@ -1395,7 +1395,7 @@ func (m *workflowActionMutation) applyTx(ctx context.Context, tx *store.Transact
 		return errors.New("mutation result rejected")
 	}
 	changedJSON, _ := json.Marshal(changed)
-	responseScope, _ := json.Marshal(mutationResponseScope(m.scope, m.result, pinless, m.operatorApprovalRef != ""))
+	responseScope, _ := json.Marshal(mutationResponseScope(m.scope, agentcontract.NewOKMutation(base, resultPayload, changed, derivedIntents), pinless, m.operatorApprovalRef != ""))
 	return store.CompleteMutationResponseTx(ctx, tx, store.MutationIdempotencyInsert{Key: store.MutationIdempotencyKey{PrincipalRef: grant.PrincipalRef, Tool: r.Tool, OperationKind: "workflow_action", IdempotencyKey: in.IdempotencyKey}, CanonicalDigest: m.digest, OperationID: m.operationID, ResultPayload: string(resultPayload), ChangedRefs: string(changedJSON), AuthorizedScopeSnapshot: string(responseScope), ResultEventIDs: marshalEventIDs(execution.EventIDs), ObservedAt: r.Authority.now()})
 }
 
@@ -4748,6 +4748,7 @@ func (m *compactionMutation) reconcile(ctx context.Context) (agentcontract.Envel
 		reconcile.WorkID = step.WorkID
 	}
 	if step.ResultKind == store.ResultCompleted {
+		base.Replayed = true
 		changed := decodeChangedRefs(step.ChangedRefs)
 		resultPayload, derivedIntents, pinless, enrichErr := r.replayMutationPayload(json.RawMessage(step.ResultPayload), changed)
 		if enrichErr != nil {
@@ -4793,7 +4794,7 @@ func (m *compactionMutation) reconcilePending(ctx context.Context, reconcile com
 		return failureEnvelope(base, err), nil
 	}
 	if workVersion <= 0 {
-		return pendingCompaction(base, reconcile.WorkID, step, "resolve_work_version", nil, fmt.Errorf("durable publication did not retain terminal work version")), nil
+		return pendingCompaction(base, reconcile.WorkID, step, "resolve_work_version", []string{"operation_claimed", "git_proof"}, fmt.Errorf("durable publication did not retain terminal work version")), nil
 	}
 	m.workID = reconcile.WorkID
 	base.ResolvedScope = &agentcontract.Scope{ProductID: r.Envelope.SelectedProductID, ProjectIDs: []string{r.Envelope.AmbientProjectID}, WorkIDs: []string{reconcile.WorkID}, ScopeVersion: r.Envelope.ScopeVersion}
@@ -4893,8 +4894,9 @@ func (r runtime) runPublication(steps []publicationStep) ([]string, string, erro
 }
 
 func pendingCompaction(base agentcontract.Envelope, workID string, claim store.FenceResult, step string, completed []string, cause error) agentcontract.Envelope {
-	ref := operationRefFromFence(claim, "pending", step)
+	ref := operationRefFromFence(claim, "partial", step)
 	base.ResolvedScope = &agentcontract.Scope{WorkIDs: []string{workID}}
+	base.FailedStep = step
 	if len(completed) == 0 {
 		completed = []string{"operation_claimed"}
 	}
@@ -5247,22 +5249,9 @@ func currentLifecycle(ctx context.Context, tx *store.Transaction, id string) (st
 // It validates the exact tool/operation result before the envelope can cross the
 // agent boundary, including the canonical envelope cap.
 func (r runtime) mutationResult(base agentcontract.Envelope, payload json.RawMessage, changed []agentcontract.ChangedRef, intents []agentcontract.NextIntent, allowedPinless ...string) agentcontract.Envelope {
-	if err := agentcontract.ValidateOperationPayload(r.Tool, r.Operation, payload, true); err != nil {
+	_, err := r.validateMutationDocument(payload, changed, allowedPinless, base.Omissions)
+	if err != nil {
 		return coreError(base, "malformed_response", fmt.Sprintf("mutation result failed closed-schema validation: %v", err), "contact_operator", false)
-	}
-	var projected struct {
-		Pins []store.WorkPin            `json:"work_pins"`
-		Refs []mutationResultChangedRef `json:"changed_refs"`
-	}
-	if err := json.Unmarshal(payload, &projected); err != nil {
-		return coreError(base, "malformed_response", err.Error(), "contact_operator", false)
-	}
-	refs := append([]agentcontract.ChangedRef{}, changed...)
-	for _, ref := range projected.Refs {
-		refs = append(refs, agentcontract.ChangedRef{EntityKind: ref.EntityKind, ID: ref.ID, Version: strconv.FormatInt(ref.Version, 10)})
-	}
-	if err := validateMutationPins(refs, projected.Pins, allowedPinless, base.Omissions); err != nil {
-		return coreError(base, "malformed_response", err.Error(), "contact_operator", false)
 	}
 	response := agentcontract.NewOKMutation(base, payload, changed, intents)
 	if err := response.Validate(); err != nil {
@@ -5274,6 +5263,9 @@ func (r runtime) mutationResult(base agentcontract.Envelope, payload json.RawMes
 		return coreError(base, "malformed_response", fmt.Sprintf("mutation result envelope cannot be encoded: %v", err), "contact_operator", false)
 	}
 	if len(encoded) > agentcontract.MaxResultEnvelopeBytes {
+		if mutationProjectionSupported(r.Tool, r.Operation) && r.mutationIdempotencyKey != "" {
+			return r.projectMutationResult(base, payload, changed)
+		}
 		return coreError(base, "limit_exceeded", fmt.Sprintf("mutation result envelope exceeds %d bytes", agentcontract.MaxResultEnvelopeBytes), "reduce_limit", false)
 	}
 	return response
@@ -5551,7 +5543,7 @@ func (m *mutationExecution) applyTx(ctx context.Context, tx *store.Transaction, 
 	// Retain the list the response reported: an effect that changed no
 	// auxiliary reference commits an explicit empty list, never null.
 	changedJSON, _ := json.Marshal(*m.response.ChangedRefs)
-	authorizedSnapshot := mutationResponseScope(scope, m.response, pinless, m.requiresApproval)
+	authorizedSnapshot := mutationResponseScope(scope, agentcontract.NewOKMutation(base, payload, changed, m.intents), pinless, m.requiresApproval)
 	authorizedSnapshot["durable_commit"] = durable
 	authorizedScope, _ := json.Marshal(authorizedSnapshot)
 	insert := store.MutationIdempotencyInsert{Key: store.MutationIdempotencyKey{PrincipalRef: grant.PrincipalRef, Tool: r.Tool, OperationKind: r.Operation, IdempotencyKey: key}, CanonicalDigest: m.digest, OperationID: "mutation-" + m.digest[7:31], ResultEventIDs: marshalEventIDs(eventIDs), ResultPayload: string(payload), ChangedRefs: string(changedJSON), AuthorizedScopeSnapshot: string(authorizedScope), ObservedAt: r.Authority.now()}

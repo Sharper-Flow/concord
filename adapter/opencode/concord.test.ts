@@ -16,6 +16,7 @@ import { armTurnMoveBoundary, clearTurnMoveBoundary, dispatchRequiresNextTurn } 
 import { syntheticHostVersionFixture } from "./host-version.test-support"
 import { privateKeyObject } from "./credentials"
 import { canonicalWorkerControl } from "./worker_control"
+import { mutationProjectionFixture } from "./mutation-projection.fixture"
 import { fakeTool } from "./plugin-tool.fixture"
 const testDirectories: string[] = []
 async function mkdtemp(prefix: string): Promise<string> {
@@ -1526,6 +1527,52 @@ test("confirm_premise refusals come from the core, not the adapter", async () =>
 const coreEnvelope = <T extends Record<string, unknown>>(tool: string, operation: string, outcome: string, fields: T) => ({
   schema_version: "1.0", manifest_digest: manifestDigest, request_id: "session-1-message-1", origin: "core", tool, operation, ...((contractOperations.find((candidate: any) => candidate.tool === tool && candidate.id.endsWith(`.${operation}`)) as any)?.query_id ? { query_id: (contractOperations.find((candidate: any) => candidate.tool === tool && candidate.id.endsWith(`.${operation}`)) as any).query_id } : {}), outcome, resolved_scope: null, authority: "authoritative", freshness: null, source_version_watermark: [], ordering_keys: [], next_cursor: null, omissions: [], warnings: [], evidence_refs: [], replayed: false, ...fields,
 })
+
+for (const tampered of [false, true]) {
+  test(`host mutation privately reconstructs projected pins before status; tampered=${tampered}`, async () => {
+    const fixture = mutationProjectionFixture()
+    if (tampered) fixture.pages[1].result.offset++
+    const titles: unknown[] = []
+    hostControlPlane().bind({
+      get: async () => ({ data: { id: "session-1", directory: "/worktree" }, response: new Response(null, { status: 200 }) }),
+      post: async () => ({ response: new Response(null, { status: 204 }) }),
+      patch: async options => { titles.push(options.body); return { response: new Response(null, { status: 200 }) } },
+    })
+    let reads = 0
+    let writes = 0
+    adapter.configureConcordAdapter({ runner: { async run(argv, input) {
+      if (argv[1] === "project-resolve") return { exitCode: 0, stdout: JSON.stringify(contextResponse()), stderr: "" }
+      const request = JSON.parse(input)
+      if (request.operation === "message_send") {
+        writes++
+        return { exitCode: 0, stdout: JSON.stringify(coreEnvelope(request.tool, request.operation, "ok", fixture.envelope)), stderr: "" }
+      }
+      expect([request.tool, request.operation]).toEqual(["concord_work_trace", "mutation_result"])
+      expect(request.input).toEqual({ ...fixture.pointer, page: { cursor: reads === 0 ? null : String(reads), limit: 1 } })
+      const page = fixture.pages[reads++]
+      return { exitCode: 0, stdout: JSON.stringify(coreEnvelope(request.tool, request.operation, "ok", page)), stderr: "" }
+    } } })
+    const raw = await adapter.work_relate.execute(hostCall("message_send", { work_id: "work-projection-0", recipient_work_id: "work-projection-1", body: "A complete message", expected_version: 2, idempotency_key: "projection-key" }), contextFor())
+    const output = typeof raw === "string" ? raw : raw.output
+    const result = JSON.parse(output.split("\n")[0])
+    expect(result.outcome).toBe("ok")
+    expect(result.result).toEqual(fixture.envelope.result)
+    expect(result.changed_refs).toEqual(fixture.envelope.changed_refs)
+    expect(result.next_valid_intents).toEqual([])
+    expect(Buffer.byteLength(output)).toBeLessThan(maxEnvelopeBytes)
+    expect(result.result.work_pins).toBeUndefined()
+    expect(writes).toBe(1)
+    if (tampered) {
+      expect(titles).toEqual([])
+      expect(reads).toBe(2)
+      expect(result.warnings.some((notice: any) => notice.kind === "mutation_result_unavailable")).toBe(true)
+    } else {
+      expect(titles).toHaveLength(16)
+      expect(titles[0]).toEqual({ title: "Goal: Lossless result 😀 0" })
+      expect(reads).toBe(fixture.pages.length)
+    }
+  })
+}
 
 for (const blockedVerb of ["project-resolve", "invoke"] as const) {
   for (const interruption of ["deadline", "deadline-as-abort-error", "caller-cancellation"] as const) {

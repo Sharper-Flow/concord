@@ -25,6 +25,7 @@ import { moveNoticeText, recordMoveNotice, takeMoveNotice } from "./move-notice"
 import type { WorkerReadingRequest } from "./worker_source"
 import type { WorkerDiffRequest } from "./worker_diff"
 import { canonicalWorkerControl, type WorkerCheckContext, type WorkerControlRequest } from "./worker_control"
+import { mutationResult, reconstructMutationResult } from "./packet"
 
 type ToolContext = {
   sessionID: string
@@ -1093,7 +1094,21 @@ async function reconcileUnknownEffect(toolName: string, args: HostToolArgs, cont
 }
 
 export async function invokeConcordOperation(toolName: string, args: HostToolArgs, context: ToolContext, sessionDirectoryOverride?: string): Promise<CoreConcordEnvelope> {
-  return validateAdapterEnvelope(await reconcileUnknownEffect(toolName, args, context, await invokeConcordOperationRaw(toolName, args, context, sessionDirectoryOverride)))
+  let response = await invokeConcordOperationRaw(toolName, args, context, sessionDirectoryOverride)
+  try {
+    await reconstructMutationResult(response, { tool: toolName, operation: args.operation, idempotencyKey: args.input?.idempotency_key },
+      input => invokeConcordOperationRaw("concord_work_trace", { operation: "mutation_result", input }, context, sessionDirectoryOverride))
+  } catch (error) {
+    if (error instanceof AdapterContractDefect) throw error
+    // The successful receipt remains truthful even when its retained document
+    // cannot be read. Keep it bounded and grant no private pin authority.
+    const message = String(error instanceof Error ? error.message : error).slice(0, 1024)
+    const warnings = Array.isArray(response.warnings) ? response.warnings : []
+    const annotated = { ...response, warnings: [...warnings, { kind: "mutation_result_unavailable", source_id: "adapter", details: { message } }] }
+    if (warnings.length < 16 && Buffer.byteLength(JSON.stringify(annotated)) <= maxEnvelopeBytes) response = annotated
+    else enqueueWorkNotice(context.sessionID, message)
+  }
+  return validateAdapterEnvelope(await reconcileUnknownEffect(toolName, args, context, response))
 }
 
 const workStateReporter = createWorkStateReporter(
@@ -2648,7 +2663,7 @@ async function executeWorkTransition(args: HostToolArgs, context: ToolContext, s
 async function launchRetriedWorkerDispatch(args: HostToolArgs, context: ToolContext, envelope: unknown): Promise<HostConcordEnvelope | null> {
   if (!record(args?.input) || args.input.action_id !== "reject_worker_result") return null
   if (!record(envelope) || envelope.outcome !== "ok") return null
-  const result = record(envelope.result) ? envelope.result : null
+  const result = mutationResult(envelope)
   if (!result || result.retry_worker_packet === null || typeof result.retry_worker_packet !== "object") return null
   const attemptID = typeof result.retry_attempt_id === "string" ? result.retry_attempt_id : ""
   const digest = typeof result.worker_packet_digest === "string" ? result.worker_packet_digest : ""
@@ -2661,7 +2676,9 @@ async function launchRetriedWorkerDispatch(args: HostToolArgs, context: ToolCont
   const receipt = Array.isArray(envelope.changed_refs) ? envelope.changed_refs : undefined
   const intents = Array.isArray(envelope.next_valid_intents) ? envelope.next_valid_intents : undefined
   const { retry_worker_packet: _consumed, ...resultReceipt } = result
-  return { ...launch, changed_refs: receipt, next_valid_intents: intents, result: resultReceipt } as HostConcordEnvelope
+  const projected = record(envelope.result) && Object.hasOwn(envelope.result, "projection_reference")
+  return { ...launch, changed_refs: receipt, next_valid_intents: intents, result: projected ? envelope.result : resultReceipt,
+    ...(projected ? { warnings: envelope.warnings } : {}) } as HostConcordEnvelope
 }
 
 // vacateTerminalWorktree moves a session out of a work item's worktree after

@@ -6,6 +6,9 @@ import path from "node:path"
 import { hostControlPlane, MANAGED_TASK_SCOPE_KEY } from "./move-session"
 import { resetClaimedWorktrees } from "./claimed-worktree"
 import { AdapterContractDefect } from "./adapter-contract-defect"
+import { reconstructMutationResult } from "./packet"
+import { largeMutationPayload, mutationProjectionFixture } from "./mutation-projection.fixture"
+import { maxEnvelopeBytes } from "./generated-contracts"
 const testDirectories: string[] = []
 function mkdtempSync(prefix: string): string {
   const directory = nodeFs.mkdtempSync(prefix)
@@ -155,6 +158,39 @@ test("failed scope enrollment cannot authorize a core dispatch or open a window"
   expect(result.error?.recovery_action).toBe("contact_operator")
   expect(seen).not.toContain("concord_work_transition.workflow_action")
   expect(windows.has("session-1")).toBe(false)
+})
+
+test("native dispatch consumes the complete projected mutation result without returning its oversized pins", async () => {
+  const payload = { ...largeMutationPayload(), worker_packet_digest: CORE_PACKET_DIGEST, worker_worktree: process.cwd() }
+  const fixture = mutationProjectionFixture(payload, "concord_work_transition", "workflow_action", "idemp-projection")
+  let reads = 0
+  const invoke = async (toolName: string) => {
+    if (toolName === "concord_work_trace") return continuityEnvelope()
+    if (toolName === "concord_work_browse") return scopeEnvelope()
+    await reconstructMutationResult(fixture.envelope, fixture.source, async () => fixture.pages[reads++])
+    return fixture.envelope
+  }
+  const windows = new DispatchWindows()
+  const result = await dispatchLaneWorker({ work_id: WORK_ID, expected_version: 3, idempotency_key: "idemp-projection", lane_id: lane.id }, { context: contextFor(), invoke: invoke as any, credentials: testCredentials, windows })
+  expect(result.outcome).toBe("ok")
+  expect(result.dispatch_state).toBe("awaiting_worker")
+  expect(windows.has("session-1")).toBe(true)
+  expect(reads).toBe(fixture.pages.length)
+  expect(result.result).toEqual(fixture.envelope.result)
+  expect(result.changed_refs).toEqual(fixture.envelope.changed_refs)
+  expect(result.work_pins).toBeUndefined()
+  expect(Buffer.byteLength(JSON.stringify(result))).toBeLessThan(maxEnvelopeBytes)
+})
+
+test("unreconstructed projected results cannot open native dispatch windows", async () => {
+  const fixture = mutationProjectionFixture({ ...largeMutationPayload(), worker_packet_digest: CORE_PACKET_DIGEST, worker_worktree: process.cwd() }, "concord_work_transition", "workflow_action", "idemp-projection")
+  const invoke = async (toolName: string) => toolName === "concord_work_trace" ? continuityEnvelope() : toolName === "concord_work_browse" ? scopeEnvelope() : fixture.envelope
+  const windows = new DispatchWindows()
+  const result = await dispatchLaneWorker({ work_id: WORK_ID, expected_version: 3, idempotency_key: "idemp-projection", lane_id: lane.id }, { context: contextFor(), invoke: invoke as any, credentials: testCredentials, windows })
+  expect(result.outcome).toBe("error")
+  expect(windows.has("session-1")).toBe(false)
+  expect(result.result).toEqual(fixture.envelope.result)
+  expect(result.changed_refs).toEqual(fixture.envelope.changed_refs)
 })
 
 test("routing selects the lane dispatcher for dispatch_worker with object-form fields and a string lane_id", () => {

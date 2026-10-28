@@ -29,7 +29,7 @@ func TestRetainedFindingReadRoutes(t *testing.T) {
 	if err := tx.Commit(); err != nil {
 		t.Fatal(err)
 	}
-	inputs := readPopulationInputs(fx)
+	inputs := readPopulationInputs(t, fx)
 	inputs["concord_work_browse.list"] = `{"product_id":"prod-alpha","work_ids":["` + fx.workID + `"],"detail":"full","limit":10}`
 	for _, call := range []struct{ tool, operation string }{{"concord_work_browse", "list"}, {"concord_work_trace", "continuity"}} {
 		t.Run(call.operation, func(t *testing.T) {

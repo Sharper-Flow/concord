@@ -299,14 +299,15 @@ type knowledgeResolveInput struct {
 }
 
 type runtime struct {
-	removalProof    *store.DefaultCheckoutRemovalProof
-	Store           *store.Store
-	Authority       *Service
-	Registry        store.DefinitionRegistry
-	Envelope        CallEnvelope
-	Tool, Operation string
-	Budget          budgetInput
-	Reader          Authority
+	removalProof           *store.DefaultCheckoutRemovalProof
+	Store                  *store.Store
+	Authority              *Service
+	Registry               store.DefinitionRegistry
+	Envelope               CallEnvelope
+	Tool, Operation        string
+	Budget                 budgetInput
+	Reader                 Authority
+	mutationIdempotencyKey string
 }
 
 // Dispatch validates the generated input schema, revalidates TS5 authority,
@@ -436,7 +437,7 @@ func dispatchAuthorizedRequest(ctx context.Context, s *store.Store, authority *S
 		if err := s.CheckMemberOperation(ctx, memberWorkflowActor(identityGrant), memberOperationScope(request.Input, env, op)); err != nil {
 			return failureEnvelope(base, err), nil
 		}
-		r := runtime{Store: s, Authority: authority, Envelope: env, Tool: request.Tool, Operation: request.Operation, Budget: budget, Reader: identityGrant}
+		r := runtime{Store: s, Authority: authority, Envelope: env, Tool: request.Tool, Operation: request.Operation, Budget: budget, Reader: identityGrant, mutationIdempotencyKey: idempotencyKey(request.Input)}
 		if replay, handled, replayErr := r.replayMutationBeforeScope(ctx, base, request.Input, identityGrant, op); replayErr != nil || handled {
 			if replayErr != nil {
 				return failureEnvelope(base, replayErr), nil
@@ -470,7 +471,7 @@ func dispatchAuthorizedRequest(ctx context.Context, s *store.Store, authority *S
 	if err := validateRequestedScope(ctx, s, env, grant, request, op.Kind); err != nil {
 		return failureEnvelope(base, err), nil
 	}
-	r := runtime{Store: s, Authority: authority, Registry: registry, Envelope: env, Tool: request.Tool, Operation: request.Operation, Budget: budget, Reader: grant}
+	r := runtime{Store: s, Authority: authority, Registry: registry, Envelope: env, Tool: request.Tool, Operation: request.Operation, Budget: budget, Reader: grant, mutationIdempotencyKey: idempotencyKey(request.Input)}
 	if op.Kind != agentcontract.OperationRead {
 		return r.mutate(ctx, base, request.Input, grant, op)
 	}
@@ -1299,6 +1300,8 @@ func (r runtime) readResult(ctx context.Context, base agentcontract.Envelope, in
 		return r.readTraceExternalObservations(ctx, base, input)
 	case "concord_work_trace.continuity":
 		return r.readTraceContinuity(ctx, base, input)
+	case "concord_work_trace.mutation_result":
+		return r.readMutationResult(ctx, base, input)
 	case "concord_work_trace.research":
 		return r.readTraceResearch(ctx, base, input)
 	case "concord_work_trace.relations":
@@ -1406,7 +1409,11 @@ func (r runtime) unwrapCursor(ctx context.Context, token, binding, detail string
 		return "", nil
 	}
 	expected := SignedCursor{Tool: r.Tool, Operation: r.Operation, Scope: r.Envelope.SelectedProductID + "|" + r.Envelope.AmbientProjectID, Filter: binding, Detail: detail, Order: "default"}
-	if r.Tool != "concord_knowledge" {
+	if r.Tool == "concord_work_trace" && r.Operation == "mutation_result" {
+		// The retained document is immutable. Unrelated writes must not
+		// invalidate its continuation; the filter binds its exact identity.
+		expected.Source = binding
+	} else if r.Tool != "concord_knowledge" {
 		watermark, err := r.Store.Revision(ctx)
 		if err != nil {
 			return "", err

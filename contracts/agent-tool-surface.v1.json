@@ -53,6 +53,7 @@
         "concord_work_trace.observations",
         "concord_work_trace.external_observations",
         "concord_work_trace.continuity",
+        "concord_work_trace.mutation_result",
         "concord_work_trace.relations",
         "concord_work_trace.project_retirement",
         "concord_work_trace.research"
@@ -231,7 +232,7 @@
       "kind": "read",
       "query_id": "PM1.Q3",
       "input_schema": "#/schemas/work_browse_list_input",
-      "result_schema": "#/schemas/work_page",
+      "result_schema": "#/schemas/work_browse_list_result",
       "capability": "product_read",
       "consequence": "read",
       "approval": "none",
@@ -489,6 +490,27 @@
       "approval": "none",
       "metadata": {
         "context": "explicit",
+        "idempotency": "request_id",
+        "pagination": "cursor",
+        "output_bytes": 51200,
+        "versions": [
+          "1.0"
+        ]
+      },
+      "supported_budget_seconds": 300
+    },
+    {
+      "id": "concord_work_trace.mutation_result",
+      "tool": "concord_work_trace",
+      "kind": "read",
+      "query_id": "C19.MutationResult",
+      "input_schema": "#/schemas/work_trace_mutation_result_input",
+      "result_schema": "#/schemas/json_fragment_page",
+      "capability": "product_read",
+      "consequence": "read",
+      "approval": "none",
+      "metadata": {
+        "context": "ambient",
         "idempotency": "request_id",
         "pagination": "cursor",
         "output_bytes": 51200,
@@ -862,7 +884,7 @@
       "availability": "workflow_definition",
       "query_id": null,
       "input_schema": "#/schemas/work_transition_action_input",
-      "result_schema": "#/schemas/mutation_result",
+      "result_schema": "#/schemas/projectable_mutation_result",
       "capability": "work_transition",
       "consequence": "workflow_action",
       "approval": "conditional",
@@ -1177,7 +1199,7 @@
       "kind": "mutation",
       "query_id": null,
       "input_schema": "#/schemas/work_relate_message_send_input",
-      "result_schema": "#/schemas/mutation_result",
+      "result_schema": "#/schemas/projectable_mutation_result",
       "capability": "work_relate",
       "consequence": "relation",
       "approval": "none",
@@ -1488,6 +1510,22 @@
     }
   ],
   "schemas": {
+    "work_trace_mutation_result_input": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_trace_mutation_result_input",
+      "closed": true
+    },
+    "json_fragment_page": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/json_fragment_page",
+      "closed": true
+    },
+    "projectable_mutation_result": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/projectable_mutation_result",
+      "closed": true
+    },
+    "work_browse_list_result": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_browse_list_result",
+      "closed": true
+    },
     "base_envelope": {
       "ref": "contracts/agent-tool-envelope.schema.json#/$defs/base",
       "closed": true
@@ -1958,6 +1996,6 @@
       "digest"
     ]
   },
-  "payload_digest": "sha256:745642667998485f0d896531d9e99bc6c80b482db78588e0bbb79381db7459c2",
-  "digest": "sha256:cf632ff5ace3935c138db9a17a0005599d8dc6a2703465423a038c092f3aabc2"
+  "payload_digest": "sha256:2cd6051c17b7288d468dcbaa0b66b1f8ee1f90c8124d0dadc58400b9d9c93e2c",
+  "digest": "sha256:865871e476c3ba48d3590a6ad68dbc76765c9886b06c39d658fb74df7835f67e"
 }

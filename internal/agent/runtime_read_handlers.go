@@ -110,11 +110,36 @@ func (r runtime) readWorkList(ctx context.Context, base agentcontract.Envelope, 
 	if in.ProductID == "" {
 		in.ProductID = r.Envelope.SelectedProductID
 	}
-	return pagedQuery(r, ctx, base, in.Page, effectiveLimit(in.Limit, in.Page), pageBinding(in, func(p *workListInput) { p.Page.Cursor = nil }),
-		func(inner string, limit int) store.Q3Request {
-			return store.Q3Request{Product: in.ProductID, LifecycleStates: nonEmpty(in.Lifecycle), Limit: limit, Cursor: inner, Kind: in.Kind, ProjectIDs: in.ProjectIDs, WorkIDs: in.WorkIDs, TagIDs: in.TagIDs, PriorityMin: in.PriorityMin, PriorityMax: in.PriorityMax, TerminalSince: in.TerminalSince, Detail: in.Detail}
-		},
-		r.Store.QueryQ3, r.q3)
+	binding := pageBinding(in, func(p *workListInput) { p.Page.Cursor = nil })
+	request := func(inner string, limit int) store.Q3Request {
+		return store.Q3Request{Product: in.ProductID, LifecycleStates: nonEmpty(in.Lifecycle), Limit: limit, Cursor: inner, Kind: in.Kind, ProjectIDs: in.ProjectIDs, WorkIDs: in.WorkIDs, TagIDs: in.TagIDs, PriorityMin: in.PriorityMin, PriorityMax: in.PriorityMax, TerminalSince: in.TerminalSince, Detail: in.Detail}
+	}
+	inner, err := r.unwrapCursor(ctx, cursorValue(in.Page), binding, "summary")
+	if err != nil {
+		return failureEnvelope(base, err), nil
+	}
+	if len(inner) > 0 && inner[0] == '{' {
+		var cursor workListProjectionCursor
+		if in.Detail != "full" || decodeOperationInput([]byte(inner), &cursor) != nil || cursor.Version != 1 || !validSHA256Proof(cursor.Digest) || cursor.NextByteOffset < 1 {
+			return coreError(base, "invalid_cursor", "work-list projection cursor is malformed", "restart_query", false), nil
+		}
+		q, err := r.Store.QueryQ3(ctx, request(cursor.ListCursor, 1))
+		if err != nil {
+			return failureEnvelope(base, err), nil
+		}
+		return r.workListProjectionPage(ctx, base, binding, cursor, q)
+	}
+	return pagedQuery(r, ctx, base, in.Page, effectiveLimit(in.Limit, in.Page), binding, request, r.Store.QueryQ3, r.q3,
+		func(req store.Q3Request, q store.Q3Result, size int) (agentcontract.Envelope, error) {
+			if in.Detail != "full" || len(q.Items) == 0 {
+				return readSizeRefusal(base, size), nil
+			}
+			single, err := q.LimitPage(req, 1)
+			if err != nil {
+				return failureEnvelope(base, err), nil
+			}
+			return r.workListProjectionPage(ctx, base, binding, workListProjectionCursor{Version: 1, ListCursor: req.Cursor}, single)
+		})
 }
 
 // pagedQuery runs the shape every paged read handler shares: resolve the
@@ -125,7 +150,8 @@ func (r runtime) readWorkList(ctx context.Context, base agentcontract.Envelope, 
 // builder. Byte fitting selects complete prefixes of one captured store page;
 // no fit iteration reads a different snapshot. The public binding keeps the
 // caller's limit, so the cursor works with the unchanged request.
-func pagedQuery[Req any, Resp interface{ LimitPage(Req, int) (Resp, error) }](r runtime, ctx context.Context, base agentcontract.Envelope, page pageInput, limit int, binding string, request func(inner string, limit int) Req, query func(context.Context, Req) (Resp, error), respond func(agentcontract.Envelope, Resp) (agentcontract.Envelope, error)) (agentcontract.Envelope, error) {
+// An oversized handler may transport that same capture when no complete item fits.
+func pagedQuery[Req any, Resp interface{ LimitPage(Req, int) (Resp, error) }](r runtime, ctx context.Context, base agentcontract.Envelope, page pageInput, limit int, binding string, request func(inner string, limit int) Req, query func(context.Context, Req) (Resp, error), respond func(agentcontract.Envelope, Resp) (agentcontract.Envelope, error), oversized ...func(Req, Resp, int) (agentcontract.Envelope, error)) (agentcontract.Envelope, error) {
 	inner, err := r.unwrapCursor(ctx, cursorValue(page), binding, "summary")
 	if err != nil {
 		return failureEnvelope(base, err), nil
@@ -176,6 +202,9 @@ func pagedQuery[Req any, Resp interface{ LimitPage(Req, int) (Resp, error) }](r 
 		limit = low + (high-low+1)/2
 	}
 	if low == 0 {
+		if len(oversized) > 0 {
+			return oversized[0](req, q, size)
+		}
 		return readSizeRefusal(base, size), nil
 	}
 	return best, nil

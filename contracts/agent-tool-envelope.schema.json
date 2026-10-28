@@ -318,6 +318,14 @@
           }
         },
         {
+          "required": ["tool", "operation", "query_id"],
+          "properties": {
+            "tool": { "const": "concord_work_trace" },
+            "operation": { "const": "mutation_result" },
+            "query_id": { "const": "C19.MutationResult" }
+          }
+        },
+        {
           "required": [
             "tool",
             "operation",
@@ -754,6 +762,7 @@
             "message_send",
             "message_withdraw",
             "messages",
+            "mutation_result",
             "observation_record",
             "observations",
             "overlaps",
@@ -807,7 +816,7 @@
         },
         "query_id": {
           "type": "string",
-          "pattern": "^(PM1\\.Q(1[0-46]|[1-9])|CD-0020\\.R1|CD-0030\\.R1|CD-0040\\.R1|CD-0096\\.R1|CD-0182\\.R1|C15\\.Resources|C19\\.Continuity|C22\\.Domain(List|Detail|Attachments|Overlaps|Footprint|Shape))$"
+          "pattern": "^(PM1\\.Q(1[0-46]|[1-9])|CD-0020\\.R1|CD-0030\\.R1|CD-0040\\.R1|CD-0096\\.R1|CD-0182\\.R1|C15\\.Resources|C19\\.(Continuity|MutationResult)|C22\\.Domain(List|Detail|Attachments|Overlaps|Footprint|Shape))$"
         },
         "outcome": {
           "enum": [
@@ -1241,6 +1250,7 @@
             "message_send",
             "message_withdraw",
             "messages",
+            "mutation_result",
             "observation_record",
             "observations",
             "overlaps",
@@ -1294,7 +1304,7 @@
         },
         "query_id": {
           "type": "string",
-          "pattern": "^(PM1\\.Q(1[0-46]|[1-9])|CD-0020\\.R1|CD-0030\\.R1|CD-0040\\.R1|CD-0096\\.R1|CD-0182\\.R1|C15\\.Resources|C19\\.Continuity|C22\\.Domain(List|Detail|Attachments|Overlaps|Footprint|Shape))$"
+          "pattern": "^(PM1\\.Q(1[0-46]|[1-9])|CD-0020\\.R1|CD-0030\\.R1|CD-0040\\.R1|CD-0096\\.R1|CD-0182\\.R1|C15\\.Resources|C19\\.(Continuity|MutationResult)|C22\\.Domain(List|Detail|Attachments|Overlaps|Footprint|Shape))$"
         },
         "reason_code": {
           "type": "string",
@@ -2683,6 +2693,25 @@
                 { "required": ["changed_refs"] },
                 { "required": ["next_valid_intents"] }
               ]
+            }
+          }
+        },
+        {
+          "if": {
+            "required": ["result"],
+            "properties": { "result": { "required": ["projection_reference"] } }
+          },
+          "then": {
+            "required": ["changed_refs", "next_valid_intents", "warnings"],
+            "properties": {
+              "next_valid_intents": { "maxItems": 0 },
+              "warnings": {
+                "not": {
+                  "items": {
+                    "not": { "required": ["kind"], "properties": { "kind": { "const": "mutation_result_projected" } } }
+                  }
+                }
+              }
             }
           }
         }

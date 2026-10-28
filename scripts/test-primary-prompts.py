@@ -91,6 +91,18 @@ class PrimaryPromptCheckTests(unittest.TestCase):
         findings = self.findings()
         self.assertTrue(any("missing named primary profile" in finding and "Concord.md" in finding for finding in findings))
 
+    def test_shaping_routes_fire_before_refinement_allocation_and_execution(self) -> None:
+        for name, trigger in (
+            ("Concord-Planner.md", "Before refining a ticket, load `concord-work-shaping`"),
+            ("Concord-RTE.md", "Before allocation, load `concord-work-shaping`"),
+            ("Concord.md", "Before execution, load `concord-work-shaping`"),
+        ):
+            with self.subTest(profile=name):
+                text = (ROOT / check_primary_prompts.PROFILE_DIR / name).read_text(encoding="utf-8")
+                self.assertIn(trigger, check_primary_prompts.flatten(text))
+                self.rewrite(name, lambda text: text.replace("concord-work-shaping", "missing-shaping-method"))
+                self.assertTrue(any(name in finding and trigger in finding for finding in self.findings()))
+
     def test_concord_lost_build_permission_grants_report(self) -> None:
         def strip_grants(text: str) -> str:
             for tool in check_primary_prompts.PRIMARY_BUILD_TOOLS:

@@ -1,14 +1,13 @@
 ---
 name: concord-work-shaping
-description: Triage a request or defect report and shape it into delivery-checkable work. Use when refining a ticket, checking whether a reported problem is real or already handled, or breaking a plan into independently verifiable outcomes with real dependencies.
+description: Shape work before ticket refinement, allocation, or implementation. Check independent outcomes, required mechanism, and operator decisions; reuse recorded readiness when scope is unchanged. Also use to triage whether a reported problem is real or already handled.
 ---
 
 # Work shaping
 
-Use this method to turn a request, report, or plan into work an executing agent
-can deliver without guessing. It reads and proposes. It does not approve scope,
-set product direction, or start work. The Product's planning system stays the
-only planning authority; this skill adds no state, label, or backlog beside it.
+Use before refinement, allocation, and implementation. Reuse an existing record
+when its scope and evidence still apply. This method grants no scope, approval,
+or workflow authority; the Product's planning system owns the record.
 
 ## Canonical references
 
@@ -20,45 +19,45 @@ only planning authority; this skill adds no state, label, or backlog beside it.
 
 ## Triage
 
-1. **Read everything recorded.** Read the full request, its comments, and any
-   earlier triage notes. Do not re-ask a question already answered.
-2. **Check whether it already exists.** Search the code by the concept the
-   request describes, not only its wording. Search the planning system and
-   accepted law for duplicate, superseded, or previously declined requests.
-   Report where you looked. Use `concord_knowledge.search` for recorded law.
-3. **Verify the claim.** For a defect, reproduce it from the reported steps;
-   when the cause is uncertain, use the diagnosis method. For a proposed change,
-   confirm that the current behavior is what the request says it is. Report the
-   result: confirmed with its code path, refuted, or not enough detail.
-4. **Recommend an outcome**: already handled (point to where), needs
-   information (ask specific, answerable questions), ready to deliver, or
-   declined with the reason. Leave the decision to whoever owns it.
+1. Read the request, comments, and earlier triage; do not re-ask settled questions.
+2. Search code by concept and planning for duplicates or declined work. Resolve
+   recorded law through `concord_knowledge.search`. Report where you looked.
+3. Reproduce a defect; use diagnosis when its cause is uncertain. For a change,
+   confirm current behavior. Report confirmed, refuted, or missing evidence.
+4. Recommend already handled, needs information, ready, or declined, with evidence.
+   The existing owner decides within its authority.
 
 ## Write the work so it stands alone
 
-State the problem with the evidence observed, who or what it affects, and the
-end state that closes it, written so a check or reviewer can decide it at
-delivery. Keep concrete citations: paths, symbols, commands, error text, and
-record identifiers. Mark every assumption the owner has not approved as
-unapproved.
+State the observed problem, affected party, and delivery-checkable end state.
+Cite paths, symbols, commands, errors, and records. Mark unapproved assumptions.
 
-## Decompose into outcomes
+## Record readiness before execution
 
-Split only when the work holds outcomes that can be delivered and verified
-separately. Each outcome cuts a narrow but complete path through every layer it
-needs, so it is verifiable on its own; do not split by layer. Size alone is not
-a reason to split.
+Record these answers on the existing issue before allocation or implementation.
+Missing answers need shaping, not an executing agent guessing them.
 
-- Record a dependency only where one outcome truly cannot start before another
-  finishes. Do not invent sequencing for tidiness.
-- Do enabling restructuring first, as its own outcome, when it makes the later
-  change simple.
-- Keep a mechanical change together when it can land green atomically. If it
-  cannot, establish the actual dependency and cutover constraints before
-  proposing a sequence. Temporary coexistence needs a current requirement and
-  a retirement outcome; do not add compatibility machinery automatically.
-- The next work to take is any outcome whose dependencies are all done.
+- **Outcomes:** list each independently deliverable result, its done condition,
+  evidence, and real dependencies. More than one result is a program: present
+  separate deliverable assignments through planning, not one undivided ticket.
+  Each crosses the layers it needs; size alone does not establish a split.
+- **Mechanism:** map each proposed tool, checker, abstraction, or code move to an
+  outcome it is necessary to deliver. Name what fails without it and the simpler
+  alternative considered. Omit unmatched mechanism; separately propose genuinely
+  needed work outside scope. A useful improvement is not automatically required.
+- **Decisions:** identify each operator-reserved choice, its class or existing
+  reservation, concrete consequence, evidence, and current approval or unanswered
+  question. Resolve known choices before affected execution. Record none when no
+  class applies; do not turn routine engineering into a new approval gate.
 
-Present the proposed outcomes with what each delivers and what blocks it.
-Revise until the owner agrees, then record them through the planning system.
-Do not close or rewrite a parent record unless its owner asks.
+## Choose the next delivery
+
+Assign an outcome whose dependencies and required decisions are resolved. Plan
+small green merges within it; atomicity alone does not establish reviewability.
+For an inseparable cutover, record why a smaller merge cannot preserve the
+required behavior. Temporary coexistence needs a current requirement and a
+retirement outcome, not automatic compatibility machinery.
+
+Before adding mechanism or changing scope, revisit its outcome mapping and
+decisions. Record the proposed change through planning; do not silently enlarge
+the assignment or close or rewrite its parent without the owner's direction.

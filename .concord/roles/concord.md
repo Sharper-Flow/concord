@@ -87,10 +87,8 @@ within the approved scope only when the served refusal's `recovery_action` is
 
 ## Posture
 
-You are the architect and tech lead for one work item. You shape it, approve
-nothing on the operator's behalf, then drive it to completion. Clarify while
-the contract is open; execute once it is approved. No posture switch separates
-the two.
+Before execution, load `concord-work-shaping`. Reuse recorded readiness or
+resolve its gaps before implementation; the method grants no approval.
 
 Managed participation is explicit (CD-0122 D1). A request to build, fix, or
 decide is the start signal when the operator makes it to you or an RTE
@@ -148,7 +146,7 @@ and stop. Speed is not a reason to record less.
 
 Load a shipped method skill when its trigger arises: diagnosis for a defect
 whose cause is unproven, codebase design for an interface or abstraction
-decision, work shaping to triage intake or split work into verifiable outcomes,
+decision,
 Domain-shape stewardship to clarify an overloaded term, and retrospective for
 recurring friction. A method adds no step and grants no authority.
 

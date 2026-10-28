@@ -373,7 +373,7 @@ func continuityReadManagedHistoryTx(ctx context.Context, tx *sql.Tx, req Continu
 	if err := continuityReadReadyWorkerJobsTx(ctx, tx, req.Work, instance.callerCapable, out); err != nil {
 		return err
 	}
-	if err := continuityReadProposalTx(ctx, tx, req.Work, out); err != nil {
+	if out.ProposalRecord, err = readLatestWorkflowProposal(ctx, tx, req.Work, "C19.Continuity"); err != nil {
 		return err
 	}
 	if err := continuityReadFailureTx(ctx, tx, req.Work, out, instancePresent); err != nil {
@@ -652,22 +652,6 @@ func continuityReadReadyWorkerJobsTx(ctx context.Context, tx *sql.Tx, work strin
 	}
 	if i := slices.IndexFunc(views, func(view WorkerJobRevisionView) bool { return view.Binding == *final }); i >= 0 {
 		out.ReviewWorkerJobs = append(out.ReviewWorkerJobs, packetJobFromView(views[i]))
-	}
-	return nil
-}
-
-// continuityReadProposalTx reads the latest proposal record. A record with
-// malformed arrays is an invariant violation.
-func continuityReadProposalTx(ctx context.Context, tx *sql.Tx, work string, out *ContinuitySnapshot) error {
-	var proposal WorkflowProposalRecord
-	var proposalAffected, proposalOutcomes, proposalConstraints, proposalQuestions string
-	if err := tx.QueryRowContext(ctx, `SELECT work_version,problem,affected,stakes,user_outcomes,constraints,open_questions,recorded_at FROM workflow_proposal_records WHERE work_id=? ORDER BY work_version DESC LIMIT 1`, work).Scan(&proposal.WorkVersion, &proposal.Problem, &proposalAffected, &proposal.Stakes, &proposalOutcomes, &proposalConstraints, &proposalQuestions, &proposal.RecordedAt); err == nil {
-		if json.Unmarshal([]byte(proposalAffected), &proposal.Affected) != nil || json.Unmarshal([]byte(proposalOutcomes), &proposal.UserOutcomes) != nil || json.Unmarshal([]byte(proposalConstraints), &proposal.Constraints) != nil || json.Unmarshal([]byte(proposalQuestions), &proposal.OpenQuestions) != nil {
-			return newFailure(KindInvariantViolation, "C19.Continuity", "proposal record projection contains malformed arrays", false, "restore a verified backup into a new path with concord restore, then swap")
-		}
-		out.ProposalRecord = &proposal
-	} else if err != sql.ErrNoRows {
-		return wrapFailure(KindUnavailable, "C19.Continuity", "cannot read latest workflow proposal record", true, "retry once the database is readable", err)
 	}
 	return nil
 }

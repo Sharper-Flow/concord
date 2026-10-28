@@ -245,10 +245,6 @@ func nativeBunUnselectedAncestor(lock nativeBunLock, key string) bool {
 	return false
 }
 
-func parseNativeBunPackage(key string, tuple []json.RawMessage) (nativeBunPackage, error) {
-	return parseNativeBunPackageForPlatform(key, tuple, false)
-}
-
 func parseNativeBunPackageForPlatform(key string, tuple []json.RawMessage, pruned bool) (nativeBunPackage, error) {
 	pkg := nativeBunPackage{Key: key}
 	if _, ok := nativeBunKeySegments(key); !ok {

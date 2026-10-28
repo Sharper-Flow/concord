@@ -1,6 +1,6 @@
 {
   "schema_version": "1.1",
-  "catalog_generation": 8,
+  "catalog_generation": 9,
   "source": {
     "path": ".concord/docs/goals.md",
     "sha256": "sha256:f21896943972e1771e823b84c6aac7d29d8418f7b9b9cfcda1cebdbe8fc69d5f"
@@ -387,6 +387,10 @@
         {
           "kind": "go_test",
           "value": "internal/store.TestLawChangePreNamingUsesOwningStart"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/agent.TestWorkflowClassifiedLawChangeApproval"
         }
       ]
     },

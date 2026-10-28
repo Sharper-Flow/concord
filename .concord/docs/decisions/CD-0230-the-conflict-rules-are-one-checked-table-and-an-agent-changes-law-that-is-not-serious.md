@@ -170,6 +170,8 @@ exact-text approval through public dispatch, including tampering refusal;
 `internal/agent.TestWorkflowUnclassifiedLawChangeAdmission` checks admission
 without approval for an unclassified change. These controls do not infer the
 consequence class or judge a reason's substance; review owns those judgments.
+They do not detect code that contradicts current law without a law edit;
+review and goal A's spot checks own that detection.
 They do not establish D4 enforcement on the ad-hoc development route or
 whole-record runtime alignment under CD-0243 D6.
 

@@ -112,9 +112,9 @@ func TestHistoryConflictApplicationPayloadContract(t *testing.T) {
 	for _, key := range []string{"rule_id", "rule_source_hash", "catalog_generation", "size_assessment_sequence", "model_version", "size", "outcome", "settlement_ref"} {
 		t.Run("missing_"+key, func(t *testing.T) {
 			value := payload[key]
+			t.Cleanup(func() { payload[key] = value })
 			delete(payload, key)
 			validate(t, false)
-			payload[key] = value
 		})
 	}
 	for _, tc := range []struct {
@@ -130,8 +130,9 @@ func TestHistoryConflictApplicationPayloadContract(t *testing.T) {
 		{"model_version", 0, false},
 		{"model_version", 1.5, false},
 		{"size", "unknown", false},
-		{"size", "medium", true},
+		{"size", "medium", false},
 		{"size", "larger", true},
+		{"size", "crucial", true},
 		{"outcome", "", false},
 		{"outcome", strings.Repeat("x", 4096), true},
 		{"outcome", strings.Repeat("x", 4097), false},
@@ -144,13 +145,15 @@ func TestHistoryConflictApplicationPayloadContract(t *testing.T) {
 	} {
 		t.Run(tc.key+"_"+strconv.FormatBool(tc.valid), func(t *testing.T) {
 			original, present := payload[tc.key]
+			t.Cleanup(func() {
+				if present {
+					payload[tc.key] = original
+				} else {
+					delete(payload, tc.key)
+				}
+			})
 			payload[tc.key] = tc.value
 			validate(t, tc.valid)
-			if present {
-				payload[tc.key] = original
-			} else {
-				delete(payload, tc.key)
-			}
 		})
 	}
 }

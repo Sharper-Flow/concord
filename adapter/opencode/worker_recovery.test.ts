@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test"
 import { reconcileRetainedWorker } from "./worker_recovery"
-import { type AgentLanePacket, type HostProvenance, type WorkerRecoveryContext } from "./dispatch"
+import { resolveWorkerReportFromText, type AgentLanePacket, type HostProvenance, type WorkerRecoveryContext } from "./dispatch"
 import { agentLanes } from "./generated-agent-lanes"
 import { dispatchWindows, serializeLanePacket, TASK_TOOL_ID } from "./dispatch-window"
 import type { SessionReader } from "./move-session"
@@ -26,6 +26,61 @@ function host() {
 }
 
 const credentials = { async getPrivateKey() { return new Uint8Array(32).fill(7) } }
+
+for (const version of ["1.0", "1.1", "2.0"] as const) {
+  for (const foldRefused of [false, true]) {
+    test(`retained ${version} recovery admits omitted schema echo and preserves fold refusal=${foldRefused}`, async () => {
+      const originalPacket: AgentLanePacket = {
+        ...packet, schema_version: version,
+        inputs: { ...packet.inputs, ...(version === "2.0" ? { report_protocol: "concord-worker-result-v1" as const } : {}) },
+      }
+      const { schema_version: _echo, ...workerReport } = report
+      const text = version === "2.0" ? `\`\`\`concord-worker-result-v1\n${JSON.stringify(workerReport)}\n\`\`\`` : JSON.stringify(workerReport)
+      const transcript = host()
+      transcript.parent.messages[0].parts[0].state.input.prompt = serializeLanePacket(originalPacket)
+      transcript.parent.messages[0].parts[0].state.output = `<task id="child-recovery" state="completed">\n<task_result>\n${text}\n</task_result>\n</task>`
+      transcript.child.messages[0].parts[0].text = serializeLanePacket(originalPacket)
+      transcript.child.messages[1].parts[0].text = text
+      const before = JSON.stringify([transcript.parent, transcript.child])
+      const admitted = resolveWorkerReportFromText(text, originalPacket, model)
+      expect("report" in admitted).toBe(true)
+      if (!("report" in admitted)) throw new Error(admitted.detail)
+      expect(admitted.report.schema_version).toBe(version)
+      const originalRecovery: WorkerRecoveryContext = {
+        ...recovery, packet_schema_version: version, report_schema_version: version,
+        dispatch: { ...recovery.dispatch, packet_schema_version: version, report_schema_version: version },
+      }
+      const calls: { verb: string; request: any }[] = []
+      const result = await reconcileRetainedWorker(originalRecovery, packet.work_id, packet.attempt_id, "retained-part", {
+        sessionReader: transcript.reader, credentials, concordBinary: "concord-test", workerDirectory: process.cwd(),
+        evidenceRunner: { async run(argv, input) {
+          const request = JSON.parse(input)
+          calls.push({ verb: argv[1], request })
+          if (foldRefused && argv[1] === "worker-complete") return {
+            exitCode: 1, stderr: "", stdout: JSON.stringify({ ok: false, event_ids: [], error: {
+              kind: "missing_evidence", operation: "worker_oracle_findings", retry_safe: false, effect_state: "none",
+              message: "synthetic closure lacks a current-subject control receipt",
+            } }),
+          }
+          return { exitCode: 0, stdout: JSON.stringify({ ok: true, event_ids: [request.event_id] }), stderr: "" }
+        } },
+      }, new AbortController().signal)
+      expect(calls.map(call => call.verb)).toEqual(["worker-dispatch", "worker-complete"])
+      expect(calls[0].request.event_id).toBe(recovery.dispatch_event_id)
+      expect(calls[0].request.host_provenance).toEqual(recovery.dispatch.host_provenance)
+      expect(calls[0].request.authorized_packet).toEqual(originalPacket)
+      expect(calls[0].request.packet_schema_version).toBe(version)
+      expect(calls[1].request.report_schema_version).toBe(version)
+      expect(calls[1].request.attempt_id).toBe(packet.attempt_id)
+      expect(JSON.stringify([transcript.parent, transcript.child])).toBe(before)
+      expect(result.outcome).toBe(foldRefused ? "error" : "ok")
+      if (foldRefused) {
+        expect(result.error?.message).toContain("synthetic closure lacks a current-subject control receipt")
+        expect(result.error?.details?.effect_state).toBe("none")
+      }
+    })
+  }
+}
 
 test("retained original Task recovery advances only its correlated terminal frontier", async () => {
   const windows = dispatchWindows()
@@ -316,20 +371,35 @@ test("recovery refuses a retained packet whose schema identity differs from the 
   expect(calls).toEqual([])
 })
 
-// The retained report's own schema identity is recorded evidence: the era's
-// builder stamped the dispatching packet's identity into the report text, so
-// a retained Task whose report claims a different revision than the recorded
-// dispatch pair is not the original report and refuses before any evidence.
-test("recovery refuses a retained report whose claimed schema identity differs from the recorded pair", async () => {
+// CD-0056 D7 and Verification: worker echoes cannot select canonical identity.
+test("recovery derives schema identity from the recorded packet instead of a worker echo", async () => {
   const relabeledPacket: AgentLanePacket = { ...packet, schema_version: "1.1" }
   const mismatchTranscript = host()
   mismatchTranscript.parent.messages[0].parts[0].state.input.prompt = serializeLanePacket(relabeledPacket)
   mismatchTranscript.child.messages[0].parts[0].text = serializeLanePacket(relabeledPacket)
   const { reader } = mismatchTranscript
-  const calls: string[] = []
-  await expect(reconcileRetainedWorker({ ...recovery, packet_schema_version: "1.1", report_schema_version: "1.1", dispatch: { ...recovery.dispatch, packet_schema_version: "1.1", report_schema_version: "1.1" } }, packet.work_id, packet.attempt_id, "retained-part", {
+  const calls: { verb: string; request: any }[] = []
+  const result = await reconcileRetainedWorker({ ...recovery, packet_schema_version: "1.1", report_schema_version: "1.1", dispatch: { ...recovery.dispatch, packet_schema_version: "1.1", report_schema_version: "1.1" } }, packet.work_id, packet.attempt_id, "retained-part", {
     sessionReader: reader, credentials, concordBinary: "concord-test", workerDirectory: process.cwd(),
-    evidenceRunner: { async run(argv: string[]) { calls.push(argv[1]); return { exitCode: 0, stdout: "", stderr: "" } } },
-  }, new AbortController().signal)).rejects.toThrow(/retained report claims schema identity "1\.0"/)
-  expect(calls).toEqual([])
+    evidenceRunner: { async run(argv, input) { calls.push({ verb: argv[1], request: JSON.parse(input) }); return { exitCode: 0, stdout: "", stderr: "" } } },
+  }, new AbortController().signal)
+  expect(result.outcome, JSON.stringify(result)).toBe("ok")
+  expect(calls.map(call => call.verb)).toEqual(["worker-dispatch", "worker-complete"])
+  expect(calls[0].request.authorized_packet.schema_version).toBe("1.1")
+  expect(calls[0].request.report_schema_version).toBe("1.1")
+  expect(calls[1].request.report_schema_version).toBe("1.1")
+})
+
+test("invalid worker content without a schema echo still refuses before signing or evidence", async () => {
+  const transcript = host()
+  const invalid = JSON.stringify({ status: "completed", evidence: "not-an-array" })
+  transcript.parent.messages[0].parts[0].state.output = `<task id="child-recovery" state="completed">\n<task_result>\n${invalid}\n</task_result>\n</task>`
+  transcript.child.messages[1].parts[0].text = invalid
+  let calls = 0
+  const forbidden = async (): Promise<never> => { calls++; throw new Error("must not run") }
+  await expect(reconcileRetainedWorker(recovery, packet.work_id, packet.attempt_id, "retained-part", {
+    sessionReader: transcript.reader, workerDirectory: process.cwd(),
+    credentials: { getPrivateKey: forbidden }, evidenceRunner: { run: forbidden },
+  }, new AbortController().signal)).rejects.toThrow("retained report is invalid or incomplete")
+  expect(calls).toBe(0)
 })

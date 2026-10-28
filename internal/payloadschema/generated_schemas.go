@@ -14692,12 +14692,7 @@ const GeneratedPayloadSchemaDocument = `{
                     "type": "string"
                   },
                   "size": {
-                    "enum": [
-                      "small",
-                      "medium",
-                      "larger"
-                    ],
-                    "type": "string"
+                    "$ref": "#/$defs/work_size_class"
                   },
                   "size_assessment_sequence": {
                     "minimum": 1,

@@ -23,6 +23,10 @@ permission:
     "git * stash *": deny
     "*/git stash *": deny
     "*/git * stash *": deny
+    "herdr agent prompt*": deny
+    "herdr agent send-keys*": deny
+    "herdr pane run*": deny
+    "herdr-notify*": deny
   task:
     "*": deny
     "general": deny

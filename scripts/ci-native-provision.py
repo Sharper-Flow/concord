@@ -635,6 +635,10 @@ def compatibility_inputs(work: Path) -> dict:
         if tool is None:
             raise ValueError(f"required upstream prerequisite missing: {name}")
         records[tool] = identity(Path(tool))
+    # The unchanged upstream suite uses fault injection only when strace exists.
+    strace = shutil.which("strace", path="/usr/sbin:/usr/bin:/sbin:/bin")
+    if strace is not None:
+        records[strace] = identity(Path(strace))
     for directory in (Path("/usr/lib/python3/dist-packages/mesonbuild"), Path("/usr/lib/python3.12")):
         secure_path(directory)
         for path in sorted(directory.rglob("*")):
@@ -711,6 +715,38 @@ def supervise_compatibility(command: list[str], work: Path, env: dict, report: d
         raise ValueError("upstream test failure or lingering descendants; see retained native results")
 
 
+def compatibility_crash_metadata(report: dict) -> dict:
+    if os.geteuid() == 0:
+        raise ValueError("crash diagnostics require an unprivileged runner")
+    fields = ("__REALTIME_TIMESTAMP", "_BOOT_ID", "COREDUMP_PID", "COREDUMP_UID", "COREDUMP_SIGNAL",
+              "COREDUMP_EXE", "COREDUMP_UNIT", "COREDUMP_CGROUP")
+    result = {"availability": "unavailable", "records": [], "record_limit": 256,
+              "absence_is_not_proof": True, "evidence_kind": "diagnostic metadata only; never qualification"}
+    try:
+        start, end = report["started_unix_seconds"], report["finished_unix_seconds"]
+        if type(start) is not int or type(end) is not int or not 0 < start <= end <= start + 600:
+            raise ValueError("invalid diagnostic time window")
+        process = subprocess.run(
+            ["/usr/bin/journalctl", "--no-pager", "--output=json", "--output-fields=" + ",".join(fields),
+             "--lines=256", f"--since=@{start}", f"--until=@{end + 1}"],
+            stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=10,
+            env={"PATH": "/usr/bin:/bin", "LANG": "C.UTF-8"})
+        if process.returncode != 0 or process.stderr:
+            raise ValueError("journal access incomplete")
+        rows = [json.loads(line) for line in process.stdout.splitlines()]
+        if not all(isinstance(row, dict) for row in rows):
+            raise ValueError("invalid journal record")
+        result["records"] = [{key: value for key, value in row.items()
+                              if key in fields and isinstance(value, str)}
+                             for row in rows if any(key.startswith("COREDUMP_") for key in row)]
+        result["availability"] = "possibly truncated" if len(rows) >= 256 else "captured"
+    except (KeyError, ValueError, OSError, subprocess.SubprocessError):
+        # Never retain stderr, free-form messages, environment, command lines or
+        # core data. No journal permission triggers a sudo or package fallback.
+        pass
+    return result
+
+
 def upstream_compatibility(work: Path) -> None:
     secure_path(work)
     if (os.geteuid() != 0 or work.name != "work" or work.parent.parent != Path("/var/lib") or
@@ -719,7 +755,7 @@ def upstream_compatibility(work: Path) -> None:
     report = {"evidence_kind": "upstream compatibility only; not native isolation",
               "coverage_limits": ["root skips unreadable-directory checks", "caller-readable /etc/shadow checks short-circuit",
                                   "root capability branch replaces non-root branch", "native optional seccomp/FUSE skips retained"],
-              "errors": []}
+               "errors": [], "started_unix_seconds": int(time.time())}
     build = work / "build"
     env = {"HOME": str(work), "PATH": "/usr/bin:/bin", "LANG": "C.UTF-8", "NINJA": "/usr/bin/ninja",
            "BWRAP_MUST_WORK": "1", "PYTHONDONTWRITEBYTECODE": "1"}
@@ -766,6 +802,7 @@ def upstream_compatibility(work: Path) -> None:
                     report["logs"][str(path)] = path.read_text()
             except (ValueError, OSError) as error:
                 report["errors"].append(str(error))
+        report["finished_unix_seconds"] = int(time.time())
         print(json.dumps(report, indent=2, sort_keys=True), flush=True)
     if report["errors"]:
         raise ValueError("upstream compatibility failed; see retained qualification report")
@@ -801,6 +838,8 @@ def main() -> None:
         print(verify_compatibility_digest(Path(args[0]), args[1]))
     elif mode == "upstream-compatibility":
         upstream_compatibility(Path(args[0]))
+    elif mode == "compatibility-crash-metadata":
+        print(json.dumps(compatibility_crash_metadata(json.loads(Path(args[0]).read_text())), indent=2))
     elif mode == "stage-parser":
         stage_parser(Path(args[0]), [Path(name) for name in args[1:]])
     elif mode == "parser-effect":

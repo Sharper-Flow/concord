@@ -88,9 +88,6 @@ func nativeIsolationBuildExport(t *nativeTargetOraclePlan, root, snapshot, cwd s
 		}
 	}
 	if t.Recipe.GitMetadata != "" {
-		if _, err := nativeTargetGitExecutable(t); err != nil {
-			return nil, err
-		}
 		alias := filepath.Join(nativeTargetGitBinDir(root), "git")
 		link, err := private.Readlink(filepath.Join("git-bin", "git"))
 		if err != nil || link != t.Environment.Git {

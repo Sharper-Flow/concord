@@ -49,6 +49,12 @@ jobs:
         env:
           CONCORD_DISPOSABLE_CI_PROVISION: "1"
         run: bash scripts/ci-provision-native-isolation.sh --upstream-compatibility
+      - name: Diagnose compatibility crashes without privileged journal access
+        if: failure() && steps.compatibility.outcome == 'failure'
+        run: |
+          python3 scripts/ci-native-provision.py compatibility-crash-metadata \
+            "$RUNNER_TEMP/upstream-compatibility-evidence/qualification.json" \
+            > "$RUNNER_TEMP/upstream-compatibility-evidence/crash-metadata.json"
       - name: Retain upstream compatibility identity, native logs and coverage limits
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9

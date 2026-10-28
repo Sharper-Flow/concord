@@ -766,6 +766,9 @@ print(json.dumps(args))
             (source / "LICENSE").symlink_to("COPYING")
             records = HELPER.compatibility_inputs(work)
             self.assertEqual(records[str(source / "LICENSE")], {"resolved": str(source / "COPYING")})
+            self.assertIn("/synthetic/strace", records)
+            with patch.object(HELPER.shutil, "which", side_effect=lambda tool, path: None if tool == "strace" else "/synthetic/" + tool):
+                self.assertNotIn("/synthetic/strace", HELPER.compatibility_inputs(work))
             for link, target in (("bubblewrap-0.12.0/escape", "/etc"), ("bubblewrap-0.12.0/directory", "tests"),
                                  ("build/bwrap-link", "../bubblewrap-0.12.0/COPYING")):
                 with self.subTest(link=link):
@@ -943,11 +946,64 @@ print(json.dumps(args))
                 with self.assertRaisesRegex(ValueError, "compatibility failed"):
                     HELPER.upstream_compatibility(work)
             report = json.loads(output.getvalue())
+            self.assertIsInstance(report["started_unix_seconds"], int)
+            self.assertGreaterEqual(report["finished_unix_seconds"], report["started_unix_seconds"])
             self.assertEqual(report["after_inputs"], report["before_inputs"])
             self.assertIn("synthetic native failure", report["errors"])
             self.assertIn("unexplained compatibility drift: after_host", report["errors"])
             self.assertEqual(report["logs"][str(log)], '{"native": "failure retained"}\n')
             unlink.assert_called_once_with(missing_ok=True)
+
+    def test_crash_diagnostics_use_only_unprivileged_bounded_metadata(self):
+        report = {"started_unix_seconds": 100, "finished_unix_seconds": 110, "errors": ["host drift"]}
+        row = {"COREDUMP_EXE": "/synthetic/bwrap", "COREDUMP_PID": "123", "COREDUMP_SIGNAL": "11",
+               "COREDUMP_ENVIRON": "secret", "COREDUMP_PROC_MAPS": "secret", "MESSAGE": "secret",
+               "COREDUMP": "secret", "COREDUMP_CMDLINE": "secret"}
+        process = subprocess.CompletedProcess([], 0, json.dumps(row) + "\n", "")
+        with patch.object(os, "geteuid", return_value=1000), patch.object(subprocess, "run", return_value=process) as run:
+            result = HELPER.compatibility_crash_metadata(report)
+        self.assertEqual(result["records"], [{"COREDUMP_EXE": "/synthetic/bwrap", "COREDUMP_PID": "123", "COREDUMP_SIGNAL": "11"}])
+        self.assertNotIn("secret", json.dumps(result))
+        self.assertEqual(report["errors"], ["host drift"])
+        argv = run.call_args.args[0]
+        self.assertEqual(argv[0], "/usr/bin/journalctl")
+        for flag in ("--since=@100", "--until=@111", "--lines=256", "--no-pager", "--output=json"):
+            self.assertIn(flag, argv)
+        self.assertNotIn("sudo", argv)
+        self.assertEqual(run.call_args.kwargs["timeout"], 10)
+        self.assertNotIn("COREDUMP_ENVIRON", " ".join(argv))
+        with patch.object(os, "geteuid", return_value=0), patch.object(subprocess, "run") as run:
+            with self.assertRaisesRegex(ValueError, "unprivileged"):
+                HELPER.compatibility_crash_metadata(report)
+            run.assert_not_called()
+        process.stdout = (json.dumps(row) + "\n") * 256
+        with patch.object(os, "geteuid", return_value=1000), patch.object(subprocess, "run", return_value=process):
+            self.assertEqual(HELPER.compatibility_crash_metadata(report)["availability"], "possibly truncated")
+        for start, end in ((None, 110), (True, 110), (100, 99), (100, 701)):
+            with self.subTest(start=start, end=end), patch.object(os, "geteuid", return_value=1000), \
+                 patch.object(subprocess, "run") as run:
+                result = HELPER.compatibility_crash_metadata({"started_unix_seconds": start, "finished_unix_seconds": end})
+                self.assertEqual(result["availability"], "unavailable")
+                run.assert_not_called()
+
+    def test_crash_diagnostics_never_turn_missing_evidence_into_success(self):
+        report = {"started_unix_seconds": 100, "finished_unix_seconds": 110}
+        for process in (subprocess.CompletedProcess([], 1, "", "private error"),
+                        subprocess.CompletedProcess([], 0, "", "permission warning"),
+                        subprocess.CompletedProcess([], 0, "not json", ""),
+                        subprocess.TimeoutExpired("journalctl", 10), FileNotFoundError("private path")):
+            with self.subTest(process=type(process).__name__), patch.object(os, "geteuid", return_value=1000), \
+                 patch.object(subprocess, "run") as run:
+                if isinstance(process, Exception):
+                    run.side_effect = process
+                else:
+                    run.return_value = process
+                result = HELPER.compatibility_crash_metadata(report)
+                self.assertNotEqual(result["availability"], "captured")
+                self.assertEqual(result["records"], [])
+                self.assertNotIn("private", json.dumps(result))
+        text = (ROOT / ".github/workflows/ci.yml").read_text()
+        self.assertIn('python3 scripts/ci-native-provision.py compatibility-crash-metadata', text)
 
     def test_runtime_fingerprints_include_loader_and_symlink_target(self):
         with patch.object(subprocess, "check_output", return_value="libcap.so.2 => /lib/libcap.so.2 (0x1)\n/lib/ld.so (0x2)\n"):

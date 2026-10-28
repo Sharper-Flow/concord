@@ -6,7 +6,7 @@ import (
 	"go/token"
 	"os"
 	"path/filepath"
-	"runtime"
+	runtimepkg "runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -14,7 +14,7 @@ import (
 
 func TestOutsideRepairProofHasExclusiveOwner(t *testing.T) {
 	t.Parallel()
-	_, source, _, ok := runtime.Caller(0)
+	_, source, _, ok := runtimepkg.Caller(0)
 	if !ok {
 		t.Fatal("cannot locate source root")
 	}

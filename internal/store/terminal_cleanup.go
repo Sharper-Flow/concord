@@ -191,7 +191,7 @@ func terminalCleanupBlockersQ(ctx context.Context, q queryer, workID string) err
 
 func deleteTerminalExecutionTx(ctx context.Context, tx *sql.Tx, workID string) error {
 	// Source-owned predicates, not discovered table names or heuristic IDs.
-	// The three receipt-FK children rebuilt by migration151 precede receipts.
+	// Receipt-FK children precede their receipts.
 	for _, query := range []string{
 		`DELETE FROM idempotency_records WHERE op_id IN (SELECT op_id FROM durable_operations WHERE work_id=?1) OR (json_array_length(result_event_ids)>0 AND NOT EXISTS(SELECT 1 FROM json_each(result_event_ids) j LEFT JOIN effect_receipts r ON r.event_id=j.value WHERE r.event_id IS NULL OR r.subject_type<>'work_item' OR r.subject_id<>?1))`,
 		`DELETE FROM workflow_overlap_resolutions WHERE from_work_id=?1 OR to_work_id=?1`,

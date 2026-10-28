@@ -25,7 +25,8 @@ const WorkConflictApplied = "work.conflict_applied"
 // names are the closed v1 payload shape; the recorded copy of the size is
 // historical evidence, never a second current-size owner. The operator's D3
 // spot check reads live-recorder evidence through Q7. Its catalog and assessment
-// identify applicability; terminal cleanup removes it with the work record.
+// identify applicability; terminal cleanup and work removal delete it with
+// the work record.
 type ConflictApplication struct {
 	RuleID                 string   `json:"rule_id"`
 	RuleSourceHash         string   `json:"rule_source_hash"`

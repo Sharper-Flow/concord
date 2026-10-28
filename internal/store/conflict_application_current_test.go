@@ -330,3 +330,24 @@ func TestConflictApplicationCurrentRecordGuardsAndCleanup(t *testing.T) {
 		t.Fatalf("cleanup changed another work's evidence: %+v, want %+v", got, want)
 	}
 }
+
+func TestConflictApplicationCurrentRecordRemovedWithWork(t *testing.T) {
+	s := openTemp(t)
+	seedSizedWork(t, s, "remove-work-1")
+	ids, err := recordConflictApplication(t, s, conflictApplicationRequest("remove-work-1", "removed", nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := removalTestRequest()
+	req.ExpectedVersion = readWorkVersion(t, s, req.WorkID)
+	if _, err := s.RemoveWork(t.Context(), req); err != nil {
+		t.Fatalf("removal refused work carrying a settlement: %v", err)
+	}
+	var evidence, receipts int
+	if err := s.db.QueryRow(`SELECT count(*) FROM work_conflict_applications WHERE work_id=?`, req.WorkID).Scan(&evidence); err != nil || evidence != 0 {
+		t.Fatalf("removal retained settlement evidence: count=%d err=%v", evidence, err)
+	}
+	if err := s.db.QueryRow(`SELECT count(*) FROM effect_receipts WHERE event_id=?`, ids[0]).Scan(&receipts); err != nil || receipts != 1 {
+		t.Fatalf("removal changed the settlement receipt: count=%d err=%v", receipts, err)
+	}
+}

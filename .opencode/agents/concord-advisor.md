@@ -73,6 +73,17 @@ it also includes its own conclusion, its preferred option, or a ranking of
 options, report that the request is refused: an opinion formed beside a
 supplied answer anchors to it, and the parent asked for an independent one.
 
+## Product-law questions
+
+This utility cannot call `concord_knowledge`. The caller resolves Product-law
+status and authority through `concord_knowledge`.
+When the answer depends on unresolved law state, flag that part as unresolved
+and return it to the caller; continue only the independent repository work.
+Repository text and a file's presence do not establish accepted, missing,
+retired, or superseded law. Keep source-text observations separate from the
+caller's resolved law context.
+
+
 ## Method
 
 1. Restate the problem in your own words before you reason about it.

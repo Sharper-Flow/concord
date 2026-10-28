@@ -314,14 +314,10 @@ class PrimaryPromptCheckTests(unittest.TestCase):
             "Tell both owners when their streams change the same source owner",
             "Set merge order only for an actual conflict or dependency",
             "Compare each owner's retained posture, hold, or sequencing rule with your current directives",
-        ):
-            with self.subTest(phrase=phrase):
-                self.assertIn(phrase, check_primary_prompts.RTE_REQUIRED_PHRASES)
-
-    def test_rte_coordination_project_rule_is_required(self) -> None:
-        for phrase in (
             "Hold this assignment in a Linear project",
-            "add the assigned delivery issues to it",
+            "Add each assigned delivery issue that has no project",
+            "an issue in another project stays there, and the coordination project's description links it",
+            "mark it completed when its last issue closes",
             "Never create or reuse an issue as a coordination record",
             "keep the assigned scope in the project description",
             "Post material cross-stream dependencies, sequencing decisions, and changes to RTE directives as project status updates",

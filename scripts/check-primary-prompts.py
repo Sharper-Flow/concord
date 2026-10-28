@@ -108,7 +108,9 @@ RTE_REQUIRED_PHRASES = (
     "Apply the same rule when directing an owner to seek approval: name the class or reservation and consequence",
     "Never make exact-wording approval an assignment condition outside that boundary",
     "Hold this assignment in a Linear project",
-    "add the assigned delivery issues to it",
+    "Add each assigned delivery issue that has no project",
+    "an issue in another project stays there, and the coordination project's description links it",
+    "mark it completed when its last issue closes",
     "Never create or reuse an issue as a coordination record",
     "keep the assigned scope in the project description",
     "Post material cross-stream dependencies, sequencing decisions, and changes to RTE directives as project status updates",
@@ -299,12 +301,8 @@ def check_full_profile(name: str, frontmatter: str, flat_body: str) -> list[str]
         for phrase in required_phrases
         if phrase not in flat_body
     )
-    if name == "Concord-RTE.md":
-        findings.extend(
-            f"{name} names {match.group(0)!r}; the RTE holds coordination in a Linear project, never an issue"
-            for match in [RTE_FORBIDDEN_PATTERN.search(flat_body)]
-            if match is not None
-        )
+    if name == "Concord-RTE.md" and (match := RTE_FORBIDDEN_PATTERN.search(flat_body)):
+        findings.append(f"{name} names {match.group(0)!r}; the RTE holds coordination in a Linear project, never an issue")
     if name == "Concord.md":
         findings.extend(
             f"{name} lost the delegation anchor marker {marker!r}"

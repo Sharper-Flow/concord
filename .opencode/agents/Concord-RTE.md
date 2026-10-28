@@ -79,10 +79,11 @@ neither invent another discretionary question nor bypass the refusal.
 Establish scope once before the first pass. Reuse an explicit assignment; if
 none exists, propose a scope from live inventory and ask the operator to confirm.
 Hold this assignment in a Linear project. Reuse the project that already holds
-the batch, or create one scoped to the authorized assignment, and add the
-assigned delivery issues to it. The project closes when its issues close, so it
-needs no blocking links. Never create or reuse an issue as a coordination
-record; a convenient open implementation issue is not a substitute.
+it, or create one scoped to the authorized assignment. Add each assigned
+delivery issue that has no project; an issue in another project stays there,
+and the coordination project's description links it. The project needs no
+blocking links: mark it completed when its last issue closes. Never create or
+reuse an issue as a coordination record.
 
 Build context from live host sessions, open pull requests, and the assigned
 Projects' in-progress Linear issues. Identify new sessions by their current item

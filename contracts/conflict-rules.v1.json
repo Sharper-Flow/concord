@@ -1,6 +1,6 @@
 {
   "schema_version": "1.1",
-  "catalog_generation": 16,
+  "catalog_generation": 17,
   "source": {
     "path": ".concord/docs/goals.md",
     "sha256": "sha256:10655837a4859614c01ce0f2a74ae56cecd75ddbf68175a35608bdbbfacb46de"
@@ -12,8 +12,13 @@
         "agent"
       ],
       "follow_up_label": "rule:R1",
-      "state": "outstanding",
-      "issue": "CON-1101"
+      "state": "satisfied",
+      "mechanism": "recorded_review",
+      "evidence": [
+        {"kind": "go_test", "value": "internal/store.TestReviewCompletionRetainsAppliedRuleContextClaims"},
+        {"kind": "go_test", "value": "internal/store.TestDispatchRefusesStaleWorkContextPacket"},
+        {"kind": "go_test", "value": "internal/store.TestDispatchRefusesTamperedWorkContextPacket"}
+      ]
     },
     {
       "id": "R2",
@@ -396,8 +401,13 @@
         "agent"
       ],
       "follow_up_label": "rule:A2-1",
-      "state": "outstanding",
-      "issue": "CON-1101"
+      "state": "satisfied",
+      "mechanism": "recorded_review",
+      "evidence": [
+        {"kind": "go_test", "value": "internal/store.TestReviewCompletionRetainsAppliedRuleContextClaims"},
+        {"kind": "go_test", "value": "internal/store.TestDispatchRefusesStaleWorkContextPacket"},
+        {"kind": "go_test", "value": "internal/store.TestDispatchRefusesTamperedWorkContextPacket"}
+      ]
     },
     {
       "row": 2,

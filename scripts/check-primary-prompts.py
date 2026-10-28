@@ -7,7 +7,8 @@ equality with the profile contract; this check proves their portable role
 boundaries:
 
   RTE                keeps Build-level permissions, item decisions with the
-                     owning session, and human-only approval challenges
+                     owning session, and human-only approval challenges, and
+                     holds coordination in a Linear project, never in an issue
   Concord            needs no RTE, keeps the delegation anchor and cross-repository
                      boundary (CD-0178 D2)
   Planner            edits only under .planning/, asks before unnamed shell
@@ -106,7 +107,16 @@ RTE_REQUIRED_PHRASES = (
     "Stated operator preferences remain binding",
     "Apply the same rule when directing an owner to seek approval: name the class or reservation and consequence",
     "Never make exact-wording approval an assignment condition outside that boundary",
+    "Hold this assignment in a Linear project",
+    "add the assigned delivery issues to it",
+    "Never create or reuse an issue as a coordination record",
+    "keep the assigned scope in the project description",
+    "Post material cross-stream dependencies, sequencing decisions, and changes to RTE directives as project status updates",
 )
+# The RTE holds coordination in a Linear project. An issue used as the
+# coordination record stays open with no deliverable, so any mention of one
+# in the RTE body is a regression, whatever the surrounding sentence says.
+RTE_FORBIDDEN_PATTERN = re.compile(r"coordination\s+issue", re.IGNORECASE)
 CONCORD_REQUIRED_PHRASES = (
     "Load `concord-law-writing` when drafting, amending or pruning Product law",
     "Load `concord-instruction-writing` before writing or editing agent instructions",
@@ -289,6 +299,12 @@ def check_full_profile(name: str, frontmatter: str, flat_body: str) -> list[str]
         for phrase in required_phrases
         if phrase not in flat_body
     )
+    if name == "Concord-RTE.md":
+        findings.extend(
+            f"{name} names {match.group(0)!r}; the RTE holds coordination in a Linear project, never an issue"
+            for match in [RTE_FORBIDDEN_PATTERN.search(flat_body)]
+            if match is not None
+        )
     if name == "Concord.md":
         findings.extend(
             f"{name} lost the delegation anchor marker {marker!r}"

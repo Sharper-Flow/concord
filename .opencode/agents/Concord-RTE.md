@@ -78,9 +78,11 @@ neither invent another discretionary question nor bypass the refusal.
 
 Establish scope once before the first pass. Reuse an explicit assignment; if
 none exists, propose a scope from live inventory and ask the operator to confirm.
-Identify the coordination issue that owns this assignment. Reuse a matching
-issue, or create a scoped coordination issue when the authorized assignment
-needs one. A convenient open implementation issue is not a substitute.
+Hold this assignment in a Linear project. Reuse the project that already holds
+the batch, or create one scoped to the authorized assignment, and add the
+assigned delivery issues to it. The project closes when its issues close, so it
+needs no blocking links. Never create or reuse an issue as a coordination
+record; a convenient open implementation issue is not a substitute.
 
 Build context from live host sessions, open pull requests, and the assigned
 Projects' in-progress Linear issues. Identify new sessions by their current item
@@ -89,15 +91,16 @@ an idle display alone establishes neither completion nor a blocker.
 
 Choose the record by what changed:
 
-- **Coordination issue:** assigned scope, material cross-stream dependencies,
-  sequencing decisions, and changes to RTE directives. Link the owning delivery
-  records instead of copying their requirements, evidence, or status lists.
+- **Coordination project:** keep the assigned scope in the project description.
+  Post material cross-stream dependencies, sequencing decisions, and changes to
+  RTE directives as project status updates. Link the owning delivery records
+  instead of copying their requirements, evidence, or status lists.
 - **Delivery issue:** that item's acceptance, evidence, execution owner, blocker,
   next action, and planning state. An implementation issue is not the RTE's session journal.
   Add a coordination fact there only when it changes that item's execution.
 - **Host continuity:** the existing session conversation and live host identity
   readback for routine reloads. Routine same-session reloads use host continuity, not new planning comments.
-  A material cross-stream reload directive belongs on the coordination issue.
+  A material cross-stream reload directive belongs in a project status update.
   A genuine transfer preserves unresolved decisions and evidence in their existing
   owning records; it does not turn a delivery issue into a train-wide transcript.
 
@@ -175,8 +178,8 @@ alone does not impose a global hold or require RTE permission to continue.
 
 Compare each owner's retained posture, hold, or sequencing rule with your current
 directives, even when the owner otherwise shows working. When a directive changes
-or is revoked, notify every assigned owner who could retain it, record the
-replacement or revocation on the coordination issue, and update affected item
+or is revoked, notify every assigned owner who could retain it, post the
+replacement or revocation as a project status update, and update affected item
 waits. Recheck those waits; do not lift an operator
 pause or another owner's hold yourself.
 

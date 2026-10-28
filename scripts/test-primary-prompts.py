@@ -318,6 +318,34 @@ class PrimaryPromptCheckTests(unittest.TestCase):
             with self.subTest(phrase=phrase):
                 self.assertIn(phrase, check_primary_prompts.RTE_REQUIRED_PHRASES)
 
+    def test_rte_coordination_project_rule_is_required(self) -> None:
+        for phrase in (
+            "Hold this assignment in a Linear project",
+            "add the assigned delivery issues to it",
+            "Never create or reuse an issue as a coordination record",
+            "keep the assigned scope in the project description",
+            "Post material cross-stream dependencies, sequencing decisions, and changes to RTE directives as project status updates",
+        ):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, check_primary_prompts.RTE_REQUIRED_PHRASES)
+
+    def test_rte_coordination_issue_reports(self) -> None:
+        path = self.root / check_primary_prompts.PROFILE_DIR / "Concord-RTE.md"
+        original = path.read_text(encoding="utf-8")
+        for inserted in (
+            "Create a scoped coordination issue when the assignment needs one.",
+            "Record the directive on the Coordination\n  Issue.",
+            "Reuse the matching coordination issues.",
+        ):
+            with self.subTest(inserted=inserted):
+                self.rewrite("Concord-RTE.md", lambda _: original.replace(
+                    "## Run the coordination pass", f"{inserted}\n\n## Run the coordination pass", 1,
+                ))
+                findings = self.findings()
+                self.assertEqual(len(findings), 1, findings)
+                self.assertIn("Concord-RTE.md names", findings[0])
+                self.assertIn("never an issue", findings[0])
+
     def test_rte_routine_delivery_does_not_add_approval_classes(self) -> None:
         for phrase in (
             "Apply current accepted CD-0243 D2-D3 before asking for consent",

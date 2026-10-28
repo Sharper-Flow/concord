@@ -162,7 +162,7 @@ func TestFullWorkReadBytePagesEnumerateExactlyOnce(t *testing.T) {
 	}
 }
 
-func TestSingleFullWorkItemTooLargeReturnsTypedByteRefusal(t *testing.T) {
+func TestSingleFullWorkItemTooLargeReturnsLosslessProjectionPages(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	s, _, _, _, _ := workflowEngineFixture(t, "single item")
@@ -172,13 +172,15 @@ func TestSingleFullWorkItemTooLargeReturnsTypedByteRefusal(t *testing.T) {
 		t.Fatal(err)
 	}
 	r := runtime{Store: s, Tool: "concord_work_browse", Operation: "list", Envelope: CallEnvelope{SelectedProductID: "product-1", AmbientProjectID: "project-1", ScopeVersion: "scope-fixture"}}
-	response, err := r.read(ctx, agentcontract.NewBase("single-item", r.Tool, r.Operation), []byte(`{"product_id":"product-1","detail":"full","limit":100}`), "PM1.Q3")
-	if err != nil {
-		t.Fatal(err)
-	}
-	assertBoundedRead(t, response)
-	if response.Error == nil || response.Error.Kind != "limit_exceeded" || response.Error.EffectState != agentcontract.EffectNone || response.Error.RetrySafe || response.Error.Details["serialized_bytes"].(int) <= agentcontract.MaxResultEnvelopeBytes {
-		t.Fatalf("single admitted item must receive an honest byte refusal: %+v", response.Error)
+	for _, limit := range []int{0, 1, 100} {
+		input := map[string]any{"product_id": "product-1", "detail": "full"}
+		if limit != 0 {
+			input["limit"] = limit
+		}
+		items, fragments := readFullListDocuments(t, ctx, r, input)
+		if len(items) != 1 || items[0].ID != "work-1" || items[0].Task != strings.Repeat("<", 8192) || items[0].WorkPin == nil || len(items[0].WorkPin.NextValidIntents) == 0 || fragments < 2 {
+			t.Fatalf("single admitted item must arrive complete: limit=%d items=%d fragments=%d", limit, len(items), fragments)
+		}
 	}
 	var stored string
 	if err := db.QueryRow(`SELECT intent_json FROM work_items WHERE id='work-1'`).Scan(&stored); err != nil || stored != string(intent) {

@@ -68,6 +68,13 @@ When the pin of any other listed work item cannot be read inside the
 transaction, the mutation refuses. The generic `changed_refs` version stays;
 the pin is the typed form.
 
+Complete WorkPins remain inline when the final serialized envelope fits the
+51,200-byte limit. When it does not fit, the producer may use the closed
+projection reference and immutable transaction document required by
+[TS7 §8.2](../agent-result-envelope.md#82-lossless-oversized-result-transport).
+The reference is transport, not a third pinless case; changed references and
+truthful effect metadata remain in the mutation envelope.
+
 ### D3. Intents are derived, not authored
 
 `next_valid_intents` is derived from the pin and the workflow admission: one
@@ -86,7 +93,9 @@ research-pack mutations, never a work mutation.
 ### D4. Reads embed the same pin
 
 `concord_work_trace.continuity` and `concord_work_browse.list` with
-`detail: full` embed the pin.
+`detail: full` embed the pin. When the final serialized envelope does not fit,
+[TS7 §8.2](../agent-result-envelope.md#82-lossless-oversized-result-transport)
+permits a closed projection reference and lossless reconstruction instead.
 
 ### D5. Structural tests
 
@@ -95,6 +104,10 @@ ref that has one, at a version equal to that ref, counts the refs without one
 in a single `work_pin_unavailable` notice, and refuses when such a pin cannot
 be read. A test proves every emitted intent names an action the engine admits
 at the pin's state.
+
+Tests prove both inline and reconstructed results meet the same completeness,
+version, derivation and schema obligations under
+[TS7 §8.2](../agent-result-envelope.md#82-lossless-oversized-result-transport).
 
 ## Acceptance Criteria
 

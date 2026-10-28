@@ -130,10 +130,12 @@ func TestMutationProjectionFailedAttemptMutations(t *testing.T) {
 			if replay.Outcome != agentcontract.OutcomeOK || !replay.Replayed || string(replay.Result) != string(response.Result) || !reflect.DeepEqual(replay.ChangedRefs, response.ChangedRefs) {
 				t.Fatalf("replay changed original projection: %+v", replay.Error)
 			}
-			// Replay only touches observation metadata, never a business effect.
 			afterReplay := mutationProjectionState(t, f.s)
-			delete(beforeReplay, "idempotency_observations")
-			delete(afterReplay, "idempotency_observations")
+			if vector.operation == "workflow_action" {
+				// Only the consequential replay writes a durable acknowledgement.
+				delete(beforeReplay, "idempotency_observations")
+				delete(afterReplay, "idempotency_observations")
+			}
 			if !reflect.DeepEqual(beforeReplay, afterReplay) {
 				t.Fatal("projection replay repeated an effect")
 			}

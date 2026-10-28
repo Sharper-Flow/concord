@@ -63,10 +63,8 @@ func TestRetainedReconcileInvokeAcrossManifestChange(t *testing.T) {
 		}
 	}
 	after := mutationProjectionState(t, s)
-	delete(before, "idempotency_observations")
-	delete(after, "idempotency_observations")
 	if !reflect.DeepEqual(before, after) {
-		t.Fatal("replay repeated a business effect")
+		t.Fatal("ordinary replay changed retained state or replay metadata")
 	}
 	for _, vector := range []struct {
 		name    string

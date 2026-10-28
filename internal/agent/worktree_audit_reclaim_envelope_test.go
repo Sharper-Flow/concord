@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -43,7 +44,7 @@ func auditReclaimEnvelopeFixture(t *testing.T, terminal, orphans int) (*store.St
 		workID := fmt.Sprintf("work-paged-%02d", i)
 		if response := tiersInvoke(t, s, service, grant, "concord_work_transition", "worktree_claim", map[string]any{"host_pid": os.Getpid(),
 			"work_id": workID, "project_id": "project-1", "base_sha": baseSHA, "expected_version": 2, "idempotency_key": "audit-paged-claim-" + workID,
-		}); response.Outcome != OutcomeOK {
+		}); response.Outcome != agentcontract.OutcomeOK {
 			t.Fatalf("claim %s response=%+v err=%+v", workID, response, response.Error)
 		}
 		completeWork(t, s, workID)
@@ -69,15 +70,15 @@ func TestAuditReclaimPageSizeExceedingEnvelopeReportsOkWithPagedReport(t *testin
 	s, service, grant, _ := auditReclaimEnvelopeFixture(t, terminal, orphans)
 	input := map[string]any{"product_id": "product-1", "default_ref": "main", "idempotency_key": "audit-paged-pass-1", "limit": terminal}
 	response := tiersInvoke(t, s, service, grant, "concord_work_transition", "worktree_audit_reclaim", input)
-	if response.Outcome != OutcomeOK {
+	if response.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("a compacted pass must report ok, got %+v", response.Error)
 	}
 	encoded, err := json.Marshal(response)
 	if err != nil {
 		t.Fatalf("delivered envelope must marshal within the cap: %v", err)
 	}
-	if len(encoded) > MaxResultEnvelopeBytes {
-		t.Fatalf("envelope=%d bytes, cap %d", len(encoded), MaxResultEnvelopeBytes)
+	if len(encoded) > agentcontract.MaxResultEnvelopeBytes {
+		t.Fatalf("envelope=%d bytes, cap %d", len(encoded), agentcontract.MaxResultEnvelopeBytes)
 	}
 	if response.ChangedRefs == nil || len(*response.ChangedRefs) != terminal {
 		t.Fatalf("changed refs=%d, want every committed row", len(derefChangedRefs(response.ChangedRefs)))
@@ -107,7 +108,7 @@ func TestAuditReclaimPageSizeExceedingEnvelopeReportsOkWithPagedReport(t *testin
 	if len(result.ReportOnly) == 0 || len(result.ReportOnly) >= orphans {
 		t.Fatalf("inline report_only=%d, want a non-empty prefix of the %d classified rows", len(result.ReportOnly), orphans)
 	}
-	var notice *Notice
+	var notice *agentcontract.Notice
 	for i := range response.Omissions {
 		if response.Omissions[i].Kind == "report_only_paged" {
 			notice = &response.Omissions[i]
@@ -132,11 +133,11 @@ func TestAuditReclaimReplayReturnsSameBoundedResult(t *testing.T) {
 	s, service, grant, _ := auditReclaimEnvelopeFixture(t, 2, 300)
 	input := map[string]any{"product_id": "product-1", "default_ref": "main", "idempotency_key": "audit-paged-pass-replay", "limit": 2}
 	first := tiersInvoke(t, s, service, grant, "concord_work_transition", "worktree_audit_reclaim", input)
-	if first.Outcome != OutcomeOK {
+	if first.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("first pass=%+v", first.Error)
 	}
 	second := tiersInvoke(t, s, service, grant, "concord_work_transition", "worktree_audit_reclaim", input)
-	if second.Outcome != OutcomeOK {
+	if second.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("replay=%+v", second.Error)
 	}
 	if !second.Replayed {
@@ -163,7 +164,7 @@ func TestWorktreeAuditReadPagesCompleteClassification(t *testing.T) {
 			input["page"] = map[string]any{"cursor": cursor, "limit": 50}
 		}
 		response := tiersInvoke(t, s, service, grant, "concord_work_browse", "worktree_audit", input)
-		if response.Outcome != OutcomeOK {
+		if response.Outcome != agentcontract.OutcomeOK {
 			t.Fatalf("audit page failed: %+v", response.Error)
 		}
 		assertStoreRevisionWatermark(t, s, response)
@@ -213,18 +214,18 @@ func TestCompactAuditReclaimReportBoundsResultToEnvelopeCap(t *testing.T) {
 	for i := range reportOnly {
 		reportOnly[i] = store.WorktreeDrift{Class: store.WorktreeDriftOrphan, ProjectID: "project-1", WorkID: fmt.Sprintf("work-orphan-%03d", i), Path: path + fmt.Sprintf("%03d", i), RecoveryAction: store.WorktreeRecoveryRemoveOrphan}
 	}
-	changed := make([]ChangedRef, 32)
+	changed := make([]agentcontract.ChangedRef, 32)
 	for i := range changed {
-		changed[i] = ChangedRef{EntityKind: "work_item", ID: fmt.Sprintf("work-byte-%02d", i), Version: "7"}
+		changed[i] = agentcontract.ChangedRef{EntityKind: "work_item", ID: fmt.Sprintf("work-byte-%02d", i), Version: "7"}
 	}
 	payload, _ := json.Marshal(map[string]any{
 		"root": "/worktrees", "rows": rows, "report_only": reportOnly,
 		"changed_refs":       mutationResultChangedRefs(changed),
 		"next_valid_intents": mutationResultIntents(nil),
 	})
-	base := NewBase("compact-bytes", "concord_work_transition", "worktree_audit_reclaim")
-	base.ResolvedScope = &Scope{ProductID: "product-1"}
-	if uncompacted := auditReclaimEnvelopeBytes(base, payload, changed, nil, nil); uncompacted <= MaxResultEnvelopeBytes {
+	base := agentcontract.NewBase("compact-bytes", "concord_work_transition", "worktree_audit_reclaim")
+	base.ResolvedScope = &agentcontract.Scope{ProductID: "product-1"}
+	if uncompacted := auditReclaimEnvelopeBytes(base, payload, changed, nil, nil); uncompacted <= agentcontract.MaxResultEnvelopeBytes {
 		t.Fatalf("the uncompacted envelope is %d bytes; the test must start over the cap", uncompacted)
 	}
 	compacted, notices := compactAuditReclaimReport(base, payload, changed, nil)
@@ -269,12 +270,12 @@ func TestCompactAuditReclaimReportBoundsResultToEnvelopeCap(t *testing.T) {
 	if result.Rows[len(result.Rows)-1].Detail != "" {
 		t.Fatalf("the last attempt row's detail must drop first")
 	}
-	if encoded := auditReclaimEnvelopeBytes(base, compacted, changed, nil, notices); encoded > MaxResultEnvelopeBytes {
-		t.Fatalf("compacted envelope=%d bytes, cap %d", encoded, MaxResultEnvelopeBytes)
+	if encoded := auditReclaimEnvelopeBytes(base, compacted, changed, nil, notices); encoded > agentcontract.MaxResultEnvelopeBytes {
+		t.Fatalf("compacted envelope=%d bytes, cap %d", encoded, agentcontract.MaxResultEnvelopeBytes)
 	}
 }
 
-func derefChangedRefs(refs *[]ChangedRef) []ChangedRef {
+func derefChangedRefs(refs *[]agentcontract.ChangedRef) []agentcontract.ChangedRef {
 	if refs == nil {
 		return nil
 	}

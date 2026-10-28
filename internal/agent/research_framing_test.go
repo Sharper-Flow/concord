@@ -25,7 +25,7 @@ func TestResearchFramingRequiresContractApprovalBeforeInvestigate(t *testing.T) 
 	env := mutationEnvelope(grant, scopeVersion)
 	workID := captureCompositionWork(t, ctx, s, service, env, "Framing gate research", "research", "workflow.research", "framing-gate-capture")
 
-	action := func(actionID string, fields map[string]any, key string) Envelope {
+	action := func(actionID string, fields map[string]any, key string) agentcontract.Envelope {
 		t.Helper()
 		version := agentCompositionWorkVersion(t, s, workID)
 		raw, err := json.Marshal(map[string]any{"work_id": workID, "expected_version": version, "action_id": actionID, "fields": fields, "idempotency_key": key})
@@ -60,7 +60,7 @@ func TestResearchFramingRequiresContractApprovalBeforeInvestigate(t *testing.T) 
 		t.Fatalf("captured research step=%q, want frame", step)
 	}
 	framed := action("frame_research", map[string]any{}, "framing-gate-frame")
-	if framed.Outcome != OutcomeOK {
+	if framed.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("frame_research refused: %+v", framed.Error)
 	}
 	if step := currentStep(); step != "frame" {
@@ -71,7 +71,7 @@ func TestResearchFramingRequiresContractApprovalBeforeInvestigate(t *testing.T) 
 	}
 
 	investigated := action("record_finding", map[string]any{}, "framing-gate-finding")
-	if investigated.Outcome != OutcomeError || investigated.Error == nil {
+	if investigated.Outcome != agentcontract.OutcomeError || investigated.Error == nil {
 		t.Fatalf("record_finding before approval outcome=%q error=%+v, want refusal", investigated.Outcome, investigated.Error)
 	}
 	if step := currentStep(); step != "frame" {
@@ -88,7 +88,7 @@ func TestResearchFramingRequiresContractApprovalBeforeInvestigate(t *testing.T) 
 		{"premise": "workflow premise", "outcome_predicates": predicates, "decision_domains": []string{}},
 	} {
 		refused := action("approve_contract", fields, "framing-gate-unstated-question-"+strconv.Itoa(i))
-		if refused.Outcome != OutcomeError || refused.Error == nil {
+		if refused.Outcome != agentcontract.OutcomeError || refused.Error == nil {
 			t.Fatalf("approve_contract without a stated question %d outcome=%q, want refusal", i, refused.Outcome)
 		}
 		if refused.Error.Kind != "invalid_input" || !strings.Contains(refused.Error.Message, "$.fields.premise") {

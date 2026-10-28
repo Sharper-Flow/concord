@@ -38,7 +38,7 @@ func TestAgentWorkflowCompositionUsesSelectedSuccessorFamily(t *testing.T) {
 
 	version := agentCompositionWorkVersion(t, s, sourceID)
 	linked := dispatchCompositionLink(t, ctx, s, service, env, sourceID, successorID, version, "composition-link")
-	if linked.Outcome != OutcomeOK {
+	if linked.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("agent forward link failed: %+v", linked.Error)
 	}
 	var storedKind, definitionRef string
@@ -51,7 +51,7 @@ func TestAgentWorkflowCompositionUsesSelectedSuccessorFamily(t *testing.T) {
 
 	version = agentCompositionWorkVersion(t, s, sourceID)
 	refused := dispatchCompositionLink(t, ctx, s, service, env, sourceID, missingInstanceID, version, "composition-missing-link")
-	if refused.Outcome != OutcomeError || refused.Error == nil || refused.Error.Kind != "invalid_relation" {
+	if refused.Outcome != agentcontract.OutcomeError || refused.Error == nil || refused.Error.Kind != "invalid_relation" {
 		if refused.Error != nil {
 			t.Fatalf("missing workflow instance error kind=%q message=%q recovery=%+v", refused.Error.Kind, refused.Error.Message, refused.Error.RecoveryAction)
 		}
@@ -87,13 +87,13 @@ func captureCompositionWork(t *testing.T, ctx context.Context, s *store.Store, s
 		t.Fatal(err)
 	}
 	response, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_define", Operation: "capture", Input: raw}, env)
-	if err != nil || response.Outcome != OutcomeOK || len(*response.ChangedRefs) != 1 {
+	if err != nil || response.Outcome != agentcontract.OutcomeOK || len(*response.ChangedRefs) != 1 {
 		t.Fatalf("capture %q response=%+v err=%v", title, response, err)
 	}
 	return (*response.ChangedRefs)[0].ID
 }
 
-func dispatchCompositionLink(t *testing.T, ctx context.Context, s *store.Store, service *Service, env CallEnvelope, sourceID, successorID string, version int64, idempotencyKey string) Envelope {
+func dispatchCompositionLink(t *testing.T, ctx context.Context, s *store.Store, service *Service, env CallEnvelope, sourceID, successorID string, version int64, idempotencyKey string) agentcontract.Envelope {
 	t.Helper()
 	raw, err := json.Marshal(map[string]any{
 		"work_id": sourceID, "expected_version": version, "action_id": "link_successor",

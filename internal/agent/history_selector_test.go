@@ -158,11 +158,11 @@ func TestHistoryConflictApplicationPayloadContract(t *testing.T) {
 func TestConflictObservationHistoryIntent(t *testing.T) {
 	s, service, grant, scopeVersion := conflictDispatchFixture(t)
 	response, err := dispatchConflictObservation(t, s, service, grant, scopeVersion, map[string]any{"work_id": "work-sized", "idempotency_key": "history-intent", "conflict": map[string]any{"rule_id": "R1", "outcome": "settled"}})
-	if err != nil || response.Error != nil || response.Outcome != OutcomeOK {
+	if err != nil || response.Error != nil || response.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("record = %+v, %v", response, err)
 	}
-	want := NextIntent{Tool: "concord_work_trace", Operation: "history", QueryID: "PM1.Q7", ReasonCode: "verify_settlement_recorded", RequiredFields: []string{"work_id"}}
-	if response.NextValidIntents == nil || !reflect.DeepEqual(*response.NextValidIntents, []NextIntent{want}) {
+	want := agentcontract.NextIntent{Tool: "concord_work_trace", Operation: "history", QueryID: "PM1.Q7", ReasonCode: "verify_settlement_recorded", RequiredFields: []string{"work_id"}}
+	if response.NextValidIntents == nil || !reflect.DeepEqual(*response.NextValidIntents, []agentcontract.NextIntent{want}) {
 		t.Fatalf("envelope intents = %+v, want %+v", response.NextValidIntents, want)
 	}
 	var result struct {
@@ -171,12 +171,12 @@ func TestConflictObservationHistoryIntent(t *testing.T) {
 	if err := json.Unmarshal(response.Result, &result); err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(result.Intents, mutationResultIntents([]NextIntent{want})) {
+	if !reflect.DeepEqual(result.Intents, mutationResultIntents([]agentcontract.NextIntent{want})) {
 		t.Fatalf("result intents = %+v, want history intent", result.Intents)
 	}
 	raw := json.RawMessage(`{"work_id":"work-sized"}`)
 	read, err := Dispatch(context.Background(), s, service, InvokeRequest{Tool: want.Tool, Operation: want.Operation, Input: raw}, mutationEnvelope(grant, scopeVersion))
-	if err != nil || read.Error != nil || read.Outcome != OutcomeOK {
+	if err != nil || read.Error != nil || read.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("follow history intent = %+v, %v", read, err)
 	}
 	var page struct {
@@ -196,7 +196,7 @@ func TestConflictObservationHistoryIntent(t *testing.T) {
 func TestHistoryDetailsGenericArrayBound(t *testing.T) {
 	for _, size := range []int{20, 21} {
 		t.Run(strconv.Itoa(size), func(t *testing.T) {
-			envelope := coreError(NewBase("history-details", "concord_work_trace", "history"), "invalid_input", "invalid filter", "reread_entities", false)
+			envelope := coreError(agentcontract.NewBase("history-details", "concord_work_trace", "history"), "invalid_input", "invalid filter", "reread_entities", false)
 			envelope.Error.Details = map[string]any{"other": make([]string, size)}
 			_, err := json.Marshal(envelope)
 			if (err == nil) != (size == 20) {

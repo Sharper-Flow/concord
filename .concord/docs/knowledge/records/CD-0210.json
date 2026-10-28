@@ -18,9 +18,9 @@
     "internal/agent/outside_repair.go",
     "internal/agent/outside_repair_test.go",
     "internal/agent/authority.go",
-    "internal/agent/envelope.go",
+    "internal/agentcontract/envelope.go",
     "internal/agent/mutations.go",
-    "internal/agent/recovery_coupling_test.go",
+    "internal/agentcontract/recovery_test.go",
     "cmd/concord/release_pairs_cli_test.go",
     "adapter/opencode/continuity-hook.ts",
     "adapter/opencode/continuity_hook.test.ts"

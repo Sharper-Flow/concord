@@ -168,7 +168,7 @@ func TestResearchContextContractPublishesSelectedResearch(t *testing.T) {
 			[]map[string]any{researchScopeBinding(linked, 1, true)},
 			[]map[string]any{researchContextSelectedRef(linked, "f-"+linked, child, "")})
 		published := researchScopeInvoke(t, f, "workflow_action", input)
-		if published.Outcome != OutcomeOK {
+		if published.Outcome != agentcontract.OutcomeOK {
 			t.Fatalf("same-Product selection refused on the promoted head: %+v", published.Error)
 		}
 		researchContextAssertResolvedView(t, f, linked, 1)
@@ -182,7 +182,7 @@ func TestResearchContextContractPublishesSelectedResearch(t *testing.T) {
 			[]map[string]any{researchScopeBinding(researchScopePackA, 1, true)},
 			[]map[string]any{researchContextSelectedRef(researchScopePackA, "f-"+researchScopePackA, root, "the selection governs every Domain of the Product")})
 		published := researchScopeInvoke(t, f, "workflow_action", input)
-		if published.Outcome != OutcomeOK {
+		if published.Outcome != agentcontract.OutcomeOK {
 			t.Fatalf("root-Domain selection refused: %+v", published.Error)
 		}
 		// The S3 fixture's finding links no source: the resolved entry stays
@@ -223,7 +223,7 @@ func TestResearchContextContractPublishesSelectedResearch(t *testing.T) {
 			[]map[string]any{researchScopeBinding(researchScopePackB, 1, true)},
 			[]map[string]any{researchContextSelectedRef(researchScopePackB, "f-"+researchScopePackB, child, "")})
 		published := researchScopeInvoke(t, f, "workflow_action", input)
-		if published.Outcome != OutcomeOK {
+		if published.Outcome != agentcontract.OutcomeOK {
 			t.Fatalf("granted cross-Product selection refused: %+v", published.Error)
 		}
 		researchContextAssertResolvedView(t, f, researchScopePackB, 0)
@@ -290,7 +290,7 @@ func TestResearchContextContractPublishesSelectedResearch(t *testing.T) {
 			[]map[string]any{researchScopeBinding(linked, 1, true)},
 			[]map[string]any{researchContextSelectedRef(linked, "f-"+linked, child, "")})
 		first := researchScopeInvoke(t, f, "workflow_action", input)
-		if first.Outcome != OutcomeOK {
+		if first.Outcome != agentcontract.OutcomeOK {
 			t.Fatalf("selected declaration failed: %+v", first.Error)
 		}
 		afterFirst := researchScopeSnapshot(t, f.store, linked)
@@ -299,7 +299,7 @@ func TestResearchContextContractPublishesSelectedResearch(t *testing.T) {
 			t.Fatal(err)
 		}
 		replay := researchScopeInvoke(t, f, "workflow_action", input)
-		if replay.Outcome != OutcomeOK || !replay.Replayed {
+		if replay.Outcome != agentcontract.OutcomeOK || !replay.Replayed {
 			t.Fatalf("exact replay outcome=%q replayed=%v error=%+v", replay.Outcome, replay.Replayed, replay.Error)
 		}
 		researchScopeAssertNoEffects(t, afterFirst, researchScopeSnapshot(t, f.store, linked))
@@ -323,7 +323,7 @@ func TestResearchContextContractPublishesSelectedResearch(t *testing.T) {
 			[]map[string]any{researchScopeBinding(linked, 1, true)},
 			[]map[string]any{researchContextSelectedRef(linked, "f-"+linked, child, "")})
 		published := researchScopeInvoke(t, f, "workflow_action", input)
-		if published.Outcome != OutcomeOK {
+		if published.Outcome != agentcontract.OutcomeOK {
 			t.Fatalf("selected declaration failed: %+v", published.Error)
 		}
 		policy := store.TrustedClientRecord{ClientRef: "client-1", Status: "active", PrincipalRef: "human-1", CapabilitiesJSON: `[]`, ProductScopeJSON: `[]`, ProjectScopeJSON: `[]`, AgentScopeJSON: `["agent-1"]`}

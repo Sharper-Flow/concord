@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"testing"
+
+	"github.com/sharper-flow/concord/internal/agentcontract"
 )
 
 // CD-0243 D3/D7 retire terminal status as an independent consent requirement.
@@ -17,14 +19,14 @@ func TestOrdinaryTerminalLifecycleNeedsNoConsent(t *testing.T) {
 			input := []byte(fmt.Sprintf(`{"work_id":"work-cross","expected_version":%d,"target":%q,"reason":"obsolete or verified work","idempotency_key":"ordinary-terminal","evidence":[{"kind":"verification","authority":"verifier","locator_kind":"test","locator":"verification-pass"}]}`, version, target))
 			request := InvokeRequest{Tool: "concord_work_transition", Operation: "lifecycle", Input: input}
 			result := dispatchMutation(t, s, service, request, env)
-			if result.Outcome != OutcomeOK {
+			if result.Outcome != agentcontract.OutcomeOK {
 				t.Fatalf("ordinary %s = %s: %+v", target, result.Outcome, result.Error)
 			}
 			if lifecycle, got := readWorkFromStore(t, s, "work-cross"); lifecycle != target || got != version+1 {
 				t.Fatalf("state = %s v%d, want %s v%d", lifecycle, got, target, version+1)
 			}
 			replay := dispatchMutation(t, s, service, request, env)
-			if replay.Outcome != OutcomeOK || !replay.Replayed {
+			if replay.Outcome != agentcontract.OutcomeOK || !replay.Replayed {
 				t.Fatalf("replay = %+v", replay)
 			}
 			if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM agent_approval_challenges`); got != 0 {
@@ -39,7 +41,7 @@ func TestOrdinaryOutsideRepairNeedsNoConsent(t *testing.T) {
 	for _, mode := range []string{"resume", "completed"} {
 		t.Run(mode, func(t *testing.T) {
 			s, service, env, fake := outsideFixture(t)
-			dispatch := func(operation string, input map[string]any) Envelope {
+			dispatch := func(operation string, input map[string]any) agentcontract.Envelope {
 				raw, err := json.Marshal(input)
 				if err != nil {
 					t.Fatal(err)
@@ -75,11 +77,11 @@ func TestOrdinaryOverlapNeedsNoConsent(t *testing.T) {
 			request := InvokeRequest{Tool: "concord_work_relate", Operation: "resolve_overlap", Input: routineOverlapResolveInput(t, binding, "ordinary-overlap")}
 			before := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM agent_approval_challenges`)
 			result := dispatchMutation(t, s, service, request, env)
-			if result.Outcome != OutcomeOK {
+			if result.Outcome != agentcontract.OutcomeOK {
 				t.Fatalf("ordinary %s: %+v", kind, result.Error)
 			}
 			replay := dispatchMutation(t, s, service, request, env)
-			if replay.Outcome != OutcomeOK || !replay.Replayed {
+			if replay.Outcome != agentcontract.OutcomeOK || !replay.Replayed {
 				t.Fatalf("overlap replay: %+v", replay.Error)
 			}
 			if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM agent_approval_challenges`); got != before {

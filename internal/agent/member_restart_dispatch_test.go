@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -48,7 +49,7 @@ func TestSameSessionServiceRestartRefusesUnresolvedStartedAssignment(t *testing.
 			"work_id": f.work, "step_id": f.read(t).Pinned.Step, "inputs": map[string]any{},
 		})
 		refused := f.action(t, "dispatch_worker", map[string]any{"attempt_id": replacement, "worker_packet": packet})
-		if refused.Outcome != OutcomeError || refused.Error == nil || refused.Error.Kind != "operation_conflict" {
+		if refused.Outcome != agentcontract.OutcomeError || refused.Error == nil || refused.Error.Kind != "operation_conflict" {
 			t.Fatalf("fresh dispatch while the same caller's started assignment is unresolved: outcome=%s error=%+v", refused.Outcome, refused.Error)
 		}
 		after := f.read(t).Pinned.Pin

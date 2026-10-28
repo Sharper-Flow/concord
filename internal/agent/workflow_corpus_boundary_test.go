@@ -51,7 +51,7 @@ func TestCompactionTakeoverOfStuckClaimNeedsNoConsent(t *testing.T) {
 		}
 		return nil
 	}
-	if stuck := publishCancelledNoteWithKey(t, s, service, grant, privateKey, home, key+"-stuck"); stuck.Outcome != OutcomePartial {
+	if stuck := publishCancelledNoteWithKey(t, s, service, grant, privateKey, home, key+"-stuck"); stuck.Outcome != agentcontract.OutcomePartial {
 		t.Fatalf("interrupted publication outcome=%s error=%+v, want partial", stuck.Outcome, stuck.Error)
 	}
 	service.publicationObserver = nil
@@ -76,13 +76,13 @@ func TestCompactionTakeoverOfStuckClaimNeedsNoConsent(t *testing.T) {
 	}
 
 	publication := newCancelledNotePublication(t, s, grant, home, key)
-	if response := dispatchMutation(t, s, service, publication.request(), publication.env); response.Outcome != OutcomeOK {
+	if response := dispatchMutation(t, s, service, publication.request(), publication.env); response.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("consent-free takeover outcome=%s error=%+v", response.Outcome, response.Error)
 	}
 	if _, epochs = claims(); !slices.Equal(epochs, []string{"1:pending", "2:completed"}) {
 		t.Fatalf("claims after takeover = %v, want [1:pending 2:completed]", epochs)
 	}
-	if replay := dispatchMutation(t, s, service, publication.request(), publication.env); replay.Outcome != OutcomeOK || !replay.Replayed {
+	if replay := dispatchMutation(t, s, service, publication.request(), publication.env); replay.Outcome != agentcontract.OutcomeOK || !replay.Replayed {
 		t.Fatalf("takeover replay = %+v", replay)
 	}
 	if _, epochs = claims(); !slices.Equal(epochs, []string{"1:pending", "2:completed"}) {
@@ -111,7 +111,7 @@ func TestCompactionTakeoverOfStuckClaimNeedsNoConsent(t *testing.T) {
 	}
 }
 
-func invokeWorkflowBoundary(t *testing.T, s *store.Store, service *Service, env CallEnvelope, input map[string]any, registry store.DefinitionRegistry) Envelope {
+func invokeWorkflowBoundary(t *testing.T, s *store.Store, service *Service, env CallEnvelope, input map[string]any, registry store.DefinitionRegistry) agentcontract.Envelope {
 	t.Helper()
 	raw, err := json.Marshal(input)
 	if err != nil {
@@ -135,7 +135,7 @@ func TestWorkflowActionAvailabilityBeforePayloadOrAuth(t *testing.T) {
 	env := mutationEnvelope(grant, scopeVersion)
 	input := map[string]any{"work_id": "work-1", "expected_version": version, "action_id": "start_execution", "fields": map[string]any{}, "idempotency_key": "boundary-unavailable"}
 	response := invokeWorkflowBoundary(t, s, service, env, input, store.NewWorkflowDefinitionRegistry())
-	if response.Outcome != OutcomeError || response.Error == nil || response.Error.Kind != "invalid_transition" {
+	if response.Outcome != agentcontract.OutcomeError || response.Error == nil || response.Error.Kind != "invalid_transition" {
 		t.Fatalf("unavailable action response outcome=%s error=%+v", response.Outcome, response.Error)
 	}
 	var started int
@@ -163,7 +163,7 @@ func advanceWorkflowBoundaryToExecution(t *testing.T, s *store.Store, service *S
 		}
 		input := map[string]any{"work_id": "work-1", "expected_version": version, "action_id": action, "fields": fields, "idempotency_key": "boundary-" + action}
 		response := invokeWorkflowBoundary(t, s, service, env, input, store.BuiltinWorkflowRegistry())
-		if response.Outcome != OutcomeOK {
+		if response.Outcome != agentcontract.OutcomeOK {
 			t.Fatalf("advance action=%s response=%+v", action, response)
 		}
 	}
@@ -187,7 +187,7 @@ func advanceWorkflowBoundaryToExecution(t *testing.T, s *store.Store, service *S
 	approved := challengeInput
 	approved["approval"] = map[string]any{"approval_ref": challengeRef}
 	response := invokeWorkflowBoundary(t, s, service, approvalEnv, approved, store.BuiltinWorkflowRegistry())
-	if response.Outcome != OutcomeOK {
+	if response.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("approved action=%+v", response)
 	}
 	recordApprovedWorkDesign(t, s, service, env, "work-1", "boundary-design")
@@ -214,7 +214,7 @@ func TestWorkflowActionStrictInvokeBoundaryForStepActorAndPayload(t *testing.T) 
 		t.Fatal(err)
 	}
 	response := invokeWorkflowBoundary(t, s, service, env, input, store.BuiltinWorkflowRegistry())
-	if response.Outcome != OutcomeError || response.Error == nil || response.Error.Kind != "invalid_input" {
+	if response.Outcome != agentcontract.OutcomeError || response.Error == nil || response.Error.Kind != "invalid_input" {
 		t.Fatalf("malformed step/payload response=%+v", response)
 	}
 	var after int
@@ -229,7 +229,7 @@ func TestWorkflowActionStrictInvokeBoundaryForStepActorAndPayload(t *testing.T) 
 	actorEnv.AgentRef = "agent:malformed"
 	actorInput := map[string]any{"work_id": "work-1", "expected_version": version, "action_id": "start_execution", "fields": map[string]any{}, "idempotency_key": "boundary-malformed-actor"}
 	actorResponse := invokeWorkflowBoundary(t, s, service, actorEnv, actorInput, store.BuiltinWorkflowRegistry())
-	if actorResponse.Outcome != OutcomeError || actorResponse.Error == nil || actorResponse.Error.Kind != "unauthorized" {
+	if actorResponse.Outcome != agentcontract.OutcomeError || actorResponse.Error == nil || actorResponse.Error.Kind != "unauthorized" {
 		t.Fatalf("malformed actor response outcome=%s error=%+v", actorResponse.Outcome, actorResponse.Error)
 	}
 	if afterEffects := workflowReplayEffectCounts(t, s); afterEffects != beforeEffects {
@@ -259,7 +259,7 @@ func TestWorkflowActionRejectsReplayWithoutEffects(t *testing.T) {
 		t.Fatal(err)
 	}
 	// The closed action union refuses replay before mutation authority.
-	if response.Outcome != OutcomeError || response.Error == nil || response.Error.Kind != "invalid_input" || !strings.Contains(response.Error.Message, "action_id") {
+	if response.Outcome != agentcontract.OutcomeError || response.Error == nil || response.Error.Kind != "invalid_input" || !strings.Contains(response.Error.Message, "action_id") {
 		if response.Error == nil {
 			t.Fatalf("forbidden replay response=%+v", response)
 		}

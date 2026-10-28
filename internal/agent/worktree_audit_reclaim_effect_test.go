@@ -40,12 +40,12 @@ func TestWorktreeAuditReclaimMixedSweepCommitsAndConverges(t *testing.T) {
 		"product_id": "product-1", "default_ref": "main", "idempotency_key": "audit-effect-1",
 	})
 	r := runtime{Store: s, Authority: second, Envelope: env, Tool: "concord_work_transition", Operation: "worktree_audit_reclaim", Reader: secondGrant}
-	base := NewBase("audit-effect-1", "concord_work_transition", "worktree_audit_reclaim")
+	base := agentcontract.NewBase("audit-effect-1", "concord_work_transition", "worktree_audit_reclaim")
 	response, err := r.mutateWorktreeAuditReclaim(ctx, base, raw, secondGrant, op)
 	if err != nil {
 		t.Fatalf("planner err=%v", err)
 	}
-	if response.Outcome != OutcomeOK {
+	if response.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("mixed sweep must reclaim work-2 and report ok, got %+v", response.Error)
 	}
 	if response.Error != nil {
@@ -73,7 +73,7 @@ func TestWorktreeAuditReclaimMixedSweepCommitsAndConverges(t *testing.T) {
 	settled := authorityInvoke(t, s, second, secondGrant, "concord_work_transition", "worktree_audit_reclaim", map[string]any{
 		"product_id": "product-1", "default_ref": "main", "idempotency_key": "audit-effect-1",
 	})
-	if settled.Outcome != OutcomeOK {
+	if settled.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("reconcile response=%+v err=%+v", settled, settled.Error)
 	}
 	if version := workVersion(t, s, "work-2"); version != work2Version {
@@ -87,18 +87,18 @@ func TestWorktreeAuditReclaimMixedSweepCommitsAndConverges(t *testing.T) {
 // committed.
 func TestAuditReclaimPostCommitFailureMapping(t *testing.T) {
 	t.Parallel()
-	base := NewBase("audit-effect-mapping", "concord_work_transition", "worktree_audit_reclaim")
-	changed := []ChangedRef{{EntityKind: "work_item", ID: "work-2", Version: "5"}}
+	base := agentcontract.NewBase("audit-effect-mapping", "concord_work_transition", "worktree_audit_reclaim")
+	changed := []agentcontract.ChangedRef{{EntityKind: "work_item", ID: "work-2", Version: "5"}}
 
 	failure := coreError(base, "malformed_response", "mutation result failed closed-schema validation", "contact_operator", false)
 	mapped := auditReclaimPostCommitFailure(base, changed, failure)
-	if mapped.Outcome != OutcomeError || mapped.Error == nil {
+	if mapped.Outcome != agentcontract.OutcomeError || mapped.Error == nil {
 		t.Fatalf("mapped=%+v", mapped)
 	}
 	if mapped.Error.Kind != "malformed_response" || mapped.Error.RecoveryAction.Kind != "contact_operator" {
 		t.Fatalf("mapping must keep kind and recovery: %+v", mapped.Error)
 	}
-	if mapped.Error.EffectState != EffectPossible {
+	if mapped.Error.EffectState != agentcontract.EffectPossible {
 		t.Fatalf("effect_state=%q, want possible", mapped.Error.EffectState)
 	}
 	if mapped.ChangedRefs == nil || len(*mapped.ChangedRefs) != 1 || (*mapped.ChangedRefs)[0].ID != "work-2" {
@@ -110,7 +110,7 @@ func TestAuditReclaimPostCommitFailureMapping(t *testing.T) {
 
 	untouched := coreError(base, "malformed_response", "mutation result failed closed-schema validation", "contact_operator", false)
 	kept := auditReclaimPostCommitFailure(base, nil, untouched)
-	if kept.Error.EffectState != EffectNone || kept.ChangedRefs != nil {
+	if kept.Error.EffectState != agentcontract.EffectNone || kept.ChangedRefs != nil {
 		t.Fatalf("empty commit set must keep the no-effect refusal: %+v", kept.Error)
 	}
 
@@ -121,7 +121,7 @@ func TestAuditReclaimPostCommitFailureMapping(t *testing.T) {
 	if err := validated.Validate(); err != nil {
 		t.Fatalf("invalid post-commit failure was not repaired to a valid envelope: %v", err)
 	}
-	if validated.Error == nil || validated.Error.Kind != "malformed_response" || validated.Error.EffectState != EffectPossible {
+	if validated.Error == nil || validated.Error.Kind != "malformed_response" || validated.Error.EffectState != agentcontract.EffectPossible {
 		t.Fatalf("invalid post-commit failure was not typed with its committed effect: %+v", validated)
 	}
 }

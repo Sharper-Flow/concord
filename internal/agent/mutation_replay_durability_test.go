@@ -111,7 +111,7 @@ func TestWorkflowReplayCommitsDurablyUnderPinnedReader(t *testing.T) {
 				}
 			} else {
 				first, err := Dispatch(ctx, s, service, request, env)
-				if err != nil || first.Outcome != OutcomeOK || first.Error != nil {
+				if err != nil || first.Outcome != agentcontract.OutcomeOK || first.Error != nil {
 					t.Fatalf("workflow under pinned reader: response=%+v error=%+v err=%v", first, first.Error, err)
 				}
 				originalPayload = string(first.Result)
@@ -126,7 +126,7 @@ func TestWorkflowReplayCommitsDurablyUnderPinnedReader(t *testing.T) {
 				before := s.DurableCommits()
 				metadataBefore := replayMetadataCount(t, s, "durability-replay")
 				replay, err := Dispatch(ctx, s, service, request, env)
-				if err != nil || replay.Outcome != OutcomeOK || replay.Error != nil || !replay.Replayed {
+				if err != nil || replay.Outcome != agentcontract.OutcomeOK || replay.Error != nil || !replay.Replayed {
 					t.Fatalf("workflow replay pinned=%t: response=%+v error=%+v err=%v", pinned, replay, replay.Error, err)
 				}
 				if string(replay.Result) != originalPayload {
@@ -178,7 +178,7 @@ func TestWorkflowReplayDurableWriteFailureDoesNotAcknowledge(t *testing.T) {
 		t.Fatal(err)
 	}
 	response, err := Dispatch(ctx, s, service, request, env)
-	if err != nil || response.Outcome != OutcomeError || response.Error == nil || response.Error.Kind != "unreachable" || !response.Error.RetrySafe {
+	if err != nil || response.Outcome != agentcontract.OutcomeError || response.Error == nil || response.Error.Kind != "unreachable" || !response.Error.RetrySafe {
 		t.Fatalf("replay under writer contention: response=%+v error=%+v err=%v", response, response.Error, err)
 	}
 	if err := response.Validate(); err != nil {
@@ -191,7 +191,7 @@ func TestWorkflowReplayDurableWriteFailureDoesNotAcknowledge(t *testing.T) {
 		t.Fatal(err)
 	}
 	response, err = Dispatch(ctx, s, service, request, env)
-	if err != nil || response.Outcome != OutcomeOK || !response.Replayed || string(response.Result) != originalPayload {
+	if err != nil || response.Outcome != agentcontract.OutcomeOK || !response.Replayed || string(response.Result) != originalPayload {
 		t.Fatalf("replay after writer release: response=%+v error=%+v err=%v", response, response.Error, err)
 	}
 	requireReplayCommit(t, s, "durability-replay", before, metadataBefore, true)
@@ -246,10 +246,10 @@ func TestCompactionReplayCommitsDurablyUnderPinnedReader(t *testing.T) {
 					}
 					before := s.DurableCommits()
 					metadataBefore := replayMetadataCount(t, s, "compaction-replay")
-					response, handled, replayErr := r.replayMutationBeforeScope(ctx, NewBase(env.RequestID, r.Tool, r.Operation), raw, grant, op)
-					want := OutcomeOK
+					response, handled, replayErr := r.replayMutationBeforeScope(ctx, agentcontract.NewBase(env.RequestID, r.Tool, r.Operation), raw, grant, op)
+					want := agentcontract.OutcomeOK
 					if kind == store.ResultPending {
-						want = OutcomePending
+						want = agentcontract.OutcomePending
 					}
 					if replayErr != nil || !handled || response.Outcome != want || !response.Replayed {
 						t.Fatalf("compaction replay pinned=%t: handled=%t outcome=%s err=%v", pinned, handled, response.Outcome, replayErr)
@@ -279,7 +279,7 @@ func TestOrdinaryMutationReplayDoesNotRequireDurability(t *testing.T) {
 	release := holdReplayDurabilityReader(t, s)
 	request := InvokeRequest{Tool: "concord_work_define", Operation: "capture", Input: json.RawMessage(`{"title":"Replay","value_statement":"Replay value","kind":"task","project_ids":["project-1"],"idempotency_key":"ordinary-replay"}`)}
 	first, err := Dispatch(ctx, s, service, request, env)
-	if err != nil || first.Outcome != OutcomeOK {
+	if err != nil || first.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("ordinary mutation: outcome=%s error=%+v err=%v", first.Outcome, first.Error, err)
 	}
 	beforeEvents := countWorkflowEvents(t, s)
@@ -287,7 +287,7 @@ func TestOrdinaryMutationReplayDoesNotRequireDurability(t *testing.T) {
 	metadataBefore := replayMetadataCount(t, s, "ordinary-replay")
 	env.ScopeVersion = "drifted-scope-version"
 	replay, err := Dispatch(ctx, s, service, request, env)
-	if err != nil || replay.Outcome != OutcomeOK || !replay.Replayed {
+	if err != nil || replay.Outcome != agentcontract.OutcomeOK || !replay.Replayed {
 		t.Fatalf("ordinary replay: outcome=%s error=%+v err=%v", replay.Outcome, replay.Error, err)
 	}
 	requireReplayCommit(t, s, "ordinary-replay", before, metadataBefore, false)

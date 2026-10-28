@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -32,13 +33,13 @@ func TestCaptureExternalRefInputCorrection(t *testing.T) {
 		"project_ids": []string{"project-1"}, "external_ref": "tracker:46",
 		"raised_from_work_id": "work-parent", "idempotency_key": "capture-correction",
 	}
-	invoke := func(scope string) Envelope {
+	invoke := func(scope string) agentcontract.Envelope {
 		t.Helper()
 		return dispatchCapture(t, s, service, grant, scope, "capture-correction-request", string(retryJSON(input)))
 	}
 	before := captureCorrectionSnapshot(t, s)
 	refused := invoke(scope)
-	if refused.Error == nil || refused.Error.Kind != "invalid_input" || refused.Error.EffectState != EffectNone || refused.Error.RetrySafe || refused.Error.RecoveryAction.Kind != "correct_request" || refused.Error.ExternalRefConflict != nil {
+	if refused.Error == nil || refused.Error.Kind != "invalid_input" || refused.Error.EffectState != agentcontract.EffectNone || refused.Error.RetrySafe || refused.Error.RecoveryAction.Kind != "correct_request" || refused.Error.ExternalRefConflict != nil {
 		t.Fatalf("no-owner correction refusal=%+v", refused.Error)
 	}
 	if !strings.Contains(refused.Error.Message, "omit raised_from_work_id") || !strings.Contains(refused.Error.Message, "same idempotency_key") {
@@ -58,14 +59,14 @@ func TestCaptureExternalRefInputCorrection(t *testing.T) {
 		t.Fatalf("scope refusal mutated state: %v -> %v", before, after)
 	}
 	corrected := invoke(scope)
-	if corrected.Outcome != OutcomeOK || corrected.Replayed || corrected.ChangedRefs == nil || len(*corrected.ChangedRefs) != 1 {
+	if corrected.Outcome != agentcontract.OutcomeOK || corrected.Replayed || corrected.ChangedRefs == nil || len(*corrected.ChangedRefs) != 1 {
 		t.Fatalf("same-key corrected capture=%+v", corrected)
 	}
 	committed := captureCorrectionSnapshot(t, s)
 	if committed[0] != before[0]+1 || committed[1] != before[1] || committed[2] != before[2]+1 || committed[5] != before[5]+1 {
 		t.Fatalf("corrected capture effects: %v -> %v", before, committed)
 	}
-	if replay := invoke(scope); replay.Outcome != OutcomeOK || !replay.Replayed || (*replay.ChangedRefs)[0].ID != (*corrected.ChangedRefs)[0].ID {
+	if replay := invoke(scope); replay.Outcome != agentcontract.OutcomeOK || !replay.Replayed || (*replay.ChangedRefs)[0].ID != (*corrected.ChangedRefs)[0].ID {
 		t.Fatalf("corrected exact replay=%+v", replay)
 	}
 	input["title"] = "Different digest"
@@ -84,7 +85,7 @@ func TestCaptureExternalRefCorrectionRechecksLiveOwner(t *testing.T) {
 		"project_ids": []string{"project-1"}, "external_ref": "tracker:47",
 		"raised_from_work_id": "work-parent", "idempotency_key": "capture-owner-race",
 	}
-	invoke := func() Envelope {
+	invoke := func() agentcontract.Envelope {
 		t.Helper()
 		return dispatchCapture(t, s, service, grant, scope, "capture-owner-request", string(retryJSON(input)))
 	}
@@ -92,7 +93,7 @@ func TestCaptureExternalRefCorrectionRechecksLiveOwner(t *testing.T) {
 		t.Fatalf("no-owner refusal=%+v", refused)
 	}
 	owner := dispatchCapture(t, s, service, grant, scope, "new-owner-request", `{"title":"Owner","value_statement":"Own the reference","kind":"task","project_ids":["project-1"],"external_ref":"tracker:47","idempotency_key":"new-owner"}`)
-	if owner.Outcome != OutcomeOK {
+	if owner.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("new owner capture=%+v", owner)
 	}
 	before := captureCorrectionSnapshot(t, s)

@@ -149,7 +149,7 @@ func TestDeliveryGateRecoveryReturnsStaleReviewThroughAgent(t *testing.T) {
 	env := mutationEnvelope(grant, scopeVersion)
 	fixture := oAgentFixture(t, s, service, env, "work-1")
 	oAgentControlRepository(t, fixture)
-	invoke := func(input map[string]any) Envelope {
+	invoke := func(input map[string]any) agentcontract.Envelope {
 		t.Helper()
 		response, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: retryJSON(input)}, env)
 		if err != nil {
@@ -185,7 +185,7 @@ func TestDeliveryGateRecoveryReturnsStaleReviewThroughAgent(t *testing.T) {
 			oAgentReview(t, oAgentFixture(t, s, service, env, "work-1"), "continue", false)
 		}
 		response := invoke(map[string]any{"work_id": "work-1", "expected_version": version(), "action_id": "dispatch_worker", "fields": map[string]any{"attempt_id": attemptID, "worker_packet": deliveryRecoveryPacket(t, s, stepID, attemptID, capabilityClass)}, "idempotency_key": "gate-dispatch-" + attemptID})
-		if response.Outcome != OutcomeOK {
+		if response.Outcome != agentcontract.OutcomeOK {
 			t.Fatalf("gate recovery dispatch %s: %+v", attemptID, response.Error)
 		}
 		if capabilityClass == "implementation" {
@@ -201,33 +201,33 @@ func TestDeliveryGateRecoveryReturnsStaleReviewThroughAgent(t *testing.T) {
 	contractFields["required_evidence"] = []string{"review"}
 	contractFields["rigor_class"] = "prototype_internal"
 	contractFields["architecture_binding"] = workflowArchitectureBindingForSeededRegistry(t, s)
-	if response := invoke(map[string]any{"work_id": "work-1", "expected_version": version(), "action_id": "approve_contract", "fields": contractFields, "idempotency_key": "gate-recovery-contract"}); response.Outcome != OutcomeOK {
+	if response := invoke(map[string]any{"work_id": "work-1", "expected_version": version(), "action_id": "approve_contract", "fields": contractFields, "idempotency_key": "gate-recovery-contract"}); response.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("gate recovery approve_contract: %+v", response.Error)
 	}
 
 	// The execution pass, its bound review evidence, and the refinement pass.
 	recordApprovedWorkDesign(t, s, service, env, "work-1", "gate-recovery-design")
-	if response := invoke(map[string]any{"work_id": "work-1", "expected_version": version(), "action_id": "start_execution", "idempotency_key": "gate-execution-start"}); response.Outcome != OutcomeOK {
+	if response := invoke(map[string]any{"work_id": "work-1", "expected_version": version(), "action_id": "start_execution", "idempotency_key": "gate-execution-start"}); response.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("gate recovery start_execution: %+v", response.Error)
 	}
-	if response := invoke(map[string]any{"work_id": "work-1", "expected_version": version(), "action_id": "bind_evidence", "fields": map[string]any{"evidence_kind": "review", "immutable_subject_ref": "evidence:gate-review"}, "idempotency_key": "gate-evidence-bind"}); response.Outcome != OutcomeOK {
+	if response := invoke(map[string]any{"work_id": "work-1", "expected_version": version(), "action_id": "bind_evidence", "fields": map[string]any{"evidence_kind": "review", "immutable_subject_ref": "evidence:gate-review"}, "idempotency_key": "gate-evidence-bind"}); response.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("gate recovery bind_evidence: %+v", response.Error)
 	}
 	dispatch("execution", "attempt:work-1:gate-execution", "implementation")
 	executionEpoch := epochOf("dispatch_worker")
-	if response := invoke(map[string]any{"work_id": "work-1", "expected_version": version(), "action_id": "accept_worker_result", "fields": map[string]any{"attempt_id": "attempt:work-1:gate-execution", "attempt_epoch": executionEpoch}, "idempotency_key": "gate-execution-accept"}); response.Outcome != OutcomeOK {
+	if response := invoke(map[string]any{"work_id": "work-1", "expected_version": version(), "action_id": "accept_worker_result", "fields": map[string]any{"attempt_id": "attempt:work-1:gate-execution", "attempt_epoch": executionEpoch}, "idempotency_key": "gate-execution-accept"}); response.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("gate recovery execution accept: %+v", response.Error)
 	}
 	// The job-bound accept is local acceptance and holds execution; the step
 	// exits through its delivery assertion, which requires qualifying
 	// core-owned worktree verification covering the job's Project (CD-0205 D3).
 	integrationRef := oAgentVerify(t, fixture, []string{"go", "vet", "./..."})
-	if response := invoke(map[string]any{"work_id": "work-1", "expected_version": version(), "action_id": "bind_evidence", "fields": map[string]any{"evidence_kind": "verification", "evidence_ref": integrationRef}, "idempotency_key": "gate-execution-integration"}); response.Outcome != OutcomeOK {
+	if response := invoke(map[string]any{"work_id": "work-1", "expected_version": version(), "action_id": "bind_evidence", "fields": map[string]any{"evidence_kind": "verification", "evidence_ref": integrationRef}, "idempotency_key": "gate-execution-integration"}); response.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("gate recovery integration bind: %+v", response.Error)
 	}
 	recordReadyRetryJob(t, s, service, env, "job:gate-final-review")
 	oAgentReview(t, oAgentFixture(t, s, service, env, "work-1"), "ready_for_final_proof", false)
-	if response := invoke(map[string]any{"work_id": "work-1", "expected_version": version(), "action_id": "record_delivery", "fields": map[string]any{"delivery_artifact": "artifact:gate-execution", "delivery_state": "asserted"}, "idempotency_key": "gate-execution-delivery"}); response.Outcome != OutcomeOK {
+	if response := invoke(map[string]any{"work_id": "work-1", "expected_version": version(), "action_id": "record_delivery", "fields": map[string]any{"delivery_artifact": "artifact:gate-execution", "delivery_state": "asserted"}, "idempotency_key": "gate-execution-delivery"}); response.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("gate recovery execution delivery: %+v", response.Error)
 	}
 	if stepOf() != "refine" {
@@ -235,7 +235,7 @@ func TestDeliveryGateRecoveryReturnsStaleReviewThroughAgent(t *testing.T) {
 	}
 	// The canonical head derives the refine start from the qualifying
 	// checkpoint pair; the callable start_refine retired with it.
-	if response := invoke(map[string]any{"work_id": "work-1", "expected_version": version(), "action_id": "checkpoint_refine", "fields": map[string]any{}, "idempotency_key": "gate-refine-start"}); response.Outcome != OutcomeOK {
+	if response := invoke(map[string]any{"work_id": "work-1", "expected_version": version(), "action_id": "checkpoint_refine", "fields": map[string]any{}, "idempotency_key": "gate-refine-start"}); response.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("gate recovery checkpoint_refine: %+v", response.Error)
 	}
 
@@ -250,14 +250,14 @@ func TestDeliveryGateRecoveryReturnsStaleReviewThroughAgent(t *testing.T) {
 		"predicate_ids": []string{"predicate:primary"}, "evidence_refs": []string{"evidence:gate-review"},
 	}, reviewer, "gate-reject")
 	dispatch("refine", "attempt:work-1:gate-repair", "implementation")
-	if response := invoke(map[string]any{"work_id": "work-1", "expected_version": version(), "action_id": "accept_worker_result", "fields": map[string]any{"attempt_id": "attempt:work-1:gate-repair", "attempt_epoch": attemptEpoch(t, s, "attempt:work-1:gate-repair")}, "idempotency_key": "gate-repair-accept"}); response.Outcome != OutcomeOK {
+	if response := invoke(map[string]any{"work_id": "work-1", "expected_version": version(), "action_id": "accept_worker_result", "fields": map[string]any{"attempt_id": "attempt:work-1:gate-repair", "attempt_epoch": attemptEpoch(t, s, "attempt:work-1:gate-repair")}, "idempotency_key": "gate-repair-accept"}); response.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("gate recovery repair accept: %+v", response.Error)
 	}
 
 	// Main's repair acceptance changed the integrated candidate. The earlier
 	// continue Review cannot authorize delivery of this different candidate.
 	deliveryRefusal := invoke(map[string]any{"work_id": "work-1", "expected_version": version(), "action_id": "record_delivery", "fields": map[string]any{"delivery_artifact": "artifact:gate-recovery", "delivery_state": "asserted"}, "idempotency_key": "gate-recovery-delivery"})
-	if deliveryRefusal.Outcome != OutcomeError || deliveryRefusal.Error == nil || deliveryRefusal.Error.Kind != "missing_evidence" || deliveryRefusal.Error.EffectState != "none" || !strings.Contains(deliveryRefusal.Error.Message, "accepted Review on the current candidate and depended-on revisions") {
+	if deliveryRefusal.Outcome != agentcontract.OutcomeError || deliveryRefusal.Error == nil || deliveryRefusal.Error.Kind != "missing_evidence" || deliveryRefusal.Error.EffectState != "none" || !strings.Contains(deliveryRefusal.Error.Message, "accepted Review on the current candidate and depended-on revisions") {
 		t.Fatalf("repair delivery exit = %+v, want a zero-effect current-candidate Review refusal", deliveryRefusal.Error)
 	}
 	recordReadyRetryJob(t, s, service, env, "job:gate-return-review")
@@ -303,7 +303,7 @@ func TestDeliveryGateRecoveryReturnsStaleReviewThroughAgent(t *testing.T) {
 		"predicate_ids": []string{"predicate:primary"}, "evidence_refs": []string{"evidence:gate-review"},
 	}}
 	returned := invoke(correctionInput)
-	if returned.Outcome != OutcomeOK {
+	if returned.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("authenticated evidence-bearing gate return = %+v", returned.Error)
 	}
 	if got := stepOf(); got != "execution" {

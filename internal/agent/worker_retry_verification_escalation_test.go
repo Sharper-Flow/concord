@@ -59,7 +59,7 @@ func runVerificationCorrectionWall(t *testing.T) {
 			env.RequestID = "request:verification-convergence-1"
 			attempt := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: raw}, env)
 			// Predicate selection remains context, not a retry credit.
-			if attempt.Outcome != OutcomeOK {
+			if attempt.Outcome != agentcontract.OutcomeOK {
 				t.Fatalf("verification retry with predicates %v = %+v", tc.finalPredicate, attempt.Error)
 			}
 			if got := verifyWallChallenges(t, s); got != 0 {
@@ -112,7 +112,7 @@ func runVerificationCorrectionWall(t *testing.T) {
 			}
 			env.RequestID = "request:verification-convergence-4"
 			after := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: afterRaw}, env)
-			if after.Outcome != OutcomeOK {
+			if after.Outcome != agentcontract.OutcomeOK {
 				t.Fatalf("dispatch after retry failure = %+v", after.Error)
 			}
 			if got := verifyWallChallenges(t, s); got != 0 {
@@ -191,7 +191,7 @@ func seedEscalatedVerificationWorkerMutation(t *testing.T, s *store.Store, servi
 		attemptID := "attempt:work-1:verification-" + strconv.FormatInt(cycle, 10)
 		version = workVersion(t, s, "work-1")
 		start := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: json.RawMessage(`{"work_id":"work-1","expected_version":` + strconv.FormatInt(version, 10) + `,"action_id":"start_execution","idempotency_key":"verification-start-` + strconv.FormatInt(cycle, 10) + `"}`)}, env)
-		if start.Outcome != OutcomeOK {
+		if start.Outcome != agentcontract.OutcomeOK {
 			t.Fatalf("seed verification start %d: %+v", cycle, start.Error)
 		}
 		// Each cycle executes its own recorded job: an accepted job is
@@ -216,7 +216,7 @@ func seedEscalatedVerificationWorkerMutation(t *testing.T, s *store.Store, servi
 		}
 		env.RequestID = "request:verification-dispatch-" + strconv.FormatInt(cycle, 10)
 		dispatch := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: raw}, env)
-		if dispatch.Outcome != OutcomeOK {
+		if dispatch.Outcome != agentcontract.OutcomeOK {
 			t.Fatalf("seed verification dispatch %d: %+v", cycle, dispatch.Error)
 		}
 		var attemptEpoch int64
@@ -226,7 +226,7 @@ func seedEscalatedVerificationWorkerMutation(t *testing.T, s *store.Store, servi
 		applyVerificationWorkerDispatchAndCompletion(t, s, grant, attemptID, "verification")
 		version = workVersion(t, s, "work-1")
 		accept := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: retryJSON(map[string]any{"work_id": "work-1", "expected_version": version, "action_id": "accept_worker_result", "fields": map[string]any{"attempt_id": attemptID, "attempt_epoch": attemptEpoch}, "idempotency_key": "verification-accept-" + strconv.FormatInt(cycle, 10)})}, env)
-		if accept.Outcome != OutcomeOK {
+		if accept.Outcome != agentcontract.OutcomeOK {
 			t.Fatalf("seed verification accept %d: %+v", cycle, accept.Error)
 		}
 		// Correction authority is an accepted current Review whose disposition
@@ -288,7 +288,7 @@ func acceptVerificationCorrectionReview(t *testing.T, s *store.Store, service *S
 	packet := bindPacketToRecordedState(t, s, map[string]any{"schema_version": store.WorkerPacketSchemaVersion, "attempt_id": attemptID, "lane_id": lane.ID, "lane_digest": lane.Digest, "work_id": "work-1", "step_id": pin.Step, "inputs": map[string]any{}})
 	env.RequestID = "request:verification-review-dispatch-" + suffix
 	dispatch := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: retryJSON(map[string]any{"work_id": "work-1", "expected_version": workVersion(t, s, "work-1"), "action_id": "dispatch_worker", "idempotency_key": "verification-review-dispatch-" + suffix, "fields": map[string]any{"attempt_id": attemptID, "worker_packet": packet}})}, env)
-	if dispatch.Outcome != OutcomeOK {
+	if dispatch.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("seed verification Review dispatch %d: %+v", cycle, dispatch.Error)
 	}
 	var epoch int64
@@ -300,7 +300,7 @@ func acceptVerificationCorrectionReview(t *testing.T, s *store.Store, service *S
 	completeVerificationAttempt(t, s, grant, lane, attemptID, "verification-review", review)
 	env.RequestID = "request:verification-review-accept-" + suffix
 	accept := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: retryJSON(map[string]any{"work_id": "work-1", "expected_version": workVersion(t, s, "work-1"), "action_id": "accept_worker_result", "fields": map[string]any{"attempt_id": attemptID, "attempt_epoch": epoch}, "idempotency_key": "verification-review-accept-" + suffix})}, env)
-	if accept.Outcome != OutcomeOK {
+	if accept.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("seed verification Review accept %d: %+v", cycle, accept.Error)
 	}
 }

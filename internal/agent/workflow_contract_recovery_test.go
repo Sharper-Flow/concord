@@ -35,20 +35,20 @@ func TestPublicDuplicateContractRecoveryUsesRoutineAuthorityAndKeepsWorkID(t *te
 		expectedVersion := []int{4, 6}[i]
 		input := json.RawMessage(`{"work_id":"work-1","expected_version":` + strconv.Itoa(expectedVersion) + `,"action_id":"` + action + `"` + fields + `,"idempotency_key":"public-recovery-` + action + `"}`)
 		response, dispatchErr := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: input}, env)
-		if dispatchErr != nil || response.Outcome != OutcomeOK {
+		if dispatchErr != nil || response.Outcome != agentcontract.OutcomeOK {
 			t.Fatalf("advance action=%s response=%+v err=%v", action, response, dispatchErr)
 		}
 	}
 	initialInput := workflowContractActionInput(t, s, "public-recovery-approve", "")
 	challenge, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: initialInput}, env)
-	if err != nil || challenge.Outcome != OutcomeError || challenge.Error == nil || challenge.Error.Kind != "approval_required" {
+	if err != nil || challenge.Outcome != agentcontract.OutcomeError || challenge.Error == nil || challenge.Error.Kind != "approval_required" {
 		t.Fatalf("initial approval challenge response=%+v err=%v", challenge, err)
 	}
 	challengeRef, _ := challenge.Error.Details["approval_ref"].(string)
 	env.HostApproval = signedHostApproval(privateKey, challengeRef, mutationDigest("concord_work_transition", "workflow_action", env, initialInput), map[string]any{
 		"product_id": "product-1", "project_ids": []string{"project-1"}, "work_ids": []string{"work-1"}, "scope_version": scopeVersion,
 	}, map[string]any{"work": 8}, grant.SessionRef, grant.AgentRef, grant.Worktree, fixedTime(), "public-recovery-initial")
-	if approved, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: workflowContractActionInput(t, s, "public-recovery-approve", challengeRef)}, env); err != nil || approved.Outcome != OutcomeOK {
+	if approved, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: workflowContractActionInput(t, s, "public-recovery-approve", challengeRef)}, env); err != nil || approved.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("initial approval response=%+v err=%v", approved, err)
 	}
 
@@ -83,7 +83,7 @@ DELETE FROM write_guard`); err != nil {
 	challengesBefore := verifyWallChallenges(t, s)
 	approvalsBefore := agentRowsSnapshot(t, s, `SELECT * FROM agent_approvals`)
 	results := make(chan struct {
-		response Envelope
+		response agentcontract.Envelope
 		err      error
 	}, 2)
 	var group sync.WaitGroup
@@ -93,7 +93,7 @@ DELETE FROM write_guard`); err != nil {
 			defer group.Done()
 			response, dispatchErr := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: recoveryInput}, env)
 			results <- struct {
-				response Envelope
+				response agentcontract.Envelope
 				err      error
 			}{response: response, err: dispatchErr}
 		}()
@@ -102,7 +102,7 @@ DELETE FROM write_guard`); err != nil {
 	close(results)
 	var successful, replayedCount int
 	for result := range results {
-		if result.err != nil || result.response.Outcome != OutcomeOK {
+		if result.err != nil || result.response.Outcome != agentcontract.OutcomeOK {
 			t.Fatalf("concurrent recovery response=%+v error=%+v err=%v", result.response, result.response.Error, result.err)
 		}
 		successful++
@@ -137,7 +137,7 @@ DELETE FROM write_guard`); err != nil {
 		t.Fatalf("routine recovery minted approval challenges: %d -> %d", challengesBefore, got)
 	}
 	replayed, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: recoveryInput}, env)
-	if err != nil || replayed.Outcome != OutcomeOK || !replayed.Replayed {
+	if err != nil || replayed.Outcome != agentcontract.OutcomeOK || !replayed.Replayed {
 		t.Fatalf("exact recovery retry response=%+v err=%v", replayed, err)
 	}
 	if active := countRows(t, db, `SELECT count(*) FROM workflow_contracts WHERE work_id='work-1' AND superseded_by IS NULL`); active != 1 {

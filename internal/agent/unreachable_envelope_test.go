@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -23,15 +24,15 @@ func TestUnavailableStoreRefusalMarshalsAsUnreachable(t *testing.T) {
 		RetrySafe:      true,
 		RecoveryAction: "retry once the database is writable",
 	}
-	base := NewBase("unreachable-1", "concord_domain", "list")
-	base.Freshness = &Freshness{ObservedAt: time.Date(2026, 9, 3, 0, 0, 0, 0, time.UTC)}
-	base.SourceVersionWatermark = []Watermark{{SourceKind: "product_memory", SourceID: "sqlite", Version: "1"}}
+	base := agentcontract.NewBase("unreachable-1", "concord_domain", "list")
+	base.Freshness = &agentcontract.Freshness{ObservedAt: time.Date(2026, 9, 3, 0, 0, 0, 0, time.UTC)}
+	base.SourceVersionWatermark = []agentcontract.Watermark{{SourceKind: "product_memory", SourceID: "sqlite", Version: "1"}}
 	out := failureEnvelope(base, failure)
 	if out.Error == nil || out.Error.Kind != "unreachable" {
 		t.Fatalf("error=%+v, want kind unreachable", out.Error)
 	}
-	if out.Authority != AuthorityUnreachable {
-		t.Fatalf("authority=%q, want %q", out.Authority, AuthorityUnreachable)
+	if out.Authority != agentcontract.AuthorityUnreachable {
+		t.Fatalf("authority=%q, want %q", out.Authority, agentcontract.AuthorityUnreachable)
 	}
 	if out.Freshness != nil || len(out.SourceVersionWatermark) != 0 {
 		t.Fatalf("an unreachable envelope carries freshness=%v watermark=%v", out.Freshness, out.SourceVersionWatermark)
@@ -58,7 +59,7 @@ func TestUnavailableStoreRefusalCarriesItsCause(t *testing.T) {
 		RecoveryAction: "retry once the database is writable",
 		Err:            errors.New("database is locked (5) (SQLITE_BUSY)"),
 	}
-	out := failureEnvelope(NewBase("unreachable-cause-1", "concord_work_transition", "workflow_action"), failure)
+	out := failureEnvelope(agentcontract.NewBase("unreachable-cause-1", "concord_work_transition", "workflow_action"), failure)
 	if out.Error == nil || out.Error.Kind != "unreachable" {
 		t.Fatalf("error=%+v, want kind unreachable", out.Error)
 	}
@@ -85,11 +86,11 @@ func TestEffectPossibleFailureWithDeadlineCauseKeepsPossibleEffect(t *testing.T)
 		EffectPossible: true,
 		Err:            context.DeadlineExceeded,
 	}
-	out := failureEnvelope(NewBase("deadline-possible-1", "concord_work_transition", "workflow_action"), failure)
+	out := failureEnvelope(agentcontract.NewBase("deadline-possible-1", "concord_work_transition", "workflow_action"), failure)
 	if out.Error == nil || out.Error.Kind != "unreachable" {
 		t.Fatalf("error=%+v, want kind unreachable", out.Error)
 	}
-	if out.Error.EffectState != EffectPossible {
+	if out.Error.EffectState != agentcontract.EffectPossible {
 		t.Fatalf("effect state=%q, want possible", out.Error.EffectState)
 	}
 	if out.Error.Message == "operation budget expired" {
@@ -104,8 +105,8 @@ func TestEffectPossibleFailureWithDeadlineCauseKeepsPossibleEffect(t *testing.T)
 // the answer is a typed refusal.
 func TestCoreErrorKeepsAuthoritativeForOtherKinds(t *testing.T) {
 	t.Parallel()
-	out := coreError(NewBase("other-1", "concord_domain", "list"), "unknown_scope", "no Product", "contact_operator", false)
-	if out.Authority != AuthorityAuthoritative {
+	out := coreError(agentcontract.NewBase("other-1", "concord_domain", "list"), "unknown_scope", "no Product", "contact_operator", false)
+	if out.Authority != agentcontract.AuthorityAuthoritative {
 		t.Fatalf("authority=%q, want authoritative", out.Authority)
 	}
 	if _, err := out.Encode(); err != nil {

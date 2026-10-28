@@ -48,12 +48,12 @@ func TestSessionVacateRepeatsWithinOneSession(t *testing.T) {
 			"expected_version": 2, "idempotency_key": key,
 		})
 		response, dispatchErr := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "worktree_claim", Input: input}, mutationEnvelope(grant, scopeVersion))
-		if dispatchErr != nil || response.Outcome != OutcomeOK {
+		if dispatchErr != nil || response.Outcome != agentcontract.OutcomeOK {
 			t.Fatalf("claim %s response=%+v error=%+v err=%v", workID, response, response.Error, dispatchErr)
 		}
 	}
 
-	vacate := func(worktreePath, key string) Envelope {
+	vacate := func(worktreePath, key string) agentcontract.Envelope {
 		t.Helper()
 		env := mutationEnvelope(grant, scopeVersion)
 		env.Worktree = worktreePath
@@ -70,10 +70,10 @@ func TestSessionVacateRepeatsWithinOneSession(t *testing.T) {
 	second := filepath.Join(filepath.Dir(s.Path()), "worktrees", "project-1", "work-2")
 	claim("work-1", first, "work/vacate-1", "claim-vacate-1")
 
-	if response := vacate(first, "vacate-key-1"); response.Outcome != OutcomeOK {
+	if response := vacate(first, "vacate-key-1"); response.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("first vacate response=%+v error=%+v", response, response.Error)
 	}
-	if response := vacate(first, "vacate-key-1"); response.Outcome != OutcomeOK || !response.Replayed {
+	if response := vacate(first, "vacate-key-1"); response.Outcome != agentcontract.OutcomeOK || !response.Replayed {
 		t.Fatalf("same-key vacate retry response=%+v error=%+v", response, response.Error)
 	}
 
@@ -96,7 +96,7 @@ func TestSessionVacateRepeatsWithinOneSession(t *testing.T) {
 	// different relocation, so it records its own event rather than colliding
 	// with the first.
 	repeat := vacate(second, "vacate-key-2")
-	if repeat.Outcome != OutcomeOK {
+	if repeat.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("second vacate in one session response=%+v error=%+v", repeat, repeat.Error)
 	}
 
@@ -140,11 +140,11 @@ func TestSessionVacateReplayRefusesAfterLaterClaim(t *testing.T) {
 			"expected_version": 2, "idempotency_key": key,
 		})
 		response, dispatchErr := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "worktree_claim", Input: input}, mutationEnvelope(grant, scopeVersion))
-		if dispatchErr != nil || response.Outcome != OutcomeOK {
+		if dispatchErr != nil || response.Outcome != agentcontract.OutcomeOK {
 			t.Fatalf("claim %s response=%+v error=%+v err=%v", workID, response, response.Error, dispatchErr)
 		}
 	}
-	vacate := func(env CallEnvelope, key string) Envelope {
+	vacate := func(env CallEnvelope, key string) agentcontract.Envelope {
 		t.Helper()
 		input, _ := json.Marshal(map[string]any{"idempotency_key": key})
 		response, dispatchErr := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "session_vacate", Input: input}, env)
@@ -162,7 +162,7 @@ func TestSessionVacateReplayRefusesAfterLaterClaim(t *testing.T) {
 	inMainCheckout.Worktree, inMainCheckout.Directory = repoRoot, repoRoot
 
 	claim("work-1", first, "work/cached-1", "claim-cached-1")
-	if response := vacate(inWorktree, "vacate-cached-1"); response.Outcome != OutcomeOK {
+	if response := vacate(inWorktree, "vacate-cached-1"); response.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("first vacate response=%+v error=%+v", response, response.Error)
 	}
 	// The verified landing completes the request the way the adapter-only
@@ -181,10 +181,10 @@ func TestSessionVacateReplayRefusesAfterLaterClaim(t *testing.T) {
 	// with effect none. No host move follows a refusal, so the session keeps
 	// the later claim's worktree, the row stands, and no landing records.
 	retry := vacate(inMainCheckout, "vacate-cached-1")
-	if retry.Outcome != OutcomeError {
+	if retry.Outcome != agentcontract.OutcomeError {
 		t.Fatalf("same-key vacate retry response=%+v error=%+v, want the later-claim refusal", retry, retry.Result)
 	}
-	if retry.Error == nil || retry.Error.Kind != "invalid_input" || retry.Error.EffectState != EffectNone {
+	if retry.Error == nil || retry.Error.Kind != "invalid_input" || retry.Error.EffectState != agentcontract.EffectNone {
 		t.Fatalf("same-key vacate retry error=%+v, want invalid_input with effect none", retry.Error)
 	}
 	if !strings.Contains(retry.Error.Message, "belong to a later claim") {
@@ -239,11 +239,11 @@ func TestSessionVacateReplayResolvesPendingFromSource(t *testing.T) {
 			"expected_version": 2, "idempotency_key": key,
 		})
 		response, dispatchErr := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "worktree_claim", Input: input}, mutationEnvelope(grant, scopeVersion))
-		if dispatchErr != nil || response.Outcome != OutcomeOK {
+		if dispatchErr != nil || response.Outcome != agentcontract.OutcomeOK {
 			t.Fatalf("claim %s response=%+v error=%+v err=%v", workID, response, response.Error, dispatchErr)
 		}
 	}
-	vacate := func(env CallEnvelope, key string) Envelope {
+	vacate := func(env CallEnvelope, key string) agentcontract.Envelope {
 		t.Helper()
 		input, _ := json.Marshal(map[string]any{"idempotency_key": key})
 		response, dispatchErr := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "session_vacate", Input: input}, env)
@@ -259,7 +259,7 @@ func TestSessionVacateReplayResolvesPendingFromSource(t *testing.T) {
 
 	claim("work-1", first, "work/source-replay-1", "claim-source-replay-1")
 	firstVacate := vacate(inWorktree, "vacate-source-replay-1")
-	if firstVacate.Outcome != OutcomeOK {
+	if firstVacate.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("first vacate response=%+v error=%+v", firstVacate, firstVacate.Error)
 	}
 
@@ -268,7 +268,7 @@ func TestSessionVacateReplayResolvesPendingFromSource(t *testing.T) {
 	// and the derived destination, so the adapter can perform the move and
 	// record the verified landing from wherever the session sits.
 	replay := vacate(inWorktree, "vacate-source-replay-1")
-	if replay.Outcome != OutcomeOK || !replay.Replayed {
+	if replay.Outcome != agentcontract.OutcomeOK || !replay.Replayed {
 		t.Fatalf("source replay response=%+v error=%+v", replay, replay.Error)
 	}
 	var result struct {
@@ -325,11 +325,11 @@ func TestSessionVacateNewKeyRetryResolvesPendingFromSource(t *testing.T) {
 			"expected_version": 2, "idempotency_key": key,
 		})
 		response, dispatchErr := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "worktree_claim", Input: input}, mutationEnvelope(grant, scopeVersion))
-		if dispatchErr != nil || response.Outcome != OutcomeOK {
+		if dispatchErr != nil || response.Outcome != agentcontract.OutcomeOK {
 			t.Fatalf("claim %s response=%+v error=%+v err=%v", workID, response, response.Error, dispatchErr)
 		}
 	}
-	vacate := func(env CallEnvelope, key string) Envelope {
+	vacate := func(env CallEnvelope, key string) agentcontract.Envelope {
 		t.Helper()
 		input, _ := json.Marshal(map[string]any{"idempotency_key": key})
 		response, dispatchErr := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "session_vacate", Input: input}, env)
@@ -345,7 +345,7 @@ func TestSessionVacateNewKeyRetryResolvesPendingFromSource(t *testing.T) {
 
 	claim("work-1", first, "work/new-key-retry-1", "claim-new-key-retry-1")
 	firstVacate := vacate(inWorktree, "vacate-new-key-retry-1")
-	if firstVacate.Outcome != OutcomeOK {
+	if firstVacate.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("first vacate response=%+v error=%+v", firstVacate, firstVacate.Error)
 	}
 
@@ -354,7 +354,7 @@ func TestSessionVacateNewKeyRetryResolvesPendingFromSource(t *testing.T) {
 	// source and the derived destination, so the adapter performs the move
 	// and records the verified landing from wherever the session sits.
 	retry := vacate(inWorktree, "vacate-new-key-retry-2")
-	if retry.Outcome != OutcomeOK {
+	if retry.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("new-key retry response=%+v error=%+v", retry, retry.Error)
 	}
 	if retry.Replayed {
@@ -412,13 +412,13 @@ func TestSessionVacateNewKeyRetryRefusesUnreadablePendingRequest(t *testing.T) {
 		"work_id": "work-1", "project_id": "project-1", "base_sha": baseSHA,
 		"expected_version": 2, "idempotency_key": "claim-unreadable-pending-1",
 	})
-	if response, dispatchErr := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "worktree_claim", Input: claimInput}, mutationEnvelope(grant, scopeVersion)); dispatchErr != nil || response.Outcome != OutcomeOK {
+	if response, dispatchErr := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "worktree_claim", Input: claimInput}, mutationEnvelope(grant, scopeVersion)); dispatchErr != nil || response.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("claim response=%+v error=%+v err=%v", response, response.Error, dispatchErr)
 	}
 	first := filepath.Join(filepath.Dir(s.Path()), "worktrees", "project-1", "work-1")
 	inWorktree := mutationEnvelope(grant, scopeVersion)
 	inWorktree.Worktree, inWorktree.Directory = first, first
-	vacate := func(key string) Envelope {
+	vacate := func(key string) agentcontract.Envelope {
 		t.Helper()
 		input, _ := json.Marshal(map[string]any{"idempotency_key": key})
 		response, dispatchErr := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "session_vacate", Input: input}, inWorktree)
@@ -427,7 +427,7 @@ func TestSessionVacateNewKeyRetryRefusesUnreadablePendingRequest(t *testing.T) {
 		}
 		return response
 	}
-	if response := vacate("vacate-unreadable-pending-1"); response.Outcome != OutcomeOK {
+	if response := vacate("vacate-unreadable-pending-1"); response.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("first vacate response=%+v error=%+v", response, response.Error)
 	}
 
@@ -440,7 +440,7 @@ func TestSessionVacateNewKeyRetryRefusesUnreadablePendingRequest(t *testing.T) {
 	}
 
 	retry := vacate("vacate-unreadable-pending-2")
-	if retry.Outcome == OutcomeOK || retry.Error == nil {
+	if retry.Outcome == agentcontract.OutcomeOK || retry.Error == nil {
 		t.Fatalf("new-key retry response=%+v, want a refusal for the unreadable pending request", retry)
 	}
 	var vacates int
@@ -517,7 +517,7 @@ func TestSessionVacateReoccupiesSameWorktree(t *testing.T) {
 		SourceDirectory      string `json:"source_directory"`
 		DestinationDirectory string `json:"destination_directory"`
 	}
-	dispatch := func(service *Service, operation string, env CallEnvelope, input map[string]any) Envelope {
+	dispatch := func(service *Service, operation string, env CallEnvelope, input map[string]any) agentcontract.Envelope {
 		t.Helper()
 		payload, _ := json.Marshal(input)
 		response, dispatchErr := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: operation, Input: payload}, env)
@@ -536,7 +536,7 @@ func TestSessionVacateReoccupiesSameWorktree(t *testing.T) {
 
 	// The session claims work-1 in its primary Project.
 	claim := dispatch(service, "worktree_claim", mutationEnvelope(grant, scopeVersion), claimInput("project-1", baseSHA1, 3, "reoccupy-claim-1"))
-	if claim.Outcome != OutcomeOK || claim.Replayed {
+	if claim.Outcome != agentcontract.OutcomeOK || claim.Replayed {
 		t.Fatalf("claim work-1 in project-1 response=%+v error=%+v", claim, claim.Error)
 	}
 
@@ -544,7 +544,7 @@ func TestSessionVacateReoccupiesSameWorktree(t *testing.T) {
 	// records the operation; the adapter's host move would follow and is
 	// outside what Dispatch runs.
 	first := dispatch(service, "session_vacate", inWorktree, map[string]any{"idempotency_key": "reoccupy-vacate-1"})
-	if first.Outcome != OutcomeOK || first.Replayed {
+	if first.Outcome != agentcontract.OutcomeOK || first.Replayed {
 		t.Fatalf("first vacate response=%+v error=%+v", first, first.Error)
 	}
 	var firstMove vacateMove
@@ -560,7 +560,7 @@ func TestSessionVacateReoccupiesSameWorktree(t *testing.T) {
 	// The retry of one unchanged vacate replays the recorded operation
 	// before the effect runs.
 	retry := dispatch(service, "session_vacate", inMainCheckout, map[string]any{"idempotency_key": "reoccupy-vacate-1"})
-	if retry.Outcome != OutcomeOK || !retry.Replayed {
+	if retry.Outcome != agentcontract.OutcomeOK || !retry.Replayed {
 		t.Fatalf("same-key vacate retry response=%+v error=%+v", retry, retry.Error)
 	}
 
@@ -578,14 +578,14 @@ func TestSessionVacateReoccupiesSameWorktree(t *testing.T) {
 	// to the claimed worktree. The core writes no event and no occupancy
 	// for it; the host move the adapter would perform is outside Dispatch.
 	resume := dispatch(service, "worktree_claim", inMainCheckout, claimInput("project-1", baseSHA1, 3, "reoccupy-claim-1"))
-	if resume.Outcome != OutcomeOK || !resume.Replayed {
+	if resume.Outcome != agentcontract.OutcomeOK || !resume.Replayed {
 		t.Fatalf("worktree_claim resume response=%+v error=%+v", resume, resume.Error)
 	}
 
 	// Second vacate: the same session leaves the same worktree again, under
 	// a new request identity.
 	second := dispatch(service, "session_vacate", inWorktree, map[string]any{"idempotency_key": "reoccupy-vacate-2"})
-	if second.Outcome != OutcomeOK || second.Replayed {
+	if second.Outcome != agentcontract.OutcomeOK || second.Replayed {
 		t.Fatalf("second vacate response=%+v error=%+v", second, second.Error)
 	}
 
@@ -662,7 +662,7 @@ func TestSessionVacateReoccupiesSameWorktree(t *testing.T) {
 	claim2Env := mutationEnvelope(grant2, scopeVersion2)
 	claim2Env.AmbientProjectID = "project-2"
 	crossClaim := dispatch(service2, "worktree_claim", claim2Env, claimInput("project-2", baseSHA2, 4, "reoccupy-claim-2"))
-	if crossClaim.Outcome != OutcomeOK || crossClaim.Replayed {
+	if crossClaim.Outcome != agentcontract.OutcomeOK || crossClaim.Replayed {
 		t.Fatalf("claim work-1 in project-2 response=%+v error=%+v", crossClaim, crossClaim.Error)
 	}
 	worktree2 := filepath.Join(filepath.Dir(s.Path()), "worktrees", "project-2", "work-1")

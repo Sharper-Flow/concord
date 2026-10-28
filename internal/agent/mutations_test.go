@@ -40,7 +40,7 @@ func TestWorkflowActionRefusesRetiredInitiativeBeforeNativePlanning(t *testing.T
 			if err != nil {
 				t.Fatal(err)
 			}
-			response, err := r.mutateWorkflowAction(context.Background(), Envelope{}, raw, grant, agentcontract.ContractOperation{})
+			response, err := r.mutateWorkflowAction(context.Background(), agentcontract.Envelope{}, raw, grant, agentcontract.ContractOperation{})
 			if err != nil || response.Error == nil || response.Error.Kind != "invalid_input" || !strings.Contains(response.Error.Message, "CD-0213") {
 				t.Errorf("response=%+v err=%v, want retired-kind refusal", response.Error, err)
 			}
@@ -72,7 +72,7 @@ func TestWorkflowActionPreflightRefusesRetiredInitiative(t *testing.T) {
 				t.Fatal(err)
 			}
 			err = preflightWorkflowActionRequestWithRegistry(context.Background(), s, raw, env, grant, store.BuiltinWorkflowRegistry())
-			refusal := failureEnvelope(Envelope{}, err)
+			refusal := failureEnvelope(agentcontract.Envelope{}, err)
 			if refusal.Error == nil || refusal.Error.Kind != "invalid_input" || !strings.Contains(refusal.Error.Message, "CD-0213") || countWorkflowEvents(t, s) != before {
 				t.Fatalf("preflight error=%v events=%d->%d", err, before, countWorkflowEvents(t, s))
 			}
@@ -111,7 +111,7 @@ func captureTaskFixture(t *testing.T) (*store.Store, *Service, Authority, string
 	return s, service, grant, scopeVersion
 }
 
-func dispatchCapture(t *testing.T, s *store.Store, service *Service, grant Authority, scopeVersion, requestID, input string) Envelope {
+func dispatchCapture(t *testing.T, s *store.Store, service *Service, grant Authority, scopeVersion, requestID, input string) agentcontract.Envelope {
 	t.Helper()
 	env := mutationEnvelope(grant, scopeVersion)
 	env.RequestID = requestID
@@ -130,7 +130,7 @@ func scopeWorkReadback(t *testing.T, s *store.Store, service *Service, grant Aut
 	if err != nil {
 		t.Fatal(err)
 	}
-	if response.Outcome != OutcomeOK {
+	if response.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("scope read response=%+v", response)
 	}
 	var readback struct {
@@ -151,7 +151,7 @@ func TestCapturePersistsTaskInstructionInOneCall(t *testing.T) {
 	s, service, grant, scopeVersion := captureTaskFixture(t)
 	response := dispatchCapture(t, s, service, grant, scopeVersion, "capture-task-request-1",
 		`{"title":"Need","value_statement":"Why the work matters","task":"Reproduce the refusal, extract the loop, and keep the budget green.","kind":"task","project_ids":["project-1"],"idempotency_key":"capture-task-idem-1"}`)
-	if response.Outcome != OutcomeOK {
+	if response.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("capture with task response=%+v", response)
 	}
 	workID := (*response.ChangedRefs)[0].ID
@@ -169,7 +169,7 @@ func TestCaptureWithoutTaskInstructionStaysLegal(t *testing.T) {
 	s, service, grant, scopeVersion := captureTaskFixture(t)
 	response := dispatchCapture(t, s, service, grant, scopeVersion, "capture-taskless-request-1",
 		`{"title":"Need","value_statement":"Why the work matters","kind":"task","project_ids":["project-1"],"idempotency_key":"capture-taskless-idem-1"}`)
-	if response.Outcome != OutcomeOK {
+	if response.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("capture without task response=%+v", response)
 	}
 	workID := (*response.ChangedRefs)[0].ID
@@ -188,7 +188,7 @@ func TestCaptureRefusesTaskTheReviseFoldRefuses(t *testing.T) {
 	s, service, grant, scopeVersion := captureTaskFixture(t)
 	response := dispatchCapture(t, s, service, grant, scopeVersion, "capture-nul-task-request-1",
 		`{"title":"Need","value_statement":"Why the work matters","task":"line one\u0000line two","kind":"task","project_ids":["project-1"],"idempotency_key":"capture-nul-task-idem-1"}`)
-	if response.Outcome != OutcomeError || response.Error == nil {
+	if response.Outcome != agentcontract.OutcomeError || response.Error == nil {
 		t.Fatalf("NUL-carrying task capture outcome=%s error=%+v, want typed refusal", response.Outcome, response.Error)
 	}
 	if !strings.Contains(response.Error.Message, "task") {

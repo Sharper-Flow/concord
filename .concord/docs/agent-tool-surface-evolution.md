@@ -156,6 +156,6 @@ records.
   when the manifest and its artifacts disagree. Run
   `python3 scripts/check-agent-contracts.py`.
 - Criterion 3 is proved by `TestEnvelopeRejectsUnknownVariantsAndFields`
-  (`internal/agent/envelope_test.go`) and the adapter contract tests' strict
+  (`internal/agentcontract/envelope_test.go`) and the adapter contract tests' strict
   unknown-input rejection.
 - Criterion 4 is proved by the bound `AJ5-resolve-domain-overlap` scenario.

@@ -43,7 +43,7 @@ func TestConsequenceSummaryDerivesFromTheChallengeSpec(t *testing.T) {
 
 func TestValidateErrorAcceptsTheDerivedSummary(t *testing.T) {
 	t.Parallel()
-	base := TypedError{Kind: "approval_required", RecoveryAction: RecoveryAction{Kind: "request_approval"}, EffectState: EffectNone}
+	base := agentcontract.TypedError{Kind: "approval_required", RecoveryAction: agentcontract.RecoveryAction{Kind: "request_approval"}, EffectState: agentcontract.EffectNone, Details: map[string]any{"approval_ref": "approval-derived-summary"}}
 	base.ConsequenceSummary = consequenceSummaryFor("concord_work_transition", "workflow_action", ApprovalChallengeSpec{
 		OperationDigest: "sha256:" + make64Hex(t),
 		Scope:           map[string]any{"product_id": "prod-a"},
@@ -51,17 +51,11 @@ func TestValidateErrorAcceptsTheDerivedSummary(t *testing.T) {
 		Consequence:     "production_write",
 		ExpiresAt:       time.Now().UTC().Add(10 * time.Minute),
 	})
-	if err := validateError(base); err != nil {
+	if err := agentcontract.NewCoreError(agentcontract.NewBase("derived-summary", "concord_work_transition", "workflow_action"), base).Validate(); err != nil {
 		t.Fatalf("derived summary rejected by envelope validation: %v", err)
 	}
-	base.ConsequenceSummary.Scope = []string{"work_ids:work-b", "work_ids:work-a"}
-	if err := validateError(base); err == nil {
-		t.Fatal("unsorted scope bindings accepted; the summary must be canonical")
-	}
-	base.ConsequenceSummary.Scope = []string{"product_id:prod-a"}
-	base.ConsequenceSummary.OperationDigest = "not-a-digest"
-	if err := validateError(base); err == nil {
-		t.Fatal("malformed digest accepted")
+	if base.ConsequenceSummary.Scope[0] != "product_id:prod-a" || base.ConsequenceSummary.Versions[0] != "work:1" {
+		t.Fatalf("derived summary bindings=%v/%v, want the owner's canonical refusal fixture", base.ConsequenceSummary.Scope, base.ConsequenceSummary.Versions)
 	}
 }
 
@@ -91,7 +85,7 @@ func TestMintedChallengeRefusalCarriesTheTypedSummary(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if resp.Outcome != OutcomeError || resp.Error == nil || resp.Error.Kind != "approval_required" {
+	if resp.Outcome != agentcontract.OutcomeError || resp.Error == nil || resp.Error.Kind != "approval_required" {
 		t.Fatalf("expected approval_required, got outcome=%s err=%+v", resp.Outcome, resp.Error)
 	}
 	if _, ok := resp.Error.Details["approval_ref"].(string); !ok {
@@ -107,7 +101,7 @@ func TestMintedChallengeRefusalCarriesTheTypedSummary(t *testing.T) {
 	if _, err := time.Parse(time.RFC3339Nano, summary.ExpiresAt); err != nil {
 		t.Fatalf("summary expiry not RFC3339: %q", summary.ExpiresAt)
 	}
-	if err := validateError(*resp.Error); err != nil {
+	if err := resp.Validate(); err != nil {
 		t.Fatalf("refusal envelope violates the law it implements: %v", err)
 	}
 }

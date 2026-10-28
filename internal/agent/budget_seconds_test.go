@@ -157,27 +157,15 @@ func TestApplyBudgetRetiresTheBudgetObject(t *testing.T) {
 func TestBudgetRefusalCarriesTheTypedCeiling(t *testing.T) {
 	t.Parallel()
 	r := runtime{Tool: "concord_work_transition", Operation: "workflow_action", Budget: budgetInput{CeilingRefused: true, RequestedSeconds: 60, SupportedSeconds: 30}}
-	out := r.budgetRefusal(NewBase("request", r.Tool, r.Operation), "requested_budget_seconds 60 exceeds supported 30")
+	out := r.budgetRefusal(agentcontract.NewBase("request", r.Tool, r.Operation), "requested_budget_seconds 60 exceeds supported 30")
 	if out.Error == nil || out.Error.Kind != "budget_refused" || out.Error.SupportedBudgetSeconds != 30 {
 		t.Fatalf("refusal envelope wrong: %#v", out.Error)
 	}
-	if out.Error.RecoveryAction.Kind != "adjust_budget" || out.Error.EffectState != EffectNone {
+	if out.Error.RecoveryAction.Kind != "adjust_budget" || out.Error.EffectState != agentcontract.EffectNone {
 		t.Fatalf("refusal recovery shape wrong: %#v", out.Error)
 	}
 	if _, err := out.Encode(); err != nil {
 		t.Fatalf("refusal envelope violates the law it implements: %v", err)
-	}
-}
-
-func TestValidateErrorRequiresTypedCeilingOnEveryBudgetRefusal(t *testing.T) {
-	t.Parallel()
-	base := TypedError{Kind: "budget_refused", RecoveryAction: RecoveryAction{Kind: "adjust_budget"}, EffectState: EffectNone}
-	if err := validateError(base); err == nil {
-		t.Fatal("budget_refused without the typed ceiling passed validation")
-	}
-	base.SupportedBudgetSeconds = 300
-	if err := validateError(base); err != nil {
-		t.Fatalf("budget_refused with the typed ceiling rejected: %v", err)
 	}
 }
 

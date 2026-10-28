@@ -36,7 +36,7 @@ func TestRepeatedFailedWorkersUseOrdinaryLaunchAuthority(t *testing.T) {
 			"work_id": "work-1", "expected_version": pin.Version, "action_id": "dispatch_worker", "idempotency_key": attempt,
 			"fields": map[string]any{"attempt_id": attempt, "worker_packet": retryMutationPacket(t, s, attempt, pin.Correction)},
 		})}
-		if result := dispatchMutation(t, s, service, request, env); result.Outcome != OutcomeOK {
+		if result := dispatchMutation(t, s, service, request, env); result.Outcome != agentcontract.OutcomeOK {
 			t.Fatalf("ordinary launch %d required retry credit: %+v", round, result.Error)
 		}
 		if got := verifyWallDispatchCompletions(t, s, attempt); got != 1 {

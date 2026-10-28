@@ -71,7 +71,7 @@ func grantRequestInput(approvalRef string) string {
 	return input + "}"
 }
 
-func dispatchGrantRequest(t *testing.T, s *store.Store, service *Service, env CallEnvelope, input string) Envelope {
+func dispatchGrantRequest(t *testing.T, s *store.Store, service *Service, env CallEnvelope, input string) agentcontract.Envelope {
 	t.Helper()
 	response, err := Dispatch(context.Background(), s, service, InvokeRequest{Tool: "concord_work_relate", Operation: "client_policy_grant_request", Input: json.RawMessage(input)}, env)
 	if err != nil {
@@ -139,7 +139,7 @@ func TestApprovedGrantRequestAppliesExactUnion(t *testing.T) {
 	scope := map[string]any{"client_ref": "client-1", "policy_version": details["policy_version"], "capabilities": []string{"cross_scope"}, "product_scope": []string{"product-2"}}
 	env.HostApproval = signedHostApproval(mustKey(t), ref, digest, scope, map[string]any{}, env.SessionRef, env.AgentRef, env.Worktree, fixedTime(), "grant-approval")
 	approved := dispatchGrantRequest(t, s, service, env, grantRequestInput(ref))
-	if approved.Outcome != OutcomeOK {
+	if approved.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("approved response = %+v", approved)
 	}
 	var result struct {
@@ -215,7 +215,7 @@ func TestAlteredArgumentsRefuseAndLeaveAuthorityUnchanged(t *testing.T) {
 // route answers version_conflict, the envelope validates against the
 // generated envelope schema, and current_versions names the calling client at
 // its live policy version — the value a fresh approval request must bind.
-func assertStalePolicyVersionConflict(t *testing.T, s *store.Store, response Envelope) {
+func assertStalePolicyVersionConflict(t *testing.T, s *store.Store, response agentcontract.Envelope) {
 	t.Helper()
 	if response.Error == nil || response.Error.Kind != "version_conflict" {
 		t.Fatalf("stale response kind = %v, want version_conflict (envelope: %+v)", response.Error.Kind, *response.Error)
@@ -287,7 +287,7 @@ func TestLateGrantRequestApprovalWidensPolicyOnce(t *testing.T) {
 	scope := map[string]any{"client_ref": "client-1", "policy_version": details["policy_version"], "capabilities": []string{"cross_scope"}, "product_scope": []string{"product-2"}}
 	env.HostApproval = signedHostApproval(mustKey(t), ref, digest, scope, map[string]any{}, env.SessionRef, env.AgentRef, env.Worktree, later, "late-approval")
 	approved := dispatchGrantRequest(t, s, service, env, grantRequestInput(ref))
-	if approved.Outcome != OutcomeOK {
+	if approved.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("late-approved grant request = %+v, error = %+v", approved, approved.Error)
 	}
 	stored := readStoredPolicy(t, s, "client-1")
@@ -325,7 +325,7 @@ func TestLateGrantRequestApprovalWidensPolicyOnce(t *testing.T) {
 		t.Fatal("late grant exchange did not consume exactly one derived approval")
 	}
 	replayed := dispatchGrantRequest(t, s, service, env, grantRequestInput(ref))
-	if replayed.Outcome != OutcomeOK || !replayed.Replayed {
+	if replayed.Outcome != agentcontract.OutcomeOK || !replayed.Replayed {
 		t.Fatalf("late grant replay response = %+v", replayed)
 	}
 	if !reflect.DeepEqual(stored, readStoredPolicy(t, s, "client-1")) {
@@ -347,12 +347,12 @@ func TestApprovedGrantRequestReplaysWithoutReapplying(t *testing.T) {
 	scope := map[string]any{"client_ref": "client-1", "policy_version": details["policy_version"], "capabilities": []string{"cross_scope"}, "product_scope": []string{"product-2"}}
 	env.HostApproval = signedHostApproval(mustKey(t), ref, digest, scope, map[string]any{}, env.SessionRef, env.AgentRef, env.Worktree, fixedTime(), "replay-approval")
 	approved := dispatchGrantRequest(t, s, service, env, grantRequestInput(ref))
-	if approved.Outcome != OutcomeOK {
+	if approved.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("approved response = %+v", approved)
 	}
 	version := readStoredPolicy(t, s, "client-1")
 	replayed := dispatchGrantRequest(t, s, service, env, grantRequestInput(ref))
-	if replayed.Outcome != OutcomeOK || !replayed.Replayed {
+	if replayed.Outcome != agentcontract.OutcomeOK || !replayed.Replayed {
 		t.Fatalf("replayed response = %+v", replayed)
 	}
 	if !reflect.DeepEqual(version, readStoredPolicy(t, s, "client-1")) {
@@ -490,7 +490,7 @@ func TestGrantRequestAcknowledgementIsDurable(t *testing.T) {
 	scope := map[string]any{"client_ref": "client-1", "policy_version": details["policy_version"], "capabilities": []string{"cross_scope"}, "product_scope": []string{"product-2"}}
 	env.HostApproval = signedHostApproval(mustKey(t), ref, digest, scope, map[string]any{}, env.SessionRef, env.AgentRef, env.Worktree, fixedTime(), "wal-approval")
 	approved := dispatchGrantRequest(t, s, service, env, grantRequestInput(ref))
-	if approved.Outcome != OutcomeOK {
+	if approved.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("approved response = %+v", approved)
 	}
 	// The applied union acknowledges the same authority family, so the apply
@@ -546,7 +546,7 @@ func TestGrantRequestOverTheTotalBoundRefuses(t *testing.T) {
 	// 6 + 25 additions and 2 identity bindings exceed the 32-binding summary.
 	input := grantRequestInputGrants("grant-request-over", totalBoundCapabilities(), totalBoundProducts(), []string{})
 	response := dispatchGrantRequest(t, s, service, env, input)
-	if response.Error == nil || response.Error.Kind != "limit_exceeded" || response.Error.EffectState != EffectNone || response.Error.RecoveryAction.Kind != "reduce_limit" {
+	if response.Error == nil || response.Error.Kind != "limit_exceeded" || response.Error.EffectState != agentcontract.EffectNone || response.Error.RecoveryAction.Kind != "reduce_limit" {
 		t.Fatalf("oversized grant response = %+v", response)
 	}
 	if err := response.Validate(); err != nil {
@@ -603,7 +603,7 @@ func TestGrantRequestAtTheTotalBoundMints(t *testing.T) {
 		t.Fatal(err)
 	}
 	approved := dispatchGrantRequest(t, s, service, env, string(raw))
-	if approved.Outcome != OutcomeOK {
+	if approved.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("boundary approval = %+v", approved)
 	}
 	stored := readStoredPolicy(t, s, "client-1")
@@ -643,7 +643,7 @@ func TestGrantRequestAcknowledgesUnderPinnedReader(t *testing.T) {
 
 	before := s.DurableCommits()
 	response := dispatchGrantRequest(t, s, service, env, grantRequestInput(ref))
-	if response.Outcome != OutcomeOK || response.Error != nil {
+	if response.Outcome != agentcontract.OutcomeOK || response.Error != nil {
 		t.Fatalf("grant under a pinned reader = %+v, want ok", response)
 	}
 	assertDurableCommit(t, s, before)
@@ -661,7 +661,7 @@ func TestGrantRequestAcknowledgesUnderPinnedReader(t *testing.T) {
 		before = s.DurableCommits()
 		metadataBefore := replayMetadataCount(t, s, "grant-request-1")
 		replay := dispatchGrantRequest(t, s, service, env, grantRequestInput(ref))
-		if replay.Outcome != OutcomeOK || replay.Error != nil || !replay.Replayed {
+		if replay.Outcome != agentcontract.OutcomeOK || replay.Error != nil || !replay.Replayed {
 			t.Fatalf("grant replay pinned=%t: response=%+v error=%+v", pinned, replay, replay.Error)
 		}
 		requireReplayCommit(t, s, "grant-request-1", before, metadataBefore, true)

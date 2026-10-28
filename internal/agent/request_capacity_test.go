@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/payloadschema"
 	"github.com/sharper-flow/concord/internal/store"
 	"github.com/sharper-flow/concord/internal/testutil/schemawire"
@@ -154,8 +155,8 @@ func TestRequestBudgetDerivesFromDeclaredMaxima(t *testing.T) {
 	if request > MaxRequestBytes {
 		t.Fatalf("the composed declared maxima need %d bytes, above the %d-byte request budget; derive the budget again", request, MaxRequestBytes)
 	}
-	if MaxEnvelopeBytes != 65536 || MaxResultEnvelopeBytes != 51200 {
-		t.Fatalf("envelope caps moved: MaxEnvelopeBytes=%d MaxResultEnvelopeBytes=%d, want 65536 and 51200 unchanged", MaxEnvelopeBytes, MaxResultEnvelopeBytes)
+	if MaxEnvelopeBytes != 65536 || agentcontract.MaxResultEnvelopeBytes != 51200 {
+		t.Fatalf("envelope caps moved: MaxEnvelopeBytes=%d MaxResultEnvelopeBytes=%d, want 65536 and 51200 unchanged", MaxEnvelopeBytes, agentcontract.MaxResultEnvelopeBytes)
 	}
 }
 

@@ -356,7 +356,7 @@ func TestOutsideRepairCollectorRejectsIncompleteProof(t *testing.T) {
 			test.change(fake)
 			service := &Service{}
 			installOutsideBoundary(t, service, fake)
-			evidence, refusal := (runtime{Authority: service}).selectedOutsideRepairPullRequest(context.Background(), Envelope{}, outsideFakeRepository, outsideFakeIssueNumber, outsideFakeIssueKey)
+			evidence, refusal := (runtime{Authority: service}).selectedOutsideRepairPullRequest(context.Background(), agentcontract.Envelope{}, outsideFakeRepository, outsideFakeIssueNumber, outsideFakeIssueKey)
 			if refusal.Error == nil || refusal.Error.Kind != "missing_evidence" || len(evidence.RequiredChecks) != 0 {
 				t.Fatalf("collector accepted incomplete proof: %+v / %+v", evidence, refusal.Error)
 			}
@@ -368,7 +368,7 @@ func TestOutsideRepairCollectorReceiptUsesFetchedRun(t *testing.T) {
 	fake := &fakeOutsideBoundary{checks: outsideSuccessfulChecks()}
 	service := &Service{}
 	installOutsideBoundary(t, service, fake)
-	evidence, refusal := (runtime{Authority: service}).selectedOutsideRepairPullRequest(context.Background(), Envelope{}, outsideFakeRepository, outsideFakeIssueNumber, outsideFakeIssueKey)
+	evidence, refusal := (runtime{Authority: service}).selectedOutsideRepairPullRequest(context.Background(), agentcontract.Envelope{}, outsideFakeRepository, outsideFakeIssueNumber, outsideFakeIssueKey)
 	if refusal.Error != nil || len(evidence.RequiredChecks) != 2 {
 		t.Fatalf("collector: %+v / %+v", evidence, refusal.Error)
 	}
@@ -500,7 +500,7 @@ func TestOutsideRepairCollectorAuthenticatesEverySurface(t *testing.T) {
 			overrideOutsideAPI(t, fake, test.endpoint, test.change)
 			service := &Service{}
 			installOutsideBoundary(t, service, fake)
-			_, refusal := (runtime{Authority: service}).selectedOutsideRepairPullRequest(context.Background(), Envelope{}, outsideFakeRepository, outsideFakeIssueNumber, outsideFakeIssueKey)
+			_, refusal := (runtime{Authority: service}).selectedOutsideRepairPullRequest(context.Background(), agentcontract.Envelope{}, outsideFakeRepository, outsideFakeIssueNumber, outsideFakeIssueKey)
 			assertOutsideRefusedWith(t, refusal, test.name, "missing_evidence")
 		})
 	}
@@ -524,7 +524,7 @@ func TestOutsideRepairCollectorCompletePaginationAndRulesUnion(t *testing.T) {
 	})
 	service := &Service{}
 	installOutsideBoundary(t, service, fake)
-	evidence, refusal := (runtime{Authority: service}).selectedOutsideRepairPullRequest(context.Background(), Envelope{}, outsideFakeRepository, outsideFakeIssueNumber, outsideFakeIssueKey)
+	evidence, refusal := (runtime{Authority: service}).selectedOutsideRepairPullRequest(context.Background(), agentcontract.Envelope{}, outsideFakeRepository, outsideFakeIssueNumber, outsideFakeIssueKey)
 	if refusal.Error != nil || len(evidence.RequiredChecks) != 3 {
 		t.Fatalf("pagination/union: %+v / %+v", evidence, refusal.Error)
 	}
@@ -544,7 +544,7 @@ func TestOutsideRepairCollectorRulesetOnlyWithExplicitClassicAbsence(t *testing.
 	fake.apiOutputs["repos/"+outsideFakeRepository+"/rules/branches/main?per_page=100"] = `[[{"type":"required_status_checks","parameters":{"required_status_checks":[{"context":"ci/build","integration_id":15368},{"context":"ci/lint","integration_id":15368}]}}]]`
 	service := &Service{}
 	installOutsideBoundary(t, service, fake)
-	evidence, refusal := (runtime{Authority: service}).selectedOutsideRepairPullRequest(context.Background(), Envelope{}, outsideFakeRepository, outsideFakeIssueNumber, outsideFakeIssueKey)
+	evidence, refusal := (runtime{Authority: service}).selectedOutsideRepairPullRequest(context.Background(), agentcontract.Envelope{}, outsideFakeRepository, outsideFakeIssueNumber, outsideFakeIssueKey)
 	if refusal.Error != nil || len(evidence.RequiredChecks) != 2 {
 		t.Fatalf("ruleset-only: %+v / %+v", evidence, refusal.Error)
 	}
@@ -566,7 +566,7 @@ func TestOutsideRepairCollectorNewestDuplicateAndJobURL(t *testing.T) {
 			}
 			service := &Service{}
 			installOutsideBoundary(t, service, fake)
-			evidence, refusal := (runtime{Authority: service}).selectedOutsideRepairPullRequest(context.Background(), Envelope{}, outsideFakeRepository, outsideFakeIssueNumber, outsideFakeIssueKey)
+			evidence, refusal := (runtime{Authority: service}).selectedOutsideRepairPullRequest(context.Background(), agentcontract.Envelope{}, outsideFakeRepository, outsideFakeIssueNumber, outsideFakeIssueKey)
 			if refusal.Error != nil || len(evidence.RequiredChecks) != 2 || evidence.RequiredChecks[0].URL != "https://github.com/"+outsideFakeRepository+"/actions/runs/9000000001" {
 				t.Fatalf("newest check/job binding: %+v / %+v", evidence, refusal.Error)
 			}
@@ -596,7 +596,7 @@ func TestOutsideRepairCollectorDuplicateOrderingRefusesNewestFailure(t *testing.
 			}
 			service := &Service{}
 			installOutsideBoundary(t, service, fake)
-			_, refusal := (runtime{Authority: service}).selectedOutsideRepairPullRequest(context.Background(), Envelope{}, outsideFakeRepository, outsideFakeIssueNumber, outsideFakeIssueKey)
+			_, refusal := (runtime{Authority: service}).selectedOutsideRepairPullRequest(context.Background(), agentcontract.Envelope{}, outsideFakeRepository, outsideFakeIssueNumber, outsideFakeIssueKey)
 			assertOutsideRefusedWith(t, refusal, test.name, "missing_evidence")
 		})
 	}
@@ -689,7 +689,7 @@ func TestOutsideRepairCanonicalRepositoryAcceptsMixedCase(t *testing.T) {
 	fake.canonicalURL = "https://github.com/Outside-Fixture/concord"
 	service := &Service{}
 	installOutsideBoundary(t, service, fake)
-	_, refusal := (runtime{Authority: service}).outsideRepairCanonicalRepository(context.Background(), Envelope{}, outsideFakeRepository)
+	_, refusal := (runtime{Authority: service}).outsideRepairCanonicalRepository(context.Background(), agentcontract.Envelope{}, outsideFakeRepository)
 	if refusal.Error != nil {
 		t.Fatalf("mixed-case canonical refused: %+v", refusal.Error)
 	}
@@ -778,7 +778,7 @@ func TestOutsideRepairCollectorClassicDeploymentEnforcementFailsClosed(t *testin
 			overrideOutsideAPI(t, fake, "graphql", test.change)
 			service := &Service{}
 			installOutsideBoundary(t, service, fake)
-			evidence, refusal := (runtime{Authority: service}).selectedOutsideRepairPullRequest(context.Background(), Envelope{}, outsideFakeRepository, outsideFakeIssueNumber, outsideFakeIssueKey)
+			evidence, refusal := (runtime{Authority: service}).selectedOutsideRepairPullRequest(context.Background(), agentcontract.Envelope{}, outsideFakeRepository, outsideFakeIssueNumber, outsideFakeIssueKey)
 			if test.refuse {
 				assertOutsideRefusedWith(t, refusal, test.name, "missing_evidence")
 				if len(evidence.RequiredChecks) != 0 {
@@ -829,7 +829,7 @@ func TestOutsideRepairCollectorReceiptPreservesNativeIdentities(t *testing.T) {
 		t.Helper()
 		service := &Service{}
 		installOutsideBoundary(t, service, fake)
-		evidence, refusal := (runtime{Authority: service}).selectedOutsideRepairPullRequest(context.Background(), Envelope{}, outsideFakeRepository, outsideFakeIssueNumber, outsideFakeIssueKey)
+		evidence, refusal := (runtime{Authority: service}).selectedOutsideRepairPullRequest(context.Background(), agentcontract.Envelope{}, outsideFakeRepository, outsideFakeIssueNumber, outsideFakeIssueKey)
 		if refusal.Error != nil {
 			t.Fatalf("collector refused: %+v", refusal.Error)
 		}
@@ -886,7 +886,7 @@ func TestOutsideRepairBenignRuleTypesStillPass(t *testing.T) {
 			fake.apiOutputs = map[string]string{rulesEndpoint: fmt.Sprintf(`[[{"type":%q}]]`, ruleType)}
 			service := &Service{}
 			installOutsideBoundary(t, service, fake)
-			evidence, refusal := (runtime{Authority: service}).selectedOutsideRepairPullRequest(context.Background(), Envelope{}, outsideFakeRepository, outsideFakeIssueNumber, outsideFakeIssueKey)
+			evidence, refusal := (runtime{Authority: service}).selectedOutsideRepairPullRequest(context.Background(), agentcontract.Envelope{}, outsideFakeRepository, outsideFakeIssueNumber, outsideFakeIssueKey)
 			if refusal.Error != nil || len(evidence.RequiredChecks) != 2 {
 				t.Fatalf("benign rule %s: %+v / %+v", ruleType, evidence, refusal.Error)
 			}
@@ -918,7 +918,7 @@ func TestOutsideRepairCollectorExactLinearToken(t *testing.T) {
 			fake := &fakeOutsideBoundary{checks: outsideSuccessfulChecks(), prBody: body}
 			service := &Service{}
 			installOutsideBoundary(t, service, fake)
-			_, refusal := (runtime{Authority: service}).selectedOutsideRepairPullRequest(context.Background(), Envelope{}, outsideFakeRepository, outsideFakeIssueNumber, "CON-86")
+			_, refusal := (runtime{Authority: service}).selectedOutsideRepairPullRequest(context.Background(), agentcontract.Envelope{}, outsideFakeRepository, outsideFakeIssueNumber, "CON-86")
 			if refusal.Error == nil {
 				t.Fatalf("body %q satisfied CON-86", body)
 			}
@@ -932,7 +932,7 @@ func TestOutsideRepairCollectorAcceptsExactLinearToken(t *testing.T) {
 			fake := &fakeOutsideBoundary{checks: outsideSuccessfulChecks(), prBody: body}
 			service := &Service{}
 			installOutsideBoundary(t, service, fake)
-			_, refusal := (runtime{Authority: service}).selectedOutsideRepairPullRequest(context.Background(), Envelope{}, outsideFakeRepository, outsideFakeIssueNumber, "CON-86")
+			_, refusal := (runtime{Authority: service}).selectedOutsideRepairPullRequest(context.Background(), agentcontract.Envelope{}, outsideFakeRepository, outsideFakeIssueNumber, "CON-86")
 			if refusal.Error != nil {
 				t.Fatalf("exact token refused: %+v", refusal.Error)
 			}
@@ -950,7 +950,7 @@ func TestOutsideRepairTagRejectsNonCommitObject(t *testing.T) {
 				fake := &fakeOutsideBoundary{annotatedTag: annotated, tagObjectType: kind}
 				service := &Service{}
 				installOutsideBoundary(t, service, fake)
-				sha, refusal := (runtime{Authority: service}).outsideRepairTagCommit(context.Background(), Envelope{}, outsideFakeRepository, outsideFakeTag)
+				sha, refusal := (runtime{Authority: service}).outsideRepairTagCommit(context.Background(), agentcontract.Envelope{}, outsideFakeRepository, outsideFakeTag)
 				if refusal.Error == nil || sha != "" {
 					t.Fatalf("accepted %s as commit: %s", kind, sha)
 				}
@@ -1049,7 +1049,7 @@ func dispatchOutsideMints(t *testing.T, s *store.Store, service *Service, env Ca
 // dispatchOutsideApproved sends the approved submission; the signed host
 // assertion binds the challenge to this exact approved input, whose digest
 // excludes the approval reference and the idempotency key.
-func dispatchOutsideApproved(t *testing.T, s *store.Store, service *Service, env CallEnvelope, operation string, ref string, input map[string]any) Envelope {
+func dispatchOutsideApproved(t *testing.T, s *store.Store, service *Service, env CallEnvelope, operation string, ref string, input map[string]any) agentcontract.Envelope {
 	t.Helper()
 	withApproval := map[string]any{}
 	for key, value := range input {
@@ -1086,15 +1086,15 @@ func outsideReleaseSelectorsFor(operation string, input map[string]any) func(map
 	}
 }
 
-func assertOutsideOK(t *testing.T, response Envelope, what string) Envelope {
+func assertOutsideOK(t *testing.T, response agentcontract.Envelope, what string) agentcontract.Envelope {
 	t.Helper()
-	if response.Outcome != OutcomeOK || response.Error != nil {
+	if response.Outcome != agentcontract.OutcomeOK || response.Error != nil {
 		t.Fatalf("%s = %s / %+v, want ok", what, response.Outcome, response.Error)
 	}
 	return response
 }
 
-func assertOutsideRefusedWith(t *testing.T, response Envelope, what, kind string) {
+func assertOutsideRefusedWith(t *testing.T, response agentcontract.Envelope, what, kind string) {
 	t.Helper()
 	if response.Error == nil || response.Error.Kind != kind {
 		t.Fatalf("%s = %s / %+v, want %s", what, response.Outcome, response.Error, kind)
@@ -1152,7 +1152,7 @@ func outsideCompletionRefused(t *testing.T, s *store.Store, service *Service, en
 	}
 }
 
-func resultPin(t *testing.T, response Envelope) map[string]any {
+func resultPin(t *testing.T, response agentcontract.Envelope) map[string]any {
 	t.Helper()
 	var result struct {
 		WorkPins []map[string]any `json:"work_pins"`
@@ -1453,7 +1453,7 @@ func TestOutsideRepairApprovalBindsExactOperation(t *testing.T) {
 
 // dispatchOutsideConsumedApproval dispatches the approved submission with a
 // consumed approval ref so its one-use binding refuses the second consequence.
-func dispatchOutsideConsumedApproval(t *testing.T, s *store.Store, service *Service, env CallEnvelope, operation string, consumedRef string, input map[string]any) Envelope {
+func dispatchOutsideConsumedApproval(t *testing.T, s *store.Store, service *Service, env CallEnvelope, operation string, consumedRef string, input map[string]any) agentcontract.Envelope {
 	t.Helper()
 	return dispatchOutsideApproved(t, s, service, env, operation, consumedRef, input)
 }

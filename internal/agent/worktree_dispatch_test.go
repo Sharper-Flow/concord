@@ -98,7 +98,7 @@ func TestWorktreeClaimAndReclaimThroughToolSurface(t *testing.T) {
 	request := InvokeRequest{Tool: "concord_work_transition", Operation: "worktree_claim", Input: claimInput}
 	beforeClaim := s.DurableCommits()
 	response, err := Dispatch(ctx, s, service, request, mutationEnvelope(grant, scopeVersion))
-	if err != nil || response.Outcome != OutcomeOK {
+	if err != nil || response.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("claim response=%+v err=%v", response, err)
 	}
 	if after := s.DurableCommits(); after != beforeClaim+1 {
@@ -124,7 +124,7 @@ func TestWorktreeClaimAndReclaimThroughToolSurface(t *testing.T) {
 
 	// The same claim retried is an idempotent replay, not a second worktree.
 	replay, err := Dispatch(ctx, s, service, request, mutationEnvelope(grant, scopeVersion))
-	if err != nil || replay.Outcome != OutcomeOK {
+	if err != nil || replay.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("replay response=%+v err=%v", replay, err)
 	}
 	if after := s.DurableCommits(); after != beforeClaim+2 {
@@ -149,7 +149,7 @@ func TestWorktreeClaimAndReclaimThroughToolSurface(t *testing.T) {
 	})
 	reclaim := InvokeRequest{Tool: "concord_work_transition", Operation: "worktree_reclaim", Input: reclaimInput}
 	dirty, err := Dispatch(ctx, s, service, reclaim, mutationEnvelope(grant, scopeVersion))
-	if err != nil || dirty.Outcome == OutcomeOK {
+	if err != nil || dirty.Outcome == agentcontract.OutcomeOK {
 		t.Fatalf("dirty reclaim must fail: response=%+v err=%v", dirty, err)
 	}
 	if err := os.WriteFile(filepath.Join(worktreePath, "README.md"), []byte("# fixture\n"), 0o644); err != nil {
@@ -158,7 +158,7 @@ func TestWorktreeClaimAndReclaimThroughToolSurface(t *testing.T) {
 	gitRun(t, worktreePath, "checkout", "--", ".")
 
 	clean, err := Dispatch(ctx, s, service, reclaim, mutationEnvelope(grant, scopeVersion))
-	if err != nil || clean.Outcome != OutcomeOK {
+	if err != nil || clean.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("clean reclaim response=%+v err=%v", clean, err)
 	}
 	entries, err = s.WorktreeEntries(ctx, "work-1")
@@ -187,7 +187,7 @@ func TestWorktreeClaimRefusesWhenSessionOccupiesAnotherWorktree(t *testing.T) {
 	if err := store.ApplyOperation(ctx, s, store.Operation{Events: seed, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, "work-2"): 0}}); err != nil {
 		t.Fatal(err)
 	}
-	claim := func(workID, key string) (Envelope, error) {
+	claim := func(workID, key string) (agentcontract.Envelope, error) {
 		t.Helper()
 		scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
 		if err != nil {
@@ -197,11 +197,11 @@ func TestWorktreeClaimRefusesWhenSessionOccupiesAnotherWorktree(t *testing.T) {
 		return Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "worktree_claim", Input: input}, mutationEnvelope(grant, scopeVersion))
 	}
 	first, err := claim("work-1", "occupancy-refusal-1")
-	if err != nil || first.Outcome != OutcomeOK {
+	if err != nil || first.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("first claim response=%+v err=%v", first, err)
 	}
 	second, err := claim("work-2", "occupancy-refusal-2")
-	if err == nil && second.Outcome == OutcomeOK {
+	if err == nil && second.Outcome == agentcontract.OutcomeOK {
 		t.Fatalf("claim by an occupying session must refuse: response=%+v", second)
 	}
 
@@ -310,7 +310,7 @@ func TestWorktreeClaimCrossScopeGate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if response.Outcome != OutcomeError || response.Error == nil || response.Error.Kind != "unauthorized" {
+	if response.Outcome != agentcontract.OutcomeError || response.Error == nil || response.Error.Kind != "unauthorized" {
 		t.Fatalf("claim response=%+v, want an unauthorized refusal", response)
 	}
 	if !strings.Contains(response.Error.Message, "cross_scope") {
@@ -337,7 +337,7 @@ func TestWorktreeClaimCrossProjectCarriesDestination(t *testing.T) {
 	}
 	input, _ := json.Marshal(map[string]any{"host_pid": os.Getpid(), "work_id": "work-1", "project_id": "project-1b", "base_sha": baseSHA, "expected_version": 3, "idempotency_key": "cross-project-claim"})
 	response, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "worktree_claim", Input: input}, mutationEnvelope(grant, scopeVersion))
-	if err != nil || response.Outcome != OutcomeOK {
+	if err != nil || response.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("claim response=%+v err=%v", response, err)
 	}
 	var claimResult struct {
@@ -351,7 +351,7 @@ func TestWorktreeClaimCrossProjectCarriesDestination(t *testing.T) {
 		t.Fatalf("claim result path=%q, want %q", claimResult.Path, wantPath)
 	}
 	browse, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_browse", Operation: "scope", Input: json.RawMessage(`{"product_id":"product-1","work_id":"work-1"}`)}, mutationEnvelope(grant, scopeVersion))
-	if err != nil || browse.Outcome != OutcomeOK {
+	if err != nil || browse.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("follow-up dispatch response=%+v err=%v", browse, err)
 	}
 }
@@ -381,7 +381,7 @@ func claimLinkedWorktree(t *testing.T, s *store.Store, service *Service, grant A
 		t.Fatal(err)
 	}
 	claim, err := Dispatch(context.Background(), s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "worktree_claim", Input: claimInput}, mutationEnvelope(grant, scopeVersion))
-	if err != nil || claim.Outcome != OutcomeOK {
+	if err != nil || claim.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("claim response=%+v error=%+v err=%v", claim, claim.Error, err)
 	}
 }
@@ -403,7 +403,7 @@ func vacateLinkedWorktree(t *testing.T, s *store.Store, service *Service, grant 
 	env.Directory = worktreePath
 	input, _ := json.Marshal(map[string]any{"idempotency_key": key})
 	vacate, err := Dispatch(context.Background(), s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "session_vacate", Input: input}, env)
-	if err != nil || vacate.Outcome != OutcomeOK {
+	if err != nil || vacate.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("vacate response=%+v err=%v", vacate, err)
 	}
 	var target struct {
@@ -428,7 +428,7 @@ func vacateLinkedWorktree(t *testing.T, s *store.Store, service *Service, grant 
 // lifecycle (TestWorktreeClaimAndReclaimThroughToolSurface).
 func TestWorktreeReclaimFromMainCheckoutRequiresTerminalWork(t *testing.T) {
 	t.Parallel()
-	dispatchReclaim := func(t *testing.T, s *store.Store, service *Service, grant Authority, key string, expected int64) Envelope {
+	dispatchReclaim := func(t *testing.T, s *store.Store, service *Service, grant Authority, key string, expected int64) agentcontract.Envelope {
 		t.Helper()
 		reclaimInput, _ := json.Marshal(map[string]any{
 			"work_id": "work-1", "project_id": "project-1",
@@ -454,7 +454,7 @@ func TestWorktreeReclaimFromMainCheckoutRequiresTerminalWork(t *testing.T) {
 		resolveProjectAuthority(service, store.ProjectResolution{ProjectID: "project-1", MainWorktree: true})
 
 		refused := dispatchReclaim(t, s, service, grant, "main-reclaim-inprogress", 4)
-		if refused.Outcome != OutcomeError || refused.Error == nil {
+		if refused.Outcome != agentcontract.OutcomeError || refused.Error == nil {
 			t.Fatalf("response=%+v, want typed refusal", refused)
 		}
 		if refused.Error.Kind != "unauthorized" {
@@ -482,7 +482,7 @@ func TestWorktreeReclaimFromMainCheckoutRequiresTerminalWork(t *testing.T) {
 		resolveProjectAuthority(service, store.ProjectResolution{ProjectID: "project-1", MainWorktree: true})
 
 		response := dispatchReclaim(t, s, service, grant, "main-reclaim-terminal", 4)
-		if response.Outcome != OutcomeOK {
+		if response.Outcome != agentcontract.OutcomeOK {
 			t.Fatalf("reclaim response=%+v err=%v", response, response.Error)
 		}
 		entries, err := s.WorktreeEntries(ctx, "work-1")
@@ -507,7 +507,7 @@ func TestWorktreeReclaimFromMainCheckoutRequiresTerminalWork(t *testing.T) {
 		resolveProjectAuthority(service, store.ProjectResolution{ProjectID: "project-1", MainWorktree: true})
 
 		response := dispatchReclaim(t, s, service, grant, "main-reclaim-cancelled", 4)
-		if response.Outcome != OutcomeOK {
+		if response.Outcome != agentcontract.OutcomeOK {
 			t.Fatalf("reclaim response=%+v err=%v", response, response.Error)
 		}
 		entries, err := s.WorktreeEntries(ctx, "work-1")
@@ -530,7 +530,7 @@ func TestWorktreeReclaimRefusesOccupiedWorktreeThroughToolSurface(t *testing.T) 
 	worktreePath := filepath.Join(filepath.Dir(s.Path()), "worktrees", "project-1", "work-1")
 	claimLinkedWorktree(t, s, service, grant, worktreePath, baseSHA, "work/dispatch-1", "wt-claim-occupied")
 
-	reclaimWith := func(key string, _ []map[string]any) Envelope {
+	reclaimWith := func(key string, _ []map[string]any) agentcontract.Envelope {
 		t.Helper()
 		input, _ := json.Marshal(map[string]any{
 			"work_id": "work-1", "project_id": "project-1", "default_ref": "main",
@@ -546,7 +546,7 @@ func TestWorktreeReclaimRefusesOccupiedWorktreeThroughToolSurface(t *testing.T) 
 	occupied := reclaimWith("wt-reclaim-occupied", []map[string]any{
 		{"session_ref": "ses_live", "directory": filepath.Join(worktreePath, "internal")},
 	})
-	if occupied.Outcome == OutcomeOK {
+	if occupied.Outcome == agentcontract.OutcomeOK {
 		t.Fatal("a session inside the worktree must refuse the reclaim")
 	}
 	// The store refuses with worktree_ownership_conflict, which this surface
@@ -568,7 +568,7 @@ func TestWorktreeReclaimRefusesOccupiedWorktreeThroughToolSurface(t *testing.T) 
 	free := reclaimWith("wt-reclaim-free", []map[string]any{
 		{"session_ref": "ses_live", "directory": repoRoot},
 	})
-	if free.Outcome != OutcomeOK {
+	if free.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("response=%+v, want the reclaim to proceed", free)
 	}
 	if strings.Contains(gitRun(t, repoRoot, "worktree", "list"), "work-1") {
@@ -596,7 +596,7 @@ func TestSessionVacateSucceedsFromLinkedWorktreeMutation(t *testing.T) {
 		Input:     json.RawMessage(`{"idempotency_key":"vacate-1"}`),
 	}
 	response, err := Dispatch(ctx, s, service, request, env)
-	if err != nil || response.Outcome != OutcomeOK {
+	if err != nil || response.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("vacate response=%+v error=%+v err=%v", response, response.Error, err)
 	}
 	var result struct {
@@ -667,7 +667,7 @@ func TestSessionVacateReplayFromVerifiedDestinationResolvesPendingLanding(t *tes
 	env.Worktree = worktreePath
 	env.Directory = worktreePath
 	first, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "session_vacate", Input: json.RawMessage(`{"idempotency_key":"vacate-replay-1"}`)}, env)
-	if err != nil || first.Outcome != OutcomeOK {
+	if err != nil || first.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("first vacate response=%+v error=%+v err=%v", first, first.Error, err)
 	}
 
@@ -682,7 +682,7 @@ func TestSessionVacateReplayFromVerifiedDestinationResolvesPendingLanding(t *tes
 	replayEnv.Worktree = repoRoot
 	replayEnv.Directory = repoRoot
 	replay, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "session_vacate", Input: json.RawMessage(`{"idempotency_key":"vacate-replay-2"}`)}, replayEnv)
-	if err != nil || replay.Outcome != OutcomeOK {
+	if err != nil || replay.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("replay response=%+v error=%+v err=%v", replay, replay.Error, err)
 	}
 	var result struct {
@@ -742,7 +742,7 @@ func TestSessionVacateReplayOfCompletedRequestResolvesWithoutRows(t *testing.T) 
 	env.Worktree = worktreePath
 	env.Directory = worktreePath
 	first, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "session_vacate", Input: json.RawMessage(`{"idempotency_key":"vacate-done-1"}`)}, env)
-	if err != nil || first.Outcome != OutcomeOK {
+	if err != nil || first.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("first vacate response=%+v error=%+v err=%v", first, first.Error, err)
 	}
 	// The verified landing completes the request the way the adapter-only
@@ -761,7 +761,7 @@ func TestSessionVacateReplayOfCompletedRequestResolvesWithoutRows(t *testing.T) 
 	replayEnv.Worktree = repoRoot
 	replayEnv.Directory = repoRoot
 	replay, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "session_vacate", Input: json.RawMessage(`{"idempotency_key":"vacate-done-2"}`)}, replayEnv)
-	if err != nil || replay.Outcome != OutcomeOK {
+	if err != nil || replay.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("replay response=%+v error=%+v err=%v, want a resolved completed replay", replay, replay.Error, err)
 	}
 	var result struct {
@@ -827,7 +827,7 @@ func TestSessionVacateReplayOfCompletedRequestRefusesLaterClaimRows(t *testing.T
 	env.Worktree = worktreePath
 	env.Directory = worktreePath
 	first, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "session_vacate", Input: json.RawMessage(`{"idempotency_key":"vacate-later-1"}`)}, env)
-	if err != nil || first.Outcome != OutcomeOK {
+	if err != nil || first.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("first vacate response=%+v error=%+v err=%v", first, first.Error, err)
 	}
 	if _, err := s.RecordSessionVacateLanding(ctx, store.SessionVacateLandingRequest{
@@ -842,7 +842,7 @@ func TestSessionVacateReplayOfCompletedRequestRefusesLaterClaimRows(t *testing.T
 		"expected_version": 2, "idempotency_key": "claim-later-2",
 	})
 	claim, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "worktree_claim", Input: claimInput}, mutationEnvelope(grant, scopeVersion))
-	if err != nil || claim.Outcome != OutcomeOK {
+	if err != nil || claim.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("claim work-2 response=%+v err=%v", claim, err)
 	}
 	resolveProjectAuthority(service, store.ProjectResolution{ProjectID: "project-1", MainWorktree: true})
@@ -854,7 +854,7 @@ func TestSessionVacateReplayOfCompletedRequestRefusesLaterClaimRows(t *testing.T
 	replayEnv.Worktree = repoRoot
 	replayEnv.Directory = repoRoot
 	replay, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "session_vacate", Input: json.RawMessage(`{"idempotency_key":"vacate-later-2"}`)}, replayEnv)
-	if err != nil || replay.Outcome != OutcomeError || replay.Error == nil {
+	if err != nil || replay.Outcome != agentcontract.OutcomeError || replay.Error == nil {
 		t.Fatalf("replay response=%+v err=%v, want a refusal", replay, err)
 	}
 	if replay.Error.Kind != "invalid_input" || !strings.Contains(replay.Error.Message, "belong to a later claim") {
@@ -896,7 +896,7 @@ func TestSessionVacateFromMainCheckoutWithoutPendingRequestRefuses(t *testing.T)
 	env.Worktree = repoRoot
 	env.Directory = repoRoot
 	response, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "session_vacate", Input: json.RawMessage(`{"idempotency_key":"vacate-main-no-request"}`)}, env)
-	if err != nil || response.Outcome != OutcomeError || response.Error == nil {
+	if err != nil || response.Outcome != agentcontract.OutcomeError || response.Error == nil {
 		t.Fatalf("response=%+v err=%v, want a refusal", response, err)
 	}
 	if response.Error.Kind != "unknown_scope" {
@@ -941,7 +941,7 @@ func TestSecondSessionVacateRecordsItsOwnEvent(t *testing.T) {
 	envA.Worktree = worktreeA
 	envA.Directory = worktreeA
 	first, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "session_vacate", Input: json.RawMessage(`{"idempotency_key":"vacate-a"}`)}, envA)
-	if err != nil || first.Outcome != OutcomeOK {
+	if err != nil || first.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("first vacate response=%+v error=%+v err=%v", first, first.Error, err)
 	}
 
@@ -967,7 +967,7 @@ func TestSecondSessionVacateRecordsItsOwnEvent(t *testing.T) {
 		t.Fatal(err)
 	}
 	claim, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "worktree_claim", Input: claimB}, mutationEnvelope(grantB, scopeVersionB))
-	if err != nil || claim.Outcome != OutcomeOK {
+	if err != nil || claim.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("second claim response=%+v err=%v", claim, err)
 	}
 
@@ -975,7 +975,7 @@ func TestSecondSessionVacateRecordsItsOwnEvent(t *testing.T) {
 	envB.Worktree = worktreeB
 	envB.Directory = worktreeB
 	second, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "session_vacate", Input: json.RawMessage(`{"idempotency_key":"vacate-b"}`)}, envB)
-	if err != nil || second.Outcome != OutcomeOK {
+	if err != nil || second.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("second vacate response=%+v error=%+v err=%v", second, second.Error, err)
 	}
 	var eventIDs, sessionRefs []string
@@ -1056,7 +1056,7 @@ func TestWorktreeClaimRefusesCrossRepositoryBeforeCreation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if response.Outcome != OutcomeError || response.Error == nil || response.Error.Kind != "cross_repository_claim" {
+	if response.Outcome != agentcontract.OutcomeError || response.Error == nil || response.Error.Kind != "cross_repository_claim" {
 		t.Fatalf("claim error=%+v, want a cross_repository_claim refusal", response.Error)
 	}
 	if response.Error.RetrySafe {
@@ -1138,7 +1138,7 @@ func TestWorktreeClaimRefusesCrossRepositoryBeforeCreation(t *testing.T) {
 	env = mutationEnvelope(grant, scopeVersion)
 	env.Directory = repoRoot
 	response, err = Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "worktree_claim", Input: sameInput}, env)
-	if err != nil || response.Outcome != OutcomeOK {
+	if err != nil || response.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("same-repository claim error=%+v outcome=%s err=%v, want the within-repository move", response.Error, response.Outcome, err)
 	}
 	var claimResult struct {

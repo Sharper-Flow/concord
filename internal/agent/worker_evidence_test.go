@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"os"
 	"reflect"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -220,7 +221,7 @@ func TestWorkerEvidenceVectorCoversEveryVerbAndBindingField(t *testing.T) {
 		v1BoundByVerb[testCase.Verb] = testCase.BoundFields
 	}
 	for _, testCase := range v2Cases {
-		if !oneOf(testCase.Verb, WorkerEvidenceVerbs...) {
+		if !slices.Contains(WorkerEvidenceVerbs, testCase.Verb) {
 			t.Fatalf("v2 case claims verb %q, which is not a worker evidence verb", testCase.Verb)
 		}
 		v2Verbs[testCase.Verb] = true

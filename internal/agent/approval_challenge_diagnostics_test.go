@@ -58,8 +58,8 @@ func TestApprovalChallengeBindingDiagnostics(t *testing.T) {
 			if err == nil {
 				t.Fatal("invalid challenge binding admitted")
 			}
-			out := failureEnvelope(NewBase("binding-test", "concord_work_relate", "set_memberships"), err)
-			if out.Error.Kind != "approval_invalid" || out.Error.RecoveryAction.Kind != "request_approval" || out.Error.RetrySafe || out.Error.EffectState != EffectNone {
+			out := failureEnvelope(agentcontract.NewBase("binding-test", "concord_work_relate", "set_memberships"), err)
+			if out.Error.Kind != "approval_invalid" || out.Error.RecoveryAction.Kind != "request_approval" || out.Error.RetrySafe || out.Error.EffectState != agentcontract.EffectNone {
 				t.Fatalf("binding refusal changed its authority semantics: %+v", out.Error)
 			}
 			wantReason := reason
@@ -192,8 +192,8 @@ func TestInvalidChallengeIntervalRefusesLateExchange(t *testing.T) {
 			if err == nil {
 				t.Fatal("invalid stored interval re-armed an expired invitation")
 			}
-			out := failureEnvelope(NewBase("interval-test", "concord_work_relate", "set_memberships"), err)
-			if out.Error.Kind != "approval_invalid" || out.Error.RecoveryAction.Kind != "request_approval" || out.Error.RetrySafe || out.Error.EffectState != EffectNone {
+			out := failureEnvelope(agentcontract.NewBase("interval-test", "concord_work_relate", "set_memberships"), err)
+			if out.Error.Kind != "approval_invalid" || out.Error.RecoveryAction.Kind != "request_approval" || out.Error.RetrySafe || out.Error.EffectState != agentcontract.EffectNone {
 				t.Fatalf("interval refusal lost its cause: %+v", out.Error)
 			}
 			if out.Error.Details["boundary"] != "approval_challenge_binding" || out.Error.Details["reason"] != "expired" {
@@ -264,8 +264,8 @@ func TestExpiredChallengeWithChangedDecisionBindingRefuses(t *testing.T) {
 			if err == nil {
 				t.Fatal("expired invitation re-armed a moved decision")
 			}
-			out := failureEnvelope(NewBase("moved-decision-test", "concord_work_relate", "set_memberships"), err)
-			if out.Error.Kind != "approval_invalid" || out.Error.RecoveryAction.Kind != "request_approval" || out.Error.RetrySafe || out.Error.EffectState != EffectNone {
+			out := failureEnvelope(agentcontract.NewBase("moved-decision-test", "concord_work_relate", "set_memberships"), err)
+			if out.Error.Kind != "approval_invalid" || out.Error.RecoveryAction.Kind != "request_approval" || out.Error.RetrySafe || out.Error.EffectState != agentcontract.EffectNone {
 				t.Fatalf("moved decision refusal lost its cause: %+v", out.Error)
 			}
 			if out.Error.Details["boundary"] != "approval_challenge_binding" || out.Error.Details["reason"] != "expired" {

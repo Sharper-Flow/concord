@@ -35,7 +35,7 @@ func TestRetainedFindingReadRoutes(t *testing.T) {
 		t.Run(call.operation, func(t *testing.T) {
 			input := inputs[call.tool+"."+call.operation]
 			response := dispatchRead(t, fx.store, fx.service, InvokeRequest{Tool: call.tool, Operation: call.operation, Input: json.RawMessage(input)}, fx.envelope(t))
-			if response.Outcome != OutcomeOK {
+			if response.Outcome != agentcontract.OutcomeOK {
 				t.Fatalf("read refused retained finding: %+v", response.Error)
 			}
 			if err := agentcontract.ValidateOperationPayload(call.tool, call.operation, response.Result, true); err != nil {

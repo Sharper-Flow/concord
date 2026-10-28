@@ -157,7 +157,7 @@ func seedVerdictEvent(t *testing.T, db *sql.DB, execActorRef string) {
 	}
 }
 
-func scopeReadFor(t *testing.T, s *store.Store, service *Service, privateKey ed25519.PrivateKey, nonce, session, agent, client string) Envelope {
+func scopeReadFor(t *testing.T, s *store.Store, service *Service, privateKey ed25519.PrivateKey, nonce, session, agent, client string) agentcontract.Envelope {
 	t.Helper()
 	ctx := context.Background()
 	_ = privateKey
@@ -182,7 +182,7 @@ func TestExecutingSessionCannotReadItsOwnVerdict(t *testing.T) {
 	s, service, execKey, _ := verdictScopeFixture(t)
 
 	response := scopeReadFor(t, s, service, execKey, "verdict-exec-nonce-0001", "session-exec-aaaa", "agent-exec", "client-session-exec-aaaa")
-	if response.Outcome != OutcomeOK {
+	if response.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("executing-session read failed: %+v", response.Error)
 	}
 	raw, _ := json.Marshal(response.Result)
@@ -205,7 +205,7 @@ func TestDistinctSessionReadsTheVerdict(t *testing.T) {
 	s, service, _, otherKey := verdictScopeFixture(t)
 
 	response := scopeReadFor(t, s, service, otherKey, "verdict-distinct-nonce-2", "session-other-bbbb", "agent-other", "client-session-other-bbbb")
-	if response.Outcome != OutcomeOK {
+	if response.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("distinct-session read failed: %+v", response.Error)
 	}
 	raw, _ := json.Marshal(response.Result)
@@ -227,7 +227,7 @@ func TestVerdictReadScopeRequiresBothRecordedIdentityRefs(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			s, service, execKey, _ := verdictScopeFixture(t)
 			response := scopeReadFor(t, s, service, execKey, "verdict-tuple-nonce", tc.session, tc.agent, "client-session-exec-aaaa")
-			if response.Outcome != OutcomeOK {
+			if response.Outcome != agentcontract.OutcomeOK {
 				t.Fatalf("scope read failed: %+v", response.Error)
 			}
 			raw, err := json.Marshal(response.Result)
@@ -249,7 +249,7 @@ func TestVerdictReadScopeDoesNotInferMissingInstanceIdentity(t *testing.T) {
 		t.Fatal(err)
 	}
 	response := scopeReadFor(t, s, service, execKey, "verdict-current-identity", "session-exec-aaaa", "agent-exec", "client-session-exec-aaaa")
-	if response.Outcome != OutcomeOK {
+	if response.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("scope read failed: %+v", response.Error)
 	}
 	raw, err := json.Marshal(response.Result)

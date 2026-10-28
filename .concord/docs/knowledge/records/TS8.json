@@ -13,7 +13,7 @@
     },
     {
       "criterion": 3,
-      "exemption": "Fail-closed digest mismatch is an envelope-and-adapter property. The guarantee is proved by TestEnvelopeRejectsUnknownVariantsAndFields (internal/agent/envelope_test.go) and the strict unknown-input rejection of adapter/opencode/generated-contract-tests.ts."
+      "exemption": "Fail-closed digest mismatch is an envelope-and-adapter property. The guarantee is proved by TestEnvelopeRejectsUnknownVariantsAndFields (internal/agentcontract/envelope_test.go) and the strict unknown-input rejection of adapter/opencode/generated-contract-tests.ts."
     },
     {
       "criterion": 4,
@@ -24,7 +24,7 @@
   "evidence": [
     "scripts/check-agent-contracts.py",
     "adapter/opencode/generated-contract-tests.ts",
-    "internal/agent/envelope_test.go",
+    "internal/agentcontract/envelope_test.go",
     ".concord/scenarios/agent-jobs.v1.json",
     "internal/agent/agent_jobs_corpus_test.go"
   ],
@@ -39,7 +39,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:3679a28b418eeb2bbe627f6f874c3d3dfbf533e82e67988cc51e073e6aaf732a",
+  "sha256": "sha256:8c112945e10c02f6a312c4c09a36b937897053f1ff0b00f1ea8d6b9de0948820",
   "status": "accepted",
   "summary": "Identifies the surface by generated manifest digest and fails closed on mismatch.",
   "tags": [

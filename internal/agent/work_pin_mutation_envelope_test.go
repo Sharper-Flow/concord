@@ -36,7 +36,7 @@ func TestMutationEnvelopePublishesPinnedObligationsAndDefinitionIdentity(t *test
 		"outcome":      "none_found",
 		"root_cause":   "The bounded root cause statement.",
 	}, nil, "obligation-envelope-diagnosis")
-	if response.Outcome != OutcomeOK {
+	if response.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("record_diagnosis: %+v", response.Error)
 	}
 	var payload struct {

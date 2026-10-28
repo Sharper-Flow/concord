@@ -81,7 +81,7 @@ func TestWorktreeVerifyNewRequestRunsAgain(t *testing.T) {
 				response := tiersInvoke(t, s, service, grant, "concord_work_transition", "workflow_action", map[string]any{
 					"work_id": "work-2", "expected_version": version, "action_id": "checkpoint_refine", "fields": map[string]any{}, "idempotency_key": key,
 				})
-				if response.Outcome != OutcomeOK {
+				if response.Outcome != agentcontract.OutcomeOK {
 					t.Fatalf("start refine: %+v", response.Error)
 				}
 			}
@@ -264,7 +264,7 @@ func TestWorktreeVerifySameRequestRefusesChangedCommand(t *testing.T) {
 	refused := tiersInvoke(t, s, service, grant, "concord_work_transition", "worktree_verify", map[string]any{
 		"work_id": "work-2", "command": []string{"true"}, "idempotency_key": "verify-pinned-command",
 	})
-	if refused.Outcome != OutcomeError || refused.Error == nil || refused.Error.Kind != "idempotency_conflict" || refused.Error.EffectState != EffectNone {
+	if refused.Outcome != agentcontract.OutcomeError || refused.Error == nil || refused.Error.Kind != "idempotency_conflict" || refused.Error.EffectState != agentcontract.EffectNone {
 		t.Fatalf("changed command under the same key: %+v", refused)
 	}
 	assertVerifyExecutionCount(t, counter, 1)
@@ -290,12 +290,12 @@ func TestWorktreeVerifyReplaysReleasedLeaseWithoutIdempotencyRecord(t *testing.T
 	assertVerifyExecutionCount(t, counter, 1)
 }
 
-func invokeVerifyIdentity(t *testing.T, s *store.Store, service *Service, grant Authority, command []string, key string) (Envelope, store.WorktreeVerifyResult) {
+func invokeVerifyIdentity(t *testing.T, s *store.Store, service *Service, grant Authority, command []string, key string) (agentcontract.Envelope, store.WorktreeVerifyResult) {
 	t.Helper()
 	response := tiersInvoke(t, s, service, grant, "concord_work_transition", "worktree_verify", map[string]any{
 		"work_id": "work-2", "command": command, "idempotency_key": key,
 	})
-	if response.Outcome != OutcomeOK {
+	if response.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("verify %s: %+v", key, response.Error)
 	}
 	var result store.WorktreeVerifyResult

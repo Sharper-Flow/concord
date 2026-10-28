@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -160,7 +161,7 @@ func externalVerificationInput(idempotencyKey, observationID string) map[string]
 	}
 }
 
-func dispatchObservation(t *testing.T, s *store.Store, service *Service, grant Authority, scopeVersion string, input map[string]any) Envelope {
+func dispatchObservation(t *testing.T, s *store.Store, service *Service, grant Authority, scopeVersion string, input map[string]any) agentcontract.Envelope {
 	t.Helper()
 	raw, _ := json.Marshal(input)
 	response, err := Dispatch(context.Background(), s, service, InvokeRequest{Tool: "concord_work_define", Operation: "observation_record", Input: raw}, mutationEnvelope(grant, scopeVersion))
@@ -211,7 +212,7 @@ func runStaleLawBoundaryRefusal(t *testing.T, build func(idempotencyKey, observa
 
 	response := dispatchObservation(t, s, service, grant, scopeVersion, build("obs-stale-1", "xobs:0123456789abcdef"))
 
-	if response.Outcome != OutcomeError || response.Error == nil {
+	if response.Outcome != agentcontract.OutcomeError || response.Error == nil {
 		t.Fatalf("stale-law boundary accepted the external result: outcome=%s changed=%+v", response.Outcome, response.ChangedRefs)
 	}
 	if response.Error.Kind != "stale_law_revision" {
@@ -251,7 +252,7 @@ func runStaleLawBoundaryRefusal(t *testing.T, build func(idempotencyKey, observa
 	if err != nil {
 		t.Fatal(err)
 	}
-	if browse.Outcome != OutcomeOK {
+	if browse.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("read-only scope inspection refused while the mutation boundary refused: %+v", browse.Error)
 	}
 	// The public overlap inspection reports no overlap, so the refusal above
@@ -269,11 +270,11 @@ func TestExternalObservationBoundaryAcceptsCurrentLawRevision(t *testing.T) {
 	s, service, grant, scopeVersion := seedObservationLawBoundary(t)
 
 	captured := dispatchObservation(t, s, service, grant, scopeVersion, externalCaptureInput("obs-current-1", "xobs:0123456789abcdef"))
-	if captured.Outcome != OutcomeOK {
+	if captured.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("current-law boundary refused the external capture: %+v", captured.Error)
 	}
 	verified := dispatchObservation(t, s, service, grant, scopeVersion, externalVerificationInput("obs-current-2", "xobs:0123456789abcdef"))
-	if verified.Outcome != OutcomeOK {
+	if verified.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("current-law boundary refused the external verification: %+v", verified.Error)
 	}
 	if got := scalarRow(t, s, `SELECT count(*) FROM external_observations WHERE work_id=?`, observationBoundaryWork); got != 1 {
@@ -290,7 +291,7 @@ func TestStaleLawBoundaryAllowsRawObservation(t *testing.T) {
 		"work_id": observationBoundaryWork, "idempotency_key": "obs-stale-raw",
 		"statement": "The worker finished after the mandated law was deleted.",
 	})
-	if response.Outcome != OutcomeOK {
+	if response.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("raw observation refused after law deletion: %+v", response.Error)
 	}
 	if got := scalarRow(t, s, `SELECT count(*) FROM work_observations WHERE work_id=?`, observationBoundaryWork); got != 1 {
@@ -322,7 +323,7 @@ func TestStaleLawBoundaryLeavesRecoveryReachable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if response.Outcome != OutcomeOK {
+	if response.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("the stale-law boundary refused its own terminal_work recovery: %+v", response.Error)
 	}
 	if lifecycle, got := readWorkFromStore(t, s, observationBoundaryWork); lifecycle != "cancelled" || got != int64(version+1) {

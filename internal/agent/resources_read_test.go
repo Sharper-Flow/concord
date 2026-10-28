@@ -41,11 +41,11 @@ func TestProductViewResourcesReadsTheSelectedProductInventory(t *testing.T) {
 		t.Fatal(err)
 	}
 	r := runtime{Store: s, Tool: "concord_product_view", Operation: "resources", Envelope: CallEnvelope{SelectedProductID: "owner-product"}}
-	response, err := r.read(ctx, NewBase("runtime-c15", r.Tool, r.Operation), json.RawMessage(`{"page":{"cursor":null,"limit":10}}`), "C15.Resources")
+	response, err := r.read(ctx, agentcontract.NewBase("runtime-c15", r.Tool, r.Operation), json.RawMessage(`{"page":{"cursor":null,"limit":10}}`), "C15.Resources")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if response.Outcome != OutcomeOK {
+	if response.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("resources response=%+v error=%#v", response, response.Error)
 	}
 	if err := agentcontract.ValidateOperationPayload("concord_product_view", "resources", response.Result, true); err != nil {

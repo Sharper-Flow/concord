@@ -109,7 +109,7 @@ func bindAJ8GroundTruthReclamation(t *testing.T, sc jobScenario) jobObservation 
 		"expected_version": workItemVersion(t, s, "work-done"), "idempotency_key": "aj8-reclaim-claim",
 	})
 	claim := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "worktree_claim", Input: claimInput}, env)
-	if claim.Outcome != OutcomeOK {
+	if claim.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("worktree claim failed outcome=%s err=%+v", claim.Outcome, claim.Error)
 	}
 
@@ -144,7 +144,7 @@ func bindAJ8GroundTruthReclamation(t *testing.T, sc jobScenario) jobObservation 
 	vacateEnv := env
 	vacateEnv.Worktree = worktreePath
 	vacate := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "session_vacate", Input: json.RawMessage(`{"idempotency_key":"aj8-vacate-1"}`)}, vacateEnv)
-	if vacate.Outcome != OutcomeOK {
+	if vacate.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("session vacate failed outcome=%s err=%+v", vacate.Outcome, vacate.Error)
 	}
 	if _, err := s.RecordSessionVacateLanding(ctx, store.SessionVacateLandingRequest{
@@ -158,7 +158,7 @@ func bindAJ8GroundTruthReclamation(t *testing.T, sc jobScenario) jobObservation 
 		"expected_version": workItemVersion(t, s, "work-done"), "idempotency_key": "aj8-reclaim-1",
 	})
 	resp := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "worktree_reclaim", Input: reclaimInput}, env)
-	if resp.Outcome != OutcomeOK {
+	if resp.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("reclamation refused outcome=%s err=%+v", resp.Outcome, resp.Error)
 	}
 
@@ -212,12 +212,12 @@ func bindAJ8GroundTruthReclamation(t *testing.T, sc jobScenario) jobObservation 
 
 // approvedWorkflowContract approves a contract through the signed host
 // challenge and returns its envelope and resulting work version.
-func approvedWorkflowContract(t *testing.T, s *store.Store, service *Service, grant Authority, privateKey ed25519.PrivateKey, env CallEnvelope, version int64, fields map[string]any, key string) (Envelope, int64) {
+func approvedWorkflowContract(t *testing.T, s *store.Store, service *Service, grant Authority, privateKey ed25519.PrivateKey, env CallEnvelope, version int64, fields map[string]any, key string) (agentcontract.Envelope, int64) {
 	t.Helper()
 	return approvedWorkflowActionWithVersions(t, s, service, grant, privateKey, env, version, "approve_contract", fields, key, map[string]any{"work": version})
 }
 
-func approvedWorkflowActionWithVersions(t *testing.T, s *store.Store, service *Service, grant Authority, privateKey ed25519.PrivateKey, env CallEnvelope, version int64, action string, fields map[string]any, key string, versions map[string]any) (Envelope, int64) {
+func approvedWorkflowActionWithVersions(t *testing.T, s *store.Store, service *Service, grant Authority, privateKey ed25519.PrivateKey, env CallEnvelope, version int64, action string, fields map[string]any, key string, versions map[string]any) (agentcontract.Envelope, int64) {
 	t.Helper()
 	input := map[string]any{"work_id": "work-1", "expected_version": version, "action_id": action, "idempotency_key": key}
 	if fields != nil {
@@ -325,7 +325,7 @@ func bindAJ8HealthFailureRollback(t *testing.T, sc jobScenario) jobObservation {
 			input["fields"] = fields
 		}
 		challenge := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: retryJSON(input)}, env)
-		if challenge.Outcome != OutcomeError || challenge.Error == nil {
+		if challenge.Outcome != agentcontract.OutcomeError || challenge.Error == nil {
 			t.Fatalf("%s on the archived instance = %+v, want a refusal", actionID, challenge.Error)
 		}
 		// A live action id reaches the archived-family gate and names it; a
@@ -356,7 +356,7 @@ func bindAJ8HealthFailureRollback(t *testing.T, sc jobScenario) jobObservation {
 		t.Fatalf("continuity read on the archived instance = %v, want the archived-family answer", err)
 	}
 
-	obs := envelopeToObservation(Envelope{Outcome: OutcomeOK})
+	obs := envelopeToObservation(agentcontract.Envelope{Outcome: agentcontract.OutcomeOK})
 	obs.State = map[string]any{"archived_family": "workflow.ops_runbook", "refused_actions": "approve_contract,approve_operation,start_run,record_health,rollback_run", "zero_effects": true}
 	obs.Effects["adapter_domain_logic"] = probedAbsent{
 		Evidence: "the retired authoring refuses before any write; no adapter inference path exists to probe because no native action is authorable",

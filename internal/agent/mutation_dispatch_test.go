@@ -55,7 +55,7 @@ func TestDispatchApprovalChallengeRoundTripIsDurableAndSingleUse(t *testing.T) {
 	request := InvokeRequest{Tool: "concord_work_relate", Operation: "product_project_add", Input: productProjectLinkRequest("", "project-2")}
 	env := mutationEnvelope(grant, scopeVersion)
 	missing, err := Dispatch(ctx, s, service, request, env)
-	if err != nil || missing.Outcome != OutcomeError || missing.Error == nil || missing.Error.Kind != "approval_required" {
+	if err != nil || missing.Outcome != agentcontract.OutcomeError || missing.Error == nil || missing.Error.Kind != "approval_required" {
 		t.Fatalf("missing approval response=%+v err=%v", missing, err)
 	}
 	details := missing.Error.Details
@@ -78,7 +78,7 @@ func TestDispatchApprovalChallengeRoundTripIsDurableAndSingleUse(t *testing.T) {
 	env.HostApproval = signedHostApproval(privateKey, challengeRef, digest, scope, versions, "session-1", "agent-1", "/repo-wt", fixedTime(), "approval-nonce-0001")
 	request.Input = productProjectLinkRequest(challengeRef, "project-2")
 	approved, err := Dispatch(ctx, s, service, request, env)
-	if err != nil || approved.Outcome != OutcomeOK {
+	if err != nil || approved.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("approved response=%+v err=%v", approved, err)
 	}
 	if usedCount(t, s.DatabaseForTesting(), "SELECT used_count FROM agent_approval_challenges WHERE challenge_ref=?", challengeRef) != 1 {
@@ -106,7 +106,7 @@ func TestDispatchApprovalChallengeRoundTripIsDurableAndSingleUse(t *testing.T) {
 	secondEnv.RequestID = "approval-second"
 	secondEnv.HostApproval = signedHostApproval(privateKey, challengeRef, digest, scope, versions, "session-1", "agent-1", "/repo-wt", fixedTime(), "approval-nonce-0002")
 	reused, err := Dispatch(ctx, s, service, second, secondEnv)
-	if err != nil || reused.Outcome != OutcomeError || reused.Error == nil || reused.Error.Kind != "approval_invalid" {
+	if err != nil || reused.Outcome != agentcontract.OutcomeError || reused.Error == nil || reused.Error.Kind != "approval_invalid" {
 		t.Fatalf("reused challenge response=%+v error=%+v err=%v", reused, reused.Error, err)
 	}
 	if version := usedCount(t, s.DatabaseForTesting(), `SELECT version FROM products WHERE id=?`, "product-1"); version != 4 {
@@ -118,7 +118,7 @@ func TestDispatchApprovalChallengeRoundTripIsDurableAndSingleUse(t *testing.T) {
 	secondEnv.RequestID = "approval-second-late"
 	secondEnv.HostApproval = signedHostApproval(privateKey, challengeRef, digest, scope, versions, "session-1", "agent-1", "/repo-wt", fixedTime().Add(11*time.Minute), "approval-nonce-0003")
 	lateReused, err := Dispatch(ctx, s, service, second, secondEnv)
-	if err != nil || lateReused.Outcome != OutcomeError || lateReused.Error == nil || lateReused.Error.Kind != "approval_invalid" {
+	if err != nil || lateReused.Outcome != agentcontract.OutcomeError || lateReused.Error == nil || lateReused.Error.Kind != "approval_invalid" {
 		t.Fatalf("late reused challenge response=%+v err=%v", lateReused, err)
 	}
 	if version := usedCount(t, s.DatabaseForTesting(), `SELECT version FROM products WHERE id=?`, "product-1"); version != 4 {
@@ -144,7 +144,7 @@ func TestLateHostApprovalNeedsOneChallenge(t *testing.T) {
 	}
 	request := InvokeRequest{Tool: "concord_work_relate", Operation: "product_project_add", Input: productProjectLinkRequest("", "project-2")}
 	env := mutationEnvelope(grant, scopeVersion)
-	dispatchWire := func(request InvokeRequest, env CallEnvelope) Envelope {
+	dispatchWire := func(request InvokeRequest, env CallEnvelope) agentcontract.Envelope {
 		t.Helper()
 		request.CallEnvelope, err = json.Marshal(env)
 		if err != nil {
@@ -173,10 +173,10 @@ func TestLateHostApprovalNeedsOneChallenge(t *testing.T) {
 	}
 	answerAt := fixedTime().Add(11 * time.Minute)
 	asks := 0
-	var summary *ConsequenceSummary
+	var summary *agentcontract.ConsequenceSummary
 	var approvalRef string
-	var expiredRefusal *TypedError
-	var approved Envelope
+	var expiredRefusal *agentcontract.TypedError
+	var approved agentcontract.Envelope
 	for round := 0; round < 4; round++ {
 		response := dispatchWire(request, env)
 		switch {
@@ -226,7 +226,7 @@ func TestLateHostApprovalNeedsOneChallenge(t *testing.T) {
 	if expiredRefusal != nil {
 		t.Fatalf("the late affirmative answer was refused and demanded a second answer: %+v", expiredRefusal)
 	}
-	if approved.Outcome != OutcomeOK || approved.Error != nil {
+	if approved.Outcome != agentcontract.OutcomeOK || approved.Error != nil {
 		t.Fatalf("late answer did not complete the intent: %+v, error=%+v", approved, approved.Error)
 	}
 	if version := usedCount(t, s.DatabaseForTesting(), `SELECT version FROM products WHERE id=?`, "product-1"); version != 3 {
@@ -246,7 +246,7 @@ func TestLateHostApprovalNeedsOneChallenge(t *testing.T) {
 		t.Fatalf("re-arm moved the challenge issue time to %s", issuedAt)
 	}
 	replayed := dispatchWire(request, env)
-	if replayed.Outcome != OutcomeOK || !replayed.Replayed || usedCount(t, s.DatabaseForTesting(), `SELECT version FROM products WHERE id=?`, "product-1") != 3 {
+	if replayed.Outcome != agentcontract.OutcomeOK || !replayed.Replayed || usedCount(t, s.DatabaseForTesting(), `SELECT version FROM products WHERE id=?`, "product-1") != 3 {
 		t.Fatalf("late-answer replay = %+v", replayed)
 	}
 }
@@ -287,7 +287,7 @@ func TestDispatchRejectsInvalidHostApprovalAssertions(t *testing.T) {
 			trialEnv.RequestID = "invalid-" + variant.name
 			trialEnv.HostApproval = variant.assertion
 			response, dispatchErr := Dispatch(ctx, s, service, trial, trialEnv)
-			if dispatchErr != nil || response.Outcome != OutcomeError || response.Error == nil || response.Error.Kind != "approval_invalid" {
+			if dispatchErr != nil || response.Outcome != agentcontract.OutcomeError || response.Error == nil || response.Error.Kind != "approval_invalid" {
 				t.Fatalf("response=%+v err=%v", response, dispatchErr)
 			}
 		})
@@ -317,7 +317,7 @@ func TestDispatchFailedDomainEffectRollsBackGrantAndApproval(t *testing.T) {
 	env.HostApproval = signedHostApproval(privateKey, challengeRef, digest, scope, map[string]any{"product": 2}, "session-1", "agent-1", "/repo-wt", fixedTime(), "rollback-approval-0001")
 	request.Input = productProjectLinkRequest(challengeRef, "project-2")
 	failed, err := Dispatch(ctx, s, service, request, env)
-	if err != nil || failed.Outcome != OutcomeError || failed.Error == nil || failed.Error.Kind != "unreachable" || !strings.Contains(failed.Error.Message, "fixture rejected access grant") {
+	if err != nil || failed.Outcome != agentcontract.OutcomeError || failed.Error == nil || failed.Error.Kind != "unreachable" || !strings.Contains(failed.Error.Message, "fixture rejected access grant") {
 		t.Fatalf("failed mutation=%+v error=%+v err=%v", failed, failed.Error, err)
 	}
 	var challengeStatus string
@@ -360,7 +360,7 @@ func TestDispatchFailedDomainEffectRollsBackRearmedDeadline(t *testing.T) {
 	env.HostApproval = &HostApprovalAssertion{ChallengeRef: challengeRef, RequestDigest: summary.OperationDigest, Scope: summary.Scope, Versions: summary.Versions, SessionRef: env.SessionRef, AgentRef: env.AgentRef, Worktree: env.Worktree, IssuedAt: answerAt.Format(time.RFC3339Nano)}
 	request.Input = productProjectLinkRequest(challengeRef, "project-2")
 	failed, err := Dispatch(ctx, s, service, request, env)
-	if err != nil || failed.Outcome != OutcomeError || failed.Error == nil || failed.Error.Kind != "unreachable" || !strings.Contains(failed.Error.Message, "fixture rejected access grant") {
+	if err != nil || failed.Outcome != agentcontract.OutcomeError || failed.Error == nil || failed.Error.Kind != "unreachable" || !strings.Contains(failed.Error.Message, "fixture rejected access grant") {
 		t.Fatalf("failed late mutation=%+v error=%+v err=%v", failed, failed.Error, err)
 	}
 	var challengeStatus, issuedAt, expiresAt string
@@ -438,7 +438,7 @@ func TestDispatchReconcileLinksVerifiedOrphanWithoutSecondNote(t *testing.T) {
 	env.Worktree = "/unrelated-worktree"
 	env.RequestID = "reconcile-request"
 	response, err := Dispatch(ctx, s, service, request, env)
-	if err != nil || response.Outcome != OutcomeOK {
+	if err != nil || response.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("reconcile=%+v err=%v", response, err)
 	}
 	if count := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM archived_work WHERE id='work-orphan'`); count != 1 {
@@ -460,7 +460,7 @@ func TestDispatchIdempotentReplaySurvivesAmbientScopeDrift(t *testing.T) {
 	request := InvokeRequest{Tool: "concord_work_define", Operation: "capture", Input: json.RawMessage(`{"title":"Replay","value_statement":"Replay value","kind":"task","project_ids":["project-1"],"idempotency_key":"replay-key"}`)}
 	env := mutationEnvelope(grant, scopeVersion)
 	first, err := Dispatch(ctx, s, service, request, env)
-	if err != nil || first.Outcome != OutcomeOK {
+	if err != nil || first.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("first=%+v err=%v", first, err)
 	}
 	var eventsBefore int
@@ -470,7 +470,7 @@ func TestDispatchIdempotentReplaySurvivesAmbientScopeDrift(t *testing.T) {
 	env.ScopeVersion = "drifted-scope-version"
 	env.RequestID = "replay-after-drift"
 	replay, err := Dispatch(ctx, s, service, request, env)
-	if err != nil || replay.Outcome != OutcomeOK || !replay.Replayed {
+	if err != nil || replay.Outcome != agentcontract.OutcomeOK || !replay.Replayed {
 		t.Fatalf("replay=%+v err=%v", replay, err)
 	}
 	var eventsAfter int
@@ -482,7 +482,7 @@ func TestDispatchIdempotentReplaySurvivesAmbientScopeDrift(t *testing.T) {
 	}
 	request.Input = json.RawMessage(`{"title":"Changed","value_statement":"Replay value","kind":"task","project_ids":["project-1"],"idempotency_key":"replay-key"}`)
 	conflict, err := Dispatch(ctx, s, service, request, env)
-	if err != nil || conflict.Outcome != OutcomeError || conflict.Error == nil || conflict.Error.Kind != "idempotency_conflict" {
+	if err != nil || conflict.Outcome != agentcontract.OutcomeError || conflict.Error == nil || conflict.Error.Kind != "idempotency_conflict" {
 		t.Fatalf("conflict=%+v err=%v", conflict, err)
 	}
 }
@@ -498,7 +498,7 @@ func TestDispatchCrossProductCaptureKeepsCapabilityWithoutConsent(t *testing.T) 
 	}
 	request := InvokeRequest{Tool: "concord_work_define", Operation: "capture", Input: json.RawMessage(`{"title":"Cross","value_statement":"Cross value","kind":"task","project_ids":["project-1"],"idempotency_key":"cross-denied"}`)}
 	denied, err := Dispatch(ctx, deniedStore, deniedService, request, mutationEnvelope(deniedGrant, deniedScope))
-	if err != nil || denied.Outcome != OutcomeError || denied.Error == nil || denied.Error.Kind != "unauthorized" {
+	if err != nil || denied.Outcome != agentcontract.OutcomeError || denied.Error == nil || denied.Error.Kind != "unauthorized" {
 		t.Fatalf("cross-product denial=%+v err=%v", denied, err)
 	}
 	if count := countRows(t, deniedStore.DatabaseForTesting(), `SELECT count(*) FROM work_items WHERE title='Cross'`); count != 0 {
@@ -513,7 +513,7 @@ func TestDispatchCrossProductCaptureKeepsCapabilityWithoutConsent(t *testing.T) 
 	env := mutationEnvelope(grant, scopeVersion)
 	request = InvokeRequest{Tool: "concord_work_define", Operation: "capture", Input: json.RawMessage(`{"title":"Cross","value_statement":"Cross value","kind":"task","project_ids":["project-1"],"idempotency_key":"cross-approved"}`)}
 	approved, err := Dispatch(ctx, s, service, request, env)
-	if err != nil || approved.Outcome != OutcomeOK {
+	if err != nil || approved.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("cross approved response=%+v err=%v", approved, err)
 	}
 	// The derived cross-product set is authority bookkeeping: it binds the

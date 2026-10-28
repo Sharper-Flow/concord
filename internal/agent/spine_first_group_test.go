@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -74,7 +75,7 @@ func TestSpineFirstGroupResumeDoesNotRestoreFirstEntry(t *testing.T) {
 			"work_id": f.work, "step_id": f.read(t).Pinned.Step, "inputs": map[string]any{},
 		})
 		refused := f.action(t, "dispatch_worker", map[string]any{"attempt_id": attempt, "worker_packet": packet})
-		if refused.Outcome != OutcomeError || refused.Error == nil || refused.Error.Kind != "missing_evidence" {
+		if refused.Outcome != agentcontract.OutcomeError || refused.Error == nil || refused.Error.Kind != "missing_evidence" {
 			t.Fatalf("a progressed execution reopened its first group: %+v", refused)
 		}
 		after := f.read(t).Pinned.Pin
@@ -110,7 +111,7 @@ func TestSpineFirstGroupUnknownLaunchCannotAuthorizeAnotherAttempt(t *testing.T)
 	if !ok {
 		t.Fatal("implementation lane unavailable")
 	}
-	authorize := func(attempt string) Envelope {
+	authorize := func(attempt string) agentcontract.Envelope {
 		packet := bindPacketToRecordedState(t, f.s, map[string]any{
 			"schema_version": store.WorkerPacketSchemaVersion, "attempt_id": attempt,
 			"lane_id": lane.ID, "lane_digest": lane.Digest,
@@ -121,7 +122,7 @@ func TestSpineFirstGroupUnknownLaunchCannotAuthorizeAnotherAttempt(t *testing.T)
 	spineOK(t, authorize("attempt:initial-unknown"))
 	before := f.read(t).Pinned.Pin
 	refused := authorize("attempt:initial-duplicate")
-	if refused.Outcome != OutcomeError || refused.Error == nil || refused.Error.Kind != "operation_conflict" {
+	if refused.Outcome != agentcontract.OutcomeError || refused.Error == nil || refused.Error.Kind != "operation_conflict" {
 		t.Fatalf("unknown-effect first launch: outcome=%s error=%+v", refused.Outcome, refused.Error)
 	}
 	after := f.read(t).Pinned.Pin

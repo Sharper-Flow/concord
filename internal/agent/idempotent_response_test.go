@@ -19,7 +19,7 @@ func TestIdempotentResponseKeepsCommittedSubjectWithoutHistory(t *testing.T) {
 	_, before := readWorkFromStore(t, s, "work-1")
 	input := map[string]any{"host_pid": os.Getpid(), "work_id": "work-1", "project_id": "project-1", "base_sha": gitRun(t, root, "rev-parse", "HEAD"), "expected_version": before, "idempotency_key": "response-claim"}
 	first := tiersInvoke(t, s, service, grant, "concord_work_transition", "worktree_claim", input)
-	if first.Outcome != OutcomeOK {
+	if first.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("first outcome=%s error=%+v", first.Outcome, first.Error)
 	}
 	_, committed := readWorkFromStore(t, s, "work-1")
@@ -29,9 +29,9 @@ func TestIdempotentResponseKeepsCommittedSubjectWithoutHistory(t *testing.T) {
 	}
 	r := runtime{Store: s, Authority: service, Envelope: mutationEnvelope(grant, scopeVersion), Tool: "concord_work_transition", Operation: "worktree_claim"}
 	op, _ := agentcontract.ValidateContractOperation(r.Tool, r.Operation)
-	retry := func() Envelope {
+	retry := func() agentcontract.Envelope {
 		raw, _ := json.Marshal(input)
-		response, handled, err := r.replayMutationBeforeScope(context.Background(), NewBase("retry", r.Tool, r.Operation), raw, grant, op)
+		response, handled, err := r.replayMutationBeforeScope(context.Background(), agentcontract.NewBase("retry", r.Tool, r.Operation), raw, grant, op)
 		if err != nil || !handled {
 			t.Fatalf("retry handled=%t error=%v", handled, err)
 		}
@@ -42,7 +42,7 @@ func TestIdempotentResponseKeepsCommittedSubjectWithoutHistory(t *testing.T) {
 		t.Fatal("current migrated store unexpectedly retains the event log")
 	}
 	replay := retry()
-	if replay.Outcome != OutcomeOK || !replay.Replayed {
+	if replay.Outcome != agentcontract.OutcomeOK || !replay.Replayed {
 		t.Fatalf("replay outcome=%s replayed=%t error=%+v", replay.Outcome, replay.Replayed, replay.Error)
 	}
 	if string(replay.Result) != string(first.Result) || !reflect.DeepEqual(replay.ChangedRefs, first.ChangedRefs) || !reflect.DeepEqual(replay.NextValidIntents, first.NextValidIntents) {
@@ -56,13 +56,13 @@ func TestIdempotentResponseKeepsCommittedSubjectWithoutHistory(t *testing.T) {
 	raw, _ := json.Marshal(input)
 	narrow := grant
 	narrow.ProjectScope = nil
-	denied, handled, err := r.replayMutationBeforeScope(context.Background(), NewBase("scope", r.Tool, r.Operation), raw, narrow, op)
+	denied, handled, err := r.replayMutationBeforeScope(context.Background(), agentcontract.NewBase("scope", r.Tool, r.Operation), raw, narrow, op)
 	if err != nil || !handled || denied.Error == nil || denied.Error.Kind != "unauthorized" {
 		t.Fatalf("foreign scope replay=%+v handled=%t err=%v", denied.Error, handled, err)
 	}
 	foreign := grant
 	foreign.PrincipalRef = "another-principal"
-	_, handled, err = r.replayMutationBeforeScope(context.Background(), NewBase("actor", r.Tool, r.Operation), raw, foreign, op)
+	_, handled, err = r.replayMutationBeforeScope(context.Background(), agentcontract.NewBase("actor", r.Tool, r.Operation), raw, foreign, op)
 	if err != nil || handled {
 		t.Fatalf("foreign principal received retained response: handled=%t err=%v", handled, err)
 	}
@@ -73,12 +73,12 @@ func TestIdempotentResponseKeepsCommittedSubjectWithoutHistory(t *testing.T) {
 	}
 	wrongSubject := prior
 	wrongSubject.ResultPayload = strings.ReplaceAll(prior.ResultPayload, "work-1", "foreign-work")
-	refused := r.recordedMutationResult(NewBase("subject", r.Tool, r.Operation), wrongSubject)
-	if refused.Outcome != OutcomeError || refused.Error == nil || refused.Error.EffectState != EffectPossible {
+	refused := r.recordedMutationResult(agentcontract.NewBase("subject", r.Tool, r.Operation), wrongSubject)
+	if refused.Outcome != agentcontract.OutcomeError || refused.Error == nil || refused.Error.EffectState != agentcontract.EffectPossible {
 		t.Fatalf("response changed the committed subject: %+v", refused)
 	}
 	err = s.Transact(context.Background(), func(tx *store.Transaction) error {
-		response, rejected, err := r.replayCachedMutationTx(context.Background(), tx, NewBase("transaction", r.Tool, r.Operation), prior, grant, key)
+		response, rejected, err := r.replayCachedMutationTx(context.Background(), tx, agentcontract.NewBase("transaction", r.Tool, r.Operation), prior, grant, key)
 		if err != nil || rejected || string(response.Result) != string(first.Result) {
 			t.Fatalf("transaction replay rejected=%t err=%v response=%+v", rejected, err, response.Error)
 		}
@@ -88,12 +88,12 @@ func TestIdempotentResponseKeepsCommittedSubjectWithoutHistory(t *testing.T) {
 		t.Fatal(err)
 	}
 	effects, finalizations := 0, 0
-	response, err := r.executeMutation(context.Background(), NewBase("cached-effect", r.Tool, r.Operation), raw, mutationDigest(r.Tool, r.Operation, r.Envelope, raw), map[string]any{"product_id": "product-1", "project_ids": []string{"project-1"}, "work_ids": []string{"work-1"}}, nil, "", "", false, nil, nil, nil,
-		func(context.Context, *store.Transaction, Authority) (json.RawMessage, []string, []ChangedRef, error) {
+	response, err := r.executeMutation(context.Background(), agentcontract.NewBase("cached-effect", r.Tool, r.Operation), raw, mutationDigest(r.Tool, r.Operation, r.Envelope, raw), map[string]any{"product_id": "product-1", "project_ids": []string{"project-1"}, "work_ids": []string{"work-1"}}, nil, "", "", false, nil, nil, nil,
+		func(context.Context, *store.Transaction, Authority) (json.RawMessage, []string, []agentcontract.ChangedRef, error) {
 			effects++
 			return nil, nil, nil, nil
 		}, nil, func(context.Context) error { finalizations++; return nil })
-	if err != nil || response.Outcome != OutcomeOK || !response.Replayed || effects != 0 || finalizations != 0 {
+	if err != nil || response.Outcome != agentcontract.OutcomeOK || !response.Replayed || effects != 0 || finalizations != 0 {
 		t.Fatalf("cached replay repeated native effect: response=%+v err=%v effects=%d finalizations=%d", response.Error, err, effects, finalizations)
 	}
 	input["base_sha"] = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
@@ -105,8 +105,8 @@ func TestIdempotentResponseKeepsCommittedSubjectWithoutHistory(t *testing.T) {
 
 func TestIdempotentResponseMissingFactsKeepPossibleEffects(t *testing.T) {
 	r := runtime{Tool: "concord_work_relate", Operation: "resource_release"}
-	base := NewBase("incomplete", r.Tool, r.Operation)
-	complete := NewOKMutation(base, mutationPayload(nil, nil), nil, nil)
+	base := agentcontract.NewBase("incomplete", r.Tool, r.Operation)
+	complete := agentcontract.NewOKMutation(base, mutationPayload(nil, nil), nil, nil)
 	scopeJSON, _ := json.Marshal(mutationResponseScope(nil, complete, nil, false))
 	for _, prior := range []store.MutationIdempotencyRecord{
 		{ResultPayload: `{}`, ChangedRefs: `[]`, AuthorizedScopeSnapshot: `{}`},
@@ -114,27 +114,27 @@ func TestIdempotentResponseMissingFactsKeepPossibleEffects(t *testing.T) {
 		{ResultPayload: `{}`, ChangedRefs: `[]`, AuthorizedScopeSnapshot: `{"mutation_response":{"manifest_digest":"` + agentcontract.ManifestDigest + `"}}`},
 	} {
 		response := r.recordedMutationResult(base, prior)
-		if response.Outcome != OutcomeError || response.Error == nil || response.Error.EffectState != EffectPossible || response.Error.RecoveryAction.Kind != "reconcile_operation" || response.Error.RetrySafe {
+		if response.Outcome != agentcontract.OutcomeError || response.Error == nil || response.Error.EffectState != agentcontract.EffectPossible || response.Error.RecoveryAction.Kind != "reconcile_operation" || response.Error.RetrySafe {
 			t.Fatalf("missing facts became success or a no-effect retry: %+v", response)
 		}
 	}
 }
 
 func TestIdempotentResponseCompactionCannotInventAnOmission(t *testing.T) {
-	changed := []ChangedRef{{EntityKind: "work_item", ID: "work-1", Version: "3"}}
+	changed := []agentcontract.ChangedRef{{EntityKind: "work_item", ID: "work-1", Version: "3"}}
 	r := runtime{Tool: "concord_work_compact", Operation: "publish"}
 	_, _, _, err := r.replayMutationPayload(mutationPayload(changed, nil), changed)
 	if err == nil {
 		t.Fatal("a missing retained pin became a successful omission")
 	}
-	response := failureEnvelope(NewBase("compaction", r.Tool, r.Operation), err)
-	if response.Error == nil || response.Error.Kind != "operation_conflict" || response.Error.EffectState != EffectPossible || response.Error.RecoveryAction.Kind != "reconcile_operation" || response.Error.RetrySafe {
+	response := failureEnvelope(agentcontract.NewBase("compaction", r.Tool, r.Operation), err)
+	if response.Error == nil || response.Error.Kind != "operation_conflict" || response.Error.EffectState != agentcontract.EffectPossible || response.Error.RecoveryAction.Kind != "reconcile_operation" || response.Error.RetrySafe {
 		t.Fatalf("missing omission fact lost effect truth: %+v", response)
 	}
 }
 
 func TestIdempotentResponseCompactionReplaysItsRetainedOmission(t *testing.T) {
-	changed := []ChangedRef{{EntityKind: "work_item", ID: "work-1", Version: "3"}}
+	changed := []agentcontract.ChangedRef{{EntityKind: "work_item", ID: "work-1", Version: "3"}}
 	r := runtime{Tool: "concord_work_compact", Operation: "publish"}
 	wire := mutationPayload(changed, nil)
 	replayed, _, pinless, err := r.replayMutationPayload(retainCompactionPinless(wire, []string{"work-1"}), changed)
@@ -144,7 +144,7 @@ func TestIdempotentResponseCompactionReplaysItsRetainedOmission(t *testing.T) {
 	if !bytes.Equal(replayed, wire) {
 		t.Fatalf("replay changed the wire payload or leaked the retained fact: %s", replayed)
 	}
-	other := []ChangedRef{{EntityKind: "work_item", ID: "work-2", Version: "3"}}
+	other := []agentcontract.ChangedRef{{EntityKind: "work_item", ID: "work-2", Version: "3"}}
 	if _, _, _, err := r.replayMutationPayload(retainCompactionPinless(mutationPayload(other, nil), []string{"work-1"}), other); err == nil {
 		t.Fatal("another item's retained omission covered a missing pin")
 	}
@@ -153,8 +153,8 @@ func TestIdempotentResponseCompactionReplaysItsRetainedOmission(t *testing.T) {
 func TestIdempotentResponseWorkflowUnresolvedClassification(t *testing.T) {
 	r := runtime{Tool: "concord_work_transition", Operation: "workflow_action", Authority: &Service{}}
 	for _, kind := range []store.ResultKind{store.ResultPending, store.ResultPartial, store.ResultFailed, store.ResultFailedStale} {
-		response, err := r.replayWorkflowAction(NewBase("unresolved", r.Tool, r.Operation), store.FenceResult{OpID: "retained-operation", AttemptEpoch: 1, StepID: "execute", ResultKind: kind}, store.MutationIdempotencyRecord{})
-		if err != nil || response.Outcome == OutcomeOK || response.OperationRef == nil || response.OperationRef.ID != "retained-operation" {
+		response, err := r.replayWorkflowAction(agentcontract.NewBase("unresolved", r.Tool, r.Operation), store.FenceResult{OpID: "retained-operation", AttemptEpoch: 1, StepID: "execute", ResultKind: kind}, store.MutationIdempotencyRecord{})
+		if err != nil || response.Outcome == agentcontract.OutcomeOK || response.OperationRef == nil || response.OperationRef.ID != "retained-operation" {
 			t.Fatalf("kind=%s response=%+v err=%v", kind, response, err)
 		}
 	}
@@ -173,13 +173,13 @@ func TestIdempotentResponseWorkflowCapturesTransactionResult(t *testing.T) {
 	if got := countRows(t, r.Store.DatabaseForTesting(), `SELECT count(*) FROM sqlite_schema WHERE name='domain_events'`); got != 0 {
 		t.Fatal("current migrated store unexpectedly retains the event log")
 	}
-	replay, handled, err := r.replayMutationBeforeScope(ctx, NewBase("workflow-retry", r.Tool, r.Operation), raw, grant, op)
-	if err != nil || !handled || replay.Outcome != OutcomeOK || !replay.Replayed || string(replay.Result) != string(first.Result) {
+	replay, handled, err := r.replayMutationBeforeScope(ctx, agentcontract.NewBase("workflow-retry", r.Tool, r.Operation), raw, grant, op)
+	if err != nil || !handled || replay.Outcome != agentcontract.OutcomeOK || !replay.Replayed || string(replay.Result) != string(first.Result) {
 		t.Fatalf("workflow replay lost transaction result: handled=%t err=%v response=%+v", handled, err, replay)
 	}
 	err = r.Store.Transact(ctx, func(tx *store.Transaction) error {
-		replay, err := r.replayWorkflowActionTx(ctx, tx, NewBase("workflow-tx-retry", r.Tool, r.Operation), prior, map[string]any{"product_id": "product-1"})
-		if err != nil || replay.Outcome != OutcomeOK || string(replay.Result) != string(first.Result) {
+		replay, err := r.replayWorkflowActionTx(ctx, tx, agentcontract.NewBase("workflow-tx-retry", r.Tool, r.Operation), prior, map[string]any{"product_id": "product-1"})
+		if err != nil || replay.Outcome != agentcontract.OutcomeOK || string(replay.Result) != string(first.Result) {
 			t.Fatalf("workflow transaction replay lost result: err=%v response=%+v", err, replay)
 		}
 		return err
@@ -193,8 +193,8 @@ func TestIdempotentResponseRoutineClaimDoesNotReadHistory(t *testing.T) {
 	r := runtime{Tool: "concord_work_relate", Operation: "resolve_overlap", Envelope: CallEnvelope{SelectedProductID: "product-1"}}
 	raw := json.RawMessage(`{"resolution_kind":"compatible_with","approval":{"approval_ref":"not-consumed"}}`)
 	prior := store.MutationIdempotencyRecord{ResultEventIDs: `["absent-event"]`, AuthorizedScopeSnapshot: `{"product_ids":["product-1"]}`}
-	response, refused, err := r.replayRoutineClaimAdmission(NewBase("claim", r.Tool, r.Operation), raw, prior)
-	if err != nil || !refused || response.Error == nil || response.Error.Kind != "operation_conflict" || response.Error.EffectState != EffectPossible {
+	response, refused, err := r.replayRoutineClaimAdmission(agentcontract.NewBase("claim", r.Tool, r.Operation), raw, prior)
+	if err != nil || !refused || response.Error == nil || response.Error.Kind != "operation_conflict" || response.Error.EffectState != agentcontract.EffectPossible {
 		t.Fatalf("missing retained consent must be an explicit current-record dependency: refused=%t response=%+v err=%v", refused, response.Error, err)
 	}
 }

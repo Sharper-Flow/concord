@@ -41,7 +41,7 @@ type spineContinuity struct {
 	} `json:"pinned"`
 }
 
-func (f *spineFixture) call(t *testing.T, tool, operation string, input map[string]any) Envelope {
+func (f *spineFixture) call(t *testing.T, tool, operation string, input map[string]any) agentcontract.Envelope {
 	t.Helper()
 	f.request++
 	f.env.RequestID = fmt.Sprintf("spine-request-%d", f.request)
@@ -52,9 +52,9 @@ func (f *spineFixture) call(t *testing.T, tool, operation string, input map[stri
 	return response
 }
 
-func spineOK(t *testing.T, response Envelope) Envelope {
+func spineOK(t *testing.T, response agentcontract.Envelope) agentcontract.Envelope {
 	t.Helper()
-	if response.Outcome != OutcomeOK {
+	if response.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("spine request refused: %+v", response.Error)
 	}
 	return response
@@ -96,7 +96,7 @@ func (f *spineFixture) read(t *testing.T) spineContinuity {
 	return result
 }
 
-func (f *spineFixture) action(t *testing.T, action string, fields map[string]any) Envelope {
+func (f *spineFixture) action(t *testing.T, action string, fields map[string]any) agentcontract.Envelope {
 	t.Helper()
 	pin := f.read(t).Pinned.Pin
 	return f.call(t, "concord_work_transition", "workflow_action", map[string]any{

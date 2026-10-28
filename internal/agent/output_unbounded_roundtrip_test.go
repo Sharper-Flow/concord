@@ -177,7 +177,7 @@ func buildClassifiedReadFixture(t *testing.T, blockingCount, idWidth, warningCou
 // dispatchUnboundedHistory runs the real concord_work_trace.history
 // dispatch. A non-nil error means the boundary refused outside the typed
 // envelope, which the callers report as the failure mode it is.
-func dispatchUnboundedHistory(t *testing.T, fixture classifiedReadFixture) (Envelope, error) {
+func dispatchUnboundedHistory(t *testing.T, fixture classifiedReadFixture) (agentcontract.Envelope, error) {
 	const input = `{"work_id":"work-1","limit":1}`
 	t.Helper()
 	scopeVersion, _, err := fixture.store.ScopeVersion(context.Background(), "project-1")
@@ -261,7 +261,7 @@ func TestWorkflowReadRoundTripsClassifiedConditionsAndWarningsWhole(t *testing.T
 		if err != nil {
 			t.Fatalf("at-cap history read failed outside the typed envelope: %v", err)
 		}
-		if envelope.Outcome != OutcomeOK {
+		if envelope.Outcome != agentcontract.OutcomeOK {
 			t.Fatalf("at-cap workflow read refused: %+v", envelope.Error)
 		}
 		var page unboundedReadPage
@@ -300,7 +300,7 @@ func TestWorkflowReadRoundTripsClassifiedConditionsAndWarningsWhole(t *testing.T
 		if err != nil {
 			t.Fatalf("beyond-cap history read failed outside the typed envelope (a redundant output cap refusing the whole result): %v", err)
 		}
-		if envelope.Outcome != OutcomeOK {
+		if envelope.Outcome != agentcontract.OutcomeOK {
 			t.Fatalf("workflow read refused a whole producer result: %+v", envelope.Error)
 		}
 		var page unboundedReadPage
@@ -345,7 +345,7 @@ func TestWorkflowReadClassifiesUnknownAuthorityWithoutRewritingIt(t *testing.T) 
 	if err != nil {
 		t.Fatalf("unknown-authority history read failed outside the typed envelope: %v", err)
 	}
-	if envelope.Outcome != OutcomeOK {
+	if envelope.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("unknown-authority workflow read refused: %+v", envelope.Error)
 	}
 	var page unboundedReadPage
@@ -386,7 +386,7 @@ func TestWorkflowReadLargeFixedProjectionRefusesTypedBytesNotFieldSchema(t *test
 	if err != nil {
 		t.Fatalf("oversized fixed projection must refuse as a typed envelope, not a transport fault: %v", err)
 	}
-	if envelope.Outcome != OutcomeError || envelope.Error == nil {
+	if envelope.Outcome != agentcontract.OutcomeError || envelope.Error == nil {
 		t.Fatalf("outcome %s error %+v, want the typed byte refusal", envelope.Outcome, envelope.Error)
 	}
 	if envelope.Error.Kind != "limit_exceeded" {
@@ -402,12 +402,12 @@ func TestWorkflowReadLargeFixedProjectionRefusesTypedBytesNotFieldSchema(t *test
 	if details["reason"] != "result_envelope_bytes" {
 		t.Fatalf("refusal reason %v, want result_envelope_bytes", details["reason"])
 	}
-	if details["maximum_bytes"] != MaxResultEnvelopeBytes {
-		t.Fatalf("refusal ceiling %v, want the agent envelope constant %d", details["maximum_bytes"], MaxResultEnvelopeBytes)
+	if details["maximum_bytes"] != agentcontract.MaxResultEnvelopeBytes {
+		t.Fatalf("refusal ceiling %v, want the agent envelope constant %d", details["maximum_bytes"], agentcontract.MaxResultEnvelopeBytes)
 	}
 	serialized, ok := details["serialized_bytes"].(int)
-	if !ok || serialized <= MaxResultEnvelopeBytes {
-		t.Fatalf("serialized_bytes %v, want an observed size above %d", details["serialized_bytes"], MaxResultEnvelopeBytes)
+	if !ok || serialized <= agentcontract.MaxResultEnvelopeBytes {
+		t.Fatalf("serialized_bytes %v, want an observed size above %d", details["serialized_bytes"], agentcontract.MaxResultEnvelopeBytes)
 	}
 	if len(envelope.Result) != 0 {
 		t.Fatalf("refused envelope still carries %d result bytes", len(envelope.Result))

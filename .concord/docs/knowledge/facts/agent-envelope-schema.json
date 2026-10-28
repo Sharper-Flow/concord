@@ -13,7 +13,7 @@
       {
         "check_id": "go-test-race",
         "kind": "go_test",
-        "value": "internal/agent.TestAdapterEnvelopeRetainsSchemaRejections"
+        "value": "internal/agentcontract.TestAdapterEnvelopeRetainsSchemaRejections"
       }
     ],
     "statement": "The core's Envelope.Validate checks marshalled envelope data against the generated TS7 root schema through payloadschema. That schema check parses one JSON value, preserves numbers, rejects trailing input and applies the root schema; duplicate member names retain the decoder's last value. It does not replace the envelope's separate Go invariants or the lexical uniqueness checks used by invoke and operation admission."

@@ -262,7 +262,7 @@ type publishedRelease struct {
 // item with no workflow instance (imported work) carries no pin row, yet the
 // hold must stay recordable on imported work exactly as the store fold admits
 // it (needed or in_progress).
-func (r runtime) outsideRepairLiveWork(ctx context.Context, base Envelope, workID string) Envelope {
+func (r runtime) outsideRepairLiveWork(ctx context.Context, base agentcontract.Envelope, workID string) agentcontract.Envelope {
 	lifecycle, err := r.Store.WorkLifecycle(ctx, workID)
 	if err != nil {
 		var failure *store.Failure
@@ -276,14 +276,14 @@ func (r runtime) outsideRepairLiveWork(ctx context.Context, base Envelope, workI
 		// on closed work.
 		return coreError(base, "invalid_transition", "outside repair requires needed or in_progress work", "reread_entities", false)
 	}
-	return Envelope{}
+	return agentcontract.Envelope{}
 }
 
 // outsideRepairHoldWorkPin reads the work pin the reconcile binds against. A
 // hold makes the pin readable even on instance-less work (the store's pin
 // short-circuit), so a projection-not-found refusal here names the missing
 // hold, and every other failure is a genuine read refusal.
-func (r runtime) outsideRepairHoldWorkPin(ctx context.Context, base Envelope, workID string) (store.WorkPin, Envelope) {
+func (r runtime) outsideRepairHoldWorkPin(ctx context.Context, base agentcontract.Envelope, workID string) (store.WorkPin, agentcontract.Envelope) {
 	pin, err := store.ReadWorkPin(ctx, r.Store, workID)
 	if err != nil {
 		var failure *store.Failure
@@ -295,13 +295,13 @@ func (r runtime) outsideRepairHoldWorkPin(ctx context.Context, base Envelope, wo
 	if pin.Lifecycle != "needed" && pin.Lifecycle != "in_progress" {
 		return store.WorkPin{}, coreError(base, "invalid_transition", "outside repair requires needed or in_progress work", "reread_entities", false)
 	}
-	return pin, Envelope{}
+	return pin, agentcontract.Envelope{}
 }
 
 // outsideRepairRepositoryForProject resolves the Project's recorded GitHub
 // git_remote locator. The caller never supplies the repository, and every
 // forge URL the receipt names is constructed from the resolved owner/repo.
-func (r runtime) outsideRepairRepositoryForProject(ctx context.Context, base Envelope, projectID string) (string, Envelope) {
+func (r runtime) outsideRepairRepositoryForProject(ctx context.Context, base agentcontract.Envelope, projectID string) (string, agentcontract.Envelope) {
 	locators, err := r.Store.ProjectLocators(ctx, projectID)
 	if err != nil {
 		return "", failureEnvelope(base, err)
@@ -312,7 +312,7 @@ func (r runtime) outsideRepairRepositoryForProject(ctx context.Context, base Env
 		}
 		repository, ok := outsideRepairGitHubRepository(locator.NormalizedValue)
 		if ok {
-			return repository, Envelope{}
+			return repository, agentcontract.Envelope{}
 		}
 	}
 	return "", coreError(base, "invalid_input", "outside repair closes a Project whose registered git origin is not a GitHub repository", "reread_entities", false)
@@ -339,7 +339,7 @@ func outsideRepairGitHubRepository(normalizedRemote string) (string, bool) {
 // successful required-check sets, the published release and its tag-resolved
 // immutable commit, and proves every merge is an ancestor of that release
 // commit. A zero Envelope return names an ok collection.
-func (r runtime) outsideRepairEvidenceForPlan(ctx context.Context, base Envelope, pin store.WorkPin, in outsideRepairReconcileInput, authorityRef string) (store.OutsideRepairEvidence, Envelope) {
+func (r runtime) outsideRepairEvidenceForPlan(ctx context.Context, base agentcontract.Envelope, pin store.WorkPin, in outsideRepairReconcileInput, authorityRef string) (store.OutsideRepairEvidence, agentcontract.Envelope) {
 	zero := store.OutsideRepairEvidence{}
 	normalized, repositoryRefusal := r.outsideRepairRepositoryForProject(ctx, base, pin.ProjectID)
 	if repositoryRefusal.Error != nil {
@@ -382,7 +382,7 @@ func (r runtime) outsideRepairEvidenceForPlan(ctx context.Context, base Envelope
 		ReleaseURL:   outsideRepairCanonicalReleaseURL(canonical, in.ReleaseTag),
 		ReleaseSHA:   release.ResolvedCommit,
 		PublishedAt:  release.Published,
-	}, Envelope{}
+	}, agentcontract.Envelope{}
 }
 
 // outsideRepairCanonicalRepository resolves the GitHub canonical identity for
@@ -392,7 +392,7 @@ func (r runtime) outsideRepairEvidenceForPlan(ctx context.Context, base Envelope
 // any pull-request or release fetch, so every URL it returns downstream can be
 // matched exactly against the GitHub-authenticated identifiers, and the store's
 // URL exact-match validation can rely on it.
-func (r runtime) outsideRepairCanonicalRepository(ctx context.Context, base Envelope, normalized string) (string, Envelope) {
+func (r runtime) outsideRepairCanonicalRepository(ctx context.Context, base agentcontract.Envelope, normalized string) (string, agentcontract.Envelope) {
 	zero := ""
 	output, err := r.outsideRepairCommand(ctx, "gh", "repo", "view", normalized, "--json", "nameWithOwner,url")
 	if err != nil {
@@ -405,10 +405,10 @@ func (r runtime) outsideRepairCanonicalRepository(ctx context.Context, base Enve
 	if !strings.EqualFold(view.NameWithOwner, normalized) || !strings.EqualFold(view.URL, "https://github.com/"+normalized) {
 		return zero, coreError(base, "unauthorized", "canonical repository "+normalized+" carries another repository's identifier or URL", "contact_operator", false)
 	}
-	return view.NameWithOwner, Envelope{}
+	return view.NameWithOwner, agentcontract.Envelope{}
 }
 
-func (r runtime) selectedOutsideRepairPullRequest(ctx context.Context, base Envelope, repository string, number int64, issueKey string) (store.OutsideRepairPullRequestEvidence, Envelope) {
+func (r runtime) selectedOutsideRepairPullRequest(ctx context.Context, base agentcontract.Envelope, repository string, number int64, issueKey string) (store.OutsideRepairPullRequestEvidence, agentcontract.Envelope) {
 	zero := store.OutsideRepairPullRequestEvidence{}
 	reference := strconv.FormatInt(number, 10)
 	wantURL := outsideRepairCanonicalPullRequestURL(repository, number)
@@ -448,7 +448,7 @@ func (r runtime) selectedOutsideRepairPullRequest(ctx context.Context, base Enve
 		MergeSHA:       view.MergeCommit.Oid,
 		MergedAt:       mergedAt,
 		RequiredChecks: checks,
-	}, Envelope{}
+	}, agentcontract.Envelope{}
 }
 
 func (r runtime) outsideRepairReadJSON(ctx context.Context, target any, args ...string) error {
@@ -773,7 +773,7 @@ func outsideRepairMatchedJob(pages []ghOutsideJobPage, repository string, run gh
 	return matchedJobID, nil
 }
 
-func (r runtime) outsideRepairPublishedRelease(ctx context.Context, base Envelope, repository, tag string) (publishedRelease, Envelope) {
+func (r runtime) outsideRepairPublishedRelease(ctx context.Context, base agentcontract.Envelope, repository, tag string) (publishedRelease, agentcontract.Envelope) {
 	zero := publishedRelease{}
 	output, err := r.outsideRepairCommand(ctx, "gh", "release", "view", tag, "-R", repository, "--json", "tagName,isDraft,isPrerelease,url,publishedAt")
 	if err != nil {
@@ -799,10 +799,10 @@ func (r runtime) outsideRepairPublishedRelease(ctx context.Context, base Envelop
 	if commitRefusal.Error != nil {
 		return zero, commitRefusal
 	}
-	return publishedRelease{ResolvedCommit: commit, Published: published}, Envelope{}
+	return publishedRelease{ResolvedCommit: commit, Published: published}, agentcontract.Envelope{}
 }
 
-func (r runtime) outsideRepairTagCommit(ctx context.Context, base Envelope, repository, tag string) (string, Envelope) {
+func (r runtime) outsideRepairTagCommit(ctx context.Context, base agentcontract.Envelope, repository, tag string) (string, agentcontract.Envelope) {
 	output, err := r.outsideRepairCommand(ctx, "gh", "api", "repos/"+repository+"/git/ref/tags/"+tag)
 	if err != nil {
 		return "", coreError(base, "missing_evidence", "published release "+tag+": "+err.Error(), "provide_evidence", false)
@@ -831,7 +831,7 @@ func (r runtime) outsideRepairTagCommit(ctx context.Context, base Envelope, repo
 	if ref.Object.Type != "commit" || !outsideRepairGitSHAValid(commit) {
 		return "", coreError(base, "missing_evidence", "published release "+tag+" resolves to no native git commit", "provide_evidence", false)
 	}
-	return commit, Envelope{}
+	return commit, agentcontract.Envelope{}
 }
 
 // outsideRepairMergeAncestor proves the pull request merge commit is an
@@ -839,7 +839,7 @@ func (r runtime) outsideRepairTagCommit(ctx context.Context, base Envelope, repo
 // endpoint: base...head reads "ahead" exactly when base is an ancestor of
 // head, "identical" when both commits are the same, and a "diverged" or
 // "behind" status names a merge the release does not contain.
-func (r runtime) outsideRepairMergeAncestor(ctx context.Context, base Envelope, repository, mergeSHA, releaseCommit, pullRequest string) Envelope {
+func (r runtime) outsideRepairMergeAncestor(ctx context.Context, base agentcontract.Envelope, repository, mergeSHA, releaseCommit, pullRequest string) agentcontract.Envelope {
 	output, err := r.outsideRepairCommand(ctx, "gh", "api", "repos/"+repository+"/compare/"+mergeSHA+"..."+releaseCommit)
 	if err != nil {
 		return coreError(base, "missing_evidence", "pull request "+pullRequest+" merge comparison: "+err.Error(), "provide_evidence", false)
@@ -849,7 +849,7 @@ func (r runtime) outsideRepairMergeAncestor(ctx context.Context, base Envelope, 
 		return coreError(base, "missing_evidence", "pull request "+pullRequest+" merge comparison: gh answered unparseable output", "provide_evidence", false)
 	}
 	if (view.Status == "ahead" || view.Status == "identical") && view.BehindBy == 0 {
-		return Envelope{}
+		return agentcontract.Envelope{}
 	}
 	return coreError(base, "missing_evidence", "published release "+releaseCommit+" does not contain pull request "+pullRequest, "provide_evidence", false)
 }
@@ -857,7 +857,7 @@ func (r runtime) outsideRepairMergeAncestor(ctx context.Context, base Envelope, 
 // planOutsideRepairDisposition plans the hold: durably record the
 // outside-repair disposition on live work. No workflow pin
 // and no managed step is required to enter the route.
-func (r runtime) planOutsideRepairDisposition(ctx context.Context, base Envelope, raw []byte, digest string, _ Authority, _ agentcontract.ContractOperation, plan *mutationPlan) (Envelope, error, bool) {
+func (r runtime) planOutsideRepairDisposition(ctx context.Context, base agentcontract.Envelope, raw []byte, digest string, _ Authority, _ agentcontract.ContractOperation, plan *mutationPlan) (agentcontract.Envelope, error, bool) {
 	var in outsideRepairDispositionInput
 	if err := decodeOperationInput(raw, &in); err != nil {
 		return base, err, true
@@ -869,12 +869,12 @@ func (r runtime) planOutsideRepairDisposition(ctx context.Context, base Envelope
 		return refusal, nil, true
 	}
 	plan.effect = r.outsideRepairPlanEffect(digest, plan, in.WorkID, in.ExpectedVersion, in.Reason, "", nil)
-	return Envelope{}, nil, false
+	return agentcontract.Envelope{}, nil, false
 }
 
 // planOutsideRepairReconcile plans the one reconcile action: completed mode
 // closes the held work from collected evidence, resume mode clears the hold.
-func (r runtime) planOutsideRepairReconcile(ctx context.Context, base Envelope, raw []byte, digest string, grant Authority, _ agentcontract.ContractOperation, plan *mutationPlan) (Envelope, error, bool) {
+func (r runtime) planOutsideRepairReconcile(ctx context.Context, base agentcontract.Envelope, raw []byte, digest string, grant Authority, _ agentcontract.ContractOperation, plan *mutationPlan) (agentcontract.Envelope, error, bool) {
 	var in outsideRepairReconcileInput
 	if err := decodeOperationInput(raw, &in); err != nil {
 		return base, err, true
@@ -914,13 +914,13 @@ func (r runtime) planOutsideRepairReconcile(ctx context.Context, base Envelope, 
 	}
 	plan.outsideEvidence = evidence
 	plan.effect = r.outsideRepairPlanEffect(digest, plan, in.WorkID, in.ExpectedVersion, in.Reason, in.Mode, evidence)
-	return Envelope{}, nil, false
+	return agentcontract.Envelope{}, nil, false
 }
 
 // prepareOutsideRepairPlan carries the shared outside-repair plan shape. The
 // exact work, expected version, and completed reconcile selectors remain bound
 // even when ordinary coordination requires no operator consent (CD-0243 D7).
-func (r runtime) prepareOutsideRepairPlan(base Envelope, plan *mutationPlan, workID string, expectedVersion int64, reason string, approval *approvalInput, mode, releaseTag string, pullRequests []int64) (Envelope, bool) {
+func (r runtime) prepareOutsideRepairPlan(base agentcontract.Envelope, plan *mutationPlan, workID string, expectedVersion int64, reason string, approval *approvalInput, mode, releaseTag string, pullRequests []int64) (agentcontract.Envelope, bool) {
 	if len([]rune(reason)) < 2 || len([]rune(reason)) > 4096 {
 		return coreError(base, "invalid_input", "outside repair requires a bounded repair reason", "reread_entities", false), true
 	}
@@ -938,13 +938,13 @@ func (r runtime) prepareOutsideRepairPlan(base Envelope, plan *mutationPlan, wor
 		}
 		plan.scope["pull_requests"] = selectors
 	}
-	return Envelope{}, false
+	return agentcontract.Envelope{}, false
 }
 
 // outsideRepairPlanEffect attributes ordinary coordination to the caller.
 // A supplied operator approval still carries its exact consumed binding.
 func (r runtime) outsideRepairPlanEffect(digest string, plan *mutationPlan, workID string, expectedVersion int64, reason, mode string, evidence *store.OutsideRepairEvidence) mutationEffect {
-	return func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
+	return func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []agentcontract.ChangedRef, error) {
 		consumedApprovalRef, _ := plan.scope["approval_ref"].(string)
 		request := store.OutsideRepairRequest{
 			Actor:           memberWorkflowActor(grant),
@@ -978,10 +978,10 @@ func (r runtime) outsideRepairPlanEffect(digest string, plan *mutationPlan, work
 		if err != nil {
 			return nil, nil, nil, err
 		}
-		changed := []ChangedRef{{EntityKind: "work_item", ID: workID, Version: strconv.FormatInt(expectedVersion+2, 10)}}
-		var intents []NextIntent
+		changed := []agentcontract.ChangedRef{{EntityKind: "work_item", ID: workID, Version: strconv.FormatInt(expectedVersion+2, 10)}}
+		var intents []agentcontract.NextIntent
 		if mode == OutsideRepairModeResume {
-			intents = []NextIntent{{Tool: "concord_work_browse", Operation: "scope", ReasonCode: outsideRepairRefreshedIntent, RequiredFields: []string{"work_id"}}}
+			intents = []agentcontract.NextIntent{{Tool: "concord_work_browse", Operation: "scope", ReasonCode: outsideRepairRefreshedIntent, RequiredFields: []string{"work_id"}}}
 		}
 		return mutationPayload(changed, intents), result.EventIDs, changed, nil
 	}

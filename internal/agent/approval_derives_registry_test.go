@@ -42,7 +42,7 @@ func TestProductChangingApprovalDerivesTheRegistryItPins(t *testing.T) {
 	// The agent learns the hash it pins from a Domain read. That read is the
 	// first demand: it derives the registry from committed content.
 	detail := dispatchRead(t, s, service, InvokeRequest{Tool: "concord_domain", Operation: "list", Input: json.RawMessage(`{"product_id":"product-1","page":{"cursor":null,"limit":10}}`)}, env)
-	if detail.Outcome != OutcomeOK {
+	if detail.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("domain list on a committed-only registry: %+v", detail.Error)
 	}
 	var listed struct {
@@ -83,7 +83,7 @@ func TestProductChangingApprovalDerivesTheRegistryItPins(t *testing.T) {
 		"verification_obligations":     []any{},
 	}
 	resp, _ := approvedWorkflowContract(t, s, service, grant, privateKey, env, version, fields, "derived-registry-approval")
-	if resp.Outcome != OutcomeOK {
+	if resp.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("approve_contract against a derived registry: %+v", resp.Error)
 	}
 	// The envelope is validated only at marshal, which in-process dispatch
@@ -153,7 +153,7 @@ func TestProductChangingApprovalDerivesTheRegistryWithoutAPriorRead(t *testing.T
 		t.Fatalf("precondition: want no derived registry, got %d err=%v", registries, err)
 	}
 	resp, _ := approvedWorkflowContract(t, s, service, grant, privateKey, env, version, fields, "derived-registry-approval-no-read")
-	if resp.Outcome != OutcomeOK {
+	if resp.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("approve_contract with no derived registry present: %+v", resp.Error)
 	}
 }

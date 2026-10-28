@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -47,7 +48,7 @@ func bindAJ9ProductResources(t *testing.T, sc jobScenario) jobObservation {
 		Operation: "resources",
 		Input:     json.RawMessage(`{"page":{"cursor":null,"limit":20}}`),
 	}, env)
-	if resp.Outcome != OutcomeOK {
+	if resp.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("resources outcome=%s error=%+v", resp.Outcome, resp.Error)
 	}
 	var page struct {

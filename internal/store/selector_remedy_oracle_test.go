@@ -55,7 +55,7 @@ func serializeSelectorRefusal(t *testing.T, failure *store.Failure) []byte {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if calls != 1 || out.Error == nil || out.Error.Kind != "unreachable" || out.Error.EffectState != agent.EffectNone || out.Error.RetrySafe {
+	if calls != 1 || out.Error == nil || out.Error.Kind != "unreachable" || out.Error.EffectState != agentcontract.EffectNone || out.Error.RetrySafe {
 		t.Fatalf("selector refusal changed classification or effect: calls=%d error=%+v", calls, out.Error)
 	}
 	encoded, err := out.Encode()

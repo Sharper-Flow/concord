@@ -68,7 +68,7 @@ func TestAuthorityRefusalsCarryTheUnauthorizedKind(t *testing.T) {
 			if err == nil {
 				t.Fatal("authorization accepted a refusal case")
 			}
-			envelope := failureEnvelope(Envelope{}, err)
+			envelope := failureEnvelope(agentcontract.Envelope{}, err)
 			if envelope.Error == nil {
 				t.Fatal("refusal produced an envelope with no error")
 			}

@@ -41,11 +41,11 @@ func TestWorkerRetryWithoutConsentKeepsFreshIdentityAndReplay(t *testing.T) {
 	input["fields"] = map[string]any{"attempt_id": "attempt:work-1:fresh", "worker_packet": retryMutationPacket(t, s, "attempt:work-1:fresh", pin.Correction)}
 	raw := retryJSON(input)
 	result := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: raw}, env)
-	if result.Outcome != OutcomeOK {
+	if result.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("fresh retry without consent = %+v", result.Error)
 	}
 	replayed := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: raw}, env)
-	if replayed.Outcome != OutcomeOK || !replayed.Replayed {
+	if replayed.Outcome != agentcontract.OutcomeOK || !replayed.Replayed {
 		t.Fatalf("retry replay = %+v", replayed)
 	}
 	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM worker_attempts WHERE work_id='work-1'`); got != attemptsBefore+1 {
@@ -74,7 +74,7 @@ func TestWorkerRetryRequiresTerminalReconciliationAndCurrentPacket(t *testing.T)
 		"work_id": "work-1", "expected_version": workOneVersion(t, s), "action_id": "dispatch_worker", "idempotency_key": "authorize-concurrent-abandonment",
 		"fields": map[string]any{"attempt_id": failedID, "worker_packet": retryMutationPacket(t, s, failedID, nil)},
 	})}, env)
-	if first.Outcome != OutcomeOK {
+	if first.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("first authorization: %+v", first.Error)
 	}
 	const freshID = "attempt:work-1:concurrent-retry"
@@ -119,7 +119,7 @@ func TestWorkerRetryRequiresTerminalReconciliationAndCurrentPacket(t *testing.T)
 	}
 	input["fields"] = map[string]any{"attempt_id": freshID, "worker_packet": retryMutationPacket(t, s, freshID, pin.Correction)}
 	result := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: retryJSON(input)}, env)
-	if result.Outcome != OutcomeOK {
+	if result.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("reread consuming retry=%+v", result.Error)
 	}
 	if got := verifyWallChallenges(t, s); got != 0 {
@@ -224,7 +224,7 @@ func seedFailedWorkerRetryMutation(t *testing.T, s *store.Store, service *Servic
 		t.Fatal(err)
 	}
 	start := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: retryJSON(map[string]any{"work_id": "work-1", "expected_version": workOneVersion(t, s), "action_id": "start_execution", "idempotency_key": "retry-start"})}, mutationEnvelope(grant, scopeVersion))
-	if start.Outcome != OutcomeOK {
+	if start.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("seed retry start: %+v", start.Error)
 	}
 	recordReviewedRetryJob(t, s, service, mutationEnvelope(grant, scopeVersion), "job:retry-objective")
@@ -234,7 +234,7 @@ func seedFailedWorkerRetryMutation(t *testing.T, s *store.Store, service *Servic
 		"work_id": "work-1", "expected_version": version, "action_id": "dispatch_worker", "idempotency_key": "retry-failed-dispatch",
 		"fields": map[string]any{"attempt_id": attemptID, "worker_packet": retryMutationPacket(t, s, attemptID, nil)},
 	})}, env)
-	if dispatch.Outcome != OutcomeOK {
+	if dispatch.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("seed retry dispatch: %+v", dispatch.Error)
 	}
 	lane := retryLane(t)

@@ -1213,7 +1213,7 @@ func TestAllReadEnvelopesValidateAtPopulationScale(t *testing.T) {
 		}
 		t.Run(op.ID, func(t *testing.T) {
 			response := dispatchRead(t, fx.store, fx.service, InvokeRequest{Tool: op.Tool, Operation: op.Operation, Input: json.RawMessage(input)}, fx.envelope(t))
-			if response.Outcome != OutcomeOK {
+			if response.Outcome != agentcontract.OutcomeOK {
 				t.Fatalf("%s refused at population scale: %s %s", op.ID, response.Error.Kind, response.Error.Message)
 			}
 			if err := agentcontract.ValidateOperationPayload(op.Tool, op.Operation, response.Result, true); err != nil {
@@ -1246,16 +1246,16 @@ func TestAllReadEnvelopesValidateAtPopulationScale(t *testing.T) {
 // stamps its pin onto the result; worktree_verify answers with a lease ref
 // and product_project_add with a product ref, and neither passes the
 // work-item filter, so their feeds stay honest to what their handlers emit.
-func enrichmentChangedRefs(workID string, version int64, opID string) []ChangedRef {
+func enrichmentChangedRefs(workID string, version int64, opID string) []agentcontract.ChangedRef {
 	switch opID {
 	case "concord_work_transition.worktree_verify":
-		return []ChangedRef{{EntityKind: "worktree_verify_lease", ID: "lease-1", Version: "1"}}
+		return []agentcontract.ChangedRef{{EntityKind: "worktree_verify_lease", ID: "lease-1", Version: "1"}}
 	case "concord_work_relate.product_project_add":
-		return []ChangedRef{{EntityKind: "product", ID: "product-1", Version: "1"}}
+		return []agentcontract.ChangedRef{{EntityKind: "product", ID: "product-1", Version: "1"}}
 	case "concord_work_relate.client_policy_grant_request":
-		return []ChangedRef{{EntityKind: "trusted_client", ID: "client-1", Version: "sha256:5a19a2b615a5bb94ba0e848a1a5f9c15d00375cbc1a5d0a0e6b31a4d3a41e6b8"}}
+		return []agentcontract.ChangedRef{{EntityKind: "trusted_client", ID: "client-1", Version: "sha256:5a19a2b615a5bb94ba0e848a1a5f9c15d00375cbc1a5d0a0e6b31a4d3a41e6b8"}}
 	default:
-		return []ChangedRef{{EntityKind: "work_item", ID: workID, Version: strconv.FormatInt(version, 10)}}
+		return []agentcontract.ChangedRef{{EntityKind: "work_item", ID: workID, Version: strconv.FormatInt(version, 10)}}
 	}
 }
 

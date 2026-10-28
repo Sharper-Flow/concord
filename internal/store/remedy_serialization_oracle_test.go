@@ -56,7 +56,7 @@ func serializeRemedyRefusal(t *testing.T, failure *store.Failure, wantKind strin
 	if err != nil {
 		t.Fatal(err)
 	}
-	if calls != 1 || out.Error == nil || out.Error.Kind != wantKind || out.Error.EffectState != agent.EffectNone || out.Error.RetrySafe {
+	if calls != 1 || out.Error == nil || out.Error.Kind != wantKind || out.Error.EffectState != agentcontract.EffectNone || out.Error.RetrySafe {
 		t.Fatalf("typed refusal changed: calls=%d error=%+v", calls, out.Error)
 	}
 	encoded, err := out.Encode()

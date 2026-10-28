@@ -84,7 +84,7 @@ func TestDispatchRequiredReadingReplayAfterSourceRemoval(t *testing.T) {
 		t.Fatal(err)
 	}
 	env := mutationEnvelope(grant, scopeVersion)
-	invoke := func(input map[string]any) Envelope {
+	invoke := func(input map[string]any) agentcontract.Envelope {
 		t.Helper()
 		response, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: retryJSON(input)}, env)
 		if err != nil {
@@ -99,7 +99,7 @@ func TestDispatchRequiredReadingReplayAfterSourceRemoval(t *testing.T) {
 	contractFields["premise"] = "the replay journey delivers its checked change"
 	contractFields["outcome_predicates"] = []map[string]any{{"predicate_id": "predicate:primary", "ordinal": 0, "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:replay-journey", "immutable_subject_ref": "commit:replay-journey", "expected_result": "pass"}}}
 	contractFields["architecture_binding"] = workflowArchitectureBindingForSeededRegistry(t, s)
-	if approved := invoke(map[string]any{"work_id": "work-1", "expected_version": version(), "action_id": "approve_contract", "fields": contractFields, "idempotency_key": "replay-journey-contract"}); approved.Outcome != OutcomeOK {
+	if approved := invoke(map[string]any{"work_id": "work-1", "expected_version": version(), "action_id": "approve_contract", "fields": contractFields, "idempotency_key": "replay-journey-contract"}); approved.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("approve_contract: %+v", approved.Error)
 	}
 
@@ -107,7 +107,7 @@ func TestDispatchRequiredReadingReplayAfterSourceRemoval(t *testing.T) {
 	if start := invoke(map[string]any{
 		"work_id": "work-1", "expected_version": version(), "action_id": "start_execution",
 		"fields": map[string]any{}, "idempotency_key": "replay-journey-start",
-	}); start.Outcome != OutcomeOK {
+	}); start.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("start_execution: %+v", start.Error)
 	}
 	recordRecoveryWorkerJob(t, s, service, env, "job:replay-journey")
@@ -123,7 +123,7 @@ func TestDispatchRequiredReadingReplayAfterSourceRemoval(t *testing.T) {
 			"context_findings": []map[string]any{},
 		},
 		"idempotency_key": "replay-journey-declare",
-	}); declared.Outcome != OutcomeOK {
+	}); declared.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("record_work_context: %+v", declared.Error)
 	}
 	attemptID := "attempt:work-1:replay-journey"
@@ -144,7 +144,7 @@ func TestDispatchRequiredReadingReplayAfterSourceRemoval(t *testing.T) {
 	})
 	env.RequestID = "request:replay-journey-dispatch"
 	first := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: input}, env)
-	if first.Outcome != OutcomeOK {
+	if first.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("dispatch over the declared readings refused: %+v", first.Error)
 	}
 
@@ -163,7 +163,7 @@ func TestDispatchRequiredReadingReplayAfterSourceRemoval(t *testing.T) {
 	}
 
 	replay := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: input}, env)
-	if replay.Outcome != OutcomeOK || !replay.Replayed {
+	if replay.Outcome != agentcontract.OutcomeOK || !replay.Replayed {
 		t.Fatalf("replay after the source removal = %+v replayed=%t, want the recorded result without a new preparation", replay.Error, replay.Replayed)
 	}
 	if string(replay.Result) != string(first.Result) {

@@ -19,7 +19,7 @@ func TestInvokeResearchArchitectureBindingCorrection(t *testing.T) {
 	}
 	env := mutationEnvelope(grant, scopeVersion)
 	workID := captureCompositionWork(t, ctx, s, service, env, "Research request correction", "research", "workflow.research", "binding-capture")
-	action := func(actionID string, fields map[string]any, key string) Envelope {
+	action := func(actionID string, fields map[string]any, key string) agentcontract.Envelope {
 		t.Helper()
 		raw, err := json.Marshal(map[string]any{"work_id": workID, "expected_version": workVersion(t, s, workID), "action_id": actionID, "fields": fields, "idempotency_key": key})
 		if err != nil {
@@ -32,7 +32,7 @@ func TestInvokeResearchArchitectureBindingCorrection(t *testing.T) {
 		}
 		return response
 	}
-	if framed := action("frame_research", map[string]any{}, "binding-frame"); framed.Outcome != OutcomeOK {
+	if framed := action("frame_research", map[string]any{}, "binding-frame"); framed.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("frame research: %+v", framed.Error)
 	}
 	snapshot := func() [3]int64 {
@@ -71,7 +71,7 @@ func TestInvokeResearchArchitectureBindingCorrection(t *testing.T) {
 		t.Fatalf("refusal lost request identity: %+v", refused)
 	}
 	delete(fields, "architecture_binding")
-	if corrected := action("approve_contract", fields, "binding-approve"); corrected.Outcome != OutcomeOK {
+	if corrected := action("approve_contract", fields, "binding-approve"); corrected.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("correcting only architecture_binding under unchanged authority failed: %+v", corrected.Error)
 	}
 	var workflowRef, step, premise string

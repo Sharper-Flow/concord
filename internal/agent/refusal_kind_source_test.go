@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/payloadschema"
 )
 
@@ -59,14 +60,14 @@ func TestEveryRefusalNamesAContractualKind(t *testing.T) {
 
 // TestEveryLiteralRefusalPairsAContractualRecovery holds the other half of
 // deliverability. A coupled kind admits exactly one recovery action, and a
-// literal site sets the action directly rather than through publicRecovery, so
-// nothing derives the pair for it. A site that names a coupled kind with any
+// literal site sets the action directly rather than through
+// agentcontract.PublicRecovery, so nothing derives the pair for it. A site that names a coupled kind with any
 // other action builds an envelope validateError refuses, and the caller
 // receives a transport fault in place of the refusal.
 func TestEveryLiteralRefusalPairsAContractualRecovery(t *testing.T) {
 	checked := 0
 	for _, site := range literalRefusalKinds(t) {
-		coupled, isCoupled := enforcedRecoveryCouplings[site.kind]
+		coupled, isCoupled := coupledRecovery(site.kind)
 		if !isCoupled || site.recovery == "" {
 			continue
 		}
@@ -79,6 +80,15 @@ func TestEveryLiteralRefusalPairsAContractualRecovery(t *testing.T) {
 		t.Fatal("no literal refusal site named a coupled kind; the sites moved and this guard no longer watches them")
 	}
 	t.Logf("checked %d literal refusal sites that name a coupled kind", checked)
+}
+
+// coupledRecovery reports the one recovery action a coupled kind admits,
+// through the owner's public projection. A coupled kind ignores the proposed
+// action, so two distinct contractual proposals project to the same action
+// only when the kind is coupled.
+func coupledRecovery(kind string) (string, bool) {
+	action := agentcontract.PublicRecovery(kind, "none")
+	return action, action == agentcontract.PublicRecovery(kind, "contact_operator")
 }
 
 // literalRefusalKinds parses every non-test source file in this package and
@@ -126,7 +136,7 @@ func literalRefusalKinds(t *testing.T) []literalRefusalKind {
 			}
 			if at.recovery < len(call.Args) {
 				// A recovery action built from a variable is resolved by
-				// publicRecovery, which derives it from the coupling table.
+				// agentcontract.PublicRecovery, which derives it from the coupling table.
 				site.recovery, _ = stringLiteralValue(call.Args[at.recovery])
 			}
 			out = append(out, site)

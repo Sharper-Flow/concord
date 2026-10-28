@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -28,7 +29,7 @@ func TestFederatedQ9WireCarriesSourceProof(t *testing.T) {
 			ContentHash: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 		}},
 	}
-	result, err := (runtime{Tool: "concord_knowledge", Operation: "search"}).q9(NewBase("review-q9", "concord_knowledge", "search"), q)
+	result, err := (runtime{Tool: "concord_knowledge", Operation: "search"}).q9(agentcontract.NewBase("review-q9", "concord_knowledge", "search"), q)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -58,7 +59,7 @@ func TestSingleSourceQ9WireKeepsOneWatermark(t *testing.T) {
 			ContentHash: "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
 		}},
 	}
-	result, err := (runtime{Tool: "concord_knowledge", Operation: "search"}).q9(NewBase("solo-q9", "concord_knowledge", "search"), q)
+	result, err := (runtime{Tool: "concord_knowledge", Operation: "search"}).q9(agentcontract.NewBase("solo-q9", "concord_knowledge", "search"), q)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -85,7 +86,7 @@ func TestSingleSourceQ9WireOmitsSourceFields(t *testing.T) {
 			ContentHash: "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
 		}},
 	}
-	result, err := (runtime{Tool: "concord_knowledge", Operation: "search"}).q9(NewBase("solo-q9-wire", "concord_knowledge", "search"), q)
+	result, err := (runtime{Tool: "concord_knowledge", Operation: "search"}).q9(agentcontract.NewBase("solo-q9-wire", "concord_knowledge", "search"), q)
 	if err != nil {
 		t.Fatal(err)
 	}

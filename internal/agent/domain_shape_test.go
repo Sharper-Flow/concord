@@ -51,7 +51,7 @@ func TestDomainShapeHandlerMatchesCoreAndFootprint(t *testing.T) {
 		input, _ := json.Marshal(domainShapeInput{ProductID: "prod-alpha", DomainShapeSelector: selector})
 		before := domainEventCountForTest(t, s)
 		response := dispatchRead(t, s, service, InvokeRequest{Tool: "concord_domain", Operation: "shape", Input: input}, env)
-		if response.Outcome != OutcomeOK {
+		if response.Outcome != agentcontract.OutcomeOK {
 			t.Fatalf("shape %s: %s / %+v", input, response.Outcome, response.Error)
 		}
 		want, err := s.QueryDomainShape(context.Background(), "prod-alpha", selector)
@@ -75,7 +75,7 @@ func TestDomainShapeHandlerMatchesCoreAndFootprint(t *testing.T) {
 		if selector.Path != "" {
 			footprint := dispatchRead(t, s, service, InvokeRequest{Tool: "concord_domain", Operation: "footprint", Input: json.RawMessage(`{"product_id":"prod-alpha","paths":["` + selector.Path + `"]}`)}, env)
 			var payload store.DomainFootprintPayload
-			if footprint.Outcome != OutcomeOK || json.Unmarshal(footprint.Result, &payload) != nil || !reflect.DeepEqual(payload.Shapes, []store.DomainShapeResult{want}) {
+			if footprint.Outcome != agentcontract.OutcomeOK || json.Unmarshal(footprint.Result, &payload) != nil || !reflect.DeepEqual(payload.Shapes, []store.DomainShapeResult{want}) {
 				t.Fatalf("footprint lost selected shapes: %s / %+v", footprint.Result, footprint.Error)
 			}
 		}
@@ -221,7 +221,7 @@ func TestDomainShapeTypedFactResults(t *testing.T) {
 func TestDomainShapeMaximumResultFitsEnvelope(t *testing.T) {
 	s, service, grant, _, _ := agentJobsKnowledgeFixture(t, false)
 	response := dispatchRead(t, s, service, InvokeRequest{Tool: "concord_domain", Operation: "shape", Input: json.RawMessage(`{"product_id":"prod-alpha","subject":"fact-1"}`)}, agentJobsEnvelope(grant, "proj-web", "prod-alpha"))
-	if response.Outcome != OutcomeOK {
+	if response.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("shape read: %+v", response.Error)
 	}
 	var result store.DomainShapeResult

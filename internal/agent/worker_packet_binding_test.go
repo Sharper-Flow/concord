@@ -579,7 +579,7 @@ func recordReadyRetryJobWithChecks(t *testing.T, s *store.Store, service *Servic
 		t.Fatal(err)
 	}
 	result := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: raw}, env)
-	if result.Outcome != OutcomeOK {
+	if result.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("record the ready retry job: %+v", result.Error)
 	}
 }

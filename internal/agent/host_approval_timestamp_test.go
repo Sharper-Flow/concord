@@ -51,8 +51,8 @@ func TestHostApprovalAssertionTimestampRefusal(t *testing.T) {
 				if err == nil {
 					t.Fatal("invalid timestamp admitted")
 				}
-				out := failureEnvelope(NewBase("timestamp-test", "concord_work_transition", "workflow_action"), err)
-				if out.Error.Kind != "internal_error" || out.Error.RecoveryAction.Kind != "contact_operator" || out.Error.RetrySafe || out.Error.EffectState != EffectNone {
+				out := failureEnvelope(agentcontract.NewBase("timestamp-test", "concord_work_transition", "workflow_action"), err)
+				if out.Error.Kind != "internal_error" || out.Error.RecoveryAction.Kind != "contact_operator" || out.Error.RetrySafe || out.Error.EffectState != agentcontract.EffectNone {
 					t.Fatalf("timestamp refusal lost its cause or asks for another approval: %+v", out.Error)
 				}
 				if out.Error.Details["reason"] != tc.reason || out.Error.Details["boundary"] != "host_approval_timestamp" || out.Error.Details["validated_at"] != fixedTime().Format(time.RFC3339Nano) || out.Error.Details["allowed_clock_skew_seconds"] != float64(120) {
@@ -124,8 +124,8 @@ func TestHostApprovalAssertionBindingRefusal(t *testing.T) {
 			if err == nil {
 				t.Fatal("changed binding admitted")
 			}
-			out := failureEnvelope(NewBase("binding-test", "concord_work_transition", "workflow_action"), err)
-			if out.Error.Kind != "approval_invalid" || out.Error.RecoveryAction.Kind != "request_approval" || out.Error.RetrySafe || out.Error.EffectState != EffectNone {
+			out := failureEnvelope(agentcontract.NewBase("binding-test", "concord_work_transition", "workflow_action"), err)
+			if out.Error.Kind != "approval_invalid" || out.Error.RecoveryAction.Kind != "request_approval" || out.Error.RetrySafe || out.Error.EffectState != agentcontract.EffectNone {
 				t.Fatalf("binding refusal lost: %+v", out.Error)
 			}
 			if _, err := json.Marshal(out); err != nil {
@@ -176,8 +176,8 @@ func TestExpiredChallengeKeepsHostTimestampRefusal(t *testing.T) {
 			if err == nil {
 				t.Fatal("invalid host timestamp re-armed an expired invitation")
 			}
-			out := failureEnvelope(NewBase("timestamp-rearm-test", "concord_work_relate", "set_memberships"), err)
-			if out.Error.Kind != "internal_error" || out.Error.RecoveryAction.Kind != "contact_operator" || out.Error.RetrySafe || out.Error.EffectState != EffectNone {
+			out := failureEnvelope(agentcontract.NewBase("timestamp-rearm-test", "concord_work_relate", "set_memberships"), err)
+			if out.Error.Kind != "internal_error" || out.Error.RecoveryAction.Kind != "contact_operator" || out.Error.RetrySafe || out.Error.EffectState != agentcontract.EffectNone {
 				t.Fatalf("timestamp refusal lost its cause or asks for another approval: %+v", out.Error)
 			}
 			if out.Error.Details["boundary"] != "host_approval_timestamp" || out.Error.Details["reason"] != tc.reason {

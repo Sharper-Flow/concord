@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/payloadschema"
 )
 
@@ -31,7 +32,7 @@ func TestResearchReadWithoutAPackIsDeliverable(t *testing.T) {
 	input := json.RawMessage(`{"product_id":"prod-alpha","work_id":"work-done"}`)
 	resp := dispatchRead(t, s, service, InvokeRequest{Tool: "concord_work_trace", Operation: "research", Input: input}, env)
 
-	if resp.Outcome != OutcomeError || resp.Error == nil {
+	if resp.Outcome != agentcontract.OutcomeError || resp.Error == nil {
 		t.Fatalf("the version 1 owner read must refuse; got outcome %q error %+v", resp.Outcome, resp.Error)
 	}
 	if _, err := resp.Encode(); err != nil {
@@ -46,7 +47,7 @@ func TestResearchReadWithoutAPackIsDeliverable(t *testing.T) {
 	if !strings.Contains(resp.Error.Message, "result_version") {
 		t.Errorf("the refusal must direct the caller to result_version 2; got %q", resp.Error.Message)
 	}
-	if resp.Error.EffectState != EffectNone {
-		t.Errorf("a read commits nothing; got effect_state %q, want %q", resp.Error.EffectState, EffectNone)
+	if resp.Error.EffectState != agentcontract.EffectNone {
+		t.Errorf("a read commits nothing; got effect_state %q, want %q", resp.Error.EffectState, agentcontract.EffectNone)
 	}
 }

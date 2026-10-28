@@ -132,7 +132,7 @@ func TestEveryDeclaredReadMarshalsItsEnvelope(t *testing.T) {
 			if err != nil {
 				t.Fatalf("%s does not marshal: %v", id, err)
 			}
-			if resp.Outcome != OutcomeOK {
+			if resp.Outcome != agentcontract.OutcomeOK {
 				t.Logf("%s refused rather than answering ok: %s", id, firstBytes(raw, 300))
 				return
 			}

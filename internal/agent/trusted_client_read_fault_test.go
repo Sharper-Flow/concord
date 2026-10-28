@@ -41,7 +41,7 @@ func assertClientRefusalEnvelope(t *testing.T, err error) {
 	if err == nil {
 		t.Fatal("an absent client or key was authorized")
 	}
-	out := failureEnvelope(NewBase("trusted-client-refusal", "concord_product_view", "resolve"), err)
+	out := failureEnvelope(agentcontract.NewBase("trusted-client-refusal", "concord_product_view", "resolve"), err)
 	if out.Error == nil || out.Error.Kind != "unauthorized" {
 		t.Fatalf("refusal = %v, want public kind unauthorized", err)
 	}
@@ -80,15 +80,15 @@ func assertUnavailableClientReadFault(t *testing.T, err error) {
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("fault = %v, want it to wrap context.Canceled", err)
 	}
-	out := failureEnvelope(NewBase("trusted-client-read-fault", "concord_product_view", "resolve"), err)
+	out := failureEnvelope(agentcontract.NewBase("trusted-client-read-fault", "concord_product_view", "resolve"), err)
 	if out.Error == nil || out.Error.Kind != "unreachable" {
 		t.Fatalf("public kind = %+v for fault %v, want unreachable", out.Error, err)
 	}
 	if !out.Error.RetrySafe {
 		t.Fatal("the public envelope must keep the fault retry-safe")
 	}
-	if out.Authority != AuthorityUnreachable {
-		t.Fatalf("authority = %q, want %q", out.Authority, AuthorityUnreachable)
+	if out.Authority != agentcontract.AuthorityUnreachable {
+		t.Fatalf("authority = %q, want %q", out.Authority, agentcontract.AuthorityUnreachable)
 	}
 	if want := "cannot read trusted client: context canceled"; out.Error.Message != want {
 		t.Fatalf("public message = %q, want %q", out.Error.Message, want)

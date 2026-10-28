@@ -29,7 +29,7 @@ func TestKnowledgeReadEnvelopeMarshalsWithRealisticIdentifiers(t *testing.T) {
 		{"concord_knowledge", "resolve_note", `{"knowledge_id":"knowledge-decision"}`},
 	} {
 		resp := dispatchRead(t, s, service, InvokeRequest{Tool: tc.tool, Operation: tc.op, Input: json.RawMessage(tc.input)}, env)
-		if resp.Outcome != OutcomeOK {
+		if resp.Outcome != agentcontract.OutcomeOK {
 			t.Fatalf("%s.%s: %+v", tc.tool, tc.op, resp.Error)
 		}
 		if _, err := json.Marshal(resp); err != nil {
@@ -63,7 +63,7 @@ func TestDomainReadEnvelopeMarshalsWithoutFreshness(t *testing.T) {
 	}
 	env := mutationEnvelope(grant, scopeVersion)
 	resp := dispatchRead(t, s, service, InvokeRequest{Tool: "concord_domain", Operation: "list", Input: json.RawMessage(`{"product_id":"product-1","page":{"cursor":null,"limit":10}}`)}, env)
-	if resp.Outcome != OutcomeOK {
+	if resp.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("domain list: %+v", resp.Error)
 	}
 	raw, err := json.Marshal(resp)
@@ -95,7 +95,7 @@ func TestDomainReadsMarshalWithAmbiguousContractOmission(t *testing.T) {
 		{"overlaps", `{"product_id":"product-1"}`},
 	} {
 		resp := dispatchRead(t, s, service, InvokeRequest{Tool: "concord_domain", Operation: tc.operation, Input: json.RawMessage(tc.input)}, env)
-		if resp.Outcome != OutcomeOK {
+		if resp.Outcome != agentcontract.OutcomeOK {
 			t.Fatalf("concord_domain.%s: %+v", tc.operation, resp.Error)
 		}
 		if !containsNoticeKind(resp.Omissions, "ambiguous-contract:work-1") {
@@ -112,7 +112,7 @@ func TestDomainReadsMarshalWithAmbiguousContractOmission(t *testing.T) {
 	}
 }
 
-func containsNoticeKind(notices []Notice, want string) bool {
+func containsNoticeKind(notices []agentcontract.Notice, want string) bool {
 	for _, notice := range notices {
 		if notice.Kind == want {
 			return true
@@ -132,7 +132,7 @@ func TestEveryReadOperationMarshalsAsARead(t *testing.T) {
 		}
 		checked++
 		t.Run(op.Tool+"."+op.Operation, func(t *testing.T) {
-			e := Envelope{SchemaVersion: "1.0", ManifestDigest: agentcontract.ManifestDigest, RequestID: "r", Origin: "core", Tool: op.Tool, Operation: op.Operation, QueryID: op.QueryID, Outcome: OutcomeOK, Authority: AuthorityAuthoritative, SourceVersionWatermark: []Watermark{}, OrderingKeys: []string{}, Omissions: []Notice{}, Warnings: []Notice{}, EvidenceRefs: []EvidenceRef{}, Items: []json.RawMessage{json.RawMessage(`{}`)}}
+			e := agentcontract.Envelope{SchemaVersion: "1.0", ManifestDigest: agentcontract.ManifestDigest, RequestID: "r", Origin: "core", Tool: op.Tool, Operation: op.Operation, QueryID: op.QueryID, Outcome: agentcontract.OutcomeOK, Authority: agentcontract.AuthorityAuthoritative, SourceVersionWatermark: []agentcontract.Watermark{}, OrderingKeys: []string{}, Omissions: []agentcontract.Notice{}, Warnings: []agentcontract.Notice{}, EvidenceRefs: []agentcontract.EvidenceRef{}, Items: []json.RawMessage{json.RawMessage(`{}`)}}
 			if _, err := json.Marshal(e); err != nil {
 				t.Fatalf("read does not marshal without mutation metadata: %v", err)
 			}

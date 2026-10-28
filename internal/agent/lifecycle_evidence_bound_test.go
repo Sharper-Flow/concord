@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+
+	"github.com/sharper-flow/concord/internal/agentcontract"
 )
 
 // TestLifecycleCompletionEvidenceFieldBoundsNeverFaultTheResult proves that an
@@ -64,7 +66,7 @@ func TestLifecycleCompletionEvidenceFieldBoundsNeverFaultTheResult(t *testing.T)
 			}
 			// CD-0243 D3/D7 retire ordinary terminal consent, not field bounds.
 			approved := dispatchMutation(t, s, service, request, env)
-			if approved.Outcome != OutcomeOK {
+			if approved.Outcome != agentcontract.OutcomeOK {
 				t.Fatalf("%d-byte %s: outcome=%s err=%+v, want ok", tc.size, tc.field, approved.Outcome, approved.Error)
 			}
 			if lifecycle, _ := readWorkFromStore(t, s, "work-cross"); lifecycle != "completed" {
@@ -81,12 +83,12 @@ func TestLifecycleCompletionEvidenceFieldBoundsNeverFaultTheResult(t *testing.T)
 	}
 }
 
-func assertEvidenceFieldPath(t *testing.T, response Envelope, field string) {
+func assertEvidenceFieldPath(t *testing.T, response agentcontract.Envelope, field string) {
 	t.Helper()
 	if want := "$.evidence[0]." + field; !strings.Contains(response.Error.Message, want) {
 		t.Fatalf("invalid_input message %q does not name %s", response.Error.Message, want)
 	}
-	if response.Error.EffectState != EffectNone {
+	if response.Error.EffectState != agentcontract.EffectNone {
 		t.Fatalf("invalid_input effect_state=%s, want none", response.Error.EffectState)
 	}
 }

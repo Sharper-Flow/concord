@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/payloadschema"
 	"github.com/sharper-flow/concord/internal/pm1fixture"
 	"github.com/sharper-flow/concord/internal/store"
@@ -163,7 +164,7 @@ func workflowContractActionInputWithFields(t *testing.T, key, approvalRef string
 // challenge's canonical bindings, so a fixture that signs its own literals
 // breaks whenever the admission binds a value the fixture guessed (the
 // derived failure record's window epoch, for one).
-func challengeApprovalBindings(t *testing.T, summary *ConsequenceSummary) (map[string]any, map[string]any) {
+func challengeApprovalBindings(t *testing.T, summary *agentcontract.ConsequenceSummary) (map[string]any, map[string]any) {
 	t.Helper()
 	if summary == nil {
 		t.Fatal("challenge carries no consequence summary")
@@ -221,7 +222,7 @@ func advanceCapturedWorkToContract(t *testing.T, s *store.Store, service *Servic
 		}
 		env.RequestID = "request:" + keyPrefix + "-" + key
 		response := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: raw}, env)
-		if response.Outcome != OutcomeOK {
+		if response.Outcome != agentcontract.OutcomeOK {
 			t.Fatalf("pre-contract %s: %+v", actionID, response.Error)
 		}
 		var after int64

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -34,7 +35,7 @@ func TestContinuityReviewInputWarningStaysOutsideProjection(t *testing.T) {
 			if meta.SourceVersionWatermark != 41 {
 				t.Fatalf("warning changed publication revision: %d", meta.SourceVersionWatermark)
 			}
-			envelope := applyMeta(Envelope{}, meta, nil)
+			envelope := applyMeta(agentcontract.Envelope{}, meta, nil)
 			if len(envelope.Warnings) != 1 || envelope.Warnings[0].Kind != "review_input_candidate_tree:"+string(kind) {
 				t.Fatalf("warning lost its phase or typed cause: %+v", envelope.Warnings)
 			}

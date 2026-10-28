@@ -69,7 +69,7 @@ func TestContractStructuralRefusalsDeliverCompleteGuidance(t *testing.T) {
 				t.Fatalf("missing typed refusal: %+v, %v", out, err)
 			}
 			message := out.Error.Message
-			if out.Error.Kind != "invalid_input" || out.Error.RetrySafe || out.Error.EffectState != EffectNone || out.Error.RecoveryAction.Kind != "correct_request" {
+			if out.Error.Kind != "invalid_input" || out.Error.RetrySafe || out.Error.EffectState != agentcontract.EffectNone || out.Error.RecoveryAction.Kind != "correct_request" {
 				t.Fatalf("typed refusal changed: %+v", out.Error)
 			}
 			if !strings.Contains(message, tc.field) || !strings.Contains(message, "Accepted shape:") || !strings.Contains(message, "example:") || strings.Contains(message, "[truncated]") || len(message) > 1000 {

@@ -28,7 +28,7 @@ func TestApprovedCallRendersAnApprovalReadFaultByItsStoreKind(t *testing.T) {
 			t.Parallel()
 			s, service, env, request := call.setup(t)
 			response, before, after := dispatchApprovedCallWithFault(t, s, service, env, request, time.Time{}, `ALTER TABLE agent_approvals RENAME COLUMN revoked_at TO revoked_at_unreadable`, `ALTER TABLE agent_approvals RENAME COLUMN revoked_at_unreadable TO revoked_at`)
-			if response.Outcome != OutcomeError || response.Error == nil {
+			if response.Outcome != agentcontract.OutcomeError || response.Error == nil {
 				t.Fatalf("approval read fault response=%+v", response)
 			}
 			if response.Error.Kind != "unreachable" || response.Error.RecoveryAction.Kind != "contact_operator" || !response.Error.RetrySafe || !strings.HasPrefix(response.Error.Message, "cannot read approval: ") {
@@ -51,7 +51,7 @@ func TestApprovedCallRendersAChallengeRearmConflictAsOperationConflict(t *testin
 			t.Parallel()
 			s, service, env, request := call.setup(t)
 			response, before, after := dispatchApprovedCallWithFault(t, s, service, env, request, fixedTime().Add(11*time.Minute), `CREATE TRIGGER challenge_rearm_lost_race BEFORE UPDATE OF expires_at ON agent_approval_challenges BEGIN SELECT RAISE(IGNORE); END`, `DROP TRIGGER challenge_rearm_lost_race`)
-			if response.Outcome != OutcomeError || response.Error == nil {
+			if response.Outcome != agentcontract.OutcomeError || response.Error == nil {
 				t.Fatalf("re-arm conflict response=%+v", response)
 			}
 			if response.Error.Kind != "operation_conflict" || response.Error.RecoveryAction.Kind != "reconcile_operation" || response.Error.RetrySafe || response.Error.Message != "approval challenge re-arm lost race" {
@@ -76,7 +76,7 @@ func TestApprovedCallWithoutAHostAssertionRefusesApprovalInvalid(t *testing.T) {
 	request.Input = input
 	before := agentDurableStateSnapshot(t, s)
 	response, err := Dispatch(context.Background(), s, service, request, env)
-	if err != nil || response.Outcome != OutcomeError || response.Error == nil {
+	if err != nil || response.Outcome != agentcontract.OutcomeError || response.Error == nil {
 		t.Fatalf("missing host assertion response=%+v err=%v", response, err)
 	}
 	if response.Error.Kind != "approval_invalid" || response.Error.RecoveryAction.Kind != "request_approval" || response.Error.RetrySafe || response.Error.Message != "signed host approval assertion is required" {
@@ -108,7 +108,7 @@ func TestOrdinaryCoordinationDoesNotReadApprovalRecords(t *testing.T) {
 			execFixtureSQL(t, s, `ALTER TABLE agent_approvals RENAME COLUMN revoked_at TO revoked_at_unreadable`)
 			response, err := Dispatch(context.Background(), s, service, request, env)
 			execFixtureSQL(t, s, `ALTER TABLE agent_approvals RENAME COLUMN revoked_at_unreadable TO revoked_at`)
-			if err != nil || response.Outcome != OutcomeOK {
+			if err != nil || response.Outcome != agentcontract.OutcomeOK {
 				t.Fatalf("ordinary call error=%+v err=%v", response.Error, err)
 			}
 			if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM agent_approval_challenges`); got != 0 {
@@ -123,7 +123,7 @@ func TestOrdinaryCoordinationDoesNotReadApprovalRecords(t *testing.T) {
 // call while fault is applied. A non-zero answerAt answers after the
 // challenge deadline. It returns the response and the durable state before
 // and after the approved call.
-func dispatchApprovedCallWithFault(t *testing.T, s *store.Store, service *Service, env CallEnvelope, request InvokeRequest, answerAt time.Time, fault, restore string) (Envelope, string, string) {
+func dispatchApprovedCallWithFault(t *testing.T, s *store.Store, service *Service, env CallEnvelope, request InvokeRequest, answerAt time.Time, fault, restore string) (agentcontract.Envelope, string, string) {
 	t.Helper()
 	ctx := context.Background()
 	challenge, err := Dispatch(ctx, s, service, request, env)

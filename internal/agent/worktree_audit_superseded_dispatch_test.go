@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"testing"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -40,7 +41,7 @@ func TestWorktreeAuditReturnsSupersededDrift(t *testing.T) {
 		"product_id": "product-1",
 		"page":       map[string]any{"cursor": nil, "limit": 50},
 	})
-	if response.Outcome != OutcomeOK {
+	if response.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("audit response=%+v err=%+v", response, response.Error)
 	}
 	var page struct {
@@ -81,7 +82,7 @@ func TestWorktreeAuditReclaimReturnsSupersededRowsAndReportOnly(t *testing.T) {
 	response := tiersInvoke(t, s, second, secondGrant, "concord_work_transition", "worktree_audit_reclaim", map[string]any{
 		"product_id": "product-1", "default_ref": "main", "idempotency_key": "audit-reclaim-superseded",
 	})
-	if response.Outcome != OutcomeOK {
+	if response.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("audit reclaim response=%+v err=%+v", response, response.Error)
 	}
 	var result struct {
@@ -153,7 +154,7 @@ func TestWorktreeAuditReclaimResultCarriesWorkPins(t *testing.T) {
 	response := tiersInvoke(t, s, second, secondGrant, "concord_work_transition", "worktree_audit_reclaim", map[string]any{
 		"product_id": "product-1", "default_ref": "main", "idempotency_key": "audit-reclaim-work-pins",
 	})
-	if response.Outcome != OutcomeOK {
+	if response.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("audit reclaim response=%+v err=%+v", response, response.Error)
 	}
 	var result struct {

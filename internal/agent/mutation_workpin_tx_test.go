@@ -40,9 +40,9 @@ func driftWorkPinVersion(t *testing.T, s *store.Store, workID string) {
 	}
 }
 
-func requireMutationPinVersion(t *testing.T, response Envelope, workID string, version int64) {
+func requireMutationPinVersion(t *testing.T, response agentcontract.Envelope, workID string, version int64) {
 	t.Helper()
-	if response.Outcome != OutcomeOK {
+	if response.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("outcome=%s error=%+v", response.Outcome, response.Error)
 	}
 	var result struct {
@@ -99,7 +99,7 @@ func TestCompactionReconcilePinFailureRollsBackLink(t *testing.T) {
 		return nil
 	}
 	pending := publishCancelledNote(t, s, service, grant, key, home)
-	if pending.Outcome != OutcomePartial || pending.OperationRef == nil {
+	if pending.Outcome != agentcontract.OutcomePartial || pending.OperationRef == nil {
 		t.Fatalf("orphan fixture: %+v", pending)
 	}
 	if _, err := s.DatabaseForTesting().Exec(`CREATE TRIGGER drift_compaction_pin AFTER INSERT ON archived_work
@@ -109,7 +109,7 @@ func TestCompactionReconcilePinFailureRollsBackLink(t *testing.T) {
 	env := agentJobsMutationEnvelope(t, s, grant, "proj-api")
 	input, _ := json.Marshal(map[string]any{"operation_id": pending.OperationRef.ID, "expected_operation_version": 1, "idempotency_key": "reconcile-pin"})
 	response := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_compact", Operation: "reconcile", Input: input}, env)
-	if response.Outcome != OutcomePartial {
+	if response.Outcome != agentcontract.OutcomePartial {
 		t.Fatalf("unreadable pin must refuse the link: outcome=%s error=%+v", response.Outcome, response.Error)
 	}
 	_, current := readWorkFromStore(t, s, "work-cancelled")
@@ -150,9 +150,9 @@ func TestCompactionCompletedReplaysKeepTransactionPin(t *testing.T) {
 			}
 			raw, _ := json.Marshal(input)
 			op, _ := agentcontract.ValidateContractOperation(r.Tool, r.Operation)
-			base := NewBase(env.RequestID, r.Tool, r.Operation)
-			base.ResolvedScope = &Scope{ProductID: "prod-alpha", ProjectIDs: []string{"proj-api"}, WorkIDs: []string{"work-cancelled"}, ScopeVersion: env.ScopeVersion}
-			var response Envelope
+			base := agentcontract.NewBase(env.RequestID, r.Tool, r.Operation)
+			base.ResolvedScope = &agentcontract.Scope{ProductID: "prod-alpha", ProjectIDs: []string{"proj-api"}, WorkIDs: []string{"work-cancelled"}, ScopeVersion: env.ScopeVersion}
+			var response agentcontract.Envelope
 			var err error
 			if route == "cached_publish" {
 				var handled bool
@@ -174,7 +174,7 @@ func TestCompactionCompletedReplaysKeepTransactionPin(t *testing.T) {
 func TestMutationPinMissingWorkRefuses(t *testing.T) {
 	s, _, _, _, _ := agentJobsCompactionFixture(t)
 	r := runtime{Store: s}
-	changed := []ChangedRef{{EntityKind: "work_item", ID: "work-not-recorded", Version: "1"}}
+	changed := []agentcontract.ChangedRef{{EntityKind: "work_item", ID: "work-not-recorded", Version: "1"}}
 	err := s.Transact(context.Background(), func(tx *store.Transaction) error {
 		_, _, _, err := r.enrichMutationPayloadTx(context.Background(), tx, mutationPayload(changed, nil), changed)
 		return err
@@ -189,7 +189,7 @@ func TestWorktreeAuditReclaimMissingWorkflowPinIsExplicit(t *testing.T) {
 	completeWork(t, s, "work-2")
 	vacateLinkedWorktree(t, s, service, grant, filepath.Join(filepath.Dir(s.Path()), "worktrees", "project-1", "work-2"), "missing-pin-vacate")
 	response := authorityInvoke(t, s, service, grant, "concord_work_transition", "worktree_audit_reclaim", map[string]any{"product_id": "product-1", "default_ref": "main", "idempotency_key": "missing-pin-audit"})
-	if response.Outcome != OutcomeOK {
+	if response.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("audit=%+v", response.Error)
 	}
 	for _, notice := range response.Omissions {
@@ -218,12 +218,12 @@ func TestWorktreeAuditReclaimReplayKeepsRowPin(t *testing.T) {
 }
 
 func TestAuditReclaimEnvelopeSizingIncludesPinNotice(t *testing.T) {
-	base := NewBase("audit-pin-size", "concord_work_transition", "worktree_audit_reclaim")
-	base.Omissions = []Notice{{Kind: "work_pin_unavailable", Count: 1}}
+	base := agentcontract.NewBase("audit-pin-size", "concord_work_transition", "worktree_audit_reclaim")
+	base.Omissions = []agentcontract.Notice{{Kind: "work_pin_unavailable", Count: 1}}
 	payload := json.RawMessage(`{"root":"fixture-root","rows":[],"report_only":[],"changed_refs":[],"next_valid_intents":[]}`)
-	changed := []ChangedRef{{EntityKind: "work_item", ID: "work-pinless", Version: "1"}}
-	type wire Envelope
-	encoded, err := json.Marshal(wire(NewOKMutation(base, payload, changed, nil)))
+	changed := []agentcontract.ChangedRef{{EntityKind: "work_item", ID: "work-pinless", Version: "1"}}
+	type wire agentcontract.Envelope
+	encoded, err := json.Marshal(wire(agentcontract.NewOKMutation(base, payload, changed, nil)))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -262,35 +262,35 @@ func TestEveryMutationResultGuardsWorkPins(t *testing.T) {
 				t.Fatalf("unenriched fixture must pass the payload schema: %v", err)
 			}
 			r := runtime{Tool: op.Tool, Operation: op.Operation}
-			base := NewBase("pin-guard", op.Tool, op.Operation)
+			base := agentcontract.NewBase("pin-guard", op.Tool, op.Operation)
 			missing := r.mutationResult(base, raw, changed, nil)
-			if missing.Outcome != OutcomeError || missing.Error == nil || !strings.Contains(missing.Error.Message, "work pin") {
+			if missing.Outcome != agentcontract.OutcomeError || missing.Error == nil || !strings.Contains(missing.Error.Message, "work pin") {
 				t.Fatalf("operation accepted a work ref with no pin or explicit omission: outcome=%s error=%+v", missing.Outcome, missing.Error)
 			}
-			if response := r.mutationResult(base, raw, nil, nil); response.Outcome != OutcomeError {
+			if response := r.mutationResult(base, raw, nil, nil); response.Outcome != agentcontract.OutcomeError {
 				t.Fatal("work refs in the payload also require pins")
 			}
 			object["work_pins"], _ = json.Marshal([]store.WorkPin{pin})
 			valid, _ := json.Marshal(object)
-			if response := r.mutationResult(base, valid, changed, nil); response.Outcome != OutcomeOK {
+			if response := r.mutationResult(base, valid, changed, nil); response.Outcome != agentcontract.OutcomeOK {
 				t.Fatalf("matching pin rejected: %+v", response.Error)
 			}
 			wrong := pin
 			wrong.Version++
 			object["work_pins"], _ = json.Marshal([]store.WorkPin{wrong})
 			mismatched, _ := json.Marshal(object)
-			if response := r.mutationResult(base, mismatched, changed, nil); response.Outcome != OutcomeError || response.Error == nil || !strings.Contains(response.Error.Message, "work pin") {
+			if response := r.mutationResult(base, mismatched, changed, nil); response.Outcome != agentcontract.OutcomeError || response.Error == nil || !strings.Contains(response.Error.Message, "work pin") {
 				t.Fatalf("mismatched pin accepted: %+v", response)
 			}
-			base.Omissions = []Notice{{Kind: "work_pin_unavailable", Count: 1}}
-			if response := r.mutationResult(base, raw, changed, nil, workID); response.Outcome != OutcomeOK {
+			base.Omissions = []agentcontract.Notice{{Kind: "work_pin_unavailable", Count: 1}}
+			if response := r.mutationResult(base, raw, changed, nil, workID); response.Outcome != agentcontract.OutcomeOK {
 				t.Fatalf("explicit pin omission rejected: %+v", response.Error)
 			}
-			if response := r.mutationResult(base, raw, changed, nil, "other-work"); response.Outcome != OutcomeError {
+			if response := r.mutationResult(base, raw, changed, nil, "other-work"); response.Outcome != agentcontract.OutcomeError {
 				t.Fatal("an allowed set for another work item cannot excuse this missing pin")
 			}
 			base.Omissions[0].Count = 2
-			if response := r.mutationResult(base, raw, changed, nil, workID); response.Outcome != OutcomeError {
+			if response := r.mutationResult(base, raw, changed, nil, workID); response.Outcome != agentcontract.OutcomeError {
 				t.Fatal("the omission count must equal the allowed set size")
 			}
 		})
@@ -301,7 +301,7 @@ func TestWorktreeAuditReclaimThirtyTwoPinlessItems(t *testing.T) {
 	ctx := context.Background()
 	s, service, grant, repo := tiersRepoFixture(t)
 	baseSHA := gitRun(t, repo, "rev-parse", "HEAD")
-	for i := range MaxChangedRefs {
+	for i := range agentcontract.MaxChangedRefs {
 		workID := fmt.Sprintf("pinless-%d", i)
 		events := []store.Event{
 			{EventID: workID + ":created", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: workID, Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: store.CurrentEventPayloadVersion("work.created"), Payload: json.RawMessage(`{"work_kind":"task","title":"Pinless work","priority":1}`)},
@@ -314,15 +314,15 @@ func TestWorktreeAuditReclaimThirtyTwoPinlessItems(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	response := authorityInvoke(t, s, service, grant, "concord_work_transition", "worktree_audit_reclaim", map[string]any{"product_id": "product-1", "default_ref": "main", "limit": MaxChangedRefs, "idempotency_key": "thirty-two-pinless"})
-	if response.Outcome != OutcomeOK || response.ChangedRefs == nil || len(*response.ChangedRefs) != MaxChangedRefs {
+	response := authorityInvoke(t, s, service, grant, "concord_work_transition", "worktree_audit_reclaim", map[string]any{"product_id": "product-1", "default_ref": "main", "limit": agentcontract.MaxChangedRefs, "idempotency_key": "thirty-two-pinless"})
+	if response.Outcome != agentcontract.OutcomeOK || response.ChangedRefs == nil || len(*response.ChangedRefs) != agentcontract.MaxChangedRefs {
 		t.Fatalf("32 pinless rows must succeed: error=%+v refs=%+v", response.Error, response.ChangedRefs)
 	}
 	count := 0
 	for _, notice := range response.Omissions {
 		if notice.Kind == "work_pin_unavailable" {
 			count++
-			if notice.Count != MaxChangedRefs || notice.SourceID != "" || len(notice.Details) != 0 {
+			if notice.Count != agentcontract.MaxChangedRefs || notice.SourceID != "" || len(notice.Details) != 0 {
 				t.Fatalf("pinless notice must carry only the count: %+v", notice)
 			}
 		}
@@ -333,7 +333,7 @@ func TestWorktreeAuditReclaimThirtyTwoPinlessItems(t *testing.T) {
 	if _, err := response.Encode(); err != nil {
 		t.Fatalf("32-item audit envelope: %v", err)
 	}
-	if countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM work_items WHERE id LIKE 'pinless-%' AND version=4`) != MaxChangedRefs {
+	if countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM work_items WHERE id LIKE 'pinless-%' AND version=4`) != agentcontract.MaxChangedRefs {
 		t.Fatal("the 32 rows did not reclaim")
 	}
 }
@@ -350,7 +350,7 @@ func TestMutationPinOmissionKeepsOtherWorkPins(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, unmanagedFirst := range []bool{true, false} {
-		changed := []ChangedRef{{EntityKind: "work_item", ID: workID, Version: strconv.FormatInt(pin.Version, 10)}, {EntityKind: "work_item", ID: "unmanaged-work", Version: "2"}}
+		changed := []agentcontract.ChangedRef{{EntityKind: "work_item", ID: workID, Version: strconv.FormatInt(pin.Version, 10)}, {EntityKind: "work_item", ID: "unmanaged-work", Version: "2"}}
 		if unmanagedFirst {
 			changed[0], changed[1] = changed[1], changed[0]
 		}
@@ -377,23 +377,23 @@ func TestMutationPinOmissionKeepsOtherWorkPins(t *testing.T) {
 
 func TestMutationPinOmissionDoesNotTruncateExistingNotices(t *testing.T) {
 	r := runtime{Tool: "concord_work_define", Operation: "capture"}
-	changed := []ChangedRef{{EntityKind: "work_item", ID: "unmanaged-work", Version: "1"}}
-	base := NewBase("full-notice-budget", r.Tool, r.Operation)
-	base.Omissions = make([]Notice, MaxNotices)
+	changed := []agentcontract.ChangedRef{{EntityKind: "work_item", ID: "unmanaged-work", Version: "1"}}
+	base := agentcontract.NewBase("full-notice-budget", r.Tool, r.Operation)
+	base.Omissions = make([]agentcontract.Notice, agentcontract.MaxNotices)
 	for i := range base.Omissions {
-		base.Omissions[i] = Notice{Kind: "existing_notice", SourceID: fmt.Sprintf("source-%d", i)}
+		base.Omissions[i] = agentcontract.Notice{Kind: "existing_notice", SourceID: fmt.Sprintf("source-%d", i)}
 	}
 	base.Omissions = append(base.Omissions, mutationPinOmissions([]string{"unmanaged-work"})...)
 	response := r.mutationResult(base, mutationPayload(changed, nil), changed, nil, "unmanaged-work")
-	if response.Outcome != OutcomeError || response.Error == nil || !strings.Contains(response.Error.Message, "envelope") {
+	if response.Outcome != agentcontract.OutcomeError || response.Error == nil || !strings.Contains(response.Error.Message, "envelope") {
 		t.Fatalf("notice overflow must refuse, never trim to fit: %+v", response)
 	}
 }
 
 func TestMutationPinOmissionRequiresExactShape(t *testing.T) {
 	r := runtime{Tool: "concord_work_define", Operation: "capture"}
-	changed := []ChangedRef{{EntityKind: "work_item", ID: "unmanaged-work", Version: "1"}}
-	for name, notices := range map[string][]Notice{
+	changed := []agentcontract.ChangedRef{{EntityKind: "work_item", ID: "unmanaged-work", Version: "1"}}
+	for name, notices := range map[string][]agentcontract.Notice{
 		"missing":       nil,
 		"zero_count":    {{Kind: "work_pin_unavailable"}},
 		"wrong_count":   {{Kind: "work_pin_unavailable", Count: 2}},
@@ -402,10 +402,10 @@ func TestMutationPinOmissionRequiresExactShape(t *testing.T) {
 		"duplicate":     {{Kind: "work_pin_unavailable", Count: 1}, {Kind: "work_pin_unavailable", Count: 1}},
 	} {
 		t.Run(name, func(t *testing.T) {
-			base := NewBase("notice-shape", r.Tool, r.Operation)
+			base := agentcontract.NewBase("notice-shape", r.Tool, r.Operation)
 			base.Omissions = notices
 			response := r.mutationResult(base, mutationPayload(changed, nil), changed, nil, "unmanaged-work")
-			if response.Outcome != OutcomeError {
+			if response.Outcome != agentcontract.OutcomeError {
 				t.Fatalf("noncanonical pin omission accepted: %+v", response)
 			}
 		})
@@ -421,7 +421,7 @@ func TestWorkflowReplayKeepsCommittedPinAfterLaterVersion(t *testing.T) {
 		t.Fatal("later writer did not advance the item")
 	}
 	replay := workflowTransactionReplay(t, r, grant, raw)
-	if replay.Outcome != OutcomeOK || !replay.Replayed || string(replay.Result) != string(first.Result) {
+	if replay.Outcome != agentcontract.OutcomeOK || !replay.Replayed || string(replay.Result) != string(first.Result) {
 		t.Fatalf("transaction replay lost the committed result: replay=%+v original=%s", replay, first.Result)
 	}
 	requireMutationPinVersion(t, replay, "work-1", before.Version)
@@ -435,7 +435,7 @@ func TestCompactionPreservesFollowingWriteVersion(t *testing.T) {
 	holdCompactionCleanup(t, s)
 	_, version := readWorkFromStore(t, s, "work-cancelled")
 	response := publishCancelledNote(t, s, service, grant, key, home)
-	if response.Outcome != OutcomeOK {
+	if response.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("publish: %+v", response.Error)
 	}
 	for _, expected := range []int64{version + 1, version} {
@@ -458,7 +458,7 @@ func TestCompactionFencesFollowingWritesAfterCleanup(t *testing.T) {
 	reviewCancelledReceipt(t, s, receipt.ContentDigest)
 	_, version := readWorkFromStore(t, s, "work-cancelled")
 	response := publishCancelledNote(t, s, service, grant, key, home)
-	if response.Outcome != OutcomeOK {
+	if response.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("publish: %+v", response.Error)
 	}
 	for _, expected := range []int64{version + 1, version} {

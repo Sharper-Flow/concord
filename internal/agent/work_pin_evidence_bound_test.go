@@ -60,20 +60,20 @@ func TestBindEvidenceRefusesLocatorPastReferenceBound(t *testing.T) {
 		"outcome":      "none_found",
 		"root_cause":   "The bounded root cause statement.",
 	}, nil, "wpeb-diagnosis")
-	if response.Outcome != OutcomeOK {
+	if response.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("record_diagnosis: %+v", response.Error)
 	}
 	response, after = ekbDispatch(t, ctx, s, service, env, grant, privateKey, workID, after, "approve_contract", workflowContractFieldsForSeededRegistry(t, s), nil, "wpeb-approve")
-	if response.Outcome != OutcomeOK {
+	if response.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("approve_contract: %+v", response.Error)
 	}
 	// CD-0198 D3: the qualifying checkpoint claims the derived start.
 	response, after = ekbDispatch(t, ctx, s, service, env, grant, privateKey, workID, after, "checkpoint_repair", map[string]any{}, nil, "wpeb-start")
-	if response.Outcome != OutcomeOK {
+	if response.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("checkpoint_repair: %+v", response.Error)
 	}
 	bound, _ := ekbDispatch(t, ctx, s, service, env, grant, privateKey, workID, after, "bind_evidence", map[string]any{"evidence_kind": "artifact", "immutable_subject_ref": long}, nil, "wpeb-bind")
-	if bound.Outcome == OutcomeOK || bound.Error == nil || bound.Error.Kind != "invalid_input" {
+	if bound.Outcome == agentcontract.OutcomeOK || bound.Error == nil || bound.Error.Kind != "invalid_input" {
 		t.Fatalf("bind_evidence accepted the %d-byte locator: %+v", len(long), bound.Error)
 	}
 	var boundEvents int

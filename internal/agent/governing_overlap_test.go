@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/pm1fixture"
 	"github.com/sharper-flow/concord/internal/store"
 )
@@ -52,7 +53,7 @@ func TestGoverningCaptureStoresActualDeclaredSet(t *testing.T) {
 				request.Input = raw
 				response = dispatchMutation(t, s, service, request, env)
 			}
-			if response.Outcome != OutcomeOK {
+			if response.Outcome != agentcontract.OutcomeOK {
 				t.Fatalf("capture=%+v", response.Error)
 			}
 			var got string
@@ -129,7 +130,7 @@ func TestGoverningOverlapRetainedAndUnknownScope(t *testing.T) {
 				before := agentCurrentEffects(t, s)
 				response := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_relate", Operation: "resolve_overlap", Input: governingOverlapInput(input, kind)}, env)
 				if unknown == "" {
-					if response.Outcome != OutcomeOK {
+					if response.Outcome != agentcontract.OutcomeOK {
 						t.Fatalf("retained scope=%+v", response.Error)
 					}
 				} else if response.Error == nil || response.Error.Kind != "missing_evidence" || agentCurrentEffects(t, s) != before {
@@ -201,7 +202,7 @@ func TestGoverningOverlapExactApprovalAndChangedBindings(t *testing.T) {
 					}
 					return
 				}
-				if response.Outcome != OutcomeOK {
+				if response.Outcome != agentcontract.OutcomeOK {
 					t.Fatalf("exact scope cut=%+v", response.Error)
 				}
 				if workVersion(t, s, "work-1") != 3 || workVersion(t, s, "work-2") != 3 || countRows(t, s.DatabaseForTesting(), `SELECT used_count FROM agent_approvals`) != 1 {

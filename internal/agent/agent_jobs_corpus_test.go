@@ -246,7 +246,7 @@ func invariantOrderedCrossAuthority(t *testing.T, obs jobObservation) {
 	}
 	// A partial outcome must name a recovery route; a cross-authority effect
 	// that stopped halfway and offers no way forward is an orphan.
-	if outcome, _ := obs.Communication["outcome"].(string); outcome == string(OutcomePartial) {
+	if outcome, _ := obs.Communication["outcome"].(string); outcome == string(agentcontract.OutcomePartial) {
 		if action, _ := obs.Communication["recovery_action"].(string); action == "" {
 			t.Error("ordered_cross_authority: partial outcome carries no recovery action")
 		}
@@ -494,7 +494,7 @@ func invariantHonestRecovery(t *testing.T, obs jobObservation) {
 	// caller is handed an incomplete result and must be told what is missing.
 	// Checking this before the error branch keeps the invariant from passing
 	// vacuously on every successful-but-degraded read.
-	if status, _ := obs.Authority["status"].(string); status == string(AuthorityDegraded) {
+	if status, _ := obs.Authority["status"].(string); status == string(agentcontract.AuthorityDegraded) {
 		if omissions, _ := obs.Authority["omissions"].([]any); len(omissions) == 0 {
 			t.Error("honest_recovery: degraded authority names no omission")
 		}
@@ -1150,7 +1150,7 @@ func agentJobsEnvelope(grant Authority, ambientProject, selectedProduct string) 
 // dispatchRead executes a read operation via Dispatch. A non-nil Go error is
 // a fatal infrastructure failure. A response with Outcome==OutcomeError is a
 // typed business error stored in the observation.
-func dispatchRead(t *testing.T, s *store.Store, service *Service, req InvokeRequest, env CallEnvelope) Envelope {
+func dispatchRead(t *testing.T, s *store.Store, service *Service, req InvokeRequest, env CallEnvelope) agentcontract.Envelope {
 	t.Helper()
 	env.ScopeVersion = scopeVersionForProject(t, s, env.AmbientProjectID)
 	resp, err := Dispatch(context.Background(), s, service, req, env)
@@ -1169,7 +1169,7 @@ func scopeVersionForProject(t *testing.T, s *store.Store, projectID string) stri
 	return v
 }
 
-func envelopeToObservation(resp Envelope) jobObservation {
+func envelopeToObservation(resp agentcontract.Envelope) jobObservation {
 	obs := jobObservation{
 		State:         map[string]any{},
 		Result:        map[string]any{},
@@ -1455,7 +1455,7 @@ func bindAJ1AmbientReadyWork(t *testing.T, sc jobScenario) jobObservation {
 		Input:     json.RawMessage(`{"product_id":"` + productID + `","page":{"cursor":null,"limit":20}}`),
 	}, readyEnv)
 
-	if readyResp.Outcome != OutcomeOK {
+	if readyResp.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("ready query outcome=%s error=%+v", readyResp.Outcome, readyResp.Error)
 	}
 	var readyResult map[string]any
@@ -1566,7 +1566,7 @@ func bindAJ1CrossProjectDeduplication(t *testing.T, sc jobScenario) jobObservati
 		Input:     json.RawMessage(`{"product_id":"` + resolvedProduct + `","page":{"cursor":null,"limit":100}}`),
 	}, listEnv)
 
-	if listResp.Outcome != OutcomeOK {
+	if listResp.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("list outcome=%s error=%+v", listResp.Outcome, listResp.Error)
 	}
 	var listResult map[string]any
@@ -1656,7 +1656,7 @@ func bindAJ2BlockerExplanation(t *testing.T, sc jobScenario) jobObservation {
 		Input:     json.RawMessage(`{"work_id":"` + workID + `","relation_kinds":["blocks"],"direction":"incoming"}`),
 	}, env)
 
-	if resp.Outcome != OutcomeOK {
+	if resp.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("relations outcome=%s error=%+v", resp.Outcome, resp.Error)
 	}
 	var result map[string]any

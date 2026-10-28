@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -23,7 +24,7 @@ const inspectBoundsPublishedCap = 16384
 // inspectBoundsInvoke dispatches one worktree_inspect read and returns the
 // dispatch error to the caller, so an output-validation refusal surfaces as
 // this test's failure rather than a fixture Fatal.
-func inspectBoundsInvoke(t *testing.T, s *store.Store, service *Service, grant Authority, mode, path string) (Envelope, error) {
+func inspectBoundsInvoke(t *testing.T, s *store.Store, service *Service, grant Authority, mode, path string) (agentcontract.Envelope, error) {
 	t.Helper()
 	input := map[string]any{"work_id": "work-2", "mode": mode}
 	if path != "" {
@@ -38,7 +39,7 @@ func inspectBoundsInvoke(t *testing.T, s *store.Store, service *Service, grant A
 	return Dispatch(context.Background(), s, service, request, mutationEnvelope(grant, scopeVersion))
 }
 
-func inspectBoundsPayload(t *testing.T, response Envelope) map[string]any {
+func inspectBoundsPayload(t *testing.T, response agentcontract.Envelope) map[string]any {
 	t.Helper()
 	var payload map[string]any
 	if err := json.Unmarshal(response.Result, &payload); err != nil {
@@ -62,7 +63,7 @@ func TestWorktreeInspectFileModeTruncatesSentinelByteAtPublishedCap(t *testing.T
 	if dispatchErr != nil {
 		t.Fatalf("worktree_inspect file mode refused by output validation before any success outcome: %v", dispatchErr)
 	}
-	if response.Outcome != OutcomeOK {
+	if response.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("response=%+v err=%+v, want success under the real output validation", response, response.Error)
 	}
 	payload := inspectBoundsPayload(t, response)
@@ -92,7 +93,7 @@ func TestWorktreeInspectFileModeAtPublishedCapReturnsWholeFile(t *testing.T) {
 	if dispatchErr != nil {
 		t.Fatalf("worktree_inspect file mode refused by output validation: %v", dispatchErr)
 	}
-	if response.Outcome != OutcomeOK {
+	if response.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("response=%+v err=%+v, want success", response, response.Error)
 	}
 	payload := inspectBoundsPayload(t, response)

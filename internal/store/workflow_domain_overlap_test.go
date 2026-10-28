@@ -908,7 +908,7 @@ func TestWorkflowDomainOverlapCrossProcessWorker(t *testing.T) {
 }
 
 // The agent envelope refuses a domain_overlap error carrying more than twenty
-// overlaps (internal/agent/envelope.go, domain overlap coupling). The producer
+// overlaps (internal/agentcontract/envelope.go, domain overlap coupling). The producer
 // must therefore never emit more than that, whatever the byte budget allows.
 // Many small architecture-only overlaps fit well inside the byte budget, so a
 // byte-only bound keeps every entry and the refusal cannot be delivered.

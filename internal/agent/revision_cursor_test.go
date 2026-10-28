@@ -5,10 +5,11 @@ import (
 	"strconv"
 	"testing"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
-func assertStoreRevisionWatermark(t *testing.T, s *store.Store, response Envelope) {
+func assertStoreRevisionWatermark(t *testing.T, s *store.Store, response agentcontract.Envelope) {
 	t.Helper()
 	var revision int64
 	if err := s.DatabaseForTesting().QueryRow(`SELECT revision FROM store_revision WHERE id=1`).Scan(&revision); err != nil {
@@ -27,7 +28,7 @@ func TestPaginationCursorAcrossStoreReopen(t *testing.T) {
 		Tool: "concord_work_browse", Operation: "list",
 		Input: json.RawMessage(`{"product_id":"prod-alpha","limit":1}`),
 	}, env)
-	if first.Outcome != OutcomeOK || first.NextCursor == nil {
+	if first.Outcome != agentcontract.OutcomeOK || first.NextCursor == nil {
 		t.Fatalf("first page: outcome=%s error=%+v cursor=%v", first.Outcome, first.Error, first.NextCursor)
 	}
 	assertStoreRevisionWatermark(t, s, first)
@@ -56,7 +57,7 @@ func TestPaginationCursorAcrossStoreReopen(t *testing.T) {
 		Tool: "concord_work_browse", Operation: "list",
 		Input: json.RawMessage(`{"product_id":"prod-alpha","limit":1,"page":{"cursor":` + quoteCursor(*first.NextCursor) + `}}`),
 	}, env)
-	if second.Outcome != OutcomeOK {
+	if second.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("cursor after reopen: outcome=%s error=%+v", second.Outcome, second.Error)
 	}
 	var firstPage, secondPage struct {

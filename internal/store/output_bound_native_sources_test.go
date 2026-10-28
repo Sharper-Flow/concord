@@ -755,7 +755,7 @@ func nativeLeaseIdentity(rt *ledgerRuntime, census *boundCensus) (leaseIDChars, 
 		if !hasLeaseID {
 			return true
 		}
-		for _, boundedCall := range nativeCalls(rangeStmt.Body, "bounded") {
+		for _, boundedCall := range nativeCalls(rangeStmt.Body, "agentcontract.BoundedBytes") {
 			if len(boundedCall.Args) != 3 {
 				continue
 			}

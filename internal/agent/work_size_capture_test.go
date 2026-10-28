@@ -21,7 +21,7 @@ func TestSourceFreeResearchOmitsSizingWithoutDefault(t *testing.T) {
 	t.Parallel()
 	s, service, grant, scopeVersion := captureTaskFixture(t)
 	response := dispatchCapture(t, s, service, grant, scopeVersion, "research-unsized", `{"title":"Research","value_statement":"Record findings without source changes","kind":"research","project_ids":["project-1"],"task":"Investigate only; do not edit production source","idempotency_key":"research-unsized"}`)
-	if response.Outcome != OutcomeOK {
+	if response.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("capture=%+v", response.Error)
 	}
 	id := (*response.ChangedRefs)[0].ID
@@ -87,7 +87,7 @@ func TestCaptureWithSizeInputsRecordsTheModelSize(t *testing.T) {
 	ctx := context.Background()
 	s, service, grant, scopeVersion := indexedCaptureFixture(t)
 	response := dispatchCapture(t, s, service, grant, scopeVersion, "sized-capture", sizedCaptureInput("sized-capture", sizedCaptureInputs))
-	if response.Outcome != OutcomeOK {
+	if response.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("sized capture response=%+v", response.Error)
 	}
 	changed := (*response.ChangedRefs)[0]
@@ -110,7 +110,7 @@ func TestCaptureWithSizeInputsRecordsTheModelSize(t *testing.T) {
 	env := mutationEnvelope(grant, scopeVersion)
 	env.RequestID = "sized-capture-scope-read"
 	read, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_browse", Operation: "scope", Input: json.RawMessage(`{"product_id":"product-1","work_id":"` + changed.ID + `"}`)}, env)
-	if err != nil || read.Outcome != OutcomeOK {
+	if err != nil || read.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("scope read = %+v, %v", read, err)
 	}
 	raw, _ := json.Marshal(read.Result)
@@ -127,7 +127,7 @@ func TestCaptureWithSizeInputsRecordsTheModelSize(t *testing.T) {
 	}
 
 	unsized := dispatchCapture(t, s, service, grant, scopeVersion, "unsized-capture", `{"title":"Unsized","value_statement":"Unsized work stays unsized","kind":"task","project_ids":["project-1"],"idempotency_key":"unsized-capture"}`)
-	if unsized.Outcome != OutcomeOK {
+	if unsized.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("unsized capture response=%+v", unsized.Error)
 	}
 	if count := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM work_size_assessments WHERE work_id='`+(*unsized.ChangedRefs)[0].ID+`'`); count != 0 {
@@ -171,7 +171,7 @@ func TestCaptureSizeRefusalsLeaveNoWork(t *testing.T) {
 				assertInputCorrection(t, response, err, "$.size_inputs.")
 			case err != nil:
 				t.Fatalf("dispatch err=%v, want a typed %s envelope", err, tc.kind)
-			case response.Outcome != OutcomeError || response.Error == nil || response.Error.Kind != tc.kind:
+			case response.Outcome != agentcontract.OutcomeError || response.Error == nil || response.Error.Kind != tc.kind:
 				t.Fatalf("response=%+v, want a %s refusal", response.Error, tc.kind)
 			}
 			if count := workItemCount(t, s); count != 0 {
@@ -193,7 +193,7 @@ func TestCaptureSizeInputsRefusesProjectsOfTwoProducts(t *testing.T) {
 	}
 	before := workItemCount(t, s)
 	response := dispatchCapture(t, s, service, grant, scopeVersion, "sized-cross", sizedCaptureInput("sized-cross", sizedCaptureInputs))
-	if response.Outcome != OutcomeError || response.Error == nil || response.Error.Kind != "ambiguous_scope" {
+	if response.Outcome != agentcontract.OutcomeError || response.Error == nil || response.Error.Kind != "ambiguous_scope" {
 		t.Fatalf("cross-product sized capture = %+v", response.Error)
 	}
 	if after := workItemCount(t, s); after != before {

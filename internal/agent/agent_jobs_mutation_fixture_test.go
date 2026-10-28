@@ -60,7 +60,7 @@ func agentJobsMutationEnvelope(t *testing.T, s *store.Store, grant Authority, am
 // passed so the runtime can hand it to ApplyOperationTx (and the
 // preflight reads); the underlying connection is the same one
 // service.DatabaseForTesting() owns.
-func dispatchMutation(t *testing.T, s *store.Store, service *Service, req InvokeRequest, env CallEnvelope) Envelope {
+func dispatchMutation(t *testing.T, s *store.Store, service *Service, req InvokeRequest, env CallEnvelope) agentcontract.Envelope {
 	t.Helper()
 	resp, err := Dispatch(context.Background(), s, service, req, env)
 	if err != nil {

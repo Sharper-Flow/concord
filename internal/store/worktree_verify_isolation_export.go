@@ -41,8 +41,13 @@ func nativeIsolationBuildExport(t *nativeTargetOraclePlan, root, snapshot, cwd s
 	if !filepath.IsAbs(root) || !nativeContained(root, snapshot) || !nativeContained(snapshot, cwd) {
 		return nil, nativeIsolationUnavailable("export paths do not realize producer scratch")
 	}
+	private, err := os.OpenRoot(root)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = private.Close() }()
 	identity := filepath.Join(root, "identity")
-	if err := os.MkdirAll(identity, 0700); err != nil {
+	if err := private.MkdirAll("identity", 0700); err != nil {
 		return nil, err
 	}
 	uid, gid := strconv.Itoa(os.Getuid()), strconv.Itoa(os.Getgid())
@@ -54,7 +59,7 @@ func nativeIsolationBuildExport(t *nativeTargetOraclePlan, root, snapshot, cwd s
 		"hosts":         net.IPv4(127, 0, 0, 1).String() + " " + localName + " sandbox\n" + net.IPv6loopback.String() + " " + localName + " sandbox\n",
 		"nsswitch.conf": "passwd: files\ngroup: files\nhosts: files\n",
 	} {
-		if err := os.WriteFile(filepath.Join(identity, name), []byte(body), 0600); err != nil {
+		if err := private.WriteFile(filepath.Join("identity", name), []byte(body), 0600); err != nil {
 			return nil, err
 		}
 	}
@@ -66,7 +71,7 @@ func nativeIsolationBuildExport(t *nativeTargetOraclePlan, root, snapshot, cwd s
 	// writable mount of root, snapshot, node_modules or a shared cache.
 	for _, name := range []string{"home", "tmp", "reports", "generated", "bun-cache"} {
 		dir := filepath.Join(root, name)
-		if err := os.MkdirAll(dir, 0700); err != nil {
+		if err := private.MkdirAll(name, 0700); err != nil {
 			return nil, err
 		}
 		mounts = append(mounts, nativeIsolationMount{Source: dir, Target: dir, Write: true})
@@ -152,32 +157,66 @@ func nativeIsolationAssemble(root, snapshot, cwd string, workload []string, moun
 	// Default /tmp is a fresh per-stage tmpfs mounted first: producer scratch
 	// usually lies beneath it, and an earlier stage's writable slot must
 	// never hold the parents of later mount destinations.
+	unique, ordered, err := nativeIsolationMountLayout(root, snapshot, mounts)
+	if err != nil {
+		return nil, err
+	}
+	args = append(args, "--tmpfs", "/tmp")
+	for _, dir := range ordered {
+		args = append(args, "--dir", dir)
+	}
+	args = append(args, "--proc", "/proc", "--dev", "/dev")
+	bindings, inventory, err := nativeIsolationMountBindings(unique)
+	if err != nil {
+		return nil, err
+	}
+	args = append(args, bindings...)
+	args = append(args, "--remount-ro", "/", "--chdir", cwd, "--")
+	args = append(args, workload...)
+	// Normalize only the producer root, not arbitrary path-like recipe text.
+	shape := strings.ReplaceAll(workflowJSON(mounts), root, "$scratch")
+	fingerprint := nativeDigest([]byte(nativeIsolationEnvironmentDigest(environment) + "\x00" + shape + "\x00" + strings.ReplaceAll(workflowJSON(inventory), root, "$scratch")))
+	p := &nativeStageIsolation{Launcher: nativeIsolationLauncher, Argv: args, Fingerprint: fingerprint, Profile: nativeIsolationProfile}
+	if err := validateNativeIsolation(p, workload); err != nil {
+		return nil, nativeIsolationUnavailable(err.Error())
+	}
+	return p, nil
+}
+
+func validateNativeIsolationMount(root, snapshot string, m nativeIsolationMount) error {
+	if !filepath.IsAbs(m.Source) || !filepath.IsAbs(m.Target) || filepath.Clean(m.Target) != m.Target || m.Target == "/" || slices.Contains([]string{"/usr", "/lib", "/lib64", "/opt", "/home", "/etc", "/run", "/var", "/tmp"}, m.Target) {
+		return nativeIsolationUnavailable("export contains a broad or nonabsolute mount")
+	}
+	if nativeContained(snapshot, m.Target) && m.Target != snapshot {
+		return nativeIsolationUnavailable("mount destination crosses the read-only snapshot")
+	}
+	info, err := os.Lstat(m.Source)
+	if err != nil || info.Mode()&os.ModeSymlink != 0 || (!info.IsDir() && !info.Mode().IsRegular()) {
+		return nativeIsolationUnavailable("export source is missing, symlinked or nonregular")
+	}
+	if m.Write && (!nativeContained(root, m.Source) || nativeContained(snapshot, m.Source)) {
+		return nativeIsolationUnavailable("writable export is outside private scratch")
+	}
+	if m.Write && (m.Source != m.Target || !slices.Contains([]string{filepath.Join(root, "home"), filepath.Join(root, "tmp"), filepath.Join(root, "reports"), filepath.Join(root, "generated"), filepath.Join(root, "bun-cache")}, m.Source)) {
+		return nativeIsolationUnavailable("writable export is not one finite producer state slot")
+	}
+	if !m.Write && info.IsDir() && !slices.Contains([]string{snapshot, nativeBunBinDir(root), nativeTargetNodeBinDir(root)}, m.Source) {
+		return nativeIsolationUnavailable("read-only directory export is not a verified producer input tree")
+	}
+	return nil
+}
+
+func nativeIsolationMountLayout(root, snapshot string, mounts []nativeIsolationMount) ([]nativeIsolationMount, []string, error) {
 	dirs := map[string]bool{"/proc": true, "/dev": true}
 	seen := map[string]nativeIsolationMount{}
 	var unique []nativeIsolationMount
 	for _, m := range mounts {
-		if !filepath.IsAbs(m.Source) || !filepath.IsAbs(m.Target) || filepath.Clean(m.Target) != m.Target || m.Target == "/" || slices.Contains([]string{"/usr", "/lib", "/lib64", "/opt", "/home", "/etc", "/run", "/var", "/tmp"}, m.Target) {
-			return nil, nativeIsolationUnavailable("export contains a broad or nonabsolute mount")
-		}
-		if nativeContained(snapshot, m.Target) && m.Target != snapshot {
-			return nil, nativeIsolationUnavailable("mount destination crosses the read-only snapshot")
-		}
-		info, err := os.Lstat(m.Source)
-		if err != nil || info.Mode()&os.ModeSymlink != 0 || (!info.IsDir() && !info.Mode().IsRegular()) {
-			return nil, nativeIsolationUnavailable("export source is missing, symlinked or nonregular")
-		}
-		if m.Write && (!nativeContained(root, m.Source) || nativeContained(snapshot, m.Source)) {
-			return nil, nativeIsolationUnavailable("writable export is outside private scratch")
-		}
-		if m.Write && (m.Source != m.Target || !slices.Contains([]string{filepath.Join(root, "home"), filepath.Join(root, "tmp"), filepath.Join(root, "reports"), filepath.Join(root, "generated"), filepath.Join(root, "bun-cache")}, m.Source)) {
-			return nil, nativeIsolationUnavailable("writable export is not one finite producer state slot")
-		}
-		if !m.Write && info.IsDir() && !slices.Contains([]string{snapshot, nativeBunBinDir(root), nativeTargetNodeBinDir(root)}, m.Source) {
-			return nil, nativeIsolationUnavailable("read-only directory export is not a verified producer input tree")
+		if err := validateNativeIsolationMount(root, snapshot, m); err != nil {
+			return nil, nil, err
 		}
 		if previous, ok := seen[m.Target]; ok {
 			if previous != m {
-				return nil, nativeIsolationUnavailable("conflicting export destinations")
+				return nil, nil, nativeIsolationUnavailable("conflicting export destinations")
 			}
 			continue
 		}
@@ -190,7 +229,7 @@ func nativeIsolationAssemble(root, snapshot, cwd string, workload []string, moun
 	for _, m := range unique {
 		for _, other := range unique {
 			if m.Target != other.Target && nativeContained(m.Target, other.Target) {
-				return nil, nativeIsolationUnavailable("nested export destinations are unsupported")
+				return nil, nil, nativeIsolationUnavailable("nested export destinations are unsupported")
 			}
 		}
 	}
@@ -200,36 +239,30 @@ func nativeIsolationAssemble(root, snapshot, cwd string, workload []string, moun
 		ordered = append(ordered, dir)
 	}
 	slices.Sort(ordered)
-	args = append(args, "--tmpfs", "/tmp")
-	for _, dir := range ordered {
-		args = append(args, "--dir", dir)
-	}
-	args = append(args, "--proc", "/proc", "--dev", "/dev")
+	return unique, ordered, nil
+}
+
+func nativeIsolationMountBindings(mounts []nativeIsolationMount) ([]string, []NativeOracleFile, error) {
+	var args []string
 	var inventory []NativeOracleFile
-	for _, m := range unique {
+	for _, m := range mounts {
 		flag := "--ro-bind"
 		if m.Write {
 			flag = "--bind"
 		} else {
-			info, _ := os.Stat(m.Source)
+			info, err := os.Stat(m.Source)
+			if err != nil {
+				return nil, nil, err
+			}
 			if info.Mode().IsRegular() {
 				f, err := nativeIsolationFile(m.Source)
 				if err != nil {
-					return nil, err
+					return nil, nil, err
 				}
 				inventory = append(inventory, f)
 			}
 		}
 		args = append(args, flag, m.Source, m.Target)
 	}
-	args = append(args, "--remount-ro", "/", "--chdir", cwd, "--")
-	args = append(args, workload...)
-	// Normalize only the producer root, not arbitrary path-like recipe text.
-	shape := strings.ReplaceAll(workflowJSON(mounts), root, "$scratch")
-	fingerprint := nativeDigest([]byte(nativeIsolationEnvironmentDigest(environment) + "\x00" + shape + "\x00" + strings.ReplaceAll(workflowJSON(inventory), root, "$scratch")))
-	p := &nativeStageIsolation{Launcher: nativeIsolationLauncher, Argv: args, Fingerprint: fingerprint, Profile: nativeIsolationProfile}
-	if err := validateNativeIsolation(p, workload); err != nil {
-		return nil, nativeIsolationUnavailable(err.Error())
-	}
-	return p, nil
+	return args, inventory, nil
 }

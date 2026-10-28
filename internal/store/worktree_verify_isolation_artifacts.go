@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"slices"
 )
@@ -57,56 +58,11 @@ func nativeIsolationExportPaths(t *nativeTargetOraclePlan, cwd string) ([]string
 	if t.Recipe.Materializer == nativeTargetMaterializerBun {
 		dependencies := filepath.Join(cwd, "node_modules")
 		private = append(private, dependencies)
-		manifest, err := os.ReadFile(filepath.Join(cwd, t.Recipe.Pin.DepManifest))
+		addons, err := nativeIsolationBunELFRoots(t, cwd)
 		if err != nil {
 			return nil, err
 		}
-		lock, err := os.ReadFile(filepath.Join(cwd, t.Recipe.Pin.DepLock))
-		if err != nil {
-			return nil, err
-		}
-		installs, err := nativeBunPlanInstalls(manifest, lock)
-		if err != nil {
-			return nil, err
-		}
-		for _, pkg := range installs {
-			base := filepath.Join(cwd, filepath.FromSlash(pkg.Dir))
-			raw, err := os.ReadFile(filepath.Join(base, "package.json"))
-			if err != nil {
-				return nil, err
-			}
-			selected, err := nativeIsolationPackageSupportsGlibc(raw)
-			if err != nil {
-				return nil, err
-			}
-			if !selected {
-				continue
-			}
-			if err := filepath.WalkDir(base, func(name string, d fs.DirEntry, err error) error {
-				if err != nil {
-					return err
-				}
-				if d.IsDir() && name != base && d.Name() == "node_modules" {
-					return fs.SkipDir
-				}
-				if d.IsDir() || d.Type()&os.ModeSymlink != 0 {
-					return nil
-				}
-				f, err := os.Open(name)
-				if err != nil {
-					return err
-				}
-				var magic [4]byte
-				_, _ = f.Read(magic[:])
-				_ = f.Close()
-				if bytes.Equal(magic[:], []byte{0x7f, 'E', 'L', 'F'}) {
-					roots = append(roots, name)
-				}
-				return nil
-			}); err != nil {
-				return nil, err
-			}
-		}
+		roots = append(roots, addons...)
 	}
 	files, err := nativeIsolationELFClosure(roots, private...)
 	if err != nil {
@@ -132,6 +88,77 @@ func nativeIsolationExportPaths(t *nativeTargetOraclePlan, cwd string) ([]string
 	}
 	slices.Sort(files)
 	return slices.Compact(files), nil
+}
+
+func nativeIsolationBunELFRoots(t *nativeTargetOraclePlan, cwd string) ([]string, error) {
+	root, err := os.OpenRoot(cwd)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = root.Close() }()
+	manifest, err := root.ReadFile(t.Recipe.Pin.DepManifest)
+	if err != nil {
+		return nil, err
+	}
+	lock, err := root.ReadFile(t.Recipe.Pin.DepLock)
+	if err != nil {
+		return nil, err
+	}
+	installs, err := nativeBunPlanInstalls(manifest, lock)
+	if err != nil {
+		return nil, err
+	}
+	var roots []string
+	for _, pkg := range installs {
+		files, err := nativeIsolationPackageELFs(root, pkg.Dir)
+		if err != nil {
+			return nil, err
+		}
+		for _, name := range files {
+			roots = append(roots, filepath.Join(cwd, filepath.FromSlash(name)))
+		}
+	}
+	return roots, nil
+}
+
+func nativeIsolationPackageELFs(root *os.Root, base string) ([]string, error) {
+	raw, err := root.ReadFile(path.Join(base, "package.json"))
+	if err != nil {
+		return nil, err
+	}
+	selected, err := nativeIsolationPackageSupportsGlibc(raw)
+	if err != nil {
+		return nil, err
+	}
+	if !selected {
+		return nil, nil
+	}
+	var roots []string
+	if err := fs.WalkDir(root.FS(), base, func(name string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() && name != base && d.Name() == "node_modules" {
+			return fs.SkipDir
+		}
+		if d.IsDir() || d.Type()&os.ModeSymlink != 0 {
+			return nil
+		}
+		f, err := root.Open(name)
+		if err != nil {
+			return err
+		}
+		var magic [4]byte
+		_, _ = f.Read(magic[:])
+		_ = f.Close()
+		if bytes.Equal(magic[:], []byte{0x7f, 'E', 'L', 'F'}) {
+			roots = append(roots, name)
+		}
+		return nil
+	}); err != nil {
+		return nil, err
+	}
+	return roots, nil
 }
 
 // The verified original archive may contain optional binaries for another

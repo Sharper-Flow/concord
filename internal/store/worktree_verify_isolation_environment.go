@@ -83,7 +83,7 @@ func nativeIsolationLauncherVersion(path string) error {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	if f.Machine != elf.EM_X86_64 || f.Class != elf.ELFCLASS64 || (f.Type != elf.ET_DYN && f.Type != elf.ET_EXEC) {
 		return fmt.Errorf("launcher is not a Linux amd64 ELF executable")
 	}
@@ -120,23 +120,28 @@ func nativeIsolationLauncherVersion(path string) error {
 }
 
 func nativeIsolationFile(path string) (NativeOracleFile, error) {
-	info, err := os.Stat(path)
-	if err != nil || !info.Mode().IsRegular() {
+	resolved, err := filepath.EvalSymlinks(path)
+	if err != nil {
 		return NativeOracleFile{}, fmt.Errorf("isolation input is not a readable regular file: %s", path)
 	}
-	f, err := os.Open(path)
+	root, err := os.OpenRoot(filepath.Dir(resolved))
 	if err != nil {
 		return NativeOracleFile{}, err
 	}
-	defer f.Close()
+	defer func() { _ = root.Close() }()
+	info, err := root.Stat(filepath.Base(resolved))
+	if err != nil || !info.Mode().IsRegular() {
+		return NativeOracleFile{}, fmt.Errorf("isolation input is not a readable regular file: %s", path)
+	}
+	f, err := root.Open(filepath.Base(resolved))
+	if err != nil {
+		return NativeOracleFile{}, err
+	}
+	defer func() { _ = f.Close() }()
 	// Runtime binaries (notably Bun) can exceed the source input bound.
 	data, err := io.ReadAll(io.LimitReader(f, 512*1024*1024+1))
 	if err != nil || len(data) > 512*1024*1024 {
 		return NativeOracleFile{}, fmt.Errorf("isolation input exceeds bound: %s", path)
-	}
-	resolved, err := filepath.EvalSymlinks(path)
-	if err != nil {
-		return NativeOracleFile{}, err
 	}
 	identity := fmt.Sprintf("%s\x00%o\x00%s", resolved, info.Mode(), nativeDigest(data))
 	return NativeOracleFile{Path: path, SHA256: nativeDigest([]byte(identity))}, nil
@@ -239,119 +244,160 @@ func nativeIsolationEnvironmentUnchanged(e nativeTargetEnvironment) error {
 // stage environment; the host loader cache itself is never exported. An
 // unresolved SONAME refuses rather than binding a library directory.
 func nativeIsolationELFClosure(roots []string, privateRoots ...string) ([]string, error) {
-	search := []string{"/lib/x86_64-linux-gnu", "/usr/lib/x86_64-linux-gnu", "/lib64", "/usr/lib64", "/lib", "/usr/lib"}
 	cache, err := nativeIsolationHostLoaderCache()
 	if err != nil {
 		return nil, err
 	}
-	seen := map[string]bool{}
-	var visit func(string, []string) error
-	visit = func(name string, inherited []string) error {
-		if name == "" || seen[name] {
-			return nil
-		}
-		if !filepath.IsAbs(name) || filepath.Clean(name) != name || len(seen) >= 256 {
-			return fmt.Errorf("unbounded or nonabsolute ELF input: %s", name)
-		}
-		seen[name] = true
-		f, err := elf.Open(name)
-		if err != nil {
-			return fmt.Errorf("ELF input %s: %w", name, err)
-		}
-		defer f.Close()
-		if f.Machine != elf.EM_X86_64 || f.Class != elf.ELFCLASS64 {
-			return fmt.Errorf("unsupported ELF architecture: %s", name)
-		}
-		for _, program := range f.Progs {
-			if program.Type == elf.PT_INTERP {
-				data, err := io.ReadAll(io.LimitReader(program.Open(), 4097))
-				if err != nil || len(data) > 4096 || len(data) < 2 || data[len(data)-1] != 0 {
-					return fmt.Errorf("invalid ELF interpreter: %s", name)
-				}
-				if err := nativeIsolationLibraryAllowed(string(data[:len(data)-1]), privateRoots); err != nil {
-					return err
-				}
-				if err := visit(string(data[:len(data)-1]), nil); err != nil {
-					return err
-				}
-			}
-		}
-		runpath, err := f.DynString(elf.DT_RUNPATH)
-		if err != nil {
-			return err
-		}
-		rpath, err := f.DynString(elf.DT_RPATH)
-		if err != nil {
-			return err
-		}
-		paths := rpath
-		if len(runpath) != 0 {
-			paths = runpath
-		}
-		var ownDirs []string
-		for _, list := range paths {
-			for _, dir := range strings.Split(list, ":") {
-				dir = strings.ReplaceAll(strings.ReplaceAll(dir, "${ORIGIN}", filepath.Dir(name)), "$ORIGIN", filepath.Dir(name))
-				if !filepath.IsAbs(dir) || strings.Contains(dir, "$") {
-					return fmt.Errorf("unsupported ELF search path: %s", name)
-				}
-				ownDirs = append(ownDirs, filepath.Clean(dir))
-			}
-		}
-		dirs := append(slices.Clone(ownDirs), inherited...)
-		if len(runpath) != 0 {
-			dirs = append(slices.Clone(inherited), ownDirs...)
-		}
-		needed, err := f.ImportedLibraries()
-		if err != nil {
-			return err
-		}
-		for _, lib := range needed {
-			if strings.ContainsAny(lib, "/$") {
-				return fmt.Errorf("unsupported ELF dependency: %s", lib)
-			}
-			found := ""
-			fromDefault := false
-			for i, dir := range append(slices.Clone(dirs), search...) {
-				candidate := filepath.Join(dir, lib)
-				if info, err := os.Stat(candidate); err == nil && info.Mode().IsRegular() {
-					found = candidate
-					fromDefault = i >= len(dirs)
-					break
-				}
-			}
-			if found == "" {
-				return fmt.Errorf("missing ELF dependency %s for %s", lib, name)
-			}
-			if fromDefault {
-				if err := nativeIsolationCacheAgrees(cache[lib], found); err != nil {
-					return err
-				}
-			}
-			if err := nativeIsolationLibraryAllowed(found, privateRoots); err != nil {
-				return err
-			}
-			next := inherited
-			if len(runpath) == 0 {
-				next = append(slices.Clone(ownDirs), inherited...)
-			}
-			if err := visit(found, next); err != nil {
-				return fmt.Errorf("ELF dependency %s for %s: %w", lib, name, err)
-			}
-		}
-		return nil
-	}
+	g := nativeIsolationELFGraph{seen: map[string]bool{}, privateRoots: privateRoots, cache: cache}
 	for _, root := range roots {
-		if err := visit(root, nil); err != nil {
+		if err := g.visit(root, nil); err != nil {
 			return nil, err
 		}
 	}
-	files := make([]string, 0, len(seen))
-	for name := range seen {
+	files := make([]string, 0, len(g.seen))
+	for name := range g.seen {
 		files = append(files, name)
 	}
 	slices.Sort(files)
 	return files, nil
+}
+
+type nativeIsolationELFGraph struct {
+	seen         map[string]bool
+	privateRoots []string
+	cache        map[string][]nativeIsolationCacheEntry
+}
+
+func (g *nativeIsolationELFGraph) visit(name string, inherited []string) error {
+	if name == "" || g.seen[name] {
+		return nil
+	}
+	if !filepath.IsAbs(name) || filepath.Clean(name) != name || len(g.seen) >= 256 {
+		return fmt.Errorf("unbounded or nonabsolute ELF input: %s", name)
+	}
+	g.seen[name] = true
+	f, err := elf.Open(name)
+	if err != nil {
+		return fmt.Errorf("ELF input %s: %w", name, err)
+	}
+	defer func() { _ = f.Close() }()
+	if f.Machine != elf.EM_X86_64 || f.Class != elf.ELFCLASS64 {
+		return fmt.Errorf("unsupported ELF architecture: %s", name)
+	}
+	if err := g.interpreters(f, name); err != nil {
+		return err
+	}
+	dirs, next, err := nativeIsolationELFSearchPaths(f, name, inherited)
+	if err != nil {
+		return err
+	}
+	needed, err := f.ImportedLibraries()
+	if err != nil {
+		return err
+	}
+	for _, lib := range needed {
+		found, err := g.resolve(name, lib, dirs)
+		if err != nil {
+			return err
+		}
+		if err := g.visit(found, next); err != nil {
+			return fmt.Errorf("ELF dependency %s for %s: %w", lib, name, err)
+		}
+	}
+	return nil
+}
+
+func (g *nativeIsolationELFGraph) interpreters(f *elf.File, name string) error {
+	for _, program := range f.Progs {
+		if program.Type != elf.PT_INTERP {
+			continue
+		}
+		data, err := io.ReadAll(io.LimitReader(program.Open(), 4097))
+		if err != nil || len(data) > 4096 || len(data) < 2 || data[len(data)-1] != 0 {
+			return fmt.Errorf("invalid ELF interpreter: %s", name)
+		}
+		interpreter := string(data[:len(data)-1])
+		if err := nativeIsolationLibraryAllowed(interpreter, g.privateRoots); err != nil {
+			return err
+		}
+		if err := g.visit(interpreter, nil); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func nativeIsolationELFSearchPaths(f *elf.File, name string, inherited []string) (dirs, next []string, err error) {
+	runpath, err := f.DynString(elf.DT_RUNPATH)
+	if err != nil {
+		return nil, nil, err
+	}
+	rpath, err := f.DynString(elf.DT_RPATH)
+	if err != nil {
+		return nil, nil, err
+	}
+	paths := rpath
+	if len(runpath) != 0 {
+		paths = runpath
+	}
+	var ownDirs []string
+	for _, list := range paths {
+		for _, dir := range strings.Split(list, ":") {
+			dir = strings.ReplaceAll(strings.ReplaceAll(dir, "${ORIGIN}", filepath.Dir(name)), "$ORIGIN", filepath.Dir(name))
+			if !filepath.IsAbs(dir) || strings.Contains(dir, "$") {
+				return nil, nil, fmt.Errorf("unsupported ELF search path: %s", name)
+			}
+			ownDirs = append(ownDirs, filepath.Clean(dir))
+		}
+	}
+	dirs = append(slices.Clone(ownDirs), inherited...)
+	if len(runpath) != 0 {
+		dirs = append(slices.Clone(inherited), ownDirs...)
+	}
+	next = inherited
+	if len(runpath) == 0 {
+		next = append(slices.Clone(ownDirs), inherited...)
+	}
+	return dirs, next, nil
+}
+
+func (g *nativeIsolationELFGraph) resolve(name, lib string, dirs []string) (string, error) {
+	if strings.ContainsAny(lib, "/$") {
+		return "", fmt.Errorf("unsupported ELF dependency: %s", lib)
+	}
+	search := []string{"/lib/x86_64-linux-gnu", "/usr/lib/x86_64-linux-gnu", "/lib64", "/usr/lib64", "/lib", "/usr/lib"}
+	found := ""
+	fromDefault := false
+	for i, dir := range append(slices.Clone(dirs), search...) {
+		candidate := filepath.Join(dir, lib)
+		resolved, err := filepath.EvalSymlinks(candidate)
+		if err != nil {
+			continue
+		}
+		root, err := os.OpenRoot(filepath.Dir(resolved))
+		if err != nil {
+			continue
+		}
+		info, err := root.Stat(filepath.Base(resolved))
+		_ = root.Close()
+		if err == nil && info.Mode().IsRegular() {
+			found = candidate
+			fromDefault = i >= len(dirs)
+			break
+		}
+	}
+	if found == "" {
+		return "", fmt.Errorf("missing ELF dependency %s for %s", lib, name)
+	}
+	if fromDefault {
+		if err := nativeIsolationCacheAgrees(g.cache[lib], found); err != nil {
+			return "", err
+		}
+	}
+	if err := nativeIsolationLibraryAllowed(found, g.privateRoots); err != nil {
+		return "", err
+	}
+	return found, nil
 }
 
 // An archive's RPATH must not select an arbitrary host-home or configuration

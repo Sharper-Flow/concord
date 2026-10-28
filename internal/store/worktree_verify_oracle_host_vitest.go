@@ -74,7 +74,7 @@ func validateNativeTargetVitestManifest(m nativeTargetOracleManifest, witnesses 
 	return nil
 }
 
-func nativeTargetVitestStages(t *nativeTargetOraclePlan, phase string, witnesses []string) ([]NativeOracleStage, error) {
+func nativeTargetVitestStages(phase string, witnesses []string) ([]NativeOracleStage, error) {
 	if len(witnesses) > nativeTargetStageBudget {
 		return nil, nativeUnavailable("vitest witness population exceeds the stage bound")
 	}
@@ -126,10 +126,15 @@ func nativeTargetInstallRunner(t *nativeTargetOraclePlan, root string, control O
 	if err != nil {
 		return err
 	}
-	if err := os.WriteFile(filepath.Join(root, "vitest-plan.json"), plan, 0600); err != nil {
+	private, err := os.OpenRoot(root)
+	if err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(root, "vitest-runner.mjs"), nativeTargetVitestShim, 0600)
+	defer func() { _ = private.Close() }()
+	if err := private.WriteFile("vitest-plan.json", plan, 0600); err != nil {
+		return err
+	}
+	return private.WriteFile("vitest-runner.mjs", nativeTargetVitestShim, 0600)
 }
 
 func nativeTargetNodeRunnerParts(t *nativeTargetOraclePlan, root string) ([][]byte, error) {
@@ -142,17 +147,22 @@ func nativeTargetNodeRunnerParts(t *nativeTargetOraclePlan, root string) ([][]by
 	if err != nil || len(entries) != 1 || entries[0].Name() != "node" || linkErr != nil || target != t.Environment.Node {
 		return nil, nativeUnavailable("per-run node link no longer names the pinned Node")
 	}
-	data, err := os.ReadFile(target)
+	data, err := os.ReadFile(target) //nolint:gosec // target equals the producer-resolved, version-pinned Node executable checked above.
 	if err != nil {
 		return nil, err
 	}
 	parts := [][]byte{[]byte("node\x00" + target), data}
 	if t.Recipe.Runner == nativeTargetRunnerVitest {
-		shim, err := os.ReadFile(filepath.Join(root, "vitest-runner.mjs"))
+		private, err := os.OpenRoot(root)
+		if err != nil {
+			return nil, err
+		}
+		defer func() { _ = private.Close() }()
+		shim, err := private.ReadFile("vitest-runner.mjs")
 		if err != nil || !bytes.Equal(shim, nativeTargetVitestShim) {
 			return nil, nativeUnavailable("producer Vitest shim changed")
 		}
-		plan, err := os.ReadFile(filepath.Join(root, "vitest-plan.json"))
+		plan, err := private.ReadFile("vitest-plan.json")
 		if err != nil {
 			return nil, err
 		}
@@ -182,11 +192,16 @@ func nativeTargetReadVitestReport(root, name string) (nativeTargetVitestReport, 
 	if filepath.Base(name) != name {
 		return report, nativeUnavailable("Vitest result channel is not producer-owned")
 	}
-	info, err := os.Lstat(filepath.Join(root, name))
+	private, err := os.OpenRoot(root)
+	if err != nil {
+		return report, nativeUnavailable("Vitest result channel is missing")
+	}
+	defer func() { _ = private.Close() }()
+	info, err := private.Lstat(name)
 	if err != nil || !info.Mode().IsRegular() {
 		return report, nativeUnavailable("Vitest result channel is missing or nonregular")
 	}
-	f, err := os.Open(filepath.Join(root, name))
+	f, err := private.Open(name)
 	if err != nil {
 		return report, nativeUnavailable("Vitest result channel is missing")
 	}
@@ -211,21 +226,9 @@ func nativeTargetVerifyVitestReport(report nativeTargetVitestReport, selected []
 	if report.Version != 1 || !report.Complete || len(report.Collection) == 0 || len(report.Collection) > 40 || len(report.Callbacks) > 40 || len(report.Results) > 40 {
 		return nativeUnavailable("Vitest report is incomplete or unbounded")
 	}
-	ids, population := map[string]string{}, []string{}
-	seen := map[string]bool{}
-	for _, record := range report.Collection {
-		if record.ID == "" || len(record.ID) > 256 || ids[record.ID] != "" || seen[record.Witness] || record.State != "run" {
-			return nativeUnavailable("Vitest collection contains skip/todo, duplicate identity or API-ID collision")
-		}
-		if _, _, err := nativeTargetVitestWitness(".", record.Witness); err != nil {
-			return err
-		}
-		ids[record.ID], seen[record.Witness] = record.Witness, true
-		population = append(population, record.Witness)
-	}
-	slices.Sort(population)
-	if !slices.Equal(population, selected) {
-		return nativeUnavailable("Vitest collection differs from the exact selected population")
+	ids, err := nativeTargetVitestCollection(report.Collection, selected)
+	if err != nil {
+		return err
 	}
 	if witness == "" {
 		if report.Phase != "collect" || len(report.Results) != 0 || len(report.Callbacks) != 0 || report.End != 0 {
@@ -236,8 +239,7 @@ func nativeTargetVerifyVitestReport(report nativeTargetVitestReport, selected []
 	if report.Phase != "run" || report.End != 1 || len(report.Callbacks) == 0 || len(report.Results) != len(report.Callbacks) {
 		return nativeUnavailable("Vitest execution lacks complete callback witnesses")
 	}
-	_, file, _ := nativeTargetVitestWitness(".", witness)
-	project, _, _ := nativeTargetVitestWitness(".", witness)
+	project, file, _ := nativeTargetVitestWitness(".", witness)
 	expected := map[string]string{}
 	for id, identity := range ids {
 		p, f, _ := nativeTargetVitestWitness(".", identity)
@@ -245,29 +247,47 @@ func nativeTargetVerifyVitestReport(report nativeTargetVitestReport, selected []
 			expected[id] = identity
 		}
 	}
-	for index, records := range [][]nativeTargetVitestRecord{report.Callbacks, report.Results} {
-		seenIDs := map[string]bool{}
-		for _, record := range records {
-			want := "skipped"
-			if index == 0 {
-				want = "skip"
-			}
-			if record.Witness == witness {
-				if index == 0 {
-					want = "run"
-				} else {
-					want = "passed"
-				}
-			}
-			identity, exists := expected[record.ID]
-			if !exists || identity != record.Witness || seenIDs[record.ID] || record.State != want {
-				return nativeUnavailable("Vitest callbacks contain missing, extra, skipped or non-passing selected outcomes")
-			}
-			seenIDs[record.ID] = true
+	if err := nativeTargetVitestOutcomes(report.Callbacks, expected, witness, "run", "skip"); err != nil {
+		return err
+	}
+	return nativeTargetVitestOutcomes(report.Results, expected, witness, "passed", "skipped")
+}
+
+func nativeTargetVitestCollection(collection []nativeTargetVitestRecord, selected []string) (map[string]string, error) {
+	ids, population := map[string]string{}, []string{}
+	seen := map[string]bool{}
+	for _, record := range collection {
+		if record.ID == "" || len(record.ID) > 256 || ids[record.ID] != "" || seen[record.Witness] || record.State != "run" {
+			return nil, nativeUnavailable("Vitest collection contains skip/todo, duplicate identity or API-ID collision")
 		}
-		if len(seenIDs) != len(expected) {
-			return nativeUnavailable("Vitest callback population is incomplete")
+		if _, _, err := nativeTargetVitestWitness(".", record.Witness); err != nil {
+			return nil, err
 		}
+		ids[record.ID], seen[record.Witness] = record.Witness, true
+		population = append(population, record.Witness)
+	}
+	slices.Sort(population)
+	if !slices.Equal(population, selected) {
+		return nil, nativeUnavailable("Vitest collection differs from the exact selected population")
+	}
+	return ids, nil
+}
+
+func nativeTargetVitestOutcomes(records []nativeTargetVitestRecord, expected map[string]string, witness, selectedState, otherState string) error {
+	seenIDs := map[string]bool{}
+	for _, record := range records {
+		want := otherState
+		if record.Witness == witness {
+			want = selectedState
+		}
+		identity, exists := expected[record.ID]
+		if !exists || identity != record.Witness || seenIDs[record.ID] || record.State != want {
+			return nativeUnavailable("Vitest callbacks contain missing, extra, skipped or non-passing selected outcomes")
+		}
+		seenIDs[record.ID] = true
+	}
+	if len(seenIDs) != len(expected) {
+		return nativeUnavailable("Vitest callback population is incomplete")
 	}
 	return nil
 }

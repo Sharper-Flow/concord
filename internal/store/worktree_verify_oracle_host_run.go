@@ -206,36 +206,7 @@ func (n *nativeTargetOracleRun) runStage(ctx context.Context, stage NativeOracle
 	exit, runErr := runNativeOracleStage(stageCtx, n.cwd, argv, n.env, nil, stageCapture, launched, isolation)
 	cancel()
 	if isolation != nil {
-		if !stageCapture.isolationReaped {
-			// A failed controller may still own cleanup. Never race its
-			// retained namespace with RemoveAll, even on an unavailable run.
-			if n.preserveScratch != nil {
-				*n.preserveScratch = true
-			}
-		} else {
-			stage.IsolationFingerprint = isolation.Fingerprint
-			stage.IsolationEnforced = true
-			current, checkErr := nativeTargetIsolationExport(n.plan.Target, n.root, n.snapshot, n.cwd, argv)
-			if checkErr != nil {
-				runErr = checkErr
-			} else if current.Fingerprint != isolation.Fingerprint {
-				runErr = nativeIsolationUnavailable("consumed export changed during stage")
-			}
-			if runErr == nil {
-				runErr = nativeTargetInputsUnchanged(n.plan, n.snapshot, n.baseline, "consumed candidate inputs changed during isolation")
-			}
-			if runErr == nil {
-				currentDigest, checkErr := nativeTargetRunnerDigest(n.plan.Target, n.root)
-				if checkErr != nil {
-					runErr = checkErr
-				} else if currentDigest != n.binaryDigest {
-					runErr = nativeIsolationUnavailable("consumed dependency closure changed during stage")
-				}
-			}
-			if runErr == nil {
-				n.result.IsolationEnforcement = "established"
-			}
-		}
+		runErr = n.observeIsolatedStage(&stage, argv, isolation, stageCapture, runErr)
 	}
 	stage.ExitCode = exit
 	stage.StdoutOffset = so
@@ -252,6 +223,40 @@ func (n *nativeTargetOracleRun) runStage(ctx context.Context, stage NativeOracle
 		return 0, nil, nativeUnavailable(fmt.Sprintf("native %s failed: %v", stage.Name, runErr))
 	}
 	return exit, stageCapture.stdout, nil
+}
+
+func (n *nativeTargetOracleRun) observeIsolatedStage(stage *NativeOracleStage, argv []string, isolation *nativeStageIsolation, stageCapture *nativeStreamCapture, runErr error) error {
+	if !stageCapture.isolationReaped {
+		// A failed controller may still own cleanup. Never race its
+		// retained namespace with RemoveAll, even on an unavailable run.
+		if n.preserveScratch != nil {
+			*n.preserveScratch = true
+		}
+	} else {
+		stage.IsolationFingerprint = isolation.Fingerprint
+		stage.IsolationEnforced = true
+		current, checkErr := nativeTargetIsolationExport(n.plan.Target, n.root, n.snapshot, n.cwd, argv)
+		if checkErr != nil {
+			runErr = checkErr
+		} else if current.Fingerprint != isolation.Fingerprint {
+			runErr = nativeIsolationUnavailable("consumed export changed during stage")
+		}
+		if runErr == nil {
+			runErr = nativeTargetInputsUnchanged(n.plan, n.snapshot, n.baseline, "consumed candidate inputs changed during isolation")
+		}
+		if runErr == nil {
+			currentDigest, checkErr := nativeTargetRunnerDigest(n.plan.Target, n.root)
+			if checkErr != nil {
+				runErr = checkErr
+			} else if currentDigest != n.binaryDigest {
+				runErr = nativeIsolationUnavailable("consumed dependency closure changed during stage")
+			}
+		}
+		if runErr == nil {
+			n.result.IsolationEnforcement = "established"
+		}
+	}
+	return runErr
 }
 
 func (n *nativeTargetOracleRun) consumeStage(ctx context.Context, stage NativeOracleStage, stdout []byte) error {
@@ -1000,7 +1005,7 @@ func nativeTargetStageWitnesses(t *nativeTargetOraclePlan, control OracleControl
 	witness := selected[ordinal]
 	switch t.Recipe.Runner {
 	case nativeTargetRunnerVitest:
-		expected, err := nativeTargetVitestStages(t, "execute", selected)
+		expected, err := nativeTargetVitestStages("execute", selected)
 		if err != nil {
 			return nil, err
 		}

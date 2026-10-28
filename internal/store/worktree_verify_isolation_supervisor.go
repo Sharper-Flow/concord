@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -133,9 +134,9 @@ func RunNativeIsolationSupervisor() (int, bool) {
 	planFile := os.NewFile(3, "native-plan")
 	lifetime := os.NewFile(4, "native-parent-lifetime")
 	resultFile := os.NewFile(5, "native-result")
-	defer planFile.Close()
-	defer lifetime.Close()
-	defer resultFile.Close()
+	defer func() { _ = planFile.Close() }()
+	defer func() { _ = lifetime.Close() }()
+	defer func() { _ = resultFile.Close() }()
 	result := nativeSupervisorResult{Exit: -1}
 	if err := nativeSupervisorPipe(planFile); err != nil {
 		return 125, true
@@ -569,14 +570,14 @@ func superviseNativeIsolation(ctx context.Context, plan nativeSupervisorPlan, bi
 		result.Detail = err.Error()
 		return
 	}
-	defer statusR.Close()
-	defer statusW.Close()
+	defer func() { _ = statusR.Close() }()
+	defer func() { _ = statusW.Close() }()
 	gateR, gateW, err := os.Pipe()
 	if err != nil {
 		result.Detail = err.Error()
 		return
 	}
-	defer gateR.Close()
+	defer func() { _ = gateR.Close() }()
 	// gateW closes only after the cleanup proof, including abort before the
 	// first status byte. EOF on --block-fd otherwise starts the workload.
 	args := append([]string{"--json-status-fd", "3", "--block-fd", "4"}, plan.Isolation.Argv...)
@@ -584,56 +585,19 @@ func superviseNativeIsolation(ctx context.Context, plan nativeSupervisorPlan, bi
 	cmd.Dir, cmd.Env = plan.Directory, plan.Env
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
 	cmd.ExtraFiles = []*os.File{statusW, gateR}
-	outerFD := -1
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true, PidFD: &outerFD}
+	lifetime := nativeIsolationLifetime{cmd: cmd, gate: gateW, outerFD: -1, initFD: -1}
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true, PidFD: &lifetime.outerFD}
 	if err := cmd.Start(); err != nil {
 		_ = gateW.Close()
 		result.Detail = err.Error()
 		return
 	}
-	defer cmd.Process.Release()
-	defer unix.Close(outerFD)
+	defer func() { _ = cmd.Process.Release() }()
+	defer func() { _ = unix.Close(lifetime.outerFD) }()
 	_ = statusW.Close()
 	_ = gateR.Close()
-	initFD := -1
-	released := false
-	defer func() {
-		if initFD >= 0 {
-			defer unix.Close(initFD)
-		}
-		// Before gate release, bwrap has not forked the workload or detached
-		// sessions. Keep the outer PID unreaped through this group signal.
-		// Afterwards, only the bound namespace init can close detached trees.
-		if !released {
-			_ = unix.Kill(-cmd.Process.Pid, unix.SIGKILL)
-		}
-		if initFD >= 0 {
-			_ = unix.PidfdSendSignal(initFD, unix.SIGKILL, nil, 0)
-		}
-		_ = unix.PidfdSendSignal(outerFD, unix.SIGKILL, nil, 0)
-		reaped, outerExit, cleanupErr := reapNativeIsolation(cmd.Process.Pid)
-		result.Reaped = reaped
-		if cleanupErr != nil {
-			result.Detail = fmt.Sprintf("%s; teardown: %v", result.Detail, cleanupErr)
-		}
-		if result.Exit >= 0 && outerExit != result.Exit {
-			result.Detail = "launcher exit disagrees with successful-exec status"
-		}
-		// Reaped ECHILD, not the group signal or outer Wait, is the proof.
-		// If it fails, closing this process would release the gate. Keep its
-		// writer alive while the cleanup owner retries; report failure first.
-		if !reaped {
-			// All launch-group members have already received SIGKILL. Do not
-			// authorize a gate release while an uninterruptible child remains.
-			_ = gateW.SetWriteDeadline(time.Time{})
-			for !reaped {
-				time.Sleep(worktreeVerifyFinalizeTimeout)
-				reaped, _, _ = reapNativeIsolation(cmd.Process.Pid)
-			}
-		}
-		_ = gateW.Close()
-	}()
-	if outerFD < 0 {
+	defer lifetime.finish(&result)
+	if lifetime.outerFD < 0 {
 		result.Detail = "launcher pidfd unavailable"
 		return
 	}
@@ -641,91 +605,147 @@ func superviseNativeIsolation(ctx context.Context, plan nativeSupervisorPlan, bi
 	go readNativeLauncherStatus(statusR, statuses)
 	setup := time.NewTimer(nativeSupervisorSetupTimeout)
 	defer setup.Stop()
-	var start nativeLauncherStatus
-	select {
-	case <-ctx.Done():
-		result.Detail = "caller lifetime ended before startup status"
+	start, err := nativeIsolationStartupStatus(ctx, setup.C, statuses)
+	if err != nil {
+		result.Detail = err.Error()
 		return
-	case <-setup.C:
-		result.Detail = "launcher startup status deadline"
-		return
-	case s, ok := <-statuses:
-		if !ok || s.Err != nil {
-			result.Detail = fmt.Sprintf("missing or invalid launcher startup status: %v", s.Err)
-			return
-		}
-		start = s
 	}
-	initFD, err = bindInit(cmd.Process.Pid, start.Child)
+	lifetime.initFD, err = bindInit(cmd.Process.Pid, start.Child)
 	if err != nil {
 		result.Detail = "namespace init pidfd: " + err.Error()
 		return
 	}
+	if err := lifetime.observeAndRelease(ctx, setup.C, start, plan.Isolation, observe, notify); err != nil {
+		result.Detail = err.Error()
+		return
+	}
+	result.Established = true
+	result.Exit, err = nativeIsolationCompletion(ctx, statuses, lifetime.outerFD)
+	if err != nil {
+		result.Detail = err.Error()
+	}
+	return
+}
+
+type nativeIsolationLifetime struct {
+	cmd             *exec.Cmd
+	gate            *os.File
+	outerFD, initFD int
+	released        bool
+}
+
+func (l *nativeIsolationLifetime) finish(result *nativeSupervisorResult) {
+	if l.initFD >= 0 {
+		defer func() { _ = unix.Close(l.initFD) }()
+	}
+	// Before gate release, bwrap has not forked the workload or detached
+	// sessions. Keep the outer PID unreaped through this group signal.
+	// Afterwards, only the bound namespace init can close detached trees.
+	if !l.released {
+		_ = unix.Kill(-l.cmd.Process.Pid, unix.SIGKILL)
+	}
+	if l.initFD >= 0 {
+		_ = unix.PidfdSendSignal(l.initFD, unix.SIGKILL, nil, 0)
+	}
+	_ = unix.PidfdSendSignal(l.outerFD, unix.SIGKILL, nil, 0)
+	reaped, outerExit, cleanupErr := reapNativeIsolation(l.cmd.Process.Pid)
+	result.Reaped = reaped
+	if cleanupErr != nil {
+		result.Detail = fmt.Sprintf("%s; teardown: %v", result.Detail, cleanupErr)
+	}
+	if result.Exit >= 0 && outerExit != result.Exit {
+		result.Detail = "launcher exit disagrees with successful-exec status"
+	}
+	// Reaped ECHILD, not the group signal or outer Wait, is the proof.
+	// If it fails, closing this process would release the gate. Keep its
+	// writer alive while the cleanup owner retries; report failure first.
+	if !reaped {
+		// All launch-group members have already received SIGKILL. Do not
+		// authorize a gate release while an uninterruptible child remains.
+		_ = l.gate.SetWriteDeadline(time.Time{})
+		for !reaped {
+			time.Sleep(worktreeVerifyFinalizeTimeout)
+			reaped, _, _ = reapNativeIsolation(l.cmd.Process.Pid)
+		}
+	}
+	_ = l.gate.Close()
+}
+
+func nativeIsolationStartupStatus(ctx context.Context, deadline <-chan time.Time, statuses <-chan nativeLauncherStatus) (nativeLauncherStatus, error) {
+	select {
+	case <-ctx.Done():
+		return nativeLauncherStatus{}, errors.New("caller lifetime ended before startup status")
+	case <-deadline:
+		return nativeLauncherStatus{}, errors.New("launcher startup status deadline")
+	case s, ok := <-statuses:
+		if !ok || s.Err != nil {
+			return nativeLauncherStatus{}, fmt.Errorf("missing or invalid launcher startup status: %v", s.Err)
+		}
+		return s, nil
+	}
+}
+
+func (l *nativeIsolationLifetime) release(ctx context.Context, notify func() error) error {
+	if notify != nil {
+		if err := notify(); err != nil {
+			return errors.New("caller gate notification failed: " + err.Error())
+		}
+	}
+	if ctx.Err() != nil {
+		return errors.New("caller lifetime ended at gate release")
+	}
+	if _, err := l.gate.Write([]byte{1}); err != nil {
+		return errors.New("gate release failed: " + err.Error())
+	}
+	l.released = true
+	return nil
+}
+
+func (l *nativeIsolationLifetime) observeAndRelease(ctx context.Context, deadline <-chan time.Time, start nativeLauncherStatus, plan nativeStageIsolation, observe nativeIsolationObserver, notify func() error) error {
 	tick := time.NewTicker(5 * time.Millisecond)
 	defer tick.Stop()
 	var pending error
-	for !released {
+	for {
 		if ctx.Err() != nil {
-			result.Detail = "caller lifetime ended before gate release"
-			return
+			return errors.New("caller lifetime ended before gate release")
 		}
-		ready, err := observe(cmd.Process.Pid, start.Child, start, gateW, plan.Isolation)
+		ready, err := observe(l.cmd.Process.Pid, start.Child, start, l.gate, plan)
 		if errors.Is(err, errNativeIsolationSetupPending) {
 			pending, ready = err, false
 		} else if err != nil {
-			result.Detail = err.Error()
-			return
+			return err
 		}
 		if ready {
-			if notify != nil {
-				if err := notify(); err != nil {
-					result.Detail = "caller gate notification failed: " + err.Error()
-					return
-				}
-			}
-			if ctx.Err() != nil {
-				result.Detail = "caller lifetime ended at gate release"
-				return
-			}
-			if _, err := gateW.Write([]byte{1}); err != nil {
-				result.Detail = "gate release failed: " + err.Error()
-				return
-			}
-			released, result.Established = true, true
-			break
+			return l.release(ctx, notify)
 		}
 		select {
 		case <-ctx.Done():
-			result.Detail = "caller lifetime ended during setup"
-			return
-		case <-setup.C:
-			result.Detail = fmt.Sprintf("launcher did not reach observed setup gate (last pending observation: %v)", pending)
-			return
+			return errors.New("caller lifetime ended during setup")
+		case <-deadline:
+			return fmt.Errorf("launcher did not reach observed setup gate (last pending observation: %v)", pending)
 		case <-tick.C:
 		}
 	}
+}
+
+func nativeIsolationCompletion(ctx context.Context, statuses <-chan nativeLauncherStatus, outerFD int) (int, error) {
 	var exit *int
 	for {
 		select {
 		case <-ctx.Done():
-			result.Detail = "caller cancellation or lifetime loss"
-			return
+			return -1, errors.New("caller cancellation or lifetime loss")
 		case s, ok := <-statuses:
 			if !ok {
 				if exit == nil {
-					result.Detail = "launcher omitted successful-exec exit status"
-					return
+					return -1, errors.New("launcher omitted successful-exec exit status")
 				}
 				if err := waitNativePIDFD(ctx, outerFD); err != nil {
-					result.Detail = err.Error()
-					return
+					return -1, err
 				}
-				result.Exit = *exit
-				return
+				return *exit, nil
 			}
 			if s.Err != nil || s.Exit == nil || exit != nil {
-				result.Detail = "inconsistent launcher completion status"
-				return
+				return -1, errors.New("inconsistent launcher completion status")
 			}
 			exit = s.Exit
 		}
@@ -733,6 +753,9 @@ func superviseNativeIsolation(ctx context.Context, plan nativeSupervisorPlan, bi
 }
 
 func waitNativePIDFD(ctx context.Context, fd int) error {
+	if fd < 0 || fd > math.MaxInt32 {
+		return errors.New("invalid launcher pidfd")
+	}
 	deadline := time.Now().Add(worktreeVerifyFinalizeTimeout)
 	for {
 		if ctx.Err() != nil {
@@ -829,6 +852,23 @@ func observeNativeIsolation(outer, init int, start nativeLauncherStatus, gate *o
 	if err := nativeInitAncestry(outer, init); err != nil {
 		return false, err
 	}
+	ready, err := nativeIsolationObservedGate(init, gate)
+	if err != nil || !ready {
+		return false, err
+	}
+	if err := nativeIsolationObservedNamespaces(init, start); err != nil {
+		return false, err
+	}
+	if err := nativeIsolationObservedProcesses(outer, init, plan); err != nil {
+		return false, err
+	}
+	if err := nativeIsolationObservedPrivileges(init); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func nativeIsolationObservedGate(init int, gate *os.File) (bool, error) {
 	// A read of the exact private gate after drop_privs is stronger than
 	// early namespace IDs. Until this read, setup may still be incomplete.
 	b, err := os.ReadFile(fmt.Sprintf("/proc/%d/syscall", init))
@@ -856,43 +896,55 @@ func observeNativeIsolation(outer, init int, start nativeLauncherStatus, gate *o
 	if actual.Ino != expected.Ino || actual.Dev != expected.Dev {
 		return false, errors.New("setup gate descriptor identity differs")
 	}
+	return true, nil
+}
+
+func nativeIsolationObservedNamespaces(init int, start nativeLauncherStatus) error {
 	for _, ns := range []string{"user", "mnt", "pid", "net", "ipc", "uts"} {
 		var child, self unix.Stat_t
 		if err := unix.Stat(fmt.Sprintf("/proc/%d/ns/%s", init, ns), &child); err != nil {
-			return false, err
+			return err
 		}
 		if err := unix.Stat("/proc/self/ns/"+ns, &self); err != nil {
-			return false, err
+			return err
 		}
 		if child.Ino == self.Ino || (ns != "user" && child.Ino != start.Namespaces[ns]) {
-			return false, fmt.Errorf("unestablished or inconsistent %s namespace", ns)
+			return fmt.Errorf("unestablished or inconsistent %s namespace", ns)
 		}
 	}
+	return nil
+}
+
+func nativeIsolationObservedProcesses(outer, init int, plan nativeStageIsolation) error {
 	for _, pid := range []int{outer, init} {
 		label, err := os.ReadFile(fmt.Sprintf("/proc/%d/attr/apparmor/current", pid))
 		if err != nil {
-			return false, err
+			return err
 		}
 		if strings.TrimSpace(string(label)) != plan.Profile {
-			return false, errors.New("active intended AppArmor profile differs")
+			return errors.New("active intended AppArmor profile differs")
 		}
 		exe, err := os.Readlink(fmt.Sprintf("/proc/%d/exe", pid))
 		if err != nil || filepath.Clean(exe) != plan.Launcher {
-			return false, errors.New("owned setup executable differs from launcher")
+			return errors.New("owned setup executable differs from launcher")
 		}
 	}
+	return nil
+}
+
+func nativeIsolationObservedPrivileges(init int) error {
 	s, err := nativeProcStatus(init)
 	if err != nil {
-		return false, err
+		return err
 	}
 	if s["NoNewPrivs"] != "1" {
-		return false, errors.New("no_new_privs is not active")
+		return errors.New("no_new_privs is not active")
 	}
 	for _, cap := range []string{"CapInh", "CapPrm", "CapEff", "CapBnd", "CapAmb"} {
 		n, err := strconv.ParseUint(s[cap], 16, 64)
 		if err != nil || n != 0 {
-			return false, fmt.Errorf("setup retained capabilities: %s", cap)
+			return fmt.Errorf("setup retained capabilities: %s", cap)
 		}
 	}
-	return true, nil
+	return nil
 }

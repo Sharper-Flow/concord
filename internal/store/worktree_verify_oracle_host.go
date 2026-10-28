@@ -361,6 +361,36 @@ func validateNativeTargetManifest(m nativeTargetOracleManifest, c OracleControl)
 			return err
 		}
 	}
+	if err := validateNativeTargetFiles(m, pair); err != nil {
+		return err
+	}
+	witnesses, err := nativeTargetCaseWitnesses(m, c)
+	if err != nil {
+		return err
+	}
+	switch pair.Runner {
+	case nativeTargetRunnerPytest:
+		if err := validateNativeTargetPytestManifest(m, c, witnesses); err != nil {
+			return err
+		}
+	case nativeTargetRunnerCheck:
+		if err := validateNativeTargetCheckManifest(m, pair, witnesses); err != nil {
+			return err
+		}
+	case nativeTargetRunnerVitest:
+		if err := validateNativeTargetVitestManifest(m, witnesses); err != nil {
+			return err
+		}
+	}
+	for _, pin := range []string{m.Pin.UV, m.Pin.Python, m.Pin.Pytest, m.Pin.Shell, m.Pin.Bun, m.Pin.Node, m.Pin.Vitest, m.Pin.Vite} {
+		if pin != "" && !nativeTargetVersionPin.MatchString(pin) {
+			return nativeUnavailable("runtime pins must be exact dotted numeric versions")
+		}
+	}
+	return nil
+}
+
+func validateNativeTargetFiles(m nativeTargetOracleManifest, pair nativeTargetPair) error {
 	if len(m.HarnessFiles) < 1 || len(m.HarnessFiles) > 16 || len(m.SupportFiles) > 16 {
 		return nativeUnavailable("target manifest file inventories are out of bounds")
 	}
@@ -385,29 +415,6 @@ func validateNativeTargetManifest(m nativeTargetOracleManifest, c OracleControl)
 			if !slices.Contains(m.HarnessFiles, rooted) {
 				return nativeUnavailable("SvelteKit requires pinned svelte.config.js and tsconfig.json")
 			}
-		}
-	}
-	witnesses, err := nativeTargetCaseWitnesses(m, c)
-	if err != nil {
-		return err
-	}
-	switch pair.Runner {
-	case nativeTargetRunnerPytest:
-		if err := validateNativeTargetPytestManifest(m, c, witnesses); err != nil {
-			return err
-		}
-	case nativeTargetRunnerCheck:
-		if err := validateNativeTargetCheckManifest(m, pair, witnesses); err != nil {
-			return err
-		}
-	case nativeTargetRunnerVitest:
-		if err := validateNativeTargetVitestManifest(m, witnesses); err != nil {
-			return err
-		}
-	}
-	for _, pin := range []string{m.Pin.UV, m.Pin.Python, m.Pin.Pytest, m.Pin.Shell, m.Pin.Bun, m.Pin.Node, m.Pin.Vitest, m.Pin.Vite} {
-		if pin != "" && !nativeTargetVersionPin.MatchString(pin) {
-			return nativeUnavailable("runtime pins must be exact dotted numeric versions")
 		}
 	}
 	return nil

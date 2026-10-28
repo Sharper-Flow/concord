@@ -48,22 +48,22 @@ func TestNativeIsolationSchemaParity(t *testing.T) {
 				t.Fatal(err)
 			}
 			for _, field := range []string{"isolation_policy", "isolation_fingerprint", "isolation_enforcement"} {
-				copy := map[string]any{}
+				candidate := map[string]any{}
 				for key, v := range value {
-					copy[key] = v
+					candidate[key] = v
 				}
-				delete(copy, field)
-				if err := validate(copy); err == nil {
+				delete(candidate, field)
+				if err := validate(candidate); err == nil {
 					t.Fatalf("missing %s admitted", field)
 				}
 			}
 			for field, replacement := range map[string]any{"isolation_policy": "future", "isolation_fingerprint": "", "isolation_enforcement": "unavailable", "isolation_commands": []string{"arbitrary"}} {
-				copy := map[string]any{}
+				candidate := map[string]any{}
 				for key, v := range value {
-					copy[key] = v
+					candidate[key] = v
 				}
-				copy[field] = replacement
-				if err := validate(copy); err == nil {
+				candidate[field] = replacement
+				if err := validate(candidate); err == nil {
 					t.Fatalf("invalid %s admitted", field)
 				}
 			}

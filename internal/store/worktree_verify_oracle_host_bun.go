@@ -434,6 +434,12 @@ type nativeBunInstall struct {
 	Pkg nativeBunPackage
 }
 
+type nativeBunDependencyEdge struct {
+	from                   string
+	deps                   map[string]string
+	required, overrideOnly bool
+}
+
 // verifyNativeBunLock proves manifest freshness, the closed range grammar,
 // edge identity and range satisfaction, and required-edge closure. It
 // returns the selected packages in deterministic install order.
@@ -445,13 +451,7 @@ func verifyNativeBunLock(manifest nativeBunManifest, lock nativeBunLock) ([]nati
 	if !maps.Equal(manifest.Overrides, lock.Overrides) || !slices.Equal(manifest.TrustedDependencies, lock.TrustedDependencies) {
 		return nil, nativeBunUnavailable("bun.lock overrides or trustedDependencies differ from package.json: the lock is stale")
 	}
-	type edge struct {
-		from         string
-		deps         map[string]string
-		required     bool
-		overrideOnly bool
-	}
-	edges := []edge{{"", root.Deps, true, false}, {"", root.DevDeps, true, false}, {"", root.OptDeps, false, false}, {"", root.PeerDeps, false, true}}
+	edges := []nativeBunDependencyEdge{{"", root.Deps, true, false}, {"", root.DevDeps, true, false}, {"", root.OptDeps, false, false}, {"", root.PeerDeps, false, true}}
 	keys := slices.Sorted(maps.Keys(lock.Packages))
 	var installs []nativeBunInstall
 	for _, key := range keys {
@@ -459,49 +459,56 @@ func verifyNativeBunLock(manifest nativeBunManifest, lock nativeBunLock) ([]nati
 		if !pkg.selected() {
 			continue
 		}
-		edges = append(edges, edge{key, pkg.Deps, true, false}, edge{key, pkg.OptDeps, false, false}, edge{key, pkg.PeerDeps, false, true})
+		edges = append(edges, nativeBunDependencyEdge{key, pkg.Deps, true, false}, nativeBunDependencyEdge{key, pkg.OptDeps, false, false}, nativeBunDependencyEdge{key, pkg.PeerDeps, false, true})
 		segments, _ := nativeBunKeySegments(key)
 		installs = append(installs, nativeBunInstall{Dir: "node_modules/" + strings.Join(segments, "/node_modules/"), Pkg: pkg})
 	}
 	for _, e := range edges {
 		for _, name := range slices.Sorted(maps.Keys(e.deps)) {
-			if _, overridden := lock.Overrides[name]; e.overrideOnly && !overridden {
-				continue
-			}
-			spec := e.deps[name]
-			target, rangeText := name, spec
-			if alias, ok := strings.CutPrefix(spec, "npm:"); ok {
-				aliasName, aliasRange, ok := nativeBunSplitSpec(alias)
-				if !ok || !nativeBunValidName(aliasName) {
-					return nil, nativeBunUnavailable("dependency alias is malformed: " + name + "@" + spec)
-				}
-				target, rangeText = aliasName, aliasRange
-			}
-			if _, ok := parseNativeSemverRange(rangeText); !ok {
-				return nil, nativeBunUnavailable("dependency specifier is outside the supported range grammar: " + name + "@" + spec)
-			}
-			// npm aliases are exempt from Bun's overrides. Keep the original
-			// declarations for archive reconciliation; only resolution uses
-			// the effective range.
-			if override, ok := lock.Overrides[name]; ok && !strings.HasPrefix(spec, "npm:") {
-				rangeText = override
-			}
-			r, _ := parseNativeSemverRange(rangeText)
-			key, found := nativeBunResolve(lock, e.from, name)
-			if !found {
-				if e.required {
-					return nil, nativeBunUnavailable("required dependency " + name + " of " + nativeBunFrom(e.from) + " resolves to no installable lock entry")
-				}
-				continue
-			}
-			pkg := lock.Packages[key]
-			v, _ := parseNativeSemver(pkg.Version)
-			if pkg.Name != target || !r.satisfies(v) {
-				return nil, nativeBunUnavailable("dependency " + name + "@" + spec + " of " + nativeBunFrom(e.from) + " resolves to " + pkg.Name + "@" + pkg.Version)
+			if err := validateNativeBunDependency(lock, e, name); err != nil {
+				return nil, err
 			}
 		}
 	}
 	return installs, nil
+}
+
+func validateNativeBunDependency(lock nativeBunLock, e nativeBunDependencyEdge, name string) error {
+	if _, overridden := lock.Overrides[name]; e.overrideOnly && !overridden {
+		return nil
+	}
+	spec := e.deps[name]
+	target, rangeText := name, spec
+	if alias, ok := strings.CutPrefix(spec, "npm:"); ok {
+		aliasName, aliasRange, ok := nativeBunSplitSpec(alias)
+		if !ok || !nativeBunValidName(aliasName) {
+			return nativeBunUnavailable("dependency alias is malformed: " + name + "@" + spec)
+		}
+		target, rangeText = aliasName, aliasRange
+	}
+	if _, ok := parseNativeSemverRange(rangeText); !ok {
+		return nativeBunUnavailable("dependency specifier is outside the supported range grammar: " + name + "@" + spec)
+	}
+	// npm aliases are exempt from Bun's overrides. Keep the original
+	// declarations for archive reconciliation; only resolution uses
+	// the effective range.
+	if override, ok := lock.Overrides[name]; ok && !strings.HasPrefix(spec, "npm:") {
+		rangeText = override
+	}
+	r, _ := parseNativeSemverRange(rangeText)
+	key, found := nativeBunResolve(lock, e.from, name)
+	if !found {
+		if e.required {
+			return nativeBunUnavailable("required dependency " + name + " of " + nativeBunFrom(e.from) + " resolves to no installable lock entry")
+		}
+		return nil
+	}
+	pkg := lock.Packages[key]
+	v, _ := parseNativeSemver(pkg.Version)
+	if pkg.Name != target || !r.satisfies(v) {
+		return nativeBunUnavailable("dependency " + name + "@" + spec + " of " + nativeBunFrom(e.from) + " resolves to " + pkg.Name + "@" + pkg.Version)
+	}
+	return nil
 }
 
 func nativeBunFrom(key string) string {

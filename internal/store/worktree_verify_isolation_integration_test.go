@@ -12,6 +12,48 @@ import (
 	"testing"
 )
 
+func TestNativeIsolationExportScratchSymlinks(t *testing.T) {
+	for _, slot := range []string{"identity", "identity/passwd"} {
+		t.Run(slot, func(t *testing.T) {
+			root, outside := t.TempDir(), t.TempDir()
+			snapshot := filepath.Join(root, "snapshot")
+			if err := os.Mkdir(snapshot, 0700); err != nil {
+				t.Fatal(err)
+			}
+			sentinel := filepath.Join(outside, "sentinel")
+			if err := os.WriteFile(sentinel, []byte("unchanged"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			target := outside
+			if slot != "identity" {
+				if err := os.Mkdir(filepath.Join(root, "identity"), 0700); err != nil {
+					t.Fatal(err)
+				}
+				target = sentinel
+			}
+			if err := os.Symlink(target, filepath.Join(root, slot)); err != nil {
+				t.Fatal(err)
+			}
+			plan := &nativeTargetOraclePlan{Environment: nativeTargetEnvironment{Isolation: &nativeIsolationEnvironment{}}}
+			_, exportErr := nativeIsolationBuildExport(plan, root, snapshot, snapshot, []string{"sh"})
+			entries, err := os.ReadDir(outside)
+			if err != nil {
+				t.Fatal(err)
+			}
+			raw, err := os.ReadFile(sentinel)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(entries) != 1 || string(raw) != "unchanged" {
+				t.Fatal("export setup wrote through a scratch symlink")
+			}
+			if exportErr == nil {
+				t.Fatal("export setup accepted an escaping scratch symlink")
+			}
+		})
+	}
+}
+
 func TestNativeIsolationRecipePolicy(t *testing.T) {
 	for _, raw := range []string{`{"kind":"target_runner_v1"}`, `{"kind":"target_runner_v1","isolation":"loopback_only_v1"}`} {
 		if _, err := decodeNativeTargetManifest([]byte(raw)); err != nil {
@@ -194,9 +236,9 @@ func TestNativeIsolationEnvironmentBindings(t *testing.T) {
 		func(o *NativeOraclePreparation) { o.IsolationPolicy = "" }, func(o *NativeOraclePreparation) { o.IsolationFingerprint = "" },
 		func(o *NativeOraclePreparation) { o.IsolationEnforcement = "unavailable" }, func(o *NativeOraclePreparation) { o.IsolationPolicy = "future" },
 	} {
-		copy := *o
-		change(&copy)
-		if nativeIsolationResultMatches(p, &copy, stages) {
+		candidate := *o
+		change(&candidate)
+		if nativeIsolationResultMatches(p, &candidate, stages) {
 			t.Fatal("legacy/changed enforcement satisfied required policy")
 		}
 	}

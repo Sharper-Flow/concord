@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -25,6 +26,18 @@ func nativeIsolationTestPlan(argv []string) nativeStageIsolation {
 		Launcher: "/usr/bin/bwrap", Fingerprint: nativeDigest([]byte("synthetic export")),
 		Profile: "synthetic-bwrap (enforce)",
 		Argv:    append([]string{"--unshare-user", "--unshare-pid", "--unshare-net", "--unshare-ipc", "--unshare-uts", "--disable-userns", "--new-session", "--cap-drop", "ALL", "--"}, argv...),
+	}
+}
+
+func TestNativeIsolationPIDFDBounds(t *testing.T) {
+	for _, fd := range []int{-1, math.MaxInt32 + 1} {
+		t.Run(strconv.Itoa(fd), func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+			defer cancel()
+			if err := waitNativePIDFD(ctx, fd); err == nil || err.Error() != "invalid launcher pidfd" {
+				t.Fatalf("invalid pidfd reached polling: %v", err)
+			}
+		})
 	}
 }
 

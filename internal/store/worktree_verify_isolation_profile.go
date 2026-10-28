@@ -2,6 +2,7 @@ package store
 
 import (
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -29,70 +30,88 @@ func nativeIsolationProfileFiles() ([]NativeOracleFile, error) {
 	// Active policy is established by the supervisor's pre-release /proc
 	// label observation, not by a policy filename or a privileged profile-list
 	// read. This identity alone never supplies established enforcement.
-	files := []NativeOracleFile{{Path: "isolation-required-profile", SHA256: nativeDigest([]byte(nativeIsolationProfile))}}
-	seen := map[string]bool{}
-	var visit func(string, bool) error
-	visit = func(name string, optional bool) error {
-		if seen[name] {
-			return nil
-		}
-		if len(seen) >= 256 || !nativeContained("/etc/apparmor.d", name) {
-			return fmt.Errorf("AppArmor include escapes bounded policy closure")
-		}
-		seen[name] = true
-		info, err := os.Stat(name)
-		if os.IsNotExist(err) {
-			if !optional {
-				return fmt.Errorf("required AppArmor include is missing: %s", name)
-			}
-			files = append(files, NativeOracleFile{Path: name, SHA256: nativeDigest([]byte("absent"))})
-			return nil
-		}
-		if err != nil {
-			return err
-		}
-		st, ok := info.Sys().(*syscall.Stat_t)
-		if !ok || st.Uid != 0 || info.Mode()&0022 != 0 {
-			return fmt.Errorf("AppArmor input is not root-owned and immutable to the workload: %s", name)
-		}
-		if info.IsDir() {
-			entries, err := os.ReadDir(name)
-			if err != nil {
-				return err
-			}
-			var names []string
-			for _, entry := range entries {
-				if strings.HasPrefix(entry.Name(), ".") || strings.HasSuffix(entry.Name(), "~") {
-					continue
-				}
-				names = append(names, entry.Name())
-				if err := visit(filepath.Join(name, entry.Name()), false); err != nil {
-					return err
-				}
-			}
-			files = append(files, NativeOracleFile{Path: name, SHA256: nativeDigest([]byte(workflowJSON(names)))})
-			return nil
-		}
-		f, err := nativeIsolationFile(name)
-		if err != nil {
-			return err
-		}
-		files = append(files, f)
-		data, err := os.ReadFile(name)
-		if err != nil {
-			return err
-		}
-		for _, match := range nativeIsolationProfileInclude.FindAllSubmatch(data, -1) {
-			if err := visit(filepath.Join("/etc/apparmor.d", string(match[2])), len(match[1]) != 0); err != nil {
-				return err
-			}
-		}
-		return nil
+	root, err := os.OpenRoot("/etc/apparmor.d")
+	if err != nil {
+		return nil, err
 	}
+	defer func() { _ = root.Close() }()
+	p := nativeIsolationProfileClosure{root: root, seen: map[string]bool{}, files: []NativeOracleFile{{Path: "isolation-required-profile", SHA256: nativeDigest([]byte(nativeIsolationProfile))}}}
 	for _, name := range []string{profile, "/etc/apparmor.d/abi/4.0"} {
-		if err := visit(name, false); err != nil {
+		if err := p.visit(name, false); err != nil {
 			return nil, err
 		}
 	}
-	return files, nil
+	return p.files, nil
+}
+
+type nativeIsolationProfileClosure struct {
+	root  *os.Root
+	seen  map[string]bool
+	files []NativeOracleFile
+}
+
+func (p *nativeIsolationProfileClosure) visit(name string, optional bool) error {
+	if p.seen[name] {
+		return nil
+	}
+	if len(p.seen) >= 256 || !nativeContained("/etc/apparmor.d", name) {
+		return fmt.Errorf("AppArmor include escapes bounded policy closure")
+	}
+	p.seen[name] = true
+	info, err := p.root.Stat(strings.TrimPrefix(name, "/etc/apparmor.d/"))
+	if os.IsNotExist(err) {
+		if !optional {
+			return fmt.Errorf("required AppArmor include is missing: %s", name)
+		}
+		p.files = append(p.files, NativeOracleFile{Path: name, SHA256: nativeDigest([]byte("absent"))})
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	st, ok := info.Sys().(*syscall.Stat_t)
+	if !ok || st.Uid != 0 || info.Mode()&0022 != 0 {
+		return fmt.Errorf("AppArmor input is not root-owned and immutable to the workload: %s", name)
+	}
+	if info.IsDir() {
+		return p.directory(name)
+	}
+	return p.file(name)
+}
+
+func (p *nativeIsolationProfileClosure) directory(name string) error {
+	entries, err := fs.ReadDir(p.root.FS(), strings.TrimPrefix(name, "/etc/apparmor.d/"))
+	if err != nil {
+		return err
+	}
+	var names []string
+	for _, entry := range entries {
+		if strings.HasPrefix(entry.Name(), ".") || strings.HasSuffix(entry.Name(), "~") {
+			continue
+		}
+		names = append(names, entry.Name())
+		if err := p.visit(filepath.Join(name, entry.Name()), false); err != nil {
+			return err
+		}
+	}
+	p.files = append(p.files, NativeOracleFile{Path: name, SHA256: nativeDigest([]byte(workflowJSON(names)))})
+	return nil
+}
+
+func (p *nativeIsolationProfileClosure) file(name string) error {
+	f, err := nativeIsolationFile(name)
+	if err != nil {
+		return err
+	}
+	p.files = append(p.files, f)
+	data, err := p.root.ReadFile(strings.TrimPrefix(name, "/etc/apparmor.d/"))
+	if err != nil {
+		return err
+	}
+	for _, match := range nativeIsolationProfileInclude.FindAllSubmatch(data, -1) {
+		if err := p.visit(filepath.Join("/etc/apparmor.d", string(match[2])), len(match[1]) != 0); err != nil {
+			return err
+		}
+	}
+	return nil
 }

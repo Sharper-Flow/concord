@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/sharper-flow/concord/internal/agentcontract"
@@ -36,7 +37,7 @@ func TestDispatchWorkRemovalRefusesMissingLinearConfirmation(t *testing.T) {
 		"execution_relinquished": true, "writes_reconciled": true, "effects_reconciled": true,
 		"dependencies_resolved": true, "artifacts_verified": true,
 	})
-	if response.Outcome != agentcontract.OutcomeError || response.Error == nil || response.Error.Kind != "invalid_input" {
+	if response.Outcome != agentcontract.OutcomeError || response.Error == nil || response.Error.Kind != "invalid_input" || !strings.Contains(response.Error.Message, "carries no Linear handoff confirmation") {
 		t.Fatalf("missing Linear confirmation must refuse: outcome=%s error=%+v", response.Outcome, response.Error)
 	}
 	if countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM work_items WHERE id='work-1'`) != 1 || workVersion(t, s, "work-1") != version {

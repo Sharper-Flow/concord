@@ -136,6 +136,24 @@ func TestThreeControlFailedRevisionRecovery(t *testing.T) {
 	if correction == nil || correction.FailedAttemptID != failures[1] {
 		t.Fatalf("fixture lacks revision2 failed-attempt debt: %+v", correction)
 	}
+	orderRoute := t.Run("reordered_oracle_does_not_claim_a_reference_refresh", func(t *testing.T) {
+		reordered := oracle
+		reordered.Controls = append([]store.OracleControl(nil), oracle.Controls...)
+		reordered.Controls[0], reordered.Controls[2] = reordered.Controls[2], reordered.Controls[0]
+		fields["acceptance_oracle"] = reordered
+		fields["repair_revisions"], fields["repair_reason"] = []int64{1, 2}, "the caller reordered the oracle"
+		before := revisionRecoveryState(t, f)
+		response := revisionRecoveryInvoke(t, f, "record_worker_job", "reorder-only", fields)
+		if response.Error == nil || response.Error.Kind != "invalid_input" || response.Error.RecoveryAction.Kind != "correct_request" || response.Error.EffectState != agentcontract.EffectNone || response.Error.RetrySafe || strings.Contains(response.Error.Message, "refreshed readiness_evidence_refs do not match") || revisionRecoveryState(t, f) != before {
+			t.Fatalf("oracle ordering was misreported or admitted: %+v", response.Error)
+		}
+	})
+	fields["acceptance_oracle"] = oracleFields
+	delete(fields, "repair_revisions")
+	delete(fields, "repair_reason")
+	if !orderRoute {
+		return
+	}
 	// A Review owns the candidate change. Native preparation cannot replace
 	// Main's accepted candidate by itself.
 	inputCandidate := store.WorkerReviewCandidate{ProjectID: "project-1", Commit: gitRun(t, f.path, "rev-parse", "HEAD"), Tree: gitRun(t, f.path, "rev-parse", "HEAD^{tree}")}

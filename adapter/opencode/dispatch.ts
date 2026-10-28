@@ -341,7 +341,6 @@ interface NativeOraclePreparationCommon {
 }
 
 export interface NativeOracleGoPreparation extends NativeOraclePreparationCommon {
-  git_metadata?: undefined
   selected_test_names: string[]
   case_to_test_map: Record<string, string[]>
   recipe_kind?: undefined
@@ -352,11 +351,6 @@ export interface NativeOracleGoPreparation extends NativeOraclePreparationCommon
 }
 
 export interface NativeOracleTargetPreparation extends NativeOraclePreparationCommon {
-  git_metadata?: {
-    mode: "candidate_ancestry_v1"
-    candidate: NativeGitView
-    recipe: NativeGitView
-  }
   recipe_kind: "target_runner_v1"
   target_materializer: "none" | "uv" | "bun"
   target_runner: "pytest" | "check"
@@ -367,13 +361,6 @@ export interface NativeOracleTargetPreparation extends NativeOraclePreparationCo
 }
 
 export type NativeOraclePreparation = NativeOracleGoPreparation | NativeOracleTargetPreparation
-
-export interface NativeGitView {
-  object_format: "sha1" | "sha256"
-  commit: string
-  tree: string
-  tags: { ref: string; object: string; peeled: string }[]
-}
 
 // The selected research mirror mirrors $defs/lane_work_context_research_* of
 // contracts/agent-lane-packet.schema.json: the closed selection tuple, the

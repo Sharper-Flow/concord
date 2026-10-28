@@ -69,7 +69,6 @@ type NativeOraclePreparation struct {
 	TargetRunner       string              `json:"target_runner,omitempty"`
 	SelectedWitnessIDs []string            `json:"selected_witness_ids,omitempty"`
 	CaseToWitnessMap   map[string][]string `json:"case_to_witness_map,omitempty"`
-	GitMetadata        *NativeGitMetadata  `json:"git_metadata,omitempty"`
 }
 
 type NativeOracleStage struct {
@@ -84,6 +83,7 @@ type NativeOracleStage struct {
 
 type NativeOracleResult struct {
 	NativeOraclePreparation
+	GitMetadata          *NativeGitMetadata  `json:"git_metadata,omitempty"`
 	AttemptID            string              `json:"attempt_id,omitempty"`
 	AttemptEpoch         int64               `json:"attempt_epoch,omitempty"`
 	WorkerPacketDigest   string              `json:"worker_packet_digest,omitempty"`
@@ -895,7 +895,7 @@ func validateNativeExecutionPreparation(ctx context.Context, q queryer, req Work
 		return err
 	}
 	digest, identity := nativePlanEnvironment(plan)
-	if prep == nil || !nativeGitPreparationMatches(plan, prep.GitMetadata) || prep.BuildEnvironmentDigest != digest || prep.ToolchainIdentity != identity || prep.ManifestDigest != plan.ManifestFile.SHA256 || !oracleEntryIdentical(prep.Files, plan.Files) {
+	if prep == nil || prep.BuildEnvironmentDigest != digest || prep.ToolchainIdentity != identity || prep.ManifestDigest != plan.ManifestFile.SHA256 || !oracleEntryIdentical(prep.Files, plan.Files) {
 		return oracleFailure(KindUnauthorizedDispatch, "preparation environment or pinned inputs differ from execution", "request explicit preparation for this environment and bundle")
 	}
 	return nil
@@ -997,12 +997,13 @@ func nativeOracleInitialResult(req WorktreeVerifyRequest, entry WorktreeEntry, p
 	digest, identity := nativePlanEnvironment(p)
 	base.ToolchainIdentity = identity
 	base.BuildEnvironmentDigest = digest
+	var gitMetadata *NativeGitMetadata
 	if p.Target != nil {
 		names, _ := nativeTargetCaseWitnesses(p.Target.Recipe, p.Bundle.Control)
 		base.RecipeKind = nativeTargetKind
 		base.TargetMaterializer = p.Target.Environment.Materializer
 		base.TargetRunner = p.Target.Environment.Runner
-		base.GitMetadata = p.Target.GitMetadata
+		gitMetadata = p.Target.GitMetadata
 		base.SelectedWitnessIDs = names
 		base.CaseToWitnessMap = p.Target.Recipe.Cases
 		base.SelectedDistinctCount = len(names)
@@ -1012,7 +1013,7 @@ func nativeOracleInitialResult(req WorktreeVerifyRequest, entry WorktreeEntry, p
 		base.CaseToTestMap = p.Manifest.Cases
 		base.SelectedDistinctCount = len(names)
 	}
-	r.Oracle = &NativeOracleResult{NativeOraclePreparation: base, ControlID: p.Bundle.Control.ControlID, AttemptID: req.Oracle.AttemptID, AttemptEpoch: req.Oracle.AttemptEpoch, WorkerPacketDigest: req.Oracle.WorkerPacketDigest, WorkerJobBinding: req.Oracle.WorkerJobBinding, PreparationRunRef: req.Oracle.PreparationRunRef, AuthorizationEventID: p.Authorization.EventID, AuthorizationSeq: p.Authorization.Seq, StartSeq: p.Authorization.StartSeq, Stages: []NativeOracleStage{}}
+	r.Oracle = &NativeOracleResult{NativeOraclePreparation: base, GitMetadata: gitMetadata, ControlID: p.Bundle.Control.ControlID, AttemptID: req.Oracle.AttemptID, AttemptEpoch: req.Oracle.AttemptEpoch, WorkerPacketDigest: req.Oracle.WorkerPacketDigest, WorkerJobBinding: req.Oracle.WorkerJobBinding, PreparationRunRef: req.Oracle.PreparationRunRef, AuthorizationEventID: p.Authorization.EventID, AuthorizationSeq: p.Authorization.Seq, StartSeq: p.Authorization.StartSeq, Stages: []NativeOracleStage{}}
 	return r
 }
 

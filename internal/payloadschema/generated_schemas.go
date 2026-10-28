@@ -5315,9 +5315,6 @@ const GeneratedPayloadSchemaDocument = `{
               "minItems": 1,
               "type": "array"
             },
-            "git_metadata": {
-              "$ref": "#/$defs/native_git_metadata"
-            },
             "logical_argv_digest": {
               "maxLength": 71,
               "minLength": 71,
@@ -5565,9 +5562,6 @@ const GeneratedPayloadSchemaDocument = `{
           "maxItems": 32,
           "minItems": 1,
           "type": "array"
-        },
-        "git_metadata": {
-          "$ref": "#/$defs/native_git_metadata"
         },
         "logical_argv_digest": {
           "maxLength": 71,
@@ -10639,9 +10633,6 @@ const GeneratedPayloadSchemaDocument = `{
               "minItems": 1,
               "type": "array"
             },
-            "git_metadata": {
-              "$ref": "#/$defs/native_git_metadata"
-            },
             "logical_argv_digest": {
               "maxLength": 71,
               "minLength": 71,
@@ -10887,9 +10878,6 @@ const GeneratedPayloadSchemaDocument = `{
           "maxItems": 32,
           "minItems": 1,
           "type": "array"
-        },
-        "git_metadata": {
-          "$ref": "#/$defs/native_git_metadata"
         },
         "logical_argv_digest": {
           "maxLength": 71,

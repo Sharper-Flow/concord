@@ -365,14 +365,6 @@ func nativeGitMetadataMatches(p nativeOraclePlan, got *NativeGitMetadata) bool {
 		t.Environment.GitMetadataDigest == nativeDigest([]byte(workflowJSON(nativeGitPreparationMetadata(p)))) && oracleEntryIdentical(got, t.GitMetadata)
 }
 
-func nativeGitPreparationMatches(p nativeOraclePlan, got *NativeGitMetadata) bool {
-	var actual *NativeGitMetadata
-	if p.Target != nil {
-		actual = p.Target.GitMetadata
-	}
-	return nativeGitMetadataMatches(p, actual) && oracleEntryIdentical(got, nativeGitPreparationMetadata(p))
-}
-
 func materializeNativeTargetGit(ctx context.Context, repo, root, snapshot string, p nativeOraclePlan) error {
 	t := p.Target
 	if t.Recipe.GitMetadata == "" {

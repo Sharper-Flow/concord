@@ -1252,9 +1252,6 @@ def project_native_oracle_metadata(defs: dict, packet_defs: dict) -> None:
         "lane_native_oracle_file": "native_oracle_file",
         "lane_native_oracle_test_name": "native_oracle_test_name",
         "lane_native_oracle_preparation": "native_oracle_preparation",
-        "lane_native_git_metadata": "native_git_metadata",
-        "lane_native_git_view": "native_git_view",
-        "lane_native_git_tag": "native_git_tag",
         "lane_work_context_reading_source_repository_file": "work_context_reading_source_repository_file",
         "lane_work_context_research_selection": "work_context_research_selection",
         "lane_work_context_research_finding": "work_context_research_finding",
@@ -1322,6 +1319,13 @@ def project_native_oracle_metadata(defs: dict, packet_defs: dict) -> None:
     # it starts from the retained shape, not the dispatch-admitted one.
     prepare = copy.deepcopy(defs["native_oracle_preparation"])
     drop_retained_caps(prepare, "native_oracle_preparation")
+    # Full inventories belong to retained producer results, not the bounded
+    # dispatch DTO, whose environment digest already binds their identity.
+    git_metadata = {"$ref": "#/$defs/native_git_metadata"}
+    prepare["properties"]["git_metadata"] = copy.deepcopy(git_metadata)
+    for branch in prepare.get("oneOf", []):
+        if branch.get("properties", {}).get("recipe_kind", {}).get("const") == "target_runner_v1":
+            branch["properties"]["git_metadata"] = copy.deepcopy(git_metadata)
     prepare_fields = {
         "control_id": copy.deepcopy(defs["worker_oracle_control"]["properties"]["control_id"]),
         "input_manifest_digest": {"$ref": "#/$defs/native_oracle_digest"},

@@ -149,14 +149,14 @@ func nativeOracleDispatchMatches(d workflowActionCompletedPayload, p nativeOracl
 }
 
 func nativeOraclePreparationJoins(prep *NativeOraclePreparation, p nativeOraclePlan, o *NativeOracleResult, envDigest, envIdentity string) bool {
-	if prep == nil || !nativeGitPreparationMatches(p, prep.GitMetadata) {
+	if prep == nil {
 		return false
 	}
 	preparationSubject := o.SubjectCommit
 	if p.ReviewRepair != nil {
 		preparationSubject = p.ReviewRepair.Base
 	}
-	if prep == nil || prep.SubjectCommit != preparationSubject || prep.ContractVersion != p.ContractVersion || prep.BundleDigest != p.BundleDigest || prep.ManifestDigest != p.ManifestFile.SHA256 || prep.ManifestBlob != p.ManifestFile.BlobOID || !oracleEntryIdentical(prep.Files, p.Files) || prep.ToolchainIdentity != envIdentity || prep.BuildEnvironmentDigest != envDigest {
+	if prep.SubjectCommit != preparationSubject || prep.ContractVersion != p.ContractVersion || prep.BundleDigest != p.BundleDigest || prep.ManifestDigest != p.ManifestFile.SHA256 || prep.ManifestBlob != p.ManifestFile.BlobOID || !oracleEntryIdentical(prep.Files, p.Files) || prep.ToolchainIdentity != envIdentity || prep.BuildEnvironmentDigest != envDigest {
 		return false
 	}
 	if p.Target != nil {

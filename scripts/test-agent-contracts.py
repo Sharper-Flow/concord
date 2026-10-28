@@ -2527,15 +2527,20 @@ class NativeOracleRequestProjectionTests(unittest.TestCase):
         git_view = {"object_format": "sha1", "commit": "a" * 40, "tree": "b" * 40,
                     "tags": [{"ref": "refs/tags/v1.0.0", "object": "c" * 40, "peeled": "a" * 40}]}
         git_metadata = {"mode": "candidate_ancestry_v1", "candidate": git_view, "recipe": git_view}
-        self.validate(target | {"git_metadata": git_metadata}, "native_oracle_preparation")
+        git_result = target | {"control_id": "control:one", "stages": [], "git_metadata": git_metadata}
+        self.validate(git_result, "native_oracle_result")
+        with self.assertRaises(ValueError):
+            self.validate(target | {"git_metadata": git_metadata}, "native_oracle_preparation")
         with self.assertRaises(ValueError):
             self.validate(preparation | {"git_metadata": git_metadata}, "native_oracle_preparation")
+        with self.assertRaises(ValueError):
+            self.validate(prepare_result | {"git_metadata": git_metadata}, "native_oracle_result")
         for invalid in ({"mode": "ambient", "candidate": git_view, "recipe": git_view},
                         git_metadata | {"host_path": "/synthetic/repo"},
                         git_metadata | {"recipe": git_view | {"commit": "not-an-oid"}},
                         {"mode": "candidate_ancestry_v1", "candidate": git_view}):
             with self.assertRaises(ValueError):
-                self.validate(target | {"git_metadata": invalid}, "native_oracle_preparation")
+                self.validate(git_result | {"git_metadata": invalid}, "native_oracle_result")
         for pair in ({"target_materializer": "none", "target_runner": "check"},
                      {"target_materializer": "uv", "target_runner": "check"}):
             self.validate(target | pair, "native_oracle_preparation")

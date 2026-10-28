@@ -24098,9 +24098,6 @@
           "const": "target_runner_v1",
           "description": "The closed discriminator of the target-runner family. Its presence marks a target preparation; a Go preparation never carries it."
         },
-        "git_metadata": {
-          "$ref": "#/$defs/native_git_metadata"
-        },
         "target_materializer": {
           "type": "string",
           "enum": [
@@ -24574,9 +24571,6 @@
               "type": "string",
               "const": "target_runner_v1"
             },
-            "git_metadata": {
-              "$ref": "#/$defs/native_git_metadata"
-            },
             "target_materializer": {
               "type": "string",
               "enum": [
@@ -24935,9 +24929,6 @@
               "const": "target_runner_v1",
               "description": "The closed discriminator of the target-runner family. Its presence marks a target preparation; a Go preparation never carries it."
             },
-            "git_metadata": {
-              "$ref": "#/$defs/native_git_metadata"
-            },
             "target_materializer": {
               "type": "string",
               "enum": [
@@ -25035,6 +25026,9 @@
             },
             "streams_complete": {
               "type": "boolean"
+            },
+            "git_metadata": {
+              "$ref": "#/$defs/native_git_metadata"
             },
             "control_id": {
               "type": "string",
@@ -25459,9 +25453,6 @@
                   "type": "string",
                   "const": "target_runner_v1"
                 },
-                "git_metadata": {
-                  "$ref": "#/$defs/native_git_metadata"
-                },
                 "target_materializer": {
                   "type": "string",
                   "enum": [
@@ -25528,6 +25519,9 @@
                 },
                 "streams_complete": {
                   "type": "boolean"
+                },
+                "git_metadata": {
+                  "$ref": "#/$defs/native_git_metadata"
                 },
                 "control_id": {
                   "type": "string",
@@ -25795,9 +25789,6 @@
               "const": "target_runner_v1",
               "description": "The closed discriminator of the target-runner family. Its presence marks a target preparation; a Go preparation never carries it."
             },
-            "git_metadata": {
-              "$ref": "#/$defs/native_git_metadata"
-            },
             "target_materializer": {
               "type": "string",
               "enum": [
@@ -25895,6 +25886,9 @@
             },
             "streams_complete": {
               "type": "boolean"
+            },
+            "git_metadata": {
+              "$ref": "#/$defs/native_git_metadata"
             },
             "control_id": {
               "type": "string",
@@ -26443,9 +26437,6 @@
                   "type": "string",
                   "const": "target_runner_v1"
                 },
-                "git_metadata": {
-                  "$ref": "#/$defs/native_git_metadata"
-                },
                 "target_materializer": {
                   "type": "string",
                   "enum": [
@@ -26512,6 +26503,9 @@
                 },
                 "streams_complete": {
                   "type": "boolean"
+                },
+                "git_metadata": {
+                  "$ref": "#/$defs/native_git_metadata"
                 },
                 "control_id": {
                   "type": "string",
@@ -29866,9 +29860,6 @@
           "const": "target_runner_v1",
           "description": "The closed discriminator of the target-runner family. Its presence marks a target preparation; a Go preparation never carries it."
         },
-        "git_metadata": {
-          "$ref": "#/$defs/native_git_metadata"
-        },
         "target_materializer": {
           "type": "string",
           "enum": [
@@ -30337,9 +30328,6 @@
             "recipe_kind": {
               "type": "string",
               "const": "target_runner_v1"
-            },
-            "git_metadata": {
-              "$ref": "#/$defs/native_git_metadata"
             },
             "target_materializer": {
               "type": "string",

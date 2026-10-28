@@ -714,7 +714,7 @@ func validateOracleReadinessAuthorityTx(ctx context.Context, tx *sql.Tx, workID 
 				return err
 			}
 			if preparation == nil || preparation.ContractVersion != contractVersion || preparation.SubjectCommit != current || preparation.BundleDigest != nativeBundleDigest(bundle) {
-				return oracleFailure(KindInvalidPayload, "acceptance oracle control "+control.ControlID+" readiness evidence "+ref+" is not its exact qualified native preparation", "prepare the exact owner/case/control bundle before recording the ready job")
+				return oracleFailure(KindInvalidPayload, "acceptance_oracle.controls readiness_evidence_refs for control "+control.ControlID+" contains "+ref+", which is not its exact qualified native preparation; prepare the exact owner/case/control bundle on the current clean candidate and replace readiness_evidence_refs with its qualified run reference before recording an ordinary same-job revision; do not use repair_revisions or repair_reason for a code correction", "correct_request")
 			}
 		}
 	}

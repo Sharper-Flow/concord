@@ -122,7 +122,11 @@ func TestMovedSubjectWorkerRevisionQualification(t *testing.T) {
 	}
 	refusal := func(t *testing.T, response agentcontract.Envelope, kind, recovery, message, detail string, before [5]int64) {
 		t.Helper()
-		if response.Error == nil || response.Error.Kind != kind || response.Error.EffectState != agentcontract.EffectNone || response.Error.RetrySafe || response.Error.RecoveryAction.Kind != recovery || !strings.Contains(response.Error.Message, message) || response.Error.Details["recovery_detail"] != detail {
+		if response.Error == nil {
+			t.Fatal("qualification request was not refused")
+		}
+		servedDetail, _ := response.Error.Details["recovery_detail"].(string)
+		if response.Error.Kind != kind || response.Error.EffectState != agentcontract.EffectNone || response.Error.RetrySafe || response.Error.RecoveryAction.Kind != recovery || !strings.Contains(response.Error.Message, message) || servedDetail != detail {
 			t.Fatalf("unexpected qualification refusal: %+v", response.Error)
 		}
 		if after := snapshot(t); after != before {
@@ -132,16 +136,16 @@ func TestMovedSubjectWorkerRevisionQualification(t *testing.T) {
 	}
 	t.Run("checks_repair_old_refs", func(t *testing.T) {
 		before := snapshot(t)
-		refusal(t, invoke(t, "record_worker_job", "checks-repair-old", fields(oldOracle, true)), "invalid_input", "reread_entities", "is not its exact qualified native preparation", "prepare the exact owner/case/control bundle before recording the ready job", before)
+		refusal(t, invoke(t, "record_worker_job", "checks-repair-old", fields(oldOracle, true)), "invalid_input", "correct_request", "not its exact qualified native preparation", "", before)
 	})
 	t.Run("checks_repair_refreshed_refs_only", func(t *testing.T) {
 		before := snapshot(t)
-		refusal(t, invoke(t, "record_worker_job", "checks-repair-fresh", fields(freshOracle, true)), "invalid_input", "reread_entities", "a checks repair carries the named revisions' byte-identical acceptance oracle", "record the repair with the named revisions' frozen oracle", before)
+		refusal(t, invoke(t, "record_worker_job", "checks-repair-fresh", fields(freshOracle, true)), "invalid_input", "correct_request", "remove repair_revisions and repair_reason", "", before)
 	})
 	t.Run("old_revision_dispatch_projection", func(t *testing.T) {
 		before := snapshot(t)
 		packet := retryMutationPacket(t, s, "attempt:qualification-dispatch", f.read(t).Pinned.Pin.Correction)
-		refusal(t, invoke(t, "dispatch_worker", "dispatch-old-revision", map[string]any{"attempt_id": "attempt:qualification-dispatch", "worker_packet": packet}), "missing_evidence", "provide_evidence", "job preparation is absent, foreign, or stale for its bundle and candidate", "prepare the exact current candidate and bundle before dispatch", before)
+		refusal(t, invoke(t, "dispatch_worker", "dispatch-old-revision", map[string]any{"attempt_id": "attempt:qualification-dispatch", "worker_packet": packet}), "missing_evidence", "provide_evidence", "job preparation is absent, foreign, or stale for its bundle and candidate", "prepare the exact current candidate and bundle, then record an ordinary revision of the same job with its qualified readiness_evidence_refs and unchanged oracle obligations; preparation alone does not update an immutable recorded revision; for a code correction omit repair_revisions and repair_reason, and obtain the required accepted Review before implementation dispatch", before)
 	})
 	t.Run("ordinary_same_job_revision", func(t *testing.T) {
 		before := snapshot(t)

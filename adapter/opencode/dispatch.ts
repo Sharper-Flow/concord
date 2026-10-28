@@ -802,7 +802,7 @@ export interface AgentResultEnvelope {
     // failure means the adapter could not obtain a core response.
     kind: "invalid_input" | "blocked" | "error" | "invalid_report" | "agent_identity_mismatch" | "readback_refusal" | "unauthorized_dispatch" | "approval_required" | "transport_failure"
     retry_safe: boolean
-    recovery_action: "retry_same_request" | "adjust_budget" | "contact_operator" | "reconcile_operation" | "request_approval" | "use_declared_route"
+    recovery_action: "retry_same_request" | "adjust_budget" | "contact_operator" | "reconcile_operation" | "request_approval" | "use_declared_route" | "provide_evidence"
     message: string
     details?: Record<string, unknown>
     predicate?: ReadbackRefusal
@@ -1769,7 +1769,7 @@ export function coreDispatchFailure(lane: AgentLane | null, packet: Partial<Agen
   const action = isRecord(coreError.recovery_action) ? coreError.recovery_action.kind : undefined
   let recovery: NonNullable<AgentResultEnvelope["error"]>["recovery_action"] = "contact_operator"
   switch (action) {
-    case "retry_same_request": case "adjust_budget": case "contact_operator": case "reconcile_operation": case "request_approval": case "use_declared_route":
+    case "retry_same_request": case "adjust_budget": case "contact_operator": case "reconcile_operation": case "request_approval": case "use_declared_route": case "provide_evidence":
       recovery = action
   }
   const kind = coreError.kind === "unauthorized" || coreError.kind === "unauthorized_dispatch" ? "unauthorized_dispatch" : coreError.kind === "invalid_input" ? "invalid_input" : "error"

@@ -29093,6 +29093,10 @@
         },
         "dependencies": {
           "$ref": "#/$defs/worker_packet_review_dependencies"
+        },
+        "size": {
+          "description": "The recorded work size and its model/operator provenance at dispatch. Omitted when unsized; never inferred from the objective or job line estimate.",
+          "$ref": "#/$defs/work_size_summary"
         }
       }
     },

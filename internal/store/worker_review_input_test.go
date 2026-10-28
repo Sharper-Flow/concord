@@ -2,16 +2,91 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"os"
+	"reflect"
 	"strings"
 	"testing"
 )
 
+func TestReviewContinuityCarriesRecordedWorkSize(t *testing.T) {
+	for _, kind := range []string{"unsized", "small", "larger", "crucial", "override"} {
+		t.Run(kind, func(t *testing.T) {
+			f := seedWorkContextFixture(t, "review-size-"+kind)
+			t.Cleanup(func() { _ = f.store.Close() })
+			if kind != "unsized" {
+				inputs := workSizeInputsFixture()
+				if kind == "larger" {
+					inputs.Declared.EstimatedProductionLines = 61
+				}
+				if kind == "crucial" {
+					inputs.Declared.Security = true
+				}
+				size, err := DecideWorkSize(WorkSizeModelVersion, inputs, nil)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := applyWorkEvent(t, f.store, workSizedEvent("review-size-record", f.workID, WorkSizeModelVersion, size, inputs), nil); err != nil {
+					t.Fatal(err)
+				}
+				if kind == "override" {
+					insertWorkSizeOverrideApproval(t, f.store, f.workID, 1)
+					if err := runWorkSizeOverride(t, f.store, workSizeOverrideRequest(t, f.store, f.workID, "review-size-override", WorkSizeCrucial)); err != nil {
+						t.Fatal(err)
+					}
+				}
+			}
+			reviewSubjectClaim(t, f.store, f.workID)
+			snapshot, err := ReadWorkflowContinuity(t.Context(), f.store, ContinuityRequest{Work: f.workID})
+			if err != nil || snapshot.ReviewInput == nil {
+				t.Fatalf("review input = %+v, %v", snapshot.ReviewInput, err)
+			}
+			var got struct {
+				Size *WorkSizeSummary `json:"size"`
+			}
+			if err := json.Unmarshal(mustJSONValue(snapshot.ReviewInput), &got); err != nil {
+				t.Fatal(err)
+			}
+			want, err := readWorkSizeSummary(t.Context(), f.store.db, f.workID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(got.Size, want) {
+				t.Fatalf("review size = %+v, want canonical recorded summary %+v", got.Size, want)
+			}
+			if kind != "unsized" {
+				model, effective := WorkSize(kind), WorkSize(kind)
+				if kind == "override" {
+					model, effective = WorkSizeSmall, WorkSizeCrucial
+				}
+				if got.Size == nil || got.Size.Size != effective || got.Size.ModelSize != model || got.Size.ModelVersion != WorkSizeModelVersion || got.Size.RecordedAt == "" {
+					t.Fatalf("%s lost its recorded size/provenance: %+v", kind, got.Size)
+				}
+				if kind == "override" {
+					if got.Size.OperatorSize == nil || *got.Size.OperatorSize != WorkSizeCrucial {
+						t.Fatalf("override lost its operator size: %+v", got.Size)
+					}
+				} else if got.Size.OperatorSize != nil {
+					t.Fatalf("model-only work invented an operator size: %+v", got.Size)
+				}
+			}
+			if kind == "unsized" && strings.Contains(string(mustJSONValue(snapshot.ReviewInput)), `"size"`) {
+				t.Fatal("unsized Review input must omit size, not default or null it")
+			}
+		})
+	}
+}
+
 func TestReviewDispatchRequiresExactReviewInput(t *testing.T) {
-	for _, field := range []string{"missing", "project", "commit", "tree", "criterion", "architecture", "other lane", "valid"} {
+	for _, field := range []string{"missing", "project", "commit", "tree", "criterion", "architecture", "other lane", "valid", "size valid", "size missing", "size effective", "size model", "size operator", "size version", "size timestamp", "size stale", "unsized size"} {
 		t.Run(field, func(t *testing.T) {
 			f := seedWorkContextFixture(t, "review-input-"+strings.ReplaceAll(field, " ", "-"))
 			t.Cleanup(func() { _ = f.store.Close() })
+			if strings.HasPrefix(field, "size ") {
+				if err := applyWorkEvent(t, f.store, workSizedEvent("review-size-record", f.workID, WorkSizeModelVersion, WorkSizeSmall, workSizeInputsFixture()), nil); err != nil {
+					t.Fatal(err)
+				}
+			}
 			repo, commit := reviewSubjectClaim(t, f.store, f.workID)
 			var branch string
 			if err := f.store.db.QueryRow(`SELECT branch FROM worktree_entries WHERE set_id=? AND state='active'`, WorktreeSetID(f.workID)).Scan(&branch); err != nil {
@@ -36,6 +111,10 @@ func TestReviewDispatchRequiresExactReviewInput(t *testing.T) {
 				t.Fatal(err)
 			}
 			descriptor := WorkerReviewInput{InputCandidate: WorkerReviewCandidate{ProjectID: "project", Commit: commit, Tree: tree}, Dependencies: deps}
+			descriptor.Size, err = readWorkSizeSummary(t.Context(), f.store.db, f.workID)
+			if err != nil {
+				t.Fatal(err)
+			}
 			switch field {
 			case "project":
 				descriptor.InputCandidate.ProjectID = "another-project"
@@ -48,6 +127,27 @@ func TestReviewDispatchRequiresExactReviewInput(t *testing.T) {
 			case "architecture":
 				descriptor.Dependencies.ArchitectureDigest = "sha256:" + strings.Repeat("f", 64)
 				descriptor.Dependencies.ArchitectureNotApplicable = false
+			case "size missing":
+				descriptor.Size = nil
+			case "size effective":
+				descriptor.Size.Size = WorkSizeCrucial
+			case "size model":
+				descriptor.Size.ModelSize = WorkSizeCrucial
+			case "size operator":
+				size := WorkSizeCrucial
+				descriptor.Size.OperatorSize = &size
+			case "size version":
+				descriptor.Size.ModelVersion++
+			case "size timestamp":
+				descriptor.Size.RecordedAt = "2026-10-28T00:00:00Z"
+			case "size stale":
+				inputs := workSizeInputsFixture()
+				inputs.Declared.EstimatedProductionLines = 61
+				if err := applyWorkEvent(t, f.store, workSizedEvent("review-size-rerun", f.workID, WorkSizeModelVersion, WorkSizeLarger, inputs), nil); err != nil {
+					t.Fatal(err)
+				}
+			case "unsized size":
+				descriptor.Size = &WorkSizeSummary{Size: WorkSizeSmall, ModelSize: WorkSizeSmall, ModelVersion: WorkSizeModelVersion, RecordedAt: "2026-10-28T00:00:00Z"}
 			}
 			if field != "missing" {
 				inputs["review_input"] = descriptor
@@ -59,8 +159,11 @@ func TestReviewDispatchRequiresExactReviewInput(t *testing.T) {
 				t.Fatal(err)
 			}
 			_, err = dispatchJoinAttempt(WithWorkerDispatchPreparation(context.Background(), prepared), t, f.store, f.workID, readWorkVersion(t, f.store, f.workID), f.owner, packet)
-			if (err == nil) != (field == "valid") {
+			if (err == nil) != (field == "valid" || field == "size valid") {
 				t.Fatalf("dispatch %s = %v", field, err)
+			}
+			if (strings.HasPrefix(field, "size ") && field != "size valid" || field == "unsized size") && !strings.Contains(err.Error(), "review_input") {
+				t.Fatalf("size mismatch must fail existing Review input binding, got %v", err)
 			}
 		})
 	}

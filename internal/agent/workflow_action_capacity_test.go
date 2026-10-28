@@ -14,7 +14,7 @@ import (
 // production: any growth in the widest shape fails this exact figure first,
 // and the pin moves only by a deliberate re-derivation beside the ceilings'
 // own next-power-of-two assertions.
-const derivedRequestWireMaxBytes = 33517457
+const derivedRequestWireMaxBytes = 33517970
 
 // The shared action ceilings derive from the widest admitted shape, not a
 // shortlist: this test enumerates every admitted workflow-action variant the
@@ -40,8 +40,9 @@ func TestWorkflowActionWidestShapeDerivesSharedCeilings(t *testing.T) {
 	// Criterion: 770+428 string bytes + 35 syntax bytes = 1233;
 	// criteria: 8*1233 + 2 brackets + 7 commas = 9873.
 	// Dependencies: 9873+428+5 value bytes + 67 syntax bytes = 10373.
-	// Descriptor: 1575+10373 value bytes + 36 syntax bytes = 11984.
-	// Its inputs member adds 14 key bytes, a colon, and a comma: 12000.
+	// Work size: 3*9 enum + 20 version + 386 time + 72 syntax bytes = 505.
+	// Descriptor: 1575+10373+505 value bytes + 44 syntax bytes = 12497.
+	// Its inputs member adds 14 key bytes, a colon, and a comma: 12513.
 	dependencies := defs["worker_packet_review_dependencies"].(map[string]any)["properties"].(map[string]any)
 	criteria := dependencies["criteria"].(map[string]any)
 	for _, row := range []struct {
@@ -53,7 +54,8 @@ func TestWorkflowActionWidestShapeDerivesSharedCeilings(t *testing.T) {
 		{"criterion", criteria["items"], 1233},
 		{"criteria", criteria, 9873},
 		{"dependencies", defs["worker_packet_review_dependencies"], 10373},
-		{"descriptor", defs["worker_packet_review_input"], 11984},
+		{"work size", defs["work_size_summary"], 505},
+		{"descriptor", defs["worker_packet_review_input"], 12497},
 	} {
 		got, err := schemawire.Max(row.node, row.name, schemawire.Options{Defs: defs})
 		if err != nil {

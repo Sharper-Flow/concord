@@ -806,7 +806,7 @@ for (const refusal of [
     expect(result.error?.kind).toBe("error")
     expect(result.error?.details?.core_error).toEqual(coreError)
     expect(result.error?.retry_safe).toBe(refusal.retry)
-    expect(result.error?.recovery_action).toBe(["reread_entities", "provide_evidence"].includes(refusal.recovery) ? "contact_operator" : refusal.recovery)
+    expect(result.error?.recovery_action).toBe(refusal.recovery === "reread_entities" || refusal.recovery === "provide_evidence" ? "contact_operator" : refusal.recovery)
     expect(result.error?.message).toBe(coreError.message)
     expect(dispatches).toBe(1)
     expect(spawned).toBe(0)

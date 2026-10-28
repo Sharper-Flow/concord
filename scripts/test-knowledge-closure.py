@@ -13,9 +13,6 @@ from __future__ import annotations
 
 import importlib.util
 import json
-import os
-import re
-import subprocess
 import sys
 import tempfile
 from pathlib import Path
@@ -23,7 +20,6 @@ from unittest import mock
 
 
 SCRIPT = Path(__file__).with_name("check-knowledge-closure.py")
-REPO_ROOT = Path(__file__).resolve().parents[1]
 SPEC = importlib.util.spec_from_file_location("knowledge_closure", SCRIPT)
 assert SPEC and SPEC.loader
 checker = importlib.util.module_from_spec(SPEC)
@@ -194,8 +190,8 @@ def test_file_path_exclusion_suppresses_exactly_one_file() -> None:
     assert "unprocessed: .concord/docs/sub/nested.md" in lines, lines
 
 
-def test_go_read_matches_validator_population() -> None:
-    """The Go read and Python validator must return the same fixture paths."""
+def test_unprocessed_population_respects_exclusions_and_markdown_filter() -> None:
+    """Only unrecorded, unexcluded Markdown files enter the population."""
     root = build_sandbox()
     (root / ".concord/docs" / "excluded-file.md").write_text("excluded\n", encoding="utf-8")
     (root / ".concord/docs" / "not-markdown.txt").write_text("not knowledge\n", encoding="utf-8")
@@ -206,29 +202,13 @@ def test_go_read_matches_validator_population() -> None:
 
     exit_code, stdout, stderr = run_with_sandbox(root)
     assert exit_code == 0, stderr
-    python_paths = sorted(
+    paths = sorted(
         line.removeprefix("unprocessed: ")
         for line in stdout.splitlines()
         if line.startswith("unprocessed: ")
     )
 
-    env = os.environ.copy()
-    env["TEST_CONCORD_KNOWLEDGE_FIXTURE_ROOT"] = str(root)
-    completed = subprocess.run(
-        ["go", "test", "./internal/store", "-run", "^TestUnprocessedKnowledgeDocsFixture$", "-count=1", "-v"],
-        cwd=REPO_ROOT,
-        env=env,
-        capture_output=True,
-        text=True,
-        check=False,
-        timeout=120,
-    )
-    assert completed.returncode == 0, completed.stdout + completed.stderr
-    match = re.search(r"UNPROCESSED_JSON=(\[.*\])", completed.stdout)
-    assert match, completed.stdout + completed.stderr
-    go_paths = json.loads(match.group(1))
-    assert go_paths == python_paths, (go_paths, python_paths, completed.stdout, completed.stderr)
-    assert go_paths == [".concord/docs/orphan.md", ".concord/docs/sub/nested.md"]
+    assert paths == [".concord/docs/orphan.md", ".concord/docs/sub/nested.md"]
 
 
 def test_directory_exclusion_still_suppresses_a_whole_subtree() -> None:

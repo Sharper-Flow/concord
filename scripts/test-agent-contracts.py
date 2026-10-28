@@ -2803,16 +2803,15 @@ class CIContractRoutingTests(unittest.TestCase):
         direct = [step for step in workflow_job_steps("verify-adapter-rest") if "bun test adapter/opencode" in step["run"]]
         self.assertTrue(direct, "verify-adapter-rest must run the adapter suite directly")
         aggregate = workflow_job_block("verify-adapter")
-        self.assertEqual(job_needs(aggregate), ["verify-adapter-rest", "verify-adapter-dispatch", "verify-upstream-compatibility"])
+        self.assertEqual(job_needs(aggregate), ["verify-adapter-rest", "verify-adapter-dispatch"])
         self.assertRegex(aggregate, r"(?m)^ {4}if: always\(\)$")
         gate = workflow_job_steps("verify-adapter")
         self.assertEqual(len(gate), 1)
         self.assertEqual(gate[0]["env"], {
             "REST_RESULT": "${{ needs.verify-adapter-rest.result }}",
             "DISPATCH_RESULT": "${{ needs.verify-adapter-dispatch.result }}",
-            "COMPATIBILITY_RESULT": "${{ needs.verify-upstream-compatibility.result }}",
         })
-        self.assertEqual(gate[0]["run"].strip().splitlines(), ['test "$REST_RESULT" = success', 'test "$DISPATCH_RESULT" = success', 'test "$COMPATIBILITY_RESULT" = success'])
+        self.assertEqual(gate[0]["run"].strip().splitlines(), ['test "$REST_RESULT" = success', 'test "$DISPATCH_RESULT" = success'])
 
     def test_verify_tooling_runs_the_contract_selftest_directly(self):
         direct = [step for step in workflow_job_steps("verify-tooling") if "scripts/test-agent-contracts.py" in step["run"]]

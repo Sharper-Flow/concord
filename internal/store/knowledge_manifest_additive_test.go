@@ -8,6 +8,8 @@ import (
 	"sort"
 	"strings"
 	"testing"
+
+	"github.com/sharper-flow/concord/internal/payloadschema"
 )
 
 // additiveManifestBytes encodes a valid schema-1.3 manifest whose records,
@@ -129,7 +131,7 @@ func TestParseAdmitsAdditiveManifestFieldsAtAKnownSchema(t *testing.T) {
 	assertFailureKind(t, err, KindInvalidNoteProof)
 
 	duplicated := append([]byte(`{"schema_version":"1.3",`), additive[1:]...)
-	if err := rejectDuplicateJSONKeys(duplicated); err == nil {
+	if err := payloadschema.ValidateUniqueJSON(duplicated); err == nil {
 		t.Fatal("the duplicate-key fixture carries no duplicate key")
 	}
 	_, err = parseKnowledgeManifest(duplicated)

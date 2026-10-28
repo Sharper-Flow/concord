@@ -12,6 +12,8 @@ import (
 	"strconv"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/sharper-flow/concord/internal/payloadschema"
 )
 
 // The block has two parts: the producer observation, which records what the
@@ -792,7 +794,7 @@ func DecodeWorkerFailureAttribution(raw json.RawMessage) (*WorkerFailureAttribut
 	if !utf8.Valid(raw) {
 		return nil, workerFailureBoundFailure("failure_attribution bytes are not valid UTF-8")
 	}
-	if err := rejectDuplicateJSONKeys(raw); err != nil {
+	if err := payloadschema.ValidateUniqueJSON(raw); err != nil {
 		return nil, workerFailureBoundFailure("failure_attribution is not one closed JSON object with unique members: " + err.Error())
 	}
 	decoder := json.NewDecoder(bytes.NewReader(raw))

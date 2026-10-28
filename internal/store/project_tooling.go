@@ -8,6 +8,8 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+
+	"github.com/sharper-flow/concord/internal/payloadschema"
 )
 
 // projectToolingManifestPath is the per-project record of declared checks the
@@ -93,7 +95,7 @@ func ParseProjectToolingManifest(raw []byte) (*ProjectToolingManifest, error) {
 	if len(raw) > 65536 {
 		return nil, fmt.Errorf("tooling manifest exceeds 65536 bytes")
 	}
-	if err := rejectDuplicateJSONKeys(raw); err != nil {
+	if err := payloadschema.ValidateUniqueJSON(raw); err != nil {
 		return nil, err
 	}
 	if err := json.Unmarshal(raw, &document); err != nil {

@@ -5,6 +5,7 @@
 - **Scope:** Authored and generated files under `.concord/`; worker edit authority and its enforcement limits.
 - **Time zone:** Eastern Daylight Time (EDT)
 - **Approval:** Snowball coordinator, operator-delegated, 2026-10-10 01:08 EDT
+- **D5 Code Mode approval:** [Operator, 2026-10-28](https://linear.app/sharper-flow/issue/CON-1307#comment-875632b6-c2e1-4f57-9295-bd265f31f620).
 - **Related:** [CD-0006](CD-0006-concord-root-product-policy.md), [CD-0036](CD-0036-breaking-law-cutovers.md), [CD-0072](CD-0072-unguarded-trunk-file-writes.md), [CD-0159](CD-0159-authority-tier-for-product-law.md), and [development authority](../managed-development-authority.md).
 - **Preserves:** Product-law approval, revision identity, cutover, host ownership, and the existing lane capability registry.
 
@@ -74,9 +75,10 @@ active attempt, and its dispatched worktree. One attempt binds one host child.
 The registered lane capabilities determine a closed tool allowlist. Unknown
 tools refuse before execution. A selected-agent change cannot widen that list.
 
-The opaque Code Mode `execute` tool is denied to every lane. Nested MCP
-admission remains unproved. Enabling that tool requires host-path evidence
-that every nested call reaches the same capability ceiling before execution.
+Code Mode `execute` is admitted only on a host path for which native execution
+evidence proves that every nested MCP call reaches the same capability ceiling
+before execution. The adapter refuses `execute` on an unqualified or unknown
+running host version. Enabling `execute` grants no additional MCP capability.
 Direct local repository MCP tools must target the dispatched repository.
 A settling or retired attempt grants no further worker calls.
 
@@ -126,8 +128,13 @@ Host permission resolution and independent review remain separate evidence oblig
 - `python3 scripts/check-knowledge-index.py` checks record identity and content proofs; independent review checks approval and the actual source delta.
 - `bun test adapter/opencode/lane_capabilities.test.ts` exercises direct tool
   denials, worktree targeting, opening-packet identity, single-child binding,
-  agent changes, attempt retirement, and refusal of the opaque Code Mode
-  `execute` tool. It does not prove nested host-hook admission.
+  agent changes, attempt retirement, and refusal of Code Mode on unqualified
+  running hosts. `bun run adapter/opencode/lane_capabilities.native.case.ts`
+  exercises the real host's Task children and nested MCP hook path on the
+  qualified host version.
+  It proves permitted repository and public-source calls reach transport while
+  foreign-repository calls and tools outside the lane's capabilities do not.
+  Its core authorization is a fixture; it proves no Concord workflow result.
 - `go test ./internal/agent -run '^TestWorkerControl'` exercises the shared
   signed assertion framing, actual-child policy, revocation, and Product scope.
 - `go test ./internal/store -run '^(TestNativeWorkerControl|TestResolveWorkerControl)'`

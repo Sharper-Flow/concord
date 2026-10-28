@@ -1,4 +1,4 @@
-import { agentLanes, laneForIdentity, laneToolRequirements, type AgentLane } from "./generated-agent-lanes"
+import { agentLanes, laneForIdentity, laneMcpToolIDs, laneToolRequirements, type AgentLane } from "./generated-agent-lanes"
 import { dispatchDirectoryIdentityMismatch, dispatchWindows, type DispatchRecord, type DispatchWindows } from "./dispatch-window"
 import { defaultRunner, readExportOpeningPacket, readWorkerSessionBody, type DispatchRunner } from "./dispatch"
 import { repairingReview, reviewSubjectFailure } from "./worker_subject"
@@ -22,7 +22,7 @@ export type WorkerCapabilityContext = {
   lane: AgentLane
 }
 
-type Sessions = Pick<HostControlPlane, "sessionReader" | "taskScope" | "hasManagedParent">
+type Sessions = Pick<HostControlPlane, "sessionReader" | "taskScope" | "hasManagedParent" | "runningVersion">
 type Options = { sessions?: Sessions; windows?: DispatchWindows; subjectRunner?: DispatchRunner }
 
 export function isRecord(value: unknown): value is Record<string, unknown> {
@@ -50,6 +50,30 @@ export function createWorkerCapabilityGuard(options: Options = {}) {
   const unresolved = new Set<string>()
   // Only immutable host provenance is cached, never tool grants or attempt state.
   const nativeChildren = new Map<string, string>()
+  let codeModeHostQualified = false
+  const executions = new Map<string, Set<string>>()
+
+  function isNestedMcp(input: { sessionID: string; callID?: string }): boolean {
+    if (typeof input.callID !== "string") return false
+    for (const outer of executions.get(input.sessionID) ?? []) {
+      if (input.callID.startsWith(outer + "/") && /^[1-9][0-9]*$/.test(input.callID.slice(outer.length + 1))) return true
+    }
+    return false
+  }
+
+  function after(input: { tool: string; sessionID: string; callID: string }): void {
+    if (input.tool !== "execute") return
+    const active = executions.get(input.sessionID)
+    active?.delete(input.callID)
+    if (active?.size === 0) executions.delete(input.sessionID)
+  }
+
+  function event(value: unknown): void {
+    // A second prompt can emit session.error without stopping the running loop.
+    if (!isRecord(value) || !["session.idle", "session.deleted"].includes(String(value.type)) || !isRecord(value.properties)) return
+    const id = value.type === "session.deleted" && isRecord(value.properties.info) ? value.properties.info.id : value.properties.sessionID
+    if (typeof id === "string") executions.delete(id)
+  }
 
   async function opening(sessionID: string, parentSessionID: string, result: RouteResult, reader: SessionReader, signal: AbortSignal): Promise<{ kind: "native" } | { kind: "lane"; agent: string; body: string }> {
     if (nativeChildren.get(sessionID) === parentSessionID) return { kind: "native" }
@@ -160,7 +184,10 @@ export function createWorkerCapabilityGuard(options: Options = {}) {
     return { dispatch: record, parentSessionID, sessionID, lane }
   }
 
-  async function before(input: { tool: string; sessionID: string }, output: { args: Record<string, unknown> }): Promise<void> {
+  async function before(input: { tool: string; sessionID: string; callID?: string }, output: { args: Record<string, unknown> }): Promise<void> {
+    // Capture before authentication awaits: an outer settlement cannot turn a
+    // call that already entered through Code Mode into a direct plugin call.
+    const nestedMcp = isNestedMcp(input)
     if (roots.has(input.sessionID)) {
       if (roots.get(input.sessionID)) throw new WorkerCapabilityError("a Concord lane requires an active authorized attempt")
       return
@@ -168,8 +195,18 @@ export function createWorkerCapabilityGuard(options: Options = {}) {
     if (!windows.hasActiveAttempts() && !managedChildren.has(input.sessionID) && !unresolved.has(input.sessionID)) return
     const context = await authorize(input.sessionID)
     if (!context) return
+    if (nestedMcp && !(laneMcpToolIDs as readonly string[]).includes(input.tool)) {
+      throw new WorkerCapabilityError(`lane ${context.lane.id} does not grant MCP tool ${input.tool}`)
+    }
     if (!toolAllowedByCapabilities(context.lane.capabilities, input.tool)) {
       throw new WorkerCapabilityError(`lane ${context.lane.id} does not grant tool ${input.tool}`)
+    }
+    if (input.tool === "execute" && !codeModeHostQualified) {
+      // Only versions exercised by lane_capabilities.native.case.ts qualify.
+      // The bound client's health route identifies this host, not PATH's binary.
+      const version = await sessions.runningVersion()
+      if (version !== "1.18.35") throw new WorkerCapabilityError("Code Mode requires a qualified running host; nested capability admission is unproved for this version")
+      codeModeHostQualified = true
     }
     if (input.tool === "concord_worker_check") {
       const subjectFailure = await reviewSubjectFailure(context.lane, context.dispatch.packet, context.dispatch.workerDirectory, AbortSignal.timeout(5_000), options.subjectRunner ?? defaultRunner, "terminal")
@@ -178,7 +215,13 @@ export function createWorkerCapabilityGuard(options: Options = {}) {
     if (input.tool.startsWith("lgrep_") && dispatchDirectoryIdentityMismatch(context.dispatch.workerDirectoryIdentity, output.args.path)) {
       throw new WorkerCapabilityError("local repository tools require the dispatched repository path")
     }
+    if (input.tool === "execute") {
+      if (typeof input.callID !== "string" || !input.callID) throw new WorkerCapabilityError("Code Mode requires the native host call identity")
+      const active = executions.get(input.sessionID) ?? new Set<string>()
+      active.add(input.callID)
+      executions.set(input.sessionID, active)
+    }
   }
 
-  return { authorize, before, observe, isNativeChildOf }
+  return { authorize, before, after, event, isNestedMcp, observe, isNativeChildOf }
 }

@@ -135,19 +135,8 @@ func TestValidateErrorStillRefusesABrokenCoupling(t *testing.T) {
 	}
 }
 
-// TestPublicRecoveryHonorsEnforcedCouplings is the reproduction for issue #715.
-//
-// validateTypedError refuses an envelope whose error kind is coupled to a
-// recovery action but does not carry it. PublicRecovery chooses that action
-// from the store's proposed value, and the store proposes free operator prose
-// as newFailure's `recovery` argument. Prose never matches PublicRecovery's
-// allow-list, so control reaches its switch, which carries no case for the
-// coupled kinds, and the default returns "contact_operator".
-//
-// The producer and the validator therefore disagree, and the disagreement is
-// observable only at MarshalJSON time: the caller receives "operation recovery
-// coupling violated" as a transport failure in place of the typed refusal the
-// core decided, and with no operation_id to reconcile against.
+// Core refusals must remain serializable when the store proposes operator prose.
+// PublicRecovery and validateError must agree on every enforced coupling.
 func TestPublicRecoveryHonorsEnforcedCouplings(t *testing.T) {
 	t.Parallel()
 	for kind, want := range enforcedRecoveryCouplings {

@@ -66,10 +66,9 @@ func TestEnvelopeGoldenOutcomes(t *testing.T) {
 func TestMutationOKEnvelopeEmitsRequiredMetadataWhenEmpty(t *testing.T) {
 	t.Parallel()
 	// The generated envelope contract (contracts/agent-tool-envelope.schema.json,
-	// ok def) requires changed_refs and next_valid_intents on every mutation-tool
-	// ok response. Slice omitempty elides empty values, so a successful mutation
-	// with no follow-up intents serialized without the required keys and failed
-	// adapter contract validation while the effect had applied (#702).
+	// ok def) requires changed_refs and next_valid_intents even when empty.
+	// Slice omitempty would drop required arrays and make committed effects
+	// undeliverable through the adapter.
 	e := NewOKMutation(
 		NewBase("req-702", "concord_work_transition", "lifecycle"),
 		json.RawMessage(`{"changed_refs":[],"next_valid_intents":[]}`),

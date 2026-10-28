@@ -100,6 +100,14 @@ same change. The edited law renames the requirement and moves it to another
 section, but still requires the codec behavior. The author cites the law edit
 as the retirement that permits the removal.
 
+## unverified-earlier-retirement
+
+One candidate removes a codec and its tests and changes no law. Its description
+says an earlier change retired the requirement for the codec. The supplied
+material contains no retirement record, merged law revision or current law text
+that shows whether any law still requires the codec. The author asks review to
+accept the removal based only on the description.
+
 ## existing-check
 
 The changed law requires generated consumers to accept exactly the canonical

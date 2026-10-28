@@ -18,7 +18,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:19b5e43092a702494d4002ab507d396a8c72e38022b9dd3405390d25dfc5c9df",
+  "sha256": "sha256:c509b669782640b6087054c940b072dbbf68662c62d937aeabc51a85646a3f51",
   "status": "accepted",
   "summary": "Typed dispatch authorizes one coordinator-issued native Task and returns its exact lane and attempt reference; it queues nothing and launches no worker. The coordinator issues that one foreground Task, and the adapter binds the recorded packet only from the requesting session with the matching lane and attempt identifier, admitting no resume, background, or command variant. Host permission, card, child session, cancellation, and model selection stay native. Ordinary host Tasks from callers with no managed parent retain host permissions and create no Concord evidence; an enrolled caller resumes only its own originally native children, and managed descendants cannot nest Tasks. Completion reads the host child, derives report identity, and settles terminal events through the retained call identity; a denial before child creation retains the consumed attempt for existing recovery. Lanes do not own workflow state.",
   "tags": [

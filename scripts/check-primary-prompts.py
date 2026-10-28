@@ -110,7 +110,7 @@ RTE_REQUIRED_PHRASES = (
     "Hold this assignment in a Linear project",
     "Add each assigned delivery issue that has no project",
     "an issue in another project stays there, and the coordination project's description links it",
-    "mark it completed when its last issue closes",
+    "mark it completed when the last issue it holds closes; linked issues finish in their own projects",
     "Never create or reuse an issue as a coordination record",
     "keep the assigned scope in the project description",
     "Post material cross-stream dependencies, sequencing decisions, and changes to RTE directives as project status updates",

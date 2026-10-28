@@ -80,10 +80,11 @@ Establish scope once before the first pass. Reuse an explicit assignment; if
 none exists, propose a scope from live inventory and ask the operator to confirm.
 Hold this assignment in a Linear project. Reuse the project that already holds
 it, or create one scoped to the authorized assignment. Add each assigned
-delivery issue that has no project; an issue in another project stays there,
-and the coordination project's description links it. The project needs no
-blocking links: mark it completed when its last issue closes. Never create or
-reuse an issue as a coordination record.
+delivery issue that has no project; an issue in another project stays there, and
+the coordination project's description links it. The project needs no blocking
+links: mark it completed when the last issue it holds closes; linked issues
+finish in their own projects. Never create or reuse an issue as a coordination
+record.
 
 Build context from live host sessions, open pull requests, and the assigned
 Projects' in-progress Linear issues. Identify new sessions by their current item

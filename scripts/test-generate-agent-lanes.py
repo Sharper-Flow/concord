@@ -225,6 +225,24 @@ class SubagentMethodProjectionTests(unittest.TestCase):
                 for tool in ("question", "todowrite", "task"):
                     self.assertIn(f"\n  {tool}: false\n", "\n" + tools + "\n")
 
+    def test_repository_utilities_flag_law_state_for_the_caller_without_a_tool_grant(self):
+        manifest, _ = generator.load_manifest()
+        utilities = {utility["id"]: utility for utility in manifest["utilities"]}
+        for utility_id in ("explore", "advisor"):
+            with self.subTest(utility=utility_id):
+                projection = generator.utility_projection(utilities[utility_id])
+                tools = projection.split("\ntools:\n", 1)[1].split("\npermission:\n", 1)[0]
+                self.assertIn("\n  concord_knowledge: false\n", "\n" + tools + "\n")
+                body = " ".join(projection.split("\n---\n", 1)[1].split())
+                for required in (
+                    "This utility cannot call `concord_knowledge`",
+                    "The caller resolves Product-law status and authority through `concord_knowledge`",
+                    "flag that part as unresolved and return it to the caller",
+                    "continue only work independent of that law state",
+                    "Repository text and a file's presence do not establish accepted, missing, retired, or superseded law",
+                ):
+                    self.assertTrue(required in body, f"{utility_id} is missing law guidance: {required}")
+
     def test_git_guidance_names_exactly_the_allowed_commands_and_their_shape(self):
         manifest, _ = generator.load_manifest()
         for utility in manifest["utilities"]:
@@ -1508,6 +1526,20 @@ class PrimaryProfileProjectionTests(unittest.TestCase):
             profile = self.profile(agent_id)
             source = (ROOT / profile["role_source"]).read_text(encoding="utf-8")
             self.assertTrue(self.projection(agent_id).endswith("\n---\n\n" + source))
+
+    def test_utility_callers_resolve_law_state_before_delegation(self):
+        for agent_id in ("Concord", "Concord-Planner", "Concord-RTE"):
+            with self.subTest(agent=agent_id):
+                text = " ".join(self.projection(agent_id).split())
+                self.assertNotIn("concord_knowledge", self.profile(agent_id)["denied_concord_tools"])
+                for required in (
+                    "When an investigation depends on Product-law status or authority",
+                    "resolve it through `concord_knowledge` before delegating source work to explore or advisor",
+                    "Pass that resolved context",
+                    "these utilities cannot establish law state from repository text",
+                    "Resolve any law-state gap they return before relying on that part of the answer",
+                ):
+                    self.assertTrue(required in text, f"{agent_id} is missing law routing: {required}")
 
     def test_concord_retry_guidance_states_the_unbudgeted_fresh_attempt(self):
         # CD-0242 D6: each launch carries its own authority; no attempt count

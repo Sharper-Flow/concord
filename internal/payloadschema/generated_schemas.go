@@ -4869,6 +4869,94 @@ const GeneratedPayloadSchemaDocument = `{
       ],
       "type": "object"
     },
+    "native_git_metadata": {
+      "additionalProperties": false,
+      "description": "Producer-observed complete candidate and pinned-recipe Git views. Genuine ancestor tag identities only; no ambient repository access. The descriptor and Git executable fingerprint join through build_environment_digest; metadata files also enter the sealed input digest. Absence preserves the metadata-free route.",
+      "properties": {
+        "candidate": {
+          "$ref": "#/$defs/native_git_view"
+        },
+        "mode": {
+          "const": "candidate_ancestry_v1",
+          "type": "string"
+        },
+        "recipe": {
+          "$ref": "#/$defs/native_git_view"
+        }
+      },
+      "required": [
+        "mode",
+        "candidate",
+        "recipe"
+      ],
+      "type": "object"
+    },
+    "native_git_tag": {
+      "additionalProperties": false,
+      "properties": {
+        "object": {
+          "maxLength": 64,
+          "minLength": 40,
+          "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$",
+          "type": "string"
+        },
+        "peeled": {
+          "maxLength": 64,
+          "minLength": 40,
+          "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$",
+          "type": "string"
+        },
+        "ref": {
+          "maxLength": 256,
+          "pattern": "^refs/tags/",
+          "type": "string"
+        }
+      },
+      "required": [
+        "ref",
+        "object",
+        "peeled"
+      ],
+      "type": "object"
+    },
+    "native_git_view": {
+      "additionalProperties": false,
+      "properties": {
+        "commit": {
+          "maxLength": 64,
+          "minLength": 40,
+          "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$",
+          "type": "string"
+        },
+        "object_format": {
+          "enum": [
+            "sha1",
+            "sha256"
+          ],
+          "type": "string"
+        },
+        "tags": {
+          "items": {
+            "$ref": "#/$defs/native_git_tag"
+          },
+          "maxItems": 4096,
+          "type": "array"
+        },
+        "tree": {
+          "maxLength": 64,
+          "minLength": 40,
+          "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "object_format",
+        "commit",
+        "tree",
+        "tags"
+      ],
+      "type": "object"
+    },
     "native_oracle_control_bundle": {
       "additionalProperties": false,
       "properties": {
@@ -6134,6 +6222,11 @@ const GeneratedPayloadSchemaDocument = `{
                     "required": [
                       "case_to_witness_map"
                     ]
+                  },
+                  {
+                    "required": [
+                      "git_metadata"
+                    ]
                   }
                 ]
               },
@@ -6494,6 +6587,9 @@ const GeneratedPayloadSchemaDocument = `{
                   "minItems": 1,
                   "type": "array"
                 },
+                "git_metadata": {
+                  "$ref": "#/$defs/native_git_metadata"
+                },
                 "input_manifest_digest": {
                   "$ref": "#/$defs/native_oracle_digest"
                 },
@@ -6766,6 +6862,9 @@ const GeneratedPayloadSchemaDocument = `{
               "minItems": 1,
               "type": "array"
             },
+            "git_metadata": {
+              "$ref": "#/$defs/native_git_metadata"
+            },
             "input_manifest_digest": {
               "$ref": "#/$defs/native_oracle_digest"
             },
@@ -6988,6 +7087,11 @@ const GeneratedPayloadSchemaDocument = `{
                   {
                     "required": [
                       "case_to_witness_map"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "git_metadata"
                     ]
                   }
                 ]
@@ -7426,6 +7530,9 @@ const GeneratedPayloadSchemaDocument = `{
                   "maxItems": 32,
                   "minItems": 1,
                   "type": "array"
+                },
+                "git_metadata": {
+                  "$ref": "#/$defs/native_git_metadata"
                 },
                 "input_manifest_digest": {
                   "$ref": "#/$defs/native_oracle_digest"
@@ -7760,6 +7867,9 @@ const GeneratedPayloadSchemaDocument = `{
               "maxItems": 32,
               "minItems": 1,
               "type": "array"
+            },
+            "git_metadata": {
+              "$ref": "#/$defs/native_git_metadata"
             },
             "input_manifest_digest": {
               "$ref": "#/$defs/native_oracle_digest"

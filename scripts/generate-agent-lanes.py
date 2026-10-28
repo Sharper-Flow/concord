@@ -1205,6 +1205,17 @@ UTILITY_TOOL_KEYS = (
 )
 
 
+UTILITY_LAW_BOUNDARY = """## Product-law questions
+
+This utility cannot call `concord_knowledge`. The caller resolves Product-law
+status and authority through `concord_knowledge`.
+When the answer depends on unresolved law state, flag that part as unresolved
+and return it to the caller; continue only work independent of that law state.
+Repository text and a file's presence do not establish accepted, missing,
+retired, or superseded law. Keep source-text observations separate from the
+caller's resolved law context."""
+
+
 UTILITY_BODY_TEMPLATES = {
     "explore": """This is a read-only repository exploration utility. Return a facts packet as
 plain text for the parent. The packet is not lane evidence and carries no
@@ -1222,6 +1233,8 @@ symbols to retrieve. Discover those through related searches and source reads.
 For example, trace how cancellation reaches a worker and where it can stop.
 Reading a named file or locating an exact symbol is targeted retrieval the
 parent can do directly, not a reason to start an investigation.
+
+{law_boundary}
 
 ## Method
 
@@ -1328,6 +1341,8 @@ it also includes its own conclusion, its preferred option, or a ranking of
 options, report that the request is refused: an opinion formed beside a
 supplied answer anchors to it, and the parent asked for an independent one.
 
+{law_boundary}
+
 ## Method
 
 1. Restate the problem in your own words before you reason about it.
@@ -1371,7 +1386,7 @@ def utility_projection(utility: dict) -> str:
     minutes, seconds = divmod(utility["time_seconds_max"], 60)
     duration = f"{minutes} minutes" if seconds == 0 else f"{utility['time_seconds_max']} seconds"
     git_commands = ", ".join(f"`{command.removesuffix(' *')}`" for command in utility["allowed_commands"])
-    body_text = body.format(duration=duration, git_commands=git_commands).rstrip()
+    body_text = body.format(duration=duration, git_commands=git_commands, law_boundary=UTILITY_LAW_BOUNDARY).rstrip()
     return f"""---
 description: Concord {utility['id']} utility — {utility['purpose']}
 mode: subagent

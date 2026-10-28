@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-const ManifestDigest = "sha256:0ee4b48717521d859f3d9b640798b688fe91488fcbbda668f612b8d77cdd7dab"
+const ManifestDigest = "sha256:e06c74bd48e1fc9d4318b45434f804e23176d04565c5d25aa2fb851a0839267c"
 
 type OperationKind string
 
@@ -194,6 +194,9 @@ var GeneratedPayloadRules = map[string]GeneratedPayloadRule{
 	"mutation_changed_ref":                                  {Required: []string{"entity_kind", "id", "version"}, Properties: []string{"entity_kind", "id", "version"}},
 	"mutation_projection_reference_result":                  {Required: []string{"projection_reference"}, Properties: []string{"projection_reference"}},
 	"mutation_result":                                       {Required: []string{"changed_refs", "next_valid_intents"}, Properties: []string{"changed_refs", "next_valid_intents", "work_pins", "operation_id", "worker_packet_digest", "assignment_group", "retry_attempt_id", "retry_worker_packet", "worker_worktree", "delivery", "vacate_target", "worker_recovery"}},
+	"native_git_metadata":                                   {Required: []string{"mode", "candidate", "recipe"}, Properties: []string{"mode", "candidate", "recipe"}},
+	"native_git_tag":                                        {Required: []string{"ref", "object", "peeled"}, Properties: []string{"ref", "object", "peeled"}},
+	"native_git_view":                                       {Required: []string{"object_format", "commit", "tree", "tags"}, Properties: []string{"object_format", "commit", "tree", "tags"}},
 	"native_oracle_control_bundle":                          {Required: []string{"owner", "control", "cases"}, Properties: []string{"owner", "control", "cases"}},
 	"native_oracle_execute_request":                         {Required: []string{"phase", "attempt_id", "attempt_epoch", "worker_packet_digest", "worker_job_binding", "control_id", "preparation_run_ref"}, Properties: []string{"phase", "attempt_id", "attempt_epoch", "worker_packet_digest", "worker_job_binding", "control_id", "preparation_run_ref"}},
 	"native_oracle_file":                                    {Required: []string{"path", "blob_oid", "sha256"}, Properties: []string{"path", "blob_oid", "sha256"}},

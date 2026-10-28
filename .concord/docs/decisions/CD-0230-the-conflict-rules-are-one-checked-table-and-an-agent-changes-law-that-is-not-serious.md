@@ -216,6 +216,20 @@ Public reads expose current context claims, within the existing context bounds
 and selection lifecycle, not a permanent review history. Missing source or
 ordering proof remains unproved, never compliant by default.
 
+P1 and P3 use D2's recorded-review method.
+`internal/store.TestReviewCompletionRetainsAppliedRuleContextClaims` also retains
+P1/P2/P3 claims; the same source-binding controls protect their inputs.
+`scripts/testdata/conflict-review-law-cases.md` supplies ownership, cheapest-means,
+and missing-evidence cases for independent application of the existing method.
+Review judges the law's behavior owner rather than a declared home name, and
+whether the chosen means catches the relevant violation rather than merely
+resolving an anchor. P3 permits adequate guidance for an ordinary law; D2's ban
+on prose-only mechanisms governs the conflict-rule table. The cases' source
+labels and recorded sizes are fictional inputs, not real operation receipts or
+an assessment of the delivery's size. Carrier tests do not prove those judgments.
+The delivery's recorded independent review supplies the application evidence;
+the method adds no runtime gate or ad-hoc-route enforcement.
+
 D3's live recorder retains readable current settlement evidence.
 `internal/agent.TestConflictObservationHistoryRoundTrip` records then reads
 the full rule, effective size and outcome through the existing history read,
@@ -236,7 +250,7 @@ pointer, not the remaining enforcement and proof assigned below:
 
 | Clauses | Open owner and limit of delivered proof |
 |---|---|
-| P1, P2, P3; D3's letter-versus-intent conflict | [CON-1097](https://linear.app/sharper-flow/issue/CON-1097). Knowledge-index, document-contract and law-coverage validators check declared homes and evidence anchors; they do not establish semantic ownership, law-before-code retirement, or every changed law's cheapest adequate enforcement. |
+| P2; D3's letter-versus-intent conflict | [CON-1097](https://linear.app/sharper-flow/issue/CON-1097). The law-side review cases expose, but do not settle, how P2's first/then ordering relates to same-change retirement under [CD-0042 D3](CD-0042-pre-go-live-single-path.md#d3-superseded-development-paths-are-deleted) and same-change citation repair under [CD-0221 D4](CD-0221-accepted-law-cites-the-checked-revision.md#d4-keep-amendments-and-proof-together). A listed edit order or resolving anchor does not establish a governing disposition or law-before-code retirement. The conflict is raised under D3/R3; P2 remains outstanding. |
 | R2, P4, P6, A2 rows 2 and 4 | [CON-1098](https://linear.app/sharper-flow/issue/CON-1098). `internal/agent.TestResolveOverlapDependsOnRecordsDirectedSequencingWithoutConsent` proves directed work-item sequencing, not selection of the shared-Domain step or release when the other change completes it. Shared stages do not by themselves prove boundary-change or shared-part-variant handling. |
 | P7, P9, P11 | [CON-1099](https://linear.app/sharper-flow/issue/CON-1099). Shared parts alone do not prove second-occurrence handling, in-place part repair, or the rule's follow-up outcome. |
 | D4 and D5; CD-0243 runtime alignment | [CON-1100](https://linear.app/sharper-flow/issue/CON-1100). Recorded review does not establish prevention of external data loss, automatic six-class inference, or enforcement on the ad-hoc route. Contract-time consent and worktree waivers do not establish informed approval of a specific loss. Classifications, carrier tests and the selected synthetic reviews do not prove whole-record runtime alignment. |

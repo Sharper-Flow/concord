@@ -80,9 +80,9 @@ func TestReviewCompletionRetainsAppliedRuleContextClaims(t *testing.T) {
 		t.Fatalf("dispatch lost review producer attribution: %+v", dispatched)
 	}
 	claims := []WorkerContextFinding{}
-	for _, rule := range []string{"S", "P10", "A2-9", "P8"} {
+	for _, rule := range []string{"S", "P10", "A2-9", "P8", "P1", "P2", "P3"} {
 		claims = append(claims, WorkerContextFinding{
-			Kind: "observation", Statement: "conflict-rule:" + rule + ": synthetic carrier witness only; compliance remains unproved without the recorded size and pre-action source evidence.",
+			Kind: "observation", Statement: "conflict-rule:" + rule + ": synthetic carrier witness only; compliance remains unproved without the recorded size and rule-specific source evidence.",
 			SubjectRef: subject, EvidenceRefs: []string{dispatch.EventID, anchor.FindingID}, DomainID: workContextTestChild,
 		})
 	}
@@ -91,7 +91,7 @@ func TestReviewCompletionRetainsAppliedRuleContextClaims(t *testing.T) {
 	evidence := reportedLaneEvidenceForTest(lane, review)
 	for i := range evidence {
 		if evidence[i].Obligation == "contract_findings" {
-			evidence[i].Detail = "Applied-rule conclusions are in context_findings[0..3]."
+			evidence[i].Detail = fmt.Sprintf("Applied-rule conclusions are in context_findings[0..%d].", len(claims)-1)
 		}
 	}
 	completion := Event{

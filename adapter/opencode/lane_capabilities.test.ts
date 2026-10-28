@@ -151,7 +151,7 @@ test("nested MCP names cannot impersonate plugin or native tools", async () => {
   }
 })
 
-test("only admitted native executions register nested identities, and terminal events clear them", async () => {
+test("admitted native identities survive session errors and clear at settlement", async () => {
   const unknown = await fixture()
   unknown.state.hostVersion = null
   await expect(unknown.before("execute", {}, "child", "unqualified")).rejects.toThrow("qualified running host")
@@ -161,7 +161,12 @@ test("only admitted native executions register nested identities, and terminal e
     await expect(f.guard.before({ tool: "execute", sessionID: "child" }, { args: {} })).rejects.toThrow("native host call identity")
     await f.before("execute", {}, "child", "outer")
     f.guard.event({ type, properties: type === "session.deleted" ? { info: { id: "child" } } : { sessionID: "child" } })
-    expect(f.guard.isNestedMcp({ sessionID: "child", callID: "outer/1" })).toBe(false)
+    expect(f.guard.isNestedMcp({ sessionID: "child", callID: "outer/1" })).toBe(type === "session.error")
+    if (type === "session.error") {
+      await expect(f.before("concord_worker_read", {}, "child", "outer/1")).rejects.toThrow("does not grant MCP tool")
+      f.guard.after({ tool: "execute", sessionID: "child", callID: "outer" })
+      expect(f.guard.isNestedMcp({ sessionID: "child", callID: "outer/1" })).toBe(false)
+    }
   }
 })
 

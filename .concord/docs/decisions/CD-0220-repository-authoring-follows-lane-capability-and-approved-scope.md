@@ -129,9 +129,9 @@ Host permission resolution and independent review remain separate evidence oblig
 - `bun test adapter/opencode/lane_capabilities.test.ts` exercises direct tool
   denials, worktree targeting, opening-packet identity, single-child binding,
   agent changes, attempt retirement, and refusal of Code Mode on unqualified
-  running hosts.
-- `bun adapter/opencode/lane_capabilities.native.case.ts` exercises the real
-  host's Task children and nested MCP hook path on the qualified host version.
+  running hosts. `bun run adapter/opencode/lane_capabilities.native.case.ts`
+  exercises the real host's Task children and nested MCP hook path on the
+  qualified host version.
   It proves permitted repository and public-source calls reach transport while
   foreign-repository calls and tools outside the lane's capabilities do not.
   Its core authorization is a fixture; it proves no Concord workflow result.

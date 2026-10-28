@@ -69,7 +69,8 @@ export function createWorkerCapabilityGuard(options: Options = {}) {
   }
 
   function event(value: unknown): void {
-    if (!isRecord(value) || !["session.idle", "session.error", "session.deleted"].includes(String(value.type)) || !isRecord(value.properties)) return
+    // A second prompt can emit session.error without stopping the running loop.
+    if (!isRecord(value) || !["session.idle", "session.deleted"].includes(String(value.type)) || !isRecord(value.properties)) return
     const id = value.type === "session.deleted" && isRecord(value.properties.info) ? value.properties.info.id : value.properties.sessionID
     if (typeof id === "string") executions.delete(id)
   }

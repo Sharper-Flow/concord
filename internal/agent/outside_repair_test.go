@@ -13,6 +13,7 @@ import (
 
 	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
+	"github.com/sharper-flow/concord/internal/workflowproof"
 )
 
 // Tests use an authenticated-command fake and a temporary store, never live writes.
@@ -323,6 +324,30 @@ func outsideSuccessfulChecks() []map[string]string {
 	}
 }
 
+func outsideCollectProof(service *Service, issueKey string) (workflowproof.Evidence, agentcontract.Envelope) {
+	evidence, refusal := workflowproof.Collect(context.Background(), workflowproof.Request{
+		Repository: outsideFakeRepository, PullRequests: []int64{outsideFakeIssueNumber},
+		ReleaseTag: outsideFakeTag, LinearIssueKey: issueKey, AuthorityRef: "agent/fixture",
+		Command: (runtime{Authority: service}).outsideRepairCommand, Now: fixedTime,
+	})
+	return evidence, outsideRepairProofRefusal(agentcontract.Envelope{}, refusal)
+}
+
+func outsideCollectPullRequest(t *testing.T, service *Service, issueKey string) (workflowproof.PullRequestEvidence, agentcontract.Envelope) {
+	t.Helper()
+	evidence, refusal := outsideCollectProof(service, issueKey)
+	if refusal.Error != nil {
+		if len(evidence.PullRequests) != 0 {
+			t.Fatalf("refused collector returned a partial receipt: %+v", evidence)
+		}
+		return workflowproof.PullRequestEvidence{}, refusal
+	}
+	if len(evidence.PullRequests) != 1 {
+		t.Fatalf("collector returned %d pull requests, want one", len(evidence.PullRequests))
+	}
+	return evidence.PullRequests[0], refusal
+}
+
 func TestOutsideRepairCollectorRejectsIncompleteProof(t *testing.T) {
 	rulesEndpoint := "repos/" + outsideFakeRepository + "/rules/branches/main?per_page=100"
 	runEndpoint := "repos/" + outsideFakeRepository + "/actions/runs/9000000001"
@@ -356,7 +381,7 @@ func TestOutsideRepairCollectorRejectsIncompleteProof(t *testing.T) {
 			test.change(fake)
 			service := &Service{}
 			installOutsideBoundary(t, service, fake)
-			evidence, refusal := (runtime{Authority: service}).selectedOutsideRepairPullRequest(context.Background(), agentcontract.Envelope{}, outsideFakeRepository, outsideFakeIssueNumber, outsideFakeIssueKey)
+			evidence, refusal := outsideCollectPullRequest(t, service, outsideFakeIssueKey)
 			if refusal.Error == nil || refusal.Error.Kind != "missing_evidence" || len(evidence.RequiredChecks) != 0 {
 				t.Fatalf("collector accepted incomplete proof: %+v / %+v", evidence, refusal.Error)
 			}
@@ -368,7 +393,7 @@ func TestOutsideRepairCollectorReceiptUsesFetchedRun(t *testing.T) {
 	fake := &fakeOutsideBoundary{checks: outsideSuccessfulChecks()}
 	service := &Service{}
 	installOutsideBoundary(t, service, fake)
-	evidence, refusal := (runtime{Authority: service}).selectedOutsideRepairPullRequest(context.Background(), agentcontract.Envelope{}, outsideFakeRepository, outsideFakeIssueNumber, outsideFakeIssueKey)
+	evidence, refusal := outsideCollectPullRequest(t, service, outsideFakeIssueKey)
 	if refusal.Error != nil || len(evidence.RequiredChecks) != 2 {
 		t.Fatalf("collector: %+v / %+v", evidence, refusal.Error)
 	}
@@ -500,7 +525,7 @@ func TestOutsideRepairCollectorAuthenticatesEverySurface(t *testing.T) {
 			overrideOutsideAPI(t, fake, test.endpoint, test.change)
 			service := &Service{}
 			installOutsideBoundary(t, service, fake)
-			_, refusal := (runtime{Authority: service}).selectedOutsideRepairPullRequest(context.Background(), agentcontract.Envelope{}, outsideFakeRepository, outsideFakeIssueNumber, outsideFakeIssueKey)
+			_, refusal := outsideCollectPullRequest(t, service, outsideFakeIssueKey)
 			assertOutsideRefusedWith(t, refusal, test.name, "missing_evidence")
 		})
 	}
@@ -524,7 +549,7 @@ func TestOutsideRepairCollectorCompletePaginationAndRulesUnion(t *testing.T) {
 	})
 	service := &Service{}
 	installOutsideBoundary(t, service, fake)
-	evidence, refusal := (runtime{Authority: service}).selectedOutsideRepairPullRequest(context.Background(), agentcontract.Envelope{}, outsideFakeRepository, outsideFakeIssueNumber, outsideFakeIssueKey)
+	evidence, refusal := outsideCollectPullRequest(t, service, outsideFakeIssueKey)
 	if refusal.Error != nil || len(evidence.RequiredChecks) != 3 {
 		t.Fatalf("pagination/union: %+v / %+v", evidence, refusal.Error)
 	}
@@ -544,7 +569,7 @@ func TestOutsideRepairCollectorRulesetOnlyWithExplicitClassicAbsence(t *testing.
 	fake.apiOutputs["repos/"+outsideFakeRepository+"/rules/branches/main?per_page=100"] = `[[{"type":"required_status_checks","parameters":{"required_status_checks":[{"context":"ci/build","integration_id":15368},{"context":"ci/lint","integration_id":15368}]}}]]`
 	service := &Service{}
 	installOutsideBoundary(t, service, fake)
-	evidence, refusal := (runtime{Authority: service}).selectedOutsideRepairPullRequest(context.Background(), agentcontract.Envelope{}, outsideFakeRepository, outsideFakeIssueNumber, outsideFakeIssueKey)
+	evidence, refusal := outsideCollectPullRequest(t, service, outsideFakeIssueKey)
 	if refusal.Error != nil || len(evidence.RequiredChecks) != 2 {
 		t.Fatalf("ruleset-only: %+v / %+v", evidence, refusal.Error)
 	}
@@ -566,7 +591,7 @@ func TestOutsideRepairCollectorNewestDuplicateAndJobURL(t *testing.T) {
 			}
 			service := &Service{}
 			installOutsideBoundary(t, service, fake)
-			evidence, refusal := (runtime{Authority: service}).selectedOutsideRepairPullRequest(context.Background(), agentcontract.Envelope{}, outsideFakeRepository, outsideFakeIssueNumber, outsideFakeIssueKey)
+			evidence, refusal := outsideCollectPullRequest(t, service, outsideFakeIssueKey)
 			if refusal.Error != nil || len(evidence.RequiredChecks) != 2 || evidence.RequiredChecks[0].URL != "https://github.com/"+outsideFakeRepository+"/actions/runs/9000000001" {
 				t.Fatalf("newest check/job binding: %+v / %+v", evidence, refusal.Error)
 			}
@@ -596,7 +621,7 @@ func TestOutsideRepairCollectorDuplicateOrderingRefusesNewestFailure(t *testing.
 			}
 			service := &Service{}
 			installOutsideBoundary(t, service, fake)
-			_, refusal := (runtime{Authority: service}).selectedOutsideRepairPullRequest(context.Background(), agentcontract.Envelope{}, outsideFakeRepository, outsideFakeIssueNumber, outsideFakeIssueKey)
+			_, refusal := outsideCollectPullRequest(t, service, outsideFakeIssueKey)
 			assertOutsideRefusedWith(t, refusal, test.name, "missing_evidence")
 		})
 	}
@@ -687,11 +712,15 @@ func TestOutsideRepairCanonicalRepositoryAcceptsMixedCase(t *testing.T) {
 	fake := &fakeOutsideBoundary{checks: outsideSuccessfulChecks()}
 	fake.canonicalNameWithOwner = "Outside-Fixture/concord"
 	fake.canonicalURL = "https://github.com/Outside-Fixture/concord"
+	fake.releaseJSON = fmt.Sprintf(`{"tagName":"%s","isDraft":false,"isPrerelease":false,"url":"https://github.com/%s/releases/tag/%s","publishedAt":"2026-08-07T11:00:00Z"}`, outsideFakeTag, fake.canonicalNameWithOwner, outsideFakeTag)
 	service := &Service{}
 	installOutsideBoundary(t, service, fake)
-	_, refusal := (runtime{Authority: service}).outsideRepairCanonicalRepository(context.Background(), agentcontract.Envelope{}, outsideFakeRepository)
+	evidence, refusal := outsideCollectProof(service, outsideFakeIssueKey)
 	if refusal.Error != nil {
 		t.Fatalf("mixed-case canonical refused: %+v", refusal.Error)
+	}
+	if evidence.Repository != fake.canonicalNameWithOwner {
+		t.Fatalf("canonical casing changed: %+v", evidence)
 	}
 }
 
@@ -778,7 +807,7 @@ func TestOutsideRepairCollectorClassicDeploymentEnforcementFailsClosed(t *testin
 			overrideOutsideAPI(t, fake, "graphql", test.change)
 			service := &Service{}
 			installOutsideBoundary(t, service, fake)
-			evidence, refusal := (runtime{Authority: service}).selectedOutsideRepairPullRequest(context.Background(), agentcontract.Envelope{}, outsideFakeRepository, outsideFakeIssueNumber, outsideFakeIssueKey)
+			evidence, refusal := outsideCollectPullRequest(t, service, outsideFakeIssueKey)
 			if test.refuse {
 				assertOutsideRefusedWith(t, refusal, test.name, "missing_evidence")
 				if len(evidence.RequiredChecks) != 0 {
@@ -801,7 +830,7 @@ func TestOutsideRepairCollectorClassicDeploymentEnforcementFailsClosed(t *testin
 // workflow run stay distinguishable, and the receipt names the exact attempt
 // that passed, so a later rerun cannot rewrite what it proves.
 func TestOutsideRepairCollectorReceiptPreservesNativeIdentities(t *testing.T) {
-	receiptFields := func(t *testing.T, check store.OutsideRepairRequiredCheck) map[string]any {
+	receiptFields := func(t *testing.T, check workflowproof.RequiredCheck) map[string]any {
 		t.Helper()
 		encoded, err := json.Marshal(check)
 		if err != nil {
@@ -825,11 +854,11 @@ func TestOutsideRepairCollectorReceiptPreservesNativeIdentities(t *testing.T) {
 			t.Fatalf("%s job_id = %v, want %d: %v", what, fields["job_id"], jobID, fields)
 		}
 	}
-	collect := func(t *testing.T, fake *fakeOutsideBoundary) store.OutsideRepairPullRequestEvidence {
+	collect := func(t *testing.T, fake *fakeOutsideBoundary) workflowproof.PullRequestEvidence {
 		t.Helper()
 		service := &Service{}
 		installOutsideBoundary(t, service, fake)
-		evidence, refusal := (runtime{Authority: service}).selectedOutsideRepairPullRequest(context.Background(), agentcontract.Envelope{}, outsideFakeRepository, outsideFakeIssueNumber, outsideFakeIssueKey)
+		evidence, refusal := outsideCollectPullRequest(t, service, outsideFakeIssueKey)
 		if refusal.Error != nil {
 			t.Fatalf("collector refused: %+v", refusal.Error)
 		}
@@ -886,7 +915,7 @@ func TestOutsideRepairBenignRuleTypesStillPass(t *testing.T) {
 			fake.apiOutputs = map[string]string{rulesEndpoint: fmt.Sprintf(`[[{"type":%q}]]`, ruleType)}
 			service := &Service{}
 			installOutsideBoundary(t, service, fake)
-			evidence, refusal := (runtime{Authority: service}).selectedOutsideRepairPullRequest(context.Background(), agentcontract.Envelope{}, outsideFakeRepository, outsideFakeIssueNumber, outsideFakeIssueKey)
+			evidence, refusal := outsideCollectPullRequest(t, service, outsideFakeIssueKey)
 			if refusal.Error != nil || len(evidence.RequiredChecks) != 2 {
 				t.Fatalf("benign rule %s: %+v / %+v", ruleType, evidence, refusal.Error)
 			}
@@ -918,7 +947,7 @@ func TestOutsideRepairCollectorExactLinearToken(t *testing.T) {
 			fake := &fakeOutsideBoundary{checks: outsideSuccessfulChecks(), prBody: body}
 			service := &Service{}
 			installOutsideBoundary(t, service, fake)
-			_, refusal := (runtime{Authority: service}).selectedOutsideRepairPullRequest(context.Background(), agentcontract.Envelope{}, outsideFakeRepository, outsideFakeIssueNumber, "CON-86")
+			_, refusal := outsideCollectPullRequest(t, service, "CON-86")
 			if refusal.Error == nil {
 				t.Fatalf("body %q satisfied CON-86", body)
 			}
@@ -932,7 +961,7 @@ func TestOutsideRepairCollectorAcceptsExactLinearToken(t *testing.T) {
 			fake := &fakeOutsideBoundary{checks: outsideSuccessfulChecks(), prBody: body}
 			service := &Service{}
 			installOutsideBoundary(t, service, fake)
-			_, refusal := (runtime{Authority: service}).selectedOutsideRepairPullRequest(context.Background(), agentcontract.Envelope{}, outsideFakeRepository, outsideFakeIssueNumber, "CON-86")
+			_, refusal := outsideCollectPullRequest(t, service, "CON-86")
 			if refusal.Error != nil {
 				t.Fatalf("exact token refused: %+v", refusal.Error)
 			}
@@ -947,12 +976,23 @@ func TestOutsideRepairTagRejectsNonCommitObject(t *testing.T) {
 				continue
 			}
 			t.Run(fmt.Sprintf("annotated=%t/%s", annotated, kind), func(t *testing.T) {
-				fake := &fakeOutsideBoundary{annotatedTag: annotated, tagObjectType: kind}
+				fake := &fakeOutsideBoundary{checks: outsideSuccessfulChecks(), annotatedTag: annotated, tagObjectType: kind}
 				service := &Service{}
 				installOutsideBoundary(t, service, fake)
-				sha, refusal := (runtime{Authority: service}).outsideRepairTagCommit(context.Background(), agentcontract.Envelope{}, outsideFakeRepository, outsideFakeTag)
+				evidence, refusal := outsideCollectProof(service, outsideFakeIssueKey)
+				sha := evidence.ReleaseSHA
 				if refusal.Error == nil || sha != "" {
 					t.Fatalf("accepted %s as commit: %s", kind, sha)
+				}
+				if refusal.Error.Kind != "missing_evidence" || refusal.Error.Message != "published release "+outsideFakeTag+" resolves to no native git commit" {
+					t.Fatalf("tag validation was not reached: %+v; commands=%v", refusal.Error, fake.commands)
+				}
+				endpoint := "gh api repos/" + outsideFakeRepository + "/git/ref/tags/" + outsideFakeTag
+				if annotated {
+					endpoint = "gh api repos/" + outsideFakeRepository + "/git/tags/" + outsideFakeTagOID
+				}
+				if len(fake.commands) == 0 || fake.commands[len(fake.commands)-1] != endpoint {
+					t.Fatalf("tag validation used the wrong endpoint: %v", fake.commands)
 				}
 			})
 		}

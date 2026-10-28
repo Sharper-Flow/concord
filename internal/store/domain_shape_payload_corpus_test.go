@@ -10,7 +10,7 @@ import (
 
 func TestCommittedUniqueJSONFactFitsBound(t *testing.T) {
 	t.Parallel()
-	assertCommittedAgentFactFitsBound(t, "internal/payloadschema", "agent-unique-json",
+	assertCommittedDomainFactFitsBound(t, "agent-surface", "internal/payloadschema", "agent-unique-json",
 		DomainShapeSelector{Path: "internal/payloadschema/unique_json.go"},
 		DomainShapeSelector{Subject: "agent-unique-json"},
 	)
@@ -18,7 +18,7 @@ func TestCommittedUniqueJSONFactFitsBound(t *testing.T) {
 
 func TestCommittedEnvelopeSchemaFactFitsBound(t *testing.T) {
 	t.Parallel()
-	assertCommittedAgentFactFitsBound(t, "internal/payloadschema", "agent-envelope-schema",
+	assertCommittedDomainFactFitsBound(t, "agent-surface", "internal/payloadschema", "agent-envelope-schema",
 		DomainShapeSelector{Path: "internal/payloadschema/envelope.go"},
 		DomainShapeSelector{Path: "internal/payloadschema/generated_envelope_schema.go"},
 		DomainShapeSelector{Subject: "agent-envelope-schema"},
@@ -27,7 +27,7 @@ func TestCommittedEnvelopeSchemaFactFitsBound(t *testing.T) {
 
 func TestCommittedAgentContractFactFitsBound(t *testing.T) {
 	t.Parallel()
-	assertCommittedAgentFactFitsBound(t, "internal/agentcontract", "agent-operation-admission",
+	assertCommittedDomainFactFitsBound(t, "agent-surface", "internal/agentcontract", "agent-operation-admission",
 		DomainShapeSelector{Path: "internal/agentcontract/generated_contracts.go"},
 		DomainShapeSelector{Path: "internal/agentcontract/payload_validation.go"},
 		DomainShapeSelector{Subject: "agent-operation-admission"},
@@ -36,7 +36,7 @@ func TestCommittedAgentContractFactFitsBound(t *testing.T) {
 
 func TestCommittedTypedErrorVocabularyFactFitsBound(t *testing.T) {
 	t.Parallel()
-	assertCommittedAgentFactFitsBound(t, "internal/payloadschema", "agent-typed-error-vocabulary",
+	assertCommittedDomainFactFitsBound(t, "agent-surface", "internal/payloadschema", "agent-typed-error-vocabulary",
 		DomainShapeSelector{Path: "internal/payloadschema/generated_typed_error_kinds.go"},
 		DomainShapeSelector{Subject: "agent-typed-error-vocabulary"},
 	)
@@ -44,13 +44,22 @@ func TestCommittedTypedErrorVocabularyFactFitsBound(t *testing.T) {
 
 func TestCommittedEnvelopeModelFactFitsBound(t *testing.T) {
 	t.Parallel()
-	assertCommittedAgentFactFitsBound(t, "internal/agentcontract", "agent-envelope-model",
+	assertCommittedDomainFactFitsBound(t, "agent-surface", "internal/agentcontract", "agent-envelope-model",
 		DomainShapeSelector{Path: "internal/agentcontract/envelope.go"},
 		DomainShapeSelector{Subject: "agent-envelope-model"},
 	)
 }
 
-func assertCommittedAgentFactFitsBound(t *testing.T, owningRoot, factID string, selectors ...DomainShapeSelector) {
+func TestCommittedWorkflowCompletionProofFactFitsBound(t *testing.T) {
+	t.Parallel()
+	assertCommittedDomainFactFitsBound(t, "workflow-engine", "internal/workflowproof", "workflow-completion-proof",
+		DomainShapeSelector{Path: "internal/workflowproof/collector.go"},
+		DomainShapeSelector{Path: "internal/workflowproof/types.go"},
+		DomainShapeSelector{Subject: "workflow-completion-proof"},
+	)
+}
+
+func assertCommittedDomainFactFitsBound(t *testing.T, domainID, owningRoot, factID string, selectors ...DomainShapeSelector) {
 	t.Helper()
 	ctx := context.Background()
 	root := repositoryRootForTest(t)
@@ -74,7 +83,7 @@ func assertCommittedAgentFactFitsBound(t *testing.T, owningRoot, factID string, 
 	}
 	for _, selector := range selectors {
 		selection := selectDomainShape(*snapshot, KnowledgeHome{HomeProjectID: "concord", HomeLocatorID: "main"}, "concord", selector)
-		if !slices.Equal(selection.DomainIDs, []string{"agent-surface"}) || len(selection.Roots) != 1 || selection.Roots[0].Path != owningRoot {
+		if !slices.Equal(selection.DomainIDs, []string{domainID}) || len(selection.Roots) != 1 || selection.Roots[0].Path != owningRoot {
 			t.Fatalf("selector %+v has wrong ownership: %+v", selector, selection.Roots)
 		}
 		found := false
@@ -83,8 +92,8 @@ func assertCommittedAgentFactFitsBound(t *testing.T, owningRoot, factID string, 
 				continue
 			}
 			fact := item.Fact
-			if fact.Kind != DomainFactInvariant || fact.Standing != "observed" || fact.OwnerDomainID != "agent-surface" || fact.OwningRoot != owningRoot || fact.Invariant == nil || !slices.Equal(fact.Invariant.AppliesToDomainIDs, []string{"agent-surface"}) {
-				t.Fatalf("wrong agent fact: %+v", fact)
+			if fact.Kind != DomainFactInvariant || fact.Standing != "observed" || fact.OwnerDomainID != domainID || fact.OwningRoot != owningRoot || fact.Invariant == nil || !slices.Equal(fact.Invariant.AppliesToDomainIDs, []string{domainID}) {
+				t.Fatalf("wrong domain fact: %+v", fact)
 			}
 			found = true
 		}

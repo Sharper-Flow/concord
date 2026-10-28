@@ -7,6 +7,9 @@
   "date": "2026-10-07T00:00:00Z",
   "doc_contract_profile": "current",
   "evidence": [
+    "internal/workflowproof/collector.go",
+    "internal/workflowproof/types.go",
+    "internal/agent/outside_proof_owner_test.go",
     "internal/store/outside_repair.go",
     "internal/store/outside_repair_base_test.go",
     "internal/store/outside_repair_test.go",

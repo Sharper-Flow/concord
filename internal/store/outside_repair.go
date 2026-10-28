@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/sharper-flow/concord/internal/workflowproof"
 )
 
 const (
@@ -20,53 +22,13 @@ const (
 	OutsideRepairEvidenceSource   = "boundary_authenticated"
 )
 
-// OutsideRepairRequiredCheck records a successful required check on the PR's
-// immutable head, not a check name or a caller-supplied success boolean. The
-// native identities name the exact check-run, workflow run and job the
-// boundary authenticated (CD-0210 D2), so distinct checks inside one run stay
-// distinguishable and a later rerun cannot rewrite what the receipt proves.
-type OutsideRepairRequiredCheck struct {
-	Name       string `json:"name"`
-	URL        string `json:"url"`
-	CommitSHA  string `json:"commit_sha"`
-	Conclusion string `json:"conclusion"`
-	CheckRunID int64  `json:"check_run_id"`
-	RunID      int64  `json:"run_id"`
-	JobID      int64  `json:"job_id"`
-}
-
-type OutsideRepairPullRequestEvidence struct {
-	URL            string                       `json:"url"`
-	Number         int64                        `json:"number"`
-	HeadSHA        string                       `json:"head_sha"`
-	MergeSHA       string                       `json:"merge_sha"`
-	MergedAt       time.Time                    `json:"merged_at"`
-	RequiredChecks []OutsideRepairRequiredCheck `json:"required_checks"`
-}
-
-// OutsideRepairEvidence is supplied only by the authenticated external boundary.
-// That boundary must fetch the merged PRs, the complete required-check set and
-// published release, and prove every merge is an ancestor of ReleaseSHA. The
-// store validates and preserves the receipt; it does not contact the forge or
-// infer ancestry from strings. AuthorityRef and ObservedAt identify the receipt.
-type OutsideRepairEvidence struct {
-	AuthorityRef string                             `json:"authority_ref"`
-	ObservedAt   time.Time                          `json:"observed_at"`
-	Repository   string                             `json:"repository"`
-	PullRequests []OutsideRepairPullRequestEvidence `json:"pull_requests"`
-	ReleaseTag   string                             `json:"release_tag"`
-	ReleaseURL   string                             `json:"release_url"`
-	ReleaseSHA   string                             `json:"release_sha"`
-	PublishedAt  time.Time                          `json:"published_at"`
-}
-
 type OutsideRepairDisposition struct {
-	WorkID      string                 `json:"work_id"`
-	Reason      string                 `json:"reason"`
-	ApprovalRef string                 `json:"approval_ref"`
-	State       string                 `json:"state"`
-	Evidence    *OutsideRepairEvidence `json:"evidence,omitempty"`
-	RecordedAt  string                 `json:"recorded_at"`
+	WorkID      string                  `json:"work_id"`
+	Reason      string                  `json:"reason"`
+	ApprovalRef string                  `json:"approval_ref"`
+	State       string                  `json:"state"`
+	Evidence    *workflowproof.Evidence `json:"evidence,omitempty"`
+	RecordedAt  string                  `json:"recorded_at"`
 }
 
 // OutsideRepairApproval binds a consumed core one-use approval. The boundary
@@ -98,7 +60,7 @@ type OutsideRepairRequest struct {
 
 type OutsideRepairReconcileRequest struct {
 	OutsideRepairRequest
-	Evidence OutsideRepairEvidence
+	Evidence workflowproof.Evidence
 }
 
 // SetOutsideRepairDispositionTx durably holds needed/in_progress work while
@@ -122,7 +84,7 @@ func ResumeOutsideRepairTx(ctx context.Context, transaction *Transaction, reques
 	return applyOutsideRepairMutationTx(ctx, transaction, request, WorkflowOutsideRepairResumed, nil)
 }
 
-func applyOutsideRepairMutationTx(ctx context.Context, transaction *Transaction, request OutsideRepairRequest, kind string, evidence *OutsideRepairEvidence) (ApplyOperationResult, error) {
+func applyOutsideRepairMutationTx(ctx context.Context, transaction *Transaction, request OutsideRepairRequest, kind string, evidence *workflowproof.Evidence) (ApplyOperationResult, error) {
 	tx, err := transactionSQL(transaction, "outside_repair")
 	if err != nil {
 		return ApplyOperationResult{}, err
@@ -194,7 +156,7 @@ func outsideRepairURL(value, repository, suffix string) bool {
 	return err == nil && u.Scheme == "https" && u.Host == "github.com" && u.User == nil && u.RawQuery == "" && u.Fragment == "" && u.Path == "/"+repository+suffix
 }
 
-func validateOutsideRepairEvidenceShape(e OutsideRepairEvidence) error {
+func validateOutsideRepairEvidenceShape(e workflowproof.Evidence) error {
 	invalid := func(detail string) error {
 		return newFailure(KindInvalidPayload, "outside_repair", detail, false, "supply the authenticated merged PR, required checks and published release receipt")
 	}
@@ -224,7 +186,7 @@ func validateOutsideRepairEvidenceShape(e OutsideRepairEvidence) error {
 	return nil
 }
 
-func validateOutsideRepairRequiredChecks(repository string, pr OutsideRepairPullRequestEvidence) error {
+func validateOutsideRepairRequiredChecks(repository string, pr workflowproof.PullRequestEvidence) error {
 	invalid := func(detail string) error {
 		return newFailure(KindInvalidPayload, "outside_repair", detail, false, "supply the authenticated merged PR, required checks and published release receipt")
 	}
@@ -480,7 +442,7 @@ func outsideRepairDispositionTx(ctx context.Context, tx *sql.Tx, workID string) 
 	}
 	p.WorkID = workID
 	if p.State == OutsideRepairStateCompleted {
-		p.Evidence = &OutsideRepairEvidence{}
+		p.Evidence = &workflowproof.Evidence{}
 		if err := json.Unmarshal([]byte(raw), p.Evidence); err != nil {
 			return nil, workflowProjectionError(err, "cannot decode outside-repair evidence")
 		}

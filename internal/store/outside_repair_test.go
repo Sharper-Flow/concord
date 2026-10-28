@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/sharper-flow/concord/internal/payloadschema"
+	"github.com/sharper-flow/concord/internal/workflowproof"
 )
 
 func seedOutsideRepairTestWork(t *testing.T, s *Store, workID string) {
@@ -33,16 +34,16 @@ func seedOutsideRepairTestWork(t *testing.T, s *Store, workID string) {
 // These receipts model a boundary that fetched the merge, complete successful
 // required-check set and published tag, then proved merge ancestry. No live
 // database or forge is involved in store tests.
-func outsideRepairSampleEvidence() OutsideRepairEvidence {
+func outsideRepairSampleEvidence() workflowproof.Evidence {
 	at := time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC)
 	// AuthorityRef models the receipt the agent boundary records:
 	// "approval:" plus the consumed approval reference, which the published
 	// outside_repair_evidence contract admits as an id-shaped string.
-	e := OutsideRepairEvidence{AuthorityRef: "approval:outside-repair-sample", ObservedAt: at.Add(2 * time.Hour), Repository: "octo-org/concord", ReleaseTag: "v1.2.3", ReleaseURL: "https://github.com/octo-org/concord/releases/tag/v1.2.3", ReleaseSHA: strings.Repeat("1", 40), PublishedAt: at.Add(time.Hour)}
+	e := workflowproof.Evidence{AuthorityRef: "approval:outside-repair-sample", ObservedAt: at.Add(2 * time.Hour), Repository: "octo-org/concord", ReleaseTag: "v1.2.3", ReleaseURL: "https://github.com/octo-org/concord/releases/tag/v1.2.3", ReleaseSHA: strings.Repeat("1", 40), PublishedAt: at.Add(time.Hour)}
 	for i := int64(1); i <= 2; i++ {
 		head := strings.Repeat(jsonInt(i+1), 40)
-		e.PullRequests = append(e.PullRequests, OutsideRepairPullRequestEvidence{URL: "https://github.com/octo-org/concord/pull/" + jsonInt(i), Number: i, HeadSHA: head, MergeSHA: strings.Repeat(jsonInt(i+3), 40), MergedAt: at,
-			RequiredChecks: []OutsideRepairRequiredCheck{{Name: "required-ci", URL: "https://github.com/octo-org/concord/actions/runs/" + jsonInt(i) + "/job/1", CommitSHA: head, Conclusion: "success", CheckRunID: 400 + i, RunID: i, JobID: 1}},
+		e.PullRequests = append(e.PullRequests, workflowproof.PullRequestEvidence{URL: "https://github.com/octo-org/concord/pull/" + jsonInt(i), Number: i, HeadSHA: head, MergeSHA: strings.Repeat(jsonInt(i+3), 40), MergedAt: at,
+			RequiredChecks: []workflowproof.RequiredCheck{{Name: "required-ci", URL: "https://github.com/octo-org/concord/actions/runs/" + jsonInt(i) + "/job/1", CommitSHA: head, Conclusion: "success", CheckRunID: 400 + i, RunID: i, JobID: 1}},
 		})
 	}
 	return e
@@ -61,7 +62,7 @@ func outsideRepairTestRequest(t *testing.T, s *Store, workID, operation string) 
 	return OutsideRepairRequest{OutsideRepairApproval: OutsideRepairApproval{ApprovalRef: ref, ApprovalOperationDigest: deliveryCorrectionDigest, ApprovalScopeJSON: deliveryCorrectionScopeJSON(workID), ApprovalVersionsJSON: deliveryCorrectionVersionsJSON(version), ApprovalConsequence: deliveryCorrectionConsequence}, WorkID: workID, Reason: "bounded outside defect repair", EventID: eventID, ExpectedVersion: version, OccurredAt: time.Date(2026, 10, 1, 15, 0, 0, 0, time.UTC)}
 }
 
-func outsideRepairApply(t *testing.T, s *Store, req OutsideRepairRequest, kind string, evidence OutsideRepairEvidence) error {
+func outsideRepairApply(t *testing.T, s *Store, req OutsideRepairRequest, kind string, evidence workflowproof.Evidence) error {
 	t.Helper()
 	return s.TransactDurable(context.Background(), func(tx *Transaction) error {
 		var err error
@@ -117,14 +118,14 @@ func TestOutsideRepairHoldRequiresApprovalNotCompletionEvidence(t *testing.T) {
 	req := outsideRepairTestRequest(t, s, work, "hold")
 	bad := req
 	bad.ApprovalRef = ""
-	assertFailureKind(t, outsideRepairApply(t, s, bad, WorkflowOutsideRepairDispositionSet, OutsideRepairEvidence{}), KindInvalidPayload)
+	assertFailureKind(t, outsideRepairApply(t, s, bad, WorkflowOutsideRepairDispositionSet, workflowproof.Evidence{}), KindInvalidPayload)
 	bad = req
 	bad.ApprovalOperationDigest = "sha256:" + strings.Repeat("a", 64)
-	assertFailureKind(t, outsideRepairApply(t, s, bad, WorkflowOutsideRepairDispositionSet, OutsideRepairEvidence{}), KindUnauthorized)
+	assertFailureKind(t, outsideRepairApply(t, s, bad, WorkflowOutsideRepairDispositionSet, workflowproof.Evidence{}), KindUnauthorized)
 	if got := readWorkVersion(t, s, work); got != 3 {
 		t.Fatalf("refused hold changed version: %d", got)
 	}
-	if err := outsideRepairApply(t, s, req, WorkflowOutsideRepairDispositionSet, OutsideRepairEvidence{}); err != nil {
+	if err := outsideRepairApply(t, s, req, WorkflowOutsideRepairDispositionSet, workflowproof.Evidence{}); err != nil {
 		t.Fatal(err)
 	}
 	if got := readWorkVersion(t, s, work); got != 5 {
@@ -150,7 +151,7 @@ func TestOutsideRepairCentralAdmissionSuppressesAllActionsAndLifecycleBypasses(t
 	s := openTemp(t)
 	work := "outside-central"
 	seedOutsideRepairTestWork(t, s, work)
-	if err := outsideRepairApply(t, s, outsideRepairTestRequest(t, s, work, "hold"), WorkflowOutsideRepairDispositionSet, OutsideRepairEvidence{}); err != nil {
+	if err := outsideRepairApply(t, s, outsideRepairTestRequest(t, s, work, "hold"), WorkflowOutsideRepairDispositionSet, workflowproof.Evidence{}); err != nil {
 		t.Fatal(err)
 	}
 	definition, _ := BuiltinWorkflowDefinitionForRef("workflow.implementation")
@@ -198,7 +199,7 @@ func TestOutsideRepairReconcileBothLiveLifecycles(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			if err := outsideRepairApply(t, s, outsideRepairTestRequest(t, s, work, "hold"), WorkflowOutsideRepairDispositionSet, OutsideRepairEvidence{}); err != nil {
+			if err := outsideRepairApply(t, s, outsideRepairTestRequest(t, s, work, "hold"), WorkflowOutsideRepairDispositionSet, workflowproof.Evidence{}); err != nil {
 				t.Fatal(err)
 			}
 			evidence := outsideRepairSampleEvidence()
@@ -233,7 +234,7 @@ func TestOutsideRepairReceiptNativeIdentitiesSurvivePersistence(t *testing.T) {
 	s := openTemp(t)
 	work := "outside-identity"
 	seedOutsideRepairTestWork(t, s, work)
-	if err := outsideRepairApply(t, s, outsideRepairTestRequest(t, s, work, "hold"), WorkflowOutsideRepairDispositionSet, OutsideRepairEvidence{}); err != nil {
+	if err := outsideRepairApply(t, s, outsideRepairTestRequest(t, s, work, "hold"), WorkflowOutsideRepairDispositionSet, workflowproof.Evidence{}); err != nil {
 		t.Fatal(err)
 	}
 	evidence := outsideRepairSampleEvidence()
@@ -242,7 +243,7 @@ func TestOutsideRepairReceiptNativeIdentitiesSurvivePersistence(t *testing.T) {
 	}
 	assertNativeIdentities := func(t *testing.T, raw string) {
 		t.Helper()
-		var persisted OutsideRepairEvidence
+		var persisted workflowproof.Evidence
 		if err := json.Unmarshal([]byte(raw), &persisted); err != nil {
 			t.Fatal(err)
 		}
@@ -283,10 +284,10 @@ func TestOutsideRepairResumePreservesStateAndAllowsAnotherHold(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := outsideRepairApply(t, s, outsideRepairTestRequest(t, s, work, "hold"), WorkflowOutsideRepairDispositionSet, OutsideRepairEvidence{}); err != nil {
+	if err := outsideRepairApply(t, s, outsideRepairTestRequest(t, s, work, "hold"), WorkflowOutsideRepairDispositionSet, workflowproof.Evidence{}); err != nil {
 		t.Fatal(err)
 	}
-	if err := outsideRepairApply(t, s, outsideRepairTestRequest(t, s, work, "resume"), WorkflowOutsideRepairResumed, OutsideRepairEvidence{}); err != nil {
+	if err := outsideRepairApply(t, s, outsideRepairTestRequest(t, s, work, "resume"), WorkflowOutsideRepairResumed, workflowproof.Evidence{}); err != nil {
 		t.Fatal(err)
 	}
 	if err := WorkflowActionPreflightWithRegistry(context.Background(), s, BuiltinWorkflowRegistry(), WorkflowActionPreflightRequest{WorkID: work, ActionID: "record_proposal", Actor: WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/test", SessionRef: "session/test", ActorClass: ActorAgent}, Payload: json.RawMessage(`{"problem":"repair the defect","affected":["service"],"stakes":"safe coordination","constraints":[],"user_outcomes":["typed repair"],"open_questions":[],"out_of_scope":[]}`)}); err != nil {
@@ -299,7 +300,7 @@ func TestOutsideRepairResumePreservesStateAndAllowsAnotherHold(t *testing.T) {
 	if after.Lifecycle != before.Lifecycle || after.Step != before.Step || len(after.NextValidIntents) != len(before.NextValidIntents) || len(after.OutsideRepairRoute) != 0 || after.OutsideRepairDisposition.State != OutsideRepairStateResumed {
 		t.Fatalf("resume state drift: before=%+v after=%+v", before, after)
 	}
-	if err := outsideRepairApply(t, s, outsideRepairTestRequest(t, s, work, "hold-again"), WorkflowOutsideRepairDispositionSet, OutsideRepairEvidence{}); err != nil {
+	if err := outsideRepairApply(t, s, outsideRepairTestRequest(t, s, work, "hold-again"), WorkflowOutsideRepairDispositionSet, workflowproof.Evidence{}); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -309,11 +310,11 @@ func TestOutsideRepairRefusesInactiveDuplicateTerminalAndStaleMutations(t *testi
 	work := "outside-refusals"
 	seedOutsideRepairTestWork(t, s, work)
 	assertFailureKind(t, outsideRepairApply(t, s, outsideRepairTestRequest(t, s, work, "inactive"), WorkflowOutsideRepairReconciled, outsideRepairSampleEvidence()), KindInvalidOperation)
-	assertFailureKind(t, outsideRepairApply(t, s, outsideRepairTestRequest(t, s, work, "inactive-resume"), WorkflowOutsideRepairResumed, OutsideRepairEvidence{}), KindInvalidOperation)
-	if err := outsideRepairApply(t, s, outsideRepairTestRequest(t, s, work, "hold"), WorkflowOutsideRepairDispositionSet, OutsideRepairEvidence{}); err != nil {
+	assertFailureKind(t, outsideRepairApply(t, s, outsideRepairTestRequest(t, s, work, "inactive-resume"), WorkflowOutsideRepairResumed, workflowproof.Evidence{}), KindInvalidOperation)
+	if err := outsideRepairApply(t, s, outsideRepairTestRequest(t, s, work, "hold"), WorkflowOutsideRepairDispositionSet, workflowproof.Evidence{}); err != nil {
 		t.Fatal(err)
 	}
-	assertFailureKind(t, outsideRepairApply(t, s, outsideRepairTestRequest(t, s, work, "duplicate"), WorkflowOutsideRepairDispositionSet, OutsideRepairEvidence{}), KindOutsideRepairActive)
+	assertFailureKind(t, outsideRepairApply(t, s, outsideRepairTestRequest(t, s, work, "duplicate"), WorkflowOutsideRepairDispositionSet, workflowproof.Evidence{}), KindOutsideRepairActive)
 	req := outsideRepairTestRequest(t, s, work, "stale")
 	req.ExpectedVersion += 5
 	assertFailureKind(t, outsideRepairApply(t, s, req, WorkflowOutsideRepairReconciled, outsideRepairSampleEvidence()), KindVersionConflict)
@@ -323,37 +324,39 @@ func TestOutsideRepairRefusesInactiveDuplicateTerminalAndStaleMutations(t *testi
 	if err := outsideRepairApply(t, s, outsideRepairTestRequest(t, s, work, "reconcile"), WorkflowOutsideRepairReconciled, outsideRepairSampleEvidence()); err != nil {
 		t.Fatal(err)
 	}
-	assertFailureKind(t, outsideRepairApply(t, s, outsideRepairTestRequest(t, s, work, "terminal"), WorkflowOutsideRepairDispositionSet, OutsideRepairEvidence{}), KindIllegalLifecycleTransition)
+	assertFailureKind(t, outsideRepairApply(t, s, outsideRepairTestRequest(t, s, work, "terminal"), WorkflowOutsideRepairDispositionSet, workflowproof.Evidence{}), KindIllegalLifecycleTransition)
 }
 
 func TestOutsideRepairReconciliationEvidenceRefusesInvalidReceipts(t *testing.T) {
-	cases := map[string]func(*OutsideRepairEvidence){
-		"no prs":             func(e *OutsideRepairEvidence) { e.PullRequests = nil },
-		"duplicate pr":       func(e *OutsideRepairEvidence) { e.PullRequests = append(e.PullRequests, e.PullRequests[0]) },
-		"no authority":       func(e *OutsideRepairEvidence) { e.AuthorityRef = "" },
-		"no observation":     func(e *OutsideRepairEvidence) { e.ObservedAt = time.Time{} },
-		"no release":         func(e *OutsideRepairEvidence) { e.ReleaseTag = "" },
-		"digest not git sha": func(e *OutsideRepairEvidence) { e.ReleaseSHA = "sha256:" + strings.Repeat("1", 64) },
-		"nonhex sha":         func(e *OutsideRepairEvidence) { e.ReleaseSHA = strings.Repeat("z", 40) },
-		"foreign release": func(e *OutsideRepairEvidence) {
+	cases := map[string]func(*workflowproof.Evidence){
+		"no prs":             func(e *workflowproof.Evidence) { e.PullRequests = nil },
+		"duplicate pr":       func(e *workflowproof.Evidence) { e.PullRequests = append(e.PullRequests, e.PullRequests[0]) },
+		"no authority":       func(e *workflowproof.Evidence) { e.AuthorityRef = "" },
+		"no observation":     func(e *workflowproof.Evidence) { e.ObservedAt = time.Time{} },
+		"no release":         func(e *workflowproof.Evidence) { e.ReleaseTag = "" },
+		"digest not git sha": func(e *workflowproof.Evidence) { e.ReleaseSHA = "sha256:" + strings.Repeat("1", 64) },
+		"nonhex sha":         func(e *workflowproof.Evidence) { e.ReleaseSHA = strings.Repeat("z", 40) },
+		"foreign release": func(e *workflowproof.Evidence) {
 			e.ReleaseURL = "https://github.com/foreign/repository/releases/tag/v1.2.3"
 		},
-		"foreign pr":          func(e *OutsideRepairEvidence) { e.PullRequests[0].URL = "https://github.com/foreign/repository/pull/1" },
-		"unmerged":            func(e *OutsideRepairEvidence) { e.PullRequests[0].MergedAt = time.Time{} },
-		"unpublished":         func(e *OutsideRepairEvidence) { e.PublishedAt = time.Time{} },
-		"merge after release": func(e *OutsideRepairEvidence) { e.PullRequests[0].MergedAt = e.PublishedAt.Add(time.Hour) },
-		"failed check":        func(e *OutsideRepairEvidence) { e.PullRequests[0].RequiredChecks[0].Conclusion = "failure" },
-		"stale check":         func(e *OutsideRepairEvidence) { e.PullRequests[0].RequiredChecks[0].CommitSHA = e.ReleaseSHA },
-		"no checks":           func(e *OutsideRepairEvidence) { e.PullRequests[0].RequiredChecks = nil },
-		"duplicate check": func(e *OutsideRepairEvidence) {
+		"foreign pr": func(e *workflowproof.Evidence) {
+			e.PullRequests[0].URL = "https://github.com/foreign/repository/pull/1"
+		},
+		"unmerged":            func(e *workflowproof.Evidence) { e.PullRequests[0].MergedAt = time.Time{} },
+		"unpublished":         func(e *workflowproof.Evidence) { e.PublishedAt = time.Time{} },
+		"merge after release": func(e *workflowproof.Evidence) { e.PullRequests[0].MergedAt = e.PublishedAt.Add(time.Hour) },
+		"failed check":        func(e *workflowproof.Evidence) { e.PullRequests[0].RequiredChecks[0].Conclusion = "failure" },
+		"stale check":         func(e *workflowproof.Evidence) { e.PullRequests[0].RequiredChecks[0].CommitSHA = e.ReleaseSHA },
+		"no checks":           func(e *workflowproof.Evidence) { e.PullRequests[0].RequiredChecks = nil },
+		"duplicate check": func(e *workflowproof.Evidence) {
 			e.PullRequests[0].RequiredChecks = append(e.PullRequests[0].RequiredChecks, e.PullRequests[0].RequiredChecks[0])
 		},
-		"check without check-run identity": func(e *OutsideRepairEvidence) { e.PullRequests[0].RequiredChecks[0].CheckRunID = 0 },
-		"check without run identity":       func(e *OutsideRepairEvidence) { e.PullRequests[0].RequiredChecks[0].RunID = 0 },
-		"check without job identity":       func(e *OutsideRepairEvidence) { e.PullRequests[0].RequiredChecks[0].JobID = 0 },
-		"run identity disagrees with url":  func(e *OutsideRepairEvidence) { e.PullRequests[0].RequiredChecks[0].RunID = 991 },
-		"job identity disagrees with url":  func(e *OutsideRepairEvidence) { e.PullRequests[0].RequiredChecks[0].JobID = 997 },
-		"one check-run identity proves two checks": func(e *OutsideRepairEvidence) {
+		"check without check-run identity": func(e *workflowproof.Evidence) { e.PullRequests[0].RequiredChecks[0].CheckRunID = 0 },
+		"check without run identity":       func(e *workflowproof.Evidence) { e.PullRequests[0].RequiredChecks[0].RunID = 0 },
+		"check without job identity":       func(e *workflowproof.Evidence) { e.PullRequests[0].RequiredChecks[0].JobID = 0 },
+		"run identity disagrees with url":  func(e *workflowproof.Evidence) { e.PullRequests[0].RequiredChecks[0].RunID = 991 },
+		"job identity disagrees with url":  func(e *workflowproof.Evidence) { e.PullRequests[0].RequiredChecks[0].JobID = 997 },
+		"one check-run identity proves two checks": func(e *workflowproof.Evidence) {
 			e.PullRequests[0].RequiredChecks = append(e.PullRequests[0].RequiredChecks, e.PullRequests[0].RequiredChecks[0])
 			e.PullRequests[0].RequiredChecks[1].Name = "other-required"
 		},
@@ -363,7 +366,7 @@ func TestOutsideRepairReconciliationEvidenceRefusesInvalidReceipts(t *testing.T)
 			s := openTemp(t)
 			work := "outside-invalid-receipt"
 			seedOutsideRepairTestWork(t, s, work)
-			if err := outsideRepairApply(t, s, outsideRepairTestRequest(t, s, work, "hold"), WorkflowOutsideRepairDispositionSet, OutsideRepairEvidence{}); err != nil {
+			if err := outsideRepairApply(t, s, outsideRepairTestRequest(t, s, work, "hold"), WorkflowOutsideRepairDispositionSet, workflowproof.Evidence{}); err != nil {
 				t.Fatal(err)
 			}
 			e := outsideRepairSampleEvidence()
@@ -395,7 +398,7 @@ func TestOutsideRepairFoldRejectsFabricatedApprovalAndEvidence(t *testing.T) {
 	seedOutsideRepairTestWork(t, s, work)
 	e := workflowTypedEvent("outside-forged", WorkflowOutsideRepairDispositionSet, work, "actor:forged", time.Now(), 3, map[string]any{"reason": "forged", "state": "active", "approval_ref": "approval:forged"})
 	assertFailureKind(t, applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{e}, ExpectedVersions: workVersion(work, 3)}), KindInvalidPayload)
-	if err := outsideRepairApply(t, s, outsideRepairTestRequest(t, s, work, "hold"), WorkflowOutsideRepairDispositionSet, OutsideRepairEvidence{}); err != nil {
+	if err := outsideRepairApply(t, s, outsideRepairTestRequest(t, s, work, "hold"), WorkflowOutsideRepairDispositionSet, workflowproof.Evidence{}); err != nil {
 		t.Fatal(err)
 	}
 	// Construct an otherwise legitimate recorded binding but corrupt evidence
@@ -407,7 +410,7 @@ func TestOutsideRepairFoldRejectsFabricatedApprovalAndEvidence(t *testing.T) {
 			return err
 		}
 		actor := workflowTypedEvent(req.EventID+":actor", WorkflowActorRecorded, work, operator.ref, req.OccurredAt, 5, map[string]any{"actor_ref": operator.ref, "principal_ref": operator.PrincipalRef, "client_ref": operator.ClientRef, "agent_ref": operator.AgentRef, "session_ref": operator.SessionRef, "actor_class": "operator"})
-		payload, _ := json.Marshal(workflowOutsideRepairReconcilePayload{workflowOutsideRepairDispositionPayload: workflowOutsideRepairDispositionPayload{OutsideRepairApproval: req.OutsideRepairApproval, Reason: req.Reason, State: OutsideRepairStateCompleted}, Evidence: OutsideRepairEvidence{}, EvidenceSource: OutsideRepairEvidenceSource})
+		payload, _ := json.Marshal(workflowOutsideRepairReconcilePayload{workflowOutsideRepairDispositionPayload: workflowOutsideRepairDispositionPayload{OutsideRepairApproval: req.OutsideRepairApproval, Reason: req.Reason, State: OutsideRepairStateCompleted}, Evidence: workflowproof.Evidence{}, EvidenceSource: OutsideRepairEvidenceSource})
 		var fields map[string]any
 		_ = json.Unmarshal(payload, &fields)
 		invalid := workflowTypedEvent(req.EventID, WorkflowOutsideRepairReconciled, work, operator.ref, req.OccurredAt, 6, fields)
@@ -429,7 +432,7 @@ func TestOutsideRepairDoesNotChangeOrdinaryCompletion(t *testing.T) {
 
 func TestWorkflowCompletedRefusesWhileOutsideRepairActive(t *testing.T) {
 	s, completion := seedCompletionGateCase(t, "outside-completion", completionGateCase{requiredEvidence: []string{"verification"}, includeVerdict: true, includePremise: true, verdictKind: "ok"})
-	if err := outsideRepairApply(t, s, outsideRepairTestRequest(t, s, "outside-completion", "hold"), WorkflowOutsideRepairDispositionSet, OutsideRepairEvidence{}); err != nil {
+	if err := outsideRepairApply(t, s, outsideRepairTestRequest(t, s, "outside-completion", "hold"), WorkflowOutsideRepairDispositionSet, workflowproof.Evidence{}); err != nil {
 		t.Fatal(err)
 	}
 	assertFailureKind(t, CompleteWorkflow(context.Background(), s, completion), KindOutsideRepairActive)
@@ -617,20 +620,20 @@ func TestOutsideRepairWorkPinPopulation(t *testing.T) {
 	requireManagedIdentity(read())
 
 	// Population two: active hold. Typed absence, preserved raw identity.
-	if err := outsideRepairApply(t, s, outsideRepairTestRequest(t, s, work, "hold"), WorkflowOutsideRepairDispositionSet, OutsideRepairEvidence{}); err != nil {
+	if err := outsideRepairApply(t, s, outsideRepairTestRequest(t, s, work, "hold"), WorkflowOutsideRepairDispositionSet, workflowproof.Evidence{}); err != nil {
 		t.Fatal(err)
 	}
 	requireTypedAbsence(read(), "held")
 
 	// Population three: resumed. The managed read owns the keys again.
-	if err := outsideRepairApply(t, s, outsideRepairTestRequest(t, s, work, "resume"), WorkflowOutsideRepairResumed, OutsideRepairEvidence{}); err != nil {
+	if err := outsideRepairApply(t, s, outsideRepairTestRequest(t, s, work, "resume"), WorkflowOutsideRepairResumed, workflowproof.Evidence{}); err != nil {
 		t.Fatal(err)
 	}
 	requireManagedIdentity(read())
 
 	// Population four: reconcile-completed. The retained instance keeps its
 	// step and history, and the pin keeps the typed absence.
-	if err := outsideRepairApply(t, s, outsideRepairTestRequest(t, s, work, "hold-2"), WorkflowOutsideRepairDispositionSet, OutsideRepairEvidence{}); err != nil {
+	if err := outsideRepairApply(t, s, outsideRepairTestRequest(t, s, work, "hold-2"), WorkflowOutsideRepairDispositionSet, workflowproof.Evidence{}); err != nil {
 		t.Fatal(err)
 	}
 	if err := outsideRepairApply(t, s, outsideRepairTestRequest(t, s, work, "reconcile"), WorkflowOutsideRepairReconciled, outsideRepairSampleEvidence()); err != nil {

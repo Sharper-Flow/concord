@@ -1489,11 +1489,6 @@ type mutationPlan struct {
 	// success, so the same request retries and converges the committed
 	// reclaim instead of replaying it.
 	nativeFinalize func(ctx context.Context) error
-	// outsideEvidence carries the outside-repair completion proof the
-	// boundary collected before any transaction opened (CD-0210). The typed
-	// effect embeds it in the store request; the store validates the receipt
-	// shape again inside the fold.
-	outsideEvidence *store.OutsideRepairEvidence
 	// plannedInitialDurability is the optional initial-durability fact a
 	// planner raises from its own consequence branch. Consent metadata never
 	// feeds it; nil leaves the operation's declared baseline in force.

@@ -4,6 +4,8 @@ import (
 	"context"
 	"reflect"
 	"testing"
+
+	"github.com/sharper-flow/concord/internal/workflowproof"
 )
 
 // A context-bearing oracle definition must keep the outside-repair read fence:
@@ -20,7 +22,7 @@ func TestOutsideRepairDraftContextOracleReadFence(t *testing.T) {
 			if err != nil || before.WorkContext == nil {
 				t.Fatalf("context-bearing managed pin = %+v, err=%v", before, err)
 			}
-			if err := outsideRepairApply(t, s, outsideRepairTestRequest(t, s, work, "hold"), WorkflowOutsideRepairDispositionSet, OutsideRepairEvidence{}); err != nil {
+			if err := outsideRepairApply(t, s, outsideRepairTestRequest(t, s, work, "hold"), WorkflowOutsideRepairDispositionSet, workflowproof.Evidence{}); err != nil {
 				t.Fatal(err)
 			}
 			assertReadFence := func() {

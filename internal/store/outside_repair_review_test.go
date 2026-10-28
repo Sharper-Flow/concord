@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/sharper-flow/concord/internal/workflowproof"
 )
 
 // Include the log, approval, dispatch, resource and outbox rows as well as all
@@ -78,7 +80,7 @@ func TestOutsideRepairHeldSupersedeRefusesWithoutAnyEffects(t *testing.T) {
 	if err := applyWorkEvent(t, s, claim, workVersion(work, 3)); err != nil {
 		t.Fatal(err)
 	}
-	if err := outsideRepairApply(t, s, outsideRepairTestRequest(t, s, work, "hold"), WorkflowOutsideRepairDispositionSet, OutsideRepairEvidence{}); err != nil {
+	if err := outsideRepairApply(t, s, outsideRepairTestRequest(t, s, work, "hold"), WorkflowOutsideRepairDispositionSet, workflowproof.Evidence{}); err != nil {
 		t.Fatal(err)
 	}
 	before := outsideRepairDatabaseSnapshot(t, s)
@@ -104,7 +106,7 @@ func TestOutsideRepairLifecycleWriterRequiresScopedAuthorization(t *testing.T) {
 	s := openTemp(t)
 	work := "outside-writer-scope"
 	seedOutsideRepairTestWork(t, s, work)
-	if err := outsideRepairApply(t, s, outsideRepairTestRequest(t, s, work, "hold"), WorkflowOutsideRepairDispositionSet, OutsideRepairEvidence{}); err != nil {
+	if err := outsideRepairApply(t, s, outsideRepairTestRequest(t, s, work, "hold"), WorkflowOutsideRepairDispositionSet, workflowproof.Evidence{}); err != nil {
 		t.Fatal(err)
 	}
 	before := outsideRepairDatabaseSnapshot(t, s)
@@ -176,7 +178,7 @@ func TestOutsideRepairHoldRefusesOutstandingExecution(t *testing.T) {
 			}
 			req := outsideRepairTestRequest(t, s, seed.workID, "hold")
 			before := outsideRepairDatabaseSnapshot(t, s)
-			assertFailureKind(t, outsideRepairApply(t, s, req, WorkflowOutsideRepairDispositionSet, OutsideRepairEvidence{}), KindNotTerminal)
+			assertFailureKind(t, outsideRepairApply(t, s, req, WorkflowOutsideRepairDispositionSet, workflowproof.Evidence{}), KindNotTerminal)
 			if outsideRepairDatabaseSnapshot(t, s) != before {
 				t.Fatal("refused live hold changed the database")
 			}
@@ -198,7 +200,7 @@ func TestOutsideRepairUnusedAuthorizationCannotDispatchAfterHold(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("unused historical window before hold: %v", err)
 	}
-	if err := outsideRepairApply(t, s, outsideRepairTestRequest(t, s, seed.workID, "hold"), WorkflowOutsideRepairDispositionSet, OutsideRepairEvidence{}); err != nil {
+	if err := outsideRepairApply(t, s, outsideRepairTestRequest(t, s, seed.workID, "hold"), WorkflowOutsideRepairDispositionSet, workflowproof.Evidence{}); err != nil {
 		t.Fatalf("closed failed attempt must not block hold: %v", err)
 	}
 	before := outsideRepairDatabaseSnapshot(t, s)
@@ -221,12 +223,12 @@ func TestOutsideRepairHoldWaitsForFailedActionSettlement(t *testing.T) {
 	attempt := "attempt:" + work
 	req := outsideRepairTestRequest(t, s, work, "hold")
 	before := outsideRepairDatabaseSnapshot(t, s)
-	assertFailureKind(t, outsideRepairApply(t, s, req, WorkflowOutsideRepairDispositionSet, OutsideRepairEvidence{}), KindNotTerminal)
+	assertFailureKind(t, outsideRepairApply(t, s, req, WorkflowOutsideRepairDispositionSet, workflowproof.Evidence{}), KindNotTerminal)
 	if outsideRepairDatabaseSnapshot(t, s) != before {
 		t.Fatal("open action hold changed the database")
 	}
 	applyRecordWorkerFailureForTest(t, s, work, owner, attempt, latestStepStartEpoch(t, s, work, "execution"), readWorkVersion(t, s, work), "outside-settle-failure")
-	if err := outsideRepairApply(t, s, outsideRepairTestRequest(t, s, work, "settled-hold"), WorkflowOutsideRepairDispositionSet, OutsideRepairEvidence{}); err != nil {
+	if err := outsideRepairApply(t, s, outsideRepairTestRequest(t, s, work, "settled-hold"), WorkflowOutsideRepairDispositionSet, workflowproof.Evidence{}); err != nil {
 		t.Fatalf("failed closed attempt/action cannot strand outside repair: %v", err)
 	}
 }
@@ -242,7 +244,7 @@ func TestOutsideRepairHoldRefusesPendingDurableOperation(t *testing.T) {
 	}
 	req := outsideRepairTestRequest(t, s, work, "hold")
 	before := outsideRepairDatabaseSnapshot(t, s)
-	assertFailureKind(t, outsideRepairApply(t, s, req, WorkflowOutsideRepairDispositionSet, OutsideRepairEvidence{}), KindNotTerminal)
+	assertFailureKind(t, outsideRepairApply(t, s, req, WorkflowOutsideRepairDispositionSet, workflowproof.Evidence{}), KindNotTerminal)
 	if outsideRepairDatabaseSnapshot(t, s) != before {
 		t.Fatal("pending operation hold changed the database")
 	}
@@ -255,7 +257,7 @@ func TestOutsideRepairConsumedTerminalWindowDoesNotBlockHold(t *testing.T) {
 	}
 	assertWorkerAttemptState(t, s, seed.workID, attempt, "completed")
 	workers := workerProjectionSnapshot(t, s)
-	if err := outsideRepairApply(t, s, outsideRepairTestRequest(t, s, seed.workID, "hold"), WorkflowOutsideRepairDispositionSet, OutsideRepairEvidence{}); err != nil {
+	if err := outsideRepairApply(t, s, outsideRepairTestRequest(t, s, seed.workID, "hold"), WorkflowOutsideRepairDispositionSet, workflowproof.Evidence{}); err != nil {
 		t.Fatalf("consumed authorization without live execution blocks hold: %v", err)
 	}
 	if after := workerProjectionSnapshot(t, s); after != workers {
@@ -331,7 +333,7 @@ func TestOutsideRepairContinuityDoesNotReadBrokenWorkflow(t *testing.T) {
 			s := openTemp(t)
 			work := "outside-broken-" + broken
 			seedOutsideRepairTestWork(t, s, work)
-			if err := outsideRepairApply(t, s, outsideRepairTestRequest(t, s, work, "hold"), WorkflowOutsideRepairDispositionSet, OutsideRepairEvidence{}); err != nil {
+			if err := outsideRepairApply(t, s, outsideRepairTestRequest(t, s, work, "hold"), WorkflowOutsideRepairDispositionSet, workflowproof.Evidence{}); err != nil {
 				t.Fatal(err)
 			}
 			if err := s.Transact(context.Background(), func(tx *Transaction) error {

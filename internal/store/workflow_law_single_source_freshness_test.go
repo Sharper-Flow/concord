@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+
+	"github.com/sharper-flow/concord/internal/workflowproof"
 )
 
 // An empty mandate must not hide a committed law edit behind stale projection
@@ -129,11 +131,11 @@ func TestLawBaselineMissingCurrentPinKeepsOutsideRepairRoute(t *testing.T) {
 		t.Fatal(err)
 	}
 	requireFailureKind(t, enactLawChange(t, s, id, nil, nil), KindMissingEvidence, "cannot infer owning start from a current pin")
-	if err := outsideRepairApply(t, s, outsideRepairTestRequest(t, s, id, "hold"), WorkflowOutsideRepairDispositionSet, OutsideRepairEvidence{}); err != nil {
+	if err := outsideRepairApply(t, s, outsideRepairTestRequest(t, s, id, "hold"), WorkflowOutsideRepairDispositionSet, workflowproof.Evidence{}); err != nil {
 		t.Fatal(err)
 	}
 	request := outsideRepairTestRequest(t, s, id, "reconcile")
-	if err := outsideRepairApply(t, s, request, WorkflowOutsideRepairReconciled, OutsideRepairEvidence{}); err == nil {
+	if err := outsideRepairApply(t, s, request, WorkflowOutsideRepairReconciled, workflowproof.Evidence{}); err == nil {
 		t.Fatal("outside repair replaced missing delivery evidence with the current pin")
 	}
 	if err := outsideRepairApply(t, s, request, WorkflowOutsideRepairReconciled, outsideRepairSampleEvidence()); err != nil {

@@ -154,7 +154,7 @@ def resolve_pr(event_name: str, event: dict, runner=subprocess.run) -> dict:
     """Normalize metadata for the pull request this run validates."""
     if event_name == "pull_request":
         pull_request = event.get("pull_request") or {}
-        return {
+        metadata = {
             "headRefName": pull_request.get("head", {}).get("ref", ""),
             "title": pull_request.get("title") or "",
             "body": pull_request.get("body") or "",
@@ -162,24 +162,37 @@ def resolve_pr(event_name: str, event: dict, runner=subprocess.run) -> dict:
             "deletions": pull_request.get("deletions"),
             "changedFiles": pull_request.get("changed_files"),
         }
-    if event_name == "merge_group":
+    elif event_name == "merge_group":
         merge_group = event.get("merge_group") or {}
-        return read_queued_pr(merge_group.get("head_ref", ""), runner)
-    return {}
+        metadata = read_queued_pr(merge_group.get("head_ref", ""), runner)
+    else:
+        return {}
+    head_ref = metadata.get("headRefName")
+    if not isinstance(head_ref, str) or not head_ref:
+        raise SystemExit("cannot read pull request metadata: invalid or missing headRefName")
+    return metadata
 
 
 def large_merge_reason(body: str) -> str:
     """A reason is an authored line, not an example or template placeholder."""
-    fenced = False
+    fence = ""
     for line in re.sub(r"<!--[\s\S]*?(?:-->|$)", "", body).splitlines():
-        stripped = line.strip()
-        if stripped.startswith(("```", "~~~")):
-            fenced = not fenced
+        marker = re.fullmatch(r" {0,3}(`{3,}|~{3,})(.*)", line)
+        if fence:
+            if (marker and marker[1][0] == fence[0] and len(marker[1]) >= len(fence)
+                    and not marker[2].strip()):
+                fence = ""
             continue
-        if fenced or not stripped.startswith("Large-merge reason:"):
+        if marker:
+            fence = marker[1]
+            continue
+        if line.expandtabs(4).startswith("    "):
+            continue
+        stripped = line.strip()
+        if not stripped.startswith("Large-merge reason:"):
             continue
         reason = stripped.removeprefix("Large-merge reason:").strip()
-        if reason and reason.lower() not in {"todo", "tbd", "n/a", "<why>", "<reason>"}:
+        if reason and reason.lower() not in {"todo", "tbd", "n/a"} and not re.fullmatch(r"<[^>]+>", reason):
             return reason
     return ""
 

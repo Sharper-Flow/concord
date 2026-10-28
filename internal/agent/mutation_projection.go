@@ -107,6 +107,7 @@ type mutationResultReadInput struct {
 	IdempotencyKey  string    `json:"idempotency_key"`
 	Digest          string    `json:"digest"`
 	Page            pageInput `json:"page"`
+	Limit           int       `json:"limit,omitempty"`
 }
 
 type mutationFragmentPage struct {
@@ -199,7 +200,7 @@ func (r runtime) readMutationResult(ctx context.Context, base agentcontract.Enve
 	}
 	// Budget changes are not query changes. Page limit, principal, source and
 	// document identity are; bind all of them without exposing the key in a cursor.
-	bindingJSON, _ := json.Marshal([]any{r.Reader.PrincipalRef, in.SourceTool, in.SourceOperation, in.IdempotencyKey, in.Digest, in.Page.Limit})
+	bindingJSON, _ := json.Marshal([]any{r.Reader.PrincipalRef, in.SourceTool, in.SourceOperation, in.IdempotencyKey, in.Digest, effectiveLimit(in.Limit, in.Page)})
 	binding := mutationDocumentDigest(bindingJSON)
 	inner, err := r.unwrapCursor(ctx, cursorValue(in.Page), binding, "mutation_result")
 	if err != nil {

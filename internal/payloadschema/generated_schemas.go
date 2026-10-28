@@ -16706,6 +16706,10 @@ const GeneratedPayloadSchemaDocument = `{
           "minLength": 1,
           "type": "string"
         },
+        "limit": {
+          "$ref": "#/$defs/limit",
+          "description": "Bounds: 1..100 value inclusive"
+        },
         "page": {
           "$ref": "#/$defs/page"
         },

@@ -82,6 +82,10 @@
         "page": {
           "$ref": "#/$defs/page"
         },
+        "limit": {
+          "$ref": "#/$defs/limit",
+          "description": "Bounds: 1..100 value inclusive"
+        },
         "requested_budget_seconds": {
           "$ref": "#/$defs/requested_budget_seconds",
           "description": "Bounds: >=1 value inclusive"

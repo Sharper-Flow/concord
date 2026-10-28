@@ -1,10 +1,12 @@
 package agent
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"reflect"
 	"strconv"
 	"strings"
@@ -137,6 +139,24 @@ func TestMutationProjectionFailedAttemptMutations(t *testing.T) {
 			}
 			readInput := projected.Reference.Read.Input
 			readBefore := mutationProjectionState(t, f.s)
+			var aliasPage agentcontract.Envelope
+			for i, variant := range []map[string]any{
+				{"page": map[string]any{"limit": 5}},
+				{"limit": 5},
+				{"limit": 5, "page": map[string]any{"limit": 3}},
+			} {
+				input := maps.Clone(readInput)
+				maps.Copy(input, variant)
+				response := f.call(t, "concord_work_trace", "mutation_result", input)
+				if response.Outcome != agentcontract.OutcomeOK {
+					t.Fatalf("pagination alias %d refused: %+v", i, response.Error)
+				}
+				if i == 0 {
+					aliasPage = response
+				} else if !bytes.Equal(response.Result, aliasPage.Result) || !reflect.DeepEqual(response.NextCursor, aliasPage.NextCursor) {
+					t.Fatalf("pagination alias %d changed the page or its effective-limit cursor binding", i)
+				}
+			}
 			var document []byte
 			for pages := 0; pages < 32; pages++ {
 				page := f.call(t, "concord_work_trace", "mutation_result", readInput)

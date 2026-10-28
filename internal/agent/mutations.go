@@ -1214,7 +1214,7 @@ func (m *workflowActionMutation) execute(ctx context.Context, action store.Workf
 	if action.RequiredCapability != "" {
 		requiredCapability = agentcontract.Capability(action.RequiredCapability)
 	}
-	inv := Invocation{ClientRef: r.Envelope.ClientRef, PrincipalRef: r.Envelope.PrincipalRef, SessionRef: r.Envelope.SessionRef, AgentRef: r.Envelope.AgentRef, Directory: r.Envelope.Directory, Worktree: r.Envelope.Worktree, ManifestDigest: r.Envelope.ManifestDigest, HostAssertionDigest: r.Envelope.HostAssertionDigest, RequiredCapability: requiredCapability, RequiredOperation: r.Operation, ProductID: r.Envelope.SelectedProductID}
+	inv := envelopeInvocation(r.Envelope, requiredCapability, r.Operation)
 	if inv.HostAssertionDigest == "" {
 		inv.HostAssertionDigest = digest
 	}
@@ -2115,7 +2115,7 @@ func (r runtime) mutateResearchRetire(ctx context.Context, base agentcontract.En
 }
 
 func (r runtime) retireResearchTx(ctx context.Context, tx *store.Transaction, base *agentcontract.Envelope, in researchRetireMutation, op agentcontract.ContractOperation, digest string, host store.ResolvedProjectHost, durable bool, response *agentcontract.Envelope) error {
-	inv := Invocation{ClientRef: r.Envelope.ClientRef, PrincipalRef: r.Envelope.PrincipalRef, SessionRef: r.Envelope.SessionRef, AgentRef: r.Envelope.AgentRef, Directory: r.Envelope.Directory, Worktree: r.Envelope.Worktree, ManifestDigest: r.Envelope.ManifestDigest, HostAssertionDigest: r.Envelope.HostAssertionDigest, RequiredCapability: op.Capability, RequiredOperation: r.Operation, ProductID: r.Envelope.SelectedProductID}
+	inv := envelopeInvocation(r.Envelope, op.Capability, r.Operation)
 	if inv.HostAssertionDigest == "" {
 		inv.HostAssertionDigest = digest
 	}
@@ -3876,7 +3876,7 @@ func (m *productProjectLinkMutation) applyTx(ctx context.Context, tx *store.Tran
 	if !registered {
 		return newRuntimeFailure("invariant_violation", fmt.Sprintf("mutation dispatch reached unregistered operation %s.%s", r.Tool, r.Operation), "contact_operator", false)
 	}
-	inv := Invocation{ClientRef: r.Envelope.ClientRef, PrincipalRef: r.Envelope.PrincipalRef, SessionRef: r.Envelope.SessionRef, AgentRef: r.Envelope.AgentRef, Directory: r.Envelope.Directory, Worktree: r.Envelope.Worktree, ManifestDigest: r.Envelope.ManifestDigest, HostAssertionDigest: r.Envelope.HostAssertionDigest, RequiredCapability: contractOp.Capability, RequiredOperation: r.Operation, ProductID: r.Envelope.SelectedProductID}
+	inv := envelopeInvocation(r.Envelope, contractOp.Capability, r.Operation)
 	if inv.HostAssertionDigest == "" {
 		inv.HostAssertionDigest = digest
 	}
@@ -4107,7 +4107,7 @@ func (m *clientPolicyGrantMutation) applyTx(ctx context.Context, tx *store.Trans
 	if !registered {
 		return newRuntimeFailure("invariant_violation", fmt.Sprintf("mutation dispatch reached unregistered operation %s.%s", r.Tool, r.Operation), "contact_operator", false)
 	}
-	inv := Invocation{ClientRef: r.Envelope.ClientRef, PrincipalRef: r.Envelope.PrincipalRef, SessionRef: r.Envelope.SessionRef, AgentRef: r.Envelope.AgentRef, Directory: r.Envelope.Directory, Worktree: r.Envelope.Worktree, ManifestDigest: r.Envelope.ManifestDigest, HostAssertionDigest: r.Envelope.HostAssertionDigest, RequiredCapability: contractOp.Capability, RequiredOperation: r.Operation, ProductID: r.Envelope.SelectedProductID}
+	inv := envelopeInvocation(r.Envelope, contractOp.Capability, r.Operation)
 	if inv.HostAssertionDigest == "" {
 		inv.HostAssertionDigest = digest
 	}
@@ -4550,7 +4550,7 @@ func (r runtime) mutateCompaction(ctx context.Context, base agentcontract.Envelo
 	scope := map[string]any{"product_id": r.Envelope.SelectedProductID, "project_ids": []string{r.Envelope.AmbientProjectID}, "work_ids": []string{workID}, "scope_version": r.Envelope.ScopeVersion}
 	claimScope := map[string]any{"product_id": r.Envelope.SelectedProductID, "project_ids": []string{r.Envelope.AmbientProjectID}, "work_ids": []string{workID}, "scope_version": r.Envelope.ScopeVersion}
 	var resolvedHome store.KnowledgeHome
-	inv := Invocation{ClientRef: r.Envelope.ClientRef, PrincipalRef: r.Envelope.PrincipalRef, SessionRef: r.Envelope.SessionRef, AgentRef: r.Envelope.AgentRef, Directory: r.Envelope.Directory, Worktree: r.Envelope.Worktree, ManifestDigest: r.Envelope.ManifestDigest, HostAssertionDigest: r.Envelope.HostAssertionDigest, RequiredCapability: "work_compact", RequiredOperation: r.Operation, ProductID: r.Envelope.SelectedProductID}
+	inv := envelopeInvocation(r.Envelope, "work_compact", r.Operation)
 	if inv.HostAssertionDigest == "" {
 		inv.HostAssertionDigest = digest
 	}
@@ -5382,7 +5382,7 @@ type mutationExecution struct {
 
 func (m *mutationExecution) executeTx(ctx context.Context, tx *store.Transaction, durable bool) error {
 	r, raw, digest, scope := m.runtime, m.raw, m.digest, m.scope
-	inv := Invocation{ClientRef: r.Envelope.ClientRef, PrincipalRef: r.Envelope.PrincipalRef, SessionRef: r.Envelope.SessionRef, AgentRef: r.Envelope.AgentRef, Directory: r.Envelope.Directory, Worktree: r.Envelope.Worktree, ManifestDigest: r.Envelope.ManifestDigest, HostAssertionDigest: r.Envelope.HostAssertionDigest, RequiredCapability: m.contractOp.Capability, RequiredOperation: r.Operation, ProductID: r.Envelope.SelectedProductID}
+	inv := envelopeInvocation(r.Envelope, m.contractOp.Capability, r.Operation)
 	if inv.HostAssertionDigest == "" {
 		inv.HostAssertionDigest = digest
 	}

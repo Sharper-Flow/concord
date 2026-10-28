@@ -464,6 +464,13 @@ type Invocation struct {
 	ProductID, ProjectID                                                               string
 }
 
+// envelopeInvocation asks to authorize one operation for the whole call
+// envelope: the caller identity and its host binding, scoped to the selected
+// Product.
+func envelopeInvocation(env CallEnvelope, capability agentcontract.Capability, operation string) Invocation {
+	return Invocation{ClientRef: env.ClientRef, PrincipalRef: env.PrincipalRef, SessionRef: env.SessionRef, AgentRef: env.AgentRef, Directory: env.Directory, Worktree: env.Worktree, ManifestDigest: env.ManifestDigest, HostAssertionDigest: env.HostAssertionDigest, RequiredCapability: capability, RequiredOperation: operation, ProductID: env.SelectedProductID}
+}
+
 func (s *Service) Authorize(ctx context.Context, in Invocation) (Authority, error) {
 	if err := s.authorityReady("agent_authorize"); err != nil {
 		return Authority{}, err

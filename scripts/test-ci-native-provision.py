@@ -37,6 +37,7 @@ HOME_HEADER = b"""# This file is auto-generated. It is recommended you update it
 # here are appended to @{HOMEDIRS}.  See tunables/home for details.
 """
 HOME_DEFAULT = b"#@{HOMEDIRS}+=\n"
+XDG_SITE_DEFAULT = Path("tunables/xdg-user-dirs.d/site").with_suffix(".local")
 XDG_DEFAULT = b"""# ------------------------------------------------------------------
 #
 #    Copyright (C) 2014 Canonical Ltd.
@@ -69,25 +70,36 @@ POSTINST_DEFAULTS = (b'''\tdb_get apparmor/homedirs
 EOM
         else
             cat >> "$tmp" <<EOM
-''' + HOME_DEFAULT + b'''EOM
+''' + HOME_DEFAULT + f'''EOM
         fi
         mkdir -p /etc/apparmor.d/tunables/home.d 2>/dev/null || true
         mv -Z -f "$tmp" /etc/apparmor.d/tunables/home.d/ubuntu
         chmod 644 /etc/apparmor.d/tunables/home.d/ubuntu
 
-        if [ ! -e /etc/apparmor.d/tunables/xdg-user-dirs.d/site.local ]; then
+        if [ ! -e /etc/apparmor.d/{XDG_SITE_DEFAULT} ]; then
             tmp=`mktemp`
             cat > "$tmp" <<EOM
-''' + XDG_DEFAULT + b'''EOM
+'''.encode("ascii") + XDG_DEFAULT + f'''EOM
 
             mkdir -p /etc/apparmor.d/tunables/xdg-user-dirs.d 2>/dev/null || true
-            mv -Z -n "$tmp" /etc/apparmor.d/tunables/xdg-user-dirs.d/site.local
-            chmod 644 /etc/apparmor.d/tunables/xdg-user-dirs.d/site.local
+            mv -Z -n "$tmp" /etc/apparmor.d/{XDG_SITE_DEFAULT}
+            chmod 644 /etc/apparmor.d/{XDG_SITE_DEFAULT}
         fi
-''')
+'''.encode("ascii"))
 
 
 class ProvisionTests(unittest.TestCase):
+    def test_default_control_fixture_bytes(self):
+        self.assertEqual(HELPER.XDG_SITE_DEFAULT, XDG_SITE_DEFAULT)
+        # Pin the public control data, including the constructed output filename.
+        for data, digest in (
+            (HOME_HEADER, "84de102586fb59f752cd6a386dea1086c7073c8549387f0783bea15c171a4c21"),
+            (HOME_DEFAULT, "34ee94b20f507958109cabde0e372ebc710afe0297c7d5b402ad5f80e39a56ba"),
+            (XDG_DEFAULT, "d9705b1ab368e32f4cce94f2242c6947b8624985b9c6de2ab4ee01b398dc4703"),
+            (POSTINST_DEFAULTS, "d21f23b8265b3fcf994c2f8cd13e1e210d6887bbb5f0f79d6ea602260f97adff"),
+        ):
+            self.assertEqual(hashlib.sha256(data).hexdigest(), digest)
+
     @staticmethod
     def policy_fixture(root, generated_defaults=False):
         private = root / "private"
@@ -100,10 +112,10 @@ class ProvisionTests(unittest.TestCase):
             (directory / "tunables/home.d").mkdir(parents=True)
             (directory / "tunables/xdg-user-dirs.d").mkdir()
             (directory / "tunables/global").write_text("include <tunables/home.d>\ninclude <tunables/xdg-user-dirs.d>\n")
-            (directory / "tunables/home.d/site").write_text("@{HOME}=/home/*\n")
+            (directory / "tunables/home.d/site").write_text("@{HOME}=/srv/example-users/*\n")
         if generated_defaults:
             (base / "tunables/home.d/ubuntu").write_bytes(HOME_HEADER + HOME_DEFAULT)
-            (base / "tunables/xdg-user-dirs.d/site.local").write_bytes(XDG_DEFAULT)
+            (base / XDG_SITE_DEFAULT).write_bytes(XDG_DEFAULT)
         return private, base, profile
 
     @staticmethod
@@ -166,15 +178,15 @@ class ProvisionTests(unittest.TestCase):
                     # Both installed revisions use this identical authenticated .9
                     # route; installed package identity never chooses the parser.
                     self.assertFalse((private / "base/tunables/home.d/ubuntu").exists())
-                    self.assertFalse((private / "base/tunables/xdg-user-dirs.d/site.local").exists())
+                    self.assertFalse((private / "base" / XDG_SITE_DEFAULT).exists())
                     HELPER.stage_parser(private, archives, base)
                     self.assertEqual((private / "base/tunables/home.d/ubuntu").read_bytes(), HOME_HEADER + HOME_DEFAULT)
-                    self.assertEqual((private / "base/tunables/xdg-user-dirs.d/site.local").read_bytes(), XDG_DEFAULT)
+                    self.assertEqual((private / "base" / XDG_SITE_DEFAULT).read_bytes(), XDG_DEFAULT)
                     self.assertFalse((private / "base/unrelated-policy").exists())
                     self.assertEqual([call.args[0][:2] for call in execute.call_args_list], [["dpkg-deb", "-e"]] * 2)
                     manifest = json.loads((private / "manifest.json").read_text())
                     self.assertEqual({source["Version"] for source in manifest["sources"]}, {HELPER.PINS["apparmor"]})
-                    for retained in ("apparmor-control/postinst", "base/tunables/home.d/ubuntu", "base/tunables/xdg-user-dirs.d/site.local"):
+                    for retained in ("apparmor-control/postinst", "base/tunables/home.d/ubuntu", Path("base") / XDG_SITE_DEFAULT):
                         path = private / retained
                         self.assertEqual(manifest["private"][str(path)]["sha256"], hashlib.sha256(path.read_bytes()).hexdigest())
                     execute.reset_mock()
@@ -189,8 +201,8 @@ class ProvisionTests(unittest.TestCase):
                     for path in (private / "apparmor.deb", private / "apparmor_parser", private / "parser.conf",
                                  private / "base/abi/4.0", private / "vendor-profile", runtime,
                                  private / "apparmor-control/postinst", private / "base/tunables/home.d/ubuntu",
-                                 private / "base/tunables/xdg-user-dirs.d/site.local", base / "tunables/home.d/ubuntu",
-                                 base / "tunables/xdg-user-dirs.d/site.local", base / "tunables/home.d/site", base / "bwrap-userns-restrict"):
+                                 private / "base" / XDG_SITE_DEFAULT, base / "tunables/home.d/ubuntu",
+                                 base / XDG_SITE_DEFAULT, base / "tunables/home.d/site", base / "bwrap-userns-restrict"):
                         original = path.read_bytes()
                         path.write_bytes(original + b" drift")
                         execute.reset_mock()
@@ -198,8 +210,8 @@ class ProvisionTests(unittest.TestCase):
                             HELPER.parser_effect(private, "load", base)
                         execute.assert_not_called()
                         path.write_bytes(original)
-                    for path in (private / "apparmor-control/postinst", private / "base/tunables/home.d/ubuntu", private / "base/tunables/xdg-user-dirs.d/site.local",
-                                 base / "tunables/home.d/ubuntu", base / "tunables/xdg-user-dirs.d/site.local"):
+                    for path in (private / "apparmor-control/postinst", private / "base/tunables/home.d/ubuntu", private / "base" / XDG_SITE_DEFAULT,
+                                 base / "tunables/home.d/ubuntu", base / XDG_SITE_DEFAULT):
                         original = path.read_bytes()
                         mode = path.stat().st_mode & 0o777
                         path.unlink()
@@ -245,13 +257,13 @@ class ProvisionTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     HELPER.derive_parser_defaults(private)
                 self.assertFalse((private / "base/tunables/home.d/ubuntu").exists())
-                self.assertFalse((private / "base/tunables/xdg-user-dirs.d/site.local").exists())
+                self.assertFalse((private / "base" / XDG_SITE_DEFAULT).exists())
                 self.assertEqual(installed, {str(path): path.read_bytes() for path in base.rglob("*") if path.is_file()})
                 execute.assert_not_called()
                 output.assert_not_called()
 
     def test_private_default_derivation_refuses_collisions_and_missing_control(self):
-        for generated in ("tunables/home.d/ubuntu", "tunables/xdg-user-dirs.d/site.local"):
+        for generated in ("tunables/home.d/ubuntu", XDG_SITE_DEFAULT):
             for kind in ("file", "link", "directory"):
                 with self.subTest(generated=generated, kind=kind), tempfile.TemporaryDirectory() as name, patch.object(HELPER, "secure_path"), \
                      patch.object(subprocess, "run") as execute, patch.object(subprocess, "check_output") as output:
@@ -280,10 +292,10 @@ class ProvisionTests(unittest.TestCase):
 
     def test_derived_defaults_still_refuse_installed_nondefaults_extras_and_absence(self):
         changes = (("tunables/home.d/ubuntu", b"@{HOMEDIRS}+=/srv/\n"),
-                   ("tunables/xdg-user-dirs.d/site.local", b'@{XDG_MUSIC_DIR}+="Other"\n'),
+                   (XDG_SITE_DEFAULT, b'@{XDG_MUSIC_DIR}+="Other"\n'),
                    ("tunables/home.d/extra", b"# even comment-only extras refuse\n"),
                    ("tunables/xdg-user-dirs.d/extra", b"# extra\n"),
-                   ("tunables/home.d/ubuntu", None), ("tunables/xdg-user-dirs.d/site.local", None))
+                   ("tunables/home.d/ubuntu", None), (XDG_SITE_DEFAULT, None))
         for name, data in changes:
             with self.subTest(installed=name, data=data), tempfile.TemporaryDirectory() as scratch, patch.object(HELPER, "secure_path"), \
                  patch.object(subprocess, "run") as execute, patch.object(subprocess, "check_output") as output:
@@ -343,44 +355,85 @@ class ProvisionTests(unittest.TestCase):
                     HELPER.verify_policy_base(private, base)
 
     def test_parser_runtime_uses_readelf_not_execution_and_refuses_unknown_linkage(self):
-        for bad in (None, "dependency", "search", "interpreter", "machine", "resolution"):
+        for bad in (None, "foreign first", "foreign last", "dependency", "RPATH", "RUNPATH", "AUDIT", "DEPAUDIT", "FILTER", "AUXILIARY", "interpreter", "machine", "resolution",
+                    "foreign only", "unknown ABI", "hwcap", "hwcap only", "outside", "nested", "library class", "library machine", "preload"):
             def command(args, **kwargs):
                 if args == ["/usr/sbin/ldconfig", "-p"]:
-                    return ("\tlibc.so.6 (libc6,x86-64) => /lib/x86_64-linux-gnu/libc.so.6\n" * (2 if bad == "resolution" else 1) +
-                            "\tld-linux-x86-64.so.2 (libc6,x86-64) => /lib/x86_64-linux-gnu/ld-linux-x86-64.so.2\n")
+                    native = "\tlibc.so.6 (libc6,x86-64) => /lib/x86_64-linux-gnu/libc.so.6\n"
+                    foreign = "\tlibc.so.6 (libc6) => /lib32/libc.so.6\n"
+                    variants = {
+                        "foreign first": foreign + native, "foreign last": native + foreign,
+                        "foreign only": foreign, "resolution": native * 2,
+                        "unknown ABI": native + "\tlibc.so.6 (unknown) => /lib/other/libc.so.6\n",
+                        "hwcap": native + '\tlibc.so.6 (libc6,x86-64, hwcap: "x86-64-v3") => /lib/x86_64-linux-gnu/glibc-hwcaps/x86-64-v3/libc.so.6\n',
+                        "hwcap only": '\tlibc.so.6 (libc6,x86-64, hwcap: "x86-64-v3") => /lib/x86_64-linux-gnu/glibc-hwcaps/x86-64-v3/libc.so.6\n',
+                        "outside": native.replace("/lib/x86_64-linux-gnu/", "/opt/runtime/"),
+                        "nested": native.replace("/libc.so.6", "/alternate/libc.so.6"),
+                    }
+                    return variants.get(bad, native) + "\tld-linux-x86-64.so.2 (libc6,x86-64) => /lib/x86_64-linux-gnu/ld-linux-x86-64.so.2\n"
                 self.assertEqual(args[0], "readelf")
                 if args[1] == "-hW":
+                    if args[2] == "/lib/x86_64-linux-gnu/libc.so.6":
+                        if bad == "library class":
+                            return "Class: ELF32\nMachine: Advanced Micro Devices X86-64"
+                        if bad == "library machine":
+                            return "Class: ELF64\nMachine: AArch64"
                     return "Class: ELF64\nMachine: " + ("AArch64" if bad == "machine" else "Advanced Micro Devices X86-64")
                 if args[1] == "-lW":
-                    return "[Requesting program interpreter: " + ("/unexpected" if bad == "interpreter" else "/lib64/ld-linux-x86-64.so.2") + "]" if args[2] == "/private/parser" else ""
+                    return "[Requesting program interpreter: " + ("/unexpected" if bad == "interpreter" else "/lib64/ld-linux-x86-64.so.2") + "]" if args[2] == "/synthetic/parser" else ""
                 if args[2] == "/lib/x86_64-linux-gnu/libc.so.6":
                     # glibc's libc.so.6 itself records the loader as a NEEDED entry.
                     return "(NEEDED) Shared library: [ld-linux-x86-64.so.2]"
-                if args[2] != "/private/parser":
+                if args[2] != "/synthetic/parser":
                     return ""
-                return ("(RPATH) [/tmp]\n" if bad == "search" else "") + "(NEEDED) [" + ("libunapproved.so" if bad == "dependency" else "libc.so.6") + "]"
-            with self.subTest(bad=bad), patch.object(HELPER, "identity", return_value={}), \
+                hook = f"({bad}) [/opt/alternate]\n" if bad in {"RPATH", "RUNPATH", "AUDIT", "DEPAUDIT", "FILTER", "AUXILIARY"} else ""
+                return hook + "(NEEDED) [" + ("libunapproved.so" if bad == "dependency" else "libc.so.6") + "]"
+            with self.subTest(bad=bad), patch.object(HELPER, "identity", return_value={}) as identity, \
+                 patch.object(os.path, "lexists", return_value=bad == "preload"), \
                  patch.object(subprocess, "check_output", side_effect=command), patch.object(subprocess, "run") as execute:
-                if bad:
-                    with self.assertRaisesRegex(ValueError, "unsupported parser"):
-                        HELPER.parser_runtime(Path("/private/parser"))
+                if bad not in (None, "foreign first", "foreign last"):
+                    with self.assertRaisesRegex(ValueError, "unsupported parser|host loader preload"):
+                        HELPER.parser_runtime(Path("/synthetic/parser"))
                 else:
-                    paths, linkage = HELPER.parser_runtime(Path("/private/parser"))
+                    paths, linkage = HELPER.parser_runtime(Path("/synthetic/parser"))
                     self.assertEqual(paths, ["/etc/ld.so.cache", "/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2", "/lib/x86_64-linux-gnu/libc.so.6",
-                                             "/lib64/ld-linux-x86-64.so.2", "/private/parser"])
+                                             "/lib64/ld-linux-x86-64.so.2", "/synthetic/parser"])
                     self.assertEqual(len(linkage), 4)
+                    self.assertNotIn("/lib32/libc.so.6", paths)
+                    self.assertEqual({str(call.args[0]) for call in identity.call_args_list}, set(paths) - {"/etc/ld.so.cache"})
                 execute.assert_not_called()
+
+    def test_cleanup_trap_keeps_both_paths_and_producer_exit_status(self):
+        script = (ROOT / "scripts/ci-provision-native-isolation.sh").read_text()
+        cleanup = re.search(r"(?ms)^trap '\n.*?^' EXIT$", script)
+        self.assertIsNotNone(cleanup)
+        for parser_root in ("", "/synthetic/root parser"):
+            for status in (0, 37):
+                for early in (False, True):
+                    with self.subTest(parser_root=parser_root, status=status, early=early):
+                        command = ("set -Eeuo pipefail; work='/synthetic/build scratch'; parser_root=''; "
+                                   "rm() { printf 'rm'; printf ' <%s>' \"$@\"; printf '\\n'; }; "
+                                   "sudo() { printf 'sudo '; \"$@\"; };\n" + cleanup[0] + "\n" +
+                                   "parser_root=" + shlex.quote(parser_root) + "; " +
+                                   (f"(exit {status})" if early else f"exit {status}"))
+                        process = subprocess.run(["bash", "--noprofile", "--norc", "-c", command],
+                                                 capture_output=True, text=True, timeout=10)
+                        self.assertEqual(process.returncode, status, process.stderr)
+                        expected = "rm <-rf> <--> </synthetic/build scratch>\n"
+                        if parser_root:
+                            expected += "sudo rm <-rf> <--> <" + parser_root + ">\n"
+                        self.assertEqual(process.stdout, expected)
 
     def test_privileged_paths_reject_workload_owned_inputs_and_ancestors(self):
         import types
         for uid, mode in ((1000, 0o100600), (0, 0o100666), (0, 0o40775)):
             with self.subTest(uid=uid, mode=mode), patch.object(Path, "lstat", return_value=types.SimpleNamespace(st_uid=uid, st_mode=mode)):
                 with self.assertRaisesRegex(ValueError, "unsafe privileged input"):
-                    HELPER.secure_path(Path("/private/input"))
+                    HELPER.secure_path(Path("/synthetic/input"))
         def ownership(path):
-            return types.SimpleNamespace(st_uid=1000 if path == Path("/private") else 0, st_mode=0o100600)
-        with patch.object(Path, "lstat", autospec=True, side_effect=ownership), self.assertRaisesRegex(ValueError, "/private"):
-            HELPER.secure_path(Path("/private/input"))
+            return types.SimpleNamespace(st_uid=1000 if path == Path("/synthetic") else 0, st_mode=0o100600)
+        with patch.object(Path, "lstat", autospec=True, side_effect=ownership), self.assertRaisesRegex(ValueError, "/synthetic"):
+            HELPER.secure_path(Path("/synthetic/input"))
 
     def test_selected_parser_pin_is_not_an_installed_package_requirement(self):
         for mode in ("pins", "parser-pin", "profile-pin", "verify-pins"):

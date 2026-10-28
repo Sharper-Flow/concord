@@ -23,11 +23,10 @@ dpkg --print-architecture
 [[ $(dpkg --print-architecture) == amd64 ]] || die 'amd64 dpkg required'
 work=$(mktemp -d "$RUNNER_TEMP/native-isolation-build.XXXXXXXX")
 parser_root=''
-cleanup() {
+trap '
     rm -rf -- "$work"
     if [[ -n $parser_root ]]; then sudo rm -rf -- "$parser_root"; fi
-}
-trap cleanup EXIT
+' EXIT
 mkdir "$work/debs" "$evidence/package-controls" "$evidence/package-files"
 dpkg --audit > "$evidence/dpkg-audit-before.txt"
 [[ ! -s $evidence/dpkg-audit-before.txt ]] || die 'runner has an incomplete package transaction'

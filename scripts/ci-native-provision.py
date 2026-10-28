@@ -34,6 +34,7 @@ PINS = {
     "libcap2": "1:2.66-5ubuntu2.4",
 }
 PROFILE_PIN = "apparmor-profiles=" + PINS["apparmor"]
+XDG_SITE_DEFAULT = Path("tunables/xdg-user-dirs.d/site").with_suffix(".local")
 INSTALL_PINS = {name: version for name, version in PINS.items() if name != "apparmor"}
 VENDOR_DIGEST = "11d39094f044f0cda0febb3ad517b830301da6b2ce929664af09ee9e4dd264f9"
 # Transitive compiler/header/tool dependencies only. A new package family needs
@@ -180,23 +181,23 @@ EOM
         else
             cat >> "$tmp" <<EOM
 ''',
-        b'''EOM
+        f'''EOM
         fi
         mkdir -p /etc/apparmor.d/tunables/home.d 2>/dev/null || true
         mv -Z -f "$tmp" /etc/apparmor.d/tunables/home.d/ubuntu
         chmod 644 /etc/apparmor.d/tunables/home.d/ubuntu
 
-        if [ ! -e /etc/apparmor.d/tunables/xdg-user-dirs.d/site.local ]; then
+        if [ ! -e /etc/apparmor.d/{XDG_SITE_DEFAULT} ]; then
             tmp=`mktemp`
             cat > "$tmp" <<EOM
-''',
-        b'''EOM
+'''.encode("ascii"),
+        f'''EOM
 
             mkdir -p /etc/apparmor.d/tunables/xdg-user-dirs.d 2>/dev/null || true
-            mv -Z -n "$tmp" /etc/apparmor.d/tunables/xdg-user-dirs.d/site.local
-            chmod 644 /etc/apparmor.d/tunables/xdg-user-dirs.d/site.local
+            mv -Z -n "$tmp" /etc/apparmor.d/{XDG_SITE_DEFAULT}
+            chmod 644 /etc/apparmor.d/{XDG_SITE_DEFAULT}
         fi
-''',
+'''.encode("ascii"),
     )
     if len(control) > 131072 or b"\r" in control or b"\0" in control or control.count(delimiters[0]) != 1:
         raise ValueError("unsupported parser default control layout")
@@ -208,7 +209,7 @@ EOM
     header, empty_home, xdg = matches[0].groups()
     if empty_home != b"#@{HOMEDIRS}+=\n" or header.count(b"# $ sudo dpkg-reconfigure apparmor\n") != 1:
         raise ValueError("unsupported parser empty-home default")
-    outputs = {"tunables/home.d/ubuntu": header + empty_home, "tunables/xdg-user-dirs.d/site.local": xdg}
+    outputs = {"tunables/home.d/ubuntu": header + empty_home, str(XDG_SITE_DEFAULT): xdg}
     for name, data in outputs.items():
         # '#include' is policy syntax, not an inert AppArmor comment. '$ sudo'
         # is literal documentation; every other shell expansion marker refuses.
@@ -328,9 +329,17 @@ def parser_runtime(parser: Path) -> tuple[list[str], dict]:
             if soname not in allowed:
                 raise ValueError(f"unsupported parser dependency: {soname}")
             entries = re.findall(r"^\s*" + re.escape(soname) + r" (\([^\n]+\)) => (\S+)$", cache, re.M)
-            if len(entries) != 1 or entries[0][0] != "(libc6,x86-64)" or not entries[0][1].startswith(("/lib/x86_64-linux-gnu/", "/usr/lib/x86_64-linux-gnu/")):
-                raise ValueError(f"unsupported parser runtime resolution: {soname}")
-            dependencies.append(entries[0][1])
+            # The x86-64 loader excludes the plain libc6 (32-bit) cache ABI.
+            # Unknown flags and hwcap alternatives still refuse, not disappear
+            # behind a filter that could select a different runtime at execution.
+            compatible = [path for flags, path in entries if flags == "(libc6,x86-64)"]
+            if (any(flags not in {"(libc6)", "(libc6,x86-64)"} for flags, _ in entries) or
+                    len(compatible) != 1 or
+                    Path(compatible[0]).parent not in {Path("/lib/x86_64-linux-gnu"), Path("/usr/lib/x86_64-linux-gnu")} or
+                    Path(compatible[0]).name != soname):
+                observed = json.dumps(entries[:8])[:2048]
+                raise ValueError(f"unsupported parser runtime resolution: {soname}; compatible={len(compatible)} total={len(entries)} entries={observed}")
+            dependencies.append(compatible[0])
         for dependency in dependencies:
             if dependency not in paths:
                 paths.add(dependency)

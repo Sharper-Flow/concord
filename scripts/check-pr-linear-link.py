@@ -10,10 +10,12 @@ change issue status outside that route, so this check refuses one. Linear
 parses a closing magic word in the pull request title as well as the body
 (https://linear.app/docs/github), so both surfaces get the same scan.
 
-The branch name marks Concord-managed work, not the author. Only head
-branches matching `work/work-*` are checked; bot and ad-hoc pull requests
-stay unaffected, as the managed-development-authority document permits.
-Anything else passes without reading the body.
+The branch name marks Concord-managed work, not the author. Linkage applies
+only to `work/work-*`; other branches have no linkage requirement.
+Every branch is measured for merge
+size, including generated files. Small means <=400 added + deleted lines and
+<=15 changed files; a larger PR needs a `Large-merge reason: <why>` body line.
+This records an engineering reason, not operator approval or work-item size.
 
 On `pull_request` events the body and head branch come from the event
 payload. A `merge_group` payload names only the queue branch
@@ -128,13 +130,14 @@ def queued_pr_number(queue_ref: str) -> str:
     return match.group(1)
 
 
-def read_queued_pr(queue_ref: str, runner=subprocess.run) -> tuple[str, str, str]:
-    """Read the head branch, title, and body of the pull request behind a merge queue entry."""
+def read_queued_pr(queue_ref: str, runner=subprocess.run) -> dict:
+    """Read metadata for the pull request behind a merge queue entry."""
     number = queued_pr_number(queue_ref)
     result = runner(
-        ["gh", "pr", "view", number, "--json", "headRefName,title,body"],
+        ["gh", "pr", "view", number, "--json", "headRefName,title,body,additions,deletions,changedFiles"],
         capture_output=True,
         text=True,
+        timeout=30,
     )
     if result.returncode != 0:
         raise SystemExit(f"cannot read pull request {number}: {result.stderr.strip()}")
@@ -142,26 +145,76 @@ def read_queued_pr(queue_ref: str, runner=subprocess.run) -> tuple[str, str, str
         pull_request = json.loads(result.stdout)
     except json.JSONDecodeError as err:
         raise SystemExit(f"cannot read pull request {number}: {err}") from err
-    return (
-        pull_request.get("headRefName") or "",
-        pull_request.get("title") or "",
-        pull_request.get("body") or "",
-    )
+    if not isinstance(pull_request, dict):
+        raise SystemExit(f"cannot read pull request {number}: expected an object")
+    return pull_request
 
 
-def resolve_pr(event_name: str, event: dict, runner=subprocess.run) -> tuple[str, str, str]:
-    """Resolve (head_ref, title, body) for the pull request this run validates."""
+def resolve_pr(event_name: str, event: dict, runner=subprocess.run) -> dict:
+    """Normalize metadata for the pull request this run validates."""
     if event_name == "pull_request":
         pull_request = event.get("pull_request") or {}
-        return (
-            pull_request.get("head", {}).get("ref", ""),
-            pull_request.get("title") or "",
-            pull_request.get("body") or "",
-        )
-    if event_name == "merge_group":
+        metadata = {
+            "headRefName": pull_request.get("head", {}).get("ref", ""),
+            "title": pull_request.get("title") or "",
+            "body": pull_request.get("body") or "",
+            "additions": pull_request.get("additions"),
+            "deletions": pull_request.get("deletions"),
+            "changedFiles": pull_request.get("changed_files"),
+        }
+    elif event_name == "merge_group":
         merge_group = event.get("merge_group") or {}
-        return read_queued_pr(merge_group.get("head_ref", ""), runner)
-    return "", "", ""
+        metadata = read_queued_pr(merge_group.get("head_ref", ""), runner)
+    else:
+        return {}
+    head_ref = metadata.get("headRefName")
+    if not isinstance(head_ref, str) or not head_ref:
+        raise SystemExit("cannot read pull request metadata: invalid or missing headRefName")
+    return metadata
+
+
+def large_merge_reason(body: str) -> str:
+    """A reason is an authored line, not an example or template placeholder."""
+    fence = ""
+    for line in re.sub(r"<!--[\s\S]*?(?:-->|$)", "", body).splitlines():
+        marker = re.fullmatch(r" {0,3}(`{3,}|~{3,})(.*)", line)
+        if fence:
+            if (marker and marker[1][0] == fence[0] and len(marker[1]) >= len(fence)
+                    and not marker[2].strip()):
+                fence = ""
+            continue
+        if marker:
+            fence = marker[1]
+            continue
+        if line.expandtabs(4).startswith("    "):
+            continue
+        stripped = line.strip()
+        if not stripped.startswith("Large-merge reason:"):
+            continue
+        reason = stripped.removeprefix("Large-merge reason:").strip()
+        if reason and reason.lower() not in {"todo", "tbd", "n/a"} and not re.fullmatch(r"<[^>]+>", reason):
+            return reason
+    return ""
+
+
+def check_pr_size(pull_request: dict) -> tuple[bool, str]:
+    """Measure the whole PR; generated files are not a size exemption."""
+    for field in ("additions", "deletions", "changedFiles"):
+        value = pull_request.get(field)
+        if type(value) is not int or value < 0:
+            return False, f"cannot measure merge size: invalid or missing {field}"
+    lines = pull_request["additions"] + pull_request["deletions"]
+    files = pull_request["changedFiles"]
+    counts = f"{lines} changed lines, {files} files (small: <=400 lines and <=15 files, generated files included)"
+    if lines <= 400 and files <= 15:
+        return True, f"SMALL: {counts}"
+    reason = large_merge_reason(pull_request.get("body") or "")
+    if reason:
+        return True, f"LARGE: {counts}; recorded reason: {reason}"
+    return False, (
+        f"LARGE: {counts}; add 'Large-merge reason: <why this merge must stay together>' "
+        "to the PR body. Explain the delivery/cutover constraint; this is not an approval request."
+    )
 
 
 def main(argv: list[str]) -> int:
@@ -179,10 +232,17 @@ def main(argv: list[str]) -> int:
     except (OSError, json.JSONDecodeError) as err:
         print(f"cannot read the event payload at {event_path!r}: {err}")
         return 1
-    head_ref, title, body = resolve_pr(event_name, event)
-    ok, detail = check_pr_link(head_ref, title, body)
-    print(f"pull request {head_ref!r}: {detail}")
-    return 0 if ok else 1
+    pull_request = resolve_pr(event_name, event)
+    head_ref = pull_request.get("headRefName") or ""
+    link_ok, link_detail = check_pr_link(head_ref, pull_request.get("title") or "", pull_request.get("body") or "")
+    size_ok, size_detail = check_pr_size(pull_request)
+    report = f"pull request {head_ref!r}: {link_detail}\n{size_detail}\n"
+    print(report, end="")
+    summary = os.environ.get("GITHUB_STEP_SUMMARY")
+    if summary:
+        with open(summary, "a", encoding="utf-8") as handle:
+            handle.write(report)
+    return 0 if link_ok and size_ok else 1
 
 
 if __name__ == "__main__":

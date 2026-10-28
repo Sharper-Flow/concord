@@ -160,7 +160,7 @@ test("review packets preserve the recorded size and its provenance only on Revie
     { size: "larger", model_size: "larger", model_version: 2, recorded_at: "2026-10-28T00:00:00Z" },
     { size: "crucial", model_size: "crucial", model_version: 2, recorded_at: "2026-10-28T00:00:00Z" },
     { size: "crucial", model_size: "small", operator_size: "crucial", model_version: 2, recorded_at: "2026-10-28T00:00:00Z" },
-  ]) {
+  ] as const) {
     const descriptor = { input_candidate: { project_id: "project-1", commit: "a".repeat(40), tree: "b".repeat(40) }, dependencies: { criteria: [{ predicate_id: "predicate:primary", content_digest: "sha256:" + "c".repeat(64) }], architecture_not_applicable: true }, size }
     const continuity = continuityEnvelope() as any
     continuity.result.pinned.review_input = descriptor

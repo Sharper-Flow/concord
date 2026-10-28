@@ -1038,9 +1038,7 @@ func foldWorkflowOverlapResolved(ctx context.Context, tx *sql.Tx, event Event) e
 		if cycle, err := relationWouldCycle(ctx, tx, resolutionFromWorkID, resolutionToWorkID, relationKind); err != nil {
 			return err
 		} else if cycle {
-			failure := newFailure(KindCycleDetected, "workflow_domain_overlap", "overlap resolution would create a relation cycle", false, "choose a non-cyclic resolution direction")
-			failure.Violations = []string{relationKind + ":" + resolutionFromWorkID + "->" + resolutionToWorkID}
-			return failure
+			return cycleFailure("workflow_domain_overlap", "overlap resolution would create a relation cycle", "choose a non-cyclic resolution direction", relationKind, resolutionFromWorkID, resolutionToWorkID)
 		}
 	}
 	return recordWorkflowOverlapResolutionTx(ctx, tx, event, payload, left.ProductID, from, to, fromExpected, fromResulting, resolutionFromWorkID, resolutionToWorkID, resolutionFromContractVersion, resolutionToContractVersion)

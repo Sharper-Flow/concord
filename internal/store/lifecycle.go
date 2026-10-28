@@ -658,12 +658,8 @@ func foldWorkSuperseded(ctx context.Context, tx *sql.Tx, event Event) error {
 	if cycle, err := relationWouldCycle(ctx, tx, payload.Successor, payload.Superseded, "supersedes"); err != nil {
 		return err
 	} else if cycle {
-		f := newFailure(KindCycleDetected, "fold_event", "supersession would create a cycle", false,
-			"choose a successor that is not reachable from the superseded work")
-		// Carry the typed offending edge so the agent layer can surface
-		// error.violations structurally (D5) instead of regexing detail.
-		f.Violations = []string{"supersedes:" + payload.Successor + "->" + payload.Superseded}
-		return f
+		return cycleFailure("fold_event", "supersession would create a cycle",
+			"choose a successor that is not reachable from the superseded work", "supersedes", payload.Successor, payload.Superseded)
 	}
 	if err := insertRelation(ctx, tx, event, relationPayload{From: payload.Successor, To: payload.Superseded, Kind: "supersedes"}); err != nil {
 		return err
@@ -773,11 +769,7 @@ func replaceSupersessionTx(ctx context.Context, tx *sql.Tx, event Event, payload
 	if cycle, err := relationWouldCycle(ctx, tx, payload.Replacement, event.SubjectID, "supersedes"); err != nil {
 		return err
 	} else if cycle {
-		f := newFailure(KindCycleDetected, "fold_event", "replacement supersession would create a cycle", false, "choose a non-cyclic replacement successor")
-		// Carry the typed offending edge so the agent layer can surface
-		// error.violations structurally (D5) instead of regexing detail.
-		f.Violations = []string{"supersedes:" + payload.Replacement + "->" + event.SubjectID}
-		return f
+		return cycleFailure("fold_event", "replacement supersession would create a cycle", "choose a non-cyclic replacement successor", "supersedes", payload.Replacement, event.SubjectID)
 	}
 	if err := insertRelation(ctx, tx, event, relationPayload{From: payload.Replacement, To: event.SubjectID, Kind: "supersedes"}); err != nil {
 		return err
@@ -812,21 +804,9 @@ func foldRelationAdded(ctx context.Context, tx *sql.Tx, event Event) error {
 			return err
 		}
 	}
-	current, err := readWork(ctx, tx, payload.From)
+	current, err := readRelationEndpointsTx(ctx, tx, event, payload)
 	if err != nil {
 		return err
-	}
-	if err := validateWorkVersion(event.SubjectID, current.version, payload.ExpectedVersion, payload.ResultingVersion); err != nil {
-		return err
-	}
-	if payload.ToExpectedVersion != 0 && payload.ToResultingVersion != 0 {
-		other, err := readWork(ctx, tx, payload.To)
-		if err != nil {
-			return err
-		}
-		if err := validateWorkVersion(payload.To, other.version, payload.ToExpectedVersion, payload.ToResultingVersion); err != nil {
-			return err
-		}
 	}
 	// Let SQLite's CHECK produce the structural error for self-edges. This keeps
 	// the schema proof exercised instead of turning the same violation into a
@@ -835,13 +815,8 @@ func foldRelationAdded(ctx context.Context, tx *sql.Tx, event Event) error {
 		if cycle, err := relationWouldCycle(ctx, tx, payload.From, payload.To, payload.Kind); err != nil {
 			return err
 		} else if cycle {
-			f := newFailure(KindCycleDetected, "fold_event", payload.Kind+" relation would create a cycle", false,
-				"choose a relation direction that is not already reachable")
-			// Carry the typed offending edge so the agent layer can surface
-			// error.violations structurally (D5) instead of forcing callers
-			// to regex the human detail string.
-			f.Violations = []string{payload.Kind + ":" + payload.From + "->" + payload.To}
-			return f
+			return cycleFailure("fold_event", payload.Kind+" relation would create a cycle",
+				"choose a relation direction that is not already reachable", payload.Kind, payload.From, payload.To)
 		}
 	}
 	if err := insertRelation(ctx, tx, event, payload); err != nil {
@@ -906,21 +881,9 @@ func foldRelationRemoved(ctx context.Context, tx *sql.Tx, event Event) error {
 			return newFailure(KindRelationContractViolation, "fold_event", "Initiative work items are read-only under CD-0213: grouping lives in Linear", false, "group the work in Linear through the Linear MCP server")
 		}
 	}
-	current, err := readWork(ctx, tx, payload.From)
+	current, err := readRelationEndpointsTx(ctx, tx, event, payload)
 	if err != nil {
 		return err
-	}
-	if err := validateWorkVersion(event.SubjectID, current.version, payload.ExpectedVersion, payload.ResultingVersion); err != nil {
-		return err
-	}
-	if payload.ToExpectedVersion != 0 && payload.ToResultingVersion != 0 {
-		other, err := readWork(ctx, tx, payload.To)
-		if err != nil {
-			return err
-		}
-		if err := validateWorkVersion(payload.To, other.version, payload.ToExpectedVersion, payload.ToResultingVersion); err != nil {
-			return err
-		}
 	}
 	result, err := tx.ExecContext(ctx, `DELETE FROM relations WHERE work_id_from = ? AND work_id_to = ? AND kind = ?`, payload.From, payload.To, payload.Kind)
 	if err != nil {
@@ -950,6 +913,38 @@ type workProjection struct {
 	lifecycle  string
 	version    int64
 	intentJSON string
+}
+
+// readRelationEndpointsTx reads the relation source and validates its version
+// pin, and validates the target's pin when the payload carries one. It returns
+// the source projection the fold advances.
+func readRelationEndpointsTx(ctx context.Context, tx *sql.Tx, event Event, payload relationPayload) (workProjection, error) {
+	current, err := readWork(ctx, tx, payload.From)
+	if err != nil {
+		return workProjection{}, err
+	}
+	if err := validateWorkVersion(event.SubjectID, current.version, payload.ExpectedVersion, payload.ResultingVersion); err != nil {
+		return workProjection{}, err
+	}
+	if payload.ToExpectedVersion != 0 && payload.ToResultingVersion != 0 {
+		other, err := readWork(ctx, tx, payload.To)
+		if err != nil {
+			return workProjection{}, err
+		}
+		if err := validateWorkVersion(payload.To, other.version, payload.ToExpectedVersion, payload.ToResultingVersion); err != nil {
+			return workProjection{}, err
+		}
+	}
+	return current, nil
+}
+
+// cycleFailure refuses an edge that would close a cycle. It carries the typed
+// offending edge so the agent layer surfaces error.violations structurally
+// (D5) instead of parsing the human detail string.
+func cycleFailure(op, detail, recovery, kind, from, to string) *Failure {
+	f := newFailure(KindCycleDetected, op, detail, false, recovery)
+	f.Violations = []string{kind + ":" + from + "->" + to}
+	return f
 }
 
 func readWork(ctx context.Context, tx *sql.Tx, id string) (workProjection, error) {

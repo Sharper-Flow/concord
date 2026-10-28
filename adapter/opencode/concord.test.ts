@@ -5804,6 +5804,36 @@ test("CON-913 row 19: a stopped recovery maps every lane outcome to the reconcil
   }
 })
 
+test.each([
+  { name: "dynamic missing evidence", kind: "missing_evidence", effect_state: "none", retry_safe: false },
+  { name: "possible report refusal", kind: "invalid_payload", effect_state: "possible", retry_safe: false },
+  { name: "retry-safe report refusal", kind: "invalid_payload", effect_state: "none", retry_safe: true },
+  { name: "unknown completion effect", kind: "invalid_payload", effect_state: "unknown", retry_safe: false },
+])("worker_reconcile retains aggregate possible without closing $name", async ({ name, kind, effect_state, retry_safe }) => {
+  recoveryTranscriptHost()
+  const prepareOk = coreEnvelope("concord_work_transition", "worker_reconcile", "ok", {
+    result: { changed_refs: [], next_valid_intents: [], worker_recovery: recoveryContextFixture }, changed_refs: [], next_valid_intents: [],
+  })
+  const calls: string[] = []
+  const result: any = await runReconcile913({ async run(argv: string[], input: string) {
+    const request = JSON.parse(input)
+    calls.push(argv[1])
+    if (argv[1] === "project-resolve") return { exitCode: 0, stdout: JSON.stringify(contextResponse()), stderr: "" }
+    if (argv[1] === "invoke" && request.operation === "worker_reconcile") return { exitCode: 0, stdout: JSON.stringify(prepareOk), stderr: "" }
+    if (argv[1] === "worker-dispatch") return { exitCode: 0, stdout: JSON.stringify({ ok: true, event_ids: [request.event_id] }), stderr: "" }
+    if (argv[1] === "worker-complete") return { exitCode: 1, stdout: effect_state === "unknown" ? "" : JSON.stringify({ ok: false, event_ids: [], error: { kind, operation: "worker_oracle_findings", effect_state, retry_safe, message: name } }), stderr: name }
+    throw new Error("no failure close, replacement worker or completed receipt is allowed: " + argv.join(" "))
+  } })
+  expect(result.outcome).toBe("error")
+  expect(result.error).toMatchObject({ kind: "operation_conflict", adapter_reason: "unknown_effect", effect_state: "possible", retry_safe: false, recovery_action: { kind: "reconcile_operation" } })
+  expect(result.error.details?.lifecycle_state).toBeUndefined()
+  expect(result.error.message).toContain(name)
+  expect(result.result).toBeUndefined()
+  expect(validateGeneratedEnvelope(result), JSON.stringify(result)).toBe(true)
+  expect(calls.filter(command => command.startsWith("worker-"))).toEqual(["worker-dispatch", "worker-complete"])
+  expect(calls.filter(command => command === "invoke")).toHaveLength(1)
+})
+
 test.each(["recorded", "foreign", "none", "possible", "unknown"] as const)("worker_reconcile distinguishes a recorded failure from an uncertain close (%s)", async (closeState) => {
   recoveryTranscriptHost()
   const recorded = closeState === "recorded" || closeState === "foreign"
@@ -5815,7 +5845,7 @@ test.each(["recorded", "foreign", "none", "possible", "unknown"] as const)("work
     result: { changed_refs: [], next_valid_intents: [], worker_recovery: recoveryContextFixture }, changed_refs: [], next_valid_intents: [],
   })
   const calls: Array<{ command: string; input: any }> = []
-  const refusal = { kind: "invalid_payload", operation: "worker_complete", retry_safe: false, effect_state: "none", message: "synthetic completion payload refusal" }
+  const refusal = { kind: "invalid_payload", operation: "worker_oracle_findings", retry_safe: false, effect_state: "none", message: "synthetic fixed oracle contradiction" }
   try {
     const result: any = await runReconcile913({ async run(argv: string[], input: string) {
       const request = JSON.parse(input)
@@ -5844,7 +5874,7 @@ test.each(["recorded", "foreign", "none", "possible", "unknown"] as const)("work
     expect(result.error.retry_safe).toBe(false)
     if (recorded) {
       expect(result.error.details).toEqual({ work_id: recoveryPacket.work_id, attempt_id: recoveryPacket.attempt_id, lifecycle_state: "failed" })
-      expect(result.error.message).toContain("synthetic completion payload refusal")
+      expect(result.error.message).toContain(refusal.message)
     } else {
       expect(result.error.details?.lifecycle_state).toBeUndefined()
       expect(result.error.message).toContain("synthetic failure-close refusal")
@@ -5855,6 +5885,10 @@ test.each(["recorded", "foreign", "none", "possible", "unknown"] as const)("work
     const evidence = calls.filter(({ command }) => command.startsWith("worker-"))
     expect(evidence.map(({ command }) => command)).toEqual(["worker-dispatch", "worker-complete", "worker-fail"])
     expect(evidence.every(({ input }) => input.work_id === recoveryPacket.work_id && input.attempt_id === recoveryPacket.attempt_id)).toBe(true)
+    expect(evidence[0].input.event_id).toBe(recoveryContextFixture.dispatch_event_id)
+    expect(evidence[0].input.authorized_packet).toEqual(recoveryPacket)
+    expect(evidence[2].input.failure_kind).toBe("invalid_report")
+    expect(evidence[2].input.failure_attribution.phase).toBe("evidence_write")
     const released = closeState === "recorded"
     expect(windows.inFlight(RECOVERY_SESSION, "retained-part-concord-913") === null).toBe(released)
     if (released) {

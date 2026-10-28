@@ -1543,15 +1543,22 @@ test.each([
   { name: "malformed typed result", stdout: JSON.stringify({ ok: false, event_ids: [], unexpected: true, error: { kind: "invalid_payload", operation: "fold_event", retry_safe: false, effect_state: "none", message: "untrusted malformed result" } }), effect: "unknown" },
   { name: "retry-safe precommit refusal", stdout: JSON.stringify({ ok: false, event_ids: [], error: { kind: "unavailable", operation: "transaction", retry_safe: true, effect_state: "none", message: "writer admission refused" } }), effect: "none" },
   { name: "non-report authority refusal", stdout: JSON.stringify({ ok: false, event_ids: [], error: { kind: "unauthorized_dispatch", operation: "worker_evidence", retry_safe: false, effect_state: "none", message: "different authorized work" } }), effect: "none" },
+  { name: "report refusal with possible effect", stdout: JSON.stringify({ ok: false, event_ids: [], error: { kind: "invalid_payload", operation: "worker_oracle_findings", retry_safe: false, effect_state: "possible", message: "synthetic fixed oracle contradiction" } }), effect: "possible" },
+  { name: "retry-safe report refusal", stdout: JSON.stringify({ ok: false, event_ids: [], error: { kind: "invalid_payload", operation: "worker_oracle_findings", retry_safe: true, effect_state: "none", message: "synthetic fixed oracle contradiction" } }), effect: "none" },
+  { name: "missing evidence with identical contradiction prose", stdout: JSON.stringify({ ok: false, event_ids: [], error: { kind: "missing_evidence", operation: "worker_oracle_findings", retry_safe: false, effect_state: "none", message: "synthetic fixed oracle contradiction" } }), effect: "none" },
+  ...["current-subject receipt", "qualified producer", "fresh evidence binding", "complete control set"].map((requirement) => ({ name: `missing ${requirement}`, stdout: JSON.stringify({ ok: false, event_ids: [], error: { kind: "missing_evidence", operation: "worker_oracle_findings", retry_safe: false, effect_state: "none", message: `synthetic closure lacks ${requirement}` } }), effect: "none" })),
 ])("a $name never becomes an invalid-report failure", async ({ stdout, effect }) => {
   const calls: string[] = []
-  const result = await complete(workerBody(), { evidenceRunner: { async run(argv) {
+  let recorded = 0
+  const result = await complete(workerBody(), { onRecorded: () => { recorded++ }, evidenceRunner: { async run(argv) {
     calls.push(argv[1])
     return argv[1] === "worker-complete" ? { exitCode: 1, stdout, stderr: "completion refused" } : { exitCode: 0, stdout: "", stderr: "" }
   } } })
   expect(result.outcome).toBe("error")
   expect(result.error?.details?.effect_state).toBe(effect)
   expect(calls).toEqual(["worker-dispatch", "worker-complete"])
+  expect(result.error?.kind).not.toBe("invalid_report")
+  expect(recorded).toBe(0)
 })
 
 // CON-842: a worker-complete refusal whose typed result carries an unbounded
@@ -2952,12 +2959,19 @@ test("attribution-worker-report: an admitted failed report rides as worker_repor
 // the evidence-write close of a refused completion records
 // its own observation at the evidence_write phase.
 test("attribution-evidence-write: the precommit close records the evidence_write phase", async () => {
+  const { workerFailureObservationDigest } = await import("./dispatch")
   const verbs: string[] = []
+  let refusedInput = ""
+  let recorded = 0
   let failureInput: Record<string, unknown> | undefined
-  await complete(workerBody(), {
+  const result = await complete(workerBody(), {
+    onRecorded: () => { recorded++ },
     evidenceRunner: { async run(argv, input) {
       verbs.push(argv[1])
-      if (argv[1] === "worker-complete") return { exitCode: 1, stdout: JSON.stringify({ ok: false, event_ids: null, error: { kind: "invalid_payload", operation: "fold_event", retry_safe: false, effect_state: "none", message: "worker report leaves lane evidence obligations undischarged" } }), stderr: "invalid report evidence" }
+      if (argv[1] === "worker-complete") {
+        refusedInput = input
+        return { exitCode: 1, stdout: JSON.stringify({ ok: false, event_ids: [], error: { kind: "invalid_payload", operation: "worker_oracle_findings", retry_safe: false, effect_state: "none", message: "synthetic fixed oracle contradiction" } }), stderr: "invalid report evidence" }
+      }
       if (argv[1] === "worker-fail") failureInput = JSON.parse(input) as Record<string, unknown>
       return { exitCode: 0, stdout: "", stderr: "" }
     } },
@@ -2969,10 +2983,22 @@ test("attribution-evidence-write: the precommit close records the evidence_write
   expect(observed.basis).toBe("hypothesis")
   expect(observed.sources).toHaveLength(1)
   expect(observed.sources[0].kind).toBe("validator")
-  expect(observed.sources[0].message).toContain("worker-complete refused: worker report leaves lane evidence obligations undischarged")
-  expect(observed.sources[0].digest).toMatch(/^sha256:[0-9a-f]{64}$/)
+  expect(observed.sources[0].message).toBe("worker-complete refused: synthetic fixed oracle contradiction")
+  expect(observed.sources[0].digest).toBe("sha256:" + createHash("sha256").update(refusedInput, "utf8").digest("hex"))
   const assertion = failureInput?.assertion as Record<string, unknown>
   expect(assertion.version).toBe(2)
+  expect(assertion.observation_digest).toBe(workerFailureObservationDigest(observed as WorkerFailureObservation))
+  expect(assertion.verb).toBe("worker-fail")
+  expect(assertion.failure_kind).toBe("invalid_report")
+  expect(assertion.nonce).not.toBe(JSON.parse(refusedInput).assertion.nonce)
+  expect(failureInput?.work_id).toBe(packet().work_id)
+  expect(failureInput?.attempt_id).toBe(packet().attempt_id)
+  expect(failureInput?.failure_kind).toBe("invalid_report")
+  expect(verbs).toEqual(["worker-dispatch", "worker-complete", "worker-fail"])
+  expect(recorded).toBe(1)
+  expect(result.outcome).toBe("error")
+  expect(result.error?.kind).toBe("invalid_report")
+  expect(result.error?.retry_safe).toBe(false)
 })
 
 // CD-0056 D7 as amended 2026-09-17: a near-identical echoed attempt id is

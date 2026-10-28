@@ -27,6 +27,75 @@ function host() {
 
 const credentials = { async getPrivateKey() { return new Uint8Array(32).fill(7) } }
 
+test.each([1_000, 45 * 60_000])("refused retained recovery preserves original report bytes and host timing through invalid-report settlement (%d ms)", async (duration) => {
+  const originalPacket: AgentLanePacket = { ...packet, schema_version: "2.0", inputs: { ...packet.inputs, report_protocol: "concord-worker-result-v1" } }
+  const { schema_version: _echo, ...workerReport } = report
+  workerReport.evidence = workerReport.evidence.map(entry => ({ ...entry, detail: "synthetic retained result — unchanged" }))
+  const text = `\`\`\`concord-worker-result-v1\n${JSON.stringify(workerReport, null, 2)}\n\`\`\``
+  const transcript = host()
+  const part = transcript.parent.messages[0].parts[0]
+  const start = Date.parse("2026-08-01T10:00:00Z")
+  const captured = start + duration
+  const reportTime = { created: captured - 1, completed: captured }
+  Object.assign(part.state, { time: { start, end: captured } })
+  Object.assign(transcript.child.messages[0].info.time, { created: start })
+  Object.assign(transcript.child.messages[1].info.time, reportTime)
+  part.state.input.prompt = serializeLanePacket(originalPacket)
+  part.state.output = `<task id="child-recovery" state="completed">\n<task_result>\n${text}\n</task_result>\n</task>`
+  transcript.child.messages[0].parts[0].text = part.state.input.prompt
+  transcript.child.messages[1].parts[0].text = text
+  const originalBytes = Buffer.from(JSON.stringify([transcript.parent, transcript.child]), "utf8")
+  const originalOutput = Buffer.from(part.state.output, "utf8")
+  const originalRecovery: WorkerRecoveryContext = {
+    ...recovery, packet_schema_version: "2.0", report_schema_version: "2.0",
+    dispatch: { ...recovery.dispatch, packet_schema_version: "2.0", report_schema_version: "2.0" },
+  }
+  const beforeRecovery = JSON.stringify(originalRecovery)
+  const calls: { verb: string; request: any }[] = []
+  let kind = "missing_evidence"
+  let recorded = 0
+  const options = {
+    sessionReader: transcript.reader, credentials, concordBinary: "concord-test", workerDirectory: process.cwd(),
+    onRecorded: () => { recorded++ },
+    evidenceRunner: { async run(argv: string[], input: string) {
+      const request = JSON.parse(input)
+      calls.push({ verb: argv[1], request })
+      if (argv[1] === "worker-complete") return { exitCode: 1, stderr: "", stdout: JSON.stringify({ ok: false, event_ids: [], error: {
+        kind, operation: "worker_oracle_findings", retry_safe: false, effect_state: "none", message: "synthetic fixed oracle contradiction",
+      } }) }
+      if (argv[1] !== "worker-dispatch" && argv[1] !== "worker-fail") throw new Error("no replacement worker or capture is allowed")
+      return { exitCode: 0, stdout: JSON.stringify({ ok: true, event_ids: [request.event_id] }), stderr: "" }
+    } },
+  }
+  const refused = await reconcileRetainedWorker(originalRecovery, packet.work_id, packet.attempt_id, "retained-part", options, new AbortController().signal)
+  expect(refused.outcome).toBe("error")
+  expect(refused.error?.details?.effect_state).toBe("none")
+  expect(recorded).toBe(0)
+  expect(calls.map(call => call.verb)).toEqual(["worker-dispatch", "worker-complete"])
+  expect(Buffer.from(JSON.stringify([transcript.parent, transcript.child]), "utf8")).toEqual(originalBytes)
+  kind = "invalid_payload"
+  const settled = await reconcileRetainedWorker(originalRecovery, packet.work_id, packet.attempt_id, "retained-part", options, new AbortController().signal)
+  expect(settled.outcome).toBe("error")
+  expect(settled.error?.kind).toBe("invalid_report")
+  expect(settled.error?.retry_safe).toBe(false)
+  expect(Buffer.from(settled.output!, "utf8")).toEqual(Buffer.from(text, "utf8"))
+  expect(recorded).toBe(1)
+  expect(calls.map(call => call.verb)).toEqual(["worker-dispatch", "worker-complete", "worker-dispatch", "worker-complete", "worker-fail"])
+  expect(calls[0].request.event_id).toBe(recovery.dispatch_event_id)
+  expect(calls[2].request.event_id).toBe(recovery.dispatch_event_id)
+  expect(calls[2].request.authorized_packet).toEqual(originalPacket)
+  const { assertion: _first, ...first } = calls[1].request
+  const { assertion: _second, ...second } = calls[3].request
+  expect(second).toEqual(first)
+  expect(first.report_schema_version).toBe("2.0")
+  expect(calls.every(call => call.request.work_id === packet.work_id && call.request.attempt_id === packet.attempt_id)).toBe(true)
+  expect(Buffer.from(part.state.output, "utf8")).toEqual(originalOutput)
+  expect(Buffer.from(JSON.stringify([transcript.parent, transcript.child]), "utf8")).toEqual(originalBytes)
+  expect(JSON.stringify(originalRecovery)).toBe(beforeRecovery)
+  expect((part.state as typeof part.state & { time: { start: number; end: number } }).time).toEqual({ start, end: captured })
+  expect(transcript.child.messages[1].info.time).toEqual(reportTime)
+})
+
 for (const version of ["1.0", "1.1", "2.0"] as const) {
   for (const foldRefused of [false, true]) {
     test(`retained ${version} recovery admits omitted schema echo and preserves fold refusal=${foldRefused}`, async () => {

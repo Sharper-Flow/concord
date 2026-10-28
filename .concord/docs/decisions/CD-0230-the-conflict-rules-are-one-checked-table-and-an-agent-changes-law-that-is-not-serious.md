@@ -261,8 +261,7 @@ existing method. Review judges a boundary move against a recorded architect
 step, and a variant's fit against analysis of the shared part, not the author's
 claim; missing records leave the outcome unproved. Carrier tests do not prove
 those judgments; the delivery's recorded independent review supplies the
-application evidence. A2 row 4's resizing and architect-step routing remains
-open below.
+application evidence. A2 row 4's boundary-change handling remains open below.
 
 D3's live recorder retains readable current settlement evidence.
 `internal/agent.TestConflictObservationHistoryRoundTrip` records then reads

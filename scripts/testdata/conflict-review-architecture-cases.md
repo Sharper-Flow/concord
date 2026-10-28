@@ -66,10 +66,10 @@ Other Domains keep the shared part.
 ## variant-special-case-redesign
 
 A Domain needs the shared pagination part to page by cursor instead of offset.
-The change cannot fit this as a parameter without a branch that serves only that
-Domain. It leaves the shared part unchanged, adds no Domain-local copy, and files
-a follow-up item to redesign the shared part, linked to the change and naming
-the cursor need.
+A recorded analysis of the shared part shows that cursor paging cannot fit as a
+parameter without a branch that serves only that Domain. The change leaves the
+shared part unchanged, adds no Domain-local copy, and files a follow-up item to
+redesign the shared part, linked to the change and naming the cursor need.
 
 ## variant-special-case-inline
 
@@ -79,7 +79,9 @@ switches to cursor paging only for it. No follow-up item is filed.
 
 ## variant-fit-unexamined
 
-The change copies the shared pagination part into a Domain and edits it. Its
-description says a parameter could not fit. The supplied material contains no
-analysis of the shared part, no attempted parameter and no other source for that
-claim.
+A Domain needs the shared pagination part to group each page's results by
+tenant. The change leaves the shared part unchanged, adds no Domain-local copy,
+and files a follow-up item to redesign the shared part, linked to the change.
+Its description says a parameter could not fit. The supplied material contains
+no analysis of the shared part, no attempted parameter and no other source for
+that claim.

@@ -54,6 +54,7 @@ func TestEnvelopeModelHasOneExclusiveOwner(t *testing.T) {
 		"NewBase", "NewOKMutation", "NewPending", "NewPartial", "NewCoreError",
 		"MaxResultEnvelopeBytes", "MaxNotices", "MaxChangedRefs", "MaxConsequenceSummaryBindings",
 		"GoverningConflictOptions", "PublicRecovery", "enforcedRecoveryCouplings",
+		"BoundedBytes", "UniqueNonEmpty", "ValidSHA256Proof", "RecoveryActionAllowed",
 	} {
 		declarations[name] = 0
 	}

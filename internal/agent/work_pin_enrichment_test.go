@@ -121,26 +121,69 @@ func TestHandWrittenIntentsNeverNameAWorkMutation(t *testing.T) {
 	}
 }
 
-// nextIntentLiterals returns the NextIntent literals lit builds directly:
-// NextIntent{...} itself, or the elided elements of []NextIntent{{...}}.
-func nextIntentLiterals(lit *ast.CompositeLit) []*ast.CompositeLit {
-	switch typ := lit.Type.(type) {
-	case *ast.Ident:
-		if typ.Name == "NextIntent" {
-			return []*ast.CompositeLit{lit}
-		}
-	case *ast.ArrayType:
-		if elem, ok := typ.Elt.(*ast.Ident); ok && elem.Name == "NextIntent" {
-			var out []*ast.CompositeLit
-			for _, element := range lit.Elts {
-				if inner, ok := element.(*ast.CompositeLit); ok && inner.Type == nil {
-					out = append(out, inner)
-				}
+func TestNextIntentLiteralScanner(t *testing.T) {
+	t.Parallel()
+	for _, tt := range []struct {
+		name, source string
+		want         int
+	}{
+		{"qualified value", `agentcontract.NextIntent{Tool: "concord_work_browse", Operation: "scope"}`, 1},
+		{"qualified slice", `[]agentcontract.NextIntent{{Tool: "concord_work_browse", Operation: "scope"}}`, 1},
+		{"explicit slice element", `[]agentcontract.NextIntent{agentcontract.NextIntent{Tool: "concord_work_browse", Operation: "scope"}}`, 1},
+		{"unrelated value", `other.NextIntent{Tool: "concord_work_browse", Operation: "scope"}`, 0},
+		{"unrelated slice", `[]other.NextIntent{{Tool: "concord_work_browse", Operation: "scope"}}`, 0},
+		{"unqualified value", `NextIntent{Tool: "concord_work_browse", Operation: "scope"}`, 0},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			expr, err := parser.ParseExpr(tt.source)
+			if err != nil {
+				t.Fatal(err)
 			}
-			return out
+			found := 0
+			ast.Inspect(expr, func(n ast.Node) bool {
+				if lit, ok := n.(*ast.CompositeLit); ok {
+					for _, intent := range nextIntentLiterals(lit) {
+						found++
+						tool, operation, literal := intentTarget(intent)
+						if !literal || tool != "concord_work_browse" || operation != "scope" {
+							t.Errorf("intent target = %q.%q, literal=%v", tool, operation, literal)
+						}
+					}
+				}
+				return true
+			})
+			if found != tt.want {
+				t.Errorf("found %d intent literals, want %d", found, tt.want)
+			}
+		})
+	}
+}
+
+// nextIntentLiterals returns the NextIntent literals lit builds directly:
+// agentcontract.NextIntent{...}, or elided []agentcontract.NextIntent elements.
+func nextIntentLiterals(lit *ast.CompositeLit) []*ast.CompositeLit {
+	isIntent := func(expr ast.Expr) bool {
+		selector, ok := expr.(*ast.SelectorExpr)
+		if !ok || selector.Sel.Name != "NextIntent" {
+			return false
+		}
+		pkg, ok := selector.X.(*ast.Ident)
+		return ok && pkg.Name == "agentcontract"
+	}
+	if isIntent(lit.Type) {
+		return []*ast.CompositeLit{lit}
+	}
+	typ, ok := lit.Type.(*ast.ArrayType)
+	if !ok || !isIntent(typ.Elt) {
+		return nil
+	}
+	var out []*ast.CompositeLit
+	for _, element := range lit.Elts {
+		if inner, ok := element.(*ast.CompositeLit); ok && inner.Type == nil {
+			out = append(out, inner)
 		}
 	}
-	return nil
+	return out
 }
 
 // intentTarget reads the Tool and Operation fields of an intent literal. It

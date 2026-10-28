@@ -52,9 +52,11 @@ jobs:
       - name: Diagnose compatibility crashes without privileged journal access
         if: failure() && steps.compatibility.outcome == 'failure'
         run: |
-          python3 scripts/ci-native-provision.py compatibility-crash-metadata \
-            "$RUNNER_TEMP/upstream-compatibility-evidence/qualification.json" \
-            > "$RUNNER_TEMP/upstream-compatibility-evidence/crash-metadata.json"
+          if [[ ! -f "$RUNNER_TEMP/upstream-compatibility-evidence/crash-metadata.json" ]]; then
+            python3 scripts/ci-native-provision.py compatibility-crash-metadata \
+              "$RUNNER_TEMP/upstream-compatibility-evidence/qualification.json" \
+              > "$RUNNER_TEMP/upstream-compatibility-evidence/crash-metadata.json"
+          fi
       - name: Retain upstream compatibility identity, native logs and coverage limits
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9

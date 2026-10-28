@@ -150,6 +150,9 @@ printf '%s\n' 2a76602a8c71f36c1527cf9fc3417d9149822e0c > "$evidence/upstream-com
 sha256sum "$archive" > "$evidence/source-archive.sha256"
 tar --extract --xz --no-same-owner --no-same-permissions --file "$archive" --directory "$work"
 source_dir="$work/bubblewrap-0.12.0"
+if [[ $mode == compatibility ]]; then
+    python3 "$helper" repair-upstream-source "$archive" "$source_dir" > "$evidence/upstream-harness-repairs.json"
+fi
 build="$work/build"
 printf "[binaries]\nc = '/usr/bin/gcc-13'\nar = '/usr/bin/ar'\nstrip = '/usr/bin/strip'\npkgconfig = '/usr/bin/pkg-config'\n" > "$work/native.ini"
 env -i HOME="$work" PATH=/usr/bin:/bin LANG=C.UTF-8 NINJA=/usr/bin/ninja \
@@ -170,6 +173,7 @@ if [[ $mode == compatibility ]]; then
     sudo chmod -R go-w "$work"
     sudo -n -u root -g root -- env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin LANG=C.UTF-8 /usr/bin/python3.12 -I -B \
         "$compat_root/helper.py" upstream-compatibility "$work" | tee "$evidence/qualification.json" > /dev/null
+    python3 "$helper" qualify-compatibility-crashes "$evidence/qualification.json" > "$evidence/crash-metadata.json"
     digest=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["bwrap_sha256"])' "$evidence/qualification.json")
     [[ $digest =~ ^[0-9a-f]{64}$ ]] || die 'invalid compatibility output digest'
     printf 'bwrap-sha256=%s\n' "$digest" >> "$GITHUB_OUTPUT"

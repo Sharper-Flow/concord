@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import importlib.util
+import ast
 import contextlib
+import ctypes
 import hashlib
 import io
 import json
@@ -17,6 +19,7 @@ import sys
 import tempfile
 import tarfile
 import unittest
+import types
 from unittest.mock import Mock, patch
 
 
@@ -87,8 +90,277 @@ EOM
         fi
 '''.encode("ascii"))
 
+# Public pinned source contexts; fixtures are parsed as data, never executed.
+STATFS_CONTEXT = b'''        class statfs_t(ctypes.Structure):
+            _fields_ = [('f_type', ctypes.c_long), ('f_bsize', ctypes.c_long)]
+        buf = statfs_t()
+'''
+EXIT_CONTEXT = b'''    def __exit__(self, *exc):
+        try:
+            self._send({'exit': True})
+        except OSError:
+            pass
+
+        self._parent_sock.close()
+
+        if self.proc:
+            self.proc.wait(timeout=5)
+        return False
+'''
+
 
 class ProvisionTests(unittest.TestCase):
+    def test_harness_repairs_bind_authenticated_source_and_record_only_two_diffs(self):
+        files = {"tests/test-sandbox.py": b"unchanged prefix\n" + STATFS_CONTEXT + b"unchanged assertions\n",
+                 "tests/test-helper.py": b"unchanged prefix\n" + EXIT_CONTEXT,
+                 "bubblewrap.c": b"unchanged launcher\n"}
+        with tempfile.TemporaryDirectory() as name:
+            root = Path(name)
+            source = root / "bubblewrap-0.12.0"
+            (source / "tests").mkdir(parents=True)
+            archive = root / "source.tar"
+            data = self.package_tar({"bubblewrap-0.12.0/" + key: value for key, value in files.items()})
+            archive.write_bytes(data)
+            for key, value in files.items():
+                (source / key).write_bytes(value)
+            with patch.object(HELPER, "SOURCE_DIGEST", hashlib.sha256(data).hexdigest()), \
+                 patch.object(subprocess, "run") as execute:
+                records = HELPER.repair_upstream_source(archive, source)
+                self.assertEqual(set(records), {"tests/test-sandbox.py", "tests/test-helper.py"})
+                for key, record in records.items():
+                    self.assertEqual(record["original_sha256"], hashlib.sha256(files[key]).hexdigest())
+                    self.assertEqual(record["patched_sha256"], hashlib.sha256((source / key).read_bytes()).hexdigest())
+                    self.assertTrue(record["diff"].startswith("--- a/" + key + "\n+++ b/" + key + "\n"))
+                self.assertEqual((source / "bubblewrap.c").read_bytes(), files["bubblewrap.c"])
+                self.assertEqual(HELPER.verify_upstream_source(archive, source, repaired=True), records)
+                with self.assertRaisesRegex(ValueError, "source differs"):
+                    HELPER.repair_upstream_source(archive, source)
+                for key in files:
+                    original = (source / key).read_bytes()
+                    (source / key).write_bytes(original + b"extra change\n")
+                    with self.subTest(drift=key), self.assertRaisesRegex(ValueError, "source differs"):
+                        HELPER.verify_upstream_source(archive, source, repaired=True)
+                    (source / key).write_bytes(original)
+                archive.write_bytes(data + b"archive drift")
+                with self.assertRaisesRegex(ValueError, "authentication failed"):
+                    HELPER.verify_upstream_source(archive, source, repaired=True)
+                execute.assert_not_called()
+        with patch.object(os, "geteuid", return_value=0), \
+             patch.object(sys, "argv", ["helper", "repair-upstream-source", "archive", "source"]), \
+             patch.object(HELPER, "repair_upstream_source") as repair:
+            with self.assertRaisesRegex(ValueError, "unprivileged runner"):
+                HELPER.main()
+            repair.assert_not_called()
+
+    def test_harness_repairs_refuse_missing_duplicate_mutated_or_extra_context_before_writes(self):
+        for change in ("missing", "duplicate", "mutated", "helper mutated", "extra", "link"):
+            with self.subTest(change=change), tempfile.TemporaryDirectory() as name:
+                root = Path(name)
+                source = root / "bubblewrap-0.12.0"
+                (source / "tests").mkdir(parents=True)
+                sandbox = STATFS_CONTEXT
+                if change == "missing":
+                    sandbox = b"no known context\n"
+                elif change == "duplicate":
+                    sandbox *= 2
+                elif change == "mutated":
+                    sandbox = sandbox.replace(b"c_long", b"c_int")
+                files = {"tests/test-sandbox.py": sandbox, "tests/test-helper.py": EXIT_CONTEXT}
+                if change == "helper mutated":
+                    files["tests/test-helper.py"] = EXIT_CONTEXT.replace(b"timeout=5", b"timeout=6")
+                archive = root / "source.tar"
+                data = self.package_tar({"bubblewrap-0.12.0/" + key: value for key, value in files.items()})
+                archive.write_bytes(data)
+                for key, value in files.items():
+                    (source / key).write_bytes(value)
+                if change == "extra":
+                    (source / "extra").write_bytes(b"unrelated")
+                if change == "link":
+                    (source / "tests/test-helper.py").unlink()
+                    (source / "tests/test-helper.py").symlink_to("test-sandbox.py")
+                before = (source / "tests/test-sandbox.py").read_bytes()
+                with patch.object(HELPER, "SOURCE_DIGEST", hashlib.sha256(data).hexdigest()), self.assertRaises(ValueError):
+                    HELPER.repair_upstream_source(archive, source)
+                self.assertEqual((source / "tests/test-sandbox.py").read_bytes(), before)
+
+    def test_statfs_repair_has_complete_amd64_layout_without_libc_or_upstream_execution(self):
+        repaired = HELPER.repaired_upstream_file("tests/test-sandbox.py", STATFS_CONTEXT)
+        tree = ast.parse("def synthetic():\n" + repaired.decode())
+        fields = tree.body[0].body[0].body[0].value
+        expected = [("f_type", ctypes.c_long), ("f_bsize", ctypes.c_long),
+                    *[(key, ctypes.c_ulong) for key in ("f_blocks", "f_bfree", "f_bavail", "f_files", "f_ffree")],
+                    ("f_fsid", ctypes.c_int * 2),
+                    *[(key, ctypes.c_long) for key in ("f_namelen", "f_frsize", "f_flags")],
+                    ("f_spare", ctypes.c_long * 4)]
+        expressions = ["ctypes.c_long", "ctypes.c_long", *(["ctypes.c_ulong"] * 5), "ctypes.c_int * 2",
+                       *(["ctypes.c_long"] * 3), "ctypes.c_long * 4"]
+        self.assertEqual([(item.elts[0].value, ast.unparse(item.elts[1])) for item in fields.elts],
+                         [(key, expression) for (key, _), expression in zip(expected, expressions)])
+        layout = type("SyntheticStatfs", (ctypes.Structure,), {"_fields_": expected})
+        self.assertEqual(ctypes.sizeof(layout), 120)
+        self.assertEqual([getattr(layout, key).offset for key, _ in expected], list(range(0, 96, 8)))
+        self.assertEqual(repaired.split(b"        buf =")[1], STATFS_CONTEXT.split(b"        buf =")[1])
+
+    def test_exit_repair_checks_every_nonzero_status_after_original_wait_and_cleanup(self):
+        repaired = HELPER.repaired_upstream_file("tests/test-helper.py", EXIT_CONTEXT)
+        method = ast.parse("class Synthetic:\n" + repaired.decode()).body[0].body[0]
+        self.assertEqual(ast.dump(method.body[0]), ast.dump(ast.parse("class Synthetic:\n" + EXIT_CONTEXT.decode()).body[0].body[0].body[0]))
+        self.assertEqual(ast.unparse(method.body[1]), "self._parent_sock.close()")
+        conditional = method.body[2]
+        self.assertEqual(ast.unparse(conditional.test), "self.proc")
+        self.assertEqual(ast.unparse(conditional.body[0]), "returncode = self.proc.wait(timeout=5)")
+        self.assertEqual(ast.unparse(conditional.body[1].test), "returncode != 0")
+        self.assertIsInstance(conditional.body[1].body[0], ast.Raise)
+        self.assertEqual(ast.unparse(conditional.body[1].body[0].exc.func), "AssertionError")
+        self.assertEqual(ast.unparse(method.body[-1]), "return False")
+
+    def test_temp_inventory_keeps_all_owners_and_tolerates_disappearing_entries(self):
+        def entries(directory):
+            return [Path("/tmp/root"), Path("/tmp/user"), Path("/tmp/gone")] if str(directory) == "/tmp" else [Path("/var/tmp/root")]
+        def info(path):
+            if path.name == "gone":
+                raise FileNotFoundError("synthetic lifecycle churn")
+            return types.SimpleNamespace(st_uid=1000 if path.name == "user" else 0)
+        with patch.object(Path, "iterdir", autospec=True, side_effect=entries), \
+             patch.object(Path, "lstat", autospec=True, side_effect=info):
+            self.assertEqual(HELPER.compatibility_temp_entries(), {"/tmp/root": 0, "/tmp/user": 1000, "/var/tmp/root": 0})
+
+    def test_expected_upstream_temp_requires_one_new_regular_root_file_and_exact_bytes(self):
+        candidate = "/tmp/bwrap-test-aB123456"
+        info = types.SimpleNamespace(st_mode=0o100600, st_uid=0, st_size=6, st_dev=1, st_ino=2)
+        before = {"/tmp/unrelated": 0, "/var/tmp/old": 1000}
+        after = {"/tmp/unrelated-new": 0, candidate: 0}
+        for bad in (None, "absent", "preexisting", "multiple", "directory", "link", "owner", "size", "contents", "replaced"):
+            observed = types.SimpleNamespace(**vars(info))
+            if bad in ("directory", "link"):
+                observed.st_mode = 0o40700 if bad == "directory" else 0o120777
+            elif bad == "owner":
+                observed.st_uid = 1000
+            elif bad == "size":
+                observed.st_size = 7
+            opened = types.SimpleNamespace(**vars(observed))
+            if bad == "replaced":
+                opened.st_ino += 1
+            with self.subTest(bad=bad), patch.object(Path, "lstat", return_value=observed), \
+                 patch.object(os, "open", return_value=41) as open_file, patch.object(os, "fstat", return_value=opened), \
+                 patch.object(os, "read", return_value=b"wrong\n" if bad == "contents" else b"hello\n"), \
+                 patch.object(os, "close") as close, patch.object(Path, "unlink") as unlink:
+                original = {**before, **({candidate: 1000} if bad == "preexisting" else {})}
+                current = {**after, **({"/tmp/bwrap-test-12345678": 0} if bad == "multiple" else {})}
+                if bad == "absent":
+                    current = before
+                if bad is None:
+                    proof = HELPER.verify_upstream_temp(original, current)
+                    self.assertEqual(proof["path"], candidate)
+                    self.assertEqual(proof["sha256"], hashlib.sha256(b"hello\n").hexdigest())
+                    self.assertEqual(open_file.call_args.args, (candidate, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK))
+                    close.assert_called_once_with(41)
+                else:
+                    with self.assertRaisesRegex(ValueError, "upstream temporary"):
+                        HELPER.verify_upstream_temp(original, current)
+                unlink.assert_not_called()
+
+    def test_root_qualification_keeps_temp_diagnostics_but_gates_every_other_host_and_input_field(self):
+        work = Path("/var/lib/concord-upstream.synthetic/work")
+        before = {key: "bound" for key in ("uids", "gids", "supplementary_groups", "label", "capabilities", "userns",
+                                          "sysctls", "profiles", "mounts", "installed_bwrap")}
+        tree = ast.parse((ROOT / "scripts/ci-native-provision.py").read_text())
+        host = next(node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == "compatibility_host_state")
+        self.assertEqual({key.value for key in host.body[-1].value.keys}, set(before))
+        before_temp = {"/tmp/before": 0}
+        after_temp = {"/tmp/after": 1000, "/tmp/bwrap-test-12345678": 0}
+        inventory = self.compatibility_inventory(work)
+        records = [{"name": item["name"], "command": item["cmd"], "env": dict(item["env"], BWRAP_MUST_WORK="1"),
+                    "returncode": 0, "result": "OK", "stdout": "1..1\nok 1 positive\n"} for item in inventory]
+        texts = {work / "build/meson-info/intro-tests.json": json.dumps(inventory),
+                 work / "build/meson-logs/testlog.json": "\n".join(json.dumps(item) for item in records)}
+        for drift in (None, *before.keys(), "inputs", "source", "temp observation"):
+            after = dict(before)
+            if drift in before:
+                after[drift] = "changed"
+            output = io.StringIO()
+            with self.subTest(drift=drift), patch.object(HELPER, "secure_path"), patch.object(os, "geteuid", return_value=0), \
+                 patch.object(HELPER, "verify_root_context"), patch.object(HELPER, "identity", return_value={"sha256": "a" * 64}), \
+                 patch.object(HELPER, "compatibility_host_state", side_effect=[before, after]), \
+                 patch.object(HELPER, "compatibility_temp_entries", side_effect=[before_temp,
+                              OSError("temporary inventory unavailable") if drift == "temp observation" else after_temp]), \
+                 patch.object(HELPER, "compatibility_inputs", side_effect=[{"input": "bound"}, {"input": "changed" if drift == "inputs" else "bound"}]), \
+                 patch.object(HELPER, "verify_upstream_source", side_effect=[{}, ValueError("source drift") if drift == "source" else {}]) as source, \
+                 patch.object(HELPER, "supervise_compatibility"), patch.object(HELPER, "verify_upstream_temp", return_value={"proof": "bound"}) as temporary, \
+                 patch.object(Path, "read_text", autospec=True, side_effect=lambda path: texts[path]), \
+                 patch.object(Path, "glob", return_value=[]), patch.object(Path, "exists", return_value=False), \
+                 patch.object(Path, "unlink") as unlink, contextlib.redirect_stdout(output):
+                if drift is None:
+                    HELPER.upstream_compatibility(work)
+                else:
+                    with self.assertRaisesRegex(ValueError, "compatibility failed"):
+                        HELPER.upstream_compatibility(work)
+                report = json.loads(output.getvalue())
+                self.assertEqual(report["before_host"], before)
+                self.assertEqual(report["after_host"], after)
+                self.assertEqual(report["before_temp_entries"], before_temp)
+                if drift != "temp observation":
+                    self.assertEqual(report["after_temp_entries"], after_temp)
+                    self.assertEqual(report["expected_temp_file"], {"proof": "bound"})
+                    temporary.assert_called_once_with(before_temp, after_temp)
+                else:
+                    temporary.assert_not_called()
+                self.assertEqual(source.call_count, 2)
+                self.assertTrue(all(call.kwargs == {"repaired": True} for call in source.call_args_list))
+                self.assertEqual(bool(unlink.call_count), drift in before)
+
+    def test_crash_qualification_requires_available_nontruncated_empty_metadata(self):
+        for availability, records in (("captured", []), ("captured", [{}]), ("captured", [{"COREDUMP_UID": "0"}]),
+                                      ("unavailable", []), ("possibly truncated", [])):
+            result = {"availability": availability, "records": records}
+            output = io.StringIO()
+            with self.subTest(result=result), patch.object(sys, "argv", ["helper", "qualify-compatibility-crashes", "synthetic"]), \
+                 patch.object(Path, "read_text", return_value='{"errors": []}'), \
+                 patch.object(HELPER, "compatibility_crash_metadata", return_value=result), contextlib.redirect_stdout(output):
+                if availability == "captured" and not records:
+                    HELPER.main()
+                else:
+                    with self.assertRaisesRegex(ValueError, "core-dump metadata"):
+                        HELPER.main()
+                self.assertEqual(json.loads(output.getvalue()), result)
+        with patch.object(os, "geteuid", return_value=1000), \
+             patch.object(subprocess, "run", return_value=subprocess.CompletedProcess([], 0, '{}\n', '')):
+            self.assertEqual(HELPER.compatibility_crash_metadata({"started_unix_seconds": 100, "finished_unix_seconds": 110})["records"], [{}])
+
+    def test_compatibility_digest_is_published_only_after_nonroot_crash_qualification(self):
+        script = (ROOT / "scripts/ci-provision-native-isolation.sh").read_text()
+        block = re.search(r'(?ms)^    # Ownership is hygiene.*?^    exit 0$', script)[0]
+        self.assertIn('python3 "$helper" qualify-compatibility-crashes', block)
+        self.assertNotIn('sudo python3', block)
+        self.assertLess(script.index('repair-upstream-source'), script.index('/usr/bin/meson setup'))
+        self.assertIn('if [[ $mode == compatibility ]]; then\n    python3 "$helper" repair-upstream-source', script)
+        for root_status, crash_status in ((0, 0), (37, 0), (0, 1)):
+            with self.subTest(root_status=root_status, crash_status=crash_status), tempfile.TemporaryDirectory() as name:
+                command = (f"set -Eeuo pipefail; evidence={shlex.quote(name)}; GITHUB_OUTPUT={shlex.quote(name + '/output')}; " +
+                    "work=synthetic; compat_root=synthetic; helper=synthetic; " +
+                    f"sudo() {{ if [[ $1 == -n ]]; then printf '{{}}'; return {root_status}; fi; }}; " +
+                    "python3() { if [[ $2 == qualify-compatibility-crashes ]]; then " +
+                    f"printf '{{\"availability\":\"captured\",\"records\":[]}}'; return {crash_status}; " +
+                    "else printf '%064d\\n' 0; fi; }; " + block)
+                result = subprocess.run(["bash", "--noprofile", "--norc", "-c", command], capture_output=True, text=True, timeout=10)
+                self.assertEqual(result.returncode, root_status or crash_status, result.stderr)
+                self.assertEqual((Path(name) / "output").exists(), root_status == crash_status == 0)
+                self.assertEqual((Path(name) / "crash-metadata.json").exists(), root_status == 0)
+        workflow = (ROOT / ".github/workflows/ci.yml").read_text()
+        self.assertIn('if [[ ! -f "$RUNNER_TEMP/upstream-compatibility-evidence/crash-metadata.json" ]]; then', workflow)
+        diagnostic = re.search(r'(?ms)^          if \[\[ ! -f .*?^          fi$', workflow)[0]
+        for existing in (False, True):
+            with self.subTest(existing=existing), tempfile.TemporaryDirectory() as name:
+                evidence = Path(name) / "upstream-compatibility-evidence"
+                evidence.mkdir()
+                metadata = evidence / "crash-metadata.json"
+                if existing:
+                    metadata.write_text("qualification failure evidence")
+                command = f"set -Eeuo pipefail; RUNNER_TEMP={shlex.quote(name)}; python3() {{ printf 'fallback diagnostic'; }}; " + diagnostic
+                result = subprocess.run(["bash", "--noprofile", "--norc", "-c", command], capture_output=True, text=True, timeout=10)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(metadata.read_text(), "qualification failure evidence" if existing else "fallback diagnostic")
+
     def test_default_control_fixture_bytes(self):
         self.assertEqual(HELPER.XDG_SITE_DEFAULT, XDG_SITE_DEFAULT)
         # Pin the public control data, including the constructed output filename.
@@ -935,7 +1207,8 @@ print(json.dumps(args))
             real_read = Path.read_text
             with patch.object(HELPER, "secure_path"), patch.object(os, "geteuid", return_value=0), \
                  patch.object(HELPER, "compatibility_host_state", side_effect=[{"sysctls": "before"}, {"sysctls": "drift"}]), \
-                 patch.object(HELPER, "verify_root_context"), patch.object(HELPER, "verify_upstream_source"), \
+                 patch.object(HELPER, "compatibility_temp_entries", return_value={}), \
+                 patch.object(HELPER, "verify_root_context"), patch.object(HELPER, "verify_upstream_source", return_value={}), \
                  patch.object(HELPER, "compatibility_inputs", return_value={"source": "bound"}), \
                  patch.object(HELPER, "identity", return_value={"sha256": "a" * 64}), \
                  patch.object(HELPER, "supervise_compatibility", side_effect=ValueError("synthetic native failure")), \

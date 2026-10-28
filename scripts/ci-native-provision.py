@@ -8,6 +8,7 @@ parser/config are extracted privately, never installed through maintainer script
 from __future__ import annotations
 
 import ctypes
+import difflib
 import hashlib
 import io
 import json
@@ -501,10 +502,62 @@ def verify_root_context(context: dict) -> None:
         raise ValueError("root compatibility requires actual root IDs, default unconfined and required capabilities")
 
 
-def verify_upstream_source(archive: Path, source: Path) -> None:
+def repaired_upstream_file(name: str, data: bytes) -> bytes:
+    # Exactly two source-bound harness repairs, not a caller-selected patch route.
+    if name == "tests/test-sandbox.py":
+        original = b'''        class statfs_t(ctypes.Structure):
+            _fields_ = [('f_type', ctypes.c_long), ('f_bsize', ctypes.c_long)]
+        buf = statfs_t()
+'''
+        patched = b'''        class statfs_t(ctypes.Structure):
+            _fields_ = [
+                ('f_type', ctypes.c_long), ('f_bsize', ctypes.c_long),
+                ('f_blocks', ctypes.c_ulong), ('f_bfree', ctypes.c_ulong),
+                ('f_bavail', ctypes.c_ulong), ('f_files', ctypes.c_ulong),
+                ('f_ffree', ctypes.c_ulong), ('f_fsid', ctypes.c_int * 2),
+                ('f_namelen', ctypes.c_long), ('f_frsize', ctypes.c_long),
+                ('f_flags', ctypes.c_long), ('f_spare', ctypes.c_long * 4),
+            ]
+        buf = statfs_t()
+'''
+    elif name == "tests/test-helper.py":
+        original = b'''    def __exit__(self, *exc):
+        try:
+            self._send({'exit': True})
+        except OSError:
+            pass
+
+        self._parent_sock.close()
+
+        if self.proc:
+            self.proc.wait(timeout=5)
+        return False
+'''
+        patched = original.replace(b"            self.proc.wait(timeout=5)\n", b'''            returncode = self.proc.wait(timeout=5)
+            if returncode != 0:
+                raise AssertionError(f'sandbox helper exited with status {returncode}')
+''')
+    else:
+        raise ValueError("unsupported upstream harness repair")
+    if data.count(original) != 1:
+        raise ValueError(f"upstream harness repair context missing, duplicate or changed: {name}")
+    return data.replace(original, patched, 1)
+
+
+def repair_upstream_source(archive: Path, source: Path) -> dict:
+    verify_upstream_source(archive, source)
+    # Validate both contexts before writing either file; reapplication refuses.
+    changes = {name: repaired_upstream_file(name, (source / name).read_bytes())
+               for name in ("tests/test-sandbox.py", "tests/test-helper.py")}
+    for name, data in changes.items():
+        (source / name).write_bytes(data)
+    return verify_upstream_source(archive, source, repaired=True)
+
+
+def verify_upstream_source(archive: Path, source: Path, *, repaired: bool = False) -> dict:
     if hashlib.sha256(archive.read_bytes()).hexdigest() != SOURCE_DIGEST:
         raise ValueError("upstream source archive authentication failed")
-    expected, links = {}, {}
+    expected, links, repairs = {}, {}, {}
     with tarfile.open(archive) as contents:
         for member in contents:
             name = Path(member.name.removeprefix("./"))
@@ -528,7 +581,20 @@ def verify_upstream_source(archive: Path, source: Path) -> None:
                 raise ValueError("upstream source archive type refused")
             data = contents.extractfile(member)
             assert data is not None
-            expected[str(relative)] = hashlib.sha256(data.read()).hexdigest()
+            original = data.read()
+            if repaired and str(relative) in {"tests/test-sandbox.py", "tests/test-helper.py"}:
+                patched = repaired_upstream_file(str(relative), original)
+                repairs[str(relative)] = {
+                    "original_sha256": hashlib.sha256(original).hexdigest(),
+                    "patched_sha256": hashlib.sha256(patched).hexdigest(),
+                    "diff": "".join(difflib.unified_diff(original.decode().splitlines(keepends=True),
+                                                       patched.decode().splitlines(keepends=True),
+                                                       fromfile="a/" + str(relative), tofile="b/" + str(relative))),
+                }
+                original = patched
+            expected[str(relative)] = hashlib.sha256(original).hexdigest()
+    if repaired and set(repairs) != {"tests/test-sandbox.py", "tests/test-helper.py"}:
+        raise ValueError("upstream source archive lacks the two regular harness files")
     if any(expected.get(target, "link:").startswith("link:") for target in links.values()):
         raise ValueError("upstream source archive link target refused")
     observed = {}
@@ -541,6 +607,7 @@ def verify_upstream_source(archive: Path, source: Path) -> None:
             raise ValueError("upstream source type refused")
     if not expected or observed != expected:
         raise ValueError("upstream source differs from authenticated archive")
+    return repairs
 
 
 def verify_upstream_inventory(inventory: list[dict], work: Path) -> None:
@@ -601,9 +668,41 @@ def compatibility_host_state() -> dict:
         "profiles": sorted(Path("/sys/kernel/security/apparmor/profiles").read_text().splitlines()),
         "mounts": Path("/proc/self/mountinfo").read_text(),
         "installed_bwrap": identity(launcher) if os.path.lexists(launcher) else "absent",
-        "root_temp_entries": sorted(str(path) for directory in ("/tmp", "/var/tmp")
-                                    for path in Path(directory).iterdir() if path.lstat().st_uid == 0),
     }
+
+
+def compatibility_temp_entries() -> dict[str, int]:
+    # Include every owner so a preexisting user file cannot count as new. Entries
+    # can disappear during enumeration; global churn is diagnostic, not a gate.
+    entries = {}
+    for directory in ("/tmp", "/var/tmp"):
+        for path in Path(directory).iterdir():
+            try:
+                entries[str(path)] = path.lstat().st_uid
+            except FileNotFoundError:
+                pass
+    return entries
+
+
+def verify_upstream_temp(before: dict[str, int], after: dict[str, int]) -> dict:
+    candidates = [name for name in set(after) - set(before) if re.fullmatch(r"/tmp/bwrap-test-[a-zA-Z0-9]{8}", name)]
+    if len(candidates) != 1:
+        raise ValueError("expected exactly one new upstream temporary file")
+    name = candidates[0]
+    info = Path(name).lstat()
+    if not stat.S_ISREG(info.st_mode) or info.st_uid != 0 or info.st_size != 6:
+        raise ValueError("unexpected upstream temporary file type, owner or size")
+    fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    try:
+        opened = os.fstat(fd)
+        if (not stat.S_ISREG(opened.st_mode) or opened.st_uid != 0 or opened.st_size != 6 or
+                (opened.st_dev, opened.st_ino) != (info.st_dev, info.st_ino) or os.read(fd, 7) != b"hello\n"):
+            raise ValueError("upstream temporary file identity or contents mismatch")
+        return {"path": name, "uid": opened.st_uid, "mode": stat.S_IMODE(opened.st_mode),
+                "device": opened.st_dev, "inode": opened.st_ino, "size": opened.st_size,
+                "sha256": hashlib.sha256(b"hello\n").hexdigest()}
+    finally:
+        os.close(fd)
 
 
 def compatibility_inputs(work: Path) -> dict:
@@ -721,7 +820,7 @@ def compatibility_crash_metadata(report: dict) -> dict:
     fields = ("__REALTIME_TIMESTAMP", "_BOOT_ID", "COREDUMP_PID", "COREDUMP_UID", "COREDUMP_SIGNAL",
               "COREDUMP_EXE", "COREDUMP_UNIT", "COREDUMP_CGROUP")
     result = {"availability": "unavailable", "records": [], "record_limit": 256,
-              "absence_is_not_proof": True, "evidence_kind": "diagnostic metadata only; never qualification"}
+              "absence_is_not_proof": True, "evidence_kind": "bounded core-dump metadata; no core data"}
     try:
         if not isinstance(report, dict):
             raise ValueError("invalid diagnostic report")
@@ -741,7 +840,7 @@ def compatibility_crash_metadata(report: dict) -> dict:
             raise ValueError("invalid journal record")
         result["records"] = [{key: value for key, value in row.items()
                               if key in fields and isinstance(value, str)}
-                             for row in rows if any(key.startswith("COREDUMP_") for key in row)]
+                              for row in rows]
         result["availability"] = "possibly truncated" if len(rows) >= 256 else "captured"
     except (KeyError, ValueError, OSError, subprocess.SubprocessError):
         # Never retain stderr, free-form messages, environment, command lines or
@@ -768,7 +867,8 @@ def upstream_compatibility(work: Path) -> None:
     try:
         report["before_host"] = compatibility_host_state()
         verify_root_context(report["before_host"])
-        verify_upstream_source(work / "bubblewrap-0.12.0.tar.xz", work / "bubblewrap-0.12.0")
+        report["before_temp_entries"] = compatibility_temp_entries()
+        report["source_repairs"] = verify_upstream_source(work / "bubblewrap-0.12.0.tar.xz", work / "bubblewrap-0.12.0", repaired=True)
         report["before_inputs"] = compatibility_inputs(work)
         # Read the build's JSON control output without executing repository hooks.
         inventory = json.loads((build / "meson-info/intro-tests.json").read_text())
@@ -794,6 +894,17 @@ def upstream_compatibility(work: Path) -> None:
                 report["errors"].append(str(error))
                 if key == "after_host":
                     (work.parent / "cleanup-safe").unlink(missing_ok=True)
+        try:
+            verify_upstream_source(work / "bubblewrap-0.12.0.tar.xz", work / "bubblewrap-0.12.0", repaired=True)
+            report["source_verified_after"] = True
+        except (ValueError, OSError, tarfile.TarError) as error:
+            report["errors"].append(str(error))
+        try:
+            report["after_temp_entries"] = compatibility_temp_entries()
+            if "before_temp_entries" in report:
+                report["expected_temp_file"] = verify_upstream_temp(report["before_temp_entries"], report["after_temp_entries"])
+        except (ValueError, OSError) as error:
+            report["errors"].append(str(error))
         report["logs"] = {}
         # Full native logs are embedded, not reinterpreted or truncated to passes.
         for path in [work.parent / "console.log", *sorted((build / "meson-logs").glob("testlog*"))]:
@@ -841,12 +952,19 @@ def main() -> None:
         print(verify_compatibility_digest(Path(args[0]), args[1]))
     elif mode == "upstream-compatibility":
         upstream_compatibility(Path(args[0]))
-    elif mode == "compatibility-crash-metadata":
+    elif mode == "repair-upstream-source":
+        if os.geteuid() == 0:
+            raise ValueError("upstream harness repair requires an unprivileged runner")
+        print(json.dumps(repair_upstream_source(Path(args[0]), Path(args[1])), indent=2, sort_keys=True))
+    elif mode in {"compatibility-crash-metadata", "qualify-compatibility-crashes"}:
         try:
             report = json.loads(Path(args[0]).read_text())
         except (OSError, ValueError):
             report = {}
-        print(json.dumps(compatibility_crash_metadata(report), indent=2))
+        metadata = compatibility_crash_metadata(report)
+        print(json.dumps(metadata, indent=2), flush=True)
+        if mode == "qualify-compatibility-crashes" and (metadata["availability"] != "captured" or metadata["records"]):
+            raise ValueError("compatibility requires available, nontruncated, empty core-dump metadata")
     elif mode == "stage-parser":
         stage_parser(Path(args[0]), [Path(name) for name in args[1:]])
     elif mode == "parser-effect":

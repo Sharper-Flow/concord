@@ -19,8 +19,14 @@ func TestWorkflowDomainOverlapCoordinatorReleasesAfterStepBeforeTerminal(t *test
 		t.Fatal("current implementation workflow is unavailable")
 	}
 	// Seed both approved contracts at their shared architectural design step.
-	// All subsequent step changes go through workflow-action admission.
+	// Each keeps its recorded execution start, so the leader is a peer that
+	// holds its Domains; a contract with no execution start blocks nobody
+	// (CD-0144 D3). All later step changes go through workflow-action admission.
 	overlapFixtureExec(t, s, `UPDATE workflow_instances SET definition_ref=?,definition_digest=?,current_step='design' WHERE work_id IN (?,?)`, definition.Definition.Ref, definition.Digest, leader, follower)
+	var started int
+	if err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM workflow_instances WHERE work_id IN (?,?) AND execution_started_at IS NOT NULL`, leader, follower).Scan(&started); err != nil || started != 2 {
+		t.Fatalf("design-step fixture execution starts = %d err=%v, want 2", started, err)
+	}
 	actor := WorkflowActor{PrincipalRef: "principal:operator", ClientRef: "client:overlap", AgentRef: "agent:operator", SessionRef: "session:overlap", ActorClass: ActorOperator}
 	resolve := func(eventID, kind, reason string) {
 		t.Helper()

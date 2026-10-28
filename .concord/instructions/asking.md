@@ -33,7 +33,9 @@ independently require approval. Another class may still apply. Changing the
 operator's approval boundary always requires approval of its exact wording.
 
 Every operator approval question names the applicable class above or the existing
-operator-only waiver, and the concrete consequence that requires it. Law status,
+operator-only reservation, and the concrete consequence that requires it. Existing
+reservations include gate waivers and decisions accepted law expressly leaves to
+the operator, such as size overrides and release cutover. Law status,
 seriousness, size, Domain count, and exact wording alone do not require approval.
 When a law change falls in a class, obtain its required approval when proposed,
 before implementation. Never batch these approvals at the end.
@@ -43,7 +45,7 @@ that requires approval and risks permanent loss, explain what will be lost and
 any missing recovery route. The operator may explicitly approve that loss.
 Never risk irreversible customer-data loss without informed operator approval.
 
-Without an applicable class or operator-only waiver, decide within your scope
+Without an applicable class or operator-only reservation, decide within your scope
 and record the reason instead of asking for discretionary approval. Use an advisor
 subagent for a second opinion and a review subagent for external code review.
 Coordinate dependencies with the RTE;

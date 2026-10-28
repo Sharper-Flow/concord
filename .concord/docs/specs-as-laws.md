@@ -33,8 +33,8 @@ count ([CD-0243](decisions/CD-0243-four-roles-and-six-operator-approval-classes.
 ADV today: specs are laws; `adv_change_validate` detects conflicts; agents are
 pushed back. But when a user request implies behavior that conflicts with a spec,
 agents too often **silently cut scope** during research / design / prep — *"this
-goes against spec law X, so I'll drop that part"* — instead of pausing to ask the
-user whether they want to evolve the law. The user discovers the scope reduction
+goes against spec law X, so I'll drop that part"* — instead of explicitly
+resolving the conflict. The user discovers the scope reduction
 **late**, after the agent already complied.
 
 The conflict needs an explicit resolution, not an unrecorded scope cut. The
@@ -65,8 +65,8 @@ When a user request (during research / design / prep) touches behavior governed 
 an existing spec law **and** the request implies conflict or stretch:
 
 1. **DETECT** — identify the specific spec law(s) challenged.
-2. **CLASSIFY** — apply CD-0243 D2-D4. A conflict alone does not require approval.
-3. **RESOLVE** — use §4. Ask only for an applicable approval class or missing
+2. **Classify** — apply CD-0243 D2-D4. A conflict alone does not require approval.
+3. **Resolve** — use §4. Ask only for an applicable approval class or missing
    information; otherwise decide within scope and record why. Keep current tool
    gates and admitted recovery routes (CD-0243 D6-D7).
 4. **RECORD** — whichever path is chosen, the decision is auditable (§5).
@@ -175,7 +175,7 @@ shows the legislative moments explicitly.
 |---|---|
 | Change validation detected spec conflicts | **Preserved as an outcome, redesigned structurally** through Git-derived law checks and typed refusals. |
 | Spec deltas modified or superseded accepted law | **Preserved as an outcome** through Git law deltas and revision identity, with approval following CD-0243 D2 and D4. |
-| Agreement/design checkpoints surfaced legislative choices | **Preserved as human authority** without requiring one universal workflow shape. |
+| Agreement/design checkpoints surfaced legislative choices | **Preserved as explicit decisions** with operator consent only under the six classes, without requiring one universal workflow shape. |
 | Cross-change architecture overlap was not authoritative | **Added by CD-0222** through Domain-bound contracts and version-pinned resolutions. |
 
 Concord does not call, mirror, or dual-write predecessor runtime state. These rows

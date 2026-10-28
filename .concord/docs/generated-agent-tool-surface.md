@@ -1,7 +1,7 @@
 # Generated Concord agent tool surface
 
-Manifest digest: `sha256:2340fcfaeac46c0e7dbcd7da74312140a1f343c050e37fea63202c8cd5832fd6`
-Payload schema digest: `sha256:2a436f4175256a3b2cb6f50b4ee21e05f9bb84ef2e01c3ac71fdbd8c89f3dbd5`
+Manifest digest: `sha256:acb88188f0e06b7c0fe21fd1c2c0d318ad25799e0ac281a5a92564bc2177d486`
+Payload schema digest: `sha256:c06ab90840a5b75d6586582beb0b7d7d38f8e04a6d9bb0c4dda2cd0cb3d260b4`
 Envelope schema: `1.0`
 
 | Operation | Kind | Query | Capability | Consequence | Availability |
@@ -23,6 +23,7 @@ Envelope schema: `1.0`
 | `concord_work_trace.external_observations` | `read` | `CD-0040.R1` | `product_read` | `read` | `always` |
 | `concord_work_trace.relations` | `read` | `PM1.Q8` | `product_read` | `read` | `always` |
 | `concord_work_trace.continuity` | `read` | `C19.Continuity` | `product_read` | `read` | `always` |
+| `concord_work_trace.mutation_result` | `read` | `C19.MutationResult` | `product_read` | `read` | `always` |
 | `concord_work_trace.research` | `read` | `PM1.Q11` | `product_read` | `read` | `always` |
 | `concord_work_trace.project_retirement` | `read` | `CD-0182.R1` | `product_read` | `read` | `always` |
 | `concord_knowledge.search` | `read` | `PM1.Q9` | `product_read` | `read` | `always` |

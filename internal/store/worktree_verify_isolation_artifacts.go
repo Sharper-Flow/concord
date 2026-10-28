@@ -54,6 +54,12 @@ func qualifyNativeIsolationArtifacts(ctx context.Context, t *nativeTargetOracleP
 
 func nativeIsolationExportPaths(t *nativeTargetOraclePlan, cwd string) ([]string, error) {
 	roots := []string{t.Environment.Bun, t.Environment.Node, t.Environment.Bash}
+	if t.Recipe.GitMetadata != "" {
+		if t.Environment.Git == "" {
+			return nil, nativeIsolationUnavailable("candidate Git metadata has no pinned runtime")
+		}
+		roots = append(roots, t.Environment.Git)
+	}
 	var private []string
 	if t.Recipe.Materializer == nativeTargetMaterializerBun {
 		dependencies := filepath.Join(cwd, "node_modules")

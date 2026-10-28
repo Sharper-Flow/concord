@@ -4,7 +4,6 @@ mode: subagent
 hidden: true
 tools:
   task: false
-  execute: false
   concord_ci_watch: false
   concord_domain: false
   concord_knowledge: false
@@ -258,7 +257,7 @@ Report contract constraints:
 - evidence: type=array, minItems=1, maxItems=64, items={"$ref": "#/$defs/evidence_entry"}.
 - evidence_entry shape: type=object, additionalProperties=false, required=["obligation", "detail"].
 - evidence_entry.detail: type=string, minLength=1, maxLength=512.
-- evidence_entry.predicate_ids: optional array; type=array, minItems=0, maxItems=8, items={"type": "string", "minLength": 11, "maxLength": 128, "pattern": "^predicate:[A-Za-z0-9][A-Za-z0-9._:-]*$"}. Name here the predicate_id of each inputs.outcome_predicates entry this entry's evidence proves. Tie rule: `predicate_ids` is optional per entry; omit it or use an empty array on an entry that proves no declared predicate. Both forms mean no predicate tie. Tie a declared `predicate_id` only to an entry whose evidence proves that predicate; the store refuses a completed report that ties a `predicate_id` the packet's `inputs.outcome_predicates` did not declare with `invalid_report`. Predicates no entry proves are decided by the completion verdicts, never by this report.
+- evidence_entry.predicate_ids: optional array; type=array, minItems=0, maxItems=8, items={"type": "string", "minLength": 11, "maxLength": 128, "pattern": "^predicate:[A-Za-z0-9][A-Za-z0-9._:-]*$"}. On workflow pins with `failure_attribution` and a dispatched job, use only that exact dispatched job revision's `inputs.worker_job.predicate_ids`, not the broader parent list. On pins without `failure_attribution` and on job-free attempts, use the dispatched packet's `inputs.outcome_predicates[].predicate_id`. Current live job-capable workflows all carry `failure_attribution`, so for current live dispatches with `inputs.worker_job`, use only its `predicate_ids`. Tie rule: `predicate_ids` is optional per entry; omit it or use an empty array on an entry that proves no declared predicate. Both forms mean no predicate tie. Tie a declared `predicate_id` only to an entry whose evidence proves that predicate; the store refuses a completed report that ties a `predicate_id` outside the applicable list with `invalid_report`. Predicates no entry proves are decided by the completion verdicts, never by this report.
 - evidence_entry.obligation: enum=["files_touched", "verification_commands", "unresolved_issues"].
 - context_findings: optional top-level array; type=array, minItems=0, maxItems=16, x-maxArrayBytes=16384. Record a durable conclusion, a rejected route, or an open question the evidence entries cannot carry as one typed entry here instead of leaving it in local artifacts. An array past the byte bound is refused whole: drop or split entries yourself, and never truncate a finding to fit.
 - context_finding shape: type=object, additionalProperties=false, required=["kind", "statement", "subject_ref", "evidence_refs", "domain_id"]. Findings are report content only: they record no acceptance, no verdict, and no workflow transition, and they ride a `failed` report unchanged.

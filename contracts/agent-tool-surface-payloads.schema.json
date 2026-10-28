@@ -5,6 +5,398 @@
   "type": "object",
   "additionalProperties": false,
   "$defs": {
+    "projection_digest": {
+      "type": "string",
+      "minLength": 71,
+      "maxLength": 71,
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "description": "Bounds: 71..71 code points inclusive"
+    },
+    "mutation_projection_source": {
+      "oneOf": [
+        {
+          "properties": {
+            "source_tool": {
+              "const": "concord_work_relate"
+            },
+            "source_operation": {
+              "const": "message_send"
+            }
+          },
+          "required": [
+            "source_tool",
+            "source_operation"
+          ]
+        },
+        {
+          "properties": {
+            "source_tool": {
+              "const": "concord_work_transition"
+            },
+            "source_operation": {
+              "const": "workflow_action"
+            }
+          },
+          "required": [
+            "source_tool",
+            "source_operation"
+          ]
+        }
+      ]
+    },
+    "work_trace_mutation_result_input": {
+      "description": "Read the immutable original mutation result payload retained under this caller's idempotency identity. A fragment grants no complete pin or intent authority; reconstruct, verify the byte length and SHA-256 digest, then validate the original operation result schema before use.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_tool",
+        "source_operation",
+        "idempotency_key",
+        "digest"
+      ],
+      "properties": {
+        "source_tool": {
+          "type": "string",
+          "enum": [
+            "concord_work_relate",
+            "concord_work_transition"
+          ]
+        },
+        "source_operation": {
+          "type": "string",
+          "enum": [
+            "message_send",
+            "workflow_action"
+          ]
+        },
+        "idempotency_key": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "description": "Bounds: 1..128 code points inclusive"
+        },
+        "digest": {
+          "$ref": "#/$defs/projection_digest",
+          "description": "Bounds: 71..71 code points inclusive"
+        },
+        "page": {
+          "$ref": "#/$defs/page"
+        },
+        "limit": {
+          "$ref": "#/$defs/limit",
+          "description": "Bounds: 1..100 value inclusive"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds",
+          "description": "Bounds: >=1 value inclusive"
+        }
+      },
+      "oneOf": [
+        {
+          "properties": {
+            "source_tool": {
+              "const": "concord_work_relate"
+            },
+            "source_operation": {
+              "const": "message_send"
+            }
+          },
+          "required": [
+            "source_tool",
+            "source_operation"
+          ]
+        },
+        {
+          "properties": {
+            "source_tool": {
+              "const": "concord_work_transition"
+            },
+            "source_operation": {
+              "const": "workflow_action"
+            }
+          },
+          "required": [
+            "source_tool",
+            "source_operation"
+          ]
+        }
+      ]
+    },
+    "json_fragment_page": {
+      "description": "Exact whole-code-point UTF-8 fragments of one captured canonical JSON result payload. Digest hashes the complete original payload bytes, not an envelope. Join contiguous offsets, verify total bytes and digest, parse once, and validate the source schema before using authority. envelope.next_cursor advances an incomplete document.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "encoding",
+        "digest",
+        "total_bytes",
+        "offset",
+        "data",
+        "fragment_bytes",
+        "document_complete"
+      ],
+      "properties": {
+        "encoding": {
+          "const": "json-fragment"
+        },
+        "digest": {
+          "$ref": "#/$defs/projection_digest"
+        },
+        "total_bytes": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "offset": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "data": {
+          "type": "string",
+          "minLength": 1
+        },
+        "fragment_bytes": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "document_complete": {
+          "type": "boolean"
+        }
+      }
+    },
+    "mutation_projection_reference_result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "projection_reference"
+      ],
+      "properties": {
+        "projection_reference": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "encoding",
+            "digest",
+            "total_bytes",
+            "source_tool",
+            "source_operation",
+            "work_refs",
+            "read_pointer"
+          ],
+          "properties": {
+            "encoding": {
+              "const": "json-fragment"
+            },
+            "digest": {
+              "$ref": "#/$defs/projection_digest"
+            },
+            "total_bytes": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "source_tool": {
+              "type": "string",
+              "enum": [
+                "concord_work_relate",
+                "concord_work_transition"
+              ]
+            },
+            "source_operation": {
+              "type": "string",
+              "enum": [
+                "message_send",
+                "workflow_action"
+              ]
+            },
+            "work_refs": {
+              "type": "array",
+              "maxItems": 32,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "id",
+                  "version"
+                ],
+                "properties": {
+                  "id": {
+                    "$ref": "#/$defs/id"
+                  },
+                  "version": {
+                    "type": "integer",
+                    "minimum": 1
+                  }
+                }
+              }
+            },
+            "read_pointer": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "tool",
+                "operation",
+                "input"
+              ],
+              "properties": {
+                "tool": {
+                  "const": "concord_work_trace"
+                },
+                "operation": {
+                  "const": "mutation_result"
+                },
+                "input": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "source_tool",
+                    "source_operation",
+                    "idempotency_key",
+                    "digest"
+                  ],
+                  "properties": {
+                    "source_tool": {
+                      "type": "string",
+                      "enum": [
+                        "concord_work_relate",
+                        "concord_work_transition"
+                      ]
+                    },
+                    "source_operation": {
+                      "type": "string",
+                      "enum": [
+                        "message_send",
+                        "workflow_action"
+                      ]
+                    },
+                    "idempotency_key": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 128
+                    },
+                    "digest": {
+                      "$ref": "#/$defs/projection_digest"
+                    }
+                  },
+                  "allOf": [
+                    {
+                      "$ref": "#/$defs/mutation_projection_source"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "allOf": [
+            {
+              "$ref": "#/$defs/mutation_projection_source"
+            }
+          ]
+        }
+      }
+    },
+    "projectable_mutation_result": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "changed_refs": {},
+        "next_valid_intents": {},
+        "work_pins": {},
+        "operation_id": {},
+        "worker_packet_digest": {},
+        "assignment_group": {},
+        "retry_attempt_id": {},
+        "retry_worker_packet": {},
+        "worker_worktree": {},
+        "delivery": {},
+        "vacate_target": {},
+        "worker_recovery": {},
+        "projection_reference": {}
+      },
+      "oneOf": [
+        {
+          "$ref": "#/$defs/mutation_result"
+        },
+        {
+          "$ref": "#/$defs/mutation_projection_reference_result"
+        }
+      ]
+    },
+    "work_list_projection_page": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "encoding",
+        "digest",
+        "total_bytes",
+        "offset",
+        "data",
+        "fragment_bytes",
+        "document_complete",
+        "next_kind"
+      ],
+      "properties": {
+        "encoding": {
+          "const": "json-fragment"
+        },
+        "digest": {
+          "$ref": "#/$defs/projection_digest"
+        },
+        "total_bytes": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "offset": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "data": {
+          "type": "string",
+          "minLength": 1
+        },
+        "fragment_bytes": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "document_complete": {
+          "type": "boolean"
+        },
+        "next_kind": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "projection",
+            "items",
+            null
+          ]
+        }
+      }
+    },
+    "work_browse_list_result": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "items": {},
+        "next_cursor": {},
+        "readiness_evidence": {},
+        "encoding": {},
+        "digest": {},
+        "total_bytes": {},
+        "offset": {},
+        "data": {},
+        "fragment_bytes": {},
+        "document_complete": {},
+        "next_kind": {}
+      },
+      "oneOf": [
+        {
+          "$ref": "#/$defs/work_page"
+        },
+        {
+          "$ref": "#/$defs/work_list_projection_page"
+        }
+      ]
+    },
     "workflow_member_job_binding": {
       "type": "object",
       "additionalProperties": false,
@@ -25225,6 +25617,9 @@
             "streams_complete": {
               "type": "boolean"
             },
+            "git_metadata": {
+              "$ref": "#/$defs/native_git_metadata"
+            },
             "control_id": {
               "type": "string",
               "pattern": "^control:[A-Za-z0-9][A-Za-z0-9._:-]{0,126}$",
@@ -25514,6 +25909,11 @@
                     "required": [
                       "case_to_witness_map"
                     ]
+                  },
+                  {
+                    "required": [
+                      "git_metadata"
+                    ]
                   }
                 ]
               }
@@ -25732,6 +26132,9 @@
                 },
                 "streams_complete": {
                   "type": "boolean"
+                },
+                "git_metadata": {
+                  "$ref": "#/$defs/native_git_metadata"
                 },
                 "control_id": {
                   "type": "string",
@@ -26180,6 +26583,9 @@
             "streams_complete": {
               "type": "boolean"
             },
+            "git_metadata": {
+              "$ref": "#/$defs/native_git_metadata"
+            },
             "control_id": {
               "type": "string",
               "pattern": "^control:[A-Za-z0-9][A-Za-z0-9._:-]{0,126}$",
@@ -26584,6 +26990,11 @@
                     "required": [
                       "case_to_witness_map"
                     ]
+                  },
+                  {
+                    "required": [
+                      "git_metadata"
+                    ]
                   }
                 ]
               }
@@ -26811,6 +27222,9 @@
                 },
                 "streams_complete": {
                   "type": "boolean"
+                },
+                "git_metadata": {
+                  "$ref": "#/$defs/native_git_metadata"
                 },
                 "control_id": {
                   "type": "string",
@@ -29012,6 +29426,10 @@
         },
         "dependencies": {
           "$ref": "#/$defs/worker_packet_review_dependencies"
+        },
+        "size": {
+          "description": "The recorded work size and its model/operator provenance at dispatch. Omitted when unsized; never inferred from the objective or job line estimate.",
+          "$ref": "#/$defs/work_size_summary"
         }
       }
     },
@@ -29630,6 +30048,94 @@
         }
       },
       "description": "A retained current finding without recorded identity, status, scope, blocking or reference fields. Only its observed content is exposed; it grants no worker-report, closure or acceptance authority."
+    },
+    "native_git_metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "mode",
+        "candidate",
+        "recipe"
+      ],
+      "properties": {
+        "mode": {
+          "type": "string",
+          "const": "candidate_ancestry_v1"
+        },
+        "candidate": {
+          "$ref": "#/$defs/native_git_view"
+        },
+        "recipe": {
+          "$ref": "#/$defs/native_git_view"
+        }
+      },
+      "description": "Producer-observed complete candidate and pinned-recipe Git views. Genuine ancestor tag identities only; no ambient repository access. The descriptor and Git executable fingerprint join through build_environment_digest; metadata files also enter the sealed input digest. Absence preserves the metadata-free route."
+    },
+    "native_git_view": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "object_format",
+        "commit",
+        "tree",
+        "tags"
+      ],
+      "properties": {
+        "object_format": {
+          "type": "string",
+          "enum": [
+            "sha1",
+            "sha256"
+          ]
+        },
+        "commit": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$",
+          "minLength": 40,
+          "maxLength": 64
+        },
+        "tree": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$",
+          "minLength": 40,
+          "maxLength": 64
+        },
+        "tags": {
+          "type": "array",
+          "maxItems": 4096,
+          "items": {
+            "$ref": "#/$defs/native_git_tag"
+          }
+        }
+      }
+    },
+    "native_git_tag": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "ref",
+        "object",
+        "peeled"
+      ],
+      "properties": {
+        "ref": {
+          "type": "string",
+          "pattern": "^refs/tags/",
+          "maxLength": 256
+        },
+        "object": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$",
+          "minLength": 40,
+          "maxLength": 64
+        },
+        "peeled": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$",
+          "minLength": 40,
+          "maxLength": 64
+        }
+      }
     },
     "retained_workflow_correction_context": {
       "type": "object",

@@ -1,5 +1,6 @@
 import { defaultRunner, concordBinaryPath, CoreBinaryUnavailable, type DispatchRunner } from "./dispatch"
 import { hostControlPlane } from "./move-session"
+import { mutationResult } from "./packet"
 
 export type WorkflowStatusContext = { sessionID: string; abort: AbortSignal }
 
@@ -105,8 +106,8 @@ export async function formatWorkClosureReceipt(value: unknown, options: { runner
 
 function workPins(envelope: unknown): WorkPin[] {
   if (!record(envelope) || envelope.outcome !== "ok") return []
-  const payload = record(envelope.result) ? envelope.result : envelope
-  if (!Array.isArray(payload.work_pins)) return []
+  const payload = mutationResult(envelope) ?? (record(envelope.result) ? undefined : envelope)
+  if (!payload || !Array.isArray(payload.work_pins)) return []
   const pins = payload.work_pins.map(workPin)
   return pins.every((pin): pin is WorkPin => pin !== null) ? pins : []
 }

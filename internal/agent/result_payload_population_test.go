@@ -599,6 +599,7 @@ var fixtureStringCandidates = []string{
 	"ref-1",
 	"conformance",
 	"TestConformance",
+	"refs/tags/v1.0.0",
 }
 
 // fixtureString answers one string value that satisfies the schema node's
@@ -668,23 +669,22 @@ func mergeFixtureSchema(base, constraints map[string]any) map[string]any {
 		}
 		merged[key] = value
 	}
-	return merged
-}
-
-func mergeFixtureUnionArm(arm, siblings map[string]any) map[string]any {
-	merged := mergeFixtureSchema(arm, siblings)
-	if arm["additionalProperties"] == false {
-		// A closed arm rejects sibling-only properties even when the union
-		// declares them for other arms. Shared properties keep both constraints.
-		declared, _ := arm["properties"].(map[string]any)
-		properties, _ := merged["properties"].(map[string]any)
-		properties = maps.Clone(properties)
-		merged["properties"] = properties
-		for name := range properties {
-			if _, ok := declared[name]; !ok {
-				delete(properties, name)
+	// Two closed object schemas permit only the properties each declares.
+	// A union's outer placeholder properties cannot open its selected arm.
+	if properties, ok := merged["properties"].(map[string]any); ok {
+		for _, node := range []map[string]any{base, constraints} {
+			if additional, present := node["additionalProperties"].(bool); !present || additional {
+				continue
+			}
+			declared, _ := node["properties"].(map[string]any)
+			properties = maps.Clone(properties)
+			for name := range properties {
+				if _, allowed := declared[name]; !allowed {
+					delete(properties, name)
+				}
 			}
 		}
+		merged["properties"] = properties
 	}
 	return merged
 }
@@ -725,7 +725,7 @@ func schemaFixtureValue(t *testing.T, schema map[string]any, defs map[string]map
 			if branchSchema["type"] == "null" {
 				continue
 			}
-			return schemaFixtureValue(t, mergeFixtureUnionArm(branchSchema, siblings), defs, depth+1)
+			return schemaFixtureValue(t, mergeFixtureSchema(branchSchema, siblings), defs, depth+1)
 		}
 		return nil
 	}
@@ -815,7 +815,7 @@ func schemaFixtureValue(t *testing.T, schema map[string]any, defs map[string]map
 				if branchSchema["type"] == "null" {
 					continue
 				}
-				return schemaFixtureValue(t, mergeFixtureUnionArm(branchSchema, siblings), defs, depth+1)
+				return schemaFixtureValue(t, mergeFixtureSchema(branchSchema, siblings), defs, depth+1)
 			}
 			return nil
 		}
@@ -1004,6 +1004,19 @@ func TestSchemaFixtureUnionArmsRespectSiblingConstraints(t *testing.T) {
 			t.Fatalf("closed union arm fixture violates the whole schema: %v", err)
 		}
 	})
+	t.Run("closed_projection_union_keeps_only_selected_arm_properties", func(t *testing.T) {
+		value := schemaFixtureValue(t, defs["projectable_mutation_result"], defs, 0)
+		data, err := json.Marshal(value)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := payloadschema.Validate("projectable_mutation_result", data); err != nil {
+			t.Fatal(err)
+		}
+		if _, projected := value.(map[string]any)["projection_reference"]; projected {
+			t.Fatal("inline selected arm contains a projection reference")
+		}
+	})
 	t.Run("typeless_anyOf_selects_first_non_null_arm", func(t *testing.T) {
 		// CD-0242 D14 removes the packet ladder; keep the generic union witness synthetic.
 		union := map[string]any{"anyOf": []any{
@@ -1068,7 +1081,12 @@ func TestSchemaFixtureUnionArmsRespectSiblingConstraints(t *testing.T) {
 // with against the population fixture. The test enumerates the operations from
 // the generated contract, so a new read is covered the moment it is declared;
 // an operation without an entry here is a failure, not a silent gap.
-func readPopulationInputs(fx readPopulationFixture) map[string]string {
+func readPopulationInputs(t *testing.T, fx readPopulationFixture) map[string]string {
+	t.Helper()
+	record, found, err := fx.store.LookupMutationIdempotency(t.Context(), store.MutationIdempotencyKey{PrincipalRef: fx.grant.PrincipalRef, Tool: "concord_work_relate", OperationKind: "message_send", IdempotencyKey: "population-message"})
+	if err != nil || !found {
+		t.Fatalf("population message receipt missing: found=%t err=%v", found, err)
+	}
 	return map[string]string{
 		"concord_product_view.resolve":             `{"product_id":"prod-alpha"}`,
 		"concord_product_view.snapshot":            `{"product_id":"prod-alpha"}`,
@@ -1087,6 +1105,7 @@ func readPopulationInputs(fx readPopulationFixture) map[string]string {
 		"concord_work_trace.external_observations": `{"work_id":"` + fx.workID + `","limit":20}`,
 		"concord_work_trace.relations":             `{"work_id":"` + fx.workID + `"}`,
 		"concord_work_trace.continuity":            `{"work_id":"` + fx.workID + `","page":{"cursor":null,"limit":20}}`,
+		"concord_work_trace.mutation_result":       `{"source_tool":"concord_work_relate","source_operation":"message_send","idempotency_key":"population-message","digest":"` + mutationDocumentDigest([]byte(record.ResultPayload)) + `"}`,
 		"concord_work_trace.project_retirement":    `{"work_id":"` + fx.workID + `"}`,
 		"concord_work_trace.research":              `{"product_id":"prod-alpha","work_id":"` + fx.workID + `","result_version":2,"page":{"cursor":null,"limit":20}}`,
 		"concord_knowledge.search":                 `{"product_id":"prod-alpha","page":{"cursor":null,"limit":20}}`,
@@ -1113,6 +1132,18 @@ var readPopulationWitnesses = map[string]func(t *testing.T, result json.RawMessa
 		}
 		if page.ResultVersion != 2 || len(page.Packs) != 1 || page.Packs[0].OwnerWorkID != readPopulationWork || page.Packs[0].CurrentRevision != 1 {
 			t.Fatalf("research owner page lost seeded pack identity: %s", result)
+		}
+	},
+	"concord_work_trace.mutation_result": func(t *testing.T, result json.RawMessage) {
+		var page mutationFragmentPage
+		if err := json.Unmarshal(result, &page); err != nil {
+			t.Fatal(err)
+		}
+		if !page.DocumentComplete || page.Offset != 0 || page.TotalBytes != len(page.Data) || page.FragmentBytes != len(page.Data) || page.Digest != mutationDocumentDigest([]byte(page.Data)) {
+			t.Fatal("mutation result fragment lost the complete retained document")
+		}
+		if err := agentcontract.ValidateOperationPayload("concord_work_relate", "message_send", []byte(page.Data), true); err != nil {
+			t.Fatal(err)
 		}
 	},
 	// Constitution records are law-bearing, so domain.detail must return them
@@ -1195,6 +1226,7 @@ var readPopulationRows = map[string][]string{
 // cannot apply: its answer is a scalar summary, or its only arrays populate on
 // states the probed input cannot reach.
 var readPopulationRowExemptions = map[string]string{
+	"concord_work_trace.mutation_result":    "one exact retained document answers a scalar JSON fragment; its content and digest are checked by the witness",
 	"concord_work_browse.worktree_inspect":  "the probed status mode answers a scalar status summary and carries no row collection",
 	"concord_knowledge.resolve_note":        "an unambiguous resolution answers one located note; candidates populate only when resolution is ambiguous",
 	"concord_knowledge.observe_publication": "one registered source answers a scalar provenance record, not a row collection",
@@ -1244,7 +1276,7 @@ func TestAllReadEnvelopesValidateAtPopulationScale(t *testing.T) {
 		t.Skip("population-scale seeding is measured without race instrumentation")
 	}
 	fx := seedReadPopulationFixture(t)
-	inputs := readPopulationInputs(fx)
+	inputs := readPopulationInputs(t, fx)
 	for _, op := range agentcontract.ContractOperations {
 		if op.Kind != agentcontract.OperationRead {
 			continue

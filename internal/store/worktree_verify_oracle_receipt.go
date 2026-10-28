@@ -110,7 +110,7 @@ func readNativeOracleExecutePlanTx(ctx context.Context, q queryer, work string, 
 }
 
 func nativeOraclePlanMatchesReceipt(p nativeOraclePlan, work, projectID string, o *NativeOracleResult, envDigest, envIdentity string) bool {
-	if !nativeIsolationResultMatches(p, &o.NativeOraclePreparation, o.Stages) {
+	if !nativeIsolationResultMatches(p, &o.NativeOraclePreparation, o.Stages) || !nativeGitMetadataMatches(p, o.GitMetadata) {
 		return false
 	}
 	return p.Request.Phase == "execute" && p.WorkID == work && p.ProjectID == projectID && p.SubjectCommit == o.SubjectCommit && p.ContractVersion == o.ContractVersion && p.BundleDigest == o.BundleDigest && o.BuildEnvironmentDigest == envDigest && o.ToolchainIdentity == envIdentity &&
@@ -156,7 +156,7 @@ func nativeOraclePreparationJoins(prep *NativeOraclePreparation, p nativeOracleP
 	if p.ReviewRepair != nil {
 		preparationSubject = p.ReviewRepair.Base
 	}
-	if prep == nil || prep.SubjectCommit != preparationSubject || prep.ContractVersion != p.ContractVersion || prep.BundleDigest != p.BundleDigest || prep.ManifestDigest != p.ManifestFile.SHA256 || prep.ManifestBlob != p.ManifestFile.BlobOID || !oracleEntryIdentical(prep.Files, p.Files) || prep.ToolchainIdentity != envIdentity || prep.BuildEnvironmentDigest != envDigest {
+	if prep.SubjectCommit != preparationSubject || prep.ContractVersion != p.ContractVersion || prep.BundleDigest != p.BundleDigest || prep.ManifestDigest != p.ManifestFile.SHA256 || prep.ManifestBlob != p.ManifestFile.BlobOID || !oracleEntryIdentical(prep.Files, p.Files) || prep.ToolchainIdentity != envIdentity || prep.BuildEnvironmentDigest != envDigest {
 		return false
 	}
 	if p.Target != nil {

@@ -100,7 +100,8 @@ func companionFields(err *TypedError) {
 // disagreement surfaced only at MarshalJSON time as a transport fault.
 func TestEveryCoupledKindValidatesWithItsCoupledAction(t *testing.T) {
 	t.Parallel()
-	for kind, want := range enforcedRecoveryCouplings {
+	for kind, actions := range enforcedRecoveryCouplings {
+		want := actions[0]
 		err := TypedError{Kind: kind, RecoveryAction: RecoveryAction{Kind: PublicRecovery(kind, "operator prose")}, EffectState: EffectNone}
 		companionFields(&err)
 		if err.RecoveryAction.Kind != want {
@@ -117,9 +118,9 @@ func TestEveryCoupledKindValidatesWithItsCoupledAction(t *testing.T) {
 // hand-builds a mismatched pair is still refused.
 func TestValidateErrorStillRefusesABrokenCoupling(t *testing.T) {
 	t.Parallel()
-	for kind, want := range enforcedRecoveryCouplings {
+	for kind, actions := range enforcedRecoveryCouplings {
 		wrong := "reread_entities"
-		if want == wrong {
+		if slices.Contains(actions, wrong) {
 			wrong = "contact_operator"
 		}
 		err := TypedError{Kind: kind, RecoveryAction: RecoveryAction{Kind: wrong}, EffectState: EffectNone}
@@ -139,7 +140,8 @@ func TestValidateErrorStillRefusesABrokenCoupling(t *testing.T) {
 // PublicRecovery and validateError must agree on every enforced coupling.
 func TestPublicRecoveryHonorsEnforcedCouplings(t *testing.T) {
 	t.Parallel()
-	for kind, want := range enforcedRecoveryCouplings {
+	for kind, actions := range enforcedRecoveryCouplings {
+		want := actions[0]
 		// The store proposes operator prose, which is the normal case for
 		// every newFailure call site.
 		if got := PublicRecovery(kind, "use the existing pinned workflow"); got != want {
@@ -198,7 +200,7 @@ func TestValidatorHoldsNoCouplingTheTableDoesNotOwn(t *testing.T) {
 			t.Errorf("validateError hard-codes recovery %q for kind %q, but enforcedRecoveryCouplings does not own that kind; PublicRecovery may build any other contractual action and the refusal cannot marshal", action, kind)
 			continue
 		}
-		if coupled != action {
+		if !slices.Contains(coupled, action) {
 			t.Errorf("validateError hard-codes recovery %q for kind %q while the table owns %q", action, kind, coupled)
 		}
 	}

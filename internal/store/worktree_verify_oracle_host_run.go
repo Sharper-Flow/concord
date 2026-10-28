@@ -62,6 +62,9 @@ func (s *Store) runNativeTargetOracle(ctx context.Context, r GitRunner, entry Wo
 	if err := nativeTargetOverlayHarness(ctx, r, entry.Path, snapshot, p); err != nil {
 		return err
 	}
+	if err := materializeNativeTargetGit(ctx, entry.Path, root, snapshot, p); err != nil {
+		return err
+	}
 	baseline, err := nativeTargetInputInventory(p, snapshot, true)
 	if err != nil {
 		return err
@@ -100,7 +103,10 @@ func (s *Store) runNativeTargetOracle(ctx context.Context, r GitRunner, entry Wo
 	// selected witness, so no caller-supplied index can enter the join.
 	run := nativeTargetOracleRun{store: s, req: req, plan: p, capture: capture, result: result,
 		root: root, snapshot: snapshot, cwd: cwd, env: env, baseline: baseline, binaryDigest: binaryDigest, recipe: m, preserveScratch: &preserveScratch}
-	return run.execute(ctx)
+	if err := run.execute(ctx); err != nil {
+		return err
+	}
+	return nativeTargetGitMetadataUnchanged(ctx, entry.Path, p)
 }
 
 type nativeTargetOracleRun struct {
@@ -417,6 +423,10 @@ func nativeTargetControlledEnv(t *nativeTargetOraclePlan, root string) []string 
 			value = nativeTargetNodeBinDir(root) + string(os.PathListSeparator) + value
 			ok = true
 		}
+		if key == "PATH" && t.Recipe.GitMetadata != "" {
+			value = strings.Join(slices.DeleteFunc([]string{nativeTargetGitBinDir(root), value}, func(s string) bool { return s == "" }), string(os.PathListSeparator))
+			ok = true
+		}
 		if ok {
 			env = append(env, key+"="+value)
 		}
@@ -447,6 +457,13 @@ func nativeTargetControlledEnv(t *nativeTargetOraclePlan, root string) []string 
 			"UV_LINK_MODE=copy",
 			"UV_OFFLINE=1",
 			"UV_NO_PROGRESS=1",
+		)
+	}
+	if t.Recipe.GitMetadata != "" {
+		env = append(env,
+			"GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_SYSTEM=/dev/null", "GIT_CONFIG_GLOBAL=/dev/null",
+			"GIT_OPTIONAL_LOCKS=0", "GIT_NO_LAZY_FETCH=1", "GIT_NO_REPLACE_OBJECTS=1", "GIT_TERMINAL_PROMPT=0",
+			"GIT_CEILING_DIRECTORIES="+root,
 		)
 	}
 	return env
@@ -892,6 +909,17 @@ func nativeTargetRunnerDigest(t *nativeTargetOraclePlan, root string) (string, e
 	}
 	if len(site) > 0 {
 		parts = append(parts, []byte("site-packages\x00"), site)
+	}
+	if t.Recipe.GitMetadata != "" {
+		git, err := nativeTargetGitExecutable(t)
+		if err != nil {
+			return "", err
+		}
+		link, err := os.Readlink(filepath.Join(nativeTargetGitBinDir(root), "git"))
+		if err != nil || link != t.Environment.Git {
+			return "", nativeUnavailable("candidate Git executable slot changed")
+		}
+		parts = append(parts, []byte("git\x00"), git)
 	}
 	return nativeDigest(bytes.Join(parts, []byte{0})), nil
 }

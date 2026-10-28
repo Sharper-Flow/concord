@@ -471,6 +471,117 @@ routeDeclaration("host-started session receives real core context without out-of
   console.log("[pass] host-started session receives real core context without out-of-surface writes")
 })
 
+routeDeclaration("capture replays real core effects without duplicate identity", async () => {
+  const fixture = await bootHandoffFixture(await fixtureTempRoot("capture-replay"))
+  const { binary, dbPath, repoReceive, childEnv, captured, host } = fixture
+  const core = realCoreRunner(binary, dbPath, childEnv, captured, host)
+  const bootstrapCalls: Array<{ input: JSONRecord; exitCode: number; stdout: string }> = []
+  configureConcordAdapter({ runner: {
+    async run(argv, input, signal, options) {
+      const result = await core.run(argv, input, signal, options)
+      if (argv[1] === "work-bootstrap") bootstrapCalls.push({ input: JSON.parse(input), exitCode: result.exitCode, stdout: result.stdout })
+      return result
+    },
+  } })
+  const retained = (key: string) => {
+    const db = new Database(dbPath, { readonly: true })
+    try {
+      return {
+        counts: db.query(`SELECT (SELECT count(*) FROM work_items) AS work,
+          (SELECT count(*) FROM bootstrap_operations) AS journal,
+          (SELECT count(*) FROM worktree_claims) AS claim`).get() as { work: number; journal: number; claim: number },
+        journal: db.query(`SELECT operation_id, product_id, project_id, work_id, request_digest, request_json, state
+          FROM bootstrap_operations WHERE idempotency_key=?`).all(key) as JSONRecord[],
+        work: db.query(`SELECT id FROM work_items WHERE id IN
+          (SELECT work_id FROM bootstrap_operations WHERE idempotency_key=?)`).all(key) as JSONRecord[],
+        claim: db.query(`SELECT op_id, work_id, project_id, set_id, pinned_path, state FROM worktree_claims WHERE op_id IN
+          (SELECT operation_id FROM bootstrap_operations WHERE idempotency_key=?)`).all(key) as JSONRecord[],
+        entry: db.query(`SELECT claim_op_id, project_id, set_id, path, state FROM worktree_entries WHERE claim_op_id IN
+          (SELECT operation_id FROM bootstrap_operations WHERE idempotency_key=?)`).all(key) as JSONRecord[],
+      }
+    } finally { db.close() }
+  }
+  const assertIdentity = (result: JSONRecord, state: ReturnType<typeof retained>) => {
+    expect(state.journal).toHaveLength(1)
+    expect(state.work).toHaveLength(1)
+    expect(state.claim).toHaveLength(1)
+    const journal = state.journal[0]
+    const claim = state.claim[0]
+    expect(result).toMatchObject({ product_id: PRODUCT_ID, project_id: RECEIVE_PROJECT, work_id: journal.work_id, worktree_path: claim.pinned_path })
+    expect(state.work[0].id).toBe(journal.work_id)
+    expect(journal).toMatchObject({ product_id: PRODUCT_ID, project_id: RECEIVE_PROJECT })
+    expect(claim).toMatchObject({ op_id: journal.operation_id, work_id: journal.work_id, project_id: RECEIVE_PROJECT })
+  }
+  for (const failFinalize of [false, true]) {
+    const key = failFinalize ? "capture-failed-finalize" : "capture-unlanded"
+    const sessionID = failFinalize ? RECEIVE_SESSION_B : RECEIVE_SESSION
+    const args = { title: "Synthetic capture replay", value_statement: "A failed start preserves one capture and claim.", kind: "task", task: "Verify exact replay from the landed context.", idempotency_key: key }
+    const before = retained(key)
+    expect(before.journal).toEqual([])
+    if (failFinalize) {
+      const db = new Database(dbPath)
+      try {
+        db.exec(`CREATE TRIGGER refuse_capture_finalize BEFORE UPDATE OF state ON bootstrap_operations
+          WHEN NEW.idempotency_key='capture-failed-finalize' AND NEW.state='completed'
+          BEGIN SELECT RAISE(ABORT, 'synthetic capture finalize failure'); END`)
+      } finally { db.close() }
+    }
+    let refused: JSONRecord
+    try {
+      refused = parseToolResult(await work_start.execute(args as any, contextFor(sessionID, repoReceive)))
+    } finally {
+      if (failFinalize) {
+        const db = new Database(dbPath)
+        try { db.exec("DROP TRIGGER refuse_capture_finalize") } finally { db.close() }
+      }
+    }
+    expect(refused).toMatchObject({ outcome: "error", error: { kind: failFinalize ? "bootstrap_failure" : "session_directory_mismatch", effect_state: "partial" } })
+    expect(bootstrapCalls).toHaveLength(failFinalize ? 3 : 1)
+    const child = bootstrapCalls.at(-1)!
+    if (failFinalize) {
+      expect([1, 2]).toContain(child.exitCode)
+      expect(JSON.parse(child.stdout)).toMatchObject({ schema_version: "1.0", outcome: "error", effect_state: "partial" })
+      expect(refused.error.message).toContain("synthetic capture finalize failure")
+      expect(host.sessions[sessionID].directory).toBe(repoReceive)
+    } else {
+      expect(child.exitCode).toBe(0)
+      expect(host.sessions[sessionID].directory).toBe(refused.worktree_path)
+    }
+    const capturedState = retained(key)
+    assertIdentity(refused, capturedState)
+    expect(capturedState.counts).toEqual({ work: before.counts.work + 1, journal: before.counts.journal + 1, claim: before.counts.claim + 1 })
+    if (failFinalize) {
+      expect(capturedState.journal[0].state).toBe("native_ready")
+      expect(capturedState.claim[0].state).toBe("pending")
+      expect(capturedState.entry).toEqual([])
+      expect(JSON.parse(child.stdout)).toMatchObject({ operation_id: capturedState.journal[0].operation_id, work_id: capturedState.journal[0].work_id, worktree_path: capturedState.claim[0].pinned_path })
+      // The native directory exists but its entry did not commit. Recover
+      // from the canonical root before the host can land in an active claim.
+      const recovered = parseToolResult(await work_start.execute(args as any, contextFor(sessionID, repoReceive)))
+      expect(recovered).toMatchObject({ outcome: "error", work_id: refused.work_id, worktree_path: refused.worktree_path, error: { kind: "session_directory_mismatch", effect_state: "partial" } })
+      expect(retained(key).counts).toEqual(capturedState.counts)
+      expect(bootstrapCalls.at(-1)!.input).toEqual(child.input)
+    } else {
+      expect(capturedState.journal[0].state).toBe("completed")
+      expect(capturedState.entry).toHaveLength(1)
+    }
+    const replay = parseToolResult(await work_start.execute(args as any, contextFor(sessionID, refused.worktree_path as string)))
+    expect(replay).toMatchObject({ outcome: "ok", work_id: refused.work_id, worktree_path: refused.worktree_path })
+    const replayedState = retained(key)
+    assertIdentity(replay, replayedState)
+    expect(replayedState.counts).toEqual(capturedState.counts)
+    expect(replayedState.work).toEqual(capturedState.work)
+    expect(replayedState.journal).toEqual([{ ...capturedState.journal[0], state: "completed" }])
+    expect(replayedState.claim).toEqual([{ ...capturedState.claim[0], state: "verified" }])
+    expect(replayedState.entry).toEqual([{ claim_op_id: capturedState.claim[0].op_id, project_id: RECEIVE_PROJECT, set_id: capturedState.claim[0].set_id, path: refused.worktree_path, state: "active" }])
+    const replayedChild = bootstrapCalls.at(-1)!
+    expect(replayedChild.input).toEqual(child.input)
+    expect(replayedChild.input.idempotency_key).toBe(key)
+    expect(replayedChild.exitCode).toBe(0)
+    expect(JSON.parse(replayedChild.stdout)).toMatchObject({ replayed: true, operation_id: capturedState.journal[0].operation_id, work_id: refused.work_id })
+  }
+})
+
 routeDeclaration("boots, consumes, and retires through the real core routes", async () => {
   const root = await fixtureTempRoot("handoff-e2e")
   try {
@@ -495,6 +606,7 @@ routeDeclaration("boots, consumes, and retires through the real core routes", as
     const unlanded = parseToolResult(await work_start.execute({ work_id: workID } as any, contextFor(RECEIVE_SESSION, repoReceive)))
     expect(unlanded.outcome, JSON.stringify(unlanded)).toBe("error")
     expect(unlanded.error.kind).toBe("session_directory_mismatch")
+    expect(unlanded.error.effect_state).toBe("partial")
     // The refusal names the next-turn recovery opportunity, keeps the replay
     // behind an actual target-context confirmation, and asserts neither an
     // armed turn-move boundary nor successful placement.

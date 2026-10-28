@@ -87,6 +87,22 @@ func nativeIsolationBuildExport(t *nativeTargetOraclePlan, root, snapshot, cwd s
 			mounts = append(mounts, nativeIsolationMount{Source: dir, Target: dir})
 		}
 	}
+	if t.Recipe.GitMetadata != "" {
+		if _, err := nativeTargetGitExecutable(t); err != nil {
+			return nil, err
+		}
+		alias := filepath.Join(nativeTargetGitBinDir(root), "git")
+		link, err := private.Readlink(filepath.Join("git-bin", "git"))
+		if err != nil || link != t.Environment.Git {
+			return nil, nativeIsolationUnavailable("candidate Git executable slot changed")
+		}
+		resolved, err := filepath.EvalSymlinks(t.Environment.Git)
+		if err != nil {
+			return nil, err
+		}
+		// Export only the verified alias, not a PATH directory or its peers.
+		mounts = append(mounts, nativeIsolationMount{Source: resolved, Target: alias})
+	}
 	files, err := nativeIsolationExportPaths(t, cwd)
 	if err != nil {
 		return nil, nativeIsolationUnavailable(err.Error())

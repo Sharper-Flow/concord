@@ -16,6 +16,7 @@ import { armTurnMoveBoundary, clearTurnMoveBoundary, dispatchRequiresNextTurn } 
 import { syntheticHostVersionFixture } from "./host-version.test-support"
 import { privateKeyObject } from "./credentials"
 import { canonicalWorkerControl } from "./worker_control"
+import { mutationProjectionFixture } from "./mutation-projection.fixture"
 import { fakeTool } from "./plugin-tool.fixture"
 const testDirectories: string[] = []
 async function mkdtemp(prefix: string): Promise<string> {
@@ -1527,6 +1528,52 @@ const coreEnvelope = <T extends Record<string, unknown>>(tool: string, operation
   schema_version: "1.0", manifest_digest: manifestDigest, request_id: "session-1-message-1", origin: "core", tool, operation, ...((contractOperations.find((candidate: any) => candidate.tool === tool && candidate.id.endsWith(`.${operation}`)) as any)?.query_id ? { query_id: (contractOperations.find((candidate: any) => candidate.tool === tool && candidate.id.endsWith(`.${operation}`)) as any).query_id } : {}), outcome, resolved_scope: null, authority: "authoritative", freshness: null, source_version_watermark: [], ordering_keys: [], next_cursor: null, omissions: [], warnings: [], evidence_refs: [], replayed: false, ...fields,
 })
 
+for (const tampered of [false, true]) {
+  test(`host mutation privately reconstructs projected pins before status; tampered=${tampered}`, async () => {
+    const fixture = mutationProjectionFixture()
+    if (tampered) fixture.pages[1].result.offset++
+    const titles: unknown[] = []
+    hostControlPlane().bind({
+      get: async () => ({ data: { id: "session-1", directory: "/worktree" }, response: new Response(null, { status: 200 }) }),
+      post: async () => ({ response: new Response(null, { status: 204 }) }),
+      patch: async options => { titles.push(options.body); return { response: new Response(null, { status: 200 }) } },
+    })
+    let reads = 0
+    let writes = 0
+    adapter.configureConcordAdapter({ runner: { async run(argv, input) {
+      if (argv[1] === "project-resolve") return { exitCode: 0, stdout: JSON.stringify(contextResponse()), stderr: "" }
+      const request = JSON.parse(input)
+      if (request.operation === "message_send") {
+        writes++
+        return { exitCode: 0, stdout: JSON.stringify(coreEnvelope(request.tool, request.operation, "ok", fixture.envelope)), stderr: "" }
+      }
+      expect([request.tool, request.operation]).toEqual(["concord_work_trace", "mutation_result"])
+      expect(request.input).toEqual({ ...fixture.pointer, page: { cursor: reads === 0 ? null : String(reads), limit: 1 } })
+      const page = fixture.pages[reads++]
+      return { exitCode: 0, stdout: JSON.stringify(coreEnvelope(request.tool, request.operation, "ok", page)), stderr: "" }
+    } } })
+    const raw = await adapter.work_relate.execute(hostCall("message_send", { work_id: "work-projection-0", recipient_work_id: "work-projection-1", body: "A complete message", expected_version: 2, idempotency_key: "projection-key" }), contextFor())
+    const output = typeof raw === "string" ? raw : raw.output
+    const result = JSON.parse(output.split("\n")[0])
+    expect(result.outcome).toBe("ok")
+    expect(result.result).toEqual(fixture.envelope.result)
+    expect(result.changed_refs).toEqual(fixture.envelope.changed_refs)
+    expect(result.next_valid_intents).toEqual([])
+    expect(Buffer.byteLength(output)).toBeLessThan(maxEnvelopeBytes)
+    expect(result.result.work_pins).toBeUndefined()
+    expect(writes).toBe(1)
+    if (tampered) {
+      expect(titles).toEqual([])
+      expect(reads).toBe(2)
+      expect(result.warnings.some((notice: any) => notice.kind === "mutation_result_unavailable")).toBe(true)
+    } else {
+      expect(titles).toHaveLength(16)
+      expect(titles[0]).toEqual({ title: "Goal: Lossless result 😀 0" })
+      expect(reads).toBe(fixture.pages.length)
+    }
+  })
+}
+
 for (const blockedVerb of ["project-resolve", "invoke"] as const) {
   for (const interruption of ["deadline", "deadline-as-abort-error", "caller-cancellation"] as const) {
     test(`worker recovery ${interruption} during ${blockedVerb} preserves its effect boundary`, async () => {
@@ -2315,6 +2362,7 @@ test("work_start rejects malformed core contracts and path mismatches before lau
     const result: any = await rawHostResult(adapter.work_start.execute(bootstrapArgs, contextFor()))
     expect(result.outcome).toBe("error")
     expect(result.error.kind).toBe("malformed_response")
+    expect(result.error.effect_state).toBe("possible")
     expect(calls).toBe(2)
   }
   let calls = 0
@@ -2328,7 +2376,7 @@ test("work_start rejects malformed core contracts and path mismatches before lau
   const mismatch: any = await rawHostResult(adapter.work_start.execute(bootstrapArgs, contextFor()))
   expect(mismatch.outcome).toBe("error")
   expect(mismatch.error.kind).toBe("malformed_response")
-  expect(mismatch.error.effect_state).toBe("none")
+  expect(mismatch.error.effect_state).toBe("partial")
   expect(mismatch.error.recovery_action.kind).toBe("retry_same_request")
   // The work item and worktree that exist ride along so the replay's target is visible.
   expect(mismatch.work_id).toBe("work-1")
@@ -2413,8 +2461,8 @@ test("work_start enforces UTF-8 byte limits for short fields and task input", as
 // claimed. These tests pin the route's contract rather than a launch's: the
 // claim exists before the move, an absent route refuses with no fallback, and
 // success is refused unless the host reports the session in the claimed
-// worktree. No step records intent ahead of its effect, so there is no
-// partial outcome and no rollback: a replay under the same key converges.
+// worktree. A failed start retains the capture and claim; replay under the
+// same key converges without compensation.
 const WORKTREE = "/data/worktrees/project-1/work-1"
 
 // The work_start landing gate (issue #1322) admits success only when the
@@ -2502,6 +2550,149 @@ const bindRetargetRoute = (options: { moveStatus?: number; moveBody?: string; la
   })
   return { moved, titles }
 }
+
+const bootstrapRetainedIdentity = () => ({
+  operation_id: "bootstrap-1", product_id: "product-1", project_id: "project-1", work_id: "work-1", worktree_path: WORKTREE,
+})
+
+for (const effect of ["none", "possible", "partial"] as const) {
+  for (const exitCode of [1, 2]) {
+    test(`work start preserves structured bootstrap ${effect} at exit ${exitCode}`, async () => {
+      const { moved } = bindRetargetRoute()
+      const calls: RetargetCall[] = []
+      const identity = effect === "partial" ? bootstrapRetainedIdentity() : {}
+      adapter.configureConcordAdapter({ runner: retargetRunner(calls, {
+        "work-bootstrap": () => ({ exitCode, stdout: JSON.stringify({ schema_version: "1.0", outcome: "error", effect_state: effect, ...identity }), stderr: "synthetic bootstrap diagnostic" }),
+      }) })
+      const result = await rawHostResult(adapter.work_start.execute(bootstrapArgs, contextFor()))
+      expect(result).toMatchObject({ outcome: "error", error: {
+        kind: "bootstrap_failure", effect_state: effect, retry_safe: exitCode === 1,
+        recovery_action: { kind: exitCode === 1 ? "retry_same_request" : "contact_operator" },
+      } })
+      expect(result.error.message).toContain("synthetic bootstrap diagnostic")
+      if (effect === "partial") {
+        expect(result).toMatchObject({ product_id: "product-1", project_id: "project-1", work_id: "work-1", worktree_path: WORKTREE })
+        if (exitCode === 1) expect(result.error.message).toContain("Do not submit a new capture key")
+        else expect(result.error.message).toBe("synthetic bootstrap diagnostic")
+      } else {
+        expect(result.work_id).toBeUndefined()
+        expect(result.worktree_path).toBeUndefined()
+      }
+      expect(calls.map(({ argv }) => argv[1])).toEqual(["project-resolve", "work-bootstrap"])
+      expect(moved).toEqual([])
+      expect(armedClaimedWorktree("session-1")).toBeNull()
+    })
+  }
+}
+
+for (const [label, body] of [
+  ["unsupported schema", { schema_version: "2.0", outcome: "error", effect_state: "none" }],
+  ["wrong outcome", { schema_version: "1.0", outcome: "ok", effect_state: "none" }],
+  ["unknown effect", { schema_version: "1.0", outcome: "error", effect_state: "complete" }],
+  ["extra field", { schema_version: "1.0", outcome: "error", effect_state: "none", extra: true }],
+  ["no-effect identity", { schema_version: "1.0", outcome: "error", effect_state: "none", ...bootstrapRetainedIdentity() }],
+  ["invalid work identity", { schema_version: "1.0", outcome: "error", effect_state: "partial", ...bootstrapRetainedIdentity(), work_id: "invalid identity" }],
+  ["relative path", { schema_version: "1.0", outcome: "error", effect_state: "partial", ...bootstrapRetainedIdentity(), worktree_path: "relative" }],
+  ["non-string identity", { schema_version: "1.0", outcome: "error", effect_state: "partial", ...bootstrapRetainedIdentity(), operation_id: [] }],
+  ["wrong Product", { schema_version: "1.0", outcome: "error", effect_state: "partial", ...bootstrapRetainedIdentity(), product_id: "product-other" }],
+  ["wrong Project", { schema_version: "1.0", outcome: "error", effect_state: "partial", ...bootstrapRetainedIdentity(), project_id: "project-other" }],
+  ["success shape on failure exit", bootstrapSuccess()],
+] as const) {
+  for (const exitCode of [1, 2]) {
+    test(`work start distrusts ${label} bootstrap failure at exit ${exitCode}`, async () => {
+      const { moved } = bindRetargetRoute()
+      const calls: RetargetCall[] = []
+      adapter.configureConcordAdapter({ runner: retargetRunner(calls, {
+        "work-bootstrap": () => ({ exitCode, stdout: JSON.stringify(body), stderr: "synthetic bootstrap diagnostic" }),
+      }) })
+      const result = await rawHostResult(adapter.work_start.execute(bootstrapArgs, contextFor()))
+      expect(result).toMatchObject({ outcome: "error", error: {
+        effect_state: "possible", retry_safe: exitCode === 1,
+        recovery_action: { kind: exitCode === 1 ? "retry_same_request" : "contact_operator" },
+      } })
+      expect(result.work_id).toBeUndefined()
+      expect(result.worktree_path).toBeUndefined()
+      expect(calls.map(({ argv }) => argv[1])).toEqual(["project-resolve", "work-bootstrap"])
+      expect(moved).toEqual([])
+      expect(armedClaimedWorktree("session-1")).toBeNull()
+    })
+  }
+}
+
+for (const scope of ["product_id", "project_id"] as const) {
+  test(`work start distrusts a successful bootstrap from another ${scope}`, async () => {
+    const { moved } = bindRetargetRoute()
+    const calls: RetargetCall[] = []
+    adapter.configureConcordAdapter({ runner: retargetRunner(calls, {
+      "work-bootstrap": () => ({ exitCode: 0, stdout: JSON.stringify({ ...bootstrapSuccess(), [scope]: "foreign" }), stderr: "" }),
+    }) })
+    const result = await rawHostResult(adapter.work_start.execute(bootstrapArgs, contextFor()))
+    expect(result).toMatchObject({ outcome: "error", error: { kind: "malformed_response", effect_state: "possible" } })
+    expect(result.work_id).toBeUndefined()
+    expect(result.worktree_path).toBeUndefined()
+    expect(calls.map(({ argv }) => argv[1])).toEqual(["project-resolve", "work-bootstrap"])
+    expect(moved).toEqual([])
+  })
+}
+
+for (const [label, failure] of [
+  ["transport exception", () => { throw new Error("synthetic lost child acknowledgement") }],
+  ["empty failed response", () => ({ exitCode: 1, stdout: "", stderr: "synthetic child failure" })],
+  ["malformed failed response", () => ({ exitCode: 1, stdout: "not-json", stderr: "synthetic child failure" })],
+  ["multiple failed responses", () => ({ exitCode: 1, stdout: '{}\n{}\n', stderr: "synthetic child failure" })],
+  ["non-object failed response", () => ({ exitCode: 1, stdout: '[]', stderr: "synthetic child failure" })],
+  ["empty successful response", () => ({ exitCode: 0, stdout: "", stderr: "" })],
+] as const) {
+  for (const resume of [false, true]) {
+    test(`work start ${resume ? "resume" : "capture"} reports possible effect after ${label}`, async () => {
+      const { moved } = bindRetargetRoute()
+      const calls: RetargetCall[] = []
+      const command = resume ? "work-resume" : "work-bootstrap"
+      adapter.configureConcordAdapter({ runner: (resume ? resumeRunner : retargetRunner)(calls, { [command]: failure }) })
+      const result = await rawHostResult(adapter.work_start.execute(resume ? { work_id: "work-1" } : bootstrapArgs, contextFor()))
+      const retrySafe = label !== "transport exception"
+      expect(result).toMatchObject({ outcome: "error", error: { effect_state: "possible", retry_safe: retrySafe, recovery_action: { kind: retrySafe ? "retry_same_request" : "contact_operator" } } })
+      expect(result.work_id).toBeUndefined()
+      expect(result.worktree_path).toBeUndefined()
+      expect(calls.map(({ argv }) => argv[1])).toEqual(["project-resolve", command])
+      expect(moved).toEqual([])
+    })
+  }
+}
+
+for (const resume of [false, true]) {
+  test(`work start ${resume ? "resume" : "capture"} keeps partial effect after a post-success transport failure`, async () => {
+    const { moved } = bindRetargetRoute()
+    const calls: RetargetCall[] = []
+    adapter.configureConcordAdapter({ runner: (resume ? resumeRunner : retargetRunner)(calls, {
+      "session-prepare": () => { throw new Error("synthetic prepare transport failure") },
+    }) })
+    const result = await rawHostResult(adapter.work_start.execute(resume ? { work_id: "work-1" } : bootstrapArgs, contextFor()))
+    expect(result).toMatchObject({ outcome: "error", product_id: "product-1", project_id: "project-1", work_id: "work-1", worktree_path: WORKTREE, error: { kind: "transport_failure", effect_state: "partial", retry_safe: false, recovery_action: { kind: "contact_operator" } } })
+    expect(calls.map(({ argv }) => argv[1])).toEqual(["project-resolve", resume ? "work-resume" : "work-bootstrap", "session-prepare"])
+    expect(moved).toEqual([])
+  })
+}
+
+test("work start replays the same key and retained identity after structured partial bootstrap failure", async () => {
+  bindRetargetRoute()
+  const calls: RetargetCall[] = []
+  let attempts = 0
+  adapter.configureConcordAdapter({ runner: retargetRunner(calls, {
+    "work-bootstrap": () => ++attempts === 1
+      ? { exitCode: 1, stdout: JSON.stringify({ schema_version: "1.0", outcome: "error", effect_state: "partial", ...bootstrapRetainedIdentity() }), stderr: "synthetic finalize failure" }
+      : { exitCode: 0, stdout: JSON.stringify({ ...bootstrapSuccess(), replayed: true }), stderr: "" },
+  }) })
+  const refused = await rawHostResult(adapter.work_start.execute(bootstrapArgs, contextFor()))
+  expect(refused).toMatchObject({ outcome: "error", work_id: "work-1", worktree_path: WORKTREE, error: { effect_state: "partial" } })
+  const replay = await rawHostResult(adapter.work_start.execute(bootstrapArgs, landedContextFor()))
+  expect(replay).toMatchObject({ outcome: "ok", work_id: refused.work_id, worktree_path: refused.worktree_path })
+  const inputs = calls.filter(({ argv }) => argv[1] === "work-bootstrap").map(({ input }) => JSON.parse(input))
+  expect(inputs).toHaveLength(2)
+  expect(inputs[0]).toEqual(inputs[1])
+  expect(inputs[0].idempotency_key).toBe(bootstrapArgs.idempotency_key)
+  expect(armedClaimedWorktree("session-1")).toBe(WORKTREE)
+})
 
 test("work start moves the calling session into the claimed worktree", async () => {
   const { moved, titles } = bindRetargetRoute()
@@ -2620,7 +2811,7 @@ test("work start refuses a metadata-only move whose tool context has not landed"
     expect(result.error.message).toContain("not placement proof")
     expect(result.error.message).toContain(`actually resolves in ${JSON.stringify(WORKTREE)}`)
     expect(result.error.message).toContain("replay this same work_start request")
-    expect(result.error.effect_state).toBe("none")
+    expect(result.error.effect_state).toBe("partial")
     expect(result.error.recovery_action.kind).toBe("retry_same_request")
     // The work item and worktree that exist ride along so the replay's target is visible.
     expect(result.work_id).toBe("work-1")
@@ -2823,7 +3014,7 @@ test("work start resume classifies the typed refusal exit without retry or movem
   expect(refused.outcome).toBe("error")
   expect(refused.error.kind).toBe("resume_failure")
   expect(refused.error.message).toContain("cannot resume terminal work item work-1")
-  expect(refused.error.effect_state).toBe("none")
+  expect(refused.error.effect_state).toBe("possible")
   expect(refused.error.recovery_action.kind).toBe("contact_operator")
   expect(refused.error.retry_safe).toBe(false)
   expect(calls.map(({ argv }) => argv[1])).toEqual(["project-resolve", "work-resume"])
@@ -2887,6 +3078,7 @@ test("work start resume classifies the post-landing handoff re-read refusal exit
   expect(refused.outcome).toBe("error")
   expect(refused.error.kind).toBe("resume_failure")
   expect(refused.error.message).toContain("the post-landing handoff re-read refused: concord work-resume: store: work_resume: unknown_scope: work item does not exist")
+  expect(refused.error.effect_state).toBe("partial")
   expect(refused.error.recovery_action.kind).toBe("contact_operator")
   expect(refused.error.retry_safe).toBe(false)
   expect(resumeReads).toBe(2)
@@ -2916,6 +3108,7 @@ test("work start resume keeps a retryable post-landing re-read failure on the re
   expect(failed.outcome).toBe("error")
   expect(failed.error.kind).toBe("resume_failure")
   expect(failed.error.message).toContain("the post-landing handoff re-read refused:")
+  expect(failed.error.effect_state).toBe("partial")
   expect(failed.error.recovery_action.kind).toBe("retry_same_request")
   expect(failed.error.retry_safe).toBe(true)
   expect(resumeReads).toBe(2)
@@ -3081,6 +3274,7 @@ test("work start resume refuses when the rendered handoff does not bind", async 
   expect(result.error.kind).toBe("resume_failure")
   expect(result.error.message).toContain("did not consume the addressed Project handoff")
   expect(result.error.message).toContain("active contract is version 2")
+  expect(result.error.effect_state).toBe("partial")
   // The refused boot arms no claimed worktree for dispatch.
   expect(armedClaimedWorktree("session-1")).toBeNull()
 })
@@ -3097,6 +3291,7 @@ test("work start resume refuses when the landing record fails on a handoff-beari
   expect(result.error.kind).toBe("resume_failure")
   expect(result.error.message).toContain("did not record this session as the occupant")
   expect(result.error.message).toContain("requires verified placement")
+  expect(result.error.effect_state).toBe("partial")
   // No consume is attempted: the unplaced session cannot bind.
   expect(calls.some(({ argv }) => argv[1] === "invoke")).toBe(false)
 })
@@ -3168,7 +3363,7 @@ test("work start issue-key resume forwards core resolution refusals before claim
     }) })
     const result: any = await rawHostResult(adapter.work_start.execute({ issue_key: "EX-3" }, landedContextFor()))
     expect(result.outcome).toBe("error")
-    expect(result.error).toMatchObject({ kind: "resume_failure", effect_state: "none", retry_safe: false, recovery_action: { kind: "contact_operator" } })
+    expect(result.error).toMatchObject({ kind: "resume_failure", effect_state: "possible", retry_safe: false, recovery_action: { kind: "contact_operator" } })
     expect(result.error.message).toBe(stderr)
     expect(result.work_id).toBeUndefined()
     expect(calls.map(({ argv }) => argv[1])).toEqual(["project-resolve", "work-resume"])
@@ -3452,6 +3647,7 @@ test("capture and resume refuse before core effects when managed participation c
       expect(result.outcome).toBe("error")
       expect(result.error.kind).toBe("unreachable")
       expect(result.error.message).toContain("managed Task scope")
+      expect(result.error.effect_state).toBe("none")
       expect(result.work_id).toBeUndefined()
       expect(calls.map(({ argv }) => argv[1])).toEqual(["project-resolve"])
       expect(updates).toBe(supportsPatch ? 1 : 0)
@@ -3645,15 +3841,14 @@ test("work start verifies the session directory after the move", async () => {
   const result: any = await rawHostResult(adapter.work_start.execute(bootstrapArgs, contextFor()))
   expect(result.outcome).toBe("error")
   expect(result.error.message).toContain("/somewhere/else")
-  // Nothing is recorded: the host's answer is the fact, and a replay asks again.
-  expect(result.error.effect_state).toBe("none")
+  // The capture and claim stand even though the host did not confirm placement.
+  expect(result.error.effect_state).toBe("partial")
   expect(result.error.recovery_action.kind).toBe("retry_same_request")
   expect(calls.map(({ argv }) => argv[1])).toEqual(["project-resolve", "work-bootstrap", "session-prepare"])
 })
 
-// Issues #742 and #749. A failure after the work item and worktree exist
-// leaves no partial state: every step is idempotent on the derived key, so a
-// replay under the same idempotency_key adopts what exists and runs the rest.
+// A replay under the same idempotency_key adopts the retained work and claim
+// after an interrupted step.
 test("work start replays to convergence after an interrupted step", async () => {
   // First attempt: session-prepare fails after bootstrap created the work item.
   bindRetargetRoute()
@@ -3665,7 +3860,7 @@ test("work start replays to convergence after an interrupted step", async () => 
   })
   const interrupted: any = await rawHostResult(adapter.work_start.execute(bootstrapArgs, contextFor()))
   expect(interrupted.outcome).toBe("error")
-  expect(interrupted.error.effect_state).toBe("none")
+  expect(interrupted.error.effect_state).toBe("partial")
   expect(interrupted.error.retry_safe).toBe(true)
   expect(interrupted.error.recovery_action.kind).toBe("retry_same_request")
   expect(interrupted.work_id).toBe("work-1")
@@ -3705,7 +3900,7 @@ test("a session-prepare refusal status maps work_start recovery to contact_opera
   const result: any = await rawHostResult(adapter.work_start.execute(bootstrapArgs, contextFor()))
   expect(result.outcome).toBe("error")
   expect(result.error.kind).toBe("session_prepare_failure")
-  expect(result.error.effect_state).toBe("none")
+  expect(result.error.effect_state).toBe("partial")
   expect(result.error.retry_safe).toBe(false)
   expect(result.error.recovery_action.kind).toBe("contact_operator")
   expect(calls.map(({ argv }) => argv[1])).toEqual(["project-resolve", "work-bootstrap", "session-prepare"])
@@ -3724,7 +3919,7 @@ test("a non-refusal session-prepare failure keeps retry_same_request", async () 
   const result: any = await rawHostResult(adapter.work_start.execute(bootstrapArgs, contextFor()))
   expect(result.outcome).toBe("error")
   expect(result.error.kind).toBe("session_prepare_failure")
-  expect(result.error.effect_state).toBe("none")
+  expect(result.error.effect_state).toBe("partial")
   expect(result.error.retry_safe).toBe(true)
   expect(result.error.recovery_action.kind).toBe("retry_same_request")
 })
@@ -3744,7 +3939,7 @@ test("a work-bootstrap refusal status maps work_start recovery to contact_operat
   const result: any = await rawHostResult(adapter.work_start.execute(bootstrapArgs, contextFor()))
   expect(result.outcome).toBe("error")
   expect(result.error.kind).toBe("bootstrap_failure")
-  expect(result.error.effect_state).toBe("none")
+  expect(result.error.effect_state).toBe("possible")
   expect(result.error.retry_safe).toBe(false)
   expect(result.error.recovery_action.kind).toBe("contact_operator")
   expect(calls.map(({ argv }) => argv[1])).toEqual(["project-resolve", "work-bootstrap"])
@@ -3763,7 +3958,7 @@ test("a non-refusal work-bootstrap failure keeps retry_same_request", async () =
   const result: any = await rawHostResult(adapter.work_start.execute(bootstrapArgs, contextFor()))
   expect(result.outcome).toBe("error")
   expect(result.error.kind).toBe("bootstrap_failure")
-  expect(result.error.effect_state).toBe("none")
+  expect(result.error.effect_state).toBe("possible")
   expect(result.error.retry_safe).toBe(true)
   expect(result.error.recovery_action.kind).toBe("retry_same_request")
 })
@@ -3776,7 +3971,7 @@ test("work start leaves a resumable claim when the move is refused", async () =>
   adapter.configureConcordAdapter({ runner: retargetRunner(calls) })
   const result: any = await rawHostResult(adapter.work_start.execute(bootstrapArgs, contextFor()))
   expect(result.outcome).toBe("error")
-  expect(result.error.effect_state).toBe("none")
+  expect(result.error.effect_state).toBe("partial")
   expect(result.error.recovery_action.kind).toBe("retry_same_request")
   expect(result.work_id).toBe("work-1")
   expect(calls.map(({ argv }) => argv[1])).toEqual(["project-resolve", "work-bootstrap", "session-prepare"])

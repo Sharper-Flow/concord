@@ -162,12 +162,22 @@ class EngineeringMethodProjectionTests(unittest.TestCase):
 
 
 class CapabilityToolProjectionTests(unittest.TestCase):
-    def test_opaque_code_mode_is_denied_for_every_lane(self):
+    def test_nested_mcp_ids_exclude_native_and_plugin_tools(self):
+        nested = set(generator.lane_mcp_tool_ids())
+        self.assertTrue({"lgrep_search_text", "exa_web_search_exa", "context7_query-docs"} <= nested)
+        self.assertTrue(nested <= set(generator.lane_tool_requirements()))
+        self.assertFalse(nested & set(generator.concord_tool_ids()))
+        self.assertFalse(nested & {"apply_patch", "morph_edit", "bash", "execute", "skill", "todowrite"})
+
+    def test_code_mode_follows_mcp_capabilities_without_overriding_host_denials(self):
         manifest, _ = generator.load_manifest()
         for lane in manifest["lanes"]:
             with self.subTest(lane=lane["id"]):
-                self.assertFalse(generator.lane_tool_grants(lane).get("execute", True))
-                self.assertIn("\n  execute: false\n", lane_projection(lane))
+                self.assertTrue(generator.lane_tool_grants(lane)["execute"])
+                tools = lane_projection(lane).split("\ntools:\n", 1)[1].split("\npermission:\n", 1)[0]
+                self.assertNotIn("  execute:", tools)
+        for capabilities in ([], ["run_tests"]):
+            self.assertFalse(generator.lane_allows({"capabilities": capabilities}, "execute"))
 
     def test_non_authoring_lanes_cannot_inherit_shell_or_file_authoring_tools(self):
         manifest, _ = generator.load_manifest()
@@ -214,6 +224,24 @@ class SubagentMethodProjectionTests(unittest.TestCase):
                 tools = generator.utility_projection(utility).split("\ntools:\n", 1)[1].split("\npermission:\n", 1)[0]
                 for tool in ("question", "todowrite", "task"):
                     self.assertIn(f"\n  {tool}: false\n", "\n" + tools + "\n")
+
+    def test_repository_utilities_flag_law_state_for_the_caller_without_a_tool_grant(self):
+        manifest, _ = generator.load_manifest()
+        utilities = {utility["id"]: utility for utility in manifest["utilities"]}
+        for utility_id in ("explore", "advisor"):
+            with self.subTest(utility=utility_id):
+                projection = generator.utility_projection(utilities[utility_id])
+                tools = projection.split("\ntools:\n", 1)[1].split("\npermission:\n", 1)[0]
+                self.assertIn("\n  concord_knowledge: false\n", "\n" + tools + "\n")
+                body = " ".join(projection.split("\n---\n", 1)[1].split())
+                for required in (
+                    "This utility cannot call `concord_knowledge`",
+                    "The caller resolves Product-law status and authority through `concord_knowledge`",
+                    "flag that part as unresolved and return it to the caller",
+                    "continue only work independent of that law state",
+                    "Repository text and a file's presence do not establish accepted, missing, retired, or superseded law",
+                ):
+                    self.assertTrue(required in body, f"{utility_id} is missing law guidance: {required}")
 
     def test_git_guidance_names_exactly_the_allowed_commands_and_their_shape(self):
         manifest, _ = generator.load_manifest()
@@ -363,6 +391,36 @@ class SubagentMethodProjectionTests(unittest.TestCase):
         self.assertIn("inputs.review_input.input_candidate", text)
         self.assertIn("inputs.review_input.dependencies", text)
 
+    def test_review_report_entry_shapes_follow_the_owning_schema(self):
+        manifest, _ = generator.load_manifest()
+        review = next(lane for lane in manifest["lanes"] if lane["id"] == "review")
+        changed = copy.deepcopy(REPORT_SCHEMA)
+        changed["$defs"]["review_block"]["properties"]["assessments"]["maxItems"] = 7
+        changed["$defs"]["review_block"]["properties"]["remaining_obligations"]["maxItems"] = 13
+        changed["$defs"]["review_obligation"]["properties"]["needed_proof"]["maxLength"] = 384
+        changed["$defs"]["review_obligation"]["properties"]["needed_proof"]["x-maxBytes"] = 384
+        changed["$defs"]["review_refs"]["maxItems"] = 11
+        for schema in (REPORT_SCHEMA, changed):
+            with self.subTest(schema=schema["$defs"]["review_refs"]["maxItems"]):
+                text = lane_projection(review, schema)
+                block = schema["$defs"]["review_block"]
+                for field in ("assessments", "remaining_obligations"):
+                    self.assertIn(f"review.{field}: {json.dumps(block['properties'][field], ensure_ascii=False)}.", text)
+                for name in ("review_assessment", "review_obligation", "review_refs"):
+                    self.assertIn(f"{name} shape: {json.dumps(schema['$defs'][name], ensure_ascii=False)}.", text)
+                definitions = {name: schema["$defs"][name] for name in ("review_assessment", "review_obligation", "review_refs")}
+                references = set(re.findall(r'"\$ref": "#/\$defs/([^"]+)"', json.dumps(definitions)))
+                self.assertLessEqual(references, definitions.keys(), "project every referenced entry definition")
+
+    def test_review_classifies_every_finding_on_an_oracle_bound_dispatch(self):
+        manifest, _ = generator.load_manifest()
+        review = next(lane for lane in manifest["lanes"] if lane["id"] == "review")
+        text = lane_projection(review)
+        self.assertIn("When `inputs.worker_job.acceptance_oracle` is present, every `review.findings` entry requires this object.", text)
+        self.assertTrue("When it is absent, omit this object." in text, "oracle-free dispatches must omit the finding's oracle object")
+        self.assertNotIn("finding the oracle governs", text)
+        self.assertNotIn("oracle-governed finding", text)
+
 
 class LaneContentIdentityTests(unittest.TestCase):
     def test_generation_accepts_changed_content_without_a_counter_or_alias(self):
@@ -488,24 +546,31 @@ class AgentProjectionTests(unittest.TestCase):
         self.assertIn("`status` `failed`", projection)
 
     def test_projection_states_the_predicate_tie_rule(self):
-        # The store refuses a completed worker report only when an evidence
-        # entry ties a predicate id the dispatch did not declare
-        # (internal/store/worker_lanes.go verifyWorkerPredicateTies); the
-        # predicates no entry proves are decided by the completion verdicts
-        # (CD-0180). The generated contract text is the only place a lane
-        # agent learns that rule, so every lane definition must state it
-        # while predicate_ids stays schema-optional.
-        projection = lane_projection(self.LANE, REPORT_SCHEMA)
-        normalized = " ".join(projection.split())
-        self.assertIn("evidence_entry.predicate_ids: optional array", normalized)
-        self.assertIn("minItems=0, maxItems=8", normalized)
-        self.assertIn("omit it or use an empty array on an entry that proves no declared predicate", normalized)
-        self.assertIn("Both forms mean no predicate tie", normalized)
-        self.assertNotIn("an empty array fails", normalized)
-        self.assertIn("Tie a declared `predicate_id` only to an entry whose evidence proves that predicate", normalized)
-        self.assertIn("the store refuses a completed report that ties a `predicate_id` the packet's `inputs.outcome_predicates` did not declare with `invalid_report`", normalized)
-        self.assertIn("decided by the completion verdicts, never by this report", normalized)
-        self.assertNotIn("must name every declared", normalized)
+        # verifyWorkerCompletedPredicateTies selects the job or packet list
+        # from the pinned capability and dispatch binding, never from the
+        # report. Unproved predicates remain completion-verdict decisions.
+        manifest, _ = generator.load_manifest()
+        for lane in manifest["lanes"]:
+            with self.subTest(lane=lane["id"]):
+                normalized = " ".join(lane_projection(lane).split())
+                for required in (
+                    "On workflow pins with `failure_attribution` and a dispatched job",
+                    "that exact dispatched job revision's `inputs.worker_job.predicate_ids`",
+                    "On pins without `failure_attribution` and on job-free attempts",
+                    "the dispatched packet's `inputs.outcome_predicates[].predicate_id`",
+                    "Current live job-capable workflows all carry `failure_attribution`",
+                    "for current live dispatches with `inputs.worker_job`, use only its `predicate_ids`",
+                    "a `predicate_id` outside the applicable list with `invalid_report`",
+                ):
+                    self.assertTrue(required in normalized, f"{lane['id']} is missing tie guidance: {required}")
+                self.assertIn("evidence_entry.predicate_ids: optional array", normalized)
+                self.assertIn("minItems=0, maxItems=8", normalized)
+                self.assertIn("omit it or use an empty array on an entry that proves no declared predicate", normalized)
+                self.assertIn("Both forms mean no predicate tie", normalized)
+                self.assertNotIn("an empty array fails", normalized)
+                self.assertIn("Tie a declared `predicate_id` only to an entry whose evidence proves that predicate", normalized)
+                self.assertIn("decided by the completion verdicts, never by this report", normalized)
+                self.assertNotIn("must name every declared", normalized)
 
     def test_projection_teaches_the_work_context_first_read(self):
         # CON-887: when the packet carries inputs.work_context the worker
@@ -1461,6 +1526,20 @@ class PrimaryProfileProjectionTests(unittest.TestCase):
             profile = self.profile(agent_id)
             source = (ROOT / profile["role_source"]).read_text(encoding="utf-8")
             self.assertTrue(self.projection(agent_id).endswith("\n---\n\n" + source))
+
+    def test_utility_callers_resolve_law_state_before_delegation(self):
+        for agent_id in ("Concord", "Concord-Planner", "Concord-RTE"):
+            with self.subTest(agent=agent_id):
+                text = " ".join(self.projection(agent_id).split())
+                self.assertNotIn("concord_knowledge", self.profile(agent_id)["denied_concord_tools"])
+                for required in (
+                    "When an investigation depends on Product-law status or authority",
+                    "resolve it through `concord_knowledge` before delegating source work to explore or advisor",
+                    "Pass that resolved context",
+                    "these utilities cannot establish law state from repository text",
+                    "Resolve any law-state gap they return before relying on that part of the answer",
+                ):
+                    self.assertTrue(required in text, f"{agent_id} is missing law routing: {required}")
 
     def test_concord_retry_guidance_states_the_unbudgeted_fresh_attempt(self):
         # CD-0242 D6: each launch carries its own authority; no attempt count

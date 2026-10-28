@@ -175,15 +175,10 @@ func combinedRejectRefusalEvents(t *testing.T, s *store.Store) int {
 	return countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM effect_receipts r WHERE r.subject_type='work_item' AND r.subject_id='work-1' AND r.kind='workflow.action_completed' AND (EXISTS(SELECT 1 FROM worker_authorizations a WHERE a.event_id=r.event_id) OR EXISTS(SELECT 1 FROM worker_attempt_dispositions d WHERE d.event_id=r.event_id AND d.action_id='reject_worker_result'))`)
 }
 
-// TestCombinedRejectOversizedResultRefusesZeroWrite proves a legal oversized
-// retry packet cannot strand a committed dispatch: the combined rejection's
-// response carries the derived packet inline, and when that serialization
-// exceeds the agent envelope budget the whole call refuses typed at the
-// envelope budget before anything commits — no rejection record, no retry
-// attempt, no work version movement, no cached idempotent success, and the
-// rejection-only escape stays available. The normal-size control on an
-// identical fixture commits the same combined call.
-func TestCombinedRejectOversizedResultRefusesZeroWrite(t *testing.T) {
+// TS7 §8.2 admits a retained projection instead of refusing a legal oversized
+// result. The retry authorization and its complete packet commit together;
+// replay and readback cannot create another attempt or change that packet.
+func TestCombinedRejectOversizedResultRetainsCompleteDispatch(t *testing.T) {
 	ctx := context.Background()
 	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"product_read", "work_transition", "worker_dispatch"})
 	_, worktree := seedDerivedFailureWorkerForCombinedReject(t, s, service, grant)
@@ -199,42 +194,69 @@ func TestCombinedRejectOversizedResultRefusesZeroWrite(t *testing.T) {
 	input := combinedRejectInput(version, latestDispatchEpoch(t, s), strings.Repeat("d", 4096), strings.Repeat("t", 4096))
 	before := combinedRejectRefusalEvents(t, s)
 	durableBefore := countRows(t, s.DatabaseForTesting(), "SELECT count(*) FROM durable_operations WHERE work_id='work-1' AND result_kind='completed'")
-	refused := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: input}, env)
-	if refused.Outcome != agentcontract.OutcomeError || refused.Error == nil {
-		t.Fatalf("the oversized combined rejection answered %+v, want the typed envelope refusal", refused)
+	committed := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: input}, env)
+	assertBoundedRead(t, committed)
+	if committed.Outcome != agentcontract.OutcomeOK || committed.NextValidIntents == nil || len(*committed.NextValidIntents) != 0 {
+		t.Fatalf("oversized dispatch must return a bounded reference without unverified intents: %+v", committed.Error)
 	}
-	if refused.Error.Kind != "limit_exceeded" || refused.Error.RecoveryAction.Kind != "reduce_limit" {
-		t.Fatalf("the oversized refusal is %s/%s, want limit_exceeded with reduce_limit", refused.Error.Kind, refused.Error.RecoveryAction.Kind)
+	var reference struct {
+		Projection struct {
+			Digest string `json:"digest"`
+			Read   struct {
+				Input map[string]any `json:"input"`
+			} `json:"read_pointer"`
+		} `json:"projection_reference"`
 	}
-	if refused.Error.EffectState != agentcontract.EffectNone {
-		t.Fatalf("the oversized refusal reports effect %q, want none: nothing committed", refused.Error.EffectState)
+	if err := json.Unmarshal(committed.Result, &reference); err != nil || reference.Projection.Digest == "" {
+		t.Fatalf("dispatch reference: %s, %v", committed.Result, err)
 	}
-	if after := combinedRejectRefusalEvents(t, s); after != before {
-		t.Fatalf("the oversized refusal changed rejection or dispatch completions %d -> %d", before, after)
+	var document []byte
+	for {
+		raw, _ := json.Marshal(reference.Projection.Read.Input)
+		page := dispatchRead(t, s, service, InvokeRequest{Tool: "concord_work_trace", Operation: "mutation_result", Input: raw}, env)
+		assertBoundedRead(t, page)
+		if page.Outcome != agentcontract.OutcomeOK {
+			t.Fatalf("read retained dispatch: %+v", page.Error)
+		}
+		var fragment mutationFragmentPage
+		if err := json.Unmarshal(page.Result, &fragment); err != nil || fragment.Offset != len(document) {
+			t.Fatalf("fragment: %v", err)
+		}
+		document = append(document, fragment.Data...)
+		if fragment.DocumentComplete {
+			break
+		}
+		if page.NextCursor == nil {
+			t.Fatal("incomplete dispatch document has no continuation")
+		}
+		reference.Projection.Read.Input["page"] = map[string]any{"cursor": *page.NextCursor}
 	}
-	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM worker_attempts WHERE work_id='work-1' AND attempt_id LIKE '%:retry'`); got != 0 {
-		t.Fatalf("the oversized refusal minted %d retry attempts", got)
+	if len(document) <= agentcontract.MaxResultEnvelopeBytes || mutationDocumentDigest(document) != reference.Projection.Digest {
+		t.Fatal("retained dispatch document lost bytes")
 	}
-	if after := workVersion(t, s, "work-1"); after != version {
-		t.Fatalf("the oversized refusal moved the work version %d -> %d", version, after)
+	var result map[string]json.RawMessage
+	if err := json.Unmarshal(document, &result); err != nil || len(result["retry_worker_packet"]) == 0 {
+		t.Fatal("retained dispatch has no complete packet")
 	}
-	if got := countRows(t, s.DatabaseForTesting(), "SELECT count(*) FROM durable_operations WHERE work_id='work-1' AND result_kind='completed'"); got != durableBefore {
-		t.Fatalf("the oversized refusal left %d completed durable operation rows on the work", got-durableBefore)
+	if err := agentcontract.ValidateOperationPayload("concord_work_transition", "workflow_action", document, true); err != nil {
+		t.Fatal(err)
 	}
-	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM idempotency_records WHERE idempotency_key='combined-reject-1'`); got != 0 {
-		t.Fatalf("the oversized refusal cached %d idempotent successes", got)
+	afterVersion := workVersion(t, s, "work-1")
+	if afterVersion <= version {
+		t.Fatal("dispatch did not advance the work")
 	}
-	// The refusal is stable on replay: the same request re-executes the
-	// same derivation and refuses the same way with the same zero writes.
 	replayed := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: input}, env)
-	if replayed.Outcome != agentcontract.OutcomeError || replayed.Error == nil || replayed.Error.Kind != "limit_exceeded" {
-		t.Fatalf("the replayed oversized rejection answered %+v, want the same typed refusal", replayed)
+	if replayed.Outcome != agentcontract.OutcomeOK || !replayed.Replayed || !bytes.Equal(replayed.Result, committed.Result) || workVersion(t, s, "work-1") != afterVersion {
+		t.Fatalf("replay changed the original dispatch: %+v", replayed.Error)
 	}
-	if after := combinedRejectRefusalEvents(t, s); after != before {
-		t.Fatalf("the replayed oversized refusal changed rejection or dispatch completions %d -> %d", before, after)
+	if after := combinedRejectRefusalEvents(t, s); after != before+2 {
+		t.Fatalf("recorded %d rejection/dispatch completions, want exactly two", after-before)
 	}
-	if got := countRows(t, s.DatabaseForTesting(), "SELECT count(*) FROM durable_operations WHERE work_id='work-1' AND result_kind='completed'"); got != durableBefore {
-		t.Fatalf("the replayed oversized refusal left %d completed durable operation rows on the work", got-durableBefore)
+	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM worker_attempts WHERE work_id='work-1' AND attempt_id LIKE '%:retry'`); got != 1 {
+		t.Fatalf("retry attempts=%d, want one", got)
+	}
+	if got := countRows(t, s.DatabaseForTesting(), "SELECT count(*) FROM durable_operations WHERE work_id='work-1' AND result_kind='completed'"); got != durableBefore+2 {
+		t.Fatalf("completed durable operations=%d, want the rejection and its retry dispatch", got-durableBefore)
 	}
 }
 

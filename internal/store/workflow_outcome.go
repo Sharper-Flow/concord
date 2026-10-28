@@ -293,6 +293,11 @@ func validateWorkflowJSONStructure(data []byte) error {
 	return nil
 }
 
+// scanWorkflowJSONValue walks one JSON value and refuses duplicate object
+// keys, values nested past maxWorkflowJSONDepth, and containers holding more
+// than maxWorkflowJSONContainerEntries members. The decoder's own token
+// state refuses malformed tokens and mismatched or missing closing
+// delimiters. The caller reports every refusal as one structure failure.
 func scanWorkflowJSONValue(decoder *json.Decoder, depth int) error {
 	if depth > maxWorkflowJSONDepth {
 		return workflowOutcomeFailure("JSON payload exceeds the recursion bound")
@@ -301,49 +306,29 @@ func scanWorkflowJSONValue(decoder *json.Decoder, depth int) error {
 	if err != nil {
 		return err
 	}
-	delim, isDelimiter := token.(json.Delim)
-	if !isDelimiter || (delim != '{' && delim != '[') {
+	delim, _ := token.(json.Delim)
+	if delim != '{' && delim != '[' {
 		return nil
 	}
-	entries := 0
-	if delim == '{' {
-		seen := map[string]bool{}
-		for decoder.More() {
-			entries++
-			if entries > maxWorkflowJSONContainerEntries {
-				return workflowOutcomeFailure("JSON object exceeds the field bound")
-			}
+	seen := map[string]bool{}
+	for entries := 1; decoder.More(); entries++ {
+		if entries > maxWorkflowJSONContainerEntries {
+			return workflowOutcomeFailure("JSON container exceeds the entry bound")
+		}
+		if delim == '{' {
 			keyToken, tokenErr := decoder.Token()
 			key, ok := keyToken.(string)
 			if tokenErr != nil || !ok || seen[key] {
 				return workflowOutcomeFailure("JSON object contains a duplicate or invalid field")
 			}
 			seen[key] = true
-			if err := scanWorkflowJSONValue(decoder, depth+1); err != nil {
-				return err
-			}
 		}
-	} else {
-		for decoder.More() {
-			entries++
-			if entries > maxWorkflowJSONContainerEntries {
-				return workflowOutcomeFailure("JSON array exceeds the item bound")
-			}
-			if err := scanWorkflowJSONValue(decoder, depth+1); err != nil {
-				return err
-			}
+		if err := scanWorkflowJSONValue(decoder, depth+1); err != nil {
+			return err
 		}
 	}
-	closing, err := decoder.Token()
-	closingDelim, closingOK := closing.(json.Delim)
-	wantClosing := json.Delim('}')
-	if delim == '[' {
-		wantClosing = ']'
-	}
-	if err != nil || !closingOK || closingDelim != wantClosing {
-		return workflowOutcomeFailure("JSON container is not closed")
-	}
-	return nil
+	_, err = decoder.Token()
+	return err
 }
 func ensureEOF(decoder *json.Decoder) error {
 	var extra any

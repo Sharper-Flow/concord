@@ -539,7 +539,9 @@ class AgentProjectionTests(unittest.TestCase):
                     "On workflow pins with `failure_attribution` and a dispatched job",
                     "that exact dispatched job revision's `inputs.worker_job.predicate_ids`",
                     "On pins without `failure_attribution` and on job-free attempts",
-                    "the dispatched packet's `inputs.outcome_predicates`",
+                    "the dispatched packet's `inputs.outcome_predicates[].predicate_id`",
+                    "Current live job-capable workflows all carry `failure_attribution`",
+                    "for current live dispatches with `inputs.worker_job`, use only its `predicate_ids`",
                     "a `predicate_id` outside the applicable list with `invalid_report`",
                 ):
                     self.assertTrue(required in normalized, f"{lane['id']} is missing tie guidance: {required}")

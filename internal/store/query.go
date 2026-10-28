@@ -853,17 +853,12 @@ func attachRecordedIntent(ctx context.Context, tx *sql.Tx, items []WorkItem) err
 		return wrapFailure(KindUnavailable, "query", "cannot read the recorded work intent", true, "retry once the database is readable", err)
 	}
 	for i := range items {
-		if err := attachWorkSize(ctx, tx, &items[i]); err != nil {
+		items[i].Size, err = readWorkSizeSummary(ctx, tx, items[i].ID)
+		if err != nil {
 			return err
 		}
 	}
 	return nil
-}
-
-func attachWorkSize(ctx context.Context, q queryer, item *WorkItem) error {
-	var err error
-	item.Size, err = readWorkSizeSummary(ctx, q, item.ID)
-	return err
 }
 
 func readWorkSizeSummary(ctx context.Context, q queryer, workID string) (*WorkSizeSummary, error) {
@@ -1314,7 +1309,8 @@ func readOneWork(ctx context.Context, tx *sql.Tx, id string) (WorkItem, error) {
 	if err := decodeRecordedIntent(&items[0], intentJSON); err != nil {
 		return WorkItem{}, err
 	}
-	if err := attachWorkSize(ctx, tx, &items[0]); err != nil {
+	items[0].Size, err = readWorkSizeSummary(ctx, tx, items[0].ID)
+	if err != nil {
 		return WorkItem{}, err
 	}
 	return items[0], nil

@@ -51,6 +51,7 @@ const MAX_WORK_RESULT_DIAGNOSTIC_BYTES = 1_536
 type AgentLanePacketSchemaVersion = (typeof agentLanePacketSchema.properties.schema_version.enum)[number]
 type AgentLaneReportSchemaVersion = (typeof agentLaneReportSchema.properties.schema_version.enum)[number]
 type AgentLaneReportStatus = (typeof agentLaneReportSchema.properties.status.enum)[number]
+type WorkSizeClass = (typeof agentLanePacketSchema.$defs.lane_work_size_class.enum)[number]
 
 // DispatchRunnerResult is one child process outcome. `exited` resolves to the
 // wait status number for both a clean exit and a killed child, so exitCode
@@ -89,6 +90,13 @@ export interface AgentLanePacket {
 export interface AgentLanePacketReviewInput {
   input_candidate: AgentLaneReportReview["input_candidate"]
   dependencies: AgentLaneReportReview["dependencies"]
+  size?: {
+    size: WorkSizeClass
+    model_size?: WorkSizeClass
+    operator_size?: WorkSizeClass
+    model_version: number
+    recorded_at: string
+  }
 }
 
 // The recorded-state members below mirror inputs.law_context,

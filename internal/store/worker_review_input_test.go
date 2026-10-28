@@ -47,12 +47,28 @@ func TestReviewContinuityCarriesRecordedWorkSize(t *testing.T) {
 			if err := json.Unmarshal(mustJSONValue(snapshot.ReviewInput), &got); err != nil {
 				t.Fatal(err)
 			}
-			want := WorkItem{ID: f.workID}
-			if err := attachWorkSize(t.Context(), f.store.db, &want); err != nil {
+			want, err := readWorkSizeSummary(t.Context(), f.store.db, f.workID)
+			if err != nil {
 				t.Fatal(err)
 			}
-			if !reflect.DeepEqual(got.Size, want.Size) {
-				t.Fatalf("review size = %+v, want canonical recorded summary %+v", got.Size, want.Size)
+			if !reflect.DeepEqual(got.Size, want) {
+				t.Fatalf("review size = %+v, want canonical recorded summary %+v", got.Size, want)
+			}
+			if kind != "unsized" {
+				model, effective := WorkSize(kind), WorkSize(kind)
+				if kind == "override" {
+					model, effective = WorkSizeSmall, WorkSizeCrucial
+				}
+				if got.Size == nil || got.Size.Size != effective || got.Size.ModelSize != model || got.Size.ModelVersion != WorkSizeModelVersion || got.Size.RecordedAt == "" {
+					t.Fatalf("%s lost its recorded size/provenance: %+v", kind, got.Size)
+				}
+				if kind == "override" {
+					if got.Size.OperatorSize == nil || *got.Size.OperatorSize != WorkSizeCrucial {
+						t.Fatalf("override lost its operator size: %+v", got.Size)
+					}
+				} else if got.Size.OperatorSize != nil {
+					t.Fatalf("model-only work invented an operator size: %+v", got.Size)
+				}
 			}
 			if kind == "unsized" && strings.Contains(string(mustJSONValue(snapshot.ReviewInput)), `"size"`) {
 				t.Fatal("unsized Review input must omit size, not default or null it")
@@ -95,11 +111,10 @@ func TestReviewDispatchRequiresExactReviewInput(t *testing.T) {
 				t.Fatal(err)
 			}
 			descriptor := WorkerReviewInput{InputCandidate: WorkerReviewCandidate{ProjectID: "project", Commit: commit, Tree: tree}, Dependencies: deps}
-			work := WorkItem{ID: f.workID}
-			if err := attachWorkSize(t.Context(), f.store.db, &work); err != nil {
+			descriptor.Size, err = readWorkSizeSummary(t.Context(), f.store.db, f.workID)
+			if err != nil {
 				t.Fatal(err)
 			}
-			descriptor.Size = work.Size
 			switch field {
 			case "project":
 				descriptor.InputCandidate.ProjectID = "another-project"

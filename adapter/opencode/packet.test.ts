@@ -168,6 +168,7 @@ test("review packets preserve the recorded size and its provenance only on Revie
       const built = await build({ ...defaultScript(), "concord_work_trace.continuity": continuity }, { laneId })
       expect(built.failure).toBeUndefined()
       expect((built.packet!.inputs as any).review_input).toEqual(laneId === "review" ? descriptor : undefined)
+      expect(built.packet!.inputs.review_input?.size).toEqual(laneId === "review" ? size : undefined)
     }
   }
 })

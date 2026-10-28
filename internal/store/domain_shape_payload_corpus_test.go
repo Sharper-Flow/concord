@@ -34,6 +34,14 @@ func TestCommittedAgentContractFactFitsBound(t *testing.T) {
 	)
 }
 
+func TestCommittedTypedErrorVocabularyFactFitsBound(t *testing.T) {
+	t.Parallel()
+	assertCommittedAgentFactFitsBound(t, "internal/payloadschema", "agent-typed-error-vocabulary",
+		DomainShapeSelector{Path: "internal/payloadschema/generated_typed_error_kinds.go"},
+		DomainShapeSelector{Subject: "agent-typed-error-vocabulary"},
+	)
+}
+
 func assertCommittedAgentFactFitsBound(t *testing.T, owningRoot, factID string, selectors ...DomainShapeSelector) {
 	t.Helper()
 	ctx := context.Background()

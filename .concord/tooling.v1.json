@@ -29,7 +29,13 @@
       "invocation": "bin/oc-test broad -- go test -race -timeout=20m ./...",
       "tier": "slow",
       "cost_hint": "The command timeout is 20 minutes.",
-      "automation_path": ".github/workflows/ci.yml"
+      "automation_path": ".github/workflows/ci.yml",
+      "coverage": [
+        {
+          "anchor": {"kind": "scenario", "value": "adapter-continuity-session-vacate-then-reclaim-passes-occupancy-gate"},
+          "owner": {"kind": "go_test", "value": "internal/store.TestSessionVacateReclaimOccupancyGateCorpus"}
+        }
+      ]
     },
     {
       "id": "go-vet",
@@ -65,6 +71,43 @@
       "config_path": "lefthook.yml",
       "automation_path": ".github/workflows/ci.yml",
       "notes": "Advisory preflight, not a full verify and not an exhaustive test mapping; CI stays the verification owner. Parity is enforced by scripts/check-pre-push.py and the pinned upstream release is v2.1.14."
+    },
+    {
+      "id": "adapter-continuity",
+      "purpose": "Exercise the adapter continuity corpus assertions.",
+      "invocation": "bun test adapter/opencode/continuity_hook.test.ts",
+      "tier": "standard",
+      "automation_path": ".github/workflows/ci.yml",
+      "coverage": [
+        {
+          "anchor": {"kind": "scenario", "value": "adapter-continuity-byte-stable-across-turns"},
+          "owner": {"kind": "adapter_test", "value": "adapter/opencode/continuity_hook.test.ts#adapter-continuity-byte-stable-across-turns"}
+        },
+        {
+          "anchor": {"kind": "scenario", "value": "adapter-continuity-state-change-replaces-block"},
+          "owner": {"kind": "adapter_test", "value": "adapter/opencode/continuity_hook.test.ts#adapter-continuity-state-change-replaces-block"}
+        },
+        {
+          "anchor": {"kind": "scenario", "value": "adapter-continuity-failure-is-absence"},
+          "owner": {"kind": "adapter_test", "value": "adapter/opencode/continuity_hook.test.ts#adapter-continuity-failure-is-absence"}
+        },
+        {
+          "anchor": {"kind": "scenario", "value": "adapter-continuity-ttl-gates-spawn"},
+          "owner": {"kind": "adapter_test", "value": "adapter/opencode/continuity_hook.test.ts#adapter-continuity-ttl-gates-spawn"}
+        },
+        {
+          "anchor": {"kind": "scenario", "value": "adapter-continuity-work-start-retarget"},
+          "owner": {"kind": "adapter_test", "value": "adapter/opencode/continuity_hook.test.ts#adapter-continuity-work-start-retarget"}
+        },
+        {
+          "anchor": {"kind": "scenario", "value": "adapter-continuity-lane-leak-absent"},
+          "owner": {"kind": "adapter_test", "value": "adapter/opencode/continuity_hook.test.ts#adapter-continuity-lane-leak-absent"}
+        },
+        {
+          "anchor": {"kind": "scenario", "value": "adapter-continuity-post-boundary-re-pin"},
+          "owner": {"kind": "adapter_test", "value": "adapter/opencode/continuity_hook.test.ts#adapter-continuity-post-boundary-re-pin"}
+        }
+      ]
     },
     {
       "id": "repo-validators",

@@ -7,6 +7,7 @@ import importlib.util
 import json
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 
@@ -319,6 +320,165 @@ class ProjectToolingTests(unittest.TestCase):
 
     def test_repository_itself_passes(self) -> None:
         self.assertEqual(checker.check(root=Path(__file__).resolve().parents[1]), [])
+
+    def coverage_fixture(self, invocation: str = "bun test adapter/opencode/") -> dict:
+        (self.root / ".concord/scenarios").mkdir(exist_ok=True)
+        (self.root / ".concord/scenarios/demo.json").write_text(json.dumps({
+            "scenarios": [{"id": "scenario-proof"}],
+        }))
+        (self.root / "adapter/opencode").mkdir(parents=True, exist_ok=True)
+        (self.root / "adapter/opencode/demo.test.ts").write_text(
+            'test("scenario-proof", () => { expect(true).toBe(true); });\n'
+        )
+        (self.root / ".github/workflows/ci.yml").write_text(f"        run: {invocation}\n")
+        return tool("scenario-check", invocation=invocation, coverage=[{
+            "anchor": {"kind": "scenario", "value": "scenario-proof"},
+            "owner": {"kind": "adapter_test", "value": "adapter/opencode/demo.test.ts#scenario-proof"},
+        }])
+
+    def test_explicit_scenario_binding_reaches_an_existing_consumer(self) -> None:
+        self.manifest([self.coverage_fixture()])
+        self.assertEqual(checker.check(root=self.root), [])
+
+    def test_coverage_rejects_unrelated_or_missing_owner(self) -> None:
+        entry = self.coverage_fixture()
+        for owner in ("adapter/opencode/absent.test.ts#scenario-proof", "adapter/opencode/demo.test.ts#other-proof"):
+            with self.subTest(owner=owner):
+                entry["coverage"][0]["owner"]["value"] = owner
+                self.manifest([entry])
+                self.assertTrue(any("owner" in f for f in checker.check(root=self.root)))
+
+    def test_coverage_rejects_unrelated_invocation_and_ci_mentions(self) -> None:
+        entry = self.coverage_fixture()
+        entry["invocation"] = "bun test adapter/opencode/other.test.ts"
+        self.manifest([entry])
+        self.assertTrue(any("reachable" in f for f in checker.check(root=self.root)))
+        entry["invocation"] = "bun test adapter/opencode/"
+        self.manifest([entry])
+        (self.root / ".github/workflows/ci.yml").write_text(
+            "        run: echo bun test adapter/opencode/\n"
+        )
+        self.assertTrue(any("workflow" in f for f in checker.check(root=self.root)))
+
+    def test_coverage_rejects_duplicate_and_conflicting_bindings(self) -> None:
+        entry = self.coverage_fixture()
+        entry["coverage"].append(entry["coverage"][0].copy())
+        self.manifest([entry])
+        self.assertTrue(any("duplicate" in f for f in checker.check(root=self.root)))
+        other = self.coverage_fixture()
+        other["id"] = "other-check"
+        other["coverage"][0]["owner"]["value"] = "adapter/opencode/demo.test.ts#different-test"
+        self.manifest([entry, other])
+        self.assertTrue(any("conflicting" in f for f in checker.check(root=self.root)))
+
+    def test_coverage_shape_is_closed_and_bounded(self) -> None:
+        entry = self.coverage_fixture()
+        for coverage in ([], None, [{}], [{"anchor": [], "owner": {}}], entry["coverage"] * 65):
+            with self.subTest(coverage=coverage):
+                entry["coverage"] = coverage
+                self.manifest([entry])
+                self.assertTrue(checker.check(root=self.root))
+
+    def test_go_package_derivation_does_not_promote_selected_tests(self) -> None:
+        import evidence_anchors as anchors
+
+        package = {"kind": "go_package", "value": "internal/demo"}
+        test = {"kind": "go_test", "value": "internal/demo.TestProof"}
+        for invocation in ("go test ./...", "bin/oc-test broad -- go test -race ./..."):
+            self.assertTrue(anchors.invocation_reaches(self.root, invocation, package))
+            self.assertTrue(anchors.invocation_reaches(self.root, invocation, test))
+        selected = "go test -run ^TestProof$ ./internal/demo"
+        self.assertFalse(anchors.invocation_reaches(self.root, selected, package))
+        self.assertTrue(anchors.invocation_reaches(self.root, selected, test))
+        self.assertFalse(anchors.invocation_reaches(self.root, selected, {**test, "value": "internal/demo.TestOther"}))
+        for invocation in ("bin/oc-test plan broad -- go test ./...", "go test -run=TestProof -skip=TestProof ./internal/demo", "go test ./internal/other"):
+            self.assertFalse(anchors.invocation_reaches(self.root, invocation, test))
+
+    def test_validator_binding_derives_transitive_calls_not_strings(self) -> None:
+        import evidence_anchors as anchors
+
+        (self.root / "scripts").mkdir()
+        (self.root / "scripts/check-outer.py").write_text(
+            "import subprocess\nsubprocess.run(['python3', 'scripts/check-inner.py'])\n"
+        )
+        (self.root / "scripts/check-inner.py").write_text("raise SystemExit(0)\n")
+        owner = {"kind": "validator", "value": "scripts/check-inner.py"}
+        self.assertTrue(anchors.invocation_reaches(self.root, "python3 scripts/check-outer.py", owner))
+        self.assertFalse(anchors.invocation_reaches(self.root, "echo scripts/check-inner.py", owner))
+
+    def test_continuity_inventory_cannot_drop_an_unmentioned_scenario(self) -> None:
+        entry = self.coverage_fixture()
+        (self.root / ".concord/scenarios/adapter-continuity.v1.json").write_text(json.dumps({
+            "scenarios": [{"id": "unclaimed-proof"}],
+        }))
+        self.manifest([entry])
+        self.assertTrue(any("no consuming-test owner: unclaimed-proof" in f for f in checker.check(root=self.root)))
+
+    def test_binding_rejects_nested_duplicate_and_deferred_scenarios(self) -> None:
+        entry = self.coverage_fixture()
+        self.manifest([entry])
+        corpus = self.root / ".concord/scenarios/demo.json"
+        for scenarios in ([{"id": "other", "then": [{"id": "scenario-proof"}]}],
+                          [{"id": "scenario-proof"}, {"id": "scenario-proof"}]):
+            corpus.write_text(json.dumps({"scenarios": scenarios}))
+            self.assertTrue(any("unique non-deferred" in f for f in checker.check(root=self.root)))
+        corpus.write_text(json.dumps({"scenarios": [{"id": "scenario-proof"}]}))
+        (self.root / "internal").mkdir()
+        (self.root / "internal/deferred_test.go").write_text('Deferrals["scenario-proof"] = "not executed"')
+        self.assertTrue(any("unique non-deferred" in f for f in checker.check(root=self.root)))
+
+    def test_generated_parity_requires_reachable_artifact_reader(self) -> None:
+        (self.root / "scripts").mkdir()
+        (self.root / "generated.ts").write_text("// Code generated by generator; DO NOT EDIT.\nexport const parity = 1;\n")
+        script = self.root / "scripts/check-parity.py"
+        script.write_text("print('unrelated')\n")
+        (self.root / ".github/workflows/ci.yml").write_text("        run: python3 scripts/check-parity.py\n")
+        self.manifest([tool(invocation="python3 scripts/check-parity.py", coverage=[{
+            "anchor": {"kind": "generated", "value": "generated.ts#parity"},
+            "owner": {"kind": "validator", "value": "scripts/check-parity.py"},
+        }])])
+        self.assertTrue(any("does not reference" in f for f in checker.check(root=self.root)))
+        script.write_text("from pathlib import Path\nassert 'parity' in Path('generated.ts').read_text()\n")
+        self.assertEqual(checker.check(root=self.root), [])
+
+    def test_go_scenario_requires_asserting_named_consumer_and_ci_selection(self) -> None:
+        import evidence_anchors as anchors
+
+        entry = self.coverage_fixture("go test ./internal/demo")
+        entry["coverage"][0]["owner"] = {"kind": "go_test", "value": "internal/demo.TestProof"}
+        package = self.root / "internal/demo"
+        package.mkdir(parents=True)
+        source = package / "proof_test.go"
+        source.write_text('package demo\nfunc TestProof(t *testing.T) { t.Run("scenario-proof", func(t *testing.T) { t.Fatal("proof") }) }\n')
+        self.manifest([entry])
+        with mock.patch.object(anchors, "_load_go_test_facts", return_value={"internal/demo": {"TestProof": True}}):
+            self.assertEqual(checker.check(root=self.root), [])
+            source.write_text('package demo\nconst proofID = "scenario-proof"\nfunc TestProof(t *testing.T) { t.Run(proofID, func(t *testing.T) { t.Fatal("proof") }) }\n')
+            self.assertEqual(checker.check(root=self.root), [])
+            source.write_text('package demo\nfunc TestProof(t *testing.T) {\n// t.Run("scenario-proof", func(t *testing.T) {})\nt.Fatal("unrelated")\n}\n')
+            self.assertTrue(any("consuming test" in f for f in checker.check(root=self.root)))
+            source.write_text('package demo\nfunc TestProof(t *testing.T) { t.Fatal("unrelated") }\n')
+            self.assertTrue(any("consuming test" in f for f in checker.check(root=self.root)))
+        with mock.patch.object(anchors, "_load_go_test_facts", return_value={"internal/demo": {"TestProof": False}}):
+            self.assertTrue(any("owner does not resolve" in f for f in checker.check(root=self.root)))
+
+    def test_bun_report_flags_preserve_selection_but_skips_do_not(self) -> None:
+        import evidence_anchors as anchors
+
+        owner = {"kind": "adapter_test", "value": "adapter/opencode/demo.test.ts#scenario-proof"}
+        base = "bun test adapter/opencode/ --reporter=junit --reporter-outfile=report.xml --timings=timings.json --update-timings"
+        self.assertTrue(anchors.invocation_reaches(self.root, base, owner))
+        self.assertTrue(anchors.invocation_reaches(self.root, base + " --path-ignore-patterns=adapter/opencode/other.test.ts", owner))
+        self.assertFalse(anchors.invocation_reaches(self.root, base + " --path-ignore-patterns=adapter/opencode/*.test.ts", owner))
+        self.assertFalse(anchors.invocation_reaches(self.root, base + " --test-name-pattern=unrelated", owner))
+
+    def test_coverage_schema_and_validator_enumerations_match(self) -> None:
+        import evidence_anchors as anchors
+
+        definitions = json.loads((SCRIPT.parents[1] / "contracts/project-tooling.v1.schema.json").read_text())["$defs"]
+        self.assertEqual(definitions["tool"]["properties"]["coverage"]["maxItems"], anchors.MAX_COVERAGE)
+        self.assertEqual(definitions["coverage_anchor"]["properties"]["kind"]["enum"], list(anchors.COVERAGE_KINDS))
+        self.assertEqual(definitions["coverage_owner"]["properties"]["kind"]["enum"], list(anchors.OWNER_KINDS))
 
 
 if __name__ == "__main__":

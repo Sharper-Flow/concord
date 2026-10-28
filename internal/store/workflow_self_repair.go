@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io"
 	"strings"
+
+	"github.com/sharper-flow/concord/internal/payloadschema"
 )
 
 const workflowSelfRepairMaxEvidence = 32
@@ -55,7 +57,7 @@ func parseWorkflowSelfRepair(raw json.RawMessage) (*WorkflowSelfRepair, error) {
 }
 
 func validateWorkflowSelfRepairShape(repair WorkflowSelfRepair) error {
-	if !TypedErrorKindAllowed(repair.RefusalKind) || !ValidReference(repair.BlockedOperation) || len(repair.EvidenceRefs) < 1 || len(repair.EvidenceRefs) > workflowSelfRepairMaxEvidence {
+	if !payloadschema.TypedErrorKindAllowed(repair.RefusalKind) || !ValidReference(repair.BlockedOperation) || len(repair.EvidenceRefs) < 1 || len(repair.EvidenceRefs) > workflowSelfRepairMaxEvidence {
 		return newFailure(KindInvalidPayload, "workflow_self_repair", "self_repair does not name one typed refusal, blocked operation, and bounded evidence set", false, "supply a typed refusal kind, operation reference, and 1-32 evidence references")
 	}
 	seen := make(map[string]bool, len(repair.EvidenceRefs))

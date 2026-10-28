@@ -11,8 +11,9 @@
   approving all three answers on the merge grant for PR #299; the public record is
   [issue #295 comment](https://github.com/Sharper-Flow/concord/issues/295#issuecomment-5375357551)
 - **Related:** CD-0019 D1–D3, CD-0006, CD-0012, CD-0215, CD-0026, CD-0035,
-  CD-0037, [`priorities.md`](../priorities.md) Priority 3 and §Workflow
-  versatility, [`workflows.md`](../workflows.md), issue #295
+  CD-0037, [`priorities.md`](../priorities.md#quality-goal-e) Priority 3 (quality)
+  and [Composable workflows (goal C)](../priorities.md#composable-workflows-goal-c),
+  [`workflows.md`](../workflows.md), issue #295
 - **Preserves:** The CD-0019 mandate method (D2 research-informed shapes);
   the closed workflow registry; the knowledge-home authority
 
@@ -60,7 +61,8 @@ than as a fixed gate sequence:
   A definition that changes Product truth cannot exist without the human
   checkpoint; it is unrepresentable, not remembered.
 - **One type among many:** the seven-gate implementation change remains a
-  workflow type, not the system shape (`priorities.md` §Workflow versatility).
+  workflow type, not the system shape
+  ([Composable workflows (goal C)](../priorities.md#composable-workflows-goal-c)).
   Research and ops runbooks get purpose-built types whose *own* definitions
   declare where their consequence boundaries sit.
 
@@ -138,7 +140,8 @@ composes under real work.
 **Preserve the seven-gate lifecycle as the system shape.** Rejected: it is
 the predecessor's acknowledged over-application — ceremony applied to work
 kinds that needed only their own consequence boundaries. CD-0006 and
-`priorities.md` §Workflow versatility already decided this; reversing it to
+[Composable workflows (goal C)](../priorities.md#composable-workflows-goal-c)
+already decided this; reversing it to
 honour nostalgia would reintroduce known friction.
 
 **Drop the agreement discipline as "just planning."** Rejected: the

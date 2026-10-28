@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/sharper-flow/concord/internal/payloadschema"
 )
 
 // The generated vocabulary must equal the enum it is projected from. A Go-side
@@ -37,7 +39,7 @@ func TestTypedErrorKindsMatchEnvelopeSchema(t *testing.T) {
 		t.Fatal("the envelope schema declares no typed error kinds")
 	}
 
-	projected := TypedErrorKinds()
+	projected := payloadschema.TypedErrorKinds()
 	if len(projected) != len(declared) {
 		t.Fatalf("projected %d kinds, schema declares %d", len(projected), len(declared))
 	}
@@ -45,7 +47,7 @@ func TestTypedErrorKindsMatchEnvelopeSchema(t *testing.T) {
 		if projected[i] != kind {
 			t.Errorf("position %d: projected %q, schema declares %q", i, projected[i], kind)
 		}
-		if !TypedErrorKindAllowed(kind) {
+		if !payloadschema.TypedErrorKindAllowed(kind) {
 			t.Errorf("schema kind %q is rejected by TypedErrorKindAllowed", kind)
 		}
 	}
@@ -56,7 +58,7 @@ func TestTypedErrorKindsMatchEnvelopeSchema(t *testing.T) {
 func TestPreviouslyOmittedKindsAreAccepted(t *testing.T) {
 	t.Parallel()
 	for _, kind := range []string{"stale_law_revision", "domain_overlap"} {
-		if !TypedErrorKindAllowed(kind) {
+		if !payloadschema.TypedErrorKindAllowed(kind) {
 			t.Errorf("%q must be accepted; the store fold omitted it while the agent layer accepted it", kind)
 		}
 	}
@@ -88,7 +90,7 @@ func TestEveryTypedErrorKindHasANamedConstant(t *testing.T) {
 		"transport_failure": KindTransportFailure, "malformed_response": KindMalformedResponse,
 		"internal_error": KindInternalError,
 	}
-	for _, kind := range TypedErrorKinds() {
+	for _, kind := range payloadschema.TypedErrorKinds() {
 		constant, ok := constants[kind]
 		if !ok {
 			t.Errorf("schema kind %q has no named FailureKind constant", kind)
@@ -99,7 +101,7 @@ func TestEveryTypedErrorKindHasANamedConstant(t *testing.T) {
 		}
 	}
 	for kind := range constants {
-		if !TypedErrorKindAllowed(kind) {
+		if !payloadschema.TypedErrorKindAllowed(kind) {
 			t.Errorf("constant %q is not a member of the closed set", kind)
 		}
 	}
@@ -107,7 +109,7 @@ func TestEveryTypedErrorKindHasANamedConstant(t *testing.T) {
 
 func TestUnknownKindIsRejected(t *testing.T) {
 	t.Parallel()
-	if TypedErrorKindAllowed("not_a_declared_kind") {
+	if payloadschema.TypedErrorKindAllowed("not_a_declared_kind") {
 		t.Fatal("an undeclared kind must be rejected")
 	}
 }

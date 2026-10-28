@@ -3,6 +3,7 @@ package agent
 import (
 	"testing"
 
+	"github.com/sharper-flow/concord/internal/payloadschema"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -15,7 +16,7 @@ import (
 // kind that maps elsewhere fails here, today and on the next kind added.
 func TestStoreKindNamingAPublicKindMapsToItself(t *testing.T) {
 	t.Parallel()
-	for _, public := range store.TypedErrorKinds() {
+	for _, public := range payloadschema.TypedErrorKinds() {
 		kind := store.FailureKind(public)
 		if got := mapFailureKind(kind); got != public {
 			t.Errorf("store kind %q names public kind %q but maps to %q", kind, public, got)
@@ -32,7 +33,7 @@ func TestStoreKindNamingAPublicKindMapsToItself(t *testing.T) {
 func TestEveryPublicKindHasADeliberateRecovery(t *testing.T) {
 	t.Parallel()
 	contactByDesign := map[string]bool{"unauthorized": true, "unreachable": true, "internal_error": true, "unknown_scope": true, "malformed_response": true, "transport_failure": true, "outcome_mismatch": true}
-	for _, kind := range store.TypedErrorKinds() {
+	for _, kind := range payloadschema.TypedErrorKinds() {
 		got := publicRecovery(kind, "free prose the store proposed")
 		if got == "contact_operator" && !contactByDesign[kind] {
 			t.Errorf("public kind %q resolves to contact_operator by default; name its recovery or add it to contactByDesign with a reason", kind)

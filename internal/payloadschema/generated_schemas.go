@@ -6019,6 +6019,11 @@ const GeneratedPayloadSchemaDocument = `{
                     "required": [
                       "case_to_witness_map"
                     ]
+                  },
+                  {
+                    "required": [
+                      "git_metadata"
+                    ]
                   }
                 ]
               },
@@ -6879,6 +6884,11 @@ const GeneratedPayloadSchemaDocument = `{
                   {
                     "required": [
                       "case_to_witness_map"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "git_metadata"
                     ]
                   }
                 ]

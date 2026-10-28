@@ -25314,6 +25314,11 @@
                     "required": [
                       "case_to_witness_map"
                     ]
+                  },
+                  {
+                    "required": [
+                      "git_metadata"
+                    ]
                   }
                 ]
               }
@@ -26288,6 +26293,11 @@
                   {
                     "required": [
                       "case_to_witness_map"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "git_metadata"
                     ]
                   }
                 ]

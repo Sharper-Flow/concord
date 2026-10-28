@@ -599,6 +599,7 @@ var fixtureStringCandidates = []string{
 	"ref-1",
 	"conformance",
 	"TestConformance",
+	"refs/tags/v1.0.0",
 }
 
 // fixtureString answers one string value that satisfies the schema node's

@@ -1323,9 +1323,12 @@ def project_native_oracle_metadata(defs: dict, packet_defs: dict) -> None:
     # dispatch DTO, whose environment digest already binds their identity.
     git_metadata = {"$ref": "#/$defs/native_git_metadata"}
     prepare["properties"]["git_metadata"] = copy.deepcopy(git_metadata)
+    # The Go branch forbids it the way it forbids every other target-only field.
     for branch in prepare.get("oneOf", []):
         if branch.get("properties", {}).get("recipe_kind", {}).get("const") == "target_runner_v1":
             branch["properties"]["git_metadata"] = copy.deepcopy(git_metadata)
+        else:
+            branch["not"]["anyOf"].append({"required": ["git_metadata"]})
     prepare_fields = {
         "control_id": copy.deepcopy(defs["worker_oracle_control"]["properties"]["control_id"]),
         "input_manifest_digest": {"$ref": "#/$defs/native_oracle_digest"},

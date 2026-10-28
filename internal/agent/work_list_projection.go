@@ -64,7 +64,7 @@ func (r runtime) workListProjectionPage(ctx context.Context, base agentcontract.
 			return response, 0, err
 		}
 		if len(response.Omissions) >= agentcontract.MaxNotices {
-			return coreError(base, "limit_exceeded", "work-list projection needs a continuation notice but the omission limit is exhausted", "restart_query", false), 0, nil
+			return coreError(base, "limit_exceeded", "work-list projection needs a continuation notice but the omission limit is exhausted; contact the operator for producer repair", "contact_operator", false), 0, nil
 		}
 		response.Omissions = append(response.Omissions, agentcontract.Notice{Kind: "work_list_projection_paged", Details: map[string]any{"total_bytes": len(doc), "offset": offset, "fragment_bytes": n, "remaining_bytes": len(doc) - end, "document_complete": end == len(doc)}})
 		response, err = r.wrapCursor(ctx, response, binding, "summary")

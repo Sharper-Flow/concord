@@ -5266,7 +5266,7 @@ func (r runtime) mutationResult(base agentcontract.Envelope, payload json.RawMes
 		if mutationProjectionSupported(r.Tool, r.Operation) && r.mutationIdempotencyKey != "" {
 			return r.projectMutationResult(base, payload, changed)
 		}
-		return coreError(base, "limit_exceeded", fmt.Sprintf("mutation result envelope exceeds %d bytes", agentcontract.MaxResultEnvelopeBytes), "reduce_limit", false)
+		return coreError(base, "limit_exceeded", fmt.Sprintf("mutation result envelope exceeds %d bytes; this operation has no result limit to reduce; contact the operator for producer repair", agentcontract.MaxResultEnvelopeBytes), "contact_operator", false)
 	}
 	return response
 }

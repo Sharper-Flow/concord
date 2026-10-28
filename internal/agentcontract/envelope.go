@@ -410,7 +410,7 @@ func (e Envelope) validateInvariants() error {
 	if err := e.validateChangedReferences(); err != nil {
 		return err
 	}
-	if err := validateScope(e.ResolvedScope); err != nil {
+	if err := ValidateScope(e.ResolvedScope); err != nil {
 		return err
 	}
 	if err := e.validateAuthority(); err != nil {
@@ -644,7 +644,9 @@ func isMutation(tool, operation string) bool {
 	}
 	return false
 }
-func validateScope(s *Scope) error {
+
+// ValidateScope checks the same scope bounds for live and retained envelopes.
+func ValidateScope(s *Scope) error {
 	if s == nil {
 		return nil
 	}
@@ -734,63 +736,43 @@ func sortedBoundedList(values []string, limit int) bool {
 	return true
 }
 
-// enforcedRecoveryCouplings binds an error kind to the one recovery action a
-// caller can act on for that kind. validateError refuses an envelope that
-// breaks a coupling, and PublicRecovery derives the action from this same
-// table, so a producer cannot compose a pair the validator will then reject.
-//
-// One table, two consumers. A coupling added here reaches the producer and the
-// validator together. A coupling that lived in the validator alone is the
-// defect this table removes: the store proposes operator prose, PublicRecovery
-// fell through to "contact_operator", and the resulting envelope failed to
-// marshal, so the caller received a transport error in place of the typed
-// refusal the core had already decided.
-// A companion-field requirement is not a recovery coupling and does not belong
-// here. `ambiguous_scope` needs candidates, `version_conflict` needs current
-// versions, `budget_refused` needs a supported budget, and cancel and timeout
-// need an empty effect state. Those stay as their own checks, because they
-// constrain the payload rather than the action a caller takes next.
-// enforcedRecoveryCouplings names every error kind that admits exactly one
-// recovery action. It is the single owner of that rule: PublicRecovery builds
-// from it and validateError refuses against it. A kind enforced by only one of
-// the two halves is a refusal the core decided and the caller never receives,
-// because the pair reaches the transport as a marshal fault.
-var enforcedRecoveryCouplings = map[string]string{
-	"ambiguous_scope":        "resolve_ambiguity",
-	"budget_refused":         "adjust_budget",
-	"cancelled":              "retry_same_request",
-	"cross_repository_claim": "use_declared_route",
-	"domain_overlap":         "request_approval",
-	"invalid_cursor":         "restart_query",
-	"limit_exceeded":         "reduce_limit",
-	"missing_evidence":       "provide_evidence",
-	"operation_conflict":     "reconcile_operation",
-	"resource_busy":          "retry_same_request",
-	"outcome_mismatch":       "contact_operator",
-	"stale_context":          "refresh_context",
-	"stale_law_revision":     "request_approval",
-	"timeout":                "retry_same_request",
-	"version_conflict":       "reread_entities",
+// enforcedRecoveryCouplings owns the actions admitted for each coupled kind.
+// The first action is the default for an unrecognized proposal. PublicRecovery
+// and validation use the same table so typed refusals remain serializable.
+// Size failures allow producer repair when no caller-controlled limit exists.
+// Companion-field requirements remain separate from action membership.
+var enforcedRecoveryCouplings = map[string][]string{
+	"ambiguous_scope":        {"resolve_ambiguity"},
+	"budget_refused":         {"adjust_budget"},
+	"cancelled":              {"retry_same_request"},
+	"cross_repository_claim": {"use_declared_route"},
+	"domain_overlap":         {"request_approval"},
+	"invalid_cursor":         {"restart_query"},
+	"limit_exceeded":         {"reduce_limit", "contact_operator"},
+	"missing_evidence":       {"provide_evidence"},
+	"operation_conflict":     {"reconcile_operation"},
+	"resource_busy":          {"retry_same_request"},
+	"outcome_mismatch":       {"contact_operator"},
+	"stale_context":          {"refresh_context"},
+	"stale_law_revision":     {"request_approval"},
+	"timeout":                {"retry_same_request"},
+	"version_conflict":       {"reread_entities"},
 	// The outside-repair active refusal (CD-0210) carries the declared route
 	// refs the store names: reconcile and resume. The work pin pre-records the
 	// same routes, so a refusal that reaches a caller names routes the caller
 	// can dispatch without a second read.
-	"outside_repair_active": "use_declared_route",
+	"outside_repair_active": {"use_declared_route"},
 }
 
 // PublicRecovery projects a store-proposed recovery onto the contract. A
-// coupled kind takes its one admitted action; otherwise a proposal that names
+// coupled kind takes an admitted action or its default; otherwise a proposal that names
 // a contractual action survives, and anything else takes the kind's default.
 func PublicRecovery(kind, proposed string) string {
-	// A coupled kind admits exactly one recovery action, and validateError
-	// refuses every other pairing. The coupling therefore decides before the
-	// proposed value is read: the store proposes free operator prose, and a
-	// proposal that is merely a valid action is still the wrong one here.
-	// Letting either reach the envelope produces a pair that cannot marshal,
-	// which reaches the caller as a transport fault rather than the refusal
-	// the core decided.
 	if coupled, ok := enforcedRecoveryCouplings[kind]; ok {
-		return coupled
+		if slices.Contains(coupled, proposed) {
+			return proposed
+		}
+		return coupled[0]
 	}
 	if recoveryActions[proposed] {
 		return proposed
@@ -873,8 +855,8 @@ func validateErrorReferenceCouplings(err TypedError) error {
 }
 
 func validateErrorRecoveryCouplings(err TypedError) error {
-	if want, coupled := enforcedRecoveryCouplings[err.Kind]; coupled && err.RecoveryAction.Kind != want {
-		return fmt.Errorf("%s recovery coupling violated: want %s, got %s", err.Kind, want, err.RecoveryAction.Kind)
+	if allowed, coupled := enforcedRecoveryCouplings[err.Kind]; coupled && !slices.Contains(allowed, err.RecoveryAction.Kind) {
+		return fmt.Errorf("%s recovery coupling violated: want one of %v, got %s", err.Kind, allowed, err.RecoveryAction.Kind)
 	}
 	// Companion-field requirements. These say what payload a kind must carry
 	// for its coupled action to be actionable, so they stay separate from the

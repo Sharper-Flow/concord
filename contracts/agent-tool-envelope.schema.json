@@ -2233,7 +2233,8 @@
               "recovery_action": {
                 "properties": {
                   "kind": {
-                    "const": "reduce_limit"
+                    "type": "string",
+                    "enum": ["reduce_limit", "contact_operator"]
                   }
                 }
               }

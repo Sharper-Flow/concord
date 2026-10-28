@@ -52,7 +52,8 @@ func TestMutationProjectionFailedAttemptMutations(t *testing.T) {
 	}{
 		{"job correction", "concord_work_transition", "workflow_action", map[string]any{
 			"action_id": "record_worker_job", "fields": map[string]any{"job_id": job.JobID, "objective": "Correct the failed job without losing its failure context.", "stopping_condition": job.StoppingCondition,
-				"ready": false, "checks": job.Checks, "path_scope": job.PathScope, "acceptance_oracle": job.AcceptanceOracle},
+				"ready": true, "checks": job.Checks, "path_scope": job.PathScope, "acceptance_oracle": job.AcceptanceOracle,
+				"readiness_evidence": job.AcceptanceOracle.Controls[0].ReadinessEvidenceRefs},
 		}},
 		{"message", "concord_work_relate", "message_send", map[string]any{"recipient_work_id": "work-projection-recipient", "body": "The failed job needs its recorded correction."}},
 	} {

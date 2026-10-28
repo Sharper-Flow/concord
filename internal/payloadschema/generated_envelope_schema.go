@@ -2612,7 +2612,11 @@ const GeneratedEnvelopeSchemaDocument = `{
               "recovery_action": {
                 "properties": {
                   "kind": {
-                    "const": "reduce_limit"
+                    "enum": [
+                      "reduce_limit",
+                      "contact_operator"
+                    ],
+                    "type": "string"
                   }
                 }
               }

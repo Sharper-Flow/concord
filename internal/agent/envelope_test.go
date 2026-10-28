@@ -122,7 +122,7 @@ func TestMutationResultProducerRejectsMalformedAndOverBudgetResults(t *testing.T
 		base.EvidenceRefs[i] = agentcontract.EvidenceRef{Kind: "artifact", Authority: "test", LocatorKind: "file", Locator: strings.Repeat("x", 2048)}
 	}
 	hardLimited := r.mutationResult(base, mutationPayload(nil, nil), nil, nil)
-	if hardLimited.Outcome != agentcontract.OutcomeError || hardLimited.Error == nil || hardLimited.Error.Kind != "limit_exceeded" {
+	if hardLimited.Outcome != agentcontract.OutcomeError || hardLimited.Error == nil || hardLimited.Error.Kind != "limit_exceeded" || hardLimited.Error.RecoveryAction.Kind != "contact_operator" {
 		t.Fatalf("hard-limited result=%+v", hardLimited)
 	}
 	encoded, err := hardLimited.Encode()

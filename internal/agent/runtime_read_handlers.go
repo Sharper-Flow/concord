@@ -120,7 +120,7 @@ func (r runtime) readWorkList(ctx context.Context, base agentcontract.Envelope, 
 	}
 	if len(inner) > 0 && inner[0] == '{' {
 		var cursor workListProjectionCursor
-		if in.Detail != "full" || decodeOperationInput([]byte(inner), &cursor) != nil || cursor.Version != 1 || !validSHA256Proof(cursor.Digest) || cursor.NextByteOffset < 1 {
+		if in.Detail != "full" || decodeOperationInput([]byte(inner), &cursor) != nil || cursor.Version != 1 || !agentcontract.ValidSHA256Proof(cursor.Digest) || cursor.NextByteOffset < 1 {
 			return coreError(base, "invalid_cursor", "work-list projection cursor is malformed", "restart_query", false), nil
 		}
 		q, err := r.Store.QueryQ3(ctx, request(cursor.ListCursor, 1))

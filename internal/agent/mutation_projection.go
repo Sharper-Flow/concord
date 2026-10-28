@@ -96,7 +96,7 @@ func (r runtime) projectMutationResult(base agentcontract.Envelope, payload json
 		return coreError(base, "malformed_response", err.Error(), "contact_operator", false)
 	}
 	if size > agentcontract.MaxResultEnvelopeBytes {
-		return coreError(base, "limit_exceeded", fmt.Sprintf("mutation reference envelope exceeds %d bytes", agentcontract.MaxResultEnvelopeBytes), "reduce_limit", false)
+		return coreError(base, "limit_exceeded", fmt.Sprintf("mutation reference envelope exceeds %d bytes; contact the operator for producer repair", agentcontract.MaxResultEnvelopeBytes), "contact_operator", false)
 	}
 	return response
 }
@@ -152,11 +152,7 @@ func (r runtime) readMutationResult(ctx context.Context, base agentcontract.Enve
 		return coreError(base, "operation_conflict", err.Error(), "reconcile_operation", false), nil
 	}
 	resolved := snapshot.ResolvedScope
-	scopeEnvelope := base
-	scopeEnvelope.Outcome = agentcontract.OutcomeOK
-	scopeEnvelope.Result = json.RawMessage(`{}`)
-	scopeEnvelope.ResolvedScope = resolved
-	if resolved == nil || scopeEnvelope.Validate() != nil || resolved.ProductID == "" || len(resolved.ProjectIDs) == 0 {
+	if resolved == nil || agentcontract.ValidateScope(resolved) != nil || resolved.ProductID == "" || len(resolved.ProjectIDs) == 0 {
 		return coreError(base, "operation_conflict", "retained mutation result has no complete scope snapshot", "reconcile_operation", false), nil
 	}
 	if resolved.ProductID != r.Envelope.SelectedProductID || !slices.Contains(resolved.ProjectIDs, r.Envelope.AmbientProjectID) || !scopeWithinAuthority(map[string]any{"product_id": resolved.ProductID, "project_ids": resolved.ProjectIDs}, r.Reader) {
@@ -235,7 +231,7 @@ func (r runtime) readMutationResult(ctx context.Context, base agentcontract.Enve
 		return base, err
 	}
 	if length == 0 {
-		return base, errors.New("mutation result fragment frame exceeds the envelope cap")
+		return coreError(base, "limit_exceeded", "mutation result fragment frame exceeds the envelope cap; contact the operator for producer repair", "contact_operator", false), nil
 	}
 	response, _, err := render(length)
 	return response, err

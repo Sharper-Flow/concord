@@ -926,8 +926,9 @@ Use existing findings and remaining obligations for an unresolved conflict or
 missing rule, size or evidence; never guess a settlement or size. An instruction,
 resolving anchor or green structural test alone does not prove a rule was applied.
 
-Check that sequencing holds only the shared-Domain step, not unrelated work;
-that a boundary change follows its applicable architecture and law decision;
+Check the recorded shared step and waiting change; a whole-change hold covers only
+the shared-step window and has recorded release, while other changes remain unheld.
+Check that a boundary change follows its applicable architecture and law decision;
 and that a variant repairs or parameterizes its shared owner rather than copying
 it. Check the actual first-one-off follow-up and second-occurrence reuse where
 required. For rule-created follow-ups, check the Linear rule label, raising-change

@@ -4,8 +4,8 @@
 > CD-0222, and CD-0230. Those accepted decisions are binding; this
 > companion explains them.
 > **Purpose:** How Concord makes pruned, architecture-bound specifications its
-> primary Product deliverable while preserving operator legislative authority
-> over serious changes and preventing silent scope cuts or contradictory
+> primary Product deliverable while applying the six operator approval classes
+> and preventing silent scope cuts or contradictory
 > concurrent work.
 > **Origin:** User direction, 2026-07-25.
 
@@ -17,13 +17,14 @@ requirements remain required.
 ## TL;DR
 
 Specs are Product law, organized through one canonical Domain architecture. When
-a **user's request** challenges existing law, Concord surfaces the conflict and
-lets the user choose: *clarify intent*, *evolve the spec*, or *consciously accept
-scope reduction*. Agents never silently cut scope. Concurrent Product-changing
+a **user's request** challenges existing law, Concord identifies and records the
+conflict. An agent evolves law within its scope and records why; it asks the
+operator only when an approval class applies or information needed to decide is
+missing. Agents never silently cut scope. Concurrent Product-changing
 work also declares its Domain footprint and exact law revisions, so two cleanly
 merging changes cannot silently enact contradictory Product truth. **The
-operator legislates serious changes; an agent works non-serious law and
-records why ([CD-0230](./decisions/CD-0230-the-conflict-rules-are-one-checked-table-and-an-agent-changes-law-that-is-not-serious.md) D4).**
+approval boundary follows the six classes, not seriousness, size, or Domain
+count ([CD-0243](decisions/CD-0243-four-roles-and-six-operator-approval-classes.md) D2-D4).**
 
 ---
 
@@ -32,13 +33,13 @@ records why ([CD-0230](./decisions/CD-0230-the-conflict-rules-are-one-checked-ta
 ADV today: specs are laws; `adv_change_validate` detects conflicts; agents are
 pushed back. But when a user request implies behavior that conflicts with a spec,
 agents too often **silently cut scope** during research / design / prep — *"this
-goes against spec law X, so I'll drop that part"* — instead of pausing to ask the
-user whether they want to evolve the law. The user discovers the scope reduction
+goes against spec law X, so I'll drop that part"* — instead of explicitly
+resolving the conflict. The user discovers the scope reduction
 **late**, after the agent already complied.
 
-**Root cause:** the conflict is treated as *"agent must comply"* rather than
-*"user must decide whether to evolve the law."* The legislator (the user) is
-bypassed.
+The conflict needs an explicit resolution, not an unrecorded scope cut. The
+approval boundary determines whether that resolution belongs to the operator
+or the agent.
 
 ---
 
@@ -46,14 +47,15 @@ bypassed.
 
 - **Specs are laws:** agents respect them; drift is prevented. (ADV strength —
   unchanged.)
-- **Law-change authority is split by seriousness:** a serious law change needs
-  the operator's approval of its exact text, and at crucial size every law
-  change does; an agent changes non-serious law and records why
-  ([CD-0230](./decisions/CD-0230-the-conflict-rules-are-one-checked-table-and-an-agent-changes-law-that-is-not-serious.md) D4). Agents *propose* serious
-  evolution; they do **not** unilaterally enact it, and they do **not**
-  unilaterally cut scope to avoid it.
-- **A conflict between user intent and a spec law is a *legislative* moment, not a
-  *compliance* moment.** It surfaces to the user.
+- **Law changes use the six approval classes:** operator approval is required
+  only under CD-0243 D2. Seriousness, size, and Domain count are not independent
+  triggers. Outside those classes, the agent changes law within scope and records
+  why. A revision enacted without operator approval has the `derived` authority
+  tier, including when the prior revision was operator-approved
+  ([CD-0230](./decisions/CD-0230-the-conflict-rules-are-one-checked-table-and-an-agent-changes-law-that-is-not-serious.md) D4).
+- **A law conflict requires an explicit resolution.** Ask the operator when a
+  class applies or needed information is missing; otherwise decide and record
+  the reason. Never silently cut governed scope to avoid the conflict.
 
 ---
 
@@ -63,8 +65,10 @@ When a user request (during research / design / prep) touches behavior governed 
 an existing spec law **and** the request implies conflict or stretch:
 
 1. **DETECT** — identify the specific spec law(s) challenged.
-2. **PAUSE** — the agent must **not** silently cut scope. It halts and surfaces.
-3. **PRESENT CHOICE** — the user gets explicit options (§4).
+2. **Classify** — apply CD-0243 D2-D4. A conflict alone does not require approval.
+3. **Resolve** — use §4. Ask only for an applicable approval class or missing
+   information; otherwise decide within scope and record why. Keep current tool
+   gates and admitted recovery routes (CD-0243 D6-D7).
 4. **RECORD** — whichever path is chosen, the decision is auditable (§5).
 
 This flow is a **required step**, not optional agent behavior.
@@ -76,7 +80,7 @@ This flow is a **required step**, not optional agent behavior.
 | Option | Meaning | When |
 |---|---|---|
 | **(a) Clarify intent** | The conflict may be a misunderstanding; disambiguate the request. No spec change. | The request is ambiguous or the agent misread the law's scope. |
-| **(b) Evolve the spec** | The user wants to change the law. The agent proposes a **spec delta** (modify / remove / rename via the existing delta tools) as part of the change. Evolution is first-class, not a workaround. | The request genuinely requires the law to change. |
+| **(b) Evolve the spec** | The agent records an explicit law delta and its reason. Operator approval follows the six classes; without it, the revision is `derived`. | The request genuinely requires the law to change. |
 | **(c) Consciously accept scope reduction** | The user agrees to cut scope to comply. Recorded explicitly as a user decision — never silent. | The user decides the law should stand and the scope cut is acceptable. |
 
 ---
@@ -88,7 +92,7 @@ Concord enforces **structurally**:
 
 - A check that detects when a change's scope was reduced relative to the user's
   request **and** a spec law governed the cut area → blocks unless the user
-  explicitly chose (c) or evolved the spec (b).
+  explicitly chose (c) or the law was explicitly evolved through (b).
 - The conflict-surfacing step is **required**, not advisory.
 - (Exact enforcement mechanism — gate hook, validator invariant, or structural
   block — is a design question; see §7.)
@@ -101,9 +105,9 @@ CD-0006 fixes the workflow policy:
 - group requirements that share one root conflict while keeping unrelated conflicts
   separate;
 - present one planning checkpoint, then ask the human one decision at a time;
-- let agents explain and draft, require the operator's approval for serious law
-  changes and governed scope reductions, and record every non-serious law
-  change an agent works ([CD-0230](./decisions/CD-0230-the-conflict-rules-are-one-checked-table-and-an-agent-changes-law-that-is-not-serious.md) D4);
+- apply the six approval classes to law changes, record the reason for agent-owned
+  amendments, and retain operator approval for governed scope reductions
+  ([CD-0230](./decisions/CD-0230-the-conflict-rules-are-one-checked-table-and-an-agent-changes-law-that-is-not-serious.md) D4; CD-0243 D2-D7);
 - route newly discovered execution conflicts back to planning; and
 - block completion while any law conflict remains unresolved.
 
@@ -140,8 +144,8 @@ CD-0222 makes Product law architecture-bound and primary:
   and verification obligations;
 - overlapping affected Domains require a version-pinned resolution before both
   items hold execution authority; dependency, blocking, and compatibility answers
-  are routine under CD-0013 D11, while merger and supersession retain exact
-  operator approval;
+  are routine under CD-0013 D11, while merger and supersession require operator
+  approval only under CD-0243 D2-D7;
 - changing either work contract invalidates its prior overlap resolution; and
 - the checks rerun transactionally at every authoritative consequential action.
 
@@ -171,7 +175,7 @@ shows the legislative moments explicitly.
 |---|---|
 | Change validation detected spec conflicts | **Preserved as an outcome, redesigned structurally** through Git-derived law checks and typed refusals. |
 | Spec deltas modified or superseded accepted law | **Preserved as an outcome** through Git law deltas and revision identity, with approval following CD-0243 D2 and D4. |
-| Agreement/design checkpoints surfaced legislative choices | **Preserved as human authority** without requiring one universal workflow shape. |
+| Agreement/design checkpoints surfaced legislative choices | **Preserved as explicit decisions** with operator consent only under the six classes, without requiring one universal workflow shape. |
 | Cross-change architecture overlap was not authoritative | **Added by CD-0222** through Domain-bound contracts and version-pinned resolutions. |
 
 Concord does not call, mirror, or dual-write predecessor runtime state. These rows

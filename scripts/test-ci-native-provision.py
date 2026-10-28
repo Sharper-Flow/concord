@@ -356,7 +356,7 @@ class ProvisionTests(unittest.TestCase):
 
     def test_parser_runtime_uses_readelf_not_execution_and_refuses_unknown_linkage(self):
         for bad in (None, "foreign first", "foreign last", "dependency", "RPATH", "RUNPATH", "AUDIT", "DEPAUDIT", "FILTER", "AUXILIARY", "interpreter", "machine", "resolution",
-                    "foreign only", "unknown ABI", "hwcap", "hwcap only", "outside", "nested", "library class", "library machine", "preload"):
+                    "foreign only", "unknown ABI", "hwcap", "hwcap only", "outside", "nested", "renamed", "library class", "library machine", "preload"):
             def command(args, **kwargs):
                 if args == ["/usr/sbin/ldconfig", "-p"]:
                     native = "\tlibc.so.6 (libc6,x86-64) => /lib/x86_64-linux-gnu/libc.so.6\n"
@@ -369,6 +369,7 @@ class ProvisionTests(unittest.TestCase):
                         "hwcap only": '\tlibc.so.6 (libc6,x86-64, hwcap: "x86-64-v3") => /lib/x86_64-linux-gnu/glibc-hwcaps/x86-64-v3/libc.so.6\n',
                         "outside": native.replace("/lib/x86_64-linux-gnu/", "/opt/runtime/"),
                         "nested": native.replace("/libc.so.6", "/alternate/libc.so.6"),
+                        "renamed": native.replace("=> /lib/x86_64-linux-gnu/libc.so.6", "=> /lib/x86_64-linux-gnu/libc-alternate.so.6"),
                     }
                     return variants.get(bad, native) + "\tld-linux-x86-64.so.2 (libc6,x86-64) => /lib/x86_64-linux-gnu/ld-linux-x86-64.so.2\n"
                 self.assertEqual(args[0], "readelf")

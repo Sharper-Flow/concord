@@ -237,6 +237,20 @@ an assessment of the delivery's size. Carrier tests do not prove those judgments
 The delivery's recorded independent review supplies the application evidence;
 the method adds no runtime gate or ad-hoc-route enforcement.
 
+P7, P9 and P11 use D2's recorded-review method.
+`internal/store.TestReviewCompletionRetainsAppliedRuleContextClaims` also retains
+P7/P9/P11 claims; the same source-binding controls protect their inputs.
+`scripts/testdata/conflict-review-parts-cases.md` supplies first- and
+second-occurrence, prose-versus-tool, shared-part repair, follow-up sizing and
+operator-request cases for independent application of the existing method.
+Review judges occurrence from recorded source and planning evidence, not the
+author's claim; a missing search or size assessment leaves the outcome unproved.
+Carrier tests do not prove those judgments; the delivery's recorded independent
+review supplies the application evidence.
+No repetition counter, part registry or automatic tool builder is added. The
+follow-up item's rule label, raising-change link enforcement and saved view
+remain D6's open duty below.
+
 D3's live recorder retains readable current settlement evidence.
 `internal/agent.TestConflictObservationHistoryRoundTrip` records then reads
 the full rule, effective size and outcome through the existing history read,
@@ -259,7 +273,6 @@ pointer, not the remaining enforcement and proof assigned below:
 |---|---|
 | D3's letter-versus-intent conflict | [CON-1097](https://linear.app/sharper-flow/issue/CON-1097). The law-side review cases exercise raised and silently applied conflicts. They do not prove that agents raise a conflict they never report. |
 | R2, P4, P6, A2 rows 2 and 4 | [CON-1098](https://linear.app/sharper-flow/issue/CON-1098). `internal/agent.TestResolveOverlapDependsOnRecordsDirectedSequencingWithoutConsent` proves directed work-item sequencing, not selection of the shared-Domain step or release when the other change completes it. Shared stages do not by themselves prove boundary-change or shared-part-variant handling. |
-| P7, P9, P11 | [CON-1099](https://linear.app/sharper-flow/issue/CON-1099). Shared parts alone do not prove second-occurrence handling, in-place part repair, or the rule's follow-up outcome. |
 | D4 and D5; CD-0243 runtime alignment | [CON-1100](https://linear.app/sharper-flow/issue/CON-1100). Recorded review does not establish prevention of external data loss, automatic six-class inference, or enforcement on the ad-hoc route. Contract-time consent and worktree waivers do not establish informed approval of a specific loss. Classifications, carrier tests and the selected synthetic reviews do not prove whole-record runtime alignment. |
 | U, A2 row 7 | [CON-1343](https://linear.app/sharper-flow/issue/CON-1343). Contract-time `ui_ux` consent does not prove approval of a development preview of the final candidate, or renewed approval of a changed experience, as CD-0242 D9 requires. |
 | R1, A2 rows 1, 5 and 6; D6 | [CON-1101](https://linear.app/sharper-flow/issue/CON-1101). Naming follow-up labels in the table does not enforce labels, raising-change links, the Linear view, or closure tracking. CD-0242 D5 and D9 own repairing review and final-candidate proof, not old size-specific review counts. |

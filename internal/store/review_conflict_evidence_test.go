@@ -80,7 +80,7 @@ func TestReviewCompletionRetainsAppliedRuleContextClaims(t *testing.T) {
 		t.Fatalf("dispatch lost review producer attribution: %+v", dispatched)
 	}
 	claims := []WorkerContextFinding{}
-	for _, rule := range []string{"S", "P10", "A2-9", "P8", "P1", "P2", "P3"} {
+	for _, rule := range []string{"S", "P10", "A2-9", "P8", "P1", "P2", "P3", "P7", "P9", "P11"} {
 		claims = append(claims, WorkerContextFinding{
 			Kind: "observation", Statement: "conflict-rule:" + rule + ": synthetic carrier witness only; compliance remains unproved without the recorded size and rule-specific source evidence.",
 			SubjectRef: subject, EvidenceRefs: []string{dispatch.EventID, anchor.FindingID}, DomainID: workContextTestChild,

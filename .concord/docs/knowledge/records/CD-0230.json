@@ -42,7 +42,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:5198e85215c574db96f99f37faa30f946d60963e40fadaeca1de55361edd6152",
+  "sha256": "sha256:a5c9ac1b71ddc58edead43bb0876b7f01a913d6481ce99d14710a7697dd41369",
   "status": "accepted",
   "summary": "One validated contract table holds every goals Appendix A rule with its enforcing mechanism or a listed gap, and applying a rule leaves a record. Law changes and operator consent follow CD-0243's six classes; changes to the approval boundary require exact-text operator approval. Seriousness, Domain count, crucial size, and a missing classification do not independently require approval. The RTE coordinates dependencies, and operator decisions go directly to the operator. Operator-free law revisions remain derived. Recovery and permanent loss follow CD-0243 D5. Follow-up items carry a rule label in Linear; six-class runtime alignment remains an implementation obligation.",
   "tags": [

@@ -2,6 +2,7 @@ package agent
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"strconv"
@@ -55,6 +56,7 @@ func TestEnvelopeGoldenOutcomes(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+			t.Logf("wire_sha256=%x", sha256.Sum256(encoded))
 			decoded, err := decodeEnvelopeForTest(encoded)
 			if err != nil {
 				t.Fatal(err)

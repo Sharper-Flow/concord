@@ -65,184 +65,135 @@ func validateMembershipPayload(payload membershipPayload, subjectField, subjectI
 	return nil
 }
 
-func foldProductProjectAdded(ctx context.Context, tx *sql.Tx, event Event) error {
-	if err := checkSubject(event, SubjectProduct); err != nil {
-		return err
-	}
-	var payload membershipPayload
-	if err := decodePayload(event, &payload); err != nil {
-		return err
-	}
-	if err := validateMembershipPayload(payload, "product_id", event.SubjectID); err != nil {
-		return err
-	}
-	if err := insertProductProject(ctx, tx, payload); err != nil {
-		return err
-	}
-	return bumpVersion(ctx, tx, "products", event, payload.ExpectedVersion, payload.ResultingVersion, "Product")
+// membershipEdge is one subject's Project membership projection: the
+// Product–Project edge or the work–Project edge. The added, removed and
+// role-changed folds share every step and differ only in these values.
+type membershipEdge struct {
+	subject        SubjectType
+	label          string // names the membership in refusal messages
+	table          string // the edge table
+	idColumn       string // the edge table's subject column and payload field
+	versionTable   string // the subject table whose version each fold bumps
+	versionLabel   string // names the subject in version refusals
+	roleChangeKind string // the event kind that promotes a Project
+	endpointRemedy string // the remedy when an edge endpoint does not exist
 }
 
-func foldProductProjectRemoved(ctx context.Context, tx *sql.Tx, event Event) error {
-	if err := checkSubject(event, SubjectProduct); err != nil {
-		return err
+var (
+	productMembershipEdge = membershipEdge{
+		subject: SubjectProduct, label: "Product", table: "product_projects", idColumn: "product_id",
+		versionTable: "products", versionLabel: "Product", roleChangeKind: "product_project.role_changed",
+		endpointRemedy: "create both endpoints before adding membership",
 	}
+	workMembershipEdge = membershipEdge{
+		subject: SubjectWorkItem, label: "work", table: "work_projects", idColumn: "work_id",
+		versionTable: "work_items", versionLabel: "work item", roleChangeKind: "work_project.role_changed",
+		endpointRemedy: "create the work and Project before adding membership",
+	}
+)
+
+// payload decodes and validates one membership event for this edge and
+// returns it with the edge's subject ID.
+func (edge membershipEdge) payload(event Event) (membershipPayload, string, error) {
 	var payload membershipPayload
+	if err := checkSubject(event, edge.subject); err != nil {
+		return payload, "", err
+	}
 	if err := decodePayload(event, &payload); err != nil {
-		return err
+		return payload, "", err
 	}
-	if err := validateMembershipPayload(payload, "product_id", event.SubjectID); err != nil {
-		return err
+	if err := validateMembershipPayload(payload, edge.idColumn, event.SubjectID); err != nil {
+		return payload, "", err
 	}
-	result, err := tx.ExecContext(ctx, `DELETE FROM product_projects WHERE product_id = ? AND project_id = ? AND role = ?`,
-		payload.ProductID, payload.ProjectID, payload.Role)
+	return payload, event.SubjectID, nil
+}
+
+func (edge membershipEdge) bumpVersion(ctx context.Context, tx *sql.Tx, event Event, payload membershipPayload) error {
+	return bumpVersion(ctx, tx, edge.versionTable, event, payload.ExpectedVersion, payload.ResultingVersion, edge.versionLabel)
+}
+
+// foldAdded folds product_project.added or work_project.added.
+func (edge membershipEdge) foldAdded(ctx context.Context, tx *sql.Tx, event Event) error {
+	payload, subjectID, err := edge.payload(event)
 	if err != nil {
-		return wrapFailure(KindUnavailable, "fold_event", "cannot remove Product membership", true,
+		return err
+	}
+	_, err = tx.ExecContext(ctx, `INSERT INTO `+edge.table+`(`+edge.idColumn+`, project_id, role) VALUES (?, ?, ?)`, //nolint:gosec // table and idColumn come from the two closed membershipEdge values and all values stay parameter-bound.
+		subjectID, payload.ProjectID, payload.Role)
+	switch {
+	case err == nil:
+	case sqlitedb.IsUniqueViolation(err):
+		return newFailure(KindMembershipConflict, "fold_event", edge.label+" membership already exists or another primary is present", false,
+			"remove the duplicate or use "+edge.roleChangeKind+" to promote a Project")
+	case sqlitedb.IsForeignKeyViolation(err):
+		return newFailure(KindProjectionNotFound, "fold_event", edge.label+" or Project membership endpoint does not exist", false,
+			edge.endpointRemedy)
+	default:
+		return wrapFailure(KindUnavailable, "fold_event", "cannot add "+edge.label+" membership", true,
 			"retry once the database is writable", err)
 	}
-	if affected, err := result.RowsAffected(); err != nil {
-		return wrapFailure(KindUnavailable, "fold_event", "cannot verify Product membership removal", true,
-			"retry once the database is readable", err)
-	} else if affected == 0 {
-		return newFailure(KindMembershipConflict, "fold_event", "Product membership does not exist with that role", false,
-			"reload the Product memberships and remove the stored role")
-	}
-	return bumpVersion(ctx, tx, "products", event, payload.ExpectedVersion, payload.ResultingVersion, "Product")
+	return edge.bumpVersion(ctx, tx, event, payload)
 }
 
-func foldProductProjectRoleChanged(ctx context.Context, tx *sql.Tx, event Event) error {
-	return foldProjectRoleChanged(ctx, tx, event, SubjectProduct, "Product", "product_projects", "product_id", "products", "Product", func(payload membershipPayload) string { return payload.ProductID })
-}
-
-// foldProjectRoleChanged folds one product.project_role_changed or
-// work.project_role_changed event. The two subjects share the whole fold:
-// read the old role, refuse a no-op, demote the existing primary when the
-// new role is primary, apply the change, and bump the subject's version.
-// label names the subject in every refusal message; table, idColumn, and the
-// id selector carry the subject's own projection.
-func foldProjectRoleChanged(ctx context.Context, tx *sql.Tx, event Event, subject SubjectType, label, table, idColumn, versionTable, versionLabel string, id func(membershipPayload) string) error {
-	if err := checkSubject(event, subject); err != nil {
-		return err
-	}
-	var payload membershipPayload
-	if err := decodePayload(event, &payload); err != nil {
-		return err
-	}
-	if err := validateMembershipPayload(payload, idColumn, event.SubjectID); err != nil {
-		return err
-	}
-	subjectID := id(payload)
-	var oldRole string
-	if err := tx.QueryRowContext(ctx, `SELECT role FROM `+table+` WHERE `+idColumn+` = ? AND project_id = ?`,
-		subjectID, payload.ProjectID).Scan(&oldRole); err == sql.ErrNoRows { //nolint:gosec // the two call sites select table and idColumn from closed literals and all values stay parameter-bound.
-		return newFailure(KindMembershipConflict, "fold_event", label+" membership does not exist", false,
-			"add the membership before changing its role")
-	} else if err != nil {
-		return wrapFailure(KindUnavailable, "fold_event", "cannot read "+label+" membership", true,
-			"retry once the database is readable", err)
-	}
-	if oldRole == payload.Role {
-		return newFailure(KindMembershipConflict, "fold_event", label+" membership already has that role", false,
-			"request a different role")
-	}
-	if payload.Role == "primary" {
-		if _, err := tx.ExecContext(ctx, `UPDATE `+table+` SET role = 'secondary' WHERE `+idColumn+` = ? AND role = 'primary' AND project_id <> ?`, //nolint:gosec // the two call sites select table and idColumn from closed literals and all values stay parameter-bound.
-			subjectID, payload.ProjectID); err != nil {
-			return wrapFailure(KindUnavailable, "fold_event", "cannot demote the existing "+label+" primary", true,
-				"retry once the database is writable", err)
-		}
-	}
-	if _, err := tx.ExecContext(ctx, `UPDATE `+table+` SET role = ? WHERE `+idColumn+` = ? AND project_id = ?`, //nolint:gosec // the two call sites select table and idColumn from closed literals and all values stay parameter-bound.
-		payload.Role, subjectID, payload.ProjectID); err != nil {
-		return wrapFailure(KindUnavailable, "fold_event", "cannot change "+label+" membership role", true,
-			"retry once the database is writable", err)
-	}
-	return bumpVersion(ctx, tx, versionTable, event, payload.ExpectedVersion, payload.ResultingVersion, versionLabel)
-}
-
-func foldWorkProjectAdded(ctx context.Context, tx *sql.Tx, event Event) error {
-	if err := checkSubject(event, SubjectWorkItem); err != nil {
-		return err
-	}
-	var payload membershipPayload
-	if err := decodePayload(event, &payload); err != nil {
-		return err
-	}
-	if err := validateMembershipPayload(payload, "work_id", event.SubjectID); err != nil {
-		return err
-	}
-	if err := insertWorkProject(ctx, tx, payload); err != nil {
-		return err
-	}
-	return bumpVersion(ctx, tx, "work_items", event, payload.ExpectedVersion, payload.ResultingVersion, "work item")
-}
-
-func foldWorkProjectRemoved(ctx context.Context, tx *sql.Tx, event Event) error {
-	if err := checkSubject(event, SubjectWorkItem); err != nil {
-		return err
-	}
-	var payload membershipPayload
-	if err := decodePayload(event, &payload); err != nil {
-		return err
-	}
-	if err := validateMembershipPayload(payload, "work_id", event.SubjectID); err != nil {
-		return err
-	}
-	result, err := tx.ExecContext(ctx, `DELETE FROM work_projects WHERE work_id = ? AND project_id = ? AND role = ?`,
-		payload.WorkID, payload.ProjectID, payload.Role)
+// foldRemoved folds product_project.removed or work_project.removed.
+func (edge membershipEdge) foldRemoved(ctx context.Context, tx *sql.Tx, event Event) error {
+	payload, subjectID, err := edge.payload(event)
 	if err != nil {
-		return wrapFailure(KindUnavailable, "fold_event", "cannot remove work membership", true,
+		return err
+	}
+	result, err := tx.ExecContext(ctx, `DELETE FROM `+edge.table+` WHERE `+edge.idColumn+` = ? AND project_id = ? AND role = ?`, //nolint:gosec // table and idColumn come from the two closed membershipEdge values and all values stay parameter-bound.
+		subjectID, payload.ProjectID, payload.Role)
+	if err != nil {
+		return wrapFailure(KindUnavailable, "fold_event", "cannot remove "+edge.label+" membership", true,
 			"retry once the database is writable", err)
 	}
 	affected, err := result.RowsAffected()
 	if err != nil {
-		return wrapFailure(KindUnavailable, "fold_event", "cannot verify work membership removal", true,
+		return wrapFailure(KindUnavailable, "fold_event", "cannot verify "+edge.label+" membership removal", true,
 			"retry once the database is readable", err)
 	}
 	if affected == 0 {
-		return newFailure(KindMembershipConflict, "fold_event", "work membership does not exist with that role", false,
-			"reload the work memberships and remove the stored role")
+		return newFailure(KindMembershipConflict, "fold_event", edge.label+" membership does not exist with that role", false,
+			"reload the "+edge.label+" memberships and remove the stored role")
 	}
-	return bumpVersion(ctx, tx, "work_items", event, payload.ExpectedVersion, payload.ResultingVersion, "work item")
+	return edge.bumpVersion(ctx, tx, event, payload)
 }
 
-func foldWorkProjectRoleChanged(ctx context.Context, tx *sql.Tx, event Event) error {
-	return foldProjectRoleChanged(ctx, tx, event, SubjectWorkItem, "work", "work_projects", "work_id", "work_items", "work item", func(payload membershipPayload) string { return payload.WorkID })
-}
-
-func insertProductProject(ctx context.Context, tx *sql.Tx, payload membershipPayload) error {
-	_, err := tx.ExecContext(ctx, `INSERT INTO product_projects(product_id, project_id, role) VALUES (?, ?, ?)`,
-		payload.ProductID, payload.ProjectID, payload.Role)
-	if err == nil {
-		return nil
+// foldRoleChanged folds product_project.role_changed or
+// work_project.role_changed: read the old role, refuse a no-op, demote the
+// existing primary when the new role is primary, apply the change, and bump
+// the subject's version.
+func (edge membershipEdge) foldRoleChanged(ctx context.Context, tx *sql.Tx, event Event) error {
+	payload, subjectID, err := edge.payload(event)
+	if err != nil {
+		return err
 	}
-	if sqlitedb.IsUniqueViolation(err) {
-		return newFailure(KindMembershipConflict, "fold_event", "Product membership already exists or another primary is present", false,
-			"remove the duplicate or use product_project.role_changed to promote a Project")
+	var oldRole string
+	if err := tx.QueryRowContext(ctx, `SELECT role FROM `+edge.table+` WHERE `+edge.idColumn+` = ? AND project_id = ?`,
+		subjectID, payload.ProjectID).Scan(&oldRole); err == sql.ErrNoRows { //nolint:gosec // table and idColumn come from the two closed membershipEdge values and all values stay parameter-bound.
+		return newFailure(KindMembershipConflict, "fold_event", edge.label+" membership does not exist", false,
+			"add the membership before changing its role")
+	} else if err != nil {
+		return wrapFailure(KindUnavailable, "fold_event", "cannot read "+edge.label+" membership", true,
+			"retry once the database is readable", err)
 	}
-	if sqlitedb.IsForeignKeyViolation(err) {
-		return newFailure(KindProjectionNotFound, "fold_event", "Product or Project membership endpoint does not exist", false,
-			"create both endpoints before adding membership")
+	if oldRole == payload.Role {
+		return newFailure(KindMembershipConflict, "fold_event", edge.label+" membership already has that role", false,
+			"request a different role")
 	}
-	return wrapFailure(KindUnavailable, "fold_event", "cannot add Product membership", true,
-		"retry once the database is writable", err)
-}
-
-func insertWorkProject(ctx context.Context, tx *sql.Tx, payload membershipPayload) error {
-	_, err := tx.ExecContext(ctx, `INSERT INTO work_projects(work_id, project_id, role) VALUES (?, ?, ?)`,
-		payload.WorkID, payload.ProjectID, payload.Role)
-	if err == nil {
-		return nil
+	if payload.Role == "primary" {
+		if _, err := tx.ExecContext(ctx, `UPDATE `+edge.table+` SET role = 'secondary' WHERE `+edge.idColumn+` = ? AND role = 'primary' AND project_id <> ?`, //nolint:gosec // table and idColumn come from the two closed membershipEdge values and all values stay parameter-bound.
+			subjectID, payload.ProjectID); err != nil {
+			return wrapFailure(KindUnavailable, "fold_event", "cannot demote the existing "+edge.label+" primary", true,
+				"retry once the database is writable", err)
+		}
 	}
-	if sqlitedb.IsUniqueViolation(err) {
-		return newFailure(KindMembershipConflict, "fold_event", "work membership already exists or another primary is present", false,
-			"remove the duplicate or use work_project.role_changed to promote a Project")
+	if _, err := tx.ExecContext(ctx, `UPDATE `+edge.table+` SET role = ? WHERE `+edge.idColumn+` = ? AND project_id = ?`, //nolint:gosec // table and idColumn come from the two closed membershipEdge values and all values stay parameter-bound.
+		payload.Role, subjectID, payload.ProjectID); err != nil {
+		return wrapFailure(KindUnavailable, "fold_event", "cannot change "+edge.label+" membership role", true,
+			"retry once the database is writable", err)
 	}
-	if sqlitedb.IsForeignKeyViolation(err) {
-		return newFailure(KindProjectionNotFound, "fold_event", "work or Project membership endpoint does not exist", false,
-			"create the work and Project before adding membership")
-	}
-	return wrapFailure(KindUnavailable, "fold_event", "cannot add work membership", true,
-		"retry once the database is writable", err)
+	return edge.bumpVersion(ctx, tx, event, payload)
 }
 
 func bumpVersion(ctx context.Context, tx *sql.Tx, table string, event Event, expected, resulting int64, label string) error {

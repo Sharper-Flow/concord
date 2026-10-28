@@ -326,6 +326,12 @@ class ProvisionTests(unittest.TestCase):
         with patch.object(os, "geteuid", return_value=1000), \
              patch.object(subprocess, "run", return_value=subprocess.CompletedProcess([], 0, '{}\n', '')):
             self.assertEqual(HELPER.compatibility_crash_metadata({"started_unix_seconds": 100, "finished_unix_seconds": 110})["records"], [{}])
+        for stdout, availability in (("-- No entries --\n", "captured"), ("-- No entries --\n{}\n", "unavailable"),
+                                     ("-- no entries --\n", "unavailable")):
+            with self.subTest(stdout=stdout), patch.object(os, "geteuid", return_value=1000), \
+                 patch.object(subprocess, "run", return_value=subprocess.CompletedProcess([], 0, stdout, "")):
+                metadata = HELPER.compatibility_crash_metadata({"started_unix_seconds": 100, "finished_unix_seconds": 110})
+                self.assertEqual((metadata["availability"], metadata["records"]), (availability, []))
 
     def test_compatibility_digest_is_published_only_after_nonroot_crash_qualification(self):
         script = (ROOT / "scripts/ci-provision-native-isolation.sh").read_text()

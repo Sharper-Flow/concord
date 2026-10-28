@@ -835,7 +835,9 @@ def compatibility_crash_metadata(report: dict) -> dict:
             env={"PATH": "/usr/bin:/bin", "LANG": "C.UTF-8"})
         if process.returncode != 0 or process.stderr:
             raise ValueError("journal access incomplete")
-        rows = [json.loads(line) for line in process.stdout.splitlines()]
+        lines = process.stdout.splitlines()
+        # systemd 255 prints this exact notice on stdout for an empty JSON result.
+        rows = [] if lines == ["-- No entries --"] else [json.loads(line) for line in lines]
         if not all(isinstance(row, dict) for row in rows):
             raise ValueError("invalid journal record")
         result["records"] = [{key: value for key, value in row.items()

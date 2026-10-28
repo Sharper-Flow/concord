@@ -2323,10 +2323,8 @@ for (const blockedVerb of ["worker-dispatch", "worker-complete"]) {
       packet = JSON.parse(taskArgs.prompt)
       const packetFailures: string[] = []
       if (!validateAgentLanePacket(packet, packetFailures)) throw new Error(`retained recovery packet failed the closed packet schema: ${packetFailures.join("; ")}`)
-      // The synthetic original completed report claims exactly the binding
-      // the authorized packet carries (CD-0205): the packet's schema version
-      // and its dispatched worker-job revision, never invented job metadata.
-      const report = { schema_version: packet.schema_version, readback_model: READBACK_MODEL, status: "completed", worker_job: reportWorkerJob(packet), evidence: lane.evidence_obligations.map((obligation, index) => ({ obligation, detail: `original ${obligation}`, ...(index === 0 ? { predicate_ids: [WORKFLOW_PREDICATE.predicate_id] } : {}) })) }
+      // Schema identity comes from the original packet, not a worker echo.
+      const report = { readback_model: READBACK_MODEL, status: "completed", worker_job: reportWorkerJob(packet), evidence: lane.evidence_obligations.map((obligation, index) => ({ obligation, detail: `original ${obligation}`, ...(index === 0 ? { predicate_ids: [WORKFLOW_PREDICATE.predicate_id] } : {}) })) }
       const output = { title: "task", output: taskResult(report), metadata: {} }
       await completeDispatchedWorker({ tool: TASK_TOOL_ID, sessionID: SESSION_ID, callID: "recovery-task-call", args: taskArgs }, output, { windows, credentials, runner, concordBinary: binary })
       const pending = JSON.parse(output.output.split("<concord_attempt>\n")[1].split("\n</concord_attempt>")[0])

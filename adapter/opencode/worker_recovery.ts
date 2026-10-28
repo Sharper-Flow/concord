@@ -1,4 +1,4 @@
-import { completeWorkerAttempt, readWorkerSessionBody, readExportSession, readExportOpeningPacket, resolveWorkerReportFromText, scanReportTexts, validateAgentLanePacket, type AgentResultEnvelope, type WorkerRecoveryContext } from "./dispatch"
+import { completeWorkerAttempt, readWorkerSessionBody, readExportSession, readExportOpeningPacket, resolveWorkerReportFromText, validateAgentLanePacket, type AgentResultEnvelope, type WorkerRecoveryContext } from "./dispatch"
 import { canonicalDirectory, dispatchWindows, serializeLanePacket } from "./dispatch-window"
 import { agentLanePacketSchema, laneForIdentity } from "./generated-agent-lanes"
 import { readTaskResult } from "./task-result"
@@ -59,19 +59,9 @@ export async function reconcileRetainedWorker(
   const opening = readExportOpeningPacket(childRead.body, task.sessionID, packet)
   const readback = readExportSession(childRead.body, task.sessionID)
   if (!opening.ok || !readback.ok || readback.metadata.readback_agent !== `concord-${lane.id}`) throw new Error("retained child opening or agent differs from its original dispatch")
-  // The retained report's own schema identity is recorded evidence: the
-  // era's builder stamped the dispatching packet's identity into the report
-  // text, so a report claiming a different revision is not the original
-  // report. Dispatch-owned relabeling stays the live path's behavior; the
-  // recorded path demands the claim match before any evidence can exist.
-  const scan = scanReportTexts([task.text], packet, readback.metadata.readback_model)
-  if (!scan.report) throw new Error(scan.malformed ?? "retained host Task carried no report")
-  const claimedReportVersion = scan.report.schema_version
-  if (typeof claimedReportVersion !== "string" || claimedReportVersion !== recordedPacketVersion) {
-    throw new Error(`retained report claims schema identity ${JSON.stringify(claimedReportVersion) ?? "none"}, but the recorded dispatch carried ${recordedPacketVersion}`)
-  }
   const report = resolveWorkerReportFromText(task.text, packet, readback.metadata.readback_model)
-  if ("detail" in report || report.report.status !== "completed") throw new Error("retained report is invalid or incomplete")
+  if ("detail" in report) throw new Error(`retained report is invalid or incomplete: ${report.detail}`)
+  if (report.report.status !== "completed") throw new Error("retained report is invalid or incomplete")
   if (typeof part.callID === "string") dispatchWindows().observeTerminalPart(recovery.coordinator_session, part.callID, part.id, part.state.input.prompt)
   // The existing completion path rechecks child opening, agent and model. Its
   // signed dispatch append also sends the packet to the Go canonical-digest

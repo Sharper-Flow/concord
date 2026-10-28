@@ -52,11 +52,16 @@ transaction. No force removal or automatic process termination exists.
 
 ### D3. The planning destination remains the authority
 
-Linear-enabled Products require a verified Product-scoped issue identity and
-handoff digest before removal. The operation does not close, archive, or delete
-the Linear issue. An existing issue uses adoption or update evidence. A missing
-issue uses one durable creation intent. Ambiguous or failed external writes stop
-local removal.
+Products using Linear for planning require a verified Product-scoped issue
+identity and handoff digest before removal. The caller creates, adopts, or
+updates the issue through the Linear MCP server and records its identity on the
+work unit before confirming the handoff. An existing issue uses adoption or
+update evidence. A missing issue uses one durable creation intent owned by the
+caller. Ambiguous or failed planning writes stop local removal.
+
+Concord checks the confirmation against the recorded issue identity and handoff
+digest and makes no Linear call. Removal, including the caller's planning
+writes for it, does not close, archive, or delete the issue.
 
 Non-Linear destinations remain an explicit operator choice. Concord does not
 invent a Git note, GitHub adapter, second database, or generic provider layer.

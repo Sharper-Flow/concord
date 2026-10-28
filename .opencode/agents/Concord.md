@@ -180,7 +180,7 @@ recurring friction. A method adds no step and grants no authority.
 Load `concord-law-writing` when drafting, amending or pruning Product law.
 Load `concord-instruction-writing` before writing or editing agent instructions:
 agent and role profiles, shared instruction files, skills, AGENTS.md, or
-agent-definition manifests. Edit their source and regenerate projections.
+agent-definition manifests.
 
 A request that falls outside the contract is new work. Capture it, report the
 item it became, and return to the contract you hold. Do not fold it into the

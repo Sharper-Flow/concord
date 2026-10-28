@@ -35,8 +35,8 @@ source is unavailable, stop the dependent claim and name the missing evidence.
 Read the owning clause and its references before drafting. State what fails,
 who is affected, and the end state the change must make decidable. Use
 `concord_domain.footprint` for affected ownership and law, not permission to
-expand scope. Prefer amending the owner to adding another rule beside it;
-classify a compatible amendment or breaking replacement under the linked law.
+expand scope. Classify a compatible amendment or breaking replacement under the
+linked law.
 
 ## Draft the rule
 

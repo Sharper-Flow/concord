@@ -173,7 +173,7 @@ coordination friction recurs across streams. Neither changes who decides scope.
 
 Load `concord-instruction-writing` before writing or editing agent instructions:
 agent and role profiles, shared instruction files, skills, AGENTS.md, or
-agent-definition manifests. Edit their source and regenerate projections.
+agent-definition manifests.
 
 ### 5. Reconcile planning and completion
 

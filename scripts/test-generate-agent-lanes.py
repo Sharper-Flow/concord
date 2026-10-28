@@ -363,6 +363,32 @@ class SubagentMethodProjectionTests(unittest.TestCase):
         self.assertIn("inputs.review_input.input_candidate", text)
         self.assertIn("inputs.review_input.dependencies", text)
 
+    def test_review_report_entry_shapes_follow_the_owning_schema(self):
+        manifest, _ = generator.load_manifest()
+        review = next(lane for lane in manifest["lanes"] if lane["id"] == "review")
+        changed = copy.deepcopy(REPORT_SCHEMA)
+        changed["$defs"]["review_block"]["properties"]["assessments"]["maxItems"] = 7
+        changed["$defs"]["review_block"]["properties"]["remaining_obligations"]["maxItems"] = 13
+        changed["$defs"]["review_obligation"]["properties"]["needed_proof"]["maxLength"] = 384
+        changed["$defs"]["review_obligation"]["properties"]["needed_proof"]["x-maxBytes"] = 384
+        changed["$defs"]["review_refs"]["maxItems"] = 11
+        for schema in (REPORT_SCHEMA, changed):
+            with self.subTest(schema=schema["$defs"]["review_refs"]["maxItems"]):
+                text = lane_projection(review, schema)
+                block = schema["$defs"]["review_block"]
+                for field in ("assessments", "remaining_obligations"):
+                    self.assertIn(f"review.{field}: {json.dumps(block['properties'][field], ensure_ascii=False)}.", text)
+                for name in ("review_assessment", "review_obligation", "review_refs"):
+                    self.assertIn(f"{name} shape: {json.dumps(schema['$defs'][name], ensure_ascii=False)}.", text)
+
+    def test_review_classifies_every_finding_on_an_oracle_bound_dispatch(self):
+        manifest, _ = generator.load_manifest()
+        review = next(lane for lane in manifest["lanes"] if lane["id"] == "review")
+        text = lane_projection(review)
+        self.assertIn("When `inputs.worker_job.acceptance_oracle` is present, every `review.findings` entry requires this object.", text)
+        self.assertNotIn("finding the oracle governs", text)
+        self.assertNotIn("oracle-governed finding", text)
+
 
 class LaneContentIdentityTests(unittest.TestCase):
     def test_generation_accepts_changed_content_without_a_counter_or_alias(self):

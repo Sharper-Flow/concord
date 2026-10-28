@@ -161,7 +161,6 @@ entry. When no producing route issued an immutable locator, report
 never a measured failure. Never author `subject_commit`: the dispatch owns that
 identity. Receipts from earlier subjects are regression baselines only: report
 current-subject evidence for current acceptance.
-Classify each finding the oracle governs with `review_finding.oracle`.
 
 ## Caller boundary
 
@@ -264,7 +263,8 @@ with one adapter is indirection. Tests should cross the interface callers use.
 
 For each defect, state the triggering input or state, impact, and exact source
 location. Distinguish proven defects, missing required evidence, and optional
-suggestions using the existing finding detail. For an oracle-governed finding,
+suggestions using the existing finding detail. When the report constraints
+require an oracle classification,
 use `review_finding.oracle.classification` and keep the detail consistent with
 it; do not invent report fields. Missing required evidence remains a gap, not a
 reason to invent a defect. Do not turn style preferences into defects or a
@@ -318,12 +318,17 @@ Report contract constraints:
 - oracle_receipt.recipe_source: the exact pinned harness identity the control declared (project_id, path, commit_oid at "#/$defs/oracle_recipe_source"); never the candidate's modified copy of the harness.
 - review: optional top-level object; type=object, additionalProperties=false, required=["disposition", "input_candidate", "output_candidate", "dependencies", "assessments", "findings", "remaining_obligations"].
 - review.disposition: enum=["continue", "correction_required", "revision_required", "ready_for_final_proof"]. Main accepts this exact report; it cannot rewrite the disposition. Report the input/output Project, commit and tree, judged dependency digests, criterion assessments with producer receipt references, explicit finding identities, scope/blocking/status and evidenced closures, and remaining obligations. A repair binds input B and clean output C. Proof on B does not prove C.
+- review.assessments: {"type": "array", "minItems": 0, "maxItems": 8, "items": {"$ref": "#/$defs/review_assessment"}}.
+- review_assessment shape: {"type": "object", "additionalProperties": false, "required": ["predicate_id", "assessment", "receipt_refs"], "properties": {"predicate_id": {"type": "string", "minLength": 11, "maxLength": 128, "pattern": "^predicate:[A-Za-z0-9][A-Za-z0-9._:-]*$"}, "assessment": {"enum": ["supported", "unproved", "mismatch"]}, "receipt_refs": {"$ref": "#/$defs/review_refs"}}}.
+- review_refs shape: {"type": "array", "minItems": 0, "maxItems": 32, "uniqueItems": true, "items": {"type": "string", "minLength": 2, "maxLength": 128, "x-maxBytes": 128, "pattern": "^\\S+$"}}.
+- review.remaining_obligations: {"type": "array", "minItems": 0, "maxItems": 32, "items": {"$ref": "#/$defs/review_obligation"}}.
+- review_obligation shape: {"type": "object", "additionalProperties": false, "required": ["obligation_id", "owner_ref", "subject_ref", "input_digest", "needed_proof"], "properties": {"obligation_id": {"type": "string", "minLength": 2, "maxLength": 128}, "owner_ref": {"type": "string", "minLength": 2, "maxLength": 128}, "subject_ref": {"type": "string", "minLength": 2, "maxLength": 128}, "input_digest": {"type": "string", "minLength": 71, "maxLength": 71, "pattern": "^sha256:[0-9a-f]{64}$"}, "needed_proof": {"type": "string", "minLength": 1, "maxLength": 512, "x-maxBytes": 512}}}.
 - review.findings: type=array, minItems=0, maxItems=64, items={"$ref": "#/$defs/review_finding"}.
 - review_finding shape: type=object, additionalProperties=false, required=["severity", "confidence", "detail", "finding_id", "in_scope", "blocking", "status", "evidence_refs", "closure_refs"].
 - review_finding.severity: enum=["P0", "P1", "P2", "P3"].
 - review_finding.confidence: enum=["low", "medium", "high"].
 - review_finding.detail: type=string, minLength=1, maxLength=512.
-- review_finding.oracle: optional object; type=object, additionalProperties=false, required=["classification"]. Tie a finding on an oracle-capable job to the oracle: `classification` is one of `delivery_blocker`, `uncovered_case`, `follow_up`, `oracle_defect`. A `delivery_blocker` or `uncovered_case` names the `owner_id` it blocks and the `predicate_ids` and/or `law_bindings` that govern it, with `case_ids`/`control_ids` and reproducible `evidence_refs`; a known control failure names that control. An `uncovered_case` additionally names the omitted `entry_point`. A `follow_up` stays outside the approved owner or contract and never becomes a repair criterion; an `oracle_defect` names the unsound harness evidence and blocks readiness, not a fabricated repair. `continues_finding_id` claims the same failure as an earlier ranked finding; `variant_of` marks a newly reproduced alternate entry path as a new identity beside its owner-family finding.
+- review_finding.oracle: optional object; type=object, additionalProperties=false, required=["classification"]. When `inputs.worker_job.acceptance_oracle` is present, every `review.findings` entry requires this object. `classification` is one of `delivery_blocker`, `uncovered_case`, `follow_up`, `oracle_defect`. A `delivery_blocker` or `uncovered_case` names the `owner_id` it blocks and the `predicate_ids` and/or `law_bindings` that govern it, with `case_ids`/`control_ids` and reproducible `evidence_refs`; a known control failure names that control. An `uncovered_case` additionally names the omitted `entry_point`. A `follow_up` stays outside the approved owner or contract and never becomes a repair criterion; an `oracle_defect` names the unsound harness evidence and blocks readiness, not a fabricated repair. `continues_finding_id` claims the same failure as an earlier ranked finding; `variant_of` marks a newly reproduced alternate entry path as a new identity beside its owner-family finding.
 - review.resolved_findings: optional array; type=array, minItems=0, maxItems=32, x-maxArrayBytes=8192. Claim the closure of a previously open ranked finding with its `finding_id` and the independent current-subject `evidence_refs` its control requires. A claim is a claim: omission, relabeling, or a confidence change never closes a finding. An array past the byte bound is refused whole: drop or split claims yourself, never truncate one to fit.
 - resolved_finding shape: type=object, additionalProperties=false, required=["finding_id", "evidence_refs"]; finding_id pattern="^finding:[0-9]+:[0-9]+$".
 - review disposition and progression: `continue` permits the next ordinary group; `ready_for_final_proof` requests exit from execution; `correction_required` and `revision_required` are blocking but valid reports. An open in-scope blocking finding prevents progression, not recording the report. Severity alone and an empty findings list do not determine the disposition.

@@ -11,6 +11,7 @@ import (
 type WorkerReviewInput struct {
 	InputCandidate WorkerReviewCandidate    `json:"input_candidate"`
 	Dependencies   WorkerReviewDependencies `json:"dependencies"`
+	Size           *WorkSizeSummary         `json:"size,omitempty"`
 }
 
 // readReviewCandidateTree uses the same immutable Git tree lookup as terminal
@@ -55,7 +56,11 @@ func currentWorkerReviewInput(ctx context.Context, q queryer, workID string, lan
 		if err != nil {
 			return nil, err
 		}
-		return &WorkerReviewInput{InputCandidate: WorkerReviewCandidate{ProjectID: prepared.proof.projectID, Commit: prepared.proof.observation.Commit, Tree: prepared.proof.observation.Tree}, Dependencies: dependencies}, nil
+		size, err := readWorkSizeSummary(ctx, q, workID)
+		if err != nil {
+			return nil, err
+		}
+		return &WorkerReviewInput{InputCandidate: WorkerReviewCandidate{ProjectID: prepared.proof.projectID, Commit: prepared.proof.observation.Commit, Tree: prepared.proof.observation.Tree}, Dependencies: dependencies, Size: size}, nil
 	}
 	return nil, nil
 }

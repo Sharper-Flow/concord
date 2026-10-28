@@ -861,12 +861,17 @@ func attachRecordedIntent(ctx context.Context, tx *sql.Tx, items []WorkItem) err
 }
 
 func attachWorkSize(ctx context.Context, q queryer, item *WorkItem) error {
-	decision, ok, err := readEffectiveWorkSize(ctx, q, item.ID)
+	var err error
+	item.Size, err = readWorkSizeSummary(ctx, q, item.ID)
+	return err
+}
+
+func readWorkSizeSummary(ctx context.Context, q queryer, workID string) (*WorkSizeSummary, error) {
+	decision, ok, err := readEffectiveWorkSize(ctx, q, workID)
 	if err != nil || !ok {
-		return err
+		return nil, err
 	}
-	item.Size = &WorkSizeSummary{Size: decision.Effective, ModelSize: decision.Model.Size, OperatorSize: decision.OperatorSize, ModelVersion: decision.Model.ModelVersion, RecordedAt: decision.Model.RecordedAt}
-	return nil
+	return &WorkSizeSummary{Size: decision.Effective, ModelSize: decision.Model.Size, OperatorSize: decision.OperatorSize, ModelVersion: decision.Model.ModelVersion, RecordedAt: decision.Model.RecordedAt}, nil
 }
 
 // decodeRecordedIntent projects the intent fields a carrying revision needs

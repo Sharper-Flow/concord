@@ -28679,6 +28679,10 @@
         },
         "dependencies": {
           "$ref": "#/$defs/worker_packet_review_dependencies"
+        },
+        "size": {
+          "description": "The recorded work size and its model/operator provenance at dispatch. Omitted when unsized; never inferred from the objective or job line estimate.",
+          "$ref": "#/$defs/work_size_summary"
         }
       }
     },
@@ -29259,6 +29263,44 @@
           "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$"
         }
       }
+    },
+    "workflow_review_unidentified_finding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "severity",
+        "confidence",
+        "detail"
+      ],
+      "properties": {
+        "severity": {
+          "enum": [
+            "P0",
+            "P1",
+            "P2",
+            "P3"
+          ],
+          "type": "string"
+        },
+        "confidence": {
+          "enum": [
+            "low",
+            "medium",
+            "high"
+          ],
+          "type": "string"
+        },
+        "detail": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512,
+          "x-maxBytes": 512
+        },
+        "oracle": {
+          "$ref": "#/$defs/lane_report_oracle_finding"
+        }
+      },
+      "description": "A retained current finding without recorded identity, status, scope, blocking or reference fields. Only its observed content is exposed; it grants no worker-report, closure or acceptance authority."
     },
     "retained_workflow_correction_context": {
       "type": "object",
@@ -30786,44 +30828,6 @@
           "description": "The owner-family finding this newly reproduced alternate entry path is a variant of. A variant is a new identity, not the same open finding."
         }
       }
-    },
-    "workflow_review_unidentified_finding": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "severity",
-        "confidence",
-        "detail"
-      ],
-      "properties": {
-        "severity": {
-          "enum": [
-            "P0",
-            "P1",
-            "P2",
-            "P3"
-          ],
-          "type": "string"
-        },
-        "confidence": {
-          "enum": [
-            "low",
-            "medium",
-            "high"
-          ],
-          "type": "string"
-        },
-        "detail": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 512,
-          "x-maxBytes": 512
-        },
-        "oracle": {
-          "$ref": "#/$defs/lane_report_oracle_finding"
-        }
-      },
-      "description": "A retained current finding without recorded identity, status, scope, blocking or reference fields. Only its observed content is exposed; it grants no worker-report, closure or acceptance authority."
     }
   }
 }

@@ -27603,6 +27603,10 @@ const GeneratedPayloadSchemaDocument = `{
         },
         "input_candidate": {
           "$ref": "#/$defs/worker_packet_review_candidate"
+        },
+        "size": {
+          "$ref": "#/$defs/work_size_summary",
+          "description": "The recorded work size and its model/operator provenance at dispatch. Omitted when unsized; never inferred from the objective or job line estimate."
         }
       },
       "required": [

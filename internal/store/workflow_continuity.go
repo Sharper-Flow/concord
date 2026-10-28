@@ -247,10 +247,17 @@ func readWorkflowContinuityForRegistry(ctx context.Context, s *Store, req Contin
 	// tree resolves after the read snapshot closes. Dispatch revalidates it
 	// against the sealed native observation; this read grants no authority.
 	var receipt *WorktreeVerifyResult
+	var reviewSize *WorkSizeSummary
 	if out.WorkPin != nil && out.WorkPin.Review != nil && out.WorkPin.Review.Dependencies != nil {
 		receipt, err = readCurrentOracleSubjectReceipt(ctx, tx, req.Work)
 		if err != nil {
 			return out, err
+		}
+		if receipt != nil {
+			reviewSize, err = readWorkSizeSummary(ctx, tx, req.Work)
+			if err != nil {
+				return out, err
+			}
 		}
 	}
 	if err := tx.Rollback(); err != nil {
@@ -262,7 +269,7 @@ func readWorkflowContinuityForRegistry(ctx context.Context, s *Store, req Contin
 		if treeErr != nil {
 			out.ReviewInputWarning = treeErr
 		} else {
-			out.ReviewInput = &WorkerReviewInput{InputCandidate: WorkerReviewCandidate{ProjectID: receipt.ProjectID, Commit: commit, Tree: tree}, Dependencies: *out.WorkPin.Review.Dependencies}
+			out.ReviewInput = &WorkerReviewInput{InputCandidate: WorkerReviewCandidate{ProjectID: receipt.ProjectID, Commit: commit, Tree: tree}, Dependencies: *out.WorkPin.Review.Dependencies, Size: reviewSize}
 		}
 	}
 	return out, nil

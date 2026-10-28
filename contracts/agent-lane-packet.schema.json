@@ -217,6 +217,53 @@
         },
         "dependencies": {
           "$ref": "#/$defs/review_dependencies"
+        },
+        "size": {
+          "description": "The recorded work size and its model/operator provenance at dispatch. Omitted when unsized; never inferred from the objective or job line estimate.",
+          "$ref": "#/$defs/lane_work_size_summary"
+        }
+      }
+    },
+    "lane_work_size_class": {
+      "type": "string",
+      "enum": [
+        "small",
+        "larger",
+        "crucial"
+      ]
+    },
+    "lane_work_size_summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "The work item's current effective size, model decision, optional operator override, model version, and recording time. Absent when work has never been sized.",
+      "required": [
+        "size",
+        "model_version",
+        "recorded_at"
+      ],
+      "properties": {
+        "size": {
+          "type": "string",
+          "enum": [
+            "small",
+            "larger",
+            "crucial"
+          ]
+        },
+        "model_size": {
+          "$ref": "#/$defs/lane_work_size_class"
+        },
+        "operator_size": {
+          "$ref": "#/$defs/lane_work_size_class"
+        },
+        "model_version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "recorded_at": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
         }
       }
     },

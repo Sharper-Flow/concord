@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-const ManifestDigest = "sha256:db13175e6252b9db86647b3824132c08cba3835207f69508d06700b07ed1d392"
+const ManifestDigest = "sha256:7a87eac89cca2fd08f318452bd3223f965606ffaa7219c50158eea2ff6a1cb31"
 
 type OperationKind string
 
@@ -388,7 +388,7 @@ var GeneratedPayloadRules = map[string]GeneratedPayloadRule{
 	"worker_packet_binding":                                 {Required: []string{"objective_source", "work_version", "contract_version", "assigned_result"}, Properties: []string{"objective_source", "work_version", "contract_version", "assigned_result"}},
 	"worker_packet_review_candidate":                        {Required: []string{"project_id", "commit", "tree"}, Properties: []string{"project_id", "commit", "tree"}},
 	"worker_packet_review_dependencies":                     {Required: []string{"criteria", "architecture_not_applicable"}, Properties: []string{"criteria", "architecture_digest", "architecture_not_applicable"}},
-	"worker_packet_review_input":                            {Required: []string{"input_candidate", "dependencies"}, Properties: []string{"input_candidate", "dependencies"}},
+	"worker_packet_review_input":                            {Required: []string{"input_candidate", "dependencies"}, Properties: []string{"input_candidate", "dependencies", "size"}},
 	"worker_packet_work_record":                             {Required: []string{}, Properties: []string{"value_statement", "task", "narrative"}},
 	"worker_packet_worker_job":                              {Required: []string{"job_id", "revision", "digest", "objective", "stopping_condition", "project_scope", "path_scope", "predicate_ids", "checks", "prerequisites", "unresolved_refs", "reserved_integration"}, Properties: []string{"job_id", "revision", "digest", "objective", "stopping_condition", "project_scope", "path_scope", "predicate_ids", "checks", "prerequisites", "unresolved_refs", "reserved_integration", "acceptance_oracle", "checks_repair", "direct_caller_allowance", "caller_exclusions"}},
 	"worker_recovery_context":                               {Required: []string{"packet_digest", "worker_worktree", "coordinator_session", "attempt_epoch", "dispatch_event_id", "lifecycle_state", "packet_schema_version", "report_schema_version", "dispatch"}, Properties: []string{"packet_digest", "packet_schema_version", "report_schema_version", "worker_worktree", "coordinator_session", "attempt_epoch", "dispatch_event_id", "terminal_event_id", "lifecycle_state", "dispatch"}},

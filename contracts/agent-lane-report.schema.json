@@ -441,10 +441,13 @@
       "type": "object",
       "additionalProperties": false,
       "required": [
-        "finding_id",
-        "evidence_refs"
+        "finding_id"
       ],
-      "description": "One evidenced closure claim of a previously open ranked finding. A finding closes only through supported closure; omission, relabeling, or a confidence change never closes it.",
+      "anyOf": [
+        {"required": ["evidence_refs"]},
+        {"required": ["judged_case_ids"]}
+      ],
+      "description": "One closure claim of a previously open ranked finding. Supply native evidence refs, exact judged-case IDs, or both as required by the finding. Judged closure requires Main acceptance of the fresh candidate-bound completed Review report; the report alone grants no closure authority. Omission, relabeling, or a confidence change never closes a finding.",
       "properties": {
         "finding_id": {
           "type": "string",
@@ -464,6 +467,19 @@
             "x-maxBytes": 256
           },
           "description": "The producer-captured current-subject evidence the closure names, as the control requires."
+        },
+        "judged_case_ids": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 8,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^case:[A-Za-z0-9][A-Za-z0-9._:-]{0,126}$",
+            "minLength": 6,
+            "maxLength": 128
+          },
+          "description": "The exact complete set of required Main-declared judge=review cases. Source citations are rationale, never native execution receipts."
         }
       }
     },

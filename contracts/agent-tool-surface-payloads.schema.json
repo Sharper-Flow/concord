@@ -4478,13 +4478,35 @@
     "worker_oracle_case": {
       "type": "object",
       "additionalProperties": false,
+      "description": "Main-declared immutable case. Omitted judge requires executable controls; judge=review forbids control_ids. A judged case cannot replace an executable obligation or enter a native preparation bundle.",
       "required": [
         "case_id",
         "owner_id",
         "entry_point",
         "input_class",
-        "expected_state",
-        "control_ids"
+        "expected_state"
+      ],
+      "oneOf": [
+        {
+          "required": [
+            "control_ids"
+          ],
+          "not": {
+            "required": [
+              "judge"
+            ]
+          }
+        },
+        {
+          "required": [
+            "judge"
+          ],
+          "not": {
+            "required": [
+              "control_ids"
+            ]
+          }
+        }
       ],
       "properties": {
         "case_id": {
@@ -4492,7 +4514,7 @@
           "pattern": "^case:[A-Za-z0-9][A-Za-z0-9._:-]{0,126}$",
           "minLength": 6,
           "maxLength": 128,
-          "description": "A stable case: identity, unique within this work item. Bounds: 6..128 code points inclusive"
+          "description": "Bounds: 6..128 code points inclusive"
         },
         "owner_id": {
           "type": "string",
@@ -4505,7 +4527,7 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 512,
-          "description": "The named entry path or transition this case exercises. Bounds: 1..512 code points inclusive"
+          "description": "Bounds: 1..512 code points inclusive"
         },
         "input_class": {
           "type": "string",
@@ -4517,7 +4539,13 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 512,
-          "description": "A bounded description of the expected state, never a new predicate DSL. Bounds: 1..512 code points inclusive"
+          "description": "Bounds: 1..512 code points inclusive"
+        },
+        "judge": {
+          "type": "string",
+          "enum": [
+            "review"
+          ]
         },
         "control_ids": {
           "type": "array",
@@ -24032,7 +24060,7 @@
           "minItems": 1,
           "maxItems": 64,
           "items": {
-            "$ref": "#/$defs/worker_oracle_case"
+            "$ref": "#/$defs/native_oracle_executable_case"
           },
           "description": "Bounds: 1..64 items inclusive"
         }
@@ -29319,10 +29347,21 @@
       "type": "object",
       "additionalProperties": false,
       "required": [
-        "finding_id",
-        "evidence_refs"
+        "finding_id"
       ],
-      "description": "One evidenced closure claim of a previously open ranked finding. A finding closes only through supported closure; omission, relabeling, or a confidence change never closes it.",
+      "anyOf": [
+        {
+          "required": [
+            "evidence_refs"
+          ]
+        },
+        {
+          "required": [
+            "judged_case_ids"
+          ]
+        }
+      ],
+      "description": "One closure claim of a previously open ranked finding. Supply native evidence refs, exact judged-case IDs, or both as required by the finding. Judged closure requires Main acceptance of the fresh candidate-bound completed Review report; the report alone grants no closure authority. Omission, relabeling, or a confidence change never closes a finding.",
       "properties": {
         "finding_id": {
           "type": "string",
@@ -29342,6 +29381,19 @@
             "x-maxBytes": 256
           },
           "description": "The producer-captured current-subject evidence the closure names, as the control requires."
+        },
+        "judged_case_ids": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 8,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^case:[A-Za-z0-9][A-Za-z0-9._:-]{0,126}$",
+            "minLength": 6,
+            "maxLength": 128
+          },
+          "description": "The exact complete set of required Main-declared judge=review cases. Source citations are rationale, never native execution receipts."
         }
       }
     },
@@ -30134,6 +30186,67 @@
           "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$",
           "minLength": 40,
           "maxLength": 64
+        }
+      }
+    },
+    "native_oracle_executable_case": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Executable cases only: native preparation never admits judge=review cases.",
+      "required": [
+        "case_id",
+        "owner_id",
+        "entry_point",
+        "input_class",
+        "expected_state",
+        "control_ids"
+      ],
+      "properties": {
+        "case_id": {
+          "type": "string",
+          "pattern": "^case:[A-Za-z0-9][A-Za-z0-9._:-]{0,126}$",
+          "minLength": 6,
+          "maxLength": 128,
+          "description": "Bounds: 6..128 code points inclusive"
+        },
+        "owner_id": {
+          "type": "string",
+          "pattern": "^owner:[A-Za-z0-9][A-Za-z0-9._:-]{0,126}$",
+          "minLength": 7,
+          "maxLength": 128,
+          "description": "Bounds: 7..128 code points inclusive"
+        },
+        "entry_point": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512,
+          "description": "Bounds: 1..512 code points inclusive"
+        },
+        "input_class": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512,
+          "description": "Bounds: 1..512 code points inclusive"
+        },
+        "expected_state": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512,
+          "description": "Bounds: 1..512 code points inclusive"
+        },
+        "control_ids": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 8,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^control:[A-Za-z0-9][A-Za-z0-9._:-]{0,126}$",
+            "minLength": 9,
+            "maxLength": 128,
+            "description": "Bounds: 9..128 code points inclusive"
+          },
+          "description": "Bounds: 1..8 items inclusive"
         }
       }
     },

@@ -5,9 +5,650 @@ import (
 	"encoding/json"
 	"errors"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 )
+
+func TestOracleJudgedCaseShape(t *testing.T) {
+	f := seedOracleRepairFixture(t, "judged-shape")
+	defer f.store.Close()
+	fields := twoPathOracleFields(t, f.store, "judged-shape", func(o map[string]any) {
+		cases := o["cases"].([]map[string]any)
+		o["cases"] = append(cases, map[string]any{"case_id": "case:semantic", "owner_id": "owner:repair", "entry_point": "citation accuracy", "input_class": "citation", "expected_state": "source supports claim", "judge": "review"})
+	})
+	oracle, err := decodeAcceptanceOracle(mustJSONValue(fields))
+	if err != nil {
+		t.Fatalf("Main-declared judged case must decode: %v", err)
+	}
+	if err := validateAcceptanceOracle(oracle, oracle.Owners[0].PredicateIDs); err != nil {
+		t.Fatalf("judged case alongside executable predicate coverage: %v", err)
+	}
+	for _, mode := range []string{"unknown-judge", "judged-controls", "native-judged-case", "no-predicate-controls"} {
+		t.Run(mode, func(t *testing.T) {
+			var graph AcceptanceOracle
+			if err := json.Unmarshal(mustJSONValue(oracle), &graph); err != nil {
+				t.Fatal(err)
+			}
+			switch mode {
+			case "unknown-judge":
+				graph.Cases[2].Judge = "worker"
+			case "judged-controls":
+				graph.Cases[2].ControlIDs = []string{"control:check-a"}
+			case "native-judged-case":
+				graph.Controls[0].CaseIDs = append(graph.Controls[0].CaseIDs, "case:semantic")
+			case "no-predicate-controls":
+				graph.Controls = nil
+			}
+			if err := validateAcceptanceOracle(&graph, oracle.Owners[0].PredicateIDs); err == nil {
+				t.Fatal("invalid judge/control arm admitted")
+			}
+		})
+	}
+}
+
+func TestOracleJudgedRequirementsUnion(t *testing.T) {
+	oracle := testOracleGraph()
+	owner := oracle.Owners[0].OwnerID
+	oracle.Cases = append(oracle.Cases,
+		OracleCase{CaseID: "case:judged-a", OwnerID: owner, EntryPoint: "citation", Judge: OracleJudgeReview},
+		OracleCase{CaseID: "case:judged-b", OwnerID: owner, EntryPoint: "citation", Judge: OracleJudgeReview},
+		OracleCase{CaseID: "case:executable", OwnerID: owner, EntryPoint: "citation", ControlIDs: []string{"control:path"}},
+	)
+	finding := &WorkerOpenOracleFinding{Classification: OracleClassificationUncoveredCase, OwnerID: owner, ControlIDs: []string{"control:source"}, Tie: &WorkerOracleFinding{EntryPoint: "citation"}}
+	controls, judged, err := oracleFindingClosureRequirements(finding, oracle)
+	if err != nil || !reflect.DeepEqual(controls, map[string]bool{"control:source": true, "control:path": true}) || !reflect.DeepEqual(judged, map[string]bool{"case:judged-a": true, "case:judged-b": true}) {
+		t.Fatalf("controls=%v judged=%v err=%v", controls, judged, err)
+	}
+	// An exact judged match must not pull unrelated owner controls into a
+	// semantic-only obligation through the owner fallback.
+	oracle.Cases = oracle.Cases[:len(oracle.Cases)-1]
+	finding.ControlIDs = nil
+	controls, judged, err = oracleFindingClosureRequirements(finding, oracle)
+	if err != nil || len(controls) != 0 || len(judged) != 2 {
+		t.Fatalf("pure controls=%v judged=%v err=%v", controls, judged, err)
+	}
+	finding.Classification = OracleClassificationDeliveryBlocker
+	controls, judged, err = oracleFindingClosureRequirements(finding, oracle)
+	wantControls := map[string]bool{}
+	for _, control := range oracle.Controls {
+		if control.OwnerID == owner {
+			wantControls[control.ControlID] = true
+		}
+	}
+	if err != nil || !reflect.DeepEqual(controls, wantControls) || len(judged) != 2 {
+		t.Fatalf("owner fallback controls=%v judged=%v err=%v", controls, judged, err)
+	}
+}
+
+func TestOracleJudgedLegacyDigestStability(t *testing.T) {
+	type executableCase struct {
+		CaseID        string   `json:"case_id"`
+		OwnerID       string   `json:"owner_id"`
+		EntryPoint    string   `json:"entry_point"`
+		InputClass    string   `json:"input_class"`
+		ExpectedState string   `json:"expected_state"`
+		ControlIDs    []string `json:"control_ids"`
+	}
+	oracle := testOracleGraph()
+	cases := make([]executableCase, len(oracle.Cases))
+	for i, c := range oracle.Cases {
+		cases[i] = executableCase{c.CaseID, c.OwnerID, c.EntryPoint, c.InputClass, c.ExpectedState, c.ControlIDs}
+	}
+	legacy := struct {
+		Owners   []OracleOwner    `json:"owners"`
+		Cases    []executableCase `json:"cases"`
+		Controls []OracleControl  `json:"controls"`
+	}{oracle.Owners, cases, oracle.Controls}
+	legacyBytes := mustJSONValue(legacy)
+	if string(mustJSONValue(oracle)) != string(legacyBytes) {
+		t.Fatal("old executable oracle bytes changed")
+	}
+	job := WorkerJobRecordedPayload{JobID: "job:legacy", Revision: 1, AcceptanceOracle: oracle}
+	content := `{"job_id":"job:legacy","revision":1,"contract_version":0,"objective":"","stopping_condition":"","path_scope":null,"predicate_ids":null,"checks":null,"prerequisites":null,"unresolved_refs":null,"acceptance_oracle":` + string(legacyBytes) + `}`
+	if got, want := DeriveWorkerJobDigest(job), nativeDigest([]byte(content)); got != want {
+		t.Fatalf("job digest=%s legacy=%s", got, want)
+	}
+	before, err := nativeBundleForControl(oracle, oracle.Controls[0].ControlID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	oracle.Cases = append(oracle.Cases, OracleCase{CaseID: "case:judged", OwnerID: oracle.Owners[0].OwnerID, EntryPoint: "citation", Judge: OracleJudgeReview})
+	after, err := nativeBundleForControl(oracle, oracle.Controls[0].ControlID)
+	if err != nil || string(mustJSONValue(before)) != string(mustJSONValue(after)) || nativeBundleDigest(before) != nativeBundleDigest(after) {
+		t.Fatalf("judged addition changed native bundle: err=%v", err)
+	}
+	job.AcceptanceOracle = oracle
+	if DeriveWorkerJobDigest(job) == nativeDigest([]byte(content)) {
+		t.Fatal("Main's judged case is absent from immutable job digest")
+	}
+	resolution := WorkerOracleResolution{FindingID: "finding:1:0", EvidenceRefs: []string{"run:one"}}
+	if got := string(mustJSONValue(resolution)); got != `{"finding_id":"finding:1:0","evidence_refs":["run:one"]}` {
+		t.Fatalf("old resolution bytes=%s", got)
+	}
+}
+
+func TestOracleJudgedResolutionShape(t *testing.T) {
+	for _, mode := range []string{"neither", "empty-native", "empty-judged", "duplicate", "too-many", "too-long", "native", "pure", "mixed"} {
+		t.Run(mode, func(t *testing.T) {
+			r := WorkerOracleResolution{FindingID: "finding:1:0", JudgedCaseIDs: []string{"case:semantic"}}
+			switch mode {
+			case "neither":
+				r.JudgedCaseIDs = nil
+			case "empty-native":
+				r.EvidenceRefs = []string{}
+			case "empty-judged":
+				r.JudgedCaseIDs = []string{}
+				r.EvidenceRefs = []string{"run:one"}
+			case "duplicate":
+				r.JudgedCaseIDs = []string{"case:semantic", "case:semantic"}
+			case "too-many":
+				r.JudgedCaseIDs = []string{"case:1", "case:2", "case:3", "case:4", "case:5", "case:6", "case:7", "case:8", "case:9"}
+			case "too-long":
+				r.JudgedCaseIDs = []string{"case:" + strings.Repeat("a", 124)}
+			case "native":
+				r.JudgedCaseIDs = nil
+				r.EvidenceRefs = []string{"run:one"}
+			case "mixed":
+				r.EvidenceRefs = []string{"run:one"}
+			}
+			err := validateWorkerOracleResolutionsShape([]WorkerOracleResolution{r})
+			want := mode == "native" || mode == "pure" || mode == "mixed"
+			if (err == nil) != want {
+				t.Fatalf("shape %s err=%v want accepted=%v", mode, err, want)
+			}
+		})
+	}
+}
+
+type semanticReviewFixture struct {
+	f                            oracleRepairFixture
+	job                          WorkerJobBinding
+	workID, canonicalID, localID string
+	tie                          WorkerOracleFinding
+	fields                       map[string]any
+}
+
+func (d *semanticReviewFixture) journey() *candidateJourney {
+	return &candidateJourney{fixture: workContextFixture{store: d.f.store, workID: d.workID, owner: d.f.owner}, s: d.f.store, workID: d.workID, repo: d.f.entry.Path}
+}
+
+func (d *semanticReviewFixture) dispatch(t *testing.T, attempt, lane string) WorkerReviewCandidate {
+	t.Helper()
+	s, ctx := d.f.store, t.Context()
+	packet := joinPacketFor(t, s, d.workID, currentStep(t, s, d.workID), attempt, lane, registeredLaneIdentity(t, lane))
+	packet["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, s, d.workID, d.job, lane)
+	correction, err := workflowCorrectionContextForDispatch(ctx, s.db, d.workID, currentStep(t, s, d.workID), attempt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if correction != nil {
+		packet["inputs"].(map[string]any)["correction"] = correction
+	}
+	checkpoint, err := readLatestContextCheckpointTx(ctx, s.db, d.workID, "workflow_action")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if checkpoint != nil {
+		packet["inputs"].(map[string]any)["checkpoint"] = checkpoint
+	}
+	prepared, err := PrepareWorkerDispatchFreshness(ctx, s, PrepareWorkerDispatchRequest{WorkID: d.workID, SessionWorktree: d.f.entry.Path, Runner: d.f.git, DispatchPayload: mustJSONValue(map[string]any{"attempt_id": attempt, "worker_packet": packet}), reviewPlanner: oracleFixtureReviewPlanner(t, oracleFixtureRuntime)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := dispatchJoinAttempt(WithWorkerDispatchPreparation(ctx, prepared), t, s, d.workID, readWorkVersion(t, s, d.workID), d.f.owner, packet); err != nil {
+		t.Fatal(err)
+	}
+	capability := lane
+	if lane == "implement" {
+		capability = "implementation"
+	}
+	d.journey().laneDispatch(t, attempt, capability, &d.job)
+	if prepared.proof.observation != nil {
+		o := prepared.proof.observation
+		return WorkerReviewCandidate{ProjectID: "project", Commit: o.Commit, Tree: o.Tree}
+	}
+	return WorkerReviewCandidate{}
+}
+
+func (d *semanticReviewFixture) completion(t *testing.T, attempt, lane string, candidate WorkerReviewCandidate, close bool) Event {
+	t.Helper()
+	capability := lane
+	if lane == "implement" {
+		capability = "implementation"
+	}
+	e := jobBoundCompletionEvent(d.workID, attempt+":completed", attempt, reviewGateLane(t, capability), time.Now().UTC(), &d.job, d.f.entry.Path)
+	var p WorkerCompletedPayload
+	if err := json.Unmarshal(e.Payload, &p); err != nil {
+		t.Fatal(err)
+	}
+	deps, err := workflowReviewDependencies(t.Context(), d.f.store.db, d.workID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tie := d.tie
+	finding := WorkerReviewFinding{FindingID: d.localID, Status: "open", Severity: "P2", Confidence: "high", Detail: "The source must support the citation claim.", EvidenceRefs: []string{}, ClosureRefs: []string{}, Oracle: &tie}
+	p.Review = &WorkerReviewBlock{Disposition: "correction_required", InputCandidate: candidate, OutputCandidate: candidate, Dependencies: deps, Findings: []WorkerReviewFinding{finding}, Assessments: []WorkerReviewAssessment{}, RemainingObligations: []WorkerReviewObligation{}}
+	if close {
+		p.Review.Disposition = "ready_for_final_proof"
+		p.Review.Findings[0].Status = "closed"
+		p.Review.Findings[0].ClosureRefs = []string{"fixture:source-supports-claim"}
+		tie.ContinuesFindingID = d.canonicalID
+		p.Review.ResolvedFindings = []WorkerOracleResolution{{FindingID: d.canonicalID, JudgedCaseIDs: []string{"case:semantic"}}}
+	}
+	e.Payload = mustJSONValue(p)
+	return e
+}
+
+func (d *semanticReviewFixture) terminal(t *testing.T, e Event) error {
+	t.Helper()
+	var p WorkerCompletedPayload
+	if err := json.Unmarshal(e.Payload, &p); err != nil {
+		t.Fatal(err)
+	}
+	prepared, err := PrepareWorkerTerminalDelivery(t.Context(), d.f.store, PrepareWorkerTerminalDeliveryRequest{WorkID: d.workID, AttemptID: p.AttemptID, EventID: e.EventID, Runner: d.f.git})
+	if err != nil {
+		return err
+	}
+	ctx := WithWorkerTerminalPreparation(t.Context(), prepared)
+	return d.f.store.TransactDurable(ctx, func(tx *Transaction) error { _, err := ApplyWorkerEvidenceOperationTx(ctx, tx, e); return err })
+}
+
+func newSemanticReviewFixture(t *testing.T, workID string, mixed bool, beforeSource ...func(*semanticReviewFixture)) *semanticReviewFixture {
+	t.Helper()
+	d := &semanticReviewFixture{f: seedOracleRepairFixture(t, workID), workID: workID, localID: "finding:original:0"}
+	t.Cleanup(func() { d.f.store.Close() })
+	d.tie = WorkerOracleFinding{Classification: OracleClassificationUncoveredCase, OwnerID: "owner:repair", EntryPoint: "citation accuracy", FailureFamily: "citation-accuracy", EvidenceRefs: []string{"fixture:unsupported-citation"}}
+	if mixed {
+		d.tie.ControlIDs = []string{"control:check-a"}
+	}
+	d.fields = twoPathOracleFields(t, d.f.store, workID, nil)
+	for _, prepare := range beforeSource {
+		prepare(d)
+	}
+	d.job = recordOracleJobRevision(t, d.f.store, workID, d.f.owner, "job:citation-review", d.fields)
+	a := d.dispatch(t, "attempt:original", "review")
+	if err := d.terminal(t, d.completion(t, "attempt:original", "review", a, false)); err != nil {
+		t.Fatal(err)
+	}
+	lineage, err := readWorkerOracleFindingLineageTx(t.Context(), d.f.store.db, workID)
+	if err != nil || len(lineage.openFindingIDs()) != 1 {
+		t.Fatalf("original lineage=%+v err=%v", lineage, err)
+	}
+	d.canonicalID = lineage.openFindingIDs()[0]
+	advanceOracleFixtureSubject(t, d.f, workID, "2")
+	d.fields["cases"] = append(d.fields["cases"].([]map[string]any), map[string]any{"case_id": "case:semantic", "owner_id": "owner:repair", "entry_point": d.tie.EntryPoint, "input_class": "citation", "expected_state": "source supports claim", "judge": "review"})
+	d.job = recordOracleJobRevision(t, d.f.store, workID, d.f.owner, d.job.JobID, d.fields)
+	return d
+}
+
+func (d *semanticReviewFixture) assertClosed(t *testing.T, want bool) {
+	t.Helper()
+	lineage, err := readWorkerOracleFindingLineageTx(t.Context(), d.f.store.db, d.workID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f := lineage.findings[d.canonicalID]; f == nil || f.Closed != want || len(lineage.findings) != 1 {
+		t.Fatalf("canonical closed=%v want=%v findings=%+v", f, want, lineage.findings)
+	}
+	state, err := readWorkflowReviewFacts(t.Context(), d.f.store.db, d.workID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(state.Findings) != 1 || state.Findings[0].FindingID != d.localID || (state.Findings[0].Status == "closed") != want {
+		t.Fatalf("Review findings=%+v want closed=%v", state.Findings, want)
+	}
+}
+
+func TestSemanticJudgedReviewAcceptance(t *testing.T) {
+	for _, mixed := range []bool{false, true} {
+		name := "pure"
+		if mixed {
+			name = "mixed"
+		}
+		t.Run(name, func(t *testing.T) {
+			d := newSemanticReviewFixture(t, "judged-"+name, mixed)
+			candidate := d.dispatch(t, "attempt:judgment", "review")
+			e := d.completion(t, "attempt:judgment", "review", candidate, true)
+			if mixed {
+				run := oracleVerifyControl(t, d.f, d.workID, "path-a-pass", "2", oracleGoArgv("path-a"), 0)
+				var p WorkerCompletedPayload
+				if err := json.Unmarshal(e.Payload, &p); err != nil {
+					t.Fatal(err)
+				}
+				zero := 0
+				withReceipt(&p, &WorkerOracleReceipt{ControlIDs: []string{"control:check-a"}, CaseIDs: []string{"case:path-a"}, SubjectCommit: candidate.Commit, RecipeSource: WorkerOracleRecipeSource{Kind: WorkContextSourceRepositoryFile, ProjectID: "project", Path: "scripts/oracle_check.sh", CommitOID: testOracleCommit()}, Result: "pass", ExitCode: &zero, RunRef: run.OperationRef, EvidenceRefs: []string{}})
+				p.Review.ResolvedFindings[0].EvidenceRefs = []string{run.OperationRef}
+				e.Payload = mustJSONValue(p)
+			}
+			if err := d.terminal(t, e); err != nil {
+				t.Fatalf("ingest judgment: %v", err)
+			}
+			d.assertClosed(t, false)
+			if err := d.journey().acceptEvidence(t, "attempt:judgment"); err != nil {
+				t.Fatalf("accept judgment: %v", err)
+			}
+			d.assertClosed(t, true)
+		})
+	}
+}
+
+func TestSemanticJudgedReviewRefusals(t *testing.T) {
+	for _, mode := range []string{"missing-continuation", "missing-resolution", "extra-judged", "missing-judged", "fabricated-native"} {
+		t.Run(mode, func(t *testing.T) {
+			d := newSemanticReviewFixture(t, "judged-"+mode, false)
+			candidate := d.dispatch(t, "attempt:judgment", "review")
+			e := d.completion(t, "attempt:judgment", "review", candidate, true)
+			var p WorkerCompletedPayload
+			if err := json.Unmarshal(e.Payload, &p); err != nil {
+				t.Fatal(err)
+			}
+			switch mode {
+			case "missing-continuation":
+				p.Review.Findings = []WorkerReviewFinding{}
+			case "missing-resolution":
+				p.Review.ResolvedFindings = nil
+			case "extra-judged":
+				p.Review.ResolvedFindings[0].JudgedCaseIDs = append(p.Review.ResolvedFindings[0].JudgedCaseIDs, "case:other")
+			case "missing-judged":
+				p.Review.ResolvedFindings[0].JudgedCaseIDs = nil
+				p.Review.ResolvedFindings[0].EvidenceRefs = []string{"fixture:no-native-proof"}
+			case "fabricated-native":
+				p.Review.ResolvedFindings[0].EvidenceRefs = []string{"fixture:not-an-execution"}
+			}
+			e.Payload = mustJSONValue(p)
+			if err := d.terminal(t, e); err == nil {
+				t.Fatal("invalid proposal was admitted")
+			} else if !strings.Contains(err.Error(), "judged") && !strings.Contains(err.Error(), "evidence_refs") {
+				t.Fatalf("unexpected refusal: %v", err)
+			}
+			d.assertClosed(t, false)
+		})
+	}
+}
+
+func TestSemanticJudgedReviewDisposition(t *testing.T) {
+	for _, mode := range []string{"pending", "rejected", "failed", "stale-candidate", "stale-dependencies"} {
+		t.Run(mode, func(t *testing.T) {
+			d := newSemanticReviewFixture(t, "judged-"+mode, false)
+			candidate := d.dispatch(t, "attempt:judgment", "review")
+			if mode == "failed" {
+				e := attributionWorkerFailedEvent(d.workID, "attempt:judgment", "judgment:failed", preferredModelForLane(reviewGateLane(t, "review")), attributionWorkerObservation())
+				if err := s2WorkerFailedLive(t, d.f.store, e); err != nil {
+					t.Fatal(err)
+				}
+				d.assertClosed(t, false)
+				if err := d.journey().acceptEvidence(t, "attempt:judgment"); err == nil {
+					t.Fatal("failed Review accepted")
+				}
+				d.assertClosed(t, false)
+				return
+			}
+			if err := d.terminal(t, d.completion(t, "attempt:judgment", "review", candidate, true)); err != nil {
+				t.Fatal(err)
+			}
+			d.assertClosed(t, false)
+			switch mode {
+			case "pending":
+				return
+			case "rejected":
+				predicate := d.fields["owners"].([]map[string]any)[0]["predicate_ids"].([]string)[0]
+				if err := d.journey().action(t, "reject_worker_result", map[string]any{"attempt_id": "attempt:judgment", "attempt_epoch": d.journey().dispatchEpoch(t, "attempt:judgment"), "diagnosis": "the source does not support the claim", "strategy": "retain the finding and inspect another source", "predicate_ids": []string{predicate}, "evidence_refs": []string{"attempt:judgment:completed"}, "open_finding_ids": []string{d.canonicalID}}, d.f.owner); err != nil {
+					t.Fatal(err)
+				}
+			case "stale-candidate":
+				advanceOracleFixtureSubject(t, d.f, d.workID, "3")
+				d.job = recordOracleJobRevision(t, d.f.store, d.workID, d.f.owner, d.job.JobID, d.fields)
+				newer := d.dispatch(t, "attempt:newer", "review")
+				e := d.completion(t, "attempt:newer", "review", newer, false)
+				var p WorkerCompletedPayload
+				if err := json.Unmarshal(e.Payload, &p); err != nil {
+					t.Fatal(err)
+				}
+				p.Review.Findings = []WorkerReviewFinding{}
+				e.Payload = mustJSONValue(p)
+				if err := d.terminal(t, e); err != nil {
+					t.Fatal(err)
+				}
+				if err := d.journey().acceptEvidence(t, "attempt:newer"); err != nil {
+					t.Fatal(err)
+				}
+			case "stale-dependencies":
+				version := readWorkVersion(t, d.f.store, d.workID)
+				actor, err := WorkflowActorRef(d.f.owner)
+				if err != nil {
+					t.Fatal(err)
+				}
+				e := workflowEventWithActor("design:replacement", WorkflowDesignRecorded, d.workID, actor, map[string]any{
+					"work_id": d.workID, "expected_version": version, "resulting_version": version + 1,
+					"approach":     "Recheck the claim against an updated source plan.",
+					"decisions":    []map[string]any{{"id": "decision:plan", "question": "Which source plan applies?", "choice": "Inspect the updated plan.", "rationale": "The sources changed.", "rejected": []string{}}},
+					"touched_refs": []string{"internal/store"},
+				})
+				if err := applyWorkflowTestOperation(t.Context(), d.f.store, Operation{Events: []Event{e}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, d.workID): version}}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if mode != "rejected" {
+				if err := d.journey().acceptEvidence(t, "attempt:judgment"); err == nil {
+					t.Fatal("stale Review accepted")
+				}
+			}
+			d.assertClosed(t, false)
+		})
+	}
+}
+
+func TestSemanticJudgedNonReviewRefuses(t *testing.T) {
+	d := newSemanticReviewFixture(t, "judged-implement", false)
+	candidate := d.dispatch(t, "attempt:continue", "review")
+	e := d.completion(t, "attempt:continue", "review", candidate, false)
+	var p WorkerCompletedPayload
+	if err := json.Unmarshal(e.Payload, &p); err != nil {
+		t.Fatal(err)
+	}
+	p.Review.Disposition, p.Review.Findings = "continue", []WorkerReviewFinding{}
+	e.Payload = mustJSONValue(p)
+	if err := d.terminal(t, e); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.journey().acceptEvidence(t, "attempt:continue"); err != nil {
+		t.Fatal(err)
+	}
+	d.dispatch(t, "attempt:implement", "implement")
+	e = d.completion(t, "attempt:implement", "implement", candidate, true)
+	if err := d.terminal(t, e); err == nil || !strings.Contains(err.Error(), "only a Review lane") {
+		t.Fatalf("non-Review refusal=%v", err)
+	}
+	d.assertClosed(t, false)
+}
+
+func semanticExecutableHistory(t *testing.T, d *semanticReviewFixture, jobID, caseID string) {
+	t.Helper()
+	fields := twoPathOracleFields(t, d.f.store, d.workID, func(o map[string]any) {
+		addSemanticExecutableCase(o, caseID, d.tie.EntryPoint)
+	})
+	recordOracleJobRevision(t, d.f.store, d.workID, d.f.owner, jobID, fields)
+}
+
+func addSemanticExecutableCase(fields map[string]any, caseID, path string) {
+	fields["cases"] = append(fields["cases"].([]map[string]any), map[string]any{"case_id": caseID, "owner_id": "owner:repair", "entry_point": path, "input_class": "citation", "expected_state": "source supports claim", "control_ids": []string{"control:semantic"}})
+	control := map[string]any{}
+	for key, value := range fields["controls"].([]map[string]any)[0] {
+		control[key] = value
+	}
+	control["control_id"], control["case_ids"], control["argv"] = "control:semantic", []string{caseID}, oracleGoArgv("semantic")
+	fields["controls"] = append(fields["controls"].([]map[string]any), control)
+}
+
+func TestSemanticJudgedHistoryRefuses(t *testing.T) {
+	for _, history := range []string{"source-same-id", "source-renamed", "dispatch-same-id", "dispatch-renamed"} {
+		t.Run(history, func(t *testing.T) {
+			caseID := "case:semantic"
+			if strings.HasSuffix(history, "renamed") {
+				caseID = "case:old-executable"
+			}
+			var before []func(*semanticReviewFixture)
+			if strings.HasPrefix(history, "source") {
+				before = append(before, func(d *semanticReviewFixture) { semanticExecutableHistory(t, d, "job:citation-review", caseID) })
+			}
+			d := newSemanticReviewFixture(t, "judged-"+history, false, before...)
+			if strings.HasPrefix(history, "dispatch") {
+				semanticExecutableHistory(t, d, "job:judgment", caseID)
+				d.job = recordOracleJobRevision(t, d.f.store, d.workID, d.f.owner, "job:judgment", d.fields)
+			}
+			if strings.HasSuffix(history, "renamed") {
+				// Retain the earlier executable member as well: merely adding a
+				// new case id cannot turn that same owner/path into judgment.
+				addSemanticExecutableCase(d.fields, caseID, d.tie.EntryPoint)
+				d.job = recordOracleJobRevision(t, d.f.store, d.workID, d.f.owner, d.job.JobID, d.fields)
+			}
+			candidate := d.dispatch(t, "attempt:judgment", "review")
+			if err := d.terminal(t, d.completion(t, "attempt:judgment", "review", candidate, true)); err == nil || !strings.Contains(err.Error(), "recorded source or dispatched job") {
+				t.Fatalf("history downgrade refusal=%v", err)
+			}
+			d.assertClosed(t, false)
+		})
+	}
+}
+
+func TestSemanticJudgedAcceptanceAtomic(t *testing.T) {
+	d := newSemanticReviewFixture(t, "judged-atomic", false)
+	candidate := d.dispatch(t, "attempt:judgment", "review")
+	if err := d.terminal(t, d.completion(t, "attempt:judgment", "review", candidate, true)); err != nil {
+		t.Fatal(err)
+	}
+	before := d.terminalBytes(t)
+	rollback := errors.New("fixture rolls back the accepted disposition")
+	version, epoch := readWorkVersion(t, d.f.store, d.workID), d.journey().dispatchEpoch(t, "attempt:judgment")
+	err := d.f.store.Transact(t.Context(), func(tx *Transaction) error {
+		payload := mustJSONValue(map[string]any{"attempt_id": "attempt:judgment", "attempt_epoch": epoch})
+		_, err := ApplyWorkflowActionTx(t.Context(), tx, BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
+			WorkID: d.workID, ExpectedVersion: version, ActionID: "accept_worker_result", Payload: payload, Actor: d.f.owner,
+			AcceptedInputsDigest: nativeDigest(payload), IdempotencyIdentity: "atomic-accept", OperationID: "atomic-accept", PrincipalRef: d.f.owner.PrincipalRef,
+			Tool: "concord_work_transition", IdempotencyKey: "atomic-accept", RequestID: "atomic-accept", ContractDigest: testManifestDigest, Now: time.Now().UTC(),
+		})
+		if err != nil {
+			return err
+		}
+		lineage, err := readWorkerOracleFindingLineageTx(t.Context(), tx.tx, d.workID)
+		if err != nil || !lineage.findings[d.canonicalID].Closed {
+			t.Fatalf("canonical not closed inside accepted transaction: %v", err)
+		}
+		state, err := readWorkflowReviewFacts(t.Context(), tx.tx, d.workID)
+		if err != nil || state.Findings[0].Status != "closed" {
+			t.Fatalf("Review not closed inside accepted transaction: %v", err)
+		}
+		return rollback
+	})
+	if !errors.Is(err, rollback) {
+		t.Fatalf("acceptance rollback=%v", err)
+	}
+	d.assertClosed(t, false)
+	if after := d.terminalBytes(t); before != after {
+		t.Fatal("rolled-back acceptance changed retained reports")
+	}
+	if err := d.journey().acceptEvidence(t, "attempt:judgment"); err != nil {
+		t.Fatal(err)
+	}
+	d.assertClosed(t, true)
+	if after := d.terminalBytes(t); before != after {
+		t.Fatal("acceptance rewrote retained reports")
+	}
+}
+
+func TestSemanticJudgedAcceptanceRechecksHistory(t *testing.T) {
+	d := newSemanticReviewFixture(t, "judged-later-history", false)
+	candidate := d.dispatch(t, "attempt:judgment", "review")
+	if err := d.terminal(t, d.completion(t, "attempt:judgment", "review", candidate, true)); err != nil {
+		t.Fatal(err)
+	}
+	before := d.terminalBytes(t)
+	semanticExecutableHistory(t, d, d.job.JobID, "case:formerly-executable")
+	if err := d.journey().acceptEvidence(t, "attempt:judgment"); err == nil || !strings.Contains(err.Error(), "recorded source or dispatched job") {
+		t.Fatalf("new history must invalidate pending judgment: %v", err)
+	}
+	d.assertClosed(t, false)
+	if before != d.terminalBytes(t) {
+		t.Fatal("refused acceptance rewrote the retained reports")
+	}
+}
+
+func (d *semanticReviewFixture) terminalBytes(t *testing.T) string {
+	t.Helper()
+	var raw string
+	if err := d.f.store.db.QueryRow(`SELECT group_concat(terminal_event_id||terminal_payload,'') FROM (SELECT terminal_event_id,terminal_payload FROM worker_attempts WHERE work_id=? AND terminal_payload IS NOT NULL ORDER BY attempt_id)`, d.workID).Scan(&raw); err != nil {
+		t.Fatal(err)
+	}
+	return raw
+}
+
+func TestSemanticJudgedMixedRequiresNative(t *testing.T) {
+	for _, mode := range []string{"missing", "unrelated", "later-failure"} {
+		t.Run(mode, func(t *testing.T) {
+			d := newSemanticReviewFixture(t, "judged-native-"+mode, true)
+			candidate := d.dispatch(t, "attempt:judgment", "review")
+			e := d.completion(t, "attempt:judgment", "review", candidate, true)
+			if mode == "missing" {
+				if err := d.terminal(t, e); err == nil || !strings.Contains(err.Error(), "evidence_refs") {
+					t.Fatalf("missing native refusal=%v", err)
+				}
+			} else {
+				run := oracleVerifyControl(t, d.f, d.workID, "pass", "2", oracleGoArgv("path-a"), 0)
+				var p WorkerCompletedPayload
+				if err := json.Unmarshal(e.Payload, &p); err != nil {
+					t.Fatal(err)
+				}
+				zero := 0
+				withReceipt(&p, &WorkerOracleReceipt{ControlIDs: []string{"control:check-a"}, CaseIDs: []string{"case:path-a"}, SubjectCommit: candidate.Commit, RecipeSource: WorkerOracleRecipeSource{Kind: WorkContextSourceRepositoryFile, ProjectID: "project", Path: "scripts/oracle_check.sh", CommitOID: testOracleCommit()}, Result: "pass", ExitCode: &zero, RunRef: run.OperationRef, EvidenceRefs: []string{}})
+				p.Review.ResolvedFindings[0].EvidenceRefs = []string{run.OperationRef}
+				if mode == "unrelated" {
+					p.Review.ResolvedFindings[0].EvidenceRefs = []string{"fixture:unrelated"}
+				}
+				e.Payload = mustJSONValue(p)
+				err := d.terminal(t, e)
+				if mode == "unrelated" {
+					if err == nil || !strings.Contains(err.Error(), "does not qualify") {
+						t.Fatalf("unrelated native refusal=%v", err)
+					}
+				} else {
+					if err != nil {
+						t.Fatal(err)
+					}
+					oracleVerifyControl(t, d.f, d.workID, "later-fail", "2", oracleGoArgv("path-a"), 1)
+					if err := d.journey().acceptEvidence(t, "attempt:judgment"); err == nil || !strings.Contains(err.Error(), "does not qualify") {
+						t.Fatalf("stale native acceptance refusal=%v", err)
+					}
+				}
+			}
+			d.assertClosed(t, false)
+		})
+	}
+}
+
+func TestSemanticJudgedMigrationDisposition(t *testing.T) {
+	for _, action := range []string{"pending", "reject_worker_result", "accept_worker_result"} {
+		t.Run(action, func(t *testing.T) {
+			db := oracleFindingFactsDB(t)
+			events := oracleFindingFactsEvents(t, db)
+			for _, e := range events[:4] {
+				insertOracleFindingEffect(t, db, e)
+			}
+			report := WorkerCompletedPayload{AttemptID: "judged", Review: &WorkerReviewBlock{ResolvedFindings: []WorkerOracleResolution{{FindingID: "finding:40:3", JudgedCaseIDs: []string{"case:semantic"}}}}}
+			insertOracleFindingEffect(t, db, Event{Seq: 50, EventID: "judgment", SubjectType: SubjectWorkItem, SubjectID: "work", Kind: WorkerCompleted, Payload: mustJSONValue(report)})
+			if action != "pending" {
+				insertOracleFindingEffect(t, db, Event{Seq: 60, EventID: "disposition", SubjectType: SubjectWorkItem, SubjectID: "work", Kind: WorkflowActionCompleted, Payload: mustJSONValue(workflowActionCompletedPayload{ActionID: action, WorkerAttemptID: "judged"})})
+			}
+			if err := backfillOracleFindingWork(t.Context(), db, "work"); err != nil {
+				t.Fatal(err)
+			}
+			lineage, err := readWorkerOracleFindingLineageTx(t.Context(), db, "work")
+			if err != nil || lineage.findings["finding:40:3"].Closed != (action == "accept_worker_result") {
+				t.Fatalf("migrated disposition=%s lineage=%+v err=%v", action, lineage, err)
+			}
+		})
+	}
+}
 
 // This diagnostic uses synthetic candidate contents and the existing trusted
 // native-ledger fixtures. It exercises store Review dispatch and terminal ingest,

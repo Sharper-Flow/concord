@@ -139,12 +139,13 @@ func backfillOracleFindingWork(ctx context.Context, q migrationRunner, workID st
 	if err != nil {
 		return err
 	}
-	rows, err := q.QueryContext(ctx, `SELECT seq,event_id,kind,payload FROM domain_events WHERE subject_type=? AND subject_id=? AND kind IN (?,?,?) ORDER BY seq`, SubjectWorkItem, workID, WorkerCompleted, WorkerDispatched, WorkflowContractSuperseded)
+	rows, err := q.QueryContext(ctx, `SELECT seq,event_id,kind,payload FROM domain_events WHERE subject_type=? AND subject_id=? AND kind IN (?,?,?,?) ORDER BY seq`, SubjectWorkItem, workID, WorkerCompleted, WorkerDispatched, WorkflowContractSuperseded, WorkflowActionCompleted)
 	if err != nil {
 		return err
 	}
 	lineage := &workerOracleFindingLineage{findings: map[string]*WorkerOpenOracleFinding{}, retainedReceipts: make([]WorkerOracleReceipt, 0, 8)}
 	actors := map[string]string{}
+	reports := map[string]WorkerCompletedPayload{}
 	for rows.Next() {
 		event := Event{SubjectID: workID, SubjectType: SubjectWorkItem}
 		if err := rows.Scan(&event.Seq, &event.EventID, &event.Kind, &event.Payload); err != nil {
@@ -154,6 +155,34 @@ func backfillOracleFindingWork(ctx context.Context, q migrationRunner, workID st
 		if err := reduceOracleFindingEffect(lineage, event, oracles, actors); err != nil {
 			_ = rows.Close()
 			return err
+		}
+		if event.Kind == WorkerCompleted {
+			var report WorkerCompletedPayload
+			if err := json.Unmarshal(event.Payload, &report); err != nil {
+				_ = rows.Close()
+				return err
+			}
+			reports[report.AttemptID] = report
+		}
+		if event.Kind == WorkflowActionCompleted {
+			var action workflowActionCompletedPayload
+			if err := json.Unmarshal(event.Payload, &action); err != nil {
+				_ = rows.Close()
+				return err
+			}
+			if action.ActionID == "accept_worker_result" {
+				report := reports[action.WorkerAttemptID]
+				if report.Review != nil {
+					for _, resolution := range report.Review.ResolvedFindings {
+						if finding := lineage.findings[resolution.FindingID]; finding != nil && !finding.Closed && len(resolution.JudgedCaseIDs) != 0 {
+							finding.Closed, finding.ClosureKind = true, oracleClosureResolution
+							if finding.Classification == OracleClassificationOracleDefect {
+								finding.ClosureKind = oracleClosureOracleDefect
+							}
+						}
+					}
+				}
+			}
 		}
 	}
 	if err := rows.Err(); err != nil {

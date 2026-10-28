@@ -137,13 +137,25 @@ Coverage is the bar: every declared obligation appears at least once. Concord
 does not count entries, rank them, or judge their content. Whether the detail
 text is any good is a review question, and review is a lane, not a validator.
 
-A ranked finding's closed resolution names its canonical ID and evidence
-references. Each reference must resolve to durably bound evidence or a
-retained current-subject pass receipt for that finding's controls. A control
+A ranked finding's resolution names its canonical ID and all required proof.
+Executable requirements retain evidence references; each reference must resolve
+to durably bound evidence or a retained current-subject pass receipt for that
+finding's controls. A control
 with role `independently_executed` requires the independent bound-evidence
 route, not a reported receipt alone. Earlier-subject receipts are regression
 baselines. Evidence-role and source joins do not grant a worker verdict
 authority or certify the semantic truth of a closure.
+
+A declared Review-judged case requires an attributed judgment in a completed
+Review report. Its closure proposal names exactly the derived judged-case set,
+without fabricated native references. The report retains the observed output
+candidate and depended-on revisions. Only Main's acceptance of that exact
+current Review closes the canonical finding; ingest, rejection and failure do
+not. Acceptance closes the canonical and Review-state findings in one
+transaction. The report and acceptance identities supply judgment provenance;
+source citations remain Review rationale, not execution receipts. A mixed
+finding requires both complete proof sets. Omission, reclassification and
+severity changes close nothing.
 
 ### D5. The dispatch pins the report contract
 

@@ -21,9 +21,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:c7ac681201fd89ac865746c7561332f3dc07c84c07f9f7ec3419654a2bf7b1ac",
+  "sha256": "sha256:a48aec4d23c51eae5c80a0bbbd54661a388b7faf83318bab40ca7f1ec5e45dcc",
   "status": "accepted",
-  "summary": "A dispatch-pinned review report names one CD-0242 D5 disposition and up to 64 ranked findings with closed severity and confidence. Oracle-bound findings classify delivery blockers, uncovered cases, follow-ups, and oracle defects, with source bindings and canonical ordinal lineage. Closed resolution claims name finding IDs and qualifying evidence. Main records acceptance of the disposition, and an open in-scope blocking finding blocks a new assignment and leaving execution. The report grants no workflow verdict or acceptance authority.",
+  "summary": "A dispatch-pinned Review report names one CD-0242 D5 disposition and up to 64 ranked findings with closed severity and confidence. Oracle-bound findings retain their classifications and canonical identities. Resolution claims carry qualifying native references for executable requirements and exact judged-case identities for Review-judged requirements. Judged proposals close only on Main's acceptance of the exact current Review, never at ingest or rejection. The report grants no workflow verdict or acceptance authority.",
   "tags": [
     "agent-surface",
     "lanes",

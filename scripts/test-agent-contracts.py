@@ -2403,12 +2403,57 @@ class NativeOracleRequestProjectionTests(unittest.TestCase):
     def validate(self, value, name):
         generator.schema_validate(value, self.projected["$defs"][name], self.projected)
 
+    def test_judged_cases_are_closed_and_native_bundles_stay_executable_only(self):
+        defs = self.projected["$defs"]
+        executable = {"case_id": "case:one", "owner_id": "owner:one", "entry_point": "source/main.go",
+                      "input_class": "valid input", "expected_state": "accepted", "control_ids": ["control:one"]}
+        judged = {key: value for key, value in executable.items() if key != "control_ids"} | {"judge": "review"}
+        for case in (executable, judged):
+            self.validate(case, "worker_oracle_case")
+            generator.schema_validate(case, packet_schema["$defs"]["lane_worker_oracle_case"], packet_schema)
+        for invalid in (executable | {"judge": "review"}, judged | {"control_ids": []},
+                        judged | {"judge": "implement"}, judged | {"judge": None},
+                        {key: value for key, value in judged.items() if key != "judge"},
+                        executable | {"control_ids": []}, judged | {"citation": "not-a-proof-kind"}):
+            for schema, root in ((defs["worker_oracle_case"], self.projected),
+                                 (packet_schema["$defs"]["lane_worker_oracle_case"], packet_schema)):
+                with self.assertRaises(ValueError, msg=invalid):
+                    generator.schema_validate(invalid, schema, root)
+        control = _schema_sample(defs["native_oracle_prepare_control"], self.projected)
+        bundle = {"owner": _schema_sample(defs["worker_oracle_owner"], self.projected),
+                  "control": control, "cases": [executable]}
+        self.validate(bundle, "native_oracle_control_bundle")
+        for invalid in (judged, executable | {"judge": "review"}):
+            with self.assertRaises(ValueError):
+                self.validate(bundle | {"cases": [invalid]}, "native_oracle_control_bundle")
+
+    def test_resolution_proof_kinds_are_bounded_and_nonempty(self):
+        schemas = ((report_schema["$defs"]["resolved_finding"], report_schema),
+                   (self.projected["$defs"]["lane_report_resolved_finding"], self.projected))
+        native = {"finding_id": "finding:19:0", "evidence_refs": ["worktree_verify:one"]}
+        judged = {"finding_id": "finding:19:0", "judged_case_ids": ["case:one"]}
+        for schema, root in schemas:
+            for valid in (native, judged, native | judged,
+                          judged | {"judged_case_ids": [f"case:{i}" for i in range(8)]}):
+                generator.schema_validate(valid, schema, root)
+            for invalid in ({"finding_id": "finding:19:0"}, judged | {"evidence_refs": []},
+                            native | {"judged_case_ids": []}, native | {"evidence_refs": ["a"] * 2},
+                            judged | {"judged_case_ids": ["case:one"] * 2},
+                            judged | {"judged_case_ids": [f"case:{i}" for i in range(9)]},
+                            judged | {"judged_case_ids": ["not-a-case"]},
+                            judged | {"judged_case_ids": ["case:" + "a" * 124]},
+                            native | {"evidence_refs": ["a" * 257]},
+                            native | {"evidence_refs": [str(i) for i in range(9)]},
+                            judged | {"citations": ["source/main.go"]}):
+                with self.assertRaises(ValueError, msg=invalid):
+                    generator.schema_validate(invalid, schema, root)
+
     def test_prepare_and_execute_are_closed_disjoint_native_requests(self):
         defs = self.projected["$defs"]
         control = _schema_sample(defs["worker_oracle_control"], self.projected)
         control.pop("readiness_evidence_refs")
         bundle = {"owner": _schema_sample(defs["worker_oracle_owner"], self.projected), "control": control,
-                  "cases": [_schema_sample(defs["worker_oracle_case"], self.projected)]}
+                  "cases": [_schema_sample(defs["native_oracle_executable_case"], self.projected)]}
         prepare = {"work_id": "work-1", "idempotency_key": "prepare-1", "oracle": {
             "phase": "prepare", "expected_contract_version": 1, "control_bundle": bundle}}
         execute = {"work_id": "work-1", "idempotency_key": "execute-1", "oracle": {

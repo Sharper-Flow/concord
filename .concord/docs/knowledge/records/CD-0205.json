@@ -1,8 +1,6 @@
 {
   "authority": {
-    "contract_version": 1,
-    "legislated_by": "work-e46f4308fb5dad191fcbe259",
-    "tier": "legislated"
+    "tier": "derived"
   },
   "date": "2026-10-05T00:00:00Z",
   "doc_contract_profile": "current",
@@ -52,9 +50,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:c4fdac14ae6be9e189bec778b0a465aa91849449cebbeeedba9aa5f3da62e4ef",
+  "sha256": "sha256:5db8237ad547134862deb2d93f326199a0a5eb52323607b10e08ade66379c44d",
   "status": "accepted",
-  "summary": "Immutable worker-job revisions bind every admitted lane end to end. Implementation v27 and break-fix v24 require one typed owner/case/control acceptance oracle in the job digest, with closed source and authority joins and retained readiness evidence. Definitions generate from one canonical source, and no released-definition version or pin is retained for history (CD-0242 D14). Local acceptance holds the step without delivery; whole-work delivery keeps complete parent admission and integration evidence. A revision recorded under a superseded contract is not ready. Under CD-0242 D6 each launch carries its own scope and subject bindings, and no attempt count, correction window, convergence basis, or escalation wall exists.",
+  "summary": "Immutable worker-job revisions bind every admitted lane end to end. Implementation v27 and break-fix v24 require a typed owner/case/control acceptance oracle, with closed source and authority joins and retained readiness evidence. Every predicate retains executable coverage. Main may add Review-judged cases without native controls; recorded executable obligations cannot become judged cases. Definitions have one canonical source and no historical pins. Local acceptance holds the step without delivery; whole-work delivery keeps parent admission and integration evidence. Superseded-contract revisions are not ready. Each launch carries its own scope and subject bindings without attempt-count or convergence walls.",
   "tags": [
     "workflow",
     "workflow-engine",

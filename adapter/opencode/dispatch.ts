@@ -195,14 +195,13 @@ export interface AgentLaneOracleOwner {
   law_bindings?: AgentLaneOracleLawBinding[]
 }
 
-export interface AgentLaneOracleCase {
+export type AgentLaneOracleCase = {
   case_id: string
   owner_id: string
   entry_point: string
   input_class: string
   expected_state: string
-  control_ids: string[]
-}
+} & ({ judge?: never; control_ids: string[] } | { judge: "review"; control_ids?: never })
 
 export interface AgentLaneOracleControl {
   control_id: string
@@ -589,12 +588,11 @@ export interface AgentLaneReportOracleFinding {
 }
 
 // AgentLaneReportResolvedFinding is one evidenced closure claim of a ranked
-// finding the lineage holds open: the finding identity plus the
-// current-subject evidence the closure names.
-export interface AgentLaneReportResolvedFinding {
+// finding the lineage holds open. Judged claims gain closure authority only
+// through Main acceptance of the candidate-bound completed Review report.
+export type AgentLaneReportResolvedFinding = {
   finding_id: string
-  evidence_refs: string[]
-}
+} & ({ evidence_refs: string[]; judged_case_ids?: string[] } | { evidence_refs?: string[]; judged_case_ids: string[] })
 
 // AgentLaneReportOracleReceipt is one typed control-execution receipt:
 // reported evidence, never native-run authority. The adapter

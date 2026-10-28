@@ -146,6 +146,28 @@ test("the oracle packet fixture passes the closed packet schema", () => {
   expect(valid).toBe(true)
 })
 
+test("judged packet cases omit controls without changing executable readiness", async () => {
+  const packet = structuredClone(reviewPacket())
+  packet.inputs.worker_job!.acceptance_oracle!.cases.push({
+    case_id: "case:review-meaning", owner_id: "owner:acceptance-graph", entry_point: "docs/contract.md",
+    input_class: "review the stated obligation", expected_state: "meaning matches the candidate", judge: "review",
+  })
+  const failures: string[] = []
+  expect(validateAgentLanePacket(packet, failures)).toBe(true)
+  expect(failures).toEqual([])
+  expect(validateAgentLanePacket({ ...packet, schema_version: "2.0" }, [])).toBe(true)
+  expect(await verifyPacketOracleReadiness(packet)).toBeNull()
+  expect(packet.inputs.worker_job!.acceptance_oracle!.cases.at(-1)).not.toHaveProperty("control_ids")
+  for (const invalid of [{ judge: "review", control_ids: ["control:harness-digest"] },
+    { judge: "review", control_ids: [] }, { judge: "implement" }, { judge: null }, {}]) {
+    const candidate = structuredClone(packet) as any
+    const last = candidate.inputs.worker_job.acceptance_oracle.cases.at(-1)
+    delete last.judge
+    Object.assign(last, invalid)
+    expect(validateAgentLanePacket(candidate, [])).toBe(false)
+  }
+})
+
 test("native case witness maps admit only bounded case keys and typed witness arrays", () => {
   for (const cases of [{}, { "not-a-case": ["TestOwnerOracleGraph"] },
     { [`case:${"x".repeat(124)}`]: ["TestOwnerOracleGraph"] }, { "case:one": ["not-a-test"] },
@@ -269,6 +291,41 @@ test("typed oracle findings, resolutions, and receipts ride the canonical report
   expect(receipt?.control_ids).toEqual(["control:harness-digest", "control:harness-second"])
   expect(receipt?.result).toBe("pass")
   expect(receipt?.exit_code).toBe(0)
+})
+
+test("pure and mixed judged claims survive report framing without invented native refs", () => {
+  for (const schema_version of ["1.1", "2.0"] as const) {
+    for (const claim of [
+      { finding_id: "finding:19:0", judged_case_ids: ["case:review-meaning"] },
+      { finding_id: "finding:19:0", judged_case_ids: ["case:review-meaning"], evidence_refs: ["run:harness-dispatch-7"] },
+    ]) {
+      const raw = JSON.parse(oracleReportText())
+      raw.schema_version = schema_version
+      raw.review.resolved_findings = [claim]
+      const packet = { ...reviewPacket(), schema_version } as AgentLanePacket
+      const admitted = resolveWorkerReportFromText(JSON.stringify(raw), packet, "provider/host-model")
+      if (!("report" in admitted)) throw new Error(admitted.detail)
+      expect(admitted.report.review?.resolved_findings).toEqual([claim])
+      expect(JSON.stringify(admitted.report.review?.resolved_findings)).toBe(JSON.stringify([claim]))
+    }
+  }
+})
+
+test("closed resolution schema rejects absent, empty, duplicate, malformed and excessive proof arrays", () => {
+  const base = { finding_id: "finding:19:0" }
+  for (const claim of [base,
+    { ...base, judged_case_ids: [] }, { ...base, evidence_refs: [], judged_case_ids: ["case:one"] },
+    { ...base, evidence_refs: ["run:one"], judged_case_ids: [] },
+    { ...base, judged_case_ids: ["case:one", "case:one"] }, { ...base, evidence_refs: ["run:one", "run:one"] },
+    { ...base, judged_case_ids: ["not-a-case"] }, { ...base, judged_case_ids: [`case:${"a".repeat(124)}`] },
+    { ...base, judged_case_ids: Array.from({ length: 9 }, (_, i) => `case:${i}`) },
+    { ...base, evidence_refs: ["a".repeat(257)] }, { ...base, judged_case_ids: ["case:one"], citations: ["docs/contract.md"] },
+  ]) {
+    const raw = JSON.parse(oracleReportText())
+    delete raw.evidence[1].oracle_receipt.subject_commit
+    raw.review.resolved_findings = [claim]
+    expect(validateAgentLaneReport(raw, [])).toBe(false)
+  }
 })
 
 test("the worker-echoed candidate subject is stripped from an oracle receipt", () => {

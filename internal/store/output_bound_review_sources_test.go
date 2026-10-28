@@ -58,6 +58,8 @@ func init() {
 	}
 	registerOutputBound(resolved+"finding_id/maxLength", workerRankedFindingIDBound())
 	registerOutputBound(resolved+"evidence_refs/maxItems", evidenceCount)
+	registerOutputBound(resolved+"judged_case_ids/maxItems", goConstantBound(oracle, "oracleFindingCaseMax", boundItems))
+	registerOutputBound(resolved+"judged_case_ids/items/maxLength", inputBound("/$defs/worker_oracle_case/properties/case_id/maxLength"))
 	registerOutputBound(lawBinding+"source/properties/source_id/maxLength", goConstantBound("internal/store/worker_oracle.go", "oracleProjectIDMaxBytes", boundBytes))
 	registerOutputBound(lawBinding+"source/properties/law_id/maxLength", goConstantBound("internal/store/work_context.go", "workContextLawIDMaxBytes", boundBytes))
 	registerOutputBound(lawBinding+"source/properties/content_hash/maxLength", goInlineBound("internal/store/workflow.go", "workflowDigest", "len(value)", boundBytes))

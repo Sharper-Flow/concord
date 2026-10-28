@@ -410,6 +410,9 @@ func validateReviewAcceptance(ctx context.Context, q queryer, workID, attempt, a
 	if err := validateReviewObservedCandidates(auth, result); err != nil {
 		return err
 	}
+	if err := validateOracleJudgedAcceptance(ctx, q, workID, result); err != nil {
+		return err
+	}
 	return validateReviewAssignmentAcceptance(ctx, q, workID, auth, report)
 }
 
@@ -500,6 +503,18 @@ func validateReviewFindingClosures(ctx context.Context, q queryer, workID string
 			}
 		}
 		if finding.Status != "closed" {
+			continue
+		}
+		// Exact terminal admission validated this canonical judged proposal.
+		// Acceptance revalidates its full native/judged union before projection;
+		// closure_refs remain rationale, never fabricated native receipts.
+		judged := false
+		if finding.Oracle != nil && finding.Oracle.ContinuesFindingID != "" {
+			for _, resolution := range report.ResolvedFindings {
+				judged = judged || (resolution.FindingID == finding.Oracle.ContinuesFindingID && len(resolution.JudgedCaseIDs) != 0)
+			}
+		}
+		if judged {
 			continue
 		}
 		if err := validateReviewFindingClosure(ctx, q, workID, report.OutputCandidate, finding); err != nil {

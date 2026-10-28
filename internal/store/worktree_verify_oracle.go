@@ -241,7 +241,7 @@ func nativeBundleForControl(oracle *AcceptanceOracle, id string) (NativeOracleCo
 		}
 	}
 	for _, c := range oracle.Cases {
-		if slices.Contains(b.Control.CaseIDs, c.CaseID) {
+		if c.Judge == "" && slices.Contains(b.Control.CaseIDs, c.CaseID) && slices.Contains(c.ControlIDs, id) {
 			b.Cases = append(b.Cases, c)
 		}
 	}

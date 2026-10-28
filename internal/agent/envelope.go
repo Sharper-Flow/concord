@@ -785,7 +785,7 @@ var enforcedRecoveryCouplings = map[string]string{
 }
 
 func validateError(err TypedError) error {
-	if !store.TypedErrorKindAllowed(err.Kind) {
+	if !payloadschema.TypedErrorKindAllowed(err.Kind) {
 		return fmt.Errorf("unknown error kind %q", err.Kind)
 	}
 	if err.RecoveryAction.Kind == "" {

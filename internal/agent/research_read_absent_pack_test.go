@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sharper-flow/concord/internal/store"
+	"github.com/sharper-flow/concord/internal/payloadschema"
 )
 
 // A work item with no research pack is an ordinary state, not a fault: most
@@ -37,7 +37,7 @@ func TestResearchReadWithoutAPackIsDeliverable(t *testing.T) {
 	if _, err := resp.Encode(); err != nil {
 		t.Fatalf("the owner-read refusal cannot be delivered: %v", err)
 	}
-	if !store.TypedErrorKindAllowed(resp.Error.Kind) {
+	if !payloadschema.TypedErrorKindAllowed(resp.Error.Kind) {
 		t.Fatalf("the refusal names kind %q, which the envelope contract does not declare", resp.Error.Kind)
 	}
 	if resp.Error.Kind != "invalid_input" {

@@ -48,7 +48,7 @@ func TestOutsideRepairProofHasExclusiveOwner(t *testing.T) {
 			case *ast.TypeSpec:
 				name = node.Name.Name
 				if _, tracked := want[name]; tracked {
-					if _, real := node.Type.(*ast.StructType); !real || node.Assign.IsValid() {
+					if _, isStruct := node.Type.(*ast.StructType); !isStruct || node.Assign.IsValid() {
 						t.Errorf("%s is not a real owned receipt struct", name)
 					}
 				}

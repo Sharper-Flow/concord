@@ -1,3 +1,5 @@
+// Package workflowproof collects authenticated outside-repair completion evidence
+// and owns its receipt model.
 package workflowproof
 
 import (

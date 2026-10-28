@@ -414,7 +414,7 @@ func validateFederatedSourceManifest(ctx context.Context, db *sql.DB, home Knowl
 	if err := appendFederatedPersistedRelationEdges(ctx, db, sources, home, graph); err != nil {
 		return err
 	}
-	if relationGraphHasCycle(graph) {
+	if graphHasCycle(graph) {
 		return newFailure(KindCycleDetected, "rebuild_knowledge_index", "federated law relations contain a cycle across the registered source set", false, "remove the cycle from the authored law graphs")
 	}
 	return nil

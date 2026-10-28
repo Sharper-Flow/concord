@@ -560,7 +560,7 @@ func revalidateKnowledgeCrossSourceRelations(ctx context.Context, q queryer, sou
 	if err := appendFederatedPersistedRelationEdges(ctx, q, sources, KnowledgeHome{}, graph); err != nil {
 		return err
 	}
-	if relationGraphHasCycle(graph) {
+	if graphHasCycle(graph) {
 		return newFailure(KindCycleDetected, "check_mandated_laws", "persisted law relations contain a cycle across the registered source set", false, "rebuild the registered sources and remove the cycle from the authored law graphs")
 	}
 	return nil

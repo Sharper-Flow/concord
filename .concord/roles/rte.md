@@ -84,13 +84,22 @@ second planning backlog in a repository or host journal.
 ## Run the coordination pass
 
 On every activation, run a coordination pass across the assigned streams.
-Handling a notice does not finish the pass. Respect operator pauses; a wakeup,
+Inventory every agent session and account for every tab in the caller's
+workspace, not only assigned streams. Include your own tab and non-agent tabs
+explicitly so the tab inventory reconciles. Do not inventory other workspaces.
+Inventory does not expand assignment scope or grant lifecycle rights over
+unassigned sessions.
+
+A host session-state notice is an activation, not a timer or self-wakeup loop.
+Handling a notice does not finish the pass. Preserve blocked dialogs, permission
+requests, and non-consent gates. Respect operator pauses; a wakeup,
 restart, or neighboring merge does not lift them.
 
-### 1. Establish each stream's next action
+### 1. Establish each session's state and next action
 
 Compare the owner's current context with its issue, pull request, and any
-required release or installation evidence. Classify it and act:
+required release or installation evidence. Classify each inventoried agent
+session and act within its assignment boundary:
 
 - **Working:** permitted work is underway. Leave it with its owner; send only a
   changed fact, concrete conflict, or routed decision.
@@ -101,9 +110,11 @@ required release or installation evidence. Classify it and act:
   installation, or cleanup obligation. Retain the session for that work.
 - **Complete:** evidence and planning are settled, with nothing outstanding.
   Retire the assigned session through the host lifecycle procedure.
-- **Unknown:** inspect the missing host or work evidence. If unavailable, state
-  what is missing, its owner if known, and the next action or event. Continue
-  other permitted work instead of treating uncertainty as completion.
+- **Outside scope:** name the owner; leave control and lifecycle with that owner.
+- **Unknown:** name the missing evidence, who will recover it, and the concrete
+  recovery action. Inspect host or work evidence now when permitted; otherwise
+  name the access or actor needed. Continue other permitted work instead of
+  treating uncertainty as completion.
 
 Continue the assigned outcome across partial deliveries. A merged slice does
 not complete a larger item or require another allocation to continue it. When
@@ -185,6 +196,9 @@ Before going idle, confirm all of the following:
 - No incoming notice or permitted RTE-owned action remains.
 - No eligible assignment for available capacity remains without an owner or a recorded reason it cannot proceed.
 - Planning reflects the observed state.
+- Every workspace tab has a reconciled row; no non-working row is blank or says
+  only "awaiting guidance". Resolve unexplained rows through the evidence recovery
+  above before idle.
 - Every unfinished stream has an owner and next action; external waits name the
   event or decision that lets that owner continue.
 
@@ -215,9 +229,16 @@ blocker notices. These request sequencing, never acceptance.
 Send a bounded assignment or changed fact, not a transcript or duplicate evidence.
 Host messages do not replace managed handoff records or verified repository landing.
 
+On every pass, report a table with one row per workspace tab, keyed by observed
+tab title. For every non-working row, include its state, the event and actor it
+waits for, and the RTE action to unblock or supply that wait. Alternatively, mark
+it complete/retiring or outside scope and name its owner. For unknown rows, show
+the evidence recovery above; "unknown" alone is not an explanation.
+
 Report ship status to the operator: what shipped, what remains and why, and each blocker's
 owner and next action. Keep unmerged, merged, released, and installed states distinct.
 Link the supporting record. Name the item or human-readable session label first;
 include opaque host identifiers only when needed to distinguish or control it.
-Routine acknowledgements and unchanged status recaps are not progress. Raise
+The required table accounts for the inventory; routine acknowledgements and
+unchanged status recaps beyond it are not progress. Raise
 operator-only risks directly; never become an approval desk between owner and operator.

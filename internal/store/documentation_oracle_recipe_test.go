@@ -13,7 +13,8 @@ import (
 func TestDocumentationRecipeRecordsReady(t *testing.T) {
 	ctx := context.Background()
 	const recipePath = ".concord/oracles/knowledge/documentation.v1.json"
-	raw, err := os.ReadFile(filepath.Join("..", "..", recipePath))
+	repo, head := storeOracleClone(t)
+	manifestFile, raw, err := nativeGitFile(ctx, ExecGitRunner{}, repo, head, recipePath)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -31,24 +32,7 @@ func TestDocumentationRecipeRecordsReady(t *testing.T) {
 	if manifest.Materializer != "none" || manifest.Runner != "check" || manifest.Root != "." || !slices.Equal(manifest.HarnessFiles, wantHarness) || len(manifest.SupportFiles) != 0 {
 		t.Fatalf("documentation recipe must pin only its validator closure, not candidate documents: %+v", manifest)
 	}
-	// Commit the candidate recipe in a private clone so local iterations and CI
-	// exercise identical pinned bytes without requiring a test-only main commit.
-	repo, _ := storeOracleClone(t)
 	gitRunStore(t, repo, "branch", "-m", "target-branch")
-	writeRepoFilesForTest(t, repo, map[string]string{recipePath: string(raw)})
-	gitRunStore(t, repo, "add", recipePath)
-	if _, err := (ExecGitRunner{}).Run(ctx, repo, "diff", "--cached", "--quiet"); err != nil {
-		gitRunStore(t, repo, "-c", "user.email=oracle@example.invalid", "-c", "user.name=Oracle", "commit", "-m", "pin documentation recipe")
-	}
-	committed, err := (ExecGitRunner{}).Run(ctx, repo, "rev-parse", "HEAD")
-	if err != nil {
-		t.Fatal(err)
-	}
-	head := strings.TrimSpace(string(committed))
-	manifestFile, _, err := nativeGitFile(ctx, ExecGitRunner{}, repo, head, recipePath)
-	if err != nil {
-		t.Fatal(err)
-	}
 	const work = "documentation-recipe"
 	seed := seedWorkflowReturnRouteFixture(t, work, "workflow.break_fix", "repair")
 	f := &nativeTargetFixture{

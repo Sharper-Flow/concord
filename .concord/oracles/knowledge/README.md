@@ -22,6 +22,8 @@ returned preparation reference in the worker job. `TestDocumentationRecipeRecord
 proves ready-job admission and native execution, including failure for a candidate
 document with a stale hash and success after its hash is regenerated. Its native
 portion requires the pinned Python runtime and reports a skip otherwise.
+CI provisions Python from the adapter recipe's pin; keep those runtime pins
+aligned and confirm this test passes rather than skips after a re-pin.
 
 This control does not prove citation correctness or preserve a document's meaning.
 Required CI runs the existing document-contract and link checks in a Git checkout;

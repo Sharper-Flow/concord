@@ -142,11 +142,12 @@ own words, never a success.
   refusal paths, its deadline behavior, and the generated body's delegation.
 - [CD-0228 Verification](CD-0228-merge-waits-report-observed-check-failures-unless-github-reports-unstable.md#verification)
   names the required fail-fast, queued-workflow and newest-attempt checks.
-- The Go tests in `cmd/concord/ci_wait_test.go` prove terminal outcomes for
+- The Go tests in `internal/ciwait/ci_wait_test.go` prove terminal outcomes for
   passing, failing, cancelled, skipped, pending, and empty check sets; the
   hung-command kill; the carried deadline; the head-SHA policy, including
   `TestCiWaitPRExpectedHeadJudgesOnlyThePushedCommit` and
   `TestCiWaitPRExpectedHeadNeverReachedIsSuperseded` for a named commit; and
   the selector routing for PR, SHA, and run id.
-- `go test -race ./cmd/concord/` proves the verb inside the full command
-  package suite.
+- `go test -race ./internal/ciwait/ ./cmd/concord/` proves the wait owner and
+  the verb inside the full command package suite, including
+  `TestCiWaitIngress` and `TestDeterministicCIWaitOwner`.

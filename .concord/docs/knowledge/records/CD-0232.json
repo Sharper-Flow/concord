@@ -4,6 +4,10 @@
   },
   "date": "2026-10-17T00:00:00Z",
   "doc_contract_profile": "current",
+  "evidence": [
+    "internal/ciwait/ci_wait.go",
+    "internal/ciwait/ci_wait_merge_queue.go"
+  ],
   "home_domain_id": "operator-surface",
   "id": "CD-0232",
   "kind": "decision",
@@ -29,7 +33,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:9387fcc2b487f8bc99037dc0d9df1cfb783aaf0c3695cda07f29c722d6bd99c7",
+  "sha256": "sha256:0fe765047877effcb28c051a1d9d829130c94d7fe99c68924a73a5d25c9f595c",
   "status": "accepted",
   "summary": "Each merge poll reads the newest merge-queue timeline event. The first answer is the baseline. A later removal that is not a merge ends an open wait on the watched head as failure, before check failures and despite UNSTABLE. Failed merge-group runs are best-effort detail. A queue read failure is an error. gh api calls are fixed queries, and repo must be owner/name.",
   "tags": [

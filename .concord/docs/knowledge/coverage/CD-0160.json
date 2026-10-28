@@ -14,11 +14,11 @@
     },
     {
       "kind": "go_test",
-      "value": "cmd/concord.TestCiWaitTerminalOutcomes"
+      "value": "internal/ciwait.TestCiWaitTerminalOutcomes"
     },
     {
       "kind": "go_test",
-      "value": "cmd/concord.TestCiWaitPRExpectedHeadJudgesOnlyThePushedCommit"
+      "value": "internal/ciwait.TestCiWaitPRExpectedHeadJudgesOnlyThePushedCommit"
     },
     {
       "kind": "generated",

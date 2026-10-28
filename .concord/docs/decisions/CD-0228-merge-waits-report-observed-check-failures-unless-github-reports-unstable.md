@@ -75,34 +75,34 @@ workflow population as well as checks and required contexts.
 
 ## Verification
 
-- `cmd/concord.TestCiWaitQueuedWorkflows` proves queued and active workflows keep
+- `internal/ciwait.TestCiWaitQueuedWorkflows` proves queued and active workflows keep
   a wait holding only green metadata checks pending.
-- `cmd/concord.TestCiWaitFailFastReports` proves the PR checks, merge, SHA and
+- `internal/ciwait.TestCiWaitFailFastReports` proves the PR checks, merge, SHA and
   run selectors report an active run's failed job without waiting for pending
   peers or unfinished-workflow logs, name the actual job URL, and state that the
   population is incomplete.
-- `cmd/concord.TestCiWaitNewestWorkflowAttempts` proves an old run's failure
+- `internal/ciwait.TestCiWaitNewestWorkflowAttempts` proves an old run's failure
   cannot fail the current candidate in checks, merge, and SHA modes.
-- `cmd/concord.TestCiWaitWorkflowPaginationAndReadFailures` proves all-pages run
+- `internal/ciwait.TestCiWaitWorkflowPaginationAndReadFailures` proves all-pages run
   and job reads bind the observed attempt, a queued run on a later page keeps
   the wait pending, and an unreadable population is an error rather than a
   failure.
-- `cmd/concord.TestCiWaitWorkflowAttemptIdentity` proves workflow IDs and events
+- `internal/ciwait.TestCiWaitWorkflowAttemptIdentity` proves workflow IDs and events
   stay distinct and run ID breaks a creation-time tie.
-- `cmd/concord.TestCiWaitFailureDoesNotWaitForRequiredness` proves a relevant
+- `internal/ciwait.TestCiWaitFailureDoesNotWaitForRequiredness` proves a relevant
   failure reports without requiredness discovery, including under `UNSTABLE`.
-- `cmd/concord.TestCiWaitFailFastServedReport` proves the served first-slice
+- `internal/ciwait.TestCiWaitFailFastServedReport` proves the served first-slice
   terminal failure report removes resumable state.
-- `cmd/concord.TestCiWaitWorkflowSubjectAndCurrentAttempt` proves foreign-subject
+- `internal/ciwait.TestCiWaitWorkflowSubjectAndCurrentAttempt` proves foreign-subject
   runs and jobs are not negative evidence and a rerun judges the current attempt.
-- `cmd/concord.TestCiWaitKnownRunFailureSurvivesMissingJobDetail` proves an
+- `internal/ciwait.TestCiWaitKnownRunFailureSurvivesMissingJobDetail` proves an
   observed run failure reports when job detail is unavailable.
-- `cmd/concord.TestCiWaitPRChecksModeMixedFailureAndPendingFails` proves checks
+- `internal/ciwait.TestCiWaitPRChecksModeMixedFailureAndPendingFails` proves checks
   mode reports failure with pending peers under the common rule.
-- `cmd/concord.TestCiWaitPRMergeModeNewestAttempts`: non-Actions rollup ordering.
-- `cmd/concord.TestCiWaitPRMergeModeFailurePrecedence`: head supersession,
+- `internal/ciwait.TestCiWaitPRMergeModeNewestAttempts`: non-Actions rollup ordering.
+- `internal/ciwait.TestCiWaitPRMergeModeFailurePrecedence`: head supersession,
   merged and closed precedence.
-- `cmd/concord.TestCiWaitPRMergeModeFullPageRollupNeedsNoChecksQuery`: observed
+- `internal/ciwait.TestCiWaitPRMergeModeFullPageRollupNeedsNoChecksQuery`: observed
   failure without a `gh pr checks` population query.
 - `python3 scripts/test-ci-wait-contract.py` and `bun test adapter/opencode/ci-watch.test.ts`:
   served reports, terminal delivery with a pending peer, queue, caller identity

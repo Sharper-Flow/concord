@@ -94,22 +94,23 @@ through the verb. CD-0160 D6 forbids caller-side polling methods.
 
 ## Verification
 
-- The Go table test in `cmd/concord/ci_wait_test.go` proves checks-mode
+- The Go table test in `internal/ciwait/ci_wait_test.go` proves checks-mode
   `success` for `UNKNOWN`, `BEHIND`, `BLOCKED`, `UNSTABLE`, `DRAFT`, empty,
   and `CLEAN` merge states with a complete passing check set, and `pending`
   for `DIRTY`.
 - [CD-0228 Verification](CD-0228-merge-waits-report-observed-check-failures-unless-github-reports-unstable.md#verification)
   names the required fail-fast, queued-workflow and newest-attempt checks in
   both modes, including failure reporting with `UNSTABLE`.
-- `cmd/concord.TestCiWaitPRMergeModeNewestAttempts` proves newest-attempt
+- `internal/ciwait.TestCiWaitPRMergeModeNewestAttempts` proves newest-attempt
   selection and separate check identities.
-- `cmd/concord.TestCiWaitPRMergeModeFailurePrecedence` proves merged, closed,
+- `internal/ciwait.TestCiWaitPRMergeModeFailurePrecedence` proves merged, closed,
   and superseded outcomes take precedence over check failures in merge mode.
-- `cmd/concord.TestCiWaitPRChecksModeJudgesMergedAndClosedHeads` proves that
+- `internal/ciwait.TestCiWaitPRChecksModeJudgesMergedAndClosedHeads` proves that
   merged and closed pull requests in checks mode still report the watched
   head's passing, failing, pending, and empty check populations, without
   treating the pull request's terminal state as CI proof.
 - `python3 scripts/generate-agent-lanes.py --check` proves every generated
   projection matches the manifest and templates.
-- `go test ./cmd/concord/` proves the verb inside the full command package
-  suite.
+- `go test ./internal/ciwait/ ./cmd/concord/` proves the wait owner and the verb
+  inside the full command package suite, including `TestCiWaitIngress` and
+  `TestDeterministicCIWaitOwner`.

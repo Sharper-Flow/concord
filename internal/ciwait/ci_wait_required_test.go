@@ -1,4 +1,4 @@
-package main
+package ciwait
 
 import (
 	"context"
@@ -112,7 +112,7 @@ func (f ciWaitRequiredFixture) calls(t *testing.T) string {
 func ciWaitChecksState() *ciWaitState {
 	return &ciWaitState{
 		SchemaVersion: 1,
-		Selector:      ciWaitSelector{Kind: "pr", Value: "5"},
+		Selector:      Selector{Kind: "pr", Value: "5"},
 		Repo:          "o/r",
 		BudgetSeconds: ciWaitDefaultBudget,
 		StartedAt:     time.Now().UTC(),
@@ -309,8 +309,8 @@ esac`))
 	saved := ciWaitCommandTimeout
 	ciWaitCommandTimeout = 50 * time.Millisecond
 	t.Cleanup(func() { ciWaitCommandTimeout = saved })
-	code, report := runCiWaitStdin(t, ciWaitJSON(t, ciWaitRequest{
-		Selector: &ciWaitSelector{Kind: "pr", Value: "5"}, Repo: "o/r", TimeSecondsMax: ciWaitBudget(8),
+	code, report := runCiWaitStdin(t, ciWaitJSON(t, Request{
+		Selector: &Selector{Kind: "pr", Value: "5"}, Repo: "o/r", TimeSecondsMax: ciWaitBudget(8),
 	}))
 	if code != 0 || report.Status != "pending" || !strings.Contains(report.Reason, "stalled") || !strings.Contains(report.Reason, "rules/branches/main") {
 		t.Fatalf("a stalled required-context read must be pending and name the endpoint, got code=%d report=%+v", code, report)

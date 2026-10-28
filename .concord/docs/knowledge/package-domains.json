@@ -46,6 +46,11 @@
       "role": "domain"
     },
     {
+      "owner_domain_id": "agent-surface",
+      "path": "internal/ciwait",
+      "role": "domain"
+    },
+    {
       "path": "internal/gittest",
       "role": "test_support"
     },

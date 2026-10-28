@@ -2,27 +2,27 @@
   "evidence": [
     {
       "kind": "go_test",
-      "value": "cmd/concord.TestCiWaitPRChecksModeMergeStates"
+      "value": "internal/ciwait.TestCiWaitPRChecksModeMergeStates"
     },
     {
       "kind": "go_test",
-      "value": "cmd/concord.TestCiWaitPRMergeModeUsesGitHubMergeState"
+      "value": "internal/ciwait.TestCiWaitPRMergeModeUsesGitHubMergeState"
     },
     {
       "kind": "go_test",
-      "value": "cmd/concord.TestCiWaitPRMergeModeStaysPendingOnUnknown"
+      "value": "internal/ciwait.TestCiWaitPRMergeModeStaysPendingOnUnknown"
     },
     {
       "kind": "go_test",
-      "value": "cmd/concord.TestCiWaitPRMergedAndClosedAreTerminal"
+      "value": "internal/ciwait.TestCiWaitPRMergedAndClosedAreTerminal"
     },
     {
       "kind": "go_test",
-      "value": "cmd/concord.TestCiWaitMergeModeRequiresPRSelector"
+      "value": "internal/ciwait.TestCiWaitMergeModeRequiresPRSelector"
     },
     {
       "kind": "go_test",
-      "value": "cmd/concord.TestCiWaitPRChecksModeJudgesMergedAndClosedHeads"
+      "value": "internal/ciwait.TestCiWaitPRChecksModeJudgesMergedAndClosedHeads"
     },
     {
       "kind": "validator",

@@ -223,10 +223,12 @@ enforcement, Domain boundaries, shared-part reuse and repair, and the required
 follow-up outcomes where those rules apply. A law's letter conflicting with its
 stated intent is a law conflict to report, not a reason to apply the letter silently.
 
-Use the existing `contract_findings` evidence entries to record each settlement:
-start `detail` with `conflict-rule:<rule ID>`, then name the observed conflict,
+Record each readable applied-rule conclusion in existing `context_findings`:
+start `statement` with `conflict-rule:<rule ID>`, then name the observed conflict,
 the recorded change size, the outcome and the source or work/design/approval
-evidence that supports it. Continue across entries within the existing bounds.
+evidence that supports it. Use existing `contract_findings` evidence entries
+to identify the corresponding context finding by ordinal without copying its
+full text. These are claims, not approvals or acceptance.
 Use existing findings and remaining obligations for an unresolved conflict or
 missing rule, size or evidence; never guess a settlement or size. An instruction,
 resolving anchor or green structural test alone does not prove a rule was applied.
@@ -242,10 +244,30 @@ instead of creating a policy counter, label gate or another review stage.
 
 For operator boundaries, judge the consequence rather than trusting an authored
 class. Cite the applicable approval and its exact wording when the boundary
-itself changes. Check that risk, recovery and any permanent loss were explained
-before acting, with informed approval where required; missing recovery alone
-creates no new approval class. For a quality-cost choice, check the evidenced
-one-time explanation before building and the operator's recorded decision.
+itself changes. For S, P10 and A2-9, read what could be lost, the verified
+recovery route or its absence, and the explanation supplied before acting.
+Where consent is required, identify the operator's informed approval of that
+specific loss: general task or contract approval is not informed approval of
+that loss, and a worktree destructive waiver is not customer-data consent.
+An operator may approve explained irreversible loss without recovery;
+missing recovery alone creates no new approval class.
+
+For P8, check the evidenced one-time explanation before building and the
+operator's recorded decision, and that the built behavior follows that decision.
+P8 does not add another discretionary approval or let the reviewer replace the
+operator's requested behavior with its preference.
+
+For both checks, cite source identity and ordering evidence establishing that
+the explanation preceded any required approval, and both preceded execution.
+A mutable link, an authored timestamp or an agent's claim is not proof of that order or of
+operator identity. Missing, late or unverifiable evidence leaves compliance
+unproved; report the gap through existing findings and remaining obligations.
+Review may detect a violation only after the action. It cannot intercept
+external tools Concord does not mediate or approve a loss retrospectively.
+
+Keep unresolved blocking issues in the typed review findings as well; a
+context claim never replaces them. Missing source context is a gap, not
+permission to fetch an undeclared source or invent a source identity.
 
 For a changed contract, event, or value, trace the producing code through the
 relevant consumer or dispatch path. Cite both sides when a boundary finding

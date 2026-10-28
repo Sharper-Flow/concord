@@ -1,6 +1,6 @@
 {
   "schema_version": "1.1",
-  "catalog_generation": 11,
+  "catalog_generation": 12,
   "source": {
     "path": ".concord/docs/goals.md",
     "sha256": "sha256:adf0c40f264dbcd2bc3c4d5f9184a0b82656b58b5cbf15bac36799b46541ad67"
@@ -59,8 +59,13 @@
       "actors": [
         "agent"
       ],
-      "state": "outstanding",
-      "issue": "CON-1100"
+      "state": "satisfied",
+      "mechanism": "recorded_review",
+      "evidence": [
+        {"kind": "go_test", "value": "internal/store.TestReviewCompletionRetainsAppliedRuleContextClaims"},
+        {"kind": "go_test", "value": "internal/store.TestDispatchRefusesStaleWorkContextPacket"},
+        {"kind": "go_test", "value": "internal/store.TestDispatchRefusesTamperedWorkContextPacket"}
+      ]
     },
     {
       "id": "U",
@@ -152,8 +157,13 @@
         "operator",
         "agent"
       ],
-      "state": "outstanding",
-      "issue": "CON-1100"
+      "state": "satisfied",
+      "mechanism": "recorded_review",
+      "evidence": [
+        {"kind": "go_test", "value": "internal/store.TestReviewCompletionRetainsAppliedRuleContextClaims"},
+        {"kind": "go_test", "value": "internal/store.TestDispatchRefusesStaleWorkContextPacket"},
+        {"kind": "go_test", "value": "internal/store.TestDispatchRefusesTamperedWorkContextPacket"}
+      ]
     },
     {
       "id": "P9",
@@ -169,8 +179,13 @@
       "actors": [
         "agent"
       ],
-      "state": "outstanding",
-      "issue": "CON-1100"
+      "state": "satisfied",
+      "mechanism": "recorded_review",
+      "evidence": [
+        {"kind": "go_test", "value": "internal/store.TestReviewCompletionRetainsAppliedRuleContextClaims"},
+        {"kind": "go_test", "value": "internal/store.TestDispatchRefusesStaleWorkContextPacket"},
+        {"kind": "go_test", "value": "internal/store.TestDispatchRefusesTamperedWorkContextPacket"}
+      ]
     },
     {
       "id": "P11",
@@ -508,8 +523,13 @@
       "actors": [
         "agent"
       ],
-      "state": "outstanding",
-      "issue": "CON-1100"
+      "state": "satisfied",
+      "mechanism": "recorded_review",
+      "evidence": [
+        {"kind": "go_test", "value": "internal/store.TestReviewCompletionRetainsAppliedRuleContextClaims"},
+        {"kind": "go_test", "value": "internal/store.TestDispatchRefusesStaleWorkContextPacket"},
+        {"kind": "go_test", "value": "internal/store.TestDispatchRefusesTamperedWorkContextPacket"}
+      ]
     }
   ],
   "duties": [

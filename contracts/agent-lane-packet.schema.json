@@ -1759,6 +1759,94 @@
       "minLength": 5,
       "maxLength": 64
     },
+    "lane_native_git_tag": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "ref",
+        "object",
+        "peeled"
+      ],
+      "properties": {
+        "ref": {
+          "type": "string",
+          "pattern": "^refs/tags/",
+          "maxLength": 256
+        },
+        "object": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$",
+          "minLength": 40,
+          "maxLength": 64
+        },
+        "peeled": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$",
+          "minLength": 40,
+          "maxLength": 64
+        }
+      }
+    },
+    "lane_native_git_view": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "object_format",
+        "commit",
+        "tree",
+        "tags"
+      ],
+      "properties": {
+        "object_format": {
+          "type": "string",
+          "enum": [
+            "sha1",
+            "sha256"
+          ]
+        },
+        "commit": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$",
+          "minLength": 40,
+          "maxLength": 64
+        },
+        "tree": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$",
+          "minLength": 40,
+          "maxLength": 64
+        },
+        "tags": {
+          "type": "array",
+          "maxItems": 4096,
+          "items": {
+            "$ref": "#/$defs/lane_native_git_tag"
+          }
+        }
+      }
+    },
+    "lane_native_git_metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "mode",
+        "candidate",
+        "recipe"
+      ],
+      "properties": {
+        "mode": {
+          "type": "string",
+          "const": "candidate_ancestry_v1"
+        },
+        "candidate": {
+          "$ref": "#/$defs/lane_native_git_view"
+        },
+        "recipe": {
+          "$ref": "#/$defs/lane_native_git_view"
+        }
+      },
+      "description": "Producer-observed complete candidate and pinned-recipe Git views. Genuine ancestor tag identities only; no ambient repository access. The descriptor and Git executable fingerprint join through build_environment_digest; metadata files also enter the sealed input digest. Absence preserves the metadata-free route."
+    },
     "lane_native_oracle_preparation": {
       "type": "object",
       "additionalProperties": false,
@@ -1883,6 +1971,9 @@
           "type": "string",
           "const": "target_runner_v1",
           "description": "The closed discriminator of the target-runner family. Its presence marks a target preparation; a Go preparation never carries it."
+        },
+        "git_metadata": {
+          "$ref": "#/$defs/lane_native_git_metadata"
         },
         "target_materializer": {
           "type": "string",
@@ -2356,6 +2447,9 @@
             "recipe_kind": {
               "type": "string",
               "const": "target_runner_v1"
+            },
+            "git_metadata": {
+              "$ref": "#/$defs/lane_native_git_metadata"
             },
             "target_materializer": {
               "type": "string",

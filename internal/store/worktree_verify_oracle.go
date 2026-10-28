@@ -69,6 +69,7 @@ type NativeOraclePreparation struct {
 	TargetRunner       string              `json:"target_runner,omitempty"`
 	SelectedWitnessIDs []string            `json:"selected_witness_ids,omitempty"`
 	CaseToWitnessMap   map[string][]string `json:"case_to_witness_map,omitempty"`
+	GitMetadata        *NativeGitMetadata  `json:"git_metadata,omitempty"`
 }
 
 type NativeOracleStage struct {
@@ -464,6 +465,9 @@ func nativePreparationComplete(o *NativeOracleResult, p nativeOraclePlan) bool {
 // a retained preparation: phases, subject, contract, bundle, pinned files,
 // and environment identity.
 func nativePreparationJoinsValid(o *NativeOracleResult, p nativeOraclePlan) bool {
+	if !nativeGitMetadataMatches(p, o.GitMetadata) {
+		return false
+	}
 	if p.Request.Phase != "prepare" || o.Phase != "prepare" || o.Qualification != "ready" {
 		return false
 	}
@@ -891,7 +895,7 @@ func validateNativeExecutionPreparation(ctx context.Context, q queryer, req Work
 		return err
 	}
 	digest, identity := nativePlanEnvironment(plan)
-	if prep == nil || prep.BuildEnvironmentDigest != digest || prep.ToolchainIdentity != identity || prep.ManifestDigest != plan.ManifestFile.SHA256 || !oracleEntryIdentical(prep.Files, plan.Files) {
+	if prep == nil || !nativeGitPreparationMatches(plan, prep.GitMetadata) || prep.BuildEnvironmentDigest != digest || prep.ToolchainIdentity != identity || prep.ManifestDigest != plan.ManifestFile.SHA256 || !oracleEntryIdentical(prep.Files, plan.Files) {
 		return oracleFailure(KindUnauthorizedDispatch, "preparation environment or pinned inputs differ from execution", "request explicit preparation for this environment and bundle")
 	}
 	return nil
@@ -998,6 +1002,7 @@ func nativeOracleInitialResult(req WorktreeVerifyRequest, entry WorktreeEntry, p
 		base.RecipeKind = nativeTargetKind
 		base.TargetMaterializer = p.Target.Environment.Materializer
 		base.TargetRunner = p.Target.Environment.Runner
+		base.GitMetadata = p.Target.GitMetadata
 		base.SelectedWitnessIDs = names
 		base.CaseToWitnessMap = p.Target.Recipe.Cases
 		base.SelectedDistinctCount = len(names)

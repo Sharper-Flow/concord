@@ -1124,7 +1124,7 @@ func (f *nativeTargetFixture) authorizeLane(t *testing.T, id string, actor Workf
 	packetRaw, _ := json.Marshal(packet)
 	canonical, _ := canonicalJSON(packetRaw)
 	digest := nativeDigest(canonical)
-	lane := reviewGateLane(t, map[string]string{"implement": "implementation", "verify": "verification"}[laneID])
+	lane := reviewGateLane(t, map[string]string{"implement": "implementation", "verify": "verification", "review": "review"}[laneID])
 	ld := lane.Digest
 	var epoch int64
 	if err := f.s.db.QueryRow(`SELECT COALESCE(MAX(attempt_epoch),0)+1 FROM workflow_step_epochs WHERE work_id=? AND step_id='repair'`, f.work).Scan(&epoch); err != nil {

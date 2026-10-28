@@ -39,6 +39,8 @@ import (
 type nativeTargetOracleManifest struct {
 	// Kind is exactly "target_runner_v1".
 	Kind string `json:"kind"`
+	// GitMetadata opts into a private candidate-bound repository, never the host checkout.
+	GitMetadata nativeGitPolicy `json:"git_metadata,omitempty"`
 	// Materializer is one closed member: none, uv, or bun.
 	Materializer string `json:"materializer"`
 	// Runner is one closed member: pytest or check.
@@ -326,6 +328,9 @@ func validateNativeTargetManifest(m nativeTargetOracleManifest, c OracleControl)
 	if m.Kind != nativeTargetKind {
 		return nativeUnavailable("unsupported recipe family")
 	}
+	if m.GitMetadata != "" && m.GitMetadata != nativeGitMetadataMode {
+		return nativeUnavailable("unsupported Git metadata policy")
+	}
 	pair, err := nativeTargetPairOf(m)
 	if err != nil {
 		return err
@@ -557,12 +562,14 @@ type nativeTargetEnvironment struct {
 	// read-only host cache the uv or bun materializer materializes from.
 	// Cache paths never enter the digest: they are input sources, not
 	// identities.
-	UV          string `json:"uv,omitempty"`
-	Python      string `json:"python,omitempty"`
-	Bash        string `json:"bash,omitempty"`
-	Bun         string `json:"bun,omitempty"`
-	UVCacheDir  string `json:"uv_cache_dir,omitempty"`
-	NPMCacheDir string `json:"npm_cache_dir,omitempty"`
+	UV                string `json:"uv,omitempty"`
+	Python            string `json:"python,omitempty"`
+	Bash              string `json:"bash,omitempty"`
+	Bun               string `json:"bun,omitempty"`
+	UVCacheDir        string `json:"uv_cache_dir,omitempty"`
+	NPMCacheDir       string `json:"npm_cache_dir,omitempty"`
+	Git               string `json:"git,omitempty"`
+	GitMetadataDigest string `json:"git_metadata_digest,omitempty"`
 }
 
 func nativeTargetUnavailableMaterializer(materializer, cause string) error {
@@ -779,4 +786,7 @@ func finalizeNativeTargetEnvironment(e *nativeTargetEnvironment) {
 		nativeDigest([]byte(workflowJSON(e.Tools))),
 		"offline-locked-no-build-no-scripts-copy-private-scratch",
 	}, "\x00")))
+	if e.GitMetadataDigest != "" {
+		e.Digest = nativeDigest([]byte(e.Digest + "\x00" + nativeGitMetadataMode + "\x00" + e.GitMetadataDigest))
+	}
 }

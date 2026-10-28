@@ -24098,6 +24098,9 @@
           "const": "target_runner_v1",
           "description": "The closed discriminator of the target-runner family. Its presence marks a target preparation; a Go preparation never carries it."
         },
+        "git_metadata": {
+          "$ref": "#/$defs/native_git_metadata"
+        },
         "target_materializer": {
           "type": "string",
           "enum": [
@@ -24571,6 +24574,9 @@
               "type": "string",
               "const": "target_runner_v1"
             },
+            "git_metadata": {
+              "$ref": "#/$defs/native_git_metadata"
+            },
             "target_materializer": {
               "type": "string",
               "enum": [
@@ -24928,6 +24934,9 @@
               "type": "string",
               "const": "target_runner_v1",
               "description": "The closed discriminator of the target-runner family. Its presence marks a target preparation; a Go preparation never carries it."
+            },
+            "git_metadata": {
+              "$ref": "#/$defs/native_git_metadata"
             },
             "target_materializer": {
               "type": "string",
@@ -25450,6 +25459,9 @@
                   "type": "string",
                   "const": "target_runner_v1"
                 },
+                "git_metadata": {
+                  "$ref": "#/$defs/native_git_metadata"
+                },
                 "target_materializer": {
                   "type": "string",
                   "enum": [
@@ -25782,6 +25794,9 @@
               "type": "string",
               "const": "target_runner_v1",
               "description": "The closed discriminator of the target-runner family. Its presence marks a target preparation; a Go preparation never carries it."
+            },
+            "git_metadata": {
+              "$ref": "#/$defs/native_git_metadata"
             },
             "target_materializer": {
               "type": "string",
@@ -26427,6 +26442,9 @@
                 "recipe_kind": {
                   "type": "string",
                   "const": "target_runner_v1"
+                },
+                "git_metadata": {
+                  "$ref": "#/$defs/native_git_metadata"
                 },
                 "target_materializer": {
                   "type": "string",
@@ -29265,6 +29283,132 @@
         }
       }
     },
+    "workflow_review_unidentified_finding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "severity",
+        "confidence",
+        "detail"
+      ],
+      "properties": {
+        "severity": {
+          "enum": [
+            "P0",
+            "P1",
+            "P2",
+            "P3"
+          ],
+          "type": "string"
+        },
+        "confidence": {
+          "enum": [
+            "low",
+            "medium",
+            "high"
+          ],
+          "type": "string"
+        },
+        "detail": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512,
+          "x-maxBytes": 512
+        },
+        "oracle": {
+          "$ref": "#/$defs/lane_report_oracle_finding"
+        }
+      },
+      "description": "A retained current finding without recorded identity, status, scope, blocking or reference fields. Only its observed content is exposed; it grants no worker-report, closure or acceptance authority."
+    },
+    "native_git_metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "mode",
+        "candidate",
+        "recipe"
+      ],
+      "properties": {
+        "mode": {
+          "type": "string",
+          "const": "candidate_ancestry_v1"
+        },
+        "candidate": {
+          "$ref": "#/$defs/native_git_view"
+        },
+        "recipe": {
+          "$ref": "#/$defs/native_git_view"
+        }
+      },
+      "description": "Producer-observed complete candidate and pinned-recipe Git views. Genuine ancestor tag identities only; no ambient repository access. The descriptor and Git executable fingerprint join through build_environment_digest; metadata files also enter the sealed input digest. Absence preserves the metadata-free route."
+    },
+    "native_git_view": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "object_format",
+        "commit",
+        "tree",
+        "tags"
+      ],
+      "properties": {
+        "object_format": {
+          "type": "string",
+          "enum": [
+            "sha1",
+            "sha256"
+          ]
+        },
+        "commit": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$",
+          "minLength": 40,
+          "maxLength": 64
+        },
+        "tree": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$",
+          "minLength": 40,
+          "maxLength": 64
+        },
+        "tags": {
+          "type": "array",
+          "maxItems": 4096,
+          "items": {
+            "$ref": "#/$defs/native_git_tag"
+          }
+        }
+      }
+    },
+    "native_git_tag": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "ref",
+        "object",
+        "peeled"
+      ],
+      "properties": {
+        "ref": {
+          "type": "string",
+          "pattern": "^refs/tags/",
+          "maxLength": 256
+        },
+        "object": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$",
+          "minLength": 40,
+          "maxLength": 64
+        },
+        "peeled": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$",
+          "minLength": 40,
+          "maxLength": 64
+        }
+      }
+    },
     "retained_workflow_correction_context": {
       "type": "object",
       "additionalProperties": false,
@@ -29721,6 +29865,9 @@
           "type": "string",
           "const": "target_runner_v1",
           "description": "The closed discriminator of the target-runner family. Its presence marks a target preparation; a Go preparation never carries it."
+        },
+        "git_metadata": {
+          "$ref": "#/$defs/native_git_metadata"
         },
         "target_materializer": {
           "type": "string",
@@ -30190,6 +30337,9 @@
             "recipe_kind": {
               "type": "string",
               "const": "target_runner_v1"
+            },
+            "git_metadata": {
+              "$ref": "#/$defs/native_git_metadata"
             },
             "target_materializer": {
               "type": "string",
@@ -30791,44 +30941,6 @@
           "description": "The owner-family finding this newly reproduced alternate entry path is a variant of. A variant is a new identity, not the same open finding."
         }
       }
-    },
-    "workflow_review_unidentified_finding": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "severity",
-        "confidence",
-        "detail"
-      ],
-      "properties": {
-        "severity": {
-          "enum": [
-            "P0",
-            "P1",
-            "P2",
-            "P3"
-          ],
-          "type": "string"
-        },
-        "confidence": {
-          "enum": [
-            "low",
-            "medium",
-            "high"
-          ],
-          "type": "string"
-        },
-        "detail": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 512,
-          "x-maxBytes": 512
-        },
-        "oracle": {
-          "$ref": "#/$defs/lane_report_oracle_finding"
-        }
-      },
-      "description": "A retained current finding without recorded identity, status, scope, blocking or reference fields. Only its observed content is exposed; it grants no worker-report, closure or acceptance authority."
     }
   }
 }

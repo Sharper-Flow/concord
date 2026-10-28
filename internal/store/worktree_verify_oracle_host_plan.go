@@ -22,6 +22,10 @@ type nativeTargetOraclePlan struct {
 	// bytes, so a candidate cannot quietly change its own dependency
 	// obligation. The none materializer leaves them empty.
 	DependencyFiles []NativeOracleFile `json:"dependency_files"`
+	GitMetadata     *NativeGitMetadata `json:"git_metadata,omitempty"`
+	// A scoped repair keeps its original readiness view, not a relabelled
+	// preparation. Its actual candidate remains in GitMetadata.
+	PreparedGitCandidate *NativeGitView `json:"prepared_git_candidate,omitempty"`
 }
 
 // prepareCommand returns the canonical prepare lease command for the
@@ -208,6 +212,9 @@ func normalizeNativeTargetOraclePlan(ctx context.Context, r GitRunner, entry Wor
 	}
 	resolved.DependencyInputsDigest = depDigest
 	target.Environment = resolved
+	if err := normalizeNativeTargetGitMetadata(ctx, entry.Path, &p); err != nil {
+		return p, err
+	}
 	if err := resolveNativeTargetMaterializerCache(ctx, target, pair, depRaw); err != nil {
 		return p, err
 	}
@@ -353,7 +360,7 @@ func nativeTargetHostPath(ctx context.Context, tool string, args ...string) (str
 func nativeTargetToolDigests(e nativeTargetEnvironment) ([]NativeOracleFile, error) {
 	var tools []NativeOracleFile
 	for _, slot := range []struct{ role, path string }{
-		{"uv", e.UV}, {"python", e.Python}, {"bash", e.Bash}, {"bun", e.Bun},
+		{"uv", e.UV}, {"python", e.Python}, {"bash", e.Bash}, {"bun", e.Bun}, {"git", e.Git},
 	} {
 		if slot.path == "" {
 			continue

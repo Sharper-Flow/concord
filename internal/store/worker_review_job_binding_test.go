@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 )
 
 // seedFinalReviewAnchor accepts one implementation attempt through the real
@@ -29,9 +30,9 @@ func seedFinalReviewAnchor(t *testing.T, workID string) (oracleRepairFixture, Wo
 	return f, job
 }
 
-// CD-0205 D2: with no ready revision, Review binds the job whose accepted
-// implementation attempt delivered the current candidate. A ready revision
-// takes priority, and a revision outside that anchor never binds.
+// With an implementation delivery as the current candidate's anchor, Review
+// binds that exact satisfied revision. A ready revision takes priority, and a
+// revision outside that anchor never binds.
 func TestFinalReviewBindsDeliveryAnchorJob(t *testing.T) {
 	workID := "final-review-anchor"
 	f, anchor := seedFinalReviewAnchor(t, workID)
@@ -106,8 +107,8 @@ func TestFinalReviewRefusesSupersededAnchorRevision(t *testing.T) {
 	}
 }
 
-// CD-0205 D2: the delivery anchor is the newest accepted implementation
-// delivery. When two jobs' accepted results both delivered the current
+// Among implementation deliveries, the anchor is the newest acceptance.
+// When two jobs' accepted results both delivered the current
 // candidate, Review binds the newer job only.
 func TestFinalReviewBindsNewestDeliveryAnchor(t *testing.T) {
 	workID := "final-review-ambiguous"
@@ -181,8 +182,8 @@ func TestFinalReviewBindsNewestDeliveryAnchor(t *testing.T) {
 	}
 }
 
-// CD-0205 D2: only the newest accepted implementation delivery anchors final
-// Review. When that delivery carries no clean core observation, or its job
+// An invalid newest accepted implementation delivery blocks final Review.
+// When that delivery carries no clean core observation, or its job
 // has a later revision, no anchor exists and the older delivery never stands
 // in for it.
 func TestFinalReviewNeverFallsBackFromNewestAnchor(t *testing.T) {
@@ -222,6 +223,77 @@ func TestFinalReviewNeverFallsBackFromNewestAnchor(t *testing.T) {
 			}
 			if err := requireWorkerReviewJobRevisionStateTx(ctx, q, workID, first); err == nil || !strings.Contains(err.Error(), "is not ready") {
 				t.Fatalf("Review admission of the older delivery = %v, want the readiness refusal", err)
+			}
+		})
+	}
+}
+
+func TestFinalReviewVerifySatisfactionRequiresCurrentAcceptedRevision(t *testing.T) {
+	for _, outcome := range []string{"accepted", "missing-observation", "unaccepted", "rejected", "failed", "superseded"} {
+		t.Run(outcome, func(t *testing.T) {
+			workID := "final-review-verify-" + outcome
+			f, original := seedFinalReviewAnchor(t, workID)
+			defer f.store.Close()
+			advanceOracleFixtureSubject(t, f, workID, "2")
+			job := recordOracleJobRevision(t, f.store, workID, f.owner, original.JobID, twoPathOracleFields(t, f.store, workID, nil))
+			attempt := "attempt:" + workID + ":verify"
+			lane := reviewGateLane(t, "verification")
+			packet := joinPacketFor(t, f.store, workID, "repair", attempt, lane.ID, lane.Digest)
+			packet["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, f.store, workID, job, lane.ID)
+			if err := dispatchJobPacketForTest(t, f.store, workID, attempt, f.owner, "dispatch-"+attempt, packet); err != nil {
+				t.Fatal(err)
+			}
+			if err := appendLaneBoundWorkerDispatch(t, f.store, workID, attempt, lane, &job); err != nil {
+				t.Fatal(err)
+			}
+			if outcome == "failed" {
+				event := s2WorkerFailedAttributedEvent(workID, attempt, "failed-"+attempt, preferredModelForLane(lane), WorkerFailureFallbackBlocked, "verification could not complete", time.Now().UTC())
+				if err := s2WorkerFailedLive(t, f.store, event); err != nil {
+					t.Fatal(err)
+				}
+			} else if outcome == "missing-observation" {
+				event := jobBoundCompletionEvent(workID, "completed-"+attempt, attempt, lane, time.Now().UTC(), &job, f.entry.Path)
+				err := f.store.Transact(t.Context(), func(tx *Transaction) error {
+					_, err := ApplyWorkerEvidenceOperationTx(t.Context(), tx, event)
+					return err
+				})
+				if !hasFailureKind(err, KindInvariantViolation) || !strings.Contains(err.Error(), "without the core output observation") {
+					t.Fatalf("Verify completion without observation = %v, want the output-observation refusal", err)
+				}
+				if err := acceptChangeTestAttempt(t, f, workID, attempt); err == nil {
+					t.Fatal("accepted Verify whose terminal ingest refused")
+				}
+			} else {
+				completeChangeAcceptanceAttempt(t, f, workID, attempt, strings.Repeat("2", 40))
+				if outcome == "rejected" {
+					if err := runVerdictActionAs(t, f.store, workID, "reject_worker_result", mustJSONValue(map[string]any{
+						"attempt_id": attempt, "attempt_epoch": latestStepStartEpoch(t, f.store, workID, "repair"),
+						"diagnosis": "the verification report is insufficient", "strategy": "repeat verification with complete evidence",
+						"predicate_ids": []string{"predicate:return-route"}, "evidence_refs": []string{"evidence:verification-gap"},
+					}), 0, f.acceptor); err != nil {
+						t.Fatal(err)
+					}
+				} else if outcome != "unaccepted" {
+					if err := acceptChangeTestAttempt(t, f, workID, attempt); err != nil {
+						t.Fatal(err)
+					}
+				}
+			}
+			if outcome == "superseded" {
+				recordOracleJobRevisionWith(t, f.store, workID, f.owner, job.JobID, twoPathOracleFields(t, f.store, workID, nil), map[string]any{
+					"objective": "changed work awaiting readiness", "ready": false, "readiness_evidence": []string{},
+				})
+			}
+			final, err := finalReviewWorkerJobTx(t.Context(), f.store.db, workID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if outcome == "accepted" {
+				if final == nil || *final != job {
+					t.Fatalf("accepted Verify final binding = %+v, want current revision %+v", final, job)
+				}
+			} else if final != nil {
+				t.Fatalf("final binding after %s = %+v; want none, not original %+v", outcome, final, original)
 			}
 		})
 	}

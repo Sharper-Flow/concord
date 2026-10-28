@@ -250,6 +250,21 @@ func readWorkflowContinuityForRegistry(ctx context.Context, s *Store, req Contin
 	if err != nil {
 		return out, err
 	}
+	var retained *retainedReviewState
+	var reviewEntries []WorktreeEntry
+	if receipt != nil && len(out.ReadyWorkerJobs) == 1 {
+		job := out.ReadyWorkerJobs[0]
+		retained, err = sampleRetainedReviewState(ctx, tx, req.Work, WorkerJobBinding{JobID: job.JobID, Revision: job.Revision, Digest: job.Digest}, "")
+		if err != nil {
+			return out, err
+		}
+		if retained != nil {
+			reviewEntries, err = worktreeEntriesCore(ctx, tx, req.Work)
+			if err != nil {
+				return out, err
+			}
+		}
+	}
 	if err := tx.Rollback(); err != nil {
 		return out, err
 	}
@@ -260,6 +275,10 @@ func readWorkflowContinuityForRegistry(ctx context.Context, s *Store, req Contin
 			out.ReviewInputWarning = treeErr
 		} else {
 			out.ReviewInput = &WorkerReviewInput{InputCandidate: WorkerReviewCandidate{ProjectID: receipt.ProjectID, Commit: commit, Tree: tree}, Dependencies: *out.WorkPin.Review.Dependencies, Size: reviewSize}
+			out.ReviewInput.RetainedFailedEdit, out.ReviewInputWarning = observeContinuityRetainedReview(ctx, out.ReviewInput, retained, reviewEntries, receipt)
+			if out.ReviewInputWarning != nil {
+				out.ReviewInput = nil
+			}
 		}
 	}
 	return out, nil

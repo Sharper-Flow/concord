@@ -499,8 +499,11 @@ func validateReviewAssignmentAcceptance(ctx context.Context, q queryer, workID s
 	if err != nil {
 		return err
 	}
-	if state.Candidate != nil && *state.Candidate != report.InputCandidate {
-		current, err := workflowMemberReviewCurrent(ctx, q, workID, auth, *state.Candidate, report.InputCandidate)
+	if auth.WorkerRetainedReview != nil && state.Candidate == nil {
+		return reviewFailure(KindStaleRequiresReview, "the retained Review's accepted base is no longer current", "dispatch a fresh Review from the current qualified candidate")
+	}
+	if state.Candidate != nil && (*state.Candidate != report.InputCandidate || auth.WorkerRetainedReview != nil) {
+		current, err := workflowReviewInputCurrent(ctx, q, workID, auth, *state.Candidate, report.InputCandidate)
 		if err != nil {
 			return err
 		}

@@ -104,3 +104,15 @@ func workflowMemberReviewCurrent(ctx context.Context, q queryer, workID string, 
 	receipt, err := readCurrentOracleSubjectReceipt(ctx, q, workID)
 	return err == nil && receipt != nil && receipt.SubjectRef == "commit:"+input.Commit && receipt.ProjectID == input.ProjectID && join.LatestAcceptanceSeq < dispatchSeq, err
 }
+
+// Both input exceptions reuse dispatch's proof; neither promotes terminal bytes
+// into a candidate before Main accepts the fresh Review.
+func workflowReviewInputCurrent(ctx context.Context, q queryer, workID string, auth workflowActionCompletedPayload, current, input WorkerReviewCandidate) (bool, error) {
+	if proof := auth.WorkerRetainedReview; proof != nil {
+		if proof.State.Candidate != current || proof.Input != input || auth.WorkerJob == nil || *auth.WorkerJob != proof.State.Job || auth.WorkerSubjectCommit != input.Commit {
+			return false, nil
+		}
+		return retainedReviewCurrent(ctx, q, workID, proof, auth.WorkerAttemptID, auth.WorkerWorktreeIdentity)
+	}
+	return workflowMemberReviewCurrent(ctx, q, workID, auth, current, input)
+}

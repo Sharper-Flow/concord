@@ -90,6 +90,10 @@ export interface AgentLanePacket {
 export interface AgentLanePacketReviewInput {
   input_candidate: AgentLaneReportReview["input_candidate"]
   dependencies: AgentLaneReportReview["dependencies"]
+  retained_failed_edit?: {
+    accepted_candidate: AgentLaneReportReview["input_candidate"]
+    changed_paths: string[]
+  }
   size?: {
     size: WorkSizeClass
     model_size?: WorkSizeClass

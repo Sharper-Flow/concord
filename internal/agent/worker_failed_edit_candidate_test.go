@@ -94,6 +94,22 @@ func TestFailedEditingCandidateRecoveryPublicRoute(t *testing.T) {
 				t.Logf("failed-attempt acceptance refused: kind=%s message=%q", noResult.Error.Kind, noResult.Error.Message)
 				const reviewAttempt = "attempt:fresh-required-review"
 				packet = failedEditPacket(t, f, "review", reviewAttempt)
+				var packetInput struct {
+					Inputs struct {
+						ReviewInput store.WorkerReviewInput `json:"review_input"`
+					} `json:"inputs"`
+				}
+				if err := json.Unmarshal(retryJSON(packet), &packetInput); err != nil {
+					t.Fatal(err)
+				}
+				disclosure := packetInput.Inputs.ReviewInput.RetainedFailedEdit
+				if edited {
+					if disclosure == nil || disclosure.AcceptedCandidate != *baseline.Candidate || !reflect.DeepEqual(disclosure.ChangedPaths, []string{"o_fixture/value.go"}) || packetInput.Inputs.ReviewInput.InputCandidate.Commit != retained {
+						t.Fatalf("public runtime lost retained delta disclosure: %+v", packetInput.Inputs.ReviewInput)
+					}
+				} else if disclosure != nil {
+					t.Fatalf("unchanged input invented retained delta: %+v", disclosure)
+				}
 				response := revisionRecoveryInvoke(t, f, "dispatch_worker", "fresh-required-review", map[string]any{"attempt_id": reviewAttempt, "worker_packet": packet})
 				if response.Error != nil {
 					if revisionRecoveryState(t, f) != before || failedEditAttemptBytes(t, f, failed) != failedBytes || !reflect.DeepEqual(failedEditReviewBytes(f.read(t).Pinned.Pin.Review), baselineBytes) {

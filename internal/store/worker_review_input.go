@@ -9,9 +9,67 @@ import (
 
 // WorkerReviewInput is dispatch-owned context, not a worker candidate claim.
 type WorkerReviewInput struct {
-	InputCandidate WorkerReviewCandidate    `json:"input_candidate"`
-	Dependencies   WorkerReviewDependencies `json:"dependencies"`
-	Size           *WorkSizeSummary         `json:"size,omitempty"`
+	InputCandidate     WorkerReviewCandidate           `json:"input_candidate"`
+	Dependencies       WorkerReviewDependencies        `json:"dependencies"`
+	Size               *WorkSizeSummary                `json:"size,omitempty"`
+	RetainedFailedEdit *WorkerReviewRetainedFailedEdit `json:"retained_failed_edit,omitempty"`
+}
+
+// WorkerReviewRetainedFailedEdit discloses the unaccepted delta being reviewed.
+// It carries no authority independent of the sealed dispatch preparation.
+type WorkerReviewRetainedFailedEdit struct {
+	AcceptedCandidate WorkerReviewCandidate `json:"accepted_candidate"`
+	ChangedPaths      []string              `json:"changed_paths"`
+}
+
+// WorkerReviewRetainedPathsMaxBytes bounds the serialized path array emitted
+// from the native diff's maxGitOutput bytes. Each raw byte needs at most six
+// JSON bytes; each NUL separator covers quotes and a comma, plus two brackets.
+const WorkerReviewRetainedPathsMaxBytes = 6*maxGitOutput + 2
+
+func retainedFailedEditInput(proof *retainedReviewProof) *WorkerReviewRetainedFailedEdit {
+	if proof == nil {
+		return nil
+	}
+	return &WorkerReviewRetainedFailedEdit{AcceptedCandidate: proof.State.Candidate, ChangedPaths: append([]string{}, proof.ChangedPaths...)}
+}
+
+type continuityReviewGitRunner struct{}
+
+func (continuityReviewGitRunner) Run(ctx context.Context, path string, args ...string) ([]byte, error) {
+	// Continuity must not refresh the index or start a configured fsmonitor.
+	return (CommittedReadGitRunner{}).Run(ctx, path, append([]string{"--no-optional-locks", "-c", "core.fsmonitor=false"}, args...)...)
+}
+
+// Continuity observes the same delta owner after closing its SQL snapshot.
+// This descriptor is unsealed: dispatch compares it with its own preparation.
+func observeContinuityRetainedReview(ctx context.Context, input *WorkerReviewInput, sample *retainedReviewState, entries []WorktreeEntry, receipt *WorktreeVerifyResult) (*WorkerReviewRetainedFailedEdit, error) {
+	if sample == nil || input.InputCandidate == sample.Candidate {
+		return nil, nil
+	}
+	missing := func() error {
+		return reviewFailure(KindMissingEvidence, "retained Review input lacks its qualified clean descendant observation", "qualify the retained clean scoped descendant and reread continuity before dispatching Review")
+	}
+	entry, path, found := selectDispatchClaimEntry(entries, receipt.Path)
+	if !found || entry.ProjectID != input.InputCandidate.ProjectID {
+		return nil, missing()
+	}
+	runner := continuityReviewGitRunner{}
+	observation, err := observeDispatchSubject(ctx, runner, path)
+	if err != nil {
+		return nil, err
+	}
+	if observation.State != "clean" || observation.Commit != input.InputCandidate.Commit || observation.Tree != input.InputCandidate.Tree {
+		return nil, missing()
+	}
+	proof, err := observeRetainedReview(ctx, runner, &workerDispatchProof{probePath: path, observation: observation}, sample, entry)
+	if err != nil {
+		return nil, err
+	}
+	if proof == nil {
+		return nil, missing()
+	}
+	return retainedFailedEditInput(proof), nil
 }
 
 // readReviewCandidateTree uses the same immutable Git tree lookup as terminal
@@ -60,7 +118,7 @@ func currentWorkerReviewInput(ctx context.Context, q queryer, workID string, lan
 		if err != nil {
 			return nil, err
 		}
-		return &WorkerReviewInput{InputCandidate: WorkerReviewCandidate{ProjectID: prepared.proof.projectID, Commit: prepared.proof.observation.Commit, Tree: prepared.proof.observation.Tree}, Dependencies: dependencies, Size: size}, nil
+		return &WorkerReviewInput{InputCandidate: WorkerReviewCandidate{ProjectID: prepared.proof.projectID, Commit: prepared.proof.observation.Commit, Tree: prepared.proof.observation.Tree}, Dependencies: dependencies, Size: size, RetainedFailedEdit: retainedFailedEditInput(prepared.proof.retainedReview)}, nil
 	}
 	return nil, nil
 }

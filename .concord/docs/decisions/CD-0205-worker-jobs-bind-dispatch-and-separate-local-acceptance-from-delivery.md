@@ -134,10 +134,10 @@ A readiness refusal creates no attempt.
 Unsupported recipes or unavailable inputs require explicit preparation recovery,
 not an invented reference, automatic execution, or a readiness exception.
 
-For Review, a recorded readiness reference that qualifies on the current
-candidate remains the preparation binding. Otherwise the core binds the latest
-qualified preparation of the exact unchanged control bundle under the same
-contract, Project, current candidate, and runtime environment. The dispatch
+For Review, a recorded readiness reference that qualifies on the Review's
+admitted input remains the preparation binding. Otherwise the core binds the
+latest qualified preparation of the exact unchanged control bundle under the
+same contract, Project, admitted input, and runtime environment. The dispatch
 authorization records that exact preparation. Oracle execution and worker
 control use the authorization's binding, never a later preparation. Missing
 qualification refuses before an attempt and directs Main to qualify and prepare
@@ -213,16 +213,23 @@ except for Review under the binding below and the existing checks-repair
 confirming Review.
 
 Review binds the sole ready revision when one exists. When none is ready,
-Review binds the latest revision of the job dispatched by the existing delivery
-anchor's accepted implementation attempt, provided that revision is current
-under the active contract and its satisfaction comes from that attempt. A
-checks-repair confirming Review keeps its existing binding. Several ready
-revisions still refuse; the core invents neither a choice nor a job. The packet
-carries the recorded content unchanged. Accepting Review of an already-satisfied
-revision preserves its satisfaction reference and sequence for every
-disposition. Review still judges the current integrated candidate and
-depended-on revisions; this binding supplies no implementation or delivery
-assertion.
+Review binds the latest revision of the job dispatched by the newest accepted
+job-bound result on Main's claimed worktree. That result must have a clean
+producer-observed output equal to Main's current candidate. It may be an
+implementation, a Review, or a nonediting attempt whose admitted input also
+equals that candidate. An unchanged `continue` Review supplies execution
+permission, not candidate provenance. An invalid newest result never falls
+back to an older acceptance; member-worktree results do not supply this binding.
+The revision must be current under the active contract and hold a current
+satisfaction from an accepted completion of that exact revision, no later than
+the selected result's acceptance. A repairing Review may advance the candidate
+without replacing the revision's earlier satisfaction. A checks-repair
+confirming Review keeps its existing binding. Several ready revisions still
+refuse; the core invents neither a choice nor a job. The packet carries the
+recorded content unchanged. Accepting Review of an already-satisfied revision
+preserves its satisfaction reference and sequence for every disposition.
+Review still judges its admitted input and depended-on revisions; this binding
+supplies no implementation or delivery assertion.
 
 The host derives canonical report identity from the authorized packet. Worker
 echoes cannot select another job, revision, attempt, or subject. The store
@@ -286,33 +293,45 @@ grants no semantic acceptance, no integration proof, no delivery assertion,
 and no review qualification by itself. A failed attempt records no delivery
 observation, probes no Git, and retains its consumed frontier.
 
-A review dispatch retains the newest accepted implementation delivery on its
-claimed worktree as the delivery anchor. The join runs through acceptance,
-the exact completed attempt, and the dispatch identity. The anchor must carry
-a clean core observation. The review subject is the shared qualified subject
-the packet carries, and it must equal the live clean `HEAD`.
+A review subject is the shared qualified subject the packet carries and must
+equal the live clean `HEAD` on the claimed worktree. Before Main has accepted
+a candidate, the qualified initial baseline admits. Otherwise Review consumes
+Main's current accepted candidate or a proven integration of accepted group
+members under CD-0242 D5. An arbitrary unrecorded descendant does not admit.
 
-A review subject equal to the anchor's observed commit admits. Otherwise it
-admits only when the core observed strict descent from that commit and no
-editing dispatch on this work item is newer than the anchor's dispatch.
-An editing dispatch names any lane with `edit_scoped_files`, whatever the
-attempt's state: in flight, failed, rejected, completed but unaccepted, or
-abandoned. The core observes descent through the existing pre-transaction
-freshness preparation, outside any SQL transaction. The transaction
-revalidates the sealed result and claim identity through SQL only.
-The anchor never replaces the review subject. These controls do not establish
-per-worker attribution of the anchor-to-subject delta (CD-0220 D5).
+A retained failed-edit descendant H of Main's current candidate C also admits
+as Review input only when all of these hold:
 
-An accepted delivery recorded under an earlier contract version of the same
-work item may host the review under the active contract. The judging
-contract is the packet's own binding, which the admission admits only at the
-active contract; the accepted delivery's own contract version stays readable
-through the existing records. Rejected, failed, or unaccepted results cannot
-replace the anchor. A delivery from another work item, Project, or worktree
-cannot host the review, and a cancelled or superseded work item cannot review.
-Historical completions without the observation refuse the review. The
-approved remedy is a fresh implementation attempt, never a fabricated
-observation. This join opens no approval challenge.
+- C is the output of the latest accepted result. Every editing authorization
+  since that acceptance ended failed or abandoned, with a recorded start and
+  terminal failure but no completed result or result disposition. At least one
+  such authorization exists. An editing authorization names any lane with
+  `edit_scoped_files`; all of these authorizations bind the same job under the
+  active contract on this claimed worktree.
+- Review binds the sole ordinary ready revision of that job under the active
+  contract. Both its path scope and every failed editor's revision scope are
+  nonempty. Every path changed from C to H lies within all of those scopes.
+- The existing pre-transaction freshness preparation observes H as the clean,
+  qualified input in the same Project and observes strict descent from C and
+  the complete changed-path population. No Git runs inside a SQL transaction.
+  Admission revalidates the sealed state and claim identities through SQL.
+
+The dispatch retains C, H, the delta, failed-editor identities, assignment,
+contract, dependencies, and claim as producer-owned proof. The packet discloses
+C and the changed paths beside H, explicitly as unaccepted failed-edit input.
+This proof neither attributes the delta to a worker (CD-0220 D5) nor changes
+failed records, consumed frontiers, satisfaction, or Main's accepted candidate.
+It grants no acceptance and never resumes or accepts the failed attempt.
+
+Acceptance of the fresh Review revalidates the same proof through SQL only,
+excluding that Review's own editing authorization. C and its acceptance,
+failed-editor population, claim, assignment and depended-on revisions must be
+unchanged. The report's exact input must equal H. New editing authorizations,
+new acceptances, rejected or completed-unaccepted editors, and changed authority
+refuse without effect. Normal observed-output, corrective-scope, finding and
+disposition checks still apply. Only acceptance of that fresh Review advances
+Main's candidate to its observed output; the output may include that Review's
+own scoped repairs.
 
 ### D3. Local acceptance holds the step and asserts no delivery
 
@@ -497,31 +516,31 @@ Scenario: Current core candidate must agree with the dispatch and `HEAD`
   When the host requests native oracle execution
   Then execution refuses and the test-program launch count is zero
 
-Scenario: Review admits a descendant subject without a newer editing dispatch
-  Given accepted implementation delivery A has a clean core observation
-  And the qualified subject B equals the live clean HEAD
-  And the core observed B as a strict descendant of A
-  And no editing dispatch is newer than A's dispatch
-  When the coordinator dispatches independent review of B
-  Then review admits with subject B and delivery anchor A
-  And A's completion and acceptance records remain unchanged
+Scenario: Retained failed edits obtain fresh Review without accepting failure
+  Given Main's accepted candidate C and a failed editing attempt of one job
+  And H is the clean qualified strict descendant on the same claimed worktree
+  And every editing authorization since C's acceptance is terminal failed
+  And the sole ready ordinary revision belongs to that job
+  And the complete C-to-H delta is inside every bound revision's scope
+  When Main dispatches and accepts a fresh Review of H
+  Then the packet discloses C and the unaccepted changed paths beside H
+  And acceptance advances the candidate only after revalidating the sealed proof
+  And the failed attempt and its consumed frontier remain unchanged
 
-Scenario: A newer editing dispatch blocks review beyond the delivery anchor
-  Given accepted implementation delivery A has a clean core observation
-  And the qualified subject B equals the live clean HEAD
-  And the core observed B as a strict descendant of A
-  And an editing dispatch on this work item is newer than A's dispatch
-  When the coordinator dispatches independent review of B
-  Then the review dispatch refuses regardless of the editing attempt's state
-  And the action records no durable effect
+Scenario: Unproved or stale retained input refuses without losing the edits
+  Given a proposed retained descendant of Main's current candidate
+  When ancestry, scope, failed-editor population, claim or acceptance identities differ
+  Or an editor is in flight, rejected or completed but unaccepted
+  Then Review dispatch or acceptance refuses without durable effect
+  And its recovery never prescribes discarding the unjudged edits
 
-Scenario: Review refuses a subject outside the delivery anchor's descendants
-  Given accepted implementation delivery A has a clean core observation
-  And the qualified subject S equals the live clean HEAD
-  And S differs from A and is not a descendant of A
-  When the coordinator dispatches independent review of S
-  Then the review dispatch refuses
-  And the action records no durable effect
+Scenario: Accepted verification leaves final Review dispatchable
+  Given an accepted repairing Review produced Main's current candidate C
+  And a later ordinary revision is satisfied by accepted Verify on unchanged C
+  When delivery requires a fresh Review of that revision
+  Then Review binds that exact satisfied revision and admits on C
+  And its acceptance preserves the verification satisfaction reference
+  And delivery may proceed only through its remaining gates
 
 Scenario: Terminal acceptance refuses an unobserved subject change
   Given the current subject pin is A and the clean worktree HEAD is B

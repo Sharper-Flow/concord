@@ -315,6 +315,7 @@ type workflowActionCompletedPayload struct {
 	WorkerPacketDigest       string                           `json:"worker_packet_digest,omitempty"`
 	WorkerSubjectCommit      string                           `json:"worker_subject_commit,omitempty"`
 	WorkerOraclePreparations []WorkerOraclePreparationBinding `json:"worker_oracle_preparations,omitempty"`
+	WorkerRetainedReview     *retainedReviewProof             `json:"worker_retained_review,omitempty"`
 	// WorkerPacketPredicateIDs carries the typed outcome predicate ids the
 	// dispatch_worker authorization extracted from the same packet bytes it
 	// digested. The worker completion fold reads them as the immutable
@@ -2359,6 +2360,9 @@ func validateWorkflowActionCompletedShape(p workflowActionCompletedPayload) erro
 }
 
 func validateWorkflowCompletionDispatchMetadata(p workflowActionCompletedPayload) error {
+	if err := validateRetainedReviewMetadata(p); err != nil {
+		return err
+	}
 	if err := validateWorkerOraclePreparationBindings(p); err != nil {
 		return err
 	}

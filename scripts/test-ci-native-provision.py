@@ -701,6 +701,80 @@ print(json.dumps(args))
                     HELPER.verify_upstream_source(archive, source)
 
     @staticmethod
+    def source_tar(links):
+        # The pinned release archive carries COPYING.LIB and LICENSE as
+        # relative symlinks to COPYING; this fixture keeps that shape.
+        output = io.BytesIO()
+        with tarfile.open(fileobj=output, mode="w") as archive:
+            data = b"license text\n"
+            member = tarfile.TarInfo("bubblewrap-0.12.0/COPYING")
+            member.size = len(data)
+            archive.addfile(member, io.BytesIO(data))
+            for name, target in links.items():
+                member = tarfile.TarInfo("bubblewrap-0.12.0/" + name)
+                member.type, member.linkname = tarfile.SYMTYPE, target
+                archive.addfile(member)
+        return output.getvalue()
+
+    def test_compatibility_source_authentication_binds_pinned_in_tree_file_links(self):
+        with tempfile.TemporaryDirectory() as name:
+            root = Path(name)
+            archive = root / "source.tar"
+            source = root / "bubblewrap-0.12.0"
+            source.mkdir()
+            (source / "COPYING").write_bytes(b"license text\n")
+            data = self.source_tar({"COPYING.LIB": "COPYING", "LICENSE": "COPYING"})
+            archive.write_bytes(data)
+            for link in ("COPYING.LIB", "LICENSE"):
+                (source / link).symlink_to("COPYING")
+            with patch.object(HELPER, "SOURCE_DIGEST", hashlib.sha256(data).hexdigest()):
+                HELPER.verify_upstream_source(archive, source)
+                (source / "LICENSE").unlink()
+                (source / "LICENSE").write_bytes(b"license text\n")
+                with self.assertRaisesRegex(ValueError, "source"):
+                    HELPER.verify_upstream_source(archive, source)
+                (source / "LICENSE").unlink()
+                (source / "LICENSE").symlink_to(str(source / "COPYING"))
+                with self.assertRaisesRegex(ValueError, "source"):
+                    HELPER.verify_upstream_source(archive, source)
+            for target in ("/etc/hostname", "../COPYING", "missing", "COPYING.LIB"):
+                data = self.source_tar({"COPYING.LIB": "COPYING", "LICENSE": target})
+                archive.write_bytes(data)
+                (source / "LICENSE").unlink()
+                (source / "LICENSE").symlink_to(target)
+                with self.subTest(target=target), patch.object(HELPER, "SOURCE_DIGEST", hashlib.sha256(data).hexdigest()), \
+                     self.assertRaisesRegex(ValueError, "source archive"):
+                    HELPER.verify_upstream_source(archive, source)
+
+    def test_compatibility_inputs_bind_source_file_links_and_refuse_other_links(self):
+        real_rglob = Path.rglob
+        system = {Path("/usr/lib/python3/dist-packages/mesonbuild"), Path("/usr/lib/python3.12")}
+        with tempfile.TemporaryDirectory() as name, \
+             patch.object(HELPER, "secure_path"), patch.object(HELPER, "runtime_files", return_value=[]), \
+             patch.object(HELPER, "identity", side_effect=lambda path: {"resolved": str(path.resolve())}), \
+             patch.object(HELPER.shutil, "which", side_effect=lambda tool, path: "/synthetic/" + tool), \
+             patch.object(HELPER.os.path, "lexists", return_value=False), \
+             patch.object(Path, "rglob", autospec=True,
+                          side_effect=lambda path, pattern: [] if path in system else real_rglob(path, pattern)):
+            work = Path(name)
+            source = work / "bubblewrap-0.12.0"
+            (work / "build").mkdir()
+            (source / "tests").mkdir(parents=True)
+            (work / "native.ini").write_text("synthetic\n")
+            (work / "bubblewrap-0.12.0.tar.xz").write_bytes(b"synthetic")
+            (source / "COPYING").write_bytes(b"license text\n")
+            (source / "LICENSE").symlink_to("COPYING")
+            records = HELPER.compatibility_inputs(work)
+            self.assertEqual(records[str(source / "LICENSE")], {"resolved": str(source / "COPYING")})
+            for link, target in (("bubblewrap-0.12.0/escape", "/etc"), ("bubblewrap-0.12.0/directory", "tests"),
+                                 ("build/bwrap-link", "../bubblewrap-0.12.0/COPYING")):
+                with self.subTest(link=link):
+                    (work / link).symlink_to(target)
+                    with self.assertRaisesRegex(ValueError, "compatibility input"):
+                        HELPER.compatibility_inputs(work)
+                    (work / link).unlink()
+
+    @staticmethod
     def compatibility_inventory(work):
         names = ("test-utils", "test-run.sh", "test-sandbox.py", "test-seccomp.py",
                  "test-specifying-pidns.sh", "test-specifying-userns.sh")

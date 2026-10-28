@@ -504,7 +504,7 @@ def verify_root_context(context: dict) -> None:
 def verify_upstream_source(archive: Path, source: Path) -> None:
     if hashlib.sha256(archive.read_bytes()).hexdigest() != SOURCE_DIGEST:
         raise ValueError("upstream source archive authentication failed")
-    expected = {}
+    expected, links = {}, {}
     with tarfile.open(archive) as contents:
         for member in contents:
             name = Path(member.name.removeprefix("./"))
@@ -513,17 +513,32 @@ def verify_upstream_source(archive: Path, source: Path) -> None:
             relative = name.relative_to(source.name)
             if member.isdir():
                 continue
-            if not member.isfile() or str(relative) in expected:
-                raise ValueError("upstream source archive link/type/duplicate refused")
+            if str(relative) in expected:
+                raise ValueError("upstream source archive duplicate refused")
+            if member.issym():
+                # The pinned release links COPYING.LIB and LICENSE to COPYING.
+                # Only relative links to regular in-tree archive files are admitted.
+                target = Path(member.linkname)
+                if target.is_absolute() or ".." in target.parts:
+                    raise ValueError("upstream source archive link refused")
+                expected[str(relative)] = "link:" + member.linkname
+                links[str(relative)] = str(relative.parent / target)
+                continue
+            if not member.isfile():
+                raise ValueError("upstream source archive type refused")
             data = contents.extractfile(member)
             assert data is not None
             expected[str(relative)] = hashlib.sha256(data.read()).hexdigest()
+    if any(expected.get(target, "link:").startswith("link:") for target in links.values()):
+        raise ValueError("upstream source archive link target refused")
     observed = {}
     for path in source.rglob("*"):
-        if path.is_symlink() or not (path.is_dir() or path.is_file()):
-            raise ValueError("upstream source link/type refused")
-        if path.is_file():
+        if path.is_symlink():
+            observed[str(path.relative_to(source))] = "link:" + os.readlink(path)
+        elif path.is_file():
             observed[str(path.relative_to(source))] = hashlib.sha256(path.read_bytes()).hexdigest()
+        elif not path.is_dir():
+            raise ValueError("upstream source type refused")
     if not expected or observed != expected:
         raise ValueError("upstream source differs from authenticated archive")
 
@@ -594,13 +609,16 @@ def compatibility_host_state() -> dict:
 def compatibility_inputs(work: Path) -> dict:
     if os.path.lexists("/etc/ld.so.preload"):
         raise ValueError("compatibility host loader preload refused")
+    source = work / "bubblewrap-0.12.0"
     paths = [Path(__file__), Path("/etc/ld.so.cache"), work / "native.ini", work / "bubblewrap-0.12.0.tar.xz"]
-    paths += list((work / "bubblewrap-0.12.0").rglob("*"))
+    paths += list(source.rglob("*"))
     paths += [path for path in (work / "build").rglob("*") if "meson-logs" not in path.relative_to(work / "build").parts]
     records = {}
     for path in sorted(paths):
         secure_path(path)
-        if path.is_symlink():
+        # Only the archive-bound source links resolve, to regular source files.
+        if path.is_symlink() and not (path.is_relative_to(source) and path.is_file() and
+                                      path.resolve(strict=True).is_relative_to(source)):
             raise ValueError(f"compatibility input link refused: {path}")
         if path.is_file():
             records[str(path)] = identity(path)
@@ -608,10 +626,10 @@ def compatibility_inputs(work: Path) -> dict:
             raise ValueError(f"compatibility input type refused: {path}")
     # The image supplies these prerequisites; a missing tool fails, never installs
     # another package or bypasses an upstream assertion. Optional tools stay optional.
-    tools = ("bash", "python3.12", "meson", "ninja", "env", "capsh", "getpcaps", "findmnt", "unshare",
-             "cat", "chmod", "cmp", "cp", "cut", "df", "dirname", "echo", "false", "find", "grep", "id",
-             "ln", "ls", "mkdir", "mkfifo", "mktemp", "mountpoint", "readlink", "rm", "sed", "seq", "sh",
-             "sleep", "sort", "stat", "touch", "tr", "true", "wc", "awk")
+    tools = ("bash", "python3.12", "python3", "meson", "ninja", "env", "capsh", "getpcaps", "findmnt", "unshare",
+             "cat", "chmod", "cmp", "cp", "cut", "df", "diff", "dirname", "echo", "false", "find", "grep", "head", "id",
+             "ln", "locale", "ls", "mkdir", "mkfifo", "mktemp", "mountpoint", "readlink", "realpath", "rm", "sed", "seq",
+             "sh", "sleep", "sort", "stat", "touch", "tr", "true", "wc", "awk")
     for name in tools:
         tool = shutil.which(name, path="/usr/sbin:/usr/bin:/sbin:/bin")
         if tool is None:

@@ -1609,7 +1609,7 @@ function workStartFailure(error: unknown, identity: Partial<WorkStartEnvelope>, 
   if (error instanceof AdapterContractDefect) throw error
   const failure = error instanceof WorkStartFailure || error instanceof AdapterFailure ? error : new WorkStartFailure("transport_failure", fallbackKind, String(error))
   const retrySafe = failure.recovery === "retry_same_request"
-  const continuation = effectState === "partial" && retrySafe ? " The recorded capture or claim remains; replay this same work_start request to continue that identity. Do not submit a new capture key." : ""
+  const continuation = effectState === "partial" && retrySafe ? " The recorded capture or claim remains; after satisfying the recovery conditions above, replay this same work_start request to continue that identity. Do not submit a new capture key." : ""
   return workStartError(failure.kind, failure.message + continuation, identity, failure.recovery, retrySafe, {}, effectState)
 }
 

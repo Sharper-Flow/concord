@@ -81,7 +81,7 @@ PRODUCTION_START_INPUT_REFUSAL = {
 }
 PRODUCTION_RESUME_REFUSAL = {
     "kind": "resume_failure",
-    "effect_state": "none",
+    "effect_state": "possible",
     "recovery_action": {"kind": "contact_operator"},
     "retry_safe": False,
 }
@@ -386,7 +386,7 @@ def execute_core_corpus(root):
     return execute_core_boundary_corpus(invoke)
 
 
-def execute_adapter_corpus():
+def execute_adapter_corpus(bootstrap_stdout=""):
     """The executed production adapter envelopes for the start corpus."""
     root = Path(tempfile.mkdtemp(prefix="concord-parity-adapter-"))
     start_calls = "\n".join(
@@ -398,6 +398,7 @@ def execute_adapter_corpus():
     source = (ADAPTER_DRIVER
               .replace("{adapter}", str(ADAPTER))
               .replace("{dirty_stderr}", json.dumps(DIRTY_ORIGIN_STDERR))
+              .replace("{bootstrap_stdout}", json.dumps(bootstrap_stdout))
               .replace("{start_calls}", start_calls)
               .replace("{transition_calls}", transition_calls))
     run = run_bun(root, source)
@@ -500,7 +501,7 @@ configureConcordAdapter({ runner: { async run(argv, input) {
   calls.push(argv[1]);
   if (argv[1] === "project-resolve") return { exitCode: 0, stdout: JSON.stringify({ project_id: "synthetic-project", product_ids: ["synthetic-product"], scope_version: "1", main_worktree: true }), stderr: "" };
   if (argv[1] === "work-resume") return { exitCode: 2, stdout: "", stderr: {dirty_stderr} };
-  if (argv[1] === "work-bootstrap") return { exitCode: 1, stdout: "", stderr: "concord work-bootstrap: synthetic post-boundary refusal" };
+  if (argv[1] === "work-bootstrap") return { exitCode: 1, stdout: {bootstrap_stdout}, stderr: "concord work-bootstrap: synthetic post-boundary refusal" };
   throw new Error("unexpected command " + argv.join(" "));
 } } });
 const context = { sessionID: "parity-session", messageID: "m1", agent: "coordinator-probe",
@@ -574,7 +575,8 @@ class ProductionAdapterBoundaryTests(unittest.TestCase):
         observation = self.observed()
         # Input admitted: the adapter reached the work-resume child for the
         # corrected shape, and the typed refusal exit is classified as the
-        # genuine non-retry refusal.
+        # genuine non-retry refusal. Its empty stdout proves no rollback, so
+        # the effect remains possible independently of retry safety.
         for label in ("start-corrected", "start-issue-key-corrected"):
             with self.subTest(corpus=label):
                 self.assertIn("work-resume", observation[label]["children"])
@@ -585,6 +587,20 @@ class ProductionAdapterBoundaryTests(unittest.TestCase):
                 self.assertTrue(structural_equal(triple, PRODUCTION_RESUME_REFUSAL),
                                 json.dumps(captured, indent=1))
                 self.assertEqual(captured["error"]["message"], DIRTY_ORIGIN_STDERR)
+
+    def test_failed_capture_without_a_verified_response_preserves_possible_effects(self):
+        for stdout in ("", "unknown child output", '{"outcome":"error"}'):
+            with self.subTest(stdout=stdout):
+                observation = execute_adapter_corpus(bootstrap_stdout=stdout)["cap-valid"]
+                self.assertIn("work-bootstrap", observation["children"])
+                captured = semantic_envelope(observation["envelope"])
+                self.assertTrue(structural_equal(captured, {
+                    "outcome": "error", "error": {
+                        "kind": "bootstrap_failure", "effect_state": "possible",
+                        "recovery_action": {"kind": "retry_same_request"}, "retry_safe": True,
+                        "message": "concord work-bootstrap: synthetic post-boundary refusal",
+                    },
+                }), json.dumps(captured, indent=1))
 
 
 class ProductionAdapterTransitionTupleTests(unittest.TestCase):

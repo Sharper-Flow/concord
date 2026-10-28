@@ -154,13 +154,9 @@ func runWorkBootstrap(raw []byte, s *store.Store, out, errOut io.Writer) int {
 	}, nil)
 	if err != nil {
 		writeOperatorDiagnostic(errOut, "work-bootstrap", diagnosticText(err))
-		effectState := result.EffectState
-		if effectState == "" {
-			effectState = "possible"
-		}
 		// Output failure must not replace the store's refusal/retry exit class.
 		writeJSON(out, workBootstrapFailureOutput{
-			SchemaVersion: "1.0", Outcome: "error", EffectState: effectState,
+			SchemaVersion: "1.0", Outcome: "error", EffectState: result.EffectState,
 			OperationID: result.OperationID, ProductID: result.ProductID,
 			ProjectID: result.ProjectID, WorkID: result.WorkID, WorktreePath: result.Entry.Path,
 		}, errOut)

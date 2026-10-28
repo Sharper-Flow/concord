@@ -57,6 +57,7 @@ WORKFLOW_DIR = ROOT / ".github" / "workflows"
 STORE_SHARDS = 7
 
 CI_JOB_IDS = (
+    "verify-upstream-compatibility",
     "verify-history",
     "verify",
     "verify-adapter",
@@ -191,7 +192,7 @@ class CIWorkflowDriftTests(unittest.TestCase):
     def test_ci_aggregate_gate_keeps_its_dependency_and_always_condition(self) -> None:
         block = jobs(load_workflow(CI_WORKFLOW))
         verify = block["verify"]
-        self.assertEqual(verify.get("needs"), ["verify-history", "verify-contracts", "verify-adapter", "verify-tooling"])
+        self.assertEqual(verify.get("needs"), ["verify-history", "verify-contracts", "verify-adapter", "verify-tooling", "verify-upstream-compatibility"])
         self.assertEqual(str(verify.get("if")).strip(), "always()")
 
     def test_ci_test_shards_cover_each_package_and_gate_verify_tests(self) -> None:
@@ -217,7 +218,7 @@ class CIWorkflowDriftTests(unittest.TestCase):
             self.assertEqual(sorted(index for _, index, _ in entries), list(range(1, counts.pop() + 1)), package)
         gate = block["verify-tests"]
         shard_jobs = sorted(job_id for entries in shards.values() for job_id, _, _ in entries)
-        self.assertEqual(sorted(needs_list(gate)), sorted(["verify-tests-rest", *shard_jobs]))
+        self.assertEqual(sorted(needs_list(gate)), sorted(["verify-tests-rest", *shard_jobs, "verify-upstream-compatibility"]))
         gate_run = "\n".join(str(step.get("run", "")) for step in gate.get("steps", []))
         gate_env = {key: value for step in gate.get("steps", []) for key, value in (step.get("env") or {}).items()}
         for job_id in needs_list(gate):

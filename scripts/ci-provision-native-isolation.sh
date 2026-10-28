@@ -13,8 +13,18 @@ die() { printf '%s\n' "$*" >&2; exit 1; }
 source /etc/os-release
 [[ $ID == ubuntu && $VERSION_ID == 24.04 ]] || die 'Ubuntu 24.04 required'
 [[ -n ${RUNNER_TEMP:-} && -d $RUNNER_TEMP && -n ${GITHUB_WORKSPACE:-} ]] || die 'runner paths missing'
+mode=native
+if [[ $# == 1 && $1 == --upstream-compatibility ]]; then
+    mode=compatibility
+elif [[ $# != 0 ]]; then
+    die 'unsupported provisioning arguments'
+fi
+if [[ $mode == native ]]; then
+    [[ ${CONCORD_UPSTREAM_BWRAP_SHA256:-} =~ ^[0-9a-f]{64}$ ]] || die 'missing or malformed compatibility digest'
+fi
 helper="$GITHUB_WORKSPACE/scripts/ci-native-provision.py"
 evidence="$RUNNER_TEMP/native-isolation-evidence"
+if [[ $mode == compatibility ]]; then evidence="$RUNNER_TEMP/upstream-compatibility-evidence"; fi
 mkdir -m 700 "$evidence"
 exec > >(tee "$evidence/provision.log") 2>&1
 printf 'ImageOS=%s ImageVersion=%s\n' "$ImageOS" "${ImageVersion:-unknown}"
@@ -23,10 +33,36 @@ dpkg --print-architecture
 [[ $(dpkg --print-architecture) == amd64 ]] || die 'amd64 dpkg required'
 work=$(mktemp -d "$RUNNER_TEMP/native-isolation-build.XXXXXXXX")
 parser_root=''
+compat_root=''
 trap '
-    rm -rf -- "$work"
-    if [[ -n $parser_root ]]; then sudo rm -rf -- "$parser_root"; fi
+    status=$?
+    trap - EXIT
+    cleanup_status=0
+    if [[ -n $compat_root ]]; then
+        if sudo test -f "$compat_root/cleanup-safe"; then
+            sudo rm -rf --one-file-system -- "$compat_root" || cleanup_status=1
+        else
+            printf "root cleanup safety not proved; retaining %s until VM disposal\n" "$compat_root" >&2
+            cleanup_status=1
+        fi
+    else
+        rm -rf -- "$work" || cleanup_status=1
+    fi
+    if [[ -n $parser_root ]]; then sudo rm -rf -- "$parser_root" || cleanup_status=1; fi
+    printf "cleanup_status=%s\n" "$cleanup_status"
+    if ((cleanup_status)); then status=1; fi
+    exit "$status"
 ' EXIT
+if [[ $mode == compatibility ]]; then
+    rm -rf -- "$work"
+    compat_root=$(sudo mktemp -d /var/lib/concord-upstream.XXXXXXXX)
+    sudo chmod 0755 "$compat_root"
+    sudo install -o root -g root -m 0600 "$helper" "$compat_root/helper.py"
+    sudo touch "$compat_root/cleanup-safe"
+    sudo mkdir -m 0700 "$compat_root/work"
+    sudo chown "$(id -u):$(id -g)" "$compat_root/work"
+    work="$compat_root/work"
+fi
 mkdir "$work/debs" "$evidence/package-controls" "$evidence/package-files"
 dpkg --audit > "$evidence/dpkg-audit-before.txt"
 [[ ! -s $evidence/dpkg-audit-before.txt ]] || die 'runner has an incomplete package transaction'
@@ -106,14 +142,6 @@ python3 "$helper" fingerprint-files /usr/bin/gcc-13 /usr/bin/python3.12 /usr/bin
     /usr/bin/pkg-config --version
     /usr/bin/python3.12 /usr/bin/meson --version
 } > "$evidence/build-tool-versions.txt"
-# Stage code, authenticated archives and selected inputs beneath a root-owned
-# parent, not RUNNER_TEMP. The helper rechecks them before each parser effect.
-# Not /run: Ubuntu's initramfs mounts it noexec, so the parser could not run.
-[[ -n $parser_deb && -n $profile_deb ]] || die 'private parser/profile archives missing'
-parser_root=$(sudo mktemp -d /var/lib/concord-native-parser.XXXXXXXX)
-sudo install -o root -g root -m 0600 "$helper" "$parser_root/helper.py"
-sudo env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin LANG=C.UTF-8 /usr/bin/python3 -I "$parser_root/helper.py" stage-parser "$parser_root" "$parser_deb" "$profile_deb" | tee "$evidence/private-parser.json" > /dev/null
-
 archive="$work/bubblewrap-0.12.0.tar.xz"
 curl --fail --location --proto '=https' --tlsv1.2 --retry 3 \
     https://github.com/containers/bubblewrap/releases/download/v0.12.0/bubblewrap-0.12.0.tar.xz -o "$archive"
@@ -135,6 +163,19 @@ cp "$build/meson-logs/meson-log.txt" "$evidence/"
 cp "$build/meson-info/intro-buildoptions.json" "$evidence/"
 readelf -d "$build/bwrap" > "$evidence/bwrap-dynamic.txt"
 if grep -E '\((RPATH|RUNPATH)\)' "$evidence/bwrap-dynamic.txt"; then die 'RPATH is forbidden'; fi
+if [[ $mode == compatibility ]]; then
+    # Ownership is hygiene, not a boundary against the runner's passwordless sudo.
+    # Never compile or invoke repository/candidate/native workloads as root.
+    sudo chown -hR root:root "$work"
+    sudo chmod -R go-w "$work"
+    sudo -n -u root -g root -- env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin LANG=C.UTF-8 /usr/bin/python3.12 -I -B \
+        "$compat_root/helper.py" upstream-compatibility "$work" | tee "$evidence/qualification.json" > /dev/null
+    digest=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["bwrap_sha256"])' "$evidence/qualification.json")
+    [[ $digest =~ ^[0-9a-f]{64}$ ]] || die 'invalid compatibility output digest'
+    printf 'bwrap-sha256=%s\n' "$digest" >> "$GITHUB_OUTPUT"
+    exit 0
+fi
+python3 "$helper" verify-compatibility-digest "$build/bwrap" "$CONCORD_UPSTREAM_BWRAP_SHA256" > "$evidence/compatibility-bwrap.sha256"
 sudo install -o root -g root -m 0755 "$build/bwrap" /usr/bin/bwrap
 [[ $(stat -c '%u:%g:%a' /usr/bin/bwrap) == 0:0:755 && ! -L /usr/bin/bwrap ]] || die 'installed launcher ownership/mode mismatch'
 cmp "$build/bwrap" /usr/bin/bwrap
@@ -154,6 +195,11 @@ getcap /usr/bin/bwrap > "$evidence/installed-bwrap.capabilities"
 # The private parser uses the unchanged installed ABI/tunables only after the
 # helper proves their closure equals the authenticated .9 inputs. The native
 # producer's existing fingerprints therefore describe what the parser consumed.
+# Not /run: Ubuntu's initramfs mounts it noexec, so the parser could not run.
+[[ -n $parser_deb && -n $profile_deb ]] || die 'private parser/profile archives missing'
+parser_root=$(sudo mktemp -d /var/lib/concord-native-parser.XXXXXXXX)
+sudo install -o root -g root -m 0600 "$helper" "$parser_root/helper.py"
+sudo env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin LANG=C.UTF-8 /usr/bin/python3 -I "$parser_root/helper.py" stage-parser "$parser_root" "$parser_deb" "$profile_deb" | tee "$evidence/private-parser.json" > /dev/null
 sudo cat "$parser_root/vendor-profile" | tee "$evidence/vendor-profile" > /dev/null
 sudo env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin LANG=C.UTF-8 /usr/bin/python3 -I "$parser_root/helper.py" parser-effect "$parser_root" preprocess | tee "$evidence/effective-profile.txt" > /dev/null
 python3 "$helper" fingerprint-files /etc/apparmor.d/bwrap-userns-restrict \
@@ -174,15 +220,4 @@ for namespace in user mnt pid net ipc uts; do readlink "/proc/self/ns/$namespace
     "cat /proc/self/attr/current; for n in user mnt pid net ipc uts; do readlink /proc/self/ns/\$n; done" \
     > "$evidence/installed-runtime.txt"
 python3 "$helper" verify-smoke "$evidence/host-namespaces.txt" "$evidence/installed-runtime.txt"
-# Preserve the complete pinned inventory and native TAP/skip results, targeting
-# the installed path after Meson's BWRAP injection without altering assertions.
-/usr/bin/python3.12 /usr/bin/meson introspect --tests "$build" > "$evidence/upstream-test-inventory.json"
-set +e
-env -i HOME="$work" PATH=/usr/bin:/bin LANG=C.UTF-8 NINJA=/usr/bin/ninja \
-    /usr/bin/python3.12 /usr/bin/meson test -C "$build" --no-rebuild --num-processes 1 \
-    --print-errorlogs --wrapper "/usr/bin/python3.12 $helper upstream-wrapper $build"
-test_status=$?
-set -e
-cp "$build/meson-logs/"testlog* "$evidence/"
 sha256sum --check --strict "$evidence/installed-bwrap.sha256"
-exit "$test_status"

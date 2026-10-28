@@ -7,17 +7,21 @@ parser/config are extracted privately, never installed through maintainer script
 
 from __future__ import annotations
 
+import ctypes
 import hashlib
 import io
 import json
 import os
 from pathlib import Path
 import re
+import resource
 import shutil
+import signal
 import stat
 import subprocess
 import sys
 import tarfile
+import time
 
 
 PINS = {
@@ -37,6 +41,9 @@ PROFILE_PIN = "apparmor-profiles=" + PINS["apparmor"]
 XDG_SITE_DEFAULT = Path("tunables/xdg-user-dirs.d/site").with_suffix(".local")
 INSTALL_PINS = {name: version for name, version in PINS.items() if name != "apparmor"}
 VENDOR_DIGEST = "11d39094f044f0cda0febb3ad517b830301da6b2ce929664af09ee9e4dd264f9"
+SOURCE_DIGEST = "9760d007363e3abba7c747489910f9f82d9fca53ba3bd3282e396fa3c97a3314"
+UPSTREAM_TESTS = ("test-utils", "test-run.sh", "test-sandbox.py", "test-seccomp.py",
+                  "test-specifying-pidns.sh", "test-specifying-userns.sh")
 # Transitive compiler/header/tool dependencies only. A new package family needs
 # review, not a wider solver allowance. Policy and service packages are excluded.
 DEPENDENCIES = set("""
@@ -476,13 +483,274 @@ def installed() -> dict[str, str]:
             (line.split("\t") for line in output.splitlines()) if status == "installed"}
 
 
-def upstream_wrapper(build: str, command: list[str]) -> None:
-    # Meson injects the build-tree BWRAP after the invoking environment. A test
-    # wrapper runs after that injection; no upstream test/assertion is patched.
-    if os.environ.get("BWRAP") != str(Path(build).resolve() / "bwrap") or not command:
-        raise ValueError("unexpected upstream test BWRAP/command")
-    os.environ["BWRAP"] = "/usr/bin/bwrap"
-    os.execvpe(command[0], command, os.environ)
+def verify_compatibility_digest(binary: Path, expected: str) -> str:
+    if not re.fullmatch(r"[0-9a-f]{64}", expected):
+        raise ValueError("missing or malformed compatibility digest")
+    if binary.is_symlink() or hashlib.sha256(binary.read_bytes()).hexdigest() != expected:
+        raise ValueError("independent build differs from compatibility digest")
+    return expected
+
+
+def verify_root_context(context: dict) -> None:
+    # Include the capabilities used by the upstream root/capability branches.
+    required = sum(1 << bit for bit in (0, 1, 3, 5, 6, 7, 10, 12, 18, 21))
+    if (context["uids"] != [0, 0, 0] or context["gids"] != [0, 0, 0] or
+            context["label"] != "unconfined" or not re.fullmatch(r"user:\[\d+\]", context["userns"]) or
+            any(int(context["capabilities"].get(key, "0"), 16) & required != required
+                for key in ("CapEff", "CapPrm", "CapBnd"))):
+        raise ValueError("root compatibility requires actual root IDs, default unconfined and required capabilities")
+
+
+def verify_upstream_source(archive: Path, source: Path) -> None:
+    if hashlib.sha256(archive.read_bytes()).hexdigest() != SOURCE_DIGEST:
+        raise ValueError("upstream source archive authentication failed")
+    expected = {}
+    with tarfile.open(archive) as contents:
+        for member in contents:
+            name = Path(member.name.removeprefix("./"))
+            if name.parts[0] != source.name or ".." in name.parts or name.is_absolute():
+                raise ValueError("upstream source archive path refused")
+            relative = name.relative_to(source.name)
+            if member.isdir():
+                continue
+            if not member.isfile() or str(relative) in expected:
+                raise ValueError("upstream source archive link/type/duplicate refused")
+            data = contents.extractfile(member)
+            assert data is not None
+            expected[str(relative)] = hashlib.sha256(data.read()).hexdigest()
+    observed = {}
+    for path in source.rglob("*"):
+        if path.is_symlink() or not (path.is_dir() or path.is_file()):
+            raise ValueError("upstream source link/type refused")
+        if path.is_file():
+            observed[str(path.relative_to(source))] = hashlib.sha256(path.read_bytes()).hexdigest()
+    if not expected or observed != expected:
+        raise ValueError("upstream source differs from authenticated archive")
+
+
+def verify_upstream_inventory(inventory: list[dict], work: Path) -> None:
+    if [entry["name"] for entry in inventory] != list(UPSTREAM_TESTS):
+        raise ValueError("upstream inventory must retain the exact six entries")
+    for entry in inventory:
+        name = entry["name"]
+        command = ([str(work / "build/tests/test-utils")] if name == "test-utils" else
+                   ["/usr/bin/python3.12" if name.endswith(".py") else "/usr/bin/bash",
+                    str(work / "bubblewrap-0.12.0/tests" / name)])
+        env = {"BWRAP": str(work / "build/bwrap"), "G_TEST_BUILDDIR": str(work / "build"),
+               "G_TEST_SRCDIR": str(work / "bubblewrap-0.12.0")}
+        if (entry["protocol"] != "tap" or entry["workdir"] is not None or entry["timeout"] != 30 or
+                entry["suite"] != ["bubblewrap"] or len(entry["cmd"]) != len(command) or
+                [os.path.normpath(arg) for arg in entry["cmd"]] != command or
+                {key: os.path.normpath(value) for key, value in entry["env"].items()} != env):
+            raise ValueError(f"upstream inventory command/environment/control drift: {name}")
+
+
+def verify_upstream_results(records: list[dict], inventory: list[dict]) -> dict:
+    if [record["name"] for record in records] != list(UPSTREAM_TESTS):
+        raise ValueError("incomplete compatibility results")
+    summary = {}
+    for record, entry in zip(records, inventory):
+        text = record["stdout"]
+        name = record["name"]
+        if (record["command"] != entry["cmd"] or record["returncode"] != 0 or
+                any(record["env"].get(key) != value for key, value in entry["env"].items()) or
+                record["env"].get("BWRAP_MUST_WORK") != "1"):
+            raise ValueError(f"compatibility result command/environment/exit mismatch: {name}")
+        optional_seccomp = name == "test-seccomp.py" and text.strip() == "1..0 # SKIP cannot import seccomp Python module"
+        plans = re.findall(r"^1\.\.(\d+)(?:\s*#.*)?$", text, re.M)
+        tests = re.findall(r"^(ok|not ok)\b([^\n]*)$", text, re.M)
+        skips = [kind + rest for kind, rest in tests if re.search(r"#\s*SKIP\b", rest, re.I)]
+        if optional_seccomp and record["result"] == "SKIP":
+            summary[name] = {"records": 0, "passed": 0, "skips": [text.strip()]}
+            continue
+        if (record["result"] != "OK" or len(plans) != 1 or int(plans[0]) != len(tests) or
+                not tests or len(skips) == len(tests) or any(kind != "ok" for kind, _ in tests) or
+                re.search(r"^Bail out!", text, re.M)):
+            raise ValueError(f"incomplete, unavailable or failed compatibility result: {name}")
+        summary[name] = {"records": len(tests), "passed": len(tests) - len(skips), "skips": skips}
+    return summary
+
+
+def compatibility_host_state() -> dict:
+    status = Path("/proc/self/status").read_text()
+    launcher = Path("/usr/bin/bwrap")
+    return {
+        "uids": list(os.getresuid()), "gids": list(os.getresgid()),
+        "supplementary_groups": os.getgroups(),
+        "label": Path("/proc/self/attr/current").read_text().strip(),
+        "capabilities": dict(re.findall(r"^(Cap\w+):\s+(\w+)$", status, re.M)),
+        "userns": os.readlink("/proc/self/ns/user"),
+        "sysctls": {name: Path("/proc/sys/" + name.replace(".", "/")).read_text()
+                    for name in ("kernel.apparmor_restrict_unprivileged_userns", "kernel.unprivileged_userns_clone",
+                                 "user.max_user_namespaces")},
+        "profiles": sorted(Path("/sys/kernel/security/apparmor/profiles").read_text().splitlines()),
+        "mounts": Path("/proc/self/mountinfo").read_text(),
+        "installed_bwrap": identity(launcher) if os.path.lexists(launcher) else "absent",
+        "root_temp_entries": sorted(str(path) for directory in ("/tmp", "/var/tmp")
+                                    for path in Path(directory).iterdir() if path.lstat().st_uid == 0),
+    }
+
+
+def compatibility_inputs(work: Path) -> dict:
+    if os.path.lexists("/etc/ld.so.preload"):
+        raise ValueError("compatibility host loader preload refused")
+    paths = [Path(__file__), Path("/etc/ld.so.cache"), work / "native.ini", work / "bubblewrap-0.12.0.tar.xz"]
+    paths += list((work / "bubblewrap-0.12.0").rglob("*"))
+    paths += [path for path in (work / "build").rglob("*") if "meson-logs" not in path.relative_to(work / "build").parts]
+    records = {}
+    for path in sorted(paths):
+        secure_path(path)
+        if path.is_symlink():
+            raise ValueError(f"compatibility input link refused: {path}")
+        if path.is_file():
+            records[str(path)] = identity(path)
+        elif not path.is_dir():
+            raise ValueError(f"compatibility input type refused: {path}")
+    # The image supplies these prerequisites; a missing tool fails, never installs
+    # another package or bypasses an upstream assertion. Optional tools stay optional.
+    tools = ("bash", "python3.12", "meson", "ninja", "env", "capsh", "getpcaps", "findmnt", "unshare",
+             "cat", "chmod", "cmp", "cp", "cut", "df", "dirname", "echo", "false", "find", "grep", "id",
+             "ln", "ls", "mkdir", "mkfifo", "mktemp", "mountpoint", "readlink", "rm", "sed", "seq", "sh",
+             "sleep", "sort", "stat", "touch", "tr", "true", "wc", "awk")
+    for name in tools:
+        tool = shutil.which(name, path="/usr/sbin:/usr/bin:/sbin:/bin")
+        if tool is None:
+            raise ValueError(f"required upstream prerequisite missing: {name}")
+        records[tool] = identity(Path(tool))
+    for directory in (Path("/usr/lib/python3/dist-packages/mesonbuild"), Path("/usr/lib/python3.12")):
+        secure_path(directory)
+        for path in sorted(directory.rglob("*")):
+            if path.is_file():
+                records[str(path)] = identity(path)
+    for program in (work / "build/bwrap", work / "build/tests/test-utils", work / "build/tests/try-syscall",
+                    Path("/usr/bin/bash"), Path("/usr/bin/python3.12")):
+        for name in runtime_files(str(program)):
+            records[name] = identity(Path(name))
+    return records
+
+
+def enable_subreaper() -> None:
+    libc = ctypes.CDLL("libc.so.6", use_errno=True)
+    if libc.prctl(36, 1, 0, 0, 0) != 0:  # PR_SET_CHILD_SUBREAPER
+        raise OSError(ctypes.get_errno(), "cannot supervise upstream descendants")
+
+
+def direct_children() -> list[int]:
+    return [int(pid) for pid in Path(f"/proc/self/task/{os.getpid()}/children").read_text().split()]
+
+
+def reap_compatibility_children(report: dict) -> None:
+    # Only our direct children are signalled; subreaping adopts double-forked
+    # descendants when their parents die. Unreaped children cannot reuse a PID.
+    deadline = time.monotonic() + 10
+    report["terminated_children"] = []
+    while True:
+        try:
+            while os.waitpid(-1, os.WNOHANG)[0]:
+                pass
+        except ChildProcessError:
+            report["descendants_gone"] = True
+            return
+        children = direct_children()
+        if time.monotonic() >= deadline:
+            raise ValueError(f"upstream descendants remain; cleanup refused: {children}")
+        for pid in children:
+            try:
+                fd = os.pidfd_open(pid)
+                try:
+                    signal.pidfd_send_signal(fd, signal.SIGKILL)
+                    report["terminated_children"].append(pid)
+                finally:
+                    os.close(fd)
+            except ProcessLookupError:
+                pass
+        time.sleep(0.05)
+
+
+def supervise_compatibility(command: list[str], work: Path, env: dict, report: dict) -> None:
+    enable_subreaper()
+    if direct_children():
+        raise ValueError("compatibility supervisor already has children")
+    marker = work.parent / "cleanup-safe"
+    marker.unlink()
+    report["descendants_gone"] = False
+    def cancelled(signum, _frame):
+        raise ValueError(f"compatibility cancelled by signal {signum}")
+    previous = {sig: signal.signal(sig, cancelled) for sig in (signal.SIGTERM, signal.SIGINT)}
+    try:
+        resource.setrlimit(resource.RLIMIT_FSIZE, (64 * 1024 * 1024, 64 * 1024 * 1024))
+        report["limits"] = {"suite_seconds": 300, "descendant_cleanup_seconds": 10, "file_bytes": 64 * 1024 * 1024}
+        with (work.parent / "console.log").open("xb") as output:
+            process = subprocess.Popen(command, cwd=work, env=env, stdin=subprocess.DEVNULL,
+                                       stdout=output, stderr=subprocess.STDOUT, start_new_session=True)
+            report["meson_exit"] = process.wait(timeout=300)
+    finally:
+        for sig, handler in previous.items():
+            signal.signal(sig, handler)
+        reap_compatibility_children(report)
+        marker.write_text("no root test descendants\n")
+    if report["meson_exit"] != 0 or report["terminated_children"]:
+        raise ValueError("upstream test failure or lingering descendants; see retained native results")
+
+
+def upstream_compatibility(work: Path) -> None:
+    secure_path(work)
+    if (os.geteuid() != 0 or work.name != "work" or work.parent.parent != Path("/var/lib") or
+            not re.fullmatch(r"concord-upstream\.[a-zA-Z0-9]+", work.parent.name)):
+        raise ValueError("unsupported root compatibility workspace")
+    report = {"evidence_kind": "upstream compatibility only; not native isolation",
+              "coverage_limits": ["root skips unreadable-directory checks", "caller-readable /etc/shadow checks short-circuit",
+                                  "root capability branch replaces non-root branch", "native optional seccomp/FUSE skips retained"],
+              "errors": []}
+    build = work / "build"
+    env = {"HOME": str(work), "PATH": "/usr/bin:/bin", "LANG": "C.UTF-8", "NINJA": "/usr/bin/ninja",
+           "BWRAP_MUST_WORK": "1", "PYTHONDONTWRITEBYTECODE": "1"}
+    command = ["/usr/bin/python3.12", "/usr/bin/meson", "test", "-C", str(build),
+               "--no-rebuild", "--num-processes", "1", "--print-errorlogs"]
+    report["command"] = command
+    try:
+        report["before_host"] = compatibility_host_state()
+        verify_root_context(report["before_host"])
+        verify_upstream_source(work / "bubblewrap-0.12.0.tar.xz", work / "bubblewrap-0.12.0")
+        report["before_inputs"] = compatibility_inputs(work)
+        # Read the build's JSON control output without executing repository hooks.
+        inventory = json.loads((build / "meson-info/intro-tests.json").read_text())
+        report["inventory"] = inventory
+        verify_upstream_inventory(inventory, work)
+        report["bwrap_sha256"] = identity(build / "bwrap")["sha256"]
+        supervise_compatibility(command, work, env, report)
+        records = [json.loads(line) for line in (build / "meson-logs/testlog.json").read_text().splitlines()]
+        report["summary"] = verify_upstream_results(records, inventory)
+    except (ValueError, OSError, subprocess.SubprocessError, tarfile.TarError) as error:
+        report["errors"].append(str(error))
+    finally:
+        for key, observe in (("after_host", compatibility_host_state), ("after_inputs", lambda: compatibility_inputs(work))):
+            try:
+                report[key] = observe()
+                if key.replace("after", "before") in report and report[key] != report[key.replace("after", "before")]:
+                    report["errors"].append(f"unexplained compatibility drift: {key}")
+                    if key == "after_host":
+                        # A host mount drift must not turn bounded workspace
+                        # removal into traversal of an unexpected mounted tree.
+                        (work.parent / "cleanup-safe").unlink(missing_ok=True)
+            except (ValueError, OSError) as error:
+                report["errors"].append(str(error))
+                if key == "after_host":
+                    (work.parent / "cleanup-safe").unlink(missing_ok=True)
+        report["logs"] = {}
+        # Full native logs are embedded, not reinterpreted or truncated to passes.
+        for path in [work.parent / "console.log", *sorted((build / "meson-logs").glob("testlog*"))]:
+            try:
+                if path.exists():
+                    identity(path)
+                    if path.stat().st_size > 64 * 1024 * 1024:
+                        raise ValueError(f"compatibility log exceeds capture bound: {path}")
+                    report["logs"][str(path)] = path.read_text()
+            except (ValueError, OSError) as error:
+                report["errors"].append(str(error))
+        print(json.dumps(report, indent=2, sort_keys=True), flush=True)
+    if report["errors"]:
+        raise ValueError("upstream compatibility failed; see retained qualification report")
 
 
 def main() -> None:
@@ -511,8 +779,10 @@ def main() -> None:
         for name, version in INSTALL_PINS.items():
             if snapshot.get(name) != version:
                 raise ValueError(f"installed pin mismatch: {name}={snapshot.get(name)} expected {version}")
-    elif mode == "upstream-wrapper":
-        upstream_wrapper(args[0], args[1:])
+    elif mode == "verify-compatibility-digest":
+        print(verify_compatibility_digest(Path(args[0]), args[1]))
+    elif mode == "upstream-compatibility":
+        upstream_compatibility(Path(args[0]))
     elif mode == "stage-parser":
         stage_parser(Path(args[0]), [Path(name) for name in args[1:]])
     elif mode == "parser-effect":

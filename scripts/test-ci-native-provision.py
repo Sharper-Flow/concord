@@ -17,7 +17,7 @@ import sys
 import tempfile
 import tarfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -412,7 +412,7 @@ class ProvisionTests(unittest.TestCase):
             for status in (0, 37):
                 for early in (False, True):
                     with self.subTest(parser_root=parser_root, status=status, early=early):
-                        command = ("set -Eeuo pipefail; work='/synthetic/build scratch'; parser_root=''; "
+                        command = ("set -Eeuo pipefail; work='/synthetic/build scratch'; parser_root=''; compat_root=''; "
                                    "rm() { printf 'rm'; printf ' <%s>' \"$@\"; printf '\\n'; }; "
                                    "sudo() { printf 'sudo '; \"$@\"; };\n" + cleanup[0] + "\n" +
                                    "parser_root=" + shlex.quote(parser_root) + "; " +
@@ -423,7 +423,7 @@ class ProvisionTests(unittest.TestCase):
                         expected = "rm <-rf> <--> </synthetic/build scratch>\n"
                         if parser_root:
                             expected += "sudo rm <-rf> <--> <" + parser_root + ">\n"
-                        self.assertEqual(process.stdout, expected)
+                        self.assertEqual(process.stdout, expected + "cleanup_status=0\n")
 
     def test_privileged_paths_reject_workload_owned_inputs_and_ancestors(self):
         import types
@@ -630,13 +630,250 @@ print(json.dumps(args))
             with self.assertRaisesRegex(ValueError, "unapproved package trigger"):
                 HELPER.audit_control(root)
 
-    def test_upstream_wrapper_changes_only_bwrap_after_meson_injection(self):
-        with patch.dict(os.environ, {"BWRAP": "/build/bwrap", "UNCHANGED": "value"}, clear=True), patch.object(os, "execvpe") as execute:
-            HELPER.upstream_wrapper("/build", ["/usr/bin/bash", "test-run.sh", "literal"])
-            execute.assert_called_once_with("/usr/bin/bash", ["/usr/bin/bash", "test-run.sh", "literal"], os.environ)
-            self.assertEqual(dict(os.environ), {"BWRAP": "/usr/bin/bwrap", "UNCHANGED": "value"})
-        with patch.dict(os.environ, {"BWRAP": "/unexpected"}, clear=True), self.assertRaisesRegex(ValueError, "unexpected upstream"):
-            HELPER.upstream_wrapper("/build", ["test"])
+    def test_compatibility_digest_refuses_missing_malformed_or_different_bytes(self):
+        with tempfile.TemporaryDirectory() as name, patch.object(subprocess, "run") as execute:
+            binary = Path(name) / "bwrap"
+            binary.write_bytes(b"synthetic launcher; never execute")
+            expected = hashlib.sha256(binary.read_bytes()).hexdigest()
+            self.assertEqual(HELPER.verify_compatibility_digest(binary, expected), expected)
+            for bad in ("", "A" * 64, "0" * 63, expected + "\n", "0" * 64):
+                with self.subTest(digest=bad), self.assertRaisesRegex(ValueError, "compatibility digest"):
+                    HELPER.verify_compatibility_digest(binary, bad)
+            execute.assert_not_called()
+        script = (ROOT / "scripts/ci-provision-native-isolation.sh").read_text()
+        self.assertLess(script.index('verify-compatibility-digest "$build/bwrap"'),
+                        script.index('sudo install -o root -g root -m 0755 "$build/bwrap"'))
+        self.assertNotIn("upstream-wrapper", script)
+
+    def test_native_digest_statement_fails_before_mock_install(self):
+        script = (ROOT / "scripts/ci-provision-native-isolation.sh").read_text()
+        verify = re.search(r'^python3 .*verify-compatibility-digest .+$', script, re.M)[0]
+        install = re.search(r'^sudo install -o root -g root -m 0755 .*$', script, re.M)[0]
+        with tempfile.TemporaryDirectory() as name:
+            binary = Path(name) / "bwrap"
+            binary.write_bytes(b"synthetic launcher; never execute")
+            expected = hashlib.sha256(binary.read_bytes()).hexdigest()
+            for value in (expected, "", "invalid", "0" * 64):
+                command = ("set -Eeuo pipefail; " +
+                    f"build={shlex.quote(name)}; evidence={shlex.quote(name)}; helper={shlex.quote(str(ROOT / 'scripts/ci-native-provision.py'))}; " +
+                    f"CONCORD_UPSTREAM_BWRAP_SHA256={shlex.quote(value)}; sudo() {{ printf 'synthetic installation\\n'; }}; " +
+                    verify + "; " + install)
+                result = subprocess.run(["bash", "--noprofile", "--norc", "-c", command],
+                                        capture_output=True, text=True, timeout=10)
+                self.assertEqual(result.returncode == 0, value == expected, result.stderr)
+                self.assertEqual("synthetic installation" in result.stdout, value == expected)
+
+    def test_compatibility_root_context_requires_actual_ids_label_and_capabilities(self):
+        good = {"uids": [0, 0, 0], "gids": [0, 0, 0], "label": "unconfined",
+                "capabilities": {key: "000001ffffffffff" for key in ("CapEff", "CapPrm", "CapBnd")},
+                "userns": "user:[4026531837]"}
+        HELPER.verify_root_context(good)
+        for key, value in (("uids", [1001, 0, 0]), ("uids", [0, 1001, 0]), ("gids", [0, 1001, 0]),
+                           ("label", "named-unconfined (unconfined)"), ("label", "bwrap (enforce)"),
+                           ("capabilities", {"CapEff": "0", "CapPrm": "0", "CapBnd": "0"}), ("userns", "")):
+            with self.subTest(key=key, value=value), self.assertRaisesRegex(ValueError, "root compatibility"):
+                HELPER.verify_root_context(dict(good, **{key: value}))
+
+    def test_compatibility_source_authentication_rejects_changed_extra_and_link_inputs(self):
+        with tempfile.TemporaryDirectory() as name:
+            root = Path(name)
+            archive = root / "source.tar"
+            data = self.package_tar({"bubblewrap-0.12.0/tests/meson.build": b"pinned test inventory\n"})
+            archive.write_bytes(data)
+            source = root / "bubblewrap-0.12.0"
+            (source / "tests").mkdir(parents=True)
+            target = source / "tests/meson.build"
+            target.write_bytes(b"pinned test inventory\n")
+            with patch.object(HELPER, "SOURCE_DIGEST", hashlib.sha256(data).hexdigest()):
+                HELPER.verify_upstream_source(archive, source)
+                target.write_bytes(b"changed")
+                with self.assertRaisesRegex(ValueError, "source"):
+                    HELPER.verify_upstream_source(archive, source)
+                target.write_bytes(b"pinned test inventory\n")
+                extra = source / "extra-hook.py"
+                extra.write_text("must not execute")
+                with self.assertRaisesRegex(ValueError, "source"):
+                    HELPER.verify_upstream_source(archive, source)
+                extra.unlink()
+                target.unlink()
+                target.symlink_to(archive)
+                with self.assertRaisesRegex(ValueError, "source"):
+                    HELPER.verify_upstream_source(archive, source)
+
+    @staticmethod
+    def compatibility_inventory(work):
+        names = ("test-utils", "test-run.sh", "test-sandbox.py", "test-seccomp.py",
+                 "test-specifying-pidns.sh", "test-specifying-userns.sh")
+        return [{"name": name, "cmd": [str(work / "build/tests/test-utils")] if name == "test-utils" else
+                 (["/usr/bin/python3.12"] if name.endswith(".py") else ["/usr/bin/bash"]) +
+                 [str(work / "bubblewrap-0.12.0/tests" / name)],
+                 "env": {"BWRAP": str(work / "build/bwrap"), "G_TEST_BUILDDIR": str(work / "build/tests/.."),
+                         "G_TEST_SRCDIR": str(work / "bubblewrap-0.12.0/tests/..")},
+                 "protocol": "tap", "workdir": None, "timeout": 30, "suite": ["bubblewrap"]} for name in names]
+
+    def test_compatibility_inventory_and_results_keep_all_six_and_native_skips(self):
+        work = Path("/synthetic/work")
+        inventory = self.compatibility_inventory(work)
+        HELPER.verify_upstream_inventory(inventory, work)
+        for change in ("missing", "duplicate", "wrapper", "environment", "timeout"):
+            altered = json.loads(json.dumps(inventory))
+            if change == "missing":
+                altered.pop()
+            elif change == "duplicate":
+                altered.append(altered[0])
+            elif change == "wrapper":
+                altered[1]["cmd"].insert(0, "/arbitrary/hook")
+            elif change == "environment":
+                altered[1]["env"]["BWRAP"] = "/usr/bin/bwrap"
+            else:
+                altered[1]["timeout"] = 0
+            with self.subTest(change=change), self.assertRaisesRegex(ValueError, "inventory"):
+                HELPER.verify_upstream_inventory(altered, work)
+        records = [{"name": item["name"], "command": item["cmd"], "env": dict(item["env"], BWRAP_MUST_WORK="1"),
+                    "result": "OK", "returncode": 0, "stdout": "1..2\nok 1 positive\nok 2 # SKIP optional FUSE\n"}
+                   for item in inventory]
+        records[3].update(result="SKIP", stdout="1..0 # SKIP cannot import seccomp Python module\n")
+        summary = HELPER.verify_upstream_results(records, inventory)
+        self.assertEqual(summary["test-run.sh"], {"records": 2, "passed": 1, "skips": ["ok 2 # SKIP optional FUSE"]})
+        for bad in ("incomplete", "whole-program", "all-skipped", "not-ok", "missing-env", "wrong-command", "missing-program"):
+            altered = json.loads(json.dumps(records))
+            if bad == "missing-program":
+                altered.pop()
+            elif bad == "missing-env":
+                altered[0]["env"].pop("BWRAP_MUST_WORK")
+            elif bad == "wrong-command":
+                altered[0]["command"].insert(0, "/wrapper")
+            else:
+                altered[0]["stdout"] = {"incomplete": "ok 1 positive\n", "whole-program": "1..0 # SKIP no bwrap\n",
+                    "all-skipped": "1..1\nok 1 # SKIP bwrap unavailable\n", "not-ok": "1..1\nnot ok 1 failed\n"}[bad]
+            with self.subTest(result=bad), self.assertRaisesRegex(ValueError, "compatibility result"):
+                HELPER.verify_upstream_results(altered, inventory)
+
+    def test_workflow_separates_compatibility_and_binds_every_native_build(self):
+        text = (ROOT / ".github/workflows/ci.yml").read_text()
+        jobs = dict(re.findall(r"^  ([a-z][a-z0-9-]+):\n(.*?)(?=^  [a-z][a-z0-9-]+:|\Z)", text, re.M | re.S))
+        self.assertIn("verify-upstream-compatibility", jobs)
+        compatibility = jobs["verify-upstream-compatibility"]
+        for required in ("runs-on: ubuntu-24.04", "contents: read", "persist-credentials: false", "timeout-minutes:",
+                         "bwrap-sha256: ${{ steps.compatibility.outputs.bwrap-sha256 }}",
+                         "run: bash scripts/ci-provision-native-isolation.sh --upstream-compatibility", "if: always()"):
+            self.assertIn(required, compatibility)
+        for forbidden in ("id-token:", "secrets:", "setup-bun", "setup-node", "go test", "warm-native", "--wrapper"):
+            self.assertNotIn(forbidden, compatibility)
+        native = {name: body for name, body in jobs.items() if "Warm the uv fixture cache" in body}
+        self.assertEqual(len(native), 11)
+        for name, body in native.items():
+            with self.subTest(job=name):
+                self.assertIn("needs: [verify-upstream-compatibility]", body)
+                self.assertIn("CONCORD_UPSTREAM_BWRAP_SHA256: ${{ needs.verify-upstream-compatibility.outputs.bwrap-sha256 }}", body)
+        for aggregate in ("verify", "verify-tests", "verify-adapter"):
+            self.assertIn("needs.verify-upstream-compatibility.result", jobs[aggregate])
+            self.assertIn('test "$COMPATIBILITY_RESULT" = success', jobs[aggregate])
+
+    def test_compatibility_supervisor_captures_status_and_always_checks_descendants(self):
+        for outcome in (0, 37, subprocess.TimeoutExpired("meson", 300), OSError("mock spawn failure")):
+            with self.subTest(outcome=outcome), tempfile.TemporaryDirectory() as name:
+                root = Path(name)
+                work = root / "work"
+                work.mkdir()
+                marker = root / "cleanup-safe"
+                marker.write_text("before tests")
+                process = Mock()
+                process.wait.side_effect = outcome if isinstance(outcome, Exception) else None
+                process.wait.return_value = outcome
+                report = {}
+                def reap(record):
+                    record.update(descendants_gone=True, terminated_children=[])
+                with patch.object(HELPER, "enable_subreaper"), patch.object(HELPER, "direct_children", return_value=[]), \
+                     patch.object(HELPER.resource, "setrlimit") as limit, patch.object(HELPER.signal, "signal"), \
+                     patch.object(HELPER, "reap_compatibility_children", side_effect=reap) as cleanup, \
+                     patch.object(subprocess, "Popen", return_value=process) as spawn:
+                    if isinstance(outcome, OSError):
+                        spawn.side_effect = outcome
+                    if outcome == 0:
+                        HELPER.supervise_compatibility(["synthetic-meson"], work, {"BWRAP_MUST_WORK": "1"}, report)
+                    else:
+                        with self.assertRaises((ValueError, OSError, subprocess.TimeoutExpired)):
+                            HELPER.supervise_compatibility(["synthetic-meson"], work, {"BWRAP_MUST_WORK": "1"}, report)
+                    cleanup.assert_called_once_with(report)
+                    self.assertTrue(marker.is_file())
+                    self.assertTrue(report["descendants_gone"])
+                    limit.assert_called_once()
+                    self.assertEqual(spawn.call_args.kwargs["env"], {"BWRAP_MUST_WORK": "1"})
+                    self.assertEqual(spawn.call_args.kwargs["cwd"], work)
+                    if not isinstance(outcome, OSError):
+                        process.wait.assert_called_once_with(timeout=300)
+
+    def test_compatibility_reaps_only_its_adopted_children_and_refuses_unfinished_cleanup(self):
+        report = {}
+        with patch.object(os, "waitpid", side_effect=[(0, 0), (201, 9), (0, 0), (202, 9), ChildProcessError()]), \
+             patch.object(HELPER, "direct_children", side_effect=[[201], [202]]), \
+             patch.object(os, "pidfd_open", side_effect=[41, 42]) as opened, patch.object(os, "close") as closed, \
+             patch.object(HELPER.signal, "pidfd_send_signal") as killed, patch.object(HELPER.time, "sleep"):
+            HELPER.reap_compatibility_children(report)
+            self.assertEqual([call.args[0] for call in opened.call_args_list], [201, 202])
+            self.assertEqual([call.args for call in killed.call_args_list], [(41, HELPER.signal.SIGKILL), (42, HELPER.signal.SIGKILL)])
+            self.assertEqual(closed.call_count, 2)
+            self.assertTrue(report["descendants_gone"])
+        with patch.object(os, "waitpid", return_value=(0, 0)), patch.object(HELPER, "direct_children", return_value=[203]), \
+             patch.object(HELPER.time, "monotonic", side_effect=[0, 11]), patch.object(os, "pidfd_open") as opened:
+            with self.assertRaisesRegex(ValueError, "cleanup refused"):
+                HELPER.reap_compatibility_children({})
+            opened.assert_not_called()
+
+    def test_compatibility_cleanup_cannot_hide_failure_or_delete_unproved_root_tree(self):
+        script = (ROOT / "scripts/ci-provision-native-isolation.sh").read_text()
+        cleanup = re.search(r"(?ms)^trap '\n.*?^' EXIT$", script)[0]
+        for safe, removed, status in ((True, True, 0), (True, False, 0), (False, True, 0), (True, True, 37)):
+            command = ("set -Eeuo pipefail; work=synthetic; parser_root=''; compat_root='/synthetic/root'; " +
+                       "sudo() { if [[ $1 == test ]]; then return " + str(0 if safe else 1) + "; fi; " +
+                       "printf 'bounded removal <%s>\\n' \"$3\"; return " + str(0 if removed else 1) + "; };\n" +
+                       cleanup + f"\nexit {status}")
+            result = subprocess.run(["bash", "--noprofile", "--norc", "-c", command], capture_output=True, text=True, timeout=10)
+            self.assertEqual(result.returncode, status if safe and removed else 1, result.stderr)
+            self.assertEqual("bounded removal" in result.stdout, safe)
+
+    def test_compatibility_pipeline_retains_output_and_privileged_producer_failure(self):
+        script = (ROOT / "scripts/ci-provision-native-isolation.sh").read_text()
+        invocation = re.search(r'(?m)^    sudo -n -u root -g root -- env -i .*\\\n.*qualification.json.*$', script)
+        self.assertIsNotNone(invocation)
+        with tempfile.TemporaryDirectory() as name:
+            for status in (0, 37):
+                command = (f"set -Eeuo pipefail; evidence={shlex.quote(name)}; compat_root=synthetic; work=synthetic; " +
+                           f"sudo() {{ printf 'synthetic root observation\\n'; return {status}; }}; " + invocation[0])
+                result = subprocess.run(["bash", "--noprofile", "--norc", "-c", command], capture_output=True, text=True, timeout=10)
+                self.assertEqual(result.returncode, status, result.stderr)
+                self.assertEqual((Path(name) / "qualification.json").read_text(), "synthetic root observation\n")
+
+    def test_compatibility_failure_still_records_post_state_and_native_logs(self):
+        work = Path("/var/lib/concord-upstream.synthetic/work")
+        inventory = self.compatibility_inventory(work)
+        with tempfile.TemporaryDirectory() as name:
+            log = Path(name) / "testlog.json"
+            log.write_text('{"native": "failure retained"}\n')
+            output = io.StringIO()
+            def read_text(path, *args, **kwargs):
+                self.assertEqual(path, work / "build/meson-info/intro-tests.json")
+                return json.dumps(inventory)
+            real_read = Path.read_text
+            with patch.object(HELPER, "secure_path"), patch.object(os, "geteuid", return_value=0), \
+                 patch.object(HELPER, "compatibility_host_state", side_effect=[{"sysctls": "before"}, {"sysctls": "drift"}]), \
+                 patch.object(HELPER, "verify_root_context"), patch.object(HELPER, "verify_upstream_source"), \
+                 patch.object(HELPER, "compatibility_inputs", return_value={"source": "bound"}), \
+                 patch.object(HELPER, "identity", return_value={"sha256": "a" * 64}), \
+                 patch.object(HELPER, "supervise_compatibility", side_effect=ValueError("synthetic native failure")), \
+                 patch.object(Path, "unlink") as unlink, \
+                 patch.object(Path, "glob", return_value=[log]), \
+                 patch.object(Path, "read_text", autospec=True, side_effect=lambda path, *a, **k: real_read(path, *a, **k) if path == log else read_text(path)), \
+                 contextlib.redirect_stdout(output):
+                with self.assertRaisesRegex(ValueError, "compatibility failed"):
+                    HELPER.upstream_compatibility(work)
+            report = json.loads(output.getvalue())
+            self.assertEqual(report["after_inputs"], report["before_inputs"])
+            self.assertIn("synthetic native failure", report["errors"])
+            self.assertIn("unexplained compatibility drift: after_host", report["errors"])
+            self.assertEqual(report["logs"][str(log)], '{"native": "failure retained"}\n')
+            unlink.assert_called_once_with(missing_ok=True)
 
     def test_runtime_fingerprints_include_loader_and_symlink_target(self):
         with patch.object(subprocess, "check_output", return_value="libcap.so.2 => /lib/libcap.so.2 (0x1)\n/lib/ld.so (0x2)\n"):
@@ -667,10 +904,11 @@ print(json.dumps(args))
                 HELPER.verify_smoke(host, bad)
 
     def test_host_guard_refuses_before_any_provisioning(self):
-        process = subprocess.run(["bash", str(ROOT / "scripts/ci-provision-native-isolation.sh")],
-                                 env={"PATH": os.environ["PATH"]}, capture_output=True, text=True, timeout=10)
-        self.assertNotEqual(process.returncode, 0)
-        self.assertIn("restricted to explicitly authorized disposable", process.stderr)
+        for args in ([], ["--upstream-compatibility"]):
+            process = subprocess.run(["bash", str(ROOT / "scripts/ci-provision-native-isolation.sh"), *args],
+                                     env={"PATH": os.environ["PATH"]}, capture_output=True, text=True, timeout=10)
+            self.assertNotEqual(process.returncode, 0)
+            self.assertIn("restricted to explicitly authorized disposable", process.stderr)
 
     def test_safe_warming_unit_tests(self):
         subprocess.run(["bun", "test", "./scripts/ci-warm-native-npm.test.ts", "--max-concurrency=1"],

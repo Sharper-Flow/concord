@@ -656,10 +656,10 @@ func authorityRefusal(detail string) error {
 
 // authorityRouteRefusal marks an authorization refusal whose remedy is a
 // declared route of workflow actions. route is ordered: the caller executes
-// it front to back. unauthorized is deliberately absent from
-// the agentcontract recovery coupling table, so the refusal carries the route it admits in
-// RecoveryAction.RequiredRefs instead of the standing contact_operator
-// default that names no operation.
+// it front to back. unauthorized is deliberately absent from the
+// agentcontract recovery coupling table, so the refusal carries the route it
+// admits in RecoveryAction.RequiredRefs instead of the standing
+// contact_operator default that names no operation.
 func authorityRouteRefusal(detail string, route ...string) error {
 	return newRouteFailure("unauthorized", detail, route...)
 }

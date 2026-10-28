@@ -25,7 +25,7 @@ func TestStoreKindNamingAPublicKindMapsToItself(t *testing.T) {
 	}
 }
 
-// publicRecovery's default is reserved for a kind the vocabulary added without
+// agentcontract.PublicRecovery's default is reserved for a kind the vocabulary added without
 // a recovery decision. Every current public kind must resolve by a named
 // case or a coupling, never by that default. This gives each kind an invalid
 // proposal and asserts the answer is deliberate: the kinds whose honest
@@ -43,7 +43,7 @@ func TestEveryPublicKindHasADeliberateRecovery(t *testing.T) {
 }
 
 // The remedy the store proposes survives when the kind is honest. With the
-// kind collapsed to internal_error, publicRecovery forced contact_operator;
+// kind collapsed to internal_error, PublicRecovery forced contact_operator;
 // with not_terminal, a valid proposal passes through and an invalid one
 // resolves by the kind, never by a fault it did not raise.
 func TestNotTerminalRefusalKeepsAnActionableRecovery(t *testing.T) {

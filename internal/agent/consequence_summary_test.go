@@ -43,7 +43,7 @@ func TestConsequenceSummaryDerivesFromTheChallengeSpec(t *testing.T) {
 
 func TestValidateErrorAcceptsTheDerivedSummary(t *testing.T) {
 	t.Parallel()
-	base := agentcontract.TypedError{Kind: "approval_required", RecoveryAction: agentcontract.RecoveryAction{Kind: "request_approval"}, EffectState: agentcontract.EffectNone}
+	base := agentcontract.TypedError{Kind: "approval_required", RecoveryAction: agentcontract.RecoveryAction{Kind: "request_approval"}, EffectState: agentcontract.EffectNone, Details: map[string]any{"approval_ref": "approval-derived-summary"}}
 	base.ConsequenceSummary = consequenceSummaryFor("concord_work_transition", "workflow_action", ApprovalChallengeSpec{
 		OperationDigest: "sha256:" + make64Hex(t),
 		Scope:           map[string]any{"product_id": "prod-a"},

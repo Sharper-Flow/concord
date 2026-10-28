@@ -60,8 +60,8 @@ func TestEveryRefusalNamesAContractualKind(t *testing.T) {
 
 // TestEveryLiteralRefusalPairsAContractualRecovery holds the other half of
 // deliverability. A coupled kind admits exactly one recovery action, and a
-// literal site sets the action directly rather than through agentcontract.PublicRecovery, so
-// nothing derives the pair for it. A site that names a coupled kind with any
+// literal site sets the action directly rather than through
+// agentcontract.PublicRecovery, so nothing derives the pair for it. A site that names a coupled kind with any
 // other action builds an envelope validateError refuses, and the caller
 // receives a transport fault in place of the refusal.
 func TestEveryLiteralRefusalPairsAContractualRecovery(t *testing.T) {
@@ -136,7 +136,7 @@ func literalRefusalKinds(t *testing.T) []literalRefusalKind {
 			}
 			if at.recovery < len(call.Args) {
 				// A recovery action built from a variable is resolved by
-				// publicRecovery, which derives it from the coupling table.
+				// agentcontract.PublicRecovery, which derives it from the coupling table.
 				site.recovery, _ = stringLiteralValue(call.Args[at.recovery])
 			}
 			out = append(out, site)

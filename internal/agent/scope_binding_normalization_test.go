@@ -146,6 +146,10 @@ func TestApprovalScopeBindingsRenderUniqueSortedBindingsForRepeatedIdentities(t 
 // rejections are held by the owner's tests.
 func validateThroughEnvelope(scope *agentcontract.Scope, summary *agentcontract.ConsequenceSummary) error {
 	refusal := agentcontract.NewCoreError(agentcontract.NewBase("scope-binding", "concord_work_relate", "message_send"), agentcontract.TypedError{Kind: "approval_required", RecoveryAction: agentcontract.RecoveryAction{Kind: "request_approval"}, EffectState: agentcontract.EffectNone, ConsequenceSummary: summary})
+	if summary != nil {
+		// The contract couples a summary to the challenge it was minted with.
+		refusal.Error.Details = map[string]any{"approval_ref": "approval-scope-binding"}
+	}
 	refusal.ResolvedScope = scope
 	return refusal.Validate()
 }

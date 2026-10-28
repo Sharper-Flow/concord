@@ -860,9 +860,9 @@ func newRuntimeFailure(kind, message, recovery string, retry bool) *runtimeFailu
 
 // newRouteFailure mints a refusal whose remedy is a declared route of
 // workflow actions rather than an operator. route is ordered: the caller
-// executes it front to back. unauthorized is deliberately absent from
-// the agentcontract recovery coupling table, so a refusal of that kind may name the route it
-// admits instead of the standing contact_operator default.
+// executes it front to back. unauthorized is deliberately absent from the
+// agentcontract recovery coupling table, so a refusal of that kind may name
+// the route it admits instead of the standing contact_operator default.
 func newRouteFailure(kind, message string, route ...string) *runtimeFailure {
 	return &runtimeFailure{kind: kind, message: message, recovery: "use_declared_route", retry: false, recoveryRefs: route}
 }
@@ -927,9 +927,9 @@ func storeFailureEnvelope(base agentcontract.Envelope, sf *store.Failure) agentc
 	}
 	out := coreErrorAction(base, kind, message, agentcontract.RecoveryAction{Kind: recovery, RequiredRefs: refs}, sf.RetrySafe, nonNilStrings(sf.CandidateIDs))
 	// The store authors free remedy prose in RecoveryAction — the exact
-	// command a caller must run. agentcontract.PublicRecovery projects that field onto
-	// the closed action vocabulary, and the projection alone drops the
-	// prose; a coupled kind keeps its coupled action (the coupling is not
+	// command a caller must run. agentcontract.PublicRecovery projects that
+	// field onto the closed action vocabulary, and the projection alone drops
+	// the prose; a coupled kind keeps its coupled action (the coupling is not
 	// weakened), so the authored text rides the bounded, schema-valid
 	// details surface unchanged beside it.
 	if prose := sf.RecoveryAction; prose != "" && !agentcontract.RecoveryActionAllowed(prose) {
@@ -1174,7 +1174,8 @@ func mapFailureKind(kind store.FailureKind) string {
 	// public name differ by intent. Everything else that names a public kind
 	// is that kind; collapsing it to internal_error told the caller a fault
 	// occurred and to contact the operator for a refusal it could have
-	// answered itself, and agentcontract.PublicRecovery then discarded the store's remedy.
+	// answered itself, and agentcontract.PublicRecovery then discarded the
+	// store's remedy.
 	if payloadschema.TypedErrorKindAllowed(string(kind)) {
 		return string(kind)
 	}

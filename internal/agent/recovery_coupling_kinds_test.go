@@ -10,9 +10,9 @@ import (
 )
 
 // A coupled kind that carries a typed block must also be deliverable end to
-// end. The tests in recovery_coupling_test.go judge the coupling alone; these
-// drive a store failure through failureEnvelope and encode it, which is the
-// path a caller actually receives.
+// end. The tests in internal/agentcontract/recovery_test.go judge the coupling
+// alone; these drive a store failure through failureEnvelope and encode it,
+// which is the path a caller actually receives.
 
 // storeOverlapFailure is the store-side refusal the Domain overlap guard emits,
 // with the recovery action the store proposed.
@@ -55,8 +55,8 @@ func storeStaleLawFailure(proposed string) *store.Failure {
 
 // TestCarrierRefusalsAreDeliverableWhateverTheStoreProposes is the
 // reproduction. Both kinds were refused by validateError unless the recovery
-// action was request_approval, and neither was named in
-// enforcedRecoveryCouplings, so publicRecovery passed any other contractual
+// action was request_approval, and neither was named in the coupling table,
+// so PublicRecovery passed any other contractual
 // proposal straight through. The pair then failed to marshal and the caller
 // received a transport fault in place of the refusal. The reconcile path
 // proposes reconcile_operation, which is contractual, which is how this

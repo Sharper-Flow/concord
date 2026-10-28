@@ -5,10 +5,12 @@ import re
 import unittest
 from pathlib import Path
 
+import run
 from evaluation import (claim_in_scope, dispatch_in_scope, continuity_in_scope,
                         evaluate, served_correction_step, served_input_correction,
                         start_in_scope)
-from scenarios import (BOUNDARY_NOTICE, SCENARIOS, START, TRANSITION, WORK, TRACE, RUNTIME,
+from scenarios import (BOUNDARY_NOTICE, PARTIAL_CONTINUATION, SCENARIOS, START, TRANSITION,
+                       WORK, TRACE, RUNTIME,
                        WORKTREE, OTHER_REPO, SAME_REPO_PROJECT, BASE_SHA,
                        move_notice, runtime_response, start_ok)
 
@@ -128,6 +130,28 @@ class EvaluationTests(unittest.TestCase):
                     final[field] = "wrong"
                     events[-2]["part"]["text"] = json.dumps(final)
                     self.assertFalse(evaluate(case, calls, events, 0, {"source": "nonce"})["passed"])
+
+    def test_work_start_refusal_effects_preserve_the_observed_phase(self):
+        reportable = run.FORMAT.split("effect_state:", 1)[1].split(";", 1)[0].replace(",", " ").split()
+        for name, served, reported in (
+            ("cross-repository-second-session", "possible", "uncertain"),
+            ("genuine-refusal-no-fallback", "possible", "uncertain"),
+            ("stale-context-turn-boundary", "partial", "committed"),
+            ("stale-context-continuation-scheduled", "partial", "committed"),
+        ):
+            with self.subTest(name=name):
+                case = SCENARIOS[name]
+                refusal = case["start"]["result"]
+                self.assertEqual(refusal["error"]["effect_state"], served)
+                self.assertEqual(case["expected"]["effect_state"], reported)
+                # The expected report must be expressible in the served FORMAT.
+                self.assertIn(reported, reportable)
+                self.assertFalse(served_input_correction(refusal))
+                calls, events = observation(case)
+                final = json.loads(events[-2]["part"]["text"])
+                final["effect_state"] = "none"
+                events[-2]["part"]["text"] = json.dumps(final)
+                self.assertFalse(evaluate(case, calls, events, 0, {"source": "nonce"})["passed"])
 
     def test_missing_read(self):
         case = SCENARIOS["uncertain-effect"]
@@ -468,8 +492,12 @@ class EvaluationTests(unittest.TestCase):
         source = CONCORD_SOURCE.read_text()
         template = re.search(r'move_context_not_landed", `([^`]+)`', source)
         recovery = re.search(r'const recovery = scheduled \? ("[^"\n]+") : ("[^"\n]+")', source)
+        continuation = re.search(
+            r'const continuation = effectState === "partial" && retrySafe \? ("[^"\n]+") : ""', source)
         self.assertIsNotNone(template)
         self.assertIsNotNone(recovery)
+        self.assertIsNotNone(continuation)
+        self.assertEqual(PARTIAL_CONTINUATION, json.loads(continuation.group(1)))
         for name, branch in (("stale-context-turn-boundary", 2),
                              ("stale-context-continuation-scheduled", 1)):
             with self.subTest(name=name):
@@ -481,7 +509,7 @@ class EvaluationTests(unittest.TestCase):
                 )
                 self.assertNotIn("${", rendered)
                 served = SCENARIOS[name]["start"]["result"]["error"]["message"]
-                self.assertEqual(served, rendered)
+                self.assertEqual(served, rendered + PARTIAL_CONTINUATION)
 
     def test_scheduled_continuation_rejects_wrong_dispositions(self):
         case = SCENARIOS["stale-context-continuation-scheduled"]

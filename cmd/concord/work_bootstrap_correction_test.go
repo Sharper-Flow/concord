@@ -55,7 +55,8 @@ func TestWorkBootstrapExternalRefInputCorrection(t *testing.T) {
 		errOut.Reset()
 		return runWorkBootstrap(raw, s, &out, &errOut)
 	}
-	if code := run(); code != workBootstrapRefusalExit || out.Len() != 0 || !strings.Contains(errOut.String(), "recovery: correct_request") || !strings.Contains(errOut.String(), "omit raised_from_work_id") || !strings.Contains(errOut.String(), "same idempotency_key") {
+	var refusal workBootstrapFailureOutput
+	if code := run(); code != workBootstrapRefusalExit || json.Unmarshal(out.Bytes(), &refusal) != nil || refusal.EffectState != "none" || refusal.WorkID != "" || !strings.Contains(errOut.String(), "recovery: correct_request") || !strings.Contains(errOut.String(), "omit raised_from_work_id") || !strings.Contains(errOut.String(), "same idempotency_key") {
 		t.Fatalf("no-owner refusal code=%d stdout=%q stderr=%q", code, out.String(), errOut.String())
 	}
 	if after := snapshot(); after != before {

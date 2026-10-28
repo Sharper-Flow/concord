@@ -111,6 +111,5 @@ through the verb. CD-0160 D6 forbids caller-side polling methods.
   treating the pull request's terminal state as CI proof.
 - `python3 scripts/generate-agent-lanes.py --check` proves every generated
   projection matches the manifest and templates.
-- `go test ./internal/ciwait/ ./cmd/concord/` proves the wait owner and the verb
-  inside the full command package suite, including `TestCiWaitIngress` and
-  `TestDeterministicCIWaitOwner`.
+- `go test ./internal/ciwait/ ./cmd/concord/` proves the verb inside its engine
+  and command package suites, including `TestCiWaitIngress`.

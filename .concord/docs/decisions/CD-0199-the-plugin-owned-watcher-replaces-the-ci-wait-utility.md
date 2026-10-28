@@ -115,9 +115,9 @@ Scenario: The verb keeps its contract
 
 - `bun test adapter/opencode/ci-watch.test.ts` proves the first two scenarios.
 - `python3 scripts/generate-agent-lanes.py --check` proves the third scenario.
-- `go test ./internal/ciwait/ ./cmd/concord/ -run 'TestCiWait|TestCIWait|TestGHRunID|TestDeterministicCIWaitOwner'`
-  proves the fourth scenario, including `TestCiWaitIngress` and
-  `TestDeterministicCIWaitOwner` in the command package.
+- `go test ./internal/ciwait/ ./cmd/concord/ -run 'TestCiWait|TestCIWait|TestGHRunID'`
+  proves the fourth scenario, including `TestCiWaitIngress` in the command
+  package.
 - `python3 scripts/test-ci-wait-contract.py` proves the verb contract offline.
 - `bun test adapter/opencode/session-scope.test.ts adapter/opencode/lane_dispatch.test.ts`
   proves the utility admission boundary without the removed utility.

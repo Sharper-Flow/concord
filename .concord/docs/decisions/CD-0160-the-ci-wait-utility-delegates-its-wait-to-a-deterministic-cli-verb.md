@@ -148,6 +148,5 @@ own words, never a success.
   `TestCiWaitPRExpectedHeadJudgesOnlyThePushedCommit` and
   `TestCiWaitPRExpectedHeadNeverReachedIsSuperseded` for a named commit; and
   the selector routing for PR, SHA, and run id.
-- `go test -race ./internal/ciwait/ ./cmd/concord/` proves the wait owner and
-  the verb inside the full command package suite, including
-  `TestCiWaitIngress` and `TestDeterministicCIWaitOwner`.
+- `go test -race ./internal/ciwait/ ./cmd/concord/` proves the verb inside its
+  engine and command package suites, including `TestCiWaitIngress`.

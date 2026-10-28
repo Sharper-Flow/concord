@@ -29,7 +29,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:c3a2b97e798c68d8c864bf1a6ca883dca7edce422631bcc116ca3239f6ea4c87",
+  "sha256": "sha256:37e17e36c9df56ad1d7334890a2510b77c8523477ea8224f7814b44007e5096e",
   "status": "accepted",
   "summary": "In checks mode only DIRTY blocks a complete passing check verdict. Both modes apply CD-0228's common classification and reporting rule, including prompt failure reporting, newest applicable attempts and complete-success requirements. Merge mode waits for an actual merge; merged, closed and qualifying queue-removal outcomes retain precedence over check failures. Checks mode still judges the watched head after a merge or close. Head supersession retains precedence in both modes, and every report carries the observed merge_state.",
   "tags": [

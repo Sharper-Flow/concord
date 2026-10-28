@@ -784,7 +784,7 @@ for (const refusal of [
   { kind: "version_conflict", recovery: "reread_entities", retry: false },
   { kind: "missing_evidence", recovery: "provide_evidence", retry: false },
 ] as const) {
-  test(`core ${refusal.kind} retains its cause and recovery without an authorization denial`, async () => {
+  test(`core ${refusal.kind} retains its cause and maps recovery without an authorization denial`, async () => {
     const coreError = {
       kind: refusal.kind, recovery_action: { kind: refusal.recovery }, retry_safe: refusal.retry,
       effect_state: "none", message: `core ${refusal.kind} diagnostic`,

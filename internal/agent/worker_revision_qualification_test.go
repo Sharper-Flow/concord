@@ -45,8 +45,10 @@ func TestMovedSubjectWorkerRevisionQualification(t *testing.T) {
 		t.Fatal(err)
 	}
 	for i, control := range freshOracle.Controls {
-		control.ReadinessEvidenceRefs = nil
-		bundle := store.NativeOracleControlBundle{Owner: freshOracle.Owners[0], Control: control, Cases: freshOracle.Cases}
+		bundle, err := oracleFixtureControlBundle(&freshOracle, control.ControlID)
+		if err != nil {
+			t.Fatal(err)
+		}
 		var input map[string]any
 		if err := json.Unmarshal(retryJSON(bundle), &input); err != nil {
 			t.Fatal(err)
@@ -148,7 +150,7 @@ func TestMovedSubjectWorkerRevisionQualification(t *testing.T) {
 			t.Fatalf("ordinary revision failed: %+v", response.Error)
 		}
 		after := snapshot(t)
-		if after[0] <= before[0] || after[2] != before[2]+1 || after[3] != before[3] || after[4] != before[4] {
+		if after[0] != before[0]+2 || after[1] != before[1]+2 || after[2] != before[2]+1 || after[3] != before[3] || after[4] != before[4] {
 			t.Fatalf("ordinary revision effects: %v -> %v", before, after)
 		}
 		state := f.read(t)
@@ -159,12 +161,16 @@ func TestMovedSubjectWorkerRevisionQualification(t *testing.T) {
 		if err := s.DatabaseForTesting().QueryRow(`SELECT lifecycle_state FROM worker_attempts WHERE work_id=? AND attempt_id=?`, f.work, failedAttempt).Scan(&terminal); err != nil || terminal != "failed" {
 			t.Fatalf("original failed attempt changed: state=%s err=%v", terminal, err)
 		}
+		var digest string
+		if err := s.DatabaseForTesting().QueryRow(`SELECT digest FROM worker_job_revisions WHERE work_id=? AND job_id=? AND revision=?`, f.work, job.JobID, job.Revision).Scan(&digest); err != nil || digest != job.Digest {
+			t.Fatalf("original job revision changed: digest=%s err=%v", digest, err)
+		}
 		t.Logf("ordinary revision admitted same job %s@%d contract=1; failed attempt preserved; state %v -> %v", job.JobID, job.Revision+1, before, after)
-	})
-	t.Run("revised_job_dispatch_projection", func(t *testing.T) {
-		before := snapshot(t)
-		packet := retryMutationPacket(t, s, "attempt:qualification-revised", f.read(t).Pinned.Pin.Correction)
-		response := invoke(t, "dispatch_worker", "dispatch-revised-job", map[string]any{"attempt_id": "attempt:qualification-revised", "worker_packet": packet})
-		refusal(t, response, "missing_evidence", "provide_evidence", "a changed worker-job revision requires a current accepted Review", "use typed dispatch_worker with lane_id=review for the existing scoped job and run a native concord-review Task subagent under Main's own session (finish an already dispatched undispositioned attempt only if it meets this gate's required coverage and disposition; do not dispatch twice), then have Main accept its exact Review report covering the revised job before implementation dispatch or execution exit; no separate agent or RTE session is required", before)
+		t.Run("revised_job_dispatch_projection", func(t *testing.T) {
+			before := snapshot(t)
+			packet := retryMutationPacket(t, s, "attempt:qualification-revised", f.read(t).Pinned.Pin.Correction)
+			response := invoke(t, "dispatch_worker", "dispatch-revised-job", map[string]any{"attempt_id": "attempt:qualification-revised", "worker_packet": packet})
+			refusal(t, response, "missing_evidence", "provide_evidence", "a changed worker-job revision requires a current accepted Review", "use typed dispatch_worker with lane_id=review for the existing scoped job and run a native concord-review Task subagent under Main's own session (finish an already dispatched undispositioned attempt only if it meets this gate's required coverage and disposition; do not dispatch twice), then have Main accept its exact Review report covering the revised job before implementation dispatch or execution exit; no separate agent or RTE session is required", before)
+		})
 	})
 }

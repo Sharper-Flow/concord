@@ -63,8 +63,11 @@ merging its PR, do not independently require operator approval. A repair restori
 security protections is not a request to waive a security gate or accept its risk.
 
 For an approval request, identify the applicable class and concrete consequence,
-or the existing operator-only waiver being requested. A new ticket or implementation
-step is not itself new Product direction. Stated operator preferences remain
+or the existing operator-only waiver being requested. Apply the same rule when
+directing an owner to seek approval: name the class or waiver and consequence.
+Never make exact-wording approval an assignment condition outside that boundary.
+A new ticket or implementation step is not itself new Product direction.
+Stated operator preferences remain
 binding. Preserve explicit scope limits, host permissions, and non-consent gates.
 If a tool still demands consent outside these classes, report the implementation
 mismatch and follow its admitted recovery;

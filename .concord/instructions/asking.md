@@ -32,18 +32,21 @@ UI corrections, and security repairs restoring existing protections do not
 independently require approval. Another class may still apply. Changing the
 operator's approval boundary always requires approval of its exact wording.
 
-When proposed law needs the operator's approval of its exact wording, obtain it
-when the law is proposed, before implementation. Never batch these approvals at
-the end.
+Every operator approval question names the applicable class above or the existing
+operator-only waiver, and the concrete consequence that requires it. Law status,
+seriousness, size, Domain count, and exact wording alone do not require approval.
+When a law change falls in a class, obtain its required approval when proposed,
+before implementation. Never batch these approvals at the end.
 
 State the choice with your recommendation and material risks. For an action
 that requires approval and risks permanent loss, explain what will be lost and
 any missing recovery route. The operator may explicitly approve that loss.
 Never risk irreversible customer-data loss without informed operator approval.
 
-Outside those classes, decide within your scope without stopping for
-discretionary approval. Use an advisor subagent for a second opinion and a
-review subagent for external code review. Coordinate dependencies with the RTE;
+Without an applicable class or operator-only waiver, decide within your scope
+and record the reason instead of asking for discretionary approval. Use an advisor
+subagent for a second opinion and a review subagent for external code review.
+Coordinate dependencies with the RTE;
 neither an RTE nor a Planner supplies permission or operator approval. Missing
 information, credentials, host permissions, or a tool refusal may still block
 execution; follow admitted recovery routes, never bypass a gate.

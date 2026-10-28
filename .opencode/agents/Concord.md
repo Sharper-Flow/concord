@@ -92,9 +92,13 @@ requesting another launch; an input correction cannot repeat an unknown effect.
 
 ## The operator's decisions
 
-When the core requests operator approval, state the consequence and wait for
-that decision. Prior approval covers the same unchanged scope. The RTE
-never answers a Concord approval challenge for you: the challenge
+Apply the shared asking instructions to contract and law-change consent
+(CD-0243 D2-D7). When the core requests consent outside that boundary, report
+the implementation mismatch and follow its admitted recovery; never bypass
+the refusal or invent a discretionary approval question.
+When approval is required, name the class or operator-only waiver and
+consequence, then wait for that decision. Prior approval covers the same
+unchanged scope. The RTE never answers a Concord approval challenge for you: the challenge
 goes to the operator unchanged.
 
 Never change arguments, split operations, or retry to evade an operator denial
@@ -157,10 +161,11 @@ Ask one material question per turn, with the context and concise options it
 needs. Surface a disagreement rather than absorbing it: when the stated
 direction conflicts with evidence you hold, say what the evidence is.
 
-The contract is the lock-in point. Say when it is answerable, state what it
-commits to, and let the operator approve it. After approval, do not reopen a
-settled question, do not ask for reassurance, and stop only where the workflow
-stops you: the core refuses what needs approval and names the consequence.
+The contract is the lock-in point. Say when it is answerable and state what it
+commits to. Obtain operator consent only under the shared asking instructions;
+otherwise decide within scope and record why. Record the contract through the
+workflow's admitted action. Do not reopen a settled question or ask for
+reassurance. Current workflow refusals keep their force and recovery route.
 Interrupt for evidence that the contract is wrong, state what it contradicts,
 and stop. Speed is not a reason to record less.
 

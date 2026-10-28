@@ -90,6 +90,8 @@ RTE_REQUIRED_PHRASES = (
     "Assigning a worker to an in-scope dependency repair, and that worker publishing or merging its PR, do not independently require operator approval",
     "A new ticket or implementation step is not itself new Product direction",
     "Stated operator preferences remain binding",
+    "Apply the same rule when directing an owner to seek approval: name the class or waiver and consequence",
+    "Never make exact-wording approval an assignment condition outside that boundary",
 )
 CONCORD_REQUIRED_PHRASES = (
     "You are Concord, the primary agent",
@@ -104,6 +106,8 @@ CONCORD_REQUIRED_PHRASES = (
     "Host-owned work has no Concord workflow authority, evidence, verdict, or completion claim",
     "An existing managed item stays held until its supported handoff succeeds",
     "a refusal is not permission to execute directly",
+    "Obtain operator consent only under the shared asking instructions; otherwise decide within scope and record why",
+    "When the core requests consent outside that boundary, report the implementation mismatch and follow its admitted recovery",
 )
 PLANNER_REQUIRED_PHRASES = (
     "The user may choose to start this optional session",

@@ -10,6 +10,8 @@ import (
 	"path"
 	"sort"
 	"strings"
+
+	"github.com/sharper-flow/concord/internal/payloadschema"
 )
 
 // The knowledge manifest is composed from shards under .concord/docs/knowledge/
@@ -93,7 +95,7 @@ func composeKnowledgeManifest(shards knowledgeShards, role knowledgeManifestRole
 	if len(shards.head) == 0 {
 		return KnowledgeManifest{}, newFailure(KindInvalidNoteProof, "compose_knowledge_manifest", "knowledge manifest head is empty", false, "commit "+knowledgeHeadPath)
 	}
-	if err := rejectDuplicateJSONKeys(shards.head); err != nil {
+	if err := payloadschema.ValidateUniqueJSON(shards.head); err != nil {
 		return KnowledgeManifest{}, newFailure(KindInvalidNoteProof, "compose_knowledge_manifest", "knowledge manifest head contains duplicate JSON keys", false, "remove duplicate keys from "+knowledgeHeadPath)
 	}
 	var head map[string]json.RawMessage
@@ -106,7 +108,7 @@ func composeKnowledgeManifest(shards knowledgeShards, role knowledgeManifestRole
 		}
 	}
 	if len(shards.registry) != 0 {
-		if err := rejectDuplicateJSONKeys(shards.registry); err != nil {
+		if err := payloadschema.ValidateUniqueJSON(shards.registry); err != nil {
 			return KnowledgeManifest{}, newFailure(KindInvalidNoteProof, "compose_knowledge_manifest", "domain registry shard contains duplicate JSON keys", false, "remove duplicate keys from "+knowledgeRegistryPath)
 		}
 		if !json.Valid(shards.registry) {
@@ -125,7 +127,7 @@ func composeKnowledgeManifest(shards knowledgeShards, role knowledgeManifestRole
 	records := make([]json.RawMessage, 0, len(names))
 	for _, name := range names {
 		shard := shards.records[name]
-		if err := rejectDuplicateJSONKeys(shard); err != nil {
+		if err := payloadschema.ValidateUniqueJSON(shard); err != nil {
 			return KnowledgeManifest{}, newFailure(KindInvalidNoteProof, "compose_knowledge_manifest", "knowledge record shard contains duplicate JSON keys: "+name, false, "remove duplicate keys from the record shard")
 		}
 		if !json.Valid(shard) {

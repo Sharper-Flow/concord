@@ -12,6 +12,8 @@ import (
 	"sort"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/sharper-flow/concord/internal/payloadschema"
 )
 
 // The package map and the coverage anchors are architecture data, not law
@@ -356,7 +358,7 @@ func parseKnowledgeCoverageShard(name string, data []byte) (string, []knowledgeC
 // decodeStrictKnowledgeJSON decodes exactly one JSON value with no duplicate
 // key and no field the target does not model.
 func decodeStrictKnowledgeJSON(data []byte, target any) error {
-	if err := rejectDuplicateJSONKeys(data); err != nil {
+	if err := payloadschema.ValidateUniqueJSON(data); err != nil {
 		return err
 	}
 	decoder := json.NewDecoder(bytes.NewReader(data))

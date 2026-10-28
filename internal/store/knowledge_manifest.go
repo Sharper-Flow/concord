@@ -16,6 +16,8 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"github.com/sharper-flow/concord/internal/payloadschema"
 )
 
 const (
@@ -534,7 +536,7 @@ func parseKnowledgeManifestForRole(data []byte, pathPrefix string, role knowledg
 	if len(data) == 0 || len(data) > maxKnowledgeManifest {
 		return KnowledgeManifest{}, newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "manifest is empty or exceeds the bounded size", false, "publish a bounded v1 manifest")
 	}
-	if err := rejectDuplicateJSONKeys(data); err != nil {
+	if err := payloadschema.ValidateUniqueJSON(data); err != nil {
 		return KnowledgeManifest{}, newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "manifest contains duplicate JSON keys", false, "remove duplicate keys from the manifest")
 	}
 	var manifest KnowledgeManifest
@@ -1747,56 +1749,4 @@ func sortedKnowledgeProjectionValues(values []string) []string {
 	out := append([]string{}, values...)
 	sort.Strings(out)
 	return out
-}
-
-func rejectDuplicateJSONKeys(data []byte) error {
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.UseNumber()
-	if err := walkJSONValue(decoder); err != nil {
-		return err
-	}
-	var extra any
-	if err := decoder.Decode(&extra); err != io.EOF {
-		return fmt.Errorf("trailing JSON")
-	}
-	return nil
-}
-
-func walkJSONValue(decoder *json.Decoder) error {
-	token, err := decoder.Token()
-	if err != nil {
-		return err
-	}
-	if delimiter, ok := token.(json.Delim); ok {
-		switch delimiter {
-		case '{':
-			seen := map[string]bool{}
-			for decoder.More() {
-				key, err := decoder.Token()
-				if err != nil {
-					return err
-				}
-				name, ok := key.(string)
-				if !ok || seen[name] {
-					return fmt.Errorf("duplicate or invalid object key")
-				}
-				seen[name] = true
-				if err := walkJSONValue(decoder); err != nil {
-					return err
-				}
-			}
-			_, err = decoder.Token()
-		case '[':
-			for decoder.More() {
-				if err := walkJSONValue(decoder); err != nil {
-					return err
-				}
-			}
-			_, err = decoder.Token()
-		default:
-			return fmt.Errorf("unexpected JSON delimiter")
-		}
-		return err
-	}
-	return nil
 }

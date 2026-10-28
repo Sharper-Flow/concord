@@ -547,37 +547,10 @@ func validateWorkflowGraphEdges(graph WorkflowStepGraph, steps map[string]Workfl
 			adjacency[edge.From] = append(adjacency[edge.From], edge.To)
 		}
 	}
-	if graphHasCycle(adjacency, steps) {
+	if graphHasCycle(adjacency) {
 		return definitionFailure(KindInvalidDefinition, "non-retry graph cycle is not allowed")
 	}
 	return nil
-}
-
-func graphHasCycle(adjacency map[string][]string, steps map[string]WorkflowStep) bool {
-	state := make(map[string]uint8, len(steps))
-	var visit func(string) bool
-	visit = func(node string) bool {
-		if state[node] == 1 {
-			return true
-		}
-		if state[node] == 2 {
-			return false
-		}
-		state[node] = 1
-		for _, next := range adjacency[node] {
-			if visit(next) {
-				return true
-			}
-		}
-		state[node] = 2
-		return false
-	}
-	for node := range steps {
-		if visit(node) {
-			return true
-		}
-	}
-	return false
 }
 
 // workflowDefinitionSchemaVersion is the single manifest shape Concord emits.

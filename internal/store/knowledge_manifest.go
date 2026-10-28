@@ -715,7 +715,7 @@ func validateKnowledgeDomainRegistry(registry KnowledgeDomainRegistry) error {
 	if err := validateKnowledgeDomainReferences(registry, graphs.byID); err != nil {
 		return err
 	}
-	if relationGraphHasCycle(graphs.parent) || relationGraphHasCycle(graphs.depends) || relationGraphHasCycle(graphs.replaces) {
+	if graphHasCycle(graphs.parent) || graphHasCycle(graphs.depends) || graphHasCycle(graphs.replaces) {
 		return newFailure(KindCycleDetected, "parse_knowledge_manifest", "domain architecture graph contains a cycle", false, "remove cycles from hierarchy, dependency, or replacement relations")
 	}
 	return nil
@@ -958,7 +958,7 @@ func validateManifestRelations(manifest KnowledgeManifest) error {
 			return err
 		}
 	}
-	if relationGraphHasCycle(graph) {
+	if graphHasCycle(graph) {
 		return newFailure(KindCycleDetected, "parse_knowledge_manifest", "directed law relations contain a cycle", false, "remove the cycle from the authored law graph")
 	}
 	return nil
@@ -1031,7 +1031,7 @@ func validateManifestRecordRelations(record KnowledgeRecord, byID map[string]Kno
 	return nil
 }
 
-func relationGraphHasCycle(graph map[string][]string) bool {
+func graphHasCycle(graph map[string][]string) bool {
 	state := map[string]uint8{}
 	var visit func(string) bool
 	visit = func(node string) bool {

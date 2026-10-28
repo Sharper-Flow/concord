@@ -174,3 +174,25 @@ func TestWorkflowDefinitionCanonicalManifestCarriesProductTruth(t *testing.T) {
 		t.Fatalf("product truth=%v, want boolean true", manifest["changes_product_truth"])
 	}
 }
+
+func TestWorkflowGraphEdgesRefuseOnlyNonRetryCycles(t *testing.T) {
+	steps := map[string]WorkflowStep{"draft": {}, "review": {}, "done": {}}
+	graph := func(back WorkflowEdgeKind) WorkflowStepGraph {
+		return WorkflowStepGraph{Edges: []WorkflowEdge{
+			{From: "draft", To: "review", Kind: WorkflowEdgeForward},
+			{From: "review", To: "done", Kind: WorkflowEdgeForward},
+			{From: "review", To: "draft", Kind: back},
+		}}
+	}
+	for _, kind := range []WorkflowEdgeKind{WorkflowEdgeForward, WorkflowEdgeOptional} {
+		err := validateWorkflowGraphEdges(graph(kind), steps)
+		if err == nil || !strings.Contains(err.Error(), "non-retry graph cycle is not allowed") {
+			t.Fatalf("%s back edge: got %v, want the non-retry cycle refusal", kind, err)
+		}
+	}
+	for _, kind := range []WorkflowEdgeKind{WorkflowEdgeRetry, WorkflowEdgeFailure} {
+		if err := validateWorkflowGraphEdges(graph(kind), steps); err != nil {
+			t.Fatalf("%s back edge: got %v, want no refusal", kind, err)
+		}
+	}
+}

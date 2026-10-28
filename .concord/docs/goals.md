@@ -1,9 +1,6 @@
-# Concord goals (final)
+# Concord goals
 
-Status: final, 2026-10-16. The operator confirmed the full picture ("yes."). Source: an interview with the
-operator, who said that "the concord backlog and operation snowball no longer represent my goals for Concord."
-Quotes are the operator's exact words. Items marked "approved" began as agent proposals that the operator
-approved.
+The operator's goals for Concord. Quoted text is the operator's own words; the rest is text the operator approved.
 
 [CD-0243](decisions/CD-0243-four-roles-and-six-operator-approval-classes.md) defines the roles and the
 operator's approval boundary.
@@ -44,21 +41,20 @@ the case (Appendix A), not a ranking.
 ### A. Formal product law and domain architecture
 - Formal, retrievable stores of product law and of domain architecture. All agents follow them, or change them
   so that all agents follow the change.
-- Every change keeps a footprint record, at every size, and a tool fills it (approved; the operator added "make
-  sure that we are keeping modularity in mind."):
+- Every change keeps a footprint record, at every size, and a tool fills it. The design keeps modularity in mind:
   - The agent names the files or behavior it will change. The tool returns the governing domains, the current
     law versions, and the checks that apply.
   - The agent adds only what a tool cannot know: the acceptance criteria, and whether it means to change a law.
   - Size changes what follows the record, not whether the record exists.
   - A declared, checked map from each code package to its domain feeds the tool.
   - The record tool and the map are reusable parts (goal C).
-- Measure (approved): one tool call returns the laws and the domain that govern a given file or behavior. Spot
+- Measure: one tool call returns the laws and the domain that govern a given file or behavior. Spot
   checks find no merged change that breaks a current law without a recorded law change.
 
 ### B. Fast, right-sized delivery
 - Deliver fast, with "right-sizing the amount of ceremony based on the subject/sensitivity/etc".
 - Ceremony covers all three: "less steps, less proof, less testing" for small work. No change ships with zero
-  proof: a small change runs the checks the footprint tool names, plus one review (approved).
+  proof: a small change runs the checks the footprint tool names, plus one review.
 - Workflows are "dynamically different sizes". The operator's examples:
   - very small task: Define -> implement -> review -> ship
   - larger or more important single change: Define -> research -> architect -> implement -> review -> refine ->
@@ -67,24 +63,22 @@ the case (Appendix A), not a ranking.
     refine -> ship
 - "If its something thats just a few lines of code, we probably dont need a refine step. If its something that
   delivers a complete refactor, we may need multiple review and refine steps."
-- The operator expected this already: "I thought part of what we were going to do was make workflow
-  dynamically different sizes."
 - Who picks the size: A defined decision model sets the minimum steps. The agent may add steps, never
   remove one.
   - Inputs: subject, sensitivity, "blast radius, security, relatize size, span, etc."
-  - "Span" means how many domains, packages, or repositories a change touches (approved).
-  - The operator may move a size up or down. An agent may only ask for the model to run again (approved).
+  - "Span" means how many domains, packages, or repositories a change touches.
+  - The operator may move a size up or down. An agent may only ask for the model to run again.
 - Measure, small changes: "a small change should go from start to merge queue in 1 hour or less". "Start" is
-  the agent's first action on a defined item, the Define step included (approved).
+  the agent's first action on a defined item, the Define step included.
 - Measure, larger and crucial changes: the operator is "not sure". Measure current start-to-merge-queue times
-  first, then set the targets (approved).
+  first, then set the targets.
 
 ### C. Composable workflows ("legos")
 - "We need to better define those kinds of work and workflow combos. Each one should not require full
   definition, but rather take existing parts/pieces."
 - "like having legos for different parts needed for a workflow, we snap them together in different
   combinations for different workflows, not define each separately. Modality is crucial."
-- Measure (approved): a new workflow size or kind is made by combining existing parts, with no new step code.
+- Measure: a new workflow size or kind is made by combining existing parts, with no new step code.
   Each step is defined in exactly one part.
 
 ### D. Programmed tools over prose instructions
@@ -92,31 +86,29 @@ the case (Appendix A), not a ranking.
 - "Repeatable parts, fast tools, make things that are repeatable programmed functions/tools and not prose
   instructions for agents."
 - Instruction bloat covers both Concord's own instructions and the host's. Each is fixed in the repository that
-  owns it (approved).
-- Measure (approved): the prose instruction text loaded into each agent session gets smaller over time and does
+  owns it.
+- Measure: the prose instruction text loaded into each agent session gets smaller over time and does
   not grow when a rule is added. Each job that agents repeat has a tool.
 
 ### E. Quality, including removal of bloat
 - "Quality and removing bloat/inefficient code/slop is critical."
 - Quality does not conflict with workflow sizes: "smaller changes need less refinement."
-- Measure (approved): at merge, review finds no high or medium problem. Spot checks of merged changes find no
+- Measure: at merge, review finds no high or medium problem. Spot checks of merged changes find no
   slop. Follow-up tech-debt items get closed, not only filed.
 
 ### F. The conflict rules and the sizing model are built into Concord
 - "we need to architect and build something in to concord to handle this. Then we can in the future do spot
   checks to see if we are following".
-- "This" covers both the conflict rules (Appendix A) and the sizing decision model (goal B) (approved). They
+- "This" covers both the conflict rules (Appendix A) and the sizing decision model (goal B). They
   become a mechanism inside Concord, not prose.
 - Measure: the operator's spot checks show that agents follow the rules.
 
 ### How Concord's own development runs during the rebuild
-- The operator asked: "what is more likely to produce a working concord sooner?" The agent's answer, confirmed
-  with the full picture:
-  - Agents that build Concord work outside Concord's workflow until the sized workflow exists.
-  - Switch point: the sized workflow takes a small change from start to merge queue in one hour or less. Then
-    Concord's own work moves onto it.
-  - Until then, quality rests on pull requests, required checks, and an independent review. Law and domain
-    changes are still made in Git, through those pull requests.
+- Agents that build Concord work outside Concord's workflow until the sized workflow exists.
+- Switch point: the sized workflow takes a small change from start to merge queue in one hour or less. Then
+  Concord's own work moves onto it.
+- Until then, quality rests on pull requests, required checks, and an independent review. Law and domain
+  changes are still made in Git, through those pull requests.
 - Reasoning: small changes take days under today's workflow, and building its replacement through it pays that
   cost on every change. Current law already permits outside work:
   `.concord/docs/decisions/CD-0122-concord-workflow-scope-and-defect-repair.md`.
@@ -124,12 +116,8 @@ the case (Appendix A), not a ranking.
 ## 3. Non-goals and things to stop doing
 - Rule: what to stop or remove "depends what conflicts with what we just decided". Anything in Concord that
   conflicts with the Purpose section and sections 2 and 4 is a candidate to stop or remove. The full sweep belongs to the alignment
-  step. Appendix C lists the conflicts found during the interview.
+  step. Appendix C lists the conflicts that remain open.
 - Stop giving agents prose instructions for jobs that a programmed function or tool can do.
-- Stop defining each workflow separately in full.
-- Stop ranking the goals strictly. Defined conflict rules replace the ranking.
-- Stop treating Advance replacement as current direction: "Sections on replacing advance are history."
-- Stop naming the retired launcher as a primary surface: "Remove the bit about the launcher."
 
 ## 4. Constraints that must hold
 - Single machine.
@@ -232,35 +220,11 @@ Columns are the sizes the decision model gives a change. "Same" means the rule d
 | 8 | A task proves bigger than its workflow size | Run the decision model again, add the newly required steps, and continue without redoing completed work | Same | Same | Decision model; coordinator |
 | 9 | Data safety is at risk | S; P10 | Same | Same | Agent assesses risk; operator when CD-0243 D2 requires approval |
 
-## Appendix B. Review of `.concord/docs/priorities.md`
-The operator asked: "see our existing top priorities doc and ask me if there are things we should remove or
-reconsider."
-
-| # | Item in the doc | Decision |
-|---|---|---|
-| 1 | Speed and right-sized ceremony have no ranked priority. | Equal to all the other goals (goal B). |
-| 2 | Strict order: "a higher-numbered priority must not compromise a lower-numbered one." | Replaced by the conflict rules (Appendix A). |
-| 3 | Priority 1 duties on every Product-changing change, small ones included. | Keep the record at every size; a tool fills it from a declared package-to-domain map (goal A). |
-| 4 | Priority 2: data safety ranked second. | "data safety is a given." A constraint, not a goal (section 4). |
-| 5 | Priority 3: nine quality attributes; risk scales proof only, "not the workflow shape". | Quality is critical, and sizing does not conflict with it. The "not the workflow shape" clause goes against goal B. |
-| 6 | Priority 4 names the launcher as the main visibility surface. The launcher screen was retired on 2026-10-09 (`.concord/docs/decisions/CD-0219-the-terminal-launcher-tui-is-retired.md`). | "Remove the bit about the launcher." |
-| 7 | Priority 6: one workflow type for each kind of work. | Rework as composable parts (goal C). |
-| 8 | Advance-successor sections. | "Sections on replacing advance are history." |
-| 9 | First-usable floor (recorded satisfied 2026-09-01) and the decision tracker table. | Remove from the priorities doc as history. |
-
-## Appendix C. Conflicts with current Concord text found during the interview
-Not a full sweep. In each case the operator's decision wins.
+## Appendix C. Open conflicts with current Concord text
+Not a full sweep. In each case the operator's decision wins. Row numbers are stable identifiers.
 
 | # | Current text | Conflicting decision |
 |---|---|---|
-| 1 | `.concord/docs/priorities.md`: "a higher-numbered priority must not compromise a lower-numbered one." | No ranking; conflict rules (Appendix A). |
-| 2 | Priority 3: proof scales "not the workflow shape. A prototype does not skip gates." | Workflow sizes change steps, proof, and testing (goal B). |
-| 3 | Priority 1: "Accepted specifications and decisions are human-enacted law." `.concord/docs/decisions/CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md` D1: a law change needs "an operator-approved mandate". | Agents change law with a recorded reason; approval follows R3 and P12's six-class test. |
-| 4 | Priority 1: overlapping work needs "an explicit, version-pinned compatibility, sequencing, merger, supersession, or terminal resolution". | The coordinator sequences the overlapping step (R2). |
-| 5 | CD-0222 D2: a domain "is not inferred from paths"; owner notes do not "assign Domain identity from paths". | A declared, checked package-to-domain map (goal A). |
-| 6 | Priority 6: one purpose-built workflow type for each kind of work. | Workflows composed from shared parts (goal C). |
-| 7 | Shipped instruction `.concord/instructions/change.md`: "Fix the same fault where it recurs nearby." | Bloat the fix did not make gets a follow-up item (R1). |
-| 8 | Priority 4 and the first-usable floor name the launcher, retired by CD-0219. | Remove the launcher text. |
-| 9 | Advance-successor sections in `priorities.md` and `.concord/docs/README.md`. | History. |
-| 10 | Prose instruction files given to agents. | Programmed tools wherever a tool can do the job (goal D, P7). |
-| 11 | `.concord/docs/decisions/CD-0089-concord-development-coordination.md` D1: "Concord coordinates Concord development." | Concord's own development runs outside the workflow until the switch point (section 2). |
+| 3 | CD-0006 D5: "Human approval is always required to enact law changes or governed scope cuts." CD-0222 D5: "modified/added law is operator-mandated". | Agents change law with a recorded reason; approval follows R3 and P12's six-class test. |
+| 4 | CD-0222 D6: "only the operator may approve compatibility, merger, supersession, or a sequence that changes Product scope." | The coordinator sequences the overlapping step (R2). |
+| 10 | Prose instruction files under `.concord/instructions/` given to every agent session. | Programmed tools wherever a tool can do the job (goal D, P7). |

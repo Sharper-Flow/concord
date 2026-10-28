@@ -353,18 +353,29 @@ func (p *DomainShapeSetupPlan) prepareTooling(root *os.Root, data []byte) error 
 	return err
 }
 
+type setupToolCoverageReference struct {
+	Kind  string `json:"kind"`
+	Value string `json:"value"`
+}
+
+type setupToolCoverageRelation struct {
+	Anchor setupToolCoverageReference `json:"anchor"`
+	Owner  setupToolCoverageReference `json:"owner"`
+}
+
 // The normal tooling reader owns executable declarations. Setup also checks
 // authored metadata so it cannot preserve a malformed schema 1.0 tool as valid.
 func validateSetupToolMetadata(root *os.Root, raw []byte) error {
 	var tool struct {
-		ID             string `json:"id"`
-		Purpose        string `json:"purpose"`
-		Invocation     string `json:"invocation"`
-		Tier           string `json:"tier"`
-		CostHint       string `json:"cost_hint,omitempty"`
-		ConfigPath     string `json:"config_path,omitempty"`
-		AutomationPath string `json:"automation_path,omitempty"`
-		Notes          string `json:"notes,omitempty"`
+		ID             string                      `json:"id"`
+		Purpose        string                      `json:"purpose"`
+		Invocation     string                      `json:"invocation"`
+		Tier           string                      `json:"tier"`
+		CostHint       string                      `json:"cost_hint,omitempty"`
+		ConfigPath     string                      `json:"config_path,omitempty"`
+		AutomationPath string                      `json:"automation_path,omitempty"`
+		Notes          string                      `json:"notes,omitempty"`
+		Coverage       []setupToolCoverageRelation `json:"coverage,omitempty"`
 	}
 	if err := domainShapeJSON(raw, &tool); err != nil {
 		return domainShapeSetupError("tool metadata is malformed: " + err.Error())
@@ -385,7 +396,43 @@ func validateSetupToolMetadata(root *os.Root, raw []byte) error {
 			return domainShapeSetupError("tool cost_hint must contain 4..128 characters without control characters")
 		}
 	}
+	// Coverage is authored metadata here. Product checks own source resolution
+	// and structural reachability; setup only admits its closed schema shape.
+	if _, exists := fields["coverage"]; exists {
+		if err := validateSetupToolCoverage(tool.Coverage); err != nil {
+			return err
+		}
+	}
 	return validateSetupToolPaths(root, fields, map[string]string{"config_path": tool.ConfigPath, "automation_path": tool.AutomationPath})
+}
+
+func validateSetupToolCoverage(coverage []setupToolCoverageRelation) error {
+	if len(coverage) < 1 || len(coverage) > 64 {
+		return domainShapeSetupError("tool coverage must contain 1..64 relations")
+	}
+	seen := map[setupToolCoverageRelation]bool{}
+	for _, relation := range coverage {
+		if seen[relation] {
+			return domainShapeSetupError("tool coverage must contain distinct relations")
+		}
+		seen[relation] = true
+		for index, reference := range []setupToolCoverageReference{relation.Anchor, relation.Owner} {
+			switch reference.Kind {
+			case "go_test", "go_package", "adapter_test", "validator":
+			case "scenario", "generated":
+				if index != 0 {
+					return domainShapeSetupError("tool coverage owner kind is invalid")
+				}
+			default:
+				return domainShapeSetupError("tool coverage reference kind is invalid")
+			}
+			length := utf8.RuneCountInString(reference.Value)
+			if length < 3 || length > 512 || strings.TrimSpace(reference.Value) != reference.Value {
+				return domainShapeSetupError("tool coverage value must contain 3..512 characters without surrounding whitespace")
+			}
+		}
+	}
+	return nil
 }
 
 func validateSetupToolPaths(root *os.Root, fields map[string]json.RawMessage, paths map[string]string) error {

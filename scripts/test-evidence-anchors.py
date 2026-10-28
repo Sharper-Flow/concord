@@ -212,6 +212,26 @@ def test_workflow_commands_drop_prose() -> None:
     assert "scripts/check-title.py" not in commands, "a step name counted as a command"
 
 
+def test_ci_reaches_each_validator_in_a_required_conjunction(tmp: Path) -> None:
+    scripts = tmp / "scripts"
+    scripts.mkdir()
+    for name in ("check-first.py", "test-second.py"):
+        (scripts / name).write_text('raise SystemExit(0)\n')
+    workflow = tmp / ".github/workflows"
+    workflow.mkdir(parents=True)
+    (workflow / "ci.yml").write_text(
+        '      - name: scripts/check-mention.py\n'
+        '        run: python3 scripts/check-first.py && python3 scripts/test-second.py --base-ref "$CHANGE_BASE_REF"\n'
+    )
+    assert anchors.ci_reaches(tmp, {"kind": "validator", "value": "scripts/check-first.py"})
+    assert anchors.ci_reaches(tmp, {"kind": "validator", "value": "scripts/test-second.py"})
+    assert not anchors.ci_reaches(tmp, {"kind": "validator", "value": "scripts/check-mention.py"})
+    for arguments in ('--label "x && python3 scripts/test-second.py"',
+                      '--label "&&" python3 scripts/test-second.py'):
+        (workflow / "ci.yml").write_text(f'        run: python3 scripts/check-first.py {arguments}\n')
+        assert not anchors.ci_reaches(tmp, {"kind": "validator", "value": "scripts/test-second.py"})
+
+
 def test_nested_invocations_find_subprocess_calls(tmp: Path) -> None:
     module = tmp / "nesting.py"
     module.write_text(
@@ -546,6 +566,111 @@ def test_go_test_projector_failure_is_invalidated_by_source_change(tmp: Path) ->
         (tmp / "fixture/restored_test.go").write_text('package fixture\nimport "testing"\nfunc TestRestored(t *testing.T) { t.Fatal("proof") }\n')
         assert anchors.go_test_exists("fixture", "TestRestored", tmp)
     assert run.call_count == 2, run.call_count
+
+
+def test_scenarios_require_unique_top_level_entries(tmp: Path) -> None:
+    import json
+    from unittest import mock
+
+    corpus_dir = tmp / ".concord/scenarios"
+    corpus_dir.mkdir(parents=True)
+    corpus = corpus_dir / "proof.json"
+    with mock.patch.object(anchors, "ROOT", tmp):
+        corpus.write_text(json.dumps({"scenarios": [{"id": "real", "then": [{"id": "nested-only"}]}]}))
+        assert anchors.scenario_exists("real")
+        assert not anchors.scenario_exists("nested-only"), "nested assertion is not a corpus scenario"
+        (corpus_dir / "duplicate.json").write_text(corpus.read_text())
+        assert not anchors.scenario_exists("real"), "duplicate scenario identities are ambiguous"
+        (corpus_dir / "duplicate.json").unlink()
+        (tmp / "internal").mkdir()
+        (tmp / "internal/deferred_test.go").write_text('Deferrals["real"] = "not bound"')
+        assert not anchors.scenario_exists("real"), "deferred entry is not executable evidence"
+
+
+def test_continuity_scenario_without_consumer_binding_is_not_coverage(tmp: Path) -> None:
+    import json
+    from unittest import mock
+
+    corpus_dir = tmp / ".concord/scenarios"
+    corpus_dir.mkdir(parents=True)
+    (corpus_dir / "adapter-continuity.v1.json").write_text(json.dumps({"scenarios": [{"id": "continuity-proof"}]}))
+    findings: list[str] = []
+    with mock.patch.object(anchors, "ROOT", tmp):
+        anchors.check_anchor({"kind": "scenario", "value": "continuity-proof"}, "proof", findings)
+    assert any("consumer" in finding for finding in findings), findings
+
+
+def test_nested_invocations_do_not_accept_script_as_data_or_reassigned_command(tmp: Path) -> None:
+    module = tmp / "calls.py"
+    module.write_text("\n".join([
+        "import subprocess",
+        "subprocess.run(['echo', 'scripts/check-data.py'])",
+        "command = ['python3', 'scripts/check-unused.py']",
+        "command = ['echo', 'hello']",
+        "subprocess.run(command)",
+        "subprocess.run(['python3', 'scripts/check-real.py'])",
+    ]))
+    assert anchors.nested_invocations(module) == {"scripts/check-real.py"}
+
+
+def test_nested_invocations_reject_mutation_shell_and_foreign_cwd(tmp: Path) -> None:
+    module = tmp / "dynamic.py"
+    module.write_text("\n".join([
+        "import subprocess",
+        "argv = ['python3', 'scripts/check-mutated.py']",
+        "argv[1] = 'unrelated.py'",
+        "subprocess.run(argv)",
+        "subprocess.run(['python3', 'scripts/check-shell.py'], shell=True)",
+        "subprocess.run(['python3', 'scripts/check-foreign.py'], cwd=other)",
+    ]))
+    assert anchors.nested_invocations(module) == set()
+
+
+def test_validator_ci_reachability_requires_invocation_and_reaches_nested_cycles(tmp: Path) -> None:
+    from unittest import mock
+
+    (tmp / "scripts").mkdir()
+    (tmp / ".github/workflows").mkdir(parents=True)
+    workflow = tmp / ".github/workflows/ci.yml"
+    (tmp / "scripts/check-json.py").write_text("import subprocess\nsubprocess.run(['python3', 'scripts/check-inner.py'])")
+    (tmp / "scripts/check-inner.py").write_text("import subprocess\nsubprocess.run(['python3', 'scripts/check-json.py'])")
+    (tmp / "scripts/check-outer.py").write_text("import subprocess\nsubprocess.run(['python3', 'scripts/check-other.py'])")
+    (tmp / "scripts/check-other.py").write_text("raise SystemExit(0)")
+    with mock.patch.object(anchors, "ROOT", tmp):
+        workflow.write_text("        run: echo scripts/check-inner.py\n")
+        assert not anchors.validator_runs_in_ci("scripts/check-inner.py")
+        workflow.write_text("        run: python3 scripts/check-json.py\n")
+        assert anchors.validator_runs_in_ci("scripts/check-inner.py")
+        workflow.write_text("        run: python3 scripts/check-outer.py\n")
+        assert anchors.validator_runs_in_ci("scripts/check-outer.py")
+        assert not anchors.validator_runs_in_ci("scripts/check-other.py"), "CD-0047 D3 nests law validators only through check-json.py"
+        assert anchors.ci_reaches(tmp, {"kind": "validator", "value": "scripts/check-other.py"}), "tooling owners keep derived nesting"
+
+
+def test_validator_ci_reachability_reuses_unchanged_parses_and_tracks_edits(tmp: Path) -> None:
+    from unittest import mock
+
+    (tmp / "scripts").mkdir()
+    (tmp / ".github/workflows").mkdir(parents=True)
+    (tmp / ".github/workflows/ci.yml").write_text("        run: python3 scripts/check-json.py\n")
+    hub = tmp / "scripts/check-json.py"
+    hub.write_text("import subprocess\nsubprocess.run(['python3', 'scripts/check-inner.py'])\n")
+    (tmp / "scripts/check-inner.py").write_text("raise SystemExit(0)\n")
+    (tmp / "scripts/check-other.py").write_text("raise SystemExit(0)\n")
+    parse = anchors.ast.parse
+    with mock.patch.object(anchors, "ROOT", tmp), mock.patch.object(anchors.ast, "parse", side_effect=parse) as parsed:
+        assert anchors.validator_runs_in_ci("scripts/check-inner.py")
+        first = parsed.call_count
+        for _ in range(20):
+            assert anchors.validator_runs_in_ci("scripts/check-inner.py")
+            assert not anchors.validator_runs_in_ci("scripts/check-other.py")
+        assert parsed.call_count == first, (first, parsed.call_count)
+        before = hub.stat()
+        hub.write_text("import subprocess\nsubprocess.run(['python3', 'scripts/check-other.py'])\n")
+        os.utime(hub, ns=(before.st_atime_ns, before.st_mtime_ns))
+        assert hub.stat().st_size == before.st_size
+        assert anchors.validator_runs_in_ci("scripts/check-other.py"), "an edited script was read from a stale parse"
+        assert not anchors.validator_runs_in_ci("scripts/check-inner.py")
 
 
 def main() -> int:

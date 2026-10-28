@@ -4,10 +4,11 @@
 The manifest (.concord/tooling.v1.json) is the per-project record of which
 quality tools, scanners, and check commands are already set up. Intent fields
 are hand-authored because they have no upstream source to drift from. The
-checker proves that referenced files resolve to regular files inside the
-repository. A missing manifest is a finding, not a vacuous pass. The checker
-performs file reads only and never executes a declared tool
-(CD-0074).
+checker proves that referenced files resolve inside the repository and explicit
+coverage owners are structurally reachable from declared invocations and CI.
+A missing manifest is a finding, not a vacuous pass. The checker reuses the
+native Go declaration projector when needed; it never executes declared tools
+or tests. Structural reachability is not execution or semantic adequacy.
 """
 
 from __future__ import annotations
@@ -17,6 +18,7 @@ import re
 import sys
 from pathlib import Path
 
+from evidence_anchors import coverage_bindings
 
 ROOT = Path(__file__).resolve().parents[1]
 MANIFEST = Path(".concord/tooling.v1.json")
@@ -39,6 +41,7 @@ TOOL_FIELDS = {
     "config_path",
     "automation_path",
     "notes",
+    "coverage",
 }
 REQUIRED_TOOL_FIELDS = {"id", "purpose", "invocation", "tier"}
 TIERS = {"fast", "standard", "slow"}
@@ -221,6 +224,7 @@ def check(*, root: Path = ROOT) -> list[str]:
                     else:
                         seen_checks.add(identifier)
 
+    findings.extend(coverage_bindings(root, tools)[0])
     return findings
 
 

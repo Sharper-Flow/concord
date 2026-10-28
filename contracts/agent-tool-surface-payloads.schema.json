@@ -1740,6 +1740,10 @@
           ],
           "maxLength": 64
         },
+        "created_at": {
+          "type": "string",
+          "description": "Native work capture timestamp, preserved verbatim across later reads and work updates."
+        },
         "work_pin": {
           "$ref": "#/$defs/work_pin"
         },

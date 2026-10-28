@@ -16193,6 +16193,10 @@ const GeneratedPayloadSchemaDocument = `{
     "work_summary": {
       "additionalProperties": false,
       "properties": {
+        "created_at": {
+          "description": "Native work capture timestamp, preserved verbatim across later reads and work updates.",
+          "type": "string"
+        },
         "defect_intake": {
           "$ref": "#/$defs/defect_classification"
         },

@@ -1583,6 +1583,7 @@ type workSummary struct {
 	Ready           bool                        `json:"ready,omitempty"`
 	Narrative       string                      `json:"narrative,omitempty"`
 	TerminalAt      *string                     `json:"terminal_at"`
+	CreatedAt       string                      `json:"created_at"`
 	WorkPin         *store.WorkPin              `json:"work_pin,omitempty"`
 }
 
@@ -1599,7 +1600,7 @@ func summary(w store.WorkItem) workSummary {
 	if w.TerminalAt != "" {
 		terminal = &w.TerminalAt
 	}
-	return workSummary{ID: w.ID, Kind: kind, Title: w.Title, Task: w.Task, ValueStatement: w.ValueStatement, Tags: w.Tags, WorkflowTypeRef: w.WorkflowTypeRef, DefectIntake: w.DefectIntake, Size: w.Size, Urgency: w.Urgency, Lifecycle: w.Lifecycle, Version: w.Version, Priority: w.Priority, ProjectIDs: ids, Ready: w.Ready, Narrative: w.Narrative, TerminalAt: terminal, WorkPin: w.WorkPin}
+	return workSummary{ID: w.ID, Kind: kind, Title: w.Title, Task: w.Task, ValueStatement: w.ValueStatement, Tags: w.Tags, WorkflowTypeRef: w.WorkflowTypeRef, DefectIntake: w.DefectIntake, Size: w.Size, Urgency: w.Urgency, Lifecycle: w.Lifecycle, Version: w.Version, Priority: w.Priority, ProjectIDs: ids, Ready: w.Ready, Narrative: w.Narrative, TerminalAt: terminal, CreatedAt: w.CreatedAt, WorkPin: w.WorkPin}
 }
 func (r runtime) q1(base Envelope, q store.Q1Result) (Envelope, error) {
 	projects := []map[string]any{}

@@ -543,15 +543,14 @@ func (r runtime) replayAuthorizedMutation(ctx context.Context, base agentcontrac
 }
 
 func (r runtime) finishMutationReplay(ctx context.Context, response agentcontract.Envelope, key store.MutationIdempotencyKey, durable bool) (agentcontract.Envelope, bool, error) {
+	if !durable {
+		return response, true, nil
+	}
 	observed := r.Authority.now()
 	// Consequential replay acknowledges the cached effect and every earlier
 	// commit. The metadata update supplies a durable write without repeating
-	// the business operation; ordinary replay retains its existing tier.
-	transact := r.Store.Transact
-	if durable {
-		transact = r.Store.TransactDurable
-	}
-	err := transact(ctx, func(tx *store.Transaction) error {
+	// the business operation.
+	err := r.Store.TransactDurable(ctx, func(tx *store.Transaction) error {
 		return store.TouchMutationIdempotencyTx(ctx, tx, key, observed)
 	})
 	if err != nil {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"reflect"
 	"testing"
 
 	"github.com/sharper-flow/concord/internal/agentcontract"
@@ -51,14 +52,16 @@ func replayMetadataCount(t *testing.T, s *store.Store, key string) int {
 func requireReplayCommit(t *testing.T, s *store.Store, key string, before uint64, metadataBefore int, durable bool) {
 	t.Helper()
 	want := before
+	wantMetadata := metadataBefore
 	if durable {
 		want++
+		wantMetadata++
 	}
 	if got := s.DurableCommits(); got != want {
 		t.Fatalf("replay durable commits=%d, want %d (before=%d)", got, want, before)
 	}
-	if got := replayMetadataCount(t, s, key); got != metadataBefore+1 {
-		t.Fatalf("replay metadata count=%d, want %d", got, metadataBefore+1)
+	if got := replayMetadataCount(t, s, key); got != wantMetadata {
+		t.Fatalf("replay metadata count=%d, want %d", got, wantMetadata)
 	}
 	var level int
 	if err := s.DatabaseForTesting().QueryRow("PRAGMA synchronous").Scan(&level); err != nil {
@@ -286,9 +289,28 @@ func TestOrdinaryMutationReplayDoesNotRequireDurability(t *testing.T) {
 	before := s.DurableCommits()
 	metadataBefore := replayMetadataCount(t, s, "ordinary-replay")
 	env.ScopeVersion = "drifted-scope-version"
-	replay, err := Dispatch(ctx, s, service, request, env)
+	writer, err := sql.Open("sqlite", store.SQLiteFileURI(s.Path()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = writer.Close() })
+	writeTx, err := writer.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = writeTx.Rollback() })
+	if _, err := writeTx.ExecContext(ctx, `UPDATE idempotency_records SET replayed_count=replayed_count+1 WHERE idempotency_key='ordinary-replay'`); err != nil {
+		t.Fatal(err)
+	}
+	replay, err := Invoke(ctx, s, service, mustMarshalInvoke(t, request, env))
 	if err != nil || replay.Outcome != agentcontract.OutcomeOK || !replay.Replayed {
-		t.Fatalf("ordinary replay: outcome=%s error=%+v err=%v", replay.Outcome, replay.Error, err)
+		t.Fatalf("ordinary replay while another connection holds the writer: outcome=%s error=%+v err=%v", replay.Outcome, replay.Error, err)
+	}
+	if string(replay.Result) != string(first.Result) || !reflect.DeepEqual(replay.ChangedRefs, first.ChangedRefs) || !reflect.DeepEqual(replay.NextValidIntents, first.NextValidIntents) || !reflect.DeepEqual(replay.Omissions, first.Omissions) || !reflect.DeepEqual(replay.ResolvedScope, first.ResolvedScope) {
+		t.Fatalf("ordinary replay changed the retained response: first=%+v replay=%+v", first, replay)
+	}
+	if err := writeTx.Rollback(); err != nil {
+		t.Fatal(err)
 	}
 	requireReplayCommit(t, s, "ordinary-replay", before, metadataBefore, false)
 	if countWorkflowEvents(t, s) != beforeEvents {

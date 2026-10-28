@@ -78,6 +78,7 @@ func init() {
 	// fixed four-prepare/six-execute literal set strictly below it
 	// (worktree_verify_oracle_go.go:normalizeNativeGoOraclePlan).
 	stageBudget := goConstantBound("internal/store/worktree_verify_oracle_host.go", "nativeTargetStageBudget", boundItems)
+	isolationFingerprint := nativeDigestDerived("internal/store/worktree_verify_isolation_environment.go", "nativeIsolationEnvironmentDigest")
 	// Anchored grammar admissions. deriveWorktreeLocation validates every
 	// derived branch through worktreeBranchPattern
 	// (internal/store/worktrees.go:ValidateWorktreeClaimIntent), and
@@ -183,6 +184,7 @@ func init() {
 	registerOutputBound("/$defs/native_oracle_stage/properties/name/maxLength", nativeStageNameDerived())
 	registerOutputBound("/$defs/native_oracle_stage/properties/argv/maxItems", commandArgs)
 	registerOutputBound("/$defs/native_oracle_stage/properties/argv/items/maxLength", commandPart)
+	registerOutputBound("/$defs/native_oracle_stage/properties/isolation_fingerprint/maxLength", nativeDigestDerived("internal/store/worktree_verify_isolation_export.go", "nativeIsolationAssemble"))
 
 	// -- native_oracle_preparation (the dispatched worker packet) and its
 	// retained twin (read views: continuity, work pin; typed refusal owner is
@@ -213,6 +215,8 @@ func init() {
 	registerOutputBoundWithTwin(prep+"/oneOf/*/properties/manifest_digest/maxLength", nativeDigestDerived(nativeOracleGoFile, "nativeGitFile"))
 	registerOutputBoundWithTwin(prep+"/properties/native_plan_sha256/maxLength", nativeDigestDerived(nativeOracleFile, "verifyNativeOracle"))
 	registerOutputBoundWithTwin(prep+"/oneOf/*/properties/native_plan_sha256/maxLength", nativeDigestDerived(nativeOracleFile, "verifyNativeOracle"))
+	registerOutputBoundWithTwin(prep+"/properties/isolation_fingerprint/maxLength", isolationFingerprint)
+	registerOutputBoundWithTwin(prep+"/oneOf/1/properties/isolation_fingerprint/maxLength", isolationFingerprint)
 	registerOutputBoundWithTwin(prep+"/properties/build_environment_digest/maxLength", maxBound(
 		nativeDigestDerived(nativeOracleGoFile, "resolveNativeGoEnvironment"),
 		nativeDigestDerived(nativeOracleHostFile, "finalizeNativeTargetEnvironment"),
@@ -280,6 +284,8 @@ func init() {
 	registerOutputBound(result+"/oneOf/*/oneOf/*/properties/manifest_digest/maxLength", nativeDigestDerived(nativeOracleGoFile, "nativeGitFile"))
 	registerOutputBound(result+"/oneOf/*/properties/native_plan_sha256/maxLength", nativeDigestDerived(nativeOracleFile, "verifyNativeOracle"))
 	registerOutputBound(result+"/oneOf/*/oneOf/*/properties/native_plan_sha256/maxLength", nativeDigestDerived(nativeOracleFile, "verifyNativeOracle"))
+	registerOutputBound(result+"/oneOf/*/properties/isolation_fingerprint/maxLength", isolationFingerprint)
+	registerOutputBound(result+"/oneOf/*/oneOf/*/properties/isolation_fingerprint/maxLength", isolationFingerprint)
 	registerOutputBound(result+"/oneOf/*/properties/build_environment_digest/maxLength", maxBound(
 		nativeDigestDerived(nativeOracleGoFile, "resolveNativeGoEnvironment"),
 		nativeDigestDerived(nativeOracleHostFile, "finalizeNativeTargetEnvironment"),

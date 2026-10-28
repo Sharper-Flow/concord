@@ -684,7 +684,7 @@ class ProvisionTests(unittest.TestCase):
 
     def test_cleanup_trap_keeps_both_paths_and_producer_exit_status(self):
         script = (ROOT / "scripts/ci-provision-native-isolation.sh").read_text()
-        cleanup = re.search(r"(?ms)^trap '\n.*?^' EXIT$", script)
+        cleanup = re.search(r"(?ms)^cleanup\(\) \{\n.*?^\}\ntrap cleanup EXIT$", script)
         self.assertIsNotNone(cleanup)
         for parser_root in ("", "/synthetic/root parser"):
             for status in (0, 37):
@@ -1178,7 +1178,7 @@ print(json.dumps(args))
 
     def test_compatibility_cleanup_cannot_hide_failure_or_delete_unproved_root_tree(self):
         script = (ROOT / "scripts/ci-provision-native-isolation.sh").read_text()
-        cleanup = re.search(r"(?ms)^trap '\n.*?^' EXIT$", script)[0]
+        cleanup = re.search(r"(?ms)^cleanup\(\) \{\n.*?^\}\ntrap cleanup EXIT$", script)[0]
         for safe, removed, status in ((True, True, 0), (True, False, 0), (False, True, 0), (True, True, 37)):
             command = ("set -Eeuo pipefail; work=synthetic; parser_root=''; compat_root='/synthetic/root'; " +
                        "sudo() { if [[ $1 == test ]]; then return " + str(0 if safe else 1) + "; fi; " +

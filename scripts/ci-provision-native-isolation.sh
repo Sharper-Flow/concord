@@ -34,10 +34,10 @@ dpkg --print-architecture
 work=$(mktemp -d "$RUNNER_TEMP/native-isolation-build.XXXXXXXX")
 parser_root=''
 compat_root=''
-trap '
-    status=$?
+cleanup() {
+    local status=$?
     trap - EXIT
-    cleanup_status=0
+    local cleanup_status=0
     if [[ -n $compat_root ]]; then
         if sudo test -f "$compat_root/cleanup-safe"; then
             sudo rm -rf --one-file-system -- "$compat_root" || cleanup_status=1
@@ -52,7 +52,8 @@ trap '
     printf "cleanup_status=%s\n" "$cleanup_status"
     if ((cleanup_status)); then status=1; fi
     exit "$status"
-' EXIT
+}
+trap cleanup EXIT
 if [[ $mode == compatibility ]]; then
     rm -rf -- "$work"
     compat_root=$(sudo mktemp -d /var/lib/concord-upstream.XXXXXXXX)

@@ -143,17 +143,14 @@ func readActiveWorkflowLawContext(ctx context.Context, tx *sql.Tx, workID string
 	return readWorkflowLawContext(ctx, tx, workID, &contract)
 }
 
-// readLatestWorkerPacketProposal reads the latest proposal record through the
-// continuity reader and projects the packet subset.
+// readLatestWorkerPacketProposal reads the latest proposal record and
+// projects the packet subset.
 func readLatestWorkerPacketProposal(ctx context.Context, tx *sql.Tx, workID string) (*WorkerPacketProposal, error) {
-	var snapshot ContinuitySnapshot
-	if err := continuityReadProposalTx(ctx, tx, workID, &snapshot); err != nil {
+	record, err := readLatestWorkflowProposal(ctx, tx, workID, "C19.Continuity")
+	if err != nil || record == nil {
 		return nil, err
 	}
-	if snapshot.ProposalRecord == nil {
-		return nil, nil
-	}
-	proposal := snapshot.ProposalRecord.PacketProposal()
+	proposal := record.PacketProposal()
 	return &proposal, nil
 }
 

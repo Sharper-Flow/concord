@@ -301,7 +301,7 @@ func readWorkflowProjectionTx(ctx context.Context, q queryer, request WorkflowRe
 	if out.BacklogAlignment, err = readWorkflowBacklogAlignment(ctx, q, request.WorkID); err != nil {
 		return out, err
 	}
-	if err := readWorkflowProjectionProposalTx(ctx, q, request.WorkID, &out); err != nil {
+	if out.ProposalRecord, err = readLatestWorkflowProposal(ctx, q, request.WorkID, "workflow_read"); err != nil {
 		return out, err
 	}
 	if err := readWorkflowProjectionContractTx(ctx, q, request, activeContractVersion, &out); err != nil {
@@ -322,18 +322,23 @@ func readWorkflowProjectionTx(ctx context.Context, q queryer, request WorkflowRe
 	return out, nil
 }
 
-func readWorkflowProjectionProposalTx(ctx context.Context, q queryer, workID string, out *WorkflowReadProjection) error {
+// readLatestWorkflowProposal reads the latest recorded proposal, or nil when
+// none is recorded. A record with malformed arrays is an invariant
+// violation; op names the reader in every failure.
+func readLatestWorkflowProposal(ctx context.Context, q queryer, workID, op string) (*WorkflowProposalRecord, error) {
 	var proposal WorkflowProposalRecord
-	var proposalAffected, proposalOutcomes, proposalConstraints, proposalQuestions string
-	if err := q.QueryRowContext(ctx, `SELECT work_version,problem,affected,stakes,user_outcomes,constraints,open_questions,recorded_at FROM workflow_proposal_records WHERE work_id=? ORDER BY work_version DESC LIMIT 1`, workID).Scan(&proposal.WorkVersion, &proposal.Problem, &proposalAffected, &proposal.Stakes, &proposalOutcomes, &proposalConstraints, &proposalQuestions, &proposal.RecordedAt); err == nil {
-		if json.Unmarshal([]byte(proposalAffected), &proposal.Affected) != nil || json.Unmarshal([]byte(proposalOutcomes), &proposal.UserOutcomes) != nil || json.Unmarshal([]byte(proposalConstraints), &proposal.Constraints) != nil || json.Unmarshal([]byte(proposalQuestions), &proposal.OpenQuestions) != nil {
-			return newFailure(KindInvariantViolation, "workflow_read", "proposal record projection contains malformed arrays", false, "restore a verified backup into a new path with concord restore, then swap")
-		}
-		out.ProposalRecord = &proposal
-	} else if err != sql.ErrNoRows {
-		return wrapFailure(KindUnavailable, "workflow_read", "cannot read latest workflow proposal record", true, "retry once the database is readable", err)
+	var affected, outcomes, constraints, questions string
+	err := q.QueryRowContext(ctx, `SELECT work_version,problem,affected,stakes,user_outcomes,constraints,open_questions,recorded_at FROM workflow_proposal_records WHERE work_id=? ORDER BY work_version DESC LIMIT 1`, workID).Scan(&proposal.WorkVersion, &proposal.Problem, &affected, &proposal.Stakes, &outcomes, &constraints, &questions, &proposal.RecordedAt)
+	if err == sql.ErrNoRows {
+		return nil, nil
 	}
-	return nil
+	if err != nil {
+		return nil, wrapFailure(KindUnavailable, op, "cannot read latest workflow proposal record", true, "retry once the database is readable", err)
+	}
+	if json.Unmarshal([]byte(affected), &proposal.Affected) != nil || json.Unmarshal([]byte(outcomes), &proposal.UserOutcomes) != nil || json.Unmarshal([]byte(constraints), &proposal.Constraints) != nil || json.Unmarshal([]byte(questions), &proposal.OpenQuestions) != nil {
+		return nil, newFailure(KindInvariantViolation, op, "proposal record projection contains malformed arrays", false, "restore a verified backup into a new path with concord restore, then swap")
+	}
+	return &proposal, nil
 }
 
 func readWorkflowProjectionContractTx(ctx context.Context, q queryer, request WorkflowReadRequest, activeContractVersion int64, out *WorkflowReadProjection) error {

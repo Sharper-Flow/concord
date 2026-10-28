@@ -345,7 +345,12 @@ def report_projection_constraints(report_schema: dict, lane: dict) -> list[str]:
         f"maxItems={resolved_findings['maxItems']}, "
         f"x-maxArrayBytes={resolved_findings['x-maxArrayBytes']}. "
         "Claim the closure of a previously open ranked finding with its `finding_id` and the "
-        "independent current-subject `evidence_refs` its control requires. A claim is a claim: "
+        "current-subject `evidence_refs` its control requires. Cite the verify `operation_ref` as the receipt's `run_ref` "
+        "and in the closure's `evidence_refs`. Commit locators are not control proof. "
+        "For `independently_executed` controls, cite bound verification evidence from a producer "
+        "distinct from both this worker and the finding's source actor. Your own check cannot close "
+        "such a finding, even if bound. If qualifying evidence is unavailable, leave the finding open "
+        "and name the missing evidence in remaining obligations. A claim is a claim: "
         "omission, relabeling, or a confidence change never closes a finding. An array past the "
         "byte bound is refused whole: drop or split claims yourself, never truncate one to fit.",
         "resolved_finding shape: "

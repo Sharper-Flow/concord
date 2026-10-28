@@ -194,7 +194,7 @@ func writeWorkerEvidenceFailure(out, errOut io.Writer, err error, eventIDs []str
 		RetrySafe   bool   `json:"retry_safe"`
 		EffectState string `json:"effect_state"`
 		Message     string `json:"message"`
-	}{Kind: "invalid_input", Operation: "worker_evidence", EffectState: "none", Message: err.Error()}
+	}{Kind: "invalid_input", Operation: "worker_evidence", EffectState: "none", Message: diagnosticText(err)}
 	var failure *store.Failure
 	if errors.As(err, &failure) {
 		detail.Kind = string(failure.Kind)

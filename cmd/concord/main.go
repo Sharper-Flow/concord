@@ -1175,11 +1175,46 @@ func runInternal(command string, raw []byte, service *agent.Service, s *store.St
 	}
 }
 
+// runOperatorRequest decodes raw into the command's request object, applies
+// it, and writes the operator result for the returned events and changed
+// refs. A decode or apply failure is an operator diagnostic with status 1.
+func runOperatorRequest[T any](command string, raw []byte, s *store.Store, out, errOut io.Writer, apply func(T) ([]string, []operatorRef, error)) int {
+	var request T
+	if err := decodeObject(raw, &request); err != nil {
+		writeOperatorDiagnostic(errOut, command, diagnosticText(err))
+		return 1
+	}
+	eventIDs, refs, err := apply(request)
+	if err != nil {
+		writeOperatorDiagnostic(errOut, command, diagnosticText(err))
+		return 1
+	}
+	return writeOperatorResult(command, s, eventIDs, refs, out, errOut)
+}
+
+var errClientPublicKey = errors.New("public_key must be base64 Ed25519")
+
+func decodeClientPublicKey(encoded string) (ed25519.PublicKey, error) {
+	key, err := base64.StdEncoding.DecodeString(encoded)
+	if err != nil || len(key) != ed25519.PublicKeySize {
+		return nil, errClientPublicKey
+	}
+	return ed25519.PublicKey(key), nil
+}
+
+func clientCapabilities(names []string) []agentcontract.Capability {
+	caps := make([]agentcontract.Capability, len(names))
+	for i, v := range names {
+		caps[i] = agentcontract.Capability(v)
+	}
+	return caps
+}
+
 func runClientPolicyCommand(command string, raw []byte, service *agent.Service, s *store.Store, out, errOut io.Writer) int {
 	ctx := context.Background()
 	switch command {
 	case "client-register":
-		var request struct {
+		return runOperatorRequest(command, raw, s, out, errOut, func(request struct {
 			ClientRef    string   `json:"client_ref"`
 			KeyID        string   `json:"key_id"`
 			PrincipalRef string   `json:"principal_ref"`
@@ -1188,69 +1223,34 @@ func runClientPolicyCommand(command string, raw []byte, service *agent.Service, 
 			ProductScope []string `json:"product_scope"`
 			ProjectScope []string `json:"project_scope"`
 			AgentScope   []string `json:"agent_scope"`
-		}
-		if err := decodeObject(raw, &request); err != nil {
-			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
-			return 1
-		}
-		key, err := base64.StdEncoding.DecodeString(request.PublicKey)
-		if err != nil || len(key) != ed25519.PublicKeySize {
-			writeOperatorDiagnostic(errOut, command, "public_key must be base64 Ed25519")
-			return 1
-		}
-		caps := make([]agentcontract.Capability, len(request.Capabilities))
-		for i, v := range request.Capabilities {
-			caps[i] = agentcontract.Capability(v)
-		}
-		err = service.RegisterTrustedClient(ctx, agent.ClientRegistration{ClientRef: request.ClientRef, KeyID: request.KeyID, PublicKey: ed25519.PublicKey(key), Policy: agent.TrustedClientPolicy{PrincipalRef: request.PrincipalRef, Capabilities: caps, ProductScope: request.ProductScope, ProjectScope: request.ProjectScope, AgentScope: request.AgentScope}})
-		if err != nil {
-			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
-			return 1
-		}
-		return writeOperatorResult(command, s, nil, nil, out, errOut)
+		}) ([]string, []operatorRef, error) {
+			key, err := decodeClientPublicKey(request.PublicKey)
+			if err != nil {
+				return nil, nil, err
+			}
+			return nil, nil, service.RegisterTrustedClient(ctx, agent.ClientRegistration{ClientRef: request.ClientRef, KeyID: request.KeyID, PublicKey: key, Policy: agent.TrustedClientPolicy{PrincipalRef: request.PrincipalRef, Capabilities: clientCapabilities(request.Capabilities), ProductScope: request.ProductScope, ProjectScope: request.ProjectScope, AgentScope: request.AgentScope}})
+		})
 	case "client-policy-update":
-		var request struct {
+		return runOperatorRequest(command, raw, s, out, errOut, func(request struct {
 			ClientRef    string   `json:"client_ref"`
 			PrincipalRef string   `json:"principal_ref"`
 			Capabilities []string `json:"capabilities"`
 			ProductScope []string `json:"product_scope"`
 			ProjectScope []string `json:"project_scope"`
 			AgentScope   []string `json:"agent_scope"`
-		}
-		if err := decodeObject(raw, &request); err != nil {
-			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
-			return 1
-		}
-		caps := make([]agentcontract.Capability, len(request.Capabilities))
-		for i, v := range request.Capabilities {
-			caps[i] = agentcontract.Capability(v)
-		}
-		if err := service.UpdateTrustedClientPolicy(ctx, request.ClientRef, agent.TrustedClientPolicy{PrincipalRef: request.PrincipalRef, Capabilities: caps, ProductScope: request.ProductScope, ProjectScope: request.ProjectScope, AgentScope: request.AgentScope}); err != nil {
-			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
-			return 1
-		}
-		return writeOperatorResult(command, s, nil, nil, out, errOut)
+		}) ([]string, []operatorRef, error) {
+			return nil, nil, service.UpdateTrustedClientPolicy(ctx, request.ClientRef, agent.TrustedClientPolicy{PrincipalRef: request.PrincipalRef, Capabilities: clientCapabilities(request.Capabilities), ProductScope: request.ProductScope, ProjectScope: request.ProjectScope, AgentScope: request.AgentScope})
+		})
 	case "client-policy-expand":
-		var request struct {
+		return runOperatorRequest(command, raw, s, out, errOut, func(request struct {
 			ClientRef    string   `json:"client_ref"`
 			Capabilities []string `json:"capabilities"`
 			ProductScope []string `json:"product_scope"`
 			ProjectScope []string `json:"project_scope"`
 			AgentScope   []string `json:"agent_scope"`
-		}
-		if err := decodeObject(raw, &request); err != nil {
-			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
-			return 1
-		}
-		caps := make([]agentcontract.Capability, len(request.Capabilities))
-		for i, v := range request.Capabilities {
-			caps[i] = agentcontract.Capability(v)
-		}
-		if err := service.ExpandTrustedClientPolicy(ctx, request.ClientRef, agent.TrustedClientPolicy{Capabilities: caps, ProductScope: request.ProductScope, ProjectScope: request.ProjectScope, AgentScope: request.AgentScope}); err != nil {
-			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
-			return 1
-		}
-		return writeOperatorResult(command, s, nil, nil, out, errOut)
+		}) ([]string, []operatorRef, error) {
+			return nil, nil, service.ExpandTrustedClientPolicy(ctx, request.ClientRef, agent.TrustedClientPolicy{Capabilities: clientCapabilities(request.Capabilities), ProductScope: request.ProductScope, ProjectScope: request.ProjectScope, AgentScope: request.AgentScope})
+		})
 	default:
 		writeOperatorDiagnostic(errOut, command, "unsupported command")
 		return 2
@@ -1261,38 +1261,23 @@ func runClientKeyCommand(command string, raw []byte, service *agent.Service, s *
 	ctx := context.Background()
 	switch command {
 	case "client-key-rotate":
-		var request struct {
+		return runOperatorRequest(command, raw, s, out, errOut, func(request struct {
 			ClientRef string `json:"client_ref"`
 			KeyID     string `json:"key_id"`
 			PublicKey string `json:"public_key"`
-		}
-		if err := decodeObject(raw, &request); err != nil {
-			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
-			return 1
-		}
-		key, err := base64.StdEncoding.DecodeString(request.PublicKey)
-		if err != nil || len(key) != ed25519.PublicKeySize {
-			writeOperatorDiagnostic(errOut, command, "public_key must be base64 Ed25519")
-			return 1
-		}
-		if err := service.RotateClientKey(ctx, agent.ClientRegistration{ClientRef: request.ClientRef, KeyID: request.KeyID, PublicKey: ed25519.PublicKey(key)}); err != nil {
-			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
-			return 1
-		}
-		return writeOperatorResult(command, s, nil, nil, out, errOut)
+		}) ([]string, []operatorRef, error) {
+			key, err := decodeClientPublicKey(request.PublicKey)
+			if err != nil {
+				return nil, nil, err
+			}
+			return nil, nil, service.RotateClientKey(ctx, agent.ClientRegistration{ClientRef: request.ClientRef, KeyID: request.KeyID, PublicKey: key})
+		})
 	case "client-revoke":
-		var request struct {
+		return runOperatorRequest(command, raw, s, out, errOut, func(request struct {
 			ClientRef string `json:"client_ref"`
-		}
-		if err := decodeObject(raw, &request); err != nil {
-			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
-			return 1
-		}
-		if err := service.RevokeClient(ctx, request.ClientRef); err != nil {
-			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
-			return 1
-		}
-		return writeOperatorResult(command, s, nil, nil, out, errOut)
+		}) ([]string, []operatorRef, error) {
+			return nil, nil, service.RevokeClient(ctx, request.ClientRef)
+		})
 	default:
 		writeOperatorDiagnostic(errOut, command, "unsupported command")
 		return 2
@@ -1303,41 +1288,27 @@ func runProjectLocatorCommand(command string, raw []byte, s *store.Store, out, e
 	ctx := context.Background()
 	switch command {
 	case "project-locator-add", "project-locator-update":
-		var request struct {
+		return runOperatorRequest(command, raw, s, out, errOut, func(request struct {
 			ProjectID       string            `json:"project_id"`
 			LocatorID       string            `json:"locator_id"`
 			Kind            store.LocatorKind `json:"kind"`
 			Value           string            `json:"value"`
 			ExpectedVersion int64             `json:"expected_version"`
-		}
-		if err := decodeObject(raw, &request); err != nil {
-			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
-			return 1
-		}
-		method := s.AddProjectLocator
-		if command == "project-locator-update" {
-			method = s.UpdateProjectLocator
-		}
-		if err := method(ctx, request.ProjectID, store.ProjectLocator{ID: request.LocatorID, Kind: request.Kind, Value: request.Value}, request.ExpectedVersion); err != nil {
-			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
-			return 1
-		}
-		return writeOperatorResult(command, s, nil, []operatorRef{{EntityKind: store.SubjectProject, ID: request.ProjectID}}, out, errOut)
+		}) ([]string, []operatorRef, error) {
+			method := s.AddProjectLocator
+			if command == "project-locator-update" {
+				method = s.UpdateProjectLocator
+			}
+			return nil, []operatorRef{{EntityKind: store.SubjectProject, ID: request.ProjectID}}, method(ctx, request.ProjectID, store.ProjectLocator{ID: request.LocatorID, Kind: request.Kind, Value: request.Value}, request.ExpectedVersion)
+		})
 	case "project-locator-remove":
-		var request struct {
+		return runOperatorRequest(command, raw, s, out, errOut, func(request struct {
 			ProjectID       string `json:"project_id"`
 			LocatorID       string `json:"locator_id"`
 			ExpectedVersion int64  `json:"expected_version"`
-		}
-		if err := decodeObject(raw, &request); err != nil {
-			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
-			return 1
-		}
-		if err := s.RemoveProjectLocator(ctx, request.ProjectID, request.LocatorID, request.ExpectedVersion); err != nil {
-			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
-			return 1
-		}
-		return writeOperatorResult(command, s, nil, []operatorRef{{EntityKind: store.SubjectProject, ID: request.ProjectID}}, out, errOut)
+		}) ([]string, []operatorRef, error) {
+			return nil, []operatorRef{{EntityKind: store.SubjectProject, ID: request.ProjectID}}, s.RemoveProjectLocator(ctx, request.ProjectID, request.LocatorID, request.ExpectedVersion)
+		})
 	default:
 		writeOperatorDiagnostic(errOut, command, "unsupported command")
 		return 2
@@ -1345,8 +1316,7 @@ func runProjectLocatorCommand(command string, raw []byte, s *store.Store, out, e
 }
 
 func runProductCreate(command string, raw []byte, s *store.Store, out, errOut io.Writer) int {
-	ctx := context.Background()
-	var request struct {
+	return runOperatorRequest(command, raw, s, out, errOut, func(request struct {
 		ProductID          string `json:"product_id"`
 		DisplayName        string `json:"display_name"`
 		StageMaturity      string `json:"stage_maturity"`
@@ -1355,28 +1325,21 @@ func runProductCreate(command string, raw []byte, s *store.Store, out, errOut io
 		ProjectDisplayName string `json:"project_display_name"`
 		Role               string `json:"role"`
 		MembershipReason   string `json:"reason"`
-	}
-	if err := decodeObject(raw, &request); err != nil {
-		writeOperatorDiagnostic(errOut, command, diagnosticText(err))
-		return 1
-	}
-	result, err := s.CreateProductWithProject(ctx, store.ProductCreation{
-		ProductID: request.ProductID, DisplayName: request.DisplayName, StageMaturity: request.StageMaturity,
-		StageAudienceCommitment: request.StageAudience, ProjectID: request.ProjectID,
-		ProjectDisplayName: request.ProjectDisplayName, Role: request.Role, Reason: request.MembershipReason,
+	}) ([]string, []operatorRef, error) {
+		result, err := s.CreateProductWithProject(context.Background(), store.ProductCreation{
+			ProductID: request.ProductID, DisplayName: request.DisplayName, StageMaturity: request.StageMaturity,
+			StageAudienceCommitment: request.StageAudience, ProjectID: request.ProjectID,
+			ProjectDisplayName: request.ProjectDisplayName, Role: request.Role, Reason: request.MembershipReason,
+		})
+		return result.EventIDs, []operatorRef{{EntityKind: store.SubjectProduct, ID: request.ProductID}, {EntityKind: store.SubjectProject, ID: request.ProjectID}}, err
 	})
-	if err != nil {
-		writeOperatorDiagnostic(errOut, command, diagnosticText(err))
-		return 1
-	}
-	return writeOperatorResult(command, s, result.EventIDs, []operatorRef{{EntityKind: store.SubjectProduct, ID: request.ProductID}, {EntityKind: store.SubjectProject, ID: request.ProjectID}}, out, errOut)
 }
 
 func runResourceDomainCommand(command string, raw []byte, s *store.Store, clock func() time.Time, out, errOut io.Writer) int {
 	ctx := context.Background()
 	switch command {
 	case "resource-create":
-		var request struct {
+		return runOperatorRequest(command, raw, s, out, errOut, func(request struct {
 			EventID                 string          `json:"event_id"`
 			ResourceID              string          `json:"resource_id"`
 			ProductID               string          `json:"product_id"`
@@ -1393,88 +1356,61 @@ func runResourceDomainCommand(command string, raw []byte, s *store.Store, clock 
 			OwnerPurpose            string          `json:"owner_purpose"`
 			OwnerEnvironments       []string        `json:"owner_environments"`
 			ExpectedProductVersion  int64           `json:"expected_product_version"`
-		}
-		if err := decodeObject(raw, &request); err != nil {
-			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
-			return 1
-		}
-		if _, err := store.CreateManagedResource(ctx, s, store.ManagedResourceCreateRequest{
-			EventID: request.EventID, ResourceID: request.ResourceID, ProductID: request.ProductID,
-			DisplayName: request.DisplayName, Class: request.Class, Kind: request.Kind, Purpose: request.Purpose,
-			StageMaturity: request.StageMaturity, StageAudienceCommitment: request.StageAudienceCommitment,
-			Environments: request.Environments, LocatorAbsenceReason: request.LocatorAbsenceReason,
-			MetadataSchemaVersion: request.MetadataSchemaVersion, Metadata: request.Metadata,
-			OwnerPurpose: request.OwnerPurpose, OwnerEnvironments: request.OwnerEnvironments,
-			ExpectedProductVersion: request.ExpectedProductVersion, Actor: "operator", OccurredAt: clock().UTC(),
-		}); err != nil {
-			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
-			return 1
-		}
-		return writeOperatorResult(command, s, []string{request.EventID}, []operatorRef{{EntityKind: store.SubjectProduct, ID: request.ProductID}}, out, errOut)
+		}) ([]string, []operatorRef, error) {
+			_, err := store.CreateManagedResource(ctx, s, store.ManagedResourceCreateRequest{
+				EventID: request.EventID, ResourceID: request.ResourceID, ProductID: request.ProductID,
+				DisplayName: request.DisplayName, Class: request.Class, Kind: request.Kind, Purpose: request.Purpose,
+				StageMaturity: request.StageMaturity, StageAudienceCommitment: request.StageAudienceCommitment,
+				Environments: request.Environments, LocatorAbsenceReason: request.LocatorAbsenceReason,
+				MetadataSchemaVersion: request.MetadataSchemaVersion, Metadata: request.Metadata,
+				OwnerPurpose: request.OwnerPurpose, OwnerEnvironments: request.OwnerEnvironments,
+				ExpectedProductVersion: request.ExpectedProductVersion, Actor: "operator", OccurredAt: clock().UTC(),
+			})
+			return []string{request.EventID}, []operatorRef{{EntityKind: store.SubjectProduct, ID: request.ProductID}}, err
+		})
 	case "resource-share":
-		var request struct {
+		return runOperatorRequest(command, raw, s, out, errOut, func(request struct {
 			EventID                 string   `json:"event_id"`
 			ResourceID              string   `json:"resource_id"`
 			ProductID               string   `json:"product_id"`
 			Purpose                 string   `json:"purpose"`
 			Environments            []string `json:"environments"`
 			ExpectedResourceVersion int64    `json:"expected_resource_version"`
-		}
-		if err := decodeObject(raw, &request); err != nil {
-			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
-			return 1
-		}
-		if err := store.AddManagedResourceConsumer(ctx, s, store.AddManagedResourceConsumerRequest{
-			EventID: request.EventID, ResourceID: request.ResourceID, ProductID: request.ProductID,
-			Purpose: request.Purpose, Environments: request.Environments, ExpectedResourceVersion: request.ExpectedResourceVersion,
-			Actor: "operator", OccurredAt: clock().UTC(),
-		}); err != nil {
-			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
-			return 1
-		}
-		return writeOperatorResult(command, s, []string{request.EventID}, []operatorRef{{EntityKind: store.SubjectProduct, ID: request.ProductID}}, out, errOut)
+		}) ([]string, []operatorRef, error) {
+			return []string{request.EventID}, []operatorRef{{EntityKind: store.SubjectProduct, ID: request.ProductID}}, store.AddManagedResourceConsumer(ctx, s, store.AddManagedResourceConsumerRequest{
+				EventID: request.EventID, ResourceID: request.ResourceID, ProductID: request.ProductID,
+				Purpose: request.Purpose, Environments: request.Environments, ExpectedResourceVersion: request.ExpectedResourceVersion,
+				Actor: "operator", OccurredAt: clock().UTC(),
+			})
+		})
 	case "domain-project-attachments-replace":
-		var request struct {
+		return runOperatorRequest(command, raw, s, out, errOut, func(request struct {
 			EventID         string                          `json:"event_id"`
 			ProductID       string                          `json:"product_id"`
 			DomainID        string                          `json:"domain_id"`
 			ExpectedVersion int64                           `json:"expected_version"`
 			Attachments     []store.DomainProjectAttachment `json:"attachments"`
-		}
-		if err := decodeObject(raw, &request); err != nil {
-			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
-			return 1
-		}
-		if err := store.ReplaceDomainProjectAttachments(ctx, s, store.DomainProjectAttachmentsRequest{
-			EventID: request.EventID, ProductID: request.ProductID, DomainID: request.DomainID,
-			ExpectedVersion: request.ExpectedVersion, Attachments: request.Attachments,
-			Actor: "operator", OccurredAt: clock().UTC(),
-		}); err != nil {
-			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
-			return 1
-		}
-		return writeOperatorResult(command, s, []string{request.EventID}, []operatorRef{{EntityKind: store.SubjectProduct, ID: request.ProductID}}, out, errOut)
+		}) ([]string, []operatorRef, error) {
+			return []string{request.EventID}, []operatorRef{{EntityKind: store.SubjectProduct, ID: request.ProductID}}, store.ReplaceDomainProjectAttachments(ctx, s, store.DomainProjectAttachmentsRequest{
+				EventID: request.EventID, ProductID: request.ProductID, DomainID: request.DomainID,
+				ExpectedVersion: request.ExpectedVersion, Attachments: request.Attachments,
+				Actor: "operator", OccurredAt: clock().UTC(),
+			})
+		})
 	case "domain-resource-attachments-replace":
-		var request struct {
+		return runOperatorRequest(command, raw, s, out, errOut, func(request struct {
 			EventID         string                           `json:"event_id"`
 			ProductID       string                           `json:"product_id"`
 			DomainID        string                           `json:"domain_id"`
 			ExpectedVersion int64                            `json:"expected_version"`
 			Attachments     []store.DomainResourceAttachment `json:"attachments"`
-		}
-		if err := decodeObject(raw, &request); err != nil {
-			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
-			return 1
-		}
-		if err := store.ReplaceDomainResourceAttachments(ctx, s, store.DomainResourceAttachmentsRequest{
-			EventID: request.EventID, ProductID: request.ProductID, DomainID: request.DomainID,
-			ExpectedVersion: request.ExpectedVersion, Attachments: request.Attachments,
-			Actor: "operator", OccurredAt: clock().UTC(),
-		}); err != nil {
-			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
-			return 1
-		}
-		return writeOperatorResult(command, s, []string{request.EventID}, []operatorRef{{EntityKind: store.SubjectProduct, ID: request.ProductID}}, out, errOut)
+		}) ([]string, []operatorRef, error) {
+			return []string{request.EventID}, []operatorRef{{EntityKind: store.SubjectProduct, ID: request.ProductID}}, store.ReplaceDomainResourceAttachments(ctx, s, store.DomainResourceAttachmentsRequest{
+				EventID: request.EventID, ProductID: request.ProductID, DomainID: request.DomainID,
+				ExpectedVersion: request.ExpectedVersion, Attachments: request.Attachments,
+				Actor: "operator", OccurredAt: clock().UTC(),
+			})
+		})
 	default:
 		writeOperatorDiagnostic(errOut, command, "unsupported command")
 		return 2
@@ -1485,69 +1421,48 @@ func runProductProjectCommand(command string, raw []byte, s *store.Store, out, e
 	ctx := context.Background()
 	switch command {
 	case "project-create":
-		var request struct {
+		return runOperatorRequest(command, raw, s, out, errOut, func(request struct {
 			ProjectID          string `json:"project_id"`
 			DisplayName        string `json:"display_name"`
 			ProductID          string `json:"product_id"`
 			Role               string `json:"role"`
 			Reason             string `json:"reason"`
 			ExpectedProductVer int64  `json:"expected_product_version"`
-		}
-		if err := decodeObject(raw, &request); err != nil {
-			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
-			return 1
-		}
-		result, err := s.CreateProjectForProduct(ctx, store.ProjectCreation{
-			ProjectID: request.ProjectID, DisplayName: request.DisplayName, ProductID: request.ProductID,
-			Role: request.Role, Reason: request.Reason, ExpectedProductVersion: request.ExpectedProductVer,
+		}) ([]string, []operatorRef, error) {
+			result, err := s.CreateProjectForProduct(ctx, store.ProjectCreation{
+				ProjectID: request.ProjectID, DisplayName: request.DisplayName, ProductID: request.ProductID,
+				Role: request.Role, Reason: request.Reason, ExpectedProductVersion: request.ExpectedProductVer,
+			})
+			return result.EventIDs, []operatorRef{{EntityKind: store.SubjectProject, ID: request.ProjectID}, {EntityKind: store.SubjectProduct, ID: request.ProductID}}, err
 		})
-		if err != nil {
-			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
-			return 1
-		}
-		return writeOperatorResult(command, s, result.EventIDs, []operatorRef{{EntityKind: store.SubjectProject, ID: request.ProjectID}, {EntityKind: store.SubjectProduct, ID: request.ProductID}}, out, errOut)
 	case "product-project-add":
-		var request struct {
+		return runOperatorRequest(command, raw, s, out, errOut, func(request struct {
 			ProductID       string `json:"product_id"`
 			ProjectID       string `json:"project_id"`
 			Role            string `json:"role"`
 			Reason          string `json:"reason"`
 			ExpectedVersion int64  `json:"expected_version"`
-		}
-		if err := decodeObject(raw, &request); err != nil {
-			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
-			return 1
-		}
-		result, err := s.AddProductProjectMembership(ctx, store.ProductMembershipAddition{
-			ProductID: request.ProductID, ProjectID: request.ProjectID, Role: request.Role,
-			Reason: request.Reason, ExpectedVersion: request.ExpectedVersion,
+		}) ([]string, []operatorRef, error) {
+			result, err := s.AddProductProjectMembership(ctx, store.ProductMembershipAddition{
+				ProductID: request.ProductID, ProjectID: request.ProjectID, Role: request.Role,
+				Reason: request.Reason, ExpectedVersion: request.ExpectedVersion,
+			})
+			return result.EventIDs, []operatorRef{{EntityKind: store.SubjectProduct, ID: request.ProductID}}, err
 		})
-		if err != nil {
-			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
-			return 1
-		}
-		return writeOperatorResult(command, s, result.EventIDs, []operatorRef{{EntityKind: store.SubjectProduct, ID: request.ProductID}}, out, errOut)
 	case "product-stage-update":
-		var request struct {
+		return runOperatorRequest(command, raw, s, out, errOut, func(request struct {
 			ProductID               string `json:"product_id"`
 			StageMaturity           string `json:"stage_maturity"`
 			StageAudienceCommitment string `json:"stage_audience_commitment"`
 			Reason                  string `json:"reason"`
 			ExpectedVersion         int64  `json:"expected_version"`
-		}
-		if err := decodeObject(raw, &request); err != nil {
-			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
-			return 1
-		}
-		result, err := s.ChangeProductStage(ctx, store.ProductStageChange{
-			ProductID: request.ProductID, StageMaturity: request.StageMaturity, StageAudienceCommitment: request.StageAudienceCommitment,
-			Reason: request.Reason, ExpectedVersion: request.ExpectedVersion,
+		}) ([]string, []operatorRef, error) {
+			result, err := s.ChangeProductStage(ctx, store.ProductStageChange{
+				ProductID: request.ProductID, StageMaturity: request.StageMaturity, StageAudienceCommitment: request.StageAudienceCommitment,
+				Reason: request.Reason, ExpectedVersion: request.ExpectedVersion,
+			})
+			return result.EventIDs, []operatorRef{{EntityKind: store.SubjectProduct, ID: request.ProductID}}, err
 		})
-		if err != nil {
-			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
-			return 1
-		}
-		return writeOperatorResult(command, s, result.EventIDs, []operatorRef{{EntityKind: store.SubjectProduct, ID: request.ProductID}}, out, errOut)
 	default:
 		writeOperatorDiagnostic(errOut, command, "unsupported command")
 		return 2

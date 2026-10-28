@@ -144,7 +144,7 @@ func TestThreeControlFailedRevisionRecovery(t *testing.T) {
 		fields["repair_revisions"], fields["repair_reason"] = []int64{1, 2}, "the caller reordered the oracle"
 		before := revisionRecoveryState(t, f)
 		response := revisionRecoveryInvoke(t, f, "record_worker_job", "reorder-only", fields)
-		if response.Error == nil || response.Error.Kind != "invalid_input" || response.Error.RecoveryAction.Kind != "correct_request" || response.Error.EffectState != agentcontract.EffectNone || response.Error.RetrySafe || strings.Contains(response.Error.Message, "refreshed readiness_evidence_refs do not match") || revisionRecoveryState(t, f) != before {
+		if response.Error == nil || response.Error.Kind != "invalid_input" || response.Error.RecoveryAction.Kind != "correct_request" || response.Error.EffectState != agentcontract.EffectNone || response.Error.RetrySafe || !strings.Contains(response.Error.Message, "preserve its exact ordering and content") || strings.Contains(response.Error.Message, "refreshed readiness_evidence_refs do not match") || revisionRecoveryState(t, f) != before {
 			t.Fatalf("oracle ordering was misreported or admitted: %+v", response.Error)
 		}
 	})

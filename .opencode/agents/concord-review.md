@@ -252,12 +252,13 @@ An operator may approve explained irreversible loss without recovery;
 missing recovery alone creates no new approval class.
 
 For P8, check the evidenced one-time explanation before building and the
-operator's recorded decision. P8 does not add another discretionary approval
-or let the reviewer replace the operator's requested behavior with its preference.
+operator's recorded decision, and that the built behavior follows that decision.
+P8 does not add another discretionary approval or let the reviewer replace the
+operator's requested behavior with its preference.
 
 For both checks, cite source identity and ordering evidence establishing that
-the explanation and any required approval preceded execution. A mutable link,
-an authored timestamp or an agent's claim is not proof of that order or of
+the explanation preceded any required approval, and both preceded execution.
+A mutable link, an authored timestamp or an agent's claim is not proof of that order or of
 operator identity. Missing, late or unverifiable evidence leaves compliance
 unproved; report the gap through existing findings and remaining obligations.
 Review may detect a violation only after the action. It cannot intercept

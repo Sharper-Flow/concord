@@ -384,6 +384,8 @@ class SubagentMethodProjectionTests(unittest.TestCase):
             "general task or contract approval is not informed approval of that loss",
             "a worktree destructive waiver is not customer-data consent",
             "source identity and ordering evidence",
+            "the explanation preceded any required approval, and both preceded execution",
+            "the built behavior follows that decision",
             "Missing, late or unverifiable evidence leaves compliance unproved",
             "P8 does not add another discretionary approval",
             "existing `context_findings`",

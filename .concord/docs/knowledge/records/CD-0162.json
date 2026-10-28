@@ -6,7 +6,7 @@
   },
   "date": "2026-09-20T00:00:00Z",
   "doc_contract_profile": "legacy",
-  "home_domain_id": "product-root:concord",
+  "home_domain_id": "agent-surface",
   "id": "CD-0162",
   "kind": "decision",
   "law_relations": [
@@ -16,7 +16,6 @@
     }
   ],
   "path": ".concord/docs/decisions/CD-0162-main-checkout-admission-follows-the-reclaim-tiers.md",
-  "product_wide_rationale": "Names when the main checkout may run a worktree retirement operation, which every Domain that reclaims a worktree relies on, so it binds Product-wide rather than owning a runtime Domain.",
   "scopes": {
     "domain_ids": [],
     "mode": "home",

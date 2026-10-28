@@ -6,11 +6,10 @@
   },
   "date": "2026-09-02T00:00:00Z",
   "doc_contract_profile": "legacy",
-  "home_domain_id": "product-root:concord",
+  "home_domain_id": "agent-surface",
   "id": "CD-0103",
   "kind": "decision",
   "path": ".concord/docs/decisions/CD-0103-the-move-route-offers-no-turn-boundary.md",
-  "product_wide_rationale": "Corrects the record governing the single route by which any session acquires an implementation surface, so it binds every Domain rather than owning a runtime Domain.",
   "scopes": {
     "domain_ids": [],
     "mode": "home",

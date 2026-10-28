@@ -13,7 +13,7 @@
     "internal/agent/supersede_contract_dispatch_test.go",
     "contracts/agent-tool-surface-payloads.schema.json"
   ],
-  "home_domain_id": "product-root:concord",
+  "home_domain_id": "workflow-engine",
   "id": "CD-0150",
   "kind": "decision",
   "law_relations": [
@@ -27,7 +27,6 @@
     }
   ],
   "path": ".concord/docs/decisions/CD-0150-operator-approved-self-repair-overlap-exemption.md",
-  "product_wide_rationale": "The exemption changes Product-wide concurrency admission for Concord's own workflow repair, so no child Domain can define or widen it independently.",
   "scopes": {
     "domain_ids": [],
     "mode": "home",

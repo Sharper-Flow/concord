@@ -11,11 +11,10 @@
     "internal/store/workflow_domain_overlap_test.go",
     ".concord/docs/decisions/CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md"
   ],
-  "home_domain_id": "product-root:concord",
+  "home_domain_id": "workflow-engine",
   "id": "CD-0145",
   "kind": "decision",
   "path": ".concord/docs/decisions/CD-0145-domain-overlap-blocks-only-shared-writes.md",
-  "product_wide_rationale": "Defines the Product-wide authority boundary for concurrent Product-changing work, so no child Domain can own the rule that partitions write conflicts.",
   "scopes": {
     "domain_ids": [],
     "mode": "home",

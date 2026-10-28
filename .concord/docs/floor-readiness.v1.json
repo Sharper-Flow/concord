@@ -542,12 +542,12 @@
    ]
   },
   {
-    "id": "fc6-operational-coverage",
+   "id": "fc6-operational-coverage",
    "condition": "fc6",
    "title": "Concord covers that territory without loss",
    "requirement": "Every enumerated predecessor capability in .concord/docs/predecessor-operational-coverage.md resolves to covered with an evidence path or deliberately excluded with an accepted reason; no enumerated outcome remains not covered.",
    "state": "outstanding",
-    "issue": "CON-1408"
+   "issue": "CON-1408"
   },
   {
    "id": "fc6-consumed-surface-stability",

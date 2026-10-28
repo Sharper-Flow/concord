@@ -180,8 +180,14 @@ func (r runtime) readMutationResult(ctx context.Context, base agentcontract.Enve
 			return coreError(base, "operation_conflict", "retained mutation response intents do not match the original pin", "reconcile_operation", false), nil
 		}
 	}
-	if !utf8.Valid(doc) || mutationDocumentDigest(doc) != in.Digest {
-		return coreError(base, "invalid_cursor", "retained mutation result digest does not match the requested document", "restart_query", false), nil
+	if !utf8.Valid(doc) {
+		return coreError(base, "operation_conflict", "retained mutation result is not valid UTF-8", "reconcile_operation", false), nil
+	}
+	if mutationDocumentDigest(doc) != in.Digest {
+		if cursorValue(in.Page) != "" {
+			return coreError(base, "invalid_cursor", "retained mutation result digest does not match the continuation; restart from its projection reference", "restart_query", false), nil
+		}
+		return coreError(base, "invalid_input", "requested digest does not match the retained result; use the digest in the projection reference", "correct_request", false), nil
 	}
 	// Budget changes are not query changes. Page limit, principal, source and
 	// document identity are; bind all of them without exposing the key in a cursor.

@@ -235,6 +235,24 @@ func TestFullWorkListProjectionMultibyteEnvelopeFit(t *testing.T) {
 	}
 }
 
+func TestFullWorkListProjectionUnshrinkableFrameNamesProducerRepair(t *testing.T) {
+	t.Parallel()
+	s, _, _, _, _ := workflowEngineFixture(t, "unshrinkable list frame")
+	r := runtime{Store: s, Tool: "concord_work_browse", Operation: "list", Envelope: CallEnvelope{SelectedProductID: "product-1", AmbientProjectID: "project-1", ScopeVersion: "scope-fixture"}}
+	base := agentcontract.NewBase("unshrinkable-list", r.Tool, r.Operation)
+	for range 32 {
+		base.EvidenceRefs = append(base.EvidenceRefs, agentcontract.EvidenceRef{Kind: "artifact", Authority: "test", LocatorKind: "file", Locator: strings.Repeat("x", 2048)})
+	}
+	response, err := r.read(t.Context(), base, []byte(`{"product_id":"product-1","detail":"full","limit":1}`), "PM1.Q3")
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertBoundedRead(t, response)
+	if response.Error == nil || response.Error.Kind != "limit_exceeded" || response.Error.RecoveryAction.Kind != "contact_operator" || response.Error.EffectState != agentcontract.EffectNone || response.NextCursor != nil || len(response.Result) != 0 {
+		t.Fatalf("unshrinkable frame must name producer repair, not another page limit: %+v", response.Error)
+	}
+}
+
 func TestFullWorkListProjectionFitsCapturedPageWithoutReread(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

@@ -231,7 +231,11 @@ func requireMutationProjectionReadRefusals(t *testing.T, f *spineFixture, origin
 			in["page"] = map[string]any{"cursor": cursor[:len(cursor)/2] + "!" + cursor[len(cursor)/2:]}
 		}},
 		{"filter", "invalid_cursor", func(_ *runtime, in map[string]any) { in["page"] = map[string]any{"cursor": cursor, "limit": 2} }},
-		{"digest", "invalid_cursor", func(_ *runtime, in map[string]any) { in["digest"] = "sha256:" + strings.Repeat("0", 64) }},
+		{"digest", "invalid_input", func(_ *runtime, in map[string]any) { in["digest"] = "sha256:" + strings.Repeat("0", 64) }},
+		{"continuation digest", "invalid_cursor", func(_ *runtime, in map[string]any) {
+			in["digest"] = "sha256:" + strings.Repeat("0", 64)
+			in["page"] = map[string]any{"cursor": cursor}
+		}},
 		{"principal", "unknown_scope", func(r *runtime, _ map[string]any) { r.Reader.PrincipalRef = "another-principal" }},
 		{"principal cursor binding", "invalid_cursor", func(r *runtime, in map[string]any) {
 			r.Reader.PrincipalRef = "another-owning-principal"
@@ -270,6 +274,9 @@ func requireMutationProjectionReadRefusals(t *testing.T, f *spineFixture, origin
 			}
 			if response.Outcome != agentcontract.OutcomeError || response.Error == nil || response.Error.Kind != vector.kind || response.Error.EffectState != agentcontract.EffectNone || len(response.Result) != 0 {
 				t.Fatalf("read refusal=%+v error=%v", response, err)
+			}
+			if vector.name == "digest" && response.Error.RecoveryAction.Kind != "correct_request" {
+				t.Fatalf("wrong initial digest must name request correction: %+v", response.Error)
 			}
 			if _, err := json.Marshal(response); err != nil {
 				t.Fatalf("unencodable refusal: %v", err)

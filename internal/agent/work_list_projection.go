@@ -82,12 +82,7 @@ func (r runtime) workListProjectionPage(ctx context.Context, base agentcontract.
 		return base, err
 	}
 	if length == 0 {
-		_, first := utf8.DecodeRune(doc[offset:])
-		_, size, err := at(first)
-		if err != nil {
-			return base, err
-		}
-		return readSizeRefusal(base, size), nil
+		return coreError(base, "limit_exceeded", "work-list fragment frame exceeds the envelope cap; contact the operator for producer repair", "contact_operator", false), nil
 	}
 	response, _, err := at(length)
 	return response, err

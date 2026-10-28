@@ -3,6 +3,7 @@ package main
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"reflect"
 	"strings"
 	"testing"
@@ -16,7 +17,7 @@ import (
 // an immutable job and a prior open finding. Job authoring and the earlier
 // review's admission are not under test; all new dispatch and terminal writes
 // below go through the authenticated CLI, without changing any admission gate.
-func seedCLIOracleSettlementHistory(t *testing.T, dbPath string) store.WorkerJobBinding {
+func seedCLIOracleSettlementHistory(t *testing.T, dbPath string, mutate ...func(*store.WorkerOpenOracleFinding)) store.WorkerJobBinding {
 	t.Helper()
 	job := store.WorkerJobBinding{JobID: "job:oracle-settlement", Revision: 1, Digest: "sha256:" + strings.Repeat("d", 64)}
 	seedAuthorizedDispatchWindow(t, dbPath, "work-1", "attempt-1", job)
@@ -48,6 +49,9 @@ func seedCLIOracleSettlementHistory(t *testing.T, dbPath string) store.WorkerJob
 			Classification: store.OracleClassificationUncoveredCase, OwnerID: "owner:repair",
 			EntryPoint: "uncontrolled alternate path", FailureFamily: "alternate-path", EvidenceRefs: []string{"evidence:alternate-reproduction"},
 		},
+	}
+	for _, change := range mutate {
+		change(&finding)
 	}
 	// Match the current fact encoding: SourceOracle is reconstructed from the
 	// immutable source_job rather than stored in the aggregate.
@@ -83,6 +87,53 @@ func seedCLIOracleSettlementHistory(t *testing.T, dbPath string) store.WorkerJob
 		t.Fatal(err)
 	}
 	return job
+}
+
+func TestWorkerOracleClosureRemedyReachesCLIMessage(t *testing.T) {
+	dbPath := freshMigratedCLIDatabase(t)
+	job := seedCLIOracleSettlementHistory(t, dbPath, func(f *store.WorkerOpenOracleFinding) {
+		f.Classification = store.OracleClassificationDeliveryBlocker
+		f.ControlIDs = []string{"control:repair"}
+		f.Tie.Classification = f.Classification
+	})
+	key := seedWorkerEvidenceClient(t)
+	lane := store.BuiltinLaneDefinitions()[0]
+	readback := preferredLaneModel(lane)
+	dispatch, assertion := workerEvidenceRequest(t, agent.WorkerEvidenceVerbDispatch, lane, readback, "nonce-remedy-dispatch-0001")
+	dispatch["worker_job"] = job
+	dispatch["assertion"] = signWorkerEvidence(t, key, assertion)
+	if code, out, stderr := runWorkerCLI(t, "worker-dispatch", mustJSON(t, dispatch)); code != 0 {
+		t.Fatalf("dispatch exit=%d stdout=%s stderr=%s", code, out, stderr)
+	}
+	request, assertion := workerEvidenceRequest(t, agent.WorkerEvidenceVerbComplete, lane, readback, "nonce-remedy-complete-0001")
+	request["worker_job"] = job
+	head := runGitCLI(t, cliFixtureWorktree(t, dbPath), "rev-parse", "HEAD")
+	candidate := map[string]any{"project_id": "project-1", "commit": head, "tree": runGitCLI(t, cliFixtureWorktree(t, dbPath), "rev-parse", "HEAD^{tree}")}
+	request["review"] = map[string]any{
+		"disposition": "ready_for_final_proof", "findings": []any{}, "input_candidate": candidate, "output_candidate": candidate,
+		"dependencies": map[string]any{"criteria": []map[string]any{{"predicate_id": "predicate:repair", "content_digest": "sha256:" + strings.Repeat("e", 64)}}, "architecture_not_applicable": true},
+		"assessments":  []any{}, "remaining_obligations": []any{},
+		"resolved_findings": []map[string]any{{"finding_id": "finding:1:0", "evidence_refs": []string{"git:" + head}}},
+	}
+	request["assertion"] = signWorkerEvidence(t, key, assertion)
+	code, out, stderr := runWorkerCLI(t, "worker-complete", mustJSON(t, request))
+	if code == 0 {
+		t.Fatalf("commit locator closed a finding: stdout=%s stderr=%s", out, stderr)
+	}
+	kind, effect, retry := typedWorkerEvidenceError(t, out)
+	if kind != string(store.KindMissingEvidence) || effect != "none" || retry {
+		t.Errorf("refusal kind/effect/retry = %s/%s/%v", kind, effect, retry)
+	}
+	var response struct{ Error struct{ Message string } }
+	if err := json.Unmarshal([]byte(out), &response); err != nil {
+		t.Fatal(err)
+	}
+	for _, phrase := range []string{"recovery:", "operation_ref", "bind_evidence", "worker_reconcile", "no supported close", "worker_abandon is only for no report"} {
+		if !strings.Contains(response.Error.Message, phrase) {
+			t.Errorf("stdout message omits %q: %s", phrase, out)
+		}
+	}
+	assertZeroTerminalEffects(t, dbPath, assertion.Nonce)
 }
 
 func TestWorkerOracleRefusalCLIRollsBackNonceAndSettlesInvalidReportOnce(t *testing.T) {

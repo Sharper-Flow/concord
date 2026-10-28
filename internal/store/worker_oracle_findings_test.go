@@ -295,11 +295,11 @@ func TestOwnerOracleIndependentClosure(t *testing.T) {
 	seedOracleExecuteLedgerFixture(t, s, &self, oracleFixtureGraphForCommand(t, s, workID, command))
 	bind := func(result WorktreeVerifyResult, principal, watermark string) {
 		t.Helper()
-		event := workflowTypedEvent("bind-"+result.LeaseID, WorkflowEvidenceBound, workID, "actor:test", time.Unix(60, 0).UTC(), readWorkVersion(t, s, workID), map[string]any{
+		payload := map[string]any{
 			"evidence_kind": "verification", "immutable_subject_ref": result.OperationRef, "producer_id": principal,
-			"producer_run_ref": result.OperationRef, "producer_watermark": watermark, "observed_at": time.Unix(60, 0).UTC().Format(time.RFC3339Nano),
-		})
-		if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{event}}); err != nil {
+			"producer_run_ref": result.OperationRef, "producer_watermark": watermark,
+		}
+		if err := runVerdictActionAs(t, s, workID, "bind_evidence", mustJSONValue(payload), 0, f.owner); err != nil {
 			t.Fatal(err)
 		}
 	}

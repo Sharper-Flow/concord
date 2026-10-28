@@ -479,12 +479,10 @@ test("v2 vector cases declare well-formed worker-evidence-v2 vector structure", 
   }
 })
 
-// A typed Git observation refusal from the
-// core's terminal ingest reaches the coordinator as one typed, retry-safe,
-// zero-effect failure. The adapter surfaces it and stops: it never retries
-// the write in a loop and never takes the invalid_report close path, so the
-// attempt stays recoverable through the retained-report recovery route.
-test("a typed git observation refusal is surfaced once and never retried", async () => {
+test.each([
+  { kind: "git_unreachable", operation: "worker_terminal_observation", retry: true, message: "store: worker_terminal_observation: git_unreachable: cannot observe the attempt's clean status" },
+  { kind: "missing_evidence", operation: "worker_oracle_findings", retry: false, message: "store: worker_oracle_findings: missing_evidence: closure reference does not qualify\nrecovery: cite the verify operation_ref as receipt run_ref; when admitted, Main may workflow_action bind_evidence, then worker_reconcile the unchanged report; otherwise no supported close; worker_abandon is only for no report" },
+])("a typed $operation refusal preserves its remedy without retry or terminal close", async ({ kind, operation, retry, message }) => {
   const calls: { command: string; request: Record<string, unknown> }[] = []
   const refusingRunner: DispatchRunner = {
     async run(argv, input) {
@@ -496,11 +494,11 @@ test("a typed git observation refusal is surfaced once and never retried", async
           ok: false,
           event_ids: [],
           error: {
-            kind: "git_unreachable",
-            operation: "worker_terminal_observation",
-            retry_safe: true,
+            kind,
+            operation,
+            retry_safe: retry,
             effect_state: "none",
-            message: "store: worker_terminal_observation: git_unreachable: cannot observe the attempt's clean status",
+            message,
           },
         }),
         stderr: "",
@@ -509,11 +507,11 @@ test("a typed git observation refusal is surfaced once and never retried", async
   }
   const result = await completeWorkerAttempt(lane, packet(), completedBody(), { credentials: testCredentials, sessionReader: laneSessionReader, evidenceRunner: refusingRunner, concordBinary: "concord", packetDigest: PACKET_DIGEST, workerDirectory: WORKER_DIRECTORY }, SIGNAL)
   expect(result.outcome).toBe("error")
-  expect(result.error?.message).toContain("cannot observe the attempt's clean status")
-  expect(result.error?.retry_safe).toBe(true)
+  expect(result.error?.message).toBe(message)
+  expect(result.error?.retry_safe).toBe(retry)
   expect((result.error as any)?.details?.effect_state).toBe("none")
-  expect((result.error as any)?.details?.operation).toBe("worker_terminal_observation")
-  expect((result.error as any)?.details?.core_kind).toBe("git_unreachable")
+  expect((result.error as any)?.details?.operation).toBe(operation)
+  expect((result.error as any)?.details?.core_kind).toBe(kind)
   expect(result.error?.recovery_action).toBe("reconcile_operation")
   expect(calls.map((call) => call.command)).toEqual(["worker-dispatch", "worker-complete"])
 })

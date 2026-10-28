@@ -1091,7 +1091,7 @@ func validateWorkerOracleResolutionEvidenceTx(ctx context.Context, tx *sql.Tx, w
 			qualified = qualified || matched
 		}
 		if !qualified {
-			return oracleFindingFailure(KindMissingEvidence, "resolved_findings evidence "+ref+" for "+resolution.FindingID+" does not qualify as a current-subject pass receipt of the finding's controls with the required production role; a commit locator is not control proof", "cite the verify operation_ref as receipt run_ref; independently_executed controls also require bound verification evidence from an actor distinct from both the resolving worker and source finding actor; Main may bind an otherwise qualifying cited producer with bind_evidence, then worker_reconcile the unchanged report; if its refs cannot qualify, there is no supported close for that returned report: retain it and escalate; worker_abandon is only for no report, and unresolved effects forbid redispatch")
+			return oracleFindingFailure(KindMissingEvidence, "resolved_findings evidence "+ref+" for "+resolution.FindingID+" does not qualify as a current-subject pass receipt of the finding's controls with the required production role", "cite the verify operation_ref as receipt run_ref, not a commit locator; independently_executed also requires bound verification evidence from an actor distinct from both the resolving worker and source finding actor; when admitted, Main may workflow_action bind_evidence for an otherwise qualifying cited producer, then worker_reconcile the unchanged report; if its refs cannot qualify, there is no supported close for that returned report: retain it and escalate; worker_abandon is only for no report; reconcile unresolved effects before redispatch")
 		}
 	}
 	for id := range required {

@@ -443,6 +443,21 @@ class SubagentMethodProjectionTests(unittest.TestCase):
         self.assertNotIn("finding the oracle governs", text)
         self.assertNotIn("oracle-governed finding", text)
 
+    def test_review_cites_qualified_closure_receipts_by_role(self):
+        manifest, _ = generator.load_manifest()
+        review = next(lane for lane in manifest["lanes"] if lane["id"] == "review")
+        text = lane_projection(review)
+        for phrase in (
+            "verify `operation_ref` as the receipt's `run_ref`",
+            "Commit locators are not control proof",
+            "`independently_executed`",
+            "bound verification evidence",
+            "distinct from both this worker and the finding's source actor",
+            "Your own check cannot close",
+            "leave the finding open",
+        ):
+            self.assertIn(phrase, text)
+
 
 class LaneContentIdentityTests(unittest.TestCase):
     def test_generation_accepts_changed_content_without_a_counter_or_alias(self):

@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """Tests for scripts/check-pr-linear-link.py — the guard must require exactly
 one non-closing Related-to line on work/work-* pull requests, refuse closing
-phrases in the title and the body (Linear parses both), and leave every other
-branch and event untouched."""
+phrases in the title and the body (Linear parses both), and measure every PR
+for merge-size visibility without changing non-PR events."""
 import importlib.util
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -279,12 +280,12 @@ def test_merge_group_resolves_the_queued_pull_request() -> None:
         payload = {"headRefName": "work/work-abc", "title": "feat: add a thing", "body": "Related to CON-425\n"}
         return subprocess.CompletedProcess(argv, 0, stdout=json.dumps(payload), stderr="")
 
-    head_ref, title, body = guard.resolve_pr("merge_group", {"merge_group": {"head_ref": QUEUE_REF}}, runner)
-    assert head_ref == "work/work-abc", head_ref
-    assert title == "feat: add a thing", title
-    assert body == "Related to CON-425\n", body
-    assert calls == [["gh", "pr", "view", "1350", "--json", "headRefName,title,body"]], calls
-    ok, _ = guard.check_pr_link(head_ref, title, body)
+    pr = guard.resolve_pr("merge_group", {"merge_group": {"head_ref": QUEUE_REF}}, runner)
+    assert pr["headRefName"] == "work/work-abc", pr
+    assert pr["title"] == "feat: add a thing", pr
+    assert pr["body"] == "Related to CON-425\n", pr
+    assert calls == [["gh", "pr", "view", "1350", "--json", "headRefName,title,body,additions,deletions,changedFiles"]], calls
+    ok, _ = guard.check_pr_link(pr["headRefName"], pr["title"], pr["body"])
     assert ok, "a merge queue entry carrying the line must pass"
 
 
@@ -293,8 +294,8 @@ def test_merge_group_checks_the_queued_work_branch() -> None:
         payload = {"headRefName": "work/work-abc", "title": "feat: add a thing", "body": "no link"}
         return subprocess.CompletedProcess(argv, 0, stdout=json.dumps(payload), stderr="")
 
-    head_ref, title, body = guard.resolve_pr("merge_group", {"merge_group": {"head_ref": QUEUE_REF}}, runner)
-    ok, _ = guard.check_pr_link(head_ref, title, body)
+    pr = guard.resolve_pr("merge_group", {"merge_group": {"head_ref": QUEUE_REF}}, runner)
+    ok, _ = guard.check_pr_link(pr["headRefName"], pr["title"], pr["body"])
     assert not ok, "a queued work branch without the line must fail"
 
 
@@ -303,8 +304,8 @@ def test_merge_group_checks_the_queued_title() -> None:
         payload = {"headRefName": "work/work-abc", "title": "Fixes CON-77", "body": "Related to CON-425\n"}
         return subprocess.CompletedProcess(argv, 0, stdout=json.dumps(payload), stderr="")
 
-    head_ref, title, body = guard.resolve_pr("merge_group", {"merge_group": {"head_ref": QUEUE_REF}}, runner)
-    ok, detail = guard.check_pr_link(head_ref, title, body)
+    pr = guard.resolve_pr("merge_group", {"merge_group": {"head_ref": QUEUE_REF}}, runner)
+    ok, detail = guard.check_pr_link(pr["headRefName"], pr["title"], pr["body"])
     assert not ok, "a queued work branch whose title closes an issue must fail"
     assert "title" in detail and "CON-77" in detail, detail
 
@@ -346,7 +347,8 @@ def test_cli_rejects_work_pull_request_missing_line() -> None:
     with tempfile.TemporaryDirectory() as directory:
         event_path = Path(directory) / "event.json"
         event_path.write_text(
-            json.dumps({"pull_request": {"head": {"ref": "work/work-abc"}, "body": "no line here"}}),
+            json.dumps({"pull_request": {"head": {"ref": "work/work-abc"}, "body": "no line here",
+                                         "additions": 1, "deletions": 0, "changed_files": 1}}),
             encoding="utf-8",
         )
         result = subprocess.run(
@@ -356,13 +358,15 @@ def test_cli_rejects_work_pull_request_missing_line() -> None:
         )
     assert result.returncode == 1, result.stdout
     assert "Related to <TEAM>-<n>" in result.stdout, result.stdout
+    assert "SMALL:" in result.stdout, result.stdout
 
 
 def test_cli_rejects_work_pull_request_closing_title() -> None:
     with tempfile.TemporaryDirectory() as directory:
         event_path = Path(directory) / "event.json"
         event_path.write_text(
-            json.dumps({"pull_request": {"head": {"ref": "work/work-abc"}, "title": "Fixes CON-427", "body": "Related to CON-427\n"}}),
+            json.dumps({"pull_request": {"head": {"ref": "work/work-abc"}, "title": "Fixes CON-427", "body": "Related to CON-427\n",
+                                         "additions": 1, "deletions": 0, "changed_files": 1}}),
             encoding="utf-8",
         )
         result = subprocess.run(
@@ -372,6 +376,149 @@ def test_cli_rejects_work_pull_request_closing_title() -> None:
         )
     assert result.returncode == 1, result.stdout
     assert "title" in result.stdout and "CON-427" in result.stdout, result.stdout
+    assert "SMALL:" in result.stdout, result.stdout
+
+
+def test_missing_or_invalid_head_metadata_refuses_on_both_events() -> None:
+    for head_ref in (None, "", False, 0, [], {}):
+        for event_name in ("pull_request", "merge_group"):
+            pr = {"additions": 1, "deletions": 0, "changedFiles": 1}
+            if head_ref is not None:
+                pr["headRefName"] = head_ref
+
+            def runner(argv, **kwargs):
+                return subprocess.CompletedProcess(argv, 0, stdout=json.dumps(pr), stderr="")
+
+            event = {"merge_group": {"head_ref": QUEUE_REF}} if event_name == "merge_group" else {
+                "pull_request": {"head": {"ref": head_ref}, "additions": 1, "deletions": 0, "changed_files": 1},
+            }
+            try:
+                guard.resolve_pr(event_name, event, runner)
+            except SystemExit as err:
+                assert "headRefName" in str(err), err
+            else:
+                raise AssertionError((event_name, head_ref, "missing branch must not exempt linkage"))
+
+
+def test_large_merge_requires_reason_before_passing() -> None:
+    assert hasattr(guard, "check_pr_size"), "the metadata gate does not check merge size"
+    ok, detail = guard.check_pr_size({"additions": 401, "deletions": 0, "changedFiles": 1, "body": ""})
+    assert not ok, detail
+    assert "Large-merge reason:" in detail, detail
+
+
+def test_small_boundary_and_each_large_dimension() -> None:
+    for additions, deletions, files, expected in (
+        (0, 0, 0, True), (200, 200, 15, True),
+        (200, 201, 1, False), (0, 0, 16, False), (900, 100, 30, False),
+    ):
+        ok, detail = guard.check_pr_size({"additions": additions, "deletions": deletions, "changedFiles": files})
+        assert ok == expected, detail
+        assert ("SMALL:" if expected else "LARGE:") in detail, detail
+
+
+def test_missing_or_invalid_counts_never_mean_small() -> None:
+    for field in ("additions", "deletions", "changedFiles"):
+        for value in (None, -1, "1", True, 1.5):
+            pr = {"additions": 1, "deletions": 0, "changedFiles": 1, field: value}
+            ok, detail = guard.check_pr_size(pr)
+            assert not ok and field in detail, (pr, detail)
+
+
+def test_large_reason_is_recorded_not_an_approval() -> None:
+    reason = "The generated contract and its source must land together to keep parity checks green."
+    ok, detail = guard.check_pr_size({"additions": 1000, "deletions": 50, "changedFiles": 20,
+                                    "body": f"Related to CON-427\n\nLarge-merge reason: {reason}\n"})
+    assert ok and "LARGE:" in detail and reason in detail, detail
+    assert "1050 changed lines, 20 files" in detail, detail
+
+
+def test_examples_and_empty_reasons_do_not_explain_large_merge() -> None:
+    for body in ("Large-merge reason:", "Large-merge reason: TODO", "Large-merge reason: <why>",
+                 "<!-- Large-merge reason: hidden -->", "> Large-merge reason: quoted",
+                 "```\nLarge-merge reason: example\n```", "~~~\nLarge-merge reason: example\n~~~"):
+        assert guard.large_merge_reason(body) == "", body
+    assert guard.large_merge_reason("```\nexample\n```\nLarge-merge reason: Real constraint") == "Real constraint"
+
+
+def test_gate_prompt_placeholder_is_not_a_reason() -> None:
+    pr = {"additions": 401, "deletions": 0, "changedFiles": 1}
+    _, prompt = guard.check_pr_size(pr)
+    pr["body"] = prompt.split("'", 2)[1]
+    ok, detail = guard.check_pr_size(pr)
+    assert not ok, detail
+
+
+def test_markdown_code_examples_are_not_authored_reasons() -> None:
+    for body in (
+        "    Large-merge reason: indented example",
+        "\tLarge-merge reason: indented example",
+        " \tLarge-merge reason: indented example",
+        "````\n```python\nLarge-merge reason: nested example\n```\n````",
+        "```\n~~~\nLarge-merge reason: mismatched fence example\n~~~\n```",
+    ):
+        assert guard.large_merge_reason(body) == "", body
+    for fence in ("```", "````", "~~~"):
+        body = f"{fence}python\nLarge-merge reason: example\n{fence}\nLarge-merge reason: Real constraint"
+        assert guard.large_merge_reason(body) == "Real constraint", body
+
+
+def test_queue_metadata_is_measured_including_generated_files() -> None:
+    def runner(argv, **kwargs):
+        assert kwargs["timeout"] == 30, kwargs
+        return subprocess.CompletedProcess(argv, 0, stdout=json.dumps({
+            "headRefName": "ad-hoc", "additions": 7000, "deletions": 0, "changedFiles": 221, "body": "",
+        }), stderr="")
+    pr = guard.resolve_pr("merge_group", {"merge_group": {"head_ref": QUEUE_REF}}, runner)
+    ok, detail = guard.check_pr_size(pr)
+    assert not ok and "7000 changed lines, 221 files" in detail, detail
+
+
+def test_queue_small_boundary_and_explained_large_merge_pass() -> None:
+    for additions, files, body in (
+        (200, 15, "Related to CON-427\n"),
+        (201, 16, "Related to CON-427\nLarge-merge reason: Atomic contract cutover."),
+    ):
+        def runner(argv, **kwargs):
+            return subprocess.CompletedProcess(argv, 0, stdout=json.dumps({
+                "headRefName": "work/work-abc", "title": "feat: a thing", "body": body,
+                "additions": additions, "deletions": 200, "changedFiles": files,
+            }), stderr="")
+        pr = guard.resolve_pr("merge_group", {"merge_group": {"head_ref": QUEUE_REF}}, runner)
+        assert guard.check_pr_link(pr["headRefName"], pr["title"], pr["body"])[0], pr
+        ok, detail = guard.check_pr_size(pr)
+        assert ok, detail
+        assert f"{additions + 200} changed lines, {files} files" in detail, detail
+        assert ("SMALL:" if files == 15 else "recorded reason: Atomic contract cutover.") in detail, detail
+
+
+def test_bad_queue_json_refuses() -> None:
+    for payload in ("[]", "not json"):
+        def runner(argv, **kwargs):
+            return subprocess.CompletedProcess(argv, 0, stdout=payload, stderr="")
+        try:
+            guard.resolve_pr("merge_group", {"merge_group": {"head_ref": QUEUE_REF}}, runner)
+        except SystemExit as err:
+            assert "cannot read pull request" in str(err), err
+        else:
+            raise AssertionError(payload)
+
+
+def test_cli_ad_hoc_large_merge_refuses_then_body_edit_passes_and_reports() -> None:
+    with tempfile.TemporaryDirectory() as directory:
+        event_path = Path(directory) / "event.json"
+        summary = Path(directory) / "summary.md"
+        pr = {"head": {"ref": "ad-hoc"}, "additions": 200, "deletions": 201, "changed_files": 1, "body": ""}
+        for action, reason, expected in (("opened", "", 1), ("edited", "Large-merge reason: Atomic cutover of one contract.", 0)):
+            pr["body"] = reason
+            event_path.write_text(json.dumps({"action": action, "pull_request": pr}), encoding="utf-8")
+            result = subprocess.run(
+                [sys.executable, str(Path(guard.__file__)), "pull_request", str(event_path)],
+                capture_output=True, text=True, env={**os.environ, "GITHUB_STEP_SUMMARY": str(summary)},
+            )
+            assert result.returncode == expected, result.stdout + result.stderr
+            assert "LARGE: 401 changed lines, 1 files" in result.stdout, result.stdout
+        assert "Atomic cutover of one contract." in summary.read_text(), summary.read_text()
 
 
 def test_guard_workflow_reruns_on_a_body_edit() -> None:

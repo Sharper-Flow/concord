@@ -38,7 +38,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:73c53ad7e0f4a4ff2e1a9c41563ef46d4122d16ce14e368574d13153f1dbaa9a",
+  "sha256": "sha256:7909f179760192b3d68e3e2f15a90c86739e87035d8a09a5e484fd2835cf85c0",
   "status": "accepted",
   "summary": "Typed, fenced removal preserves the planning handoff and exact current-row receipt, removes execution projections, keeps Linear issues open and gives renewed work a fresh identity. Lifecycle cancellation and exact-item retirement may prepare default-checkout shelving; only committed removal and verified identity absence complete it. Liveness never authorizes removal.",
   "tags": [

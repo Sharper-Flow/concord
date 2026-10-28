@@ -1,6 +1,6 @@
 {
   "schema_version": "1.1",
-  "catalog_generation": 15,
+  "catalog_generation": 16,
   "source": {
     "path": ".concord/docs/goals.md",
     "sha256": "sha256:0d0ad1c84035706373dc1fdf26066a5e8e542f91b84684efe7618a8fffef57d9"
@@ -122,8 +122,13 @@
         "agent"
       ],
       "follow_up_label": "rule:P4",
-      "state": "outstanding",
-      "issue": "CON-1098"
+      "state": "satisfied",
+      "mechanism": "recorded_review",
+      "evidence": [
+        {"kind": "go_test", "value": "internal/store.TestReviewCompletionRetainsAppliedRuleContextClaims"},
+        {"kind": "go_test", "value": "internal/store.TestDispatchRefusesStaleWorkContextPacket"},
+        {"kind": "go_test", "value": "internal/store.TestDispatchRefusesTamperedWorkContextPacket"}
+      ]
     },
     {
       "id": "P5",
@@ -154,8 +159,13 @@
         "agent"
       ],
       "follow_up_label": "rule:P6",
-      "state": "outstanding",
-      "issue": "CON-1098"
+      "state": "satisfied",
+      "mechanism": "recorded_review",
+      "evidence": [
+        {"kind": "go_test", "value": "internal/store.TestReviewCompletionRetainsAppliedRuleContextClaims"},
+        {"kind": "go_test", "value": "internal/store.TestDispatchRefusesStaleWorkContextPacket"},
+        {"kind": "go_test", "value": "internal/store.TestDispatchRefusesTamperedWorkContextPacket"}
+      ]
     },
     {
       "id": "P7",

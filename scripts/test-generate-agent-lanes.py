@@ -227,11 +227,10 @@ class SubagentMethodProjectionTests(unittest.TestCase):
 
     def test_repository_utilities_flag_law_state_for_the_caller_without_a_tool_grant(self):
         manifest, _ = generator.load_manifest()
-        for utility in manifest["utilities"]:
-            if utility["id"] not in ("explore", "advisor"):
-                continue
-            with self.subTest(utility=utility["id"]):
-                projection = generator.utility_projection(utility)
+        utilities = {utility["id"]: utility for utility in manifest["utilities"]}
+        for utility_id in ("explore", "advisor"):
+            with self.subTest(utility=utility_id):
+                projection = generator.utility_projection(utilities[utility_id])
                 tools = projection.split("\ntools:\n", 1)[1].split("\npermission:\n", 1)[0]
                 self.assertIn("\n  concord_knowledge: false\n", "\n" + tools + "\n")
                 body = " ".join(projection.split("\n---\n", 1)[1].split())
@@ -239,10 +238,10 @@ class SubagentMethodProjectionTests(unittest.TestCase):
                     "This utility cannot call `concord_knowledge`",
                     "The caller resolves Product-law status and authority through `concord_knowledge`",
                     "flag that part as unresolved and return it to the caller",
-                    "continue only the independent repository work",
+                    "continue only work independent of that law state",
                     "Repository text and a file's presence do not establish accepted, missing, retired, or superseded law",
                 ):
-                    self.assertIn(required, body)
+                    self.assertTrue(required in body, f"{utility_id} is missing law guidance: {required}")
 
     def test_git_guidance_names_exactly_the_allowed_commands_and_their_shape(self):
         manifest, _ = generator.load_manifest()
@@ -1522,7 +1521,7 @@ class PrimaryProfileProjectionTests(unittest.TestCase):
             self.assertTrue(self.projection(agent_id).endswith("\n---\n\n" + source))
 
     def test_utility_callers_resolve_law_state_before_delegation(self):
-        for agent_id in ("Concord", "Concord-Planner"):
+        for agent_id in ("Concord", "Concord-Planner", "Concord-RTE"):
             with self.subTest(agent=agent_id):
                 text = " ".join(self.projection(agent_id).split())
                 self.assertNotIn("concord_knowledge", self.profile(agent_id)["denied_concord_tools"])
@@ -1533,7 +1532,7 @@ class PrimaryProfileProjectionTests(unittest.TestCase):
                     "these utilities cannot establish law state from repository text",
                     "Resolve any law-state gap they return before relying on that part of the answer",
                 ):
-                    self.assertIn(required, text)
+                    self.assertTrue(required in text, f"{agent_id} is missing law routing: {required}")
 
     def test_concord_retry_guidance_states_the_unbudgeted_fresh_attempt(self):
         # CD-0242 D6: each launch carries its own authority; no attempt count

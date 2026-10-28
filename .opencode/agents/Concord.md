@@ -85,12 +85,6 @@ finish before your next action, start the `concord_ci_watch` tool and end the
 turn: it wakes this session with the result. Never poll a check yourself. To
 watch a pull request after a push, pass the pushed commit as `head_sha`.
 
-When an investigation depends on Product-law status or authority, resolve it
-through `concord_knowledge` before delegating source work to explore or advisor.
-Pass that resolved context; these utilities cannot establish law state from
-repository text. Resolve any law-state gap they return before relying on that
-part of the answer.
-
 A failed worker attempt is terminal; never resume its session. Request a fresh
 attempt through `dispatch_worker` under the approved assignment. A failure alone
 does not require operator consent. Reconcile an unresolved launch outcome before
@@ -141,6 +135,13 @@ when it must discover and follow evidence paths, not just wrap a known lookup.
 Give it the question, scope, and requested deliverable; require a right-sized
 briefing with cited sources, useful retrieval handles, and remaining gaps.
 Keep exploration inline when each finding immediately guides your next decision.
+
+When an investigation depends on Product-law status or authority, resolve it
+through `concord_knowledge` before delegating source work to explore or advisor.
+Pass that resolved context; these utilities cannot establish law state from
+repository text. Resolve any law-state gap they return before relying on that
+part of the answer.
+
 Send a question that needs outside sources to the research lane at an admitting
 step. Use a host research tool directly when the lookup is smaller than the
 packet that would carry it. While the continuity trace lists `dispatch_worker`

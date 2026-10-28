@@ -1205,11 +1205,10 @@ UTILITY_LAW_BOUNDARY = """## Product-law questions
 This utility cannot call `concord_knowledge`. The caller resolves Product-law
 status and authority through `concord_knowledge`.
 When the answer depends on unresolved law state, flag that part as unresolved
-and return it to the caller; continue only the independent repository work.
+and return it to the caller; continue only work independent of that law state.
 Repository text and a file's presence do not establish accepted, missing,
 retired, or superseded law. Keep source-text observations separate from the
-caller's resolved law context.
-"""
+caller's resolved law context."""
 
 
 UTILITY_BODY_TEMPLATES = {

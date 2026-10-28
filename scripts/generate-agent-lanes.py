@@ -199,11 +199,14 @@ def report_projection_constraints(report_schema: dict, lane: dict) -> list[str]:
         f"minItems={evidence_entry['properties']['predicate_ids']['minItems']}, "
         f"maxItems={evidence_entry['properties']['predicate_ids']['maxItems']}, "
         f"items={json.dumps(evidence_entry['properties']['predicate_ids']['items'], ensure_ascii=False)}. "
-        "Name here the predicate_id of each inputs.outcome_predicates entry this entry's evidence proves. "
+        "On workflow pins with `failure_attribution` and a dispatched job, use only "
+        "that exact dispatched job revision's `inputs.worker_job.predicate_ids`, not the broader parent list. "
+        "On pins without `failure_attribution` and on job-free attempts, use "
+        "the dispatched packet's `inputs.outcome_predicates`. "
         "Tie rule: `predicate_ids` is optional per entry; omit it or use an empty array on an entry that proves no declared predicate. "
         "Both forms mean no predicate tie. Tie a declared `predicate_id` only to an entry whose evidence "
-        "proves that predicate; the store refuses a completed report that ties a `predicate_id` the packet's "
-        "`inputs.outcome_predicates` did not declare with `invalid_report`. Predicates no entry proves are decided "
+        "proves that predicate; the store refuses a completed report that ties "
+        "a `predicate_id` outside the applicable list with `invalid_report`. Predicates no entry proves are decided "
         "by the completion verdicts, never by this report.",
         "evidence_entry.obligation: "
         f"enum={json.dumps(lane['evidence_obligations'], ensure_ascii=False)}.",

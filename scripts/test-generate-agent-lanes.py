@@ -528,24 +528,29 @@ class AgentProjectionTests(unittest.TestCase):
         self.assertIn("`status` `failed`", projection)
 
     def test_projection_states_the_predicate_tie_rule(self):
-        # The store refuses a completed worker report only when an evidence
-        # entry ties a predicate id the dispatch did not declare
-        # (internal/store/worker_lanes.go verifyWorkerPredicateTies); the
-        # predicates no entry proves are decided by the completion verdicts
-        # (CD-0180). The generated contract text is the only place a lane
-        # agent learns that rule, so every lane definition must state it
-        # while predicate_ids stays schema-optional.
-        projection = lane_projection(self.LANE, REPORT_SCHEMA)
-        normalized = " ".join(projection.split())
-        self.assertIn("evidence_entry.predicate_ids: optional array", normalized)
-        self.assertIn("minItems=0, maxItems=8", normalized)
-        self.assertIn("omit it or use an empty array on an entry that proves no declared predicate", normalized)
-        self.assertIn("Both forms mean no predicate tie", normalized)
-        self.assertNotIn("an empty array fails", normalized)
-        self.assertIn("Tie a declared `predicate_id` only to an entry whose evidence proves that predicate", normalized)
-        self.assertIn("the store refuses a completed report that ties a `predicate_id` the packet's `inputs.outcome_predicates` did not declare with `invalid_report`", normalized)
-        self.assertIn("decided by the completion verdicts, never by this report", normalized)
-        self.assertNotIn("must name every declared", normalized)
+        # verifyWorkerCompletedPredicateTies selects the job or packet list
+        # from the pinned capability and dispatch binding, never from the
+        # report. Unproved predicates remain completion-verdict decisions.
+        manifest, _ = generator.load_manifest()
+        for lane in manifest["lanes"]:
+            with self.subTest(lane=lane["id"]):
+                normalized = " ".join(lane_projection(lane).split())
+                for required in (
+                    "On workflow pins with `failure_attribution` and a dispatched job",
+                    "that exact dispatched job revision's `inputs.worker_job.predicate_ids`",
+                    "On pins without `failure_attribution` and on job-free attempts",
+                    "the dispatched packet's `inputs.outcome_predicates`",
+                    "a `predicate_id` outside the applicable list with `invalid_report`",
+                ):
+                    self.assertTrue(required in normalized, f"{lane['id']} is missing tie guidance: {required}")
+                self.assertIn("evidence_entry.predicate_ids: optional array", normalized)
+                self.assertIn("minItems=0, maxItems=8", normalized)
+                self.assertIn("omit it or use an empty array on an entry that proves no declared predicate", normalized)
+                self.assertIn("Both forms mean no predicate tie", normalized)
+                self.assertNotIn("an empty array fails", normalized)
+                self.assertIn("Tie a declared `predicate_id` only to an entry whose evidence proves that predicate", normalized)
+                self.assertIn("decided by the completion verdicts, never by this report", normalized)
+                self.assertNotIn("must name every declared", normalized)
 
     def test_projection_teaches_the_work_context_first_read(self):
         # CON-887: when the packet carries inputs.work_context the worker

@@ -93,7 +93,7 @@ class PrimaryPromptCheckTests(unittest.TestCase):
 
     def test_shaping_routes_fire_before_refinement_allocation_and_execution(self) -> None:
         for name, trigger in (
-            ("Concord-Planner.md", "Before refining a ticket, load `concord-work-shaping`"),
+            ("Concord-Planner.md", "Before triaging a request or refining a ticket, load `concord-work-shaping`"),
             ("Concord-RTE.md", "Before allocation, load `concord-work-shaping`"),
             ("Concord.md", "Before execution, load `concord-work-shaping`"),
         ):

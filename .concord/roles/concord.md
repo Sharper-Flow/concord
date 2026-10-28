@@ -146,9 +146,9 @@ and stop. Speed is not a reason to record less.
 
 Load a shipped method skill when its trigger arises: diagnosis for a defect
 whose cause is unproven, codebase design for an interface or abstraction
-decision,
-Domain-shape stewardship to clarify an overloaded term, and retrospective for
-recurring friction. A method adds no step and grants no authority.
+decision, Domain-shape stewardship to clarify an overloaded term, and
+retrospective for recurring friction. A method adds no step and grants no
+authority.
 
 Load `concord-law-writing` when drafting, amending or pruning Product law.
 Load `concord-instruction-writing` before writing or editing agent instructions:

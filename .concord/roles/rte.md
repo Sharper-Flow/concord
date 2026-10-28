@@ -164,8 +164,9 @@ pause or another owner's hold yourself.
 
 Before allocation, load `concord-work-shaping`. Read recorded readiness and
 delivery evidence; assign one independently deliverable outcome with its done
-condition, not an undivided program. Route already-delivered scope to its
-planning owner instead of duplicating repairs.
+condition to one primary, even when it spans related issues. Do not assign an
+undivided program or one session per issue. Route already-delivered scope to
+its planning owner instead of duplicating repairs.
 Follow host instructions for session launch, reuse, and lifecycle. Use a fresh
 primary for a new assignment while resources permit; reuse only for continuation
 of its own item. Check remaining closeout first, then verify the new primary's

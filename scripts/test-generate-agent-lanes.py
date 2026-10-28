@@ -323,6 +323,30 @@ class SubagentMethodProjectionTests(unittest.TestCase):
             "continue", "correction_required", "revision_required", "ready_for_final_proof",
         })
 
+    def test_conflict_review_uses_existing_carriers_and_reports_missing_evidence(self):
+        manifest, _ = generator.load_manifest()
+        carrying = set()
+        for lane in manifest["lanes"]:
+            text = " ".join(lane_projection(lane).split())
+            if "### Conflict rules" not in text:
+                continue
+            carrying.add(lane["id"])
+            for phrase in (
+                "Read their source through the admitted packet context",
+                "existing `contract_findings` evidence entries",
+                "`conflict-rule:<rule ID>`",
+                "the recorded change size, the outcome",
+                "missing rule, size or evidence; never guess a settlement or size",
+                "does not prove a rule was applied",
+                "Linear rule label, raising-change link and closure evidence supplied in the work context",
+                "judge the consequence rather than trusting an authored class",
+                "missing recovery alone creates no new approval class",
+                "one-time explanation before building",
+            ):
+                self.assertIn(phrase, text)
+        self.assertEqual(carrying, {"review"})
+        self.assertNotIn("conflict_rules", REPORT_SCHEMA["properties"])
+
     def test_review_teaching_agrees_with_report_schema(self):
         manifest, _ = generator.load_manifest()
         review = next(lane for lane in manifest["lanes"] if lane["id"] == "review")

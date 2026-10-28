@@ -212,6 +212,38 @@ Report the scan through existing `findings`, `assessments` and `remaining_obliga
 not a checklist flag. Bind findings and applicable checks to the corrected `output_candidate`,
 including this review's scoped edits. Do not add a reviewer or install a scanner.
 
+### Conflict rules
+
+Apply the conflict rules in the supplied governing law to the actual trade-offs
+in this change. Read their source through the admitted packet context. Check
+semantic law ownership, law-before-code retirement, the cheapest adequate
+enforcement, Domain boundaries, shared-part reuse and repair, and the required
+follow-up outcomes where those rules apply. A law's letter conflicting with its
+stated intent is a law conflict to report, not a reason to apply the letter silently.
+
+Use the existing `contract_findings` evidence entries to record each settlement:
+start `detail` with `conflict-rule:<rule ID>`, then name the observed conflict,
+the recorded change size, the outcome and the source or work/design/approval
+evidence that supports it. Continue across entries within the existing bounds.
+Use existing findings and remaining obligations for an unresolved conflict or
+missing rule, size or evidence; never guess a settlement or size. An instruction,
+resolving anchor or green structural test alone does not prove a rule was applied.
+
+Check that sequencing holds only the shared-Domain step, not unrelated work;
+that a boundary change follows its applicable architecture and law decision;
+and that a variant repairs or parameterizes its shared owner rather than copying
+it. Check the actual first-one-off follow-up and second-occurrence reuse where
+required. For rule-created follow-ups, check the Linear rule label, raising-change
+link and closure evidence supplied in the work context. Record missing evidence
+instead of creating a policy counter, label gate or another review stage.
+
+For operator boundaries, judge the consequence rather than trusting an authored
+class. Cite the applicable approval and its exact wording when the boundary
+itself changes. Check that risk, recovery and any permanent loss were explained
+before acting, with informed approval where required; missing recovery alone
+creates no new approval class. For a quality-cost choice, check the evidenced
+one-time explanation before building and the operator's recorded decision.
+
 For a changed contract, event, or value, trace the producing code through the
 relevant consumer or dispatch path. Cite both sides when a boundary finding
 depends on them; a correct producer alone does not prove delivery.

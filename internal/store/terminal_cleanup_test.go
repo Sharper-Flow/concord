@@ -290,7 +290,7 @@ func terminalCleanupFixture(t *testing.T) (*Store, KnowledgeHome) {
 	return terminalCleanupFixtureForKind(t, "task")
 }
 
-func terminalCleanupFixtureForKind(t *testing.T, kind string) (*Store, KnowledgeHome) {
+func terminalCleanupFixtureForKind(t *testing.T, kind string, beforeCancel ...func(*Store)) (*Store, KnowledgeHome) {
 	t.Helper()
 	content := canonicalWorkNote("work-done", "2026-08-07T00:00:00Z")
 	if kind != "research" {
@@ -323,6 +323,9 @@ func terminalCleanupFixtureForKind(t *testing.T, kind string) (*Store, Knowledge
 		seedKnowledgeWorkLifecycle(t, s, "work-done", "Done", false)
 		if kind == "bug" {
 			initializeCompositionWorkflow(t, s, "work-done", "workflow.break_fix", WorkflowActor{PrincipalRef: "principal/fixture", ClientRef: "client/fixture", AgentRef: "agent/fixture", SessionRef: "session/fixture", ActorClass: ActorAgent})
+		}
+		for _, prepare := range beforeCancel {
+			prepare(s)
 		}
 		cancelWithReviewedEvidence(t, s, "work-done", "operator", []string{hash})
 	}

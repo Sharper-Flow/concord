@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -431,7 +432,24 @@ func conflictSettlementRows(t *testing.T, s *store.Store, workID string, expecte
 	if err := rows.Err(); err != nil {
 		t.Fatal(err)
 	}
-	return out
+	if err := rows.Close(); err != nil {
+		t.Fatal(err)
+	}
+	page, err := s.QueryQ7(context.Background(), store.Q7Request{Work: workID, RecordKinds: []string{"conflict_application"}, Direction: "oldest_first", Limit: 100})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var retained []conflictSettlement
+	for _, entry := range page.Entries {
+		if entry.ConflictApplication == nil {
+			t.Fatalf("settlement lacks readable payload: %+v", entry)
+		}
+		retained = append(retained, conflictSettlement{Actor: entry.Actor, Application: *entry.ConflictApplication})
+	}
+	if !reflect.DeepEqual(retained, out) {
+		t.Fatalf("history payloads do not match recorded settlements: got %+v, want %+v", retained, out)
+	}
+	return retained
 }
 
 // The receipt hashes all eight fields; the expected content comes from the
@@ -600,5 +618,89 @@ func TestConflictObservationFreshKeyAfterLaterAssessmentRecordsAtTheNewSequence(
 	}
 	if rows[1].Application.SizeAssessmentSequence != 2 || rows[1].Application.Size != store.WorkSizeLarger {
 		t.Fatalf("second settlement %+v, want the later larger assessment at sequence 2", rows[1].Application)
+	}
+}
+
+func TestConflictObservationHistoryRoundTrip(t *testing.T) {
+	t.Parallel()
+	s, service, grant, scopeVersion := conflictDispatchFixture(t)
+	outcome := strings.Repeat("é", 2048)
+	input := map[string]any{"work_id": "work-sized", "idempotency_key": "history-settlement", "conflict": map[string]any{"rule_id": "R1", "outcome": outcome}}
+	written, err := dispatchConflictObservation(t, s, service, grant, scopeVersion, input)
+	if err != nil || written.Error != nil || written.Outcome != OutcomeOK {
+		t.Fatalf("record = %+v, %v", written, err)
+	}
+	want := expectedConflictSettlement(t, s, "work-sized", grant.PrincipalRef, "history-settlement", "R1", outcome, 1)
+	read := func(cursor *string) Envelope {
+		t.Helper()
+		raw, err := json.Marshal(map[string]any{"work_id": "work-sized", "record_kinds": []string{"conflict_application"}, "direction": "incoming", "page": map[string]any{"limit": 1, "cursor": cursor}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		response, err := Dispatch(context.Background(), s, service, InvokeRequest{Tool: "concord_work_trace", Operation: "history", Input: raw}, mutationEnvelope(grant, scopeVersion))
+		if err != nil || response.Error != nil || response.Outcome != OutcomeOK {
+			t.Fatalf("history = %+v, error=%+v, dispatch error=%v", response, response.Error, err)
+		}
+		return response
+	}
+	decode := func(response Envelope) []store.HistoryEntry {
+		t.Helper()
+		var page struct {
+			Entries []store.HistoryEntry `json:"entries"`
+		}
+		if err := json.Unmarshal(response.Result, &page); err != nil {
+			t.Fatal(err)
+		}
+		return page.Entries
+	}
+	first := decode(read(nil))
+	if len(first) != 1 || first[0].ConflictApplication == nil || *first[0].ConflictApplication != want.Application || first[0].Actor != want.Actor || first[0].Version != 2 || first[0].VersionWorkID != "work-sized" {
+		t.Fatalf("public history lost full recorded payload or metadata: %+v", first)
+	}
+	conflictLaterAssessment(t, s, "work-sized")
+	if got := decode(read(nil)); !reflect.DeepEqual(got, first) {
+		t.Fatalf("later size rewrote public settlement: %+v, want %+v", got, first)
+	}
+	replay, err := dispatchConflictObservation(t, s, service, grant, scopeVersion, input)
+	if err != nil || replay.Error != nil || !replay.Replayed {
+		t.Fatalf("retry = %+v, %v", replay, err)
+	}
+	if got := decode(read(nil)); !reflect.DeepEqual(got, first) {
+		t.Fatalf("cached retry rewrote public settlement: %+v", got)
+	}
+	input["idempotency_key"] = "history-settlement-second"
+	second, err := dispatchConflictObservation(t, s, service, grant, scopeVersion, input)
+	if err != nil || second.Error != nil || second.Replayed {
+		t.Fatalf("new settlement = %+v, %v", second, err)
+	}
+	page := read(nil)
+	newer := decode(page)
+	if len(newer) != 1 || newer[0].ConflictApplication == nil || newer[0].ConflictApplication.SizeAssessmentSequence != 2 || newer[0].ConflictApplication.Size != store.WorkSizeLarger || page.NextCursor == nil {
+		t.Fatalf("first public page = %+v, cursor=%v", newer, page.NextCursor)
+	}
+	last := read(page.NextCursor)
+	if got := decode(last); !reflect.DeepEqual(got, first) || last.NextCursor != nil {
+		t.Fatalf("last public page = %+v, cursor=%v; want original %+v", got, last.NextCursor, first)
+	}
+}
+
+func TestConflictObservationHistoryRespectsScope(t *testing.T) {
+	t.Parallel()
+	s, service, grant, scopeVersion := conflictCrossProductFixture(t)
+	response, err := dispatchConflictObservation(t, s, service, grant, scopeVersion, map[string]any{"work_id": "work-2", "idempotency_key": "history-scope", "conflict": map[string]any{"rule_id": "R1", "outcome": "settled outside the reader's Product"}})
+	if err != nil || response.Error != nil || response.Outcome != OutcomeOK {
+		t.Fatalf("record = %+v, %v", response, err)
+	}
+	limitedService, _, limitedGrant := newAuthorizedService(t, s, "limited-client", "limited-human", []agentcontract.Capability{"product_read"}, []string{"product-1"}, []string{"project-1"}, store.ProjectResolution{ProjectID: "project-1"})
+	scopeVersion, _, err = s.ScopeVersion(context.Background(), "project-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	response, err = Dispatch(context.Background(), s, limitedService, InvokeRequest{Tool: "concord_work_trace", Operation: "history", Input: json.RawMessage(`{"work_id":"work-2"}`)}, mutationEnvelope(limitedGrant, scopeVersion))
+	if err != nil || response.Error == nil || response.Error.Kind != "unauthorized" {
+		t.Fatalf("foreign settlement history = %+v, error=%+v, dispatch error=%v; want authorization refusal", response, response.Error, err)
+	}
+	if strings.Contains(string(response.Result), "settled outside") || strings.Contains(string(response.Result), "conflict_application") {
+		t.Fatalf("refused history leaked settlement evidence: %s", response.Result)
 	}
 }

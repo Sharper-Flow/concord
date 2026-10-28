@@ -371,6 +371,11 @@ func TestConflictApplicationRecordsEffectiveSize(t *testing.T) {
 			}
 			assertConflictReceiptPayload(t, s, beforeIDs[0], liveConflictPayload(conflictApplicationRequest(workID, "before-override", nil), sizes.model, 1))
 			before := conflictReceiptDigest(t, s, beforeIDs[0])
+			beforeEntries := currentConflictApplications(t, s, workID)
+			if len(beforeEntries) != 1 || beforeEntries[0].ConflictApplication == nil || beforeEntries[0].ConflictApplication.Size != sizes.model {
+				t.Fatalf("current settlement before override = %+v", beforeEntries)
+			}
+			beforeApplication := *beforeEntries[0].ConflictApplication
 			insertWorkSizeOverrideApproval(t, s, workID, 1)
 			if err := runWorkSizeOverride(t, s, workSizeOverrideRequest(t, s, workID, "operator-size", sizes.operator)); err != nil {
 				t.Fatal(err)
@@ -387,6 +392,10 @@ func TestConflictApplicationRecordsEffectiveSize(t *testing.T) {
 			storedBefore := conflictReceiptDigest(t, s, beforeIDs[0])
 			if storedBefore != before {
 				t.Fatalf("override changed the earlier settlement: %+v, want %+v", storedBefore, before)
+			}
+			entries := currentConflictApplications(t, s, workID)
+			if len(entries) != 2 || entries[0].ConflictApplication == nil || *entries[0].ConflictApplication != beforeApplication || entries[1].ConflictApplication == nil || entries[1].ConflictApplication.Size != sizes.operator || entries[1].ConflictApplication.SizeAssessmentSequence != 1 {
+				t.Fatalf("current settlements lost model/override applicability: %+v", entries)
 			}
 		})
 	}

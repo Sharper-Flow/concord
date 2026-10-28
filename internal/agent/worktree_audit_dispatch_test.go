@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -33,7 +34,7 @@ func TestWorktreeAuditReadClassifiesDriftThroughToolSurface(t *testing.T) {
 		"expected_version": 2, "idempotency_key": "wt-audit-claim",
 	})
 	claim, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "worktree_claim", Input: claimInput}, mutationEnvelope(grant, scopeVersion))
-	if err != nil || claim.Outcome != OutcomeOK {
+	if err != nil || claim.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("claim response=%+v err=%v", claim, err)
 	}
 
@@ -55,7 +56,7 @@ func TestWorktreeAuditReadClassifiesDriftThroughToolSurface(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if response.Outcome != OutcomeOK {
+	if response.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("audit read failed: %+v", response.Error)
 	}
 	if response.QueryID != "PM1.Q16" {
@@ -114,7 +115,7 @@ func TestWorktreeAuditReadReportsCleanProductAsEmptyDrift(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if response.Outcome != OutcomeOK {
+	if response.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("clean audit failed: %+v", response.Error)
 	}
 	if string(response.Result) == "" || string(response.Result) == "null" {

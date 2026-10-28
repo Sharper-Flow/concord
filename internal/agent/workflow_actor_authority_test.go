@@ -23,7 +23,7 @@ func TestCaptureWorkflowTypeInitializesAndDispatchesFirstAction(t *testing.T) {
 	env := mutationEnvelope(grant, scopeVersion)
 	capture := InvokeRequest{Tool: "concord_work_define", Operation: "capture", Input: json.RawMessage(`{"title":"Workflow work","value_statement":"Ship the workflow","kind":"task","project_ids":["project-1"],"workflow_type_ref":"workflow.implementation","idempotency_key":"capture-workflow-31"}`)}
 	captured, err := Dispatch(context.Background(), s, service, capture, env)
-	if err != nil || captured.Outcome != OutcomeOK || len(*captured.ChangedRefs) != 1 {
+	if err != nil || captured.Outcome != agentcontract.OutcomeOK || len(*captured.ChangedRefs) != 1 {
 		t.Fatalf("capture response=%+v err=%v", captured, err)
 	}
 	if (*captured.ChangedRefs)[0].Version != "4" {
@@ -66,7 +66,7 @@ func TestCaptureWorkflowTypeInitializesAndDispatchesFirstAction(t *testing.T) {
 	action := InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: json.RawMessage(`{"work_id":"` + workID + `","expected_version":4,"action_id":"record_proposal","idempotency_key":"first-workflow-action-31"}`)}
 	action.Input = json.RawMessage(`{"work_id":"` + workID + `","expected_version":4,"action_id":"record_proposal","fields":{"problem":"The bounded problem statement.","affected":["The affected system."],"stakes":"The bounded stakes statement.","user_outcomes":["The expected user outcome."]},"idempotency_key":"first-workflow-action-31"}`)
 	acted, err := Dispatch(context.Background(), s, service, action, env)
-	if err != nil || acted.Outcome != OutcomeOK {
+	if err != nil || acted.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("first action response=%+v err=%v", acted, err)
 	}
 	var completed, currentStep int
@@ -108,7 +108,7 @@ func TestCaptureLiveAuthoringSelectorRefusesRetiredFamiliesAndUnnamedDecisionKin
 	}
 	// Every dispatch re-reads the scope version first: each accepted capture
 	// bumps it, so a stale envelope would refuse a later capture.
-	capture := func(kind, ref, key string, defectIntake bool) Envelope {
+	capture := func(kind, ref, key string, defectIntake bool) agentcontract.Envelope {
 		t.Helper()
 		freshScope, _, scopeErr := s.ScopeVersion(context.Background(), "project-1")
 		if scopeErr != nil {
@@ -135,7 +135,7 @@ func TestCaptureLiveAuthoringSelectorRefusesRetiredFamiliesAndUnnamedDecisionKin
 		refused := capture("task", ref, "retired-"+ref, false)
 		// The boundary renders the authoring refusal as invariant_violation;
 		// the message is the typed answer and must name the family.
-		if refused.Outcome != OutcomeError || refused.Error == nil || refused.Error.Kind != "invariant_violation" {
+		if refused.Outcome != agentcontract.OutcomeError || refused.Error == nil || refused.Error.Kind != "invariant_violation" {
 			t.Fatalf("retired capture %s = %+v, want the archived-authoring refusal", ref, refused.Error)
 		}
 		if !strings.Contains(refused.Error.Message, ref) {
@@ -152,7 +152,7 @@ func TestCaptureLiveAuthoringSelectorRefusesRetiredFamiliesAndUnnamedDecisionKin
 		refused := capture(kind, "", "unnamed-"+kind, false)
 		// The boundary renders the unnamed-kind authoring refusal as
 		// invalid_input; the message is the typed workflow_authoring answer.
-		if refused.Outcome != OutcomeError || refused.Error == nil || refused.Error.Kind != "invalid_input" {
+		if refused.Outcome != agentcontract.OutcomeError || refused.Error == nil || refused.Error.Kind != "invalid_input" {
 			t.Fatalf("unnamed %s capture = %+v, want the explicit-family refusal", kind, refused.Error)
 		}
 		if !strings.Contains(refused.Error.Message, "explicit retained workflow family") {
@@ -182,7 +182,7 @@ func TestCaptureLiveAuthoringSelectorRefusesRetiredFamiliesAndUnnamedDecisionKin
 		happy := happy
 		t.Run("capture-"+happy.kind+"-"+happy.ref, func(t *testing.T) {
 			captured := capture(happy.kind, happy.ref, "happy-"+happy.kind+"-"+happy.ref, happy.defectIntake)
-			if captured.Outcome != OutcomeOK || len(*captured.ChangedRefs) != 1 {
+			if captured.Outcome != agentcontract.OutcomeOK || len(*captured.ChangedRefs) != 1 {
 				t.Fatalf("capture kind=%s ref=%q response=%+v err=%v", happy.kind, happy.ref, captured, captured.Error)
 			}
 			workID := (*captured.ChangedRefs)[0].ID
@@ -225,7 +225,7 @@ func TestCaptureLiveAuthoringSelectorRefusesRetiredFamiliesAndUnnamedDecisionKin
 		}
 		return version
 	}
-	revise := func(ref, key string) Envelope {
+	revise := func(ref, key string) agentcontract.Envelope {
 		t.Helper()
 		freshScope, _, scopeErr := s.ScopeVersion(context.Background(), "project-1")
 		if scopeErr != nil {
@@ -244,7 +244,7 @@ func TestCaptureLiveAuthoringSelectorRefusesRetiredFamiliesAndUnnamedDecisionKin
 		return response
 	}
 	retired := revise("workflow.generic_one_off", "revise-retired-ref")
-	if retired.Outcome != OutcomeError || retired.Error == nil || retired.Error.Kind != "invariant_violation" || !strings.Contains(retired.Error.Message, "workflow.generic_one_off") {
+	if retired.Outcome != agentcontract.OutcomeError || retired.Error == nil || retired.Error.Kind != "invariant_violation" || !strings.Contains(retired.Error.Message, "workflow.generic_one_off") {
 		t.Fatalf("retired revise = %+v, want the archived-authoring refusal naming the family", retired.Error)
 	}
 	if gotVersion := workVersionOf(target); gotVersion != beforeVersion {
@@ -254,7 +254,7 @@ func TestCaptureLiveAuthoringSelectorRefusesRetiredFamiliesAndUnnamedDecisionKin
 		t.Fatalf("retired revise wrote %d events over baseline %d", gotEvents, beforeEvents)
 	}
 	repinned := revise("workflow.research", "revise-explicit-family")
-	if repinned.Outcome != OutcomeOK {
+	if repinned.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("explicit retained revise = %+v err=%v", repinned, repinned.Error)
 	}
 	var pinnedRef string
@@ -313,7 +313,7 @@ func TestWorkflowActionMalformedBoundaryPrecedesPinAndAuthorityChecks(t *testing
 	}
 	for _, raw := range malformed {
 		response, dispatchErr := Dispatch(context.Background(), s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: json.RawMessage(raw)}, env)
-		if dispatchErr != nil || response.Outcome != OutcomeError || response.Error == nil || response.Error.Kind != "invalid_input" {
+		if dispatchErr != nil || response.Outcome != agentcontract.OutcomeError || response.Error == nil || response.Error.Kind != "invalid_input" {
 			t.Fatalf("malformed workflow request response=%+v err=%v", response, dispatchErr)
 		}
 	}
@@ -339,7 +339,7 @@ func invokeWorkflowIssue31Action(t *testing.T, s *store.Store, service *Service,
 	}
 	input := json.RawMessage(`{"work_id":"work-1","expected_version":` + strconv.FormatInt(version, 10) + `,"action_id":"` + actionID + `"` + fields + `,"idempotency_key":"` + key + `"}`)
 	response := invokeWorkflowIssue31(t, s, service, env, input)
-	if response.Outcome != OutcomeOK {
+	if response.Outcome != agentcontract.OutcomeOK {
 		if response.Error != nil {
 			t.Fatalf("action=%s error=%+v response=%+v", actionID, *response.Error, response)
 		}
@@ -347,7 +347,7 @@ func invokeWorkflowIssue31Action(t *testing.T, s *store.Store, service *Service,
 	}
 }
 
-func invokeWorkflowIssue31(t *testing.T, s *store.Store, service *Service, env CallEnvelope, input json.RawMessage) Envelope {
+func invokeWorkflowIssue31(t *testing.T, s *store.Store, service *Service, env CallEnvelope, input json.RawMessage) agentcontract.Envelope {
 	t.Helper()
 	request, err := json.Marshal(struct {
 		CallEnvelope CallEnvelope    `json:"call_envelope"`

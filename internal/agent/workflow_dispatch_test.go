@@ -70,7 +70,7 @@ func TestWorkflowReplayTransactionUsesCommittedResponse(t *testing.T) {
 	env := mutationEnvelope(grant, scopeVersion)
 	input := json.RawMessage(`{"work_id":"work-1","expected_version":` + strconv.FormatInt(version, 10) + `,"action_id":"record_proposal","fields":{"problem":"The bounded problem statement.","affected":["The affected system."],"stakes":"The bounded stakes statement.","user_outcomes":["The expected user outcome."]},"idempotency_key":"tx-replay-owner"}`)
 	first, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: input}, env)
-	if err != nil || first.Outcome != OutcomeOK {
+	if err != nil || first.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("initial workflow response=%+v err=%v", first, err)
 	}
 	// Exercise the transaction-bound replay window, including its durable
@@ -82,9 +82,9 @@ func TestWorkflowReplayTransactionUsesCommittedResponse(t *testing.T) {
 		t.Fatal(err)
 	}
 	r := runtime{Store: s, Authority: service, Envelope: env, Tool: "concord_work_transition", Operation: "workflow_action"}
-	var response Envelope
+	var response agentcontract.Envelope
 	var rejected, mutated bool
-	err = store.AuthorizeWorkflowActionAtBoundaryWithPreflightTx(ctx, s, nil, store.WorkflowActionPreflightRequest{WorkID: in.WorkID, ExpectedVersion: in.ExpectedVersion, ActionID: in.ActionID}, r.workflowActionReplayPreflight(ctx, NewBase(env.RequestID, r.Tool, r.Operation), mutationDigest(r.Tool, r.Operation, env, input), grant, in, &response, &rejected), nil, func(*store.Transaction) error {
+	err = store.AuthorizeWorkflowActionAtBoundaryWithPreflightTx(ctx, s, nil, store.WorkflowActionPreflightRequest{WorkID: in.WorkID, ExpectedVersion: in.ExpectedVersion, ActionID: in.ActionID}, r.workflowActionReplayPreflight(ctx, agentcontract.NewBase(env.RequestID, r.Tool, r.Operation), mutationDigest(r.Tool, r.Operation, env, input), grant, in, &response, &rejected), nil, func(*store.Transaction) error {
 		mutated = true
 		return nil
 	})
@@ -94,7 +94,7 @@ func TestWorkflowReplayTransactionUsesCommittedResponse(t *testing.T) {
 	if rejected {
 		t.Fatalf("transaction replay refused its committed response: response=%+v err=%v", response.Error, err)
 	}
-	if err != nil || response.Outcome != OutcomeOK || !response.Replayed || string(response.Result) != string(first.Result) {
+	if err != nil || response.Outcome != agentcontract.OutcomeOK || !response.Replayed || string(response.Result) != string(first.Result) {
 		t.Fatalf("transaction replay response=%+v err=%v, want original result=%s", response, err, first.Result)
 	}
 	if err := response.Validate(); err != nil {
@@ -136,7 +136,7 @@ func TestWorkflowReplayStoresCommittedResponse(t *testing.T) {
 	env := mutationEnvelope(grant, scopeVersion)
 	input := json.RawMessage(`{"work_id":"work-1","expected_version":` + strconv.FormatInt(version, 10) + `,"action_id":"record_proposal","fields":{"problem":"The bounded problem statement.","affected":["The affected system."],"stakes":"The bounded stakes statement.","user_outcomes":["The expected user outcome."]},"idempotency_key":"no-response-copy"}`)
 	response, err := Dispatch(context.Background(), s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: input}, env)
-	if err != nil || response.Outcome != OutcomeOK {
+	if err != nil || response.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("workflow response=%+v err=%v", response, err)
 	}
 	var payload, refs, events string
@@ -146,7 +146,7 @@ func TestWorkflowReplayStoresCommittedResponse(t *testing.T) {
 	if payload != string(response.Result) {
 		t.Fatalf("committed workflow response not retained: payload=%s response=%s", payload, response.Result)
 	}
-	var changed []ChangedRef
+	var changed []agentcontract.ChangedRef
 	if err := json.Unmarshal([]byte(refs), &changed); err != nil || response.ChangedRefs == nil || !reflect.DeepEqual(changed, *response.ChangedRefs) {
 		t.Fatalf("committed changed references lost: refs=%s response=%+v err=%v", refs, response.ChangedRefs, err)
 	}
@@ -174,20 +174,20 @@ func TestWorkflowReplayOwnerClassifications(t *testing.T) {
 		name, kind, ownerPayload, ownerDigest, scope string
 		missing                                      bool
 		missingPayload                               bool
-		want                                         Outcome
+		want                                         agentcontract.Outcome
 	}{
-		{name: "completed", kind: "completed", want: OutcomeOK},
-		{name: "pending", kind: "pending", want: OutcomePending},
-		{name: "partial", kind: "partial", want: OutcomePartial},
-		{name: "failed", kind: "failed", want: OutcomePartial},
-		{name: "failed_stale", kind: "failed_stale", want: OutcomePartial},
-		{name: "malformed result", kind: "completed", ownerPayload: "{}", want: OutcomeError},
-		{name: "manifest mismatch", kind: "completed", ownerDigest: "sha256:" + strings.Repeat("0", 64), want: OutcomeError},
-		{name: "missing owner", kind: "completed", missing: true, want: OutcomeError},
-		{name: "missing response payload", kind: "completed", missingPayload: true, want: OutcomeError},
-		{name: "missing response metadata", kind: "completed", scope: `{"product_id":"product-1","project_ids":["project-1"]}`, want: OutcomeError},
-		{name: "unreadable scope", kind: "completed", scope: "not JSON", want: OutcomeError},
-		{name: "unauthorized original scope", kind: "completed", scope: `{"product_id":"another-product","project_ids":["project-1"]}`, want: OutcomeError},
+		{name: "completed", kind: "completed", want: agentcontract.OutcomeOK},
+		{name: "pending", kind: "pending", want: agentcontract.OutcomePending},
+		{name: "partial", kind: "partial", want: agentcontract.OutcomePartial},
+		{name: "failed", kind: "failed", want: agentcontract.OutcomePartial},
+		{name: "failed_stale", kind: "failed_stale", want: agentcontract.OutcomePartial},
+		{name: "malformed result", kind: "completed", ownerPayload: "{}", want: agentcontract.OutcomeError},
+		{name: "manifest mismatch", kind: "completed", ownerDigest: "sha256:" + strings.Repeat("0", 64), want: agentcontract.OutcomeError},
+		{name: "missing owner", kind: "completed", missing: true, want: agentcontract.OutcomeError},
+		{name: "missing response payload", kind: "completed", missingPayload: true, want: agentcontract.OutcomeError},
+		{name: "missing response metadata", kind: "completed", scope: `{"product_id":"product-1","project_ids":["project-1"]}`, want: agentcontract.OutcomeError},
+		{name: "unreadable scope", kind: "completed", scope: "not JSON", want: agentcontract.OutcomeError},
+		{name: "unauthorized original scope", kind: "completed", scope: `{"product_id":"another-product","project_ids":["project-1"]}`, want: agentcontract.OutcomeError},
 	} {
 		t.Run(vector.name, func(t *testing.T) {
 			s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_transition"})
@@ -199,9 +199,9 @@ func TestWorkflowReplayOwnerClassifications(t *testing.T) {
 			env := mutationEnvelope(grant, scopeVersion)
 			raw := json.RawMessage(`{"work_id":"work-1","expected_version":4,"action_id":"record_proposal","fields":{"problem":"The bounded problem statement.","affected":["The affected system."],"stakes":"The bounded stakes statement.","user_outcomes":["The expected user outcome."]},"idempotency_key":"owner-classification"}`)
 			opID := seedCurrentWorkflowActionReplay(t, s, env, raw, vector.kind)
-			changed := ChangedRef{EntityKind: "work_item", ID: "work-1", Version: strconv.FormatInt(version, 10)}
+			changed := agentcontract.ChangedRef{EntityKind: "work_item", ID: "work-1", Version: strconv.FormatInt(version, 10)}
 			refs, _ := json.Marshal([]string{`{"entity_kind":"work_item","id":"work-1","version":` + strconv.FormatInt(version, 10) + `}`})
-			payload, _ := json.Marshal(map[string]any{"changed_refs": mutationResultChangedRefs([]ChangedRef{changed}), "next_valid_intents": []any{}, "operation_id": opID})
+			payload, _ := json.Marshal(map[string]any{"changed_refs": mutationResultChangedRefs([]agentcontract.ChangedRef{changed}), "next_valid_intents": []any{}, "operation_id": opID})
 			if vector.ownerPayload != "" {
 				payload = []byte(vector.ownerPayload)
 			}
@@ -239,7 +239,7 @@ func TestWorkflowReplayOwnerClassifications(t *testing.T) {
 			if transaction.Outcome != vector.want || transaction.Outcome != public.Outcome {
 				t.Fatalf("transaction=%+v public=%+v want=%s", transaction, public, vector.want)
 			}
-			if vector.want == OutcomeOK && string(transaction.Result) != string(public.Result) {
+			if vector.want == agentcontract.OutcomeOK && string(transaction.Result) != string(public.Result) {
 				t.Fatalf("transaction result=%s public=%s", transaction.Result, public.Result)
 			}
 			if !sameWorkflowReplayError(transaction.Error, public.Error) || !reflect.DeepEqual(transaction.OperationRef, public.OperationRef) {
@@ -251,11 +251,11 @@ func TestWorkflowReplayOwnerClassifications(t *testing.T) {
 			if workflowReplayEffectCounts(t, s) != before {
 				t.Fatal("replay changed events, operations, attempts, dispatches or work version")
 			}
-			if vector.want == OutcomeError && (replayMetadataCount(t, s, "owner-classification") != 0 || s.DurableCommits() != beforeCommits) {
+			if vector.want == agentcontract.OutcomeError && (replayMetadataCount(t, s, "owner-classification") != 0 || s.DurableCommits() != beforeCommits) {
 				t.Fatal("refused replay committed metadata or a durable write")
 			}
 			if vector.missingPayload || vector.name == "missing response metadata" {
-				if transaction.Error == nil || transaction.Error.EffectState != EffectPossible || transaction.Error.RetrySafe {
+				if transaction.Error == nil || transaction.Error.EffectState != agentcontract.EffectPossible || transaction.Error.RetrySafe {
 					t.Fatalf("incomplete committed response lost effect truth: %+v", transaction.Error)
 				}
 			}
@@ -263,21 +263,21 @@ func TestWorkflowReplayOwnerClassifications(t *testing.T) {
 	}
 }
 
-func sameWorkflowReplayError(left, right *TypedError) bool {
+func sameWorkflowReplayError(left, right *agentcontract.TypedError) bool {
 	if left == nil || right == nil {
 		return left == right
 	}
 	return left.Kind == right.Kind && left.RetrySafe == right.RetrySafe && left.EffectState == right.EffectState && reflect.DeepEqual(left.RecoveryAction, right.RecoveryAction)
 }
 
-func workflowTransactionReplay(t *testing.T, r runtime, grant Authority, raw json.RawMessage) Envelope {
+func workflowTransactionReplay(t *testing.T, r runtime, grant Authority, raw json.RawMessage) agentcontract.Envelope {
 	t.Helper()
 	var in actionMutationInput
 	if err := json.Unmarshal(raw, &in); err != nil {
 		t.Fatal(err)
 	}
-	base := NewBase(r.Envelope.RequestID, r.Tool, r.Operation)
-	var response Envelope
+	base := agentcontract.NewBase(r.Envelope.RequestID, r.Tool, r.Operation)
+	var response agentcontract.Envelope
 	var rejected, mutated bool
 	err := store.AuthorizeWorkflowActionAtBoundaryWithPreflightTx(context.Background(), r.Store, nil, store.WorkflowActionPreflightRequest{WorkID: in.WorkID, ExpectedVersion: in.ExpectedVersion, ActionID: in.ActionID}, r.workflowActionReplayPreflight(context.Background(), base, mutationDigest(r.Tool, r.Operation, r.Envelope, raw), grant, in, &response, &rejected), nil, func(*store.Transaction) error {
 		mutated = true
@@ -367,7 +367,7 @@ func TestIdempotencyDeduplicationBackupRestore(t *testing.T) {
 	assertWorkflowReplayIdentity(t, r, grant, raw, first)
 }
 
-func committedWorkflowReplay(t *testing.T) (runtime, Authority, json.RawMessage, Envelope) {
+func committedWorkflowReplay(t *testing.T) (runtime, Authority, json.RawMessage, agentcontract.Envelope) {
 	t.Helper()
 	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_transition"})
 	ctx := context.Background()
@@ -392,21 +392,21 @@ func committedWorkflowReplay(t *testing.T) (runtime, Authority, json.RawMessage,
 	env := mutationEnvelope(grant, scopeVersion)
 	raw := json.RawMessage(`{"work_id":"work-1","expected_version":` + strconv.FormatInt(version, 10) + `,"action_id":"record_proposal","fields":{"problem":"The bounded problem statement.","affected":["The affected system."],"stakes":"The bounded stakes statement.","user_outcomes":["The expected user outcome."]},"idempotency_key":"retained-replay"}`)
 	first, err := Dispatch(context.Background(), s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: raw}, env)
-	if err != nil || first.Outcome != OutcomeOK {
+	if err != nil || first.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("initial committed action=%+v err=%v", first, err)
 	}
 	return runtime{Store: s, Authority: service, Envelope: env, Tool: "concord_work_transition", Operation: "workflow_action"}, grant, raw, first
 }
 
-func assertWorkflowReplayIdentity(t *testing.T, r runtime, grant Authority, raw json.RawMessage, first Envelope) {
+func assertWorkflowReplayIdentity(t *testing.T, r runtime, grant Authority, raw json.RawMessage, first agentcontract.Envelope) {
 	t.Helper()
 	before := workflowReplayEffectCounts(t, r.Store)
 	replay, err := Dispatch(context.Background(), r.Store, r.Authority, InvokeRequest{Tool: r.Tool, Operation: r.Operation, Input: raw}, r.Envelope)
-	if err != nil || replay.Outcome != OutcomeOK || !replay.Replayed || string(replay.Result) != string(first.Result) {
+	if err != nil || replay.Outcome != agentcontract.OutcomeOK || !replay.Replayed || string(replay.Result) != string(first.Result) {
 		t.Fatalf("read replay=%+v err=%v", replay, err)
 	}
 	transaction := workflowTransactionReplay(t, r, grant, raw)
-	if transaction.Outcome != OutcomeOK || !transaction.Replayed || string(transaction.Result) != string(first.Result) {
+	if transaction.Outcome != agentcontract.OutcomeOK || !transaction.Replayed || string(transaction.Result) != string(first.Result) {
 		t.Fatalf("transaction replay=%+v", transaction)
 	}
 	conflicting := json.RawMessage(strings.Replace(string(raw), "The bounded stakes statement.", "A different stakes statement.", 1))
@@ -447,7 +447,7 @@ func TestWorkflowActionDispatchUsesStrictPreflightAuthApprovalAndReplayPath(t *t
 	// The closed action-variant surface owns the unknown-action refusal
 	// (CON-412): the boundary refuses with a field-named invalid_input
 	// naming action_id before any authority read.
-	if err != nil || refused.Outcome != OutcomeError || refused.Error == nil || refused.Error.Kind != "invalid_input" || !strings.Contains(refused.Error.Message, "action_id") {
+	if err != nil || refused.Outcome != agentcontract.OutcomeError || refused.Error == nil || refused.Error.Kind != "invalid_input" || !strings.Contains(refused.Error.Message, "action_id") {
 		t.Fatalf("unknown workflow action response=%+v err=%v", refused, err)
 	}
 	var completed int
@@ -459,13 +459,13 @@ func TestWorkflowActionDispatchUsesStrictPreflightAuthApprovalAndReplayPath(t *t
 	}
 	duplicate := InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: json.RawMessage(`{"work_id":"work-1","expected_version":4,"action_id":"record_proposal","action_id":"unknown-action","idempotency_key":"wf-duplicate"}`)}
 	duplicateResponse, err := Dispatch(context.Background(), s, service, duplicate, env)
-	if err != nil || duplicateResponse.Outcome != OutcomeError || duplicateResponse.Error == nil || duplicateResponse.Error.Kind != "invalid_input" {
+	if err != nil || duplicateResponse.Outcome != agentcontract.OutcomeError || duplicateResponse.Error == nil || duplicateResponse.Error.Kind != "invalid_input" {
 		t.Fatalf("duplicate JSON response=%+v err=%v", duplicateResponse, err)
 	}
 
 	request := InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: json.RawMessage(`{"work_id":"work-1","expected_version":4,"action_id":"record_proposal","fields":{"problem":"The bounded problem statement.","affected":["The affected system."],"stakes":"The bounded stakes statement.","user_outcomes":["The expected user outcome."]},"idempotency_key":"wf-record-proposal"}`)}
 	first, err := Dispatch(context.Background(), s, service, request, env)
-	if err != nil || first.Outcome != OutcomeOK || first.Error != nil || len(*first.ChangedRefs) != 1 {
+	if err != nil || first.Outcome != agentcontract.OutcomeOK || first.Error != nil || len(*first.ChangedRefs) != 1 {
 		t.Fatalf("workflow action response=%+v err=%v", first, err)
 	}
 	if (*first.ChangedRefs)[0].Version != "6" {
@@ -502,7 +502,7 @@ func TestWorkflowActionDispatchUsesStrictPreflightAuthApprovalAndReplayPath(t *t
 	}
 
 	replay, err := Dispatch(context.Background(), s, service, request, env)
-	if err != nil || replay.Outcome != OutcomeOK || !replay.Replayed || len(*replay.ChangedRefs) != 1 {
+	if err != nil || replay.Outcome != agentcontract.OutcomeOK || !replay.Replayed || len(*replay.ChangedRefs) != 1 {
 		if replay.Error != nil {
 			t.Fatalf("workflow replay response=%+v error=%+v err=%v", replay, *replay.Error, err)
 		}
@@ -532,7 +532,7 @@ func TestWorkflowActionAvailabilityPrecedesPayloadAndAuthorityValidation(t *test
 		Input: json.RawMessage(`{"work_id":"missing-work","fields":{}}`),
 	}
 	response, dispatchErr := Dispatch(context.Background(), s, service, request, env)
-	if dispatchErr != nil || response.Outcome != OutcomeError || response.Error == nil || response.Error.Kind != "invalid_input" {
+	if dispatchErr != nil || response.Outcome != agentcontract.OutcomeError || response.Error == nil || response.Error.Kind != "invalid_input" {
 		t.Fatalf("malformed workflow request response=%+v err=%v", response, dispatchErr)
 	}
 }
@@ -542,15 +542,15 @@ func TestWorkflowActionReplayVectorsUseInvokeAndAuthoritativeDurableResults(t *t
 	for _, vector := range []struct {
 		name           string
 		resultKind     string
-		want           Outcome
-		operationState OperationState
+		want           agentcontract.Outcome
+		operationState agentcontract.OperationState
 		retrySafe      bool
 	}{
-		{name: "current success", resultKind: "completed", want: OutcomeOK},
-		{name: "current pending", resultKind: "pending", want: OutcomePending, operationState: OperationPending},
-		{name: "partial", resultKind: "partial", want: OutcomePartial, operationState: OperationPartial, retrySafe: true},
-		{name: "current failure", resultKind: "failed", want: OutcomePartial, operationState: OperationFailed},
-		{name: "failed stale", resultKind: "failed_stale", want: OutcomePartial, operationState: OperationFailed},
+		{name: "current success", resultKind: "completed", want: agentcontract.OutcomeOK},
+		{name: "current pending", resultKind: "pending", want: agentcontract.OutcomePending, operationState: agentcontract.OperationPending},
+		{name: "partial", resultKind: "partial", want: agentcontract.OutcomePartial, operationState: agentcontract.OperationPartial, retrySafe: true},
+		{name: "current failure", resultKind: "failed", want: agentcontract.OutcomePartial, operationState: agentcontract.OperationFailed},
+		{name: "failed stale", resultKind: "failed_stale", want: agentcontract.OutcomePartial, operationState: agentcontract.OperationFailed},
 	} {
 		t.Run(vector.name, func(t *testing.T) {
 			s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_transition"})
@@ -581,19 +581,19 @@ func TestWorkflowActionReplayVectorsUseInvokeAndAuthoritativeDurableResults(t *t
 			if invokeErr != nil {
 				t.Fatal(invokeErr)
 			}
-			if response.Outcome != vector.want || !response.Replayed || (vector.want != OutcomeOK && response.OperationRef == nil) {
+			if response.Outcome != vector.want || !response.Replayed || (vector.want != agentcontract.OutcomeOK && response.OperationRef == nil) {
 				if response.Error != nil {
 					t.Fatalf("%s replay outcome=%s replayed=%t error=%s message=%s", vector.name, response.Outcome, response.Replayed, response.Error.Kind, response.Error.Message)
 				}
 				t.Fatalf("%s replay response=%+v", vector.name, response)
 			}
-			if vector.want == OutcomeOK && response.Error != nil {
+			if vector.want == agentcontract.OutcomeOK && response.Error != nil {
 				t.Fatalf("successful replay returned error=%+v", response.Error)
 			}
-			if vector.want == OutcomePending && (response.OperationRef == nil || response.OperationRef.State != OperationPending) {
+			if vector.want == agentcontract.OutcomePending && (response.OperationRef == nil || response.OperationRef.State != agentcontract.OperationPending) {
 				t.Fatalf("pending replay operation_ref=%+v", response.OperationRef)
 			}
-			if vector.want == OutcomePartial && (response.OperationRef == nil || response.OperationRef.State != vector.operationState || response.Error == nil || response.Error.Kind != "operation_conflict" || response.Error.RetrySafe != vector.retrySafe || response.Error.RecoveryAction.Kind != "reconcile_operation") {
+			if vector.want == agentcontract.OutcomePartial && (response.OperationRef == nil || response.OperationRef.State != vector.operationState || response.Error == nil || response.Error.Kind != "operation_conflict" || response.Error.RetrySafe != vector.retrySafe || response.Error.RecoveryAction.Kind != "reconcile_operation") {
 				t.Fatalf("failed replay operation_ref=%+v error=%+v", response.OperationRef, response.Error)
 			}
 			if err := response.Validate(); err != nil {
@@ -641,7 +641,7 @@ func TestWorkflowActionRejectsLegacyEventReplay(t *testing.T) {
 	// removed action id never passes the boundary schema, so the refusal is
 	// the field-named invalid_input naming action_id, not a store transition
 	// refusal reached through a permissive union.
-	if response.Outcome != OutcomeError || response.Error == nil || response.Error.Kind != "invalid_input" || !strings.Contains(response.Error.Message, "action_id") {
+	if response.Outcome != agentcontract.OutcomeError || response.Error == nil || response.Error.Kind != "invalid_input" || !strings.Contains(response.Error.Message, "action_id") {
 		t.Fatalf("legacy event replay response=%+v", response)
 	}
 }
@@ -675,7 +675,7 @@ func TestWorkflowActionReplayRejectsOldSurfaceResultShapeAndDigest(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if response.Outcome != OutcomeError || response.Error == nil || response.Error.Kind != "malformed_response" {
+	if response.Outcome != agentcontract.OutcomeError || response.Error == nil || response.Error.Kind != "malformed_response" {
 		t.Fatalf("old result shape replay response=%+v", response)
 	}
 }
@@ -715,7 +715,7 @@ func seedCurrentWorkflowActionReplay(t *testing.T, s *store.Store, env CallEnvel
 		record := store.MutationIdempotencyInsert{Key: store.MutationIdempotencyKey{PrincipalRef: env.PrincipalRef, Tool: "concord_work_transition", OperationKind: "workflow_action", IdempotencyKey: idempotencyKey(input)}, CanonicalDigest: digest, OperationID: opID, ResultEventIDs: "[]", ResultPayload: "{}", ChangedRefs: "[]", AuthorizedScopeSnapshot: scope, ObservedAt: fixedTime()}
 		if resultKind == "completed" {
 			r := runtime{Store: s, Tool: "concord_work_transition", Operation: "workflow_action"}
-			changed := []ChangedRef{{EntityKind: "work_item", ID: "work-1", Version: strconv.FormatInt(version, 10)}}
+			changed := []agentcontract.ChangedRef{{EntityKind: "work_item", ID: "work-1", Version: strconv.FormatInt(version, 10)}}
 			payload, intents, pinless, err := r.enrichMutationPayloadTx(context.Background(), tx, json.RawMessage(resultPayload), changed)
 			if err != nil {
 				return err
@@ -724,11 +724,11 @@ func seedCurrentWorkflowActionReplay(t *testing.T, s *store.Store, env CallEnvel
 			if err := json.Unmarshal([]byte(scope), &originalScope); err != nil {
 				return err
 			}
-			base := NewBase(env.RequestID, r.Tool, r.Operation)
+			base := agentcontract.NewBase(env.RequestID, r.Tool, r.Operation)
 			base.ResolvedScope = scopeFromMap(originalScope)
 			base.Omissions = append(base.Omissions, mutationPinOmissions(pinless)...)
 			response := r.mutationResult(base, payload, changed, intents, pinless...)
-			if response.Outcome != OutcomeOK {
+			if response.Outcome != agentcontract.OutcomeOK {
 				t.Fatalf("completed response fixture: %+v", response.Error)
 			}
 			metadata, err := json.Marshal(mutationResponseScope(originalScope, response, pinless, false))
@@ -792,13 +792,13 @@ func TestWorkflowActionDispatchUsesDefinitionApprovalChallenge(t *testing.T) {
 		expectedVersion := []int{4, 6}[i]
 		input := json.RawMessage(`{"work_id":"work-1","expected_version":` + strconv.Itoa(expectedVersion) + `,"action_id":"` + action + `"` + fields + `,"idempotency_key":"wf-advance-` + action + `"}`)
 		response, dispatchErr := Dispatch(context.Background(), s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: input}, env)
-		if dispatchErr != nil || response.Outcome != OutcomeOK {
+		if dispatchErr != nil || response.Outcome != agentcontract.OutcomeOK {
 			t.Fatalf("advance action=%s response=%+v err=%v", action, response, dispatchErr)
 		}
 	}
 	input := workflowContractActionInput(t, s, "wf-approve-contract", "")
 	challenge, err := Dispatch(context.Background(), s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: input}, env)
-	if err != nil || challenge.Outcome != OutcomeError || challenge.Error == nil || challenge.Error.Kind != "approval_required" {
+	if err != nil || challenge.Outcome != agentcontract.OutcomeError || challenge.Error == nil || challenge.Error.Kind != "approval_required" {
 		t.Fatalf("approval challenge response=%+v err=%v", challenge, err)
 	}
 	challengeRef, _ := challenge.Error.Details["approval_ref"].(string)
@@ -815,7 +815,7 @@ func TestWorkflowActionDispatchUsesDefinitionApprovalChallenge(t *testing.T) {
 	}
 	approvedInput := workflowContractActionInput(t, s, "wf-approve-contract", challengeRef)
 	approved, err := Dispatch(context.Background(), s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: approvedInput}, env)
-	if err != nil || approved.Outcome != OutcomeOK {
+	if err != nil || approved.Outcome != agentcontract.OutcomeOK {
 		if approved.Error != nil {
 			t.Fatalf("approved workflow action response=%+v error=%+v err=%v", approved, *approved.Error, err)
 		}
@@ -873,13 +873,13 @@ func TestWorkflowLateHostApprovalNeedsOneChallenge(t *testing.T) {
 		expectedVersion := []int{4, 6}[i]
 		input := json.RawMessage(`{"work_id":"work-1","expected_version":` + strconv.Itoa(expectedVersion) + `,"action_id":"` + action + `"` + fields + `,"idempotency_key":"wf-late-` + action + `"}`)
 		response, dispatchErr := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: input}, env)
-		if dispatchErr != nil || response.Outcome != OutcomeOK {
+		if dispatchErr != nil || response.Outcome != agentcontract.OutcomeOK {
 			t.Fatalf("advance action=%s response=%+v err=%v", action, response, dispatchErr)
 		}
 	}
 	input := workflowContractActionInput(t, s, "wf-late-approval", "")
 	challenge, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: input}, env)
-	if err != nil || challenge.Outcome != OutcomeError || challenge.Error == nil || challenge.Error.Kind != "approval_required" {
+	if err != nil || challenge.Outcome != agentcontract.OutcomeError || challenge.Error == nil || challenge.Error.Kind != "approval_required" {
 		t.Fatalf("approval challenge response=%+v err=%v", challenge, err)
 	}
 	summary := challenge.Error.ConsequenceSummary
@@ -893,7 +893,7 @@ func TestWorkflowLateHostApprovalNeedsOneChallenge(t *testing.T) {
 	service.Now = func() time.Time { return answerAt }
 	env.HostApproval = &HostApprovalAssertion{ChallengeRef: ref, RequestDigest: summary.OperationDigest, Scope: summary.Scope, Versions: summary.Versions, SessionRef: env.SessionRef, AgentRef: env.AgentRef, Worktree: env.Worktree, IssuedAt: answerAt.Format(time.RFC3339Nano)}
 	approved, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: workflowContractActionInput(t, s, "wf-late-approval", ref)}, env)
-	if err != nil || approved.Outcome != OutcomeOK {
+	if err != nil || approved.Outcome != agentcontract.OutcomeOK {
 		if approved.Error != nil {
 			t.Fatalf("late-approved workflow action response=%+v error=%+v err=%v", approved, *approved.Error, err)
 		}
@@ -922,7 +922,7 @@ func TestWorkflowLateHostApprovalNeedsOneChallenge(t *testing.T) {
 		t.Fatalf("late-approved action current step=%s, want design", step)
 	}
 	replayed, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: workflowContractActionInput(t, s, "wf-late-approval", ref)}, env)
-	if err != nil || replayed.Outcome != OutcomeOK || !replayed.Replayed {
+	if err != nil || replayed.Outcome != agentcontract.OutcomeOK || !replayed.Replayed {
 		t.Fatalf("late workflow replay response=%+v err=%v", replayed, err)
 	}
 	if countWorkflowApprovalChallenges(t, s) != 1 {

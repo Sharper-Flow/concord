@@ -18,7 +18,7 @@ import (
 func TestStartExecutionStoreGuardRefusesUnapprovedOrMismatchedTakeover(t *testing.T) {
 	t.Parallel()
 	f := newTakeoverFixture(t)
-	if first, _ := f.action(t, f.owner, "start_execution", "owner-start"); first.Outcome != OutcomeOK {
+	if first, _ := f.action(t, f.owner, "start_execution", "owner-start"); first.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("owner start_execution: %+v", first.Error)
 	}
 	ctx := context.Background()

@@ -34,7 +34,7 @@ func TestReadPublishesProjectionVersion(t *testing.T) {
 		Operation: "list",
 		Input:     json.RawMessage(`{"product_id":"prod-alpha","page":{"cursor":null,"limit":50}}`),
 	}, env)
-	if resp.Outcome != OutcomeOK {
+	if resp.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("list outcome=%s err=%+v", resp.Outcome, resp.Error)
 	}
 
@@ -80,7 +80,7 @@ func transitionFixture(t *testing.T) (*store.Store, *Service, CallEnvelope, stri
 	env := mutationEnvelope(grant, scopeVersion)
 	capture := InvokeRequest{Tool: "concord_work_define", Operation: "capture", Input: json.RawMessage(`{"title":"Version pin work","value_statement":"Pin the live version","kind":"task","project_ids":["project-1"],"workflow_type_ref":"workflow.implementation","idempotency_key":"capture-version-pin"}`)}
 	captured, err := Dispatch(context.Background(), s, service, capture, env)
-	if err != nil || captured.Outcome != OutcomeOK {
+	if err != nil || captured.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("capture response=%+v err=%v", captured, err)
 	}
 	return s, service, env, (*captured.ChangedRefs)[0].ID
@@ -104,7 +104,7 @@ func TestVersionConflictOnExistingWorkMarshals(t *testing.T) {
 			jsonInt(stale) + `,"action_id":"record_proposal","fields":{"problem":"The bounded problem statement.","affected":["The affected system."],"stakes":"The bounded stakes statement.","user_outcomes":["The expected user outcome."]},"idempotency_key":"advance-before-stale"}`),
 	}
 	advanced, err := Dispatch(context.Background(), s, service, advance, env)
-	if err != nil || advanced.Outcome != OutcomeOK {
+	if err != nil || advanced.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("advance response=%+v err=%v", advanced, err)
 	}
 	current := workItemProjectionVersion(t, s, workID)
@@ -119,10 +119,10 @@ func TestVersionConflictOnExistingWorkMarshals(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Dispatch workflow_action: %v", err)
 	}
-	if resp.Outcome != OutcomeError || resp.Error == nil {
+	if resp.Outcome != agentcontract.OutcomeError || resp.Error == nil {
 		t.Fatalf("stale pin was accepted: outcome=%s", resp.Outcome)
 	}
-	if resp.Origin != OriginCore {
+	if resp.Origin != agentcontract.OriginCore {
 		t.Fatalf("refusal came from %s, so the core envelope did not marshal: %+v", resp.Origin, resp.Error)
 	}
 	if resp.Error.Kind != "version_conflict" {
@@ -162,10 +162,10 @@ func TestVersionConflictOnMissingWorkIsUnknownScope(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Dispatch workflow_action: %v", err)
 	}
-	if resp.Outcome != OutcomeError || resp.Error == nil {
+	if resp.Outcome != agentcontract.OutcomeError || resp.Error == nil {
 		t.Fatalf("pin against a missing work item was accepted: outcome=%s", resp.Outcome)
 	}
-	if resp.Origin != OriginCore {
+	if resp.Origin != agentcontract.OriginCore {
 		t.Fatalf("refusal came from %s, so the core envelope did not marshal: %+v", resp.Origin, resp.Error)
 	}
 	if resp.Error.Kind == "version_conflict" {

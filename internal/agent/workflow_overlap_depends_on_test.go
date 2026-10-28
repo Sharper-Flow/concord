@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -23,7 +24,7 @@ func TestResolveOverlapDependsOnRecordsDirectedSequencingWithoutConsent(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	if response.Outcome != OutcomeOK {
+	if response.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("depends_on sequencing resolution must not need approval: %+v", response.Error)
 	}
 	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM workflow_overlap_resolutions WHERE resolution_kind='depends_on' AND approval_ref=''`); got != 1 {
@@ -66,7 +67,7 @@ func TestResolveOverlapDependsOnRecordsDirectedSequencingWithoutConsent(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	if blocksResponse.Outcome != OutcomeOK {
+	if blocksResponse.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("routine blocks resolution=%+v", blocksResponse.Error)
 	}
 	if got := countRows(t, s2.DatabaseForTesting(), `SELECT count(*) FROM workflow_overlap_resolutions WHERE resolution_kind='blocks' AND approval_ref=''`); got != 1 {

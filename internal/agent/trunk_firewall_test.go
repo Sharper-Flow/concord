@@ -106,7 +106,7 @@ func TestLifecycleTransitionAllowsMainCheckout(t *testing.T) {
 		Operation: "lifecycle",
 		Input:     json.RawMessage(`{"work_id":"work-1","expected_version":2,"target":"in_progress","reason":"start work","idempotency_key":"main-lifecycle"}`),
 	}, mutationEnvelope(grant, scopeVersion))
-	if err != nil || response.Outcome != OutcomeOK {
+	if err != nil || response.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("main-checkout lifecycle response=%+v err=%v", response, err)
 	}
 	if lifecycle := workLifecycle(t, s, "work-1"); lifecycle != "in_progress" {
@@ -129,7 +129,7 @@ func TestMainCheckoutLifecyclePreservesTerminalGates(t *testing.T) {
 			Operation: "lifecycle",
 			Input:     json.RawMessage(`{"work_id":"work-1","expected_version":2,"target":"completed","reason":"finish work","idempotency_key":"main-terminal-no-evidence"}`),
 		}, mutationEnvelope(grant, scopeVersion))
-		if err != nil || response.Outcome != OutcomeError || response.Error == nil {
+		if err != nil || response.Outcome != agentcontract.OutcomeError || response.Error == nil {
 			t.Fatalf("terminal response=%+v err=%v", response, err)
 		}
 		if response.Error.Kind != "missing_evidence" {
@@ -153,7 +153,7 @@ func TestMainCheckoutLifecyclePreservesTerminalGates(t *testing.T) {
 		}
 		// CD-0243 D3/D7 retire terminal status as a consent trigger.
 		approved, err := Dispatch(ctx, s, service, request, env)
-		if err != nil || approved.Outcome != OutcomeOK {
+		if err != nil || approved.Outcome != agentcontract.OutcomeOK {
 			t.Fatalf("approved response=%+v err=%v", approved, err)
 		}
 		if lifecycle := workLifecycle(t, s, "work-1"); lifecycle != "completed" {
@@ -188,7 +188,7 @@ func TestMainCheckoutRefusesImplementationOperations(t *testing.T) {
 				t.Fatal(err)
 			}
 			response, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: tc.operation, Input: json.RawMessage(tc.input)}, mutationEnvelope(grant, scopeVersion))
-			if err != nil || response.Outcome != OutcomeError || response.Error == nil {
+			if err != nil || response.Outcome != agentcontract.OutcomeError || response.Error == nil {
 				t.Fatalf("operation=%s response=%+v err=%v", tc.operation, response, err)
 			}
 			if response.Error.Kind != "unauthorized" {
@@ -215,7 +215,7 @@ func TestMainCheckoutDispatchRefusalNamesVacateRoute(t *testing.T) {
 		Operation: "worktree_destroy",
 		Input:     json.RawMessage(`{"work_id":"work-1","expected_version":2,"default_ref":"main","idempotency_key":"main-destroy-route"}`),
 	}, mutationEnvelope(grant, scopeVersion))
-	if err != nil || response.Outcome != OutcomeError || response.Error == nil {
+	if err != nil || response.Outcome != agentcontract.OutcomeError || response.Error == nil {
 		t.Fatalf("response=%+v err=%v, want an authorization refusal", response, err)
 	}
 	if response.Error.Kind != "unauthorized" {
@@ -295,7 +295,7 @@ func TestAuditReclaimResolvesFromMainCheckout(t *testing.T) {
 		response := tiersInvoke(t, s, service, grant, "concord_work_transition", "worktree_audit_reclaim", map[string]any{
 			"product_id": "product-1", "default_ref": "main", "idempotency_key": "main-audit-reclaim",
 		})
-		if response.Outcome != OutcomeOK {
+		if response.Outcome != agentcontract.OutcomeOK {
 			t.Fatalf("audit reclaim response=%+v err=%+v", response, response.Error)
 		}
 		var result struct {

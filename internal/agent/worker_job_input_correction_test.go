@@ -30,7 +30,7 @@ func TestRecordWorkerJobInputCorrection(t *testing.T) {
 	addAgentJobCallerMembers(t, s, "work-1", fields)
 	version := workVersion(t, s, "work-1")
 	key := "job-input-correction"
-	invoke := func() Envelope {
+	invoke := func() agentcontract.Envelope {
 		t.Helper()
 		return dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: retryJSON(map[string]any{
 			"work_id": "work-1", "expected_version": version, "action_id": "record_worker_job", "idempotency_key": key, "fields": fields,
@@ -48,7 +48,7 @@ func TestRecordWorkerJobInputCorrection(t *testing.T) {
 	}
 	before := snapshot()
 	refused := invoke()
-	if refused.Error == nil || refused.Error.Kind != "invalid_input" || refused.Error.EffectState != EffectNone || refused.Error.RetrySafe || refused.Error.RecoveryAction.Kind != "correct_request" {
+	if refused.Error == nil || refused.Error.Kind != "invalid_input" || refused.Error.EffectState != agentcontract.EffectNone || refused.Error.RetrySafe || refused.Error.RecoveryAction.Kind != "correct_request" {
 		t.Fatalf("root readiness correction refusal=%+v", refused.Error)
 	}
 	if !strings.Contains(refused.Error.Message, "readiness_evidence") || !strings.Contains(refused.Error.Message, "at least one") {
@@ -61,7 +61,7 @@ func TestRecordWorkerJobInputCorrection(t *testing.T) {
 		t.Fatalf("refusal mutated version/events/revisions: %v -> %v", before, after)
 	}
 	fields["readiness_evidence"] = []string{"contract:work-1:1"}
-	if corrected := invoke(); corrected.Outcome != OutcomeOK {
+	if corrected := invoke(); corrected.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("correcting only root readiness evidence failed: %+v", corrected.Error)
 	}
 	version = workVersion(t, s, "work-1")
@@ -69,7 +69,7 @@ func TestRecordWorkerJobInputCorrection(t *testing.T) {
 	fields["job_id"] = "job:unqualified"
 	fields["acceptance_oracle"].(map[string]any)["controls"].([]any)[0].(map[string]any)["readiness_evidence_refs"] = []string{"evidence:unqualified"}
 	before = snapshot()
-	if unqualified := invoke(); unqualified.Error == nil || unqualified.Error.EffectState != EffectNone || !strings.Contains(unqualified.Error.Message, "qualified native preparation") {
+	if unqualified := invoke(); unqualified.Error == nil || unqualified.Error.EffectState != agentcontract.EffectNone || !strings.Contains(unqualified.Error.Message, "qualified native preparation") {
 		t.Fatalf("corrected root bypassed native qualification: %+v", unqualified.Error)
 	}
 	if after := snapshot(); after != before {
@@ -90,7 +90,7 @@ func TestStoreCorrectionProposalPreservesAuthorityAndEffects(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			test.failure.RecoveryAction = "correct_request"
-			out := failureEnvelope(NewBase("correction-proposal", "concord_work_transition", "workflow_action"), &test.failure)
+			out := failureEnvelope(agentcontract.NewBase("correction-proposal", "concord_work_transition", "workflow_action"), &test.failure)
 			if out.Error == nil || out.Error.RecoveryAction.Kind != test.want {
 				t.Fatalf("unsafe correction proposal=%+v", out.Error)
 			}

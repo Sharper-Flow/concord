@@ -312,7 +312,7 @@ type runtime struct {
 // Dispatch validates the generated input schema, revalidates TS5 authority,
 // and routes both read and transaction-bound mutation operations through the
 // generated contract surface.
-func Dispatch(ctx context.Context, s *store.Store, authority *Service, request InvokeRequest, env CallEnvelope) (Envelope, error) {
+func Dispatch(ctx context.Context, s *store.Store, authority *Service, request InvokeRequest, env CallEnvelope) (agentcontract.Envelope, error) {
 	return DispatchWithRegistry(ctx, s, authority, request, env, store.BuiltinWorkflowRegistry())
 }
 
@@ -320,17 +320,17 @@ func Dispatch(ctx context.Context, s *store.Store, authority *Service, request I
 // explicitly pinned definition registry. Production callers use Dispatch; the
 // seam lets replay and availability tests prove a missing registry before any
 // payload or grant mutation path is reached.
-func DispatchWithRegistry(ctx context.Context, s *store.Store, authority *Service, request InvokeRequest, env CallEnvelope, registry store.DefinitionRegistry) (Envelope, error) {
+func DispatchWithRegistry(ctx context.Context, s *store.Store, authority *Service, request InvokeRequest, env CallEnvelope, registry store.DefinitionRegistry) (agentcontract.Envelope, error) {
 	if registry == nil {
 		registry = store.BuiltinWorkflowRegistry()
 	}
-	base := NewBase(env.RequestID, request.Tool, request.Operation)
+	base := agentcontract.NewBase(env.RequestID, request.Tool, request.Operation)
 	op, ok := agentcontract.ValidateContractOperation(request.Tool, request.Operation)
 	if !ok {
 		return base, errors.New("unsupported tool operation")
 	}
 	if op.ID == "concord_work_transition.workflow_action" {
-		var refusal *Envelope
+		var refusal *agentcontract.Envelope
 		ctx, refusal = preflightDispatchWorkflowAction(ctx, s, authority, request, env, registry, op, base)
 		if refusal != nil {
 			return *refusal, nil
@@ -361,8 +361,8 @@ func DispatchWithRegistry(ctx context.Context, s *store.Store, authority *Servic
 	return dispatchAuthorizedRequest(ctx, s, authority, request, env, registry, op, base, budget)
 }
 
-func preflightDispatchWorkflowAction(ctx context.Context, s *store.Store, authority *Service, request InvokeRequest, env CallEnvelope, registry store.DefinitionRegistry, op agentcontract.ContractOperation, base Envelope) (context.Context, *Envelope) {
-	refuse := func(out Envelope) (context.Context, *Envelope) { return ctx, &out }
+func preflightDispatchWorkflowAction(ctx context.Context, s *store.Store, authority *Service, request InvokeRequest, env CallEnvelope, registry store.DefinitionRegistry, op agentcontract.ContractOperation, base agentcontract.Envelope) (context.Context, *agentcontract.Envelope) {
+	refuse := func(out agentcontract.Envelope) (context.Context, *agentcontract.Envelope) { return ctx, &out }
 	// Generated outer-shape validation rejects duplicate or missing action
 	// fields. Semantic workflow payload validation remains below the registry
 	// availability check.
@@ -421,7 +421,7 @@ func workflowRegistryUnavailableMessage(ctx context.Context, s *store.Store, reg
 	return message
 }
 
-func dispatchAuthorizedRequest(ctx context.Context, s *store.Store, authority *Service, request InvokeRequest, env CallEnvelope, registry store.DefinitionRegistry, op agentcontract.ContractOperation, base Envelope, budget budgetInput) (Envelope, error) {
+func dispatchAuthorizedRequest(ctx context.Context, s *store.Store, authority *Service, request InvokeRequest, env CallEnvelope, registry store.DefinitionRegistry, op agentcontract.ContractOperation, base agentcontract.Envelope, budget budgetInput) (agentcontract.Envelope, error) {
 	inv := Invocation{ClientRef: env.ClientRef, PrincipalRef: env.PrincipalRef, SessionRef: env.SessionRef, AgentRef: env.AgentRef, Directory: env.Directory, Worktree: env.Worktree, ManifestDigest: env.ManifestDigest, HostAssertionDigest: env.HostAssertionDigest, RequiredCapability: op.Capability, RequiredOperation: request.Operation, ProductID: env.SelectedProductID}
 	if op.Kind != agentcontract.OperationRead && op.ID != "concord_work_transition.workflow_action" {
 		if _, identityExtractErr := extractMutationWorkIdentity(request.Input); identityExtractErr != nil {
@@ -461,7 +461,7 @@ func dispatchAuthorizedRequest(ctx context.Context, s *store.Store, authority *S
 	if err := validateRuntimeScope(ctx, s, env, grant, op.Kind); err != nil {
 		var stale *runtimeFailure
 		if errors.As(err, &stale) && stale.Refreshable && op.Kind == agentcontract.OperationRead && slices.Equal(stale.Candidates, grant.CandidateProducts) {
-			base.Warnings = append(base.Warnings, Notice{Kind: "context_refreshed"})
+			base.Warnings = append(base.Warnings, agentcontract.Notice{Kind: "context_refreshed"})
 			env.ScopeVersion = stale.CurrentScopeVersion
 		} else {
 			return failureEnvelope(base, err), nil
@@ -515,7 +515,7 @@ func applyBudget(ctx context.Context, op agentcontract.ContractOperation, raw []
 // resolves from the parsed budget, and from the contract registry when the
 // budget was constructed without one — a caller that never went through
 // applyBudget still owes the caller its ceiling.
-func (r runtime) budgetRefusal(base Envelope, message string) Envelope {
+func (r runtime) budgetRefusal(base agentcontract.Envelope, message string) agentcontract.Envelope {
 	supported := r.Budget.SupportedSeconds
 	if supported < 1 {
 		if op, ok := agentcontract.ValidateContractOperation(r.Tool, r.Operation); ok {
@@ -755,10 +755,10 @@ func scopeIntersects(left, right []string) bool {
 // It decodes strictly, dispatches, and shapes a dispatch failure into the typed
 // envelope the caller receives. Only a decode failure is returned as an error,
 // because only a decode failure means no envelope can be addressed.
-func Invoke(ctx context.Context, s *store.Store, authority *Service, data []byte) (Envelope, error) {
+func Invoke(ctx context.Context, s *store.Store, authority *Service, data []byte) (agentcontract.Envelope, error) {
 	request, env, err := DecodeInvokeRequest(data)
 	if err != nil {
-		return Envelope{}, err
+		return agentcontract.Envelope{}, err
 	}
 	response, dispatchErr := Dispatch(ctx, s, authority, request, env)
 	return shapeInvokeFailure(response, dispatchErr, request, env), nil
@@ -768,10 +768,10 @@ func Invoke(ctx context.Context, s *store.Store, authority *Service, data []byte
 // never needs it: Dispatch resolves the builtin registry, and the injection
 // point exists so the workflow corpus boundary runner can drive a scenario
 // registry through the real boundary.
-func InvokeWithRegistry(ctx context.Context, s *store.Store, authority *Service, data []byte, registry store.DefinitionRegistry) (Envelope, error) {
+func InvokeWithRegistry(ctx context.Context, s *store.Store, authority *Service, data []byte, registry store.DefinitionRegistry) (agentcontract.Envelope, error) {
 	request, env, err := DecodeInvokeRequest(data)
 	if err != nil {
-		return Envelope{}, err
+		return agentcontract.Envelope{}, err
 	}
 	response, dispatchErr := DispatchWithRegistry(ctx, s, authority, request, env, registry)
 	return shapeInvokeFailure(response, dispatchErr, request, env), nil
@@ -780,12 +780,12 @@ func InvokeWithRegistry(ctx context.Context, s *store.Store, authority *Service,
 // shapeInvokeFailure converts a dispatch error into the typed envelope an
 // operator receives. A dispatch failure is a product outcome, not a transport
 // fault, so it must not reach the caller as a bare Go error.
-func shapeInvokeFailure(response Envelope, dispatchErr error, request InvokeRequest, env CallEnvelope) Envelope {
+func shapeInvokeFailure(response agentcontract.Envelope, dispatchErr error, request InvokeRequest, env CallEnvelope) agentcontract.Envelope {
 	if dispatchErr == nil {
 		return response
 	}
-	base := NewBase(env.RequestID, request.Tool, request.Operation)
-	return NewCoreError(base, TypedError{Kind: "invalid_input", RetrySafe: false, RecoveryAction: RecoveryAction{Kind: "restart_query"}, EffectState: EffectNone, Message: dispatchErr.Error()})
+	base := agentcontract.NewBase(env.RequestID, request.Tool, request.Operation)
+	return agentcontract.NewCoreError(base, agentcontract.TypedError{Kind: "invalid_input", RetrySafe: false, RecoveryAction: agentcontract.RecoveryAction{Kind: "restart_query"}, EffectState: agentcontract.EffectNone, Message: dispatchErr.Error()})
 }
 
 func validateRuntimeScope(ctx context.Context, s *store.Store, env CallEnvelope, grant Authority, kind agentcontract.OperationKind) error {
@@ -860,13 +860,13 @@ func newRuntimeFailure(kind, message, recovery string, retry bool) *runtimeFailu
 
 // newRouteFailure mints a refusal whose remedy is a declared route of
 // workflow actions rather than an operator. route is ordered: the caller
-// executes it front to back. unauthorized is deliberately absent from
-// enforcedRecoveryCouplings, so a refusal of that kind may name the route it
-// admits instead of the standing contact_operator default.
+// executes it front to back. unauthorized is deliberately absent from the
+// agentcontract recovery coupling table, so a refusal of that kind may name
+// the route it admits instead of the standing contact_operator default.
 func newRouteFailure(kind, message string, route ...string) *runtimeFailure {
 	return &runtimeFailure{kind: kind, message: message, recovery: "use_declared_route", retry: false, recoveryRefs: route}
 }
-func failureEnvelope(base Envelope, err error) Envelope {
+func failureEnvelope(base agentcontract.Envelope, err error) agentcontract.Envelope {
 	// A failure marked EffectPossible followed a committed transaction
 	// (CD-0050 D2), so it must not read as a clean timeout even when its
 	// wrapped cause is a deadline. The store-failure branch below carries
@@ -883,7 +883,7 @@ func failureEnvelope(base Envelope, err error) Envelope {
 	}
 	var f *runtimeFailure
 	if errors.As(err, &f) {
-		action := RecoveryAction{Kind: f.recovery, RequiredRefs: f.recoveryRefs}
+		action := agentcontract.RecoveryAction{Kind: f.recovery, RequiredRefs: f.recoveryRefs}
 		out := coreErrorAction(base, f.kind, f.message, action, f.retry, f.Candidates)
 		out.Error.Details = f.Details
 		return out
@@ -895,11 +895,11 @@ func failureEnvelope(base Envelope, err error) Envelope {
 	return coreError(base, "internal_error", err.Error(), "contact_operator", false)
 }
 
-func storeFailureEnvelope(base Envelope, sf *store.Failure) Envelope {
+func storeFailureEnvelope(base agentcontract.Envelope, sf *store.Failure) agentcontract.Envelope {
 	kind := mapFailureKind(sf.Kind)
-	recovery := publicRecovery(kind, sf.RecoveryAction)
+	recovery := agentcontract.PublicRecovery(kind, sf.RecoveryAction)
 	if recovery == "correct_request" && (kind != "invalid_input" || sf.RetrySafe || sf.EffectPossible || len(sf.CommittedRefs) > 0) {
-		recovery = publicRecovery(kind, "")
+		recovery = agentcontract.PublicRecovery(kind, "")
 		if sf.EffectPossible || len(sf.CommittedRefs) > 0 {
 			recovery = "reconcile_operation"
 		}
@@ -912,7 +912,7 @@ func storeFailureEnvelope(base Envelope, sf *store.Failure) Envelope {
 	} else if len(refs) == 0 {
 		// A route naming no action cannot marshal. The kind's standing
 		// default keeps the refusal the core decided deliverable.
-		recovery = publicRecovery(kind, "")
+		recovery = agentcontract.PublicRecovery(kind, "")
 		refs = nil
 	}
 	// Candidate identities ride the error at construction, before the
@@ -925,14 +925,14 @@ func storeFailureEnvelope(base Envelope, sf *store.Failure) Envelope {
 		// the detail alone reads the same for all three.
 		message += ": " + sf.Err.Error()
 	}
-	out := coreErrorAction(base, kind, message, RecoveryAction{Kind: recovery, RequiredRefs: refs}, sf.RetrySafe, nonNilStrings(sf.CandidateIDs))
+	out := coreErrorAction(base, kind, message, agentcontract.RecoveryAction{Kind: recovery, RequiredRefs: refs}, sf.RetrySafe, nonNilStrings(sf.CandidateIDs))
 	// The store authors free remedy prose in RecoveryAction — the exact
-	// command a caller must run. publicRecovery projects that field onto
-	// the closed action vocabulary, and the projection alone drops the
-	// prose; a coupled kind keeps its coupled action (the coupling is not
+	// command a caller must run. agentcontract.PublicRecovery projects that
+	// field onto the closed action vocabulary, and the projection alone drops
+	// the prose; a coupled kind keeps its coupled action (the coupling is not
 	// weakened), so the authored text rides the bounded, schema-valid
 	// details surface unchanged beside it.
-	if prose := sf.RecoveryAction; prose != "" && !publicRecoveryActions[prose] {
+	if prose := sf.RecoveryAction; prose != "" && !agentcontract.RecoveryActionAllowed(prose) {
 		if out.Error.Details == nil {
 			out.Error.Details = map[string]any{}
 		}
@@ -943,52 +943,52 @@ func storeFailureEnvelope(base Envelope, sf *store.Failure) Envelope {
 	// having to parse the human detail string. Mirrors the same path for
 	// typed violations: see D5.
 	for _, current := range sf.CurrentVersions {
-		out.Error.CurrentVersions = append(out.Error.CurrentVersions, ChangedRef{EntityKind: string(current.SubjectType), ID: current.SubjectID, Version: strconv.FormatInt(current.Version, 10)})
+		out.Error.CurrentVersions = append(out.Error.CurrentVersions, agentcontract.ChangedRef{EntityKind: string(current.SubjectType), ID: current.SubjectID, Version: strconv.FormatInt(current.Version, 10)})
 	}
 	for _, action := range sf.InterveningActions {
-		out.Error.InterveningActions = append(out.Error.InterveningActions, InterveningAction{ActionID: action.ActionID, SessionRef: action.SessionRef})
+		out.Error.InterveningActions = append(out.Error.InterveningActions, agentcontract.InterveningAction{ActionID: action.ActionID, SessionRef: action.SessionRef})
 	}
 	if len(sf.Violations) > 0 {
 		out.Error.Violations = append(out.Error.Violations, sf.Violations...)
 	}
 	if sf.EffectPossible || len(sf.CommittedRefs) > 0 {
-		out.Error.EffectState = EffectPossible
+		out.Error.EffectState = agentcontract.EffectPossible
 		out.ChangedRefs = committedChangedRefs(sf.CommittedRefs)
 	}
 	projectStoreFailureDetails(&out, sf)
 	return out
 }
 
-func projectStoreFailureDetails(out *Envelope, sf *store.Failure) {
+func projectStoreFailureDetails(out *agentcontract.Envelope, sf *store.Failure) {
 	if sf.StaleLawRevision != nil {
-		out.Error.StaleLawRevision = &StaleLawRevision{OldLawID: sf.StaleLawRevision.OldLawID, OldContentHash: sf.StaleLawRevision.OldContentHash, RecoveryActions: append([]string(nil), sf.StaleLawRevision.RecoveryActions...)}
+		out.Error.StaleLawRevision = &agentcontract.StaleLawRevision{OldLawID: sf.StaleLawRevision.OldLawID, OldContentHash: sf.StaleLawRevision.OldContentHash, RecoveryActions: append([]string(nil), sf.StaleLawRevision.RecoveryActions...)}
 	}
 	if sf.DomainOverlap != nil {
-		out.Error.DomainOverlap = &DomainOverlap{TotalOverlaps: sf.DomainOverlap.TotalOverlaps, ReturnedOverlaps: sf.DomainOverlap.ReturnedOverlaps, Truncated: sf.DomainOverlap.Truncated}
+		out.Error.DomainOverlap = &agentcontract.DomainOverlap{TotalOverlaps: sf.DomainOverlap.TotalOverlaps, ReturnedOverlaps: sf.DomainOverlap.ReturnedOverlaps, Truncated: sf.DomainOverlap.Truncated}
 		for _, overlap := range sf.DomainOverlap.Overlaps {
 			// The envelope contract requires an array for every shared list.
 			// An architecture-only overlap carries empty law, modification,
 			// and relation lists; a nil slice marshals as null and makes the
 			// refusal undeliverable.
-			converted := DomainOverlapDetail{ProductID: overlap.ProductID, FromWorkID: overlap.FromWorkID, ToWorkID: overlap.ToWorkID, FromContractVersion: overlap.FromContractVersion, ToContractVersion: overlap.ToContractVersion, SharedAffectedDomainIDs: nonNilStrings(overlap.SharedAffectedDomainIDs), SharedLawIDs: nonNilStrings(overlap.SharedLawIDs), SharedDomainModifications: nonNilStrings(overlap.SharedDomainModifications), SharedRelationTuples: []DomainOverlapRelationTuple{}, OverlapClasses: nonNilStrings(overlap.OverlapClasses), ResolutionState: overlap.ResolutionState, ResolutionKind: overlap.ResolutionKind, RecoveryActions: nonNilStrings(overlap.RecoveryActions), SharedAffectedDomainCount: overlap.SharedAffectedDomainCount, SharedLawCount: overlap.SharedLawCount, SharedDomainModificationCount: overlap.SharedDomainModificationCount, SharedRelationTupleCount: overlap.SharedRelationTupleCount, DetailTruncated: overlap.DetailTruncated}
+			converted := agentcontract.DomainOverlapDetail{ProductID: overlap.ProductID, FromWorkID: overlap.FromWorkID, ToWorkID: overlap.ToWorkID, FromContractVersion: overlap.FromContractVersion, ToContractVersion: overlap.ToContractVersion, SharedAffectedDomainIDs: nonNilStrings(overlap.SharedAffectedDomainIDs), SharedLawIDs: nonNilStrings(overlap.SharedLawIDs), SharedDomainModifications: nonNilStrings(overlap.SharedDomainModifications), SharedRelationTuples: []agentcontract.DomainOverlapRelationTuple{}, OverlapClasses: nonNilStrings(overlap.OverlapClasses), ResolutionState: overlap.ResolutionState, ResolutionKind: overlap.ResolutionKind, RecoveryActions: nonNilStrings(overlap.RecoveryActions), SharedAffectedDomainCount: overlap.SharedAffectedDomainCount, SharedLawCount: overlap.SharedLawCount, SharedDomainModificationCount: overlap.SharedDomainModificationCount, SharedRelationTupleCount: overlap.SharedRelationTupleCount, DetailTruncated: overlap.DetailTruncated}
 			for _, tuple := range overlap.SharedRelationTuples {
-				converted.SharedRelationTuples = append(converted.SharedRelationTuples, DomainOverlapRelationTuple{SourceDomainID: tuple.SourceDomainID, Kind: tuple.Kind, TargetDomainID: tuple.TargetDomainID})
+				converted.SharedRelationTuples = append(converted.SharedRelationTuples, agentcontract.DomainOverlapRelationTuple{SourceDomainID: tuple.SourceDomainID, Kind: tuple.Kind, TargetDomainID: tuple.TargetDomainID})
 			}
 			out.Error.DomainOverlap.Overlaps = append(out.Error.DomainOverlap.Overlaps, converted)
 		}
 	}
 	if sf.ExternalRefConflict != nil {
-		out.Error.ExternalRefConflict = &ExternalRefConflict{ExistingWorkID: sf.ExternalRefConflict.ExistingWorkID, ExternalRef: sf.ExternalRefConflict.ExternalRef}
+		out.Error.ExternalRefConflict = &agentcontract.ExternalRefConflict{ExistingWorkID: sf.ExternalRefConflict.ExistingWorkID, ExternalRef: sf.ExternalRefConflict.ExternalRef}
 	}
 }
 
-func committedChangedRefs(refs []store.SubjectCurrentVersion) *[]ChangedRef {
+func committedChangedRefs(refs []store.SubjectCurrentVersion) *[]agentcontract.ChangedRef {
 	if len(refs) == 0 {
 		return nil
 	}
-	changed := make([]ChangedRef, 0, len(refs))
+	changed := make([]agentcontract.ChangedRef, 0, len(refs))
 	for _, ref := range refs {
-		changed = append(changed, ChangedRef{EntityKind: string(ref.SubjectType), ID: ref.SubjectID, Version: strconv.FormatInt(ref.Version, 10)})
+		changed = append(changed, agentcontract.ChangedRef{EntityKind: string(ref.SubjectType), ID: ref.SubjectID, Version: strconv.FormatInt(ref.Version, 10)})
 	}
 	return &changed
 }
@@ -999,28 +999,28 @@ func nonNilStrings(values []string) []string {
 	return append(make([]string, 0, len(values)), values...)
 }
 
-func coreError(base Envelope, kind, message, recovery string, retry bool) Envelope {
-	return coreErrorAction(base, kind, message, RecoveryAction{Kind: recovery}, retry, nil)
+func coreError(base agentcontract.Envelope, kind, message, recovery string, retry bool) agentcontract.Envelope {
+	return coreErrorAction(base, kind, message, agentcontract.RecoveryAction{Kind: recovery}, retry, nil)
 }
 
 // coreErrorAction is coreError with a fully built recovery action, for the
 // refusals whose remedy is a declared route of workflow actions. candidates
 // are the typed identities a refusal carries so the caller can act on it; the
 // envelope validation holds an ambiguous_scope error to a non-empty list.
-func coreErrorAction(base Envelope, kind, message string, action RecoveryAction, retry bool, candidates []string) Envelope {
+func coreErrorAction(base agentcontract.Envelope, kind, message string, action agentcontract.RecoveryAction, retry bool, candidates []string) agentcontract.Envelope {
 	message = boundedErrorMessage(message)
 	// An unreachable refusal says the core could not answer, so the envelope
 	// carries no authoritative claim, freshness, or watermark; the contract
 	// pairs the kind with that authority and refuses any other pairing.
-	authority := AuthorityAuthoritative
+	authority := agentcontract.AuthorityAuthoritative
 	if kind == "unreachable" {
-		authority = AuthorityUnreachable
+		authority = agentcontract.AuthorityUnreachable
 		base.Freshness = nil
-		base.SourceVersionWatermark = []Watermark{}
+		base.SourceVersionWatermark = []agentcontract.Watermark{}
 	}
 	base.Authority = authority
-	base.Outcome = OutcomeError
-	base.Error = &TypedError{Kind: kind, RetrySafe: retry, RecoveryAction: action, EffectState: EffectNone, Message: message, Candidates: candidates}
+	base.Outcome = agentcontract.OutcomeError
+	base.Error = &agentcontract.TypedError{Kind: kind, RetrySafe: retry, RecoveryAction: action, EffectState: agentcontract.EffectNone, Message: message, Candidates: candidates}
 	if _, err := base.Encode(); err == nil {
 		return base
 	}
@@ -1028,11 +1028,11 @@ func coreErrorAction(base Envelope, kind, message string, action RecoveryAction,
 	// optional fields large enough to exceed the envelope cap. Rebuild the base
 	// from its bounded identity only when preserving metadata is undeliverable.
 	// The typed error is the only authoritative response to a rejected result.
-	errorBase := NewBase(base.RequestID, base.Tool, base.Operation)
+	errorBase := agentcontract.NewBase(base.RequestID, base.Tool, base.Operation)
 	errorBase.ResolvedScope = base.ResolvedScope
 	errorBase.Authority = authority
-	errorBase.Outcome = OutcomeError
-	errorBase.Error = &TypedError{Kind: kind, RetrySafe: retry, RecoveryAction: action, EffectState: EffectNone, Message: message}
+	errorBase.Outcome = agentcontract.OutcomeError
+	errorBase.Error = &agentcontract.TypedError{Kind: kind, RetrySafe: retry, RecoveryAction: action, EffectState: agentcontract.EffectNone, Message: message}
 	if _, err := errorBase.Encode(); err != nil {
 		// Scope is useful when it remains deliverable, but never at the expense
 		// of the limit error itself crossing the agent boundary.
@@ -1063,24 +1063,24 @@ func boundedErrorMessage(message string) string {
 // requirements its target scope declares (CD-0035 D1/D3). The omitted
 // requirements are named in the typed violations rather than described in the
 // message, so an agent recovers without parsing prose.
-func governingConflictEnvelope(base Envelope, missing []string) Envelope {
-	base.Authority = AuthorityAuthoritative
-	base.Outcome = OutcomeError
-	base.Error = &TypedError{
+func governingConflictEnvelope(base agentcontract.Envelope, missing []string) agentcontract.Envelope {
+	base.Authority = agentcontract.AuthorityAuthoritative
+	base.Outcome = agentcontract.OutcomeError
+	base.Error = &agentcontract.TypedError{
 		Kind:           "invariant_violation",
 		RetrySafe:      false,
-		RecoveryAction: RecoveryAction{Kind: "contact_operator"},
-		EffectState:    EffectNone,
+		RecoveryAction: agentcontract.RecoveryAction{Kind: "contact_operator"},
+		EffectState:    agentcontract.EffectNone,
 		Message:        "capture does not carry the governing requirements accepted for this scope",
 		Violations:     missing,
-		Options:        GoverningConflictOptions,
+		Options:        agentcontract.GoverningConflictOptions,
 	}
 	if _, err := base.Encode(); err == nil {
 		return base
 	}
-	errorBase := NewBase(base.RequestID, base.Tool, base.Operation)
-	errorBase.Authority = AuthorityAuthoritative
-	errorBase.Outcome = OutcomeError
+	errorBase := agentcontract.NewBase(base.RequestID, base.Tool, base.Operation)
+	errorBase.Authority = agentcontract.AuthorityAuthoritative
+	errorBase.Outcome = agentcontract.OutcomeError
 	errorBase.Error = base.Error
 	return errorBase
 }
@@ -1174,7 +1174,8 @@ func mapFailureKind(kind store.FailureKind) string {
 	// public name differ by intent. Everything else that names a public kind
 	// is that kind; collapsing it to internal_error told the caller a fault
 	// occurred and to contact the operator for a refusal it could have
-	// answered itself, and publicRecovery then discarded the store's remedy.
+	// answered itself, and agentcontract.PublicRecovery then discarded the
+	// store's remedy.
 	if payloadschema.TypedErrorKindAllowed(string(kind)) {
 		return string(kind)
 	}
@@ -1182,48 +1183,6 @@ func mapFailureKind(kind store.FailureKind) string {
 	// caller: the store raised something the contract cannot carry, which
 	// is a defect to fix at the store, never a refusal to act on.
 	return "internal_error"
-}
-
-// publicRecoveryActions is the closed recovery-action vocabulary the envelope
-// contract admits. publicRecovery projects a store-proposed value onto it,
-// and failureEnvelope treats any other authored RecoveryAction text as remedy
-// prose rather than an action name.
-var publicRecoveryActions = map[string]bool{"none": true, "correct_request": true, "retry_same_request": true, "refresh_context": true, "reread_entities": true, "request_approval": true, "provide_evidence": true, "reduce_limit": true, "use_declared_route": true, "use_next_cursor": true, "restart_query": true, "adjust_budget": true, "reconcile_operation": true, "resolve_ambiguity": true, "contact_operator": true}
-
-func publicRecovery(kind, proposed string) string {
-	// A coupled kind admits exactly one recovery action, and validateError
-	// refuses every other pairing. The coupling therefore decides before the
-	// proposed value is read: the store proposes free operator prose, and a
-	// proposal that is merely a valid action is still the wrong one here.
-	// Letting either reach the envelope produces a pair that cannot marshal,
-	// which reaches the caller as a transport fault rather than the refusal
-	// the core decided.
-	if coupled, ok := enforcedRecoveryCouplings[kind]; ok {
-		return coupled
-	}
-	if publicRecoveryActions[proposed] {
-		return proposed
-	}
-	switch kind {
-	case "unauthorized", "unreachable", "internal_error":
-		return "contact_operator"
-	case "approval_required", "approval_invalid":
-		return "request_approval"
-	case "invalid_transition", "invalid_relation", "invariant_violation", "invalid_input":
-		return "reread_entities"
-	case "not_terminal", "stale_requires_review", "idempotency_conflict", "degraded_not_allowed":
-		// The caller acts on state it can reread: a lifecycle, a review
-		// pin, a conflicting key, an index it may opt into degraded for.
-		return "reread_entities"
-	case "unknown_scope", "malformed_response", "transport_failure":
-		return "contact_operator"
-	default:
-		// Every public kind is named above or coupled; reaching here means
-		// a kind the vocabulary added without a recovery decision. That is
-		// a contract defect, and contact_operator is the honest answer for
-		// it, not a default any ordinary refusal should fall into.
-		return "contact_operator"
-	}
 }
 
 func decodeStrict(data []byte, value any) error {
@@ -1271,7 +1230,7 @@ func cursorValue(page pageInput) string {
 	return *page.Cursor
 }
 
-func (r runtime) read(ctx context.Context, base Envelope, input []byte, queryID string) (Envelope, error) {
+func (r runtime) read(ctx context.Context, base agentcontract.Envelope, input []byte, queryID string) (agentcontract.Envelope, error) {
 	response, err := r.readResult(ctx, base, input, queryID)
 	if err != nil {
 		return response, err
@@ -1280,7 +1239,7 @@ func (r runtime) read(ctx context.Context, base Envelope, input []byte, queryID 
 	if err != nil {
 		return response, err
 	}
-	if size > MaxResultEnvelopeBytes {
+	if size > agentcontract.MaxResultEnvelopeBytes {
 		return readSizeRefusal(response, size), nil
 	}
 	return response, nil
@@ -1288,25 +1247,25 @@ func (r runtime) read(ctx context.Context, base Envelope, input []byte, queryID 
 
 // readEnvelopeSize measures the final wire object, including authenticated
 // cursors and notices. MarshalJSON retains the hard bound as a consumer backstop.
-func readEnvelopeSize(response Envelope) (int, error) {
+func readEnvelopeSize(response agentcontract.Envelope) (int, error) {
 	if err := response.Validate(); err != nil {
 		return 0, err
 	}
-	type wire Envelope
+	type wire agentcontract.Envelope
 	raw, err := json.Marshal(wire(response))
 	return len(raw), err
 }
 
-func readSizeRefusal(response Envelope, size int) Envelope {
+func readSizeRefusal(response agentcontract.Envelope, size int) agentcontract.Envelope {
 	// No rejected payload or evidence belongs in a refusal. The store remains
 	// unchanged, and the byte counts name a producer bound, not a transport fault.
-	base := NewBase(response.RequestID, response.Tool, response.Operation)
-	out := coreError(base, "limit_exceeded", fmt.Sprintf("read result including fixed projection and continuation requires %d serialized bytes; envelope maximum is %d bytes; reduce the page limit where supported, but a fixed projection or single item may not fit even at limit=1", size, MaxResultEnvelopeBytes), "reduce_limit", false)
-	out.Error.Details = map[string]any{"serialized_bytes": size, "maximum_bytes": MaxResultEnvelopeBytes, "reason": "result_envelope_bytes"}
+	base := agentcontract.NewBase(response.RequestID, response.Tool, response.Operation)
+	out := coreError(base, "limit_exceeded", fmt.Sprintf("read result including fixed projection and continuation requires %d serialized bytes; envelope maximum is %d bytes; reduce the page limit where supported, but a fixed projection or single item may not fit even at limit=1", size, agentcontract.MaxResultEnvelopeBytes), "reduce_limit", false)
+	out.Error.Details = map[string]any{"serialized_bytes": size, "maximum_bytes": agentcontract.MaxResultEnvelopeBytes, "reason": "result_envelope_bytes"}
 	return out
 }
 
-func (r runtime) readResult(ctx context.Context, base Envelope, input []byte, queryID string) (Envelope, error) {
+func (r runtime) readResult(ctx context.Context, base agentcontract.Envelope, input []byte, queryID string) (agentcontract.Envelope, error) {
 	switch r.Tool + "." + r.Operation {
 	case "concord_product_view.resolve":
 		return r.readProductResolve(ctx, base, input)
@@ -1476,7 +1435,7 @@ func (r runtime) unwrapCursor(ctx context.Context, token, binding, detail string
 	return cursor.Inner, nil
 }
 
-func (r runtime) wrapCursor(ctx context.Context, response Envelope, binding, detail string) (Envelope, error) {
+func (r runtime) wrapCursor(ctx context.Context, response agentcontract.Envelope, binding, detail string) (agentcontract.Envelope, error) {
 	if response.NextCursor == nil {
 		return response, nil
 	}
@@ -1488,23 +1447,23 @@ func (r runtime) wrapCursor(ctx context.Context, response Envelope, binding, det
 	return response, nil
 }
 
-func watermarkString(response Envelope) string {
+func watermarkString(response agentcontract.Envelope) string {
 	if len(response.SourceVersionWatermark) == 0 {
 		return ""
 	}
 	return response.SourceVersionWatermark[0].Version
 }
 
-func applyMeta(base Envelope, meta store.ResultMeta, scope *Scope) Envelope {
+func applyMeta(base agentcontract.Envelope, meta store.ResultMeta, scope *agentcontract.Scope) agentcontract.Envelope {
 	base.QueryID = meta.QueryID
-	base.Authority = AuthorityLevel(meta.Authority)
+	base.Authority = agentcontract.AuthorityLevel(meta.Authority)
 	base.ResolvedScope = scope
 	// A read that carries no observation time carries no freshness: the
 	// envelope admits null there, and a fabricated zero instant fails the
 	// marshal bound on every real call.
 	base.Freshness = nil
 	if observed := parseTime(meta.Freshness.ObservedAt); !observed.IsZero() {
-		base.Freshness = &Freshness{ObservedAt: observed, Age: meta.Freshness.Age, Stale: meta.Freshness.Stale}
+		base.Freshness = &agentcontract.Freshness{ObservedAt: observed, Age: meta.Freshness.Age, Stale: meta.Freshness.Stale}
 	}
 	base.OrderingKeys = meta.OrderingKeys
 	base.NextCursor = meta.NextCursor
@@ -1514,39 +1473,39 @@ func applyMeta(base Envelope, meta store.ResultMeta, scope *Scope) Envelope {
 	// slice here would drop the only signal that a stale read was refreshed, so
 	// query warnings are appended within the envelope's bounded notice budget.
 	base.Warnings = boundedNotices(base.Warnings, notices(meta.Warnings))
-	base.SourceVersionWatermark = []Watermark{{SourceKind: "product_memory", SourceID: "sqlite", Version: strconv.FormatInt(meta.SourceVersionWatermark, 10)}}
+	base.SourceVersionWatermark = []agentcontract.Watermark{{SourceKind: "product_memory", SourceID: "sqlite", Version: strconv.FormatInt(meta.SourceVersionWatermark, 10)}}
 	return base
 }
 
-func boundedNotices(existing, added []Notice) []Notice {
-	out := append(append(make([]Notice, 0, len(existing)+len(added)), existing...), added...)
-	if len(out) > MaxNotices {
-		return out[:MaxNotices]
+func boundedNotices(existing, added []agentcontract.Notice) []agentcontract.Notice {
+	out := append(append(make([]agentcontract.Notice, 0, len(existing)+len(added)), existing...), added...)
+	if len(out) > agentcontract.MaxNotices {
+		return out[:agentcontract.MaxNotices]
 	}
 	return out
 }
 func parseTime(v string) time.Time { t, _ := time.Parse(time.RFC3339Nano, v); return t }
-func notices(values []string) []Notice {
-	out := make([]Notice, 0, len(values))
+func notices(values []string) []agentcontract.Notice {
+	out := make([]agentcontract.Notice, 0, len(values))
 	for _, v := range values {
-		out = append(out, Notice{Kind: v})
+		out = append(out, agentcontract.Notice{Kind: v})
 	}
 	return out
 }
-func (r runtime) scope(meta store.ResultMeta) *Scope {
+func (r runtime) scope(meta store.ResultMeta) *agentcontract.Scope {
 	p := meta.ResolvedScope.ProductID
 	if p == "" {
 		p = r.Envelope.SelectedProductID
 	}
-	return &Scope{ProductID: p, ProjectIDs: nonEmpty(r.Envelope.AmbientProjectID), ScopeVersion: r.Envelope.ScopeVersion}
+	return &agentcontract.Scope{ProductID: p, ProjectIDs: nonEmpty(r.Envelope.AmbientProjectID), ScopeVersion: r.Envelope.ScopeVersion}
 }
-func (r runtime) resultEnvelope(base Envelope, meta store.ResultMeta, scope *Scope, payload any) (Envelope, error) {
+func (r runtime) resultEnvelope(base agentcontract.Envelope, meta store.ResultMeta, scope *agentcontract.Scope, payload any) (agentcontract.Envelope, error) {
 	raw, err := json.Marshal(payload)
 	if err != nil {
 		return base, err
 	}
 	base = applyMeta(base, meta, scope)
-	base.Outcome = OutcomeOK
+	base.Outcome = agentcontract.OutcomeOK
 	base.Result = raw
 	if err := agentcontract.ValidateOperationPayload(base.Tool, base.Operation, raw, true); err != nil {
 		return base, err
@@ -1583,6 +1542,7 @@ type workSummary struct {
 	Ready           bool                        `json:"ready,omitempty"`
 	Narrative       string                      `json:"narrative,omitempty"`
 	TerminalAt      *string                     `json:"terminal_at"`
+	CreatedAt       string                      `json:"created_at"`
 	WorkPin         *store.WorkPin              `json:"work_pin,omitempty"`
 }
 
@@ -1599,9 +1559,9 @@ func summary(w store.WorkItem) workSummary {
 	if w.TerminalAt != "" {
 		terminal = &w.TerminalAt
 	}
-	return workSummary{ID: w.ID, Kind: kind, Title: w.Title, Task: w.Task, ValueStatement: w.ValueStatement, Tags: w.Tags, WorkflowTypeRef: w.WorkflowTypeRef, DefectIntake: w.DefectIntake, Size: w.Size, Urgency: w.Urgency, Lifecycle: w.Lifecycle, Version: w.Version, Priority: w.Priority, ProjectIDs: ids, Ready: w.Ready, Narrative: w.Narrative, TerminalAt: terminal, WorkPin: w.WorkPin}
+	return workSummary{ID: w.ID, Kind: kind, Title: w.Title, Task: w.Task, ValueStatement: w.ValueStatement, Tags: w.Tags, WorkflowTypeRef: w.WorkflowTypeRef, DefectIntake: w.DefectIntake, Size: w.Size, Urgency: w.Urgency, Lifecycle: w.Lifecycle, Version: w.Version, Priority: w.Priority, ProjectIDs: ids, Ready: w.Ready, Narrative: w.Narrative, TerminalAt: terminal, CreatedAt: w.CreatedAt, WorkPin: w.WorkPin}
 }
-func (r runtime) q1(base Envelope, q store.Q1Result) (Envelope, error) {
+func (r runtime) q1(base agentcontract.Envelope, q store.Q1Result) (agentcontract.Envelope, error) {
 	projects := []map[string]any{}
 	for _, p := range q.Projects {
 		projects = append(projects, map[string]any{"project_id": p.ID, "version": 1, "role": p.Role})
@@ -1628,7 +1588,7 @@ func (r runtime) q1(base Envelope, q store.Q1Result) (Envelope, error) {
 	}
 	return r.resultEnvelope(base, q.ResultMeta, r.scope(q.ResultMeta), map[string]any{"product_id": id, "stage": stage, "projects": projects, "candidates": q.CandidateIDs})
 }
-func (r runtime) q2(base Envelope, q store.Q2Result) (Envelope, error) {
+func (r runtime) q2(base agentcontract.Envelope, q store.Q2Result) (agentcontract.Envelope, error) {
 	items := make([]workSummary, 0, len(q.Items))
 	for _, w := range q.Items {
 		items = append(items, summary(w))
@@ -1636,21 +1596,21 @@ func (r runtime) q2(base Envelope, q store.Q2Result) (Envelope, error) {
 	return r.resultEnvelope(base, q.ResultMeta, r.scope(q.ResultMeta), map[string]any{"counts": map[string]int{"needed": q.LifecycleCounts["needed"], "in_progress": q.LifecycleCounts["in_progress"], "completed": q.LifecycleCounts["completed"], "cancelled": q.LifecycleCounts["cancelled"]}, "previews": items})
 }
 
-func (r runtime) q3(base Envelope, q store.Q3Result) (Envelope, error) {
+func (r runtime) q3(base agentcontract.Envelope, q store.Q3Result) (agentcontract.Envelope, error) {
 	items := make([]workSummary, 0, len(q.Items))
 	for _, w := range q.Items {
 		items = append(items, summary(w))
 	}
 	return r.resultEnvelope(base, q.ResultMeta, r.scope(q.ResultMeta), map[string]any{"items": items})
 }
-func (r runtime) q5(base Envelope, q store.Q5Result) (Envelope, error) {
+func (r runtime) q5(base agentcontract.Envelope, q store.Q5Result) (agentcontract.Envelope, error) {
 	items := make([]workSummary, 0, len(q.Items))
 	for _, w := range q.Items {
 		items = append(items, summary(w))
 	}
 	return r.resultEnvelope(base, q.ResultMeta, r.scope(q.ResultMeta), map[string]any{"items": items})
 }
-func (r runtime) q4(base Envelope, q store.Q4Result) (Envelope, error) {
+func (r runtime) q4(base agentcontract.Envelope, q store.Q4Result) (agentcontract.Envelope, error) {
 	items := make([]workSummary, 0, len(q.Items))
 	// nodes carries the unresolved blockers and items carries the blocked work.
 	// They must not share a backing array: `nodes := items` copies the slice
@@ -1671,7 +1631,7 @@ func (r runtime) q4(base Envelope, q store.Q4Result) (Envelope, error) {
 	}
 	return r.resultEnvelope(base, q.ResultMeta, r.scope(q.ResultMeta), map[string]any{"items": items, "nodes": nodes, "edges": edges})
 }
-func (r runtime) q6(base Envelope, q store.Q6Result) (Envelope, error) {
+func (r runtime) q6(base agentcontract.Envelope, q store.Q6Result) (agentcontract.Envelope, error) {
 	if q.Work != nil {
 		payload := map[string]any{"work": summary(*q.Work), "memberships": func() []map[string]string {
 			out := []map[string]string{}
@@ -1692,7 +1652,7 @@ func (r runtime) q6(base Envelope, q store.Q6Result) (Envelope, error) {
 			return envelope, err
 		}
 		if redacted {
-			envelope.Omissions = append(envelope.Omissions, Notice{Kind: "redacted", SourceID: q.Work.ID, Details: map[string]any{"field": "verdict", "reason": "executing_actor_verdict_read_scope"}})
+			envelope.Omissions = append(envelope.Omissions, agentcontract.Notice{Kind: "redacted", SourceID: q.Work.ID, Details: map[string]any{"field": "verdict", "reason": "executing_actor_verdict_read_scope"}})
 		}
 		return envelope, nil
 	}
@@ -1722,7 +1682,7 @@ func (r runtime) verdictFor(workID string) (*store.WorkflowReadVerdict, bool, er
 	return verdict, false, nil
 }
 
-func (r runtime) q7(base Envelope, q store.Q7Result) (Envelope, error) {
+func (r runtime) q7(base agentcontract.Envelope, q store.Q7Result) (agentcontract.Envelope, error) {
 	entries := q.Entries
 	if entries == nil {
 		entries = []store.HistoryEntry{}
@@ -2070,7 +2030,7 @@ func decodeContinuityProjectionCursor(inner string) (continuityProjectionCursor,
 	if json.Unmarshal([]byte(inner), &cursor) != nil {
 		return continuityProjectionCursor{}, false
 	}
-	if cursor.Version != 2 || cursor.Work == "" || !validSHA256Proof(cursor.Digest) || cursor.NextByteOffset < 1 {
+	if cursor.Version != 2 || cursor.Work == "" || !agentcontract.ValidSHA256Proof(cursor.Digest) || cursor.NextByteOffset < 1 {
 		return continuityProjectionCursor{}, false
 	}
 	return cursor, true
@@ -2106,15 +2066,15 @@ func (r runtime) continuityProjectionResult(header continuityProjectionHeader, d
 // The explicit omission notice states the transport's remaining bytes; it
 // means incomplete transport, never missing durable data or weakened
 // authority.
-func (r runtime) continuityProjectionEnvelope(base Envelope, meta store.ResultMeta, header continuityProjectionHeader, digest string, totalBytes, offset int64, fragment string, documentComplete bool, nextKind any) (Envelope, error) {
+func (r runtime) continuityProjectionEnvelope(base agentcontract.Envelope, meta store.ResultMeta, header continuityProjectionHeader, digest string, totalBytes, offset int64, fragment string, documentComplete bool, nextKind any) (agentcontract.Envelope, error) {
 	envelope, err := r.resultEnvelope(base, meta, r.scope(meta), r.continuityProjectionResult(header, digest, totalBytes, offset, fragment, documentComplete, nextKind))
 	if err != nil {
 		return envelope, err
 	}
-	if len(envelope.Omissions) >= MaxNotices {
+	if len(envelope.Omissions) >= agentcontract.MaxNotices {
 		return envelope, errors.New("continuity projection page exhausted its omission budget")
 	}
-	envelope.Omissions = append(envelope.Omissions, Notice{Kind: "continuity_projection_paged", Details: map[string]any{"total_bytes": totalBytes, "offset": offset, "fragment_bytes": int64(len(fragment)), "remaining_bytes": totalBytes - offset - int64(len(fragment)), "document_complete": documentComplete}})
+	envelope.Omissions = append(envelope.Omissions, agentcontract.Notice{Kind: "continuity_projection_paged", Details: map[string]any{"total_bytes": totalBytes, "offset": offset, "fragment_bytes": int64(len(fragment)), "remaining_bytes": totalBytes - offset - int64(len(fragment)), "document_complete": documentComplete}})
 	return envelope, nil
 }
 
@@ -2176,12 +2136,12 @@ func continuityFragmentLength(doc []byte, offset int, fit func(length int) (bool
 	return best, nil
 }
 
-func (r runtime) continuity(base Envelope, snapshot store.ContinuitySnapshot) (Envelope, error) {
+func (r runtime) continuity(base agentcontract.Envelope, snapshot store.ContinuitySnapshot) (agentcontract.Envelope, error) {
 	meta := continuityResultMeta(snapshot, snapshot.NextCursor)
 	return r.resultEnvelope(base, meta, r.scope(meta), ContinuityPayload(snapshot))
 }
 
-func (r runtime) q8(base Envelope, q store.Q8Result) (Envelope, error) {
+func (r runtime) q8(base agentcontract.Envelope, q store.Q8Result) (agentcontract.Envelope, error) {
 	if q.Edges == nil {
 		q.Edges = []store.RelationEdge{}
 	}
@@ -2209,7 +2169,7 @@ func relationReplacementState(edges []store.RelationEdge) string {
 	}
 	return "none"
 }
-func (r runtime) q9(base Envelope, q store.Q9Result) (Envelope, error) {
+func (r runtime) q9(base agentcontract.Envelope, q store.Q9Result) (agentcontract.Envelope, error) {
 	type item struct {
 		ID          string `json:"knowledge_id"`
 		Kind        string `json:"kind"`
@@ -2256,10 +2216,10 @@ func (r runtime) q9(base Envelope, q store.Q9Result) (Envelope, error) {
 	// keeps the one-entry envelope shape it always had.
 	if len(q.SourceWatermarks) > 0 {
 		marks := make([]map[string]string, 0, len(q.SourceWatermarks))
-		markEntries := make([]Watermark, 0, len(q.SourceWatermarks))
+		markEntries := make([]agentcontract.Watermark, 0, len(q.SourceWatermarks))
 		for _, mark := range q.SourceWatermarks {
 			marks = append(marks, map[string]string{"project_id": mark.ProjectID, "locator_id": mark.LocatorID, "watermark": mark.Watermark, "authority": mark.Authority})
-			markEntries = append(markEntries, Watermark{SourceKind: "git_knowledge", SourceID: mark.ProjectID + "/" + mark.LocatorID, Version: mark.Watermark})
+			markEntries = append(markEntries, agentcontract.Watermark{SourceKind: "git_knowledge", SourceID: mark.ProjectID + "/" + mark.LocatorID, Version: mark.Watermark})
 		}
 		payload["source_watermarks"] = marks
 		response, err := r.resultEnvelope(base, q.ResultMeta, r.scope(q.ResultMeta), payload)
@@ -2270,11 +2230,11 @@ func (r runtime) q9(base Envelope, q store.Q9Result) (Envelope, error) {
 	}
 	response, err := r.resultEnvelope(base, q.ResultMeta, r.scope(q.ResultMeta), payload)
 	if err == nil {
-		response.SourceVersionWatermark = []Watermark{{SourceKind: "git_knowledge", SourceID: q.IndexWatermark, Version: q.IndexWatermark}}
+		response.SourceVersionWatermark = []agentcontract.Watermark{{SourceKind: "git_knowledge", SourceID: q.IndexWatermark, Version: q.IndexWatermark}}
 	}
 	return response, err
 }
-func (r runtime) q10(base Envelope, q store.Q10Result) (Envelope, error) {
+func (r runtime) q10(base agentcontract.Envelope, q store.Q10Result) (agentcontract.Envelope, error) {
 	state := q.Status
 	var locator *string
 	lawStatus, successorID := "", ""

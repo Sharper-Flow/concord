@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -63,7 +64,7 @@ func TestSpineCompleteStepContractRecovery(t *testing.T) {
 					t.Fatalf("preflight admitted invalid complete-step recovery: %v", err)
 				}
 				response := f.action(t, "supersede_contract", payload)
-				if response.Outcome != OutcomeError || response.Error == nil || response.Error.Kind != mapFailureKind(failure.Kind) || response.Error.Message != failure.Detail || response.Error.EffectState != EffectNone || !reflect.DeepEqual(effects, premiseConsentSnapshot(t, f.s)) {
+				if response.Outcome != agentcontract.OutcomeError || response.Error == nil || response.Error.Kind != mapFailureKind(failure.Kind) || response.Error.Message != failure.Detail || response.Error.EffectState != agentcontract.EffectNone || !reflect.DeepEqual(effects, premiseConsentSnapshot(t, f.s)) {
 					t.Fatalf("complete-step refusal disagreed with preflight or changed state: preflight=%v response=%+v", err, response.Error)
 				}
 			}

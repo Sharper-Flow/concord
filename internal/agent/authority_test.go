@@ -244,7 +244,7 @@ func TestAuthorityMethodsGuardNilServiceAndStore(t *testing.T) {
 
 func TestUnexplainedErrorsRemainInternalErrors(t *testing.T) {
 	t.Parallel()
-	envelope := failureEnvelope(Envelope{}, errors.New("disk caught fire"))
+	envelope := failureEnvelope(agentcontract.Envelope{}, errors.New("disk caught fire"))
 	if envelope.Error == nil || envelope.Error.Kind != "internal_error" {
 		t.Fatalf("unexplained error kind = %v, want internal_error", envelope.Error)
 	}

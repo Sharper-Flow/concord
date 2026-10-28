@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -20,7 +21,7 @@ func TestObservationRecordDispatchContinuityAndNonAuthority(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	invoke := func(tool, op string, input any) Envelope {
+	invoke := func(tool, op string, input any) agentcontract.Envelope {
 		t.Helper()
 		raw, _ := json.Marshal(input)
 		response, err := Dispatch(ctx, s, service, InvokeRequest{Tool: tool, Operation: op, Input: raw}, mutationEnvelope(grant, scopeVersion))
@@ -35,7 +36,7 @@ func TestObservationRecordDispatchContinuityAndNonAuthority(t *testing.T) {
 		"work_id": "work-holder", "statement": "The sibling services share the misalignment this change fixes locally.",
 		"refs": []string{"service:cards-b"}, "tags": []string{"systemic"}, "idempotency_key": "obs-1",
 	})
-	if recorded.Outcome != OutcomeOK {
+	if recorded.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("observation_record failed: %+v", recorded.Error)
 	}
 
@@ -68,7 +69,7 @@ func TestObservationRecordDispatchContinuityAndNonAuthority(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if response.Outcome != OutcomeError || response.Error == nil || response.Error.Kind != "missing_evidence" {
+	if response.Outcome != agentcontract.OutcomeError || response.Error == nil || response.Error.Kind != "missing_evidence" {
 		t.Fatalf("observation must not substitute for terminal evidence: %+v", response.Error)
 	}
 	obsWithEvidence, _ := json.Marshal(map[string]any{"work_id": "work-holder", "expected_version": version, "target": "completed", "reason": "observed and delivered", "idempotency_key": "obs-terminal-evidence",
@@ -79,7 +80,7 @@ func TestObservationRecordDispatchContinuityAndNonAuthority(t *testing.T) {
 	}
 	// D7 retains workflow admission: evidence alone cannot finish a planned
 	// workflow, and neither refusal may change its version or disposition.
-	if workflowGated.Outcome != OutcomeError || workflowGated.Error == nil || workflowGated.Error.Kind != "not_terminal" {
+	if workflowGated.Outcome != agentcontract.OutcomeError || workflowGated.Error == nil || workflowGated.Error.Kind != "not_terminal" {
 		t.Fatalf("observation must not substitute for workflow completion: %+v", workflowGated.Error)
 	}
 	if lifecycle, got := readWorkFromStore(t, s, "work-holder"); lifecycle != "needed" || got != version {
@@ -94,7 +95,7 @@ func TestObservationRecordDispatchContinuityAndNonAuthority(t *testing.T) {
 		"work_id": "work-holder", "statement": "The sibling services share the misalignment this change fixes locally.",
 		"refs": []string{"service:cards-b"}, "tags": []string{"systemic"}, "idempotency_key": "obs-1",
 	})
-	if replay.Outcome != OutcomeOK || !replay.Replayed {
+	if replay.Outcome != agentcontract.OutcomeOK || !replay.Replayed {
 		t.Fatalf("replay=%+v", replay.Error)
 	}
 	var count int

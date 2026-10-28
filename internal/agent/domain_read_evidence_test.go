@@ -49,13 +49,13 @@ func domainRegistryAbsentFixture(t *testing.T) (*store.Store, *Service, CallEnve
 
 // domainRead dispatches one concord_domain read across the agent plane and
 // requires it to succeed, so every caller asserts against a real envelope.
-func domainRead(t *testing.T, s *store.Store, service *Service, env CallEnvelope, operation, input string) Envelope {
+func domainRead(t *testing.T, s *store.Store, service *Service, env CallEnvelope, operation, input string) agentcontract.Envelope {
 	t.Helper()
 	response, err := Dispatch(context.Background(), s, service, InvokeRequest{Tool: "concord_domain", Operation: operation, Input: json.RawMessage(input)}, env)
 	if err != nil {
 		t.Fatalf("concord_domain.%s dispatch: %v", operation, err)
 	}
-	if response.Outcome != OutcomeOK {
+	if response.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("concord_domain.%s outcome=%s error=%#v", operation, response.Outcome, response.Error)
 	}
 	return response
@@ -64,9 +64,9 @@ func domainRead(t *testing.T, s *store.Store, service *Service, env CallEnvelope
 // assertAuthoritativeCoverage binds the two carriers the floor requirement
 // names: the envelope's explicit authority, and the registry watermark that
 // says which projected registry commit the answer covers.
-func assertAuthoritativeCoverage(t *testing.T, response Envelope, operation string) store.DomainRegistryView {
+func assertAuthoritativeCoverage(t *testing.T, response agentcontract.Envelope, operation string) store.DomainRegistryView {
 	t.Helper()
-	if response.Authority != AuthorityLevel("authoritative") {
+	if response.Authority != agentcontract.AuthorityLevel("authoritative") {
 		t.Fatalf("concord_domain.%s authority=%q, want %q", operation, response.Authority, "authoritative")
 	}
 	var payload struct {
@@ -190,7 +190,7 @@ func TestAgentDomainRelationsAreAuthoritativeEmptyNotUnavailable(t *testing.T) {
 	if len(*payload.Relations) != 0 {
 		t.Fatalf("single-Domain Product reported %d architecture relations: %#v", len(*payload.Relations), *payload.Relations)
 	}
-	if response.Authority != AuthorityLevel("authoritative") {
+	if response.Authority != agentcontract.AuthorityLevel("authoritative") {
 		t.Fatalf("empty relation set was not reported as authoritative: authority=%q", response.Authority)
 	}
 	if response.Error != nil {
@@ -205,7 +205,7 @@ func TestAgentDomainRelationsAreAuthoritativeEmptyNotUnavailable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if absent.Outcome == OutcomeOK {
+	if absent.Outcome == agentcontract.OutcomeOK {
 		t.Fatalf("absent registry answered as if authoritative: %s", absent.Result)
 	}
 	if absent.Error == nil || absent.Error.Kind != "unknown_scope" {
@@ -241,7 +241,7 @@ func TestAgentDomainRelationsAreAuthoritativeEmptyNotUnavailable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if absentList.Outcome == OutcomeOK {
+	if absentList.Outcome == agentcontract.OutcomeOK {
 		t.Fatalf("unprojected registry answered the Domain list as if it were an authoritative empty Product: %s", absentList.Result)
 	}
 	if absentList.Error == nil || absentList.Error.Kind != "unknown_scope" {

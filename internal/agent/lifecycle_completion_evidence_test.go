@@ -3,6 +3,8 @@ package agent
 import (
 	"fmt"
 	"testing"
+
+	"github.com/sharper-flow/concord/internal/agentcontract"
 )
 
 // TestLifecycleCompletionEvidenceRefs proves the response envelope for a
@@ -22,7 +24,7 @@ func TestLifecycleCompletionEvidenceRefs(t *testing.T) {
 
 	// CD-0243 D3/D7 retire ordinary terminal consent, not receipt evidence.
 	approved := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "lifecycle", Input: input}, env)
-	if approved.Outcome != OutcomeOK {
+	if approved.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("approved dispatch failed outcome=%s err=%+v", approved.Outcome, approved.Error)
 	}
 	if lifecycle, _ := readWorkFromStore(t, s, "work-cross"); lifecycle != "completed" {

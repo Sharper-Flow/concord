@@ -32,7 +32,7 @@ func TestWorkflowActionPartitionsUnderDerivedPrincipal(t *testing.T) {
 		Operation: "workflow_action",
 		Input:     json.RawMessage(`{"work_id":"work-1","expected_version":4,"action_id":"record_proposal","fields":{"problem":"The bounded problem statement.","affected":["The affected system."],"stakes":"The bounded stakes statement.","user_outcomes":["The expected user outcome."]},"idempotency_key":"wf-partition"}`),
 	}, env)
-	if err != nil || response.Outcome != OutcomeOK || response.Error != nil {
+	if err != nil || response.Outcome != agentcontract.OutcomeOK || response.Error != nil {
 		t.Fatalf("workflow action response=%+v err=%v", response, err)
 	}
 
@@ -76,7 +76,7 @@ func TestWorkflowActionRefusesForgedEnvelopePrincipal(t *testing.T) {
 	if err != nil {
 		t.Fatalf("forged principal dispatch err=%v", err)
 	}
-	if response.Outcome != OutcomeError || response.Error == nil || response.Error.Kind != "unauthorized" {
+	if response.Outcome != agentcontract.OutcomeError || response.Error == nil || response.Error.Kind != "unauthorized" {
 		t.Fatalf("forged principal response=%+v", response)
 	}
 	var records int

@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -16,7 +17,7 @@ import (
 // git gates; CD-0243 D7 reserves approval for the existing safety waivers. The
 // continuity read re-pins the reading session's held verify leases.
 
-func authorityInvoke(t *testing.T, s *store.Store, service *Service, grant Authority, tool, operation string, input map[string]any) Envelope {
+func authorityInvoke(t *testing.T, s *store.Store, service *Service, grant Authority, tool, operation string, input map[string]any) agentcontract.Envelope {
 	t.Helper()
 	scopeVersion, _, err := s.ScopeVersion(context.Background(), "project-1")
 	if err != nil {
@@ -51,7 +52,7 @@ func TestWorktreeDestroyDispatchReclaimsMergedTerminalWork(t *testing.T) {
 	response := authorityInvoke(t, s, second, secondGrant, "concord_work_transition", "worktree_destroy", map[string]any{
 		"work_id": "work-2", "expected_version": 4, "default_ref": "main", "idempotency_key": "destroy-2",
 	})
-	if response.Outcome != OutcomeOK {
+	if response.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("destroy response=%+v err=%+v", response, response.Error)
 	}
 	if _, err := os.Stat(worktreePath); !os.IsNotExist(err) {
@@ -72,7 +73,7 @@ func TestWorktreeDestroyDispatchNonTerminalNeedsNoConsent(t *testing.T) {
 	removed := authorityInvoke(t, s, service, grant, "concord_work_transition", "worktree_destroy", map[string]any{
 		"work_id": "work-1", "expected_version": 3, "default_ref": "main", "idempotency_key": "destroy-nt",
 	})
-	if removed.Outcome != OutcomeOK {
+	if removed.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("removed response=%+v err=%+v", removed, removed.Error)
 	}
 	if _, err := os.Stat(worktreePath); !os.IsNotExist(err) {
@@ -94,7 +95,7 @@ func TestWorktreeDestroyDispatchDestructiveUnderApproval(t *testing.T) {
 	refused := authorityInvoke(t, s, service, grant, "concord_work_transition", "worktree_destroy", map[string]any{
 		"work_id": "work-1", "expected_version": 4, "default_ref": "main", "idempotency_key": "destroy-dirty",
 	})
-	if refused.Outcome != OutcomeError || refused.Error == nil || refused.Error.Kind != "invalid_input" {
+	if refused.Outcome != agentcontract.OutcomeError || refused.Error == nil || refused.Error.Kind != "invalid_input" {
 		t.Fatalf("refused response=%+v err=%+v, want the dirty-tree refusal", refused, refused.Error)
 	}
 
@@ -102,7 +103,7 @@ func TestWorktreeDestroyDispatchDestructiveUnderApproval(t *testing.T) {
 	challenge := authorityInvoke(t, s, service, grant, "concord_work_transition", "worktree_destroy", map[string]any{
 		"work_id": "work-1", "expected_version": 4, "default_ref": "main", "destructive": true, "idempotency_key": "destroy-dirty",
 	})
-	if challenge.Outcome != OutcomeError || challenge.Error == nil || challenge.Error.Kind != "approval_required" {
+	if challenge.Outcome != agentcontract.OutcomeError || challenge.Error == nil || challenge.Error.Kind != "approval_required" {
 		t.Fatalf("challenge response=%+v err=%+v, want approval_required", challenge, challenge.Error)
 	}
 	challengeRef, _ := challenge.Error.Details["approval_ref"].(string)
@@ -122,7 +123,7 @@ func TestWorktreeDestroyDispatchDestructiveUnderApproval(t *testing.T) {
 	if approvalErr != nil {
 		t.Fatal(approvalErr)
 	}
-	if approved.Outcome != OutcomeOK {
+	if approved.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("approved response=%+v err=%+v", approved, approved.Error)
 	}
 	if _, err := os.Stat(worktreePath); !os.IsNotExist(err) {
@@ -141,7 +142,7 @@ func TestWorktreeDestroyDispatchApprovedReleasesStaleOccupancy(t *testing.T) {
 	refused := authorityInvoke(t, s, service, grant, "concord_work_transition", "worktree_destroy", map[string]any{
 		"work_id": "work-1", "expected_version": 3, "default_ref": "main", "idempotency_key": "destroy-stale",
 	})
-	if refused.Outcome != OutcomeError || refused.Error == nil || refused.Error.Kind != "approval_required" {
+	if refused.Outcome != agentcontract.OutcomeError || refused.Error == nil || refused.Error.Kind != "approval_required" {
 		t.Fatalf("refused response=%+v err=%+v, want approval_required", refused, refused.Error)
 	}
 	challengeRef, _ := refused.Error.Details["approval_ref"].(string)
@@ -161,7 +162,7 @@ func TestWorktreeDestroyDispatchApprovedReleasesStaleOccupancy(t *testing.T) {
 	if approvalErr != nil {
 		t.Fatal(approvalErr)
 	}
-	if approved.Outcome != OutcomeOK {
+	if approved.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("approved response=%+v err=%+v, want the stale occupancy released", approved, approved.Error)
 	}
 	if _, err := os.Stat(worktreePath); !os.IsNotExist(err) {
@@ -204,7 +205,7 @@ func TestContinuityDispatchRePinsHeldLease(t *testing.T) {
 	response := authorityInvoke(t, s, service, grant, "concord_work_trace", "continuity", map[string]any{
 		"work_id": "work-1", "page": map[string]any{"limit": 5, "cursor": nil},
 	})
-	if response.Outcome != OutcomeOK {
+	if response.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("continuity response=%+v err=%+v", response, response.Error)
 	}
 	var payload struct {

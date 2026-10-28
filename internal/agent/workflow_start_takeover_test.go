@@ -52,14 +52,14 @@ func newTakeoverFixture(t *testing.T) takeoverFixture {
 	return takeoverFixture{s: s, service: service, privateKey: privateKey, owner: owner, ownerGrant: grant, other: other, otherGrant: otherGrant}
 }
 
-func (f takeoverFixture) action(t *testing.T, env CallEnvelope, actionID, key string) (Envelope, map[string]any) {
+func (f takeoverFixture) action(t *testing.T, env CallEnvelope, actionID, key string) (agentcontract.Envelope, map[string]any) {
 	t.Helper()
 	input := map[string]any{"work_id": "work-1", "expected_version": workVersion(t, f.s, "work-1"), "action_id": actionID, "fields": map[string]any{}, "idempotency_key": key}
 	return invokeWorkflowBoundary(t, f.s, f.service, env, input, store.BuiltinWorkflowRegistry()), input
 }
 
 // approveTakeover signs the exact bindings the challenge minted for the caller.
-func approveTakeover(t *testing.T, privateKey ed25519.PrivateKey, env CallEnvelope, grant Authority, challenge Envelope, input map[string]any) (CallEnvelope, map[string]any) {
+func approveTakeover(t *testing.T, privateKey ed25519.PrivateKey, env CallEnvelope, grant Authority, challenge agentcontract.Envelope, input map[string]any) (CallEnvelope, map[string]any) {
 	t.Helper()
 	ref, _ := challenge.Error.Details["approval_ref"].(string)
 	if ref == "" {
@@ -88,7 +88,7 @@ func actorRefOf(grant Authority) string {
 func TestStartExecutionTakeoverRequiresApprovalBoundToHeldAttempt(t *testing.T) {
 	t.Parallel()
 	f := newTakeoverFixture(t)
-	if first, _ := f.action(t, f.owner, "start_execution", "owner-start"); first.Outcome != OutcomeOK {
+	if first, _ := f.action(t, f.owner, "start_execution", "owner-start"); first.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("owner start_execution: %+v", first.Error)
 	}
 	ownerRef := actorRefOf(f.ownerGrant)
@@ -108,7 +108,7 @@ func TestStartExecutionTakeoverRequiresApprovalBoundToHeldAttempt(t *testing.T) 
 
 	approvedEnv, approved := approveTakeover(t, f.privateKey, f.other, f.otherGrant, challenge, input)
 	response := invokeWorkflowBoundary(t, f.s, f.service, approvedEnv, approved, store.BuiltinWorkflowRegistry())
-	if response.Outcome != OutcomeOK {
+	if response.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("approved takeover: %+v", response.Error)
 	}
 	if epoch, actor := latestExecutionStart(t, f.s); epoch != 2 || actor != actorRefOf(f.otherGrant) {
@@ -118,7 +118,7 @@ func TestStartExecutionTakeoverRequiresApprovalBoundToHeldAttempt(t *testing.T) 
 	if stale, _ := f.action(t, f.owner, "checkpoint_execution", "owner-stale-checkpoint"); stale.Error == nil || stale.Error.Kind != "unauthorized" {
 		t.Fatalf("superseded holder checkpoint = %+v, want unauthorized", stale.Error)
 	}
-	if current, _ := f.action(t, approvedEnv, "checkpoint_execution", "taker-checkpoint"); current.Outcome != OutcomeOK {
+	if current, _ := f.action(t, approvedEnv, "checkpoint_execution", "taker-checkpoint"); current.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("taker checkpoint: %+v", current.Error)
 	}
 }
@@ -126,7 +126,7 @@ func TestStartExecutionTakeoverRequiresApprovalBoundToHeldAttempt(t *testing.T) 
 func TestStartExecutionTakeoverApprovalRefusesAfterHeldAttemptMoves(t *testing.T) {
 	t.Parallel()
 	f := newTakeoverFixture(t)
-	if first, _ := f.action(t, f.owner, "start_execution", "owner-start"); first.Outcome != OutcomeOK {
+	if first, _ := f.action(t, f.owner, "start_execution", "owner-start"); first.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("owner start_execution: %+v", first.Error)
 	}
 	challenge, input := f.action(t, f.other, "start_execution", "other-start")
@@ -135,7 +135,7 @@ func TestStartExecutionTakeoverApprovalRefusesAfterHeldAttemptMoves(t *testing.T
 	}
 	// The holder restarts its own attempt after the challenge, so the
 	// approval names an epoch that is no longer held.
-	if restart, _ := f.action(t, f.owner, "start_execution", "owner-restart"); restart.Outcome != OutcomeOK {
+	if restart, _ := f.action(t, f.owner, "start_execution", "owner-restart"); restart.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("owner restart: %+v", restart.Error)
 	}
 	approved := cloneWithApproval(t, input, challenge.Error.Details["approval_ref"].(string))
@@ -160,7 +160,7 @@ func TestStartExecutionTakeoverApprovalRefusesAfterHeldAttemptMoves(t *testing.T
 func TestStartExecutionTakeoverFencesHeldAttemptChangeInsideTransaction(t *testing.T) {
 	t.Parallel()
 	f := newTakeoverFixture(t)
-	if first, _ := f.action(t, f.owner, "start_execution", "owner-start"); first.Outcome != OutcomeOK {
+	if first, _ := f.action(t, f.owner, "start_execution", "owner-start"); first.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("owner start_execution: %+v", first.Error)
 	}
 	challenge, input := f.action(t, f.other, "start_execution", "other-start")
@@ -199,10 +199,10 @@ func TestStartExecutionTakeoverFencesHeldAttemptChangeInsideTransaction(t *testi
 func TestStartExecutionHolderRestartNeedsNoApproval(t *testing.T) {
 	t.Parallel()
 	f := newTakeoverFixture(t)
-	if first, _ := f.action(t, f.owner, "start_execution", "owner-start"); first.Outcome != OutcomeOK {
+	if first, _ := f.action(t, f.owner, "start_execution", "owner-start"); first.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("owner start_execution: %+v", first.Error)
 	}
-	if restart, _ := f.action(t, f.owner, "start_execution", "owner-restart"); restart.Outcome != OutcomeOK {
+	if restart, _ := f.action(t, f.owner, "start_execution", "owner-restart"); restart.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("holder restart = %+v, want ok without approval", restart.Error)
 	}
 	if epoch, actor := latestExecutionStart(t, f.s); epoch != 2 || actor != actorRefOf(f.ownerGrant) {
@@ -216,14 +216,14 @@ func TestStartExecutionHolderRestartNeedsNoApproval(t *testing.T) {
 func TestStartExecutionAfterHolderVacatesNeedsNoApproval(t *testing.T) {
 	t.Parallel()
 	f := newTakeoverFixture(t)
-	if first, _ := f.action(t, f.owner, "start_execution", "owner-start"); first.Outcome != OutcomeOK {
+	if first, _ := f.action(t, f.owner, "start_execution", "owner-start"); first.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("owner start_execution: %+v", first.Error)
 	}
 	payload, _ := json.Marshal(map[string]any{"work_id": "work-1", "project_id": "project-1", "session_ref": f.ownerGrant.SessionRef, "source_directory": "/repo-wt", "destination_directory": "/repo"})
 	if err := store.ApplyOperation(context.Background(), f.s, store.Operation{Events: []store.Event{{EventID: "owner-vacated", Kind: "work.session_vacated", SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: f.ownerGrant.PrincipalRef, OccurredAt: fixedTime(), PayloadVersion: 2, Payload: payload}}}); err != nil {
 		t.Fatal(err)
 	}
-	if handoff, _ := f.action(t, f.other, "start_execution", "other-start"); handoff.Outcome != OutcomeOK {
+	if handoff, _ := f.action(t, f.other, "start_execution", "other-start"); handoff.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("start after the holder vacated = %+v, want ok without approval", handoff.Error)
 	}
 	if epoch, actor := latestExecutionStart(t, f.s); epoch != 2 || actor != actorRefOf(f.otherGrant) {
@@ -245,11 +245,11 @@ func TestStartExecutionOverLiveLaneRequiresApprovalUntilLaneRelinquishes(t *test
 		t.Fatal(err)
 	}
 	env := mutationEnvelope(grant, scopeVersion)
-	start := func(key string) Envelope {
+	start := func(key string) agentcontract.Envelope {
 		t.Helper()
 		return dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: retryJSON(map[string]any{"work_id": "work-1", "expected_version": workVersion(t, s, "work-1"), "action_id": "start_execution", "idempotency_key": key})}, env)
 	}
-	if first := start("lane-owner-start"); first.Outcome != OutcomeOK {
+	if first := start("lane-owner-start"); first.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("owner start_execution: %+v", first.Error)
 	}
 	recordReviewedRetryJob(t, s, service, env, "job:retry-objective")
@@ -257,7 +257,7 @@ func TestStartExecutionOverLiveLaneRequiresApprovalUntilLaneRelinquishes(t *test
 	if dispatched := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: retryJSON(map[string]any{
 		"work_id": "work-1", "expected_version": workVersion(t, s, "work-1"), "action_id": "dispatch_worker", "idempotency_key": "live-lane-dispatch",
 		"fields": map[string]any{"attempt_id": attemptID, "worker_packet": retryMutationPacket(t, s, attemptID, nil)},
-	})}, env); dispatched.Outcome != OutcomeOK {
+	})}, env); dispatched.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("dispatch_worker: %+v", dispatched.Error)
 	}
 	lane := retryLane(t)
@@ -299,7 +299,7 @@ func TestStartExecutionOverLiveLaneRequiresApprovalUntilLaneRelinquishes(t *test
 	}); err != nil {
 		t.Fatalf("abandon lane: %v", err)
 	}
-	if after := start("lane-owner-after-abandon"); after.Outcome != OutcomeOK {
+	if after := start("lane-owner-after-abandon"); after.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("start after the lane relinquished = %+v, want ok without approval", after.Error)
 	}
 }

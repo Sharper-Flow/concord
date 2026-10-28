@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-const ManifestDigest = "sha256:3a0989cf4f93811b1b4cd41650da084781e302a6db4330ca4defedc1a2ce47ce"
+const ManifestDigest = "sha256:40b62d282ba9d6125c4efeb93819afb322360f36b549e527608c40cc9d3a5d86"
 
 type OperationKind string
 
@@ -311,7 +311,7 @@ var GeneratedPayloadRules = map[string]GeneratedPayloadRule{
 	"work_scope":                                            {Required: []string{"items"}, Properties: []string{"work", "memberships", "items", "next_cursor", "verdict"}},
 	"work_size_inputs":                                      {Required: []string{"security", "user_visible", "blast_radius", "estimated_production_lines"}, Properties: []string{"paths", "behavior", "security", "user_visible", "blast_radius", "estimated_production_lines"}},
 	"work_size_summary":                                     {Required: []string{"size", "model_version", "recorded_at"}, Properties: []string{"size", "model_size", "operator_size", "model_version", "recorded_at"}},
-	"work_summary":                                          {Required: []string{"id", "kind", "title", "lifecycle", "version"}, Properties: []string{"id", "kind", "title", "task", "value_statement", "tags", "workflow_type_ref", "lifecycle", "version", "priority", "urgency", "project_ids", "ready", "narrative", "terminal_at", "work_pin", "liveness", "defect_intake", "size"}},
+	"work_summary":                                          {Required: []string{"id", "kind", "title", "lifecycle", "version"}, Properties: []string{"id", "kind", "title", "task", "value_statement", "tags", "workflow_type_ref", "lifecycle", "version", "priority", "urgency", "project_ids", "ready", "narrative", "terminal_at", "created_at", "work_pin", "liveness", "defect_intake", "size"}},
 	"work_trace_continuity_input":                           {Required: []string{"work_id"}, Properties: []string{"work_id", "page", "limit", "requested_budget_seconds"}},
 	"work_trace_history_input":                              {Required: []string{"work_id"}, Properties: []string{"work_id", "direction", "record_kinds", "page", "limit", "requested_budget_seconds", "contract_version"}},
 	"work_trace_project_retirement_input":                   {Required: []string{"work_id"}, Properties: []string{"work_id", "requested_budget_seconds"}},

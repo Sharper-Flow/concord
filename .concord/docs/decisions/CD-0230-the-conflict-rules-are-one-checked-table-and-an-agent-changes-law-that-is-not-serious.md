@@ -159,16 +159,20 @@ check D5's declared approval-point inventory, not six-class consent behavior.
 `python3 scripts/check-conflict-rules.py` reports both rule and approval-point
 gaps. Passing that validator does not satisfy an outstanding entry.
 
-D3 is only partly implemented.
-`internal/store.TestRecordConflictApplicationTxRecordsTheLiveBinding` and
-`internal/agent.TestConflictObservationRecordsOneSettlementTrio` exercise
-the rule, effective size, outcome, and settlement digest binding.
-`internal/store.TestRecordConflictApplicationTxRetryReturnsTheOriginalRecord`
-checks retry identity. The recorder retains an identity and payload digest,
-not a readable settlement payload. These tests do not prove the operator's
-spot-check read. [Concord (CON) issue 1348](https://linear.app/sharper-flow/issue/CON-1348)
-owns that retained D3 outcome under CD-0242 D2's current-state and retention
-rules, without restoring history or replay.
+D3's live recorder retains readable current settlement evidence.
+`internal/agent.TestConflictObservationHistoryRoundTrip` records then reads
+the full rule, effective size and outcome through the existing history read,
+including retry identity and paging. `internal/agent.TestConflictObservationHistoryRespectsScope`
+checks the reader's Product boundary. `internal/store.TestConflictApplicationCurrentRecordSurvivesSizeAndReopen`
+checks that later sizing and reopening preserve the recorded assessment.
+`internal/store.TestConflictApplicationCurrentRecordMigrationDoesNotRestoreReceipts`
+checks that old digest-only receipts are not reconstructed.
+`internal/store.TestConflictApplicationCurrentRecordGuardsAndCleanup` and
+`internal/store.TestConflictApplicationCurrentRecordRemovedWithWork` check
+removal with the work record. This is spot-check evidence under CD-0242 D2,
+not history, replay, approval or proof that the settlement followed its rule.
+The review method records applicable-rule findings through existing report
+carriers; its projection tests prove shipping, not semantic rule application.
 
 `python3 scripts/check-law-coverage.py` validates the outstanding coverage
 pointer, not the remaining enforcement and proof assigned below:

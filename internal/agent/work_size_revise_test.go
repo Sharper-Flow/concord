@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -24,7 +25,7 @@ func reviseSizeInput(workID string, version int64, key, sizeField string) map[st
 	return input
 }
 
-func dispatchRevise(t *testing.T, s *store.Store, service *Service, env CallEnvelope, input map[string]any) (Envelope, []byte) {
+func dispatchRevise(t *testing.T, s *store.Store, service *Service, env CallEnvelope, input map[string]any) (agentcontract.Envelope, []byte) {
 	t.Helper()
 	raw, err := json.Marshal(input)
 	if err != nil {
@@ -41,7 +42,7 @@ func readWorkSizeSummary(t *testing.T, s *store.Store, service *Service, env Cal
 	t.Helper()
 	env.RequestID = "size-read-" + workID
 	read, err := Dispatch(context.Background(), s, service, InvokeRequest{Tool: "concord_work_browse", Operation: "scope", Input: json.RawMessage(`{"product_id":"product-1","work_id":"` + workID + `"}`)}, env)
-	if err != nil || read.Outcome != OutcomeOK {
+	if err != nil || read.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("scope read = %+v, %v", read, err)
 	}
 	raw, _ := json.Marshal(read.Result)
@@ -61,7 +62,7 @@ func TestReviseIntentSizeRevisionsStayOnTheWork(t *testing.T) {
 	ctx := context.Background()
 	s, service, grant, scopeVersion := indexedCaptureFixture(t)
 	captured := dispatchCapture(t, s, service, grant, scopeVersion, "resize-capture", sizedCaptureInput("resize-capture", sizedCaptureInputs))
-	if captured.Outcome != OutcomeOK {
+	if captured.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("sized capture = %+v", captured.Error)
 	}
 	workID := (*captured.ChangedRefs)[0].ID
@@ -77,7 +78,7 @@ func TestReviseIntentSizeRevisionsStayOnTheWork(t *testing.T) {
 	// The model's crucial decision stays on the same work item.
 	env.RequestID = "resize-rerun"
 	rerun, _ := dispatchRevise(t, s, service, env, reviseSizeInput(workID, 4, "resize-rerun", `"size_inputs":{"paths":["README.md"],"security":true,"user_visible":false,"blast_radius":"package","estimated_production_lines":20}`))
-	if rerun.Outcome != OutcomeOK || rerun.ChangedRefs == nil || len(*rerun.ChangedRefs) != 1 {
+	if rerun.Outcome != agentcontract.OutcomeOK || rerun.ChangedRefs == nil || len(*rerun.ChangedRefs) != 1 {
 		t.Fatalf("rerun = %+v changed=%+v", rerun.Error, rerun.ChangedRefs)
 	}
 	refs := *rerun.ChangedRefs
@@ -112,7 +113,7 @@ func TestReviseIntentSizeRevisionsStayOnTheWork(t *testing.T) {
 	scope := map[string]any{"product_id": "product-1", "product_ids": []string{"product-1"}, "project_ids": []string{"project-1"}, "work_ids": []string{workID}, "scope_version": scopeVersion}
 	env.HostApproval = signedHostApproval(nil, challengeRef, mutationDigest("concord_work_define", "revise_intent", env, approvedRaw), scope, map[string]any{"work": int64(5)}, grant.SessionRef, grant.AgentRef, grant.Worktree, fixedTime(), "")
 	override, _ := dispatchRevise(t, s, service, env, approvedInput)
-	if override.Outcome != OutcomeOK || override.ChangedRefs == nil || len(*override.ChangedRefs) != 1 {
+	if override.Outcome != agentcontract.OutcomeOK || override.ChangedRefs == nil || len(*override.ChangedRefs) != 1 {
 		t.Fatalf("approved override = %+v changed=%+v", override.Error, override.ChangedRefs)
 	}
 	if (*override.ChangedRefs)[0].ID != workID || (*override.ChangedRefs)[0].Version != "7" || workVersion(t, s, workID) != 7 {

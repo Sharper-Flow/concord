@@ -3,6 +3,7 @@ package agent
 import (
 	"testing"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -24,7 +25,7 @@ func TestVersionConflictMappingCarriesTheLiveVersion(t *testing.T) {
 			{SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Version: 3},
 		},
 	}
-	out := failureEnvelope(NewBase("vc-live", "concord_work_transition", "workflow_action"), failure)
+	out := failureEnvelope(agentcontract.NewBase("vc-live", "concord_work_transition", "workflow_action"), failure)
 	if out.Error == nil {
 		t.Fatalf("failureEnvelope produced no typed error")
 	}
@@ -51,7 +52,7 @@ func TestEnvelopeStillRefusesACarrierLessVersionConflict(t *testing.T) {
 		RetrySafe:      false,
 		RecoveryAction: "reload the pack and retry",
 	}
-	out := failureEnvelope(NewBase("vc-bare", "concord_work_define", "research_finding_record"), failure)
+	out := failureEnvelope(agentcontract.NewBase("vc-bare", "concord_work_define", "research_finding_record"), failure)
 	if err := out.Validate(); err == nil {
 		t.Fatalf("a version conflict naming no current version must still be refused at the envelope boundary")
 	}

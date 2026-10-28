@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -57,7 +58,7 @@ func TestValue(t *testing.T) {
 		"host_pid": os.Getpid(), "work_id": "work-1", "project_id": "project-1",
 		"base_sha": base, "expected_version": 2, "idempotency_key": "native-prepare-claim",
 	})
-	if claim.Outcome != OutcomeOK {
+	if claim.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("claim response=%+v err=%+v", claim, claim.Error)
 	}
 	// The active workflow contract the prepare admission reads: the claiming
@@ -121,7 +122,7 @@ func TestValue(t *testing.T) {
 			"phase": "prepare", "expected_contract_version": int64(1), "control_bundle": bundleInput,
 		}}
 	}
-	decodeResult := func(env Envelope) struct {
+	decodeResult := func(env agentcontract.Envelope) struct {
 		ExitCode int                       `json:"exit_code"`
 		Oracle   *store.NativeOracleResult `json:"oracle"`
 	} {
@@ -135,7 +136,7 @@ func TestValue(t *testing.T) {
 		}
 		return payload
 	}
-	assertQualified := func(env Envelope, subject string) {
+	assertQualified := func(env agentcontract.Envelope, subject string) {
 		t.Helper()
 		payload := decodeResult(env)
 		p := payload.Oracle
@@ -154,11 +155,11 @@ func TestValue(t *testing.T) {
 	first := tiersInvoke(t, s, service, grant, "concord_work_transition", "worktree_verify", map[string]any{
 		"work_id": "work-1", "command": []string{"git", "rev-parse", "--verify", "HEAD^{commit}"}, "idempotency_key": "native-prepare-subject-1",
 	})
-	if first.Outcome != OutcomeOK {
+	if first.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("first subject verify=%+v err=%+v", first, first.Error)
 	}
 	prepared := tiersInvoke(t, s, service, grant, "concord_work_transition", "worktree_verify", prepareInput("native-prepare-1"))
-	if prepared.Outcome != OutcomeOK {
+	if prepared.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("baseline prepare=%+v err=%+v", prepared, prepared.Error)
 	}
 	assertQualified(prepared, base)
@@ -183,13 +184,13 @@ func TestValue(t *testing.T) {
 	leasesBeforeRefusal := countLeases()
 
 	refused := tiersInvoke(t, s, service, grant, "concord_work_transition", "worktree_verify", prepareInput("native-prepare-2"))
-	if refused.Outcome != OutcomeError || refused.Error == nil {
+	if refused.Outcome != agentcontract.OutcomeError || refused.Error == nil {
 		t.Fatalf("stale-core-subject prepare=%+v, want the typed admission refusal", refused)
 	}
 	errEnvelope := refused.Error
 	const detail = "preparation requires clean HEAD equal to the current core subject"
 	const remedy = `run worktree_verify with command ["git","rev-parse","--verify","HEAD^{commit}"] and a fresh request identity, then refresh context`
-	if errEnvelope.Kind != "missing_evidence" || errEnvelope.RecoveryAction.Kind != "provide_evidence" || errEnvelope.RetrySafe || errEnvelope.EffectState != EffectNone {
+	if errEnvelope.Kind != "missing_evidence" || errEnvelope.RecoveryAction.Kind != "provide_evidence" || errEnvelope.RetrySafe || errEnvelope.EffectState != agentcontract.EffectNone {
 		t.Fatalf("refusal lost its closed coupling or no-effect semantics: %+v", errEnvelope)
 	}
 	if !strings.Contains(errEnvelope.Message, detail) {
@@ -236,11 +237,11 @@ func TestValue(t *testing.T) {
 	refreshed := tiersInvoke(t, s, service, grant, "concord_work_transition", "worktree_verify", map[string]any{
 		"work_id": "work-1", "command": []string{"git", "rev-parse", "--verify", "HEAD^{commit}"}, "idempotency_key": "native-prepare-subject-2",
 	})
-	if refreshed.Outcome != OutcomeOK {
+	if refreshed.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("remedy HEAD refresh=%+v err=%+v", refreshed, refreshed.Error)
 	}
 	qualified := tiersInvoke(t, s, service, grant, "concord_work_transition", "worktree_verify", prepareInput("native-prepare-3"))
-	if qualified.Outcome != OutcomeOK {
+	if qualified.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("post-remedy prepare=%+v err=%+v", qualified, qualified.Error)
 	}
 	assertQualified(qualified, advanced)

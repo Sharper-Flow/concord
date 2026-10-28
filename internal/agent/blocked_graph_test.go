@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/pm1fixture"
 )
 
@@ -36,7 +37,7 @@ func TestBlockedReadKeepsItemsAndBlockerNodesSeparateAndVersioned(t *testing.T) 
 		Operation: "blocked",
 		Input:     json.RawMessage(`{"product_id":"prod-alpha","page":{"cursor":null,"limit":10}}`),
 	}, env)
-	if resp.Outcome != OutcomeOK {
+	if resp.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("blocked read refused: %+v", resp.Error)
 	}
 

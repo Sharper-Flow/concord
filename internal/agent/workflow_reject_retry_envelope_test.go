@@ -77,7 +77,7 @@ func seedDerivedFailureWorkerForCombinedReject(t *testing.T, s *store.Store, ser
 	env := mutationEnvelope(grant, scopeVersion)
 	version := workVersion(t, s, "work-1")
 	start := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: json.RawMessage(`{"work_id":"work-1","expected_version":` + strconv.FormatInt(version, 10) + `,"action_id":"start_execution","idempotency_key":"combined-reject-start-1"}`)}, env)
-	if start.Outcome != OutcomeOK {
+	if start.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("seed combined-reject start: %+v", start.Error)
 	}
 	fixture := oAgentFixture(t, s, service, env, "work-1")
@@ -133,7 +133,7 @@ func recordOversizedWorkContext(t *testing.T, s *store.Store, service *Service, 
 	}
 	env.RequestID = "request:combined-reject-context-1"
 	recorded := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: raw}, env)
-	if recorded.Outcome != OutcomeOK {
+	if recorded.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("record the oversized work context: %+v", recorded.Error)
 	}
 }
@@ -200,13 +200,13 @@ func TestCombinedRejectOversizedResultRefusesZeroWrite(t *testing.T) {
 	before := combinedRejectRefusalEvents(t, s)
 	durableBefore := countRows(t, s.DatabaseForTesting(), "SELECT count(*) FROM durable_operations WHERE work_id='work-1' AND result_kind='completed'")
 	refused := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: input}, env)
-	if refused.Outcome != OutcomeError || refused.Error == nil {
+	if refused.Outcome != agentcontract.OutcomeError || refused.Error == nil {
 		t.Fatalf("the oversized combined rejection answered %+v, want the typed envelope refusal", refused)
 	}
 	if refused.Error.Kind != "limit_exceeded" || refused.Error.RecoveryAction.Kind != "reduce_limit" {
 		t.Fatalf("the oversized refusal is %s/%s, want limit_exceeded with reduce_limit", refused.Error.Kind, refused.Error.RecoveryAction.Kind)
 	}
-	if refused.Error.EffectState != EffectNone {
+	if refused.Error.EffectState != agentcontract.EffectNone {
 		t.Fatalf("the oversized refusal reports effect %q, want none: nothing committed", refused.Error.EffectState)
 	}
 	if after := combinedRejectRefusalEvents(t, s); after != before {
@@ -227,7 +227,7 @@ func TestCombinedRejectOversizedResultRefusesZeroWrite(t *testing.T) {
 	// The refusal is stable on replay: the same request re-executes the
 	// same derivation and refuses the same way with the same zero writes.
 	replayed := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: input}, env)
-	if replayed.Outcome != OutcomeError || replayed.Error == nil || replayed.Error.Kind != "limit_exceeded" {
+	if replayed.Outcome != agentcontract.OutcomeError || replayed.Error == nil || replayed.Error.Kind != "limit_exceeded" {
 		t.Fatalf("the replayed oversized rejection answered %+v, want the same typed refusal", replayed)
 	}
 	if after := combinedRejectRefusalEvents(t, s); after != before {
@@ -254,7 +254,7 @@ func TestCombinedRejectNormalSizeCommits(t *testing.T) {
 	env.RequestID = "request:combined-reject-normal-1"
 	before := combinedRejectRefusalEvents(t, s)
 	committed := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: combinedRejectInput(version, latestDispatchEpoch(t, s), "the bounded diagnosis", "the bounded strategy")}, env)
-	if committed.Outcome != OutcomeOK {
+	if committed.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("the normal-size combined rejection: %+v", committed.Error)
 	}
 	var result map[string]any
@@ -330,7 +330,7 @@ func recordSelectedResearchContextForCombinedReject(t *testing.T, s *store.Store
 		t.Fatal(err)
 	}
 	recorded := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: raw}, env)
-	if recorded.Outcome != OutcomeOK {
+	if recorded.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("record the selected research context: %+v", recorded.Error)
 	}
 }
@@ -339,9 +339,9 @@ func recordSelectedResearchContextForCombinedReject(t *testing.T, s *store.Store
 // exactly the admitted retry dispatch: the operation-bound fresh attempt,
 // the derived packet bytes the fresh dispatch window's digest covers, and no
 // second dispatch authorization.
-func assertCombinedRejectRetryTransport(t *testing.T, s *store.Store, committed Envelope, before int) {
+func assertCombinedRejectRetryTransport(t *testing.T, s *store.Store, committed agentcontract.Envelope, before int) {
 	t.Helper()
-	if committed.Outcome != OutcomeOK {
+	if committed.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("the combined rejection: %+v", committed.Error)
 	}
 	var result map[string]json.RawMessage

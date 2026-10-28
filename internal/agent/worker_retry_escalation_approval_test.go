@@ -36,7 +36,7 @@ func TestRepeatedFailedCorrectionKeepsLaunchFenceAndRecovery(t *testing.T) {
 	}
 	env.RequestID = "request:escalated-convergence-3"
 	admitted := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: raw}, env)
-	if admitted.Outcome != OutcomeOK {
+	if admitted.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("ordinary retry without any approval = %+v", admitted.Error)
 	}
 	if got := verifyWallChallenges(t, s); got != seedChallenges {
@@ -54,7 +54,7 @@ func TestRepeatedFailedCorrectionKeepsLaunchFenceAndRecovery(t *testing.T) {
 	// The identical request replays its one authorization without a second launch.
 	env.HostApproval = nil
 	replayed := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: raw}, env)
-	if replayed.Outcome != OutcomeOK || !replayed.Replayed {
+	if replayed.Outcome != agentcontract.OutcomeOK || !replayed.Replayed {
 		t.Fatalf("replay of the admitted retry = %+v replayed=%v, want the recorded result", replayed.Error, replayed.Replayed)
 	}
 	if got := verifyWallDispatchCompletions(t, s, retryID); got != 1 {
@@ -125,7 +125,7 @@ func TestRepeatedFailedCorrectionKeepsLaunchFenceAndRecovery(t *testing.T) {
 	}
 	env.RequestID = "request:escalated-convergence-5"
 	renewed := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: renewedRaw}, env)
-	if renewed.Outcome != OutcomeOK {
+	if renewed.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("retry after contract recovery = %+v", renewed.Error)
 	}
 	if got := verifyWallChallenges(t, s); got != seedChallenges {
@@ -223,7 +223,7 @@ func seedEscalatedFailedWorkerMutation(t *testing.T, s *store.Store, service *Se
 			t.Fatal(err)
 		}
 		start := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: json.RawMessage(`{"work_id":"work-1","expected_version":` + strconv.FormatInt(version, 10) + `,"action_id":"start_execution","idempotency_key":"escalated-start-` + strconv.FormatInt(cycle, 10) + `"}`)}, mutationEnvelope(grant, scopeVersion))
-		if start.Outcome != OutcomeOK {
+		if start.Outcome != agentcontract.OutcomeOK {
 			t.Fatalf("seed escalated start %d: %+v", cycle, start.Error)
 		}
 		// Each cycle executes its own recorded job: an accepted job is
@@ -270,7 +270,7 @@ func seedEscalatedFailedWorkerMutation(t *testing.T, s *store.Store, service *Se
 			t.Fatal(marshalErr)
 		}
 		dispatched := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: raw}, env)
-		if dispatched.Outcome != OutcomeOK {
+		if dispatched.Outcome != agentcontract.OutcomeOK {
 			t.Fatalf("seed escalated dispatch %d: %+v", cycle, dispatched.Error)
 		}
 		var dispatchedJob string

@@ -44,7 +44,7 @@ func TestWorkflowActionRefusesAnInvalidApprovalReference(t *testing.T) {
 			env.HostApproval = signedHostApproval(privateKey, testCase.ref, digest, scope, map[string]any{"work": 8}, grant.SessionRef, grant.AgentRef, grant.Worktree, fixedTime(), "workflow-invalid-ref-0001")
 			before := agentDurableStateSnapshot(t, s)
 			response, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: input}, env)
-			if err != nil || response.Outcome != OutcomeError || response.Error == nil {
+			if err != nil || response.Outcome != agentcontract.OutcomeError || response.Error == nil {
 				t.Fatalf("invalid approval reference response=%+v err=%v", response, err)
 			}
 			if response.Error.Kind != "approval_invalid" || response.Error.RecoveryAction.Kind != "request_approval" || response.Error.Message != testCase.message || response.Error.RetrySafe {

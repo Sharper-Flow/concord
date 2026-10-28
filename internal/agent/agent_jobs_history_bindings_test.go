@@ -30,7 +30,7 @@ func bindAJ4HistoryOfASupersededContract(t *testing.T, _ jobScenario) jobObserva
 		version = workOneVersion(t, s)
 	}
 	approved, _ := approvedWorkflowContract(t, s, service, grant, privateKey, env, version, workflowContractFieldsForSeededRegistry(t, s), "aj4-history-approve")
-	if approved.Outcome != OutcomeOK {
+	if approved.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("approve_contract = %+v", approved.Error)
 	}
 	version = recordApprovedWorkDesign(t, s, service, env, "work-1", "aj4-history-design")
@@ -56,11 +56,11 @@ func bindAJ4HistoryOfASupersededContract(t *testing.T, _ jobScenario) jobObserva
 			"touched_refs": []string{"src/work.go"},
 		},
 	}, "aj4-history-supersede", map[string]any{"work": version, "contract": 1})
-	if superseded.Outcome != OutcomeOK {
+	if superseded.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("supersede_contract = %+v", superseded.Error)
 	}
 
-	history := func(contractVersion int) Envelope {
+	history := func(contractVersion int) agentcontract.Envelope {
 		raw, err := json.Marshal(map[string]any{
 			"work_id":          "work-1",
 			"record_kinds":     []string{"lifecycle"},
@@ -76,7 +76,7 @@ func bindAJ4HistoryOfASupersededContract(t *testing.T, _ jobScenario) jobObserva
 		t.Fatal(err)
 	}
 	resp := history(1)
-	if resp.Outcome != OutcomeOK {
+	if resp.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("history contract_version 1 = %+v", resp.Error)
 	}
 	var page struct {

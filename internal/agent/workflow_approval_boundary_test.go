@@ -117,7 +117,7 @@ func TestWorkflowApprovalBoundaryConsent(t *testing.T) {
 			approvals := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM agent_approvals`)
 			versionAfter := workVersion(t, s, "work-1")
 			if vector.wantOK {
-				if response.Outcome != OutcomeOK {
+				if response.Outcome != agentcontract.OutcomeOK {
 					t.Fatalf("routine record_proposal outcome=%s kind=%q challenges=%d approvals=%d, want ok with zero consent state", response.Outcome, kind, challenges, approvals)
 				}
 				if challenges != 0 || approvals != 0 {
@@ -165,7 +165,7 @@ func TestWorkflowApprovalBoundaryConsent(t *testing.T) {
 			// The legacy control keeps its released behavior: one genuine
 			// challenge, no consumption, no workflow action event, and an
 			// unchanged work item.
-			if response.Outcome != OutcomeError || kind != "approval_required" {
+			if response.Outcome != agentcontract.OutcomeError || kind != "approval_required" {
 				t.Fatalf("legacy required record_proposal outcome=%s kind=%q challenges=%d, want approval_required", response.Outcome, kind, challenges)
 			}
 			if ref, _ := response.Error.Details["approval_ref"].(string); ref == "" {

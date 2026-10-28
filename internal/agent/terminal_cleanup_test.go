@@ -81,7 +81,7 @@ func TestTerminalCleanupAfterCompactionSettlement(t *testing.T) {
 			}
 			response := publishCancelledNote(t, s, service, grant, key, home)
 			if route == "publish" {
-				if response.Outcome != OutcomeOK {
+				if response.Outcome != agentcontract.OutcomeOK {
 					t.Fatalf("publication settlement: %+v", response)
 				}
 			} else {
@@ -89,7 +89,7 @@ func TestTerminalCleanupAfterCompactionSettlement(t *testing.T) {
 				if err := s.DatabaseForTesting().QueryRow(`SELECT op_id FROM durable_operations WHERE work_id='work-cancelled'`).Scan(&operationID); err != nil {
 					t.Fatal(err)
 				}
-				if route != "reconcile" && (response.Outcome != OutcomeOK || len(response.Warnings) == 0 || response.Warnings[0].Kind != "resource_busy") {
+				if route != "reconcile" && (response.Outcome != agentcontract.OutcomeOK || len(response.Warnings) == 0 || response.Warnings[0].Kind != "resource_busy") {
 					t.Fatalf("deferred cleanup must preserve publication success and typed blocker: %+v", response)
 				}
 				if _, err := s.DatabaseForTesting().Exec(`DELETE FROM worktree_claims WHERE op_id='cleanup-claim'`); err != nil {
@@ -108,7 +108,7 @@ func TestTerminalCleanupAfterCompactionSettlement(t *testing.T) {
 						r := runtime{Store: s, Authority: service, Envelope: env, Tool: "concord_work_compact", Operation: "publish"}
 						op, _ := agentcontract.ValidateContractOperation(r.Tool, r.Operation)
 						var err error
-						response, err = r.mutateCompaction(t.Context(), NewBase(env.RequestID, r.Tool, r.Operation), input, mutationDigest(r.Tool, r.Operation, env, input), op)
+						response, err = r.mutateCompaction(t.Context(), agentcontract.NewBase(env.RequestID, r.Tool, r.Operation), input, mutationDigest(r.Tool, r.Operation, env, input), op)
 						if err != nil {
 							t.Fatal(err)
 						}
@@ -116,7 +116,7 @@ func TestTerminalCleanupAfterCompactionSettlement(t *testing.T) {
 				} else {
 					response = dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_compact", Operation: "reconcile", Input: input}, env)
 				}
-				if response.Outcome != OutcomeOK {
+				if response.Outcome != agentcontract.OutcomeOK {
 					t.Fatalf("settled %s must succeed: %+v", route, response)
 				}
 			}
@@ -137,7 +137,7 @@ func TestTerminalCleanupAfterCompactionSettlement(t *testing.T) {
 					request = InvokeRequest{Tool: "concord_work_compact", Operation: "reconcile", Input: input}
 				}
 				late := dispatchMutation(t, s, service, request, publication.env)
-				if late.Outcome != OutcomeError || late.Error == nil || late.Error.Kind != "unknown_scope" || !strings.Contains(late.Error.Message, "canonical outcome:") {
+				if late.Outcome != agentcontract.OutcomeError || late.Error == nil || late.Error.Kind != "unknown_scope" || !strings.Contains(late.Error.Message, "canonical outcome:") {
 					t.Fatalf("late %s lost canonical absence: %+v", operation, late)
 				}
 			}
@@ -198,7 +198,7 @@ func TestTerminalCleanupPublicationRejectsUnreviewedBytes(t *testing.T) {
 			}
 			head := gitRun(t, home.RepoPath, "rev-parse", "HEAD")
 			response := dispatchMutation(t, s, service, request, env)
-			if response.Outcome != OutcomeError || response.Error == nil || response.Error.Kind != "outcome_mismatch" {
+			if response.Outcome != agentcontract.OutcomeError || response.Error == nil || response.Error.Kind != "outcome_mismatch" {
 				t.Fatalf("unreviewed publication must refuse before approval/Git: outcome=%s error=%+v", response.Outcome, response.Error)
 			}
 			if gitRun(t, home.RepoPath, "rev-parse", "HEAD") != head || gitRun(t, home.RepoPath, "status", "--porcelain") != "" {
@@ -240,7 +240,7 @@ func TestTerminalCleanupReconcileRejectsUnreviewedCommittedBytes(t *testing.T) {
 		return nil
 	}
 	response := publishCancelledNote(t, s, service, grant, key, home)
-	if response.Outcome != OutcomePartial || archivedCancelledWorkCount(t, s) != 0 || wrong.CommitOID == "" {
+	if response.Outcome != agentcontract.OutcomePartial || archivedCancelledWorkCount(t, s) != 0 || wrong.CommitOID == "" {
 		t.Fatalf("expected unlinked committed publication: %+v", response)
 	}
 	service.publicationObserver = nil
@@ -251,7 +251,7 @@ func TestTerminalCleanupReconcileRejectsUnreviewedCommittedBytes(t *testing.T) {
 	head := gitRun(t, home.RepoPath, "rev-parse", "HEAD")
 	input, _ := json.Marshal(map[string]any{"operation_id": operationID, "expected_operation_version": 1, "expected_proof_digest": wrongHash, "idempotency_key": "wrong-proof-reconcile"})
 	response = dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_compact", Operation: "reconcile", Input: input}, agentJobsMutationEnvelope(t, s, grant, "proj-api"))
-	if response.Outcome != OutcomeError || response.Error == nil || response.Error.Kind != "outcome_mismatch" {
+	if response.Outcome != agentcontract.OutcomeError || response.Error == nil || response.Error.Kind != "outcome_mismatch" {
 		t.Fatalf("reconciliation must refuse different committed bytes: outcome=%s error=%+v", response.Outcome, response.Error)
 	}
 	if archivedCancelledWorkCount(t, s) != 0 || gitRun(t, home.RepoPath, "rev-parse", "HEAD") != head {
@@ -301,7 +301,7 @@ func TestTerminalCleanupLinkRejectsUnreviewedCommittedBytes(t *testing.T) {
 func TestTerminalCleanupUnboundPublicationRemainsRetained(t *testing.T) {
 	s, service, grant, key, home := agentJobsCompactionFixture(t)
 	response := publishCancelledNote(t, s, service, grant, key, home)
-	if response.Outcome != OutcomeOK || archivedCancelledWorkCount(t, s) != 1 {
+	if response.Outcome != agentcontract.OutcomeOK || archivedCancelledWorkCount(t, s) != 1 {
 		t.Fatalf("unbound publication must still succeed: %+v", response)
 	}
 	if countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM work_items WHERE id='work-cancelled'`) != 1 {

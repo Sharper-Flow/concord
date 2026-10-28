@@ -35,7 +35,7 @@ func TestReviseInitializesVerifiedProductLawBaseline(t *testing.T) {
 		t.Fatal(err)
 	}
 	response, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_define", Operation: "revise_intent", Input: input}, mutationEnvelope(grant, scopeVersionForProject(t, s, "project-1")))
-	if err != nil || response.Outcome != OutcomeOK {
+	if err != nil || response.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("revise initialization: %+v error=%v", response.Error, err)
 	}
 	var baseline string
@@ -55,7 +55,7 @@ func TestCaptureLawBaselineUsesPreTransactionProofAndReplays(t *testing.T) {
 	env := mutationEnvelope(grant, scopeVersionForProject(t, s, "project-1"))
 	request := InvokeRequest{Tool: "concord_work_define", Operation: "capture", Input: json.RawMessage(`{"title":"Verified start","value_statement":"Capture the accepted law inventory","kind":"task","project_ids":["project-1"],"idempotency_key":"capture-verified-start"}`)}
 	response, err := Dispatch(ctx, s, service, request, env)
-	if err != nil || response.Outcome != OutcomeOK || response.ChangedRefs == nil || len(*response.ChangedRefs) != 1 {
+	if err != nil || response.Outcome != agentcontract.OutcomeOK || response.ChangedRefs == nil || len(*response.ChangedRefs) != 1 {
 		t.Fatalf("capture: %+v error=%v", response, err)
 	}
 	id := (*response.ChangedRefs)[0].ID
@@ -70,7 +70,7 @@ func TestCaptureLawBaselineUsesPreTransactionProofAndReplays(t *testing.T) {
 		t.Fatal(err)
 	}
 	replayed, err := Dispatch(ctx, s, service, request, env)
-	if err != nil || replayed.Outcome != OutcomeOK {
+	if err != nil || replayed.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("exact capture replay re-probed unavailable knowledge: %+v error=%v", replayed, err)
 	}
 	reviseInput, err := json.Marshal(map[string]any{"work_id": id, "expected_version": 4, "kind": "task", "title": "Retained current pin", "value_statement": "Keep the existing workflow identity", "workflow_type_ref": "workflow.implementation", "reason": "Update the task without replacing its law baseline", "idempotency_key": "revise-retained-start"})
@@ -78,7 +78,7 @@ func TestCaptureLawBaselineUsesPreTransactionProofAndReplays(t *testing.T) {
 		t.Fatal(err)
 	}
 	revised, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_define", Operation: "revise_intent", Input: reviseInput}, env)
-	if err != nil || revised.Outcome != OutcomeOK {
+	if err != nil || revised.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("retained current pin acquired an initialization-only Git dependency: %+v error=%v", revised, err)
 	}
 	var after string
@@ -132,7 +132,7 @@ DELETE FROM write_guard`, hash, tier, hash); err != nil {
 		t.Fatal(err)
 	}
 	env := mutationEnvelope(grant, scopeVersionForProject(t, s, "project-1"))
-	invokeInput := func(env CallEnvelope, input map[string]any) Envelope {
+	invokeInput := func(env CallEnvelope, input map[string]any) agentcontract.Envelope {
 		t.Helper()
 		raw, err := json.Marshal(input)
 		if err != nil {
@@ -140,13 +140,13 @@ DELETE FROM write_guard`, hash, tier, hash); err != nil {
 		}
 		return invokeWorkflowIssue31(t, s, service, env, raw)
 	}
-	invoke := func(action, key string, fields map[string]any) (Envelope, map[string]any) {
+	invoke := func(action, key string, fields map[string]any) (agentcontract.Envelope, map[string]any) {
 		t.Helper()
 		input := map[string]any{"work_id": "work-1", "expected_version": workVersion(t, s, "work-1"), "action_id": action, "idempotency_key": key, "fields": fields}
 		return invokeInput(env, input), input
 	}
 	response, _ := invoke("record_diagnosis", "law-diagnosis", map[string]any{"reproduction": "The fixture law needs an amendment.", "searched": "The fixture backlog contains no related item.", "outcome": "none_found", "root_cause": "The fixture law text needs correction."})
-	if response.Outcome != OutcomeOK {
+	if response.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("diagnosis: %+v", response.Error)
 	}
 	fields := workflowContractFieldsFixture()
@@ -203,16 +203,16 @@ DELETE FROM write_guard`, hash, tier, hash); err != nil {
 			approved.HostApproval = signedHostApproval(privateKey, challenge, digest, scope, versions, grant.SessionRef, grant.AgentRef, env.Worktree, fixedTime(), nonceForChallenge(challenge))
 			fields["law_change_text_pins"] = []map[string]any{{"law_id": "law:test", "content_hash": "sha256:" + strings.Repeat("b", 64)}}
 			tampered := invokeInput(approved, input)
-			if tampered.Outcome != OutcomeError || tampered.Error == nil || tampered.Error.Kind != "approval_invalid" || workVersion(t, s, "work-1") != version {
+			if tampered.Outcome != agentcontract.OutcomeError || tampered.Error == nil || tampered.Error.Kind != "approval_invalid" || workVersion(t, s, "work-1") != version {
 				t.Fatalf("%s accepted changed pins under the old signature: outcome=%s error=%+v", action, tampered.Outcome, tampered.Error)
 			}
 			fields["law_change_text_pins"] = []map[string]any{{"law_id": "law:test", "content_hash": hash}}
 			response = invokeInput(approved, input)
-			if response.Outcome != OutcomeOK {
+			if response.Outcome != agentcontract.OutcomeOK {
 				t.Fatalf("%s with signed exact-text consent: %+v", action, response.Error)
 			}
 		} else {
-			if response.Outcome != OutcomeOK {
+			if response.Outcome != agentcontract.OutcomeOK {
 				t.Fatalf("unclassified %s of %s law without approval: %+v", action, tier, response.Error)
 			}
 			if countWorkflowApprovalChallenges(t, s) != 0 || countRows(t, db, `SELECT count(*) FROM agent_approvals`) != 0 {

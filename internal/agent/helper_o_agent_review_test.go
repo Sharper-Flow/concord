@@ -10,6 +10,7 @@ import (
 	goruntime "runtime"
 	"testing"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -64,13 +65,13 @@ func oAgentClaimFixture(t *testing.T, s *store.Store, service *Service, env Call
 	return &oAgentFixtureState{spineFixture: &spineFixture{s: s, service: service, env: env, work: workID, path: path, base: gitRun(t, path, "rev-parse", "HEAD"), request: int(workVersion(t, s, workID) * 100)}}
 }
 
-func oAgentAction(t *testing.T, f *oAgentFixtureState, action string, fields map[string]any) Envelope {
+func oAgentAction(t *testing.T, f *oAgentFixtureState, action string, fields map[string]any) agentcontract.Envelope {
 	t.Helper()
 	response := f.call(t, "concord_work_transition", "workflow_action", map[string]any{
 		"work_id": f.work, "expected_version": workVersion(t, f.s, f.work), "action_id": action,
 		"fields": fields, "idempotency_key": fmt.Sprintf("o-agent-%s-%d", action, f.request),
 	})
-	if response.Outcome != OutcomeOK {
+	if response.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("O %s on %s refused: %+v", action, f.work, response.Error)
 	}
 	return response

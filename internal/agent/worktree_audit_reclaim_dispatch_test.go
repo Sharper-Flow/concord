@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -32,7 +33,7 @@ func TestWorktreeAuditReclaimDispatchReclaimsTerminalWorkOnly(t *testing.T) {
 	response := authorityInvoke(t, s, second, secondGrant, "concord_work_transition", "worktree_audit_reclaim", map[string]any{
 		"product_id": "product-1", "default_ref": "main", "idempotency_key": "audit-reclaim-1",
 	})
-	if response.Outcome != OutcomeOK {
+	if response.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("audit reclaim response=%+v", response.Error)
 	}
 	if _, err := json.Marshal(response); err != nil {
@@ -68,7 +69,7 @@ func TestWorktreeAuditReclaimDispatchReclaimsTerminalWorkOnly(t *testing.T) {
 	replay := authorityInvoke(t, s, second, secondGrant, "concord_work_transition", "worktree_audit_reclaim", map[string]any{
 		"product_id": "product-1", "default_ref": "main", "idempotency_key": "audit-reclaim-1",
 	})
-	if replay.Outcome != OutcomeOK || !replay.Replayed {
+	if replay.Outcome != agentcontract.OutcomeOK || !replay.Replayed {
 		t.Fatalf("replay=%+v err=%+v", replay.Replayed, replay.Error)
 	}
 	if version := workVersion(t, s, "work-2"); version != 5 {
@@ -89,7 +90,7 @@ func TestWorktreeAuditReclaimDispatchReportsMixedEffects(t *testing.T) {
 	response := authorityInvoke(t, s, second, secondGrant, "concord_work_transition", "worktree_audit_reclaim", map[string]any{
 		"product_id": "product-1", "default_ref": "main", "idempotency_key": "audit-reclaim-mixed",
 	})
-	if response.Outcome != OutcomeOK || response.Error != nil {
+	if response.Outcome != agentcontract.OutcomeOK || response.Error != nil {
 		t.Fatalf("mixed audit reclaim response=%+v", response)
 	}
 	var result struct {
@@ -132,7 +133,7 @@ func TestWorktreeAuditReclaimDispatchReclaimsUnstartedWork(t *testing.T) {
 	response := authorityInvoke(t, s, second, secondGrant, "concord_work_transition", "worktree_audit_reclaim", map[string]any{
 		"product_id": "product-1", "default_ref": "main", "idempotency_key": "unstarted-reclaim-1",
 	})
-	if response.Outcome != OutcomeOK {
+	if response.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("audit reclaim response=%+v err=%+v", response, response.Error)
 	}
 	if _, err := json.Marshal(response); err != nil {

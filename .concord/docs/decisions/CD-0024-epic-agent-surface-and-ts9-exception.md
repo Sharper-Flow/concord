@@ -6,12 +6,13 @@
 exception after the supported-model evidence gate was surfaced as unavailable.
 **Type:** Epic reachability implementation and TS8/TS9 amendment.
 **Issue:** [#128](https://github.com/Sharper-Flow/concord/issues/128).
-**Amended by:** CD-0222 makes the 3.0.0 Epic surface legacy, requires the next
-normal major to expose Initiative, and forbids reuse of D3's one-time TS9
-exception.
-**Further amended by:** CD-0042 closes the historical surface-version and TS9
-exception policy before go-live; this record remains historical evidence and does
-not define a current compatibility path.
+**Amended by:** [CD-0222 D9](CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md#d9-migration-reaches-the-clean-vocabulary-compatibility-is-bounded)
+removes the Epic agent tool that D1 added.
+**Current surface authority:** [CD-0042](CD-0042-pre-go-live-single-path.md),
+[TS8](../agent-tool-surface-evolution.md), and
+[TS9](../agent-tool-surface-measurement.md) govern pre-go-live identity and evidence.
+This record is historical evidence, not a current compatibility path or reusable
+TS9 exception.
 **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2 and D13 — the store keeps current rows; the cutover is one documented migration.
 **Amends:** TS8 and TS9.
 **Preserves:** CD-0005's generated canonical manifest, TS5 authority envelopes,

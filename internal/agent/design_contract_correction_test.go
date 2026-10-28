@@ -29,7 +29,7 @@ func TestContractReassessmentPreservesDesignUntilExplicitReplacement(t *testing.
 	fields["route_conventions"] = []string{}
 	fields["rigor_class"] = "prototype_internal"
 	approved, _ := approvedWorkflowContract(t, s, service, grant, privateKey, env, version, fields, "design-correction-approve")
-	if approved.Outcome != OutcomeOK {
+	if approved.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("approve contract: %+v", approved.Error)
 	}
 	version = recordApprovedWorkDesign(t, s, service, env, "work-1", "design-correction-design")
@@ -44,7 +44,7 @@ func TestContractReassessmentPreservesDesignUntilExplicitReplacement(t *testing.
 	fields["supersede_reason"] = "reassess the unchanged approved outcome and architecture"
 	fields["audit_evidence"] = []string{"evidence:design-correction"}
 	corrected, version := approvedWorkflowActionWithVersions(t, s, service, grant, privateKey, env, version, "supersede_contract", fields, "design-correction-supersede", map[string]any{"work": version, "contract": before.Contract.Version})
-	if corrected.Outcome != OutcomeOK {
+	if corrected.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("supersede contract: %+v", corrected.Error)
 	}
 	after, err := store.ReadWorkflowContinuity(ctx, s, store.ContinuityRequest{Work: "work-1"})
@@ -66,7 +66,7 @@ func TestContractReassessmentPreservesDesignUntilExplicitReplacement(t *testing.
 		"touched_refs": []string{"internal/store/workflow_design.go"},
 	}
 	replaced, version := approvedWorkflowActionWithVersions(t, s, service, grant, privateKey, env, version, "supersede_contract", fields, "design-correction-replace", map[string]any{"work": version, "contract": 2})
-	if replaced.Outcome != OutcomeOK {
+	if replaced.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("replace design with contract: %+v", replaced.Error)
 	}
 	current, err := store.ReadWorkflowContinuity(ctx, s, store.ContinuityRequest{Work: "work-1"})
@@ -89,7 +89,7 @@ func TestContractReassessmentPreservesDesignUntilExplicitReplacement(t *testing.
 		t.Fatal(err)
 	}
 	refused := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: raw}, env)
-	if refused.Outcome != OutcomeError || refused.Error == nil || refused.Error.Kind != "invalid_input" {
+	if refused.Outcome != agentcontract.OutcomeError || refused.Error == nil || refused.Error.Kind != "invalid_input" {
 		t.Fatalf("oversized replacement accepted: %+v", refused.Error)
 	}
 	if workOneVersion(t, s) != version {

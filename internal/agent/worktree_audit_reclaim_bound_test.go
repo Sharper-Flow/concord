@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -46,7 +47,7 @@ func auditReclaimTerminalFixture(t *testing.T, count int, managed bool, title st
 		workID := fmt.Sprintf("work-%02d", i)
 		if response := tiersInvoke(t, s, service, grant, "concord_work_transition", "worktree_claim", map[string]any{"host_pid": os.Getpid(),
 			"work_id": workID, "project_id": "project-1", "base_sha": baseSHA, "expected_version": 2, "idempotency_key": "audit-bound-claim-" + workID,
-		}); response.Outcome != OutcomeOK {
+		}); response.Outcome != agentcontract.OutcomeOK {
 			t.Fatalf("claim %s response=%+v err=%+v", workID, response, response.Error)
 		}
 		completeWork(t, s, workID)
@@ -75,21 +76,21 @@ type auditReclaimBoundResult struct {
 // within the cap whose changed refs are exactly its reclaimed rows, whose
 // reclaimed rows are gone from disk, and whose declined rows stay on disk
 // as unattempted terminal_present report rows. It returns the reclaimed ids.
-func requireAuditReclaimCommitsWhatItReports(t *testing.T, response Envelope, root string, managed bool) []string {
+func requireAuditReclaimCommitsWhatItReports(t *testing.T, response agentcontract.Envelope, root string, managed bool) []string {
 	t.Helper()
-	if response.Outcome != OutcomeOK {
+	if response.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("a pass that committed must report ok, got %+v", response.Error)
 	}
 	if err := response.Validate(); err != nil {
 		t.Fatalf("committed-effect report must validate: %v", err)
 	}
-	type wire Envelope
+	type wire agentcontract.Envelope
 	encoded, err := json.Marshal(wire(response))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(encoded) > MaxResultEnvelopeBytes {
-		t.Fatalf("envelope=%d bytes, want at most %d", len(encoded), MaxResultEnvelopeBytes)
+	if len(encoded) > agentcontract.MaxResultEnvelopeBytes {
+		t.Fatalf("envelope=%d bytes, want at most %d", len(encoded), agentcontract.MaxResultEnvelopeBytes)
 	}
 	for _, notice := range response.Omissions {
 		if notice.Kind == "changed_refs_truncated" {
@@ -169,12 +170,12 @@ func TestAuditReclaimLongPinsCommitsOnlyWhatItReports(t *testing.T) {
 // is exactly what the ok envelope reports.
 func TestAuditReclaimStopsAtChangedRefBound(t *testing.T) {
 	t.Parallel()
-	const total = MaxChangedRefs + 1
+	const total = agentcontract.MaxChangedRefs + 1
 	s, service, grant, root := auditReclaimTerminalFixture(t, total, false, "Audit Bound")
 	input := map[string]any{"product_id": "product-1", "default_ref": "main", "idempotency_key": "audit-bound-pass-1", "limit": total}
 	first := tiersInvoke(t, s, service, grant, "concord_work_transition", "worktree_audit_reclaim", input)
-	if reclaimed := requireAuditReclaimCommitsWhatItReports(t, first, root, false); len(reclaimed) != MaxChangedRefs {
-		t.Fatalf("reclaimed=%d, want the changed-ref bound %d", len(reclaimed), MaxChangedRefs)
+	if reclaimed := requireAuditReclaimCommitsWhatItReports(t, first, root, false); len(reclaimed) != agentcontract.MaxChangedRefs {
+		t.Fatalf("reclaimed=%d, want the changed-ref bound %d", len(reclaimed), agentcontract.MaxChangedRefs)
 	}
 	var result auditReclaimBoundResult
 	if err := json.Unmarshal(first.Result, &result); err != nil {
@@ -195,8 +196,8 @@ func TestAuditReclaimStopsAtChangedRefBound(t *testing.T) {
 // changed-ref bound.
 func TestAuditReclaimAdmissionBoundaryIsTheEnvelopeCap(t *testing.T) {
 	t.Parallel()
-	base := NewBase("audit-admission", "concord_work_transition", "worktree_audit_reclaim")
-	intents := []NextIntent{{Tool: "concord_work_browse", Operation: "worktree_audit", QueryID: "PM1.Q16", ReasonCode: "audit_after_reclaim", RequiredFields: []string{"product_id"}}}
+	base := agentcontract.NewBase("audit-admission", "concord_work_transition", "worktree_audit_reclaim")
+	intents := []agentcontract.NextIntent{{Tool: "concord_work_browse", Operation: "worktree_audit", QueryID: "PM1.Q16", ReasonCode: "audit_after_reclaim", RequiredFields: []string{"product_id"}}}
 	remaining := []store.WorktreeDrift{{Class: store.WorktreeDriftTerminalPresent, ProjectID: "project-1", WorkID: "work-later", Path: "/w/work-later", Lifecycle: "completed"}}
 	row := func(path string) []store.WorktreeAuditReclaimRow {
 		return []store.WorktreeAuditReclaimRow{
@@ -206,9 +207,9 @@ func TestAuditReclaimAdmissionBoundaryIsTheEnvelopeCap(t *testing.T) {
 	}
 	admit := auditReclaimAdmission(base, intents)
 	measured := auditReclaimAdmissionBytes(base, intents, "/w", row("/w/work-1"), remaining)
-	exact := "/w/work-1" + strings.Repeat("p", MaxResultEnvelopeBytes-measured)
-	if got := auditReclaimAdmissionBytes(base, intents, "/w", row(exact), remaining); got != MaxResultEnvelopeBytes {
-		t.Fatalf("padded measurement=%d, want exactly %d", got, MaxResultEnvelopeBytes)
+	exact := "/w/work-1" + strings.Repeat("p", agentcontract.MaxResultEnvelopeBytes-measured)
+	if got := auditReclaimAdmissionBytes(base, intents, "/w", row(exact), remaining); got != agentcontract.MaxResultEnvelopeBytes {
+		t.Fatalf("padded measurement=%d, want exactly %d", got, agentcontract.MaxResultEnvelopeBytes)
 	}
 	if !admit("/w", row(exact), remaining) {
 		t.Fatal("a candidate at exactly the cap must be admitted")
@@ -216,11 +217,11 @@ func TestAuditReclaimAdmissionBoundaryIsTheEnvelopeCap(t *testing.T) {
 	if admit("/w", row(exact+"p"), remaining) {
 		t.Fatal("a candidate one byte past the cap must be declined")
 	}
-	rows := make([]store.WorktreeAuditReclaimRow, 0, MaxChangedRefs+1)
-	for i := 0; i <= MaxChangedRefs; i++ {
+	rows := make([]store.WorktreeAuditReclaimRow, 0, agentcontract.MaxChangedRefs+1)
+	for i := 0; i <= agentcontract.MaxChangedRefs; i++ {
 		rows = append(rows, store.WorktreeAuditReclaimRow{ProjectID: "project-1", WorkID: fmt.Sprintf("work-%02d", i), Path: "/w", Lifecycle: "completed", Outcome: store.WorktreeAuditReclaimed, Version: 5})
 	}
-	if !admit("/w", rows[:MaxChangedRefs], nil) {
+	if !admit("/w", rows[:agentcontract.MaxChangedRefs], nil) {
 		t.Fatal("the changed-ref bound itself must be admitted")
 	}
 	if admit("/w", rows, nil) {
@@ -234,7 +235,7 @@ func TestAuditReclaimAdmissionBoundaryIsTheEnvelopeCap(t *testing.T) {
 func TestAuditReclaimAdmissionMakesNoPoolCall(t *testing.T) {
 	t.Parallel()
 	s, _, _, _, _, _ := tiersFixture(t)
-	admit := auditReclaimAdmission(NewBase("audit-admission-pool", "concord_work_transition", "worktree_audit_reclaim"), nil)
+	admit := auditReclaimAdmission(agentcontract.NewBase("audit-admission-pool", "concord_work_transition", "worktree_audit_reclaim"), nil)
 	rows := []store.WorktreeAuditReclaimRow{{ProjectID: "project-1", WorkID: "work-1", Path: "/w/work-1", Lifecycle: "completed", Outcome: store.WorktreeAuditReclaimed, Version: 5}}
 	if err := s.Transact(context.Background(), func(*store.Transaction) error {
 		decided := make(chan bool, 1)
@@ -257,24 +258,24 @@ func TestAuditReclaimAdmissionMakesNoPoolCall(t *testing.T) {
 // possible, and carries exactly the committed refs.
 func TestAuditReclaimPostCommitFailureCarriesCommittedRefs(t *testing.T) {
 	t.Parallel()
-	base := NewBase("audit-bound-mapping", "concord_work_transition", "worktree_audit_reclaim")
-	changed := make([]ChangedRef, MaxChangedRefs)
+	base := agentcontract.NewBase("audit-bound-mapping", "concord_work_transition", "worktree_audit_reclaim")
+	changed := make([]agentcontract.ChangedRef, agentcontract.MaxChangedRefs)
 	for i := range changed {
-		changed[i] = ChangedRef{EntityKind: "work_item", ID: fmt.Sprintf("work-%02d", i), Version: "5"}
+		changed[i] = agentcontract.ChangedRef{EntityKind: "work_item", ID: fmt.Sprintf("work-%02d", i), Version: "5"}
 	}
 	failure := coreError(base, "budget_refused", "requested_budget_seconds 600 exceeds supported 300", "adjust_budget", false)
 	failure.Error.SupportedBudgetSeconds = 300
 	mapped := auditReclaimPostCommitFailure(base, changed, failure)
-	if mapped.Outcome != OutcomeError || mapped.Error == nil || mapped.Error.Kind != "budget_refused" {
+	if mapped.Outcome != agentcontract.OutcomeError || mapped.Error == nil || mapped.Error.Kind != "budget_refused" {
 		t.Fatalf("mapped=%+v", mapped)
 	}
-	if mapped.Error.EffectState != EffectPossible {
+	if mapped.Error.EffectState != agentcontract.EffectPossible {
 		t.Fatalf("effect_state=%q, want possible", mapped.Error.EffectState)
 	}
 	if err := mapped.Validate(); err != nil {
 		t.Fatalf("post-commit failure must stay deliverable, got %v", err)
 	}
-	if mapped.ChangedRefs == nil || len(*mapped.ChangedRefs) != MaxChangedRefs || len(mapped.Omissions) != 0 {
-		t.Fatalf("changed refs=%v omissions=%+v, want the %d committed refs and no notice", mapped.ChangedRefs, mapped.Omissions, MaxChangedRefs)
+	if mapped.ChangedRefs == nil || len(*mapped.ChangedRefs) != agentcontract.MaxChangedRefs || len(mapped.Omissions) != 0 {
+		t.Fatalf("changed refs=%v omissions=%+v, want the %d committed refs and no notice", mapped.ChangedRefs, mapped.Omissions, agentcontract.MaxChangedRefs)
 	}
 }

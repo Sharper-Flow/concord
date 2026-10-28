@@ -82,14 +82,14 @@ func TestWorkerJobCallerRepairAcceptanceThroughAgent(t *testing.T) {
 				t.Fatal(err)
 			}
 			env := mutationEnvelope(grant, scope)
-			invoke := func(action, key string, fields map[string]any, caller CallEnvelope) Envelope {
+			invoke := func(action, key string, fields map[string]any, caller CallEnvelope) agentcontract.Envelope {
 				t.Helper()
 				caller.RequestID = "request:" + key
 				return dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: retryJSON(map[string]any{
 					"work_id": "work-1", "expected_version": workVersion(t, s, "work-1"), "action_id": action, "idempotency_key": key, "fields": fields,
 				})}, caller)
 			}
-			if out := invoke("start_execution", "caller-start", map[string]any{}, env); out.Outcome != OutcomeOK {
+			if out := invoke("start_execution", "caller-start", map[string]any{}, env); out.Outcome != agentcontract.OutcomeOK {
 				t.Fatalf("start_execution: %+v", out.Error)
 			}
 			// The oracle fixture prepares its real control on this baseline.
@@ -102,7 +102,7 @@ func TestWorkerJobCallerRepairAcceptanceThroughAgent(t *testing.T) {
 			}
 			fields["path_scope"] = []string{"owner"}
 			fields["direct_caller_allowance"].(map[string]any)["mechanisms"] = []map[string]any{{"project_id": "project-1", "path": "owner/value.go", "entry_point": "Value"}}
-			if out := invoke("record_worker_job", "caller-job", fields, env); out.Outcome != OutcomeOK {
+			if out := invoke("record_worker_job", "caller-job", fields, env); out.Outcome != agentcontract.OutcomeOK {
 				t.Fatalf("record_worker_job: %+v", out.Error)
 			}
 			// The architecture Review binds the job it permits (CD-0205 D3).
@@ -120,7 +120,7 @@ func TestWorkerJobCallerRepairAcceptanceThroughAgent(t *testing.T) {
 				}
 			}
 			const attempt = "attempt:caller"
-			if out := invoke("dispatch_worker", "caller-dispatch", map[string]any{"attempt_id": attempt, "worker_packet": deliveryRecoveryPacket(t, s, "execution", attempt, "implementation")}, env); out.Outcome != OutcomeOK {
+			if out := invoke("dispatch_worker", "caller-dispatch", map[string]any{"attempt_id": attempt, "worker_packet": deliveryRecoveryPacket(t, s, "execution", attempt, "implementation")}, env); out.Outcome != agentcontract.OutcomeOK {
 				t.Fatalf("dispatch_worker: %+v", out.Error)
 			}
 			job := authorizedWorkerJob(t, s, attempt)
@@ -197,12 +197,12 @@ func TestWorkerJobCallerRepairAcceptanceThroughAgent(t *testing.T) {
 			before := workVersion(t, s, "work-1")
 			untrusted := env
 			untrusted.ClientRef = "client-unregistered"
-			if out := invoke("accept_worker_result", "caller-untrusted", acceptFields, untrusted); out.Outcome == OutcomeOK || workVersion(t, s, "work-1") != before {
+			if out := invoke("accept_worker_result", "caller-untrusted", acceptFields, untrusted); out.Outcome == agentcontract.OutcomeOK || workVersion(t, s, "work-1") != before {
 				t.Fatalf("untrusted client gained acceptance: %+v", out)
 			}
 			out := invoke("accept_worker_result", "caller-accept", acceptFields, env)
 			if scenario == "contained" {
-				if out.Outcome != OutcomeOK {
+				if out.Outcome != agentcontract.OutcomeOK {
 					t.Fatalf("contained caller acceptance: %+v", out.Error)
 				}
 				var revisions int
@@ -215,7 +215,7 @@ func TestWorkerJobCallerRepairAcceptanceThroughAgent(t *testing.T) {
 					"wrong owner":    "which is not a mechanism of its direct-caller allowance",
 					"foreign owner":  "which work item work-holder holds through claim path:caller/use.go over",
 				}[scenario]
-				if out.Outcome == OutcomeOK || out.Error == nil || out.Error.Kind != "invalid_input" || !strings.Contains(out.Error.Message, want) || workVersion(t, s, "work-1") != before {
+				if out.Outcome == agentcontract.OutcomeOK || out.Error == nil || out.Error.Kind != "invalid_input" || !strings.Contains(out.Error.Message, want) || workVersion(t, s, "work-1") != before {
 					t.Fatalf("invalid repair acceptance = %+v, want invalid_input %q without effects", out, want)
 				}
 			}

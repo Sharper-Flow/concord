@@ -83,7 +83,7 @@ func TestAuthorizedProductReadBeyondAmbientProjectSucceeds(t *testing.T) {
 	if dispatchErr != nil {
 		t.Fatal(dispatchErr)
 	}
-	if response.Error != nil || response.Outcome != OutcomeOK {
+	if response.Error != nil || response.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("policy Product read = %s / %v, want ok without error", response.Outcome, response.Error)
 	}
 	var payload struct {
@@ -129,7 +129,7 @@ func TestCrossProductMembershipNeedsNoConsentUnderCrossScope(t *testing.T) {
 	input := json.RawMessage(`{"work_id":"work-1","expected_version":2,"memberships":[{"project_id":"project-2","role":"secondary"}],"idempotency_key":"cross-membership-1"}`)
 	request := InvokeRequest{Tool: "concord_work_relate", Operation: "set_memberships", Input: input}
 	approved, dispatchErr := Dispatch(ctx, s, service, request, env)
-	if dispatchErr != nil || approved.Error != nil || approved.Outcome != OutcomeOK {
+	if dispatchErr != nil || approved.Error != nil || approved.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("approved cross-Product membership = %s / %v, err = %v", approved.Outcome, approved.Error, dispatchErr)
 	}
 	memberships, err := s.ProjectsForWork(ctx, "work-1")

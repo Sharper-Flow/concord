@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -149,7 +150,7 @@ func conflictApplicationRecord(t *testing.T, s *store.Store, workID string, expe
 	return rows[0].Actor, record, fields
 }
 
-func dispatchConflictObservation(t *testing.T, s *store.Store, service *Service, grant Authority, scopeVersion string, input map[string]any) (Envelope, error) {
+func dispatchConflictObservation(t *testing.T, s *store.Store, service *Service, grant Authority, scopeVersion string, input map[string]any) (agentcontract.Envelope, error) {
 	t.Helper()
 	raw, err := json.Marshal(input)
 	if err != nil {
@@ -161,7 +162,7 @@ func dispatchConflictObservation(t *testing.T, s *store.Store, service *Service,
 // requireRefused accepts either refusal channel: a raw Dispatch error (the
 // generated-schema channel for closed-input and exclusivity refusals) or a
 // typed envelope error (the live planner and recorder channel).
-func requireRefused(t *testing.T, label string, response Envelope, err error) {
+func requireRefused(t *testing.T, label string, response agentcontract.Envelope, err error) {
 	t.Helper()
 	if err != nil {
 		return
@@ -181,7 +182,7 @@ func TestConflictObservationRecordsOneSettlementTrio(t *testing.T) {
 	t.Parallel()
 	s, service, grant, scopeVersion := conflictDispatchFixture(t)
 	response, err := dispatchConflictObservation(t, s, service, grant, scopeVersion, map[string]any{"work_id": "work-sized", "idempotency_key": "conflict-settle-1", "conflict": map[string]any{"rule_id": "R1", "outcome": "settled: rule R1 applied, the slice stays out of scope"}})
-	if err != nil || response.Error != nil || response.Outcome != OutcomeOK || response.Replayed {
+	if err != nil || response.Error != nil || response.Outcome != agentcontract.OutcomeOK || response.Replayed {
 		t.Fatalf("conflict observation_record = %+v err = %v, want a first ok settlement", response, err)
 	}
 	actor, record, fields := conflictApplicationRecord(t, s, "work-sized", expectedConflictSettlement(t, s, "work-sized", grant.PrincipalRef, "conflict-settle-1", "R1", "settled: rule R1 applied, the slice stays out of scope", 1))
@@ -301,11 +302,11 @@ func TestConflictObservationReplaysFromCacheAndRefusesDivergence(t *testing.T) {
 	t.Parallel()
 	s, service, grant, scopeVersion := conflictDispatchFixture(t)
 	first, err := dispatchConflictObservation(t, s, service, grant, scopeVersion, map[string]any{"work_id": "work-sized", "idempotency_key": "conflict-replay-1", "conflict": map[string]any{"rule_id": "A2-3", "outcome": "settled: A2-3 recorded"}})
-	if err != nil || first.Error != nil || first.Outcome != OutcomeOK || first.Replayed {
+	if err != nil || first.Error != nil || first.Outcome != agentcontract.OutcomeOK || first.Replayed {
 		t.Fatalf("first conflict settlement = %+v err = %v, want a first ok settlement", first, err)
 	}
 	replay, err := dispatchConflictObservation(t, s, service, grant, scopeVersion, map[string]any{"work_id": "work-sized", "idempotency_key": "conflict-replay-1", "conflict": map[string]any{"rule_id": "A2-3", "outcome": "settled: A2-3 recorded"}})
-	if err != nil || replay.Error != nil || replay.Outcome != OutcomeOK || !replay.Replayed {
+	if err != nil || replay.Error != nil || replay.Outcome != agentcontract.OutcomeOK || !replay.Replayed {
 		t.Fatalf("conflict replay = %+v err = %v, want a cached replay", replay, err)
 	}
 	if got := conflictEventCount(t, s); got != 1 {
@@ -325,11 +326,11 @@ func TestConflictObservationKeepsOrdinaryVariantsUnchanged(t *testing.T) {
 	t.Parallel()
 	s, service, grant, scopeVersion := conflictDispatchFixture(t)
 	statement, err := dispatchConflictObservation(t, s, service, grant, scopeVersion, map[string]any{"work_id": "work-sized", "statement": "ordinary progress note", "idempotency_key": "conflict-ordinary-statement"})
-	if err != nil || statement.Error != nil || statement.Outcome != OutcomeOK {
+	if err != nil || statement.Error != nil || statement.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("statement observation = %+v err = %v, want ok", statement, err)
 	}
 	external, err := dispatchConflictObservation(t, s, service, grant, scopeVersion, map[string]any{"work_id": "work-sized", "idempotency_key": "conflict-ordinary-external", "external": conflictExternalCapture("xobs:0123456789abcdef")})
-	if err != nil || external.Error != nil || external.Outcome != OutcomeOK {
+	if err != nil || external.Error != nil || external.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("external observation = %+v err = %v, want ok", external, err)
 	}
 	if got := scalarRow(t, s, `SELECT count(*) FROM work_observations WHERE work_id='work-sized'`); got != 1 {
@@ -353,7 +354,7 @@ func TestConflictObservationCrossProductConsentFreeAndExactBinding(t *testing.T)
 	input := json.RawMessage(`{"work_id":"work-2","idempotency_key":"cross-conflict-1","conflict":{"rule_id":"A2-1","outcome":"settled: cross-Product conflict recorded"}}`)
 	request := InvokeRequest{Tool: "concord_work_define", Operation: "observation_record", Input: input}
 	approved, dispatchErr := Dispatch(ctx, s, service, request, env)
-	if dispatchErr != nil || approved.Error != nil || approved.Outcome != OutcomeOK {
+	if dispatchErr != nil || approved.Error != nil || approved.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("approved conflict settlement = %+v err = %v, want ok", approved, dispatchErr)
 	}
 	actor, record, _ := conflictApplicationRecord(t, s, "work-2", expectedConflictSettlement(t, s, "work-2", grant.PrincipalRef, "cross-conflict-1", "A2-1", "settled: cross-Product conflict recorded", 1))
@@ -367,7 +368,7 @@ func TestConflictObservationCrossProductConsentFreeAndExactBinding(t *testing.T)
 		t.Fatalf("approved settlement wrote %d ordinary observation row(s)", got)
 	}
 	replay, dispatchErr := Dispatch(ctx, s, service, request, env)
-	if dispatchErr != nil || replay.Outcome != OutcomeOK || !replay.Replayed {
+	if dispatchErr != nil || replay.Outcome != agentcontract.OutcomeOK || !replay.Replayed {
 		t.Fatalf("cross-Product settlement replay = %+v err = %v", replay, dispatchErr)
 	}
 	tamperedResponse, dispatchErr := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_define", Operation: "observation_record", Input: json.RawMessage(`{"work_id":"work-2","idempotency_key":"cross-conflict-1","conflict":{"rule_id":"A2-1","outcome":"settled: a changed outcome"}}`)}, env)
@@ -431,7 +432,24 @@ func conflictSettlementRows(t *testing.T, s *store.Store, workID string, expecte
 	if err := rows.Err(); err != nil {
 		t.Fatal(err)
 	}
-	return out
+	if err := rows.Close(); err != nil {
+		t.Fatal(err)
+	}
+	page, err := s.QueryQ7(context.Background(), store.Q7Request{Work: workID, RecordKinds: []string{"conflict_application"}, Direction: "oldest_first", Limit: 100})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var retained []conflictSettlement
+	for _, entry := range page.Entries {
+		if entry.ConflictApplication == nil {
+			t.Fatalf("settlement lacks readable payload: %+v", entry)
+		}
+		retained = append(retained, conflictSettlement{Actor: entry.Actor, Application: *entry.ConflictApplication})
+	}
+	if !reflect.DeepEqual(retained, out) {
+		t.Fatalf("history payloads do not match recorded settlements: got %+v, want %+v", retained, out)
+	}
+	return retained
 }
 
 // The receipt hashes all eight fields; the expected content comes from the
@@ -505,11 +523,11 @@ func TestConflictObservationFreshKeyRecordsASecondSettlement(t *testing.T) {
 	t.Parallel()
 	s, service, grant, scopeVersion := conflictDispatchFixture(t)
 	first, err := dispatchConflictObservation(t, s, service, grant, scopeVersion, map[string]any{"work_id": "work-sized", "idempotency_key": "conflict-fresh-key-1", "conflict": map[string]any{"rule_id": "R1", "outcome": "settled: the same declared intent"}})
-	if err != nil || first.Error != nil || first.Outcome != OutcomeOK || first.Replayed {
+	if err != nil || first.Error != nil || first.Outcome != agentcontract.OutcomeOK || first.Replayed {
 		t.Fatalf("first settlement = %+v err = %v, want ok", first, err)
 	}
 	second, err := dispatchConflictObservation(t, s, service, grant, scopeVersion, map[string]any{"work_id": "work-sized", "idempotency_key": "conflict-fresh-key-2", "conflict": map[string]any{"rule_id": "R1", "outcome": "settled: the same declared intent"}})
-	if err != nil || second.Error != nil || second.Outcome != OutcomeOK || second.Replayed {
+	if err != nil || second.Error != nil || second.Outcome != agentcontract.OutcomeOK || second.Replayed {
 		t.Fatalf("fresh-key settlement = %+v err = %v, want a recorded second settlement, not a digest-ID duplicate", second, err)
 	}
 	if got := conflictEventCount(t, s); got != 2 {
@@ -541,11 +559,11 @@ func TestConflictObservationAnotherPrincipalRecordsItsOwnSettlement(t *testing.T
 		t.Fatal(err)
 	}
 	first, err := dispatchConflictObservation(t, s, service, grant, scopeVersion, map[string]any{"work_id": "work-sized", "idempotency_key": "conflict-shared-key", "conflict": map[string]any{"rule_id": "A2-3", "outcome": "settled: one rule, two principals"}})
-	if err != nil || first.Error != nil || first.Outcome != OutcomeOK || first.Replayed {
+	if err != nil || first.Error != nil || first.Outcome != agentcontract.OutcomeOK || first.Replayed {
 		t.Fatalf("first principal settlement = %+v err = %v, want ok", first, err)
 	}
 	second, err := dispatchConflictObservation(t, s, otherService, otherGrant, scopeVersion, map[string]any{"work_id": "work-sized", "idempotency_key": "conflict-shared-key", "conflict": map[string]any{"rule_id": "A2-3", "outcome": "settled: one rule, two principals"}})
-	if err != nil || second.Error != nil || second.Outcome != OutcomeOK || second.Replayed {
+	if err != nil || second.Error != nil || second.Outcome != agentcontract.OutcomeOK || second.Replayed {
 		t.Fatalf("second principal settlement = %+v err = %v, want a recorded own settlement, not a digest-ID duplicate", second, err)
 	}
 	if got := conflictEventCount(t, s); got != 2 {
@@ -578,12 +596,12 @@ func TestConflictObservationFreshKeyAfterLaterAssessmentRecordsAtTheNewSequence(
 	t.Parallel()
 	s, service, grant, scopeVersion := conflictDispatchFixture(t)
 	first, err := dispatchConflictObservation(t, s, service, grant, scopeVersion, map[string]any{"work_id": "work-sized", "idempotency_key": "conflict-seq-1", "conflict": map[string]any{"rule_id": "P3", "outcome": "settled: one rule across two assessments"}})
-	if err != nil || first.Error != nil || first.Outcome != OutcomeOK || first.Replayed {
+	if err != nil || first.Error != nil || first.Outcome != agentcontract.OutcomeOK || first.Replayed {
 		t.Fatalf("first settlement = %+v err = %v, want ok", first, err)
 	}
 	conflictLaterAssessment(t, s, "work-sized")
 	second, err := dispatchConflictObservation(t, s, service, grant, scopeVersion, map[string]any{"work_id": "work-sized", "idempotency_key": "conflict-seq-2", "conflict": map[string]any{"rule_id": "P3", "outcome": "settled: one rule across two assessments"}})
-	if err != nil || second.Error != nil || second.Outcome != OutcomeOK || second.Replayed {
+	if err != nil || second.Error != nil || second.Outcome != agentcontract.OutcomeOK || second.Replayed {
 		t.Fatalf("fresh-key settlement after the later assessment = %+v err = %v, want a second settlement at the new stored sequence, not a digest-ID collision refusal", second, err)
 	}
 	if got := conflictEventCount(t, s); got != 2 {
@@ -600,5 +618,89 @@ func TestConflictObservationFreshKeyAfterLaterAssessmentRecordsAtTheNewSequence(
 	}
 	if rows[1].Application.SizeAssessmentSequence != 2 || rows[1].Application.Size != store.WorkSizeLarger {
 		t.Fatalf("second settlement %+v, want the later larger assessment at sequence 2", rows[1].Application)
+	}
+}
+
+func TestConflictObservationHistoryRoundTrip(t *testing.T) {
+	t.Parallel()
+	s, service, grant, scopeVersion := conflictDispatchFixture(t)
+	outcome := strings.Repeat("é", 2048)
+	input := map[string]any{"work_id": "work-sized", "idempotency_key": "history-settlement", "conflict": map[string]any{"rule_id": "R1", "outcome": outcome}}
+	written, err := dispatchConflictObservation(t, s, service, grant, scopeVersion, input)
+	if err != nil || written.Error != nil || written.Outcome != agentcontract.OutcomeOK {
+		t.Fatalf("record = %+v, %v", written, err)
+	}
+	want := expectedConflictSettlement(t, s, "work-sized", grant.PrincipalRef, "history-settlement", "R1", outcome, 1)
+	read := func(cursor *string) agentcontract.Envelope {
+		t.Helper()
+		raw, err := json.Marshal(map[string]any{"work_id": "work-sized", "record_kinds": []string{"conflict_application"}, "direction": "incoming", "page": map[string]any{"limit": 1, "cursor": cursor}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		response, err := Dispatch(context.Background(), s, service, InvokeRequest{Tool: "concord_work_trace", Operation: "history", Input: raw}, mutationEnvelope(grant, scopeVersion))
+		if err != nil || response.Error != nil || response.Outcome != agentcontract.OutcomeOK {
+			t.Fatalf("history = %+v, error=%+v, dispatch error=%v", response, response.Error, err)
+		}
+		return response
+	}
+	decode := func(response agentcontract.Envelope) []store.HistoryEntry {
+		t.Helper()
+		var page struct {
+			Entries []store.HistoryEntry `json:"entries"`
+		}
+		if err := json.Unmarshal(response.Result, &page); err != nil {
+			t.Fatal(err)
+		}
+		return page.Entries
+	}
+	first := decode(read(nil))
+	if len(first) != 1 || first[0].ConflictApplication == nil || *first[0].ConflictApplication != want.Application || first[0].Actor != want.Actor || first[0].Version != 2 || first[0].VersionWorkID != "work-sized" {
+		t.Fatalf("public history lost full recorded payload or metadata: %+v", first)
+	}
+	conflictLaterAssessment(t, s, "work-sized")
+	if got := decode(read(nil)); !reflect.DeepEqual(got, first) {
+		t.Fatalf("later size rewrote public settlement: %+v, want %+v", got, first)
+	}
+	replay, err := dispatchConflictObservation(t, s, service, grant, scopeVersion, input)
+	if err != nil || replay.Error != nil || !replay.Replayed {
+		t.Fatalf("retry = %+v, %v", replay, err)
+	}
+	if got := decode(read(nil)); !reflect.DeepEqual(got, first) {
+		t.Fatalf("cached retry rewrote public settlement: %+v", got)
+	}
+	input["idempotency_key"] = "history-settlement-second"
+	second, err := dispatchConflictObservation(t, s, service, grant, scopeVersion, input)
+	if err != nil || second.Error != nil || second.Replayed {
+		t.Fatalf("new settlement = %+v, %v", second, err)
+	}
+	page := read(nil)
+	newer := decode(page)
+	if len(newer) != 1 || newer[0].ConflictApplication == nil || newer[0].ConflictApplication.SizeAssessmentSequence != 2 || newer[0].ConflictApplication.Size != store.WorkSizeLarger || page.NextCursor == nil {
+		t.Fatalf("first public page = %+v, cursor=%v", newer, page.NextCursor)
+	}
+	last := read(page.NextCursor)
+	if got := decode(last); !reflect.DeepEqual(got, first) || last.NextCursor != nil {
+		t.Fatalf("last public page = %+v, cursor=%v; want original %+v", got, last.NextCursor, first)
+	}
+}
+
+func TestConflictObservationHistoryRespectsScope(t *testing.T) {
+	t.Parallel()
+	s, service, grant, scopeVersion := conflictCrossProductFixture(t)
+	response, err := dispatchConflictObservation(t, s, service, grant, scopeVersion, map[string]any{"work_id": "work-2", "idempotency_key": "history-scope", "conflict": map[string]any{"rule_id": "R1", "outcome": "settled outside the reader's Product"}})
+	if err != nil || response.Error != nil || response.Outcome != agentcontract.OutcomeOK {
+		t.Fatalf("record = %+v, %v", response, err)
+	}
+	limitedService, _, limitedGrant := newAuthorizedService(t, s, "limited-client", "limited-human", []agentcontract.Capability{"product_read"}, []string{"product-1"}, []string{"project-1"}, store.ProjectResolution{ProjectID: "project-1"})
+	scopeVersion, _, err = s.ScopeVersion(context.Background(), "project-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	response, err = Dispatch(context.Background(), s, limitedService, InvokeRequest{Tool: "concord_work_trace", Operation: "history", Input: json.RawMessage(`{"work_id":"work-2"}`)}, mutationEnvelope(limitedGrant, scopeVersion))
+	if err != nil || response.Error == nil || response.Error.Kind != "unauthorized" {
+		t.Fatalf("foreign settlement history = %+v, error=%+v, dispatch error=%v; want authorization refusal", response, response.Error, err)
+	}
+	if strings.Contains(string(response.Result), "settled outside") || strings.Contains(string(response.Result), "conflict_application") {
+		t.Fatalf("refused history leaked settlement evidence: %s", response.Result)
 	}
 }

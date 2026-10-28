@@ -96,7 +96,7 @@ func TestGeneratedReferenceDefMatchesStore(t *testing.T) {
 func TestWithEvidenceKindDefaultMapsInputKind(t *testing.T) {
 	t.Parallel()
 	payload := json.RawMessage(`{"evidence_ref":"commit:aa11bb22"}`)
-	got := withEvidenceKindDefault("bind_evidence", payload, []EvidenceRef{{Kind: "commit", Locator: "commit:aa11bb22"}})
+	got := withEvidenceKindDefault("bind_evidence", payload, []agentcontract.EvidenceRef{{Kind: "commit", Locator: "commit:aa11bb22"}})
 	var fields map[string]any
 	if err := json.Unmarshal(got, &fields); err != nil {
 		t.Fatal(err)
@@ -105,11 +105,11 @@ func TestWithEvidenceKindDefaultMapsInputKind(t *testing.T) {
 		t.Fatalf("evidence_kind = %v, want commit mapped from the input evidence array", fields["evidence_kind"])
 	}
 	explicit := json.RawMessage(`{"evidence_kind":"verification"}`)
-	kept := withEvidenceKindDefault("bind_evidence", explicit, []EvidenceRef{{Kind: "commit"}})
+	kept := withEvidenceKindDefault("bind_evidence", explicit, []agentcontract.EvidenceRef{{Kind: "commit"}})
 	if string(kept) != string(explicit) {
 		t.Fatalf("explicit evidence_kind was overridden: %s", kept)
 	}
-	untouched := withEvidenceKindDefault("record_verdict", payload, []EvidenceRef{{Kind: "commit"}})
+	untouched := withEvidenceKindDefault("record_verdict", payload, []agentcontract.EvidenceRef{{Kind: "commit"}})
 	if string(untouched) != string(payload) {
 		t.Fatalf("non-evidence action payload was rewritten: %s", untouched)
 	}
@@ -201,7 +201,7 @@ func TestBoundEvidenceReceiptsRoundTripThroughHistory(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				if response.Outcome != OutcomeOK {
+				if response.Outcome != agentcontract.OutcomeOK {
 					t.Fatalf("history receipt page refused: %+v", response.Error)
 				}
 				var page struct {
@@ -253,7 +253,7 @@ func TestContinuityRoundTripLegalMaximum(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if response.Outcome != OutcomeOK {
+	if response.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("continuity read with legal-maximum writes failed: %+v", response.Error)
 	}
 	var payload struct {

@@ -34,24 +34,24 @@ func TestWorkPinOutstandingEvidenceKindsTypedEnvelope(t *testing.T) {
 		if err := agentcontract.ValidateOperationPayload("concord_work_transition", "workflow_action", payload, true); err != nil {
 			t.Fatalf("typed envelope with debt present=%t: %v", present, err)
 		}
-		response := NewOKMutation(NewBase("debt-envelope", "concord_work_transition", "workflow_action"), payload,
-			[]ChangedRef{{EntityKind: "work_item", ID: "work-1", Version: "3"}}, nil)
+		response := agentcontract.NewOKMutation(agentcontract.NewBase("debt-envelope", "concord_work_transition", "workflow_action"), payload,
+			[]agentcontract.ChangedRef{{EntityKind: "work_item", ID: "work-1", Version: "3"}}, nil)
 		encoded, err := response.Encode()
 		if err != nil {
 			t.Fatal(err)
 		}
-		if len(encoded) > MaxResultEnvelopeBytes {
+		if len(encoded) > agentcontract.MaxResultEnvelopeBytes {
 			t.Fatal("seven-kind metadata exceeded the unchanged envelope budget")
 		}
-		decoded, err := decodeEnvelopeForTest(encoded)
-		if err != nil {
+		var decoded agentcontract.Envelope
+		if err := json.Unmarshal(encoded, &decoded); err != nil {
 			t.Fatal(err)
 		}
 		if !bytes.Equal(decoded.Result, payload) {
 			t.Fatal("envelope round-trip changed or truncated evidence-debt metadata")
 		}
 		replayed, _, pinless, err := (runtime{}).replayMutationPayload(payload,
-			[]ChangedRef{{EntityKind: "work_item", ID: "work-1", Version: "3"}})
+			[]agentcontract.ChangedRef{{EntityKind: "work_item", ID: "work-1", Version: "3"}})
 		if err != nil || len(pinless) != 0 || !bytes.Equal(replayed, payload) {
 			t.Fatalf("retained snapshot changed, backfilled, or lost its pin: err=%v pinless=%v", err, pinless)
 		}

@@ -454,17 +454,18 @@ recorded exemptions.
 
 - Criterion 1 is proved by `TestEnvelopeRejectsUnknownVariantsAndFields` and
   `TestEnvelopeRejectsUnknownFieldsAcrossEveryOutcome`
-  (`internal/agent/envelope_test.go`).
+  (`internal/agentcontract/envelope_test.go`).
 - Criterion 2 is proved by `TestEnvelopeGoldenOutcomes`
-  (`internal/agent/envelope_test.go`).
-- Criterion 3 is proved by `TestEnvelopeHasHardSerializedLimit`,
+  (`internal/agentcontract/envelope_test.go`).
+- Criterion 3 is proved by `TestEnvelopeHasHardSerializedLimit`
+  (`internal/agentcontract/envelope_test.go`),
   `TestMutationResultProducerAcceptsCanonicalPayload`
   (`internal/agent/envelope_test.go`), and `TestBudgetFieldsRefuseOrBoundResultsStructurally`
   (`internal/agent/runtime_test.go`).
 - Criterion 4 is proved by `TestAuthenticatedCursorBindsOperationAndRejectsTampering`
   (`internal/agent/runtime_test.go`).
 - Criterion 5 is proved by `TestOutcomeMismatchIsClosedAndCannotDowngrade`
-  (`internal/agent/envelope_test.go`) and the bound `AJ6-partial-publication`
+  (`internal/agentcontract/envelope_test.go`) and the bound `AJ6-partial-publication`
   scenario of `.concord/scenarios/agent-jobs.v1.json`, executed by
   `TestAgentJobsCorpus` (`internal/agent/agent_jobs_corpus_test.go`).
   Section 12 records the falsifiers for each guarantee.

@@ -323,6 +323,30 @@ class SubagentMethodProjectionTests(unittest.TestCase):
             "continue", "correction_required", "revision_required", "ready_for_final_proof",
         })
 
+    def test_conflict_review_uses_existing_carriers_and_reports_missing_evidence(self):
+        manifest, _ = generator.load_manifest()
+        carrying = set()
+        for lane in manifest["lanes"]:
+            text = " ".join(lane_projection(lane).split())
+            if "### Conflict rules" not in text:
+                continue
+            carrying.add(lane["id"])
+            for phrase in (
+                "Read their source through the admitted packet context",
+                "existing `contract_findings` evidence entries",
+                "`conflict-rule:<rule ID>`",
+                "the recorded change size, the outcome",
+                "missing rule, size or evidence; never guess a settlement or size",
+                "does not prove a rule was applied",
+                "Linear rule label, raising-change link and closure evidence supplied in the work context",
+                "judge the consequence rather than trusting an authored class",
+                "missing recovery alone creates no new approval class",
+                "one-time explanation before building",
+            ):
+                self.assertIn(phrase, text)
+        self.assertEqual(carrying, {"review"})
+        self.assertNotIn("conflict_rules", REPORT_SCHEMA["properties"])
+
     def test_review_teaching_agrees_with_report_schema(self):
         manifest, _ = generator.load_manifest()
         review = next(lane for lane in manifest["lanes"] if lane["id"] == "review")
@@ -1375,6 +1399,33 @@ class PrimaryProfileProjectionTests(unittest.TestCase):
                 for pattern in patterns:
                     self.assertIn(f"    {json.dumps(pattern)}: deny", bash)
                 self.assertNotIn(": allow", bash[bash.index('    "git stash *": deny'):])
+
+    def test_task_projections_deny_herdr_sends_without_removing_shell_reads(self):
+        commands = ("herdr agent prompt w1:p1 test", "herdr agent send-keys w1:p1 enter",
+                    "herdr pane run w1:p1 test", "herdr-notify --to w1:p1")
+        entries = [(lane["id"], lane_projection(lane), generator.edits_scoped_files(lane))
+                   for lane in self.manifest["lanes"]]
+        entries += [(utility["id"], generator.utility_projection(utility), False)
+                    for utility in self.manifest["utilities"]]
+        for name, projection, shell_reads in entries:
+            frontmatter = self.frontmatter(projection)
+            with self.subTest(agent=name):
+                self.assertIn("mode: subagent", frontmatter)
+                if "\n  bash: deny\n" in frontmatter:
+                    self.assertFalse(shell_reads)
+                    continue
+                match = re.search(r"\n  bash:\n((?:    .*\n?)*)", frontmatter)
+                rules = [(json.loads(pattern), action)
+                         for pattern, action in re.findall(r'    (".*"): (allow|deny)', match[1])]
+                for command in commands + (("herdr agent get w1:p1", "herdr pane read w1:p1") if shell_reads else ()):
+                    action = "allow"  # An inherited host allow must not reopen Task sends.
+                    for pattern, value in rules:
+                        if re.fullmatch(re.escape(pattern).replace(r"\*", ".*"), command):
+                            action = value
+                    self.assertEqual(action, "deny" if command in commands else "allow", command)
+        for profile in self.profiles["profiles"]:
+            # Primary coordination keeps its host route.
+            self.assertNotIn('"herdr-notify*": deny', self.frontmatter(self.projection(profile["id"])))
 
     def test_shared_conduct_forbids_stash_and_saves_permitted_edits_as_commits(self):
         text = " ".join(generator.CONDUCT_CHANGE.read_text(encoding="utf-8").split())

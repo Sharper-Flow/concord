@@ -38,7 +38,7 @@ func TestRegressionDefect1_RelationEnvelopeShapeIsFromToKind(t *testing.T) {
 		Input:     json.RawMessage(`{"work_id":"work-blocked","relation_kinds":["blocks"],"direction":"incoming"}`),
 	}, env)
 
-	if resp.Outcome != OutcomeOK {
+	if resp.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("Dispatch concord_work_trace.relations outcome=%s err=%+v", resp.Outcome, resp.Error)
 	}
 	var result map[string]any
@@ -186,7 +186,7 @@ func TestRegressionDefect3_TerminalWithoutEvidenceReturnsMissingEvidence(t *test
 	if err != nil {
 		t.Fatalf("dispatch returned err=%v", err)
 	}
-	if resp.Outcome != OutcomeError || resp.Error == nil {
+	if resp.Outcome != agentcontract.OutcomeError || resp.Error == nil {
 		t.Fatalf("expected typed error, got outcome=%s err=%+v", resp.Outcome, resp.Error)
 	}
 	if resp.Error.Kind != "missing_evidence" {
@@ -222,7 +222,7 @@ func TestRegressionDefect3_TerminalWithEvidenceCompletesWithoutConsent(t *testin
 	if err != nil {
 		t.Fatalf("dispatch returned err=%v", err)
 	}
-	if resp.Outcome != OutcomeOK || resp.Error != nil {
+	if resp.Outcome != agentcontract.OutcomeOK || resp.Error != nil {
 		t.Fatalf("evidenced completion outcome=%s error=%+v", resp.Outcome, resp.Error)
 	}
 	if got := workLifecycle(t, s, "work-1"); got != "completed" {
@@ -271,7 +271,7 @@ func TestRegressionDefect4_VersionConflictCarriesTypedCurrentVersion(t *testing.
 	if err != nil {
 		t.Fatalf("dispatch returned err=%v", err)
 	}
-	if resp.Outcome != OutcomeError || resp.Error == nil {
+	if resp.Outcome != agentcontract.OutcomeError || resp.Error == nil {
 		t.Fatalf("expected typed error, got outcome=%s err=%+v", resp.Outcome, resp.Error)
 	}
 	if resp.Error.Kind != "version_conflict" {
@@ -307,15 +307,15 @@ func TestRegressionDefect4_VersionConflictEnvelopeValidates(t *testing.T) {
 	// Force-build an envelope whose kind/recovery are coupled to the
 	// rule. The pre-fix runtime would have produced exactly this
 	// shape, so this test acts as a forward guard on the coupling.
-	env := NewBase("d4", "concord_work_transition", "lifecycle")
+	env := agentcontract.NewBase("d4", "concord_work_transition", "lifecycle")
 	errEnv := env
-	errEnv.Outcome = OutcomeError
-	errEnv.Error = &TypedError{
+	errEnv.Outcome = agentcontract.OutcomeError
+	errEnv.Error = &agentcontract.TypedError{
 		Kind:            "version_conflict",
 		RetrySafe:       false,
-		RecoveryAction:  RecoveryAction{Kind: "reread_entities"},
-		EffectState:     EffectNone,
-		CurrentVersions: []ChangedRef{{EntityKind: "work_item", ID: "work-1", Version: "2"}},
+		RecoveryAction:  agentcontract.RecoveryAction{Kind: "reread_entities"},
+		EffectState:     agentcontract.EffectNone,
+		CurrentVersions: []agentcontract.ChangedRef{{EntityKind: "work_item", ID: "work-1", Version: "2"}},
 	}
 	if err := errEnv.Validate(); err != nil {
 		t.Fatalf("typed version_conflict with typed CurrentVersions must validate, got %v", err)
@@ -323,13 +323,13 @@ func TestRegressionDefect4_VersionConflictEnvelopeValidates(t *testing.T) {
 	// Negative: a version_conflict with empty CurrentVersions must be
 	// rejected. This is the coupling the D4 repair enforces — the
 	// validator refuses the pre-fix shape.
-	badEnv := NewBase("d4-bad", "concord_work_transition", "lifecycle")
-	badEnv.Outcome = OutcomeError
-	badEnv.Error = &TypedError{
+	badEnv := agentcontract.NewBase("d4-bad", "concord_work_transition", "lifecycle")
+	badEnv.Outcome = agentcontract.OutcomeError
+	badEnv.Error = &agentcontract.TypedError{
 		Kind:           "version_conflict",
 		RetrySafe:      false,
-		RecoveryAction: RecoveryAction{Kind: "reread_entities"},
-		EffectState:    EffectNone,
+		RecoveryAction: agentcontract.RecoveryAction{Kind: "reread_entities"},
+		EffectState:    agentcontract.EffectNone,
 		// intentionally no CurrentVersions
 	}
 	if err := badEnv.Validate(); err == nil {
@@ -352,7 +352,7 @@ func TestRegressionDefect5_CycleRefusalCarriesTypedViolations(t *testing.T) {
 	input := []byte(`{"from_work_id":"work-2","to_work_id":"work-1","from_expected_version":3,"to_expected_version":3,"from_contract_version":1,"to_contract_version":1,"resolution_kind":"blocks","reason":"cycle","idempotency_key":"d5-cycle"}`)
 	beforeEvents := agentCurrentEffects(t, s)
 	resp := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_relate", Operation: "resolve_overlap", Input: input}, env)
-	if resp.Outcome != OutcomeError || resp.Error == nil {
+	if resp.Outcome != agentcontract.OutcomeError || resp.Error == nil {
 		t.Fatalf("expected typed error, got outcome=%s err=%+v", resp.Outcome, resp.Error)
 	}
 	if resp.Error.Kind != "invalid_relation" {

@@ -16,6 +16,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/pm1fixture"
 	"github.com/sharper-flow/concord/internal/store"
 	"github.com/sharper-flow/concord/internal/store/storetest"
@@ -217,11 +218,11 @@ func seedDemandHeldNegative(t *testing.T, s *store.Store, workID string) {
 	}
 }
 
-func searchDemand(t *testing.T, s *store.Store, allowDegraded bool) Envelope {
+func searchDemand(t *testing.T, s *store.Store, allowDegraded bool) agentcontract.Envelope {
 	t.Helper()
 	r := runtime{Store: s, Tool: "concord_knowledge", Operation: "search", Envelope: CallEnvelope{SelectedProductID: "demand-product"}}
 	input := `{"product_id":"demand-product","allow_degraded":` + strconv.FormatBool(allowDegraded) + `}`
-	response, err := r.read(context.Background(), NewBase("demand-search", r.Tool, r.Operation), []byte(input), "PM1.Q9")
+	response, err := r.read(context.Background(), agentcontract.NewBase("demand-search", r.Tool, r.Operation), []byte(input), "PM1.Q9")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -234,7 +235,7 @@ func TestKnowledgeSearchHeldNegativeDemandRefusesWithoutDegraded(t *testing.T) {
 	defer s.Close()
 	seedDemandHeldNegative(t, s, demandHomeWork)
 	response := searchDemand(t, s, false)
-	if response.Outcome != OutcomeError || response.Error == nil {
+	if response.Outcome != agentcontract.OutcomeError || response.Error == nil {
 		t.Fatalf("a held negative must refuse the strict search, got %+v", response)
 	}
 }
@@ -245,7 +246,7 @@ func TestKnowledgeSearchHeldNegativeDemandDegradesWithAllowDegraded(t *testing.T
 	defer s.Close()
 	seedDemandHeldNegative(t, s, demandHomeWork)
 	response := searchDemand(t, s, true)
-	if response.Outcome != OutcomeOK {
+	if response.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("the suppressed demand must degrade, not fail: %+v", response)
 	}
 	if response.Authority != "degraded" {
@@ -275,7 +276,7 @@ func TestKnowledgeSearchMultiSourceSkipsDemandFailedSourceItems(t *testing.T) {
 	defer s.Close()
 	seedDemandHeldNegative(t, s, demandHomeWork)
 	response := searchDemand(t, s, true)
-	if response.Outcome != OutcomeOK || response.Authority != "degraded" {
+	if response.Outcome != agentcontract.OutcomeOK || response.Authority != "degraded" {
 		t.Fatalf("the federated answer must degrade: outcome=%v authority=%q", response.Outcome, response.Authority)
 	}
 	assertKnowledgeNotice(t, response.Omissions, "knowledge_source_demand_failed", map[string]any{
@@ -311,7 +312,7 @@ func TestKnowledgeSearchMultiSourceKeepsHomeWhenSourceDemandFailed(t *testing.T)
 	defer s.Close()
 	seedDemandHeldNegative(t, s, demandSourceWork)
 	response := searchDemand(t, s, true)
-	if response.Outcome != OutcomeOK || response.Authority != "degraded" {
+	if response.Outcome != agentcontract.OutcomeOK || response.Authority != "degraded" {
 		t.Fatalf("the federated answer must degrade when a source demand fails: outcome=%v authority=%q", response.Outcome, response.Authority)
 	}
 	assertKnowledgeNotice(t, response.Omissions, "knowledge_source_demand_failed", map[string]any{
@@ -333,7 +334,7 @@ func TestKnowledgeSearchMultiSourceKeepsHomeWhenSourceDemandFailed(t *testing.T)
 	}
 }
 
-func assertKnowledgeNotice(t *testing.T, notices []Notice, kind string, details map[string]any) {
+func assertKnowledgeNotice(t *testing.T, notices []agentcontract.Notice, kind string, details map[string]any) {
 	t.Helper()
 	for _, notice := range notices {
 		if notice.Kind == kind && reflect.DeepEqual(notice.Details, details) {
@@ -349,7 +350,7 @@ func TestKnowledgeSearchDemandFailureNoticeMarshalsWithRealisticIdentifiers(t *t
 	defer s.Close()
 	seedDemandHeldNegative(t, s, demandHomeWork)
 	response := searchDemand(t, s, true)
-	if response.Outcome != OutcomeOK || response.Authority != AuthorityDegraded {
+	if response.Outcome != agentcontract.OutcomeOK || response.Authority != agentcontract.AuthorityDegraded {
 		t.Fatalf("suppressed demand must answer degraded: %+v", response)
 	}
 	if _, err := json.Marshal(response); err != nil {
@@ -371,7 +372,7 @@ func TestKnowledgeSearchDegradedSourceNoticeMarshalsWithLongLocator(t *testing.T
 		t.Fatal(err)
 	}
 	response := searchDemand(t, s, true)
-	if response.Outcome != OutcomeOK || response.Authority != AuthorityDegraded {
+	if response.Outcome != agentcontract.OutcomeOK || response.Authority != agentcontract.AuthorityDegraded {
 		t.Fatalf("unreachable source must answer degraded: %+v", response)
 	}
 	if _, err := json.Marshal(response); err != nil {

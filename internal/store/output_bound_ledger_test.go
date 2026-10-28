@@ -118,7 +118,7 @@ const (
 	// surfaceManifestFile is the tool-surface manifest: the census owner.
 	surfaceManifestFile = "contracts/agent-tool-surface.v1.json"
 	// agentEnvelopeFile holds the actual host ceiling constant.
-	agentEnvelopeFile = "internal/agent/envelope.go"
+	agentEnvelopeFile = "internal/agentcontract/envelope.go"
 	// agentEnvelopeCeilingConst is the agent constant the ceiling reads from.
 	agentEnvelopeCeilingConst = "MaxResultEnvelopeBytes"
 	// ruledEnvelopeCeilingBytes pins the 51200-byte result ceiling. The ledger

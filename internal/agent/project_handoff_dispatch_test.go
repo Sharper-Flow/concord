@@ -22,7 +22,7 @@ import (
 // before the transaction, and the retirement read derives from verified
 // facts only.
 
-func resultMap(t *testing.T, e Envelope) map[string]any {
+func resultMap(t *testing.T, e agentcontract.Envelope) map[string]any {
 	t.Helper()
 	var out map[string]any
 	if json.Unmarshal(e.Result, &out) != nil {
@@ -31,13 +31,13 @@ func resultMap(t *testing.T, e Envelope) map[string]any {
 	return out
 }
 
-func resultField(t *testing.T, e Envelope, key string) string {
+func resultField(t *testing.T, e agentcontract.Envelope, key string) string {
 	t.Helper()
 	value, _ := resultMap(t, e)[key].(string)
 	return value
 }
 
-func resultBool(t *testing.T, e Envelope, key string) bool {
+func resultBool(t *testing.T, e agentcontract.Envelope, key string) bool {
 	t.Helper()
 	value, _ := resultMap(t, e)[key].(bool)
 	return value
@@ -152,7 +152,7 @@ func handoffDispatchFixture(t *testing.T) (*store.Store, *Service, *Service, Cal
 			"work_id": "work-1", "expected_version": version, "action_id": action,
 			"fields": stepFields[action], "idempotency_key": "handoff-" + action,
 		})
-		if stepped.Outcome != OutcomeOK {
+		if stepped.Outcome != agentcontract.OutcomeOK {
 			t.Fatalf("%s failed: %+v", action, stepped.Error)
 		}
 		version, err = workVersionForWorkflow(t, s)
@@ -162,7 +162,7 @@ func handoffDispatchFixture(t *testing.T) (*store.Store, *Service, *Service, Cal
 	}
 	contractFields := workflowContractFieldsForSeededRegistry(t, s)
 	approved, _ := approvedWorkflowActionWithVersions(t, s, sourceService, sourceGrant, mustKey(t), sourceEnv, version, "approve_contract", contractFields, "handoff-approve-contract", map[string]any{"work": version})
-	if approved.Outcome != OutcomeOK {
+	if approved.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("approve_contract failed: %+v", approved.Error)
 	}
 	recordApprovedWorkDesign(t, s, sourceService, sourceEnv, "work-1", "handoff-design")
@@ -260,7 +260,7 @@ func handoffEnvelope(grant Authority, ambientProject, scopeVersion string) CallE
 	return CallEnvelope{SchemaVersion: "1.0", RequestID: "handoff-request", ClientRef: grant.ClientRef, PrincipalRef: grant.PrincipalRef, SessionRef: grant.SessionRef, AgentRef: grant.AgentRef, Directory: grant.Worktree, Worktree: grant.Worktree, AmbientProjectID: ambientProject, SelectedProductID: "product-1", ScopeVersion: scopeVersion, ManifestDigest: grant.ManifestDigest}
 }
 
-func handoffInvoke(t *testing.T, s *store.Store, service *Service, env CallEnvelope, operation string, input map[string]any) Envelope {
+func handoffInvoke(t *testing.T, s *store.Store, service *Service, env CallEnvelope, operation string, input map[string]any) agentcontract.Envelope {
 	t.Helper()
 	raw, _ := json.Marshal(input)
 	response, err := Dispatch(context.Background(), s, service, InvokeRequest{Tool: "concord_work_transition", Operation: operation, Input: raw}, env)
@@ -277,7 +277,7 @@ func retirementInvoke(t *testing.T, s *store.Store, service *Service, env CallEn
 	if err != nil {
 		t.Fatal(err)
 	}
-	if response.Outcome != OutcomeOK {
+	if response.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("retirement read failed: %+v", response.Error)
 	}
 	payload, _ := json.Marshal(response.Result)
@@ -300,7 +300,7 @@ func TestProjectHandoffToolsRecordConsumeAndGateAtTheToolBoundary(t *testing.T) 
 		"next_action": "consume the handoff and run the bounded job",
 		"changes":     []string{"adapter/opencode: opener route"},
 	})
-	if record.Outcome != OutcomeOK {
+	if record.Outcome != agentcontract.OutcomeOK {
 		_ = osWrite("/tmp/opencode", "handoff-error.txt", record.Error.Message)
 		t.Fatalf("record failed: %+v", record.Error)
 	}
@@ -316,7 +316,7 @@ func TestProjectHandoffToolsRecordConsumeAndGateAtTheToolBoundary(t *testing.T) 
 		"next_action": "consume the handoff and run the bounded job",
 		"changes":     []string{"adapter/opencode: opener route"},
 	})
-	if replay.Outcome != OutcomeOK {
+	if replay.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("replay failed: %+v", replay.Error)
 	}
 	if resultField(t, replay, "handoff_id") != handoffID || !resultBool(t, replay, "already_recorded") {
@@ -333,7 +333,7 @@ func TestProjectHandoffToolsRecordConsumeAndGateAtTheToolBoundary(t *testing.T) 
 		"work_id":         "work-1", "target_project_id": "project-2",
 		"bounded_job": "second job", "next_action": "consume",
 	})
-	if dirty.Outcome == OutcomeOK || dirty.Error == nil || !strings.Contains(dirty.Error.Message, "unpreserved changes") {
+	if dirty.Outcome == agentcontract.OutcomeOK || dirty.Error == nil || !strings.Contains(dirty.Error.Message, "unpreserved changes") {
 		t.Fatalf("dirty record=%+v, want the unpreserved-changes refusal", dirty.Error)
 	}
 	if err := exec.Command("git", "-C", sourceEnv.Worktree, "checkout", "--", "tracked.txt").Run(); err != nil {
@@ -344,7 +344,7 @@ func TestProjectHandoffToolsRecordConsumeAndGateAtTheToolBoundary(t *testing.T) 
 	wrongTarget := handoffInvoke(t, s, sourceService, sourceEnv, "project_handoff_consume", map[string]any{
 		"idempotency_key": "consume-wrong", "work_id": "work-1", "handoff_id": handoffID,
 	})
-	if wrongTarget.Outcome == OutcomeOK || wrongTarget.Error == nil || !strings.Contains(wrongTarget.Error.Message, "addresses Project") {
+	if wrongTarget.Outcome == agentcontract.OutcomeOK || wrongTarget.Error == nil || !strings.Contains(wrongTarget.Error.Message, "addresses Project") {
 		t.Fatalf("wrong-target consume=%+v, want the addressed-Project refusal", wrongTarget.Error)
 	}
 	// The receiving session's consume requires the verified placement the
@@ -353,7 +353,7 @@ func TestProjectHandoffToolsRecordConsumeAndGateAtTheToolBoundary(t *testing.T) 
 	unplaced := handoffInvoke(t, s, receiveService, receiveEnv, "project_handoff_consume", map[string]any{
 		"idempotency_key": "consume-unplaced", "work_id": "work-1", "handoff_id": handoffID,
 	})
-	if unplaced.Outcome == OutcomeOK || unplaced.Error == nil || !strings.Contains(unplaced.Error.Message, "no verified placement") {
+	if unplaced.Outcome == agentcontract.OutcomeOK || unplaced.Error == nil || !strings.Contains(unplaced.Error.Message, "no verified placement") {
 		t.Fatalf("unplaced consume=%+v, want the unplaced-receiver refusal", unplaced.Error)
 	}
 	// The verified claim landing records the receiving session's occupancy
@@ -367,13 +367,13 @@ func TestProjectHandoffToolsRecordConsumeAndGateAtTheToolBoundary(t *testing.T) 
 	consumed := handoffInvoke(t, s, receiveService, receiveEnv, "project_handoff_consume", map[string]any{
 		"idempotency_key": "consume-1", "work_id": "work-1", "handoff_id": handoffID,
 	})
-	if consumed.Outcome != OutcomeOK || resultBool(t, consumed, "already_consumed") {
+	if consumed.Outcome != agentcontract.OutcomeOK || resultBool(t, consumed, "already_consumed") {
 		t.Fatalf("consume=%s err=%+v, want the fresh bind", consumed.Result, consumed.Error)
 	}
 	again := handoffInvoke(t, s, receiveService, receiveEnv, "project_handoff_consume", map[string]any{
 		"work_id": "work-1", "handoff_id": handoffID, "idempotency_key": "consume-2",
 	})
-	if again.Outcome != OutcomeOK || !resultBool(t, again, "already_consumed") {
+	if again.Outcome != agentcontract.OutcomeOK || !resultBool(t, again, "already_consumed") {
 		t.Fatalf("consume replay=%s err=%+v, want AlreadyConsumed", again.Result, again.Error)
 	}
 	// The retirement read derives pending from the verified facts; this
@@ -419,13 +419,13 @@ func TestSessionVacateRouteAndVerifiedLandingCompleteRetirementReadiness(t *test
 		"next_action": "consume the handoff and run the bounded job",
 		"changes":     []string{"adapter/opencode: opener route"},
 	})
-	if record.Outcome != OutcomeOK {
+	if record.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("record failed: %+v", record.Error)
 	}
 	// The real session_vacate mutation records the relocation request; the
 	// destination is the registered main checkout the project locator names.
 	vacated := handoffInvoke(t, s, vacateService, vacateEnv, "session_vacate", map[string]any{"idempotency_key": "retire-vacate"})
-	if vacated.Outcome != OutcomeOK {
+	if vacated.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("session_vacate failed: %+v", vacated.Error)
 	}
 	var target struct {
@@ -489,7 +489,7 @@ func TestProjectHandoffConsumeReplayRechecksBindAndContract(t *testing.T) {
 		"work_id":         "work-1", "target_project_id": "project-2",
 		"bounded_job": "bounded receiver job", "next_action": "execute receiver job",
 	})
-	if record.Outcome != OutcomeOK {
+	if record.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("record failed: %+v", record.Error)
 	}
 	handoffID := resultField(t, record, "handoff_id")
@@ -498,12 +498,12 @@ func TestProjectHandoffConsumeReplayRechecksBindAndContract(t *testing.T) {
 	}
 	input := map[string]any{"work_id": "work-1", "handoff_id": handoffID, "idempotency_key": "replay-consume"}
 	first := handoffInvoke(t, s, receiveService, receiveEnv, "project_handoff_consume", input)
-	if first.Outcome != OutcomeOK {
+	if first.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("first consume failed: %+v", first.Error)
 	}
 	// The owning session's same-key replay resolves the standing bind.
 	ownerReplay := handoffInvoke(t, s, receiveService, receiveEnv, "project_handoff_consume", input)
-	if ownerReplay.Outcome != OutcomeOK || !resultBool(t, ownerReplay, "already_consumed") {
+	if ownerReplay.Outcome != agentcontract.OutcomeOK || !resultBool(t, ownerReplay, "already_consumed") {
 		t.Fatalf("owner replay=%+v result=%s, want the standing bind re-resolved", ownerReplay.Error, ownerReplay.Result)
 	}
 	// A second receiver's same-key replay resolves the standing shared bind
@@ -518,11 +518,11 @@ func TestProjectHandoffConsumeReplayRechecksBindAndContract(t *testing.T) {
 		t.Fatal(err)
 	}
 	foreignReplay := handoffInvoke(t, s, receiveService, foreign, "project_handoff_consume", input)
-	if foreignReplay.Outcome != OutcomeOK || !resultBool(t, foreignReplay, "already_consumed") {
+	if foreignReplay.Outcome != agentcontract.OutcomeOK || !resultBool(t, foreignReplay, "already_consumed") {
 		t.Fatalf("foreign replay=%+v result=%s, want the shared bind resolved for the second receiver", foreignReplay.Error, foreignReplay.Result)
 	}
 	foreignNewKey := handoffInvoke(t, s, receiveService, foreign, "project_handoff_consume", map[string]any{"work_id": "work-1", "handoff_id": handoffID, "idempotency_key": "replay-consume-foreign-new-key"})
-	if foreignNewKey.Outcome != OutcomeOK || !resultBool(t, foreignNewKey, "already_consumed") {
+	if foreignNewKey.Outcome != agentcontract.OutcomeOK || !resultBool(t, foreignNewKey, "already_consumed") {
 		t.Fatalf("foreign new-key consume=%s err=%+v, want the same shared-bind resolution", foreignNewKey.Result, foreignNewKey.Error)
 	}
 	// A contract replacement holds the same-key replay closed on the stale
@@ -536,7 +536,7 @@ func TestProjectHandoffConsumeReplayRechecksBindAndContract(t *testing.T) {
 		t.Fatal(err)
 	}
 	staleReplay := handoffInvoke(t, s, receiveService, receiveEnv, "project_handoff_consume", input)
-	if staleReplay.Outcome == OutcomeOK || staleReplay.Error == nil || !strings.Contains(staleReplay.Error.Message, "contract version 1") || !strings.Contains(staleReplay.Error.Message, "version 2") {
+	if staleReplay.Outcome == agentcontract.OutcomeOK || staleReplay.Error == nil || !strings.Contains(staleReplay.Error.Message, "contract version 1") || !strings.Contains(staleReplay.Error.Message, "version 2") {
 		t.Fatalf("stale replay=%+v, want the stale-bind refusal", staleReplay.Error)
 	}
 	var consumedEvents int
@@ -578,7 +578,7 @@ func TestProjectHandoffRecordBindsThePreservationProbeToTheClaimedSourceWorktree
 		"work_id":         "work-1", "target_project_id": "project-2",
 		"bounded_job": "bounded receiver job", "next_action": "consume",
 	})
-	if rogue.Outcome == OutcomeOK || rogue.Error == nil || !strings.Contains(rogue.Error.Message, "claimed source worktree") {
+	if rogue.Outcome == agentcontract.OutcomeOK || rogue.Error == nil || !strings.Contains(rogue.Error.Message, "claimed source worktree") {
 		t.Fatalf("rogue record=%+v, want the claimed-source bind refusal", rogue.Error)
 	}
 	// The honest session inside its claimed worktree refuses on the probe
@@ -588,7 +588,7 @@ func TestProjectHandoffRecordBindsThePreservationProbeToTheClaimedSourceWorktree
 		"work_id":         "work-1", "target_project_id": "project-2",
 		"bounded_job": "bounded receiver job", "next_action": "consume",
 	})
-	if honest.Outcome == OutcomeOK || honest.Error == nil || !strings.Contains(honest.Error.Message, "unpreserved changes") {
+	if honest.Outcome == agentcontract.OutcomeOK || honest.Error == nil || !strings.Contains(honest.Error.Message, "unpreserved changes") {
 		t.Fatalf("honest dirty record=%+v, want the unpreserved-changes refusal", honest.Error)
 	}
 	if err := exec.Command("git", "-C", sourceEnv.Worktree, "checkout", "--", "tracked.txt").Run(); err != nil {
@@ -599,7 +599,7 @@ func TestProjectHandoffRecordBindsThePreservationProbeToTheClaimedSourceWorktree
 		"work_id":         "work-1", "target_project_id": "project-2",
 		"bounded_job": "bounded receiver job", "next_action": "consume",
 	})
-	if honestClean.Outcome != OutcomeOK {
+	if honestClean.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("honest clean record failed: %+v", honestClean.Error)
 	}
 }

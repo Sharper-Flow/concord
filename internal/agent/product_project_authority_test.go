@@ -59,7 +59,7 @@ func TestSameProductSiblingMembershipMutationNeedsNoConsent(t *testing.T) {
 	request := InvokeRequest{Tool: "concord_work_relate", Operation: "set_memberships", Input: json.RawMessage(`{"work_id":"work-1","expected_version":2,"memberships":[{"project_id":"project-2","role":"primary"}],"idempotency_key":"sibling-move"}`)}
 	// CD-0243 D3/D7 retire ordinary membership consent, not scope checks.
 	approved, err := Dispatch(ctx, s, service, request, env)
-	if err != nil || approved.Outcome != OutcomeOK {
+	if err != nil || approved.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("approved sibling membership = %+v, err = %v", approved, err)
 	}
 	memberships, err := s.ProjectsForWork(ctx, "work-1")
@@ -95,7 +95,7 @@ func testProductAccessApprovalWireRoundTrip(t *testing.T, elapsed time.Duration,
 	}
 	env := mutationEnvelope(grant, scopeVersion)
 	request := InvokeRequest{Tool: "concord_work_relate", Operation: "product_project_add", Input: productProjectLinkRequest("", "project-2")}
-	dispatchWire := func(request InvokeRequest, env CallEnvelope) Envelope {
+	dispatchWire := func(request InvokeRequest, env CallEnvelope) agentcontract.Envelope {
 		t.Helper()
 		request.CallEnvelope, err = json.Marshal(env)
 		if err != nil {
@@ -153,7 +153,7 @@ func testProductAccessApprovalWireRoundTrip(t *testing.T, elapsed time.Duration,
 	}
 	approved := dispatchWire(request, env)
 	if malformedTimestamp {
-		if approved.Error == nil || approved.Error.Kind != "internal_error" || approved.Error.EffectState != EffectNone || approved.Error.RetrySafe || approved.Error.RecoveryAction.Kind != "contact_operator" || approved.Error.Details["boundary"] != "host_approval_timestamp" || approved.Error.Details["reason"] != "malformed" {
+		if approved.Error == nil || approved.Error.Kind != "internal_error" || approved.Error.EffectState != agentcontract.EffectNone || approved.Error.RetrySafe || approved.Error.RecoveryAction.Kind != "contact_operator" || approved.Error.Details["boundary"] != "host_approval_timestamp" || approved.Error.Details["reason"] != "malformed" {
 			t.Fatalf("host timestamp failure lost its cause or requested another approval: %+v", approved.Error)
 		}
 		if workVersion(t, s, "work-1") != 2 || usedCount(t, s.DatabaseForTesting(), `SELECT used_count FROM agent_approval_challenges WHERE challenge_ref=?`, ref) != 0 {
@@ -177,7 +177,7 @@ func testProductAccessApprovalWireRoundTrip(t *testing.T, elapsed time.Duration,
 			t.Fatalf("re-arm moved the challenge issue time to %s", issuedAt)
 		}
 	}
-	if approved.Outcome != OutcomeOK {
+	if approved.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("approved access grant = %+v, error = %+v", approved, approved.Error)
 	}
 	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM product_projects WHERE product_id='product-1' AND project_id='project-2'`); got != 1 {
@@ -187,7 +187,7 @@ func testProductAccessApprovalWireRoundTrip(t *testing.T, elapsed time.Duration,
 		t.Fatal("access approval changed work or did not consume exactly one challenge and approval")
 	}
 	replayed := dispatchWire(request, env)
-	if replayed.Outcome != OutcomeOK || !replayed.Replayed || workVersion(t, s, "work-1") != 2 {
+	if replayed.Outcome != agentcontract.OutcomeOK || !replayed.Replayed || workVersion(t, s, "work-1") != 2 {
 		t.Fatalf("access replay = %+v", replayed)
 	}
 }
@@ -371,7 +371,7 @@ func TestProductProjectAddRequiresExactOperatorApproval(t *testing.T) {
 	_, env, _ := productProjectLinkChallenge(t, s, service, grant, privateKey)
 	request := InvokeRequest{Tool: "concord_work_relate", Operation: "product_project_add", Input: productProjectLinkRequest(challengeRef(env), "project-2")}
 	approved, err := Dispatch(ctx, s, service, request, env)
-	if err != nil || approved.Outcome != OutcomeOK {
+	if err != nil || approved.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("approved link = %+v, err = %v", approved, err)
 	}
 	memberships, err := s.ProjectsForProduct(ctx, "product-1")
@@ -394,7 +394,7 @@ func TestProductProjectAddRequiresExactOperatorApproval(t *testing.T) {
 	// An exact replay answers with the stored result even though the consumed
 	// approval and the new edge would both refuse a fresh attempt.
 	replayed, err := Dispatch(ctx, s, service, request, env)
-	if err != nil || replayed.Outcome != OutcomeOK || !replayed.Replayed {
+	if err != nil || replayed.Outcome != agentcontract.OutcomeOK || !replayed.Replayed {
 		t.Fatalf("replayed link = %+v, err = %v", replayed, err)
 	}
 }
@@ -414,7 +414,7 @@ func TestProductProjectAddReportsAffectedWorkScope(t *testing.T) {
 	_, env, _ := productProjectLinkChallenge(t, s, service, grant, privateKey)
 	request := InvokeRequest{Tool: "concord_work_relate", Operation: "product_project_add", Input: productProjectLinkRequest(challengeRef(env), "project-2")}
 	approved, err := Dispatch(ctx, s, service, request, env)
-	if err != nil || approved.Outcome != OutcomeOK {
+	if err != nil || approved.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("approved link = %+v, err = %v", approved, err)
 	}
 	var result struct {
@@ -449,7 +449,7 @@ func TestProductProjectAddLinksDisjointProjectNamedByPolicy(t *testing.T) {
 	_, env, _ := productProjectLinkChallengeFor(t, s, service, grant, privateKey, "project-3", []string{"product-1", "product-3"})
 	request := InvokeRequest{Tool: "concord_work_relate", Operation: "product_project_add", Input: productProjectLinkRequest(challengeRef(env), "project-3")}
 	approved, err := Dispatch(ctx, s, service, request, env)
-	if err != nil || approved.Outcome != OutcomeOK {
+	if err != nil || approved.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("approved disjoint link = %+v, err = %v", approved, err)
 	}
 	memberships, err := s.ProjectsForProduct(ctx, "product-1")

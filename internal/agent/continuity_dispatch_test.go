@@ -35,7 +35,7 @@ func TestContinuityDispatchReadsAPinnedContract(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if response.Outcome != OutcomeOK {
+	if response.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("continuity with a pinned contract failed: %+v", response.Error)
 	}
 

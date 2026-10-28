@@ -27,9 +27,9 @@ func TestPublishedExecutionAbsenceAuthorizationAndWire(t *testing.T) {
 			t.Fatalf("authorized outcome owner refused: %v", err)
 		}
 		r := runtime{Store: s, Tool: request.Tool, Operation: request.Operation, Envelope: CallEnvelope{SelectedProductID: "product-a"}}
-		response, err := r.read(ctx, NewBase("published-read", r.Tool, r.Operation), request.Input, "CD-0030.R1")
+		response, err := r.read(ctx, agentcontract.NewBase("published-read", r.Tool, r.Operation), request.Input, "CD-0030.R1")
 		if err != nil {
-			response = failureEnvelope(NewBase("published-read", r.Tool, r.Operation), err)
+			response = failureEnvelope(agentcontract.NewBase("published-read", r.Tool, r.Operation), err)
 		}
 		if response.Error == nil || response.Error.Kind != "unknown_scope" {
 			t.Fatalf("wire failure=%+v", response)
@@ -63,7 +63,7 @@ func TestPublishedExecutionAbsenceUnresolvedLocatorWire(t *testing.T) {
 			if err == nil {
 				t.Fatal("removed execution returned live metadata")
 			}
-			response := failureEnvelope(NewBase("published-read", "concord_work_trace", "observations"), err)
+			response := failureEnvelope(agentcontract.NewBase("published-read", "concord_work_trace", "observations"), err)
 			if response.Error == nil || response.Error.Kind != tc.kind {
 				t.Fatalf("wire failure=%+v, want %s", response.Error, tc.kind)
 			}

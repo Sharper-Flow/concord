@@ -18,9 +18,9 @@ func publicationRequest(home store.KnowledgeHome) InvokeRequest {
 	return InvokeRequest{Tool: "concord_knowledge", Operation: "observe_publication", Input: input}
 }
 
-func publicationResult(t *testing.T, response Envelope) store.KnowledgePublication {
+func publicationResult(t *testing.T, response agentcontract.Envelope) store.KnowledgePublication {
 	t.Helper()
-	if response.Outcome != OutcomeOK {
+	if response.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("publication outcome=%s error=%+v", response.Outcome, response.Error)
 	}
 	if response.QueryID != "CD-0020.R1" || response.Authority != "authoritative" || response.Freshness == nil {
@@ -116,7 +116,7 @@ func TestKnowledgePublicationOrdinaryReadsStayCached(t *testing.T) {
 		t.Fatal(err)
 	}
 	search := dispatchRead(t, s, service, InvokeRequest{Tool: "concord_knowledge", Operation: "search", Input: json.RawMessage(`{"product_id":"prod-alpha","kinds":["decision"]}`)}, env)
-	if search.Outcome != OutcomeOK {
+	if search.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("cached Q9 failed: %+v", search.Error)
 	}
 	var page struct {
@@ -138,7 +138,7 @@ func TestKnowledgePublicationOrdinaryReadsStayCached(t *testing.T) {
 		Commit      string                     `json:"commit_oid"`
 		Hash        string                     `json:"content_hash"`
 	}
-	if note.Outcome != OutcomeOK || json.Unmarshal(note.Result, &resolved) != nil || resolved.Publication.Basis != "cached_remote_observation" || resolved.Publication.ObservedAt != p.ObservedAt || resolved.Commit != p.ServedCommit || !strings.HasPrefix(resolved.Hash, "sha256:") {
+	if note.Outcome != agentcontract.OutcomeOK || json.Unmarshal(note.Result, &resolved) != nil || resolved.Publication.Basis != "cached_remote_observation" || resolved.Publication.ObservedAt != p.ObservedAt || resolved.Commit != p.ServedCommit || !strings.HasPrefix(resolved.Hash, "sha256:") {
 		t.Fatalf("Q10 cached proof lost: %s / %+v", note.Result, note.Error)
 	}
 	response, err = Dispatch(context.Background(), s, service, publicationRequest(home), env)
@@ -150,7 +150,7 @@ func TestKnowledgePublicationOrdinaryReadsStayCached(t *testing.T) {
 		t.Fatalf("failed latest observation replayed success: %+v", failed)
 	}
 	search = dispatchRead(t, s, service, InvokeRequest{Tool: "concord_knowledge", Operation: "search", Input: json.RawMessage(`{"product_id":"prod-alpha"}`)}, env)
-	if search.Outcome != OutcomeOK || json.Unmarshal(search.Result, &page) != nil || len(page.Publications) != 1 || page.Publications[0].Comparison != "unknown" || page.Publications[0].Basis != "cached_remote_observation" {
+	if search.Outcome != agentcontract.OutcomeOK || json.Unmarshal(search.Result, &page) != nil || len(page.Publications) != 1 || page.Publications[0].Comparison != "unknown" || page.Publications[0].Basis != "cached_remote_observation" {
 		t.Fatalf("Q9 replayed stale match: %s / %+v", search.Result, search.Error)
 	}
 }

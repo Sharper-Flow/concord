@@ -23,7 +23,7 @@ func TestCrossProductObservationRecordNeedsNoConsent(t *testing.T) {
 	if dispatchErr != nil {
 		t.Fatal(dispatchErr)
 	}
-	if challenge.Outcome != OutcomeOK {
+	if challenge.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("cross-Product observation_record = %+v", challenge.Error)
 	}
 	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM work_observations WHERE work_id='work-2'`); got != 1 {
@@ -47,11 +47,11 @@ func TestCrossProductObservationRecordReplay(t *testing.T) {
 	input := json.RawMessage(`{"work_id":"work-2","statement":"progress note from the other Product","idempotency_key":"cross-observation-2"}`)
 	request := InvokeRequest{Tool: "concord_work_define", Operation: "observation_record", Input: input}
 	challenge, dispatchErr := Dispatch(ctx, s, service, request, env)
-	if dispatchErr != nil || challenge.Outcome != OutcomeOK {
+	if dispatchErr != nil || challenge.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("cross-Product observation_record = %+v, err = %v", challenge.Error, dispatchErr)
 	}
 	approved, dispatchErr := Dispatch(ctx, s, service, request, env)
-	if dispatchErr != nil || approved.Error != nil || approved.Outcome != OutcomeOK || !approved.Replayed {
+	if dispatchErr != nil || approved.Error != nil || approved.Outcome != agentcontract.OutcomeOK || !approved.Replayed {
 		t.Fatalf("approved cross-Product observation_record = %s / %v, err = %v", approved.Outcome, approved.Error, dispatchErr)
 	}
 	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM work_observations WHERE work_id='work-2'`); got != 1 {

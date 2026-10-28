@@ -58,7 +58,7 @@ func tiersRepoFixture(t *testing.T) (*store.Store, *Service, Authority, string) 
 	return s, service, grant, repoRoot
 }
 
-func tiersInvoke(t *testing.T, s *store.Store, service *Service, grant Authority, tool, operation string, input map[string]any) Envelope {
+func tiersInvoke(t *testing.T, s *store.Store, service *Service, grant Authority, tool, operation string, input map[string]any) agentcontract.Envelope {
 	t.Helper()
 	scopeVersion, _, err := s.ScopeVersion(context.Background(), "project-1")
 	if err != nil {
@@ -82,20 +82,20 @@ func tiersFixture(t *testing.T) (*store.Store, *Service, Authority, *Service, Au
 	baseSHA := gitRun(t, repoRoot, "rev-parse", "HEAD")
 	if response := tiersInvoke(t, s, service, grant, "concord_work_transition", "worktree_claim", map[string]any{"host_pid": os.Getpid(),
 		"work_id": "work-1", "project_id": "project-1", "base_sha": baseSHA, "expected_version": 2, "idempotency_key": "tiers-claim-1",
-	}); response.Outcome != OutcomeOK {
+	}); response.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("claim work-1 response=%+v err=%+v", response, response.Error)
 	}
 	second, _, secondGrant := newAuthorizedService(t, s, "client-2", "human-2", []agentcontract.Capability{"work_transition", "product_read"}, []string{"product-1"}, []string{"project-1"}, store.ProjectResolution{ProjectID: "project-1"})
 	secondGrant.SessionRef = "session-2"
 	if response := tiersInvoke(t, s, second, secondGrant, "concord_work_transition", "worktree_claim", map[string]any{"host_pid": os.Getpid(),
 		"work_id": "work-2", "project_id": "project-1", "base_sha": baseSHA, "expected_version": 2, "idempotency_key": "tiers-claim-2",
-	}); response.Outcome != OutcomeOK {
+	}); response.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("claim work-2 response=%+v err=%+v", response, response.Error)
 	}
 	return s, service, grant, second, secondGrant, repoRoot
 }
 
-func tiersInspect(t *testing.T, s *store.Store, service *Service, grant Authority, workID, mode, path string) (Envelope, map[string]any) {
+func tiersInspect(t *testing.T, s *store.Store, service *Service, grant Authority, workID, mode, path string) (agentcontract.Envelope, map[string]any) {
 	t.Helper()
 	input := map[string]any{"work_id": workID, "mode": mode}
 	if path != "" {
@@ -103,7 +103,7 @@ func tiersInspect(t *testing.T, s *store.Store, service *Service, grant Authorit
 	}
 	response := tiersInvoke(t, s, service, grant, "concord_work_browse", "worktree_inspect", input)
 	var payload map[string]any
-	if response.Outcome == OutcomeOK {
+	if response.Outcome == agentcontract.OutcomeOK {
 		if err := json.Unmarshal(response.Result, &payload); err != nil {
 			t.Fatalf("inspect result=%s", response.Result)
 		}
@@ -122,7 +122,7 @@ func TestWorktreeInspectReadsSameProjectWorktree(t *testing.T) {
 	}
 
 	response, payload := tiersInspect(t, s, service, grant, "work-2", "status", "")
-	if response.Outcome != OutcomeOK {
+	if response.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("inspect response=%+v err=%+v", response, response.Error)
 	}
 	if response.QueryID != "CD-0096.R1" {
@@ -136,11 +136,11 @@ func TestWorktreeInspectReadsSameProjectWorktree(t *testing.T) {
 	}
 
 	diff, diffPayload := tiersInspect(t, s, service, grant, "work-2", "diff", "")
-	if diff.Outcome != OutcomeOK || !strings.Contains(diffPayload["content"].(string), "inspected") {
+	if diff.Outcome != agentcontract.OutcomeOK || !strings.Contains(diffPayload["content"].(string), "inspected") {
 		t.Fatalf("diff response=%+v payload=%+v", diff, diffPayload)
 	}
 	file, filePayload := tiersInspect(t, s, service, grant, "work-2", "file", "README.md")
-	if file.Outcome != OutcomeOK || !strings.Contains(filePayload["content"].(string), "inspected") {
+	if file.Outcome != agentcontract.OutcomeOK || !strings.Contains(filePayload["content"].(string), "inspected") {
 		t.Fatalf("file response=%+v payload=%+v", file, filePayload)
 	}
 
@@ -166,7 +166,7 @@ func TestWorktreeInspectRefusesWithoutActiveEntry(t *testing.T) {
 		t.Fatal(err)
 	}
 	response, _ := tiersInspect(t, s, service, grant, "work-3", "status", "")
-	if response.Outcome != OutcomeError || response.Error == nil || response.Error.Kind != "unknown_scope" {
+	if response.Outcome != agentcontract.OutcomeError || response.Error == nil || response.Error.Kind != "unknown_scope" {
 		t.Fatalf("response=%+v, want typed unknown_scope for a worktree-less item", response)
 	}
 }
@@ -179,7 +179,7 @@ func TestWorktreeVerifyRunsUnderLeaseThroughToolSurface(t *testing.T) {
 	response := tiersInvoke(t, s, service, grant, "concord_work_transition", "worktree_verify", map[string]any{
 		"work_id": "work-2", "command": []string{"true"}, "idempotency_key": "tiers-verify-1",
 	})
-	if response.Outcome != OutcomeOK {
+	if response.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("verify response=%+v err=%+v", response, response.Error)
 	}
 	var result struct {
@@ -206,7 +206,7 @@ func TestWorktreeVerifyRunsUnderLeaseThroughToolSurface(t *testing.T) {
 	replay := tiersInvoke(t, s, service, grant, "concord_work_transition", "worktree_verify", map[string]any{
 		"work_id": "work-2", "command": []string{"true"}, "idempotency_key": "tiers-verify-1",
 	})
-	if replay.Outcome != OutcomeOK || !replay.Replayed {
+	if replay.Outcome != agentcontract.OutcomeOK || !replay.Replayed {
 		t.Fatalf("replay=%+v replayed=%v", replay, replay.Replayed)
 	}
 }
@@ -219,7 +219,7 @@ func TestWorktreeVerifyRefusesTrackedFileMutation(t *testing.T) {
 	refused := tiersInvoke(t, s, service, grant, "concord_work_transition", "worktree_verify", map[string]any{
 		"work_id": "work-2", "command": []string{"sh", "-c", "echo mutated >> README.md"}, "idempotency_key": "tiers-verify-mut",
 	})
-	if refused.Outcome != OutcomeError || refused.Error == nil {
+	if refused.Outcome != agentcontract.OutcomeError || refused.Error == nil {
 		t.Fatalf("response=%+v, want typed refusal", refused)
 	}
 	if refused.Error.Kind != "operation_conflict" {
@@ -231,7 +231,7 @@ func TestWorktreeVerifyRefusesTrackedFileMutation(t *testing.T) {
 	if refused.Error.RecoveryAction.Kind != "reconcile_operation" {
 		t.Fatalf("recovery=%q, want reconcile_operation", refused.Error.RecoveryAction.Kind)
 	}
-	if refused.Error.EffectState != EffectPossible {
+	if refused.Error.EffectState != agentcontract.EffectPossible {
 		t.Fatalf("effect_state=%q, want possible after the lease released", refused.Error.EffectState)
 	}
 	if refused.ChangedRefs == nil || len(*refused.ChangedRefs) != 1 || (*refused.ChangedRefs)[0].ID == "" {
@@ -262,7 +262,7 @@ func TestWorktreeVerifyConcurrentLeaseRefusesTyped(t *testing.T) {
 	refused := tiersInvoke(t, s, service, grant, "concord_work_transition", "worktree_verify", map[string]any{
 		"work_id": "work-2", "command": []string{"go", "test", "./..."}, "idempotency_key": "tiers-verify-contended",
 	})
-	if refused.Outcome != OutcomeError || refused.Error == nil {
+	if refused.Outcome != agentcontract.OutcomeError || refused.Error == nil {
 		t.Fatalf("response=%+v, want typed refusal", refused)
 	}
 	if refused.Error.Kind != "resource_busy" || refused.Error.RetrySafe != true || refused.Error.RecoveryAction.Kind != "retry_same_request" {

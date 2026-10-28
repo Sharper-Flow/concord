@@ -5,6 +5,7 @@ import (
 	"crypto/ed25519"
 	"encoding/json"
 	"errors"
+	"slices"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -202,7 +203,7 @@ type WorkerEvidenceBinding struct {
 }
 
 func validWorkerEvidenceAssertion(a WorkerEvidenceAssertion) bool {
-	if !oneOf(a.Verb, WorkerEvidenceVerbs...) {
+	if !slices.Contains(WorkerEvidenceVerbs, a.Verb) {
 		return false
 	}
 	// The shape rules switch on the declared version, not the normalized
@@ -222,7 +223,7 @@ func validWorkerEvidenceAssertion(a WorkerEvidenceAssertion) bool {
 	default:
 		return false
 	}
-	if !bounded(a.ClientRef, 1, 128) || !bounded(a.WorkID, 1, 128) || !bounded(a.AttemptID, 1, 128) {
+	if !agentcontract.BoundedBytes(a.ClientRef, 1, 128) || !agentcontract.BoundedBytes(a.WorkID, 1, 128) || !agentcontract.BoundedBytes(a.AttemptID, 1, 128) {
 		return false
 	}
 	if !validWorkerNonce(a.Nonce) {

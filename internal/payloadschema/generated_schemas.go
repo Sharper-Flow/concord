@@ -14388,6 +14388,11 @@ const GeneratedPayloadSchemaDocument = `{
                   "anyOf": [
                     {
                       "required": [
+                        "conflict_application"
+                      ]
+                    },
+                    {
+                      "required": [
                         "work_id_from"
                       ]
                     },
@@ -14477,6 +14482,11 @@ const GeneratedPayloadSchemaDocument = `{
                   "anyOf": [
                     {
                       "required": [
+                        "conflict_application"
+                      ]
+                    },
+                    {
+                      "required": [
                         "lifecycle"
                       ]
                     },
@@ -14552,6 +14562,11 @@ const GeneratedPayloadSchemaDocument = `{
               {
                 "not": {
                   "anyOf": [
+                    {
+                      "required": [
+                        "conflict_application"
+                      ]
+                    },
                     {
                       "required": [
                         "lifecycle"
@@ -14639,6 +14654,11 @@ const GeneratedPayloadSchemaDocument = `{
                   "anyOf": [
                     {
                       "required": [
+                        "conflict_application"
+                      ]
+                    },
+                    {
+                      "required": [
                         "lifecycle"
                       ]
                     },
@@ -14703,6 +14723,105 @@ const GeneratedPayloadSchemaDocument = `{
                   "producer_watermark",
                   "observed_at"
                 ]
+              },
+              {
+                "not": {
+                  "anyOf": [
+                    {
+                      "required": [
+                        "lifecycle"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "from"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "work_id_from"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "work_id_to"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "relation_kind"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "created_at"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "resolution_id"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "action_id"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "step_id"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "contract_version"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "binding_id"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "evidence_kind"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "immutable_subject_ref"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "producer_id"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "producer_run_ref"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "producer_watermark"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "observed_at"
+                      ]
+                    }
+                  ]
+                },
+                "properties": {
+                  "entry_kind": {
+                    "const": "conflict_application"
+                  }
+                },
+                "required": [
+                  "conflict_application"
+                ]
               }
             ],
             "properties": {
@@ -14714,6 +14833,60 @@ const GeneratedPayloadSchemaDocument = `{
               },
               "binding_id": {
                 "$ref": "#/$defs/id"
+              },
+              "conflict_application": {
+                "additionalProperties": false,
+                "properties": {
+                  "catalog_generation": {
+                    "minimum": 1,
+                    "type": "integer"
+                  },
+                  "model_version": {
+                    "minimum": 1,
+                    "type": "integer"
+                  },
+                  "outcome": {
+                    "maxLength": 4096,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "rule_id": {
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "rule_source_hash": {
+                    "pattern": "^sha256:[0-9a-f]{64}$",
+                    "type": "string"
+                  },
+                  "settlement_ref": {
+                    "maxLength": 256,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "size": {
+                    "enum": [
+                      "small",
+                      "medium",
+                      "larger"
+                    ],
+                    "type": "string"
+                  },
+                  "size_assessment_sequence": {
+                    "minimum": 1,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "rule_id",
+                  "rule_source_hash",
+                  "catalog_generation",
+                  "size_assessment_sequence",
+                  "model_version",
+                  "size",
+                  "outcome",
+                  "settlement_ref"
+                ],
+                "type": "object"
               },
               "contract_version": {
                 "$ref": "#/$defs/version"
@@ -14731,7 +14904,8 @@ const GeneratedPayloadSchemaDocument = `{
                   "lifecycle",
                   "relation",
                   "phase_exit",
-                  "evidence_binding"
+                  "evidence_binding",
+                  "conflict_application"
                 ],
                 "type": "string"
               },
@@ -16453,6 +16627,10 @@ const GeneratedPayloadSchemaDocument = `{
     "work_summary": {
       "additionalProperties": false,
       "properties": {
+        "created_at": {
+          "description": "Native work capture timestamp, preserved verbatim across later reads and work updates.",
+          "type": "string"
+        },
         "defect_intake": {
           "$ref": "#/$defs/defect_classification"
         },
@@ -16580,17 +16758,18 @@ const GeneratedPayloadSchemaDocument = `{
           "$ref": "#/$defs/page"
         },
         "record_kinds": {
-          "description": "Select current retained record categories, not historical event kinds. Bounds: <=4 items inclusive",
+          "description": "Select current retained record categories, not historical event kinds. Bounds: <=5 items inclusive",
           "items": {
             "enum": [
               "lifecycle",
               "relation",
               "phase_exit",
-              "evidence_binding"
+              "evidence_binding",
+              "conflict_application"
             ],
             "type": "string"
           },
-          "maxItems": 4,
+          "maxItems": 5,
           "type": "array",
           "uniqueItems": true
         },

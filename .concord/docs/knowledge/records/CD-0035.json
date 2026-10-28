@@ -12,7 +12,7 @@
   "evidence": [
     "internal/store/governing_requirements.go",
     "internal/agent/mutations.go",
-    "internal/agent/envelope.go"
+    "internal/agentcontract/envelope.go"
   ],
   "home_domain_id": "agent-surface",
   "id": "CD-0035",

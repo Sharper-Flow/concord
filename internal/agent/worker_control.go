@@ -51,11 +51,11 @@ func (s *Service) verifyWorkerControlAssertionTx(ctx context.Context, tx *store.
 		return Authority{}, transactionInvalid("worker_control")
 	}
 	for _, value := range []string{a.ClientRef, a.AgentRef, a.SessionRef, a.WorkID, a.ProductID, a.ProjectID, a.AttemptID, a.ControlID, a.LeaseID, a.RequestID} {
-		if !bounded(value, 1, 128) {
+		if !agentcontract.BoundedBytes(value, 1, 128) {
 			return Authority{}, authorityRefusal("worker control assertion has an invalid identity")
 		}
 	}
-	if !bounded(a.Directory, 1, 4096) || !bounded(a.Worktree, 1, 4096) || !validWorkerEvidenceObservationDigest(a.PacketDigest) || !validWorkerEvidenceObservationDigest(a.WorktreeIdentity) || !validWorkerNonce(a.Nonce) || len(a.Signature) != ed25519.SignatureSize {
+	if !agentcontract.BoundedBytes(a.Directory, 1, 4096) || !agentcontract.BoundedBytes(a.Worktree, 1, 4096) || !validWorkerEvidenceObservationDigest(a.PacketDigest) || !validWorkerEvidenceObservationDigest(a.WorktreeIdentity) || !validWorkerNonce(a.Nonce) || len(a.Signature) != ed25519.SignatureSize {
 		return Authority{}, authorityRefusal("worker control assertion is malformed")
 	}
 	issued, err := time.Parse(time.RFC3339Nano, a.IssuedAt)

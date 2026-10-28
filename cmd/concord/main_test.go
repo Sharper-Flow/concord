@@ -1220,14 +1220,14 @@ func TestCLIEndToEndRegistersClientAndInvokesRead(t *testing.T) {
 		},
 		"tool": "concord_product_view", "operation": "resolve", "input": map[string]any{"project_id": "project-1"},
 	})
-	var envelope agent.Envelope
+	var envelope agentcontract.Envelope
 	// Envelope.UnmarshalJSON carries the schema validation; decoding through it
 	// is the published way to read a TS7 envelope.
 	err = json.Unmarshal(invokeRaw, &envelope)
 	if err != nil {
 		t.Fatalf("invoke output is not one schema-valid TS7 envelope: %v; raw=%s", err, invokeRaw)
 	}
-	if envelope.Outcome != agent.OutcomeOK {
+	if envelope.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("invoke outcome=%s, want ok; raw=%s", envelope.Outcome, invokeRaw)
 	}
 }

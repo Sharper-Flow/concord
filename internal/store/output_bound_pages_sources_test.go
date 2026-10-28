@@ -1108,7 +1108,7 @@ func init() {
 	// the research-retire path truncates its committed change list with
 	// boundResultChangedRefs to MaxChangedRefs before the result is built, so
 	// the constant is the producer-side bound, not the output validator's.
-	registerOutputBound("/$defs/mutation_result/properties/changed_refs/maxItems", goConstantBound("internal/agent/envelope.go", "MaxChangedRefs", boundItems))
+	registerOutputBound("/$defs/mutation_result/properties/changed_refs/maxItems", goConstantBound("internal/agentcontract/envelope.go", "MaxChangedRefs", boundItems))
 	// The delivery object is reserved and unemitted: no writer sets either
 	// member and result payloads refuse unknown members, so the published
 	// capacity is the empty set. No constructor cites a never-produced member
@@ -1221,8 +1221,10 @@ func init() {
 	))
 	registerOutputBound("/$defs/session_vacate_result/properties/work_pins/maxItems", pkEffectReturnsEmptySliceItemsBound("internal/agent/mutations.go", "planSessionVacate", "applySessionVacateTx"))
 
-	// CD-0242 D2 retires the event trace and frozen conflict payload. Current
-	// transition refs and proof observations keep their producer's actual bounds.
+	// Current transition refs and proof observations keep their producer's bounds.
+	// Settlement text comes only from the live recorder's validated payload.
+	registerOutputBound("/$defs/work_event_page/properties/entries/items/properties/conflict_application/properties/outcome/maxLength", goInlineBound("internal/store/conflict_application.go", "RecordConflictApplicationTx", "len(request.Outcome)", boundBytes))
+	registerOutputBound("/$defs/work_event_page/properties/entries/items/properties/conflict_application/properties/settlement_ref/maxLength", goInlineBound("internal/store/conflict_application.go", "RecordConflictApplicationTx", "len(request.SettlementRef)", boundBytes))
 	registerOutputBound("/$defs/work_event_page/properties/entries/items/properties/evidence_refs/maxItems", unboundedOutput("internal/store/lifecycle.go:updateWorkLifecycle preserves transition evidence_refs without a count guard", "internal/agent/runtime.go:readSizeRefusal"))
 	registerOutputBound("/$defs/work_event_page/properties/entries/items/properties/entry_id/maxLength", unboundedOutput("internal/store/q7_current.go:currentQ7EntriesSQL composes current row identities without a global length guard", "internal/agent/runtime.go:readSizeRefusal"))
 	registerOutputBound("/$defs/work_event_page/properties/entries/items/properties/observed_at/maxLength", unboundedOutput("internal/store/workflow.go:foldWorkflowEvidenceBound requires nonempty observed_at but imposes no length guard", "internal/agent/runtime.go:readSizeRefusal"))
@@ -1302,7 +1304,7 @@ func init() {
 	// exist in the current source (the input limit maximum is 100 and the
 	// planner still truncates post-commit), so the row stays unproved until
 	// the admission bound lands. It must not cite the truncation helper.
-	registerOutputBound("/$defs/worktree_audit_reclaim_result/properties/changed_refs/maxItems", goConstantBound("internal/agent/envelope.go", "MaxChangedRefs", boundItems))
+	registerOutputBound("/$defs/worktree_audit_reclaim_result/properties/changed_refs/maxItems", goConstantBound("internal/agentcontract/envelope.go", "MaxChangedRefs", boundItems))
 	// The result build truncates the committed change list through
 	// boundResultChangedRefs (internal/agent/mutations.go:3124) before the
 	// payload embeds mutationResultChangedRefs(changed), so the constant
@@ -1335,7 +1337,7 @@ func init() {
 	// The pins ride the changed list after its current post-commit bound, so
 	// the shared constant is today's producer-side capacity; re-point this row
 	// when the pass admission bound replaces that truncation.
-	registerOutputBound("/$defs/worktree_audit_reclaim_result/properties/work_pins/maxItems", goConstantBound("internal/agent/envelope.go", "MaxChangedRefs", boundItems))
+	registerOutputBound("/$defs/worktree_audit_reclaim_result/properties/work_pins/maxItems", goConstantBound("internal/agentcontract/envelope.go", "MaxChangedRefs", boundItems))
 
 	registerOutputBound("/$defs/worktree_claim_result/properties/changed_refs/maxItems", pkLiteralSliceItemsBound("internal/agent/mutations.go", "planWorktreeClaim"))
 	registerOutputBound("/$defs/worktree_claim_result/properties/next_valid_intents/maxItems", sumBound(

@@ -51,7 +51,7 @@ func TestWorkflowActionErrorEnvelopeHasNoFallbackEffects(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if response.Outcome != OutcomeError || response.Error == nil || response.Error.RecoveryAction.Kind == "" {
+	if response.Outcome != agentcontract.OutcomeError || response.Error == nil || response.Error.RecoveryAction.Kind == "" {
 		t.Fatalf("unknown action response=%+v", response)
 	}
 	if response.Error.Kind != "invalid_input" {

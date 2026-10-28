@@ -7,6 +7,7 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -55,7 +56,7 @@ func TestSpineAdministrativeRecoveryPreservesValidProof(t *testing.T) {
 	f.env.AgentRef = "agent-evaluator"
 	verdict := map[string]any{"verdicts": []map[string]any{{"predicate_id": "predicate:primary", "receipt_refs": []string{f.proof}}}}
 	accepted := f.action(t, "record_verdict", verdict)
-	if accepted.Outcome != OutcomeOK {
+	if accepted.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("unchanged candidate lost valid proof after administrative recovery: %+v", accepted.Error)
 	}
 	if f.read(t).Pinned.Step != "acceptance" {
@@ -71,7 +72,7 @@ func TestSpineAdministrativeRecoveryPreservesValidProof(t *testing.T) {
 	}
 	version := f.read(t).Pinned.Pin.Version
 	refused := f.action(t, "record_verdict", verdict)
-	if refused.Outcome != OutcomeError || refused.Error == nil || refused.Error.Kind != "stale_requires_review" {
+	if refused.Outcome != agentcontract.OutcomeError || refused.Error == nil || refused.Error.Kind != "stale_requires_review" {
 		encoded, _ := json.Marshal(refused.Error)
 		t.Fatalf("same proof on a new candidate = %s / %s, want stale_requires_review", refused.Outcome, encoded)
 	}

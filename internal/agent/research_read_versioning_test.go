@@ -19,7 +19,7 @@ import (
 // owner descriptor page through work_id. The version 1 owner read is refused
 // explicitly instead of silently discarding every pack after the first.
 
-func invokeResearchRead(t *testing.T, s *store.Store, service *Service, grant Authority, input map[string]any) Envelope {
+func invokeResearchRead(t *testing.T, s *store.Store, service *Service, grant Authority, input map[string]any) agentcontract.Envelope {
 	t.Helper()
 	ctx := context.Background()
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
@@ -100,7 +100,7 @@ func TestResearchReadLegacyPackStaysBareFullResult(t *testing.T) {
 		{"product_id": "product-1", "pack_id": "legacy-pack", "result_version": 1},
 	} {
 		read := invokeResearchRead(t, s, service, grant, input)
-		if read.Outcome != OutcomeOK {
+		if read.Outcome != agentcontract.OutcomeOK {
 			t.Fatalf("legacy read %+v failed: %+v", input, read.Error)
 		}
 		var result map[string]any
@@ -131,7 +131,7 @@ func TestResearchReadLegacyOwnerRefused(t *testing.T) {
 		{"product_id": "product-1", "work_id": "work-1", "result_version": 1},
 	} {
 		read := invokeResearchRead(t, s, service, grant, input)
-		if read.Outcome == OutcomeOK {
+		if read.Outcome == agentcontract.OutcomeOK {
 			t.Fatalf("legacy owner read must refuse: %+v", input)
 		}
 		if read.Error == nil || read.Error.Kind != "invalid_input" {
@@ -156,7 +156,7 @@ func TestResearchReadOwnerVersion2DescriptorsAndContinuation(t *testing.T) {
 		"product_id": "product-1", "work_id": "work-1", "result_version": 2,
 		"page": map[string]any{"limit": 2},
 	})
-	if first.Outcome != OutcomeOK {
+	if first.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("owner page one failed: %+v", first.Error)
 	}
 	assertStoreRevisionWatermark(t, s, first)
@@ -194,7 +194,7 @@ func TestResearchReadOwnerVersion2DescriptorsAndContinuation(t *testing.T) {
 		"product_id": "product-1", "work_id": "work-1", "result_version": 2,
 		"page": map[string]any{"limit": 2, "cursor": *first.NextCursor},
 	})
-	if second.Outcome != OutcomeOK {
+	if second.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("owner page two failed: %+v", second.Error)
 	}
 	if err := json.Unmarshal(second.Result, &page); err != nil {
@@ -223,7 +223,7 @@ func TestResearchReadOwnerVersion2EmptyOwnerIsEmptyPage(t *testing.T) {
 	read := invokeResearchRead(t, s, service, grant, map[string]any{
 		"product_id": "product-1", "work_id": "work-1", "result_version": 2,
 	})
-	if read.Outcome != OutcomeOK {
+	if read.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("empty owner read failed: %+v", read.Error)
 	}
 	var result struct {
@@ -246,7 +246,7 @@ func TestResearchReadVersion2ExactRevisionAndFindings(t *testing.T) {
 	s, service, grant, _ := researchSurfaceFixture(t)
 	seedResearchReadPack(t, s, "exact-pack")
 
-	wrapper := func(read Envelope) (int, store.ResearchPack) {
+	wrapper := func(read agentcontract.Envelope) (int, store.ResearchPack) {
 		t.Helper()
 		var result struct {
 			ResultVersion int                `json:"result_version"`
@@ -261,7 +261,7 @@ func TestResearchReadVersion2ExactRevisionAndFindings(t *testing.T) {
 	full := invokeResearchRead(t, s, service, grant, map[string]any{
 		"product_id": "product-1", "pack_id": "exact-pack", "result_version": 2,
 	})
-	if full.Outcome != OutcomeOK {
+	if full.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("version 2 full pack failed: %+v", full.Error)
 	}
 	version, pack := wrapper(full)
@@ -272,7 +272,7 @@ func TestResearchReadVersion2ExactRevisionAndFindings(t *testing.T) {
 	exact := invokeResearchRead(t, s, service, grant, map[string]any{
 		"product_id": "product-1", "pack_id": "exact-pack", "result_version": 2, "revision": 1,
 	})
-	if exact.Outcome != OutcomeOK {
+	if exact.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("version 2 exact revision failed: %+v", exact.Error)
 	}
 	version, pack = wrapper(exact)
@@ -287,7 +287,7 @@ func TestResearchReadVersion2ExactRevisionAndFindings(t *testing.T) {
 		"product_id": "product-1", "pack_id": "exact-pack", "result_version": 2,
 		"revision": 1, "finding_ids": []string{"f-1"},
 	})
-	if selected.Outcome != OutcomeOK {
+	if selected.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("version 2 selected findings failed: %+v", selected.Error)
 	}
 	version, pack = wrapper(selected)
@@ -319,7 +319,7 @@ func TestResearchReadSelectorCombinationsRefuse(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			read := invokeResearchRead(t, s, service, grant, tc.input)
-			if read.Outcome == OutcomeOK {
+			if read.Outcome == agentcontract.OutcomeOK {
 				t.Fatalf("incompatible research read must refuse: %v", tc.input)
 			}
 			if read.Error == nil || read.Error.Kind != "invalid_input" {

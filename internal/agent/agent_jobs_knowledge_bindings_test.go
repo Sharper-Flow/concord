@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/pm1fixture"
 	"github.com/sharper-flow/concord/internal/store"
 )
@@ -74,7 +75,7 @@ var knowledgeItemFields = map[string]bool{
 
 // knowledgeSearchObservation drives concord_knowledge.search and reshapes the
 // page into the ids/locators projection the AJ7 assertions read.
-func knowledgeSearchObservation(t *testing.T, s *store.Store, service *Service, grant Authority, input string) (jobObservation, Envelope, map[string]any) {
+func knowledgeSearchObservation(t *testing.T, s *store.Store, service *Service, grant Authority, input string) (jobObservation, agentcontract.Envelope, map[string]any) {
 	t.Helper()
 	env := agentJobsEnvelope(grant, "proj-web", "prod-alpha")
 	resp := dispatchRead(t, s, service, InvokeRequest{
@@ -82,7 +83,7 @@ func knowledgeSearchObservation(t *testing.T, s *store.Store, service *Service, 
 		Operation: "search",
 		Input:     json.RawMessage(input),
 	}, env)
-	if resp.Outcome != OutcomeOK {
+	if resp.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("knowledge search outcome=%s error=%+v", resp.Outcome, resp.Error)
 	}
 	var page map[string]any
@@ -199,7 +200,7 @@ func bindAJ7DegradedIndex(t *testing.T, sc jobScenario) jobObservation {
 	switch {
 	case unscanned == "" || returned[unscanned]:
 		obs.Effects["silent_complete_answer"] = "index returned the unscanned decision; nothing was omitted"
-	case resp.Authority == AuthorityAuthoritative:
+	case resp.Authority == agentcontract.AuthorityAuthoritative:
 		obs.Effects["silent_complete_answer"] = "incomplete answer claimed authoritative"
 	case len(resp.Omissions) == 0:
 		obs.Effects["silent_complete_answer"] = "incomplete answer named no omission"
@@ -229,7 +230,7 @@ func TestKnowledgeSearchRebuildsAStaleIndexOnDemand(t *testing.T) {
 	}
 	obs, resp, _ := knowledgeSearchObservation(t, s, service, grant,
 		`{"product_id":"prod-alpha","kinds":["decision","lesson"],"page":{"cursor":null,"limit":50}}`)
-	if resp.Authority != AuthorityAuthoritative {
+	if resp.Authority != agentcontract.AuthorityAuthoritative {
 		t.Fatalf("strict read after a reachable commit: want authoritative, got %s (omissions %v)", resp.Authority, resp.Omissions)
 	}
 	returned := map[string]bool{}
@@ -263,7 +264,7 @@ func TestKnowledgeSearchFailsClosedWithoutDegradedOptIn(t *testing.T) {
 		Operation: "search",
 		Input:     json.RawMessage(`{"product_id":"prod-alpha","kinds":["decision","lesson"],"page":{"cursor":null,"limit":50}}`),
 	}, env)
-	if resp.Outcome == OutcomeOK {
+	if resp.Outcome == agentcontract.OutcomeOK {
 		t.Fatalf("stale index answered ok without an allow_degraded opt-in: %s", string(resp.Result))
 	}
 	if resp.Error == nil || resp.Error.Kind == "" {
@@ -300,7 +301,7 @@ func TestKnowledgeResolveNoteRebuildsAStaleIndexOnDemand(t *testing.T) {
 		Operation: "resolve_note",
 		Input:     json.RawMessage(`{"knowledge_id":"` + unscanned + `"}`),
 	}, env)
-	if resp.Outcome != OutcomeOK {
+	if resp.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("first resolve_note after a reachable commit: outcome=%s error=%+v", resp.Outcome, resp.Error)
 	}
 	var result struct {
@@ -364,7 +365,7 @@ func TestKnowledgeResolveNoteRefusesANewerProjectionWatermark(t *testing.T) {
 		Operation: "resolve_note",
 		Input:     json.RawMessage(`{"knowledge_id":"` + unscanned + `"}`),
 	}, env)
-	if resp.Outcome != OutcomeError {
+	if resp.Outcome != agentcontract.OutcomeError {
 		t.Fatalf("resolve_note over a newer projection watermark answered outcome=%s, want a typed refusal (result %s)", resp.Outcome, string(resp.Result))
 	}
 	if resp.Error == nil {

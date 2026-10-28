@@ -147,7 +147,7 @@ func TestTopLevelLimitAnswersFirstCall(t *testing.T) {
 			Operation: "capture",
 			Input:     []byte(fmt.Sprintf(`{"title":"Pagination seed %d","value_statement":"pagination input contract fixture","kind":"task","project_ids":["proj-web"],"idempotency_key":"pagination-seed-%d"}`, i, i)),
 		}, env)
-		if capture.Outcome != OutcomeOK {
+		if capture.Outcome != agentcontract.OutcomeOK {
 			t.Fatalf("capture seed %d outcome=%s error=%+v", i, capture.Outcome, capture.Error)
 		}
 	}
@@ -157,7 +157,7 @@ func TestTopLevelLimitAnswersFirstCall(t *testing.T) {
 		Operation: "list",
 		Input:     json.RawMessage(`{"product_id":"prod-alpha"}`),
 	}, readEnv)
-	if resp.Outcome != OutcomeOK {
+	if resp.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("first call without page or cursor outcome=%s error=%+v", resp.Outcome, resp.Error)
 	}
 	var page struct {
@@ -184,7 +184,7 @@ func TestEffectiveLimitPrecedence(t *testing.T) {
 			Operation: "capture",
 			Input:     []byte(fmt.Sprintf(`{"title":"Precedence seed %d","value_statement":"pagination precedence fixture","kind":"task","project_ids":["proj-web"],"idempotency_key":"precedence-seed-%d"}`, i, i)),
 		}, env)
-		if capture.Outcome != OutcomeOK {
+		if capture.Outcome != agentcontract.OutcomeOK {
 			t.Fatalf("capture seed %d outcome=%s error=%+v", i, capture.Outcome, capture.Error)
 		}
 	}
@@ -196,7 +196,7 @@ func TestEffectiveLimitPrecedence(t *testing.T) {
 			Operation: "list",
 			Input:     json.RawMessage(input),
 		}, readEnv)
-		if resp.Outcome != OutcomeOK {
+		if resp.Outcome != agentcontract.OutcomeOK {
 			t.Fatalf("list %s outcome=%s error=%+v", input, resp.Outcome, resp.Error)
 		}
 		var page struct {
@@ -230,7 +230,7 @@ func TestTopLevelLimitCursorContinuation(t *testing.T) {
 		Operation: "list",
 		Input:     json.RawMessage(`{"product_id":"prod-alpha","limit":1}`),
 	}, readEnv)
-	if first.Outcome != OutcomeOK {
+	if first.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("first page outcome=%s error=%+v", first.Outcome, first.Error)
 	}
 	if first.NextCursor == nil || *first.NextCursor == "" {
@@ -249,7 +249,7 @@ func TestTopLevelLimitCursorContinuation(t *testing.T) {
 		Operation: "list",
 		Input:     json.RawMessage(`{"product_id":"prod-alpha","limit":1,"page":{"cursor":` + quoteCursor(*first.NextCursor) + `}}`),
 	}, readEnv)
-	if second.Outcome != OutcomeOK {
+	if second.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("continuation with the same top-level limit outcome=%s error=%+v", second.Outcome, second.Error)
 	}
 	var secondPage struct {
@@ -295,7 +295,7 @@ func TestBareFirstCallResources(t *testing.T) {
 		Operation: "resources",
 		Input:     json.RawMessage(`{}`),
 	}, readEnv)
-	if resp.Outcome != OutcomeOK {
+	if resp.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("bare first call outcome=%s error=%+v", resp.Outcome, resp.Error)
 	}
 	var page struct {

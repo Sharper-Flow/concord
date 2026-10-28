@@ -207,7 +207,7 @@ and that claims grant neither approval nor acceptance.
 `internal/store.TestDispatchRefusesTamperedWorkContextPacket` protect the
 context supplied to the reviewer. These tests prove carriers and source
 bindings, not the judgment that an explanation is adequate or consent informed.
-`internal/store/testdata/conflict-review-cases.md` supplies safe positive and
+`scripts/testdata/conflict-review-cases.md` supplies safe positive and
 negative cases for independent application of the method, including late or
 unverifiable evidence, informed approval without recovery, and an operator's
 quality-cost decision. The delivery's recorded independent review supplies

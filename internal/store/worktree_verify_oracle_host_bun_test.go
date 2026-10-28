@@ -202,8 +202,8 @@ func TestNativeBunLockGrammar(t *testing.T) {
 	}
 	refusals := map[string]string{
 		"comment":            strings.Replace(valid, "\"packages\"", "// note\n  \"packages\"", 1),
-		"unknown top key":    strings.Replace(valid, "\"lockfileVersion\": 1,", "\"lockfileVersion\": 1, \"trustedDependencies\": [],", 1),
-		"overrides":          strings.Replace(valid, "\"lockfileVersion\": 1,", "\"lockfileVersion\": 1, \"overrides\": {},", 1),
+		"unknown top key":    strings.Replace(valid, "\"lockfileVersion\": 1,", "\"lockfileVersion\": 1, \"unknown\": [],", 1),
+		"scoped overrides":   strings.Replace(valid, "\"lockfileVersion\": 1,", "\"lockfileVersion\": 1, \"overrides\": {\"left@1\":\"2\"},", 1),
 		"catalog":            strings.Replace(valid, "\"lockfileVersion\": 1,", "\"lockfileVersion\": 1, \"catalog\": {},", 1),
 		"patched":            strings.Replace(valid, "\"lockfileVersion\": 1,", "\"lockfileVersion\": 1, \"patchedDependencies\": {},", 1),
 		"lock version 0":     strings.Replace(valid, "\"lockfileVersion\": 1", "\"lockfileVersion\": 0", 1),
@@ -254,7 +254,7 @@ func TestNativeBunLockFreshness(t *testing.T) {
 	if _, err := bunVerifyForTest(t, devOnly, root, packages); err == nil {
 		t.Fatal("manifest devDependency missing from the lock admitted")
 	}
-	for _, field := range []string{"overrides", "resolutions", "workspaces", "catalog", "catalogs", "patchedDependencies"} {
+	for _, field := range []string{"resolutions", "workspaces", "catalog", "catalogs", "patchedDependencies"} {
 		m := map[string]any{"name": "fixture", "dependencies": map[string]string{"left": "^1.0.0"}, field: map[string]string{}}
 		if _, err := bunVerifyForTest(t, m, root, packages); err == nil || !strings.Contains(err.Error(), field) {
 			t.Errorf("package.json %s admitted: %v", field, err)

@@ -1809,6 +1809,58 @@
     "lane_native_oracle_preparation": {
       "type": "object",
       "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "anyOf": [
+              {
+                "required": [
+                  "isolation_policy"
+                ]
+              },
+              {
+                "required": [
+                  "isolation_fingerprint"
+                ]
+              },
+              {
+                "required": [
+                  "isolation_enforcement"
+                ]
+              }
+            ]
+          },
+          "then": {
+            "required": [
+              "isolation_policy",
+              "isolation_fingerprint",
+              "isolation_enforcement"
+            ],
+            "if": {
+              "properties": {
+                "qualification": {
+                  "type": "string",
+                  "enum": [
+                    "ready",
+                    "pass",
+                    "fail"
+                  ]
+                }
+              },
+              "required": [
+                "qualification"
+              ]
+            },
+            "then": {
+              "properties": {
+                "isolation_enforcement": {
+                  "const": "established"
+                }
+              }
+            }
+          }
+        }
+      ],
       "required": [
         "protocol",
         "phase",
@@ -1926,6 +1978,25 @@
           "minLength": 71,
           "maxLength": 71
         },
+        "isolation_policy": {
+          "type": "string",
+          "const": "loopback_only_v1",
+          "description": "Derived only from the pinned recipe. Absent means the legacy unisolated contract. Callers supply no mounts, paths or network exceptions."
+        },
+        "isolation_fingerprint": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "minLength": 71,
+          "maxLength": 71
+        },
+        "isolation_enforcement": {
+          "type": "string",
+          "enum": [
+            "established",
+            "unavailable"
+          ],
+          "description": "Producer-observed launcher/profile/namespace/lifetime/teardown state, not candidate assertions. Missing or changed required enforcement is unavailable."
+        },
         "recipe_kind": {
           "type": "string",
           "const": "target_runner_v1",
@@ -1944,7 +2015,8 @@
           "type": "string",
           "enum": [
             "pytest",
-            "check"
+            "check",
+            "vitest"
           ],
           "description": "The closed runner axis. It owns collection, the exact witness population, and the result grammar; check pins each declared check's full bounded argv and grades the host-observed exit status."
         },
@@ -2277,7 +2349,7 @@
         {
           "type": "object",
           "additionalProperties": false,
-          "description": "The target_runner_v1 family: the closed materializer/runner pair and the real selected witness population, never fabricated Go test names. Exactly three pairs are admitted; every other combination refuses as unsupported.",
+          "description": "The target_runner_v1 family: the closed materializer/runner pair and the real selected witness population, never fabricated Go test names. Exactly five pairs are admitted; every other combination refuses as unsupported.",
           "required": [
             "protocol",
             "phase",
@@ -2400,6 +2472,23 @@
               "minLength": 71,
               "maxLength": 71
             },
+            "isolation_policy": {
+              "type": "string",
+              "const": "loopback_only_v1"
+            },
+            "isolation_fingerprint": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "minLength": 71,
+              "maxLength": 71
+            },
+            "isolation_enforcement": {
+              "type": "string",
+              "enum": [
+                "established",
+                "unavailable"
+              ]
+            },
             "recipe_kind": {
               "type": "string",
               "const": "target_runner_v1"
@@ -2416,7 +2505,8 @@
               "type": "string",
               "enum": [
                 "pytest",
-                "check"
+                "check",
+                "vitest"
               ]
             },
             "selected_witness_ids": {
@@ -2573,11 +2663,22 @@
                   "const": "check"
                 }
               }
+            },
+            {
+              "description": "bun materializes the integrity-verified archive closure offline; vitest collects canonical JSON [namedProject,rootRelativePinnedFile,ancestorTitles[],title] identities without acceptance bodies and grades API-ID-selected runs through complete structured callback witnesses.",
+              "properties": {
+                "target_materializer": {
+                  "const": "bun"
+                },
+                "target_runner": {
+                  "const": "vitest"
+                }
+              }
             }
           ]
         }
       ],
-      "description": "The store-selected qualified preparation for an immutable job's exact readiness reference, never a latest-run guess or worker assertion. Two closed recipe families share the record and one branch must match exactly: a mixed family shape, an unknown recipe kind, or an unsupported materializer/runner pair refuses. The pure-Go family proves exact pinned file bytes, cwd, build-selected nonempty witnesses, and compile-only readiness; non-Go and resolved embed inputs must be declared pinned fixtures or explicit compiler inputs, with no production Go/module replacement. The target_runner_v1 family admits exactly the pairs uv+pytest, none+check, uv+check, and bun+check: the materializer owns dependency manifest and lockfile equality with the pinned recipe, offline lock-verified materialization into per-run scratch, cached-byte integrity, disabled lifecycle and build scripts, and runtime fingerprints (none declares a dependency-free recipe); the runner owns collection, the exact witness population, and the result grammar, and preparation runs only its collection or check-input stage, never the graded workload. No Vitest or pnpm surface exists. Every stage pins its installed toolchain; the Go stages set GOTOOLCHAIN=local, GOPROXY=off, GOFLAGS=-mod=readonly, CGO_ENABLED=0, GOWORK=off, and a private disposable GOCACHE. No aggregate scratch quota or uncommitted-diagnostics promise. Preparation grants no worker attempt, verification authority, or semantic acceptance."
+      "description": "The store-selected qualified preparation for an immutable job's exact readiness reference, never a latest-run guess or worker assertion. Two closed recipe families share the record and one branch must match exactly: a mixed family shape, an unknown recipe kind, or an unsupported materializer/runner pair refuses. The pure-Go family proves exact pinned file bytes, cwd, build-selected nonempty witnesses, and compile-only readiness; non-Go and resolved embed inputs must be declared pinned fixtures or explicit compiler inputs, with no production Go/module replacement. The target_runner_v1 family admits exactly the pairs uv+pytest, none+check, uv+check, bun+check, and bun+vitest: the materializer owns dependency manifest and lockfile equality with the pinned recipe, offline lock-verified materialization into per-run scratch, cached-byte integrity, disabled lifecycle and build scripts, and runtime fingerprints (none declares a dependency-free recipe); the runner owns collection, the exact witness population, and the result grammar, and preparation runs only its collection or check-input stage, never the graded workload. Vitest pins Node 24.15.0, Vitest 4.1.11 and Vite 8.2.2; its identity is canonical JSON [namedProject,rootRelativePinnedFile,ancestorTitles[],title], never a joined display name. Check supports pinned bash, python3 and Node script slots. No pnpm surface exists. Every stage pins its installed toolchain; the Go stages set GOTOOLCHAIN=local, GOPROXY=off, GOFLAGS=-mod=readonly, CGO_ENABLED=0, GOWORK=off, and a private disposable GOCACHE. No aggregate scratch quota or uncommitted-diagnostics promise. Preparation grants no worker attempt, verification authority, or semantic acceptance."
     },
     "lane_work_context_view": {
       "type": "object",

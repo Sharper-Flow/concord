@@ -252,7 +252,7 @@ func TestNativeTargetAxisBunCacheEntries(t *testing.T) {
 }
 
 func decodeBunIntegrityForTest(integrity string) ([]byte, error) {
-	lock, err := parseNativeBunPackage("x", []json.RawMessage{json.RawMessage(`"x@1.0.0"`), json.RawMessage(`""`), json.RawMessage(`{}`), json.RawMessage(`"` + integrity + `"`)})
+	lock, err := parseNativeBunPackageForPlatform("x", []json.RawMessage{json.RawMessage(`"x@1.0.0"`), json.RawMessage(`""`), json.RawMessage(`{}`), json.RawMessage(`"` + integrity + `"`)}, false)
 	return lock.Integrity, err
 }
 

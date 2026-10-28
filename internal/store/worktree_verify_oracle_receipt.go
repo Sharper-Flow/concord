@@ -110,7 +110,7 @@ func readNativeOracleExecutePlanTx(ctx context.Context, q queryer, work string, 
 }
 
 func nativeOraclePlanMatchesReceipt(p nativeOraclePlan, work, projectID string, o *NativeOracleResult, envDigest, envIdentity string) bool {
-	if !nativeGitMetadataMatches(p, o.GitMetadata) {
+	if !nativeIsolationResultMatches(p, &o.NativeOraclePreparation, o.Stages) || !nativeGitMetadataMatches(p, o.GitMetadata) {
 		return false
 	}
 	return p.Request.Phase == "execute" && p.WorkID == work && p.ProjectID == projectID && p.SubjectCommit == o.SubjectCommit && p.ContractVersion == o.ContractVersion && p.BundleDigest == o.BundleDigest && o.BuildEnvironmentDigest == envDigest && o.ToolchainIdentity == envIdentity &&
@@ -149,7 +149,7 @@ func nativeOracleDispatchMatches(d workflowActionCompletedPayload, p nativeOracl
 }
 
 func nativeOraclePreparationJoins(prep *NativeOraclePreparation, p nativeOraclePlan, o *NativeOracleResult, envDigest, envIdentity string) bool {
-	if prep == nil {
+	if prep == nil || !nativeIsolationPreparationMatches(p, prep) {
 		return false
 	}
 	preparationSubject := o.SubjectCommit

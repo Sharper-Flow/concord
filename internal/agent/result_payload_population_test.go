@@ -972,6 +972,38 @@ func TestSchemaFixtureWorkPinRespectsOutsideRepairState(t *testing.T) {
 // union builds and validates whole.
 func TestSchemaFixtureUnionArmsRespectSiblingConstraints(t *testing.T) {
 	defs := payloadSchemaDefs(t)
+	t.Run("closed_empty_arm_does_not_mutate_sibling_schema", func(t *testing.T) {
+		properties := map[string]any{"foreign": map[string]any{"type": "string"}}
+		union := map[string]any{
+			"type": "object", "properties": properties,
+			"oneOf": []any{map[string]any{"type": "object", "additionalProperties": false}},
+		}
+		value := schemaFixtureValue(t, union, defs, 0)
+		if _, ok := properties["foreign"]; !ok {
+			t.Fatal("fixture construction mutated the source schema")
+		}
+		if err := payloadschema.ValidateValue(value, union, map[string]any{}, "$"); err != nil {
+			t.Fatalf("closed empty arm fixture violates the whole schema: %v", err)
+		}
+	})
+	t.Run("closed_arm_keeps_sibling_constraints_without_foreign_properties", func(t *testing.T) {
+		union := map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"kept":    map[string]any{"type": "string", "minLength": json.Number("12")},
+				"foreign": map[string]any{"type": "string"},
+			},
+			"oneOf": []any{map[string]any{
+				"type": "object", "additionalProperties": false,
+				"required":   []any{"kept"},
+				"properties": map[string]any{"kept": map[string]any{"type": "string"}},
+			}},
+		}
+		value := schemaFixtureValue(t, union, defs, 0)
+		if err := payloadschema.ValidateValue(value, union, map[string]any{}, "$"); err != nil {
+			t.Fatalf("closed union arm fixture violates the whole schema: %v", err)
+		}
+	})
 	t.Run("closed_projection_union_keeps_only_selected_arm_properties", func(t *testing.T) {
 		value := schemaFixtureValue(t, defs["projectable_mutation_result"], defs, 0)
 		data, err := json.Marshal(value)

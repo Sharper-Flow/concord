@@ -26,7 +26,14 @@
     "adapter/opencode/packet.test.ts",
     "internal/store/worker_review_job_binding.go",
     "internal/store/worker_review_job_binding_test.go",
-    "internal/store/worker_review_preparation.go"
+    "internal/store/worker_review_preparation.go",
+    "internal/store/worktree_verify_isolation_binding.go",
+    "internal/store/worktree_verify_isolation_export.go",
+    "internal/store/worktree_verify_isolation_environment.go",
+    "internal/store/worktree_verify_isolation_supervisor.go",
+    "internal/store/worktree_verify_isolation_integration_test.go",
+    "internal/store/worktree_verify_isolation_runtime_test.go",
+    "internal/store/worktree_verify_oracle_host_vitest_test.go"
   ],
   "home_domain_id": "workflow-engine",
   "id": "CD-0205",
@@ -45,7 +52,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:2ad8489df4bb7742ec0f1595db983093a33a3fc681e6cfcdf0a239de149d5855",
+  "sha256": "sha256:c4fdac14ae6be9e189bec778b0a465aa91849449cebbeeedba9aa5f3da62e4ef",
   "status": "accepted",
   "summary": "Immutable worker-job revisions bind every admitted lane end to end. Implementation v27 and break-fix v24 require one typed owner/case/control acceptance oracle in the job digest, with closed source and authority joins and retained readiness evidence. Definitions generate from one canonical source, and no released-definition version or pin is retained for history (CD-0242 D14). Local acceptance holds the step without delivery; whole-work delivery keeps complete parent admission and integration evidence. A revision recorded under a superseded contract is not ready. Under CD-0242 D6 each launch carries its own scope and subject bindings, and no attempt count, correction window, convergence basis, or escalation wall exists.",
   "tags": [

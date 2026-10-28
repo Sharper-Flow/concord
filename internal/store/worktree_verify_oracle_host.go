@@ -20,12 +20,12 @@ import (
 //     manifest and lockfile, offline lock-verified materialization into
 //     per-run scratch, cache-integrity proof, disabled scripts, and runtime
 //     fingerprints. `none` declares a dependency-free recipe.
-//   - runner `pytest` or `check`: the runner owns collection, the exact
+//   - runner `pytest`, `vitest`, or `check`: the runner owns collection, the exact
 //     witness population, and the result grammar. `check` pins each check's
 //     full bounded argv and grades the host-observed process exit.
 //
-// Exactly four pairs are admitted: uv+pytest, none+check, uv+check, and
-// bun+check. The
+// Exactly five pairs are admitted: uv+pytest, none+check, uv+check,
+// bun+check, and bun+vitest. The
 // admitted set is the closed union below — the pair is decided as one
 // discriminated decision, never as two independently accepted enum values —
 // and every other combination refuses as unsupported. Adding a member
@@ -43,7 +43,7 @@ type nativeTargetOracleManifest struct {
 	GitMetadata nativeGitPolicy `json:"git_metadata,omitempty"`
 	// Materializer is one closed member: none, uv, or bun.
 	Materializer string `json:"materializer"`
-	// Runner is one closed member: pytest or check.
+	// Runner is one closed member: pytest, check, or vitest.
 	Runner string `json:"runner"`
 	// Root is the contained Project-relative working root. It must equal the
 	// control's cwd.
@@ -65,6 +65,13 @@ type nativeTargetOracleManifest struct {
 	// refuses this field; runner check requires it, and every selected
 	// witness must carry exactly one declared check.
 	Checks []nativeTargetCheck `json:"checks,omitempty"`
+	// VitestConfig names the root-relative pinned Vitest configuration.
+	VitestConfig string `json:"vitest_config,omitempty"`
+	// SvelteKit reserves a fresh producer-owned .svelte-kit output per stage.
+	SvelteKit bool `json:"sveltekit,omitempty"`
+	// Isolation is absent for the legacy execution contract. No mount or
+	// network exception is accepted from the recipe.
+	Isolation string `json:"isolation,omitempty"`
 	// Pin carries the exact runtime identities this recipe requires.
 	Pin nativeTargetPin `json:"pin"`
 }
@@ -98,7 +105,10 @@ type nativeTargetPin struct {
 	Shell string `json:"shell,omitempty"`
 	// Bun is the exact bun version for bun materialization. It must be a
 	// member of nativeBunAdmittedVersions.
-	Bun string `json:"bun,omitempty"`
+	Bun    string `json:"bun,omitempty"`
+	Node   string `json:"node,omitempty"`
+	Vitest string `json:"vitest,omitempty"`
+	Vite   string `json:"vite,omitempty"`
 	// DepManifest is the Project-relative dependency manifest path:
 	// "pyproject.toml" for uv and "package.json" for bun materialization.
 	// The candidate commit's file must equal the recipe commit's byte for
@@ -116,6 +126,7 @@ const (
 	nativeTargetMaterializerUV   = "uv"
 	nativeTargetRunnerPytest     = "pytest"
 	nativeTargetRunnerCheck      = "check"
+	nativeTargetRunnerVitest     = "vitest"
 	// nativeTargetWitnessMaxBytes matches the verify-command part bound, so
 	// a selected witness stays renderable as one exact argv value.
 	nativeTargetWitnessMaxBytes = 256
@@ -139,6 +150,7 @@ var nativeTargetAdmittedPairs = []nativeTargetPair{
 	{nativeTargetMaterializerNone, nativeTargetRunnerCheck},
 	{nativeTargetMaterializerUV, nativeTargetRunnerCheck},
 	{nativeTargetMaterializerBun, nativeTargetRunnerCheck},
+	{nativeTargetMaterializerBun, nativeTargetRunnerVitest},
 }
 
 // nativeTargetPairOf resolves the manifest's axes as one closed discriminated
@@ -199,6 +211,8 @@ func nativeTargetSelector(m nativeTargetOracleManifest, c OracleControl) ([]stri
 		logical = append([]string{"pytest"}, witnesses...)
 	case nativeTargetRunnerCheck:
 		logical = append([]string{"check"}, witnesses...)
+	case nativeTargetRunnerVitest:
+		logical = append([]string{"vitest"}, witnesses...)
 	default:
 		return nil, nativeUnavailable("unsupported target runner")
 	}
@@ -261,9 +275,9 @@ func validateNativeTargetCheckArgv(argv []string) error {
 		return nativeUnavailable("check argv exceeds the bounded verify command shape")
 	}
 	switch argv[0] {
-	case "bash", "python3":
+	case "bash", "python3", "node":
 	default:
-		return nativeUnavailable("check argv must start with the bash or python3 interpreter slot")
+		return nativeUnavailable("check argv must start with the bash, python3 or node interpreter slot")
 	}
 	if len(argv) < 2 {
 		return nativeUnavailable("check argv must name one pinned harness script behind the interpreter slot")
@@ -290,6 +304,9 @@ func validateNativeTargetCheckArgv(argv []string) error {
 // — including the superseded fused driver field.
 func decodeNativeTargetManifest(raw []byte) (nativeTargetOracleManifest, error) {
 	var m nativeTargetOracleManifest
+	if err := nativeIsolationManifestPolicy(raw); err != nil {
+		return m, err
+	}
 	d := json.NewDecoder(bytes.NewReader(raw))
 	d.DisallowUnknownFields()
 	if err := d.Decode(&m); err != nil {
@@ -298,6 +315,9 @@ func decodeNativeTargetManifest(raw []byte) (nativeTargetOracleManifest, error) 
 	var trailing any
 	if d.Decode(&trailing) != io.EOF {
 		return m, nativeUnavailable("recipe contains trailing input")
+	}
+	if err := validateNativeIsolationPolicy(m.Isolation); err != nil {
+		return m, err
 	}
 	return m, nil
 }
@@ -325,6 +345,9 @@ func nativeOracleRecipeKind(raw []byte) (string, error) {
 // runner, and the exact pin fields the pair requires with no foreign pin
 // fields.
 func validateNativeTargetManifest(m nativeTargetOracleManifest, c OracleControl) error {
+	if err := validateNativeIsolationPolicy(m.Isolation); err != nil {
+		return err
+	}
 	if m.Kind != nativeTargetKind {
 		return nativeUnavailable("unsupported recipe family")
 	}
@@ -343,17 +366,8 @@ func validateNativeTargetManifest(m nativeTargetOracleManifest, c OracleControl)
 			return err
 		}
 	}
-	if len(m.HarnessFiles) < 1 || len(m.HarnessFiles) > 16 || len(m.SupportFiles) > 16 {
-		return nativeUnavailable("target manifest file inventories are out of bounds")
-	}
-	seen := map[string]bool{}
-	for _, group := range [][]string{m.HarnessFiles, m.SupportFiles} {
-		for _, name := range group {
-			if seen[name] || !nativeTargetContainedName(m.Root, name) {
-				return nativeUnavailable("manifest paths must be unique contained files under the root")
-			}
-			seen[name] = true
-		}
+	if err := validateNativeTargetFiles(m, pair); err != nil {
+		return err
 	}
 	witnesses, err := nativeTargetCaseWitnesses(m, c)
 	if err != nil {
@@ -368,10 +382,44 @@ func validateNativeTargetManifest(m nativeTargetOracleManifest, c OracleControl)
 		if err := validateNativeTargetCheckManifest(m, pair, witnesses); err != nil {
 			return err
 		}
+	case nativeTargetRunnerVitest:
+		if err := validateNativeTargetVitestManifest(m, witnesses); err != nil {
+			return err
+		}
 	}
-	for _, pin := range []string{m.Pin.UV, m.Pin.Python, m.Pin.Pytest, m.Pin.Shell, m.Pin.Bun} {
+	for _, pin := range []string{m.Pin.UV, m.Pin.Python, m.Pin.Pytest, m.Pin.Shell, m.Pin.Bun, m.Pin.Node, m.Pin.Vitest, m.Pin.Vite} {
 		if pin != "" && !nativeTargetVersionPin.MatchString(pin) {
 			return nativeUnavailable("runtime pins must be exact dotted numeric versions")
+		}
+	}
+	return nil
+}
+
+func validateNativeTargetFiles(m nativeTargetOracleManifest, pair nativeTargetPair) error {
+	if len(m.HarnessFiles) < 1 || len(m.HarnessFiles) > 16 || len(m.SupportFiles) > 16 {
+		return nativeUnavailable("target manifest file inventories are out of bounds")
+	}
+	if m.Runner != nativeTargetRunnerVitest && m.VitestConfig != "" {
+		return nativeUnavailable("only vitest recipes may declare vitest_config")
+	}
+	if m.SvelteKit && (pair.Materializer != nativeTargetMaterializerBun || m.Pin.Node == "") {
+		return nativeUnavailable("SvelteKit generated inputs require bun and pinned Node")
+	}
+	seen := map[string]bool{}
+	for _, group := range [][]string{m.HarnessFiles, m.SupportFiles} {
+		for _, name := range group {
+			if seen[name] || !nativeTargetContainedName(m.Root, name) {
+				return nativeUnavailable("manifest paths must be unique contained files under the root")
+			}
+			seen[name] = true
+		}
+	}
+	if m.SvelteKit {
+		for _, name := range []string{"svelte.config.js", "tsconfig.json"} {
+			rooted, _ := nativeTargetRootedPath(m.Root, name)
+			if !slices.Contains(m.HarnessFiles, rooted) {
+				return nativeUnavailable("SvelteKit requires pinned svelte.config.js and tsconfig.json")
+			}
 		}
 	}
 	return nil
@@ -409,7 +457,7 @@ func validateNativeTargetCheckManifest(m nativeTargetOracleManifest, pair native
 		return nativeUnavailable("check recipes must declare one to sixteen checks")
 	}
 	checkWitnesses := map[string]bool{}
-	usesBash, usesPython := false, false
+	usesBash, usesPython, usesNode := false, false, false
 	for _, check := range m.Checks {
 		if len(check.Witness) < 1 || len(check.Witness) > nativeTargetWitnessMaxBytes || checkWitnesses[check.Witness] {
 			return nativeUnavailable("check witnesses must be unique bounded strings")
@@ -423,6 +471,8 @@ func validateNativeTargetCheckManifest(m nativeTargetOracleManifest, pair native
 			usesBash = true
 		case "python3":
 			usesPython = true
+		case "node":
+			usesNode = true
 		}
 		script, ok := nativeTargetRootedPath(m.Root, check.Argv[1])
 		if !ok || !slices.Contains(m.HarnessFiles, script) {
@@ -439,16 +489,22 @@ func validateNativeTargetCheckManifest(m nativeTargetOracleManifest, pair native
 			return nativeUnavailable("declared check witness is not selected by the control: " + witness)
 		}
 	}
-	return validateNativeTargetCheckPins(m, pair, usesBash, usesPython)
+	return validateNativeTargetCheckPins(m, pair, usesBash, usesPython, usesNode)
 }
 
-func validateNativeTargetCheckPins(m nativeTargetOracleManifest, pair nativeTargetPair, usesBash, usesPython bool) error {
+func validateNativeTargetCheckPins(m nativeTargetOracleManifest, pair nativeTargetPair, usesBash, usesPython, usesNode bool) error {
 	required := ""
 	if usesBash {
 		required += " shell"
 	}
 	if usesPython {
 		required += " python"
+	}
+	if usesNode {
+		required += " node"
+		if pair.Materializer != nativeTargetMaterializerBun || m.Pin.Node != nativeTargetNodeVersion {
+			return nativeUnavailable("node checks require bun and Node " + nativeTargetNodeVersion)
+		}
 	}
 	required = strings.TrimSpace(required)
 	switch {
@@ -488,7 +544,7 @@ func nativeTargetOptionalPin(used bool, name string) string {
 // required fields are present, the dependency binding is exact, and every
 // other field is empty.
 func nativeTargetPinExact(pin nativeTargetPin, required, depManifest, depLock string) error {
-	values := map[string]string{"uv": pin.UV, "python": pin.Python, "pytest": pin.Pytest, "shell": pin.Shell, "bun": pin.Bun}
+	values := map[string]string{"uv": pin.UV, "python": pin.Python, "pytest": pin.Pytest, "shell": pin.Shell, "bun": pin.Bun, "node": pin.Node, "vitest": pin.Vitest, "vite": pin.Vite}
 	for name, value := range values {
 		present := value != ""
 		switch {
@@ -542,9 +598,10 @@ func nativeTargetRootedPath(root, name string) (string, bool) {
 // against an exact installed identity. Slots are stable role names; the plan
 // carries the resolved absolute paths beside the digested identity.
 type nativeTargetEnvironment struct {
-	Materializer string             `json:"materializer"`
-	Runner       string             `json:"runner"`
-	Tools        []NativeOracleFile `json:"tools"`
+	Isolation    *nativeIsolationEnvironment `json:"isolation,omitempty"`
+	Materializer string                      `json:"materializer"`
+	Runner       string                      `json:"runner"`
+	Tools        []NativeOracleFile          `json:"tools"`
 	// RuntimeIdentity is the joined exact version string of every pinned
 	// tool, for example "uv 0.11.26 python 3.13.7 pytest 9.1.1". It becomes
 	// the preparation's ToolchainIdentity.
@@ -566,6 +623,7 @@ type nativeTargetEnvironment struct {
 	Python            string `json:"python,omitempty"`
 	Bash              string `json:"bash,omitempty"`
 	Bun               string `json:"bun,omitempty"`
+	Node              string `json:"node,omitempty"`
 	UVCacheDir        string `json:"uv_cache_dir,omitempty"`
 	NPMCacheDir       string `json:"npm_cache_dir,omitempty"`
 	Git               string `json:"git,omitempty"`
@@ -601,6 +659,12 @@ func resolveNativeTargetRuntime(ctx context.Context, m nativeTargetOracleManifes
 		return e, err
 	}
 	e.RuntimeIdentity = strings.TrimSpace(e.RuntimeIdentity)
+	if m.Isolation != "" {
+		e.Isolation, err = resolveNativeIsolationEnvironment(e)
+		if err != nil {
+			return e, err
+		}
+	}
 	return e, nil
 }
 
@@ -716,6 +780,24 @@ func (p nativeTargetRuntimeProbe) resolveBun() error {
 
 func (p nativeTargetRuntimeProbe) resolveCheckInterpreters() error {
 	e, m := p.environment, p.manifest
+	if m.Pin.Node != "" {
+		node, err := nativeTargetResolvedTool("node")
+		if err != nil {
+			return nativeTargetUnavailableMaterializer(e.Materializer, err.Error())
+		}
+		e.Node = node
+		out, err := p.versionOf("node", "--version")
+		if err != nil {
+			return nativeTargetUnavailableMaterializer(e.Materializer, err.Error())
+		}
+		if err := p.pinned("node", strings.TrimPrefix(strings.TrimSpace(out), "v"), m.Pin.Node); err != nil {
+			return err
+		}
+		e.RuntimeIdentity += " node " + m.Pin.Node
+		if m.Runner == nativeTargetRunnerVitest {
+			e.RuntimeIdentity += " vitest " + m.Pin.Vitest + " vite " + m.Pin.Vite
+		}
+	}
 	if m.Pin.Shell != "" {
 		if err := p.bashVersion(); err != nil {
 			return err
@@ -781,11 +863,15 @@ func nativeTargetResolvePython(ctx context.Context, uv, pin string) (string, err
 // change re-pins the environment identity.
 func finalizeNativeTargetEnvironment(e *nativeTargetEnvironment) {
 	slices.SortFunc(e.Tools, func(a, b NativeOracleFile) int { return strings.Compare(a.Path, b.Path) })
-	e.Digest = nativeDigest([]byte(strings.Join([]string{
+	parts := []string{
 		e.Materializer, e.Runner, e.RuntimeIdentity, e.DependencyInputsDigest,
 		nativeDigest([]byte(workflowJSON(e.Tools))),
 		"offline-locked-no-build-no-scripts-copy-private-scratch",
-	}, "\x00")))
+	}
+	if e.Isolation != nil {
+		parts = append(parts, nativeIsolationEnvironmentDigest(e.Isolation))
+	}
+	e.Digest = nativeDigest([]byte(strings.Join(parts, "\x00")))
 	if e.GitMetadataDigest != "" {
 		e.Digest = nativeDigest([]byte(e.Digest + "\x00" + nativeGitMetadataMode + "\x00" + e.GitMetadataDigest))
 	}

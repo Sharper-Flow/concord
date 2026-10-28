@@ -61,24 +61,27 @@ type NativeOraclePreparation struct {
 	StreamsComplete        bool                     `json:"streams_complete"`
 	// Target-runner wire properties. Go preparations leave every field
 	// empty; a target preparation leaves SelectedTestNames and
-	// CaseToTestMap empty and never fabricates Go test names. The axes are
-	// the closed materializer (none|uv) and runner (pytest|check) pair the
-	// plan decided.
-	RecipeKind         string              `json:"recipe_kind,omitempty"`
-	TargetMaterializer string              `json:"target_materializer,omitempty"`
-	TargetRunner       string              `json:"target_runner,omitempty"`
-	SelectedWitnessIDs []string            `json:"selected_witness_ids,omitempty"`
-	CaseToWitnessMap   map[string][]string `json:"case_to_witness_map,omitempty"`
+	// CaseToTestMap empty and never fabricates Go test names.
+	RecipeKind           string              `json:"recipe_kind,omitempty"`
+	TargetMaterializer   string              `json:"target_materializer,omitempty"`
+	TargetRunner         string              `json:"target_runner,omitempty"`
+	SelectedWitnessIDs   []string            `json:"selected_witness_ids,omitempty"`
+	CaseToWitnessMap     map[string][]string `json:"case_to_witness_map,omitempty"`
+	IsolationPolicy      string              `json:"isolation_policy,omitempty"`
+	IsolationFingerprint string              `json:"isolation_fingerprint,omitempty"`
+	IsolationEnforcement string              `json:"isolation_enforcement,omitempty"`
 }
 
 type NativeOracleStage struct {
-	Name         string   `json:"name"`
-	Argv         []string `json:"argv"`
-	ExitCode     int      `json:"exit_code"`
-	StdoutOffset int      `json:"stdout_offset"`
-	StdoutLength int      `json:"stdout_length"`
-	StderrOffset int      `json:"stderr_offset"`
-	StderrLength int      `json:"stderr_length"`
+	IsolationFingerprint string   `json:"isolation_fingerprint,omitempty"`
+	IsolationEnforced    bool     `json:"isolation_enforced,omitempty"`
+	Name                 string   `json:"name"`
+	Argv                 []string `json:"argv"`
+	ExitCode             int      `json:"exit_code"`
+	StdoutOffset         int      `json:"stdout_offset"`
+	StdoutLength         int      `json:"stdout_length"`
+	StderrOffset         int      `json:"stderr_offset"`
+	StderrLength         int      `json:"stderr_length"`
 }
 
 type NativeOracleResult struct {
@@ -465,7 +468,7 @@ func nativePreparationComplete(o *NativeOracleResult, p nativeOraclePlan) bool {
 // a retained preparation: phases, subject, contract, bundle, pinned files,
 // and environment identity.
 func nativePreparationJoinsValid(o *NativeOracleResult, p nativeOraclePlan) bool {
-	if !nativeGitMetadataMatches(p, o.GitMetadata) {
+	if !nativeIsolationResultMatches(p, &o.NativeOraclePreparation, o.Stages) || !nativeGitMetadataMatches(p, o.GitMetadata) {
 		return false
 	}
 	if p.Request.Phase != "prepare" || o.Phase != "prepare" || o.Qualification != "ready" {
@@ -895,7 +898,7 @@ func validateNativeExecutionPreparation(ctx context.Context, q queryer, req Work
 		return err
 	}
 	digest, identity := nativePlanEnvironment(plan)
-	if prep == nil || prep.BuildEnvironmentDigest != digest || prep.ToolchainIdentity != identity || prep.ManifestDigest != plan.ManifestFile.SHA256 || !oracleEntryIdentical(prep.Files, plan.Files) {
+	if prep == nil || !nativeIsolationPreparationMatches(plan, prep) || prep.BuildEnvironmentDigest != digest || prep.ToolchainIdentity != identity || prep.ManifestDigest != plan.ManifestFile.SHA256 || !oracleEntryIdentical(prep.Files, plan.Files) {
 		return oracleFailure(KindUnauthorizedDispatch, "preparation environment or pinned inputs differ from execution", "request explicit preparation for this environment and bundle")
 	}
 	return nil
@@ -1007,6 +1010,11 @@ func nativeOracleInitialResult(req WorktreeVerifyRequest, entry WorktreeEntry, p
 		base.SelectedWitnessIDs = names
 		base.CaseToWitnessMap = p.Target.Recipe.Cases
 		base.SelectedDistinctCount = len(names)
+		if p.Target.Recipe.Isolation != "" {
+			base.IsolationPolicy = p.Target.Recipe.Isolation
+			base.IsolationFingerprint = nativeIsolationEnvironmentDigest(p.Target.Environment.Isolation)
+			base.IsolationEnforcement = "unavailable"
+		}
 	} else {
 		names, _ := nativeOracleSelector(p.Manifest, p.Bundle.Control)
 		base.SelectedTestNames = names

@@ -36,7 +36,11 @@ func (s *Store) runNativeTargetOracle(ctx context.Context, r GitRunner, entry Wo
 	if err != nil {
 		return err
 	}
+	preserveScratch := false
 	defer func() {
+		if preserveScratch {
+			return
+		}
 		if err := os.RemoveAll(root); err != nil && returnErr == nil {
 			returnErr = err
 		}
@@ -80,6 +84,9 @@ func (s *Store) runNativeTargetOracle(ctx context.Context, r GitRunner, entry Wo
 			return err
 		}
 	}
+	if err := nativeTargetInstallRunner(t, root, p.Bundle.Control); err != nil {
+		return err
+	}
 	binaryDigest := ""
 	if pair.Materializer == nativeTargetMaterializerNone || pair.Materializer == nativeTargetMaterializerBun {
 		// Check runners without a subprocess materializer consume the
@@ -95,7 +102,7 @@ func (s *Store) runNativeTargetOracle(ctx context.Context, r GitRunner, entry Wo
 	// position among the producer-generated test stages joins it to its
 	// selected witness, so no caller-supplied index can enter the join.
 	run := nativeTargetOracleRun{store: s, req: req, plan: p, capture: capture, result: result,
-		root: root, snapshot: snapshot, cwd: cwd, env: env, baseline: baseline, binaryDigest: binaryDigest, recipe: m}
+		root: root, snapshot: snapshot, cwd: cwd, env: env, baseline: baseline, binaryDigest: binaryDigest, recipe: m, preserveScratch: &preserveScratch}
 	if err := run.execute(ctx); err != nil {
 		return err
 	}
@@ -113,10 +120,15 @@ type nativeTargetOracleRun struct {
 	env                               []string
 	baseline                          []NativeOracleFile
 	testOrdinal                       int
+	preserveScratch                   *bool
+	isolationExportDigest             string
 }
 
 func (n *nativeTargetOracleRun) execute(ctx context.Context) error {
 	for _, stage := range n.plan.Stages {
+		if err := n.freshGeneratedInputs(); err != nil {
+			return err
+		}
 		if err := n.validateStageInputs(stage.Name); err != nil {
 			return err
 		}
@@ -163,6 +175,19 @@ func (n *nativeTargetOracleRun) validateStageInputs(name string) error {
 func (n *nativeTargetOracleRun) runStage(ctx context.Context, stage NativeOracleStage) (int, []byte, error) {
 	s, capture, result := n.store, n.capture, n.result
 	argv := nativeTargetStageArgv(n.plan.Target, n.root, slices.Clone(stage.Argv))
+	isolation, err := nativeTargetIsolationExport(n.plan.Target, n.root, n.snapshot, n.cwd, argv)
+	if err != nil {
+		return -1, nil, err
+	}
+	if isolation != nil {
+		if n.isolationExportDigest != "" && n.isolationExportDigest != isolation.Fingerprint {
+			return -1, nil, nativeIsolationUnavailable("consumed export changed before stage")
+		}
+		n.isolationExportDigest = isolation.Fingerprint
+		n.result.IsolationPolicy = n.recipe.Isolation
+		n.result.IsolationFingerprint = nativeIsolationEnvironmentDigest(n.plan.Target.Environment.Isolation)
+		n.result.IsolationEnforcement = "unavailable"
+	}
 	var launched func()
 	if stage.Name == "test" {
 		launched = s.nativeOracleProgramLaunched
@@ -184,8 +209,11 @@ func (n *nativeTargetOracleRun) runStage(ctx context.Context, stage NativeOracle
 	if stageCapture == capture {
 		so, se = len(capture.stdout), len(capture.stderr)
 	}
-	exit, runErr := runNativeOracleStage(stageCtx, n.cwd, argv, n.env, nil, stageCapture, launched)
+	exit, runErr := runNativeOracleStage(stageCtx, n.cwd, argv, n.env, nil, stageCapture, launched, isolation)
 	cancel()
+	if isolation != nil {
+		runErr = n.observeIsolatedStage(&stage, argv, isolation, stageCapture, runErr)
+	}
 	stage.ExitCode = exit
 	stage.StdoutOffset = so
 	stage.StderrOffset = se
@@ -201,6 +229,40 @@ func (n *nativeTargetOracleRun) runStage(ctx context.Context, stage NativeOracle
 		return 0, nil, nativeUnavailable(fmt.Sprintf("native %s failed: %v", stage.Name, runErr))
 	}
 	return exit, stageCapture.stdout, nil
+}
+
+func (n *nativeTargetOracleRun) observeIsolatedStage(stage *NativeOracleStage, argv []string, isolation *nativeStageIsolation, stageCapture *nativeStreamCapture, runErr error) error {
+	if !stageCapture.isolationReaped {
+		// A failed controller may still own cleanup. Never race its
+		// retained namespace with RemoveAll, even on an unavailable run.
+		if n.preserveScratch != nil {
+			*n.preserveScratch = true
+		}
+	} else {
+		stage.IsolationFingerprint = isolation.Fingerprint
+		stage.IsolationEnforced = true
+		current, checkErr := nativeTargetIsolationExport(n.plan.Target, n.root, n.snapshot, n.cwd, argv)
+		if checkErr != nil {
+			runErr = checkErr
+		} else if current.Fingerprint != isolation.Fingerprint {
+			runErr = nativeIsolationUnavailable("consumed export changed during stage")
+		}
+		if runErr == nil {
+			runErr = nativeTargetInputsUnchanged(n.plan, n.snapshot, n.baseline, "consumed candidate inputs changed during isolation")
+		}
+		if runErr == nil {
+			currentDigest, checkErr := nativeTargetRunnerDigest(n.plan.Target, n.root)
+			if checkErr != nil {
+				runErr = checkErr
+			} else if currentDigest != n.binaryDigest {
+				runErr = nativeIsolationUnavailable("consumed dependency closure changed during stage")
+			}
+		}
+		if runErr == nil {
+			n.result.IsolationEnforcement = "established"
+		}
+	}
+	return runErr
 }
 
 func (n *nativeTargetOracleRun) consumeStage(ctx context.Context, stage NativeOracleStage, stdout []byte) error {
@@ -233,6 +295,17 @@ func (n *nativeTargetOracleRun) consumeStage(ctx context.Context, stage NativeOr
 			return nativeUnavailable("consumed dependency closure changed before collection")
 		}
 	case "collect":
+		if t.Recipe.Runner == nativeTargetRunnerVitest {
+			report, err := nativeTargetReadVitestReport(nativeTargetReportRoot(t, root), "vitest-collect.json")
+			if err != nil {
+				return err
+			}
+			selected, err := nativeTargetSelectedFor(n.plan)
+			if err != nil {
+				return err
+			}
+			return nativeTargetVerifyVitestReport(report, selected, "")
+		}
 		if err := nativeTargetVerifyCollect(n.plan, stdout); err != nil {
 			return err
 		}
@@ -309,6 +382,8 @@ func nativeTargetStageArgv(t *nativeTargetOraclePlan, root string, argv []string
 		} else {
 			argv[0] = t.Environment.Python
 		}
+	case "node":
+		argv[0] = t.Environment.Node
 	case "pytest":
 		argv[0] = filepath.Join(root, "venv", "bin", "pytest")
 	}
@@ -317,7 +392,17 @@ func nativeTargetStageArgv(t *nativeTargetOraclePlan, root string, argv []string
 			argv[i+1] = strings.ReplaceAll(part, "$scratch/", root+string(filepath.Separator))
 		}
 	}
+	if t.Recipe.Isolation != "" && t.Recipe.Runner == nativeTargetRunnerVitest && len(argv) >= 5 {
+		argv[4] = filepath.Join(nativeTargetReportRoot(t, root), filepath.Base(argv[4]))
+	}
 	return argv
+}
+
+func nativeTargetReportRoot(t *nativeTargetOraclePlan, root string) string {
+	if t.Recipe.Isolation != "" {
+		return filepath.Join(root, "reports")
+	}
+	return root
 }
 
 // nativeTargetControlledEnv builds the closed stage environment: inherited
@@ -332,6 +417,10 @@ func nativeTargetControlledEnv(t *nativeTargetOraclePlan, root string) []string 
 			// The pinned bun link precedes the inherited PATH, so a
 			// harness's bare bun is the fingerprinted executable.
 			value = strings.Join(slices.DeleteFunc([]string{nativeBunBinDir(root), value}, func(s string) bool { return s == "" }), string(os.PathListSeparator))
+			ok = true
+		}
+		if key == "PATH" && t.Environment.Node != "" {
+			value = nativeTargetNodeBinDir(root) + string(os.PathListSeparator) + value
 			ok = true
 		}
 		if key == "PATH" && t.Recipe.GitMetadata != "" {
@@ -404,6 +493,13 @@ func nativeTargetOverlayHarness(ctx context.Context, r GitRunner, repo, root str
 		// Bun loads bunfig files as runner configuration and .env files as
 		// process environment; only pinned copies, written below, remain.
 		if err := removeMatchingFiles(rootDir, nativeBunAutoloadedName); err != nil {
+			return err
+		}
+	}
+	if m.Runner == nativeTargetRunnerVitest {
+		if err := removeMatchingFiles(rootDir, func(name string) bool {
+			return strings.HasPrefix(name, "vitest.config.") || strings.HasPrefix(name, "vite.config.") || strings.HasPrefix(name, "svelte.config.")
+		}); err != nil {
 			return err
 		}
 	}
@@ -523,6 +619,16 @@ func nativeTargetInputInventory(p nativeOraclePlan, root string, strict bool) ([
 	err = fs.WalkDir(rooted.FS(), ".", func(name string, d fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
+		}
+		if t.Recipe.SvelteKit && name == path.Join(t.Recipe.Root, ".svelte-kit") {
+			if strict {
+				return nativeUnavailable("candidate carries producer-owned SvelteKit generated inputs")
+			}
+			target, err := rooted.Readlink(name)
+			if err != nil || target != filepath.Join(filepath.Dir(root), "generated") {
+				return nativeUnavailable("SvelteKit generated input slot changed")
+			}
+			return nil
 		}
 		if d.IsDir() {
 			return nativeTargetInventoryDirectory(rooted.FS(), name, d.Name(), producerTree, bun, strict)
@@ -792,6 +898,11 @@ func nativeTargetRunnerDigest(t *nativeTargetOraclePlan, root string) (string, e
 		}
 		parts = append(parts, bun...)
 	}
+	node, err := nativeTargetNodeRunnerParts(t, root)
+	if err != nil {
+		return "", err
+	}
+	parts = append(parts, node...)
 	site, err := nativeTargetSiteDigest(t, root)
 	if err != nil {
 		return "", err
@@ -822,6 +933,7 @@ func nativeTargetCheckInterpreterParts(t *nativeTargetOraclePlan, root string) (
 	for _, slot := range []struct{ name, resolved string }{
 		{"bash", t.Environment.Bash},
 		{"python3", t.Environment.Python},
+		{"node", t.Environment.Node},
 	} {
 		if !interpreters[slot.name] {
 			continue
@@ -920,6 +1032,14 @@ func nativeTargetStageWitnesses(t *nativeTargetOraclePlan, control OracleControl
 	}
 	witness := selected[ordinal]
 	switch t.Recipe.Runner {
+	case nativeTargetRunnerVitest:
+		expected, err := nativeTargetVitestStages("execute", selected)
+		if err != nil {
+			return nil, err
+		}
+		if slices.Equal(argv, expected[ordinal].Argv) {
+			return []string{witness}, nil
+		}
 	case nativeTargetRunnerPytest:
 		if len(argv) > 1 && argv[1] == witness {
 			return []string{witness}, nil
@@ -961,6 +1081,25 @@ type nativeTargetJUnitTestsuite struct {
 // argv and the kernel exit status is zero.
 func nativeTargetVerifyTestStage(t *nativeTargetOraclePlan, root string, argv []string, stdout []byte) error {
 	switch t.Recipe.Runner {
+	case nativeTargetRunnerVitest:
+		if len(argv) != 6 {
+			return nativeUnavailable("Vitest invocation has no exact witness/result channel")
+		}
+		name := strings.TrimPrefix(argv[4], "$scratch/")
+		if name == argv[4] || filepath.Base(name) != name {
+			return nativeUnavailable("Vitest result path is not producer-owned")
+		}
+		report, err := nativeTargetReadVitestReport(nativeTargetReportRoot(t, root), name)
+		if err != nil {
+			return err
+		}
+		var selected []string
+		for _, identities := range t.Recipe.Cases {
+			selected = append(selected, identities...)
+		}
+		slices.Sort(selected)
+		selected = slices.Compact(selected)
+		return nativeTargetVerifyVitestReport(report, selected, argv[5])
 	case nativeTargetRunnerPytest:
 		return nativeTargetVerifyPytestRun(root, argv, stdout)
 	case nativeTargetRunnerCheck:

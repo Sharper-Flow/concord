@@ -82,6 +82,8 @@ func (t *nativeTargetOraclePlan) stages(phase string, witnesses []string) ([]Nat
 			"select fewer witnesses for the pinned runner")
 	}
 	switch pair.Runner {
+	case nativeTargetRunnerVitest:
+		return nativeTargetVitestStages(phase, witnesses)
 	case nativeTargetRunnerPytest:
 		if phase == "prepare" {
 			return append(stages, NativeOracleStage{Name: "collect", Argv: slices.Concat([]string{"pytest", "--collect-only", "-q", "-p", "no:cacheprovider"}, flags, targets)}), nil
@@ -91,29 +93,41 @@ func (t *nativeTargetOraclePlan) stages(phase string, witnesses []string) ([]Nat
 		}
 		return stages, nil
 	case nativeTargetRunnerCheck:
-		for _, witness := range witnesses {
-			check, err := nativeTargetCheckFor(m, witness)
-			if err != nil {
-				return nil, err
-			}
-			if phase == "prepare" {
-				// Prove availability and syntax of every pinned script the
-				// argv names without executing the check.
-				for _, script := range nativeTargetCheckScripts(m, check) {
-					argv := []string{"bash", "-n", script}
-					if check.Argv[0] == "python3" {
-						argv = []string{"python3", "-B", "-c", nativeTargetPythonSyntaxCheck, script}
-					}
-					stages = append(stages, NativeOracleStage{Name: "check_inputs", Argv: argv})
-				}
-				continue
-			}
-			stages = append(stages, NativeOracleStage{Name: "test", Argv: append([]string{}, check.Argv...)})
+		checks, err := nativeTargetCheckStages(m, phase, witnesses)
+		if err != nil {
+			return nil, err
 		}
-		return stages, nil
+		return append(stages, checks...), nil
 	default:
 		return nil, nativeUnavailable("unsupported target runner")
 	}
+}
+
+func nativeTargetCheckStages(m nativeTargetOracleManifest, phase string, witnesses []string) ([]NativeOracleStage, error) {
+	var stages []NativeOracleStage
+	for _, witness := range witnesses {
+		check, err := nativeTargetCheckFor(m, witness)
+		if err != nil {
+			return nil, err
+		}
+		if phase == "prepare" {
+			// Prove availability and syntax of every pinned script the
+			// argv names without executing the check.
+			for _, script := range nativeTargetCheckScripts(m, check) {
+				argv := []string{"bash", "-n", script}
+				if check.Argv[0] == "python3" {
+					argv = []string{"python3", "-B", "-c", nativeTargetPythonSyntaxCheck, script}
+				}
+				if check.Argv[0] == "node" {
+					argv = []string{"node", "--check", script}
+				}
+				stages = append(stages, NativeOracleStage{Name: "check_inputs", Argv: argv})
+			}
+			continue
+		}
+		stages = append(stages, NativeOracleStage{Name: "test", Argv: append([]string{}, check.Argv...)})
+	}
+	return stages, nil
 }
 
 // nativeTargetPytestScope resolves one pytest plan's declared configuration
@@ -216,6 +230,9 @@ func normalizeNativeTargetOraclePlan(ctx context.Context, r GitRunner, entry Wor
 		return p, err
 	}
 	if err := resolveNativeTargetMaterializerCache(ctx, target, pair, depRaw); err != nil {
+		return p, err
+	}
+	if err := qualifyNativeIsolationArtifacts(ctx, target, depRaw); err != nil {
 		return p, err
 	}
 	tools, err := nativeTargetToolDigests(target.Environment)
@@ -360,7 +377,7 @@ func nativeTargetHostPath(ctx context.Context, tool string, args ...string) (str
 func nativeTargetToolDigests(e nativeTargetEnvironment) ([]NativeOracleFile, error) {
 	var tools []NativeOracleFile
 	for _, slot := range []struct{ role, path string }{
-		{"uv", e.UV}, {"python", e.Python}, {"bash", e.Bash}, {"bun", e.Bun}, {"git", e.Git},
+		{"uv", e.UV}, {"python", e.Python}, {"bash", e.Bash}, {"bun", e.Bun}, {"node", e.Node}, {"git", e.Git},
 	} {
 		if slot.path == "" {
 			continue

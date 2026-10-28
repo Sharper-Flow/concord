@@ -49,8 +49,8 @@ const checkArgv = ["check", ...checkWitnesses]
 
 function targetPacket(pair: { materializer: string; runner: string } = { materializer: "uv", runner: "pytest" }): AgentLanePacket {
   const candidate = packet()
-  const witnesses = pair.runner === "pytest" ? [pytestWitness] : checkWitnesses
-  const argv = pair.runner === "pytest" ? pytestArgv : checkArgv
+  const witnesses = pair.runner === "pytest" ? [pytestWitness] : pair.runner === "vitest" ? [JSON.stringify(["app", "tests/app.test.ts", ["outer"], "renders"])] : checkWitnesses
+  const argv = pair.runner === "pytest" ? pytestArgv : pair.runner === "vitest" ? ["vitest", ...witnesses] : checkArgv
   const control = candidate.inputs.worker_job!.acceptance_oracle!.controls
   control[0].argv = argv
   const preparation = candidate.inputs.work_context!.oracle_preparations![0] as unknown as Record<string, unknown>
@@ -155,11 +155,14 @@ test("target preparations pass only the exact admitted materializer and runner p
     { materializer: "none", runner: "check" },
     { materializer: "uv", runner: "check" },
     { materializer: "bun", runner: "check" },
+    { materializer: "bun", runner: "vitest" },
   ]) {
     expect(await verifyPacketOracleReadiness(targetPacket(pair))).toBeNull()
   }
   for (const pair of [
     { materializer: "none", runner: "pytest" },
+    { materializer: "none", runner: "vitest" },
+    { materializer: "uv", runner: "vitest" },
     { materializer: "bun", runner: "pytest" },
     { materializer: "future", runner: "pytest" },
     { materializer: "future", runner: "check" },
@@ -197,6 +200,28 @@ test("target witness metadata must be real, distinct, and case-complete before a
     expect(refusal).not.toBeNull()
     expect(refusal!.message).toContain("preparation")
   }
+})
+
+test("required isolation readiness keeps the closed policy and observed enforcement together", async () => {
+  for (const mutation of [
+    () => {},
+    (p: Record<string, unknown>) => { delete p.isolation_policy },
+    (p: Record<string, unknown>) => { delete p.isolation_fingerprint },
+    (p: Record<string, unknown>) => { delete p.isolation_enforcement },
+    (p: Record<string, unknown>) => { p.isolation_policy = "future" },
+    (p: Record<string, unknown>) => { p.isolation_enforcement = "unavailable" },
+    (p: Record<string, unknown>) => { p.isolation_fingerprint = "" },
+  ]) {
+    const candidate = targetPacket({ materializer: "bun", runner: "vitest" })
+    const preparation = candidate.inputs.work_context!.oracle_preparations![0] as unknown as Record<string, unknown>
+    Object.assign(preparation, { isolation_policy: "loopback_only_v1", isolation_fingerprint: `sha256:${"c".repeat(64)}`, isolation_enforcement: "established" })
+    mutation(preparation)
+    const valid = preparation.isolation_policy === "loopback_only_v1" && preparation.isolation_enforcement === "established" && preparation.isolation_fingerprint === `sha256:${"c".repeat(64)}`
+    expect((await verifyPacketOracleReadiness(candidate)) === null).toBe(valid)
+  }
+  const candidate = packet()
+  Object.assign(candidate.inputs.work_context!.oracle_preparations![0], { isolation_policy: "loopback_only_v1", isolation_fingerprint: `sha256:${"c".repeat(64)}`, isolation_enforcement: "established" })
+  expect(await verifyPacketOracleReadiness(candidate)).not.toBeNull()
 })
 
 test("target-selected witnesses must be exactly the union of the case map", async () => {

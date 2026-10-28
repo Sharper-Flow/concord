@@ -31,17 +31,18 @@ func nativeTargetTestManifest() (nativeTargetOracleManifest, OracleControl) {
 	return m, c
 }
 
-// The admitted matrix is exactly three pairs; every other combination,
+// The admitted matrix is exactly five pairs; every other combination,
 // including unknown members, refuses as one closed decision.
 func TestNativeTargetAxisPairMatrix(t *testing.T) {
-	for _, materializer := range []string{nativeTargetMaterializerNone, nativeTargetMaterializerUV, "future"} {
-		for _, runner := range []string{nativeTargetRunnerPytest, nativeTargetRunnerCheck, "jest"} {
+	for _, materializer := range []string{nativeTargetMaterializerNone, nativeTargetMaterializerUV, nativeTargetMaterializerBun, "future"} {
+		for _, runner := range []string{nativeTargetRunnerPytest, nativeTargetRunnerCheck, nativeTargetRunnerVitest, "jest"} {
 			m, c := nativeTargetTestManifest()
 			m.Materializer, m.Runner = materializer, runner
 			_, err := nativeTargetPairOf(m)
 			admitted := (materializer == nativeTargetMaterializerUV && runner == nativeTargetRunnerPytest) ||
 				(materializer == nativeTargetMaterializerNone && runner == nativeTargetRunnerCheck) ||
-				(materializer == nativeTargetMaterializerUV && runner == nativeTargetRunnerCheck)
+				(materializer == nativeTargetMaterializerUV && runner == nativeTargetRunnerCheck) ||
+				(materializer == nativeTargetMaterializerBun && (runner == nativeTargetRunnerCheck || runner == nativeTargetRunnerVitest))
 			if admitted != (err == nil) {
 				t.Fatalf("pair %s+%s admitted=%v err=%v", materializer, runner, admitted, err)
 			}

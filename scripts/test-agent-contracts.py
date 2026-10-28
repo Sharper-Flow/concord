@@ -2759,7 +2759,7 @@ def job_needs(block: str) -> list[str]:
     return re.findall(r"- ([a-z][a-z0-9-]*)", listed.group(1)) if listed else []
 
 
-AGGREGATE_DEPENDENCIES = ("verify-history", "verify-contracts", "verify-adapter", "verify-tooling")
+AGGREGATE_DEPENDENCIES = ("verify-history", "verify-contracts", "verify-adapter", "verify-tooling", "verify-upstream-compatibility")
 
 
 class CIContractRoutingTests(unittest.TestCase):

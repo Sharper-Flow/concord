@@ -245,6 +245,8 @@ second-occurrence, prose-versus-tool, shared-part repair, follow-up sizing and
 operator-request cases for independent application of the existing method.
 Review judges occurrence from recorded source and planning evidence, not the
 author's claim; a missing search or size assessment leaves the outcome unproved.
+Carrier tests do not prove those judgments; the delivery's recorded independent
+review supplies the application evidence.
 No repetition counter, part registry or automatic tool builder is added. The
 follow-up item's rule label, raising-change link enforcement and saved view
 remain D6's open duty below.

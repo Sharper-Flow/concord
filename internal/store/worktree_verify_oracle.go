@@ -517,7 +517,7 @@ func validateNativeJobPreparations(ctx context.Context, q queryer, work string, 
 				return err
 			}
 			if p == nil || p.ContractVersion != version || p.SubjectCommit != core || p.BundleDigest != nativeBundleDigest(bundle) {
-				return oracleFailure(KindMissingEvidence, "job preparation is absent, foreign, or stale for its bundle and candidate", "prepare the exact current candidate and bundle before dispatch")
+				return oracleFailure(KindMissingEvidence, "job preparation is absent, foreign, or stale for its bundle and candidate", "prepare the exact current candidate and bundle, then record an ordinary revision of the same job with its qualified readiness_evidence_refs and unchanged oracle obligations; preparation alone does not update an immutable recorded revision; for a code correction omit repair_revisions and repair_reason, and obtain the required accepted Review before implementation dispatch")
 			}
 		}
 	}

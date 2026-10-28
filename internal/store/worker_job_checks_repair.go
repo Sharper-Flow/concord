@@ -241,6 +241,9 @@ func deriveWorkerJobChecksRepairTx(ctx context.Context, q queryer, workID string
 		}
 		candidateOracle := workerJobOracleJSON(candidate.AcceptanceOracle)
 		if candidateOracle == "" || candidateOracle != workerJobOracleJSON(named.AcceptanceOracle) {
+			if named.AcceptanceOracle != nil && candidate.AcceptanceOracle != nil && oracleControlsRetained(named.AcceptanceOracle, candidate.AcceptanceOracle) && oracleControlsRetained(candidate.AcceptanceOracle, named.AcceptanceOracle) {
+				return nil, newFailure(KindInvalidPayload, "worker_job", "a checks repair carries the named revisions' byte-identical acceptance oracle; refreshed readiness_evidence_refs do not match that frozen oracle; for a code correction, remove repair_revisions and repair_reason and record an ordinary revision of the same job with the qualified current-candidate references and unchanged oracle obligations, then obtain the required accepted Review before implementation dispatch", false, "correct_request")
+			}
 			return nil, newFailure(KindInvalidPayload, "worker_job", "a checks repair carries the named revisions' byte-identical acceptance oracle", false, "record the repair with the named revisions' frozen oracle")
 		}
 		if !workerJobRepairContentEqual(candidate, named) {

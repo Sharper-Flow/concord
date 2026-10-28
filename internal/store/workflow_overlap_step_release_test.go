@@ -13,21 +13,48 @@ func TestWorkflowDomainOverlapCoordinatorReleasesAfterStepBeforeTerminal(t *test
 	t.Parallel()
 	const leader, follower = "step-release-leader", "step-release-follower"
 	ctx := context.Background()
-	s, actorRef := seedOverlapProjection(t, leader, follower, false)
-	definition, ok := BuiltinWorkflowRegistry().Current("workflow.implementation")
-	if !ok {
-		t.Fatal("current implementation workflow is unavailable")
+	s, definition, binding, _, _, _ := architectureValidationFixture(t, leader)
+	seedWork(t, s, follower)
+	binding.VerificationObligations = []WorkflowVerificationObligation{}
+	actor := livenessActor()
+	actorRef, err := WorkflowActorRef(actor)
+	if err != nil {
+		t.Fatal(err)
 	}
-	// Seed both approved contracts at their shared architectural design step.
-	// Each keeps its recorded execution start, so the leader is a peer that
-	// holds its Domains; a contract with no execution start blocks nobody
-	// (CD-0144 D3). All later step changes go through workflow-action admission.
-	overlapFixtureExec(t, s, `UPDATE workflow_instances SET definition_ref=?,definition_digest=?,current_step='design' WHERE work_id IN (?,?)`, definition.Definition.Ref, definition.Digest, leader, follower)
+	action := func(workID, name string, payload json.RawMessage) error {
+		return runVerdictActionAs(t, s, workID, name, payload, 0, actor)
+	}
+	design := json.RawMessage(`{"approach":"Sequence the shared Domain write before independent refinement.","decisions":[{"id":"decision:shared-domain","question":"Where does the shared behavior belong?","choice":"Keep it in the declared child Domain.","rationale":"Both contracts retain the same approved Domain boundary.","rejected":[]}],"touched_refs":["domain:child"]}`)
+	for _, workID := range []string{leader, follower} {
+		livenessInitialize(t, s, workID, definition)
+		for _, move := range []struct {
+			name    string
+			payload json.RawMessage
+		}{
+			{"record_proposal", json.RawMessage(`{"problem":"Two changes write the same Domain.","affected":["domain:child"],"stakes":"Avoid concurrent shared writes without holding independent work.","user_outcomes":["Both changes finish their shared step in sequence."]}`)},
+			{"record_alignment", json.RawMessage(`{"searched":"The current shared Domain work.","outcome":"none_found"}`)},
+			{"approve_contract", mustJSONValue(map[string]any{
+				"premise":          "Complete the shared Domain write before independent refinement.",
+				"decision_domains": []string{}, "required_evidence": []string{},
+				"spec_mandate": []string{}, "law_modifies": []string{},
+				"law_change_reason":    "Keep the shared Domain boundary consistent across the two changes.",
+				"architecture_binding": binding,
+				"outcome_predicates": []map[string]any{{
+					"predicate_id": "predicate:shared-write", "ordinal": 0, "outcome_kind": "check",
+					"outcome_payload": map[string]any{"kind": "check", "check_ref": "check:shared-write", "immutable_subject_ref": "commit:shared-write", "expected_result": "pass"},
+				}},
+			})},
+			{"record_design", design},
+		} {
+			if err := action(workID, move.name, move.payload); err != nil {
+				t.Fatalf("prepare %s through %s: %v", workID, move.name, err)
+			}
+		}
+	}
 	var started int
-	if err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM workflow_instances WHERE work_id IN (?,?) AND execution_started_at IS NOT NULL`, leader, follower).Scan(&started); err != nil || started != 2 {
-		t.Fatalf("design-step fixture execution starts = %d err=%v, want 2", started, err)
+	if err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM workflow_instances WHERE work_id IN (?,?) AND execution_started_at IS NOT NULL`, leader, follower).Scan(&started); err != nil || started != 0 {
+		t.Fatalf("pre-execution start facts = %d err=%v, want 0", started, err)
 	}
-	actor := WorkflowActor{PrincipalRef: "principal:operator", ClientRef: "client:overlap", AgentRef: "agent:operator", SessionRef: "session:overlap", ActorClass: ActorOperator}
 	resolve := func(eventID, kind, reason string) {
 		t.Helper()
 		fromVersion, toVersion := readWorkVersion(t, s, follower), readWorkVersion(t, s, leader)
@@ -43,9 +70,6 @@ func TestWorkflowDomainOverlapCoordinatorReleasesAfterStepBeforeTerminal(t *test
 			t.Fatalf("resolve %s: %v", kind, err)
 		}
 	}
-	action := func(workID, name string, payload json.RawMessage) error {
-		return runVerdictActionAs(t, s, workID, name, payload, 0, actor)
-	}
 	assertStep := func(workID, step string) {
 		t.Helper()
 		if got := currentStep(t, s, workID); got != step {
@@ -59,12 +83,12 @@ func TestWorkflowDomainOverlapCoordinatorReleasesAfterStepBeforeTerminal(t *test
 			t.Fatalf("%s lifecycle = %q, want in_progress", workID, lifecycle)
 		}
 	}
-	design := json.RawMessage(`{"approach":"Sequence the shared Domain design before independent execution.","decisions":[{"id":"decision:shared-domain","question":"Where does the shared behavior belong?","choice":"Keep it in the declared child Domain.","rationale":"Both contracts retain the same approved Domain boundary.","rejected":[]}],"touched_refs":["domain:child"]}`)
+	delivery := json.RawMessage(`{"delivery_artifact":"artifact:shared-write","delivery_state":"asserted"}`)
 	assertHeld := func() {
 		t.Helper()
 		version := readWorkVersion(t, s, follower)
 		receipts := sequenceWitnessEventCount(t, s, follower)
-		err := action(follower, "record_design", design)
+		err := action(follower, "record_delivery", delivery)
 		var failure *Failure
 		if !errors.As(err, &failure) || failure.Kind != KindDomainOverlap {
 			t.Fatalf("held follower action = %v, want domain_overlap", err)
@@ -72,32 +96,38 @@ func TestWorkflowDomainOverlapCoordinatorReleasesAfterStepBeforeTerminal(t *test
 		if readWorkVersion(t, s, follower) != version || sequenceWitnessEventCount(t, s, follower) != receipts {
 			t.Fatal("refused follower action changed its version or effect receipts")
 		}
-		assertStep(follower, "design")
+		assertStep(follower, "execution")
 	}
 
-	resolve("step-release-initial", ResolutionCompatibleWith, "Independent preparation can proceed before the shared design change")
+	resolve("step-release-initial", ResolutionCompatibleWith, "Independent preparation can proceed before the shared Domain write")
 	for _, workID := range []string{leader, follower} {
+		if err := action(workID, "start_execution", json.RawMessage(`{}`)); err != nil {
+			t.Fatalf("start shared write for %s: %v", workID, err)
+		}
+		journey := pReturnClaim(t, workflowReturnRouteFixture{store: s, owner: actor}, workID)
+		run := journey.observeRun(t, "shared-write-proof-"+workID)
+		qAcceptCriterionReview(t, journey.fixture, journey.repo, run.OperationRef)
 		if err := action(workID, "record_work_context", json.RawMessage(`{}`)); err != nil {
 			t.Fatalf("independent preparation for %s: %v", workID, err)
 		}
 	}
-	resolve("step-release-hold", ResolutionDependsOn, "The follower waits until the leader completes the shared Domain design step")
+	resolve("step-release-hold", ResolutionDependsOn, "The follower waits until the leader completes the shared Domain write step")
 	assertHeld()
-	if err := action(leader, "record_design", design); err != nil {
-		t.Fatalf("leader completes shared design: %v", err)
+	if err := action(leader, "record_delivery", delivery); err != nil {
+		t.Fatalf("leader completes shared write: %v", err)
 	}
-	assertStep(leader, "execution")
+	assertStep(leader, "refine")
 	assertHeld()
 	if err := action(leader, "record_work_context", json.RawMessage(`{}`)); err != nil {
 		t.Fatalf("leader's next step must remain usable while the follower waits: %v", err)
 	}
 
-	resolve("step-release-resume", ResolutionCompatibleWith, "The leader completed design; the remaining steps can proceed independently")
-	if err := action(follower, "record_design", design); err != nil {
-		t.Fatalf("released follower completes shared design: %v", err)
+	resolve("step-release-resume", ResolutionCompatibleWith, "The leader completed the shared write; the remaining steps can proceed independently")
+	if err := action(follower, "record_delivery", delivery); err != nil {
+		t.Fatalf("released follower completes shared write: %v", err)
 	}
 	for _, workID := range []string{leader, follower} {
-		assertStep(workID, "execution")
+		assertStep(workID, "refine")
 		if err := action(workID, "record_work_context", json.RawMessage(`{}`)); err != nil {
 			t.Fatalf("independent continuation for %s: %v", workID, err)
 		}

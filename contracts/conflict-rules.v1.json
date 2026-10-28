@@ -59,26 +59,8 @@
       "actors": [
         "agent"
       ],
-      "state": "satisfied",
-      "mechanism": "programmed_check",
-      "evidence": [
-        {
-          "kind": "go_test",
-          "value": "internal/store.TestDestroyRefusesDirtyTreeAndNamesDestructiveRoute"
-        },
-        {
-          "kind": "go_test",
-          "value": "internal/store.TestDestroyDestructiveWithoutApprovalRefuses"
-        },
-        {
-          "kind": "go_test",
-          "value": "internal/agent.TestWorktreeDestroyDispatchDestructiveUnderApproval"
-        },
-        {
-          "kind": "go_test",
-          "value": "internal/store.TestSixClassApprovalPolicy"
-        }
-      ]
+      "state": "outstanding",
+      "issue": "CON-1100"
     },
     {
       "id": "U",
@@ -187,30 +169,8 @@
       "actors": [
         "agent"
       ],
-      "state": "satisfied",
-      "mechanism": "operator_boundary",
-      "evidence": [
-        {
-          "kind": "go_test",
-          "value": "internal/store.TestSixClassApprovalPolicy"
-        },
-        {
-          "kind": "go_test",
-          "value": "internal/store.TestDestroyDestructiveWithoutApprovalRefuses"
-        },
-        {
-          "kind": "go_test",
-          "value": "internal/store.TestDestroyDestructiveWithApprovalForcesRemoval"
-        },
-        {
-          "kind": "go_test",
-          "value": "internal/agent.TestWorktreeDestroyDispatchDestructiveUnderApproval"
-        },
-        {
-          "kind": "go_test",
-          "value": "internal/agent.TestWorkflowApprovalBoundaryConsent"
-        }
-      ]
+      "state": "outstanding",
+      "issue": "CON-1100"
     },
     {
       "id": "P11",
@@ -548,34 +508,8 @@
       "actors": [
         "agent"
       ],
-      "state": "satisfied",
-      "mechanism": "operator_boundary",
-      "evidence": [
-        {
-          "kind": "go_test",
-          "value": "internal/store.TestSixClassApprovalPolicy"
-        },
-        {
-          "kind": "go_test",
-          "value": "internal/store.TestDestroyRefusesDirtyTreeAndNamesDestructiveRoute"
-        },
-        {
-          "kind": "go_test",
-          "value": "internal/store.TestDestroyDestructiveWithoutApprovalRefuses"
-        },
-        {
-          "kind": "go_test",
-          "value": "internal/store.TestDestroyDestructiveWithApprovalForcesRemoval"
-        },
-        {
-          "kind": "go_test",
-          "value": "internal/agent.TestWorktreeDestroyDispatchDestructiveUnderApproval"
-        },
-        {
-          "kind": "go_test",
-          "value": "internal/agent.TestWorkflowApprovalBoundaryConsent"
-        }
-      ]
+      "state": "outstanding",
+      "issue": "CON-1100"
     }
   ],
   "duties": [

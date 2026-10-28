@@ -182,19 +182,6 @@ classes, and `internal/agent.TestWorkflowApprovalBoundaryConsent` checks that a
 routine action raises no challenge. The authored class remains a review
 judgment.
 
-S, P10 and A2 row 9 reuse the existing data-loss gates. Worktree removal refuses
-uncommitted or unmerged content and names the destructive route
-(`internal/store.TestDestroyRefusesDirtyTreeAndNamesDestructiveRoute`). That
-route refuses without a consumed operator approval and removes with one
-(`internal/store.TestDestroyDestructiveWithoutApprovalRefuses`,
-`internal/store.TestDestroyDestructiveWithApprovalForcesRemoval`,
-`internal/agent.TestWorktreeDestroyDispatchDestructiveUnderApproval`).
-`internal/store.TestSixClassApprovalPolicy` demands consent for authored
-production-data consequences. P10's explanation of risk and recovery is
-judged by the operator at that approval. These controls cover Concord-managed
-removal and contracts, not data actions taken outside Concord under host
-permissions, and they do not record the explanation itself.
-
 D3's live recorder retains readable current settlement evidence.
 `internal/agent.TestConflictObservationHistoryRoundTrip` records then reads
 the full rule, effective size and outcome through the existing history read,
@@ -218,7 +205,7 @@ pointer, not the remaining enforcement and proof assigned below:
 | P1, P2, P3; D3's letter-versus-intent conflict | [CON-1097](https://linear.app/sharper-flow/issue/CON-1097). Knowledge-index, document-contract and law-coverage validators check declared homes and evidence anchors; they do not establish semantic ownership, law-before-code retirement, or every changed law's cheapest adequate enforcement. |
 | R2, P4, P6, A2 rows 2 and 4 | [CON-1098](https://linear.app/sharper-flow/issue/CON-1098). `internal/agent.TestResolveOverlapDependsOnRecordsDirectedSequencingWithoutConsent` proves directed work-item sequencing, not holding only the shared-Domain step. Shared stages do not by themselves prove boundary-change or shared-part-variant handling. |
 | P7, P9, P11 | [CON-1099](https://linear.app/sharper-flow/issue/CON-1099). Shared parts alone do not prove second-occurrence handling, in-place part repair, or the rule's follow-up outcome. |
-| P8; D4 and D5 | [CON-1100](https://linear.app/sharper-flow/issue/CON-1100). CD-0243 D2–D6 owns the six-class boundary and runtime alignment. The inventory's classifications and consent gates are not proof of that alignment. No current control proves P8's evidenced, one-time quality-cost statement before building. |
+| S, P8, P10; A2 row 9; D4 and D5 | [CON-1100](https://linear.app/sharper-flow/issue/CON-1100). CD-0243 D2–D6 owns the six-class boundary and runtime alignment. The inventory's classifications and consent gates are not proof of that alignment. No current control proves P8's evidenced, one-time quality-cost statement before building. Worktree content gates guard local worktrees, not production or customer data, and the destructive waiver skips them. Contract-time `production_data` consent is not informed approval of a specific irreversible loss under CD-0243 D5. No control establishes loss and recovery, or the explanation, before such an action. |
 | U, A2 row 7 | [CON-1343](https://linear.app/sharper-flow/issue/CON-1343). Contract-time `ui_ux` consent does not prove approval of a development preview of the final candidate, or renewed approval of a changed experience, as CD-0242 D9 requires. |
 | R1, A2 rows 1, 5 and 6; D6 | [CON-1101](https://linear.app/sharper-flow/issue/CON-1101). Naming follow-up labels in the table does not enforce labels, raising-change links, the Linear view, or closure tracking. CD-0242 D5 and D9 own repairing review and final-candidate proof, not old size-specific review counts. |
 | A2 row 8 | [CON-1344](https://linear.app/sharper-flow/issue/CON-1344). Same-item resizing does not prove adding required stages while retaining completed work. CD-0229's Verification also retains the separate small-work proof and timing owners. |

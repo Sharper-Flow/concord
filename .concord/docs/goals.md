@@ -170,8 +170,10 @@ reusable workflow parts and programmed tools. Each pair appears once.
 Rules the operator stated:
 - R1 (Quality vs Speed): "if the bloat was made by the fix then remove, otherwise create a follow up tech debt
   item".
-- R2 (Arch vs Speed): "have the coordinator stop one until the other completes that step". "That step" is the
-  step where the two changes touch the shared domain. Other steps run in parallel (approved).
+- R2 (Arch vs Speed): The coordinator identifies the work step that changes the shared Domain and records
+  which change waits. The coordinator may pause the whole waiting change during that shared step, and
+  explicitly releases it when the other change completes that step. Other changes and work before or after
+  that shared step may continue independently.
 - R3 (Law vs Speed, Law vs You): change the law and record why; ask the operator only when P12 requires it (CD-0243).
 
 From the operator's earlier answers:

@@ -61,6 +61,22 @@ A P3). A prose instruction alone is not a mechanism.
 A gap row names the follow-up item that will build its mechanism. The
 validator reports every gap, so the gap count measures progress toward goal F.
 
+For S, P10, A2 row 9 and P8:
+
+Use recorded independent review for the data-loss and quality-cost conflict
+rules. Before risking permanent loss, the agent records what may be lost and
+the verified recovery route, or its absence. Where existing approval rules
+require consent, the operator must approve that specific loss after receiving
+the explanation; general task approval is insufficient. Before building an
+operator-requested behavior the agent judges unnecessarily complex, the agent
+records its quality-cost explanation once, with evidence, and honors the
+operator's decision. Review cites the source records and checks that the
+explanation, and any required approval, preceded execution. Missing, late or
+unverifiable evidence leaves compliance unproved. No new approval class or
+automatic execution gate is added. Existing consent and safety gates remain.
+Review may detect a violation only after the action, and Concord cannot
+intercept external tools it does not mediate.
+
 ### D3. Applying a rule leaves a record
 
 When an agent, the coordinator, or the operator settles a conflict, the work

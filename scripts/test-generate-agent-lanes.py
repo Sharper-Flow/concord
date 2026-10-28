@@ -375,6 +375,23 @@ class SubagentMethodProjectionTests(unittest.TestCase):
         self.assertEqual(carrying, {"review"})
         self.assertNotIn("conflict_rules", REPORT_SCHEMA["properties"])
 
+    def test_safety_and_quality_review_requires_readable_pre_action_evidence(self):
+        manifest, _ = generator.load_manifest()
+        review = next(lane for lane in manifest["lanes"] if lane["id"] == "review")
+        text = " ".join(lane_projection(review).split())
+        for phrase in (
+            "S, P10 and A2-9",
+            "general task or contract approval is not informed approval of that loss",
+            "a worktree destructive waiver is not customer-data consent",
+            "source identity and ordering evidence",
+            "Missing, late or unverifiable evidence leaves compliance unproved",
+            "P8 does not add another discretionary approval",
+            "existing `context_findings`",
+            "claims, not approvals or acceptance",
+            "Review may detect a violation only after the action",
+        ):
+            self.assertIn(phrase, text)
+
     def test_review_teaching_agrees_with_report_schema(self):
         manifest, _ = generator.load_manifest()
         review = next(lane for lane in manifest["lanes"] if lane["id"] == "review")

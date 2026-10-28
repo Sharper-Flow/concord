@@ -7,6 +7,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/sharper-flow/concord/internal/workflowproof"
 )
 
 func workPinOutstandingKindsWire(t *testing.T, pin *WorkPin) ([]string, bool) {
@@ -227,7 +229,7 @@ func TestWorkPinOutstandingEvidenceKindsOmittedWithoutContractAuthority(t *testi
 		workID := "workpin-debt-outside-repair"
 		f := seedWorkflowReturnRouteFixture(t, workID, "workflow.implementation", "acceptance")
 		req := outsideRepairTestRequest(t, f.store, workID, "hold")
-		if err := outsideRepairApply(t, f.store, req, WorkflowOutsideRepairDispositionSet, OutsideRepairEvidence{}); err != nil {
+		if err := outsideRepairApply(t, f.store, req, WorkflowOutsideRepairDispositionSet, workflowproof.Evidence{}); err != nil {
 			t.Fatal(err)
 		}
 		pin, err := ReadWorkPin(ctx, f.store, workID)

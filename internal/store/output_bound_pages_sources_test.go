@@ -847,6 +847,7 @@ func pkOutsideRepairURLBound(which string) outputBoundSource {
 	return outputBoundSource{kind: "derived", derive: func(rt *ledgerRuntime, census *boundCensus) (evaluatedBound, error) {
 		const (
 			file         = "internal/store/outside_repair.go"
+			modelFile    = "internal/workflowproof/types.go"
 			validator    = "validateOutsideRepairEvidenceShape"
 			schemeHost   = int64(8 + 10) // "https://" + "github.com", enforced by the live equality literals
 			pathSlash    = int64(1)      // the "/" separator in the live path join
@@ -940,7 +941,11 @@ func pkOutsideRepairURLBound(which string) outputBoundSource {
 			if sprintfMatches != 1 || format != pullToken+"%d" {
 				return evaluatedBound{}, fmt.Errorf("repair URL: %d live Sprintf calls render %q; the pull suffix derivation changed", sprintfMatches, format)
 			}
-			if declared := pkStructFieldType(goS, "OutsideRepairPullRequestEvidence", "Number"); declared != "int64" {
+			model, err := rt.loadGo(modelFile)
+			if err != nil {
+				return evaluatedBound{}, err
+			}
+			if declared := pkStructFieldType(model, "PullRequestEvidence", "Number"); declared != "int64" {
 				return evaluatedBound{}, fmt.Errorf("repair URL: the pull number is declared %q, not int64", declared)
 			}
 			total += int64(len(pullToken)) + int64Digits
@@ -1151,15 +1156,15 @@ func init() {
 	registerOutputBound("/$defs/outside_repair_disposition/properties/reason/maxLength", pkGuardArgBound("internal/store/outside_repair.go", "applyOutsideRepairMutationTx", "workflowString", "request.Reason", 1, boundBytes))
 	registerOutputBound("/$defs/outside_repair_disposition/properties/recorded_at/maxLength", pkTimeLayoutWidthBound("internal/store/outside_repair.go", "foldOutsideRepairDispositionSet", "time.RFC3339Nano"))
 
-	registerOutputBound("/$defs/outside_repair_evidence/properties/observed_at/maxLength", pkTimeJSONFieldBound("internal/store/outside_repair.go", "OutsideRepairEvidence", "ObservedAt"))
-	registerOutputBound("/$defs/outside_repair_evidence/properties/published_at/maxLength", pkTimeJSONFieldBound("internal/store/outside_repair.go", "OutsideRepairEvidence", "PublishedAt"))
+	registerOutputBound("/$defs/outside_repair_evidence/properties/observed_at/maxLength", pkTimeJSONFieldBound("internal/workflowproof/types.go", "Evidence", "ObservedAt"))
+	registerOutputBound("/$defs/outside_repair_evidence/properties/published_at/maxLength", pkTimeJSONFieldBound("internal/workflowproof/types.go", "Evidence", "PublishedAt"))
 	registerOutputBound("/$defs/outside_repair_evidence/properties/pull_requests/maxItems", goInlineBound("internal/store/outside_repair.go", "validateOutsideRepairEvidenceShape", "len(e.PullRequests)", boundItems))
 	registerOutputBound("/$defs/outside_repair_evidence/properties/release_url/maxLength", pkOutsideRepairURLBound("release"))
 	registerOutputBound("/$defs/outside_repair_evidence/properties/repository/maxLength", pkGuardArgBound("internal/store/outside_repair.go", "validateOutsideRepairEvidenceShape", "workflowString", "e.Repository", 1, boundBytes))
 
 	registerOutputBound("/$defs/outside_repair_git_sha/maxLength", pkLengthSetBound("internal/store/outside_repair.go", "outsideRepairGitSHA", "len(value)"))
 
-	registerOutputBound("/$defs/outside_repair_pull_request_evidence/properties/merged_at/maxLength", pkTimeJSONFieldBound("internal/store/outside_repair.go", "OutsideRepairPullRequestEvidence", "MergedAt"))
+	registerOutputBound("/$defs/outside_repair_pull_request_evidence/properties/merged_at/maxLength", pkTimeJSONFieldBound("internal/workflowproof/types.go", "PullRequestEvidence", "MergedAt"))
 	registerOutputBound("/$defs/outside_repair_pull_request_evidence/properties/required_checks/maxItems", goInlineBound("internal/store/outside_repair.go", "validateOutsideRepairRequiredChecks", "len(pr.RequiredChecks)", boundItems))
 	registerOutputBound("/$defs/outside_repair_pull_request_evidence/properties/url/maxLength", pkOutsideRepairURLBound("pull"))
 

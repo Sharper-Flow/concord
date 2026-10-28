@@ -1,0 +1,46 @@
+{
+  "id": "workflow-completion-proof",
+  "invariant": {
+    "applies_to_domain_ids": [
+      "workflow-engine"
+    ],
+    "enforced_by": [
+      {
+        "check_id": "go-test-race",
+        "kind": "go_test",
+        "value": "internal/agent.TestOutsideRepairProofHasExclusiveOwner"
+      },
+      {
+        "check_id": "go-test-race",
+        "kind": "go_test",
+        "value": "internal/agent.TestOutsideRepairCollectorAuthenticatesEverySurface"
+      },
+      {
+        "check_id": "go-test-race",
+        "kind": "go_test",
+        "value": "internal/agent.TestOutsideRepairCollectorCompletePaginationAndRulesUnion"
+      },
+      {
+        "check_id": "go-test-race",
+        "kind": "go_test",
+        "value": "internal/agent.TestOutsideRepairCollectorReceiptPreservesNativeIdentities"
+      },
+      {
+        "check_id": "go-test-race",
+        "kind": "go_test",
+        "value": "internal/agent.TestOutsideRepairReconcileCompletedClosesFromBoundaryEvidence"
+      },
+      {
+        "check_id": "go-test-race",
+        "kind": "go_test",
+        "value": "internal/store.TestOutsideRepairReceiptNativeIdentitiesSurvivePersistence"
+      }
+    ],
+    "statement": "One workflow-engine owner holds the outside-repair completion-proof collector and receipt models. It authenticates repository, merged pull requests, the complete successful required-check set on immutable heads, and a published release containing every merge. Agent runtime supplies registered selectors, exact-argv command execution, the clock and refusal-envelope translation. Store validates and persists the receipt inside its existing transaction. Neither caller duplicates the collector or receipt models."
+  },
+  "kind": "invariant",
+  "owner_domain_id": "workflow-engine",
+  "owning_root": "internal/workflowproof",
+  "schema_version": "1.0",
+  "standing": "observed"
+}

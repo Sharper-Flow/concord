@@ -122,6 +122,11 @@
       "role": "domain"
     },
     {
+      "owner_domain_id": "workflow-engine",
+      "path": "internal/workflowproof",
+      "role": "domain"
+    },
+    {
       "domain_ids": [
         "agent-surface",
         "operator-surface",

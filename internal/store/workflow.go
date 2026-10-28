@@ -16,6 +16,7 @@ import (
 
 	"github.com/sharper-flow/concord/internal/payloadschema"
 	"github.com/sharper-flow/concord/internal/store/internal/sqlitedb"
+	"github.com/sharper-flow/concord/internal/workflowproof"
 )
 
 // Workflow event names are deliberately closed. Adding one is a contract change.
@@ -661,8 +662,8 @@ type workflowOutsideRepairDispositionPayload struct {
 
 type workflowOutsideRepairReconcilePayload struct {
 	workflowOutsideRepairDispositionPayload
-	Evidence       OutsideRepairEvidence `json:"evidence"`
-	EvidenceSource string                `json:"evidence_source"`
+	Evidence       workflowproof.Evidence `json:"evidence"`
+	EvidenceSource string                 `json:"evidence_source"`
 }
 
 type workflowOutsideRepairResumePayload = workflowOutsideRepairDispositionPayload

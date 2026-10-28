@@ -123,7 +123,7 @@ type mutationFragmentPage struct {
 func (r runtime) retainedMutationDocument(record store.MutationIdempotencyRecord, in mutationResultReadInput) ([]byte, *agentcontract.Scope, error) {
 	snapshot, err := retainedMutationResponse(record.AuthorizedScopeSnapshot)
 	if err != nil {
-		return nil, nil, newRuntimeFailure("operation_conflict", err.Error(), "reconcile_operation", false)
+		return nil, nil, err
 	}
 	resolved := snapshot.ResolvedScope
 	if resolved == nil || agentcontract.ValidateScope(resolved) != nil || resolved.ProductID == "" || len(resolved.ProjectIDs) == 0 {

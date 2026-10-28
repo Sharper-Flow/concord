@@ -114,7 +114,7 @@ func TestIdempotentResponseMissingFactsKeepPossibleEffects(t *testing.T) {
 		{ResultPayload: `{}`, ChangedRefs: `[]`, AuthorizedScopeSnapshot: `{"mutation_response":{"manifest_digest":"` + agentcontract.ManifestDigest + `"}}`},
 	} {
 		response := r.recordedMutationResult(base, prior)
-		if response.Outcome != agentcontract.OutcomeError || response.Error == nil || response.Error.EffectState != agentcontract.EffectPossible || response.Error.RecoveryAction.Kind != "reconcile_operation" || response.Error.RetrySafe {
+		if response.Outcome != agentcontract.OutcomeError || response.Error == nil || response.Error.Kind != "malformed_response" || response.Error.EffectState != agentcontract.EffectPossible || response.Error.RecoveryAction.Kind != "contact_operator" || response.Error.RetrySafe {
 			t.Fatalf("missing facts became success or a no-effect retry: %+v", response)
 		}
 	}
@@ -194,7 +194,7 @@ func TestIdempotentResponseRoutineClaimDoesNotReadHistory(t *testing.T) {
 	raw := json.RawMessage(`{"resolution_kind":"compatible_with","approval":{"approval_ref":"not-consumed"}}`)
 	prior := store.MutationIdempotencyRecord{ResultEventIDs: `["absent-event"]`, AuthorizedScopeSnapshot: `{"product_ids":["product-1"]}`}
 	response, refused, err := r.replayRoutineClaimAdmission(agentcontract.NewBase("claim", r.Tool, r.Operation), raw, prior)
-	if err != nil || !refused || response.Error == nil || response.Error.Kind != "operation_conflict" || response.Error.EffectState != agentcontract.EffectPossible {
+	if err != nil || !refused || response.Error == nil || response.Error.Kind != "malformed_response" || response.Error.EffectState != agentcontract.EffectPossible || response.Error.RecoveryAction.Kind != "contact_operator" || response.Error.RetrySafe {
 		t.Fatalf("missing retained consent must be an explicit current-record dependency: refused=%t response=%+v err=%v", refused, response.Error, err)
 	}
 }

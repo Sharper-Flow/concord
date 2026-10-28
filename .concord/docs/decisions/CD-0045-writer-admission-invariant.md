@@ -14,7 +14,9 @@
   [`floor-readiness.md`](../floor-readiness.md)
 - **Preserves:** SQLite as sole durable authority; CD-0011's retention decision,
   accepted load profile, falsifier verdicts, and reopen conditions; Priority 2's
-  substance under the unranked goals in [goals.md](../goals.md#2-goals-with-how-the-operator-will-know-each-is-met)
+  substance as the data-safety constraint in
+  [`goals.md`](../goals.md#4-constraints-that-must-hold) §4 and
+  [`priorities.md`](../priorities.md#data-safety-constraint)
 
 ## Context
 

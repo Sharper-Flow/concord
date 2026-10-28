@@ -218,8 +218,7 @@ production: a `record_finding` at the research producer, a
 `record_decision` at the architecture-spike producer, a
 `record_delivery` at every other producer, each with its own owning
 semantics. [CD-0218 D1](CD-0218-the-live-workflow-catalog-retains-three-execution-families.md#d1-three-families-own-new-execution)
-governs which families new execution may select; this production
-classification admits no retired family to new execution.
+governs which families new execution may select.
 
 ### D5. Artifact staleness is current state the admission model reads
 

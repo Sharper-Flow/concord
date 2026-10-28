@@ -43,9 +43,9 @@ holds the step until the owner records the failure and starts a fresh attempt.
 
 ### D3. The decision record advances, and acceptance of it lives on review
 
-New execution selects only the retained families in
-[CD-0218 D1](CD-0218-the-live-workflow-catalog-retains-three-execution-families.md#d1-three-families-own-new-execution).
-The following exits apply to a pinned architecture-spike definition.
+The following exits apply to a pinned architecture-spike definition, which
+[CD-0218 D1](CD-0218-the-live-workflow-catalog-retains-three-execution-families.md#d1-three-families-own-new-execution)
+excludes from new execution.
 
 `record_decision` records its typed checkpoint and advances
 `decision_record` to `review`, and an action may record a typed checkpoint and

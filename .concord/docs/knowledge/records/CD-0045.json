@@ -22,7 +22,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:fabe17e7df2b768245b1b3c90aa6b0d4de1043411e37aeec98e61de5e3e3c81b",
+  "sha256": "sha256:808a45fbbd353d226c77b1deae0086feea6526809d1501b529620341136cbd5f",
   "status": "accepted",
   "summary": "The Priority 2 concurrency invariant states bounded writer admission rather than zero contention; writer-admission wait, commit duration, and escaped busy failure are distinct measured quantities, correctness precedes latency, population identity is part of the bound, and CD-0011 retains sole ownership of the reopen conditions.",
   "tags": [

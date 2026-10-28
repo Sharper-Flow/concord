@@ -1153,7 +1153,7 @@ func qualifyOracleClosureControlTx(ctx context.Context, tx *sql.Tx, workID, subj
 
 func oracleFindingClosureControls(finding *WorkerOpenOracleFinding, oracle *AcceptanceOracle) (map[string]bool, error) {
 	if finding.SourceOracle != nil && !oracleControlsRetained(finding.SourceOracle, oracle) {
-		return nil, oracleFindingFailure(KindMissingEvidence, "closure rewrites the finding's source owner, cases, or controls", "retain the source obligation or supersede the contract")
+		return nil, oracleFindingFailure(KindInvalidPayload, "closure rewrites the finding's source owner, cases, or controls", "retain the source obligation or supersede the contract")
 	}
 	required := map[string]bool{}
 	for _, id := range finding.ControlIDs {
@@ -1179,14 +1179,14 @@ func oracleFindingClosureControls(finding *WorkerOpenOracleFinding, oracle *Acce
 		}
 	}
 	if len(required) == 0 {
-		return nil, oracleFindingFailure(KindMissingEvidence, "closure names no executable obligation", "prove the finding's owner controls")
+		return nil, oracleFindingFailure(KindInvalidPayload, "closure names no executable obligation", "prove the finding's owner controls")
 	}
 	return required, nil
 }
 
 func addUncoveredOracleClosureControls(finding *WorkerOpenOracleFinding, oracle *AcceptanceOracle, required map[string]bool) error {
 	if finding.Tie == nil {
-		return oracleFindingFailure(KindMissingEvidence, "uncovered_case has no retained reproduction path", "retain the uncovered path")
+		return oracleFindingFailure(KindInvalidPayload, "uncovered_case has no retained reproduction path", "retain the uncovered path")
 	}
 	found := false
 	for _, entry := range oracle.Cases {
@@ -1198,7 +1198,7 @@ func addUncoveredOracleClosureControls(finding *WorkerOpenOracleFinding, oracle 
 		}
 	}
 	if !found {
-		return oracleFindingFailure(KindMissingEvidence, "uncovered_case entry path is still absent from the controlled inventory", "add the reproduced entry path and prove its controls")
+		return oracleFindingFailure(KindInvalidPayload, "uncovered_case entry path is still absent from the controlled inventory", "add the reproduced entry path and prove its controls")
 	}
 	return nil
 }

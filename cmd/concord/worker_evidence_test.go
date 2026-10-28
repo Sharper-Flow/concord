@@ -1124,7 +1124,7 @@ func mustJSON(t *testing.T, value any) string {
 // the layers under the window unless the window exists. The helper seeds
 // the current rows through write_guard so the helper is a one-call fixture
 // and the tests keep testing what they are named for.
-func seedAuthorizedDispatchWindow(t *testing.T, dbPath, workID, attemptID string) {
+func seedAuthorizedDispatchWindow(t *testing.T, dbPath, workID, attemptID string, job ...store.WorkerJobBinding) {
 	t.Helper()
 	ctx := context.Background()
 	s, err := store.Open(ctx, dbPath)
@@ -1174,7 +1174,7 @@ func seedAuthorizedDispatchWindow(t *testing.T, dbPath, workID, attemptID string
 		"idempotency_identity":   "dispatch-open:" + attemptID,
 		"actor_ref":              actorRef,
 	})
-	completionPayload := mustJSON(t, map[string]any{
+	completionFields := map[string]any{
 		"work_id":              workID,
 		"expected_version":     resulting,
 		"resulting_version":    resulting + 1,
@@ -1201,7 +1201,11 @@ func seedAuthorizedDispatchWindow(t *testing.T, dbPath, workID, attemptID string
 		// explicitly. The fixture work carries no context declarations,
 		// which is the recorded-zero case.
 		"worker_context_frontier": 0,
-	})
+	}
+	if len(job) > 0 {
+		completionFields["worker_job"] = job[0]
+	}
+	completionPayload := mustJSON(t, completionFields)
 	// work_items, workflow_actors, workflow_instances, products, projects,
 	// product_projects and work_projects are write-seam-only, so the rows
 	// are admitted through one write_guard session.

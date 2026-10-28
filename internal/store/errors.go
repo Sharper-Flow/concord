@@ -26,7 +26,8 @@ const (
 	// binary recognizes. The event subject is the one application-validated
 	// referential seam, so it fails closed.
 	KindInvalidSubject FailureKind = "invalid_subject"
-	// KindInvalidPayload marks a payload that is not a JSON object.
+	// KindInvalidPayload marks a malformed payload or one that contradicts
+	// its required structure, bound identity, or immutable dispatched contract.
 	KindInvalidPayload FailureKind = "invalid_payload"
 	// KindUnsupportedPayloadVersion marks a payload version this binary cannot
 	// interpret.

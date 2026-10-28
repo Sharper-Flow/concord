@@ -39,19 +39,19 @@ func TestOwnerOracleProducerAuthority(t *testing.T) {
 	}
 	wrong := receipt
 	wrong.SubjectCommit = strings.Repeat("b", 40)
-	if err := validate(wrong); err == nil {
-		t.Error("model-selected candidate qualified")
+	if err := validate(wrong); !hasFailureKind(err, KindMissingEvidence) {
+		t.Errorf("model-selected candidate must remain recoverable: %v", err)
 	}
 	oracle.Controls[0].Argv = []string{"true"}
-	if err := validate(receipt); err == nil {
-		t.Error("unrelated executed command qualified the control")
+	if err := validate(receipt); !hasFailureKind(err, KindMissingEvidence) {
+		t.Errorf("unrelated command must remain recoverable: %v", err)
 	}
 	oracle.Controls[0].Argv = command
 	seedNativeRunForTest(t, s, "work-w", "run:started-only")
 	wrong = receipt
 	wrong.RunRef = "run:started-only"
-	if err := validate(wrong); err == nil {
-		t.Error("unverified started row proved pass")
+	if err := validate(wrong); !hasFailureKind(err, KindMissingEvidence) {
+		t.Errorf("unverified producer must remain recoverable: %v", err)
 	}
 }
 
@@ -89,24 +89,24 @@ func TestOwnerOracleResolutionAuthority(t *testing.T) {
 	seedOracleExecuteLedgerFixture(t, s, &failed, oracle)
 	failureExit := 1
 	newerFailure.Result, newerFailure.RunRef, newerFailure.ExitCode = OracleReceiptResultFail, failed.OperationRef, &failureExit
-	if err := validate([]string{result.OperationRef}, []WorkerOracleReceipt{receipt, newerFailure}); err == nil {
-		t.Error("an earlier pass hid the current subject's later failure")
+	if err := validate([]string{result.OperationRef}, []WorkerOracleReceipt{receipt, newerFailure}); !hasFailureKind(err, KindMissingEvidence) {
+		t.Errorf("stale pass must remain recoverable: %v", err)
 	}
-	if err := validate([]string{result.OperationRef}, []WorkerOracleReceipt{receipt, newerFailure, receipt}); err == nil {
-		t.Error("re-reporting an old pass overrode the newer native failure")
+	if err := validate([]string{result.OperationRef}, []WorkerOracleReceipt{receipt, newerFailure, receipt}); !hasFailureKind(err, KindMissingEvidence) {
+		t.Errorf("re-reported stale pass must remain recoverable: %v", err)
 	}
 	old := receipt
 	old.SubjectCommit = strings.Repeat("b", 40)
-	if err := validate([]string{result.OperationRef}, []WorkerOracleReceipt{old}); err == nil {
-		t.Error("old subject closed current finding")
+	if err := validate([]string{result.OperationRef}, []WorkerOracleReceipt{old}); !hasFailureKind(err, KindMissingEvidence) {
+		t.Errorf("old subject must remain recoverable: %v", err)
 	}
 	// A retained evidence binding alone carries no control execution.
-	if err := validate([]string{"evidence:return-route-verification"}, nil); err == nil {
-		t.Error("unrelated bound evidence closed finding")
+	if err := validate([]string{"evidence:return-route-verification"}, nil); !hasFailureKind(err, KindMissingEvidence) {
+		t.Errorf("unrelated binding must remain recoverable: %v", err)
 	}
 	finding.ControlIDs = []string{"control:immutable", "control:bind"}
-	if err := validate([]string{result.OperationRef}, []WorkerOracleReceipt{receipt}); err == nil {
-		t.Error("one intersecting control closed a two-control finding")
+	if err := validate([]string{result.OperationRef}, []WorkerOracleReceipt{receipt}); !hasFailureKind(err, KindMissingEvidence) {
+		t.Errorf("incomplete control coverage must remain recoverable: %v", err)
 	}
 	finding.ControlIDs = nil
 	finding.Classification = OracleClassificationUncoveredCase

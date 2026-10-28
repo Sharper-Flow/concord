@@ -36,9 +36,10 @@ test.each([1_000, 45 * 60_000])("refused retained recovery preserves original re
   const part = transcript.parent.messages[0].parts[0]
   const start = Date.parse("2026-08-01T10:00:00Z")
   const captured = start + duration
+  const reportTime = { created: captured - 1, completed: captured }
   Object.assign(part.state, { time: { start, end: captured } })
   Object.assign(transcript.child.messages[0].info.time, { created: start })
-  Object.assign(transcript.child.messages[1].info.time, { created: captured - 1, completed: captured })
+  Object.assign(transcript.child.messages[1].info.time, reportTime)
   part.state.input.prompt = serializeLanePacket(originalPacket)
   part.state.output = `<task id="child-recovery" state="completed">\n<task_result>\n${text}\n</task_result>\n</task>`
   transcript.child.messages[0].parts[0].text = part.state.input.prompt
@@ -92,7 +93,7 @@ test.each([1_000, 45 * 60_000])("refused retained recovery preserves original re
   expect(Buffer.from(JSON.stringify([transcript.parent, transcript.child]), "utf8")).toEqual(originalBytes)
   expect(JSON.stringify(originalRecovery)).toBe(beforeRecovery)
   expect((part.state as typeof part.state & { time: { start: number; end: number } }).time).toEqual({ start, end: captured })
-  expect(transcript.child.messages[1].info.time).toEqual({ created: captured - 1, completed: captured })
+  expect(transcript.child.messages[1].info.time).toEqual(reportTime)
 })
 
 for (const version of ["1.0", "1.1", "2.0"] as const) {

@@ -1378,9 +1378,9 @@ type BranchFreshness =
   | { status: "ok"; head_sha: string; default_ref: string; default_sha: string; behind_count: number }
   | { status: "unknown"; reason: string }
 
-// WorkStartEnvelope is the host-tool result. There is no partial outcome:
-// every step of work_start is idempotent on the derived key, so a failure
-// leaves nothing a replay cannot adopt, and the answer is ok or a refusal.
+// A refused start can retain a durable capture and claim. Replay adopts them;
+// retry safety does not mean that no effect occurred.
+type WorkStartEffect = "none" | "possible" | "partial"
 type WorkStartEnvelope = {
   schema_version: "1.0"
   outcome: "ok" | "error"
@@ -1394,7 +1394,7 @@ type WorkStartEnvelope = {
   linear_issue?: RecordedLinearIssueSection
   project_handoff?: ProjectHandoffSection
   branch_freshness?: BranchFreshness
-  error?: { kind: string; retry_safe: boolean; recovery_action: { kind: string }; effect_state: "none"; message: string }
+  error?: { kind: string; retry_safe: boolean; recovery_action: { kind: string }; effect_state: WorkStartEffect; message: string }
 }
 
 function record(value: unknown): value is Record<string, unknown> {
@@ -1445,6 +1445,23 @@ function validateWorkStartBootstrap(value: unknown): value is WorkStartBootstrap
     && nonEmptyString(worktree.set_id)
     && typeof worktree.path === "string" && worktree.path.startsWith("/")
     && nonEmptyString(worktree.branch) && typeof worktree.base_sha === "string" && /^[0-9a-f]{40}$/.test(worktree.base_sha) && worktree.state === "active"
+}
+
+type WorkStartBootstrapFailure = {
+  schema_version: "1.0"; outcome: "error"; effect_state: WorkStartEffect
+  operation_id?: string; product_id?: string; project_id?: string; work_id?: string; worktree_path?: string
+}
+
+function validateWorkStartBootstrapFailure(value: unknown, productID: string, projectID: string): value is WorkStartBootstrapFailure {
+  if (!record(value) || value.schema_version !== "1.0" || value.outcome !== "error") return false
+  const required = ["schema_version", "outcome", "effect_state"]
+  const identity = ["operation_id", "product_id", "project_id", "work_id", "worktree_path"]
+  if (!required.every(key => key in value) || Object.keys(value).some(key => !required.includes(key) && !identity.includes(key))) return false
+  if (value.effect_state !== "none" && value.effect_state !== "possible" && value.effect_state !== "partial") return false
+  if (value.effect_state !== "partial") return exactKeys(value, required)
+  if (value.product_id !== productID || value.project_id !== projectID || !nonEmptyString(value.operation_id)) return false
+  if ("work_id" in value && !saneWorkID(value.work_id)) return false
+  return !("worktree_path" in value) || (typeof value.worktree_path === "string" && value.worktree_path.startsWith("/"))
 }
 
 function validateWorkStartPrepared(value: unknown, bootstrap: { product_id: string; work_id: string; worktree: { path: string } }, agent: string): value is WorkStartPrepared {
@@ -1567,7 +1584,7 @@ function boundedUTF8(value: string, maxBytes: number): string {
   return new TextDecoder().decode(Buffer.from(value).subarray(0, maxBytes))
 }
 
-function workStartError(kind: string, message: string, identity: Partial<WorkStartEnvelope> = {}, recovery = "retry_same_request", retrySafe = true, extra: Partial<WorkStartEnvelope> = {}): WorkStartEnvelope {
+function workStartError(kind: string, message: string, identity: Partial<WorkStartEnvelope> = {}, recovery = "retry_same_request", retrySafe = true, extra: Partial<WorkStartEnvelope> = {}, effectState: WorkStartEffect = "none"): WorkStartEnvelope {
   return {
     schema_version: "1.0",
     outcome: "error",
@@ -1577,26 +1594,23 @@ function workStartError(kind: string, message: string, identity: Partial<WorkSta
       kind,
       retry_safe: retrySafe,
       recovery_action: { kind: recovery },
-      effect_state: "none",
+      effect_state: effectState,
       message: boundedUTF8(message, MAX_STDERR),
     },
   }
 }
 
-// workStartFailure shapes a refusal. The identity of what exists rides along
-// when a capture bootstrap or a resume read ran, so the caller can see the
-// work item and worktree a replay will adopt. effect_state is none because
-// nothing here is an effect a replay cannot reproduce or reuse; the durable
-// state is the work item and the claim, both keyed on the request digest.
-function workStartFailure(error: unknown, target: { product_id: string; project_id: string; work_id: string; worktree: { path: string } } | null, fallbackKind: string): WorkStartEnvelope {
+// Identity and effect describe retained state, independently of placement or
+// retry safety. A lost child response cannot prove that capture rolled back.
+function workStartFailure(error: unknown, identity: Partial<WorkStartEnvelope>, effectState: WorkStartEffect, fallbackKind: string): WorkStartEnvelope {
   // A contract defect is never relabeled: executeWorkStart's runner-backed
   // child calls cross the shared transport helpers, which rethrow the defect
   // unchanged, so it propagates instead of becoming a work-start refusal.
   if (error instanceof AdapterContractDefect) throw error
   const failure = error instanceof WorkStartFailure || error instanceof AdapterFailure ? error : new WorkStartFailure("transport_failure", fallbackKind, String(error))
-  const identity = target ? { product_id: target.product_id, project_id: target.project_id, work_id: target.work_id, worktree_path: target.worktree.path } : {}
   const retrySafe = failure.recovery === "retry_same_request"
-  return workStartError(failure.kind, failure.message, identity, failure.recovery, retrySafe)
+  const continuation = effectState === "partial" && retrySafe ? " The recorded capture or claim remains; replay this same work_start request to continue that identity. Do not submit a new capture key." : ""
+  return workStartError(failure.kind, failure.message + continuation, identity, failure.recovery, retrySafe, {}, effectState)
 }
 
 async function runWorkStartChild(argv: string[], input: string, signal: AbortSignal, options?: ChildRunnerOptions) {
@@ -1664,9 +1678,8 @@ async function writeSessionGoalTitle(sessionID: string, title: string, context: 
 //      gates (worktree_audit_reclaim, worktree_reclaim) hold the worktree for
 //      the session that runs in it.
 //
-// No step records intent ahead of its effect, so there is no partial state.
-// The session's worktree is the directory it runs in, and the host owns that
-// answer (CD-0098 D3).
+// Capture and claim may already be durable when a later step refuses. Only
+// the host's verified landing proves placement (CD-0098 D3).
 // The receiving side of the v1 Project-session handoff (CD-0182 amendment).
 // After the host readback proves this session landed in its claimed worktree,
 // the adapter binds the addressed handoff to this session through the same
@@ -1721,6 +1734,8 @@ export async function consumeAddressedProjectHandoff(workID: string, handoffID: 
 
 async function executeWorkStart(args: WorkStartArgs, context: ToolContext, warnings: string[]): Promise<WorkStartEnvelope> {
   let target: { product_id: string; project_id: string; work_id: string; worktree: { path: string } } | null = null
+  let effectState: WorkStartEffect = "none"
+  let retainedIdentity: Partial<WorkStartEnvelope> = {}
   const resume = record(args) && isWorkStartResumeArgs(args)
   try {
     // Input refusals have no effect; correction belongs to the caller.
@@ -1760,6 +1775,7 @@ async function executeWorkStart(args: WorkStartArgs, context: ToolContext, warni
     if (resume) {
       const selector = args as WorkStartResumeArgs
       // The CLI resolves the selector within the calling session's scope.
+      effectState = "possible"
       const resumed = await runWorkStartChild([concordBinaryPath(), "work-resume"], JSON.stringify({ product_id: productID, project_id: ambient.projectID, ...selector, session_ref: context.sessionID, call_envelope: concordCallEnvelope(context, context.directory, ambient, productID) }), context.abort, { cwd: context.directory })
       if (resumed.exitCode === workResumeRefusalExit) throw new WorkStartFailure("resume_failure", "resume_refused", resumed.stderr.slice(0, MAX_STDERR), "none", "contact_operator")
       if (resumed.exitCode !== 0) throw new WorkStartFailure("resume_failure", "resume_refused", resumed.stderr.slice(0, MAX_STDERR), "none", "retry_same_request")
@@ -1767,6 +1783,7 @@ async function executeWorkStart(args: WorkStartArgs, context: ToolContext, warni
       try { resumedValue = singleJSON(resumed.stdout) } catch (error) { throw new WorkStartFailure("malformed_response", "malformed_resume_response", String(error), "none", "retry_same_request") }
       if (!validateWorkStartResume(resumedValue) || resumedValue.product_id !== productID || resumedValue.project_id !== ambient.projectID || (selector.work_id !== undefined ? resumedValue.work_id !== selector.work_id : resumedValue.linear_issue?.human_key !== selector.issue_key)) throw new WorkStartFailure("malformed_response", "malformed_resume_response", "work-resume response failed the strict resume contract", "none", "retry_same_request")
       target = resumedValue
+      effectState = "partial"
       recordedIssue = resumedValue.linear_issue
       renderedHandoff = resumedValue.project_handoff
       resumeFreshness = resumedValue.branch_freshness
@@ -1777,13 +1794,26 @@ async function executeWorkStart(args: WorkStartArgs, context: ToolContext, warni
       // host_pid gives the bootstrap claim's occupancy row its process
       // identity from creation (CD-0179); the landing re-records it.
       const bootstrapInput = { product_id: productID, project_id: ambient.projectID, ...capture, session_ref: context.sessionID, host_pid: process.pid }
+      effectState = "possible"
       const boot = await runWorkStartChild([concordBinaryPath(), "work-bootstrap"], JSON.stringify(bootstrapInput), context.abort, { cwd: context.directory })
+      if (boot.exitCode !== 0 && boot.stdout.trim() !== "") {
+        let failureValue: unknown
+        try { failureValue = singleJSON(boot.stdout) } catch { /* Unknown output cannot prove no effect. */ }
+        if (validateWorkStartBootstrapFailure(failureValue, productID, ambient.projectID)) {
+          effectState = failureValue.effect_state
+          if (effectState === "partial") retainedIdentity = {
+            product_id: failureValue.product_id, project_id: failureValue.project_id,
+            work_id: failureValue.work_id, worktree_path: failureValue.worktree_path,
+          }
+        }
+      }
       if (boot.exitCode === workBootstrapRefusalExit) throw new WorkStartFailure("bootstrap_failure", "bootstrap_refused", boot.stderr.slice(0, MAX_STDERR), "none", "contact_operator")
       if (boot.exitCode !== 0) throw new WorkStartFailure("bootstrap_failure", "bootstrap_failed", boot.stderr.slice(0, MAX_STDERR), "none", "retry_same_request")
       let bootValue: unknown
       try { bootValue = singleJSON(boot.stdout) } catch (error) { throw new WorkStartFailure("malformed_response", "malformed_bootstrap_response", String(error), "none", "retry_same_request") }
       if (!validateWorkStartBootstrap(bootValue) || bootValue.product_id !== productID || bootValue.project_id !== ambient.projectID) throw new WorkStartFailure("malformed_response", "malformed_bootstrap_response", "work-bootstrap response failed the strict bootstrap contract", "none", "retry_same_request")
       target = bootValue
+      effectState = "partial"
       prepareTask = capture.task
     }
 
@@ -1946,7 +1976,8 @@ async function executeWorkStart(args: WorkStartArgs, context: ToolContext, warni
       ...(resumeFreshness ? { branch_freshness: resumeFreshness } : {}),
     }
   } catch (error) {
-    return workStartFailure(error, target, "work_start_failed")
+    const identity = target ? { product_id: target.product_id, project_id: target.project_id, work_id: target.work_id, worktree_path: target.worktree.path } : retainedIdentity
+    return workStartFailure(error, identity, effectState, "work_start_failed")
   }
 }
 

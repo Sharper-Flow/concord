@@ -60,7 +60,7 @@ func TestWorkBootstrapExactReplayAndPendingRecovery(t *testing.T) {
 		}
 		return nil
 	})
-	if err == nil || failed.WorkID != "" {
+	if err == nil || failed.WorkID == "" || failed.EffectState != "partial" {
 		t.Fatalf("phase failure result=%+v err=%v", failed, err)
 	}
 	operationID, workID, _, err := store.CanonicalBootstrapIdentity(req)

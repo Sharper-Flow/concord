@@ -60,6 +60,17 @@ type workBootstrapTree struct {
 	State   string `json:"state"`
 }
 
+type workBootstrapFailureOutput struct {
+	SchemaVersion string `json:"schema_version"`
+	Outcome       string `json:"outcome"`
+	EffectState   string `json:"effect_state"`
+	OperationID   string `json:"operation_id,omitempty"`
+	ProductID     string `json:"product_id,omitempty"`
+	ProjectID     string `json:"project_id,omitempty"`
+	WorkID        string `json:"work_id,omitempty"`
+	WorktreePath  string `json:"worktree_path,omitempty"`
+}
+
 // workBootstrapRefusalExit is the typed exit status work-bootstrap reports
 // for a deterministic refusal: invalid input, an idempotency key bound to
 // different input, or a Project, origin, or default-branch check that fails
@@ -143,6 +154,16 @@ func runWorkBootstrap(raw []byte, s *store.Store, out, errOut io.Writer) int {
 	}, nil)
 	if err != nil {
 		writeOperatorDiagnostic(errOut, "work-bootstrap", diagnosticText(err))
+		effectState := result.EffectState
+		if effectState == "" {
+			effectState = "possible"
+		}
+		// Output failure must not replace the store's refusal/retry exit class.
+		writeJSON(out, workBootstrapFailureOutput{
+			SchemaVersion: "1.0", Outcome: "error", EffectState: effectState,
+			OperationID: result.OperationID, ProductID: result.ProductID,
+			ProjectID: result.ProjectID, WorkID: result.WorkID, WorktreePath: result.Entry.Path,
+		}, errOut)
 		return storeFailureExit(err)
 	}
 	return writeJSON(out, workBootstrapOutput{

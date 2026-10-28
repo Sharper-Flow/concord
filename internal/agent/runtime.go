@@ -423,7 +423,7 @@ func workflowRegistryUnavailableMessage(ctx context.Context, s *store.Store, reg
 }
 
 func dispatchAuthorizedRequest(ctx context.Context, s *store.Store, authority *Service, request InvokeRequest, env CallEnvelope, registry store.DefinitionRegistry, op agentcontract.ContractOperation, base agentcontract.Envelope, budget budgetInput) (agentcontract.Envelope, error) {
-	inv := Invocation{ClientRef: env.ClientRef, PrincipalRef: env.PrincipalRef, SessionRef: env.SessionRef, AgentRef: env.AgentRef, Directory: env.Directory, Worktree: env.Worktree, ManifestDigest: env.ManifestDigest, HostAssertionDigest: env.HostAssertionDigest, RequiredCapability: op.Capability, RequiredOperation: request.Operation, ProductID: env.SelectedProductID}
+	inv := envelopeInvocation(env, op.Capability, request.Operation)
 	if op.Kind != agentcontract.OperationRead && op.ID != "concord_work_transition.workflow_action" {
 		if _, identityExtractErr := extractMutationWorkIdentity(request.Input); identityExtractErr != nil {
 			return base, identityExtractErr

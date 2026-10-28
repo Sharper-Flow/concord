@@ -132,8 +132,13 @@ class ProvisionTests(unittest.TestCase):
         self.assertEqual(len(owners), 11)
         for name, body in owners.items():
             with self.subTest(job=name):
+                # runner is unavailable in job-level env. Resolve its paths in
+                # a step and publish them for subsequent steps via GITHUB_ENV.
+                self.assertNotIn("${{ runner.", body.split("    steps:", 1)[0])
                 for required in ["runs-on: ubuntu-24.04", "OC_NATIVE_ISOLATION_REQUIRED: \"1\"",
-                                 "OC_NATIVE_NPM_CACHE:", "node-version: 24.15.0", "architecture: x64",
+                                 "printf 'OC_NATIVE_NPM_CACHE=%s/native-target-npm-cache\\n' \"$RUNNER_TEMP\" >> \"$GITHUB_ENV\"",
+                                 "printf 'OC_NATIVE_ISOLATION_EVIDENCE=%s/native-isolation-evidence\\n' \"$RUNNER_TEMP\" >> \"$GITHUB_ENV\"",
+                                 "node-version: 24.15.0", "architecture: x64",
                                  "check-latest: false", "package-manager-cache: false", "bun-version: 1.4.0",
                                  "actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38",
                                  "run: bash scripts/ci-provision-native-isolation.sh",

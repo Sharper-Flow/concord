@@ -35,9 +35,7 @@ jobs:
     name: verify-history
     runs-on: ubuntu-24.04
     env:
-      OC_NATIVE_NPM_CACHE: ${{ runner.temp }}/native-target-npm-cache
       OC_NATIVE_ISOLATION_REQUIRED: "1"
-      OC_NATIVE_ISOLATION_EVIDENCE: ${{ runner.temp }}/native-isolation-evidence
     timeout-minutes: 15
     steps:
       - name: Check out repository and historical baseline
@@ -66,6 +64,10 @@ jobs:
         with:
           version: 0.11.26
           enable-cache: "false"
+      - name: Initialize native scratch paths
+        run: |
+          printf 'OC_NATIVE_NPM_CACHE=%s/native-target-npm-cache\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
+          printf 'OC_NATIVE_ISOLATION_EVIDENCE=%s/native-isolation-evidence\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
       - name: Provision fixed native isolation on this disposable runner
         env:
           CONCORD_DISPOSABLE_CI_PROVISION: "1"
@@ -344,9 +346,7 @@ jobs:
     name: verify-tooling
     runs-on: ubuntu-24.04
     env:
-      OC_NATIVE_NPM_CACHE: ${{ runner.temp }}/native-target-npm-cache
       OC_NATIVE_ISOLATION_REQUIRED: "1"
-      OC_NATIVE_ISOLATION_EVIDENCE: ${{ runner.temp }}/native-isolation-evidence
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -394,6 +394,10 @@ jobs:
         with:
           version: 0.11.26
           enable-cache: "false"
+      - name: Initialize native scratch paths
+        run: |
+          printf 'OC_NATIVE_NPM_CACHE=%s/native-target-npm-cache\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
+          printf 'OC_NATIVE_ISOLATION_EVIDENCE=%s/native-isolation-evidence\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
       - name: Provision fixed native isolation on this disposable runner
         env:
           CONCORD_DISPOSABLE_CI_PROVISION: "1"
@@ -598,9 +602,7 @@ jobs:
     name: verify-tests-store-1
     runs-on: ubuntu-24.04
     env:
-      OC_NATIVE_NPM_CACHE: ${{ runner.temp }}/native-target-npm-cache
       OC_NATIVE_ISOLATION_REQUIRED: "1"
-      OC_NATIVE_ISOLATION_EVIDENCE: ${{ runner.temp }}/native-isolation-evidence
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -647,6 +649,10 @@ jobs:
           python_dir="$(dirname "$python_path")"
           test "$("$python_dir/python3" --version)" = "Python $version"
           printf '%s\n' "$python_dir" >> "$GITHUB_PATH"
+      - name: Initialize native scratch paths
+        run: |
+          printf 'OC_NATIVE_NPM_CACHE=%s/native-target-npm-cache\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
+          printf 'OC_NATIVE_ISOLATION_EVIDENCE=%s/native-isolation-evidence\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
       - name: Provision fixed native isolation on this disposable runner
         env:
           CONCORD_DISPOSABLE_CI_PROVISION: "1"
@@ -707,9 +713,7 @@ jobs:
     name: verify-tests-store-2
     runs-on: ubuntu-24.04
     env:
-      OC_NATIVE_NPM_CACHE: ${{ runner.temp }}/native-target-npm-cache
       OC_NATIVE_ISOLATION_REQUIRED: "1"
-      OC_NATIVE_ISOLATION_EVIDENCE: ${{ runner.temp }}/native-isolation-evidence
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -756,6 +760,10 @@ jobs:
           python_dir="$(dirname "$python_path")"
           test "$("$python_dir/python3" --version)" = "Python $version"
           printf '%s\n' "$python_dir" >> "$GITHUB_PATH"
+      - name: Initialize native scratch paths
+        run: |
+          printf 'OC_NATIVE_NPM_CACHE=%s/native-target-npm-cache\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
+          printf 'OC_NATIVE_ISOLATION_EVIDENCE=%s/native-isolation-evidence\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
       - name: Provision fixed native isolation on this disposable runner
         env:
           CONCORD_DISPOSABLE_CI_PROVISION: "1"
@@ -816,9 +824,7 @@ jobs:
     name: verify-tests-store-3
     runs-on: ubuntu-24.04
     env:
-      OC_NATIVE_NPM_CACHE: ${{ runner.temp }}/native-target-npm-cache
       OC_NATIVE_ISOLATION_REQUIRED: "1"
-      OC_NATIVE_ISOLATION_EVIDENCE: ${{ runner.temp }}/native-isolation-evidence
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -865,6 +871,10 @@ jobs:
           python_dir="$(dirname "$python_path")"
           test "$("$python_dir/python3" --version)" = "Python $version"
           printf '%s\n' "$python_dir" >> "$GITHUB_PATH"
+      - name: Initialize native scratch paths
+        run: |
+          printf 'OC_NATIVE_NPM_CACHE=%s/native-target-npm-cache\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
+          printf 'OC_NATIVE_ISOLATION_EVIDENCE=%s/native-isolation-evidence\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
       - name: Provision fixed native isolation on this disposable runner
         env:
           CONCORD_DISPOSABLE_CI_PROVISION: "1"
@@ -925,9 +935,7 @@ jobs:
     name: verify-tests-store-4
     runs-on: ubuntu-24.04
     env:
-      OC_NATIVE_NPM_CACHE: ${{ runner.temp }}/native-target-npm-cache
       OC_NATIVE_ISOLATION_REQUIRED: "1"
-      OC_NATIVE_ISOLATION_EVIDENCE: ${{ runner.temp }}/native-isolation-evidence
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -974,6 +982,10 @@ jobs:
           python_dir="$(dirname "$python_path")"
           test "$("$python_dir/python3" --version)" = "Python $version"
           printf '%s\n' "$python_dir" >> "$GITHUB_PATH"
+      - name: Initialize native scratch paths
+        run: |
+          printf 'OC_NATIVE_NPM_CACHE=%s/native-target-npm-cache\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
+          printf 'OC_NATIVE_ISOLATION_EVIDENCE=%s/native-isolation-evidence\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
       - name: Provision fixed native isolation on this disposable runner
         env:
           CONCORD_DISPOSABLE_CI_PROVISION: "1"
@@ -1034,9 +1046,7 @@ jobs:
     name: verify-tests-store-5
     runs-on: ubuntu-24.04
     env:
-      OC_NATIVE_NPM_CACHE: ${{ runner.temp }}/native-target-npm-cache
       OC_NATIVE_ISOLATION_REQUIRED: "1"
-      OC_NATIVE_ISOLATION_EVIDENCE: ${{ runner.temp }}/native-isolation-evidence
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -1083,6 +1093,10 @@ jobs:
           python_dir="$(dirname "$python_path")"
           test "$("$python_dir/python3" --version)" = "Python $version"
           printf '%s\n' "$python_dir" >> "$GITHUB_PATH"
+      - name: Initialize native scratch paths
+        run: |
+          printf 'OC_NATIVE_NPM_CACHE=%s/native-target-npm-cache\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
+          printf 'OC_NATIVE_ISOLATION_EVIDENCE=%s/native-isolation-evidence\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
       - name: Provision fixed native isolation on this disposable runner
         env:
           CONCORD_DISPOSABLE_CI_PROVISION: "1"
@@ -1143,9 +1157,7 @@ jobs:
     name: verify-tests-store-6
     runs-on: ubuntu-24.04
     env:
-      OC_NATIVE_NPM_CACHE: ${{ runner.temp }}/native-target-npm-cache
       OC_NATIVE_ISOLATION_REQUIRED: "1"
-      OC_NATIVE_ISOLATION_EVIDENCE: ${{ runner.temp }}/native-isolation-evidence
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -1192,6 +1204,10 @@ jobs:
           python_dir="$(dirname "$python_path")"
           test "$("$python_dir/python3" --version)" = "Python $version"
           printf '%s\n' "$python_dir" >> "$GITHUB_PATH"
+      - name: Initialize native scratch paths
+        run: |
+          printf 'OC_NATIVE_NPM_CACHE=%s/native-target-npm-cache\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
+          printf 'OC_NATIVE_ISOLATION_EVIDENCE=%s/native-isolation-evidence\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
       - name: Provision fixed native isolation on this disposable runner
         env:
           CONCORD_DISPOSABLE_CI_PROVISION: "1"
@@ -1252,9 +1268,7 @@ jobs:
     name: verify-tests-store-7
     runs-on: ubuntu-24.04
     env:
-      OC_NATIVE_NPM_CACHE: ${{ runner.temp }}/native-target-npm-cache
       OC_NATIVE_ISOLATION_REQUIRED: "1"
-      OC_NATIVE_ISOLATION_EVIDENCE: ${{ runner.temp }}/native-isolation-evidence
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -1301,6 +1315,10 @@ jobs:
           python_dir="$(dirname "$python_path")"
           test "$("$python_dir/python3" --version)" = "Python $version"
           printf '%s\n' "$python_dir" >> "$GITHUB_PATH"
+      - name: Initialize native scratch paths
+        run: |
+          printf 'OC_NATIVE_NPM_CACHE=%s/native-target-npm-cache\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
+          printf 'OC_NATIVE_ISOLATION_EVIDENCE=%s/native-isolation-evidence\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
       - name: Provision fixed native isolation on this disposable runner
         env:
           CONCORD_DISPOSABLE_CI_PROVISION: "1"
@@ -1615,9 +1633,7 @@ jobs:
     name: verify-race
     runs-on: ubuntu-24.04
     env:
-      OC_NATIVE_NPM_CACHE: ${{ runner.temp }}/native-target-npm-cache
       OC_NATIVE_ISOLATION_REQUIRED: "1"
-      OC_NATIVE_ISOLATION_EVIDENCE: ${{ runner.temp }}/native-isolation-evidence
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -1645,6 +1661,10 @@ jobs:
         with:
           version: 0.11.26
           enable-cache: "false"
+      - name: Initialize native scratch paths
+        run: |
+          printf 'OC_NATIVE_NPM_CACHE=%s/native-target-npm-cache\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
+          printf 'OC_NATIVE_ISOLATION_EVIDENCE=%s/native-isolation-evidence\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
       - name: Provision fixed native isolation on this disposable runner
         env:
           CONCORD_DISPOSABLE_CI_PROVISION: "1"
@@ -1710,9 +1730,7 @@ jobs:
     name: verify-acceptance
     runs-on: ubuntu-24.04
     env:
-      OC_NATIVE_NPM_CACHE: ${{ runner.temp }}/native-target-npm-cache
       OC_NATIVE_ISOLATION_REQUIRED: "1"
-      OC_NATIVE_ISOLATION_EVIDENCE: ${{ runner.temp }}/native-isolation-evidence
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -1740,6 +1758,10 @@ jobs:
         with:
           version: 0.11.26
           enable-cache: "false"
+      - name: Initialize native scratch paths
+        run: |
+          printf 'OC_NATIVE_NPM_CACHE=%s/native-target-npm-cache\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
+          printf 'OC_NATIVE_ISOLATION_EVIDENCE=%s/native-isolation-evidence\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
       - name: Provision fixed native isolation on this disposable runner
         env:
           CONCORD_DISPOSABLE_CI_PROVISION: "1"

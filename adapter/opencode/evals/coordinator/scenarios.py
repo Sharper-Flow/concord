@@ -36,6 +36,11 @@ BOUNDARY_NOTICE = (
     "closed until the next operator message. To ask the operator a question, "
     "write it in normal chat and end the turn."
 )
+PARTIAL_CONTINUATION = (
+    " The recorded capture or claim remains; after satisfying the recovery conditions "
+    "above, replay this same work_start request to continue that identity. Do not "
+    "submit a new capture key."
+)
 
 
 def move_notice(worktree, boundary_active):
@@ -58,11 +63,11 @@ def start_ok(worktree=WORKTREE):
     }
 
 
-def start_error(kind, message, recovery, retry_safe, identity=None, extra=None):
+def start_error(kind, message, recovery, retry_safe, identity=None, extra=None, *, effect):
     return {
         "schema_version": "1.0", "outcome": "error", **(identity or {}), **(extra or {}),
         "error": {"kind": kind, "retry_safe": retry_safe, "recovery_action": {"kind": recovery},
-                  "effect_state": "none", "message": message},
+                  "effect_state": effect, "message": message},
     }
 
 
@@ -75,7 +80,7 @@ def unlanded_message(recovery):
         "placement proof: confirm from the new turn's actual tool context, for example "
         "the shell working directory, that it actually resolves in "
         f"\"{WORKTREE}\"; only then replay this same work_start request."
-    )
+    ) + PARTIAL_CONTINUATION
 
 
 def claim_ok(worktree, project_id):
@@ -314,10 +319,10 @@ including any action the operator must take.""",
                   "result": start_error(
                       "resume_failure",
                       "concord work-resume: invocation must resolve to the requested Project",
-                      "contact_operator", False)},
+                      "contact_operator", False, effect="possible")},
         "expected": report("needs_operator", work_id=WORK,
                            boundary="resume_failure",
-                           cause="resume_failure", effect="none",
+                           cause="resume_failure", effect="uncertain",
                            owner="operator", action="open_session",
                            target=OTHER_REPO, why="host_owns_session_placement"),
     },
@@ -331,7 +336,7 @@ the item, follow what the tool results permit, and report the disposition.""",
                   "result": start_error(
                       "session_directory_mismatch",
                        unlanded_message("The automatic continuation for this move is unavailable or already spent; no automatic retry cycle will run."),
-                      "retry_same_request", True,
+                      "retry_same_request", True, effect="partial",
                       identity={"product_id": PRODUCT, "project_id": PROJECT, "work_id": WORK,
                                 "worktree_path": WORKTREE})},
         # The boundary is the identifier the typed refusal names: its error
@@ -339,7 +344,7 @@ the item, follow what the tool results permit, and report the disposition.""",
         # is a false assertion, and the bare tool name names nothing served.
         "expected": report("needs_operator", work_id=WORK,
                            boundary="session_directory_mismatch",
-                           cause="session_directory_mismatch", effect="none",
+                           cause="session_directory_mismatch", effect="committed",
                            owner="operator", action="send_next_message",
                            why="context_lands_next_turn"),
     },
@@ -355,14 +360,15 @@ worktree of another item, synthetic-origin-work. The operator asks to resume
                       "resume_failure",
                       "concord work-resume: store: work_bootstrap: invalid_operation: cannot chain "
                       "from dirty worktree of synthetic-origin-work",
-                      "contact_operator", False)},
+                      "contact_operator", False, effect="possible")},
         # Production classifies the dirty-origin refusal as a genuine
         # non-retry refusal — work-resume exits 2 and the adapter serves
         # contact_operator with retry_safe false at both resume call sites —
         # so no identical replay is served or admitted, and the recovery
-        # stays with the operator who owns the origin worktree state.
+        # stays with the operator who owns the origin worktree state. Empty
+        # child stdout cannot prove no effect, even for a deterministic refusal.
         "expected": report("needs_operator", work_id=WORK, boundary="work_bootstrap",
-                           cause="resume_failure", effect="none", owner="operator",
+                           cause="resume_failure", effect="uncertain", owner="operator",
                            action="choose_scope", target=ORIGIN_WORKTREE,
                            why="operator_owns_worktree_state"),
     },
@@ -373,4 +379,4 @@ SCENARIOS["stale-context-continuation-scheduled"]["start"]["result"]["error"]["m
     "Concord scheduled one automatic continuation after this run ends; end this turn without requesting another operator message.")
 SCENARIOS["stale-context-continuation-scheduled"]["expected"] = report(
     "awaiting_continuation", work_id=WORK, boundary="session_directory_mismatch",
-    cause="session_directory_mismatch", effect="none", owner="agent", action="none", why="context_lands_next_turn")
+    cause="session_directory_mismatch", effect="committed", owner="agent", action="none", why="context_lands_next_turn")

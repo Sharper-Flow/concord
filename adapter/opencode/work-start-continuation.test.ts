@@ -145,7 +145,7 @@ test("a metadata-only start keeps the placement gate closed", async () => {
   expect(ctx.directory).toBe(origin)
   expect(refused.outcome).toBe("error")
   expect(refused.error.kind).toBe("session_directory_mismatch")
-  expect(refused.error.effect_state).toBe("none")
+  expect(refused.error.effect_state).toBe("partial")
   expect(refused.work_id).toBe("work-1")
   expect(unlandedClaimedWorktree(sessionID)).toBe(claimed)
   expect(armedClaimedWorktree(sessionID)).toBeNull()

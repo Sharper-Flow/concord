@@ -13,6 +13,14 @@
       "value": "adapter/opencode/concord.test.ts#work start leaves a resumable claim when the move is refused"
     },
     {
+      "kind": "adapter_test",
+      "value": "adapter/opencode/concord.test.ts#work start replays the same key and retained identity after structured partial bootstrap failure"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestBootstrapFailureRetainsDurableCaptureIdentity"
+    },
+    {
       "kind": "go_test",
       "value": "internal/agent.TestRetrySafeStoreKindsNeverCoupleToReconcile"
     },

@@ -11,6 +11,43 @@ import (
 	"github.com/sharper-flow/concord/internal/store"
 )
 
+func TestDispatchWorkRemovalRefusesMissingLinearConfirmation(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_transition"})
+	if err := s.Transact(ctx, func(tx *store.Transaction) error {
+		_, err := store.RecordLinearIssueLinkTx(ctx, tx, store.LinearIssueLink{WorkID: "work-1", RemoteIssueUUID: "remote-removal-1", HumanKey: "CON-1", URL: "https://linear.app/example/issue/CON-1"})
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	version := workVersion(t, s, "work-1")
+	response := removalDispatch(t, s, service, mutationEnvelope(grant, scopeVersion), map[string]any{
+		"operation_id": "remove-linear-op", "idempotency_key": "remove-linear-key", "work_id": "work-1",
+		"expected_version": version, "reason": "shelved", "actor": "human-1", "product_id": "product-1",
+		"handoff": store.WorkRemovalHandoff{
+			Findings: []string{"finding"}, RemainingScope: []string{"scope"}, Blockers: []string{"blocker"},
+			Artifacts: []string{"artifact"}, RenewalConditions: []string{"new work identity"},
+		},
+		"execution_relinquished": true, "writes_reconciled": true, "effects_reconciled": true,
+		"dependencies_resolved": true, "artifacts_verified": true,
+	})
+	if response.Outcome != agentcontract.OutcomeError || response.Error == nil || response.Error.Kind != "invalid_input" {
+		t.Fatalf("missing Linear confirmation must refuse: outcome=%s error=%+v", response.Outcome, response.Error)
+	}
+	if countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM work_items WHERE id='work-1'`) != 1 || workVersion(t, s, "work-1") != version {
+		t.Fatal("refused removal changed the work item")
+	}
+	if countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM work_removal_operations`) != 0 {
+		t.Fatal("refused removal prepared or committed a removal receipt")
+	}
+	assertShelvingNoConsent(t, s)
+}
+
 func TestDispatchWorkRemovalCommitsWithRecordedLinearIssue(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

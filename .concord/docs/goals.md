@@ -225,6 +225,6 @@ Not a full sweep. In each case the operator's decision wins. Row numbers are sta
 
 | # | Current text | Conflicting decision |
 |---|---|---|
-| 3 | CD-0006 D5: "Human approval is always required to enact law changes or governed scope cuts." CD-0222 D5: "modified/added law is operator-mandated". | Agents change law with a recorded reason; approval follows R3 and P12's six-class test. |
+| 3 | CD-0006 D5: "Human approval is always required to enact law changes or governed scope cuts." CD-0222 D4: "modified/added law is operator-mandated". | Agents change law with a recorded reason; approval follows R3 and P12's six-class test. |
 | 4 | CD-0222 D6: "only the operator may approve compatibility, merger, supersession, or a sequence that changes Product scope." | The coordinator sequences the overlapping step (R2). |
 | 10 | Prose instruction files under `.concord/instructions/` given to every agent session. | Programmed tools wherever a tool can do the job (goal D, P7). |

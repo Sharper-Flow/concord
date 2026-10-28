@@ -383,10 +383,15 @@ Implementation uses an explicit major migration rather than permanent aliases:
    Recorded `component` applicability scopes read as `domain` with the retained ID.
 4. New writes use neither `kind=epic` nor `kind=initiative`. Historical
    initiative work reads back unchanged and refuses new writes under CD-0213 D8.
-5. The agent surface carries no Epic or Initiative tool. Removal ships at a
-   major contract version; no permanent alias or discovery surface is added.
-6. CD-0024's one-time TS9 exception is not reusable. The normal supported-model
-   runner and evidence artifact must exist before this model-visible major ships.
+5. The agent surface carries no Epic or Initiative tool. Removal changes the
+   current generated manifest; no permanent alias or discovery surface is added.
+6. Surface identity and change evidence follow
+   [CD-0042 D2–D4](CD-0042-pre-go-live-single-path.md#d2-the-current-agent-surface-has-one-identity),
+   [TS8 §§1–3](../agent-tool-surface-evolution.md#1-current-contract), and
+   [TS9 §§1–3](../agent-tool-surface-measurement.md#1-pre-go-live-authority).
+   CD-0024's one-time TS9 exception is not reusable. Future compatibility and
+   measurement policy require
+   [CD-0042 D6's first-go-live decision](CD-0042-pre-go-live-single-path.md#d6-first-go-live-must-establish-future-evolution-law).
 
 The target state contains Domain only. Keeping “component” or
 “epic” indefinitely in storage while merely changing labels is rejected because
@@ -425,12 +430,15 @@ dependency order:
    rebuilds;
 2. architecture-bound workflow contracts and overlap/resolution projections;
 3. consequential-boundary revalidation and adversarial multi-process scenarios;
-4. Initiative event/projection/surface migration with the required TS9 baseline;
+4. Initiative event/projection/surface migration with the current TS8/TS9
+   deterministic evidence;
 5. Product -> Domain read surfaces and current-law pruning views; and
-6. removal of expired component/Epic write compatibility after the bounded window.
+6. removal of obsolete component/Epic write compatibility on the current primary
+   path under
+   [CD-0042 D3](CD-0042-pre-go-live-single-path.md#d3-superseded-development-paths-are-deleted).
 
 Each implementation slice requires its own public issue, tests, migration proof,
-and accepted surface/version evidence. This decision does not mark any runtime
+and TS8/TS9 evidence for the current manifest. This decision does not mark any runtime
 floor item satisfied.
 
 ### D12. Global Domain navigation is retired
@@ -489,8 +497,10 @@ graph. Product law approval does not authorize live-state cutover.
 7. Shared business grouping never satisfies an architecture overlap.
 8. Legacy component/Epic rows and manifests read back through the canonical
    Domain vocabulary without rewriting (CD-0242 D2).
-9. New clients cannot write legacy component/Epic forms after the major cutover,
-   and old clients fail closed after the bounded TS8 window.
+9. Current clients cannot write legacy component/Epic forms. Mismatched manifest
+   digests fail before a domain effect under
+   [TS8 §3](../agent-tool-surface-evolution.md#3-digest-failure-and-static-loading),
+   without a client compatibility window.
 10. The accepted ten-process SQLite correctness, latency-population, backup,
     restore, and rebuild evidence remains green.
 
@@ -540,8 +550,8 @@ graph. Product law approval does not authorize live-state cutover.
 
 - Same-Domain concurrent work pays an explicit compatibility or sequencing
   decision.
-- Manifest, workflow-contract, projection, launcher, and agent-surface migrations
-  are major and require compatibility evidence.
+- Knowledge-manifest, workflow-contract, projection, and launcher migrations are major and
+  require compatibility evidence. Agent-surface changes follow TS8 and TS9.
 - The TS9 exception is not reusable.
 - Living-document updates are controlled; historical records remain intact.
 
@@ -556,8 +566,9 @@ graph. Product law approval does not authorize live-state cutover.
   law conflict, spec mandate, and cross-workflow impact checks.
 - **CD-0015:** law relations are Git-authored and closed; every law has one
   Domain home and architecture-bound workflow use.
-- **CD-0024 D1/D2/D4:** surface migration requires a normal major-version path;
-  D3's one-time exception is not reusable.
+- **CD-0024:** historical surface-version policy is closed by
+  [CD-0042](CD-0042-pre-go-live-single-path.md); TS8 and TS9 own current surface
+  identity and change evidence. D3's one-time exception is not reusable.
 - **CD-0036:** preserved. Breaking law supersession marks stale exactly the
   contracts that consumed the superseded revision and composes with D7
   (CD-0242 D7).

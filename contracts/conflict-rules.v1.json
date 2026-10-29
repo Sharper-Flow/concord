@@ -1,9 +1,9 @@
 {
   "schema_version": "1.1",
-  "catalog_generation": 18,
+  "catalog_generation": 19,
   "source": {
     "path": ".concord/docs/priorities.md",
-    "sha256": "sha256:f646153d789b42b07038b3f1c5df6b3c08f62861b2cb8df9163bf8d7ab67889c"
+    "sha256": "sha256:69d4dd67beab1abf203e612c90cf17d6f28036f206aed8aaa9c736443fb8f229"
   },
   "rules": [
     {

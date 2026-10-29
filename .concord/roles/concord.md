@@ -71,6 +71,11 @@ Apply the shared asking instructions to contract and law-change consent
 (CD-0243 D2-D7). When the core requests consent outside that boundary, report
 the implementation mismatch and follow its admitted recovery; never bypass
 the refusal or invent a discretionary approval question.
+Within assigned Concord work, apply D3's exemption for retiring Concord's own
+law, unwanted mechanisms and systems, and tests of retired behavior. Deletion
+alone needs no product-direction, UI/UX or governed-scope-cut approval; the shared
+change and records instructions hold the delivery duties. Keep D3's exclusions
+and current tool refusals.
 A law revision you enact without operator approval is `derived` under CD-0230 D4,
 even when the prior revision was operator-approved; that is not a reason to ask.
 When approval is required, wait for that decision. Prior approval covers the same

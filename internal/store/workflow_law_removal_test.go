@@ -5,8 +5,9 @@ import (
 	"time"
 )
 
-func removeLawChangeLaw(t *testing.T, s *Store, law string) {
+func removeLawChangeLaw(t *testing.T, s *Store) {
 	t.Helper()
+	const law = "law-remove"
 	lawChangeFold(t, s, `DELETE FROM law_domain_applicability WHERE law_id=?`, law)
 	lawChangeFold(t, s, `DELETE FROM law_domain_homes WHERE law_id=?`, law)
 	lawChangeFold(t, s, `DELETE FROM law_subjects WHERE law_id=?`, law)
@@ -17,7 +18,7 @@ func TestLawRemovalThroughCurrentSuccessor(t *testing.T) {
 	s := seedLawChangeFixture(t, "inventory-seed")
 	seedLawChangeLaw(t, s, "law-remove", "derived", "agent-surface")
 	attributionItem(t, s, id, []string{"law-remove"}, []string{})
-	removeLawChangeLaw(t, s, "law-remove")
+	removeLawChangeLaw(t, s)
 	entry := mustBuiltinDefinition(t, "workflow.implementation")
 	fields := lawChangeConstructorFields(t, s, 2, []string{}, []string{})
 	fields[workflowLawChangeReasonField] = mustJSONValue("remove the obsolete law")
@@ -51,7 +52,7 @@ func TestLawRemovalClassifiedEnactment(t *testing.T) {
 		t.Fatal(err)
 	}
 	requireFailureKind(t, enactLawChange(t, s, id, change, nil), KindOutcomeMismatch, "declared removal still present")
-	removeLawChangeLaw(t, s, "law-remove")
+	removeLawChangeLaw(t, s)
 	if err := enactLawChange(t, s, id, change, nil); err != nil {
 		t.Fatalf("classified removal cannot enact: %v", err)
 	}
@@ -78,7 +79,7 @@ func TestLawRemovalDeclarationSafeguards(t *testing.T) {
 		t.Fatal(err)
 	}
 	change.Approval = lawChangeApprovalProof()
-	removeLawChangeLaw(t, s, "law-remove")
+	removeLawChangeLaw(t, s)
 	if err := enactLawChange(t, s, id, change, nil); err != nil {
 		t.Fatal(err)
 	}
@@ -142,7 +143,7 @@ func TestLawRemovalClassifiedCurrentSuccessor(t *testing.T) {
 	for version := 1; version <= 2; version++ {
 		laws := []string{"law-remove"}
 		if version == 2 {
-			removeLawChangeLaw(t, s, "law-remove")
+			removeLawChangeLaw(t, s)
 			laws = []string{}
 		}
 		fields := lawChangeConstructorFields(t, s, version, laws, []string{})

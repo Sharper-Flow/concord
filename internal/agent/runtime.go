@@ -365,10 +365,10 @@ func preflightDispatchWorkflowAction(ctx context.Context, s *store.Store, author
 	}
 	var strictAction actionMutationInput
 	if err := decodeOperationInput(request.Input, &strictAction); err != nil {
-		return refuse(coreError(base, "invalid_input", err.Error(), "reread_entities", false))
+		return refuse(coreError(base, "invalid_input", err.Error(), "", false))
 	}
 	if len(strictAction.WorkID) < 2 || len(strictAction.WorkID) > 128 {
-		return refuse(coreError(base, "invalid_input", "workflow action work_id is malformed", "reread_entities", false))
+		return refuse(coreError(base, "invalid_input", "workflow action work_id is malformed", "", false))
 	}
 	if s == nil || authority == nil {
 		return refuse(coreError(base, "unreachable", "workflow authority is not available", "contact_operator", true))
@@ -849,7 +849,7 @@ type runtimeFailure struct {
 
 func (f *runtimeFailure) Error() string { return f.message }
 func newRuntimeFailure(kind, message, recovery string, retry bool) *runtimeFailure {
-	if kind == "invalid_input" && !retry {
+	if recovery == "" {
 		recovery = agentcontract.PublicRecovery(kind, recovery)
 	}
 	return &runtimeFailure{kind: kind, message: message, recovery: recovery, retry: retry}
@@ -894,8 +894,15 @@ func failureEnvelope(base agentcontract.Envelope, err error) agentcontract.Envel
 
 func storeFailureEnvelope(base agentcontract.Envelope, sf *store.Failure) agentcontract.Envelope {
 	kind := mapFailureKind(sf.Kind)
-	recovery := agentcontract.PublicRecovery(kind, sf.RecoveryAction)
-	if recovery == "correct_request" && (kind != "invalid_input" || sf.RetrySafe || sf.EffectPossible || len(sf.CommittedRefs) > 0) {
+	proposed := sf.RecoveryAction
+	// These store kinds describe operation state or retained knowledge, not
+	// request shape, despite sharing the legacy public invalid_input kind.
+	requestInput := kind == "invalid_input" && sf.Kind != store.KindInvalidOperation && sf.Kind != store.KindInvalidNoteProof && sf.Kind != store.KindKnowledgeMissing
+	if kind == "invalid_input" && !requestInput && !agentcontract.RecoveryActionAllowed(proposed) {
+		proposed = "reread_entities"
+	}
+	recovery := agentcontract.PublicRecovery(kind, proposed)
+	if recovery == "correct_request" && (!requestInput || sf.RetrySafe || sf.EffectPossible || len(sf.CommittedRefs) > 0) {
 		recovery = "reread_entities"
 		if kind != "invalid_input" {
 			recovery = agentcontract.PublicRecovery(kind, "")
@@ -986,7 +993,7 @@ func nonNilStrings(values []string) []string {
 }
 
 func coreError(base agentcontract.Envelope, kind, message, recovery string, retry bool) agentcontract.Envelope {
-	if kind == "invalid_input" && !retry {
+	if recovery == "" {
 		recovery = agentcontract.PublicRecovery(kind, recovery)
 	}
 	return coreErrorAction(base, kind, message, agentcontract.RecoveryAction{Kind: recovery}, retry, nil)
@@ -1113,7 +1120,7 @@ func mapFailureKind(kind store.FailureKind) string {
 	case store.KindInvalidFilter, store.KindInvalidPayload:
 		return "invalid_input"
 	case store.KindInvalidOperation:
-		return "invalid_transition"
+		return "invalid_input"
 	case store.KindLimitExceeded:
 		return "limit_exceeded"
 	case store.KindStaleRequiresReview:

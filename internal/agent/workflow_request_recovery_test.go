@@ -169,7 +169,9 @@ func TestWorkflowRequestRecoveryClassification(t *testing.T) {
 		{"payload", store.Failure{Kind: store.KindInvalidPayload}, "invalid_input", "correct_request"},
 		{"filter", store.Failure{Kind: store.KindInvalidFilter}, "invalid_input", "correct_request"},
 		{"input", store.Failure{Kind: store.KindInvalidInput}, "invalid_input", "correct_request"},
-		{"state", store.Failure{Kind: store.KindInvalidOperation}, "invalid_transition", "reread_entities"},
+		{"state", store.Failure{Kind: store.KindInvalidOperation}, "invalid_input", "reread_entities"},
+		{"retained knowledge", store.Failure{Kind: store.KindKnowledgeMissing}, "invalid_input", "reread_entities"},
+		{"corrupt state", store.Failure{Kind: store.KindInvariantViolation}, "invariant_violation", "reread_entities"},
 		{"scope", store.Failure{Kind: store.KindUnknownScope}, "unknown_scope", "contact_operator"},
 		{"authorization", store.Failure{Kind: store.KindUnauthorized}, "unauthorized", "contact_operator"},
 		{"approval", store.Failure{Kind: store.FailureKind("approval_required")}, "approval_required", "request_approval"},
@@ -179,13 +181,8 @@ func TestWorkflowRequestRecoveryClassification(t *testing.T) {
 		{"committed effect", store.Failure{Kind: store.KindInvalidPayload, CommittedRefs: []store.SubjectCurrentVersion{{SubjectType: "work", SubjectID: "work-1", Version: 2}}}, "invalid_input", "reconcile_operation"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			for _, proposed := range []string{"", "fix fields.premise", "reread_entities", "contact_operator", "correct_request"} {
+			for _, proposed := range []string{"", "fix fields.premise", "correct_request"} {
 				failure := test.failure
-				// State, scope, and authority keep their own recovery proposals.
-				// Only request-input failures discard producer overrides.
-				if test.kind != "invalid_input" && proposed != "" && proposed != "fix fields.premise" && proposed != "correct_request" {
-					continue
-				}
 				failure.RecoveryAction = proposed
 				out := failureEnvelope(agentcontract.NewBase("request-classification", "concord_work_transition", "workflow_action"), &failure)
 				if out.Error.Kind != test.kind || out.Error.RecoveryAction.Kind != test.recovery {
@@ -196,5 +193,20 @@ func TestWorkflowRequestRecoveryClassification(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestLiteralInputRecoveryKeepsStateAndAuthority(t *testing.T) {
+	base := agentcontract.NewBase("literal-recovery", "concord_work_transition", "workflow_action")
+	for _, proposed := range []string{"reread_entities", "contact_operator"} {
+		out := coreError(base, "invalid_input", "state or authority is unavailable", proposed, false)
+		if out.Error.RecoveryAction.Kind != proposed {
+			t.Fatalf("explicit state recovery %q became %+v", proposed, out.Error)
+		}
+	}
+	for _, recovery := range []string{coreError(base, "invalid_input", "fields are malformed", "", false).Error.RecoveryAction.Kind, newRuntimeFailure("invalid_input", "fields are malformed", "", false).recovery} {
+		if recovery != "correct_request" {
+			t.Fatalf("request default = %q", recovery)
+		}
 	}
 }

@@ -60,8 +60,8 @@ func TestEveryRefusalNamesAContractualKind(t *testing.T) {
 
 // TestEveryLiteralRefusalPairsAContractualRecovery holds the other half of
 // deliverability. A coupled kind admits exactly one recovery action, and a
-// literal site sets the action directly except for input failures, whose
-// constructors project through agentcontract.PublicRecovery. A site that names a coupled kind with any
+// literal site sets the action directly rather than through
+// agentcontract.PublicRecovery, so nothing derives the pair for it. A site that names a coupled kind with any
 // other action builds an envelope validateError refuses, and the caller
 // receives a transport fault in place of the refusal.
 func TestEveryLiteralRefusalPairsAContractualRecovery(t *testing.T) {
@@ -72,15 +72,6 @@ func TestEveryLiteralRefusalPairsAContractualRecovery(t *testing.T) {
 			continue
 		}
 		checked++
-		if site.kind == "invalid_input" {
-			base := agentcontract.NewBase("input-recovery", "concord_work_transition", "workflow_action")
-			out := coreError(base, site.kind, "fields are malformed", site.recovery, false)
-			failure := newRuntimeFailure(site.kind, "fields are malformed", site.recovery, false)
-			if out.Error.RecoveryAction.Kind != coupled || failure.recovery != coupled {
-				t.Errorf("%s: input constructors did not project %q to %q", site.position, site.recovery, coupled)
-			}
-			continue
-		}
 		if site.recovery != coupled {
 			t.Errorf("%s: %s pairs kind %q with recovery %q, but the contract couples that kind to %q; the refusal cannot marshal", site.position, site.helper, site.kind, site.recovery, coupled)
 		}

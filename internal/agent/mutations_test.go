@@ -41,7 +41,7 @@ func TestWorkflowActionRefusesRetiredInitiativeBeforeNativePlanning(t *testing.T
 				t.Fatal(err)
 			}
 			response, err := r.mutateWorkflowAction(context.Background(), agentcontract.Envelope{}, raw, grant, agentcontract.ContractOperation{})
-			if err != nil || response.Error == nil || response.Error.Kind != "invalid_transition" || response.Error.RecoveryAction.Kind != "reread_entities" || !strings.Contains(response.Error.Message, "CD-0213") {
+			if err != nil || response.Error == nil || response.Error.Kind != "invalid_input" || response.Error.RecoveryAction.Kind != "reread_entities" || !strings.Contains(response.Error.Message, "CD-0213") {
 				t.Errorf("response=%+v err=%v, want retired-kind refusal", response.Error, err)
 			}
 			if probeCalls != 0 || countWorkflowEvents(t, s) != before || countWorkflowApprovalChallenges(t, s) != challengesBefore {
@@ -73,7 +73,7 @@ func TestWorkflowActionPreflightRefusesRetiredInitiative(t *testing.T) {
 			}
 			err = preflightWorkflowActionRequestWithRegistry(context.Background(), s, raw, env, grant, store.BuiltinWorkflowRegistry())
 			refusal := failureEnvelope(agentcontract.Envelope{}, err)
-			if refusal.Error == nil || refusal.Error.Kind != "invalid_transition" || refusal.Error.RecoveryAction.Kind != "reread_entities" || !strings.Contains(refusal.Error.Message, "CD-0213") || countWorkflowEvents(t, s) != before {
+			if refusal.Error == nil || refusal.Error.Kind != "invalid_input" || refusal.Error.RecoveryAction.Kind != "reread_entities" || !strings.Contains(refusal.Error.Message, "CD-0213") || countWorkflowEvents(t, s) != before {
 				t.Fatalf("preflight error=%v events=%d->%d", err, before, countWorkflowEvents(t, s))
 			}
 		})

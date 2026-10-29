@@ -278,12 +278,12 @@ func readStoredRemovalOperationTx(ctx context.Context, tx *sql.Tx, req WorkRemov
 		return WorkRemovalReceipt{}, false, newFailure(KindIdempotencyConflict, "work_removal_prepare", "operation identity is bound to different removal input", false, "reuse the original removal request")
 	}
 	if json.Unmarshal([]byte(handoffRaw), &stored.Handoff) != nil {
-		return WorkRemovalReceipt{}, false, newFailure(KindInvalidPayload, "work_removal_prepare", "stored handoff is malformed", false, "repair the removal receipt")
+		return WorkRemovalReceipt{}, false, newFailure(KindInvariantViolation, "work_removal_prepare", "stored handoff is malformed", false, "repair the removal receipt")
 	}
 	if storedLinearRaw != "{}" {
 		stored.Linear = &LinearHandoffConfirmation{}
 		if json.Unmarshal([]byte(storedLinearRaw), stored.Linear) != nil {
-			return WorkRemovalReceipt{}, false, newFailure(KindInvalidPayload, "work_removal_prepare", "stored Linear confirmation is malformed", false, "repair the removal receipt")
+			return WorkRemovalReceipt{}, false, newFailure(KindInvariantViolation, "work_removal_prepare", "stored Linear confirmation is malformed", false, "repair the removal receipt")
 		}
 	}
 	if stored.State == "prepared" {

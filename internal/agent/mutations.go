@@ -704,14 +704,14 @@ func scopeFromMap(scope map[string]any) *agentcontract.Scope {
 func preflightWorkflowActionRequestWithRegistry(ctx context.Context, s *store.Store, raw []byte, env CallEnvelope, actor Authority, registry store.DefinitionRegistry) error {
 	var in actionMutationInput
 	if err := decodeOperationInput(raw, &in); err != nil {
-		return newRuntimeFailure("invalid_input", err.Error(), "reread_entities", false)
+		return newRuntimeFailure("invalid_input", err.Error(), "", false)
 	}
 	if err := s.RequireActionableWork(ctx, in.WorkID, "workflow_action"); err != nil {
 		return err
 	}
 	payload, err := workflowActionFields(in.Fields)
 	if err != nil {
-		return newRuntimeFailure("invalid_input", err.Error(), "reread_entities", false)
+		return newRuntimeFailure("invalid_input", err.Error(), "", false)
 	}
 	// An exact durable replay is allowed to bypass the now-advanced expected
 	// version. The digest comparison remains strict; no authorization callback
@@ -731,7 +731,7 @@ func preflightWorkflowActionRequestWithRegistry(ctx context.Context, s *store.St
 	// sits after the replay window so an exact replay of a request recorded
 	// before this rule keeps answering with its stored result (#945).
 	if err := validateEvidenceKindBinding(in.ActionID, payload, in.Evidence); err != nil {
-		return newRuntimeFailure("invalid_input", err.Error(), "reread_entities", false)
+		return newRuntimeFailure("invalid_input", err.Error(), "", false)
 	}
 	if err := store.ValidateWorkflowOperatorSelectionForRegistry(ctx, s, registry, store.WorkflowActionPreflightRequest{
 		WorkID: in.WorkID, ActionID: in.ActionID, SelectedChoice: in.SelectedChoice, DecisionContextDigest: in.DecisionContextDigest,
@@ -1029,7 +1029,7 @@ func researchContextSelectionPacks(actionID string, payload json.RawMessage) ([]
 	}
 	var fields map[string]json.RawMessage
 	if err := decodeOperationInput(payload, &fields); err != nil || fields == nil {
-		return nil, newRuntimeFailure("invalid_input", "research selection fields must be a normalized JSON object", "reread_entities", false)
+		return nil, newRuntimeFailure("invalid_input", "research selection fields must be a normalized JSON object", "", false)
 	}
 	raw, present := fields["research_finding_refs"]
 	if !present {
@@ -1055,18 +1055,18 @@ func (r runtime) mutateWorkflowAction(ctx context.Context, base agentcontract.En
 	}
 	var in actionMutationInput
 	if err := decodeOperationInput(raw, &in); err != nil {
-		return coreError(base, "invalid_input", err.Error(), "reread_entities", false), nil
+		return coreError(base, "invalid_input", err.Error(), "", false), nil
 	}
 	if err := r.Store.RequireActionableWork(ctx, in.WorkID, "workflow_action"); err != nil {
 		return failureEnvelope(base, err), nil
 	}
 	payload, err := workflowActionFields(in.Fields)
 	if err != nil {
-		return coreError(base, "invalid_input", err.Error(), "reread_entities", false), nil
+		return coreError(base, "invalid_input", err.Error(), "", false), nil
 	}
 	payload = withEvidenceKindDefault(in.ActionID, payload, in.Evidence)
 	if err := validateEvidenceKindBinding(in.ActionID, payload, in.Evidence); err != nil {
-		return coreError(base, "invalid_input", err.Error(), "reread_entities", false), nil
+		return coreError(base, "invalid_input", err.Error(), "", false), nil
 	}
 	// CD-0216 D2: an explicitly selected research pack enters the same
 	// in-transaction owner-scope check as a new binding. The decode refuses
@@ -1075,7 +1075,7 @@ func (r runtime) mutateWorkflowAction(ctx context.Context, base agentcontract.En
 	// idempotency writes.
 	selectedPacks, err := researchContextSelectionPacks(in.ActionID, payload)
 	if err != nil {
-		return coreError(base, "invalid_input", err.Error(), "reread_entities", false), nil
+		return coreError(base, "invalid_input", err.Error(), "", false), nil
 	}
 	registry := r.Registry
 	if registry == nil {

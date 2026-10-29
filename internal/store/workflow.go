@@ -3433,7 +3433,8 @@ func validateWorkerAttemptAction(ctx context.Context, tx *sql.Tx, event Event, p
 			return err
 		}
 	}
-	if payload.ActionID == "accept_worker_result" || payload.ActionID == "accept_worker_evidence" {
+	switch payload.ActionID {
+	case "accept_worker_result", "accept_worker_evidence":
 		var disposed bool
 		if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM worker_attempt_dispositions WHERE work_id=? AND attempt_id=? AND action_id IN ('accept_worker_result','accept_worker_evidence','reject_worker_result'))`, event.SubjectID, payload.WorkerAttemptID).Scan(&disposed); err != nil {
 			return workflowProjectionError(err, "cannot inspect the worker result disposition")
@@ -3441,9 +3442,9 @@ func validateWorkerAttemptAction(ctx context.Context, tx *sql.Tx, event Event, p
 		if disposed {
 			return newFailure(KindIllegalLifecycleTransition, "fold_event", "worker result is already dispositioned", false, "keep the recorded disposition; use record_delivery for delivery or a fresh worker attempt for remaining work")
 		}
-	}
-	if capability == "review" && (payload.ActionID == "accept_worker_evidence" || payload.ActionID == "accept_worker_result") {
-		return validateReviewAcceptance(ctx, tx, event.SubjectID, payload.WorkerAttemptID, payload.ActorRef)
+		if capability == "review" {
+			return validateReviewAcceptance(ctx, tx, event.SubjectID, payload.WorkerAttemptID, payload.ActorRef)
+		}
 	}
 	return nil
 }

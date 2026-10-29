@@ -1640,7 +1640,6 @@ class PrimaryProfileProjectionTests(unittest.TestCase):
         # editor trio and broad task access, and names no host editor.
         self.assertNotIn("morph_edit", frontmatter)
         self.assertNotIn("concord_work_", frontmatter)
-        self.assertNotIn("concord_ci_watch", frontmatter)
         self.assertEqual(self.profile("Concord-RTE")["denied_concord_tools"], [])
 
     def test_rte_keeps_shell_safety_denials_and_unrestricted_tasks(self):
@@ -1660,7 +1659,6 @@ class PrimaryProfileProjectionTests(unittest.TestCase):
             self.assertIn(f"\n  {tool}: allow", frontmatter)
         self.assertNotIn("morph_edit", frontmatter)
         self.assertNotIn("concord_work_", frontmatter)
-        self.assertNotIn("concord_ci_watch", frontmatter)
         self.assertEqual(self.profile("Concord")["denied_concord_tools"], [])
 
     def test_concord_keeps_shell_safety_denials_and_unrestricted_tasks(self):

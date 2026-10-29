@@ -54,7 +54,6 @@ The required continuity population in
 - [`python3 scripts/test-project-tooling.py`](../../../scripts/test-project-tooling.py)
 - [`python3 scripts/test-adapter-acceptance.py`](../../../scripts/test-adapter-acceptance.py)
 - [`python3 scripts/check-law-coverage.py`](../../../scripts/check-law-coverage.py)
-- [`python3 scripts/check-doc-contract.py`](../../../scripts/check-doc-contract.py)
 - [`python3 scripts/check-knowledge-index.py`](../../../scripts/check-knowledge-index.py)
 
 ## Related law

@@ -5,7 +5,6 @@
     "tier": "legislated"
   },
   "date": "2026-09-01T00:00:00Z",
-  "doc_contract_profile": "legacy",
   "home_domain_id": "agent-adapter",
   "id": "CD-0093",
   "kind": "decision",
@@ -17,7 +16,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:de9204ced3190d6a9ea4be040039573843a0916b952ac02ad439428fac3912a1",
+  "sha256": "sha256:f04b7a8d413bc50c47f18fdd9f32dffcb4c1e43376f12d5b1285770712b3cea4",
   "status": "accepted",
   "summary": "A managed session's work resolves from its active claim and directory: session-prepare uses the claimed worktree directory alone for agent resolution, the single bounded calling-host registry probe, and the context read, and refuses any other directory or a failed probe before managed action. The launch landing and the configured launch command are retired.",
   "tags": [

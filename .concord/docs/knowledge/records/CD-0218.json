@@ -3,7 +3,6 @@
     "tier": "derived"
   },
   "date": "2026-10-09T00:00:00Z",
-  "doc_contract_profile": "current",
   "evidence": [
     ".concord/docs/knowledge/coverage/CD-0218.json",
     "internal/store/workflow_registry_test.go",
@@ -24,7 +23,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:b37ab2f54c319421f61760a7b5f41475681e8f2f5206a372474942e93c860cc7",
+  "sha256": "sha256:f77661ef92ddc17b904f93960c12d5c10eeb924b7596c9fc865e30089a2aca70",
   "status": "accepted",
   "summary": "Retains three execution families and distinguishes unchanged retained-state readback from typed absence for execution state collected under CD-0242 D2.",
   "tags": [

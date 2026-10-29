@@ -132,10 +132,7 @@ var manifestLawBearingKinds = map[string]bool{
 var manifestLawRelationSubjects = map[string]bool{"decision": true, "spec": true}
 
 // manifestRootKeys is the declared top-level vocabulary of the knowledge
-// manifest contract. The value records whether this package projects the key
-// onto a KnowledgeManifest field. A false value marks repository policy the
-// store does not interpret, such as the prose doc contract; the head shard
-// carries it and the store never rewrites that shard (CD-0114).
+// manifest contract, each key projected onto a KnowledgeManifest field.
 // TestKnowledgeManifestVocabularyMatchesSchema binds this set to
 // contracts/concord-knowledge-index.v1.schema.json.
 //
@@ -156,7 +153,6 @@ var manifestRootKeys = map[string]bool{
 	"knowledge_roots":    true,
 	"exclusions":         true,
 	"operator_overrides": true,
-	"doc_contract":       false,
 }
 
 var lawRelationKinds = map[string]bool{
@@ -175,7 +171,6 @@ type KnowledgeManifest struct {
 	KnowledgeRoots        []string                    `json:"knowledge_roots,omitempty"`
 	Exclusions            []string                    `json:"exclusions,omitempty"`
 	OperatorOverrides     []KnowledgeOperatorOverride `json:"operator_overrides,omitempty"`
-	DocContract           *KnowledgeDocContract       `json:"doc_contract,omitempty"`
 	Records               []KnowledgeRecord           `json:"records"`
 	Dispositions          []KnowledgeDisposition      `json:"dispositions"`
 	domainRegistryPresent bool
@@ -192,18 +187,6 @@ type KnowledgeOperatorOverride struct {
 	ProductID  string `json:"product_id"`
 	RecordedIn string `json:"recorded_in"`
 	Reason     string `json:"reason"`
-}
-
-type KnowledgeDocContract struct {
-	Enforced      bool                      `json:"enforced"`
-	Spec          *KnowledgeDocContractSpec `json:"spec,omitempty"`
-	Decision      *KnowledgeDocContractSpec `json:"decision,omitempty"`
-	BannedPhrases []string                  `json:"banned_phrases,omitempty"`
-}
-
-type KnowledgeDocContractSpec struct {
-	RequiredSections []string `json:"required_sections"`
-	ACRequired       bool     `json:"ac_required"`
 }
 
 type KnowledgeDomainRegistry struct {
@@ -249,10 +232,6 @@ type KnowledgeRecord struct {
 	LawRelations       []KnowledgeRelation   `json:"law_relations,omitempty"`
 	HomeDomainID       string                `json:"home_domain_id,omitempty"`
 	AppliesToDomainIDs []string              `json:"applies_to_domain_ids,omitempty"`
-	// DocContractProfile carries the authored CD-0175 decision outline
-	// generation ("legacy" or "current"). The store never interprets it; it is
-	// carried so a re-marshaled manifest keeps the authored value.
-	DocContractProfile string `json:"doc_contract_profile,omitempty"`
 	// Evidence names implementation paths (scenarios, tests, code) that
 	// carry this record's guidance. The offline validator fails when an
 	// evidence path no longer exists — the structural law/implementation
@@ -337,12 +316,11 @@ func (manifest *KnowledgeManifest) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(data, &fields); err != nil {
 		return err
 	}
-	// Additive read (CD-0177): only declared, projected keys reach the model;
-	// an undeclared key, and a declared key the store does not interpret, are
-	// dropped rather than refused.
+	// Additive read (CD-0177): only declared keys reach the model; an
+	// undeclared key is dropped rather than refused.
 	modeled := make(map[string]json.RawMessage, len(fields))
 	for key, value := range fields {
-		if projected := manifestRootKeys[key]; projected {
+		if manifestRootKeys[key] {
 			modeled[key] = value
 		}
 	}
@@ -458,7 +436,6 @@ func (manifest KnowledgeManifest) MarshalJSON() ([]byte, error) {
 		KnowledgeRoots    []string                    `json:"knowledge_roots,omitempty"`
 		Exclusions        []string                    `json:"exclusions,omitempty"`
 		OperatorOverrides []KnowledgeOperatorOverride `json:"operator_overrides,omitempty"`
-		DocContract       *KnowledgeDocContract       `json:"doc_contract,omitempty"`
 		Records           []map[string]any            `json:"records"`
 	}
 	registry := manifest.DomainRegistry
@@ -470,8 +447,7 @@ func (manifest KnowledgeManifest) MarshalJSON() ([]byte, error) {
 		SchemaVersion: manifest.SchemaVersion, SupportedKinds: manifest.SupportedKinds,
 		IndexedKinds: manifest.IndexedKinds, DomainRegistry: &registry,
 		KnowledgeRoots: manifest.KnowledgeRoots, Exclusions: manifest.Exclusions,
-		OperatorOverrides: manifest.OperatorOverrides,
-		DocContract:       manifest.DocContract, Records: records,
+		OperatorOverrides: manifest.OperatorOverrides, Records: records,
 	})
 }
 
@@ -501,9 +477,6 @@ func manifestRecordEntry(record KnowledgeRecord) map[string]any {
 	}
 	if record.HomeDomainID != "" {
 		entry["home_domain_id"] = record.HomeDomainID
-	}
-	if record.DocContractProfile != "" {
-		entry["doc_contract_profile"] = record.DocContractProfile
 	}
 	if len(record.AppliesToDomainIDs) > 0 {
 		entry["applies_to_domain_ids"] = record.AppliesToDomainIDs

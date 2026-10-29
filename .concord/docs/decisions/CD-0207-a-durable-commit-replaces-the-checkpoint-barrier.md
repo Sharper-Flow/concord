@@ -130,8 +130,5 @@ not change.
 - `internal/agent.TestGrantRequestAcknowledgesUnderPinnedReader` and
   `cmd/concord.TestPredecessorImportAcknowledgesUnderPinnedReader` prove the
   acknowledgement succeeds while another connection holds a WAL read mark.
-- `python3 scripts/check-doc-contract.py` proves this record carries the
-  current decision outline and passes the writing rules.
-- `python3 scripts/check-knowledge-index.py` and
-  `python3 scripts/check-knowledge-closure.py` prove this record registers
-  with a current content hash and no unprocessed document remains.
+- `python3 scripts/check-knowledge-index.py` proves this record registers
+  with a current content hash.

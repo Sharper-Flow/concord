@@ -151,8 +151,4 @@ on them.
 - `bun test adapter/opencode/terminal-vacate.test.ts` proves the terminal
   transition vacates and moves the session, skips every caller without a
   vacate target, and keeps the transition on a failed move.
-- `python3 scripts/check-doc-contract.py` passes over the registered corpus
-  with this record on the current profile.
-- `python3 scripts/check-knowledge-closure.py` and
-  `python3 scripts/check-knowledge-index.py` prove this record is registered
-  and no unprocessed document remains.
+- `python3 scripts/check-knowledge-index.py` proves this record is registered.

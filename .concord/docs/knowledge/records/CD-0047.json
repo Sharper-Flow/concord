@@ -9,9 +9,7 @@
     "tier": "legislated"
   },
   "date": "2026-08-20T00:00:00Z",
-  "doc_contract_profile": "legacy",
   "evidence": [
-    "scripts/check-doc-contract.py",
     "scripts/check-law-coverage.py",
     "scripts/check-reachability.py",
     "scripts/generate-agent-lanes.py",
@@ -29,9 +27,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:b77d2ba438e5373d220041e2e84814029a0f30c30fcc045cb2b9ddbd2c588dde",
+  "sha256": "sha256:8070b418685a4a6314d3f25079cd19a249b2c1ccbfc10a7ababf841c36276573",
   "status": "accepted",
-  "summary": "Every indexed law record carries a coverage state and a satisfied record cites typed anchors that resolve and execute in a required check; product reachability is computed by a pinned callgraph analysis and only its exceptions are declared; both planes share one state vocabulary and fail on an undeclared gap in either direction. Dead and superseded code, instructions, generated agents, and documentation are removed in the change that replaces them, and required checks refuse stale citations and unprojected agent definitions.",
+  "summary": "Every indexed law record carries a coverage state and a satisfied record cites typed anchors that resolve and execute in a required check; product reachability is computed by a pinned callgraph analysis and only its exceptions are declared; both planes share one state vocabulary and fail on an undeclared gap in either direction. Dead and superseded code, instructions, generated agents, and documentation are removed in the change that replaces them, and required checks refuse unprojected agent definitions.",
   "tags": [
     "coverage",
     "drift",

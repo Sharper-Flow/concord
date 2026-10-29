@@ -148,10 +148,7 @@ research and lessons that still serve current evidence are not obsolete design
 descriptions; their historical text is not rewritten under CD-0222 D1.
 
 Required checks refuse mechanically established gaps: undeclared unreachable Go
-functions and packages, unprocessed knowledge documents, missing cited files or
-Go tests, and drift from generated registries.
-The citation resolver covers accepted law, published knowledge, and shipped
-instructions. The installer tests bind the shipped instruction list to
+functions and packages, and drift from generated registries. The installer tests bind the shipped instruction list to
 `.concord/instructions/`; the lane generator refuses drift in each agent
 definition it projects and any `.opencode/agents/` file it does not project.
 These are structural or real-tool
@@ -180,8 +177,6 @@ That follow-up does not waive a required check or excuse new dead material.
    analysis surfaces as a manifest diff, which is the correct place to see it.
 5. A change that replaces code, an instruction, or a document carries the
    removal of what it replaced; a later cleanup round is not the default path.
-6. A citation in current law, published knowledge, or a shipped instruction to
-   a deleted file or Go test fails the required doc contract.
 
 ## Rejected alternatives
 
@@ -215,11 +210,6 @@ would fail on every unrelated edit while still not proving the document is true.
 - The reachability step fails on an undeclared unreachable function, and on a
   declared exception that is now reachable.
 - Both validators run in `.github/workflows/ci.yml`.
-- `scripts/check-knowledge-closure.py` refuses unprocessed documents in strict
-  mode.
-- `scripts/check-doc-contract.py` resolves current citations in accepted law,
-  published knowledge, and shipped instructions; `scripts/test-doc-contract.py`
-  proves the refusal and the passing counterpart for each population.
 - `scripts/generate-agent-lanes.py --check` refuses unprojected agent definitions;
   `scripts/test-generate-agent-lanes.py` proves the refusal and the passing
   counterpart in `AgentDirectoryInventoryTests`.

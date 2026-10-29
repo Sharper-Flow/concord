@@ -221,6 +221,5 @@ A simpler PM10 authority must preserve the canonical note, retained receipts, an
 - Criterion 6 names candidate `internal/store.TestResearchRetirementDryRunMixedBatchHasNoWrites`; integrated dry-run coverage remains unmeasured.
 - Criterion 7 names candidate `internal/agent.TestResearchRetireDryRunAndReplay`; restart and full committed replay coverage remain unmeasured.
 
-`python3 scripts/check-doc-contract.py` validates outline and criterion bindings, not runtime conformance.
 Publication, terminal, reopen, removal, migration, restore, and race boundaries still need integrated assessment.
 Source anchors do not establish execution or full coverage; the coverage shard remains unmeasured pending the parent's conformance evidence.

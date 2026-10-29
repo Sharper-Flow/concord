@@ -3,7 +3,6 @@
     "tier": "derived"
   },
   "date": "2026-10-10T00:00:00Z",
-  "doc_contract_profile": "current",
   "evidence": [
     ".concord/docs/knowledge/domain-registry.json",
     ".concord/docs/knowledge/package-domains.json",

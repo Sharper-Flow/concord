@@ -140,8 +140,6 @@ the enforcing mechanism. The runnable proofs:
   The corpus path executes as `internal/agent.TestAgentJobsCorpus`.
 - Criterion 3 is proved by the recorded operator acceptance on the
   domain-overlap change (issue #195, cited in TS1's approved amendments).
-  The recorded exemption is validated by
-  `python3 scripts/check-doc-contract.py`.
 - Criterion 4 is proved by the operational-plane boundary checks in
   `python3 scripts/check-public-content.py` and the corpus runner's recorded
   measurements, which carry typed structural facts only.

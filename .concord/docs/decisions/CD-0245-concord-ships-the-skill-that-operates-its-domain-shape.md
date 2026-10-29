@@ -83,4 +83,3 @@ not record evidence, approval, or law on its own authority.
 
 - `python3 scripts/check-knowledge-index.py` checks publication identity and hashes.
 - `python3 scripts/check-law-coverage.py` checks the outstanding implementation pointer; it does not prove the required conformance above.
-- `python3 scripts/check-doc-contract.py` checks this decision's document structure.

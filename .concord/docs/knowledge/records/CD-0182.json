@@ -5,7 +5,6 @@
     "tier": "legislated"
   },
   "date": "2026-09-27T00:00:00Z",
-  "doc_contract_profile": "current",
   "home_domain_id": "agent-adapter",
   "id": "CD-0182",
   "kind": "decision",
@@ -35,7 +34,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:582ea4a9892bcf88b5f7f0a1be2e9773cd59aaa2dc1e707b8b68b6571b8bd2e0",
+  "sha256": "sha256:1b5dc13b12785e3117e11460efd29af14af4737f199fb648f02edb04df51b077",
   "status": "accepted",
   "summary": "A second repository's coordinator session is started by the host: the store refuses the cross-repository claim and names the concord_work_start route, the typed session_placement detail answers where the receiving session goes with restore only at the recorded path, and the receiving session resumes with the work_id alone. The session opener, the explicit Project selector, and their consent rules are removed. The installer keeps the tuple entry and its options; the bounded addressed handoff and its consumption are unchanged.",
   "tags": [

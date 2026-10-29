@@ -289,8 +289,3 @@ active code progress, coordination, or fresh-session resumption is accepted.
   anchor for this record's law registration.
 - `python3 scripts/check-knowledge-index.py` composes the record shards and
   checks each shard's recorded document sha256 against the document bytes.
-- `python3 scripts/check-knowledge-closure.py --strict` proves this document
-  is registered and leaves no knowledge document unprocessed.
-- `python3 scripts/check-doc-contract.py` checks the required decision
-  outline, the anchor discipline of this section, and accepted-law citation
-  targets.

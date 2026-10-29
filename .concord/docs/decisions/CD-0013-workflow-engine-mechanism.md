@@ -110,8 +110,7 @@ Implementation and break-fix use only `exists`, `absent`, and `check`
 
 An `outcome` token is never self-satisfying. The contract's `required_evidence` must
 name the artifact that makes the token true, and completion refuses until that
-evidence is bound. Research reports do not enact binding Product law; decision
-records follow [CD-0175](CD-0175-decision-record-outline.md).
+evidence is bound. Research reports do not enact binding Product law.
 
 Predicates are not nested. Strength comparison is mechanical for `exists`/`absent`
 (set-theoretic inclusion), trivial for `outcome` (membership in allowed set), and

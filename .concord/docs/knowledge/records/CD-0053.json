@@ -12,7 +12,6 @@
     "tier": "legislated"
   },
   "date": "2026-08-21T00:00:00Z",
-  "doc_contract_profile": "legacy",
   "evidence": [
     ".concord/docs/decisions/CD-0012-bind-stated-goals-to-delivered-outcomes.md",
     ".concord/docs/decisions/CD-0026-learning-capture.md",

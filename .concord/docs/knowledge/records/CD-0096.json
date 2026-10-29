@@ -5,7 +5,6 @@
     "tier": "legislated"
   },
   "date": "2026-09-01T00:00:00Z",
-  "doc_contract_profile": "legacy",
   "home_domain_id": "agent-call-boundary",
   "id": "CD-0096",
   "kind": "decision",
@@ -17,7 +16,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:ff334744279d0c79d0745de3847db6e7fd563ad24752d147bec0a410d09a6aca",
+  "sha256": "sha256:d40c9be0f72cd814746e9e1bf38e6b22854702334dfbef841008f8625aff253d",
   "status": "accepted",
   "summary": "Amends CD-0093 D2 so a running session may create or claim its current work item's canonical worktree and persistently retarget later Concord operations to it while the host process directory stays unchanged. Same-Project cross-worktree access is tiered: read-only Inspect, exclusive-lease Verify with unchanged tracked files, typed-transfer Take over, and Destroy under its subject and occupancy gates. Operator consent and permanent-loss decisions follow CD-0243, not a blanket destructive-action approval. Targets derive from registered Project and work identity, possession grants no Product authority, and continuity re-pins the target and lease each turn with stale versions failing closed.",
   "tags": [

@@ -91,8 +91,4 @@ reclassifies from the current state, so the error does not persist.
   and the byte-budget stages keep every attempt row.
 - `go test ./internal/store/ -run TestWorktreeAudit` proves the cursor pages
   the classification and refuses a cursor that names no position in it.
-- `python3 scripts/check-doc-contract.py` passes over the registered corpus
-  with this record on the current profile.
-- `python3 scripts/check-knowledge-closure.py` and
-  `python3 scripts/check-knowledge-index.py` prove this record is registered
-  and no unprocessed document remains.
+- `python3 scripts/check-knowledge-index.py` proves this record is registered.

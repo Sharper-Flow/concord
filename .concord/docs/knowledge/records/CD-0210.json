@@ -5,7 +5,6 @@
     "tier": "legislated"
   },
   "date": "2026-10-07T00:00:00Z",
-  "doc_contract_profile": "current",
   "evidence": [
     "internal/workflowproof/collector.go",
     "internal/workflowproof/types.go",
@@ -49,7 +48,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:a26ecefd6448cf7157475b94233d2609052affc0d6434b1ee034bcd51b976c1d",
+  "sha256": "sha256:df50369ac8dbf7b37a5f99bd891dd8b0a05ee067f7fc7ee654b9d4fb18c3caf1",
   "status": "accepted",
   "summary": "A typed disposition holds live work for outside defect repair and suppresses managed actions and prompts. Operator consent follows CD-0243 D2 and D7. One declared reconciliation either closes from independently fetched merged pull requests, the complete successful required-check set on immutable heads, and a published release containing every merge, or resumes the unchanged workflow. Closure records a distinct outside_repair terminal instance, not fabricated managed completion. The host creates the isolated ordinary repair worktree and starts the unmanaged repair session under the approved host operational procedure. Host permissions and repair-agent configuration remain host-owned. Only this explicit reconciliation amends CD-0183 D4, building on CD-0122 D2.",
   "tags": [

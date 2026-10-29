@@ -6,7 +6,6 @@
     "tier": "derived"
   },
   "date": "2026-10-09T00:00:00Z",
-  "doc_contract_profile": "current",
   "evidence": [
     ".concord/docs/compaction-retention-policy.md",
     ".concord/docs/knowledge/coverage/CD-0217.json",

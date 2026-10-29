@@ -5,7 +5,6 @@
     "tier": "legislated"
   },
   "date": "2026-10-01T00:00:00Z",
-  "doc_contract_profile": "current",
   "evidence": [
     ".concord/docs/concord-knowledge-index.md",
     ".concord/docs/product-memory-query-contract.md",

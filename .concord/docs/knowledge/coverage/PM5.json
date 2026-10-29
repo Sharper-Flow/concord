@@ -13,10 +13,6 @@
       "value": "Q6-project-to-work"
     },
     {
-      "kind": "validator",
-      "value": "scripts/check-doc-contract.py"
-    },
-    {
       "kind": "go_test",
       "value": "internal/store.TestMembershipReplacementReplacesTheWholeSet"
     }

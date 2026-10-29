@@ -5,7 +5,6 @@
     "tier": "legislated"
   },
   "date": "2026-09-03T00:00:00Z",
-  "doc_contract_profile": "legacy",
   "home_domain_id": "agent-adapter",
   "id": "CD-0104",
   "kind": "decision",
@@ -17,7 +16,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:4430ebbe5a7c339f575377bba0c1971011549c3db6ab0d5895e0bec49b8fe42d",
+  "sha256": "sha256:6068a4986c6fcbd865ccfa42c8796090f03de4e0c70f27d504d6a3b254e71922",
   "status": "accepted",
   "summary": "A session's worktree is the directory the host reports for it, and Concord stores no copy. The bootstrap launch record and session_worktree_targets are dropped with the retarget, release, and takeover operations, because each was a stored copy of a host fact with no reader outside its own maintenance, and each drifted. work_start replays to convergence on its derived key, so no partial outcome exists. Transient exclusion is resource_busy, coupled to retry_same_request. Amends CD-0096 at Context, D1, D3 Take over, D5, and D6; CD-0088 D4 at the launch record; CD-0098 at the failure contract.",
   "tags": [

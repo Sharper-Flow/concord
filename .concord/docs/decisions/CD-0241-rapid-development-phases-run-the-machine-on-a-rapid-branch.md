@@ -49,8 +49,7 @@ selection.
 
 ## Verification
 
-- `python3 scripts/check-doc-contract.py` checks the required decision outline.
-  The operator approved the title wording and D1–D5 as written. The RTE review
+- The operator approved the title wording and D1–D5 as written. The RTE review
   compares those bytes with the approved text and checks that the surrounding
   sections add no normative text.
 - `python3 scripts/check-knowledge-index.py` checks the indexed record and hash.

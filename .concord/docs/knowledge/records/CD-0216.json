@@ -7,7 +7,6 @@
     "tier": "derived"
   },
   "date": "2026-10-09T00:00:00Z",
-  "doc_contract_profile": "current",
   "evidence": [
     "internal/agent/research_surface_test.go",
     ".concord/docs/knowledge/coverage/CD-0216.json"

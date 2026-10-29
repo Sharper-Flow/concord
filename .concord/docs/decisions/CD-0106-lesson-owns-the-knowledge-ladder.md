@@ -99,8 +99,7 @@ freshness is never a stored property and no stored copy can age.
 - A read-only `resources` operation on `concord_product_view` gives agents
   the identity half of D4. That is work-d47fb36cf5552066d44dbdac, and it
   needs TS9 change evidence and operator acceptance before it ships.
-- The formalization procedure gains the no-vendor-content rule from D4 and a
-  validator check. That is work-1b2842005c2ca0db0211f2e1.
+- The formalization procedure states the no-vendor-content rule from D4.
 - `concord_knowledge.search` admits the 7 manifest kinds in its `kinds`
   filter. That is work-5686760e84b5109c137a496e.
 - No storage, schema, or event change follows from this record.

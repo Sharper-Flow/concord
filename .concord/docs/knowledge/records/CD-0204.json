@@ -3,7 +3,6 @@
     "tier": "derived"
   },
   "date": "2026-10-04T00:00:00Z",
-  "doc_contract_profile": "current",
   "evidence": [
     "internal/store/workflow_admission.go",
     "internal/store/workflow_completion.go",
@@ -36,7 +35,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:88e358a48c8c426842c6f68398253bfad283ed6f16a61cbf8ea35984a0e2e59d",
+  "sha256": "sha256:2b9948ed8d176f9ae8fb3fb11d8a4b5f59834e3965c5a6af04973ab493f8778f",
   "status": "accepted",
   "summary": "Admission carries the acceptance-deliverables refusal while a premise question is open, so the preflight, the work pin, and execution refuse confirm_premise alike; the fresh-review refusal defers to the guards only for accept_worker_result, so every site refuses record_delivery behind a blocking Review disposition; and the late record_verdict route serves a premise-question step that does not declare record_verdict, so recorded ops runbooks at cleanup without a verdict record it there. The gate lives in admission code derived from the canonical source.",
   "tags": [

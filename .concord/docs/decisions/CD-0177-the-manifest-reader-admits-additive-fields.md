@@ -44,13 +44,6 @@ tree carries a field the model drops.
 A field that must restrict older cores needs a schema_version bump. A purely
 additive field does not.
 
-### D3. The doc_contract subtree stays schema-owned
-
-The head carries `doc_contract`, and the store never interprets it
-(CD-0114). Its internal shape stays owned by the schema and the checker. The
-committed-tree guard therefore treats the whole `doc_contract` subtree as
-declared and holds only the modeled vocabulary outside it.
-
 ## Alternatives considered
 
 - Keep the strict parse and pin manifests to releases. Rejected: every
@@ -59,8 +52,6 @@ declared and holds only the modeled vocabulary outside it.
   contract that catches a typo before a commit lands.
 - Gate the tolerance behind a new schema_version. Rejected: a version bump is
   a behavior boundary, and additive admission changes no modeled behavior.
-- Model the `doc_contract` internals in Go. Rejected: the store must never
-  interpret that subtree, and fields without behavior misstate the model.
 
 ## Consequences
 
@@ -78,8 +69,7 @@ already owned them.
   and the same test holds the unknown schema_version, duplicate-key, and
   trailing-value refusals.
 - `TestCommittedManifestCarriesNoFieldTheModelDrops` proves the guard: it
-  fails a committed shard that carries a field the model drops, with the
-  `doc_contract` subtree declared out of the model.
+  fails a committed shard that carries a field the model drops.
 - `go test ./internal/store` proves the admission cases: the
   unknown-field case of
   `TestKnowledgeManifestRejectsUnknownFieldsAndInvalidCombinations`, the
@@ -88,5 +78,3 @@ already owned them.
 - `python3 scripts/check-json.py` proves the authoring side: the closed
   schema, the knowledge-index checker, and this record's shard compose and
   validate unchanged.
-- `python3 scripts/check-doc-contract.py` proves this record carries the
-  current outline.

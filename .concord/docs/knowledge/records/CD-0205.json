@@ -3,7 +3,6 @@
     "tier": "derived"
   },
   "date": "2026-10-05T00:00:00Z",
-  "doc_contract_profile": "current",
   "evidence": [
     "internal/store/worker_jobs.go",
     "internal/store/worker_lanes.go",

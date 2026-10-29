@@ -10,7 +10,6 @@
     "tier": "legislated"
   },
   "date": "2026-10-06T00:00:00Z",
-  "doc_contract_profile": "current",
   "evidence": [
     "cmd/concord/worker_evidence_reconcile.go",
     "cmd/concord/worker_reconcile_test.go",
@@ -48,7 +47,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:eb3f8560c07483fc7e3e29b9f8fa1109c446459b321bda70de350363cd53b8a6",
+  "sha256": "sha256:60ad7c232032925b1b4f7f9e0285ec457e9d253f1f69470930d2e5dc050d215e",
   "status": "accepted",
   "summary": "A fresh currently authenticated assertion can acknowledge an exact existing worker evidence record without adding another. The nonce and match share the consequential FULL transaction; terminal outcomes, original packet/provenance/model identity and consumed execution authorization remain immutable. Retained completed-Task recovery uses original trusted host proof, refuses failed attempts, and keeps one caller deadline. Uncertain commits require reconciliation rather than a success or no-effect claim. Original record identifiers bound recovery; random-ID failure paths remain separate follow-up scope.",
   "tags": [

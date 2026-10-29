@@ -20,8 +20,6 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 SCHEMA = ROOT / "contracts/concord-knowledge-index.v1.schema.json"
 CHECKER = ROOT / "scripts/check-knowledge-index.py"
-DOC_CONTRACT_CHECKER = ROOT / "scripts/check-doc-contract.py"
-CLOSURE_CHECKER = ROOT / "scripts/check-knowledge-closure.py"
 GENERATOR = ROOT / "scripts/generate-knowledge-index.py"
 
 
@@ -36,14 +34,6 @@ def load_module(name: str, path: Path):
 
 def load_checker():
     return load_module("knowledge_checker", CHECKER)
-
-
-def load_doc_contract_checker():
-    return load_module("doc_contract_checker", DOC_CONTRACT_CHECKER)
-
-
-def load_closure_checker():
-    return load_module("closure_checker", CLOSURE_CHECKER)
 
 
 def load_generator():
@@ -244,18 +234,6 @@ def validate_generator(schema: object, generator: object, findings: list[str]) -
     compare("generator KINDS", schema_enum(schema, ["$defs", "record", "properties", "kind"], findings), generator.KINDS, findings)
     compare("generator LAW_KINDS", schema_enum(schema, ["$defs", "lawRelation", "properties", "kind"], findings), generator.LAW_RELATION_KINDS, findings)
     compare("generator LAW_BEARING_KINDS", status_tier_kinds(schema, "accepted", findings), generator.LAW_BEARING_KINDS, findings)
-    compare(
-        "generator LEGACY_DECISION_PROFILE_IDS",
-        schema_enum(schema, ["$defs", "legacyDecisionProfileId"], findings),
-        generator.LEGACY_DECISION_PROFILE_IDS,
-        findings,
-    )
-    compare(
-        "generator LEGACY_SPEC_PROFILE_IDS",
-        schema_enum(schema, ["$defs", "legacySpecProfileId"], findings),
-        generator.LEGACY_SPEC_PROFILE_IDS,
-        findings,
-    )
     compare_pattern(
         "generator RECORD_PATH_RE",
         schema_default_path_pattern(schema, findings),
@@ -270,7 +248,7 @@ def validate_generator(schema: object, generator: object, findings: list[str]) -
     )
 
 
-def validate(schema: object, checker: object, doc_contract: object = None, closure: object = None, generator: object = None) -> list[str]:
+def validate(schema: object, checker: object, generator: object = None) -> list[str]:
     findings: list[str] = []
     compare("ALLOWED_ROOT", schema_properties(schema, [], findings), checker.ALLOWED_ROOT, findings)
     compare("ALLOWED_RECORD", schema_properties(schema, ["$defs", "record"], findings), checker.ALLOWED_RECORD, findings)
@@ -310,43 +288,11 @@ def validate(schema: object, checker: object, doc_contract: object = None, closu
     compare("RECORD_KINDS", schema_enum(schema, ["$defs", "record", "properties", "kind"], findings), checker.RECORD_KINDS, findings)
     compare("LAW_KINDS", schema_enum(schema, ["$defs", "lawRelation", "properties", "kind"], findings), checker.LAW_KINDS, findings)
     compare(
-        "LEGACY_DECISION_PROFILE_IDS",
-        schema_enum(schema, ["$defs", "legacyDecisionProfileId"], findings),
-        checker.LEGACY_DECISION_PROFILE_IDS,
-        findings,
-    )
-    compare(
-        "LEGACY_SPEC_PROFILE_IDS",
-        schema_enum(schema, ["$defs", "legacySpecProfileId"], findings),
-        checker.LEGACY_SPEC_PROFILE_IDS,
-        findings,
-    )
-    compare(
         "ALLOWED_SCOPES_V12",
         schema_properties(schema, ["$defs", "scopeCommon"], findings),
         checker.ALLOWED_SCOPES_V12,
         findings,
     )
-    if doc_contract is not None:
-        compare(
-            "DOC_CONTRACT_FIELDS",
-            schema_properties(schema, ["$defs", "docContract"], findings),
-            doc_contract.DOC_CONTRACT_FIELDS,
-            findings,
-        )
-    if closure is not None:
-        compare_pattern(
-            "ROOT_RE",
-            schema_string(schema, ["$defs", "knowledgeRoots", "items", "pattern"], findings),
-            closure.ROOT_RE.pattern,
-            findings,
-        )
-        compare_pattern(
-            "EXCLUSION_RE",
-            schema_string(schema, ["$defs", "knowledgeExclusions", "items", "pattern"], findings),
-            closure.EXCLUSION_RE.pattern,
-            findings,
-        )
     if generator is not None:
         validate_generator(schema, generator, findings)
     return findings
@@ -359,7 +305,7 @@ def main() -> int:
         print(f"{SCHEMA.relative_to(ROOT)}: invalid JSON: {exc}")
         print("knowledge vocabulary validation failed: 1 finding(s)", file=sys.stderr)
         return 1
-    findings = validate(schema, load_checker(), load_doc_contract_checker(), load_closure_checker(), load_generator())
+    findings = validate(schema, load_checker(), load_generator())
     for finding in findings:
         print(finding)
     if findings:

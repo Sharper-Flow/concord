@@ -174,8 +174,6 @@ uncertainty. It does not inject a physical filesystem or fsync fault.
 - `bun test adapter/opencode/concord.test.ts` proves the controlled one-second
   deadline interrupts a cooperative two-second read within 1,600 ms without
   worker evidence, with host Product selection unset.
-- `python3 scripts/check-knowledge-index.py` and
-  `python3 scripts/check-knowledge-closure.py` check current hashes and complete registration.
-- `python3 scripts/check-doc-contract.py` and
-  `python3 scripts/check-law-coverage.py` check declared structure. These checks do
+- `python3 scripts/check-knowledge-index.py` checks current hashes.
+- `python3 scripts/check-law-coverage.py` checks declared structure. This check does
   not replace behavioral evidence.

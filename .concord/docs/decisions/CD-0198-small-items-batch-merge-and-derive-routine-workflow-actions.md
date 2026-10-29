@@ -269,11 +269,8 @@ Scenario: One derived failure fact references the terminal attribution
   And the correction context reads that one derived record
 ```
 
-- `python3 scripts/check-doc-contract.py` proves this record carries the current
-  decision outline and passes the writing rules.
-- `python3 scripts/check-knowledge-index.py` and
-  `python3 scripts/check-knowledge-closure.py` prove this record registers with
-  a current content hash and no unprocessed document remains.
+- `python3 scripts/check-knowledge-index.py` proves this record registers with
+  a current content hash.
 - `python3 scripts/check-law-coverage.py` proves the coverage record's state
   obligations hold, and `python3 scripts/update-issue-state.py` proves the
   outstanding pointer names a live issue.

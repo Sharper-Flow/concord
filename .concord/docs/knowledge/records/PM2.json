@@ -35,7 +35,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:9b7725d7338a80c0d9281b8ffc41dedc1565fd77501f21efebf7faf1ee6ccd12",
+  "sha256": "sha256:892c15a2b36482e7d3d5ac6ccc5efc6fbcc6fb266d9d4880217ab397f2655008",
   "status": "accepted",
   "summary": "Defines one global local SQLite authority per installation under the XDG data home.",
   "tags": [

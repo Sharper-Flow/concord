@@ -3,7 +3,6 @@
     "tier": "derived"
   },
   "date": "2026-10-09T00:00:00Z",
-  "doc_contract_profile": "current",
   "home_domain_id": "operator-surface",
   "id": "CD-0219",
   "kind": "decision",
@@ -45,7 +44,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:629c931efdc60873865ca7abadc43e6894bfa168e4c6e49a9943b094d1b319ef",
+  "sha256": "sha256:54d2715c470710ae84af86b332a61357918491650aca301e3ce9ade76e6f60ae",
   "status": "accepted",
   "summary": "The interactive terminal launcher TUI, its verb, its bare-invocation route, the internal/launcher tree, and the charm.land rendering modules are removed; the launcher contracts and portfolio scenario retire with the surface, the obligations whose subject was the TUI are vacated, and the session entry route the retirement preserved is itself removed, with the kept clauses binding host-started managed sessions and the verified worktree claim, occupancy, landing, and vacate rules untouched.",
   "tags": [

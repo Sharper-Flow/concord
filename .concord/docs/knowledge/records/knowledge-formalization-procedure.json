@@ -16,9 +16,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:e0b87d10c9e7604989b6773ef602beb2f7f3a4bc2e47c7e609ab61ef9d6d0279",
+  "sha256": "sha256:5ea8abaebd3c83932d662eaaf71cc80c09e0a5a87956bb9ffbdbe2887f7a58f5",
   "status": "accepted",
-  "summary": "Defines how a document becomes accepted Product law, becomes registered non-law, or is dispositioned. Declares the four knowledge states, the three destinations for an unprocessed document, the two-tier kind taxonomy, the ordered kind-selection path, the acceptance-criteria rule, and the atomicity requirement binding a document edit to its recorded hash.",
+  "summary": "Defines how a document becomes accepted Product law, becomes registered non-law, or is dispositioned. Declares the three knowledge states, the three destinations for an unprocessed document, the two-tier kind taxonomy, the ordered kind-selection path, the acceptance-criteria rule, and the atomicity requirement binding a document edit to its recorded hash.",
   "tags": [
     "knowledge",
     "formalization",

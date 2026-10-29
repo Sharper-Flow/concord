@@ -124,4 +124,3 @@ Scenario: Every registered definition stays live under the full model
 - `TestCurrentDefinitionsHaveOneSourcePerLiveFamily` checks the current family set.
 - `go test ./internal/store/ -run 'TestRegisteredStepsAdmitTheirApprovalRequiredActions|TestRegisteredNonTerminalStepsCanAdvance'` checks approval-required actions and advancing exits across the registered current definitions.
 - `go test ./internal/store/ -run 'TestWellFormedAdmissionStateHasNonContinuityExit|TestReachableAdmissionStateReachesTerminal|TestAdmissionConformanceLocalJobAcceptHolds|TestCurrentReviewAdmissionLoaderConformsToAcceptedDisposition'` proves the final scenario over current definitions and Review admission.
-- `python3 scripts/check-doc-contract.py --report-only` proves this record carries the current decision outline and passes the writing rules.

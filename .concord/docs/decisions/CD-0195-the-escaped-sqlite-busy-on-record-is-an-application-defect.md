@@ -108,12 +108,8 @@ CD-0165 binds new work to the current release.
 
 ## Verification
 
-- `python3 scripts/check-doc-contract.py` passes over the registered corpus
-  with this record on the current profile.
 - `python3 scripts/check-knowledge-index.py` composes the manifest with the
   CD-0195 shard and the refreshed CD-0011 hash.
-- `python3 scripts/check-knowledge-closure.py` acknowledges the new record
-  path.
 - `python3 scripts/check-doc-links.py` resolves the amendment link into
   CD-0011.
 - `python3 scripts/check-public-content.py` passes.

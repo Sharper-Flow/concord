@@ -146,8 +146,7 @@ Scenario: intents stay honest
   read, and every intent names an admitted action.
 - The generated payload schemas, the TS7 contracts, and the adapter are
   regenerated; the manifest digest changes once, in the same change.
-- `python3 scripts/check-doc-contract.py` and
-  `python3 scripts/check-knowledge-index.py` pass.
+- `python3 scripts/check-knowledge-index.py` passes.
 
 ## Out of scope
 

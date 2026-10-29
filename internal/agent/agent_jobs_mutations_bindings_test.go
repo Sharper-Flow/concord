@@ -515,8 +515,8 @@ func bindAJ4StaleVersion(t *testing.T, sc jobScenario) jobObservation {
 // ---------------------------------------------------------------------------
 
 // AJ5-resolve-domain-overlap proves the overlap operation's kind boundary: an
-// ordinary relation cannot confer Product-concordance authority, the routine
-// compatible_with answer records unsigned with no challenge and no consumed
+// ordinary relation cannot write a resolution-owned relation, the routine
+// depends_on answer records unsigned with no challenge and no consumed
 // approval, and a destructive kind settles only through a challenge the
 // Service minted, a host assertion over the exact request, and one consumed
 // one-use operator approval.
@@ -551,10 +551,6 @@ func bindAJ5ResolveDomainOverlap(t *testing.T, sc jobScenario) jobObservation {
 	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM workflow_overlap_resolutions`); got != 0 {
 		t.Fatalf("ordinary relation wrote %d overlap resolutions", got)
 	}
-	overlaps, err := s.QueryDomainOverlaps(context.Background(), store.DomainOverlapsRequest{Product: "product-1", Domain: "root"})
-	if err != nil || len(overlaps.Pairs) != 1 || overlaps.Pairs[0].ResolutionState != "absent" {
-		t.Fatalf("ordinary relation conferred overlap authority: pairs=%+v err=%v", overlaps.Pairs, err)
-	}
 	if agentCurrentEffects(t, s) != beforeEvents || workVersion(t, s, "work-1") != 2 || workVersion(t, s, "work-2") != 2 {
 		t.Fatal("ordinary relation refusal changed journal or endpoint versions")
 	}
@@ -568,11 +564,11 @@ func bindAJ5ResolveDomainOverlap(t *testing.T, sc jobScenario) jobObservation {
 	if err := s.DatabaseForTesting().QueryRow(`SELECT resolution_kind,from_contract_version,to_contract_version,approval_ref FROM workflow_overlap_resolutions WHERE invalidated_seq IS NULL`).Scan(&kind, &fromContract, &toContract, &approvalRef); err != nil {
 		t.Fatal(err)
 	}
-	if kind != "compatible_with" || fromContract != 1 || toContract != 1 || approvalRef != "" {
-		t.Fatalf("routine resolution %s contracts %d/%d approval=%q, want the unsigned compatible_with answer at 1/1", kind, fromContract, toContract, approvalRef)
+	if kind != "depends_on" || fromContract != 1 || toContract != 1 || approvalRef != "" {
+		t.Fatalf("routine resolution %s contracts %d/%d approval=%q, want the unsigned depends_on answer at 1/1", kind, fromContract, toContract, approvalRef)
 	}
 	var relationCount int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM relations WHERE work_id_from='work-1' AND work_id_to='work-2' AND kind='compatible_with' AND resolution_id IS NOT NULL`).Scan(&relationCount); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM relations WHERE work_id_from='work-1' AND work_id_to='work-2' AND kind='depends_on' AND resolution_id IS NOT NULL`).Scan(&relationCount); err != nil {
 		t.Fatal(err)
 	}
 	if relationCount != 1 {
@@ -591,7 +587,7 @@ func bindAJ5ResolveDomainOverlap(t *testing.T, sc jobScenario) jobObservation {
 	obs := envelopeToObservation(routine)
 	obs.State = map[string]any{
 		"overlap":   map[string]any{"current_resolution": map[string]any{"kind": kind, "from_contract_version": fromContract, "to_contract_version": toContract}},
-		"relations": map[string]any{"compatible_with": []any{map[string]any{"source": "work-1", "target": "work-2"}}},
+		"relations": map[string]any{"depends_on": []any{map[string]any{"source": "work-1", "target": "work-2"}}},
 	}
 	obs.Authority = map[string]any{"operator_approval_consumed": false}
 
@@ -633,7 +629,7 @@ func bindAJ5ResolveDomainOverlap(t *testing.T, sc jobScenario) jobObservation {
 	obs.Effects = map[string]any{
 		"atomic_core_effect":          "complete",
 		"approval_authority_consumed": destructiveConsumed,
-		"ordinary_relation_authority": probedAbsent{Evidence: "the generic compatible_with fold returned relation_contract_violation, wrote no relation or resolution, and left the Domain overlap unresolved"},
+		"ordinary_relation_authority": probedAbsent{Evidence: "the generic compatible_with fold returned relation_contract_violation, and wrote no relation or resolution"},
 	}
 	return obs
 }

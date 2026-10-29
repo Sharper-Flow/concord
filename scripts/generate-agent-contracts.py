@@ -914,27 +914,6 @@ def preserve_retained_outcome_outputs(defs: dict) -> None:
     retarget_predicate_union(criterion["properties"].get("outcome_payload"), "work_pin_verified_criterion")
 
 
-def install_workflow_self_repair_schema(defs: dict) -> None:
-    envelope = json.loads(ENVELOPE.read_text())
-    refusal_kinds = envelope["$defs"]["typedError"]["properties"]["kind"]["enum"]
-    defs["workflow_self_repair"] = {
-        "type": "object", "additionalProperties": False,
-        "required": ["refusal_kind", "blocked_operation", "evidence_refs"],
-        "properties": {
-            "refusal_kind": {"type": "string", "enum": refusal_kinds},
-            "blocked_operation": {"$ref": "#/$defs/reference"},
-            "evidence_refs": {
-                "type": "array", "minItems": 1, "maxItems": 32, "uniqueItems": True,
-                "items": {"$ref": "#/$defs/reference"},
-            },
-        },
-    }
-    contract = defs.get("workflow_contract")
-    if not isinstance(contract, dict) or not isinstance(contract.get("properties"), dict):
-        fail("workflow_contract schema is unavailable for self-repair projection")
-    contract["properties"]["self_repair"] = {"$ref": "#/$defs/workflow_self_repair"}
-
-
 def workflow_payload_object_schema(payload: dict, defs: dict, field_teaching: dict | None = None, cross_field: dict | None = None) -> dict:
     result = workflow_payload_flat_object_schema(payload, defs, field_teaching)
     combinations = (cross_field or {}).get("combinations") or []
@@ -1511,7 +1490,6 @@ def project_workflow_action_schema(document: dict, actions: list[dict], workflow
     # definition explicitly; a stale copy would keep satisfying checks that
     # read it while no validation path consumes it.
     defs.pop("work_transition_action_shared_input", None)
-    install_workflow_self_repair_schema(defs)
     common = {
         "work_id": {"$ref": "#/$defs/id"},
         "expected_version": {"$ref": "#/$defs/version"},
@@ -2052,7 +2030,7 @@ def validate(manifest: dict) -> str:
     # The operation surface is closed: the manifest must enumerate the full
     # published set exactly, and the count changes only with an accepted
     # surface change.
-    expected_operations = 65
+    expected_operations = 64
     if len(operations) != expected_operations or len({o.get("id") for o in operations}) != expected_operations:
         fail(f"manifest must contain exactly {expected_operations} unique operations")
     tool_ids = {t["id"] for t in tools}

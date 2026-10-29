@@ -13,7 +13,7 @@ import (
 )
 
 func governingOverlapInput(input []byte, kind string) []byte {
-	return []byte(strings.Replace(string(input), `"resolution_kind":"compatible_with"`, `"resolution_kind":"`+kind+`"`, 1))
+	return []byte(strings.Replace(string(input), `"resolution_kind":"depends_on"`, `"resolution_kind":"`+kind+`"`, 1))
 }
 
 func TestGoverningCaptureStoresActualDeclaredSet(t *testing.T) {

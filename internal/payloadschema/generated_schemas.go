@@ -73,14 +73,13 @@ const GeneratedPayloadSchemaDocument = `{
     },
     "architecture_binding": {
       "additionalProperties": false,
-      "description": "Accepted shape: object; example: {\"affected_domain_ids\":[\"a\"],\"domain_modifies\":[],\"domain_registry_content_hash\":\"aaaaaaaa\",\"domain_relation_modifies\":[],\"home_domain_id\":\"a\",\"law_additions\":[],\"verification_obligations\":[]}",
+      "description": "Accepted shape: object; example: {\"affected_domain_ids\":[\"a\"],\"domain_modifies\":[],\"domain_relation_modifies\":[],\"home_domain_id\":\"a\",\"law_additions\":[],\"verification_obligations\":[]}",
       "examples": [
         {
           "affected_domain_ids": [
             "a"
           ],
           "domain_modifies": [],
-          "domain_registry_content_hash": "aaaaaaaa",
           "domain_relation_modifies": [],
           "home_domain_id": "a",
           "law_additions": [],
@@ -122,13 +121,6 @@ const GeneratedPayloadSchemaDocument = `{
           "maxItems": 64,
           "type": "array",
           "uniqueItems": true
-        },
-        "domain_registry_content_hash": {
-          "$ref": "#/$defs/digest",
-          "description": "Accepted shape: string matching ^(sha256:)?[0-9a-fA-F]{8,}$; Bounds: 8..128 code points inclusive; example: \"aaaaaaaa\"",
-          "examples": [
-            "aaaaaaaa"
-          ]
         },
         "domain_relation_modifies": {
           "description": "Accepted shape: array of object; Bounds: <=64 items inclusive; example: []",
@@ -270,7 +262,6 @@ const GeneratedPayloadSchemaDocument = `{
         }
       },
       "required": [
-        "domain_registry_content_hash",
         "home_domain_id",
         "affected_domain_ids",
         "domain_modifies",
@@ -672,168 +663,6 @@ const GeneratedPayloadSchemaDocument = `{
         "evidence_refs",
         "pending_questions",
         "pending_decisions"
-      ],
-      "type": "object"
-    },
-    "continuity_domain_overlap": {
-      "additionalProperties": false,
-      "properties": {
-        "detail_truncated": {
-          "type": "boolean"
-        },
-        "from_contract_version": {
-          "minimum": 1,
-          "type": "integer"
-        },
-        "from_work_id": {
-          "$ref": "#/$defs/id"
-        },
-        "overlap_classes": {
-          "items": {
-            "enum": [
-              "architecture",
-              "law_write",
-              "domain_write",
-              "domain_relation_write"
-            ],
-            "type": "string"
-          },
-          "maxItems": 4,
-          "minItems": 1,
-          "type": "array",
-          "uniqueItems": true
-        },
-        "product_id": {
-          "$ref": "#/$defs/id"
-        },
-        "recovery_actions": {
-          "items": {
-            "enum": [
-              "wait",
-              "resolve_overlap",
-              "terminal_work",
-              "supersede_contract"
-            ],
-            "type": "string"
-          },
-          "maxItems": 4,
-          "minItems": 1,
-          "type": "array",
-          "uniqueItems": true
-        },
-        "resolution_kind": {
-          "enum": [
-            "compatible_with",
-            "depends_on",
-            "blocks",
-            "merged_into",
-            "supersedes"
-          ],
-          "type": "string"
-        },
-        "resolution_state": {
-          "enum": [
-            "unresolved",
-            "stale"
-          ],
-          "type": "string"
-        },
-        "shared_affected_domain_count": {
-          "minimum": 0,
-          "type": "integer"
-        },
-        "shared_affected_domain_ids": {
-          "items": {
-            "$ref": "#/$defs/domain_id"
-          },
-          "maxItems": 20,
-          "minItems": 0,
-          "type": "array",
-          "uniqueItems": true
-        },
-        "shared_domain_modification_count": {
-          "minimum": 0,
-          "type": "integer"
-        },
-        "shared_domain_modifications": {
-          "items": {
-            "$ref": "#/$defs/domain_id"
-          },
-          "maxItems": 20,
-          "type": "array",
-          "uniqueItems": true
-        },
-        "shared_law_count": {
-          "minimum": 0,
-          "type": "integer"
-        },
-        "shared_law_ids": {
-          "items": {
-            "$ref": "#/$defs/law_id"
-          },
-          "maxItems": 20,
-          "type": "array",
-          "uniqueItems": true
-        },
-        "shared_relation_tuple_count": {
-          "minimum": 0,
-          "type": "integer"
-        },
-        "shared_relation_tuples": {
-          "items": {
-            "additionalProperties": false,
-            "properties": {
-              "kind": {
-                "enum": [
-                  "depends_on",
-                  "shares_contract_with",
-                  "replaces"
-                ],
-                "type": "string"
-              },
-              "source_domain_id": {
-                "$ref": "#/$defs/domain_id"
-              },
-              "target_domain_id": {
-                "$ref": "#/$defs/domain_id"
-              }
-            },
-            "required": [
-              "source_domain_id",
-              "kind",
-              "target_domain_id"
-            ],
-            "type": "object"
-          },
-          "maxItems": 20,
-          "type": "array"
-        },
-        "to_contract_version": {
-          "minimum": 1,
-          "type": "integer"
-        },
-        "to_work_id": {
-          "$ref": "#/$defs/id"
-        }
-      },
-      "required": [
-        "product_id",
-        "from_work_id",
-        "to_work_id",
-        "from_contract_version",
-        "to_contract_version",
-        "shared_affected_domain_ids",
-        "shared_law_ids",
-        "shared_domain_modifications",
-        "shared_relation_tuples",
-        "overlap_classes",
-        "resolution_state",
-        "recovery_actions",
-        "shared_affected_domain_count",
-        "shared_law_count",
-        "shared_domain_modification_count",
-        "shared_relation_tuple_count",
-        "detail_truncated"
       ],
       "type": "object"
     },
@@ -1421,13 +1250,6 @@ const GeneratedPayloadSchemaDocument = `{
                   "type": "null"
                 }
               ]
-            },
-            "unresolved_overlaps": {
-              "items": {
-                "$ref": "#/$defs/continuity_domain_overlap"
-              },
-              "maxItems": 20,
-              "type": "array"
             },
             "withheld_operator_decision": {
               "oneOf": [
@@ -2744,96 +2566,6 @@ const GeneratedPayloadSchemaDocument = `{
         "statement",
         "state",
         "recorded_at"
-      ],
-      "type": "object"
-    },
-    "domain_overlap_pair": {
-      "additionalProperties": false,
-      "properties": {
-        "from_work_id": {
-          "$ref": "#/$defs/id"
-        },
-        "resolution_kind": {
-          "type": "string"
-        },
-        "resolution_state": {
-          "enum": [
-            "absent",
-            "current",
-            "sequenced",
-            "stale"
-          ],
-          "type": "string"
-        },
-        "shared_domain_ids": {
-          "items": {
-            "$ref": "#/$defs/id"
-          },
-          "maxItems": 64,
-          "minItems": 0,
-          "type": "array"
-        },
-        "shared_law_ids": {
-          "items": {
-            "$ref": "#/$defs/law_id"
-          },
-          "maxItems": 64,
-          "type": "array"
-        },
-        "to_work_id": {
-          "$ref": "#/$defs/id"
-        }
-      },
-      "required": [
-        "from_work_id",
-        "to_work_id",
-        "shared_domain_ids",
-        "resolution_state"
-      ],
-      "type": "object"
-    },
-    "domain_overlaps_input": {
-      "additionalProperties": false,
-      "properties": {
-        "domain_id": {
-          "$ref": "#/$defs/id",
-          "description": "Bounds: 1..128 code points inclusive"
-        },
-        "product_id": {
-          "$ref": "#/$defs/id",
-          "description": "Bounds: 1..128 code points inclusive"
-        },
-        "requested_budget_seconds": {
-          "$ref": "#/$defs/requested_budget_seconds",
-          "description": "Bounds: >=1 value inclusive"
-        }
-      },
-      "required": [
-        "product_id"
-      ],
-      "type": "object"
-    },
-    "domain_overlaps_result": {
-      "additionalProperties": false,
-      "properties": {
-        "pairs": {
-          "items": {
-            "$ref": "#/$defs/domain_overlap_pair"
-          },
-          "maxItems": 50,
-          "type": "array"
-        },
-        "registry": {
-          "$ref": "#/$defs/domain_registry"
-        },
-        "truncated": {
-          "type": "boolean"
-        }
-      },
-      "required": [
-        "registry",
-        "pairs",
-        "truncated"
       ],
       "type": "object"
     },
@@ -15907,16 +15639,6 @@ const GeneratedPayloadSchemaDocument = `{
         "review": {
           "$ref": "#/$defs/workflow_review_state"
         },
-        "self_repair": {
-          "oneOf": [
-            {
-              "$ref": "#/$defs/workflow_self_repair"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
         "step": {
           "maxLength": 256,
           "type": "string"
@@ -16619,7 +16341,6 @@ const GeneratedPayloadSchemaDocument = `{
         },
         "resolution_kind": {
           "enum": [
-            "compatible_with",
             "depends_on",
             "blocks",
             "merged_into",
@@ -18341,14 +18062,13 @@ const GeneratedPayloadSchemaDocument = `{
               "properties": {
                 "architecture_binding": {
                   "$ref": "#/$defs/architecture_binding",
-                  "description": "Architecture bindings must name Domains that exist in the pinned domain registry, home every added or modified law in a declared Domain, and modify Domain relations only through current canonical tuples; the store refuses an unknown Domain or relation. Accepted shape: object; example: {\"affected_domain_ids\":[\"a\"],\"domain_modifies\":[],\"domain_registry_content_hash\":\"aaaaaaaa\",\"domain_relation_modifies\":[],\"home_domain_id\":\"a\",\"law_additions\":[],\"verification_obligations\":[]}",
+                  "description": "Architecture bindings must name Domains that exist in the current domain registry, home every added or modified law in a declared Domain, and modify Domain relations only through current canonical tuples; the store refuses an unknown Domain or relation. Accepted shape: object; example: {\"affected_domain_ids\":[\"a\"],\"domain_modifies\":[],\"domain_relation_modifies\":[],\"home_domain_id\":\"a\",\"law_additions\":[],\"verification_obligations\":[]}",
                   "examples": [
                     {
                       "affected_domain_ids": [
                         "a"
                       ],
                       "domain_modifies": [],
-                      "domain_registry_content_hash": "aaaaaaaa",
                       "domain_relation_modifies": [],
                       "home_domain_id": "a",
                       "law_additions": [],
@@ -19063,14 +18783,13 @@ const GeneratedPayloadSchemaDocument = `{
               "properties": {
                 "architecture_binding": {
                   "$ref": "#/$defs/architecture_binding",
-                  "description": "Architecture bindings must name Domains that exist in the pinned domain registry, home every added or modified law in a declared Domain, and modify Domain relations only through current canonical tuples; the store refuses an unknown Domain or relation. Accepted shape: object; example: {\"affected_domain_ids\":[\"a\"],\"domain_modifies\":[],\"domain_registry_content_hash\":\"aaaaaaaa\",\"domain_relation_modifies\":[],\"home_domain_id\":\"a\",\"law_additions\":[],\"verification_obligations\":[]}",
+                  "description": "Architecture bindings must name Domains that exist in the current domain registry, home every added or modified law in a declared Domain, and modify Domain relations only through current canonical tuples; the store refuses an unknown Domain or relation. Accepted shape: object; example: {\"affected_domain_ids\":[\"a\"],\"domain_modifies\":[],\"domain_relation_modifies\":[],\"home_domain_id\":\"a\",\"law_additions\":[],\"verification_obligations\":[]}",
                   "examples": [
                     {
                       "affected_domain_ids": [
                         "a"
                       ],
                       "domain_modifies": [],
-                      "domain_registry_content_hash": "aaaaaaaa",
                       "domain_relation_modifies": [],
                       "home_domain_id": "a",
                       "law_additions": [],
@@ -24322,14 +24041,13 @@ const GeneratedPayloadSchemaDocument = `{
               "properties": {
                 "architecture_binding": {
                   "$ref": "#/$defs/architecture_binding",
-                  "description": "Architecture bindings must name Domains that exist in the pinned domain registry, home every added or modified law in a declared Domain, and modify Domain relations only through current canonical tuples; the store refuses an unknown Domain or relation. Accepted shape: object; example: {\"affected_domain_ids\":[\"a\"],\"domain_modifies\":[],\"domain_registry_content_hash\":\"aaaaaaaa\",\"domain_relation_modifies\":[],\"home_domain_id\":\"a\",\"law_additions\":[],\"verification_obligations\":[]}",
+                  "description": "Architecture bindings must name Domains that exist in the current domain registry, home every added or modified law in a declared Domain, and modify Domain relations only through current canonical tuples; the store refuses an unknown Domain or relation. Accepted shape: object; example: {\"affected_domain_ids\":[\"a\"],\"domain_modifies\":[],\"domain_relation_modifies\":[],\"home_domain_id\":\"a\",\"law_additions\":[],\"verification_obligations\":[]}",
                   "examples": [
                     {
                       "affected_domain_ids": [
                         "a"
                       ],
                       "domain_modifies": [],
-                      "domain_registry_content_hash": "aaaaaaaa",
                       "domain_relation_modifies": [],
                       "home_domain_id": "a",
                       "law_additions": [],
@@ -25006,19 +24724,6 @@ const GeneratedPayloadSchemaDocument = `{
                   "type": "array",
                   "uniqueItems": true
                 },
-                "self_repair": {
-                  "$ref": "#/$defs/workflow_self_repair",
-                  "description": "Accepted shape: object; example: {\"blocked_operation\":\"aa\",\"evidence_refs\":[\"aa\"],\"refusal_kind\":\"unknown_scope\"}",
-                  "examples": [
-                    {
-                      "blocked_operation": "aa",
-                      "evidence_refs": [
-                        "aa"
-                      ],
-                      "refusal_kind": "unknown_scope"
-                    }
-                  ]
-                },
                 "spec_mandate": {
                   "description": "Accepted shape: array of string matching ^\\S(?:[\\s\\S]*\\S)?$; Bounds: 0..32 items inclusive; example: []",
                   "examples": [
@@ -25099,14 +24804,13 @@ const GeneratedPayloadSchemaDocument = `{
               "properties": {
                 "architecture_binding": {
                   "$ref": "#/$defs/architecture_binding",
-                  "description": "Architecture bindings must name Domains that exist in the pinned domain registry, home every added or modified law in a declared Domain, and modify Domain relations only through current canonical tuples; the store refuses an unknown Domain or relation. Accepted shape: object; example: {\"affected_domain_ids\":[\"a\"],\"domain_modifies\":[],\"domain_registry_content_hash\":\"aaaaaaaa\",\"domain_relation_modifies\":[],\"home_domain_id\":\"a\",\"law_additions\":[],\"verification_obligations\":[]}",
+                  "description": "Architecture bindings must name Domains that exist in the current domain registry, home every added or modified law in a declared Domain, and modify Domain relations only through current canonical tuples; the store refuses an unknown Domain or relation. Accepted shape: object; example: {\"affected_domain_ids\":[\"a\"],\"domain_modifies\":[],\"domain_relation_modifies\":[],\"home_domain_id\":\"a\",\"law_additions\":[],\"verification_obligations\":[]}",
                   "examples": [
                     {
                       "affected_domain_ids": [
                         "a"
                       ],
                       "domain_modifies": [],
-                      "domain_registry_content_hash": "aaaaaaaa",
                       "domain_relation_modifies": [],
                       "home_domain_id": "a",
                       "law_additions": [],
@@ -25853,19 +25557,6 @@ const GeneratedPayloadSchemaDocument = `{
                   "minItems": 0,
                   "type": "array",
                   "uniqueItems": true
-                },
-                "self_repair": {
-                  "$ref": "#/$defs/workflow_self_repair",
-                  "description": "Accepted shape: object; example: {\"blocked_operation\":\"aa\",\"evidence_refs\":[\"aa\"],\"refusal_kind\":\"unknown_scope\"}",
-                  "examples": [
-                    {
-                      "blocked_operation": "aa",
-                      "evidence_refs": [
-                        "aa"
-                      ],
-                      "refusal_kind": "unknown_scope"
-                    }
-                  ]
                 },
                 "spec_mandate": {
                   "description": "Accepted shape: array of string matching ^\\S(?:[\\s\\S]*\\S)?$; Bounds: 0..32 items inclusive; example: []",
@@ -29604,9 +29295,6 @@ const GeneratedPayloadSchemaDocument = `{
           "type": "array",
           "uniqueItems": true
         },
-        "self_repair": {
-          "$ref": "#/$defs/workflow_self_repair"
-        },
         "spec_mandate": {
           "items": {
             "$ref": "#/$defs/law_id"
@@ -31025,94 +30713,6 @@ const GeneratedPayloadSchemaDocument = `{
         "severity",
         "confidence",
         "detail"
-      ],
-      "type": "object"
-    },
-    "workflow_self_repair": {
-      "additionalProperties": false,
-      "description": "Accepted shape: object; example: {\"blocked_operation\":\"aa\",\"evidence_refs\":[\"aa\"],\"refusal_kind\":\"unknown_scope\"}",
-      "examples": [
-        {
-          "blocked_operation": "aa",
-          "evidence_refs": [
-            "aa"
-          ],
-          "refusal_kind": "unknown_scope"
-        }
-      ],
-      "properties": {
-        "blocked_operation": {
-          "$ref": "#/$defs/reference",
-          "description": "Accepted shape: string matching ^[^\\x09-\\x0d    -     　]+$; Bounds: 1..128 code points inclusive; 2..128 UTF-8 bytes inclusive; example: \"aa\"",
-          "examples": [
-            "aa"
-          ]
-        },
-        "evidence_refs": {
-          "description": "Accepted shape: array of string matching ^[^\\x09-\\x0d    -     　]+$; Bounds: 1..32 items inclusive; example: [\"aa\"]",
-          "examples": [
-            [
-              "aa"
-            ]
-          ],
-          "items": {
-            "$ref": "#/$defs/reference",
-            "description": "Accepted shape: string matching ^[^\\x09-\\x0d    -     　]+$; Bounds: 1..128 code points inclusive; 2..128 UTF-8 bytes inclusive; example: \"aa\"",
-            "examples": [
-              "aa"
-            ]
-          },
-          "maxItems": 32,
-          "minItems": 1,
-          "type": "array",
-          "uniqueItems": true
-        },
-        "refusal_kind": {
-          "description": "Accepted shape: one of \"unknown_scope\", \"ambiguous_scope\", \"stale_context\", \"unauthorized\", \"approval_required\", \"approval_invalid\", \"version_conflict\", \"idempotency_conflict\", \"operation_conflict\", \"resource_busy\", \"cross_repository_claim\", \"invalid_transition\", \"invalid_relation\", \"invariant_violation\", \"missing_evidence\", \"not_terminal\", \"outcome_mismatch\", \"stale_requires_review\", \"stale_law_revision\", \"domain_overlap\", \"degraded_not_allowed\", \"unreachable\", \"invalid_cursor\", \"limit_exceeded\", \"budget_refused\", \"invalid_input\", \"cancelled\", \"timeout\", \"transport_failure\", \"malformed_response\", \"internal_error\", \"outside_repair_active\"; example: \"unknown_scope\"",
-          "enum": [
-            "unknown_scope",
-            "ambiguous_scope",
-            "stale_context",
-            "unauthorized",
-            "approval_required",
-            "approval_invalid",
-            "version_conflict",
-            "idempotency_conflict",
-            "operation_conflict",
-            "resource_busy",
-            "cross_repository_claim",
-            "invalid_transition",
-            "invalid_relation",
-            "invariant_violation",
-            "missing_evidence",
-            "not_terminal",
-            "outcome_mismatch",
-            "stale_requires_review",
-            "stale_law_revision",
-            "domain_overlap",
-            "degraded_not_allowed",
-            "unreachable",
-            "invalid_cursor",
-            "limit_exceeded",
-            "budget_refused",
-            "invalid_input",
-            "cancelled",
-            "timeout",
-            "transport_failure",
-            "malformed_response",
-            "internal_error",
-            "outside_repair_active"
-          ],
-          "examples": [
-            "unknown_scope"
-          ],
-          "type": "string"
-        }
-      },
-      "required": [
-        "refusal_kind",
-        "blocked_operation",
-        "evidence_refs"
       ],
       "type": "object"
     },

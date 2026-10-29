@@ -14,29 +14,6 @@ import (
 // alone; these drive a store failure through failureEnvelope and encode it,
 // which is the path a caller actually receives.
 
-// storeOverlapFailure is the store-side refusal the Domain overlap guard emits,
-// with the recovery action the store proposed.
-func storeOverlapFailure(proposed string) *store.Failure {
-	return &store.Failure{
-		Kind:           store.KindDomainOverlap,
-		Op:             "workflow_domain_overlap",
-		Detail:         "active Product-changing workflows have unresolved Domain overlap",
-		RecoveryAction: proposed,
-		DomainOverlap: &store.DomainOverlapFailure{
-			Overlaps: []store.WorkflowDomainOverlap{{
-				ProductID: "prod-alpha", FromWorkID: "work-from", ToWorkID: "work-to",
-				FromContractVersion: 1, ToContractVersion: 1,
-				SharedAffectedDomainIDs:   []string{"root"},
-				OverlapClasses:            []string{"architecture"},
-				ResolutionState:           "unresolved",
-				RecoveryActions:           []string{"resolve_overlap"},
-				SharedAffectedDomainCount: 1,
-			}},
-			TotalOverlaps: 1, ReturnedOverlaps: 1,
-		},
-	}
-}
-
 // storeStaleLawFailure is the store-side refusal the law revision guard emits.
 func storeStaleLawFailure(proposed string) *store.Failure {
 	hash := "sha256:" + strings.Repeat("a", 64)
@@ -63,7 +40,6 @@ func storeStaleLawFailure(proposed string) *store.Failure {
 // reached a caller.
 func TestCarrierRefusalsAreDeliverableWhateverTheStoreProposes(t *testing.T) {
 	cases := map[string]func(string) *store.Failure{
-		"domain_overlap":     storeOverlapFailure,
 		"stale_law_revision": storeStaleLawFailure,
 	}
 	for _, kind := range sortedKeys(boolKeys(cases)) {

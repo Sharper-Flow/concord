@@ -38,6 +38,10 @@ needs no per-deletion product-direction, UI/UX or governed-scope-cut approval.
 Its delivery duties, exclusions, operator-only waivers and current tool refusals
 remain binding. This exemption does not apply to other Products.
 
+For preview or early visual-design approval, show the inspectable material and the
+version being approved. Ask an ordinary question and record the answer in the
+existing work record.
+
 Every operator approval question names the applicable class above or the existing
 operator-only reservation, and the concrete consequence that requires it. Existing
 reservations include gate waivers and decisions accepted law expressly leaves to

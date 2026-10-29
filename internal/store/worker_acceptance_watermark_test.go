@@ -5,6 +5,41 @@ import (
 	"testing"
 )
 
+func TestWorkerAcceptanceFreshKeyDisposition(t *testing.T) {
+	const work = "acceptance-fresh-key"
+	f := oSeedReviewRoute(t, work, "workflow.break_fix", "repair")
+	s := f.store
+	defer s.Close()
+	lane := reviewGateLane(t, "implementation")
+	older := &WorkerJobBinding{JobID: "job:older", Revision: 1}
+	latest := &WorkerJobBinding{JobID: "job:latest", Revision: 1}
+	recordWorkerJobRevisionForTest(t, s, work, f.owner, older)
+	recordWorkerJobRevisionForTest(t, s, work, f.owner, latest)
+	dispatchJobBoundAttempt(t, s, work, "repair", "attempt:older", nil, f.owner, 0, "older-dispatch", older)
+	if err := completeJobBoundAttemptForTest(s, work, "attempt:older", lane, older); err != nil {
+		t.Fatal(err)
+	}
+	oDispatchJobBoundAttempt(t, s, work, "attempt:latest", nil, f.owner, 0, "latest-dispatch", latest)
+	if err := completeJobBoundAttemptForTest(s, work, "attempt:latest", lane, latest); err != nil {
+		t.Fatal(err)
+	}
+	acceptor := reviewGateAcceptor(work)
+	requestFixture := crossAttemptFixture{fixture: workflowReturnRouteFixture{owner: acceptor}, s: s, workID: work}
+	request := requestFixture.acceptAttemptRequest(t, readWorkVersion(t, s, work), "attempt:latest", latestStepStartEpoch(t, s, work, "repair"), "first", 30)
+	_, err := invokeWorkflowActionForCD0059(t.Context(), t, s, request)
+	if err != nil {
+		t.Fatalf("first acceptance: %v", err)
+	}
+	snapshot := outsideRepairDatabaseSnapshot(t, s)
+	request = requestFixture.acceptAttemptRequest(t, readWorkVersion(t, s, work), "attempt:latest", latestStepStartEpoch(t, s, work, "repair"), "duplicate", 31)
+	if _, err := invokeWorkflowActionForCD0059(t.Context(), t, s, request); failureKind(err) != KindIllegalLifecycleTransition {
+		t.Fatalf("fresh-key second acceptance: %v; want illegal lifecycle transition", err)
+	}
+	if after := outsideRepairDatabaseSnapshot(t, s); after != snapshot {
+		t.Fatal("fresh-key second acceptance changed durable state")
+	}
+}
+
 func TestWorkerRepeatedAcceptancePreservesDependentJobReadiness(t *testing.T) {
 	const work = "repeated-acceptance-dependent"
 	f := oSeedReviewRoute(t, work, "workflow.break_fix", "repair")
@@ -55,8 +90,8 @@ func TestWorkerRepeatedAcceptancePreservesDependentJobReadiness(t *testing.T) {
 	}
 	if err := runVerdictActionAs(t, s, work, "accept_worker_result", mustJSONValue(map[string]any{
 		"attempt_id": "attempt:input", "attempt_epoch": latestStepStartEpoch(t, s, work, "repair"),
-	}), 0, reviewGateAcceptor(work)); err != nil {
-		t.Fatalf("repeated acceptance: %v", err)
+	}), 0, reviewGateAcceptor(work)); failureKind(err) != KindIllegalLifecycleTransition {
+		t.Fatalf("repeated acceptance: %v; want illegal lifecycle transition", err)
 	}
 	var currentRef string
 	if err := s.db.QueryRow(`SELECT satisfied_result_ref FROM worker_job_revisions WHERE work_id=? AND job_id=? AND revision=?`, work, input.JobID, input.Revision).Scan(&currentRef); err != nil {
@@ -111,11 +146,15 @@ func TestWorkerRepeatedAcceptancePreservesFrozenPopulation(t *testing.T) {
 	if err := s.db.QueryRow(`SELECT event_id,payload,seq FROM worker_attempt_dispositions WHERE work_id=? AND attempt_id='attempt:latest' AND action_id='accept_worker_result'`, work).Scan(&firstRef, &firstPayload, &firstSeq); err != nil {
 		t.Fatal(err)
 	}
+	snapshot := outsideRepairDatabaseSnapshot(t, s)
 	err = runVerdictActionAs(t, s, work, "accept_worker_result", mustJSONValue(map[string]any{
 		"attempt_id": "attempt:latest", "attempt_epoch": latestStepStartEpoch(t, s, work, "repair"),
 	}), 0, reviewGateAcceptor(work))
-	if err != nil {
-		t.Fatalf("repeated acceptance refused: %v", err)
+	if failureKind(err) != KindIllegalLifecycleTransition {
+		t.Fatalf("fresh-key second acceptance: %v; want illegal lifecycle transition", err)
+	}
+	if after := outsideRepairDatabaseSnapshot(t, s); after != snapshot {
+		t.Fatal("refused second acceptance changed durable state")
 	}
 	after, err := deriveWorkerFailureIntegration(t.Context(), s.db, work, integrationAttributionObservation(failed.LeaseID))
 	if err != nil {
@@ -128,8 +167,8 @@ func TestWorkerRepeatedAcceptancePreservesFrozenPopulation(t *testing.T) {
 	if err := s.db.QueryRow(`SELECT first_acceptance_seq,seq FROM worker_attempt_dispositions WHERE work_id=? AND attempt_id='attempt:latest' AND action_id='accept_worker_result'`, work).Scan(&retainedFirst, &latestSeq); err != nil {
 		t.Fatal(err)
 	}
-	if retainedFirst != firstSeq || latestSeq <= firstSeq {
-		t.Fatalf("acceptance coordinates first=%d latest=%d; want first=%d and an advanced latest", retainedFirst, latestSeq, firstSeq)
+	if retainedFirst != firstSeq || latestSeq != firstSeq {
+		t.Fatalf("acceptance coordinates first=%d latest=%d; want both=%d", retainedFirst, latestSeq, firstSeq)
 	}
 	var satisfiedSeq int64
 	if err := s.db.QueryRow(`SELECT satisfied_seq FROM worker_job_revisions WHERE work_id=? AND job_id=? AND revision=?`, work, latest.JobID, latest.Revision).Scan(&satisfiedSeq); err != nil {

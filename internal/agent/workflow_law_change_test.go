@@ -18,7 +18,7 @@ import (
 // approves the text without replacing the coordinator as contract author.
 // Calls enter through the published tool boundary on the live break-fix pin.
 func TestWorkflowClassifiedLawChangeApproval(t *testing.T) {
-	testWorkflowLawChangeApproval(t, true, "derived")
+	testWorkflowLawChangeApproval(t, true, "derived", false)
 }
 
 func TestReviseInitializesVerifiedProductLawBaseline(t *testing.T) {
@@ -90,11 +90,21 @@ func TestCaptureLawBaselineUsesPreTransactionProofAndReplays(t *testing.T) {
 // CD-0243 D4 retires seriousness as a consent class, not tier checks at enactment.
 func TestWorkflowUnclassifiedLawChangeAdmission(t *testing.T) {
 	for _, tier := range []string{"derived", "legislated"} {
-		t.Run(tier, func(t *testing.T) { testWorkflowLawChangeApproval(t, false, tier) })
+		t.Run(tier, func(t *testing.T) { testWorkflowLawChangeApproval(t, false, tier, false) })
 	}
 }
 
-func testWorkflowLawChangeApproval(t *testing.T, classified bool, tier string) {
+func TestWorkflowLawRemovalApproval(t *testing.T) {
+	for _, classified := range []bool{false, true} {
+		name := "agent-owned"
+		if classified {
+			name = "classified"
+		}
+		t.Run(name, func(t *testing.T) { testWorkflowLawChangeApproval(t, classified, "legislated", true) })
+	}
+}
+
+func testWorkflowLawChangeApproval(t *testing.T, classified bool, tier string, removing bool) {
 	t.Helper()
 	ctx := context.Background()
 	s, service, grant, privateKey := mutationDispatchFixture(t, []agentcontract.Capability{"work_transition"})
@@ -159,6 +169,10 @@ DELETE FROM write_guard`, hash, tier, hash); err != nil {
 		fields["decision_domains"] = []string{"security"}
 		fields["law_change_text_pins"] = []map[string]any{{"law_id": "law:test", "content_hash": hash}}
 	}
+	if removing {
+		fields["law_change_removals"] = []string{"law:test"}
+		delete(fields, "law_change_text_pins")
+	}
 	fields["outcome_predicates"] = []map[string]any{{"predicate_id": "predicate:primary", "ordinal": 0, "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:law", "immutable_subject_ref": "commit:fixture", "expected_result": "pass"}}}
 	for _, action := range []string{"approve_contract", "supersede_contract"} {
 		if action == "supersede_contract" {
@@ -202,11 +216,19 @@ DELETE FROM write_guard`, hash, tier, hash); err != nil {
 			approved := env
 			approved.HostApproval = signedHostApproval(privateKey, challenge, digest, scope, versions, grant.SessionRef, grant.AgentRef, env.Worktree, fixedTime(), nonceForChallenge(challenge))
 			fields["law_change_text_pins"] = []map[string]any{{"law_id": "law:test", "content_hash": "sha256:" + strings.Repeat("b", 64)}}
+			if removing {
+				delete(fields, "law_change_text_pins")
+				fields["law_change_removals"] = []string{"law:other"}
+			}
 			tampered := invokeInput(approved, input)
 			if tampered.Outcome != agentcontract.OutcomeError || tampered.Error == nil || tampered.Error.Kind != "approval_invalid" || workVersion(t, s, "work-1") != version {
 				t.Fatalf("%s accepted changed pins under the old signature: outcome=%s error=%+v", action, tampered.Outcome, tampered.Error)
 			}
 			fields["law_change_text_pins"] = []map[string]any{{"law_id": "law:test", "content_hash": hash}}
+			if removing {
+				delete(fields, "law_change_text_pins")
+				fields["law_change_removals"] = []string{"law:test"}
+			}
 			response = invokeInput(approved, input)
 			if response.Outcome != agentcontract.OutcomeOK {
 				t.Fatalf("%s with signed exact-text consent: %+v", action, response.Error)

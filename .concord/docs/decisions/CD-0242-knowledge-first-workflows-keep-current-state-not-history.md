@@ -80,6 +80,10 @@ architecture-bearing implementation work the dependency order is: accepted
 criteria, applicable design approval, validated architecture, delivery plan,
 execution loop, required preview approval, delivery.
 
+D9's preview and early visual-design approvals are ordinary questions Main asks
+the operator and records in the existing work record. They are not
+machine-enforced stage exits.
+
 Rules derived from change type and risk set each execution's mandatory stages.
 Main may add research, architecture, or planning depth. No agent may waive a
 mandatory stage or an operator approval. Current validated knowledge may
@@ -274,7 +278,10 @@ active code progress, coordination, or fresh-session resumption is accepted.
 
 ## Verification
 
-- The implementing runtime change binds the executable anchors for D2 to D13.
+- The implementing runtime change binds the executable anchors for D2 to D13,
+  except D9's preview and early visual-design approvals. Those use the agent's
+  ordinary question and existing work record, not an executable preview gate.
+  Classified contract consent does not prove approval of the shown experience.
   Planned anchors include the stage admission refusal tests, the
   resume-without-history and reviewer-repair-to-delivery acceptance fixtures,
   the administrative-recovery fixture, and the cutover interruption and

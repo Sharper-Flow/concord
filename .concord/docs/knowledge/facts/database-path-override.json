@@ -1,6 +1,6 @@
 {
   "config_coupling": {
-    "effect": "A nonempty override becomes an absolute database path. The resolver refuses an override inside a Git repository or worktree by probing the nearest existing ancestor with Git. The calling databasePath function then applies store.AdmitStorePath before store or maintenance-state access.",
+    "effect": "A nonempty override becomes an absolute database path. The resolver refuses an override inside a Git repository or worktree by probing the nearest existing ancestor with Git; a failing probe, including an absent git executable, admits the path. The calling databasePath function then applies store.AdmitStorePath before store or maintenance-state access.",
     "environments": ["development", "production", "test"],
     "read_by": {
       "path": "cmd/concord/main.go",

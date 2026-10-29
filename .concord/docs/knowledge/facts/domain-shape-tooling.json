@@ -1,6 +1,6 @@
 {
   "config_coupling": {
-    "effect": "The explicit Domain-shape check selects a boundary, data-object, config-read or reference command by its declared tool ID. Concord declares only required_checks = [go-test-race], not those four commands; missing observations therefore remain unverified. Required-check membership and a successful command exit do not establish extractor coverage or workflow execution evidence.",
+    "effect": "The explicit Domain-shape check selects a boundary, data-object, config-read or reference command by its declared tool ID. Concord declares only required_checks = [go-test-race], not those four commands; missing observations therefore remain unverified, though the boundary operation still checks declared mixed roots against the strict ratchet. Required-check membership and a successful command exit do not establish extractor coverage or workflow execution evidence.",
     "environments": ["development", "production", "test"],
     "read_by": {
       "path": "internal/store/domain_shape_checks.go",

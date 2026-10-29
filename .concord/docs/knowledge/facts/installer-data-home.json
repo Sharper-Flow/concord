@@ -1,6 +1,6 @@
 {
   "config_coupling": {
-    "effect": "The installer places its data root at data_home/concord and its stable release link at data_home/concord/current. With no explicit root, an XDG_DATA_HOME containing /opencode-projects/ is diagnosed as a session shard and replaced by HOME/.local/share. This installer rule does not change the store's DefaultPath resolver.",
+    "effect": "The installer places its data root at data_home/concord and its stable release link at data_home/concord/current. With no explicit root, an XDG_DATA_HOME containing /opencode-projects/ is diagnosed as a session shard and replaced by HOME/.local/share; an empty value is used as given and resolves relative to the working directory. This rule does not change the store's DefaultPath resolver, but the core commands the installer runs receive XDG_DATA_HOME set to the resolved data_home and no CONCORD_DB_PATH.",
     "environments": ["development", "production", "test"],
     "read_by": {
       "path": "scripts/install.py",

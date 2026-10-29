@@ -1,6 +1,6 @@
 {
   "config_coupling": {
-    "effect": "Each admitted plain invocation splits on whitespace and qualifies a verification run only when its argument vector matches exactly. The delivery proof guard and integration tooling check consume that comparison; declaring an invocation does not run it or supply passing evidence. A candidate branch cannot declare its own qualifying command.",
+    "effect": "Each admitted plain invocation splits on whitespace and qualifies a verification run only when its argument vector matches exactly. The delivery proof guard and integration tooling check consume that comparison; declaring an invocation does not run it or supply passing evidence. A candidate branch cannot declare its own qualifying command. When no manifest resolves on the default ref, both guards skip the comparison and any otherwise qualifying passing run counts.",
     "environments": ["development", "production", "test"],
     "read_by": {
       "path": "internal/store/project_tooling.go",

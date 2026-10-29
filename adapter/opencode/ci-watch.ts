@@ -59,6 +59,7 @@ type ActiveWatch = {
   watchEpoch: number
   bindingID: string | null
   lastObservation: CiWatchObservation | null
+  lastReport?: CiWaitReport
   terminalObservation?: CiWatchObservation
   consecutiveSliceFailures: number
   sessionID: string
@@ -373,6 +374,14 @@ const headPattern = new RegExp(ciWatchContract.properties.head_sha.pattern)
 const ciWatchBudgetSchema = ciWatchContract.properties.time_seconds_max
 const repoPattern = new RegExp(ciWatchRepoSchema.pattern)
 
+function modeBudget(mode: unknown): number {
+  return mode === "merge" ? ciWatchBudgetSchema.maximum : ciWatchBudgetSchema.default
+}
+
+function watchBudget(args: CiWatchArgs): number {
+  return args.time_seconds_max ?? modeBudget(args.mode)
+}
+
 const CI_WATCH_BOUNDARY =
   "Concord worker lanes hold no Concord tool access; the CI watcher is a coordinator surface"
 
@@ -458,8 +467,8 @@ export function validateCiWatchArgs(args: unknown): CiWatchArgs | string {
   }
   if (record.time_seconds_max !== undefined) {
     const budget = record.time_seconds_max
-    if (typeof budget !== "number" || !Number.isInteger(budget) || budget < ciWatchBudgetSchema.minimum || budget > ciWatchBudgetSchema.maximum) {
-      return `time_seconds_max must be an integer between ${ciWatchBudgetSchema.minimum} and ${ciWatchBudgetSchema.maximum}`
+    if (typeof budget !== "number" || !Number.isInteger(budget) || budget < ciWatchBudgetSchema.minimum || budget > modeBudget(record.mode)) {
+      return `time_seconds_max must be an integer between ${ciWatchBudgetSchema.minimum} and ${modeBudget(record.mode)} for ${record.mode ?? "checks"} mode`
     }
   }
   return {
@@ -523,7 +532,7 @@ function watchResult(watch: ActiveWatch, status: "started" | "already_watching")
       selector: watch.args.selector,
       ...(watch.args.head_sha === undefined ? {} : { head_sha: watch.args.head_sha }),
       mode: watch.args.mode ?? "checks",
-      time_seconds_max: watch.args.time_seconds_max ?? 1800,
+      time_seconds_max: watchBudget(watch.args),
       state_file: watch.stateFile,
       delivery: "the terminal JSON report arrives as a message in this session when the wait ends",
     }),
@@ -651,6 +660,7 @@ async function runVerbSlice(watch: ActiveWatch): Promise<CiWaitReport> {
   if (report !== null) {
     // Projected beside this exact report; the terminal settle passes it back.
     watch.lastObservation = projectCiObservation(watch, report, sliceStartedAt)
+    watch.lastReport = report
     peerSequence++
     return report
   }
@@ -674,7 +684,7 @@ function parseVerbReport(stdout: string): CiWaitReport | null {
 }
 
 function watchCeilingMs(watch: ActiveWatch): number {
-  const budget = (watch.args.time_seconds_max ?? 1800) * 1000
+  const budget = watchBudget(watch.args) * 1000
   return budget + config.sliceTimeoutMs + 30_000
 }
 
@@ -684,6 +694,7 @@ async function runWatch(watch: ActiveWatch): Promise<void> {
     for (;;) {
       if (Date.now() - watch.startedAt >= watchCeilingMs(watch)) {
         await settle(watch, {
+          ...watch.lastReport,
           status: "timeout",
           reason: `the watcher ceiling of ${Math.round(watchCeilingMs(watch) / 1000)}s expired while the wait stayed pending`,
         })
@@ -736,7 +747,7 @@ async function runWatch(watch: ActiveWatch): Promise<void> {
 function noticeText(watch: ActiveWatch): string {
   const selector = `${watch.args.selector.kind}:${watch.args.selector.value}`
   const mode = watch.args.mode ?? "checks"
-  const budget = watch.args.time_seconds_max ?? 1800
+  const budget = watchBudget(watch.args)
   return `⏳ Watching CI for ${watch.args.repo} ${selector} (${mode} mode, up to ${budget}s). This session stays idle; the result arrives here when the wait ends.`
 }
 

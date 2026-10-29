@@ -289,7 +289,7 @@ test("watcher contract preserves shared runtime bounds", () => {
   expect(contract.properties.selector.properties.kind).toMatchObject({ type: "string", enum: ["pr", "sha", "run"] })
   expect(contract.properties.selector.properties.value).toMatchObject({ type: "string", minLength: 1, maxLength: 64 })
   expect(contract.properties.mode).toMatchObject({ type: "string", enum: ["checks", "merge"] })
-  expect(contract.properties.time_seconds_max).toMatchObject({ type: "integer", minimum: 0, maximum: 1800 })
+  expect(contract.properties.time_seconds_max).toMatchObject({ type: "integer", minimum: 0, maximum: 7200, default: 1800 })
   // The execution validator enforces the published enums at runtime, not
   // only in the schema document.
   expect(validateCiWatchArgs({ repo: "owner/name", selector: { kind: "branch", value: "main" } })).toBeString()
@@ -301,6 +301,12 @@ test("watcher contract preserves shared runtime bounds", () => {
   expect(validateCiWatchArgs({ ...watchArgs, time_seconds_max: "900" })).toBeObject()
   for (const budget of [-1, 1801, 1.5, "abc", "18.5"]) {
     expect(validateCiWatchArgs({ ...watchArgs, time_seconds_max: budget }), String(budget)).toBeString()
+  }
+  for (const budget of [0, 1801, 7200, "7200"]) {
+    expect(validateCiWatchArgs({ ...watchArgs, mode: "merge", time_seconds_max: budget })).toBeObject()
+  }
+  for (const budget of [-1, 7201, 1.5]) {
+    expect(validateCiWatchArgs({ ...watchArgs, mode: "merge", time_seconds_max: budget })).toBeString()
   }
   // Only repo and selector are required, on the schema and at execution.
   expect(validateCiWatchArgs({ repo: "owner/name" })).toBeString()
@@ -828,7 +834,7 @@ test("the host publishes concord_ci_watch args as per-field argument schemas", (
   expect(selector).toMatchObject({ type: "object", additionalProperties: false, required: ["kind", "value"] })
   expect((selector.properties as Record<string, unknown>).kind).toMatchObject({ enum: ["pr", "sha", "run"] })
   expect(args.mode).toMatchObject({ enum: ["checks", "merge"] })
-  expect(args.time_seconds_max).toMatchObject({ type: "integer", minimum: 0, maximum: 1800 })
+  expect(args.time_seconds_max).toMatchObject({ type: "integer", minimum: 0, maximum: 7200, default: 1800 })
 })
 
 test("a JSON-Schema envelope of the arguments is refused, never unwrapped", async () => {
@@ -1364,6 +1370,69 @@ test("an idle event for a session with no queued report, or an event of another 
   await plugin.event({ event: { type: "session.status", properties: { sessionID: SESSION, status: { type: "idle" } } } })
   expect(ciWatchRedelivery(SESSION)).toBeNull()
   expect(fixture.posts.filter((post) => post.url === "/session/{id}/prompt_async")).toHaveLength(0)
+})
+
+test("one default merge watch survives thirty minutes and delivers the merge outcome", async () => {
+  const fixture = hostFixture({ reply: "parented" })
+  hostControlPlane().bind(fixture.client)
+  bindCiWatchClient(fixture.client)
+  configureCoreBinary("/synthetic/concord")
+  configureCiWatch({ stateDir: STATE_DIR, idlePollMs: 2, confirmPollMs: 2, confirmWindowMs: 20 })
+  let now = Date.now()
+  const clock = spyOn(Date, "now").mockImplementation(() => now)
+  const requests: Record<string, unknown>[] = []
+  configureCiWatch({ spawner: async (_argv, stdin) => {
+    requests.push(JSON.parse(stdin))
+    if (requests.length === 1) {
+      now += 35 * 60_000
+      return { exitCode: 0, stdout: JSON.stringify({ status: "pending", merge_queue: { present: true, state: "AWAITING_CHECKS", position: 1 } }), stderr: "" }
+    }
+    return { exitCode: 0, stdout: JSON.stringify({ status: "merged" }), stderr: "" }
+  } })
+  try {
+    const started = await startWatch(fixture, { ...watchArgs, mode: "merge" })
+    expect(started.time_seconds_max).toBe(7200)
+    await ciWatchSettled(String(started.watch_id))
+    expect(requests).toHaveLength(2)
+    expect(requests[0].state_file).toBe(requests[1].state_file)
+    expect(requests[0].time_seconds_max).toBeUndefined()
+    const notice = fixture.posts.find((post) => post.url === "/session/{id}/message")!
+    expect(JSON.stringify(notice.body)).toContain("7200s")
+    const delivery = fixture.posts.find((post) => post.url === "/session/{id}/prompt_async")!
+    expect((delivery.body as { parts: Array<{ text: string }> }).parts[0].text).toContain('"status": "merged"')
+  } finally {
+    clock.mockRestore()
+  }
+})
+
+test("the watcher ceiling preserves the last queue observation and explicit shorter budget", async () => {
+  const fixture = hostFixture({ reply: "parented" })
+  hostControlPlane().bind(fixture.client)
+  bindCiWatchClient(fixture.client)
+  configureCoreBinary("/synthetic/concord")
+  configureCiWatch({ stateDir: STATE_DIR, idlePollMs: 2, confirmPollMs: 2, confirmWindowMs: 20, sliceTimeoutMs: 1 })
+  let now = Date.now()
+  const clock = spyOn(Date, "now").mockImplementation(() => now)
+  let calls = 0
+  configureCiWatch({ spawner: async (_argv, stdin) => {
+    calls++
+    expect(JSON.parse(stdin).time_seconds_max).toBe(600)
+    now += 700_000
+    return { exitCode: 0, stdout: JSON.stringify({ status: "pending", merge_queue: { present: true, state: "AWAITING_CHECKS", position: 2 } }), stderr: "" }
+  } })
+  try {
+    const started = await startWatch(fixture, { ...watchArgs, mode: "merge", time_seconds_max: 600 })
+    expect(started.time_seconds_max).toBe(600)
+    await ciWatchSettled(String(started.watch_id))
+    expect(calls).toBe(1)
+    const delivery = fixture.posts.find((post) => post.url === "/session/{id}/prompt_async")!
+    const text = (delivery.body as { parts: Array<{ text: string }> }).parts[0].text
+    expect(text).toContain('"status": "timeout"')
+    expect(text).toContain('"state": "AWAITING_CHECKS"')
+    expect(text).toContain('"position": 2')
+  } finally {
+    clock.mockRestore()
+  }
 })
 
 test("a new watch posts one noReply notice naming repo, selector, mode, and budget, and a reused watch posts none", async () => {

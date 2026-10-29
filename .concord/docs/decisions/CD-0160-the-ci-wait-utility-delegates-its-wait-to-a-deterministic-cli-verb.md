@@ -64,9 +64,12 @@ The report status is closed: `pending` means re-invoke; `success`, `failure`,
 
 The first invocation records `started_at`, `deadline_at`, and the iteration
 count in a state file under the operator's state directory. Later invocations
-resume that state. The caller's `time_seconds_max` is a ceiling bounded at
-1800 seconds; a larger or negative value is refused. A caller cannot extend a
-deadline that has started.
+resume that state. Checks mode defaults to and caps at 1800 seconds. Merge
+mode defaults to and caps at 7200 seconds, so one watch can cover head checks
+and a merge-queue run longer than thirty minutes. An explicit
+`time_seconds_max` may shorten the selected mode's budget; a larger or
+negative value is refused. A caller cannot extend a deadline that has started,
+including by changing the budget or mode on resume.
 
 At the deadline the wait returns `timeout`, and a pending check set at the
 bound is a timeout. Per-poll sleeps stay inside the deadline, and the final
@@ -74,6 +77,13 @@ slice is truncated by a 5-second shutdown margin. A hung `gh` command runs in
 its own process group and is killed at its command timeout, the slice end, or
 the deadline, whichever lands first, so a hung command cannot prevent
 termination.
+
+A merge-mode timeout carries the last observed queue entry's state and
+position, or its observed absence, in `merge_queue`. No successful queue read
+means that field is absent, not that the pull request left the queue. The
+state file preserves this observation across slices. The adapter's outer
+watcher ceiling uses the same mode budget and retains the last queue
+observation if that ceiling ends the watch before the verb reports.
 
 ### D4. Classification derives from observed results only
 
@@ -148,5 +158,10 @@ own words, never a success.
   `TestCiWaitPRExpectedHeadJudgesOnlyThePushedCommit` and
   `TestCiWaitPRExpectedHeadNeverReachedIsSuperseded` for a named commit; and
   the selector routing for PR, SHA, and run id.
+- `TestCiWaitMergeOutcomeAfterThirtyMinutes` proves one carried merge wait
+  reports merged, dropped, and failed-check outcomes after thirty minutes.
+  `TestCiWaitModeBudgets` proves the defaults and refusal bounds;
+  `TestCiWaitMergeTimeoutRetainsQueueObservation` proves timeout detail
+  survives a resumed slice.
 - `go test -race ./internal/ciwait/ ./cmd/concord/` proves the verb inside its
   engine and command package suites, including `TestCiWaitIngress`.

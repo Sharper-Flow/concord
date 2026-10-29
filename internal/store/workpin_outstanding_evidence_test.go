@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"reflect"
 	"slices"
-	"strings"
 	"testing"
 
 	"github.com/sharper-flow/concord/internal/workflowproof"
@@ -118,7 +117,7 @@ func TestWorkPinOutstandingEvidenceKindsContinuity(t *testing.T) {
 	const workID = "workpin-outstanding-continuity"
 	seedLawContextFixture(t, s, workID)
 	binding := WorkflowArchitectureBinding{
-		DomainRegistryContentHash: "sha256:" + strings.Repeat("b", 64), HomeDomainID: "root", AffectedDomainIDs: []string{"root"},
+		HomeDomainID: "root", AffectedDomainIDs: []string{"root"},
 		DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{},
 		VerificationObligations: []WorkflowVerificationObligation{{LawID: "spec:one", ObligationID: "verification"}},
 	}

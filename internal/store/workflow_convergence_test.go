@@ -15,19 +15,13 @@ func TestCorrectionOpenFindingIDsAreValidated(t *testing.T) {
 	}
 }
 
-// An operator stop resolves a standing correction: the cancelled lifecycle
-// cancels the workflow instance. The correction is Main's rejection of a
-// completed result (CD-0242 D5); no attempt count or escalation wall is
-// needed to reach it (CD-0242 D6).
+// An operator stop cancels the workflow despite a standing correction.
 func TestCorrectionResolvesThroughOperatorStop(t *testing.T) {
 	const workID = "convergence-operator-stop"
-	f := seedCrossAttemptFixture(t, workID)
-	s := f.s
-	defer s.Close()
-	f.buildTwoAttemptHistory(t)
-	epoch := crossAttemptDispatchEpoch(t, s, workID, f.attemptR)
-	if _, err := f.invokeReject(t, readWorkVersion(t, s, workID), f.attemptR, epoch, "stop", 30); err != nil {
-		t.Fatalf("Main rejects the research result: %v", err)
+	j := pReturnReviewFixture(t, workID, "workflow.break_fix", "correction_required")
+	s := j.s
+	if err := j.action(t, "request_correction", pReviewCorrectionPayload(t), j.fixture.owner); err != nil {
+		t.Fatalf("record correction: %v", err)
 	}
 	pin, err := ReadWorkPin(context.Background(), s, workID)
 	if err != nil {

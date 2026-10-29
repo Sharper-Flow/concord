@@ -42,4 +42,3 @@ worker-retry eligibility or attribution subsystem.
 - `internal/store.TestClaimLandingRefreshesRestartedHostIdentity` checks refresh,
   repeated landing, retained identity and reconciliation.
 - `python3 scripts/check-knowledge-index.py` checks identity and hashes.
-- `python3 scripts/check-doc-contract.py` checks the outline.

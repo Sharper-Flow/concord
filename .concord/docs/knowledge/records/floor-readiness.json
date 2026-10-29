@@ -3,10 +3,6 @@
     "tier": "derived"
   },
   "date": "2026-08-24T00:00:00Z",
-  "evidence": [
-    ".concord/docs/floor-readiness.v1.json",
-    "scripts/check-floor-readiness.py"
-  ],
   "id": "floor-readiness",
   "kind": "reference",
   "path": ".concord/docs/floor-readiness.md",
@@ -17,12 +13,12 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:1bc40d048811a9f1afa94b26cb16cdf5a0891fd9adb168dc6f9c37407af0762e",
+  "sha256": "sha256:81e3d0ce7c81b424dcfb95ef2ab4e4b9b89f0598babf428b34d358f9d95eb147",
   "status": "published",
-  "summary": "Keeps the first-usable floor definition as history and describes the floor-readiness contract and the check that measures each floor condition.",
+  "summary": "Defines the six first-usable floor conditions; rollout-plan.md holds the release-evidence bar.",
   "tags": [
     "floor",
     "readiness"
   ],
-  "title": "floor readiness"
+  "title": "first-usable floor"
 }

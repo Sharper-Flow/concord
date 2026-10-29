@@ -61,7 +61,6 @@
                 "start_execution",
                 "checkpoint_execution",
                 "bind_evidence",
-                "declare_impact",
                 "link_successor",
                 "checkpoint_context",
                 "cross_context_boundary",
@@ -135,7 +134,6 @@
           "start_execution",
           "checkpoint_execution",
           "bind_evidence",
-          "declare_impact",
           "link_successor",
           "record_verdict",
           "confirm_premise",
@@ -202,15 +200,6 @@
           },
           {
             "id": "bind_evidence",
-            "consequence": "internal_sqlite",
-            "approval": "none",
-            "execution_mode": "hold",
-            "payload": {
-              "fields": []
-            }
-          },
-          {
-            "id": "declare_impact",
             "consequence": "internal_sqlite",
             "approval": "none",
             "execution_mode": "hold",
@@ -468,14 +457,14 @@
             "target": "execution"
           }
         ],
-        "digest": "sha256:acbf930ac7ac11c5f3adccd761f6ad870af787c425704fec25b3abf640eaff2f"
+        "digest": "sha256:b2547151981c2c9962f8cfb7c65e85e5970a0eddc6e8b03da2ff684e26d21282"
       }
     },
     {"id": "outcome-exists-valid", "schema": "workflow-outcome.schema.json", "valid": true, "instance": {"kind": "exists", "surface": "git:tree", "subjects": ["path:cmd/concord"]}},
     {"id": "outcome-absent-valid", "schema": "workflow-outcome.schema.json", "valid": true, "instance": {"kind": "absent", "surface": "git:tree", "subjects": ["path:legacy"], "distinguish_from": ["archived", "relocated"]}},
     {"id": "outcome-research-valid", "schema": "workflow-outcome.schema.json", "valid": true, "instance": {"kind": "outcome", "allowed": ["no_change"]}},
     {"id": "outcome-check-valid", "schema": "workflow-outcome.schema.json", "valid": true, "instance": {"kind": "check", "check_ref": "check:workflow-proof", "immutable_subject_ref": "commit:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "expected_result": "pass"}},
-    {"id": "outcome-spike-record-valid", "schema": "workflow-outcome.schema.json", "work_kind": "architecture_spike", "valid": true, "instance": {"kind": "outcome", "allowed": ["accepted_decision"], "decision_record": {"question": "Which public mechanism should bind state?", "options_considered": ["sqlite", "remote"], "decision": "accepted_decision", "rationale": "The local authority is sufficient.", "consequences": ["One writer remains authoritative."], "inputs": [".concord/docs/decisions/CD-0175-decision-record-outline.md"], "poc_findings": "No POC built.", "supersedes": null, "superseded_by": null, "unknowns": [], "required_to_decide": [], "reviewer_actor_ref": "actor:017389e1649c56f00f9265c121eed78cb73aca12052cefae3df35d9036a029bc", "operator_approval_ref": "approval:spike-1"}}},
+    {"id": "outcome-spike-record-valid", "schema": "workflow-outcome.schema.json", "work_kind": "architecture_spike", "valid": true, "instance": {"kind": "outcome", "allowed": ["accepted_decision"], "decision_record": {"question": "Which public mechanism should bind state?", "options_considered": ["sqlite", "remote"], "decision": "accepted_decision", "rationale": "The local authority is sufficient.", "consequences": ["One writer remains authoritative."], "inputs": [".concord/docs/decisions/CD-0013-workflow-engine-mechanism.md"], "poc_findings": "No POC built.", "supersedes": null, "superseded_by": null, "unknowns": [], "required_to_decide": [], "reviewer_actor_ref": "actor:017389e1649c56f00f9265c121eed78cb73aca12052cefae3df35d9036a029bc", "operator_approval_ref": "approval:spike-1"}}},
     {"id": "outcome-spike-no-record-valid", "schema": "workflow-outcome.schema.json", "work_kind": "architecture_spike", "valid": true, "instance": {"kind": "outcome", "allowed": ["accepted_decision"]}},
     {"id": "outcome-extra-property-invalid", "schema": "workflow-outcome.schema.json", "valid": false, "expected_error": "unknown properties", "instance": {"kind": "exists", "surface": "git:tree", "subjects": ["path:cmd/concord"], "extra": true}},
     {"id": "outcome-unknown-kind-invalid", "schema": "workflow-outcome.schema.json", "valid": false, "expected_error": "oneOf mismatch", "instance": {"kind": "expression", "surface": "git:tree", "subjects": ["path:cmd/concord"]}}

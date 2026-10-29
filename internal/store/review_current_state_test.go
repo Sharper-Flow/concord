@@ -369,10 +369,4 @@ func TestReviewStateReadsCrucialFromEffectiveSize(t *testing.T) {
 	if !read() {
 		t.Fatal("a crucial model size is not crucial")
 	}
-	if _, err := db.Exec(`INSERT INTO work_size_overrides VALUES('work-history','larger')`); err != nil {
-		t.Fatal(err)
-	}
-	if read() {
-		t.Fatal("the operator's larger size does not govern over the model's crucial")
-	}
 }

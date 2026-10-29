@@ -5,7 +5,6 @@
     "tier": "legislated"
   },
   "date": "2026-08-30T00:00:00Z",
-  "doc_contract_profile": "legacy",
   "home_domain_id": "product-root:concord",
   "id": "CD-0089",
   "kind": "decision",
@@ -36,7 +35,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:a3bc61f34658005be89baada3947635c5bcfa05081a72ef7799ec566d111d88b",
+  "sha256": "sha256:9f81b894e15292a6e8f13e3fa77cf5023d86446edad2a9697529a8e2d4275f49",
   "status": "accepted",
   "summary": "priorities.md owns Concord's self-development route, including new managed assignments, in-flight outside-workflow work, and authorized defect repair. Linear MCP owns planning under CD-0213. Pull requests and required checks retain main-branch review and merge authority; CD-0241 defines eligible rapid-phase local integration evidence without waiving independent review.",
   "tags": [

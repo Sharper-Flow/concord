@@ -5,7 +5,6 @@
     "tier": "legislated"
   },
   "date": "2026-08-23T00:00:00Z",
-  "doc_contract_profile": "legacy",
   "evidence": [
     ".concord/scenarios/workflow-engine.v1.json",
     "internal/store/workflow_conformance_test.go",
@@ -23,9 +22,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:9b8b86227ac7d11764ecc3595c44cba0497adf251a12db5111cf3c8054df9e3a",
+  "sha256": "sha256:cd721741b19513a664325082423efba8e6ef4bad854c6d0bd97ad0a9d2ed2e8c",
   "status": "accepted",
-  "summary": "The conformance corpus runs current production definitions by reference, with no version pins (CD-0242 D14). Its twelve scenarios and fifteen cases run through the production action boundary and assert authoritative rows and events. No definition exists solely to give the corpus a non-Product-changing target. Obligations the corpus does not carry, such as Domain overlap refusal, require their own current behavioral controls.",
+  "summary": "The conformance corpus runs current production definitions by reference without version pins, through the production action boundary. No definition exists solely to give the corpus a non-Product-changing target. Outcome contracts, completion atomicity, exact evidence subjects and current Review retain behavioral proof. Store controls prove that a shared Domain alone blocks no boundary under CD-0222 D6.",
   "tags": [
     "conformance",
     "workflow-definitions",

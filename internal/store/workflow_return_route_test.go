@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -15,18 +14,6 @@ type workflowReturnRouteFixture struct {
 	store    *Store
 	owner    WorkflowActor
 	operator WorkflowActor
-}
-
-func attributionInactiveWorkflowHeadForTest(t *testing.T, ref string) RegisteredDefinition {
-	t.Helper()
-	definition := cloneWorkflowDefinition(mustBuiltinDefinition(t, ref).Definition)
-	definition.Ref = "workflow.attribution_inactive_fixture"
-	definition.Capabilities = slices.DeleteFunc(definition.Capabilities, func(capability WorkflowCapability) bool { return capability == WorkflowCapabilityFailureAttribution })
-	registered, err := BuiltinWorkflowRegistry().Register(definition)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return registered
 }
 
 func seedWorkflowReturnRouteFixture(t *testing.T, workID, definitionRef, verdictStep string) workflowReturnRouteFixture {
@@ -121,7 +108,7 @@ func seedWorkflowReturnRouteFixtureWithSource(t *testing.T, workID string, regis
 	}
 	if registered.Definition.ChangesProductTruth != nil && *registered.Definition.ChangesProductTruth {
 		contractPayload["architecture_binding"] = WorkflowArchitectureBinding{
-			DomainRegistryContentHash: "sha256:" + strings.Repeat("b", 64), HomeDomainID: "root", AffectedDomainIDs: []string{"root"},
+			HomeDomainID: "root", AffectedDomainIDs: []string{"root"},
 			DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{},
 			VerificationObligations: []WorkflowVerificationObligation{},
 		}
@@ -223,7 +210,7 @@ func testWorkflowReturnRoute(t *testing.T, id, family, verdictStep, effect strin
 	}
 	acceptCurrentReviewForTest(t, j.fixture, j.repo, "ready_for_final_proof")
 	pin := issue1013Pin(t, j.s, id)
-	if pin.Review == nil || workflowAdmitReview(*pin.Review, "") != nil {
+	if pin.Review == nil || workflowAdmitReview(*pin.Review) != nil {
 		t.Fatal("fresh accepted readiness did not settle the Review boundary")
 	}
 	if countWorkflowCompletionEvents(t, j.s, id) != 0 {
@@ -260,7 +247,7 @@ func testPReviewCorrection(t *testing.T, id, family, effect string) {
 		t.Fatal(err)
 	}
 	reviewGateRequireStep(t, j.s, id, effect)
-	correction, err := workflowCorrectionContextForDispatch(t.Context(), j.s.db, id, effect, "attempt:next")
+	correction, err := workflowCorrectionContext(t.Context(), j.s.db, id, effect)
 	if err != nil || correction == nil || len(correction.PredicateIDs) != 1 || correction.PredicateIDs[0] != "predicate:return-route" {
 		t.Fatalf("correction context=%+v err=%v", correction, err)
 	}
@@ -284,9 +271,8 @@ func TestNonOKVerdictCorrectionReturnsBreakFixToRepair(t *testing.T) {
 	testPReviewCorrection(t, "return-route-break-fix-correction", "workflow.break_fix", "repair")
 }
 
-func TestVerdictCorrectionRequiresAcceptedWorkerDelivery(t *testing.T) {
+func TestVerdictCorrectionRequiresRecordedReview(t *testing.T) {
 	j := pReturnReviewFixture(t, "return-route-requires-accepted-delivery", "workflow.implementation", "")
-	attempt, epoch := completeCurrentReviewForTest(t, j.fixture, j.repo, "correction_required")
 	before := j.effects(t)
 	if err := issue1013Preflight(t, j.s, j.workID, "request_correction", pReviewCorrectionPayload(t), j.fixture.owner); err == nil {
 		t.Fatal("an unaccepted Review authorized correction")
@@ -294,9 +280,7 @@ func TestVerdictCorrectionRequiresAcceptedWorkerDelivery(t *testing.T) {
 	if j.effects(t) != before {
 		t.Fatal("refused correction changed durable state")
 	}
-	if err := j.action(t, "accept_worker_result", map[string]any{"attempt_id": attempt, "attempt_epoch": epoch}, j.fixture.owner); err != nil {
-		t.Fatal(err)
-	}
+	acceptCurrentReviewForTest(t, j.fixture, j.repo, "correction_required")
 	if err := issue1013Preflight(t, j.s, j.workID, "request_correction", pReviewCorrectionPayload(t), j.fixture.owner); err != nil {
 		t.Fatalf("accepted current Review did not authorize correction: %v", err)
 	}
@@ -434,51 +418,17 @@ func countWorkflowCompletionEvents(t *testing.T, s *Store, id string) int {
 	return count
 }
 
-func dispatchVerifyReviewAttempt(t *testing.T, f workflowReturnRouteFixture, id string) {
-	t.Helper()
-	seedCheckpointReviewAcceptedDelivery(t, f.store, id, f.owner, checkpointEffectStep(t, f.store, id, "verify"), "verify")
-	lane := reviewGateLane(t, "review")
-	laneDigest := registeredLaneIdentity(t, "review")
-	attempt := "attempt:" + id + ":verify-review"
-	packet := joinPacketFor(t, f.store, id, "verify", attempt, "review", laneDigest)
-	if _, err := dispatchJoinAttempt(context.Background(), t, f.store, id, readWorkVersion(t, f.store, id), f.owner, packet); err != nil {
-		t.Fatalf("review dispatch at the verify checkpoint refused: %v", err)
-	}
-	var digest string
-	if err := f.store.db.QueryRow(`SELECT json_extract(payload,'$.worker_packet_digest') FROM worker_authorizations WHERE work_id=? ORDER BY seq DESC LIMIT 1`, id).Scan(&digest); err != nil {
-		t.Fatal(err)
-	}
-	dispatch := Event{EventID: "verify-review-dispatch-" + id, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: id, Actor: "worker:test", OccurredAt: time.Unix(30, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerDispatched), Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: attempt, LaneID: lane.ID, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, ReadbackModel: preferredModelForLane(lane), PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion, PacketDigest: digest})}
-	if err := f.store.Transact(context.Background(), func(tx *Transaction) error {
-		prepared, err := PrepareLaneActorDispatch(context.Background(), tx, dispatch, f.owner.PrincipalRef, f.owner.ClientRef)
-		if err != nil {
-			return err
-		}
-		_, err = AppendLaneActorDispatchTx(context.Background(), tx, prepared)
-		return err
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if err := ApplyOperation(context.Background(), f.store, Operation{Events: []Event{workerCompleteEventForLane(id, "verify-review-completed-"+id, attempt, lane, time.Unix(31, 0).UTC(), workerFixtureDirectory(t, f.store, id))}}); err != nil {
-		t.Fatal(err)
-	}
-}
-
 func TestVerdictCorrectionAdmitsReviewEvidenceAccept(t *testing.T) {
 	j := pReturnReviewFixture(t, "return-route-review-evidence-correction", "workflow.break_fix", "")
-	attempt, epoch := completeCurrentReviewForTest(t, j.fixture, j.repo, "correction_required")
-	if err := j.action(t, "accept_worker_result", map[string]any{"attempt_id": attempt, "attempt_epoch": epoch}, j.fixture.owner); err != nil {
-		t.Fatal(err)
-	}
+	acceptCurrentReviewForTest(t, j.fixture, j.repo, "correction_required")
 	if err := j.action(t, "request_correction", pReviewCorrectionPayload(t), j.fixture.owner); err != nil {
 		t.Fatalf("correction after exact Review acceptance: %v", err)
 	}
 	reviewGateRequireStep(t, j.s, j.workID, "repair")
 }
 
-func TestVerdictCorrectionRefusesUnacceptedReviewDelivery(t *testing.T) {
+func TestVerdictCorrectionRefusesUnrecordedReview(t *testing.T) {
 	j := pReturnReviewFixture(t, "return-route-unaccepted-review-delivery", "workflow.break_fix", "")
-	completeCurrentReviewForTest(t, j.fixture, j.repo, "correction_required")
 	before := j.effects(t)
 	entry := mustBuiltinDefinition(t, "workflow.break_fix")
 	available, _, err := workflowCorrectionRequestAdmissionStateForRegistry(t.Context(), j.s.db, j.workID, entry.Definition, "repair", "return_route_test", 0, BuiltinWorkflowRegistry())

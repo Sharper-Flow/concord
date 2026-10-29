@@ -29,7 +29,7 @@ const (
 func seedObservationLawBoundary(t *testing.T) (*store.Store, *Service, Authority, string) {
 	t.Helper()
 	ctx := context.Background()
-	s, service, grant := claimsFixture(t)
+	s, service, grant := observationFixture(t)
 
 	var projectVersion int64
 	if err := s.DatabaseForTesting().QueryRow(`SELECT version FROM projects WHERE id='project-1'`).Scan(&projectVersion); err != nil {
@@ -228,8 +228,8 @@ func runStaleLawBoundaryRefusal(t *testing.T, build func(idempotencyKey, observa
 	if strings.Join(stale.RecoveryActions, ",") != "supersede_contract,terminal_work" {
 		t.Fatalf("refusal recovery choices=%v, want [supersede_contract terminal_work]", stale.RecoveryActions)
 	}
-	if response.Error.RecoveryAction.Kind != "request_approval" {
-		t.Fatalf("refusal recovery action=%q, want request_approval", response.Error.RecoveryAction.Kind)
+	if response.Error.RecoveryAction.Kind != "reconcile_operation" {
+		t.Fatalf("refusal recovery action=%q, want reconcile_operation", response.Error.RecoveryAction.Kind)
 	}
 
 	// The refusal left no effect: no event, no observation row, no version
@@ -254,11 +254,6 @@ func runStaleLawBoundaryRefusal(t *testing.T, build func(idempotencyKey, observa
 	}
 	if browse.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("read-only scope inspection refused while the mutation boundary refused: %+v", browse.Error)
-	}
-	// The public overlap inspection reports no overlap, so the refusal above
-	// is the law half and not the overlap half.
-	if err := store.InspectWorkflowDomainOverlap(ctx, s, observationBoundaryWork); err != nil {
-		t.Fatalf("read-only overlap inspection failed while the boundary refused: %v", err)
 	}
 }
 

@@ -76,10 +76,18 @@ func TestNativeOracleStageStreamCutByWaitDelayIsIncomplete(t *testing.T) {
 	}
 }
 
+func nativeOutputVerifyRequest(id string) WorktreeVerifyRequest {
+	return WorktreeVerifyRequest{
+		WorkID: "work-w", ProjectID: "project-w", LeaseID: id, RequestID: "request-" + id, PrincipalRef: "principal-1",
+		Owner:   SessionWorktreeOwner{ClientRef: "client-1", AgentRef: "agent-1", SessionRef: "session-1"},
+		Command: []string{"git", "rev-parse", "--verify", "HEAD^{commit}"}, Runner: ExecGitRunner{}, SupportedBudgetSeconds: 30,
+	}
+}
+
 func seedNativeOutputLease(t *testing.T) (*Store, WorktreeVerifyResult, []byte, []byte) {
 	t.Helper()
 	s, repo := realGitTiersFixture(t)
-	r, err := s.VerifyWorktree(context.Background(), oracleRealVerifyRequest("native-output", nil))
+	r, err := s.VerifyWorktree(context.Background(), nativeOutputVerifyRequest("native-output"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -213,7 +221,7 @@ func TestNativeOracleStreamLifetime(t *testing.T) {
 
 func TestNativeOracleMigrationLegacyNulls(t *testing.T) {
 	s, _ := realGitTiersFixture(t)
-	r, err := s.VerifyWorktree(context.Background(), oracleRealVerifyRequest("legacy-null", nil))
+	r, err := s.VerifyWorktree(context.Background(), nativeOutputVerifyRequest("legacy-null"))
 	if err != nil {
 		t.Fatal(err)
 	}

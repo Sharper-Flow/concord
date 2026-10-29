@@ -87,7 +87,7 @@ func agentCurrentEffects(t *testing.T, s *store.Store) string {
 	for _, table := range []string{
 		"store_sequences", "effect_receipts", "work_items", "work_projects",
 		"workflow_instances", "workflow_contracts", "workflow_phase_exits", "relations",
-		"workflow_actors", "workflow_step_epochs", "workflow_action_obligations",
+		"workflow_actors", "workflow_step_epochs",
 		"workflow_step_completions", "workflow_evidence_bindings", "workflow_delivery_state",
 		"workflow_overlap_resolutions", "work_context_state", "domain_observations",
 		"workflow_review_state", "worktree_verify_leases", "worktree_entries", "worktree_claims",

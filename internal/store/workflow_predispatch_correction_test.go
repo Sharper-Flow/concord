@@ -61,8 +61,8 @@ func TestPredispatchContractCorrectionPreservesExecutionIdentity(t *testing.T) {
 		t.Fatalf("correct before dispatch: %v", err)
 	}
 	pin, err := ReadWorkPin(ctx, s, workID)
-	if err != nil || pin.Attempt != nil {
-		t.Fatalf("predispatch correction execution identity: pin=%+v err=%v", pin, err)
+	if err != nil || pin.WorkID != workID {
+		t.Fatalf("contract correction lost its current work identity: pin=%+v err=%v", pin, err)
 	}
 	contract, err := s.ActiveWorkflowContract(ctx, workID)
 	if err != nil || contract.Version != 2 || contract.Premise != "corrected predicate subject" {

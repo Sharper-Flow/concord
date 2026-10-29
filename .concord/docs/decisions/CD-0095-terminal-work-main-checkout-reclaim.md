@@ -23,8 +23,7 @@ so the operator removed the worktree by hand and the Concord projection kept
 a stale claim.
 
 A terminal work item holds no live implementation surface. Its branch is
-merged or retired, its workflow is closed, and no lane holds authority in its
-worktree. Removing that worktree from the default checkout retires an
+merged or retired and its workflow is closed. Removing that worktree from the default checkout retires an
 implementation surface instead of disturbing active work.
 
 ## Decision
@@ -75,4 +74,3 @@ before. The terminality condition applies only to main-checkout grants.
   linked-worktree path for a non-terminal work item.
 - `TestMainCheckoutAllowlistDeclaresBothSides` proves the closed conditional
   set and its single entry.
-- The document contract and knowledge-closure validators pass.

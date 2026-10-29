@@ -2,8 +2,8 @@
 
 - **Status:** Accepted
 - **Date:** 2026-09-27
-- **Scope:** The workflow start and complete actions, the Domain-overlap peer
-  marker, the lifecycle completed gate, and the tests that pin them
+- **Scope:** The workflow start and complete actions, the execution-start
+  fact, the lifecycle completed gate, and the tests that pin them
 - **Related:** CD-0144, CD-0094, CD-0013, CD-0166
 - **Approval:** The operator approved this change in session 2026-09-27 on
   work item `work-4c428253aab7dc64d936e08b`
@@ -13,10 +13,8 @@
 
 A workflow completion recorded `workflow.completed` and left the work item
 `in_progress`. The lifecycle and the Linear status stranded while the instance
-showed completed. The exclusivity marker rode the lifecycle (CD-0144 D3), and
-the lifecycle moved only when an external-effect step began, so the marker
-named a boundary the lifecycle no longer guaranteed once any action could
-start an item. A lifecycle `completed` target could also bypass the workflow
+showed completed. The lifecycle moved only when an external-effect step began,
+so it no longer named execution once any action could start an item. A lifecycle `completed` target could also bypass the workflow
 completion gate, which stranded items whose workflow had already finished
 (CON-221, CON-192).
 
@@ -34,10 +32,7 @@ reading ready.
 
 The workflow instance carries `execution_started_at`. The action that starts
 execution on an external-effect step records it, and the first recorded start
-wins. The value is a current row written in the starting transaction ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)). Migration 107 backfilled existing instances, and recovery restores the recorded value with the instance snapshot. The Domain-overlap peer
-query selects peers by this fact, not by the lifecycle, so an `in_progress`
-item that has not started execution blocks no peer. A subject keeps its
-prospective footprint at its own boundary (CD-0144 D3).
+wins. The value is a current row written in the starting transaction ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)). Migration 107 backfilled existing instances, and recovery restores the recorded value with the instance snapshot.
 
 ### D3. The workflow completion closes the lifecycle
 
@@ -65,12 +60,6 @@ items completable (CD-0094 D2). A `cancelled` target is unchanged. Recorded rows
 
 ## Alternatives considered
 
-- Keep the lifecycle as the exclusivity marker and leave the first action from
-  moving it. Rejected: D1 stops the lifecycle from naming execution, so the
-  marker would keep blocking items that never began external effect.
-- Derive the peer set by scanning stored state at read time. Rejected: the peer
-  query runs inside the claim boundary, and the instance column keeps the
-  check a current-row read.
 - Move the lifecycle at `workflow.completed` without a recorded row. Rejected:
   an unrecorded write breaks agreement between current rows (CD-0242 D2).
 
@@ -78,8 +67,6 @@ items completable (CD-0094 D2). A `cancelled` target is unchanged. Recorded rows
 
 - A workflow item is `in_progress` from its first action, and ready work reads
   only items no workflow has started.
-- External-effect execution, not the lifecycle, decides which peer blocks
-  which.
 - A workflow item reaches `completed` through the completion action, through a
   terminal-instance repair, or as an imported item with no instance; each path
   keeps its own evidence and approval gates.
@@ -96,10 +83,8 @@ items completable (CD-0094 D2). A `cancelled` target is unchanged. Recorded rows
   execution-start fact; the fold, backfill, and rebuild halves retire at the
   cutover, and the implementing change binds the current-state anchor
   (CD-0242 D2).
-- `TestUnstartedContractDoesNotBlockAPeer` and
-  `TestExecutionStartMovesLifecycleIntoTheClaim` prove the peer marker.
-  `TestWorkflowDomainOverlapGuardsLifecycleExecutionEntry` keeps the claim
-  boundary mutual.
+- `TestExecutionStartRecordsTheInstanceFact` proves D2: the external-effect
+  step records execution start and the item stays in progress.
 - `TestWorkflowCompleteClosesLifecycle` proves D3, and
   `TestTerminalLifecycleLeavesACompletedInstanceAlone` proves the instance
   keeps its completed record.

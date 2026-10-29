@@ -10,9 +10,9 @@ Three batteries:
    admission job. No other workflow may trigger on a push to main, or a merged
    commit would run the full suite twice again.
 2. Gate algebra: the real `release-evidence.py gate` command, executed as a
-   subprocess, admits exactly (reuse, lookup success, refresh success,
-   fallback skipped) and (full, lookup success, refresh skipped, fallback
-   success) and refuses every other dependency state.
+   subprocess, admits exactly (reuse, lookup success, fallback skipped) and
+   (full, lookup success, fallback success) and refuses every other
+   dependency state.
 3. Evidence selection: the real `select` command, executed as a subprocess
    against temporary Git repositories and a fake `gh` on PATH, reuses only
    exact, authenticated, unambiguous merge-group evidence for the exact push
@@ -524,7 +524,6 @@ class ReleaseWorkflowDriftTests(unittest.TestCase):
         for job_id in (
             "verify-lookup",
             "ci-fallback",
-            "refresh-main-checks",
             "admit-verification",
             "prepare",
             "build-and-publish",
@@ -560,33 +559,9 @@ class ReleaseWorkflowDriftTests(unittest.TestCase):
             "the fallback must run exactly on a selected full route",
         )
 
-    def test_refresh_checks_run_only_on_reuse_against_the_push_base(self) -> None:
-        job = jobs(load_workflow(RELEASE_WORKFLOW))["refresh-main-checks"]
-        self.assertEqual(
-            job.get("if"),
-            "needs.verify-lookup.outputs.mode == 'reuse'",
-            "the fallback CI already runs these assertions in its own main-push context",
-        )
-        self.assertEqual(needs_list(job), ["verify-lookup"])
-        steps = job.get("steps")
-        self.assertIsInstance(steps, list)
-        run_steps = [step for step in steps if isinstance(step, dict) and isinstance(step.get("run"), str)]
-        self.assertTrue(run_steps, "the refresh job must run the event-dependent checks")
-        refresh = "\n".join(step["run"] for step in run_steps)
-        self.assertIn("git fetch origin main --quiet", refresh)
-        self.assertIn("git fetch origin '+refs/heads/*:refs/remotes/origin/*' --quiet", refresh)
-        self.assertIn("python3 scripts/check-cd-allocation.py --no-fetch", refresh)
-        self.assertNotIn("check-domain-registry.py", refresh)
-        self.assertNotIn("generate-domain-navigation.py", refresh)
-        envs = [step.get("env") for step in run_steps if isinstance(step.get("env"), dict)]
-        self.assertFalse(
-            any("NAVIGATION_BASE_REF" in env for env in envs),
-            "the retired navigation ratchet must not return through the refresh environment",
-        )
-
     def test_admission_gate_runs_always_and_binds_every_dependency_result(self) -> None:
         job = jobs(load_workflow(RELEASE_WORKFLOW))["admit-verification"]
-        self.assertEqual(sorted(needs_list(job)), ["ci-fallback", "refresh-main-checks", "verify-lookup"])
+        self.assertEqual(sorted(needs_list(job)), ["ci-fallback", "verify-lookup"])
         self.assertEqual(str(job.get("if")).strip(), "always()")
         steps = job.get("steps")
         self.assertIsInstance(steps, list)
@@ -601,7 +576,6 @@ class ReleaseWorkflowDriftTests(unittest.TestCase):
             {
                 "LOOKUP_RESULT": "${{ needs.verify-lookup.result }}",
                 "MODE": "${{ needs.verify-lookup.outputs.mode }}",
-                "REFRESH_RESULT": "${{ needs.refresh-main-checks.result }}",
                 "FALLBACK_RESULT": "${{ needs.ci-fallback.result }}",
             },
         )
@@ -662,34 +636,29 @@ class GateAlgebraTests(unittest.TestCase):
     """Execute the real gate command for every dependency state."""
 
     ADMIT = {
-        ("reuse", "success", "success", "skipped"),
-        ("full", "success", "skipped", "success"),
+        ("reuse", "success", "skipped"),
+        ("full", "success", "success"),
     }
 
     REFUSE = {
         # lookup not successful (mode output unset when the job failed)
-        ("", "failure", "skipped", "skipped"),
-        ("", "cancelled", "skipped", "skipped"),
+        ("", "failure", "skipped"),
+        ("", "cancelled", "skipped"),
         # reuse route violations
-        ("reuse", "success", "failure", "skipped"),
-        ("reuse", "success", "cancelled", "skipped"),
-        ("reuse", "success", "skipped", "skipped"),
-        ("reuse", "success", "success", "success"),
-        ("reuse", "success", "success", "failure"),
-        ("reuse", "success", "success", "cancelled"),
+        ("reuse", "success", "success"),
+        ("reuse", "success", "failure"),
+        ("reuse", "success", "cancelled"),
         # full route violations
-        ("full", "success", "skipped", "skipped"),
-        ("full", "success", "skipped", "failure"),
-        ("full", "success", "skipped", "cancelled"),
-        ("full", "success", "success", "success"),
+        ("full", "success", "skipped"),
+        ("full", "success", "failure"),
+        ("full", "success", "cancelled"),
         # unknown mode or fabricated results
-        ("auto", "success", "skipped", "skipped"),
-        ("reuse", "bogus", "success", "skipped"),
-        ("reuse", "success", "bogus", "skipped"),
-        ("reuse", "success", "success", "bogus"),
+        ("auto", "success", "skipped"),
+        ("reuse", "bogus", "skipped"),
+        ("reuse", "success", "bogus"),
     }
 
-    def run_gate(self, mode: str, lookup: str, refresh: str, fallback: str) -> subprocess.CompletedProcess:
+    def run_gate(self, mode: str, lookup: str, fallback: str) -> subprocess.CompletedProcess:
         return subprocess.run(
             [
                 sys.executable,
@@ -699,8 +668,6 @@ class GateAlgebraTests(unittest.TestCase):
                 mode,
                 "--lookup-result",
                 lookup,
-                "--refresh-result",
-                refresh,
                 "--fallback-result",
                 fallback,
             ],
@@ -709,16 +676,16 @@ class GateAlgebraTests(unittest.TestCase):
         )
 
     def test_every_admissible_state_admits(self) -> None:
-        for mode, lookup, refresh, fallback in sorted(self.ADMIT):
-            with self.subTest(mode=mode, lookup=lookup, refresh=refresh, fallback=fallback):
-                completed = self.run_gate(mode, lookup, refresh, fallback)
+        for mode, lookup, fallback in sorted(self.ADMIT):
+            with self.subTest(mode=mode, lookup=lookup, fallback=fallback):
+                completed = self.run_gate(mode, lookup, fallback)
                 self.assertEqual(completed.returncode, 0, completed.stderr)
                 self.assertIn("release admission: admitted", completed.stdout)
 
     def test_every_other_state_refuses_publication(self) -> None:
-        for mode, lookup, refresh, fallback in sorted(self.REFUSE):
-            with self.subTest(mode=mode, lookup=lookup, refresh=refresh, fallback=fallback):
-                completed = self.run_gate(mode, lookup, refresh, fallback)
+        for mode, lookup, fallback in sorted(self.REFUSE):
+            with self.subTest(mode=mode, lookup=lookup, fallback=fallback):
+                completed = self.run_gate(mode, lookup, fallback)
                 self.assertEqual(completed.returncode, 1, completed.stdout)
                 self.assertNotIn("admitted", completed.stdout)
                 self.assertIn("release admission:", completed.stdout)

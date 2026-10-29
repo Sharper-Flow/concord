@@ -214,6 +214,5 @@ bug. The resolver makes the rule visible to any future reader of
   composed by `scripts/knowledge_index.py`.
 - `python3 scripts/check-doc-links.py`,
   `python3 scripts/check-knowledge-index.py`,
-  `python3 scripts/check-floor-readiness.py`,
-  `python3 scripts/check-public-content.py`, `gofmt -l .`, `go vet ./...`
+  `python3 scripts/check-public-content.py`, `gofmt -l .`, and `go vet ./...`
   all pass.

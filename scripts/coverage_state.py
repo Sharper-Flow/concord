@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
 """The one coverage-state vocabulary, shared by every plane that declares it.
 
-CD-0047 D2 reuses the state vocabulary already accepted in
-contracts/floor-readiness.schema.json rather than inventing a second enum for
-the same idea. This module is how "the same vocabulary" is guaranteed
+CD-0047 D2 gives every coverage plane one state vocabulary rather than a
+second enum for the same idea. This module is how "the same vocabulary" is guaranteed
 structurally: the states and their obligations are defined once and imported,
 so two planes cannot drift into two dialects. A test asserting two copies stay
 equal would only detect the drift; a single definition prevents it.
@@ -40,7 +39,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 
-# CD-0047 D2. Identical to contracts/floor-readiness.schema.json's item states.
+# CD-0047 D2.
 STATES = ("satisfied", "outstanding", "unmeasured", "out_of_scope")
 
 # The field each state requires, and by omission the fields it forbids.
@@ -61,11 +60,6 @@ ISSUE_REPO = "Sharper-Flow/concord"
 REFRESH_COMMAND = "scripts/update-issue-state.py"
 
 
-def maturity_manifest_paths(root: Path) -> list[Path]:
-    """The file population shared by maturity checks and snapshot refresh."""
-    return sorted((root / ".concord/docs").glob("maturity-readiness*.json"))
-
-
 # Every manifest whose outstanding records point at an issue, named by the key
 # holding those records. One snapshot serves all of them. A per-plane snapshot
 # would let a plane be added without its pointers being covered, which is the
@@ -73,8 +67,6 @@ def maturity_manifest_paths(root: Path) -> list[Path]:
 ISSUE_STATE_MANIFESTS = (
     (ROOT / ".concord/docs/knowledge/coverage", "records"),
     (ROOT / ".concord/docs/reachability-exceptions.v1.json", "exceptions"),
-    *((path, "items") for path in maturity_manifest_paths(ROOT)),
-    *((ROOT / "contracts/conflict-rules.v1.json", key) for key in ("rules", "a2", "duties")),
 )
 
 LINEAR_ISSUE = re.compile(r"^[A-Z][A-Z0-9]*-[1-9][0-9]*$")

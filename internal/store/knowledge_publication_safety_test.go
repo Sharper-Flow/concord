@@ -253,20 +253,20 @@ func TestKnowledgePublicationDistinguishesDeadlineAndCancellation(t *testing.T) 
 }
 
 func TestKnowledgePublicationCachedRepairActions(t *testing.T) {
-	for _, mode := range []string{"origin_config", "served_revision", "source_registration"} {
+	for _, mode := range []string{"origin_config", "served_revision", "home_designation"} {
 		t.Run(mode, func(t *testing.T) {
 			s, home, _ := publicationFixture(t)
 			first := publicationObserve(t, s, home)
-			served, wantCause, wantRecovery := first.ServedCommit, "revision", "source owner"
+			served, wantCause, wantRecovery := first.ServedCommit, "revision", "home owner"
 			switch mode {
 			case "origin_config":
 				runTestGit(t, home.RepoPath, "config", "--unset", "remote.origin.url")
 				wantCause, wantRecovery = "origin fetch URL", "exactly one"
 			case "served_revision":
 				served = publicationCommit(t, home.RepoPath)
-			case "source_registration":
+			case "home_designation":
 				publicationEdit(t, s, `DELETE FROM product_knowledge_homes WHERE product_id='publication-product'`)
-				wantCause = "no longer registered"
+				wantCause = "no longer designated"
 			}
 			got, err := s.KnowledgePublicationForRead(t.Context(), home, served, false)
 			if err != nil || got.Comparison != "unknown" || got.PreviousSuccess == nil || !strings.Contains(got.Cause, wantCause) || !strings.Contains(got.Recovery, wantRecovery) {

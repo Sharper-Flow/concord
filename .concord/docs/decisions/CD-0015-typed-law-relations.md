@@ -32,31 +32,6 @@ not an amendment. Manifest parsing validates same-manifest decision/spec
 endpoints, closed kinds, no self or duplicate edges, acyclic directed graphs,
 and exact agreement between supersession edges and `successor` declarations.
 
-A relation whose target lives outside the
-declaring manifest names the target's source Project in a structured field,
-never by packing the qualified form into the target ID. The relation
-validates over the Product's verified source set at the declaring source's
-rebuild and again at every consequential boundary: an unregistered target
-Project refuses, and a cross-source `conflicts_with` pair blocks the
-rebuild and every consequential check until an accepted relation or
-amendment resolves it. Every cross-source `supersedes` edge refuses fail
-closed: supersede within the declaring source, or amend the shared law
-through its authoring home. No agreement check admits the edge. A non-home
-source may not declare `refines` or `subordinate_to` toward shared-home
-law; no precedence between sources is ever inferred. The target law must
-resolve. A peer with a usable projection answers from its verified
-projected rows; a peer with no usable projection (never rebuilt, cleared,
-or stamped incomplete over law Domain rows the shared home's absent
-registry forced it to omit) resolves the endpoint from its verified Git
-head, where an unreadable head, an absent manifest, or an undeclared target
-law refuses the rebuild admission. A source-first rebuild stamps its
-watermark incomplete over the omitted Domain rows, and a demand-freshness
-rebuild backfills them once the registry exists. Cross-source relations
-project no `law_relations` row — the same-home foreign keys cannot
-reference another source — and project instead into
-`law_cross_source_relations` with their target source; the consequential
-boundary, not the rebuild alone, is the enforcement point.
-
 A knowledge-index rebuild replaces the derived law rows transactionally for
 one Git home; invalid input or rollback preserves the prior projection
 byte-for-byte.
@@ -71,10 +46,8 @@ Before completion, the same bounded check runs without that exception. An
 amendment intent therefore permits planning only; completion requires a Git
 manifest delta that removes or resolves the conflict.
 
-Over a registered source set, a mandated
-bare law ID resolves across every verified source, refuses as ambiguous when
-two sources hold it, and names the resolving source's repository in the law
-context. A source-qualified `<project_id>/<law_id>` reference resolves only
+Mandated bare law IDs resolve in the Product's designated knowledge home.
+A source-qualified `<project_id>/<law_id>` reference resolves only
 through that Project's canonical knowledge locator.
 
 Heuristics may suggest conflicts in memory or UI, but they never persist rows

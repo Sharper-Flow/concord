@@ -271,6 +271,5 @@ This record does not complete that item or authorize an installation.
   body projection; independent review checks its content against D2.
 - `python3 scripts/generate-agent-contracts.py --check` and
   `python3 scripts/generate-agent-profiles.py --check` prove generated consistency.
-- `python3 scripts/check-json.py`, `python3 scripts/check-doc-contract.py`,
-  and `python3 scripts/check-public-content.py` check accepted law and public
+- `python3 scripts/check-json.py` and `python3 scripts/check-public-content.py` check accepted law and public
   artifacts against this accepted record.

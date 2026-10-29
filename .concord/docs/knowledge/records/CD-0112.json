@@ -5,7 +5,6 @@
     "tier": "legislated"
   },
   "date": "2026-09-05T00:00:00Z",
-  "doc_contract_profile": "legacy",
   "evidence": [
     "internal/store/workflow.go",
     "internal/store/workflow_registry.go",
@@ -23,7 +22,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:709f4f712ad25e165dd36e28fa1c51141ff36b14c5f35ecadf996324809cf357",
+  "sha256": "sha256:45ad12e2d164623c3d9ff160b9e55b2d697ae3d42f9b80f5be879c77cf86cce3",
   "status": "accepted",
   "summary": "Context handoffs hold the stage. record_delivery exits a producing step after its current fenced start and complete delivery admission, including Review, native proof and applicable approvals. Native Task neither supplies delivery nor blocks the delivery route. Retained decision-record exits keep their definition-backed meaning without permitting new architecture-spike execution. No worker-result or failure-recording lifecycle remains.",
   "tags": [

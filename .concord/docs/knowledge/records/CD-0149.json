@@ -5,7 +5,6 @@
     "tier": "legislated"
   },
   "date": "2026-09-14T00:00:00Z",
-  "doc_contract_profile": "legacy",
   "evidence": [
     "contracts/agent-utilities.v1.json",
     "scripts/generate-agent-profiles.py",
@@ -24,7 +23,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:c41d27878af4912adfa9bfba6a480b583b288601b450d55e4404979f1acf94d9",
+  "sha256": "sha256:f325f85651fc2902717975d2e299765ebbd8e07cc213e5e2704a4159bab30e5a",
   "status": "accepted",
   "summary": "Adds an explore utility with a manifest-owned read-only tool allowance, a bounded Git command set, and a generator-owned body template. The utility returns plain text without a packet, report schema, evidence obligations, Concord state authority, or nested worker capability.",
   "tags": [

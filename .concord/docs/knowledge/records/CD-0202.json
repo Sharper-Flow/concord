@@ -5,7 +5,6 @@
     "tier": "legislated"
   },
   "date": "2026-10-02T00:00:00Z",
-  "doc_contract_profile": "current",
   "evidence": [
     "internal/receipt/receipt.go",
     "internal/receipt/receipt_test.go",
@@ -34,7 +33,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:cf544864a45c3e79dd40191df225bec87ca062837b2f425cf56b68dbbe609d97",
+  "sha256": "sha256:7f3aab1c4f3472291e6e7d559f68a6a819e2b2a54a790c50cf4ab4d45dd6fd19",
   "status": "accepted",
   "summary": "The closure receipt restates the closure facts beside the verified predicates. One store read, ReadWorkClosure, opens one read-only transaction and returns the pin beside the latest proposal problem, the proposal's excluded scope, the effective delivery artifact with the correction overlay applied, and the direct raised_from successors with their confirmed Linear keys. The single-column table gains four optional sections in a fixed order: problem, shipped artifact, one left-out row per excluded-scope entry, and one follow-up row per raised item; an empty section renders no row, so an old item keeps the pin-alone bytes. Prose rows hold one hundred twenty code points with the visible ellipsis while criterion labels keep sixty-four. record_proposal gains the optional out_of_scope prose list of zero to sixteen entries in the payload shape the implementation family's canonical source declares, with a defaulted additive column on workflow_proposal_records, and validation refuses the field for an item whose declared shape lacks it. The adapter keeps zero formatting logic.",
   "tags": [

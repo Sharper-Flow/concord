@@ -69,9 +69,6 @@ type reviseMutationInput struct {
 	IdempotencyKey  string                      `json:"idempotency_key"`
 	Evidence        []agentcontract.EvidenceRef `json:"evidence"`
 	Approval        *approvalInput              `json:"approval"`
-	// OperatorSize is the operator's size for the work item; it needs a
-	// consumed operator approval, and Reason is the override's reason.
-	OperatorSize *store.WorkSize `json:"operator_size"`
 	// SizeInputs reruns the size model on fresh declared inputs.
 	SizeInputs *store.WorkSizeCaptureInput `json:"size_inputs"`
 }
@@ -156,8 +153,7 @@ type worktreeDestroyInput struct {
 	// of origin resolves when empty.
 	DefaultRef string `json:"default_ref"`
 	// Destructive declares intent to remove without the clean-tree and
-	// merged-branch gates. It requires operator approval (CD-0096 D3
-	// Destroy).
+	// merged-branch gates.
 	Destructive    bool           `json:"destructive"`
 	Approval       *approvalInput `json:"approval"`
 	IdempotencyKey string         `json:"idempotency_key"`
@@ -193,21 +189,6 @@ type researchSourceInput struct {
 	PublisherOrAuthor string `json:"publisher_or_author"`
 	PublishedAt       string `json:"published_at"`
 	AccessedAt        string `json:"accessed_at"`
-}
-type resourceClaimInput struct {
-	WorkID          string         `json:"work_id"`
-	ResourceKey     string         `json:"resource_key"`
-	Reason          string         `json:"reason"`
-	ExpectedVersion int64          `json:"expected_version"`
-	IdempotencyKey  string         `json:"idempotency_key"`
-	Approval        *approvalInput `json:"approval"`
-}
-type resourceReleaseInput struct {
-	WorkID          string         `json:"work_id"`
-	ResourceKey     string         `json:"resource_key"`
-	ExpectedVersion int64          `json:"expected_version"`
-	IdempotencyKey  string         `json:"idempotency_key"`
-	Approval        *approvalInput `json:"approval"`
 }
 type messageSendInput struct {
 	WorkID          string         `json:"work_id"`
@@ -245,22 +226,7 @@ type observationRecordInput struct {
 	// and satisfy no evidence or gate; the external variant is also
 	// non-authoritative and can only supply or withhold a precondition.
 	External *observationExternalInput `json:"external"`
-	// Conflict is the settlement variant: it records one applied conflict
-	// rule itself instead of transcribing an observation. It is exclusive
-	// with Statement and External; every recorded field except rule_id and
-	// outcome is computed by the core.
-	Conflict *observationConflictInput `json:"conflict"`
 	Approval *approvalInput            `json:"approval"`
-}
-
-// observationConflictInput is the closed caller-owned part of one conflict
-// settlement. The rule vocabulary is the live checked table plus the A2
-// safety rules, so the schema admits a bounded identifier shape and the core
-// refuses an unknown rule as a typed input failure; every other recorded
-// field is computed inside the settlement transaction.
-type observationConflictInput struct {
-	RuleID  string `json:"rule_id"`
-	Outcome string `json:"outcome"`
 }
 
 type observationExternalInput struct {
@@ -1015,7 +981,7 @@ func workflowApprovalBoundaryChanged(before, after store.WorkflowApprovalBoundar
 	return false
 }
 
-// knowledgeSourceProofForAction prepares the federated law source set the
+// knowledgeSourceProofForAction prepares the knowledge home proof the
 // approval, supersession, and completion gates verify inside their
 // transaction (CD-0200), and for completion the Git proof of which changed
 // laws the reviewed candidate never edited. It runs after replay and approval
@@ -1213,13 +1179,6 @@ func (m *workflowActionMutation) execute(ctx context.Context, action store.Workf
 		spec := ApprovalChallengeSpec{OperationDigest: digest, Scope: boundedApprovalScope(scope), Versions: versions, Consequence: approvalConsequence, HostAssertionDigest: inv.HostAssertionDigest, ExpiresAt: r.Authority.now().Add(10 * time.Minute)}
 		return r.workflowActionChallenge(ctx, base, host, inv, spec, in, contractVersion)
 	}
-	if in.ActionID == "complete" {
-		actorRef := store.DeriveWorkflowActorRef(grant.PrincipalRef, grant.ClientRef, grant.AgentRef, grant.SessionRef)
-		if err := store.AppendWorkflowStalenessObservation(ctx, r.Store, operationID+":staleness", in.WorkID, actorRef, digest, payload, r.Authority.now()); err != nil {
-			return failureEnvelope(base, err), nil
-		}
-	}
-
 	scopeJSON, _ := json.Marshal(scope)
 	versionsJSON, _ := json.Marshal(versions)
 	actionRequest := store.WorkflowActionExecutionRequest{WorkID: in.WorkID, ExpectedVersion: in.ExpectedVersion, ActionID: in.ActionID, SelectedChoice: in.SelectedChoice, DecisionContextDigest: in.DecisionContextDigest, Payload: payload, EvidenceRefs: evidenceLocators(in.Evidence), EvidenceKinds: evidenceKinds(in.Evidence), Actor: store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}, SessionWorktree: r.Envelope.Worktree, ApprovedTakeover: takeover, ResearchBindings: researchBindingDeclarations(in.ResearchBindings), AcceptedInputsDigest: digest, IdempotencyIdentity: in.IdempotencyKey, OperationID: operationID, PrincipalRef: grant.PrincipalRef, Tool: r.Tool, IdempotencyKey: in.IdempotencyKey, RequestID: r.Envelope.RequestID, AcceptedScope: string(scopeJSON), ContractDigest: agentcontract.ManifestDigest, Now: r.Authority.now()}
@@ -1670,12 +1629,6 @@ func (r runtime) planReviseIntent(ctx context.Context, base agentcontract.Envelo
 			return failureEnvelope(base, definitionErr), nil, true
 		}
 	}
-	if in.OperatorSize != nil && in.SizeInputs != nil {
-		return coreError(base, "invalid_input", "operator_size and size_inputs are separate size revisions", "reread_entities", false), nil, true
-	}
-	if in.OperatorSize != nil {
-		plan.requiresApproval = true
-	}
 	var sizePlan *store.WorkSizePlan
 	if in.SizeInputs != nil {
 		productID, sizeErr := r.workProductForSize(ctx, in.WorkID)
@@ -1747,20 +1700,8 @@ func (r runtime) applyReviseIntentTx(ctx context.Context, tx *store.Transaction,
 	}
 	eventIDs := result.EventIDs
 	var revision store.WorkSizeRevisionResult
-	switch {
-	case in.SizeInputs != nil:
+	if in.SizeInputs != nil {
 		revision, err = store.RerunWorkSizeTx(ctx, tx, store.WorkSizeRerunRequest{Plan: sizePlan, WorkID: in.WorkID, EventID: digest + ":sized", Actor: actor, Now: r.Authority.now()})
-	case in.OperatorSize != nil:
-		consumedApprovalRef, _ := plan.scope["approval_ref"].(string)
-		approvalScopeJSON, _ := json.Marshal(boundedApprovalScope(plan.scope))
-		approvalVersionsJSON, _ := json.Marshal(plan.versions)
-		revision, err = store.OverrideWorkSizeTx(ctx, tx, store.WorkSizeOverrideRequest{
-			WorkID: in.WorkID, ExpectedVersion: changedVersion, Size: *in.OperatorSize, Reason: in.Reason,
-			EventID: digest + ":size-override", OccurredAt: r.Authority.now(),
-			ApprovalRef: consumedApprovalRef, ApprovalOperationDigest: digest,
-			ApprovalScopeJSON: string(approvalScopeJSON), ApprovalVersionsJSON: string(approvalVersionsJSON),
-			ApprovalConsequence: plan.consequence,
-		})
 	}
 	if err != nil {
 		return nil, nil, nil, err
@@ -2205,46 +2146,6 @@ func (r runtime) planSingleWorkEvent(plan *mutationPlan, workID string, expected
 	}
 }
 
-// planResourceClaim plans concord_work_relate.resource_claim.
-func (r runtime) planResourceClaim(_ context.Context, base agentcontract.Envelope, raw []byte, digest string, _ Authority, _ agentcontract.ContractOperation, plan *mutationPlan) (agentcontract.Envelope, error, bool) {
-	var in resourceClaimInput
-	if err := decodeOperationInput(raw, &in); err != nil {
-		return base, err, true
-	}
-	if in.Approval != nil {
-		plan.approval = in.Approval.ApprovalRef
-	}
-	payload := map[string]any{"work_id": in.WorkID, "expected_version": in.ExpectedVersion, "resulting_version": in.ExpectedVersion + 1, "resource_key": in.ResourceKey, "reason": in.Reason}
-	r.planSingleWorkEvent(plan, in.WorkID, in.ExpectedVersion,
-		[]agentcontract.NextIntent{{Tool: "concord_work_browse", Operation: "resource_claims", QueryID: "PM1.Q13", ReasonCode: "verify_claim", RequiredFields: []string{"product_id"}}},
-		digest+":claim", "work.resource_claimed", payload, in.ResourceKey)
-	// The claim payload names the holding agent, so the grant completes it.
-	inner := plan.effect
-	plan.effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []agentcontract.ChangedRef, error) {
-		payload["holder_agent"] = grant.AgentRef
-		payload["holder_session"] = grant.SessionRef
-		return inner(ctx, tx, grant)
-	}
-	return agentcontract.Envelope{}, nil, false
-}
-
-// planResourceRelease plans concord_work_relate.resource_release.
-func (r runtime) planResourceRelease(_ context.Context, base agentcontract.Envelope, raw []byte, digest string, _ Authority, _ agentcontract.ContractOperation, plan *mutationPlan) (agentcontract.Envelope, error, bool) {
-	var in resourceReleaseInput
-	if err := decodeOperationInput(raw, &in); err != nil {
-		return base, err, true
-	}
-	if in.Approval != nil {
-		plan.approval = in.Approval.ApprovalRef
-	}
-	r.planSingleWorkEvent(plan, in.WorkID, in.ExpectedVersion,
-		[]agentcontract.NextIntent{{Tool: "concord_work_browse", Operation: "resource_claims", QueryID: "PM1.Q13", ReasonCode: "verify_release", RequiredFields: []string{"product_id"}}},
-		digest+":release", "work.resource_claim_released",
-		map[string]any{"work_id": in.WorkID, "expected_version": in.ExpectedVersion, "resulting_version": in.ExpectedVersion + 1, "resource_key": in.ResourceKey},
-		in.ResourceKey)
-	return agentcontract.Envelope{}, nil, false
-}
-
 // planMessageSend plans concord_work_relate.message_send.
 func (r runtime) planMessageSend(_ context.Context, base agentcontract.Envelope, raw []byte, digest string, _ Authority, _ agentcontract.ContractOperation, plan *mutationPlan) (agentcontract.Envelope, error, bool) {
 	var in messageSendInput
@@ -2354,19 +2255,6 @@ func (r runtime) planObservationRecord(_ context.Context, base agentcontract.Env
 	}
 	plan.scope["work_ids"] = []string{in.WorkID}
 	switch {
-	case in.Conflict != nil:
-		// The settlement reference comes from the authenticated principal and
-		// idempotency key, never an asserted actor; the recorder derives the
-		// event identity and returns the one recorded ID.
-		plan.intents = []agentcontract.NextIntent{{Tool: "concord_work_trace", Operation: "history", QueryID: "PM1.Q7", ReasonCode: "verify_settlement_recorded", RequiredFields: []string{"work_id"}}}
-		plan.effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []agentcontract.ChangedRef, error) {
-			id, err := store.RecordConflictApplicationTx(ctx, tx, store.ConflictApplicationRequest{WorkID: in.WorkID, Actor: grant.PrincipalRef, OccurredAt: r.Authority.now(), RuleID: in.Conflict.RuleID, Outcome: in.Conflict.Outcome, SettlementRef: conflictSettlementRef(grant.PrincipalRef, r.Tool, r.Operation, idempotencyKey(raw))})
-			if err != nil {
-				return nil, nil, nil, err
-			}
-			changed := []agentcontract.ChangedRef{{EntityKind: "conflict_application", ID: id, Version: "1"}}
-			return mutationPayload(changed, plan.intents), []string{id}, changed, nil
-		}
 	case in.External != nil:
 		// CD-0040 D2/D3: the reporting or verifying authority is derived
 		// from the validated grant's trusted client. A caller-supplied
@@ -2967,29 +2855,16 @@ func (r runtime) applySessionVacateTx(ctx context.Context, tx *store.Transaction
 }
 
 // planWorktreeDestroy plans concord_work_transition.worktree_destroy
-// (CD-0096 D3 Destroy): merged terminal work reclaims under the unchanged
-// CD-0095 git gates. Non-terminal work and any destructive removal require
-// the operator approval this planner routes through the standard challenge
-// flow. The worktree resolves through the session's Project anchor; no path
-// input exists (CD-0096 D2).
+// (CD-0096 D3 Destroy). The worktree resolves through the session's Project
+// anchor; no path input exists (CD-0096 D2).
 func (r runtime) planWorktreeDestroy(ctx context.Context, base agentcontract.Envelope, raw []byte, _ string, grant Authority, _ agentcontract.ContractOperation, plan *mutationPlan) (agentcontract.Envelope, error, bool) {
 	var in worktreeDestroyInput
 	if err := decodeOperationInput(raw, &in); err != nil {
 		return base, err, true
 	}
-	if in.Approval != nil {
-		plan.approval = in.Approval.ApprovalRef
-	}
 	project := r.Envelope.AmbientProjectID
 	if project == "" {
 		return coreError(base, "unknown_scope", "worktree tiers resolve through the session's Project; this session holds none", "refresh_context", false), nil, true
-	}
-	// CD-0243 D7 removes nonterminal consent, but an explicit destructive
-	// or occupancy waiver still consumes its exact operator approval.
-	plan.requiresApproval = false
-	if in.Destructive || in.Approval != nil {
-		plan.requiresApproval = true
-		plan.declareInitialDurability(true)
 	}
 	plan.versions["work"] = in.ExpectedVersion
 	plan.scope["work_ids"] = []string{in.WorkID}
@@ -3003,39 +2878,15 @@ func (r runtime) planWorktreeDestroy(ctx context.Context, base agentcontract.Env
 		PrincipalRef: grant.PrincipalRef, RequestID: in.IdempotencyKey,
 		ExpectedVersion: in.ExpectedVersion, Now: r.Authority.now(),
 		RequireTerminal: true, Destructive: in.Destructive,
-		// The consumed operator approval is the declared route that
-		// releases a recorded occupancy that no longer holds; the store
-		// refuses the release without the approval pairing.
-		ReleaseOccupancy: in.Destructive || in.Approval != nil,
-		HostLeases:       r.Store.ReadHostLeases(),
+		HostLeases: r.Store.ReadHostLeases(),
 	}
 	probe, err := r.Store.PrepareWorktreeReclaim(ctx, reclaimReq)
 	if err != nil {
 		return failureEnvelope(base, err), nil, true
 	}
-	occupancyWaiver, err := r.Store.WorktreeReclaimOccupancyWaiverRequired(ctx, reclaimReq, probe)
-	if err != nil {
-		return failureEnvelope(base, err), nil, true
-	}
-	if occupancyWaiver {
-		plan.requiresApproval = true
-		plan.declareInitialDurability(true)
-		reclaimReq.ReleaseOccupancy = true
-	}
 	var removal *store.WorktreeNativeRemoval
 	plan.effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []agentcontract.ChangedRef, error) {
-		// Same hand-off as the takeover planner: the mutation tail records
-		// the consumed approval reference before the effect runs.
-		approvalRef := ""
-		if ref, ok := plan.scope["approval_ref"].(string); ok {
-			approvalRef = ref
-		}
-		req := reclaimReq
-		req.OperatorApprovalRef = approvalRef
-		// The store composes the forced facts from this approval reference,
-		// together with the live-head observation and the tip-pinned removal
-		// plan its probe recorded (CD-0212 D4).
-		result, err := store.DestroyWorktreeTx(ctx, tx, req, probe)
+		result, err := store.DestroyWorktreeTx(ctx, tx, reclaimReq, probe)
 		if err != nil {
 			return nil, nil, nil, err
 		}
@@ -4344,10 +4195,6 @@ func (r runtime) mutate(ctx context.Context, base agentcontract.Envelope, raw []
 		answer, err, handled = r.planResearchSourceRecord(ctx, base, raw, digest, grant, op, plan)
 	case "concord_work_define.research_freshness_set":
 		answer, err, handled = r.planResearchFreshnessSet(ctx, base, raw, digest, grant, op, plan)
-	case "concord_work_relate.resource_claim":
-		answer, err, handled = r.planResourceClaim(ctx, base, raw, digest, grant, op, plan)
-	case "concord_work_relate.resource_release":
-		answer, err, handled = r.planResourceRelease(ctx, base, raw, digest, grant, op, plan)
 	case "concord_work_relate.message_send":
 		answer, err, handled = r.planMessageSend(ctx, base, raw, digest, grant, op, plan)
 	case "concord_work_relate.message_withdraw":
@@ -4877,20 +4724,6 @@ type storeMembership struct {
 
 func mutationDigest(tool, operation string, env CallEnvelope, raw []byte) string {
 	return store.AgentMutationDigest(tool, operation, env.SelectedProductID, env.AmbientProjectID, raw)
-}
-
-// conflictSettlementRef derives the bounded settlement reference for one
-// agent-surface settlement from the authenticated principal, the called
-// surface, and the caller's idempotency key. mutationDigest omits the key and
-// the principal, so it cannot distinguish the same declared intent under a
-// fresh key or another principal. The reference is settlement identity input;
-// the recorder derives the final event identity from it and never lets a
-// caller assert the actor. The inputs are JSON-encoded as a primitive field
-// array, so field boundaries survive.
-func conflictSettlementRef(principal, tool, operation, key string) string {
-	canonical, _ := json.Marshal([]string{"conflict-settlement", principal, tool, operation, key})
-	sum := sha256.Sum256(canonical)
-	return "settlement-" + hex.EncodeToString(sum[:16])
 }
 
 func mutationPayload(changed []agentcontract.ChangedRef, intents []agentcontract.NextIntent) json.RawMessage {

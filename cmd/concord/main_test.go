@@ -166,8 +166,6 @@ func TestRunHelpListsExactCommandFormsAndStdinShapes(t *testing.T) {
 		"concord resource create < JSON stdin",
 		"concord resource-share < JSON stdin",
 		"concord resource share < JSON stdin",
-		"concord domain-project-attachments-replace < JSON stdin",
-		"concord domain project-attachments-replace < JSON stdin",
 		"concord domain-resource-attachments-replace < JSON stdin",
 		"concord domain resource-attachments-replace < JSON stdin",
 		"concord project-locator-add < JSON stdin",
@@ -179,7 +177,6 @@ func TestRunHelpListsExactCommandFormsAndStdinShapes(t *testing.T) {
 		"stage_audience_commitment: operator_only | limited | public",
 		"kind: canonical_path | git_remote",
 		"attachments (replaces the full edge set)",
-		"attachments[].role: primary | secondary",
 		"capabilities: product_read | work_define | work_transition | work_relate | work_compact | cross_scope",
 	} {
 		if !strings.Contains(out.String(), want) {
@@ -457,7 +454,6 @@ func TestScopedUnsupportedUsage(t *testing.T) {
 	}{
 		{"canonical", []string{"backup", "--bogus"}, "backup"},
 		{"two-word", []string{"client", "register", "extra"}, "client-register"},
-		{"store-free", []string{"ci-wait", "--bogus"}, "ci-wait"},
 		{"release-verb", []string{"host-lease", "--bogus"}, "host-lease"},
 	}
 	for _, tc := range cases {
@@ -600,17 +596,6 @@ func TestResourceShareCLIRecordsExpectedEvent(t *testing.T) {
 	assertCLIEvent(t, dbPath, "resource-share-event", "managed_resource.consumer_added")
 }
 
-func TestDomainProjectAttachmentsReplaceCLIRecordsExpectedEvent(t *testing.T) {
-	dbPath := filepath.Join(t.TempDir(), "concord.db")
-	seedCLIProduct(t, dbPath, "domain-project-product", "domain-project-project")
-	seedCLIDomain(t, dbPath, "domain-project-product", "domain-project-id")
-	runOperatorJSON(t, dbPath, []string{"domain-project-attachments-replace"}, map[string]any{
-		"event_id": "domain-project-attachments-event", "product_id": "domain-project-product", "domain_id": "domain-project-id",
-		"expected_version": 0, "attachments": []map[string]string{{"project_id": "domain-project-project", "role": "primary"}},
-	})
-	assertCLIEvent(t, dbPath, "domain-project-attachments-event", "domain.project_attachments_replaced")
-}
-
 func TestDomainResourceAttachmentsReplaceCLIRecordsExpectedEvent(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "concord.db")
 	seedCLIProduct(t, dbPath, "domain-resource-product", "domain-resource-project")
@@ -726,11 +711,8 @@ func assertCLIEvent(t *testing.T, dbPath, eventID, kind string) {
 		if parsed, err := time.Parse(time.RFC3339Nano, updatedAt); err != nil || parsed.Location() != time.UTC {
 			t.Fatalf("resource stored time=%q, want UTC: %v", updatedAt, err)
 		}
-	case "domain.project_attachments_replaced", "domain.resource_attachments_replaced":
-		table := "domain_project_attachment_sets"
-		if kind == "domain.resource_attachments_replaced" {
-			table = "domain_resource_attachment_sets"
-		}
+	case "domain.resource_attachments_replaced":
+		table := "domain_resource_attachment_sets"
 		var count int
 		if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM `+table+` WHERE product_id=? AND version=1`, subjectID).Scan(&count); err != nil || count != 1 {
 			t.Fatalf("current attachment set count=%d, want one version-1 set: %v", count, err)
@@ -889,7 +871,6 @@ func TestCommandRouterAcceptsCanonicalAndTwoWordFormsWithoutPanicking(t *testing
 		{"product-create"}, {"product", "create"},
 		{"resource-create"}, {"resource", "create"},
 		{"resource-share"}, {"resource", "share"},
-		{"domain-project-attachments-replace"}, {"domain", "project-attachments-replace"},
 		{"domain-resource-attachments-replace"}, {"domain", "resource-attachments-replace"},
 		{"project-create"}, {"project", "create"},
 		{"product-project-add"}, {"product", "project-add"},

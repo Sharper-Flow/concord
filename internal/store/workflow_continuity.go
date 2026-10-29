@@ -71,13 +71,6 @@ type ContextBoundary struct {
 	RecordedAt         string `json:"recorded_at"`
 }
 
-type ContextFailure struct {
-	Kind         string `json:"kind"`
-	Recoverable  bool   `json:"recoverable"`
-	StepID       string `json:"step_id"`
-	AttemptEpoch int64  `json:"attempt_epoch"`
-}
-
 type ContinuitySnapshot struct {
 	WorkID          string   `json:"work_id"`
 	ProductIdentity []string `json:"product_identity"`
@@ -98,7 +91,6 @@ type ContinuitySnapshot struct {
 	ProposalRecord           *WorkflowProposalRecord           `json:"proposal_record"`
 	ReviewInput              *ReviewInput                      `json:"review_input,omitempty"`
 	ReviewInputWarning       error                             `json:"-"`
-	UnresolvedFailure        *ContextFailure                   `json:"unresolved_failure"`
 	Boundaries               []ContextBoundary                 `json:"boundaries"`
 	BoundaryCount            int64                             `json:"boundary_count"`
 	NextCursor               *string                           `json:"next_cursor"`
@@ -127,7 +119,6 @@ type ContinuitySnapshot struct {
 	// ActiveVerifyLeases re-pins the reading session's held verify leases
 	// (CD-0096 D5), newest first, bounded. Empty when the session named no
 	// identity or holds none.
-	UnresolvedOverlaps      []WorkflowDomainOverlap     `json:"unresolved_overlaps"`
 	CompatibleLawAmendments []CompatibleLawAmendment    `json:"compatible_law_amendments"`
 	ActiveVerifyLeases      []ActiveWorktreeVerifyLease `json:"active_verify_leases,omitempty"`
 	WorkPin                 *WorkPin                    `json:"work_pin,omitempty"`
@@ -245,7 +236,6 @@ func continuityReadIdentityTx(ctx context.Context, tx *sql.Tx, workID string, ou
 	out.ProductIdentity = []string{}
 	out.SpecMandate = []string{}
 	out.StepActions = []string{}
-	out.UnresolvedOverlaps = []WorkflowDomainOverlap{}
 	out.CompatibleLawAmendments = []CompatibleLawAmendment{}
 	if err := publishedWorkAbsenceQ(ctx, tx, workID, "C19.Continuity"); err != nil {
 		return out, err
@@ -306,16 +296,12 @@ func continuityReadManagedHistoryTx(ctx context.Context, tx *sql.Tx, req Continu
 	if err != nil {
 		return err
 	}
-	currentStep, definition, workVersion, instancePresent := instance.step, instance.definition, instance.workVersion, instance.present
+	currentStep, definition, workVersion := instance.step, instance.definition, instance.workVersion
 	activeContractVersion, contractErr := activeWorkflowContractVersion(ctx, tx, req.Work, "C19.Continuity")
 	if contractErr != nil && contractErr != sql.ErrNoRows {
 		return contractErr
 	}
 	if err := continuityReadContractTx(ctx, tx, req.Work, out, activeContractVersion, currentStep, workVersion, definition, registry); err != nil {
-		return err
-	}
-	out.UnresolvedOverlaps, err = readWorkflowUnresolvedDomainOverlapsTx(ctx, tx, req.Work)
-	if err != nil {
 		return err
 	}
 	if err := continuityReadCheckpointTx(ctx, tx, req.Work, out); err != nil {
@@ -333,9 +319,6 @@ func continuityReadManagedHistoryTx(ctx context.Context, tx *sql.Tx, req Continu
 		return err
 	}
 	if out.ProposalRecord, err = readLatestWorkflowProposal(ctx, tx, req.Work, "C19.Continuity"); err != nil {
-		return err
-	}
-	if err := continuityReadFailureTx(ctx, tx, req.Work, out, instancePresent); err != nil {
 		return err
 	}
 	if err := continuityReadBoundariesTx(ctx, tx, req.Work, out, req.Limit, offset); err != nil {
@@ -404,11 +387,6 @@ func continuityReadContractTx(ctx context.Context, tx *sql.Tx, work string, out 
 			return bindingErr
 		}
 		contract.ArchitectureBinding = binding
-		selfRepair, repairErr := readWorkflowSelfRepair(ctx, tx, work, contract.Version)
-		if repairErr != nil {
-			return repairErr
-		}
-		contract.SelfRepair = selfRepair
 		out.ArchitectureBinding = contract.ArchitectureBinding
 		out.Contract = &contract
 		revisions, revisionErr := readWorkflowLawRevisions(ctx, tx, work, contract.Version)
@@ -478,13 +456,8 @@ func continuityResolveLawMandateTx(ctx context.Context, tx *sql.Tx, work string,
 	return nil
 }
 
-// readLatestContextCheckpointTx is the one latest-checkpoint derivation the
-// continuity snapshot and the dispatch packet admission share. It reads the
-// newest row of the checkpoint projection inside the caller's transaction;
-// the projection carries no source event identity, so the checkpoint's own
-// durable identity (checkpoint_id, work_version, sequence) is the identity
-// every consumer compares. A checkpoint row with malformed arrays is an
-// invariant violation.
+// readLatestContextCheckpointTx reads the newest checkpoint inside the
+// caller's transaction. Malformed stored arrays are an invariant violation.
 func readLatestContextCheckpointTx(ctx context.Context, q queryer, workID, operation string) (*ContextCheckpoint, error) {
 	var checkpoint ContextCheckpoint
 	var touched, evidence, questions, decisions string
@@ -507,32 +480,6 @@ func continuityReadCheckpointTx(ctx context.Context, tx *sql.Tx, work string, ou
 		return err
 	}
 	out.LatestCheckpoint = checkpoint
-	return nil
-}
-
-// continuityReadFailureTx reads the unresolved workflow failure of a blocked
-// instance: the latest failed action for its step and epoch with no later
-// completed action behind it.
-func continuityReadFailureTx(ctx context.Context, tx *sql.Tx, work string, out *ContinuitySnapshot, instancePresent bool) error {
-	if !instancePresent {
-		return nil
-	}
-	var state string
-	if err := tx.QueryRowContext(ctx, `SELECT instance_state FROM workflow_instances WHERE work_id=?`, work).Scan(&state); err != nil {
-		return wrapFailure(KindUnavailable, "C19.Continuity", "cannot read workflow failure state", true, "retry once the database is readable", err)
-	}
-	if state != "blocked" {
-		return nil
-	}
-	var failure ContextFailure
-	if err := tx.QueryRowContext(ctx, `SELECT json_extract(f.payload,'$.failure_kind'),json_extract(f.payload,'$.recoverable'),json_extract(f.payload,'$.step_id'),json_extract(f.payload,'$.attempt_epoch')
-FROM workflow_action_obligations f
-WHERE f.work_id=? AND f.state='failed'
-ORDER BY f.effect_seq DESC LIMIT 1`, work).Scan(&failure.Kind, &failure.Recoverable, &failure.StepID, &failure.AttemptEpoch); err == nil {
-		out.UnresolvedFailure = &failure
-	} else if err != sql.ErrNoRows {
-		return wrapFailure(KindUnavailable, "C19.Continuity", "cannot read latest workflow failure", true, "retry once the database is readable", err)
-	}
 	return nil
 }
 

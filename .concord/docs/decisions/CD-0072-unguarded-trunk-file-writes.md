@@ -69,6 +69,4 @@ enforced.
 
 ## Verification
 
-- `scripts/check-predecessor-coverage.py` passes with the split row and the
-  updated Excluded tally.
 - The grant refusal and worktree claim refusals keep their existing tests.

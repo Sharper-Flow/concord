@@ -1,7 +1,6 @@
 package store
 
 import (
-	"encoding/json"
 	"testing"
 )
 
@@ -27,16 +26,16 @@ func checksRepairClaimGit(t *testing.T, s *Store, work, dir, head string) *fakeW
 	return git
 }
 
-func checksRepairSealedCompletion(t *testing.T, event Event) Event {
-	t.Helper()
-	var payload WorkerCompletedPayload
-	if err := json.Unmarshal(event.Payload, &payload); err != nil {
-		t.Fatal(err)
+func TestChecksRepairHeadsPreserveConsequencePolicy(t *testing.T) {
+	for _, ref := range []string{"workflow.implementation", "workflow.break_fix"} {
+		registered, err := BuiltinWorkflowDefinitionForRef(ref)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if registered.Definition.ApprovalPolicy != WorkflowApprovalPolicyConsequenceV1 {
+			t.Fatalf("%s approval policy = %q", ref, registered.Definition.ApprovalPolicy)
+		}
 	}
-	payload.ObservedDelivery = nil
-	payload.ProductionSize = nil
-	event.Payload = mustJSONValue(payload)
-	return event
 }
 
 func passExitCode() *int { value := 0; return &value }

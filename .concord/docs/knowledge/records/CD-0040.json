@@ -13,7 +13,6 @@
     "tier": "legislated"
   },
   "date": "2026-08-17T00:00:00Z",
-  "doc_contract_profile": "legacy",
   "evidence": [
     ".concord/docs/decisions/CD-0008-concord-mechanism-hardening.md",
     "internal/store/work_observations.go",
@@ -31,7 +30,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:2b93911f613ceac1b166a10e65053a3af02fc362b6660afd60fa9ec38cda5544",
+  "sha256": "sha256:b07b7b4366d7bf6d77cbbdf908de237fee1dba18a1cd3ecb12e36d694e8797f8",
   "status": "accepted",
   "summary": "External observations share typed provenance and recorded verification; presence is broad, while absence and consequential use require pinned completeness and current proof.",
   "tags": [

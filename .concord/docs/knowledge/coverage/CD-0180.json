@@ -10,10 +10,6 @@
     },
     {
       "kind": "validator",
-      "value": "scripts/test-doc-contract.py"
-    },
-    {
-      "kind": "validator",
       "value": "scripts/test-knowledge-index.py"
     }
   ],

@@ -317,7 +317,7 @@ Tests prove both inline and reconstructed results meet the same completeness, ve
 When no valid core envelope is available, TS6's adapter may construct a minimal
 TS7 `error` envelope with `origin=adapter` and `authority=unreachable`.
 Freshness is null and the source watermark is empty. Adapter origin includes
-transport failures, pre-dispatch input refusals, lane authorization refusals,
+transport failures, pre-dispatch input refusals,
 and native host failures. It never claims core authority.
 
 The [canonical envelope schema](../../contracts/agent-tool-envelope.schema.json)
@@ -332,7 +332,6 @@ The schema admits these adapter-origin kinds:
 | `timeout` | The deadline ended with no authoritative effect. | `none` | `retry_same_request` |
 | `cancelled` | Cancellation completed with no authoritative effect. | `none` | `retry_same_request` |
 | `operation_conflict` | A failed operation needs reconciliation. | `none` or `possible` | `reconcile_operation`; an adapter `session_vacate` error with `unknown_effect` and `possible` reconciles against current state ([CD-0242 D2](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)) and states its caller action ([CD-0242 D12](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d12-every-refusal-states-an-action-the-caller-may-take)). |
-| `unauthorized` | The adapter refused lane tool authorization before dispatch. | `none` | `contact_operator` |
 | `invalid_input` | The host wrapper, tool arguments, or CLI input failed validation before dispatch. | `none`, with `retry_safe=false` | `correct_request` |
 
 If the wrapper refusal cannot resolve an accepted tool/operation pair, `operation` is
@@ -365,7 +364,6 @@ a reason and a kind beyond the input and manifest rules named below.
 | `host_lease_missing` | The host lease admission gate refused invocation. | `none` | `contact_operator` |
 | `unknown_effect` | A mutation's effect remains uncertain. | `possible` | `reconcile_operation`; an adapter `session_vacate` reconciles against current state ([CD-0242 D2](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)), or `contact_operator` when reconciliation cannot run ([CD-0242 D12](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d12-every-refusal-states-an-action-the-caller-may-take)). |
 | `session_directory_unreadable` | The host cannot read the session directory. | `none` | `retry_same_request` |
-| `lane_tool_refusal` | A managed lane called a tool outside its authority. | `none` | `contact_operator` |
 | `invalid_cli_input` | The CLI refused input before dispatch. | `none`, with `retry_safe=false` | `correct_request` |
 | `invalid_request_wrapper` | The host request wrapper is absent or malformed. | `none`, with `retry_safe=false` | `correct_request` |
 | `invalid_tool_input` | Host tool arguments failed validation before dispatch. | `none`, with `retry_safe=false` | `correct_request` |
@@ -462,8 +460,7 @@ compatibility treatment. Prose convenience is not sufficient evidence.
 
 The envelope is a per-call property below scenario grain, so every criterion
 carries a typed exemption in the record naming the envelope test that proves
-the guarantee. `python3 scripts/check-doc-contract.py` validates those
-recorded exemptions.
+the guarantee.
 
 - Criterion 1 is proved by `TestEnvelopeRejectsUnknownVariantsAndFields` and
   `TestEnvelopeRejectsUnknownFieldsAcrossEveryOutcome`

@@ -56,6 +56,11 @@ func attributionCompletion(t *testing.T, s *Store, id string, closureHashes ...s
 // its HEAD becomes the reviewed candidate.
 func attributionCompletionWith(t *testing.T, s *Store, id string, candidate func(repo string), closureHashes ...string) Event {
 	t.Helper()
+	return attributionCompletionWithConfirmation(t, s, id, candidate, nil, closureHashes...)
+}
+
+func attributionCompletionWithConfirmation(t *testing.T, s *Store, id string, candidate func(repo string), confirm func(acceptanceRecoveryFixture) error, closureHashes ...string) Event {
+	t.Helper()
 	fixture := workContextFixture{store: s, workID: id, owner: lawChangeConstructorActor}
 	repo, _ := reviewSubjectClaim(t, s, id)
 	var branch string
@@ -94,7 +99,12 @@ func attributionCompletionWith(t *testing.T, s *Store, id string, candidate func
 	}
 	observation := fmt.Sprintf("obs:%x", sha256.Sum256([]byte(id)))[:20]
 	insertInvestigationGateObservation(t, s, id, observation, []string{"agent-surface", "inventory-seed"})
-	if err := f.run(t.Context(), "confirm_premise", "confirm", readWorkVersion(t, s, id), nil, nil); err != nil {
+	if confirm == nil {
+		confirm = func(f acceptanceRecoveryFixture) error {
+			return f.run(t.Context(), "confirm_premise", "confirm", readWorkVersion(t, s, id), nil, nil)
+		}
+	}
+	if err := confirm(f); err != nil {
 		t.Fatal(err)
 	}
 	if err := advanceWorkflowTestInstanceToStep(t.Context(), s, id, "release", owner); err != nil {
@@ -235,11 +245,6 @@ func TestLawAttributionChainsAndStartWatermark(t *testing.T) {
 	attributionItem(t, s, "chain-a", []string{}, []string{})
 	attributionItem(t, s, "chain-b", []string{"law-peer"}, []string{})
 	attributionItem(t, s, "chain-ab", []string{"law-peer"}, []string{})
-	v := readWorkVersion(t, s, "chain-ab")
-	impact := workflowEventWithActor("chain-ab-impact", WorkflowImpactDeclared, "chain-ab", ownerRefForTest(t, lawChangeConstructorActor), map[string]any{"work_id": "chain-ab", "expected_version": v, "resulting_version": v + 1, "edge_id": "edge:chain-ab", "edge_kind": "modifies", "edge_class": "none", "target_work_id": "chain-ab", "target_kind": "work_item", "severity": "non-breaking"})
-	if err := applyWorkflowTestOperation(t.Context(), s, Operation{Events: []Event{impact}, ExpectedVersions: workVersion("chain-ab", v)}); err != nil {
-		t.Fatal(err)
-	}
 	editLawChangeLaw(t, s, "law-peer")
 	if err := CompleteWorkflow(t.Context(), s, attributionCompletion(t, s, "chain-b")); err != nil {
 		t.Fatal(err)

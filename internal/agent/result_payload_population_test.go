@@ -51,13 +51,12 @@ func fullyPopulatedContinuitySnapshot() store.ContinuitySnapshot {
 			RigorClass:          "prototype_internal",
 			ChangesProductTruth: new(true),
 			ArchitectureBinding: &store.WorkflowArchitectureBinding{
-				DomainRegistryContentHash: "sha256:" + repeatHex(),
-				HomeDomainID:              "child",
-				AffectedDomainIDs:         []string{"root", "child"},
-				DomainModifies:            []string{"child"},
-				DomainRelationModifies:    []store.WorkflowDomainRelationModification{{SourceDomainID: "child", Kind: "depends_on", TargetDomainID: "root"}},
-				LawAdditions:              []store.WorkflowLawAddition{{LawID: "spec-2", HomeDomainID: "child"}},
-				VerificationObligations:   []store.WorkflowVerificationObligation{{LawID: "spec-1", ObligationID: "verification"}},
+				HomeDomainID:            "child",
+				AffectedDomainIDs:       []string{"root", "child"},
+				DomainModifies:          []string{"child"},
+				DomainRelationModifies:  []store.WorkflowDomainRelationModification{{SourceDomainID: "child", Kind: "depends_on", TargetDomainID: "root"}},
+				LawAdditions:            []store.WorkflowLawAddition{{LawID: "spec-2", HomeDomainID: "child"}},
+				VerificationObligations: []store.WorkflowVerificationObligation{{LawID: "spec-1", ObligationID: "verification"}},
 			},
 		},
 		SpecMandate: []string{"spec-1"},
@@ -91,7 +90,6 @@ func fullyPopulatedContinuitySnapshot() store.ContinuitySnapshot {
 			PendingQuestions: []string{"question-1"},
 			PendingDecisions: []string{"decision-1"},
 		},
-		UnresolvedFailure: &store.ContextFailure{Kind: "verification_failed", Recoverable: true, StepID: "implement", AttemptEpoch: 1},
 		Boundaries: []store.ContextBoundary{{
 			BoundaryID:         "boundary-1",
 			Sequence:           1,
@@ -115,14 +113,7 @@ func fullyPopulatedContinuitySnapshot() store.ContinuitySnapshot {
 			Tags:          []string{"tag-1"},
 			RecordedAt:    "2026-01-01T00:00:00Z",
 		}},
-		ChangesProductTruth: true,
-		UnresolvedOverlaps: []store.WorkflowDomainOverlap{{
-			ProductID: "product-1", FromWorkID: "work-1", ToWorkID: "work-2", FromContractVersion: 1, ToContractVersion: 1,
-			SharedAffectedDomainIDs: []string{"domain-1"}, SharedLawIDs: []string{"spec-1"}, SharedDomainModifications: []string{"domain-1"},
-			SharedRelationTuples: []store.WorkflowDomainRelationTuple{{SourceDomainID: "domain-1", Kind: "depends_on", TargetDomainID: "domain-2"}},
-			OverlapClasses:       []string{"architecture"}, ResolutionState: "unresolved", RecoveryActions: []string{"wait"},
-			SharedAffectedDomainCount: 1, SharedLawCount: 1, SharedDomainModificationCount: 1, SharedRelationTupleCount: 1,
-		}},
+		ChangesProductTruth:     true,
 		CompatibleLawAmendments: []store.CompatibleLawAmendment{{LawID: "spec-1", PinnedHash: "sha256:" + repeatHex(), CurrentHash: "sha256:" + strings.Repeat("b", 64)}},
 	}
 }
@@ -207,7 +198,6 @@ type domainReadPayloads struct {
 	list        store.DomainListPayload
 	detail      store.DomainDetailPayload
 	attachments store.DomainAttachmentsPayload
-	overlaps    store.DomainOverlapsPayload
 }
 
 // fullyPopulatedDomainPayloads runs the Domain reads against a store
@@ -271,23 +261,18 @@ func fullyPopulatedDomainPayloads(t *testing.T) domainReadPayloads {
 	if err != nil {
 		t.Fatal(err)
 	}
-	overlaps, err := s.QueryDomainOverlaps(ctx, store.DomainOverlapsRequest{Product: product, Domain: domain})
-	if err != nil {
-		t.Fatal(err)
-	}
-	assertDomainReadsArePopulated(t, detail, attachments, overlaps)
+	assertDomainReadsArePopulated(t, detail, attachments)
 	return domainReadPayloads{
 		list:        store.NewDomainListPayload(list),
 		detail:      store.NewDomainDetailPayload(detail),
 		attachments: store.NewDomainAttachmentsPayload(attachments),
-		overlaps:    store.NewDomainOverlapsPayload(overlaps),
 	}
 }
 
 // assertDomainReadsArePopulated refuses a vacuous fixture. Every member below is
 // optional in its schema, so a read that left it empty would validate without
 // ever exercising the declaration under test.
-func assertDomainReadsArePopulated(t *testing.T, detail store.DomainDetailResult, attachments store.DomainAttachmentsResult, overlaps store.DomainOverlapsResult) {
+func assertDomainReadsArePopulated(t *testing.T, detail store.DomainDetailResult, attachments store.DomainAttachmentsResult) {
 	t.Helper()
 	if detail.Domain.ParentID == "" {
 		t.Fatal("detail Domain has no parent, so parent_domain_id is unexercised")
@@ -298,7 +283,7 @@ func assertDomainReadsArePopulated(t *testing.T, detail store.DomainDetailResult
 	if len(detail.Relations) == 0 || len(detail.Relations[0].GoverningLaws) == 0 {
 		t.Fatalf("detail governing law is unexercised: %#v", detail.Relations)
 	}
-	if len(attachments.Attachments.ProjectEdges) == 0 || len(attachments.Attachments.ResourceEdges) == 0 {
+	if len(attachments.Attachments.ResourceEdges) == 0 {
 		t.Fatalf("attachment edges are unexercised: %#v", attachments.Attachments)
 	}
 	// CD-0222 D4 gives the relation bounded purpose and environment metadata.
@@ -307,9 +292,6 @@ func assertDomainReadsArePopulated(t *testing.T, detail store.DomainDetailResult
 	resourceEdge := attachments.Attachments.ResourceEdges[0]
 	if resourceEdge.Purpose == "" || len(resourceEdge.Environments) == 0 {
 		t.Fatalf("resource attachment metadata is unexercised: %#v", resourceEdge)
-	}
-	if len(overlaps.Pairs) == 0 || len(overlaps.Pairs[0].SharedLawIDs) == 0 {
-		t.Fatalf("overlap shared law is unexercised: %#v", overlaps.Pairs)
 	}
 }
 
@@ -338,7 +320,6 @@ func TestFullyPopulatedResultPayloadsValidate(t *testing.T) {
 		{name: "domain list", tool: "concord_domain", operation: "list", payload: domain.list},
 		{name: "domain detail", tool: "concord_domain", operation: "detail", payload: domain.detail},
 		{name: "domain attachments", tool: "concord_domain", operation: "attachments", payload: domain.attachments},
-		{name: "domain overlaps", tool: "concord_domain", operation: "overlaps", payload: domain.overlaps},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			raw, err := json.Marshal(testCase.payload)
@@ -358,13 +339,12 @@ func TestFullyPopulatedResultPayloadsValidate(t *testing.T) {
 // slices a shaping that dropped only a copied list would have to name.
 func fullyPopulatedWorkflowReadProjection() store.WorkflowReadProjection {
 	binding := &store.WorkflowArchitectureBinding{
-		DomainRegistryContentHash: "sha256:" + repeatHex(),
-		HomeDomainID:              "child",
-		AffectedDomainIDs:         []string{"root", "child"},
-		DomainModifies:            []string{"child"},
-		DomainRelationModifies:    []store.WorkflowDomainRelationModification{{SourceDomainID: "child", Kind: "depends_on", TargetDomainID: "root"}},
-		LawAdditions:              []store.WorkflowLawAddition{{LawID: "spec-2", HomeDomainID: "child"}},
-		VerificationObligations:   []store.WorkflowVerificationObligation{{LawID: "spec-1", ObligationID: "verification"}},
+		HomeDomainID:            "child",
+		AffectedDomainIDs:       []string{"root", "child"},
+		DomainModifies:          []string{"child"},
+		DomainRelationModifies:  []store.WorkflowDomainRelationModification{{SourceDomainID: "child", Kind: "depends_on", TargetDomainID: "root"}},
+		LawAdditions:            []store.WorkflowLawAddition{{LawID: "spec-2", HomeDomainID: "child"}},
+		VerificationObligations: []store.WorkflowVerificationObligation{{LawID: "spec-1", ObligationID: "verification"}},
 	}
 	return store.WorkflowReadProjection{
 		WorkID: "work-1", State: "completed", CurrentStep: "acceptance",
@@ -375,7 +355,6 @@ func fullyPopulatedWorkflowReadProjection() store.WorkflowReadProjection {
 			RequiredEvidence:  []string{"verification"}, RouteConventions: []string{"workflow_action"}, SpecMandate: []string{"spec-1"},
 			LawModifies: []string{"spec-1"}, LawRevisions: []store.WorkflowLawRevision{{LawID: "spec-1", ContentHash: "sha256:" + repeatHex()}},
 			RigorClass: "prototype_internal", ChangesProductTruth: new(true), ArchitectureBinding: binding,
-			SelfRepair: &store.WorkflowSelfRepair{RefusalKind: "missing_evidence", BlockedOperation: "workflow_action", EvidenceRefs: []string{"evidence:repair-1"}},
 		},
 		OperatorQuestion: &store.WorkflowOperatorQuestion{
 			ActionID: "confirm_premise", Prompt: "confirm the premise", Header: "premise",
@@ -385,14 +364,6 @@ func fullyPopulatedWorkflowReadProjection() store.WorkflowReadProjection {
 		WithheldOperatorQuestion: &store.WorkflowOperatorQuestionWithheld{ActionID: "confirm_premise", Reason: "the checkpoint is not open", Remedy: "advance the workflow"},
 		CandidateIDs:             []string{"work-2", "work-3"},
 		BacklogAlignment:         &store.WorkflowReadBacklogAlignment{Searched: "Searched open work for duplicate objectives.", Outcome: "related_found", RelatedIDs: []string{"work-2", "work-3"}},
-		Conditions:               []store.WorkflowReadCondition{},
-		UnresolvedConditions:     []string{},
-		OverdueAwaits:            []string{"cond-1"},
-		AwaitHealth:              []store.WorkflowReadCondition{{ID: "cond-1", AwaitType: "pr_merge", AwaitRef: "pr:1", ResolutionAuthority: "operator", State: "open"}},
-		UnreadableConditions:     []string{},
-		Ready:                    true,
-		BlockingConditions:       []string{},
-		ImpactNotices:            []store.WorkflowReadNotice{},
 		CompletionWarnings:       []string{"a warning"},
 		StaleLawRevision: &store.StaleLawRevision{
 			OldLawID: "spec-1", OldContentHash: "sha256:" + repeatHex(),
@@ -451,7 +422,7 @@ func TestPublishedWorkflowReadMatchesDerivedContractSet(t *testing.T) {
 
 // TestPublishedReadsQualifiedContractLaw proves the published read refs filled
 // from contract law IDs admit the source-qualified <home project>/<law> form
-// that approve_contract accepts and a registered source set produces. Each case
+// that approve_contract accepts and a designated home produces. Each case
 // qualifies one published field, so each output ref fails on its own.
 func TestPublishedReadsQualifiedContractLaw(t *testing.T) {
 	t.Parallel()
@@ -493,11 +464,6 @@ func TestPublishedReadsQualifiedContractLaw(t *testing.T) {
 			snapshot := fullyPopulatedContinuitySnapshot()
 			snapshot.SpecMandate = []string{qualified}
 			return result(t, "concord_work_trace", "continuity", ContinuityPayload(snapshot))
-		}},
-		{field: "domain overlaps pairs[].shared_law_ids", validate: func(t *testing.T) error {
-			overlaps := fullyPopulatedDomainPayloads(t).overlaps
-			overlaps.Pairs[0].SharedLawIDs = []string{qualified}
-			return result(t, "concord_domain", "overlaps", overlaps)
 		}},
 	} {
 		t.Run(testCase.field, func(t *testing.T) {
@@ -1096,7 +1062,6 @@ func readPopulationInputs(t *testing.T, fx readPopulationFixture) map[string]str
 		"concord_work_browse.blocked":              `{"product_id":"prod-alpha","page":{"cursor":null,"limit":20}}`,
 		"concord_work_browse.ready":                `{"product_id":"prod-alpha","page":{"cursor":null,"limit":20}}`,
 		"concord_work_browse.scope":                `{"product_id":"prod-alpha","work_id":"` + fx.workID + `"}`,
-		"concord_work_browse.resource_claims":      `{"product_id":"prod-alpha"}`,
 		"concord_work_browse.messages":             `{"product_id":"prod-alpha","work_id":"` + fx.workID + `","page":{"cursor":null,"limit":20}}`,
 		"concord_work_browse.worktree_audit":       `{"product_id":"prod-alpha"}`,
 		"concord_work_browse.worktree_inspect":     `{"work_id":"` + fx.workID + `","mode":"status"}`,
@@ -1114,7 +1079,6 @@ func readPopulationInputs(t *testing.T, fx readPopulationFixture) map[string]str
 		"concord_domain.list":                      `{"product_id":"prod-alpha","page":{"cursor":null,"limit":20}}`,
 		"concord_domain.detail":                    `{"product_id":"prod-alpha","domain_id":"` + fx.domainID + `"}`,
 		"concord_domain.attachments":               `{"product_id":"prod-alpha","domain_id":"` + fx.domainID + `"}`,
-		"concord_domain.overlaps":                  `{"product_id":"prod-alpha"}`,
 		"concord_domain.footprint":                 `{"product_id":"prod-alpha","behavior":"domain","page":{"cursor":null,"limit":20}}`,
 		"concord_domain.shape":                     `{"product_id":"prod-alpha","domain_id":"` + fx.domainID + `"}`,
 	}
@@ -1202,7 +1166,6 @@ var readPopulationRows = map[string][]string{
 	"concord_work_browse.blocked":              {"items"},
 	"concord_work_browse.ready":                {"items"},
 	"concord_work_browse.scope":                {"memberships"},
-	"concord_work_browse.resource_claims":      {"claims"},
 	"concord_work_browse.messages":             {"messages"},
 	"concord_work_browse.worktree_audit":       {"drift"},
 	"concord_work_trace.history":               {"entries"},
@@ -1215,8 +1178,7 @@ var readPopulationRows = map[string][]string{
 	"concord_knowledge.search":                 {"items"},
 	"concord_domain.list":                      {"domains"},
 	"concord_domain.detail":                    {"current_law", "relations", "observations"},
-	"concord_domain.attachments":               {"attachments.project_attachments", "attachments.resource_attachments"},
-	"concord_domain.overlaps":                  {"pairs"},
+	"concord_domain.attachments":               {"attachments.resource_attachments"},
 	"concord_domain.footprint":                 {"laws"},
 	"concord_domain.shape":                     {"domain_ids", "governing_law"},
 }
@@ -1229,7 +1191,7 @@ var readPopulationRowExemptions = map[string]string{
 	"concord_work_trace.mutation_result":    "one exact retained document answers a scalar JSON fragment; its content and digest are checked by the witness",
 	"concord_work_browse.worktree_inspect":  "the probed status mode answers a scalar status summary and carries no row collection",
 	"concord_knowledge.resolve_note":        "an unambiguous resolution answers one located note; candidates populate only when resolution is ambiguous",
-	"concord_knowledge.observe_publication": "one registered source answers a scalar provenance record, not a row collection",
+	"concord_knowledge.observe_publication": "one designated home answers a scalar provenance record, not a row collection",
 }
 
 // populationRowPathLength decodes one dotted JSON path against a dispatched

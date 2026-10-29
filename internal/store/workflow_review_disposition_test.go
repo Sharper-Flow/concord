@@ -78,22 +78,18 @@ func TestPreflightAndMutationRequireAcceptedReadyDisposition(t *testing.T) {
 	}
 }
 
-func TestReadyReviewRecordCannotRideAnUnrelatedRefusal(t *testing.T) {
+func TestReadyReviewRecordsBesideASharedDomainWriter(t *testing.T) {
 	const workID = "ready-review-overlap"
 	const peerID = "ready-review-overlap-peer"
 	j := pReturnReviewFixture(t, workID, "workflow.break_fix", "")
 	s := j.s
 	report := currentReviewBlockForTest(t, s, workID, "", "ready_for_final_proof")
 	ownerRef := mustActorRef(t, j.fixture.owner)
-	execStaleRegistryInFold(t, s, `INSERT INTO workflow_contract_domain_modifications(work_id,contract_version,domain_id) VALUES('`+workID+`',1,'root')`)
-	seedStaleRegistryRescanPeer(t, s, peerID, ownerRef)
-	before := j.effects(t)
+	execInFold(t, s, `INSERT INTO workflow_contract_domain_modifications(work_id,contract_version,domain_id) VALUES('`+workID+`',1,'root')`)
+	seedRootWriterPeer(t, s, peerID, ownerRef)
 	err := recordReviewForTest(t, s, workID, j.fixture.owner, report)
-	if !hasFailureKind(err, KindDomainOverlap) {
-		t.Fatalf("ready Review beside an unresolved overlap = %v, want the overlap refusal", err)
-	}
-	if j.effects(t) != before {
-		t.Fatal("refused Review changed durable state")
+	if err != nil {
+		t.Fatalf("ready Review beside a shared Domain writer = %v, want admitted", err)
 	}
 	reviewGateRequireStep(t, s, workID, "repair")
 }

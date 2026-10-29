@@ -53,16 +53,15 @@ cites the control that proves its own text.
 
 ### D5. Current scenarios keep their IDs
 
-The corpus holds twelve scenarios. Ten run one case each, and two carry nested
-cases: three for `WF26-condition-actions-refused` and two for
-`WF48-lane-pipeline-typed-evidence`. Each keeps its stable ID.
+The corpus runs each scenario and its nested cases through the same production
+action boundary. Each keeps its stable ID.
 
 ## Consequences
 
 - Product-truth enforcement on the implementation workflow carries conformance
-  coverage: outcome contracts, verdict-actor distinctness, completion rollback,
-  impact notices, evidence-commit binding, and owner acceptance of a lane result.
-- Domain overlap refusal is proved by store tests, not by the corpus.
+  coverage: outcome contracts, completion rollback, evidence-commit binding,
+  and current subject-bound Review results.
+- Store tests prove that a shared Domain alone blocks no boundary (CD-0222 D6).
 - Each Product-changing proof case seeds a Domain registry and approves an
   explicit architecture binding. This setup cost follows from D1 and is accepted.
 
@@ -91,8 +90,7 @@ two corpora to keep in sync.
 - `internal/store.TestWorkflowScenarioCorpusMutationsRerunAgainstAuthoritativeState`
   and `internal/store.TestWorkflowScenarioAssertionInterpreterRejectsMutatedExpectation`
   prove a mutated scenario or expectation fails.
-- `internal/store.TestOverlapBlocksRemovesWorkFromReady` and
-  `internal/store.TestDomainOverlapsDeriveFromCurrentContracts` prove Domain
-  overlap derivation and blocking.
+- `internal/store.TestOverlapBlocksRemovesWorkFromReady` proves a recorded
+  `blocks` resolution removes the blocked work from the ready queue.
 - `python3 scripts/check-agent-contracts.py`,
   `python3 scripts/check-json.py`, and `python3 scripts/check-doc-links.py` pass.

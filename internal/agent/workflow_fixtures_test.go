@@ -90,30 +90,39 @@ func readOperatorQuestionFromWorkPinForTest(ctx context.Context, s *store.Store,
 
 func workflowArchitectureBindingFixture() map[string]any {
 	return map[string]any{
-		"domain_registry_content_hash": pm1fixture.FixtureDomainRegistryContentHash,
-		"home_domain_id":               pm1fixture.FixtureRootDomainID,
-		"affected_domain_ids":          []string{pm1fixture.FixtureRootDomainID},
-		"domain_modifies":              []string{},
-		"domain_relation_modifies":     []any{},
-		"law_additions":                []any{},
-		"verification_obligations":     []any{},
+		"home_domain_id":           pm1fixture.FixtureRootDomainID,
+		"affected_domain_ids":      []string{pm1fixture.FixtureRootDomainID},
+		"domain_modifies":          []string{},
+		"domain_relation_modifies": []any{},
+		"law_additions":            []any{},
+		"verification_obligations": []any{},
 	}
 }
 
 // workflowArchitectureBindingForSeededRegistry reads the committed
-// registry's content hash and root Domain from the store, so a binding
-// cannot drift from the registry the store validates against.
+// registry's root Domain from the store, so a binding cannot drift from the
+// registry the store validates against.
 func workflowArchitectureBindingForSeededRegistry(t *testing.T, s *store.Store) map[string]any {
 	t.Helper()
-	var hash, root string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT content_hash,root_domain_id FROM domain_registries WHERE product_id='product-1'`).Scan(&hash, &root); err != nil {
+	var root string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT root_domain_id FROM domain_registries WHERE product_id='product-1'`).Scan(&root); err != nil {
 		t.Fatal(err)
 	}
 	binding := workflowArchitectureBindingFixture()
-	binding["domain_registry_content_hash"] = hash
 	binding["home_domain_id"] = root
 	binding["affected_domain_ids"] = []string{root}
 	return binding
+}
+
+// seededDomainRegistryContentHash reads the committed registry's content
+// hash, which a law-change text pin names.
+func seededDomainRegistryContentHash(t *testing.T, s *store.Store) string {
+	t.Helper()
+	var hash string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT content_hash FROM domain_registries WHERE product_id='product-1'`).Scan(&hash); err != nil {
+		t.Fatal(err)
+	}
+	return hash
 }
 
 func addWorkflowContractApprovalFields(input map[string]any) {

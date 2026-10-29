@@ -5,7 +5,6 @@
     "tier": "legislated"
   },
   "date": "2026-08-28T00:00:00Z",
-  "doc_contract_profile": "legacy",
   "evidence": [
     "internal/agent/authority.go",
     "internal/store/schema.go",
@@ -23,7 +22,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:be36d281641550182713c4feb012e863a930b32445eadcf54d3952640f769034",
+  "sha256": "sha256:dba0b9e49fcba35d57175e691642f6ab284e31bba58ba07c71f3a78320c9bc3f",
   "status": "accepted",
   "summary": "Per-call authorization intersects registered client policy with fresh Git-derived scope and requested capabilities, without grant tokens. Principal identity, idempotency, worktree ownership, manifest and scope refusals remain. Host approval keeps exact consequence/challenge/session bindings without a signature. Worker signing and its dedicated key lifecycle supply no authority after launcher retirement.",
   "tags": [

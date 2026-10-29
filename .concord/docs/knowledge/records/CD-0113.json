@@ -5,7 +5,6 @@
     "tier": "legislated"
   },
   "date": "2026-09-06T00:00:00Z",
-  "doc_contract_profile": "legacy",
   "evidence": [
     "internal/agent/mutations.go",
     "internal/agentcontract/generated_contracts.go",
@@ -23,7 +22,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:9aa84b0dc9b786afa8b334b1d1cc96c318cb19505079c747bf4a59282069f84e",
+  "sha256": "sha256:6f0e1549a68ee9cbc4c2fc306ad39309002c0861b2bae4b23c550c6727d23855",
   "status": "accepted",
   "summary": "Mutation results and full work reads carry complete WorkPins inline when the final envelope fits 51,200 bytes; oversized content may use TS7's closed projection reference and lossless authenticated pages. Mutation documents are computed and retained atomically with the write, immutable for replay and reads, with changed references and truthful effects in the envelope. Reconstruction verifies identity, length, digest and schema before granting authority. Existing pinless cases remain unchanged; every required pin matches its changed-reference version and intents derive from those pins.",
   "tags": [

@@ -27,5 +27,4 @@ requirements remain under CD-0242 D5 and D8.
 
 ## Verification
 
-- `python3 scripts/check-doc-contract.py` checks the decision outline.
 - `python3 scripts/check-knowledge-index.py` checks identity and hashes.

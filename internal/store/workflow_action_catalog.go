@@ -98,7 +98,6 @@ func builtinWorkflowActionCatalog() workflowActionCatalog {
 		"complete":               nil,
 		"confirm_premise":        {confirmPremiseOperatorPayload},
 		"cross_context_boundary": nil,
-		"declare_impact":         nil,
 		"frame_research":         nil,
 		"link_successor":         nil,
 		"record_alignment":       nil,
@@ -109,11 +108,13 @@ func builtinWorkflowActionCatalog() workflowActionCatalog {
 		"record_finding":         nil,
 		"record_proposal":        {proposalOutOfScopePayload},
 		"record_report":          nil,
-		"record_review":          {workTransitionAction, withClosedPayload(func() []WorkflowPayloadField { return []WorkflowPayloadField{actionObjectField("review", true, "workflow_review_report")} })},
-		"record_verdict":         {canonicalVerdictPayload},
-		"record_work_context":    {researchContextSelection},
-		"request_correction":     {workTransitionAction, openFindingsCorrection},
-		"revise_candidates":      nil,
-		"start_execution":        nil,
+		"record_review": {workTransitionAction, withClosedPayload(func() []WorkflowPayloadField {
+			return []WorkflowPayloadField{actionObjectField("review", true, "workflow_review_report")}
+		})},
+		"record_verdict":      {canonicalVerdictPayload},
+		"record_work_context": {researchContextSelection},
+		"request_correction":  {workTransitionAction, openFindingsCorrection},
+		"revise_candidates":   nil,
+		"start_execution":     nil,
 	}
 }

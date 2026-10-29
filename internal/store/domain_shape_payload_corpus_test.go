@@ -62,14 +62,6 @@ func TestCommittedWorkflowCompletionProofFactFitsBound(t *testing.T) {
 	)
 }
 
-func TestCommittedCIWaitFactFitsBound(t *testing.T) {
-	t.Parallel()
-	assertCommittedDomainFactFitsBound(t, "agent-adapter", "internal/ciwait", "ci-wait-deadline", []string{"agent-adapter"},
-		DomainShapeSelector{Path: "internal/ciwait/ci_wait.go"},
-		DomainShapeSelector{Subject: "ci-wait-deadline"},
-	)
-}
-
 func requireCommittedGoverningLaw(t *testing.T, law map[string]bool, ids ...string) {
 	t.Helper()
 	for _, id := range ids {
@@ -92,7 +84,7 @@ func assertCommittedDomainFactFitsBound(t *testing.T, domainID, owningRoot, fact
 		t.Fatal(err)
 	}
 	commit := strings.TrimSpace(string(head))
-	manifest, shards, missing, err := readKnowledgeManifestShardsRunner(ctx, runner, root, commit, manifestSharedHomeRole)
+	manifest, shards, missing, err := readKnowledgeManifestShardsRunner(ctx, runner, root, commit)
 	if err != nil || missing {
 		t.Fatalf("committed manifest missing=%v: %v", missing, err)
 	}
@@ -126,7 +118,7 @@ func assertCommittedDomainFactFitsBound(t *testing.T, domainID, owningRoot, fact
 		selection.GoverningLaw = domainShapeManifestGoverningLaw(manifest, selection)
 		carried := map[string]bool{}
 		for _, record := range selection.GoverningLaw {
-			carried[record.LawID] = law == nil || law[record.LawID]
+			carried[record] = law == nil || law[record]
 		}
 		law = carried
 		bounded, err := boundDomainShapeResult(selection)

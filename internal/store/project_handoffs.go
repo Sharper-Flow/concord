@@ -813,7 +813,6 @@ type ProjectSessionRetirement struct {
 	State              string   `json:"state"`
 	RecordedHandoff    bool     `json:"recorded_handoff"`
 	ArtifactsPreserved bool     `json:"artifacts_preserved"`
-	WorkersStopped     bool     `json:"workers_stopped"`
 	VacateLanded       bool     `json:"vacate_landed"`
 	Blockers           []string `json:"blockers"`
 }
@@ -824,15 +823,12 @@ const (
 )
 
 // EvaluateProjectSessionRetirement derives READY_TO_CLOSE_OR_REPLACE for one
-// Project-selected session from four verified facts: the session recorded an
+// Project-selected session from three verified facts: the session recorded an
 // addressed handoff on the work, its changed artifacts are preserved in the
-// claimed source worktree, its own open execution (dispatch-attributed
-// worker attempts and nonterminal workflow actions) stopped, and its
-// verified vacate landing released its occupancy (CD-0190). Unknown worker
-// attribution and liveness block readiness; another session's positively
-// identified worker is not this session's worker. The evaluation writes no
-// event, completes no work, cancels nothing, removes no worktree, and
-// terminates no process.
+// claimed source worktree, and its verified vacate landing released its
+// occupancy (CD-0190). The evaluation
+// writes no event, completes no work, cancels nothing, removes no worktree,
+// and terminates no process.
 //
 // The git/filesystem preservation probe must run outside any SQL
 // transaction, so the derivation reads in two snapshots: the phase-one
@@ -897,15 +893,14 @@ func EvaluateProjectSessionRetirement(ctx context.Context, s *Store, workID, pro
 	if drift := retirementHandoffSnapshotDrift(handoffFacts, recheck); drift != "" {
 		out.Blockers = append(out.Blockers, drift+"; re-run the retirement read")
 	}
-	out.WorkersStopped = execution.workersStopped
 	out.VacateLanded = execution.vacateLanded
 	if execution.blocker != "" {
 		out.Blockers = append(out.Blockers, execution.blocker)
 	}
-	if !out.WorkersStopped {
-		out.Blockers = append(out.Blockers, "the session's own open worker attempts or nonterminal workflow actions must stop before readiness")
+	if !execution.actionsStopped {
+		out.Blockers = append(out.Blockers, "the session's unfinished workflow actions must settle before readiness")
 	}
-	if len(out.Blockers) == 0 && out.RecordedHandoff && out.ArtifactsPreserved && out.WorkersStopped && out.VacateLanded {
+	if len(out.Blockers) == 0 && out.RecordedHandoff && out.ArtifactsPreserved && execution.actionsStopped && out.VacateLanded {
 		out.State = RetirementReady
 	}
 	return out, nil
@@ -1025,8 +1020,7 @@ func readRetirementHandoffFactsTx(ctx context.Context, q queryer, workID, projec
 // readRetirementFinalFactsTx is the queryer-taking read the transaction scope
 // rule owns the phase-three read through: the execution facts and the
 // phase-one snapshot revalidation read in one transaction, so the drift
-// comparison observes the same committed state the stopped-worker and
-// landing facts derive from.
+// comparison observes the same committed state the landing facts derive from.
 func readRetirementFinalFactsTx(ctx context.Context, q queryer, workID, projectID, sessionRef string, execution *projectRetirementExecutionFacts, recheck *projectRetirementHandoffFacts) error {
 	if err := readRetirementExecutionFactsTx(ctx, q, workID, sessionRef, execution); err != nil {
 		return err
@@ -1034,10 +1028,9 @@ func readRetirementFinalFactsTx(ctx context.Context, q queryer, workID, projectI
 	return readRetirementHandoffFactsTx(ctx, q, workID, projectID, sessionRef, recheck)
 }
 
-// projectRetirementExecutionFacts carries the phase-three read: whether the
-// session's own execution stopped and where its vacate landing stands.
+// projectRetirementExecutionFacts carries action settlement and vacate landing.
 type projectRetirementExecutionFacts struct {
-	workersStopped bool
+	actionsStopped bool
 	vacateLanded   bool
 	blocker        string
 }
@@ -1046,7 +1039,7 @@ type projectRetirementExecutionFacts struct {
 // scope rule owns the phase-three read through.
 func readRetirementExecutionFactsTx(ctx context.Context, q queryer, workID, sessionRef string, facts *projectRetirementExecutionFacts) error {
 	var err error
-	if facts.workersStopped, err = sessionOwnedExecutionStoppedTx(ctx, q, workID, sessionRef); err != nil {
+	if facts.actionsStopped, err = workExecutionStoppedTx(ctx, q, workID, sessionRef); err != nil {
 		return err
 	}
 	facts.vacateLanded, facts.blocker, err = sessionVacateLandingStateTx(ctx, q, workID, sessionRef)
@@ -1091,28 +1084,20 @@ func readSessionClaimedWorktreeTx(ctx context.Context, q queryer, workID, projec
 	return readErr
 }
 
-// sessionOwnedExecutionStoppedTx checks the session's nonterminal workflow
-// actions through their authenticated actors, never by actor-name equality.
-func sessionOwnedExecutionStoppedTx(ctx context.Context, q queryer, workID, sessionRef string) (bool, error) {
-	return workExecutionStoppedTx(ctx, q, workID, sessionRef)
-}
-
-// An empty session selects all execution on the work. Session retirement uses
-// the same derivation with its ownership filter; outside repair holds all of it.
+// An empty session selects all current starts. Missing actor attribution
+// cannot prove that another session owns an unfinished action.
 func workExecutionStoppedTx(ctx context.Context, q queryer, workID, sessionRef string) (bool, error) {
-	// The session's own nonterminal workflow actions. The started action's
-	// actor_ref is a workflow actor hash, so the session binds through the
-	// workflow_actors record, and a started action whose step and attempt
-	// epoch has no later completed or failed event is still open, whoever
-	// else acted on the work since.
-	var open int
-	err := q.QueryRowContext(ctx, `SELECT count(*) FROM workflow_action_obligations f
-		LEFT JOIN workflow_actors a ON a.actor_ref=f.actor_ref
-		WHERE f.state='started' AND f.work_id=? AND (?='' OR a.session_ref=?)`, workID, sessionRef, sessionRef).Scan(&open)
+	var open bool
+	err := q.QueryRowContext(ctx, `SELECT EXISTS(
+		SELECT 1 FROM workflow_step_epochs s
+		LEFT JOIN workflow_step_completions c ON c.work_id=s.work_id AND c.step_id=s.step_id
+		LEFT JOIN workflow_actors a ON a.actor_ref=json_extract(s.latest_start_payload,'$.actor_ref')
+		WHERE s.work_id=? AND s.latest_start_seq>COALESCE(c.completion_seq,0)
+		AND (?='' OR a.session_ref IS NULL OR a.session_ref='' OR a.session_ref=?))`, workID, sessionRef, sessionRef).Scan(&open)
 	if err != nil {
-		return false, wrapFailure(KindUnavailable, "project_retirement", "cannot read the session's nonterminal workflow actions", true, "retry once the database is readable", err)
+		return false, wrapFailure(KindUnavailable, "project_retirement", "cannot read unfinished workflow actions", true, "retry once the workflow projection is readable", err)
 	}
-	return open == 0, nil
+	return !open, nil
 }
 
 // sessionVacateLandingStateTx derives the verified vacate landing fact for

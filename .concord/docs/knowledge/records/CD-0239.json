@@ -3,7 +3,6 @@
     "tier": "derived"
   },
   "date": "2026-10-19T00:00:00Z",
-  "doc_contract_profile": "current",
   "home_domain_id": "workflow-engine",
   "id": "CD-0239",
   "kind": "decision",
@@ -29,7 +28,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:da23f9cde3c8e137562ffafbadaf90255bde39b741ff626480f88ff5c0f6f794",
+  "sha256": "sha256:2cb112768ef060b2d7ddf2d38132ef11343c65ef43ffc24723f5458b3a09c3cc",
   "status": "accepted",
   "summary": "A same-session landing from a different host process refreshes occupancy in one transaction, with core-checked liveness and process start time. Repeated same-process landing is idempotent. The process association remains caller-supplied and attests neither session execution nor repaired code. It supplies no workflow result, native receipt or subagent authority.",
   "tags": [

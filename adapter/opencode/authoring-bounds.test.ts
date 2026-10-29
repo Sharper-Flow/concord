@@ -1,7 +1,6 @@
 import { expect, test } from "bun:test"
 import { contractOperations, hostToolSchemas, payloadSchemas, workflowActionPublicVariants } from "./generated-contracts"
 import { expandedPublishedRequestSchema, validateGeneratedPayload } from "./generated-contract-tests"
-import { publishCiWatchDefinition } from "./ci-watch"
 import { publishRequestDefinition, publishWorkStartDefinition } from "./concord"
 import { validateAgainstSchema } from "./core-runtime"
 
@@ -271,7 +270,6 @@ async function publishedBoundRoots(): Promise<{ at: string; schema: unknown }[]>
   }
   for (const [toolID, hook] of [
     ["concord_work_start", publishWorkStartDefinition],
-    ["concord_ci_watch", publishCiWatchDefinition],
   ] as const) {
     const output = { description: "", parameters: {}, jsonSchema: undefined as unknown }
     await hook({ toolID }, output)

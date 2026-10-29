@@ -3,7 +3,6 @@
     "tier": "derived"
   },
   "date": "2026-09-24T00:00:00Z",
-  "doc_contract_profile": "current",
   "evidence": [
     ".concord/docs/concord-knowledge-index.md",
     "internal/store/knowledge_manifest.go",
@@ -26,7 +25,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:4ed0250a76bd4b38e903eeb22f4d068dcb80aa4d0255a4e51999c4fda5b267e5",
+  "sha256": "sha256:1265b0cfe301f765d6cdcd57af28593c8ba88608e5e2b13e7ab1712ccd057627",
   "status": "accepted",
   "summary": "A release-pinned core reads a knowledge manifest authored after its release: at a known schema_version the Go manifest reader drops a field its model does not declare across the root, record, authority, scopes, law relation, criterion binding, domain, architecture relation, and disposition decoders, while an unknown schema_version, duplicate keys, trailing values, and every semantic check still refuse, authoring stays closed behind the unchanged JSON Schema and knowledge-index checker, a field that must restrict older cores needs a schema_version bump, and the committed shard tree may carry no field the Go model drops.",
   "tags": [

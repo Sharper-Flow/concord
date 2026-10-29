@@ -5,7 +5,6 @@
     "tier": "legislated"
   },
   "date": "2026-08-14T00:00:00Z",
-  "doc_contract_profile": "legacy",
   "evidence": [
     "internal/store/work_messages.go",
     "internal/agent/work_messages_dispatch_test.go"
@@ -21,7 +20,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:a42a5ce6f6bbf50c01e2f55013d52091c4b6a69f3ab7e89b2b916e1ef87c1970",
+  "sha256": "sha256:25e86d330688f25cb3f88b2ca5a16c54c8ca99778fd08f095dee71b36f51ee91",
   "status": "accepted",
   "summary": "Messages are durable rows addressed to work items: direct or Product-broadcast, pull-at-next-call delivery with a continuity pending pointer, withdrawable-with-visibility, structurally authority-free.",
   "tags": [

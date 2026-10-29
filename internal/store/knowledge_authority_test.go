@@ -586,7 +586,7 @@ func TestKnowledgeAuthorityCorpusResolvesThroughSyntheticContracts(t *testing.T)
 	// Committed manifest metadata selects the whole population. Synthetic
 	// contracts prove the resolver rule, not the corpus's real approval history.
 	root := repositoryRootForTest(t)
-	manifest, missing, err := readKnowledgeManifest(context.Background(), root, "HEAD", manifestSharedHomeRole)
+	manifest, missing, err := readKnowledgeManifest(context.Background(), root, "HEAD")
 	if err != nil || missing {
 		t.Fatalf("cannot read the committed delivery manifest: missing=%v err=%v", missing, err)
 	}
@@ -607,7 +607,7 @@ func TestKnowledgeAuthorityCorpusResolvesThroughSyntheticContracts(t *testing.T)
 	// revisions enacted without operator approval. Any tier change updates these sets.
 	derivedInRange := map[string]bool{
 		"CD-0192": true, "CD-0195": true, "CD-0197": true, "CD-0198": true,
-		"CD-0199": true, "CD-0203": true, "CD-0204": true, "CD-0205": true, "CD-0207": true, "CD-0209": true,
+		"CD-0203": true, "CD-0204": true, "CD-0205": true, "CD-0207": true, "CD-0209": true,
 	}
 	legislatedInRange := map[string]bool{
 		"CD-0190": true, "CD-0191": true, "CD-0193": true, "CD-0194": true, "CD-0200": true,

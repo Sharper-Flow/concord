@@ -30,7 +30,7 @@ CREATE TABLE workflow_review_state(work_id TEXT PRIMARY KEY,state TEXT);
 CREATE TABLE work_context_findings(work_id TEXT,finding TEXT,source_seq INTEGER,ordinal INTEGER,finding_class TEXT);
 CREATE TABLE effect_receipts(effect_seq INTEGER,event_id TEXT,kind TEXT,subject_type TEXT,subject_id TEXT);
 CREATE TABLE worker_oracle_finding_facts(work_id TEXT,findings TEXT);
-CREATE TABLE write_guard(active INTEGER);
+CREATE TABLE write_guard(active INTEGER PRIMARY KEY);
 CREATE TABLE workflow_group_members(id TEXT);
 CREATE TABLE workflow_member_groups(id TEXT);
 CREATE TABLE workflow_member_callers(id TEXT);
@@ -39,9 +39,8 @@ CREATE TABLE worker_attempt_dispositions(id TEXT);
 CREATE TABLE worker_authorizations(work_id TEXT,attempt_id TEXT,seq INTEGER,payload TEXT);
 CREATE TABLE worker_attempts(work_id TEXT,attempt_id TEXT,dispatch_payload TEXT);
 CREATE TABLE worker_job_revisions(work_id TEXT,job_id TEXT,revision INTEGER,digest TEXT,recorded_payload TEXT);
-CREATE TABLE fold_guard(active INTEGER PRIMARY KEY);
 CREATE TABLE workflow_correction_state(work_id TEXT PRIMARY KEY,state TEXT NOT NULL CHECK(json_valid(state)));
-CREATE TRIGGER workflow_correction_state_guard_update BEFORE UPDATE ON workflow_correction_state BEGIN SELECT RAISE(ABORT, 'workflow_correction_state is fold-only') WHERE NOT EXISTS(SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER workflow_correction_state_guard_update BEFORE UPDATE ON workflow_correction_state BEGIN SELECT RAISE(ABORT, 'workflow_correction_state is write-seam-only') WHERE NOT EXISTS(SELECT 1 FROM write_guard WHERE active=1); END;
 CREATE TABLE workflow_instances(work_id TEXT PRIMARY KEY,execution_actor_ref TEXT,latest_non_dispatch_start_seq INTEGER,result_disposition TEXT);
 CREATE TABLE workflow_step_epochs(work_id TEXT,step_id TEXT,attempt_epoch INTEGER,latest_start_seq INTEGER,latest_start_event_id TEXT,latest_start_payload TEXT,latest_dispatch_start_seq INTEGER,latest_dispatch_start_event_id TEXT,latest_dispatch_start_payload TEXT);
 INSERT INTO worktree_entries VALUES('set:one','project:one','claim:one','topic/one','base','/synthetic/one','repo:one','active','stamp',NULL,'{}','');
@@ -286,8 +285,8 @@ func TestNativeTaskRetirementRollsBackNormalizationAndDDL(t *testing.T) {
 	if err := db.QueryRow(`SELECT count(*) FROM worktree_entries WHERE member_id<>''`).Scan(&count); err != nil || count != 1 {
 		t.Fatalf("failed cutover changed member source: count=%d err=%v", count, err)
 	}
-	if err := db.QueryRow(`SELECT count(*) FROM fold_guard`).Scan(&count); err != nil || count != 0 {
-		t.Fatalf("failed cutover leaked fold guard: count=%d err=%v", count, err)
+	if err := db.QueryRow(`SELECT count(*) FROM write_guard`).Scan(&count); err != nil || count != 0 {
+		t.Fatalf("failed cutover leaked write guard: count=%d err=%v", count, err)
 	}
 }
 
@@ -321,16 +320,16 @@ func TestNativeTaskRetirementCorrectionNormalizationSelectsGenuineLatestRequest(
 	}
 }
 
-func TestNativeTaskRetirementPreservesCallerFoldGuard(t *testing.T) {
+func TestNativeTaskRetirementPreservesCallerWriteGuard(t *testing.T) {
 	db := nativeTaskRetirementDB(t)
-	if _, err := db.Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+	if _, err := db.Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
 	if err := runNativeTaskRetirement(t, db, nativeTaskRetirementMigration(t).SQL); err != nil {
 		t.Fatal(err)
 	}
 	var count int
-	if err := db.QueryRow(`SELECT count(*) FROM fold_guard WHERE active=1`).Scan(&count); err != nil || count != 1 {
-		t.Fatalf("cutover removed caller-owned fold guard: count=%d err=%v", count, err)
+	if err := db.QueryRow(`SELECT count(*) FROM write_guard WHERE active=1`).Scan(&count); err != nil || count != 1 {
+		t.Fatalf("cutover removed caller-owned write guard: count=%d err=%v", count, err)
 	}
 }

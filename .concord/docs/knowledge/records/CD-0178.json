@@ -3,7 +3,6 @@
     "tier": "derived"
   },
   "date": "2026-09-24T00:00:00Z",
-  "doc_contract_profile": "current",
   "home_domain_id": "agent-adapter",
   "id": "CD-0178",
   "kind": "decision",
@@ -37,7 +36,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:800ba5329722a45a8d366b4bc5e460bfc5c375050929342bf780786d2595b3fd",
+  "sha256": "sha256:bb99384fdfe9336ed46667cebd8840365f4a115bbc3ee6aedb43a5f03a5bb99f",
   "status": "accepted",
   "summary": "Native Task execution belongs to the host, without child-directory or producer attestation. Each repository has its own coordinator session and verified Project landing. Cross-repository worktree claims refuse before creation. Occupancy remains one row per session with checked process liveness, released by vacate, verified landing elsewhere or process end. Live occupancy blocks ordinary removal and content gates remain unchanged.",
   "tags": [

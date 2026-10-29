@@ -43,8 +43,6 @@ var mutationDurabilityDeclarations = map[string]mutationDurability{
 	"concord_work_transition.worktree_destroy":         {},
 	"concord_work_relate.set_memberships":              {},
 	"concord_work_relate.resolve_overlap":              {initial: true, replay: true},
-	"concord_work_relate.resource_claim":               {},
-	"concord_work_relate.resource_release":             {},
 	"concord_work_relate.message_send":                 {},
 	"concord_work_relate.message_withdraw":             {},
 	"concord_work_compact.publish":                     {initial: true, replay: true},

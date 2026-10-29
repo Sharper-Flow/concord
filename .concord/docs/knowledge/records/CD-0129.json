@@ -5,7 +5,6 @@
     "tier": "legislated"
   },
   "date": "2026-09-09T00:00:00Z",
-  "doc_contract_profile": "legacy",
   "evidence": [
     "internal/store/workflow_operator.go",
     "internal/store/workflow_dispatch.go",
@@ -33,7 +32,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:9596dded45e31c0d87281c277384db05567aa9c72e31b02c2b41b27860a314fa",
+  "sha256": "sha256:6f07a05f072d6722589b421de95ff03a847694c983e8711d5903c10104a335c5",
   "status": "accepted",
   "summary": "Withholds every approval-required operator question until the work item carries an observation whose refs resolve to a current Domain and another work item, refuses contract approval while recorded pending questions lack a bound research pack revision, and leaves architecture mandatory where it already binds, at approval for Product-changing work.",
   "tags": [

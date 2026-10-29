@@ -442,10 +442,6 @@ func approvalDecisionDigest(t *testing.T, s *Store, workID string) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	contract.SelfRepair, err = readWorkflowSelfRepair(ctx, tx, workID, contract.Version)
-	if err != nil {
-		t.Fatal(err)
-	}
 	return ComputeWorkflowDecisionContextDigest(workID, workVersion, definition, contract, "confirm_premise")
 }
 
@@ -612,30 +608,6 @@ func TestApprovalPolicyTerminalEngineering(t *testing.T) {
 			t.Fatalf("engineering confirmation without the criterion association returned %v, want the missing-evidence refusal", err)
 		}
 		assertNoApprovalEffect(t, s, workID, baselineVersion, baselineEvents)
-	})
-
-	t.Run("a worker identity cannot confirm engineering work", func(t *testing.T) {
-		t.Parallel()
-		const workID = "approval-terminal-engineering-worker"
-		s, registry, _, _, actors := seedApprovalItemAtAcceptance(t, workID, []string{})
-		lane := BuiltinLaneDefinitions()[0]
-		dispatch := workerDispatchEvent(workID, "approval-worker-dispatch-"+workID, lane, map[string]any{"attempt_id": "attempt:" + workID, "lane_actor_ref": actors.coordinatorRef})
-		dispatch.Actor = actors.coordinatorRef
-		dispatch.OccurredAt = time.Unix(12, 45).UTC()
-		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{dispatch}}); err != nil {
-			t.Fatalf("seed worker dispatch: %v", err)
-		}
-		baselineVersion := readWorkVersion(t, s, workID)
-		baselineEvents := int64(approvalEventCount(t, s, workID))
-		// The worker-authority identity cannot record the engineering
-		// confirmation through the public action route.
-		err := runApprovalActionTx(t, s, registry, workID, "confirm_premise", actors.coordinator, nil, "confirm", "", `{"selected_choice":"confirm"}`)
-		var workerFailure *Failure
-		if err == nil || !failureAs(err, &workerFailure) || workerFailure.Kind != KindUnauthorized || !strings.Contains(workerFailure.Detail, "worker actors cannot record an engineering premise confirmation") {
-			t.Fatalf("the worker-authority confirmation returned %v, want the worker authority refusal", err)
-		}
-		assertNoApprovalEffect(t, s, workID, baselineVersion, baselineEvents)
-		assertNoFoldGuardRows(t, s)
 	})
 
 	t.Run("engineering completion cannot bypass the unconfirmed acceptance step", func(t *testing.T) {

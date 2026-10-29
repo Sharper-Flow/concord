@@ -255,22 +255,6 @@ func (r runtime) readWorkScope(ctx context.Context, base agentcontract.Envelope,
 		r.Store.QueryQ6, r.q6)
 }
 
-func (r runtime) readResourceClaims(ctx context.Context, base agentcontract.Envelope, input []byte) (agentcontract.Envelope, error) {
-	var in resourceClaimsInput
-	if err := decodeOperationInput(input, &in); err != nil {
-		return base, err
-	}
-	if in.ProductID == "" {
-		in.ProductID = r.Envelope.SelectedProductID
-	}
-	claims, err := r.Store.ResourceClaims(ctx, in.ResourceKey, in.ProductID, effectiveLimit(in.Limit, in.Page))
-	if err != nil {
-		return failureEnvelope(base, err), nil
-	}
-	meta := store.ResultMeta{QueryID: "PM1.Q13", ContractVersion: "PM1/1.0", ResolvedScope: store.ResolvedScope{ProductID: in.ProductID}, Authority: "authoritative", Freshness: store.Freshness{ObservedAt: time.Now().UTC().Format(time.RFC3339Nano)}, OrderingKeys: []string{"claimed_at"}}
-	return r.resultEnvelope(base, meta, r.scope(meta), map[string]any{"claims": claims})
-}
-
 func (r runtime) readWorkMessages(ctx context.Context, base agentcontract.Envelope, input []byte) (agentcontract.Envelope, error) {
 	var in messagesInput
 	if err := decodeOperationInput(input, &in); err != nil {
@@ -737,17 +721,15 @@ func (r runtime) readKnowledgeSearch(ctx context.Context, base agentcontract.Env
 	// The read is the demand (CD-0082 D1): a stale index rebuilds here,
 	// before the query and outside any transaction. A home git cannot
 	// reach is left for the query itself to refuse or degrade by rule.
-	// CD-0200: the demand covers the Product's full registered source set,
-	// so a member Project's source rebuilds on demand too.
 	// CD-0159 D6: under allow_degraded a suppressed demand is not silence —
-	// the exact per-source outcome rides the typed Q9 request, and Q9
-	// degrades that source through its owning per-source path. Without
+	// the exact home outcome rides the typed Q9 request, and Q9
+	// degrades the answer through its owning path. Without
 	// allow_degraded the same error refuses, as before.
-	demandFailures, registrationsUnread, err := r.knowledgeSearchDemand(ctx, in, home)
+	demandFailures, err := r.knowledgeSearchDemand(ctx, in, home)
 	if err != nil {
 		return failureEnvelope(base, err), nil
 	}
-	q, err := r.Store.QueryQ9(ctx, store.Q9Request{Product: in.ProductID, Project: in.ProjectID, Domain: in.DomainID, Kinds: knowledgeKinds(in.Kinds), Tags: in.Tags, Text: in.Text, Limit: effectiveLimit(in.Limit, in.Page), Cursor: inner, Home: home, AllowDegraded: in.AllowDegraded, DemandFailures: demandFailures, RegistrationsUnread: registrationsUnread})
+	q, err := r.Store.QueryQ9(ctx, store.Q9Request{Product: in.ProductID, Project: in.ProjectID, Domain: in.DomainID, Kinds: knowledgeKinds(in.Kinds), Tags: in.Tags, Text: in.Text, Limit: effectiveLimit(in.Limit, in.Page), Cursor: inner, Home: home, AllowDegraded: in.AllowDegraded, DemandFailures: demandFailures})
 	if err != nil {
 		return failureEnvelope(base, err), nil
 	}
@@ -759,36 +741,15 @@ func (r runtime) readKnowledgeSearch(ctx context.Context, base agentcontract.Env
 	return r.wrapCursor(ctx, response, string(binding), "summary")
 }
 
-func (r runtime) knowledgeSearchDemand(ctx context.Context, in knowledgeSearchInput, home store.KnowledgeHome) ([]store.KnowledgeDemandFailure, bool, error) {
+func (r runtime) knowledgeSearchDemand(ctx context.Context, in knowledgeSearchInput, home store.KnowledgeHome) ([]store.KnowledgeDemandFailure, error) {
 	var demandFailures []store.KnowledgeDemandFailure
 	if err := r.Store.EnsureKnowledgeIndexFresh(ctx, home); err != nil {
 		if !in.AllowDegraded {
-			return nil, false, err
+			return nil, err
 		}
 		demandFailures = append(demandFailures, store.KnowledgeDemandFailure{ProjectID: home.HomeProjectID, LocatorID: home.HomeLocatorID, FailureKind: demandFailureKind(err)})
 	}
-	registrationsUnread := false
-	if in.ProductID != "" {
-		sources, srcErr := r.Store.ProductKnowledgeSourceRegistrations(ctx, in.ProductID)
-		if srcErr != nil && !in.AllowDegraded {
-			return nil, false, srcErr
-		}
-		if srcErr != nil {
-			registrationsUnread = true
-		}
-		for _, source := range sources {
-			if source.HomeProjectID == home.HomeProjectID && source.HomeLocatorID == home.HomeLocatorID {
-				continue
-			}
-			if err := r.Store.EnsureKnowledgeIndexFresh(ctx, source); err != nil {
-				if !in.AllowDegraded {
-					return nil, false, err
-				}
-				demandFailures = append(demandFailures, store.KnowledgeDemandFailure{ProjectID: source.HomeProjectID, LocatorID: source.HomeLocatorID, FailureKind: demandFailureKind(err)})
-			}
-		}
-	}
-	return demandFailures, registrationsUnread, nil
+	return demandFailures, nil
 }
 
 func knowledgeSourceNotices(omissions []store.KnowledgeSourceOmission) []agentcontract.Notice {
@@ -914,12 +875,6 @@ func (r runtime) readDomain(ctx context.Context, base agentcontract.Envelope, in
 			return failureEnvelope(base, err), nil
 		}
 		return r.resultEnvelope(base, result.ResultMeta, r.scope(result.ResultMeta), store.NewDomainAttachmentsPayload(result))
-	case "overlaps":
-		result, err := r.Store.QueryDomainOverlaps(ctx, store.DomainOverlapsRequest{Product: product, Domain: in.DomainID})
-		if err != nil {
-			return failureEnvelope(base, err), nil
-		}
-		return r.resultEnvelope(base, result.ResultMeta, r.scope(result.ResultMeta), store.NewDomainOverlapsPayload(result))
 	default:
 		// Every Domain operation names its own read. Refusing an unmatched
 		// operation keeps a new one from silently answering with another
@@ -940,7 +895,7 @@ func (r runtime) readDomainShape(ctx context.Context, base agentcontract.Envelop
 	meta := store.ResultMeta{QueryID: "C22.DomainShape", ContractVersion: "C22/1.0",
 		ResolvedScope: store.ResolvedScope{ProductID: in.ProductID, DomainID: in.DomainID},
 		Authority:     "authoritative", Freshness: store.Freshness{ObservedAt: r.Authority.now().UTC().Format(time.RFC3339Nano)},
-		OrderingKeys: []string{"roots.path", "facts.fact.id", "governing_law.law_id"}}
+		OrderingKeys: []string{"roots.path", "facts.fact.id", "governing_law"}}
 	return r.resultEnvelope(base, meta, r.scope(meta), result)
 }
 

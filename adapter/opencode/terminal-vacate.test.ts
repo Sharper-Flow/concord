@@ -7,7 +7,6 @@
 import { afterEach, afterAll, describe, expect, test } from "bun:test"
 import ConcordAdapterPlugin from "./concord-plugin"
 import { configureHostLease } from "./host-lease"
-import { configureCiWatch } from "./ci-watch"
 import { configureCoreBinary } from "./core-runtime"
 import { manifestDigest } from "./generated-contracts"
 import { configureConcordAdapter, moveSessionToRegisteredMainCheckout, takeWorkNotices, vacateTerminalWorktree } from "./concord"
@@ -101,7 +100,6 @@ afterEach(async () => {
   configureHostLease({ reset: true })
   configureConcordAdapter({ reset: true })
   await ConcordAdapterPlugin({})
-  configureCiWatch({ reset: true })
 })
 
 describe("terminal transitions vacate the worktree after success", () => {

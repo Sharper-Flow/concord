@@ -7,10 +7,8 @@
     "tier": "derived"
   },
   "date": "2026-10-10T00:00:00Z",
-  "doc_contract_profile": "current",
   "evidence": [
-    ".concord/docs/knowledge/coverage/CD-0220.json",
-    "scripts/check-doc-contract.py"
+    ".concord/docs/knowledge/coverage/CD-0220.json"
   ],
   "home_domain_id": "workflow-engine",
   "id": "CD-0220",
@@ -23,7 +21,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:ff7369822e2e1ae17456433d8735ecb3ac708c04b9518e1448e490475d223bd3",
+  "sha256": "sha256:6d176564d285245542e2ca9a1c5982df1887bb1acff9b99415f2fcae4534ec48",
   "status": "accepted",
   "summary": "Repository authoring remains inside approved source and law scope. The coordinator resolves conflicts and approval routing; hashes and reports do not enact law. Generated projections retain their owning generators. Native Task and tool permissions remain host-owned without a Concord subagent interceptor or sandbox. Independent review checks the actual delta and approval evidence. Outside-workflow work gains no workflow verdict or completion authority.",
   "tags": [

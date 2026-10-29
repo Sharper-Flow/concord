@@ -277,16 +277,6 @@ func TestReadEntryPointsWithNeighbor(t *testing.T) {
 			_, err := s.ResumeWorktreeLocation(ctx, "prod", "proj", "blocker")
 			return err
 		}},
-		{name: "ResourceClaims", run: func() error {
-			claims, err := s.ResourceClaims(ctx, "", "prod", 10)
-			if err != nil {
-				return err
-			}
-			if len(claims) != 0 {
-				return fmt.Errorf("claims=%+v, want none", claims)
-			}
-			return nil
-		}},
 		{name: "LawAdditionReservations", run: func() error {
 			reservations, err := s.LawAdditionReservations(ctx, "prod")
 			if err != nil {
@@ -314,16 +304,6 @@ func TestReadEntryPointsWithNeighbor(t *testing.T) {
 			}
 			if len(audit.Drift) != 0 {
 				return fmt.Errorf("drift=%+v, want none", audit.Drift)
-			}
-			return nil
-		}},
-		{name: "ProductKnowledgeSourceRegistrations", run: func() error {
-			sources, err := s.ProductKnowledgeSourceRegistrations(ctx, "prod")
-			if err != nil {
-				return err
-			}
-			if len(sources) != 0 {
-				return fmt.Errorf("sources=%+v, want none", sources)
 			}
 			return nil
 		}},
@@ -382,16 +362,6 @@ func TestReadEntryPointsWithNeighbor(t *testing.T) {
 			}
 			if !found {
 				return fmt.Errorf("no executing identity")
-			}
-			return nil
-		}},
-		{name: "deriveWorkflowReady", run: func() error {
-			result, err := deriveWorkflowReady(ctx, s.DatabaseForTesting(), "neighbor-work")
-			if err != nil {
-				return err
-			}
-			if !result.Ready {
-				return fmt.Errorf("ready=%v blocking=%v unknown=%v", result.Ready, result.BlockingConditions, result.UnknownConditions)
 			}
 			return nil
 		}},
@@ -712,9 +682,6 @@ func TestReadEntryPointsWithNeighbor(t *testing.T) {
 		{name: "EvaluateProjectSessionRetirement", run: func() error {
 			_, err := EvaluateProjectSessionRetirement(ctx, s, "neighbor-work", "proj", "neighbor-session")
 			return err
-		}},
-		{name: "InspectWorkflowDomainOverlap", run: func() error {
-			return InspectWorkflowDomainOverlap(ctx, s, "neighbor-work")
 		}},
 	}
 	for _, mode := range []neighbor.Mode{neighbor.Reader, neighbor.Writer} {

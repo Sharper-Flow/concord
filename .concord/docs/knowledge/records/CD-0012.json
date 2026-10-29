@@ -5,7 +5,6 @@
     "tier": "legislated"
   },
   "date": "2026-08-07T00:00:00Z",
-  "doc_contract_profile": "legacy",
   "home_domain_id": "workflow-engine",
   "id": "CD-0012",
   "kind": "decision",
@@ -17,7 +16,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:b2ff0c85bd4da7bb98ee5876daffd79a24264cfd07b02ef240aed1a665e3032e",
+  "sha256": "sha256:4ef233a6406ea0d95e76c5a1234b669c50c20aec9c785068a413d8d51ec56257",
   "status": "accepted",
   "summary": "Defines the three-part outcome contract and strengthen-only delivery comparison.",
   "tags": [

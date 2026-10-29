@@ -19,7 +19,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:90a1e916bb22b47233fc7c21c3e65223fca9c038954195f4e599fb2b049a5845",
+  "sha256": "sha256:7f570d45e44e4b7b5479384671a7bbf63abc696cb57360f57643f4e16f9b7ba9",
   "status": "published",
   "summary": "Describes bootstrap and explicitly managed development under CD-0007, CD-0089, and CD-0122. goals.md records direction as guidance and priorities.md holds the law; the first-usable floor and release evidence keep their owning records and current maturity requirements.",
   "tags": [

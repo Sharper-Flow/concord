@@ -12,7 +12,7 @@
   CD-0055 (D1), [`../capability-placement.md`](../capability-placement.md) §3–§4,
   [`../predecessor-operational-coverage.md`](../predecessor-operational-coverage.md)
 - **Preserves:** CD-0043 D1's host-owned methodology boundary; CD-0040 D6's
-  probe-family limit; the closed lane registry and packet/report schemas
+  probe-family limit
 
 ## Context
 
@@ -134,5 +134,4 @@ be structurally validated, drifts silently, and is already pointer-only by
   boundaries, schema/checker lexical agreement, and multiline invocations) and
   runs in CI.
 - `python3 scripts/check-doc-links.py`, `python3 scripts/check-agents-md.py`,
-  `python3 scripts/check-cd-allocation.py --no-fetch`, and
-  `python3 scripts/check-knowledge-index.py` pass.
+  and `python3 scripts/check-knowledge-index.py` pass.

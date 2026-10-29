@@ -12,45 +12,6 @@ import (
 // reconcile_operation recovery sends the caller to reconcile a transaction
 // that already rolled back and holds no terminal item.
 
-func TestWorkflowCompletionNoticeFoldFailureReachesCallerUnmasked(t *testing.T) {
-	t.Parallel()
-	workID := "notice-fold-passthrough"
-	dependentID := workID + "-dependent"
-	s, completion := seedCompletionGateCase(t, workID, completionGateCase{
-		requiredEvidence: []string{"verification", "review"}, emptyMandate: true, omitImpact: true,
-		includeVerdict: true, includePremise: true, verdictKind: "ok",
-	})
-	seedImpactDependent(t, s, dependentID, workID, "hard")
-	// A projection row already holds the derived notice's identity tuple under
-	// a different notice_id: the generator's identity pre-check misses it and
-	// the notice fold's insert hits the UNIQUE constraint.
-	forged := "notice:" + strings.Repeat("f", 64)
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); INSERT INTO workflow_impact_notices(notice_id,source_work_id,source_contract_version,entity_kind,entity_ref,target_work_id,edge_owner_work_id,edge_id,old_hash,new_hash,severity,recorded_at) VALUES(?,?,?,?,?,?,?,?,NULL,NULL,?,?); DELETE FROM write_guard`,
-		forged, workID, 1, "work_item", workID, dependentID, dependentID, "edge:"+dependentID, "non-breaking", "2026-08-09T00:00:00Z"); err != nil {
-		t.Fatal(err)
-	}
-	eventsBefore, versionBefore := completionFoldBookkeeping(t, s, workID)
-	err := CompleteWorkflow(context.Background(), s, completion)
-	var failure *Failure
-	if !failureAs(err, &failure) {
-		t.Fatalf("completion error is not a typed failure: %v", err)
-	}
-	if failure.Kind != KindProjectionConflict || failure.Clause != 7 {
-		t.Fatalf("failure kind=%s clause=%d, want kind=%s clause=7", failure.Kind, failure.Clause, KindProjectionConflict)
-	}
-	if failure.Op != "fold_event" || failure.Detail != "cannot record workflow impact notice" || failure.RecoveryAction != "append a new workflow version" {
-		t.Fatalf("inner fold failure did not reach the caller: op=%q detail=%q recovery=%q", failure.Op, failure.Detail, failure.RecoveryAction)
-	}
-	assertCompletionFoldRolledBack(t, s, workID, eventsBefore, versionBefore)
-	var notices int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM workflow_impact_notices`).Scan(&notices); err != nil {
-		t.Fatal(err)
-	}
-	if notices != 1 {
-		t.Fatalf("impact notices = %d after rollback, want the pre-seeded row only", notices)
-	}
-}
-
 func TestWorkflowCompletionTerminalFoldFailureReachesCallerUnmasked(t *testing.T) {
 	t.Parallel()
 	workID := "completion-fold-passthrough"

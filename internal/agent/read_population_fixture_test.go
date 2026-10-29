@@ -309,8 +309,8 @@ func execPopulationStatement(t *testing.T, s *store.Store, statement string, arg
 
 // seedFocusWorkflow pins the builtin implementation workflow to the focus work
 // item, so the continuity read has a workflow instance to snapshot, and binds
-// the work's contract to the child Domain, so the Domain active-work and
-// overlap reads carry rows.
+// the work's contract to the child Domain, so the Domain active-work reads
+// carry rows.
 func (fx readPopulationFixture) seedFocusWorkflow(t *testing.T) {
 	t.Helper()
 	ctx := context.Background()
@@ -428,8 +428,8 @@ func (fx readPopulationFixture) seedPopulationRows(t *testing.T) {
 
 // seedPopulationPeerWork creates a second work item bound to the child Domain
 // beside the focus work, then folds a relation, messages it, and claims a resource.
-// The shared law write and started peer give the Domain overlap read a pair,
-// and the folded relation gives the relations read an edge.
+// The started peer gives the Domain reads a second bound contract, and the
+// folded relation gives the relations read an edge.
 func (fx readPopulationFixture) seedPopulationPeerWork(t *testing.T) {
 	t.Helper()
 	ctx := context.Background()
@@ -463,12 +463,7 @@ func (fx readPopulationFixture) seedPopulationPeerWork(t *testing.T) {
 	if send.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("population message_send outcome=%s err=%+v", send.Outcome, send.Error)
 	}
-	_, focusVersion = readWorkFromStore(t, fx.store, fx.workID)
-	claim := dispatchMutation(t, fx.store, fx.service, InvokeRequest{Tool: "concord_work_relate", Operation: "resource_claim", Input: json.RawMessage(`{"work_id":"` + fx.workID + `","resource_key":"queue:population-claim","reason":"population claim row","expected_version":` + strconv.FormatInt(focusVersion, 10) + `,"idempotency_key":"population-claim-row"}`)}, fx.envelope(t))
-	if claim.Outcome != agentcontract.OutcomeOK {
-		t.Fatalf("population resource_claim outcome=%s err=%+v", claim.Outcome, claim.Error)
-	}
-	// The unresolved overlap must follow setup mutations that enforce admission.
+	// The peer starts last, after the setup mutations above.
 	execPopulationStatement(t, fx.store, `INSERT INTO workflow_instances(work_id,definition_ref,definition_digest,current_step,instance_state,execution_started_at) VALUES(?,'workflow.break_fix',?,'repair','running','2026-08-19T00:00:00Z')`, readPopulationPeer, breakFixFixtureDigest(t))
 }
 
@@ -486,13 +481,6 @@ func (fx readPopulationFixture) seedPopulationDomainRows(t *testing.T) {
 		Actor: "operator", OccurredAt: fixedTime(),
 	}); err != nil {
 		t.Fatalf("create population managed resource: %v", err)
-	}
-	if err := store.ReplaceDomainProjectAttachments(ctx, fx.store, store.DomainProjectAttachmentsRequest{
-		EventID: "population-project-edges", ProductID: readPopulationProduct, DomainID: readPopulationChildDomain,
-		ExpectedVersion: 0, Attachments: []store.DomainProjectAttachment{{ProjectID: readPopulationProject, Role: "primary"}},
-		Actor: "operator", OccurredAt: fixedTime(),
-	}); err != nil {
-		t.Fatalf("seed population Project attachments: %v", err)
 	}
 	if err := store.ReplaceDomainResourceAttachments(ctx, fx.store, store.DomainResourceAttachmentsRequest{
 		EventID: "population-resource-edges", ProductID: readPopulationProduct, DomainID: readPopulationChildDomain,

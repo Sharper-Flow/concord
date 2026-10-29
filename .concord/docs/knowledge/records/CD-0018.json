@@ -12,7 +12,6 @@
     "tier": "legislated"
   },
   "date": "2026-08-12T00:00:00Z",
-  "doc_contract_profile": "legacy",
   "home_domain_id": "work-coordination",
   "id": "CD-0018",
   "kind": "decision",
@@ -24,7 +23,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:9eae45b81e61d9188d72a10d8c09f3c013de705f1a1b4fb08a40f3ac98182536",
+  "sha256": "sha256:276d15491b6b26f21a72ff40a383a0831b006ee6be85212edd84e770f3266bd4",
   "status": "accepted",
   "summary": "Closed two-band urgency enum (standard/expedite) prepended to ranking with priority retained as within-band tiebreak, plus a typed non-blocking acyclic raised_from provenance relation; no assignment, claim, or parallel-safety mechanism.",
   "tags": [

@@ -2,7 +2,7 @@
   "evidence": [
     {
       "kind": "go_test",
-      "value": "internal/store.TestStaleRegistryRescanHoldsLateVerdictUntilRePin"
+      "value": "internal/store.TestStaleLawHoldsLateVerdictUntilRePin"
     },
     {
       "kind": "go_test",
@@ -10,19 +10,7 @@
     },
     {
       "kind": "validator",
-      "value": "scripts/check-doc-contract.py"
-    },
-    {
-      "kind": "validator",
       "value": "scripts/check-knowledge-index.py"
-    },
-    {
-      "kind": "validator",
-      "value": "scripts/check-knowledge-closure.py"
-    },
-    {
-      "kind": "validator",
-      "value": "scripts/check-cd-allocation.py"
     }
   ],
   "id": "CD-0186",

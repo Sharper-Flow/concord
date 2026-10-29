@@ -84,13 +84,6 @@ func ComputeWorkflowDecisionContextDigest(workID string, workVersion int64, defi
 			}{"outcome_payload", []byte(predicate.OutcomePayload)},
 		)
 	}
-	if contract.SelfRepair != nil {
-		encoded, _ := json.Marshal(contract.SelfRepair)
-		values = append(values, struct {
-			name  string
-			value []byte
-		}{"self_repair", encoded})
-	}
 	var canonical strings.Builder
 	canonical.WriteString("workflow-operator-question-v1\x00")
 	for _, field := range values {
@@ -413,11 +406,6 @@ func validateWorkflowOperatorSelectionCoreTx(ctx context.Context, tx *sql.Tx, en
 		return newFailure(KindInvariantViolation, "workflow_operator_question", "workflow contract predicates are unavailable", false, "restore a verified backup into a new path with concord restore, then swap")
 	}
 	contract.OutcomePredicates = predicates
-	selfRepair, selfRepairErr := readWorkflowSelfRepair(ctx, tx, request.WorkID, contract.Version)
-	if selfRepairErr != nil {
-		return newFailure(KindInvariantViolation, "workflow_operator_question", "workflow self-repair classification is unavailable", false, "restore a verified backup into a new path with concord restore, then swap")
-	}
-	contract.SelfRepair = selfRepair
 	engineering := false
 	if entry.Definition.ApprovalPolicy == WorkflowApprovalPolicyConsequenceV1 {
 		if confirmation.factFailure != nil {

@@ -61,5 +61,4 @@ attestation. Independent review remains required; fabricated proof is forbidden.
 
 - `go test ./internal/store` checks Review shape, subject/dependency admission,
   current-state recording and disposition gates.
-- `python3 scripts/check-doc-contract.py` checks the decision outline.
 - `python3 scripts/check-knowledge-index.py` checks identity and hashes.

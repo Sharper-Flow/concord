@@ -168,7 +168,7 @@ func validateRemovalRequest(req WorkRemovalRequest) error {
 			return newFailure(KindInvalidOperation, "work_removal", "session evidence is malformed", false, "supply a bounded session state")
 		}
 		if session.State != "vacated" {
-			return newFailure(KindResourceClaimHeld, "work_removal", "a live or unknown host session still names the work", false, "vacate and verify every host session before removal")
+			return newFailure(KindNotTerminal, "work_removal", "a live or unknown host session still names the work", false, "vacate and verify every host session before removal")
 		}
 	}
 	return nil
@@ -500,8 +500,6 @@ func validateRemovalGatesQ(ctx context.Context, q queryer, req WorkRemovalReques
 	checks := []struct{ query, detail string }{
 		{`SELECT count(*) FROM relations WHERE work_id_from=? OR work_id_to=?`, "work has unresolved relation dependencies"},
 		{`SELECT count(*) FROM workflow_impact_edges WHERE work_id=? OR target_work_id=?`, "work has unresolved workflow impact dependencies"},
-		{`SELECT count(*) FROM workflow_external_conditions WHERE work_id=? AND condition_state='open'`, "work has an unresolved external wait"},
-		{`SELECT count(*) FROM resource_claims WHERE holder_work_id=? AND state='held'`, "work has an active resource claim"},
 		{`SELECT count(*) FROM work_messages WHERE (sender_work_id=? OR recipient_work_id=?) AND state='sent'`, "work has an undelivered message"},
 		{`SELECT count(*) FROM worktree_claims WHERE work_id=? AND state IN ('pending','verified')`, "work has an active worktree claim"},
 		{`SELECT count(*) FROM worktree_entries WHERE set_id=? AND state='active'`, "work has an active worktree"},
@@ -525,7 +523,7 @@ func validateRemovalGatesQ(ctx context.Context, q queryer, req WorkRemovalReques
 			return wrapFailure(KindUnavailable, "work_removal", "cannot evaluate removal gate", true, "retry once the operational projections are readable", err)
 		}
 		if count > 0 {
-			return newFailure(KindResourceClaimHeld, "work_removal", check.detail, false, "reconcile the named execution projection before removal")
+			return newFailure(KindNotTerminal, "work_removal", check.detail, false, "reconcile the named execution projection before removal")
 		}
 	}
 	if req.Linear != nil {
@@ -611,7 +609,7 @@ func deleteWorkOwnedProjections(ctx context.Context, tx *sql.Tx, workID string) 
 			return projectionDeleteFailure(table, err)
 		}
 	}
-	tables := []string{"workflow_impact_notices", "workflow_candidate_sets", "workflow_contract_predicates", "workflow_contract_law_revisions", "workflow_contract_law_modifications", "workflow_contract_verification_obligations", "workflow_contract_law_additions", "workflow_contract_domain_relation_modifications", "workflow_contract_domain_modifications", "workflow_contract_affected_domains", "workflow_law_addition_reservations", "workflow_architecture_bindings", "workflow_premise_confirmations", "workflow_context_boundaries", "workflow_context_checkpoints", "workflow_impact_edges", "workflow_external_conditions", "workflow_checkpoints", "workflow_decision_records", "workflow_native_runs", "workflow_contracts", "workflow_design_records", "workflow_proposal_records", "workflow_instances", "resource_claims", "work_messages", "work_observations", "work_conflict_applications", "work_size_overrides", "work_size_assessments", "external_observations", "relations", "work_projects", "linear_issue_links"}
+	tables := []string{"workflow_candidate_sets", "workflow_contract_predicates", "workflow_contract_law_revisions", "workflow_contract_law_modifications", "workflow_contract_verification_obligations", "workflow_contract_law_additions", "workflow_contract_domain_relation_modifications", "workflow_contract_domain_modifications", "workflow_contract_affected_domains", "workflow_law_addition_reservations", "workflow_architecture_bindings", "workflow_premise_confirmations", "workflow_context_boundaries", "workflow_context_checkpoints", "workflow_impact_edges", "workflow_checkpoints", "workflow_decision_records", "workflow_native_runs", "workflow_contracts", "workflow_design_records", "workflow_proposal_records", "workflow_instances", "work_messages", "work_observations", "work_size_assessments", "external_observations", "relations", "work_projects", "linear_issue_links"}
 	for _, table := range tables {
 		if err := deleteWorkProjectionTx(ctx, tx, table, workID); err != nil {
 			return err
@@ -653,10 +651,6 @@ func deleteWorkProjectionTx(ctx context.Context, tx *sql.Tx, table, workID strin
 	}
 	// Tables with a different owner column are handled explicitly below.
 	switch table {
-	case "workflow_impact_notices":
-		if _, err := tx.ExecContext(ctx, `DELETE FROM workflow_impact_notices WHERE source_work_id=? OR target_work_id=? OR edge_owner_work_id=?`, workID, workID, workID); err != nil {
-			return projectionDeleteFailure(table, err)
-		}
 	case "workflow_impact_edges":
 		if _, err := tx.ExecContext(ctx, `DELETE FROM workflow_impact_edges WHERE work_id=? OR target_work_id=?`, workID, workID); err != nil {
 			return projectionDeleteFailure(table, err)
@@ -675,10 +669,6 @@ func deleteWorkProjectionTx(ctx context.Context, tx *sql.Tx, table, workID strin
 		}
 	case "work_projects":
 		if _, err := tx.ExecContext(ctx, `DELETE FROM work_projects WHERE work_id=?`, workID); err != nil {
-			return projectionDeleteFailure(table, err)
-		}
-	case "resource_claims":
-		if _, err := tx.ExecContext(ctx, `DELETE FROM resource_claims WHERE holder_work_id=?`, workID); err != nil {
 			return projectionDeleteFailure(table, err)
 		}
 	default:
@@ -749,18 +739,11 @@ type WorkLiveness struct {
 	WorkID       string   `json:"work_id"`
 	State        string   `json:"state"`
 	Evidence     []string `json:"evidence"`
-	OpenWaits    int      `json:"open_waits"`
 	LastProgress string   `json:"last_progress,omitempty"`
 }
 
 func deriveWorkLivenessQ(ctx context.Context, q queryer, workID string) (WorkLiveness, error) {
-	var openWaits, unboundedWaits, decisions int64
-	if err := q.QueryRowContext(ctx, `SELECT count(*) FROM workflow_external_conditions WHERE work_id=? AND condition_state='open' AND expected_within_seconds IS NOT NULL`, workID).Scan(&openWaits); err != nil {
-		return WorkLiveness{}, err
-	}
-	if err := q.QueryRowContext(ctx, `SELECT count(*) FROM workflow_external_conditions WHERE work_id=? AND condition_state='open' AND expected_within_seconds IS NULL`, workID).Scan(&unboundedWaits); err != nil {
-		return WorkLiveness{}, err
-	}
+	var decisions int64
 	if err := q.QueryRowContext(ctx, `SELECT count(*) FROM workflow_decision_records WHERE work_id=?`, workID).Scan(&decisions); err != nil {
 		return WorkLiveness{}, err
 	}
@@ -768,28 +751,16 @@ func deriveWorkLivenessQ(ctx context.Context, q queryer, workID string) (WorkLiv
 	if err := q.QueryRowContext(ctx, `SELECT max(NULLIF(last_progress_at,'')) FROM work_items WHERE id=?`, workID).Scan(&latest); err != nil {
 		return WorkLiveness{}, err
 	}
-	return workLivenessFromCounts(workID, openWaits, unboundedWaits, decisions, latest), nil
+	return workLivenessFromCounts(workID, decisions, latest), nil
 }
 
-func workLivenessFromCounts(workID string, openWaits, unboundedWaits, decisions int64, latest sql.NullString) WorkLiveness {
-	out := WorkLiveness{WorkID: workID, OpenWaits: int(openWaits)}
+func workLivenessFromCounts(workID string, decisions int64, latest sql.NullString) WorkLiveness {
+	out := WorkLiveness{WorkID: workID}
 	if latest.Valid {
 		out.LastProgress = latest.String
 	}
-	switch {
-	case openWaits > 0:
-		out.State = "waiting"
-		out.Evidence = []string{fmt.Sprintf("%d bounded external wait(s)", openWaits)}
-	case unboundedWaits > 0:
-		out.State = "unknown"
-		out.Evidence = []string{fmt.Sprintf("%d external wait(s) have no declared bound", unboundedWaits)}
-	default:
-		out.State = "unknown"
-		out.Evidence = []string{"host liveness has no verified active or waiting evidence"}
-	}
-	if unboundedWaits > 0 && openWaits > 0 {
-		out.Evidence = append(out.Evidence, fmt.Sprintf("%d external wait(s) have no declared bound", unboundedWaits))
-	}
+	out.State = "unknown"
+	out.Evidence = []string{"host liveness has no verified active or waiting evidence"}
 	if decisions > 0 {
 		out.Evidence = append(out.Evidence, fmt.Sprintf("%d operator decision(s)", decisions))
 	}

@@ -32,7 +32,6 @@ func TestDomainReadPayloadTypesPinResultFieldsAndSchema(t *testing.T) {
 		{operation: "list", result: store.DomainListResult{}, payload: store.DomainListPayload{}},
 		{operation: "detail", result: store.DomainDetailResult{}, payload: store.DomainDetailPayload{}},
 		{operation: "attachments", result: store.DomainAttachmentsResult{}, payload: store.DomainAttachmentsPayload{}},
-		{operation: "overlaps", result: store.DomainOverlapsResult{}, payload: store.DomainOverlapsPayload{}},
 		{operation: "footprint", result: store.DomainFootprintResult{}, payload: store.DomainFootprintPayload{}},
 		{operation: "shape", result: store.DomainShapeResult{}, payload: store.DomainShapeResult{}},
 	} {

@@ -32,15 +32,9 @@ const (
 	WorkflowActionCompleted             = "workflow.action_completed"
 	WorkflowActionFailed                = "workflow.action_failed"
 	WorkflowEvidenceBound               = "workflow.evidence_bound"
-	WorkflowStalenessObserved           = "workflow.staleness_observed"
 	WorkflowVerdictRecorded             = "workflow.verdict_recorded"
 	WorkflowPremiseConfirmed            = "workflow.premise_confirmed"
 	WorkflowSuccessorLinked             = "workflow.successor_linked"
-	WorkflowImpactDeclared              = "workflow.impact_declared"
-	WorkflowImpactNoticeRecorded        = "workflow.impact_notice_recorded"
-	WorkflowConditionAdded              = "workflow.condition_added"
-	WorkflowConditionResolved           = "workflow.condition_resolved"
-	WorkflowConditionCancelled          = "workflow.condition_cancelled"
 	WorkflowContextCheckpointed         = "workflow.context_checkpointed"
 	WorkflowContextBoundaryCrossed      = "workflow.context_boundary_crossed"
 	WorkflowWorkContextRecorded         = "workflow.work_context_recorded"
@@ -106,7 +100,6 @@ type workflowContractApprovedPayload struct {
 	LawModifies         []string                           `json:"law_modifies"`
 	LawRevisions        []WorkflowLawRevision              `json:"law_revisions"`
 	ArchitectureBinding *WorkflowArchitectureBinding       `json:"architecture_binding,omitempty"`
-	SelfRepair          *WorkflowSelfRepair                `json:"self_repair,omitempty"`
 	LawBoundaryVersion  int                                `json:"law_boundary_version,omitempty"`
 	RigorClass          string                             `json:"rigor_class"`
 	ConsequenceClass    string                             `json:"consequence_class,omitempty"`
@@ -465,14 +458,6 @@ type workflowEvidenceBoundPayload struct {
 	ObservedAt          string `json:"observed_at"`
 }
 
-type workflowStalenessObservedPayload struct {
-	RuleID               string `json:"rule_id"`
-	Severity             string `json:"severity"`
-	Drifted              bool   `json:"drifted"`
-	ObservedAt           string `json:"observed_at"`
-	AcceptedInputsDigest string `json:"accepted_inputs_digest"`
-}
-
 type workflowVerdictRecordedPayload struct {
 	WorkflowVersionFields
 	ContractVersion          int64            `json:"contract_version"`
@@ -507,56 +492,6 @@ type workflowSuccessorLinkedPayload struct {
 	// Resize marks the same-family link a resize records (v3); it holds
 	// only beside the lineage row of that resize.
 	Resize bool `json:"resize,omitempty"`
-}
-
-type workflowImpactDeclaredPayload struct {
-	WorkflowVersionFields
-	EdgeID       string `json:"edge_id"`
-	EdgeKind     string `json:"edge_kind"`
-	EdgeClass    string `json:"edge_class"`
-	TargetWorkID string `json:"target_work_id"`
-	TargetKind   string `json:"target_kind"`
-	Severity     string `json:"severity"`
-}
-
-type workflowImpactNoticeRecordedPayload struct {
-	WorkflowVersionFields
-	NoticeID              string  `json:"notice_id"`
-	SourceContractVersion int64   `json:"source_contract_version"`
-	EntityKind            string  `json:"entity_kind"`
-	EntityRef             string  `json:"entity_ref"`
-	TargetWorkID          string  `json:"target_work_id"`
-	EdgeOwnerWorkID       string  `json:"edge_owner_work_id"`
-	EdgeID                string  `json:"edge_id"`
-	OldHash               *string `json:"old_hash"`
-	NewHash               *string `json:"new_hash"`
-	Severity              string  `json:"severity"`
-}
-
-type workflowConditionAddedPayload struct {
-	WorkflowVersionFields
-	ConditionID         string `json:"condition_id"`
-	AwaitType           string `json:"await_type"`
-	AwaitRef            string `json:"await_ref"`
-	ResolutionAuthority string `json:"resolution_authority"`
-	// ExpectedWithinSeconds bounds the wait; beyond it the await reads as
-	// overdue/unverified (issue #87). Zero means no declared expectation.
-	ExpectedWithinSeconds int64 `json:"expected_within_seconds,omitempty"`
-}
-
-type workflowConditionResolvedPayload struct {
-	WorkflowVersionFields
-	ConditionID        string   `json:"condition_id"`
-	ResolutionEvidence []string `json:"resolution_evidence"`
-	ResolvedByEvent    string   `json:"resolved_by_event"`
-}
-
-type workflowConditionCancelledPayload struct {
-	WorkflowVersionFields
-	ConditionID           string   `json:"condition_id"`
-	CancellationAuthority string   `json:"cancellation_authority"`
-	CancellationEvidence  []string `json:"cancellation_evidence"`
-	CancelledByEvent      string   `json:"cancelled_by_event"`
 }
 
 type workflowCompletedPayload struct {
@@ -798,49 +733,6 @@ func requireActorClass(ctx context.Context, tx *sql.Tx, actorRef, want string) e
 	return nil
 }
 
-func conditionAuthorityOperation(ctx context.Context, tx *sql.Tx, authority, workID string) (string, error) {
-	const prefix = "durable_operation:"
-	if !strings.HasPrefix(authority, prefix) || len(authority) <= len(prefix) {
-		return "", newFailure(KindInvalidPayload, "fold_event", "resolution_authority is not a durable operation reference", false, "use durable_operation:<op_id>")
-	}
-	opID := strings.TrimPrefix(authority, prefix)
-	var storedWorkID string
-	if err := tx.QueryRowContext(ctx, `SELECT work_id FROM durable_operations WHERE op_id=? ORDER BY attempt_epoch DESC LIMIT 1`, opID).Scan(&storedWorkID); err != nil {
-		if err == sql.ErrNoRows {
-			return "", newFailure(KindInvalidOperation, "fold_event", "resolution authority operation is not recorded", false, "record the durable authority operation first")
-		}
-		return "", wrapFailure(KindUnavailable, "fold_event", "cannot inspect resolution authority operation", true, "retry once the authority is readable", err)
-	}
-	if storedWorkID != workID {
-		return "", newFailure(KindInvalidOperation, "fold_event", "resolution authority belongs to a different work item", false, "use an authority operation for this work item")
-	}
-	return opID, nil
-}
-
-func verifyConditionEvidence(ctx context.Context, tx *sql.Tx, authority, workID string, refs []string) error {
-	opID, err := conditionAuthorityOperation(ctx, tx, authority, workID)
-	if err != nil {
-		return err
-	}
-	var resultKind string
-	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(result_kind,'') FROM durable_operations WHERE op_id=? AND work_id=? ORDER BY attempt_epoch DESC LIMIT 1`, opID, workID).Scan(&resultKind); err != nil {
-		return wrapFailure(KindUnavailable, "fold_event", "cannot inspect resolution authority result", true, "retry once the authority is readable", err)
-	}
-	if resultKind != "completed" {
-		return newFailure(KindInvalidOperation, "fold_event", "resolution authority has no completed evidence result", false, "complete the authority operation with evidence first")
-	}
-	for _, ref := range refs {
-		var found int
-		if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM durable_operations WHERE op_id=? AND work_id=? AND result_kind='completed' AND EXISTS (SELECT 1 FROM json_each(durable_operations.evidence_refs) WHERE value=?)`, opID, workID, ref).Scan(&found); err != nil {
-			return wrapFailure(KindUnavailable, "fold_event", "cannot verify resolution evidence authority", true, "retry once the authority is readable", err)
-		}
-		if found != 1 {
-			return newFailure(KindInvariantViolation, "fold_event", "condition evidence is not bound to its stored resolution authority", false, "supply evidence emitted by the stored authority operation")
-		}
-	}
-	return nil
-}
-
 func workflowDigest(value string) bool {
 	return len(value) == 71 && strings.HasPrefix(value, "sha256:")
 }
@@ -1045,9 +937,6 @@ func foldValidatedWorkflowContractApproval(ctx context.Context, tx *sql.Tx, even
 	if err := requireActor(ctx, tx, event.Actor); err != nil {
 		return err
 	}
-	if err := validateWorkflowSelfRepairAuthorityTx(ctx, tx, event.SubjectID, event.Actor, p.SelfRepair); err != nil {
-		return err
-	}
 	return persistWorkflowContractApprovalTx(ctx, tx, event, registered, p)
 }
 
@@ -1132,7 +1021,7 @@ func persistWorkflowContractApprovalTx(ctx context.Context, tx *sql.Tx, event Ev
 	if p.LawChange != nil {
 		lawChange = workflowJSON(p.LawChange)
 	}
-	_, err := tx.ExecContext(ctx, `INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class,self_repair_json,definition_ref,definition_digest,decision_domains,law_change) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, event.SubjectID, p.ContractVersion, p.Premise, p.ConsequenceClass, workflowJSON(p.RequiredEvidence), workflowJSON(p.RouteConventions), event.OccurredAt.UTC().Format(time.RFC3339Nano), event.Actor, workflowJSON(p.SpecMandate), workflowJSON(p.LawModifies), p.LawBoundaryVersion, p.RigorClass, workflowJSON(p.SelfRepair), registered.Definition.Ref, registered.Digest, decisionDomains, lawChange)
+	_, err := tx.ExecContext(ctx, `INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class,definition_ref,definition_digest,decision_domains,law_change) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, event.SubjectID, p.ContractVersion, p.Premise, p.ConsequenceClass, workflowJSON(p.RequiredEvidence), workflowJSON(p.RouteConventions), event.OccurredAt.UTC().Format(time.RFC3339Nano), event.Actor, workflowJSON(p.SpecMandate), workflowJSON(p.LawModifies), p.LawBoundaryVersion, p.RigorClass, registered.Definition.Ref, registered.Digest, decisionDomains, lawChange)
 	if err != nil {
 		return workflowProjectionError(err, "cannot record immutable workflow contract")
 	}
@@ -1372,9 +1261,6 @@ func finishWorkflowContractSupersessionTx(ctx context.Context, tx *sql.Tx, event
 			return newFailure(KindProjectionNotFound, "fold_event", "predecessor workflow contract does not exist or is already superseded", false, "reload the exact active contract versions")
 		}
 	}
-	if err := invalidateWorkflowOverlapForContractRevisionTx(ctx, tx, event, p.PredecessorContractVersions, p.NewContractVersion); err != nil {
-		return err
-	}
 	// A contract supersession before the confirming Review is accepted voids an
 	// unconfirmed checks repair (CD-0205 D4): the named revisions lose their
 	// provisional readiness at the strict prefix of this supersession, and a
@@ -1401,7 +1287,7 @@ func finishWorkflowContractSupersessionTx(ctx context.Context, tx *sql.Tx, event
 	if err := advanceWorkSizeProofFactsTx(ctx, tx, event); err != nil {
 		return err
 	}
-	return appendWorkflowContractImpactNoticesTx(ctx, tx, event, p, *p.ResultingVersion, scope)
+	return nil
 }
 
 func foldCompleteStepContractCorrectionTxForRegistry(ctx context.Context, tx *sql.Tx, registry DefinitionRegistry, event Event, successor *workflowContractApprovedPayload) error {
@@ -1442,104 +1328,6 @@ func foldCompleteStepContractCorrectionTxForRegistry(ctx context.Context, tx *sq
 		return newFailure(KindInvariantViolation, "fold_event", "complete-step correction supersession does not satisfy its admission conditions", false, "restore a verified backup into a new path with concord restore, then swap")
 	}
 	return returnWorkflowInstanceFromCompleteStepTx(ctx, tx, registry, workID)
-}
-
-type workflowContractDependent struct{ workID, edgeID, edgeClass string }
-
-func readWorkflowContractDependentsTx(ctx context.Context, tx *sql.Tx, workID string) ([]workflowContractDependent, error) {
-	rows, err := tx.QueryContext(ctx, `SELECT work_id,edge_id,edge_class FROM workflow_impact_edges WHERE target_work_id=? AND edge_kind='depends_on' AND edge_class IN ('hard','soft') ORDER BY work_id,edge_id`, workID)
-	if err != nil {
-		return nil, workflowProjectionError(err, "cannot inspect hard dependents")
-	}
-	var dependents []workflowContractDependent
-	for rows.Next() {
-		var item workflowContractDependent
-		if err := rows.Scan(&item.workID, &item.edgeID, &item.edgeClass); err != nil {
-			rows.Close()
-			return nil, workflowProjectionError(err, "cannot read hard dependent")
-		}
-		dependents = append(dependents, item)
-	}
-	if err := rows.Err(); err != nil {
-		rows.Close()
-		return nil, workflowProjectionError(err, "cannot scan hard dependents")
-	}
-	rows.Close()
-	selected := make(map[string]workflowContractDependent, len(dependents))
-	for _, candidate := range dependents {
-		current, exists := selected[candidate.workID]
-		if !exists || candidate.edgeClass == "hard" && current.edgeClass != "hard" || candidate.edgeClass == current.edgeClass && candidate.edgeID < current.edgeID {
-			selected[candidate.workID] = candidate
-		}
-	}
-	owners := make([]string, 0, len(selected))
-	for owner := range selected {
-		owners = append(owners, owner)
-	}
-	sort.Strings(owners)
-	var ordered []workflowContractDependent
-	for _, owner := range owners {
-		ordered = append(ordered, selected[owner])
-	}
-	return ordered, nil
-}
-
-func appendWorkflowContractImpactNoticesTx(ctx context.Context, tx *sql.Tx, event Event, payload workflowContractSupersededPayload, version int64, scope *writeScope) error {
-	dependents, err := readWorkflowContractDependentsTx(ctx, tx, event.SubjectID)
-	if err != nil {
-		return err
-	}
-	for _, predecessor := range payload.PredecessorContractVersions {
-		for _, item := range dependents {
-			if err := appendWorkflowContractImpactNoticeTx(ctx, tx, event, payload, version, scope, predecessor, item); err != nil {
-				return err
-			}
-			version++
-		}
-	}
-	return nil
-}
-
-func appendWorkflowContractImpactNoticeTx(ctx context.Context, tx *sql.Tx, event Event, payload workflowContractSupersededPayload, version int64, scope *writeScope, predecessor int64, item workflowContractDependent) error {
-	var consumed, active int
-	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM workflow_contracts WHERE work_id=? AND contract_version=?`, item.workID, predecessor).Scan(&consumed); err != nil {
-		return workflowProjectionError(err, "cannot inspect dependent contract consumption")
-	}
-	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM workflow_instances WHERE work_id=? AND instance_state NOT IN ('completed','cancelled','superseded')`, item.workID).Scan(&active); err != nil {
-		return workflowProjectionError(err, "cannot inspect dependent lifecycle")
-	}
-	severity := "non-breaking"
-	if item.edgeClass == "hard" && consumed != 0 && active != 0 {
-		severity = "breaking"
-	}
-	entityRef := fmt.Sprintf("contract:%d", predecessor)
-	noticeID := WorkflowNoticeID(event.SubjectID, payload.NewContractVersion, "workflow_contract", entityRef, item.workID, severity)
-	noticePayload := map[string]any{"work_id": event.SubjectID, "expected_version": version, "resulting_version": version + 1, "notice_id": noticeID, "source_contract_version": payload.NewContractVersion, "entity_kind": "workflow_contract", "entity_ref": entityRef, "target_work_id": item.workID, "edge_owner_work_id": item.workID, "edge_id": item.edgeID, "old_hash": nil, "new_hash": nil, "severity": severity}
-	raw, err := json.Marshal(noticePayload)
-	if err != nil {
-		return newFailure(KindInvalidPayload, "fold_event", "workflow impact notice payload cannot be encoded", false, "repair the workflow impact notice")
-	}
-	notice := Event{EventID: "notice-event:" + noticeID, Kind: WorkflowImpactNoticeRecorded, SubjectType: SubjectWorkItem, SubjectID: event.SubjectID, Actor: event.Actor, OccurredAt: event.OccurredAt, PayloadVersion: 2, Payload: raw}
-	if err := notice.validate(); err != nil {
-		return err
-	}
-	var typed workflowImpactNoticeRecordedPayload
-	if err := decodeRegisteredPayload(notice, &typed); err != nil {
-		return err
-	}
-	seq, err := appendPreparedEvent(ctx, tx, notice)
-	if err != nil {
-		return newFailure(KindOperationConflict, "fold_event", "dependent impact notice conflicted", false, "reconcile the workflow operation")
-	}
-	notice.Seq = seq
-	scope.eventIDs = append(scope.eventIDs, notice.EventID)
-	if err := foldWorkflowImpactNoticeRecorded(ctx, tx, notice); err != nil {
-		return err
-	}
-	if err := advanceWorkEffectSeqTx(ctx, tx, notice); err != nil {
-		return err
-	}
-	return nil
 }
 
 func foldWorkflowCandidateSetRevised(ctx context.Context, tx *sql.Tx, event Event) error {
@@ -1788,9 +1576,6 @@ func foldWorkflowActionStarted(ctx context.Context, tx *sql.Tx, event Event, sco
 	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO workflow_step_epochs(work_id,step_id,attempt_epoch,latest_start_seq,latest_start_event_id,latest_start_payload) VALUES(?,?,?,?,?,?) ON CONFLICT(work_id,step_id) DO UPDATE SET attempt_epoch=excluded.attempt_epoch,latest_start_seq=excluded.latest_start_seq,latest_start_event_id=excluded.latest_start_event_id,latest_start_payload=excluded.latest_start_payload`, event.SubjectID, p.StepID, p.AttemptEpoch, event.Seq, event.EventID, string(event.Payload)); err != nil {
 		return workflowProjectionError(err, "cannot record the current step epoch")
-	}
-	if err := advanceWorkflowActionObligationsTx(ctx, tx, event, p.StepID, p.AttemptEpoch, p.ActorRef); err != nil {
-		return err
 	}
 	if err := writeWorkflowCoordinatorActionTx(ctx, tx, event); err != nil {
 		return err
@@ -2466,8 +2251,8 @@ func persistWorkflowActionCompletionTx(ctx context.Context, tx *sql.Tx, event Ev
 	if err := advanceWorkSizeProofFactsTx(ctx, tx, event); err != nil {
 		return err
 	}
-	if err := advanceWorkflowActionObligationsTx(ctx, tx, event, p.StepID, p.AttemptEpoch, p.ActorRef); err != nil {
-		return err
+	if _, err := tx.ExecContext(ctx, `INSERT INTO workflow_step_completions(work_id,step_id,completion_seq) VALUES(?,?,?) ON CONFLICT(work_id,step_id) DO UPDATE SET completion_seq=excluded.completion_seq`, event.SubjectID, p.StepID, event.Seq); err != nil {
+		return workflowProjectionError(err, "cannot record the step completion frontier")
 	}
 	switch p.ActionID {
 	case "request_correction":
@@ -2931,7 +2716,12 @@ func foldWorkflowActionFailed(ctx context.Context, tx *sql.Tx, event Event, scop
 	if err := writeWorkflowCoordinatorActionTx(ctx, tx, event); err != nil {
 		return err
 	}
-	return advanceWorkflowActionObligationsTx(ctx, tx, event, p.StepID, p.AttemptEpoch, p.ActorRef)
+	// The admitted failure settles only the current step's verified epoch.
+	// Keep the start descriptor and successful action outputs unchanged.
+	if _, err := tx.ExecContext(ctx, `INSERT INTO workflow_step_completions(work_id,step_id,completion_seq) VALUES(?,?,?) ON CONFLICT(work_id,step_id) DO UPDATE SET completion_seq=excluded.completion_seq`, event.SubjectID, p.StepID, event.Seq); err != nil {
+		return workflowProjectionError(err, "cannot record the failed action settlement frontier")
+	}
+	return nil
 }
 
 // producerBindingMismatch explains why a named producer operation cannot back
@@ -3009,38 +2799,6 @@ func foldWorkflowEvidenceBound(ctx context.Context, tx *sql.Tx, event Event) err
 		return workflowProjectionError(err, "cannot record workflow evidence binding")
 	}
 	return advanceWorkflowVersion(ctx, tx, event, p.WorkflowVersionFields)
-}
-
-func validateWorkflowStalenessObservedPayload(event Event, payload workflowStalenessObservedPayload) error {
-	if err := checkSubject(event, SubjectWorkItem); err != nil {
-		return err
-	}
-	if !workflowString(payload.RuleID, 128) || (payload.Severity != "warning" && payload.Severity != "block") || payload.ObservedAt == "" || !validDigest(payload.AcceptedInputsDigest) {
-		return newFailure(KindInvalidPayload, "validate_event", "staleness observation is incomplete", false, "supply rule, severity, drift, and observation time")
-	}
-	if _, err := time.Parse(time.RFC3339Nano, payload.ObservedAt); err != nil {
-		return newFailure(KindInvalidPayload, "validate_event", "staleness observation time is invalid", false, "supply an RFC3339 observation time")
-	}
-	var fields map[string]json.RawMessage
-	if err := json.Unmarshal(event.Payload, &fields); err != nil {
-		return newFailure(KindInvalidPayload, "validate_event", "staleness observation payload is malformed", false, "supply a JSON object")
-	}
-	if _, ok := fields["drifted"]; !ok {
-		return newFailure(KindInvalidPayload, "validate_event", "staleness observation drift is required", false, "supply the observed drift value")
-	}
-	return nil
-}
-
-func foldWorkflowStalenessObserved(ctx context.Context, tx *sql.Tx, event Event) error {
-	var payload workflowStalenessObservedPayload
-	if err := decodeWorkflowPayload(event, &payload); err != nil {
-		return err
-	}
-	if err := validateWorkflowStalenessObservedPayload(event, payload); err != nil {
-		return err
-	}
-	_, err := tx.ExecContext(ctx, `INSERT INTO workflow_staleness_observations(event_id,work_id,rule_id,severity,drifted,accepted_inputs_digest,observed_at) VALUES(?,?,?,?,?,?,?)`, event.EventID, event.SubjectID, payload.RuleID, payload.Severity, payload.Drifted, payload.AcceptedInputsDigest, payload.ObservedAt)
-	return err
 }
 
 func foldWorkflowVerdictRecorded(ctx context.Context, tx *sql.Tx, event Event) error {
@@ -3210,34 +2968,6 @@ func foldWorkflowSuccessorLinked(ctx context.Context, tx *sql.Tx, event Event) e
 	return insertWorkflowForwardRelation(ctx, tx, event, p.SuccessorWorkID)
 }
 
-func foldWorkflowImpactDeclared(ctx context.Context, tx *sql.Tx, event Event) error {
-	var p workflowImpactDeclaredPayload
-	if err := decodeWorkflowPayload(event, &p); err != nil {
-		return err
-	}
-	if err := workflowBase(event, p.WorkflowVersionFields); err != nil {
-		return err
-	}
-	if !workflowString(p.EdgeID, 128) || p.EdgeKind != "modifies" && p.EdgeKind != "depends_on" && p.EdgeKind != "forward_link" || p.EdgeClass != "hard" && p.EdgeClass != "soft" && p.EdgeClass != "none" || !workflowString(p.TargetWorkID, 128) || p.TargetKind != "work_item" || p.Severity != "breaking" && p.Severity != "non-breaking" && p.Severity != "informational" {
-		return newFailure(KindInvalidPayload, "fold_event", "impact edge contains a closed-enum or identity violation", false, "supply a typed workflow impact edge")
-	}
-	if err := advanceWorkflowVersion(ctx, tx, event, p.WorkflowVersionFields); err != nil {
-		return err
-	}
-	if (p.EdgeKind == "depends_on" || p.EdgeKind == "forward_link") && p.EdgeClass == "hard" {
-		if cycle, err := workflowEdgeWouldCycle(ctx, tx, event.SubjectID, p.TargetWorkID, p.EdgeKind); err != nil {
-			return err
-		} else if cycle {
-			return cycleFailure("fold_event", "hard workflow edge would create a cycle", "choose a non-cyclic edge", p.EdgeKind, event.SubjectID, p.TargetWorkID)
-		}
-	}
-	_, err := tx.ExecContext(ctx, `INSERT INTO workflow_impact_edges(work_id,edge_id,edge_kind,edge_class,target_work_id,target_kind,severity,recorded_at) VALUES(?,?,?,?,?,?,?,?)`, event.SubjectID, p.EdgeID, p.EdgeKind, p.EdgeClass, p.TargetWorkID, p.TargetKind, p.Severity, event.OccurredAt.UTC().Format(time.RFC3339Nano))
-	if err != nil {
-		return workflowProjectionError(err, "cannot record workflow impact edge")
-	}
-	return nil
-}
-
 func workflowEdgeWouldCycle(ctx context.Context, tx *sql.Tx, source, target, kind string) (bool, error) {
 	if source == target {
 		return true, nil
@@ -3259,12 +2989,6 @@ func workflowEdgeWouldCycle(ctx context.Context, tx *sql.Tx, source, target, kin
 
 func insertWorkflowForwardRelation(ctx context.Context, tx *sql.Tx, event Event, successor string) error {
 	return insertRelation(ctx, tx, event, relationPayload{From: event.SubjectID, To: successor, Kind: "forward_link"})
-}
-
-func WorkflowNoticeID(sourceWorkID string, sourceContractVersion int64, entityKind, entityRef, targetWorkID, severity string) string {
-	canonical := "notice-v1\x00" + actorField("source_work_id", sourceWorkID) + actorField("source_contract_version", fmt.Sprintf("%d", sourceContractVersion)) + actorField("entity_kind", entityKind) + actorField("entity_ref", entityRef) + actorField("target_work_id", targetWorkID) + actorField("severity", severity)
-	sum := sha256.Sum256([]byte(canonical))
-	return "notice:" + hex.EncodeToString(sum[:])
 }
 
 // workflowPremiseConfirmedAuthorityTx validates a claimed confirmation
@@ -3322,115 +3046,11 @@ func workflowPremiseConfirmedAuthorityTx(ctx context.Context, tx *sql.Tx, defini
 	return requireActorClass(ctx, tx, confirmingActor, "operator")
 }
 
-func foldWorkflowImpactNoticeRecorded(ctx context.Context, tx *sql.Tx, event Event) error {
-	var p workflowImpactNoticeRecordedPayload
-	if err := decodeWorkflowPayload(event, &p); err != nil {
-		return err
-	}
-	if err := workflowBase(event, p.WorkflowVersionFields); err != nil {
-		return err
-	}
-	if p.SourceContractVersion <= 0 || !workflowString(p.EntityKind, 128) || !workflowString(p.EntityRef, 128) || !workflowString(p.TargetWorkID, 128) || !workflowString(p.EdgeOwnerWorkID, 128) || !workflowString(p.EdgeID, 128) || (p.Severity != "breaking" && p.Severity != "non-breaking" && p.Severity != "informational") || p.NoticeID != WorkflowNoticeID(event.SubjectID, p.SourceContractVersion, p.EntityKind, p.EntityRef, p.TargetWorkID, p.Severity) {
-		return newFailure(KindInvariantViolation, "fold_event", "impact notice identity does not match canonical derivation", false, "recompute notice_id from its six identity fields")
-	}
-	if err := advanceWorkflowVersion(ctx, tx, event, p.WorkflowVersionFields); err != nil {
-		return err
-	}
-	_, err := tx.ExecContext(ctx, `INSERT INTO workflow_impact_notices(notice_id,source_work_id,source_contract_version,entity_kind,entity_ref,target_work_id,edge_owner_work_id,edge_id,old_hash,new_hash,severity,recorded_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`, p.NoticeID, event.SubjectID, p.SourceContractVersion, p.EntityKind, p.EntityRef, p.TargetWorkID, p.EdgeOwnerWorkID, p.EdgeID, valueOrNil(p.OldHash), valueOrNil(p.NewHash), p.Severity, event.OccurredAt.UTC().Format(time.RFC3339Nano))
-	return workflowProjectionError(err, "cannot record workflow impact notice")
-}
-
 func valueOrNil(value *string) any {
 	if value == nil {
 		return nil
 	}
 	return *value
-}
-func foldWorkflowConditionAdded(ctx context.Context, tx *sql.Tx, event Event) error {
-	var p workflowConditionAddedPayload
-	if err := decodeWorkflowPayload(event, &p); err != nil {
-		return err
-	}
-	if err := workflowBase(event, p.WorkflowVersionFields); err != nil {
-		return err
-	}
-	if !workflowString(p.ConditionID, 128) || !workflowString(p.AwaitRef, 128) || !workflowString(p.ResolutionAuthority, 128) || !slices.Contains([]string{"pr_merge", "ci_result", "timer", "human_approval", "remote_work_state"}, p.AwaitType) {
-		return newFailure(KindInvalidPayload, "fold_event", "condition_added contains an invalid closed await type", false, "use a typed external condition")
-	}
-	if p.ExpectedWithinSeconds < 0 || p.ExpectedWithinSeconds > 31536000 {
-		return newFailure(KindInvalidPayload, "fold_event", "expected_within_seconds must be a positive bound of at most one year", false, "declare a realistic wait bound or omit it")
-	}
-	if _, err := conditionAuthorityOperation(ctx, tx, p.ResolutionAuthority, event.SubjectID); err != nil {
-		return err
-	}
-	if err := advanceWorkflowVersion(ctx, tx, event, p.WorkflowVersionFields); err != nil {
-		return err
-	}
-	_, err := tx.ExecContext(ctx, `INSERT INTO workflow_external_conditions(work_id,condition_id,await_type,await_ref,resolution_authority,condition_state,recorded_at,expected_within_seconds) VALUES(?,?,?,?,?,'open',?,?)`, event.SubjectID, p.ConditionID, p.AwaitType, p.AwaitRef, p.ResolutionAuthority, event.OccurredAt.UTC().Format(time.RFC3339Nano), nullableInt(p.ExpectedWithinSeconds))
-	return workflowProjectionError(err, "cannot record external condition")
-}
-func foldWorkflowConditionResolved(ctx context.Context, tx *sql.Tx, event Event) error {
-	var p workflowConditionResolvedPayload
-	if err := decodeWorkflowPayload(event, &p); err != nil {
-		return err
-	}
-	if err := workflowBase(event, p.WorkflowVersionFields); err != nil {
-		return err
-	}
-	if !workflowString(p.ConditionID, 128) || !workflowList(p.ResolutionEvidence, 32, 1) || !workflowString(p.ResolvedByEvent, 128) {
-		return newFailure(KindInvalidPayload, "fold_event", "condition resolution is incomplete", false, "supply owning-authority evidence")
-	}
-	var authority string
-	if err := tx.QueryRowContext(ctx, `SELECT resolution_authority FROM workflow_external_conditions WHERE work_id=? AND condition_id=? AND condition_state='open'`, event.SubjectID, p.ConditionID).Scan(&authority); err != nil {
-		return newFailure(KindInvalidOperation, "fold_event", "condition is missing or not open", false, "resolve only an open condition")
-	}
-	if err := verifyConditionEvidence(ctx, tx, authority, event.SubjectID, p.ResolutionEvidence); err != nil {
-		return err
-	}
-	if err := advanceWorkflowVersion(ctx, tx, event, p.WorkflowVersionFields); err != nil {
-		return err
-	}
-	result, err := tx.ExecContext(ctx, `UPDATE workflow_external_conditions SET condition_state='resolved',resolution_evidence=?,resolved_by_event=?,resolved_at=? WHERE work_id=? AND condition_id=? AND condition_state='open'`, workflowJSON(p.ResolutionEvidence), p.ResolvedByEvent, event.OccurredAt.UTC().Format(time.RFC3339Nano), event.SubjectID, p.ConditionID)
-	if err != nil {
-		return err
-	}
-	if n, _ := result.RowsAffected(); n != 1 {
-		return newFailure(KindInvalidOperation, "fold_event", "condition is missing or already terminal", false, "resolve only an open condition")
-	}
-	return nil
-}
-func foldWorkflowConditionCancelled(ctx context.Context, tx *sql.Tx, event Event) error {
-	var p workflowConditionCancelledPayload
-	if err := decodeWorkflowPayload(event, &p); err != nil {
-		return err
-	}
-	if err := workflowBase(event, p.WorkflowVersionFields); err != nil {
-		return err
-	}
-	if !workflowString(p.ConditionID, 128) || p.CancellationAuthority != "operator" || !workflowList(p.CancellationEvidence, 32, 1) || !workflowString(p.CancelledByEvent, 128) {
-		return newFailure(KindInvalidPayload, "fold_event", "condition cancellation is incomplete", false, "require operator cancellation evidence")
-	}
-	if err := requireActorClass(ctx, tx, event.Actor, "operator"); err != nil {
-		return err
-	}
-	var authority string
-	if err := tx.QueryRowContext(ctx, `SELECT resolution_authority FROM workflow_external_conditions WHERE work_id=? AND condition_id=? AND condition_state='open'`, event.SubjectID, p.ConditionID).Scan(&authority); err != nil {
-		return newFailure(KindInvalidOperation, "fold_event", "condition is missing or not open", false, "cancel only an open condition")
-	}
-	if err := verifyConditionEvidence(ctx, tx, authority, event.SubjectID, p.CancellationEvidence); err != nil {
-		return err
-	}
-	if err := advanceWorkflowVersion(ctx, tx, event, p.WorkflowVersionFields); err != nil {
-		return err
-	}
-	result, err := tx.ExecContext(ctx, `UPDATE workflow_external_conditions SET condition_state='cancelled',cancellation_authority='operator',cancellation_evidence=?,cancelled_by_event=?,cancelled_at=? WHERE work_id=? AND condition_id=? AND condition_state='open'`, workflowJSON(p.CancellationEvidence), p.CancelledByEvent, event.OccurredAt.UTC().Format(time.RFC3339Nano), event.SubjectID, p.ConditionID)
-	if err != nil {
-		return err
-	}
-	if n, _ := result.RowsAffected(); n != 1 {
-		return newFailure(KindInvalidOperation, "fold_event", "condition is missing or already terminal", false, "cancel only an open condition")
-	}
-	return nil
 }
 func foldWorkflowCompleted(ctx context.Context, tx *sql.Tx, event Event, scope *writeScope) error {
 	var p workflowCompletedPayload
@@ -3549,15 +3169,6 @@ func allClosed(values, allowed []string) bool {
 		seen[v] = true
 	}
 	return true
-}
-
-// nullableInt stores 0 as NULL so "no declared bound" and "bound of zero"
-// stay distinguishable at the storage boundary.
-func nullableInt(v int64) any {
-	if v == 0 {
-		return nil
-	}
-	return v
 }
 
 // workflowPredicateOrdinalTeaching states the position rule

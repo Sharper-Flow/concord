@@ -29,8 +29,6 @@ func TestOverlapResolutionVersionConflictNamesTheStaleEndpoint(t *testing.T) {
 			s, actor := seedOverlapProjection(t, left, right, true)
 
 			// Advance the right endpoint alone so the two live versions differ.
-			// An intent revision carries no lifecycle change, so the unresolved
-			// overlap this fixture exists to create does not refuse it.
 			revision := []byte(`{"title":"Revised","value_statement":"Raise this endpoint's version alone","kind":"task","priority":4,"tags":[],"reason":"separate the endpoint versions","expected_version":2,"resulting_version":3}`)
 			if err := ApplyOperation(ctx, s, Operation{
 				Events:           []Event{{EventID: "conflict-right-revised", Kind: "work.intent_revised", SubjectType: SubjectWorkItem, SubjectID: right, Actor: "operator", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: 1, Payload: revision}},
@@ -57,7 +55,7 @@ func TestOverlapResolutionVersionConflictNamesTheStaleEndpoint(t *testing.T) {
 					EventID: "overlap-conflict-" + stale, FromWorkID: left, ToWorkID: right,
 					FromExpectedVersion: fromExpected, ToExpectedVersion: toExpected,
 					FromContractVersion: 1, ToContractVersion: 1,
-					ResolutionKind: ResolutionCompatibleWith, Reason: "identity of the refusal",
+					ResolutionKind: ResolutionDependsOn, Reason: "identity of the refusal",
 					Actor:      actor,
 					OccurredAt: time.Date(2026, 8, 19, 1, 0, 0, 0, time.UTC),
 				})

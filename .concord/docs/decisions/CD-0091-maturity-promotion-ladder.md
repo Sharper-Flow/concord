@@ -8,18 +8,17 @@
   issue #639 on 2026-08-31.
 - **Related:** CD-0007, CD-0010, CD-0089, `priorities.md` First-usable floor,
   `rollout-plan.md` §3 and §4, `product-data-model.md`, and
-  `floor-readiness.v1.json`
+  `floor-readiness.md`
 - **Preserves:** The first-usable floor as the replacement-readiness bar; the
-  demand-driven correction model of `rollout-plan.md` §4; the maturity and
-  audience vocabulary of `product-data-model.md`; and the floor-readiness
-  manifest mechanism
+  demand-driven correction model of `rollout-plan.md` §4; and the maturity and
+  audience vocabulary of `product-data-model.md`
 
 ## Context
 
 Concord documents the floor it has reached but not the ground above it.
-`floor-readiness.v1.json` proves replacement readiness for one operator and many
-agents on one machine, and `check-floor-readiness.py` enforces it. No document
-defines what promotes a Product past that floor.
+`floor-readiness.md` defines replacement readiness for one operator and many
+agents on one machine. No document defines what promotes a Product past that
+floor.
 
 `product-data-model.md` gives the vocabulary. The `maturity` field ranks
 `prototype`, `alpha`, `beta`, `production`, and `deprecated`. The
@@ -36,18 +35,11 @@ bounded need." This decision accepts that need and defines the ladder.
 ### D1. Promotion is an evidence claim, not a declaration
 
 A Product may set `maturity` or `audience_commitment` above its current rung only
-when a recorded evidence manifest for the target rung is satisfied. A field set
-without that manifest is drift, in the same sense that a replacement-ready claim
-without floor evidence is drift.
+when the change that sets the field cites evidence meeting the target rung's bar
+in D3 or D4. A field set without that evidence is drift, in the same sense that a
+replacement-ready claim without floor evidence is drift.
 
-### D2. Each rung reuses the floor-readiness mechanism
-
-A per-rung manifest reuses the `floor-readiness` schema shape. It carries
-conditions with contiguous ordinals and items in the states `satisfied`,
-`outstanding`, `unmeasured`, or `out_of_scope`. Each `satisfied` item binds an
-executable anchor that a required workflow invokes. The rung validator either
-extends `check-floor-readiness.py` or is a sibling that reuses its schema. This
-decision adds no new verification style.
+### D2. Retired: the per-rung readiness manifest
 
 ### D3. The maturity rungs and their evidence bars
 
@@ -69,7 +61,7 @@ Each rung adds to the rung below it.
 Each rung adds to the rung below it.
 
 - **operator_only**: the default. It promises nothing beyond the author and
-  needs no manifest.
+  needs no evidence.
 - **limited**: a named non-author relies on the Product. It requires a support
   channel of record and a compatibility statement for the surfaces that party
   touches.
@@ -87,16 +79,12 @@ rung. This preserves `rollout-plan.md` §4.
 ### D6. Concord's current rung is recorded, not advanced
 
 This decision does not promote Concord. Concord stays at `prototype` and
-`operator_only`. The first rung manifest, for alpha, is the next artifact, and
-the operator authors it when the operator chooses to pursue alpha. Until then no
-rung manifest exists, because a Product at `prototype` owes none.
+`operator_only` until the operator chooses to pursue a higher rung.
 
 ## Consequences
 
-- A maturity or audience field above its proved rung becomes a detectable defect
-  once the target rung is pursued and its manifest exists.
-- The ladder mechanism matches the floor mechanism, so a reader learns one
-  pattern rather than two.
+- A maturity or audience field above its proved rung is a defect in the change
+  that sets it.
 - No mechanism activates for a Product that claims no higher rung, so the
   decision adds no cost to prototype work.
 - Concord gains a defined finish line for each maturity claim, which its own
@@ -110,13 +98,8 @@ drifts from reality exactly as the first-usable floor did before its manifest.
 **A fixed calendar or global adoption sequence.** Rejected because it contradicts
 the demand-driven model `rollout-plan.md` §4 preserves.
 
-**A separate heavyweight certification document per rung.** Rejected because the
-floor-readiness manifest already models graded, evidence-bound conditions, and a
-second mechanism would drift from the first.
-
-**Build the alpha manifest and its validator now.** Rejected because Concord owes
-no manifest at `prototype`, so the validator would guard data that does not
-exist. The manifest is authored when a rung is pursued, per D6.
+**A separate heavyweight certification document per rung.** Rejected because
+the rung bars in D3 and D4 already state what each claim must prove.
 
 ## Verification
 
@@ -128,6 +111,5 @@ exist. The manifest is authored when a rung is pursued, per D6.
   without restating the ladder.
 - Concord's `maturity` remains `prototype` and its `audience_commitment` remains
   `operator_only`.
-- `python3 scripts/check-json.py`, `check-doc-links.py`, `check-doc-contract.py`,
-  `check-knowledge-index.py`, `check-knowledge-closure.py`, and
-  `check-public-content.py` pass.
+- `python3 scripts/check-json.py`, `check-doc-links.py`,
+  `check-knowledge-index.py`, and `check-public-content.py` pass.

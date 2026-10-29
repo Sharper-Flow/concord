@@ -5,7 +5,6 @@
     "tier": "legislated"
   },
   "date": "2026-08-08T00:00:00Z",
-  "doc_contract_profile": "legacy",
   "evidence": [
     ".concord/scenarios/workflow-engine.v1.json",
     "internal/store/workflow_conformance_test.go",
@@ -23,7 +22,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:7b53c912d79bede56a313c9afc36c6a59ec58493e67cb0665391e2d87c7412d8",
+  "sha256": "sha256:627a178988e46b0731e2246a0bcf326f02fa31892361779f5705f8ae370710c8",
   "status": "accepted",
   "summary": "Defines workflow registration, execution evidence, subject-bound stage results, fail-closed completion and declared correction of delivered work. Independent native Task Review remains required; the coordinator records outcomes without subagent execution attestation.",
   "tags": [

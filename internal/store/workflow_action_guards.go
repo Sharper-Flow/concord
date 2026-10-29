@@ -921,20 +921,6 @@ func assembleWorkflowActionEventsTx(ctx context.Context, tx *sql.Tx, in workflow
 			return out, semanticErr
 		}
 		events = append(events, semantic...)
-	default:
-		staleness, present, stalenessErr := workflowStalenessObservationEvent(in.request.OperationID+":staleness", in.request.WorkID, actor, in.request.AcceptedInputsDigest, in.payload, in.request.Now)
-		if stalenessErr != nil {
-			return out, stalenessErr
-		}
-		if present {
-			recorded, recordedErr := workflowStalenessObservationRecordedTx(ctx, tx, staleness)
-			if recordedErr != nil {
-				return out, recordedErr
-			}
-			if !recorded {
-				events = append(events, staleness)
-			}
-		}
 	}
 	out.events = events
 	return out, nil

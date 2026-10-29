@@ -256,47 +256,12 @@ def test_v12_requires_domain_registry_domain_scopes_and_law_home() -> None:
         value = v12_fixture()
         with mock.patch.object(checker, "ROOT", root):
             assert checker.validate(value, check_hashes=False) == []
-            # CD-0200: a manifest without a domain_registry is a
-            # registered-source corpus. It validates as the source shape: the
-            # root-rationale rule defers to the shared home's registry, and
-            # the source carries no registry of its own to validate.
             missing_registry = copy.deepcopy(value)
             del missing_registry["domain_registry"]
-            del missing_registry["records"][0]["product_wide_rationale"]
-            assert checker.validate(missing_registry, check_hashes=False) == []
-            # A source corpus keeps the shape rules that need no registry:
-            # an accepted law still names a home Domain ID, and the
-            # cross-source relation vocabulary stays closed.
-            no_home_domain = copy.deepcopy(missing_registry)
-            del no_home_domain["records"][0]["home_domain_id"]
-            assert checker.validate(no_home_domain, check_hashes=False)
-            bad_relation = copy.deepcopy(missing_registry)
-            bad_relation["records"][0]["law_relations"] = [{"kind": "refines", "target_id": "SRC/LAW", "source_project_id": "registered-source"}]
+            assert checker.validate(missing_registry, check_hashes=False)
+            bad_relation = copy.deepcopy(value)
+            bad_relation["records"][0]["law_relations"] = [{"kind": "refines", "target_id": "SRC/LAW"}]
             assert any("invalid law relation" in finding for finding in checker.validate(bad_relation, check_hashes=False))
-            good_relation = copy.deepcopy(missing_registry)
-            # CD-0200 source-qualified identity: an explicit source_project_id
-            # owns the endpoint, and endpoints compare as source-qualified
-            # nodes, so a bare target ID a local record also holds — including
-            # the declaring record's own bare ID, which names another source's
-            # distinct node — is not a shape defect. The corpus declares a
-            # local SRC-LAW beside the relation that names
-            # (registered-source, SRC-LAW), and the shape check passes; the
-            # endpoint validates over the verified source set at rebuild,
-            # which refuses a qualified target naming the declaring source's
-            # own Project.
-            (root / ".concord/docs/src-law.md").write_text("source law\n", encoding="utf-8")
-            colliding_local = copy.deepcopy(missing_registry)
-            colliding_local["records"].append(dict(
-                colliding_local["records"][0],
-                id="SRC-LAW", path=".concord/docs/src-law.md",
-                sha256="sha256:" + "b" * 64, title="Source law", summary="Source summary",
-            ))
-            good_relation = colliding_local
-            good_relation["records"][0]["law_relations"] = [{"kind": "refines", "target_id": "SRC-LAW", "source_project_id": "registered-source"}]
-            assert checker.validate(good_relation, check_hashes=False) == []
-            same_bare_id_target = copy.deepcopy(good_relation)
-            same_bare_id_target["records"][0]["law_relations"] = [{"kind": "refines", "target_id": "spec-1", "source_project_id": "registered-source"}]
-            assert checker.validate(same_bare_id_target, check_hashes=False) == []
             missing_scope = copy.deepcopy(value)
             del missing_scope["records"][0]["scopes"]["domain_ids"]
             assert checker.validate(missing_scope, check_hashes=False)
@@ -345,23 +310,6 @@ def test_v12_rejects_law_applicability_without_home() -> None:
         del value["records"][0]["product_wide_rationale"]
         with mock.patch.object(checker, "ROOT", root):
             assert checker.validate(value, check_hashes=False)
-
-
-def test_qualified_relation_between_distinct_sources_sharing_a_bare_id_is_not_a_self_edge() -> None:
-    """Relation endpoints compare as source-qualified nodes, so two distinct
-    sources holding the same bare ID are not a self-edge; the rebuild owns
-    the qualified-target-same-project refusal."""
-    with tempfile.TemporaryDirectory(dir=checker.ROOT) as directory:
-        root = Path(directory)
-        (root / ".concord/docs").mkdir(parents=True)
-        (root / ".concord/docs/spec.md").write_text("spec\n", encoding="utf-8")
-        value = v12_fixture()
-        value["records"][0]["law_relations"] = [
-            {"kind": "refines", "target_id": "spec-1", "source_project_id": "peer-project"}
-        ]
-        with mock.patch.object(checker, "ROOT", root):
-            findings = checker.validate(value, check_hashes=False)
-        assert not any("declaring law" in finding or "self" in finding for finding in findings), findings
 
 
 def test_v12_rejects_self_referential_domain_dependency() -> None:
@@ -481,7 +429,6 @@ def test_duplicate_decision_id_files_are_rejected_deterministically() -> None:
 				"scopes": {"mode": "home", "product_ids": [], "project_ids": [], "domain_ids": [], "tag_ids": []},
 				"home_domain_id": "product-root:concord",
 				"product_wide_rationale": "Fixture law binds every child Domain.",
-				"doc_contract_profile": "legacy",
                 "sha256": "sha256:" + "a" * 64,
             }]
         with mock.patch.object(checker, "ROOT", root):
@@ -503,9 +450,6 @@ def taxonomy_fixture(root: Path, kind: str, path: str, status: str) -> dict:
     record["kind"], record["path"], record["status"] = kind, path, status
     if kind == "decision":
         record["id"] = Path(path).stem
-        record["doc_contract_profile"] = (
-            "legacy" if record["id"] in checker.LEGACY_DECISION_PROFILE_IDS else "current"
-        )
     if kind not in checker.LAW_BEARING_KINDS:
         record.pop("home_domain_id", None)
         record.pop("product_wide_rationale", None)
@@ -677,207 +621,6 @@ def test_record_shards_carry_the_encoding_update_writes() -> None:
                     shard_path.write_bytes(canonical(shard))
 
 
-def decision_profile_fixture(root: Path, record_id: str, profile: str | None) -> dict:
-    """A one-decision v1.2 manifest whose authored profile is the subject."""
-    (root / ".concord/docs/decisions").mkdir(parents=True, exist_ok=True)
-    path = f".concord/docs/decisions/{record_id}.md"
-    (root / path).write_text("body\n", encoding="utf-8")
-    value = v12_fixture()
-    value["supported_kinds"] = ["decision"]
-    value["indexed_kinds"] = ["decision"]
-    value["doc_contract"] = {
-        "decision": {
-            "required_sections": [],
-            "ac_required": False,
-            "current_required_sections": [
-                "Context", "Decision", "Alternatives considered", "Consequences", "Verification",
-            ],
-        }
-    }
-    value["records"] = [{
-        "id": record_id,
-        "kind": "decision",
-        "path": path,
-        "status": "accepted",
-        "date": "2026-08-10T00:00:00Z",
-        "title": "Decision",
-        "summary": "Summary",
-        "tags": [],
-        "authority": {"tier": "legislated", "legislated_by": "work-0f1e2d3c4b5a6978", "contract_version": 1},
-        "scopes": {"mode": "home", "product_ids": [], "project_ids": [], "domain_ids": [], "tag_ids": []},
-        "home_domain_id": "product-root:concord",
-        "product_wide_rationale": "Fixture law binds every child Domain.",
-        "sha256": "sha256:" + "a" * 64,
-    }]
-    if profile is not None:
-        value["records"][0]["doc_contract_profile"] = profile
-    return value
-
-
-def profile_findings(root: Path, value: dict) -> list[str]:
-    with mock.patch.object(checker, "ROOT", root):
-        return [
-            finding
-            for finding in checker.validate(value, check_hashes=False)
-            if "doc_contract_profile" in finding
-        ]
-
-
-def test_new_decision_cannot_claim_the_legacy_profile() -> None:
-    """The CD-0175 boundary regression: authoring legacy exempts nothing.
-
-    A record outside the closed historical set cannot select the legacy
-    outline, so a newly accepted decision cannot write its way around the
-    current one.
-    """
-    with tempfile.TemporaryDirectory(dir=checker.ROOT) as directory:
-        root = Path(directory)
-        value = decision_profile_fixture(root, "CD-9999", "legacy")
-        findings = profile_findings(root, value)
-        assert findings == [
-            "manifest.records[0]: doc_contract_profile 'legacy' contradicts the closed legacy decision set for CD-9999"
-        ], findings
-
-
-def test_frozen_decision_cannot_claim_the_current_profile() -> None:
-    """A set member keeps the legacy profile; the boundary binds both ways."""
-    with tempfile.TemporaryDirectory(dir=checker.ROOT) as directory:
-        root = Path(directory)
-        value = decision_profile_fixture(root, "CD-0002", "current")
-        findings = profile_findings(root, value)
-        assert findings == [
-            "manifest.records[0]: doc_contract_profile 'current' contradicts the closed legacy decision set for CD-0002"
-        ], findings
-
-
-def test_decision_shard_requires_an_authored_profile() -> None:
-    with tempfile.TemporaryDirectory(dir=checker.ROOT) as directory:
-        root = Path(directory)
-        value = decision_profile_fixture(root, "CD-9999", None)
-        findings = profile_findings(root, value)
-        assert findings == [
-            "manifest.records[0]: decision requires a doc_contract_profile of 'legacy' or 'current'"
-        ], findings
-
-
-def test_frozen_legacy_profile_passes_and_unknown_profile_value_fails() -> None:
-    with tempfile.TemporaryDirectory(dir=checker.ROOT) as directory:
-        root = Path(directory)
-        value = decision_profile_fixture(root, "CD-0002", "legacy")
-        assert profile_findings(root, value) == []
-        drifted = decision_profile_fixture(root, "CD-9999", "obsolete")
-        findings = profile_findings(root, drifted)
-        assert findings == [
-            "manifest.records[0]: decision requires a doc_contract_profile of 'legacy' or 'current'"
-        ], findings
-
-
-def test_pre_amendment_head_demands_no_profile() -> None:
-    """A historical ref whose head predates the outline still composes."""
-    with tempfile.TemporaryDirectory(dir=checker.ROOT) as directory:
-        root = Path(directory)
-        value = decision_profile_fixture(root, "CD-9999", None)
-        del value["doc_contract"]
-        assert profile_findings(root, value) == []
-
-
-def test_non_decision_record_cannot_carry_a_profile() -> None:
-    with tempfile.TemporaryDirectory(dir=checker.ROOT) as directory:
-        root = Path(directory)
-        value = v12_fixture()
-        (root / ".concord/docs").mkdir(parents=True, exist_ok=True)
-        (root / ".concord/docs/lesson.md").write_text("body\n", encoding="utf-8")
-        value["records"][0]["kind"] = "lesson"
-        value["records"][0]["status"] = "published"
-        value["records"][0].pop("home_domain_id", None)
-        value["records"][0].pop("product_wide_rationale", None)
-        value["records"][0]["path"] = ".concord/docs/lesson.md"
-        value["records"][0]["doc_contract_profile"] = "current"
-        with mock.patch.object(checker, "ROOT", root):
-            findings = checker.validate(value, check_hashes=False)
-        assert any(
-            "doc_contract_profile is only valid on decision records and spec records whose id is in the frozen legacy spec set" in finding
-            for finding in findings
-        ), findings
-
-
-def spec_profile_fixture(root: Path, record_id: str, profile: str | None) -> dict:
-    """A one-spec v1.2 manifest whose authored profile is the subject."""
-    (root / ".concord/docs/specs").mkdir(parents=True, exist_ok=True)
-    path = f".concord/docs/specs/{record_id}.md"
-    (root / path).write_text("body\n", encoding="utf-8")
-    value = v12_fixture()
-    value["doc_contract"] = {
-        "spec": {
-            "required_sections": ["Context", "Contract", "Acceptance criteria", "Verification"],
-            "ac_required": True,
-            "current_required_sections": [
-                "Context", "Contract", "Acceptance criteria", "Verification",
-            ],
-        }
-    }
-    value["records"] = [{
-        "id": record_id,
-        "kind": "spec",
-        "path": path,
-        "status": "accepted",
-        "date": "2026-08-10T00:00:00Z",
-        "title": "Spec",
-        "summary": "Summary",
-        "tags": [],
-        "authority": {"tier": "legislated", "legislated_by": "work-0f1e2d3c4b5a6978", "contract_version": 1},
-        "scopes": {"mode": "home", "product_ids": [], "project_ids": [], "domain_ids": [], "tag_ids": []},
-        "home_domain_id": "product-root:concord",
-        "product_wide_rationale": "Fixture law binds every child Domain.",
-        "sha256": "sha256:" + "a" * 64,
-    }]
-    if profile is not None:
-        value["records"][0]["doc_contract_profile"] = profile
-    return value
-
-
-def test_frozen_spec_can_author_the_legacy_profile() -> None:
-    """A spec id inside the closed historical set may claim the legacy outline."""
-    with tempfile.TemporaryDirectory(dir=checker.ROOT) as directory:
-        root = Path(directory)
-        value = spec_profile_fixture(root, "TS1", "legacy")
-        assert profile_findings(root, value) == []
-
-
-def test_new_spec_cannot_claim_the_legacy_profile() -> None:
-    """A spec id outside the frozen set cannot select the legacy outline."""
-    with tempfile.TemporaryDirectory(dir=checker.ROOT) as directory:
-        root = Path(directory)
-        value = spec_profile_fixture(root, "future-spec", "legacy")
-        findings = profile_findings(root, value)
-        assert findings == [
-            "manifest.records[0]: doc_contract_profile 'legacy' contradicts the closed legacy spec set for future-spec"
-        ], findings
-
-
-def test_unprofiled_spec_authors_the_current_profile() -> None:
-    """Membership makes legacy available, never asserted: absence is current.
-
-    The registered corpus carries no profile claims and stays valid without
-    a content change.
-    """
-    with tempfile.TemporaryDirectory(dir=checker.ROOT) as directory:
-        root = Path(directory)
-        for record_id in ("TS1", "future-spec"):
-            value = spec_profile_fixture(root, record_id, None)
-            assert profile_findings(root, value) == [], record_id
-
-
-def test_spec_with_unknown_profile_value_fails() -> None:
-    with tempfile.TemporaryDirectory(dir=checker.ROOT) as directory:
-        root = Path(directory)
-        value = spec_profile_fixture(root, "TS1", "obsolete")
-        findings = profile_findings(root, value)
-        assert findings == [
-            "manifest.records[0]: spec requires a doc_contract_profile of 'legacy' or 'current'"
-        ], findings
-
-
 SCHEMA_PATH = Path(__file__).resolve().parents[1] / "contracts" / "concord-knowledge-index.v1.schema.json"
 
 
@@ -896,75 +639,6 @@ def schema_errors(validator, document: dict) -> list[str]:
     return sorted(error.message for error in validator.iter_errors(document))
 
 
-def test_schema_keeps_a_pre_amendment_head_profile_free() -> None:
-    """CD-0175 D2: a head without the new outline keeps unversioned behavior.
-
-    A schema-1.3 manifest whose head predates decision.current_required_sections
-    — by an absent doc_contract or an absent amendment key — stays schema-valid
-    with decision records that carry no doc_contract_profile. A historical ref
-    and another Product's corpus cannot be invalidated by adding this rule.
-    """
-    validator = schema_validator()
-    with tempfile.TemporaryDirectory(dir=checker.ROOT) as directory:
-        root = Path(directory)
-        bare = decision_profile_fixture(root, "CD-9999", None)
-        bare["schema_version"] = "1.3"
-        del bare["doc_contract"]
-        assert schema_errors(validator, bare) == [], schema_errors(validator, bare)
-
-        headless = decision_profile_fixture(root, "CD-9999", None)
-        headless["schema_version"] = "1.3"
-        headless["doc_contract"]["decision"].pop("current_required_sections")
-        assert schema_errors(validator, headless) == [], schema_errors(validator, headless)
-
-
-def test_schema_demands_the_profile_only_under_the_amended_head() -> None:
-    """The canonical schema matches the checker once the head declares the amendment.
-
-    Under a current head every decision record carries a profile from the
-    closed set, a frozen ID keeps 'legacy', and a new ID keeps 'current'.
-    Forged values and crossed profiles fail.
-    """
-    validator = schema_validator()
-    with tempfile.TemporaryDirectory(dir=checker.ROOT) as directory:
-        root = Path(directory)
-        errors = schema_errors(validator, decision_profile_fixture(root, "CD-9999", None))
-        assert errors == ["'doc_contract_profile' is a required property"], errors
-
-        forged = decision_profile_fixture(root, "CD-9999", "obsolete")
-        assert any("'obsolete' is not one of ['legacy', 'current'" in message for message in schema_errors(validator, forged)), schema_errors(validator, forged)
-
-        crossed = schema_errors(validator, decision_profile_fixture(root, "CD-9999", "legacy"))
-        assert any("CD-9999" in message for message in crossed), crossed
-
-        crossed = schema_errors(validator, decision_profile_fixture(root, "CD-0002", "current"))
-        assert any("'legacy' was expected" in message for message in crossed), crossed
-
-        assert schema_errors(validator, decision_profile_fixture(root, "CD-0002", "legacy")) == []
-
-
-def test_schema_admits_a_bounded_spec_profile() -> None:
-    """The canonical schema bounds spec legacy authoring to the frozen set.
-
-    A frozen id may author 'legacy', absence authors the current profile with
-    no demand, a current claim is valid anywhere, and a spec id outside the
-    set cannot claim the legacy outline.
-    """
-    validator = schema_validator()
-    with tempfile.TemporaryDirectory(dir=checker.ROOT) as directory:
-        root = Path(directory)
-        assert schema_errors(validator, spec_profile_fixture(root, "TS1", "legacy")) == []
-        assert schema_errors(validator, spec_profile_fixture(root, "TS1", None)) == []
-        assert schema_errors(validator, spec_profile_fixture(root, "future-spec", "current")) == []
-        assert schema_errors(validator, spec_profile_fixture(root, "TS1", "current")) == []
-
-        crossed = schema_errors(validator, spec_profile_fixture(root, "future-spec", "legacy"))
-        assert any("future-spec" in message for message in crossed), crossed
-
-        forged = spec_profile_fixture(root, "TS1", "obsolete")
-        assert any("'obsolete' is not one of ['legacy', 'current'" in message for message in schema_errors(validator, forged)), schema_errors(validator, forged)
-
-
 def test_composed_repository_manifest_passes_the_canonical_schema() -> None:
     """The shipped corpus validates against the shipped schema, end to end."""
     validator = schema_validator()
@@ -978,9 +652,9 @@ def test_composed_repository_manifest_passes_the_canonical_schema() -> None:
 
 
 CORRECTED_DERIVED_RECORD_IDS = frozenset({
-    "CD-0165", "CD-0166", "CD-0168", "CD-0169", "CD-0170", "CD-0176",
+    "CD-0165", "CD-0166", "CD-0169", "CD-0170", "CD-0176",
     "CD-0177", "CD-0178", "CD-0180", "CD-0189", "CD-0192", "CD-0195", "CD-0197", "CD-0198",
-    "CD-0199", "CD-0203", "CD-0204", "CD-0207", "CD-0209",
+    "CD-0203", "CD-0204", "CD-0207", "CD-0209",
 })
 
 

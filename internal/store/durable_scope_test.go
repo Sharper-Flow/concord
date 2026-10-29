@@ -3,10 +3,8 @@ package store
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"strings"
 	"testing"
-	"time"
 )
 
 // pinReaderSnapshot holds a read transaction from a separate connection, the
@@ -49,15 +47,6 @@ func TestOrdinaryWritesOutsideBarrierEnumeration(t *testing.T) {
 		})
 		if err != nil {
 			t.Fatalf("identity assertion under a pinned reader: %v", err)
-		}
-	})
-	t.Run("workflow staleness observation", func(t *testing.T) {
-		t.Parallel()
-		s, _ := seedCompletionGateCase(t, "staleness-reader", completionGateCase{requiredEvidence: []string{"verification", "review"}})
-		pinReaderSnapshot(t, s)
-		payload := json.RawMessage(`{"staleness_rule_id":"staleness:warning","observed_drift":{"severity":"warning","drifted":true}}`)
-		if err := AppendWorkflowStalenessObservation(context.Background(), s, "staleness-reader:observation", "staleness-reader", "actor:staleness", testManifestDigest, payload, time.Date(2026, 8, 9, 0, 0, 0, 0, time.UTC)); err != nil {
-			t.Fatalf("staleness observation under a pinned reader: %v", err)
 		}
 	})
 }

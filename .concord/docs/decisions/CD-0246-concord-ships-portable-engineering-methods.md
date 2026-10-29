@@ -52,6 +52,5 @@ and installs through the existing skill path.
 ## Verification
 
 - `python3 scripts/check-knowledge-index.py` checks identity and hashes.
-- `python3 scripts/check-doc-contract.py` checks the outline.
 - `python3 scripts/check-agent-contracts.py` checks admitted skill inventory and portability.
 - `python3 scripts/test-installer.py` checks skill installation and discovery.

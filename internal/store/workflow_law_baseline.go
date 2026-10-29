@@ -36,13 +36,7 @@ func readWorkflowLawInventoryTx(ctx context.Context, q queryer, workID string) (
 		return nil, err
 	}
 	b.Home = workflowLawBaselineSource{ProjectID: project, LocatorID: locator}
-	sources, err := workflowLawSourceSetForHomeTx(ctx, q, project, locator)
-	if err != nil {
-		return nil, err
-	}
-	if sources == nil {
-		sources = []KnowledgeHome{{HomeProjectID: project, HomeLocatorID: locator}}
-	}
+	sources := []KnowledgeHome{{HomeProjectID: project, HomeLocatorID: locator}}
 	for _, source := range sources {
 		b.Sources = append(b.Sources, workflowLawBaselineSource{ProjectID: source.HomeProjectID, LocatorID: source.HomeLocatorID})
 		rows, err := q.QueryContext(ctx, `SELECT law_id,content_hash,authority_tier FROM law_subjects WHERE home_project_id=? AND home_locator_id=? ORDER BY law_id`, source.HomeProjectID, source.HomeLocatorID)
@@ -64,7 +58,7 @@ func readWorkflowLawInventoryTx(ctx context.Context, q queryer, workID string) (
 			return nil, workflowProjectionError(err, "cannot finish the start law inventory")
 		}
 		for _, state := range states {
-			domains, err := readWorkflowLawDomainsTx(ctx, q, federatedLawResolution{source: source, lawID: state.LawID})
+			domains, err := readWorkflowLawDomainsTx(ctx, q, lawReferenceResolution{source: source, lawID: state.LawID})
 			if err != nil {
 				return nil, err
 			}

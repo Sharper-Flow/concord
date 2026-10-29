@@ -93,8 +93,6 @@ structured state. Agents do not infer the stop from prose or a changed file.
   breaking changes and strands valid work.
 - **Recorded supersession:** keeps a retired rule in the corpus as a record of
   what replaced it; deletion already carries the stop.
-- **Advisory notice or resource claim:** cannot prevent stale workflow authority
-  from accepting a result.
 - **Host process termination:** belongs to host session management and cannot
   prove that stale output was excluded from Product truth.
 

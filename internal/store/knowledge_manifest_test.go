@@ -112,63 +112,6 @@ func TestParseKeepsADeclaredTierAtSchema12(t *testing.T) {
 	}
 }
 
-// profileManifestBytes encodes a one-decision schema-1.3 manifest whose
-// record carries the given doc_contract_profile. The field is omitempty, so
-// the empty profile is absent from the encoded document — the shape a corpus
-// authored before CD-0175 actually has on disk.
-func profileManifestBytes(t *testing.T, profile string) []byte {
-	t.Helper()
-	manifest := KnowledgeManifest{
-		SchemaVersion:  "1.3",
-		SupportedKinds: []string{"lesson", "decision", "spec"},
-		IndexedKinds:   []string{"lesson", "decision", "spec"},
-		DomainRegistry: KnowledgeDomainRegistry{
-			SchemaVersion: "1.0", ProductKey: "concord", RootDomainID: "product-root:concord",
-			Domains: []KnowledgeDomain{{DomainID: "product-root:concord", Name: "Concord", Purpose: "Product-wide law", Status: "current", ArchitectureRelations: []KnowledgeArchitectureRelation{}}},
-		},
-		Records: []KnowledgeRecord{{
-			ID: "CD-0001", Kind: "decision", Path: ".concord/docs/decisions/CD-0001-legacy.md", Status: "accepted",
-			Date: "2026-08-10T00:00:00Z", Title: "Legacy decision", Summary: "summary", Tags: []string{},
-			Authority:    KnowledgeAuthority{Tier: "legislated", LegislatedBy: "work-0f1e2d3c4b5a6978", ContractVersion: 1},
-			Scopes:       KnowledgeRecordScopes{Mode: "home", ProductIDs: []string{}, ProjectIDs: []string{}, DomainIDs: []string{}, TagIDs: []string{}},
-			HomeDomainID: "product-root:concord", ProductWideRationale: "Fixture law binds every child Domain.",
-			SHA256: "sha256:" + strings.Repeat("a", 64),
-		}},
-	}
-	if profile != "" {
-		manifest.Records[0].DocContractProfile = profile
-	}
-	encoded, err := json.Marshal(manifest)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return encoded
-}
-
-// TestParseReadsAPreAmendmentDecisionProfile holds the CD-0175 historical
-// read. A corpus whose head predates decision.current_required_sections
-// carries no doc_contract_profile on its records, and the schema admits that
-// absence, so the parse must refuse nothing and read the field as unset. An
-// authored claim — a current head's shard — still reads through unchanged.
-func TestParseReadsAPreAmendmentDecisionProfile(t *testing.T) {
-	t.Parallel()
-	manifest, err := parseKnowledgeManifest(profileManifestBytes(t, ""))
-	if err != nil {
-		t.Fatalf("a pre-amendment corpus without a decision profile was refused: %v", err)
-	}
-	if got := manifest.Records[0].DocContractProfile; got != "" {
-		t.Fatalf("an absent profile read as %q, want unset", got)
-	}
-
-	manifest, err = parseKnowledgeManifest(profileManifestBytes(t, "legacy"))
-	if err != nil {
-		t.Fatalf("an authored decision profile was refused: %v", err)
-	}
-	if got := manifest.Records[0].DocContractProfile; got != "legacy" {
-		t.Fatalf("an authored profile read as %q, want legacy", got)
-	}
-}
-
 func TestManifestPathBoundUsesUnicodeScalarsAtSchemaLimit(t *testing.T) {
 	t.Parallel()
 	valid := ".concord/docs/" + strings.Repeat("é", 495) + ".md"
@@ -347,7 +290,7 @@ func TestManifestQ10VerifiesThePersistedProjectionOfRichRecords(t *testing.T) {
 		Evidence: []string{spec}, CriterionBindings: []KnowledgeCriterionBinding{{Criterion: 1, Scenario: "scenario-one"}},
 	})
 	commit := commitKnowledgeRepo(t, repo, "rich manifest knowledge")
-	manifest, missing, err := readKnowledgeManifest(ctx, repo, commit, manifestSharedHomeRole)
+	manifest, missing, err := readKnowledgeManifest(ctx, repo, commit)
 	if err != nil || missing || len(manifest.Records) != 1 {
 		t.Fatalf("read rich manifest=%#v missing=%v err=%v", manifest, missing, err)
 	}
@@ -358,7 +301,7 @@ func TestManifestQ10VerifiesThePersistedProjectionOfRichRecords(t *testing.T) {
 	driftedProjection := manifest.Records[0]
 	driftedProjection.Title = "Drifted"
 	driftedProjection.Evidence = nil
-	err = verifyManifestRecord(ctx, repo, commit, driftedProjection, manifestSharedHomeRole)
+	err = verifyManifestRecord(ctx, repo, commit, driftedProjection)
 	assertFailureKind(t, err, KindInvalidNoteProof)
 	if !strings.Contains(err.Error(), "title") {
 		t.Fatalf("invalid_note_proof did not name title: %v", err)
@@ -406,7 +349,7 @@ func TestQueryQ9StructuredTextRankingIsCursorSafe(t *testing.T) {
 		t.Fatalf("first page = %#v, err %v", first, err)
 	}
 	digest := knowledgeSourceSetDigest([]KnowledgeHome{home})
-	firstCursor, err := decodeFederatedKnowledgeCursor(*first.NextCursor, Q9Request{Text: "SQLITE", Limit: 1, Home: home}, nil, nil, digest)
+	firstCursor, err := decodeKnowledgeCursor(*first.NextCursor, Q9Request{Text: "SQLITE", Limit: 1, Home: home}, nil, nil, digest)
 	if err != nil || firstCursor.Version != 3 || firstCursor.MatchClass != 0 {
 		t.Fatalf("first cursor = %#v, err %v", firstCursor, err)
 	}
@@ -414,7 +357,7 @@ func TestQueryQ9StructuredTextRankingIsCursorSafe(t *testing.T) {
 	if err != nil || len(second.Items) != 1 || second.Items[0].ID != "newer-text" || second.NextCursor == nil {
 		t.Fatalf("second page = %#v, err %v", second, err)
 	}
-	secondCursor, err := decodeFederatedKnowledgeCursor(*second.NextCursor, Q9Request{Text: "SQLITE", Limit: 1, Home: home}, nil, nil, digest)
+	secondCursor, err := decodeKnowledgeCursor(*second.NextCursor, Q9Request{Text: "SQLITE", Limit: 1, Home: home}, nil, nil, digest)
 	if err != nil || secondCursor.MatchClass != 1 {
 		t.Fatalf("second cursor = %#v, err %v", secondCursor, err)
 	}

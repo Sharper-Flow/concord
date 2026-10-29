@@ -6,14 +6,13 @@ Usage:
   concord host-leases                  # print live release leases; prunes stale ones
   concord upgrade < JSON stdin      # apply pending migrations; {"plan":true} reports readiness
   concord repair < JSON stdin          # verify assets, back up the database, repair the installed release (#912)
-  concord ci-wait < JSON stdin         # one bounded slice of a GitHub CI wait (CD-0160)
 
 Required-field refusals exit 64 before dispatch.
 Commands read one strict JSON object from stdin:
   concord invoke < JSON stdin
     required: call_envelope{schema_version, request_id, client_ref, principal_ref, session_ref, agent_ref, directory, worktree, ambient_project_id, scope_version, manifest_digest}, tool, operation, input
     optional: call_envelope.selected_product_id, call_envelope.host_assertion_digest, call_envelope.host_approval_assertion; pre-dispatch decode refusals exit 64; worktree_verify input uses command OR oracle (phase prepare | execute), never both; worktree_inspect mode oracle_output uses run_ref, stream stdout | stderr, offset, length (1-16384 raw bytes), never path or idempotency_key; exact fields and exclusions follow the generated agent contracts
-    accepted values: tool.operation: concord_product_view.resolve | concord_product_view.snapshot | concord_product_view.blocked_sessions | concord_product_view.resources | concord_work_browse.list | concord_work_browse.blocked | concord_work_browse.ready | concord_work_browse.scope | concord_work_browse.resource_claims | concord_work_browse.messages | concord_work_browse.worktree_audit | concord_work_browse.worktree_inspect | concord_work_trace.history | concord_work_trace.observations | concord_work_trace.external_observations | concord_work_trace.relations | concord_work_trace.continuity | concord_work_trace.mutation_result | concord_work_trace.research | concord_work_trace.project_retirement | concord_knowledge.search | concord_knowledge.resolve_note | concord_knowledge.observe_publication | concord_work_define.capture | concord_work_define.revise_intent | concord_work_define.research_pack_create | concord_work_define.research_revision_append | concord_work_define.research_finding_record | concord_work_define.research_source_record | concord_work_define.research_freshness_set | concord_work_define.research_retire | concord_work_define.observation_record | concord_work_define.issue_link_record | concord_work_transition.lifecycle | concord_work_transition.remove | concord_work_transition.workflow_action | concord_work_transition.worker_reconcile | concord_work_transition.worker_abandon | concord_work_transition.worktree_claim | concord_work_transition.session_vacate | concord_work_transition.project_handoff_record | concord_work_transition.project_handoff_consume | concord_work_transition.worktree_reclaim | concord_work_transition.worktree_audit_reclaim | concord_work_transition.worktree_verify | concord_work_transition.worktree_destroy | concord_work_relate.set_memberships | concord_work_relate.resolve_overlap | concord_work_relate.resource_claim | concord_work_relate.resource_release | concord_work_relate.message_send | concord_work_relate.message_withdraw | concord_work_compact.publish | concord_work_compact.reconcile | concord_domain.list | concord_domain.detail | concord_domain.attachments | concord_domain.overlaps | concord_domain.footprint | concord_domain.shape | concord_work_transition.correct_delivery | concord_work_relate.product_project_add | concord_work_relate.client_policy_grant_request | concord_work_transition.outside_repair | concord_work_transition.outside_repair_reconcile
+    accepted values: tool.operation: concord_product_view.resolve | concord_product_view.snapshot | concord_product_view.blocked_sessions | concord_product_view.resources | concord_work_browse.list | concord_work_browse.blocked | concord_work_browse.ready | concord_work_browse.scope | concord_work_browse.messages | concord_work_browse.worktree_audit | concord_work_browse.worktree_inspect | concord_work_trace.history | concord_work_trace.observations | concord_work_trace.external_observations | concord_work_trace.relations | concord_work_trace.continuity | concord_work_trace.mutation_result | concord_work_trace.research | concord_work_trace.project_retirement | concord_knowledge.search | concord_knowledge.resolve_note | concord_knowledge.observe_publication | concord_work_define.capture | concord_work_define.revise_intent | concord_work_define.research_pack_create | concord_work_define.research_revision_append | concord_work_define.research_finding_record | concord_work_define.research_source_record | concord_work_define.research_freshness_set | concord_work_define.research_retire | concord_work_define.observation_record | concord_work_define.issue_link_record | concord_work_transition.lifecycle | concord_work_transition.remove | concord_work_transition.workflow_action | concord_work_transition.worker_reconcile | concord_work_transition.worker_abandon | concord_work_transition.worktree_claim | concord_work_transition.session_vacate | concord_work_transition.project_handoff_record | concord_work_transition.project_handoff_consume | concord_work_transition.worktree_reclaim | concord_work_transition.worktree_audit_reclaim | concord_work_transition.worktree_verify | concord_work_transition.worktree_destroy | concord_work_relate.set_memberships | concord_work_relate.resolve_overlap | concord_work_relate.message_send | concord_work_relate.message_withdraw | concord_work_compact.publish | concord_work_compact.reconcile | concord_domain.list | concord_domain.detail | concord_domain.attachments | concord_domain.footprint | concord_domain.shape | concord_work_transition.correct_delivery | concord_work_relate.product_project_add | concord_work_relate.client_policy_grant_request | concord_work_transition.outside_repair | concord_work_transition.outside_repair_reconcile
   concord worker-dispatch < JSON stdin
     required: event_id, work_id, attempt_id, lane_id, lane_digest, packet_schema_version, report_schema_version, packet_digest
     optional: readback_model (host-reported executing model); terminal ('failed') with terminal_failure_kind and terminal_detail for an attempt born failed, such as a lost or ambiguous readback; host_provenance.digest (sha256), host_provenance.sources[] (kind: agent_definition | agents_md | instruction_file | unenumerated; path; sha256) — required for v3 evidence (CD-0034); worker_job (job_id, revision, digest) — required on a job-bound attempt (CD-0205); failure_attribution (typed producer observation: observer, phase, cause, basis, sources[], diagnosis) — born-failed terminal records only, and the assertion must be version 2 signing its canonical observation digest
@@ -76,11 +75,6 @@ Commands read one strict JSON object from stdin:
   concord resource share < JSON stdin
     required: event_id, resource_id, product_id, expected_resource_version
     optional: purpose, environments
-  concord domain-project-attachments-replace < JSON stdin
-  concord domain project-attachments-replace < JSON stdin
-    required: event_id, product_id, domain_id, expected_version, attachments
-    optional: attachments (replaces the full edge set)
-    accepted values: attachments[].role: primary | secondary
   concord domain-resource-attachments-replace < JSON stdin
   concord domain resource-attachments-replace < JSON stdin
     required: event_id, product_id, domain_id, expected_version, attachments
@@ -98,7 +92,7 @@ Commands read one strict JSON object from stdin:
   concord product-stage-update < JSON stdin
   concord product stage-update < JSON stdin
     required: product_id, stage_maturity, stage_audience_commitment, expected_version
-    optional: reason (cite the CD-0091 rung manifest when raising maturity)
+    optional: reason (cite the CD-0091 rung evidence when raising maturity)
     accepted values: stage_maturity: prototype | alpha | beta | production | deprecated; stage_audience_commitment: operator_only | limited | public
   concord product-knowledge-home-designate < JSON stdin
   concord product knowledge-home-designate < JSON stdin
@@ -114,16 +108,6 @@ Commands read one strict JSON object from stdin:
     required: product_id
     optional: checkout (clean exact pinned subject worktree of the designated home; defaults to its registered path)
     accepted values: explicit operator command; strict ratchet; missing checks remain unverified; JSON report <=32768 bytes; diagnostics <=4096 bytes; failures exit nonzero
-  concord product-knowledge-source-register < JSON stdin
-  concord product knowledge-source-register < JSON stdin
-    required: product_id, project_id, locator_id, expected_version
-    optional: reason
-    accepted values: locator_id: a canonical_path locator of the member Project, not the designated home
-  concord product-knowledge-source-remove < JSON stdin
-  concord product knowledge-source-remove < JSON stdin
-    required: product_id, project_id, locator_id, expected_version
-    optional: reason
-    accepted values: locator_id: a registered knowledge source of the Product
   concord project-locator-add < JSON stdin
   concord project locator-add < JSON stdin
     required: project_id, locator_id, kind, value, expected_version
@@ -167,10 +151,6 @@ Commands read one strict JSON object from stdin:
     required: operation_id, idempotency_key, work_id, expected_version, handoff
     optional: product_id, linear, actor, safety evidence
     accepted values: reason is fixed to cancelled; removal is not archival
-  concord ci-wait < JSON stdin
-    required: selector, repo
-    optional: mode (pr checks|merge), head_sha (pr), time_seconds_max, state_file
-    accepted values: selector.kind: pr|sha|run; mode: checks|merge
   concord session-prepare < JSON stdin
     required: product_id, work_id, agent
     optional: task (max 8192 bytes; none on resume); agent is the active agent; handler refusals exit 2; required-field refusals exit 64

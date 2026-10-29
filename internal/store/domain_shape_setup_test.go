@@ -78,12 +78,12 @@ func TestDomainShapeSetupIndependentProductsAndRepeat(t *testing.T) {
 			}
 			// Exercise the normal Git-derived reader without creating a commit.
 			runner := setupShapeGitRunner(t, request.RepoPath)
-			manifest, missing, err := readKnowledgeManifestRunner(context.Background(), runner, request.RepoPath, strings.Repeat("a", 40), manifestSharedHomeRole)
+			manifest, missing, err := readKnowledgeManifestRunner(context.Background(), runner, request.RepoPath, strings.Repeat("a", 40))
 			if err != nil || missing {
 				t.Fatalf("normal read: missing=%v err=%v", missing, err)
 			}
 			registries = append(registries, manifest.DomainRegistry)
-			if manifest.DomainRegistry.ProductKey != key || manifest.DomainRegistry.RootDomainID != "product-root:"+key || len(manifest.Records) != 0 || len(manifest.DomainRegistry.Domains) != 1 || manifest.DocContract != nil {
+			if manifest.DomainRegistry.ProductKey != key || manifest.DomainRegistry.RootDomainID != "product-root:"+key || len(manifest.Records) != 0 || len(manifest.DomainRegistry.Domains) != 1 {
 				t.Fatalf("setup seeded Product-specific corpus: %+v", manifest)
 			}
 			data, err := os.ReadFile(filepath.Join(request.RepoPath, knowledgePackageMapPath))

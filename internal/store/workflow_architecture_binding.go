@@ -25,13 +25,12 @@ const (
 // outcome, mandate, law modifications, and law revision pins remain fields of
 // the composed workflow contract; this type owns only the additional binding.
 type WorkflowArchitectureBinding struct {
-	DomainRegistryContentHash string                               `json:"domain_registry_content_hash"`
-	HomeDomainID              string                               `json:"home_domain_id"`
-	AffectedDomainIDs         []string                             `json:"affected_domain_ids"`
-	DomainModifies            []string                             `json:"domain_modifies"`
-	DomainRelationModifies    []WorkflowDomainRelationModification `json:"domain_relation_modifies"`
-	LawAdditions              []WorkflowLawAddition                `json:"law_additions"`
-	VerificationObligations   []WorkflowVerificationObligation     `json:"verification_obligations"`
+	HomeDomainID            string                               `json:"home_domain_id"`
+	AffectedDomainIDs       []string                             `json:"affected_domain_ids"`
+	DomainModifies          []string                             `json:"domain_modifies"`
+	DomainRelationModifies  []WorkflowDomainRelationModification `json:"domain_relation_modifies"`
+	LawAdditions            []WorkflowLawAddition                `json:"law_additions"`
+	VerificationObligations []WorkflowVerificationObligation     `json:"verification_obligations"`
 }
 
 type WorkflowDomainRelationModification struct {
@@ -90,9 +89,6 @@ func parseWorkflowArchitectureBinding(raw json.RawMessage) (*WorkflowArchitectur
 }
 
 func validateWorkflowArchitectureBindingShape(binding WorkflowArchitectureBinding) error {
-	if err := validateContentHash(binding.DomainRegistryContentHash); err != nil {
-		return newFailure(KindInvalidPayload, "workflow_architecture_binding", "domain registry content hash is invalid", false, "pin one sha256 domain registry hash")
-	}
 	if !validDomainBindingID(binding.HomeDomainID) || len(binding.AffectedDomainIDs) == 0 || len(binding.AffectedDomainIDs) > workflowArchitectureBindingMaxDomains || len(binding.DomainModifies) > workflowArchitectureBindingMaxDomains || len(binding.DomainRelationModifies) > workflowArchitectureBindingMaxRelations || len(binding.LawAdditions) > workflowArchitectureBindingMaxLawAdditions || len(binding.VerificationObligations) > workflowArchitectureBindingMaxObligations {
 		return newFailure(KindInvalidPayload, "workflow_architecture_binding", "architecture binding identity or bounds are invalid", false, "supply bounded non-empty Domain and law binding fields")
 	}
@@ -169,9 +165,9 @@ const workflowLawAdditionMandateTeaching = "Every law addition must be authorize
 
 // workflowArchitectureDomainTeaching states the Domain-membership rule the
 // binding guards above enforce: added and modified law must name a home
-// Domain that exists in the pinned domain registry, and Domain relation
+// Domain that exists in the current domain registry, and Domain relation
 // modifications must use current canonical relations.
-const workflowArchitectureDomainTeaching = "Architecture bindings must name Domains that exist in the pinned domain registry, home every added or modified law in a declared Domain, and modify Domain relations only through current canonical tuples; the store refuses an unknown Domain or relation."
+const workflowArchitectureDomainTeaching = "Architecture bindings must name Domains that exist in the current domain registry, home every added or modified law in a declared Domain, and modify Domain relations only through current canonical tuples; the store refuses an unknown Domain or relation."
 
 func architectureBindingRevisionMandate(specMandate []string, additions []WorkflowLawAddition) ([]string, error) {
 	if err := validateLawModificationSubset(specMandate, []string{}); err != nil {
@@ -359,7 +355,7 @@ func validateArchitectureBindingTx(ctx context.Context, tx *sql.Tx, workID strin
 	if err != nil {
 		return err
 	}
-	registryHash, err := architectureBindingRegistryHashTx(ctx, tx, productID, binding)
+	registryHash, err := currentDomainRegistryHashTx(ctx, tx, productID)
 	if err != nil {
 		return err
 	}
@@ -430,9 +426,10 @@ func architectureBindingProductID(ctx context.Context, q queryer, workID string)
 	return productIDs[0], nil
 }
 
-// architectureBindingRegistryHashTx reads the Product's current Domain
-// registry hash and refuses a binding pinned to any other.
-func architectureBindingRegistryHashTx(ctx context.Context, tx *sql.Tx, productID string, binding *WorkflowArchitectureBinding) (string, error) {
+// currentDomainRegistryHashTx reads the Product's current Domain registry
+// hash. Approval validates the binding against that registry; no later action
+// compares the contract with it (CD-0222 D7).
+func currentDomainRegistryHashTx(ctx context.Context, tx *sql.Tx, productID string) (string, error) {
 	var registryHash string
 	if err := tx.QueryRowContext(ctx, `SELECT content_hash FROM domain_registries WHERE product_id=?`, productID).Scan(&registryHash); err != nil {
 		if err == sql.ErrNoRows {
@@ -440,14 +437,11 @@ func architectureBindingRegistryHashTx(ctx context.Context, tx *sql.Tx, productI
 		}
 		return "", wrapFailure(KindUnavailable, "workflow_architecture_binding", "cannot read Product Domain registry", true, "retry once the registry projection is readable", err)
 	}
-	if registryHash != binding.DomainRegistryContentHash {
-		return "", newFailure(KindStaleRequiresReview, "workflow_architecture_binding", "architecture binding Domain registry hash is stale", false, "reread and pin the Product's current Domain registry")
-	}
 	return registryHash, nil
 }
 
 // validateArchitectureBindingDomainsTx refuses affected Domains the Product
-// registry does not declare current at the pinned hash.
+// registry does not declare current.
 func validateArchitectureBindingDomainsTx(ctx context.Context, tx *sql.Tx, productID string, affected map[string]struct{}, registryHash string) error {
 	for domainID := range affected {
 		var status, hash string
@@ -617,7 +611,13 @@ func persistWorkflowArchitectureBindingTx(ctx context.Context, tx *sql.Tx, workI
 	if err != nil {
 		return err
 	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO workflow_architecture_bindings(work_id,contract_version,product_id,domain_registry_content_hash,home_domain_id,projection_hash) VALUES(?,?,?,?,?,?)`, workID, contractVersion, productID, binding.DomainRegistryContentHash, binding.HomeDomainID, architectureBindingProjectionHash(binding)); err != nil {
+	// The stored registry hash records which registry approval validated the
+	// binding against. Nothing reads it back as a pin (CD-0222 D7).
+	registryHash, err := currentDomainRegistryHashTx(ctx, tx, productID)
+	if err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO workflow_architecture_bindings(work_id,contract_version,product_id,domain_registry_content_hash,home_domain_id,projection_hash) VALUES(?,?,?,?,?,?)`, workID, contractVersion, productID, registryHash, binding.HomeDomainID, architectureBindingProjectionHash(binding)); err != nil {
 		return workflowProjectionError(err, "cannot record workflow architecture binding")
 	}
 	for _, domainID := range binding.AffectedDomainIDs {
@@ -691,7 +691,7 @@ func readWorkflowArchitectureBinding(ctx context.Context, q interface {
 	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
 }, workID string, contractVersion int64) (*WorkflowArchitectureBinding, error) {
 	var binding WorkflowArchitectureBinding
-	if err := q.QueryRowContext(ctx, `SELECT domain_registry_content_hash,home_domain_id FROM workflow_architecture_bindings WHERE work_id=? AND contract_version=?`, workID, contractVersion).Scan(&binding.DomainRegistryContentHash, &binding.HomeDomainID); err != nil {
+	if err := q.QueryRowContext(ctx, `SELECT home_domain_id FROM workflow_architecture_bindings WHERE work_id=? AND contract_version=?`, workID, contractVersion).Scan(&binding.HomeDomainID); err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
 		}

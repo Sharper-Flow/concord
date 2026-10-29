@@ -170,7 +170,7 @@ func TestQAssociateCurrentProofCanLeaveInvestigationMissing(t *testing.T) {
 }
 
 // Contract-notice folds do not evaluate or complete a candidate.
-func qContractNoticeFixture(t *testing.T, workID string) (*Store, string) {
+func qContractRevisionFixture(t *testing.T, workID string) (*Store, string) {
 	t.Helper()
 	s, owner, _, version := issue31ActorSetup(t, workID)
 	seedWorkflowLaw(t, s)

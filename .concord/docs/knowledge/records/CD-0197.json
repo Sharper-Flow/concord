@@ -3,7 +3,6 @@
     "tier": "derived"
   },
   "date": "2026-09-30T00:00:00Z",
-  "doc_contract_profile": "current",
   "home_domain_id": "workflow-engine",
   "id": "CD-0197",
   "kind": "decision",
@@ -15,7 +14,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:a48aec4d23c51eae5c80a0bbbd54661a388b7faf83318bab40ca7f1ec5e45dcc",
+  "sha256": "sha256:ecf1e18d05d1871f6df9a252a224b1aae4e2bd66daa6fa7bc2ecd5fb561c7157",
   "status": "accepted",
   "summary": "The coordinator records the existing typed review block through record_review, binding candidates, dependencies, findings and one of four dispositions without lane, job or attempt identity. Independent native Task review remains required; Concord does not attest the producer. Open blocking findings prevent progression. Review content supplies no native receipt, approval or completion by itself.",
   "tags": [

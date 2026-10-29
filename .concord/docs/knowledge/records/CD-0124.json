@@ -5,7 +5,6 @@
     "tier": "legislated"
   },
   "date": "2026-09-09T00:00:00Z",
-  "doc_contract_profile": "legacy",
   "evidence": [
     "internal/store/workflow_registry.go",
     "internal/store/workflow_completion.go",
@@ -31,7 +30,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:8c3a51fa36982e1ebc669e6c75c62b397a7f752a457090b618dcdedc07afc879",
+  "sha256": "sha256:048a8820af71dd9e4a9dbe27836f5355f4fd8010e65b5a863f0ffbe3c8a89310",
   "status": "accepted",
   "summary": "Adds a hold-only bind_evidence route to break-fix verify and separates it from verdict correction, which requires completed and accepted delivery, returns to the declared repair step, and binds only a comparable healthy predicate set.",
   "tags": [

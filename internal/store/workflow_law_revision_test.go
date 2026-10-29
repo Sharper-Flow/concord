@@ -118,6 +118,32 @@ func TestWorkflowLawRevisionMissingPinnedProjectionIsStale(t *testing.T) {
 	}
 }
 
+func TestWorkflowStaleLawBoundaryNamesRecoveryWithoutApproval(t *testing.T) {
+	t.Parallel()
+	s, _ := seedCompletionGateCase(t, "law-recovery", completionGateCase{requiredEvidence: []string{"verification", "review"}, includeVerdict: true, includePremise: true})
+	oldHash := "sha256:" + strings.Repeat("a", 64)
+	attachWorkflowLawPin(t, s, "law-recovery", oldHash)
+	cutoverLawProjection(t, s)
+	ctx, err := s.EstablishKnowledgeSourceSetProof(t.Context(), "law-recovery")
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = s.Transact(ctx, func(tx *Transaction) error {
+		return CheckWorkflowConsequentialBoundaryTx(ctx, tx, "law-recovery")
+	})
+	var failure *Failure
+	if !errors.As(err, &failure) || failure.Kind != KindStaleLawRevision {
+		t.Fatalf("boundary=%v, want stale_law_revision", err)
+	}
+	if failure.RecoveryAction != "reconcile_operation" {
+		t.Errorf("boundary recovery=%q, want reconcile_operation", failure.RecoveryAction)
+	}
+	stale := failure.StaleLawRevision
+	if stale == nil || stale.OldLawID != "spec:one" || stale.OldContentHash != oldHash || strings.Join(stale.RecoveryActions, ",") != "supersede_contract,terminal_work" {
+		t.Fatalf("boundary lost typed recovery choices: %+v", stale)
+	}
+}
+
 func TestWorkflowLawRevisionRecontractsThroughProductionRoutes(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {
@@ -303,7 +329,7 @@ func TestWorkflowLawRevisionDeletedLawRecoveryAtExecution(t *testing.T) {
 	if err := runVerdictActionAs(t, s, workID, "supersede_contract", mustJSONValue(successor), 0, actor); err != nil {
 		t.Fatalf("deleted-law recovery at execution: %v", err)
 	}
-	if version, active := activeStaleRegistryContract(t, s, workID); version != 2 || active != 1 {
+	if version, active := activeContractState(t, s, workID); version != 2 || active != 1 {
 		t.Fatalf("recovery active contract=%d count=%d, want 2/1", version, active)
 	}
 	pins, err := readWorkflowLawRevisions(t.Context(), s.db, workID, 2)
@@ -404,14 +430,14 @@ func TestWorkflowLawRevisionCutoverCommitsBeforeCrossConnectionAcceptance(t *tes
 	acceptanceDone := make(chan error, 1)
 	acceptanceStarted := make(chan struct{})
 	go func() {
-		owner := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/reviewer", SessionRef: "session/" + workID, ActorClass: ActorOperator}
+		owner := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/owner", SessionRef: "session/" + workID, ActorClass: ActorAgent}
 		close(acceptanceStarted)
 		tx, beginErr := s2.DatabaseForTesting().BeginTx(context.Background(), nil)
 		if beginErr != nil {
 			acceptanceDone <- beginErr
 			return
 		}
-		_, actionErr := applyWorkflowActionRawTx(context.Background(), tx, newWriteScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{WorkID: workID, ExpectedVersion: crossVersion, ActionID: "accept_worker_result", Payload: acceptancePayload, Actor: owner, AcceptedInputsDigest: "sha256:" + strings.Repeat("a", 64), IdempotencyIdentity: "cross-accept", OperationID: "cross-accept", PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "cross-accept", RequestID: "request:cross-accept", ContractDigest: testManifestDigest, Now: time.Date(2026, 8, 17, 0, 0, 4, 0, time.UTC)})
+		_, actionErr := applyWorkflowActionRawTx(context.Background(), tx, newWriteScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{WorkID: workID, ExpectedVersion: crossVersion, ActionID: "record_review", Payload: acceptancePayload, Actor: owner, AcceptedInputsDigest: "sha256:" + strings.Repeat("a", 64), IdempotencyIdentity: "cross-accept", OperationID: "cross-accept", PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "cross-accept", RequestID: "request:cross-accept", ContractDigest: testManifestDigest, Now: time.Date(2026, 8, 17, 0, 0, 4, 0, time.UTC)})
 		if actionErr == nil {
 			tx.Rollback()
 			acceptanceDone <- nil
@@ -548,8 +574,8 @@ func TestWorkflowLawRevisionCrossProcessWorker(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		owner := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/reviewer", SessionRef: "session/" + workID, ActorClass: ActorOperator}
-		_, actionErr := applyWorkflowActionRawTx(context.Background(), tx, newWriteScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{WorkID: workID, ExpectedVersion: mustEnvInt64(t, "TEST_CONCORD_LAW_RACE_VERSION"), ActionID: "accept_worker_result", Payload: acceptancePayload, Actor: owner, AcceptedInputsDigest: "sha256:" + strings.Repeat("a", 64), IdempotencyIdentity: "cross-process-accept", OperationID: "cross-process-accept", PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "cross-process-accept", RequestID: "request:cross-process-accept", ContractDigest: testManifestDigest, Now: time.Date(2026, 8, 17, 0, 0, 4, 0, time.UTC)})
+		owner := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/owner", SessionRef: "session/" + workID, ActorClass: ActorAgent}
+		_, actionErr := applyWorkflowActionRawTx(context.Background(), tx, newWriteScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{WorkID: workID, ExpectedVersion: mustEnvInt64(t, "TEST_CONCORD_LAW_RACE_VERSION"), ActionID: "record_review", Payload: acceptancePayload, Actor: owner, AcceptedInputsDigest: "sha256:" + strings.Repeat("a", 64), IdempotencyIdentity: "cross-process-accept", OperationID: "cross-process-accept", PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "cross-process-accept", RequestID: "request:cross-process-accept", ContractDigest: testManifestDigest, Now: time.Date(2026, 8, 17, 0, 0, 4, 0, time.UTC)})
 		tx.Rollback()
 		var failure *Failure
 		if !failureAs(actionErr, &failure) || failure.Kind != KindStaleLawRevision {
@@ -563,23 +589,23 @@ func TestWorkflowLawRevisionCrossProcessWorker(t *testing.T) {
 
 func seedLawRevisionPendingReview(t *testing.T, workID string) *Store {
 	t.Helper()
-	f := oSeedReviewRoute(t, workID, "workflow.implementation", "execution")
+	j := pReturnReviewFixture(t, workID, "workflow.implementation", "")
+	f := j.fixture
 	if _, err := f.store.db.Exec(`INSERT INTO write_guard(active) VALUES(1); UPDATE workflow_contracts SET spec_mandate='["spec:one"]' WHERE work_id=? AND superseded_by IS NULL; DELETE FROM write_guard`, workID); err != nil {
 		t.Fatal(err)
 	}
 	attachWorkflowLawPin(t, f.store, workID, "sha256:"+strings.Repeat("a", 64))
-	completeCurrentReviewForTest(t, workContextFixture{store: f.store, workID: workID, owner: f.owner, operator: f.operator}, workerFixtureDirectory(t, f.store, workID), "continue")
+	acceptCurrentReviewForTest(t, f, j.repo, "continue")
 	return f.store
 }
 
 func lawRevisionAcceptancePayload(t *testing.T, s *Store, workID string) map[string]any {
 	t.Helper()
-	var attempt string
-	if err := s.db.QueryRow(`SELECT attempt_id FROM worker_attempts WHERE work_id=? AND lifecycle_state='completed' ORDER BY attempt_id LIMIT 1`, workID).Scan(&attempt); err != nil {
-		t.Fatal(err)
+	state, err := readWorkflowReviewFacts(t.Context(), s.db, workID)
+	if err != nil || state.Accepted == nil {
+		t.Fatalf("read retained Review payload: accepted=%+v err=%v", state.Accepted, err)
 	}
-	window := attributionDispatchWindow(t, s, workID, attempt)
-	return map[string]any{"attempt_id": attempt, "attempt_epoch": window.AttemptEpoch}
+	return map[string]any{"review": state.Accepted.Report}
 }
 
 func mustEnvInt64(t *testing.T, name string) int64 {
@@ -670,7 +696,7 @@ func TestWorkflowLawRevisionKeepsRawCompletionButRefusesWorkflowAcceptanceAfterC
 		t.Fatalf("raw completion result=%q err=%v, want completed", resultKind, err)
 	}
 	var failure *Failure
-	owner := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/reviewer", SessionRef: "session/" + workID, ActorClass: ActorOperator}
+	owner := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/owner", SessionRef: "session/" + workID, ActorClass: ActorAgent}
 	currentVersion := readWorkVersion(t, s, workID)
 	tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
 	if err != nil {
@@ -682,7 +708,7 @@ func TestWorkflowLawRevisionKeepsRawCompletionButRefusesWorkflowAcceptanceAfterC
 		t.Fatal(err)
 	}
 	_, err = applyWorkflowActionRawTx(context.Background(), tx, scope, BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
-		WorkID: workID, ExpectedVersion: currentVersion, ActionID: "accept_worker_result", Payload: acceptancePayload, Actor: owner,
+		WorkID: workID, ExpectedVersion: currentVersion, ActionID: "record_review", Payload: acceptancePayload, Actor: owner,
 		AcceptedInputsDigest: "sha256:" + strings.Repeat("a", 64), IdempotencyIdentity: "accept-stale", OperationID: "accept-stale", PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "accept-stale", RequestID: "request:accept-stale", ContractDigest: testManifestDigest, Now: time.Date(2026, 8, 17, 0, 0, 2, 0, time.UTC),
 	})
 	_ = scope.close(context.Background())
@@ -723,12 +749,9 @@ func insertAcceptedLaw(t *testing.T, s *Store, lawID, hash string) {
 	}
 }
 
-// The read form and the mutation form must agree: on an empty law mandate
-// with an active Domain overlap, both return the typed overlap refusal. The
-// read form is the tx-scoped boundary the admission fold runs inside its own
-// transaction; a non-transactional twin once returned nil here — the overlap
-// half of the boundary silently omitted from the read path (issue #376).
-func TestWorkflowLawRevisionStalenessReadFormRunsTheOverlapHalf(t *testing.T) {
+// The read form and the mutation form agree: an active peer that shares the
+// item's Domain and law refuses neither (CD-0222 D6).
+func TestWorkflowLawRevisionStalenessAdmitsASharedDomainPeer(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	s, _ := seedOverlapProjection(t, "overlap-left", "overlap-right", true)
@@ -741,16 +764,12 @@ func TestWorkflowLawRevisionStalenessReadFormRunsTheOverlapHalf(t *testing.T) {
 		defer tx.Rollback()
 		return checkWorkflowLawRevisionStalenessTx(ctx, tx, "overlap-left")
 	}()
-	var readFailure *Failure
-	if !errors.As(readErr, &readFailure) || readFailure.Kind != KindDomainOverlap || readFailure.DomainOverlap == nil || len(readFailure.DomainOverlap.Overlaps) != 1 {
-		t.Fatalf("read form: expected typed overlap refusal, got %v", readErr)
+	if readErr != nil {
+		t.Fatalf("read form refused beside a shared-Domain peer: %v", readErr)
 	}
-
-	var txFailure *Failure
-	txErr := s.Transact(ctx, func(tx *Transaction) error {
+	if err := s.Transact(ctx, func(tx *Transaction) error {
 		return CheckWorkflowConsequentialBoundaryTx(ctx, tx, "overlap-left")
-	})
-	if !errors.As(txErr, &txFailure) || txFailure.Kind != KindDomainOverlap {
-		t.Fatalf("mutation form: expected typed overlap refusal, got %v", txErr)
+	}); err != nil {
+		t.Fatalf("mutation form refused beside a shared-Domain peer: %v", err)
 	}
 }

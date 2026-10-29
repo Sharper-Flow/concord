@@ -8,8 +8,8 @@
   outcomes; the agent payload schemas that carry these facts,
   [Concord (CON) issue 829](https://linear.app/sharper-flow/issue/CON-829)
 - **Preserves:** CD-0181 in full, CD-0195 D2 in full, the clean-tree,
-  observed-session, unstarted, unpublished-lesson, and operator-approval
-  gates, and claim-time branch and base identity
+  observed-session, unstarted, and unpublished-lesson reclaim gates, and
+  claim-time branch and base identity
 - **Related:** CD-0095, CD-0096, CD-0105, CD-0118, CD-0144, CD-0178,
   CD-0179, CD-0181, CD-0195
 - **Approval:** The operator approved contract version 1 of work item
@@ -18,9 +18,6 @@
   `workflow-740de6d41fb4a8114c3d732c` — and this record is legislated under
   that contract (CD-0159 D2-D3). This citation records contract approval,
   not verbatim approval of every later exact commitment.
-
-Operator consent for destructive removal follows [CD-0243 D7](CD-0243-four-roles-and-six-operator-approval-classes.md#d7-the-remaining-owners-use-the-same-approval-boundary).
-Other admission, safety, and evidence requirements remain required.
 
 ## Context
 
@@ -34,8 +31,7 @@ no longer held. The reported shape was terminal: round-1 commits stayed on
 the stored claim branch unmerged, the correction round moved the checkout
 onto a new branch, and the squash merge deleted that branch's remote head.
 The stored branch failed the durable count forever, so a clean terminal
-worktree with fully merged content refused reclaim without a destructive
-approval no safety question justified.
+worktree with fully merged content refused reclaim.
 
 The inverse shape was worse. A durable stored branch admitted a reclaim whose
 live `HEAD` sat on an unproven branch, or on no branch at all. Removing a
@@ -119,12 +115,9 @@ GitHub authority enters the comparison.
 
 ### D2. The refused edges keep their boundaries
 
-An unproven live `HEAD` refuses, and the refusal names the live branch or the
+An unproven live `HEAD` refuses reclaim, and the refusal names the live branch or the
 detached tip it measured. Dirty content, live occupancy, unpublished live
-lessons, unreachable required probes, and non-terminal destroy keep their
-existing refusals. A destructive removal still requires the operator
-approval it consumes, and that approval skips the content gates only for the
-named removal.
+lessons, and unreachable required probes keep their existing reclaim refusals.
 
 ### D3. Directory-removal proof is separate from stored-ref deletion
 
@@ -176,10 +169,8 @@ recorded.
 ### D4. The bounded native-removal plan is recorded and honored
 
 The reclamation records the plan: the live head, its tip, the retained
-refs, the consumed force with its approval reference, and the tip-pinned
-branch deletions. The forced facts name the operator approval the committing
-request consumed, composed as the record commits, so a probe captured
-before the approval tail still records the reference that was consumed. The removal runs after the commit with no transaction
+refs, the force, and the tip-pinned branch deletions.
+The removal runs after the commit with no transaction
 open, as CD-0195 D2 requires, and revalidates native identity before every
 destructive effect: the checkout must still belong to the probed repository
 at the recorded tip, and a branch is deleted only when it is still the
@@ -248,9 +239,9 @@ decodes the plan from the committed facts and never re-derives its
 authority: it never repins the live `HEAD`, never rebuilds force or deletion
 permission from the retry's own arguments, and revalidates against the
 recorded identity. A surviving directory whose content changed after the
-plan refuses instead of being removed under a fresh tip. A retry of an
-approved forced removal keeps its recorded force, and a retry declaring
-destructive authority over a safe plan stays unforced.
+plan refuses instead of being removed under a fresh tip. A retry of a
+forced removal keeps its recorded force, and a retry declaring
+force over a safe plan stays unforced.
 
 Identity protections are sticky: a ref that moved from its pinned tip, or
 became symbolic, keeps its protection on every later replay, even when the
@@ -316,7 +307,7 @@ and the native removal stays behind the commit.
 ## Consequences
 
 - A clean terminal worktree on a squash-contained correction branch reclaims
-  without destructive approval once the remote branch is deleted.
+  once the remote branch is deleted.
 - An unproven live `HEAD`, including a detached tip outside every ref, refuses
   and names the head it measured.
 - Unproven stored claim refs accumulate as visible retained refs instead of
@@ -328,7 +319,7 @@ and the native removal stays behind the commit.
   in one process and cannot redirect deletion through a symbolic ref.
   The whole native phase is carried by argv primitives.
 - A replayed removal keeps the recorded plan's force and identity: retries
-  converge approved forced removals, refuse changed surviving content, and
+  converge forced removals, refuse changed surviving content, and
   never escalate a safe plan.
 - Moved and symbolic protections are durable and sticky; the operator
   disposes of those refs by hand, and a returning tip does not reopen the
@@ -385,14 +376,13 @@ and the native removal stays behind the commit.
   moved at the deletion boundary itself is refused by the pinned
   transaction, that a branch checked out in another worktree is never
   deleted, that a failed directory phase retries under the recorded plan
-  without re-deriving its authority, and that committed forced facts name
-  the consumed operator approval.
+  without re-deriving its authority.
 - `internal/store.TestReclaimReplaysRecordedRemovalPlan` asserts the
   original-plan replay and the durable outcomes: a changed detached or
   branched surviving directory refuses, a symbolic claim ref cannot delete
   a foreign target, the default ref stays protected under every spelling
   and when ownership cannot be established, an ambiguous tag cannot bend
-  the pin, an approved forced removal replays and converges while a safe
+  the pin, a forced removal replays and converges while a safe
   plan cannot be escalated, changed-tip debt and its settled protection
   stay visible on a fresh audit, a protected ref does not mask a pending
   directory, a moved-away-and-back tip stays protected, and a retention
@@ -403,9 +393,9 @@ and the native removal stays behind the commit.
   unblocked, the protection stays visible to the audit, and a replay
   converges the pinned deletion once the default moves away.
 - `internal/store.TestReclaimFailsClosedWhenNoDefaultIsEstablished` asserts
-  that an empty set no observation established fails closed: even a
-  consumed operator approval retains the unestablished default while the
-  approved directory removal proceeds and the retention stays visible.
+  that an empty set no observation established fails closed: the
+  unestablished default is retained while the directory removal proceeds
+  and the retention stays visible.
 - `internal/store.TestReclaimProtectsCheckoutRaceAtDeletionBoundary` asserts
   that the exercised checkout race is detected after the
   pinned transaction, restored at its pinned tip, reported as a visible
@@ -437,8 +427,7 @@ and the native removal stays behind the commit.
   retained whole, and stay audit-visible.
 - `internal/store.TestReclaimRefusalReasonMatrix` drives the table-derived
   refusal matrix: dirty content, unproven live and detached heads,
-  unpublished lessons, live occupancy, non-terminal destroy, destructive
-  removal without approval, started work outside the unstarted gate, no
+  unpublished lessons, live occupancy, started work outside the unstarted gate, no
   active worktree, an unresolvable default ref, an unreachable status
   probe, a surviving directory that changed after the recorded plan, and
   unparsable recorded facts each refuse typed with the worktree kept.
@@ -501,8 +490,5 @@ and the native removal stays behind the commit.
   rather than a holder refusal.
 - `python3 scripts/generate-agent-contracts.py --check` verifies the
   regenerated payload schema projection.
-- `python3 scripts/check-doc-contract.py`,
-  `python3 scripts/check-knowledge-index.py`,
-  `python3 scripts/check-knowledge-closure.py`,
-  `python3 scripts/check-cd-allocation.py`, and
+- `python3 scripts/check-knowledge-index.py` and
   `python3 scripts/check-doc-links.py` pass over this record.

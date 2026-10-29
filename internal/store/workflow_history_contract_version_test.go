@@ -16,7 +16,10 @@ func historyContractFixture(t *testing.T, name string) (*Store, string) {
 	t.Helper()
 	fixture := seedWorkContextFixture(t, name)
 	t.Cleanup(func() { fixture.store.Close() })
-	reviewSubjectSupersedeContract(t, fixture.store, fixture.workID)
+	successor := pContractSuccessor(t, fixture.store, fixture.workID, "retain a successor contract for historical reads")
+	if err := runVerdictActionAs(t, fixture.store, fixture.workID, "supersede_contract", mustJSONValue(successor), 0, fixture.owner); err != nil {
+		t.Fatal(err)
+	}
 	return fixture.store, fixture.workID
 }
 

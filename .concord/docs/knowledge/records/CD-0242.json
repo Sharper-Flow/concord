@@ -3,7 +3,6 @@
     "tier": "derived"
   },
   "date": "2026-10-21T00:00:00Z",
-  "doc_contract_profile": "current",
   "home_domain_id": "product-root:concord",
   "id": "CD-0242",
   "kind": "decision",
@@ -126,7 +125,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:3d9225a7f9eefa5fddecd5c29335c05e7d3bceb5bc314090a57923675d466287",
+  "sha256": "sha256:aef92320c722a6b8e078f83b49613a0fde3dda0af2fc05e138312f7808d3b83f",
   "status": "accepted",
   "summary": "Product knowledge and completion receipts hold durable outcomes; shared current rows support resumption with expected-version and idempotency checks. Main obtains independent native Task Review and records typed subject-bound outcomes. Concord has no subagent launcher, execution lifecycle or producer-identity attestation. Verify retains native receipts, exact preparation bundles and subject/environment checks. Stage exits, dependency invalidation, proof, approvals, delivery, publication and required CI remain. Verified-snapshot retirement preserves active work and truthful historical absence. Generated contracts have one source.",
   "tags": [

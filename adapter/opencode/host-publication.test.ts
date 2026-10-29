@@ -150,9 +150,7 @@ test("delivery-decidable-rule: the published schema teaches it and the gap check
   const schema = adapter.publishedRequestSchema("concord_work_transition") as any
   // CD-0184 teaches the rule at its surviving authoring point: the
   // outcome_predicates array on approve_contract, shared with
-  // supersede_contract. The add_condition hold bound retired with its
-  // action, so the published surface carries no add_condition variant and
-  // no wait-rule teaching check exists to revive one. Every fields branch
+  // supersede_contract. Every fields branch
   // that carries the array must carry the teaching.
   const approveFieldsBranches = actionFieldsBranches(actionInputBranch(schema, "approve_contract"))
     .filter((fields: any) => fields.properties?.outcome_predicates)
@@ -161,11 +159,6 @@ test("delivery-decidable-rule: the published schema teaches it and the gap check
     expect(fields.properties.outcome_predicates.description).toContain("decidable at delivery")
     expect(fields.properties.outcome_predicates.description).toContain("raised_from")
   }
-  const actionIds = (expandedPublishedRequestSchema(schema) as any).oneOf
-    .filter((branch: any) => branch.properties?.operation?.const === "workflow_action")
-    .map((branch: any) => branch.properties.input.properties.action_id.const)
-  expect(actionIds, "the retired add_condition action stays unpublished").not.toContain("add_condition")
-
   // Dropping the teaching from the published document is a reported gap,
   // so generation and its tests fail on drift. The mutation lands on an
   // inlined clone of the actual compact document, and it removes the

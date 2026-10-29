@@ -25,15 +25,12 @@ func refineProofCurrentFixture(t *testing.T, workID, definitionRef string) workf
 	return seedWorkflowReturnRouteFixtureWithDefinition(t, workID, mustBuiltinDefinition(t, definitionRef), "refine", []string{"verification"}, []string{"verification", "review", "artifact"})
 }
 
-// refineProofAcceptReadyReview records Main's accepted ready Review of the
-// claimed candidate through the real dispatch, terminal, and acceptance
-// owners. Leaving execution needs it before any refine proof is read
-// (CD-0242 D5).
+// Leaving execution requires a recorded ready Review of the claimed candidate.
 func refineProofAcceptReadyReview(t *testing.T, fixture workflowReturnRouteFixture, workID string) {
 	t.Helper()
 	reviewSubjectClaim(t, fixture.store, workID)
 	f := workContextFixture{store: fixture.store, workID: workID, owner: fixture.owner, operator: fixture.operator}
-	acceptCurrentReviewForTest(t, f, workerFixtureDirectory(t, fixture.store, workID), "ready_for_final_proof")
+	acceptCurrentReviewForTest(t, f, reviewFixtureDirectory(t, fixture.store, workID), "ready_for_final_proof")
 }
 
 // refineProofCandidateFixture seeds the refine-proof work without a
@@ -49,7 +46,7 @@ func refineProofCandidateFixture(t *testing.T, workID, definitionRef string) wor
 // bind_evidence.
 func refineProofCandidateRun(t *testing.T, s *Store, workID, name, head string, command []string) {
 	t.Helper()
-	git := checksRepairClaimGit(t, s, workID, workerFixtureDirectory(t, s, workID), head)
+	git := checksRepairClaimGit(t, s, workID, reviewFixtureDirectory(t, s, workID), head)
 	req := verifyRequest(git, "refine-proof-"+name+"-"+workID, command, func(context.Context, string, []string, int) (int, []byte, bool, error) { return 0, nil, false, nil })
 	req.WorkID, req.ProjectID, req.PrincipalRef = workID, "project", "principal/operator"
 	run, err := s.VerifyWorktree(t.Context(), req)
@@ -227,17 +224,6 @@ func workerJobIntegrationGreenRun(t *testing.T, s *Store, workID, digest string)
 	}
 	if err := srows.Close(); err != nil {
 		t.Fatal(err)
-	}
-	// The integration epoch the admission derives also opens after every
-	// required job's recorded result population (CD-0205 D3): seed the run
-	// after the latest recorded completion too, including the pending final
-	// job a combined acceptance counts as satisfied.
-	var completed string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT COALESCE(MAX(terminal_occurred_at),'') FROM worker_attempts WHERE work_id=? AND terminal_kind=?`, workID, WorkerCompleted).Scan(&completed); err != nil {
-		t.Fatalf("read the required job result population: %v", err)
-	}
-	if at, err := time.Parse(time.RFC3339Nano, completed); err == nil && at.After(anchor) {
-		anchor = at
 	}
 	seed := len(scopes)
 	if seed == 0 && anyScope {

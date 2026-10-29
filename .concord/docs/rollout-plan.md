@@ -40,11 +40,11 @@ Runtime implementation proceeds only when all of these are true:
 4. CD-0005, as amended by CD-0042, fixes the bounded generated agent surface and
    deterministic TS1–TS9 evidence contracts before go-live.
 5. CD-0006 fixes root Product policy, workflow composition, rigor bands, and
-   cross-workflow impact propagation.
-6. CD-0008 fixes mechanism hardening: immutable evidence subjects, typed degradation,
-   and external conditions. [CD-0242 D2](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)
+   boundary freshness.
+6. CD-0008 fixes mechanism hardening: immutable evidence subjects and typed degradation.
+   [CD-0242 D2](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)
    governs current-state recovery and schema evolution; [D6](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-native-task-belongs-to-the-host)
-   governs each attempt's scope, assignment, and subject bindings.
+   gives native Task execution to the host while workflow stages retain subject-bound outcomes.
 7. CD-0215 fixes research context as bounded working context, not a second
    durable-knowledge authority.
 8. The accepted storage-spine conformance slice has a public verification plan.
@@ -54,20 +54,16 @@ research, or clarification work.
 
 ## 3. First-usable floor and release evidence
 
-The first-usable assessment is recorded in
-[`floor-readiness.md`](./floor-readiness.md) and
-[`floor-readiness.v1.json`](./floor-readiness.v1.json). The alpha maturity condition
-still requires the floor to stay met; this does not make predecessor replacement
-current Product direction.
+The alpha maturity condition requires the first-usable floor to stay met; this
+does not make predecessor replacement current Product direction.
 
 The six **usability-floor** conditions are defined in
 [`floor-readiness.md`](./floor-readiness.md) under *First-usable floor*. The
 **release-evidence bar** is defined below. Their conditions are linked rather than
 restated here.
 
-Two evidence expectations elaborate the usability floor without redefining it. They
-are decomposed as manifest items under the conditions they serve rather than as
-conditions of their own:
+Two evidence expectations elaborate the usability floor without redefining it.
+They serve existing conditions rather than adding conditions of their own:
 
 - TS1–TS9 agent jobs and result envelopes are validated with synthetic scenarios —
   evidence on usability-floor condition 2, agent read/write/execute through tools;
@@ -79,9 +75,6 @@ conditions of their own:
 The floor's release-evidence bar requires:
 
 - release, install, privacy, and Linux amd64 evidence meet CD-0007's floor.
-
-Both bars are decomposed in the floor manifest, and each condition's `source` names
-the document and section that bears it.
 
 ## 4. Concord coordination and demand-driven correction
 

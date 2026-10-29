@@ -443,7 +443,7 @@ func TestStaleLawRevisionRequiresSHA256Proofs(t *testing.T) {
 	t.Parallel()
 	base := NewBase("stale-law", "concord_work_transition", "workflow_action")
 	valid := NewCoreError(base, TypedError{
-		Kind: "stale_law_revision", RecoveryAction: RecoveryAction{Kind: "request_approval"}, EffectState: EffectNone,
+		Kind: "stale_law_revision", RecoveryAction: RecoveryAction{Kind: "reconcile_operation"}, EffectState: EffectNone,
 		StaleLawRevision: &StaleLawRevision{OldLawID: "spec:old", OldContentHash: "sha256:" + strings.Repeat("a", 64), RecoveryActions: []string{"supersede_contract"}},
 	})
 	if _, err := valid.Encode(); err != nil {
@@ -499,33 +499,6 @@ func TestSessionPlacementRequiresCrossRepositoryKindAndCheckout(t *testing.T) {
 				t.Fatalf("schema validation=%v, want valid=%v", err, wantValid)
 			}
 		})
-	}
-}
-
-func TestDomainOverlapSequencedAndGloballyBoundedDetailsValidate(t *testing.T) {
-	t.Parallel()
-	base := NewBase("overlap", "concord_work_transition", "workflow_action")
-	longID := strings.Repeat("d", 256)
-	detail := DomainOverlapDetail{
-		ProductID: "product", FromWorkID: "from", ToWorkID: "to", FromContractVersion: 4, ToContractVersion: 7,
-		SharedAffectedDomainIDs: []string{longID}, SharedLawIDs: []string{longID}, SharedDomainModifications: []string{longID},
-		SharedRelationTuples: []DomainOverlapRelationTuple{{SourceDomainID: longID, Kind: "depends_on", TargetDomainID: longID}},
-		OverlapClasses:       []string{"architecture"}, ResolutionState: "sequenced", ResolutionKind: "depends_on",
-		RecoveryActions: []string{"wait", "resolve_overlap", "terminal_work"}, SharedAffectedDomainCount: 20, SharedLawCount: 20,
-		SharedDomainModificationCount: 20, SharedRelationTupleCount: 20, DetailTruncated: true,
-	}
-	err := NewCoreError(base, TypedError{Kind: "domain_overlap", RecoveryAction: RecoveryAction{Kind: "request_approval"}, EffectState: EffectNone, DomainOverlap: &DomainOverlap{Overlaps: []DomainOverlapDetail{detail}, TotalOverlaps: 20, ReturnedOverlaps: 1, Truncated: true}})
-	encoded, encodeErr := err.Encode()
-	if encodeErr != nil {
-		t.Fatalf("bounded sequenced overlap rejected: %v", encodeErr)
-	}
-	if len(encoded) >= MaxResultEnvelopeBytes {
-		t.Fatalf("bounded overlap envelope is too close to the transport cap: %d", len(encoded))
-	}
-	detail.ResolutionState = "current"
-	invalid := NewCoreError(base, TypedError{Kind: "domain_overlap", RecoveryAction: RecoveryAction{Kind: "request_approval"}, EffectState: EffectNone, DomainOverlap: &DomainOverlap{Overlaps: []DomainOverlapDetail{detail}, TotalOverlaps: 1, ReturnedOverlaps: 1}})
-	if _, encodeErr := invalid.Encode(); encodeErr == nil {
-		t.Fatal("schema-invalid current resolution state was accepted")
 	}
 }
 
@@ -689,29 +662,4 @@ func newOKReadForTest(base Envelope, payload json.RawMessage) Envelope {
 	base.QueryID = "PM1.Q1"
 	base.Result = payload
 	return base
-}
-
-// TestDomainOverlapRowWithoutSharedItemIsRefused holds the Go row validator to
-// refuse the law-only overlap row the runtime delivers once its only shared
-// item is removed.
-func TestDomainOverlapRowWithoutSharedItemIsRefused(t *testing.T) {
-	t.Parallel()
-	row := DomainOverlapDetail{
-		ProductID: "concord", FromWorkID: "work-a", ToWorkID: "work-b",
-		FromContractVersion: 1, ToContractVersion: 1,
-		SharedAffectedDomainIDs: []string{}, SharedLawIDs: []string{"spec:one"}, SharedDomainModifications: []string{}, SharedRelationTuples: []DomainOverlapRelationTuple{},
-		SharedLawCount:  1,
-		OverlapClasses:  []string{"law_write"},
-		ResolutionState: "unresolved",
-		RecoveryActions: []string{"wait", "resolve_overlap", "terminal_work", "supersede_contract"},
-	}
-	if err := validateDomainOverlapRow(row); err != nil {
-		t.Fatalf("law-only overlap row rejected: %v", err)
-	}
-	empty := row
-	empty.SharedLawIDs = []string{}
-	empty.SharedLawCount = 0
-	if err := validateDomainOverlapRow(empty); err == nil {
-		t.Fatal("an overlap without any shared item must be refused")
-	}
 }

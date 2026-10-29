@@ -14,7 +14,6 @@ import fs from "node:fs"
 import path from "node:path"
 import { contractOperations, hostToolSchemas, workflowActionPublicVariants } from "./generated-contracts"
 import { expandedPublishedRequestSchema } from "./generated-contract-tests"
-import { ciWatchTool, publishCiWatchDefinition } from "./ci-watch"
 import { guardPrimaryRole, PrimaryRoleRefusal } from "./primary-role"
 import { roleDeniedConcordTools } from "./generated-primary-profiles"
 
@@ -42,19 +41,6 @@ const workStartOutput = { description: "", parameters: {}, jsonSchema: undefined
 await adapter.publishWorkStartDefinition({ toolID: "concord_work_start" }, workStartOutput)
 expect(workStartOutput.jsonSchema).toBeObject()
 registeredBytes.set("concord_work_start", Buffer.byteLength(JSON.stringify(workStartOutput.jsonSchema), "utf8"))
-const watcher = ciWatchTool()
-const watcherRegistration = {
-  description: watcher.description,
-  parameters: {},
-  jsonSchema: {
-    type: "object",
-    properties: Object.fromEntries(Object.entries(watcher.args as Record<string, unknown>).filter(([, value]) => value !== undefined)),
-    required: Object.keys(watcher.args as Record<string, unknown>),
-  },
-}
-await publishCiWatchDefinition({ toolID: "concord_ci_watch" }, watcherRegistration)
-expect(watcherRegistration.jsonSchema).toBeObject()
-registeredBytes.set("concord_ci_watch", Buffer.byteLength(JSON.stringify(watcherRegistration.jsonSchema), "utf8"))
 
 function projectedBytes(role: string): { allowed: string[]; bytes: number } {
   const denied = new Set(roleDeniedConcordTools[role].tools)
@@ -80,9 +66,7 @@ test("every registered role's denial set stays inside the complete catalog", () 
       deniedUnion.add(tool)
     }
   }
-  // The union covers the whole catalog. The watcher is denied by no primary
-  // profile, so losing it from the utility projection would leave the
-  // catalog uncovered and fail here.
+  // The union covers the whole catalog.
   expect([...deniedUnion].sort(), "the generated denials no longer cover the registered catalog").toEqual(CATALOG)
 })
 
@@ -111,7 +95,7 @@ test("per-role no-overlay byte budgets match the complete parameter roots", () =
     expect(Number.isFinite(size) && size > 0, `${tool} must carry a finite positive root size`).toBe(true)
   }
   const EMPTY_BUDGET = { allowed: [] as string[], bytes: 0 }
-  const PRIMARY_BUDGET = { allowed: CATALOG, bytes: 162_658 }
+  const PRIMARY_BUDGET = { allowed: CATALOG, bytes: 144_955 }
   // Neither full primary profile denies a tool, so each no-overlay budget
   // is the whole registered catalog at the full published total. Planner
   // loses exactly the work-state writers' roots.
@@ -139,8 +123,8 @@ test("grants select whole tools and never trim a published schema", async () => 
     const operations = contractOperations.filter((operation: any) => operation.tool === tool)
     expect(expanded.oneOf, tool).toHaveLength(operations.length)
   }
-  expect(registeredBytes.get("concord_work_transition")).toBe(101_510)
-  expect(workflowActionPublicVariants.length).toBe(31)
+  expect(registeredBytes.get("concord_work_transition")).toBe(89_307)
+  expect(workflowActionPublicVariants.length).toBe(26)
 })
 
 test("publication is role-blind, so a denied role's budget is not an immutable ceiling", async () => {
@@ -154,8 +138,6 @@ test("publication is role-blind, so a denied role's budget is not an immutable c
     const output = { description: "", parameters: {}, jsonSchema: undefined as unknown }
     if (tool === "concord_work_start") {
       await adapter.publishWorkStartDefinition({ toolID: tool }, output)
-    } else if (tool === "concord_ci_watch") {
-      await publishCiWatchDefinition({ toolID: tool }, output)
     } else {
       await adapter.publishRequestDefinition({ toolID: tool }, output)
     }

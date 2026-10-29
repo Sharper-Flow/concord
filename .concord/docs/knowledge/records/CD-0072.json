@@ -5,7 +5,6 @@
     "tier": "legislated"
   },
   "date": "2026-08-24T00:00:00Z",
-  "doc_contract_profile": "legacy",
   "evidence": [
     "internal/agent/authority.go",
     "internal/store/worktrees.go",
@@ -22,7 +21,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:d456526548341ad0766e56daf9f11af38e15e34e4a29a78300e023015da2f44c",
+  "sha256": "sha256:1d99ece06c441be27a8f036326f22067e2a9e251da854599a849b16757da3e32",
   "status": "accepted",
   "summary": "Ordinary trunk file writes remain deliberately unguarded by Concord. Host tooling owns file-write permissions; Concord provides no subagent capability interceptor or filesystem sandbox. Main-checkout mutation refusal, worktree ownership and Git-fact reclamation retain their existing authority.",
   "tags": [

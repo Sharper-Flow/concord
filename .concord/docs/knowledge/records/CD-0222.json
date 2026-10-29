@@ -3,7 +3,6 @@
     "tier": "derived"
   },
   "date": "2026-10-10T00:00:00Z",
-  "doc_contract_profile": "current",
   "evidence": [
     ".concord/docs/knowledge/domain-registry.json",
     ".concord/docs/knowledge/package-domains.json",
@@ -33,9 +32,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:1dbf9e3471cb9385651afc2047872a39d5b7b8f1c29971e6723611af8fe9d74c",
+  "sha256": "sha256:43470bcd6e825b8ffccfb534f9bba1ccdf9cc37b2f08bdcfda36a8595b396e17",
   "status": "accepted",
-  "summary": "Carries architecture-bound Product law forward as Concord's primary coordination model: canonical Domains own law, Product-changing work binds its architecture footprint, and unresolved shared writes refuse. Code ownership follows package boundaries; global navigation, generated cards, forced participation, and navigation adoption are retired with their consumers. Storage authority, research-pack authority, breaking cutovers, the surviving store query bounds and authority, and the applicable refinements (CD-0042 sequencing, CD-0144 execution-start footprint, CD-0145 shared-write narrowing, CD-0153 judged staleness, the 2026-09-22 browse correction, CD-0213 planning placement) remain in force. A declared, checked package-to-Domain map feeds the footprint read.",
+  "summary": "Carries architecture-bound Product law forward as Concord's primary coordination model: canonical Domains own law, Product-changing work binds its architecture footprint, and concurrent work on the same Domain reconciles through Git rather than a blocking overlap. Code ownership follows package boundaries; global navigation, generated cards, forced participation, and navigation adoption are retired with their consumers. Storage authority, research-pack authority, breaking cutovers, the surviving store query bounds and authority, and the applicable refinements (CD-0042 sequencing, CD-0144 execution-start fact, the 2026-09-22 browse correction, CD-0213 planning placement) remain in force. A declared, checked package-to-Domain map feeds the footprint read.",
   "tags": [
     "product-law",
     "architecture",

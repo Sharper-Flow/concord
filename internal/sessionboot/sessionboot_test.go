@@ -71,7 +71,7 @@ func TestBuildAcceptsFullyPinnedContract(t *testing.T) {
 		LawRevisions: []store.WorkflowLawRevision{{LawID: "law-1", ContentHash: "sha256:" + strings.Repeat("a", 64)}},
 		RigorClass:   "prototype_internal", ChangesProductTruth: new(true),
 		ArchitectureBinding: &store.WorkflowArchitectureBinding{
-			DomainRegistryContentHash: "sha256:" + strings.Repeat("a", 64), HomeDomainID: "child",
+			HomeDomainID:      "child",
 			AffectedDomainIDs: []string{"root", "child"}, DomainModifies: []string{"child"},
 			DomainRelationModifies:  []store.WorkflowDomainRelationModification{{SourceDomainID: "child", Kind: "depends_on", TargetDomainID: "root"}},
 			LawAdditions:            []store.WorkflowLawAddition{{LawID: "law-2", HomeDomainID: "child"}},

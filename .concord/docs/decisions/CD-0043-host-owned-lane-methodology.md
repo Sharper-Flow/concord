@@ -44,5 +44,4 @@ admitted skills without recording or attesting subagent execution.
 ## Verification
 
 - `python3 scripts/check-agent-contracts.py` checks shipped-skill admission.
-- `python3 scripts/check-doc-contract.py` checks the decision outline.
 - `python3 scripts/check-knowledge-index.py` checks identity and content hashes.

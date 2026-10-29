@@ -261,7 +261,6 @@ const GeneratedEnvelopeSchemaDocument = `{
             "mutation_result",
             "observation_record",
             "observations",
-            "overlaps",
             "footprint",
             "shape",
             "publish",
@@ -279,9 +278,6 @@ const GeneratedEnvelopeSchemaDocument = `{
             "resolve_note",
             "observe_publication",
             "resolve_overlap",
-            "resource_claim",
-            "resource_claims",
-            "resource_release",
             "resources",
             "revise_intent",
             "scope",
@@ -291,8 +287,6 @@ const GeneratedEnvelopeSchemaDocument = `{
             "remove",
             "workflow_action",
             "correct_delivery",
-            "worker_abandon",
-            "worker_reconcile",
             "worktree_audit",
             "worktree_audit_reclaim",
             "worktree_claim",
@@ -1038,7 +1032,6 @@ const GeneratedEnvelopeSchemaDocument = `{
             "mutation_result",
             "observation_record",
             "observations",
-            "overlaps",
             "footprint",
             "shape",
             "publish",
@@ -1056,9 +1049,6 @@ const GeneratedEnvelopeSchemaDocument = `{
             "resolve_note",
             "observe_publication",
             "resolve_overlap",
-            "resource_claim",
-            "resource_claims",
-            "resource_release",
             "resources",
             "revise_intent",
             "scope",
@@ -1068,8 +1058,6 @@ const GeneratedEnvelopeSchemaDocument = `{
             "remove",
             "workflow_action",
             "correct_delivery",
-            "worker_abandon",
-            "worker_reconcile",
             "worktree_audit",
             "worktree_audit_reclaim",
             "worktree_claim",
@@ -1223,8 +1211,6 @@ const GeneratedEnvelopeSchemaDocument = `{
                       "session_vacate",
                       "project_handoff_record",
                       "project_handoff_consume",
-                      "worker_abandon",
-                      "worker_reconcile",
                       "worktree_audit_reclaim",
                       "worktree_claim",
                       "worktree_destroy",
@@ -1268,8 +1254,6 @@ const GeneratedEnvelopeSchemaDocument = `{
                       "message_send",
                       "message_withdraw",
                       "product_project_add",
-                      "resource_claim",
-                      "resource_release",
                       "resolve_overlap",
                       "set_memberships"
                     ],
@@ -1745,24 +1729,6 @@ const GeneratedEnvelopeSchemaDocument = `{
         {
           "properties": {
             "operation": {
-              "const": "overlaps"
-            },
-            "query_id": {
-              "const": "C22.DomainOverlaps"
-            },
-            "tool": {
-              "const": "concord_domain"
-            }
-          },
-          "required": [
-            "tool",
-            "operation",
-            "query_id"
-          ]
-        },
-        {
-          "properties": {
-            "operation": {
               "const": "footprint"
             },
             "query_id": {
@@ -1997,24 +1963,6 @@ const GeneratedEnvelopeSchemaDocument = `{
         {
           "properties": {
             "operation": {
-              "const": "resource_claims"
-            },
-            "query_id": {
-              "const": "PM1.Q13"
-            },
-            "tool": {
-              "const": "concord_work_browse"
-            }
-          },
-          "required": [
-            "tool",
-            "operation",
-            "query_id"
-          ]
-        },
-        {
-          "properties": {
-            "operation": {
               "const": "messages"
             },
             "query_id": {
@@ -2164,8 +2112,6 @@ const GeneratedEnvelopeSchemaDocument = `{
                 "remove",
                 "workflow_action",
                 "correct_delivery",
-                "worker_abandon",
-                "worker_reconcile",
                 "worktree_claim",
                 "session_vacate",
                 "project_handoff_record",
@@ -2199,8 +2145,6 @@ const GeneratedEnvelopeSchemaDocument = `{
               "enum": [
                 "set_memberships",
                 "resolve_overlap",
-                "resource_claim",
-                "resource_release",
                 "message_send",
                 "message_withdraw",
                 "product_project_add",
@@ -2533,43 +2477,8 @@ const GeneratedEnvelopeSchemaDocument = `{
             ]
           },
           "then": {
-            "properties": {
-              "recovery_action": {
-                "properties": {
-                  "kind": {
-                    "const": "request_approval"
-                  }
-                }
-              }
-            },
             "required": [
               "stale_law_revision"
-            ]
-          }
-        },
-        {
-          "if": {
-            "properties": {
-              "kind": {
-                "const": "domain_overlap"
-              }
-            },
-            "required": [
-              "kind"
-            ]
-          },
-          "then": {
-            "properties": {
-              "recovery_action": {
-                "properties": {
-                  "kind": {
-                    "const": "request_approval"
-                  }
-                }
-              }
-            },
-            "required": [
-              "domain_overlap"
             ]
           }
         },
@@ -2794,10 +2703,6 @@ const GeneratedEnvelopeSchemaDocument = `{
             "host_lease_missing",
             "unknown_effect",
             "session_directory_unreadable",
-            "worker_abandon_refused",
-            "worker_abandon_receipt_failed",
-            "worker_reconcile_failed_recorded",
-            "lane_tool_refusal",
             "invalid_cli_input",
             "invalid_request_wrapper",
             "invalid_tool_input"
@@ -2889,212 +2794,6 @@ const GeneratedEnvelopeSchemaDocument = `{
           "maxProperties": 20,
           "type": "object"
         },
-        "domain_overlap": {
-          "additionalProperties": false,
-          "properties": {
-            "overlaps": {
-              "items": {
-                "additionalProperties": false,
-                "properties": {
-                  "detail_truncated": {
-                    "type": "boolean"
-                  },
-                  "from_contract_version": {
-                    "minimum": 1,
-                    "type": "integer"
-                  },
-                  "from_work_id": {
-                    "maxLength": 128,
-                    "minLength": 1,
-                    "type": "string"
-                  },
-                  "overlap_classes": {
-                    "items": {
-                      "enum": [
-                        "architecture",
-                        "law_write",
-                        "domain_write",
-                        "domain_relation_write"
-                      ],
-                      "type": "string"
-                    },
-                    "maxItems": 4,
-                    "minItems": 1,
-                    "type": "array",
-                    "uniqueItems": true
-                  },
-                  "product_id": {
-                    "maxLength": 128,
-                    "minLength": 1,
-                    "type": "string"
-                  },
-                  "recovery_actions": {
-                    "items": {
-                      "enum": [
-                        "wait",
-                        "resolve_overlap",
-                        "terminal_work",
-                        "supersede_contract"
-                      ],
-                      "type": "string"
-                    },
-                    "maxItems": 4,
-                    "minItems": 1,
-                    "type": "array",
-                    "uniqueItems": true
-                  },
-                  "resolution_kind": {
-                    "enum": [
-                      "compatible_with",
-                      "depends_on",
-                      "blocks",
-                      "merged_into",
-                      "supersedes"
-                    ],
-                    "type": "string"
-                  },
-                  "resolution_state": {
-                    "enum": [
-                      "unresolved",
-                      "stale",
-                      "sequenced"
-                    ],
-                    "type": "string"
-                  },
-                  "shared_affected_domain_count": {
-                    "minimum": 0,
-                    "type": "integer"
-                  },
-                  "shared_affected_domain_ids": {
-                    "items": {
-                      "maxLength": 256,
-                      "minLength": 1,
-                      "type": "string"
-                    },
-                    "maxItems": 20,
-                    "type": "array",
-                    "uniqueItems": true
-                  },
-                  "shared_domain_modification_count": {
-                    "minimum": 0,
-                    "type": "integer"
-                  },
-                  "shared_domain_modifications": {
-                    "items": {
-                      "maxLength": 256,
-                      "minLength": 1,
-                      "type": "string"
-                    },
-                    "maxItems": 20,
-                    "type": "array",
-                    "uniqueItems": true
-                  },
-                  "shared_law_count": {
-                    "minimum": 0,
-                    "type": "integer"
-                  },
-                  "shared_law_ids": {
-                    "items": {
-                      "maxLength": 256,
-                      "minLength": 2,
-                      "type": "string"
-                    },
-                    "maxItems": 20,
-                    "type": "array",
-                    "uniqueItems": true
-                  },
-                  "shared_relation_tuple_count": {
-                    "minimum": 0,
-                    "type": "integer"
-                  },
-                  "shared_relation_tuples": {
-                    "items": {
-                      "additionalProperties": false,
-                      "properties": {
-                        "kind": {
-                          "enum": [
-                            "depends_on",
-                            "shares_contract_with",
-                            "replaces"
-                          ],
-                          "type": "string"
-                        },
-                        "source_domain_id": {
-                          "maxLength": 256,
-                          "minLength": 1,
-                          "type": "string"
-                        },
-                        "target_domain_id": {
-                          "maxLength": 256,
-                          "minLength": 1,
-                          "type": "string"
-                        }
-                      },
-                      "required": [
-                        "source_domain_id",
-                        "kind",
-                        "target_domain_id"
-                      ],
-                      "type": "object"
-                    },
-                    "maxItems": 20,
-                    "type": "array"
-                  },
-                  "to_contract_version": {
-                    "minimum": 1,
-                    "type": "integer"
-                  },
-                  "to_work_id": {
-                    "maxLength": 128,
-                    "minLength": 1,
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "product_id",
-                  "from_work_id",
-                  "to_work_id",
-                  "from_contract_version",
-                  "to_contract_version",
-                  "shared_affected_domain_ids",
-                  "shared_law_ids",
-                  "shared_domain_modifications",
-                  "shared_relation_tuples",
-                  "overlap_classes",
-                  "resolution_state",
-                  "recovery_actions",
-                  "shared_affected_domain_count",
-                  "shared_law_count",
-                  "shared_domain_modification_count",
-                  "shared_relation_tuple_count",
-                  "detail_truncated"
-                ],
-                "type": "object"
-              },
-              "maxItems": 20,
-              "minItems": 1,
-              "type": "array"
-            },
-            "returned_overlaps": {
-              "minimum": 1,
-              "type": "integer"
-            },
-            "total_overlaps": {
-              "minimum": 1,
-              "type": "integer"
-            },
-            "truncated": {
-              "type": "boolean"
-            }
-          },
-          "required": [
-            "overlaps",
-            "total_overlaps",
-            "returned_overlaps",
-            "truncated"
-          ],
-          "type": "object"
-        },
         "effect_state": {
           "enum": [
             "none",
@@ -3151,7 +2850,6 @@ const GeneratedEnvelopeSchemaDocument = `{
             "outcome_mismatch",
             "stale_requires_review",
             "stale_law_revision",
-            "domain_overlap",
             "degraded_not_allowed",
             "unreachable",
             "invalid_cursor",

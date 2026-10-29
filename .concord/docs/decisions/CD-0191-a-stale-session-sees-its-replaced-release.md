@@ -46,5 +46,6 @@ Concord creates no native Task admission or worker-dispatch refusal.
 ## Verification
 
 - `bun test adapter/opencode/` checks release comparison and bounded notices.
+- `adapter/opencode/concord.test.ts` retains the installed-release resolver and
+  bounded per-result staleness-notice checks without a worker dispatch gate.
 - `python3 scripts/test-installer.py` checks retained-release holder output.
-- `python3 scripts/check-doc-contract.py` checks the outline.

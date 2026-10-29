@@ -55,10 +55,7 @@ If typed dispatch is unavailable, never reproduce a lane's work by hand and
 record it as a lane result.
 
 A generated utility needs no dispatch window (CD-0102). Route by need and let
-the registry descriptions name the agent. For an external check that must
-finish before your next action, start the `concord_ci_watch` tool and end the
-turn: it wakes this session with the result. Never poll a check yourself. To
-watch a pull request after a push, pass the pushed commit as `head_sha`.
+the registry descriptions name the agent.
 
 A failed worker attempt is terminal; never resume its session. Request a fresh
 attempt through `dispatch_worker` under the approved assignment. A failure alone
@@ -71,6 +68,11 @@ Apply the shared asking instructions to contract and law-change consent
 (CD-0243 D2-D7). When the core requests consent outside that boundary, report
 the implementation mismatch and follow its admitted recovery; never bypass
 the refusal or invent a discretionary approval question.
+Within assigned work on Concord itself, apply D3's exemption for retiring Concord's own
+law, unwanted mechanisms and systems, and tests of retired behavior. Deletion
+alone needs no product-direction, UI/UX or governed-scope-cut approval; the shared
+change and records instructions hold the delivery duties. Keep D3's exclusions
+and current tool refusals.
 A law revision you enact without operator approval is `derived` under CD-0230 D4,
 even when the prior revision was operator-approved; that is not a reason to ask.
 When approval is required, wait for that decision. Prior approval covers the same

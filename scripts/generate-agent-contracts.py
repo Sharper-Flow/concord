@@ -160,25 +160,18 @@ export function actionFieldsBranches(actionInput: unknown): any[] {
 '''
 
 
-ADD_CONDITION_VARIANTS = ("work_transition_action_variant_add_condition", "work_transition_action_public_variant_add_condition")
-
 def require_delivery_rule_teaching(defs: dict) -> None:
     """CD-0184: the projected authoring schema must teach that acceptance is
     decidable at delivery, so generation fails before any artifact lands when
     a projection drops the rule.
 
-    The rule's live owner is the outcome_predicates array shared by
-    approve_contract and supersede_contract. The wait-rule teaching retired
-    with add_condition (CD-0218 D1), so a projected def for its variants is
-    a stale copy the projection must refuse, never a silently skipped check.
+    The rule's owner is the outcome_predicates array shared by
+    approve_contract and supersede_contract.
     """
     items = defs.get("workflow_action_outcome_predicates")
     text = items.get("description") if isinstance(items, dict) else None
     if text != DELIVERY_RULE_PREDICATE_DESCRIPTION:
         fail("workflow_action_outcome_predicates does not teach the CD-0184 delivery-decidable rule")
-    stale = sorted(name for name in ADD_CONDITION_VARIANTS if name in defs)
-    if stale:
-        fail(f"retired published action add_condition remains projected: {', '.join(stale)} (CD-0218 D1)")
 
 SCHEMA_KEYWORDS = {"$schema", "$id", "$defs", "$ref", "title", "description", "examples", "type", "properties", "patternProperties", "propertyNames", "required", "additionalProperties", "unevaluatedProperties", "items", "contains", "minItems", "maxItems", "uniqueItems", "minLength", "maxLength", "pattern", "format", "minimum", "maximum", "enum", "const", "oneOf", "anyOf", "allOf", "not", "if", "then", "else", "default", "minProperties", "maxProperties", "x-maxBytes", "x-minBytes", "x-maxArrayBytes"}
 
@@ -912,27 +905,6 @@ def preserve_retained_outcome_outputs(defs: dict) -> None:
     retarget_predicate_union(criterion["properties"].get("outcome_payload"), "work_pin_verified_criterion")
 
 
-def install_workflow_self_repair_schema(defs: dict) -> None:
-    envelope = json.loads(ENVELOPE.read_text())
-    refusal_kinds = envelope["$defs"]["typedError"]["properties"]["kind"]["enum"]
-    defs["workflow_self_repair"] = {
-        "type": "object", "additionalProperties": False,
-        "required": ["refusal_kind", "blocked_operation", "evidence_refs"],
-        "properties": {
-            "refusal_kind": {"type": "string", "enum": refusal_kinds},
-            "blocked_operation": {"$ref": "#/$defs/reference"},
-            "evidence_refs": {
-                "type": "array", "minItems": 1, "maxItems": 32, "uniqueItems": True,
-                "items": {"$ref": "#/$defs/reference"},
-            },
-        },
-    }
-    contract = defs.get("workflow_contract")
-    if not isinstance(contract, dict) or not isinstance(contract.get("properties"), dict):
-        fail("workflow_contract schema is unavailable for self-repair projection")
-    contract["properties"]["self_repair"] = {"$ref": "#/$defs/workflow_self_repair"}
-
-
 def workflow_payload_object_schema(payload: dict, defs: dict, field_teaching: dict | None = None, cross_field: dict | None = None) -> dict:
     result = workflow_payload_flat_object_schema(payload, defs, field_teaching)
     combinations = (cross_field or {}).get("combinations") or []
@@ -1453,7 +1425,6 @@ def project_workflow_action_schema(document: dict, actions: list[dict], workflow
     # definition explicitly; a stale copy would keep satisfying checks that
     # read it while no validation path consumes it.
     defs.pop("work_transition_action_shared_input", None)
-    install_workflow_self_repair_schema(defs)
     common = {
         "work_id": {"$ref": "#/$defs/id"},
         "expected_version": {"$ref": "#/$defs/version"},
@@ -1688,12 +1659,16 @@ def project_domain_fact_schema(payload: dict) -> None:
     path["not"] = {"anyOf": [path["not"], {"pattern": r"^/|(?:^|/)\.{1,2}(?:/|$)"}]}
 
 
-def prune_payload_definitions(payload: dict, manifest: dict, public_variants: list[dict]) -> None:
-    """Only schemas reachable from the current public contract ship to clients."""
+def prune_payload_definitions(payload: dict, manifest: dict, public_variants: list[dict], schema_roots: list[str] | None = None) -> None:
+    """Keep current public schemas and the registry's authoring seeds."""
     defs = payload["$defs"]
-    roots = {schema["ref"].rsplit("/", 1)[-1] for schema in manifest["schemas"].values()}
-    roots.update(("worker_oracle_control", "worker_oracle_case", "native_oracle_preparation", "workflow_review_report"))
+    roots = {schema["ref"].rsplit("/", 1)[-1] for schema in manifest["schemas"].values()
+             if schema["ref"].partition("#")[0] in {"", "contracts/agent-tool-surface-payloads.schema.json"}}
+    roots.update(("worker_oracle_control", "worker_oracle_case", "native_oracle_preparation", "workflow_review_report",
+                  "work_transition_action_public_input", "workflow_action_outcome"))
+    roots.update(RETAINED_OUTPUT_TWINS)
     roots.update(variant["schema"] for variant in public_variants)
+    roots.update(schema_roots or [])
     reached: set[str] = set()
 
     def visit(node: object) -> None:
@@ -1836,7 +1811,7 @@ def validate(manifest: dict) -> str:
     # The operation surface is closed: the manifest must enumerate the full
     # published set exactly, and the count changes only with an accepted
     # surface change.
-    expected_operations = 65
+    expected_operations = 59
     if len(operations) != expected_operations or len({o.get("id") for o in operations}) != expected_operations:
         fail(f"manifest must contain exactly {expected_operations} unique operations")
     tool_ids = {t["id"] for t in tools}
@@ -1982,49 +1957,12 @@ def validate_work_start_host_tool(tool: dict) -> None:
         fail("concord_work_start capture must derive Project identity")
 
 
-def validate_ci_watch_host_tool(tool: dict) -> None:
-    args = tool.get("args", {})
-    properties = args.get("properties", {})
-    if args.get("type") != "object" or args.get("additionalProperties") is not False:
-        fail("concord_ci_watch host schema must be a closed object")
-    if list(properties) != ["repo", "selector", "head_sha", "mode", "time_seconds_max"]:
-        fail("concord_ci_watch must publish exactly repo, selector, head_sha, mode, and time_seconds_max")
-    if args.get("required") != ["repo", "selector"]:
-        fail("concord_ci_watch must require only repo and selector")
-    repo = properties.get("repo", {})
-    if (repo.get("type") != "string"
-            or repo.get("pattern") != "^[A-Za-z0-9][A-Za-z0-9.-]*/[A-Za-z0-9][A-Za-z0-9.-]*$"
-            or repo.get("minLength") != 3 or repo.get("maxLength") != 256):
-        fail("concord_ci_watch repo must carry the owner/name pattern bounded 3..256")
-    selector = properties.get("selector", {})
-    selector_properties = selector.get("properties", {})
-    if selector.get("type") != "object" or selector.get("additionalProperties") is not False:
-        fail("concord_ci_watch selector must be a closed object")
-    if selector.get("required") != ["kind", "value"] or list(selector_properties) != ["kind", "value"]:
-        fail("concord_ci_watch selector must carry only the required kind and value")
-    if selector_properties.get("kind", {}).get("enum") != ["pr", "sha", "run"]:
-        fail("concord_ci_watch selector.kind must admit pr, sha, and run only")
-    value = selector_properties.get("value", {})
-    if value.get("type") != "string" or value.get("minLength") != 1 or value.get("maxLength") != 64:
-        fail("concord_ci_watch selector.value must be a string bounded 1..64")
-    head = properties.get("head_sha", {})
-    if head.get("type") != "string" or head.get("pattern") != "^[0-9a-f]{40}$":
-        fail("concord_ci_watch head_sha must be a lowercase 40-character commit SHA")
-    if properties.get("mode", {}).get("enum") != ["checks", "merge"]:
-        fail("concord_ci_watch mode must admit checks and merge only")
-    budget = properties.get("time_seconds_max", {})
-    if (budget.get("type") != "integer" or budget.get("minimum") != 0
-            or budget.get("maximum") != 7200 or "default" in budget):
-        fail("concord_ci_watch time_seconds_max must be an integer bounded 0..7200 without a mode-independent default")
-
-
 # The named host-tool validators: one named check per host-published tool.
 # A new host tool joins by adding its contract entry and its validator here;
 # the manifest must declare exactly this set once each, so an unknown,
 # missing, or duplicated tool fails generation instead of widening silently.
 HOST_TOOL_VALIDATORS = {
     "concord_work_start": validate_work_start_host_tool,
-    "concord_ci_watch": validate_ci_watch_host_tool,
 }
 
 
@@ -2286,10 +2224,6 @@ export function advertisedAdmissionTeachingGaps(published: unknown): string[] {{
     gaps.push(`outcome_predicates description does not teach the delivery-decidable rule (CD-0184) on action ${{carrier.actionId}}`);
   }}
   }}
-  // The CD-0184 wait-rule teaching retired with add_condition (CD-0218 D1):
-  // no live action declares expected_within_seconds, so no wait carrier
-  // check exists. require_delivery_rule_teaching refuses a stale projection
-  // that revives the retired variant.
   return gaps;
 }}
 function pass(evaluated: Iterable<string> = []): Validation {{ return {{ valid: true, evaluated: new Set(evaluated), path: null }}; }}
@@ -2446,7 +2380,7 @@ def main() -> int:
         validate_current_schema_refs(schema_refs, payload.get("$defs", {}))
         projected_payload, public_variants = project_workflow_action_schema(payload, actions, workflows, teaching)
         project_domain_fact_schema(projected_payload)
-        prune_payload_definitions(projected_payload, manifest, public_variants)
+        prune_payload_definitions(projected_payload, manifest, public_variants, schema_refs["current"])
         input_names = [operation["input_schema"].rsplit("/", 1)[-1] for operation in manifest["operations"]
                        if operation["id"] != "concord_work_transition.workflow_action"]
         input_names.extend(variant["schema"] for variant in public_variants)

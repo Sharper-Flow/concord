@@ -60,6 +60,21 @@ type WorkSizeRecord struct {
 	RecordedAt   string            `json:"recorded_at"`
 }
 
+// WorkSizeDecision exposes the current model record and its governing size.
+type WorkSizeDecision struct {
+	Model     WorkSizeRecord
+	Effective WorkSize
+}
+
+// readEffectiveWorkSize leaves unsized work distinct from small work.
+func readEffectiveWorkSize(ctx context.Context, q queryer, workID string) (WorkSizeDecision, bool, error) {
+	model, sized, err := readWorkSize(ctx, q, workID)
+	if err != nil || !sized {
+		return WorkSizeDecision{}, false, err
+	}
+	return WorkSizeDecision{Model: model, Effective: model.Size}, true, nil
+}
+
 func foldWorkSized(ctx context.Context, tx *sql.Tx, event Event) error {
 	if err := checkSubject(event, SubjectWorkItem); err != nil {
 		return err

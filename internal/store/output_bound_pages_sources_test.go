@@ -1205,17 +1205,6 @@ func init() {
 	registerOutputBound("/$defs/project_retirement_result/properties/blockers/items/maxLength", unboundedOutput("internal/store/project_handoffs.go:preservationBlocker embeds failure.Detail verbatim and the typed refusal pipeline never clamps detail text, so a preservation refusal naming a long source path can exceed the cap", "internal/agent/runtime.go:readSizeRefusal"))
 	registerOutputBound("/$defs/project_retirement_result/properties/blockers/maxItems", pkAppendSitesItemsBound("internal/store/project_handoffs.go", "EvaluateProjectSessionRetirement", "out.Blockers"))
 
-	registerOutputBound("/$defs/resource_claims_page/properties/claims/items/properties/claimed_at/maxLength", pkTimeLayoutWidthBound("internal/store/resource_claims.go", "foldResourceClaimed", "time.RFC3339Nano"))
-	registerOutputBound("/$defs/resource_claims_page/properties/claims/items/properties/reason/maxLength", goInlineBound("internal/store/resource_claims.go", "foldResourceClaimed", "len(p.Reason)", boundBytes))
-	registerOutputBound("/$defs/resource_claims_page/properties/claims/items/properties/released_at/maxLength", maxBound(
-		pkTimeLayoutWidthBound("internal/store/resource_claims.go", "foldResourceClaimReleased", "time.RFC3339Nano"),
-		pkTimeLayoutWidthBound("internal/store/resource_claims.go", "foldTerminalReleasesResourceClaims", "time.RFC3339Nano"),
-	))
-	// The traced pattern admits 161 code points, so the consumer cap admits
-	// every pattern-valid key.
-	registerOutputBound("/$defs/resource_claims_page/properties/claims/items/properties/resource_key/maxLength", goPatternBound("internal/store/resource_claims.go", "resourceKeyPattern"))
-	registerOutputBound("/$defs/resource_claims_page/properties/claims/maxItems", goInlineBound("internal/store/resource_claims.go", "resourceClaims", "limit", boundItems))
-
 	registerOutputBound("/$defs/resource_page/properties/resources/items/properties/consumers/maxItems", unboundedOutput("internal/store/managed_resources_read.go:resourceLinksTx appends every non-owner resource_products row with no LIMIT and the consumer fold enforces only the unique (resource, product) edge, never a per-resource count", "internal/agent/runtime.go:readSizeRefusal"))
 	registerOutputBound("/$defs/resource_page/properties/resources/items/properties/display_name/maxLength", goInlineBound("internal/store/managed_resources.go", "validateManagedResourceInput", "len(resource.DisplayName)", boundBytes))
 	registerOutputBound("/$defs/resource_page/properties/resources/items/properties/environments/items/maxLength", pkVocabularyLongestBound("internal/store/managed_resources.go", "validateResourceEnvironments", "environment"))
@@ -1238,9 +1227,6 @@ func init() {
 	registerOutputBound("/$defs/session_vacate_result/properties/work_pins/maxItems", pkEffectReturnsEmptySliceItemsBound("internal/agent/mutations.go", "planSessionVacate", "applySessionVacateTx"))
 
 	// Current transition refs and proof observations keep their producer's bounds.
-	// Settlement text comes only from the live recorder's validated payload.
-	registerOutputBound("/$defs/work_event_page/properties/entries/items/properties/conflict_application/properties/outcome/maxLength", goInlineBound("internal/store/conflict_application.go", "RecordConflictApplicationTx", "len(request.Outcome)", boundBytes))
-	registerOutputBound("/$defs/work_event_page/properties/entries/items/properties/conflict_application/properties/settlement_ref/maxLength", goInlineBound("internal/store/conflict_application.go", "RecordConflictApplicationTx", "len(request.SettlementRef)", boundBytes))
 	registerOutputBound("/$defs/work_event_page/properties/entries/items/properties/evidence_refs/maxItems", unboundedOutput("internal/store/lifecycle.go:updateWorkLifecycle preserves transition evidence_refs without a count guard", "internal/agent/runtime.go:readSizeRefusal"))
 	registerOutputBound("/$defs/work_event_page/properties/entries/items/properties/entry_id/maxLength", unboundedOutput("internal/store/q7_current.go:currentQ7EntriesSQL composes current row identities without a global length guard", "internal/agent/runtime.go:readSizeRefusal"))
 	registerOutputBound("/$defs/work_event_page/properties/entries/items/properties/observed_at/maxLength", unboundedOutput("internal/store/workflow.go:foldWorkflowEvidenceBound requires nonempty observed_at but imposes no length guard", "internal/agent/runtime.go:readSizeRefusal"))

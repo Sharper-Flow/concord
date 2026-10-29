@@ -2,7 +2,7 @@ package store
 
 // The store's own overlap-resolution and delivery-correction owners must
 // enforce the same approval classes the workflow policy defines, not just the
-// agent boundary. Routine overlap kinds (compatible_with, depends_on, blocks)
+// agent boundary. Routine overlap kinds (depends_on, blocks)
 // are coordination answers that need no consent; merged_into and supersedes
 // keep the approval requirement behind a consumed one-use approval whose
 // exact kind, direction, and version binding is a Dispatch-layer fact: there
@@ -20,6 +20,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -149,46 +150,12 @@ func unsignedDeliveryCorrectionRequest(t *testing.T, s *Store, workID string, ve
 	return request
 }
 
-// seedRecordedWorkerLaneActor records one lane workflow actor and its
-// event-owned dispatch on the completed work, so the correction actor check
-// can reject the recorded worker-lane identity the dispatch pinned. It
-// returns the lane actor ref and the work version after the actor event.
-func seedRecordedWorkerLaneActor(t *testing.T, s *Store, workID string, version int64) (string, int64) {
-	t.Helper()
-	lane := BuiltinLaneDefinitions()[0]
-	laneActor := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/lane:" + lane.ID, SessionRef: "session/" + workID + "-lane", ActorClass: ActorAgent}
-	laneRef, err := WorkflowActorRef(laneActor)
-	if err != nil {
-		t.Fatal(err)
-	}
-	actorEvent := workflowEvent("lane-actor-"+workID, WorkflowActorRecorded, workID, map[string]any{
-		"work_id": workID, "expected_version": version, "resulting_version": version + 1,
-		"actor_ref": laneRef, "principal_ref": laneActor.PrincipalRef, "client_ref": laneActor.ClientRef,
-		"agent_ref": laneActor.AgentRef, "session_ref": laneActor.SessionRef, "actor_class": "agent",
-	})
-	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{actorEvent}, ExpectedVersions: workVersion(workID, version)}); err != nil {
-		t.Fatal(err)
-	}
-	dispatch := Event{
-		EventID: "dispatch-" + workID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID,
-		Actor: "worker:test", OccurredAt: time.Unix(50, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerDispatched), Payload: mustJSONValue(map[string]any{
-			"attempt_id": "attempt:" + workID + "-lane", "lane_id": lane.ID, "lane_digest": lane.Digest,
-			"capability_class": lane.CapabilityClass, "packet_schema_version": WorkerPacketSchemaVersion, "report_schema_version": WorkerReportSchemaVersion,
-			"packet_digest": "sha256:" + strings.Repeat("b", 64), "readback_model": preferredModelForLane(lane), "lane_actor_ref": laneRef,
-		}),
-	}
-	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{dispatch}}); err != nil {
-		t.Fatalf("record the dispatched lane: %v", err)
-	}
-	return laneRef, version + 1
-}
-
 func TestRoutineCoordination(t *testing.T) {
 	t.Parallel()
 
 	t.Run("routine overlap kinds resolve without an approval claim", func(t *testing.T) {
 		t.Parallel()
-		for _, kind := range []string{ResolutionCompatibleWith, ResolutionDependsOn, ResolutionBlocks} {
+		for _, kind := range []string{ResolutionDependsOn, ResolutionBlocks} {
 			t.Run(kind, func(t *testing.T) {
 				t.Parallel()
 				s, _, actor := overlapContentFixture(t)
@@ -230,7 +197,7 @@ func TestRoutineCoordination(t *testing.T) {
 		// A supplied approval on a routine path is never consumed or
 		// transformed into human attribution: an unexpected authority claim
 		// is rejected, not accepted as an inert record.
-		for _, kind := range []string{ResolutionCompatibleWith, ResolutionDependsOn, ResolutionBlocks} {
+		for _, kind := range []string{ResolutionDependsOn, ResolutionBlocks} {
 			t.Run(kind, func(t *testing.T) {
 				t.Parallel()
 				s, _, actor := overlapContentFixture(t)
@@ -271,7 +238,7 @@ func TestRoutineCoordination(t *testing.T) {
 				_, err := ResolveWorkflowDomainOverlapTx(context.Background(), tx, WorkflowDomainOverlapResolutionRequest{
 					EventID: "routine-race-from", FromWorkID: "content-left", ToWorkID: "content-right",
 					FromExpectedVersion: fromVersion - 1, ToExpectedVersion: toVersion,
-					FromContractVersion: 1, ToContractVersion: 1, ResolutionKind: ResolutionCompatibleWith,
+					FromContractVersion: 1, ToContractVersion: 1, ResolutionKind: ResolutionDependsOn,
 					Reason: "stale declarer pin", Actor: actor,
 				})
 				return err
@@ -289,7 +256,7 @@ func TestRoutineCoordination(t *testing.T) {
 				_, err := ResolveWorkflowDomainOverlapTx(context.Background(), tx, WorkflowDomainOverlapResolutionRequest{
 					EventID: "routine-race-to", FromWorkID: "content-left", ToWorkID: "content-right",
 					FromExpectedVersion: fromVersion, ToExpectedVersion: toVersion - 1,
-					FromContractVersion: 1, ToContractVersion: 1, ResolutionKind: ResolutionCompatibleWith,
+					FromContractVersion: 1, ToContractVersion: 1, ResolutionKind: ResolutionDependsOn,
 					Reason: "stale peer pin", Actor: actor,
 				})
 				return err
@@ -308,7 +275,7 @@ func TestRoutineCoordination(t *testing.T) {
 				_, err := ResolveWorkflowDomainOverlapTx(context.Background(), tx, WorkflowDomainOverlapResolutionRequest{
 					EventID: "routine-race-content", FromWorkID: "content-left", ToWorkID: "content-right",
 					FromExpectedVersion: fromVersion, ToExpectedVersion: toVersion,
-					FromContractVersion: 1, ToContractVersion: 1, ResolutionKind: ResolutionCompatibleWith,
+					FromContractVersion: 1, ToContractVersion: 1, ResolutionKind: ResolutionDependsOn,
 					Reason: "resolution pinned to the superseded contract", Actor: actor,
 				})
 				return err
@@ -373,7 +340,7 @@ func TestRoutineCoordination(t *testing.T) {
 			t.Parallel()
 			s, _, actor := overlapContentFixture(t)
 			fromVersion, toVersion := routinePairVersions(t, s)
-			event := routineOverlapBoundaryEvent("routine-v2-routine-claimless", actor, fromVersion, toVersion, ResolutionCompatibleWith, 2, "")
+			event := routineOverlapBoundaryEvent("routine-v2-routine-claimless", actor, fromVersion, toVersion, ResolutionDependsOn, 2, "")
 			if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{event}, ExpectedVersions: workVersion("content-left", fromVersion)}); err != nil {
 				t.Fatalf("v2 routine event without a claim refused: %v", err)
 			}
@@ -580,18 +547,6 @@ func TestRoutineCoordination(t *testing.T) {
 			failure := routineFailure(t, err)
 			if failure.Kind != KindUnauthorized {
 				t.Fatalf("v2 correction attributed to an operator substitute error = %v, want unauthorized", err)
-			}
-		})
-		t.Run("a v2 correction rejects a recorded worker-lane actor", func(t *testing.T) {
-			t.Parallel()
-			const workID = "routine-coord-correction-v2-lane"
-			s, targetEventID, version, targetPayloadVersion, targetSeq := completedDeliveryFixture(t, workID)
-			laneRef, currentVersion := seedRecordedWorkerLaneActor(t, s, workID, version)
-			event := routineCorrectionEvent("routine-correction-v2-lane", workID, laneRef, currentVersion, targetEventID, targetSeq, targetPayloadVersion, nil)
-			err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{event}, ExpectedVersions: workVersion(workID, currentVersion)})
-			failure := routineFailure(t, err)
-			if failure.Kind != KindUnauthorized {
-				t.Fatalf("v2 correction attributed to a recorded worker-lane actor error = %v, want unauthorized", err)
 			}
 		})
 	})
@@ -824,4 +779,53 @@ func TestRoutineCorrectionActorPrefix(t *testing.T) {
 		}
 		requireRoutineCorrectionNoEffect(t, s, workID, eventsBefore, actorsBefore, version)
 	})
+}
+
+func overlapContentFixture(t *testing.T) (*Store, WorkflowArchitectureBinding, string) {
+	t.Helper()
+	s, _, binding, _, _, _ := architectureValidationFixture(t, "content-left")
+	overlapFixtureExec(t, s, `INSERT INTO domains(home_project_id,home_locator_id,product_id,domain_id,name,purpose,status,registry_content_hash,scanned_commit_oid) SELECT home_project_id,home_locator_id,product_id,'extra','Extra','Synthetic Domain',status,registry_content_hash,scanned_commit_oid FROM domains WHERE domain_id='child'`)
+	seedWork(t, s, "content-right")
+	overlapFixtureExec(t, s, `UPDATE work_items SET intent_json=json_set(intent_json,'$.governing_requirements',json('[]')) WHERE id IN ('content-left','content-right')`)
+	actor := seedProductChangingContract(t, s, "content-left", binding)
+	seedProductChangingContract(t, s, "content-right", binding)
+	ref, err := WorkflowActorRef(actor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return s, binding, ref
+}
+
+func contentSuccessor(t *testing.T, s *Store, actor string, version int64, binding WorkflowArchitectureBinding, modifies []string) Event {
+	t.Helper()
+	return pOverlapContractFacts(t, s, contentSuccessorSource(t, s, actor, version, binding, modifies))
+}
+
+func contentSuccessorSource(t *testing.T, s *Store, actor string, version int64, binding WorkflowArchitectureBinding, modifies []string) Event {
+	t.Helper()
+	mandate := []string{"spec:one"}
+	for _, addition := range binding.LawAdditions {
+		mandate = append(mandate, addition.LawID)
+	}
+	expected := readWorkVersion(t, s, "content-left")
+	return pOverlapContractFacts(t, s, workflowTypedEvent(fmt.Sprintf("content-successor-%d", version), WorkflowContractSuperseded, "content-left", actor, time.Unix(version, 0), expected, map[string]any{
+		"previous_contract_version": version - 1, "new_contract_version": version,
+		"supersede_reason": "synthetic revision", "audit_evidence": []string{"audit:content"},
+		"successor_contract": map[string]any{
+			"contract_version": version, "premise": "updated bounded outcome", "outcome_kind": "check",
+			"outcome_payload":   map[string]any{"kind": "check", "check_ref": "check:content", "immutable_subject_ref": "commit:content", "expected_result": "pass"},
+			"required_evidence": []string{"verification", "review"}, "route_conventions": []string{},
+			"spec_mandate": mandate, "law_modifies": modifies, "law_boundary_version": 1,
+			"law_revisions": []WorkflowLawRevision{{LawID: "spec:one", ContentHash: "sha256:" + strings.Repeat("a", 64)}},
+			"rigor_class":   "prototype_internal", "consequence_class": "internal_sqlite", "architecture_binding": binding,
+		},
+	}))
+}
+
+func applyContentSuccessor(t *testing.T, s *Store, event Event) {
+	t.Helper()
+	expected := readWorkVersion(t, s, event.SubjectID)
+	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{event}, ExpectedVersions: workVersion(event.SubjectID, expected)}); err != nil {
+		t.Fatal(err)
+	}
 }

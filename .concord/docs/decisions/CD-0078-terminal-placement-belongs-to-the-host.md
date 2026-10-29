@@ -123,6 +123,5 @@ evidence that the implication was not enough.
 - `bun test adapter/opencode/concord.test.ts -t "a successful work start
   forks no terminal command"` proves the work-start path forks no terminal
   command.
-- `python3 scripts/check-doc-contract.py`, `python3 scripts/check-json.py`,
-  `python3 scripts/check-doc-links.py`, `python3 scripts/check-knowledge-index.py`,
-  and `python3 scripts/check-cd-allocation.py` pass.
+- `python3 scripts/check-json.py`, `python3 scripts/check-doc-links.py`, and
+  `python3 scripts/check-knowledge-index.py` pass.

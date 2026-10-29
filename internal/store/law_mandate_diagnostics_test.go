@@ -9,7 +9,7 @@ import (
 
 func TestMandatedLawDiagnostics(t *testing.T) {
 	t.Parallel()
-	for _, route := range []string{"single", "federated", "qualified"} {
+	for _, route := range []string{"single", "qualified"} {
 		t.Run(route, func(t *testing.T) {
 			t.Parallel()
 			s := openTemp(t)
@@ -23,18 +23,6 @@ func TestMandatedLawDiagnostics(t *testing.T) {
 			authorizeKnowledgeProductHome(t, s, "diag-single", home, "p", "other")
 			if err := s.EnsureKnowledgeIndexFresh(context.Background(), home); err != nil {
 				t.Fatal(err)
-			}
-			if route != "single" {
-				sourceRepo := initKnowledgeRepo(t)
-				seedFederatedSource(t, sourceRepo, "SRC-LAW", ".concord/docs/decisions/CD-0902-source.md", "Source law")
-				commitKnowledgeRepo(t, sourceRepo, "second source")
-				source := KnowledgeHome{HomeProjectID: "other", HomeLocatorID: "other-loc", RepoPath: sourceRepo, HeadRef: "HEAD"}
-				authorizeSourceLocator(t, s, source)
-				if _, err := s.RegisterProductKnowledgeSource(context.Background(), ProductKnowledgeSourceRegistration{
-					ProductID: "diag-single", ProjectID: "other", LocatorID: "other-loc", Reason: "diagnostic source", ExpectedVersion: 1,
-				}); err != nil {
-					t.Fatal(err)
-				}
 			}
 			ref := func(id string) string {
 				if route == "qualified" {
@@ -85,12 +73,6 @@ func TestMandatedLawDiagnostics(t *testing.T) {
 			if err := check([]string{ref("accepted")}); err != nil {
 				t.Fatalf("accepted law refused: %v", err)
 			}
-			if route == "qualified" {
-				var failure *Failure
-				if err := check([]string{"other/lesson"}); !failureAs(err, &failure) || !strings.Contains(failure.Detail, "no law record") || strings.Contains(failure.Detail, "published") {
-					t.Fatalf("qualified absence must not diagnose another source's record: %v", err)
-				}
-			}
 		})
 	}
 }
@@ -114,7 +96,7 @@ func TestSingleHomeMandateRefreshesProjection(t *testing.T) {
 			if designated {
 				authorizeKnowledgeProductHome(t, s, "single-product", home)
 			} else {
-				authorizeSourceLocator(t, s, home)
+				authorizeKnowledgeLocator(t, s, home)
 			}
 			if designated {
 				if err := s.EnsureKnowledgeIndexFresh(ctx, home); err != nil {
@@ -157,8 +139,7 @@ func TestMandatedLawDiagnosticsAfterFreshSourceProof(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	home := KnowledgeHome{HomeProjectID: "diag-home", HomeLocatorID: "diag-home-loc", HeadRef: "HEAD"}
-	source := KnowledgeHome{HomeProjectID: "diag-src", HomeLocatorID: "diag-src-loc", HeadRef: "HEAD"}
-	s, source := seedFederatedProduct(t, "diag-product", home, source,
+	s, home := seedKnowledgeHomeProduct(t, "diag-product", home,
 		"SRC-LAW", ".concord/docs/decisions/CD-0902-source.md", "Source law")
 	proof, err := s.establishKnowledgeSourceSetProofAtHome(ctx, home.HomeProjectID, home.HomeLocatorID)
 	if err != nil {
@@ -177,12 +158,12 @@ func TestMandatedLawDiagnosticsAfterFreshSourceProof(t *testing.T) {
 	if err := check(); !failureAs(err, &failure) || failure.Kind != KindProjectionNotFound || !strings.Contains(failure.Detail, "no law record") || strings.Contains(failure.RecoveryAction, "rebuild") {
 		t.Fatalf("fresh source proof should diagnose an absent law, not lag: %v", err)
 	}
-	writeKnowledgeFile(t, source.RepoPath, ".concord/docs/work/later.md", "changed projected content\n")
-	commitKnowledgeRepo(t, source.RepoPath, "advance source")
+	writeKnowledgeFile(t, home.RepoPath, ".concord/docs/work/later.md", "changed projected content\n")
+	commitKnowledgeRepo(t, home.RepoPath, "advance home")
 	if err := check(); !failureAs(err, &failure) || failure.Kind != KindInvalidOperation || !strings.Contains(failure.Detail, "after its verification") {
 		t.Fatalf("source drift must refuse before absence diagnostics: %v", err)
 	}
-	_, _, err = validateKnowledgeHomeForQueryCore(ctx, s.db, source, false, "check_mandated_laws")
+	_, _, err = validateKnowledgeHomeForQueryCore(ctx, s.db, home, false, "check_mandated_laws")
 	if !failureAs(err, &failure) || failure.Kind != KindIndexDegraded || !strings.Contains(failure.RecoveryAction, "rebuild") {
 		t.Fatalf("confirmed projection lag must retain its rebuild route: %v", err)
 	}

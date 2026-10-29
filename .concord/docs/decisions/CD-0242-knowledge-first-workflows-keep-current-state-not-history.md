@@ -80,6 +80,10 @@ architecture-bearing implementation work the dependency order is: accepted
 criteria, applicable design approval, validated architecture, delivery plan,
 execution loop, required preview approval, delivery.
 
+D9's preview and early visual-design approvals are ordinary questions Main asks
+the operator and records in the existing work record. They are not
+machine-enforced stage exits.
+
 Rules derived from change type and risk set each execution's mandatory stages.
 Main may add research, architecture, or planning depth. No agent may waive a
 mandatory stage or an operator approval. Current validated knowledge may
@@ -197,7 +201,7 @@ decisions, and the proof that substantiates acceptance.
 A definition resolves applicable law, Domain architecture, specifications, and
 findings before criteria are accepted. Reusing a knowledge entry requires its
 demonstrated applicability and proportionate validation of its consequential
-facts. A worker report or a provisional finding never becomes law by being
+facts. A native Task report or a provisional finding never becomes law by being
 recorded.
 
 An agent corrects a factual documentation error inside its work item without
@@ -221,7 +225,7 @@ conversation nor any historical record.
 
 Ownership passes only through the liveness-checked occupancy route. A resume
 never takes work from a live session. A session whose authority was replaced
-cannot record a result. Claims, overlap detection, dependencies, and
+cannot record a result. Claims, dependencies, and
 cross-Project handoffs stay atomic in the shared store. A missing worktree is
 rebuilt from surviving Git references; uncommitted bytes are recoverable only
 from a backup.
@@ -292,7 +296,10 @@ active code progress, coordination, or fresh-session resumption is accepted.
 
 ## Verification
 
-- The implementing runtime change binds the executable anchors for D2 to D13.
+- The implementing runtime change binds the executable anchors for D2 to D13,
+  except D9's preview and early visual-design approvals. Those use the agent's
+  ordinary question and existing work record, not an executable preview gate.
+  Classified contract consent does not prove approval of the shown experience.
   Planned anchors include the stage admission refusal tests, the
   resume-without-history and reviewer-repair-to-delivery acceptance fixtures,
   the administrative-recovery fixture, and the cutover interruption and
@@ -300,8 +307,3 @@ active code progress, coordination, or fresh-session resumption is accepted.
   anchor for this record's law registration.
 - `python3 scripts/check-knowledge-index.py` composes the record shards and
   checks each shard's recorded document sha256 against the document bytes.
-- `python3 scripts/check-knowledge-closure.py --strict` proves this document
-  is registered and leaves no knowledge document unprocessed.
-- `python3 scripts/check-doc-contract.py` checks the required decision
-  outline, the anchor discipline of this section, and accepted-law citation
-  targets.

@@ -261,7 +261,7 @@ func TestBuiltinWorkflowCompletionWitnesses(t *testing.T) {
 					if err := json.Unmarshal(payload, &fields); err != nil {
 						t.Fatal(err)
 					}
-					fields["architecture_binding"] = WorkflowArchitectureBinding{DomainRegistryContentHash: "sha256:" + strings.Repeat("b", 64), HomeDomainID: "root", AffectedDomainIDs: []string{"root"}, DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{}, VerificationObligations: []WorkflowVerificationObligation{}}
+					fields["architecture_binding"] = WorkflowArchitectureBinding{HomeDomainID: "root", AffectedDomainIDs: []string{"root"}, DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{}, VerificationObligations: []WorkflowVerificationObligation{}}
 					payload = mustJSONValue(fields)
 				}
 				switch {

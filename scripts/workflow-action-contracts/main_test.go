@@ -41,20 +41,17 @@ func action(id string, payload store.WorkflowPayloadDefinition) store.WorkflowAc
 // IDs. The projection owner derives their absence from this published set;
 // no compatibility alias or retained publication may revive them.
 var retiredPublishedActions = []string{
-	"accept_decision", "add_condition", "approve_operation", "cancel_condition",
+	"accept_decision", "approve_operation",
 	"checkpoint_action", "checkpoint_analysis", "checkpoint_poc", "checkpoint_run",
 	"cleanup_run", "declare_scope", "discard_poc", "frame_question",
 	"record_decision", "record_health", "record_option", "record_research",
-	"resolve_condition", "rollback_run", "run_analysis", "start_action",
+	"rollback_run", "run_analysis", "start_action",
 	"start_poc", "start_run",
 	"record_reproduction", "record_root_cause", "start_repair", "start_refine",
 	"record_worker_failure", "record_discovery",
 }
 
-// liveActionTarget is the approved public action target: 58 prior public
-// IDs − 22 retired-family IDs − 6 ceremony IDs + record_diagnosis
-// (CD-0218 D1/D2).
-const liveActionTarget = 31
+const liveActionTarget = 30
 
 // TestCurrentFieldsetAdditionProjectsVariants holds the variant shape: two
 // current families declare the same action, one with an appended optional
@@ -143,7 +140,7 @@ func TestPublicPayloadDivergenceKeepsThePair(t *testing.T) {
 
 // TestShippedBuiltinsProjectTheLiveSurfaceOnly is the live-surface
 // integration: the shipped heads and the canonical recovery list fold into
-// exactly the approved 31 authorable actions, no retired published action
+// exactly the approved 30 authorable actions, no retired published action
 // is authorable, retained versions add no variant to a live action, the
 // canonical verdict and supersede shapes are the declared ones, and
 // record_diagnosis is present (CD-0218 D1/D2).

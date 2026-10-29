@@ -19,7 +19,6 @@ tools:
   question: false
   opencode_mcp_connect: false
   opencode_mcp_disconnect: false
-  concord_ci_watch: false
   concord_domain: false
   concord_knowledge: false
   concord_product_view: false

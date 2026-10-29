@@ -8,7 +8,7 @@
   and directed that a worktree never requires a relaunch.
 - **Related:** CD-0088, CD-0092, CD-0093, CD-0096, CD-0103,
   CD-0104, issue #689
-- **Preserves:** The `session-prepare` directory refusal, the lane definition
+- **Preserves:** The `session-prepare` directory refusal, the primary definition
   check, and the read-back identity assertion
 
 ## Context
@@ -62,7 +62,7 @@ worktree.
 
 `session-prepare` still refuses
 a directory other than the active claimed worktree, still checks the installed
-lane definitions, and still obtains the core-derived session packet. Those
+primary definitions, and still obtains the core-derived session packet. Those
 checks now guard the destination of a move instead of the directory of a launch.
 
 The read-back assertion is preserved in D3. The agent identity assertion is
@@ -87,7 +87,6 @@ to the host and requires no Concord dispatch authorization (CD-0242 D6).
   work, which is the stated fail-closed outcome rather than a silent downgrade.
 - A dirty default checkout blocks work start until the operator resolves it.
 - This record claims no replacement readiness.
-- `fc1-session-handoff` requires a live host-started managed-entry witness.
 
 ## Rejected alternatives
 
@@ -113,12 +112,8 @@ records why the outcome holds without a wait the route does not offer.
 - `TestWorkStartRefusesDestinationOtherThanClaimedWorktree` proves D4.
 - A repository check verifies D1's no-process boundary: no `opencode run`
   invocation remains in the adapter.
-- `.concord/docs/floor-readiness.v1.json` carries `fc1-session-handoff` as
-  `unmeasured` pending the live host-started managed-entry witness.
-- `python3 scripts/check-floor-readiness.py` passes.
 - The coverage shard `.concord/docs/knowledge/coverage/CD-0098.json`, composed by
   `scripts/knowledge_index.py`, records CD-0098 as proved once the tests above
   pass.
-- `python3 scripts/check-doc-contract.py`, `python3 scripts/check-json.py`,
-  `python3 scripts/check-doc-links.py`, `python3 scripts/check-knowledge-index.py`,
-  and `python3 scripts/check-cd-allocation.py` pass.
+- `python3 scripts/check-json.py`, `python3 scripts/check-doc-links.py`, and
+  `python3 scripts/check-knowledge-index.py` pass.

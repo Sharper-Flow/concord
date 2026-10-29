@@ -3,7 +3,6 @@
     "tier": "derived"
   },
   "date": "2026-10-07T00:00:00Z",
-  "doc_contract_profile": "current",
   "evidence": [
     "internal/store/workflow_recovery_routes.go",
     "internal/store/workflow_recovery_routes_test.go",
@@ -17,7 +16,6 @@
     "internal/store/workflow_admission_liveness_test.go",
     "internal/store/workflow_correction.go",
     "internal/store/workflow_return_route_test.go",
-    "internal/store/workflow_design_refine_recovery_test.go",
     "internal/store/workflow_registry.go",
     "internal/store/workflow_parts.go",
     "internal/store/workflow_step.go",
@@ -60,7 +58,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:142f436c339834922e15097ee708c8d8bf583f1d070b3c8b9e1159080a819b25",
+  "sha256": "sha256:63b0e0c07d5f3d31f1bd236af2bd8f7f981f9d4befd1d47a7ba40593444c349a",
   "status": "accepted",
   "summary": "One declared two-trigger recovery table and one defensive reader own cross-step correction, admission, effects, staleness and work-pin intents. Only fresh typed production at the declared upstream target clears artifact staleness; a start, Review or verdict cannot. Registration, exhaustive liveness, seeded safety, real-engine conformance and public journeys retain their requirements. Complete-step supersession remains limited to implementation and break-fix. No launcher attempt or capability origin supplies production authority.",
   "tags": [

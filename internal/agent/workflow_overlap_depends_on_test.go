@@ -2,25 +2,21 @@ package agent
 
 import (
 	"context"
-	"errors"
 	"strings"
 	"testing"
 
 	"github.com/sharper-flow/concord/internal/agentcontract"
-	"github.com/sharper-flow/concord/internal/store"
 )
 
 // A depends_on resolution is the declarer's own sequencing answer: the
 // declarer waits behind the peer and the peer proceeds, so the caller
 // records it with no approval claim, no minted challenge, and no consumed
-// row. blocks shares that routine trust and holds the pair's admission
-// without consent on its own fixture.
+// row. blocks shares that routine trust on its own fixture.
 func TestResolveOverlapDependsOnRecordsDirectedSequencingWithoutConsent(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	s, service, _, _, env, input := seedAgentOverlapFixture(t)
-	dependsOn := []byte(strings.Replace(string(input), `"resolution_kind":"compatible_with"`, `"resolution_kind":"depends_on"`, 1))
-	response, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_relate", Operation: "resolve_overlap", Input: dependsOn}, env)
+	response, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_relate", Operation: "resolve_overlap", Input: input}, env)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -39,19 +35,6 @@ func TestResolveOverlapDependsOnRecordsDirectedSequencingWithoutConsent(t *testi
 	if workVersion(t, s, "work-1") != 3 || workVersion(t, s, "work-2") != 3 {
 		t.Fatal("depends_on resolution left the endpoints off the single-step versions")
 	}
-	// Directedness: the peer proceeds and the declarer is sequenced behind it.
-	if err := store.InspectWorkflowDomainOverlap(ctx, s, "work-2"); err != nil {
-		t.Fatalf("peer must proceed: %v", err)
-	}
-	sequenced := store.InspectWorkflowDomainOverlap(ctx, s, "work-1")
-	var failure *store.Failure
-	if !errors.As(sequenced, &failure) || failure.Kind != store.KindDomainOverlap || failure.DomainOverlap == nil || len(failure.DomainOverlap.Overlaps) != 1 {
-		t.Fatalf("declarer must be sequenced behind the peer: %v", sequenced)
-	}
-	overlap := failure.DomainOverlap.Overlaps[0]
-	if overlap.ResolutionKind != store.ResolutionDependsOn || overlap.ResolutionState != "sequenced" || overlap.FromWorkID != "work-1" || overlap.ToWorkID != "work-2" {
-		t.Fatalf("declarer sequencing judgment=%+v, want the depends_on sequenced pair declared by work-1", overlap)
-	}
 	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM agent_approval_challenges`); got != 0 {
 		t.Fatalf("depends_on resolution minted %d challenges, want none", got)
 	}
@@ -59,10 +42,9 @@ func TestResolveOverlapDependsOnRecordsDirectedSequencingWithoutConsent(t *testi
 		t.Fatalf("depends_on resolution consumed %d approval rows, want none", got)
 	}
 
-	// A fresh pair for the blocks side, because the depends_on resolution
-	// above settled its pair's overlap.
+	// A fresh pair for the blocks side, so its relation is the pair's only one.
 	s2, service2, _, _, env2, input2 := seedAgentOverlapFixture(t)
-	blocks := []byte(strings.Replace(string(input2), `"resolution_kind":"compatible_with"`, `"resolution_kind":"blocks"`, 1))
+	blocks := []byte(strings.Replace(string(input2), `"resolution_kind":"depends_on"`, `"resolution_kind":"blocks"`, 1))
 	blocksResponse, err := Dispatch(ctx, s2, service2, InvokeRequest{Tool: "concord_work_relate", Operation: "resolve_overlap", Input: blocks}, env2)
 	if err != nil {
 		t.Fatal(err)

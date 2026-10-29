@@ -39,7 +39,6 @@
         "concord_work_browse.ready",
         "concord_work_browse.blocked",
         "concord_work_browse.scope",
-        "concord_work_browse.resource_claims",
         "concord_work_browse.messages",
         "concord_work_browse.worktree_audit",
         "concord_work_browse.worktree_inspect"
@@ -109,8 +108,6 @@
       "description": "Change memberships and typed work relations.",
       "operations": [
         "concord_work_relate.set_memberships",
-        "concord_work_relate.resource_claim",
-        "concord_work_relate.resource_release",
         "concord_work_relate.message_send",
         "concord_work_relate.message_withdraw",
         "concord_work_relate.resolve_overlap",
@@ -128,12 +125,11 @@
     },
     {
       "id": "concord_domain",
-      "description": "Navigate Product architecture: current Domains, current law, attachments, unresolved overlap, the footprint of a change, and typed Domain Shape selected by one path, Domain or subject. Shape results are bounded to 32768 bytes and never execute Product checks.",
+      "description": "Navigate Product architecture: current Domains, current law, attachments, the footprint of a change, and typed Domain Shape selected by one path, Domain or subject. Shape results are bounded to 32768 bytes and never execute Product checks.",
       "operations": [
         "concord_domain.list",
         "concord_domain.detail",
         "concord_domain.attachments",
-        "concord_domain.overlaps",
         "concord_domain.footprint",
         "concord_domain.shape"
       ]
@@ -299,27 +295,6 @@
       "approval": "none",
       "metadata": {
         "context": "explicit",
-        "idempotency": "request_id",
-        "pagination": "cursor",
-        "output_bytes": 51200,
-        "versions": [
-          "1.0"
-        ]
-      },
-      "supported_budget_seconds": 300
-    },
-    {
-      "id": "concord_work_browse.resource_claims",
-      "tool": "concord_work_browse",
-      "kind": "read",
-      "query_id": "PM1.Q13",
-      "input_schema": "#/schemas/work_browse_resource_claims_input",
-      "result_schema": "#/schemas/resource_claims_page",
-      "capability": "product_read",
-      "consequence": "read",
-      "approval": "none",
-      "metadata": {
-        "context": "ambient",
         "idempotency": "request_id",
         "pagination": "cursor",
         "output_bytes": 51200,
@@ -1053,7 +1028,7 @@
       "result_schema": "#/schemas/mutation_result",
       "capability": "work_transition",
       "consequence": "lifecycle",
-      "approval": "conditional",
+      "approval": "none",
       "metadata": {
         "context": "ambient",
         "idempotency": "required",
@@ -1098,48 +1073,6 @@
       "approval": "conditional",
       "metadata": {
         "context": "explicit",
-        "idempotency": "required",
-        "pagination": "none",
-        "output_bytes": 51200,
-        "versions": [
-          "1.0"
-        ]
-      },
-      "supported_budget_seconds": 300
-    },
-    {
-      "id": "concord_work_relate.resource_claim",
-      "tool": "concord_work_relate",
-      "kind": "mutation",
-      "query_id": null,
-      "input_schema": "#/schemas/work_relate_resource_claim_input",
-      "result_schema": "#/schemas/mutation_result",
-      "capability": "work_relate",
-      "consequence": "claim",
-      "approval": "none",
-      "metadata": {
-        "context": "ambient",
-        "idempotency": "required",
-        "pagination": "none",
-        "output_bytes": 51200,
-        "versions": [
-          "1.0"
-        ]
-      },
-      "supported_budget_seconds": 300
-    },
-    {
-      "id": "concord_work_relate.resource_release",
-      "tool": "concord_work_relate",
-      "kind": "mutation",
-      "query_id": null,
-      "input_schema": "#/schemas/work_relate_resource_release_input",
-      "result_schema": "#/schemas/mutation_result",
-      "capability": "work_relate",
-      "consequence": "claim",
-      "approval": "none",
-      "metadata": {
-        "context": "ambient",
         "idempotency": "required",
         "pagination": "none",
         "output_bytes": 51200,
@@ -1282,27 +1215,6 @@
       "query_id": "C22.DomainAttachments",
       "input_schema": "#/schemas/domain_attachments_input",
       "result_schema": "#/schemas/domain_attachments_result",
-      "capability": "product_read",
-      "consequence": "read",
-      "approval": "none",
-      "metadata": {
-        "context": "explicit",
-        "idempotency": "request_id",
-        "pagination": "none",
-        "output_bytes": 51200,
-        "versions": [
-          "1.0"
-        ]
-      },
-      "supported_budget_seconds": 300
-    },
-    {
-      "id": "concord_domain.overlaps",
-      "tool": "concord_domain",
-      "kind": "read",
-      "query_id": "C22.DomainOverlaps",
-      "input_schema": "#/schemas/domain_overlaps_input",
-      "result_schema": "#/schemas/domain_overlaps_result",
       "capability": "product_read",
       "consequence": "read",
       "approval": "none",
@@ -1530,14 +1442,6 @@
       "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/domain_list_result",
       "closed": true
     },
-    "domain_overlaps_input": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/domain_overlaps_input",
-      "closed": true
-    },
-    "domain_overlaps_result": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/domain_overlaps_result",
-      "closed": true
-    },
     "external_observation_input": {
       "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/external_observation_input",
       "closed": true
@@ -1602,10 +1506,6 @@
       "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/research_read_result",
       "closed": true
     },
-    "resource_claims_page": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/resource_claims_page",
-      "closed": true
-    },
     "resource_page": {
       "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/resource_page",
       "closed": true
@@ -1632,10 +1532,6 @@
     },
     "work_browse_ready_input": {
       "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_browse_ready_input",
-      "closed": true
-    },
-    "work_browse_resource_claims_input": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_browse_resource_claims_input",
       "closed": true
     },
     "work_browse_scope_input": {
@@ -1752,14 +1648,6 @@
     },
     "work_relate_resolve_overlap_input": {
       "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_relate_resolve_overlap_input",
-      "closed": true
-    },
-    "work_relate_resource_claim_input": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_relate_resource_claim_input",
-      "closed": true
-    },
-    "work_relate_resource_release_input": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_relate_resource_release_input",
       "closed": true
     },
     "work_relation_graph": {
@@ -1944,6 +1832,6 @@
       "digest"
     ]
   },
-  "payload_digest": "sha256:186d5baadb21d84de06ec8497dd02c37c7fbac4759c1006899c5499f66e52bbc",
-  "digest": "sha256:d893f72dba433dd8737ff45959f78e3457bca20f6fa6f706dfe218eb1855b4c2"
+  "payload_digest": "sha256:2cd441222297554d8006db2f61b90c3a3b03440e75072c194ad7a7f97ef1cb16",
+  "digest": "sha256:9d79e1c7330aff88cd80b918b227f1c75d8fac7d6f6f2fd3c766902fb8339996"
 }

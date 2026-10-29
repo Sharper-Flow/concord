@@ -225,7 +225,7 @@ func workflowApproveBoundContractEvents(ctx context.Context, tx *sql.Tx, definit
 	if lawChangeErr != nil {
 		return nil, lawChangeErr
 	}
-	if err := bindWorkflowLawChangeApprovalTx(ctx, tx, request, lawChange); err != nil {
+	if err := bindWorkflowLawChangeApprovalTx(ctx, tx, request, lawChange, decisionDomains); err != nil {
 		return nil, err
 	}
 	if lawChange != nil {
@@ -258,8 +258,7 @@ func workflowReviseCandidatesEvents(request WorkflowActionExecutionRequest, acto
 // record_alignment registry payload and enforced by
 // validateWorkflowActionPayload before any event is built, so this
 // constructor does not restate them. Each related id names a real work item,
-// refused here at the boundary rather than at the fold's foreign key,
-// matching the declare_impact target rule (issue #823).
+// refused here at the boundary rather than at the fold's foreign key.
 func workflowRecordAlignmentEvents(ctx context.Context, tx *sql.Tx, request WorkflowActionExecutionRequest, actor string, fields map[string]json.RawMessage, eventID string, expected int64) ([]Event, error) {
 	relatedIDs := workflowFieldStrings(fields, "related_ids")
 	for _, relatedID := range relatedIDs {
@@ -333,14 +332,6 @@ func workflowSupersedeContractEvents(ctx context.Context, tx *sql.Tx, definition
 	if bindingErr != nil {
 		return nil, bindingErr
 	}
-	selfRepairRaw, selfRepairPresent := fields["self_repair"]
-	selfRepair, selfRepairErr := parseWorkflowSelfRepair(selfRepairRaw)
-	if selfRepairErr != nil {
-		return nil, selfRepairErr
-	}
-	if selfRepairPresent && selfRepair != nil && !productChanging {
-		return nil, newFailure(KindInvalidPayload, "workflow_action", "non-Product-changing successor cannot carry self_repair", false, "classify only Product-changing Concord defect repair")
-	}
 	revisionMandate := specMandate
 	var revisionErr error
 	if productChanging {
@@ -371,7 +362,7 @@ func workflowSupersedeContractEvents(ctx context.Context, tx *sql.Tx, definition
 	if lawChangeErr != nil {
 		return nil, lawChangeErr
 	}
-	if err := bindWorkflowLawChangeApprovalTx(ctx, tx, request, lawChange); err != nil {
+	if err := bindWorkflowLawChangeApprovalTx(ctx, tx, request, lawChange, decisionDomains); err != nil {
 		return nil, err
 	}
 	if lawChange != nil {
@@ -381,9 +372,6 @@ func workflowSupersedeContractEvents(ctx context.Context, tx *sql.Tx, definition
 		successor["architecture_binding"] = binding
 	} else if len(lawModifies) == 0 {
 		delete(successor, "law_modifies")
-	}
-	if selfRepairPresent && selfRepair != nil {
-		successor["self_repair"] = selfRepair
 	}
 	events := []Event{workflowTypedEvent(eventID, WorkflowContractSuperseded, request.WorkID, actor, request.Now, expected, map[string]any{"previous_contract_version": previous, "predecessor_contract_versions": predecessors, "new_contract_version": next, "supersede_reason": workflowFieldStringDefault(fields, "supersede_reason", "contract revision"), "audit_evidence": audit, "approval_ref": request.OperatorApprovalRef, "approval_operation_digest": request.ApprovalOperationDigest, "approval_scope_json": request.ApprovalScopeJSON, "approval_versions_json": request.ApprovalVersionsJSON, "approval_consequence": request.ApprovalConsequence, "successor_contract": successor})}
 	return appendWorkflowDesignCorrection(ctx, tx, definition, request, actor, fields["design_record"], eventID, expected, events)
@@ -787,42 +775,4 @@ func workflowLinkSuccessorEvents(ctx context.Context, tx *sql.Tx, definition Wor
 		return nil, successorErr
 	}
 	return []Event{workflowTypedEvent(eventID, WorkflowSuccessorLinked, request.WorkID, actor, request.Now, expected, map[string]any{"successor_work_id": successorID, "relation_kind": "forward_link", "successor_kind": successorKind, "definition_ref": definitionRef})}, nil
-}
-
-func workflowDeclareImpactEvents(ctx context.Context, tx *sql.Tx, request WorkflowActionExecutionRequest, actor string, fields map[string]json.RawMessage, eventID string, expected int64) ([]Event, error) {
-	// The impact edge carries a foreign key to work_items, so a target
-	// the caller never named cannot default into existence: a phantom
-	// "<work>-target" id only moves the failure to fold time. The target
-	// is required and must name a real work item, refused here at the
-	// boundary with a typed payload error (issue #823).
-	targetID, targetOK := workflowFieldString(fields, "target_work_id")
-	if !targetOK || targetID == "" {
-		return nil, newFailure(KindInvalidPayload, "workflow_action", "declare_impact requires target_work_id naming the impacted work item", false, "supply a real target work item id")
-	}
-	var targetExists int
-	if err := tx.QueryRowContext(ctx, `SELECT 1 FROM work_items WHERE id=?`, targetID).Scan(&targetExists); err == sql.ErrNoRows {
-		return nil, newFailure(KindInvalidPayload, "workflow_action", "declare_impact target_work_id does not name a work item", false, "supply a real target work item id")
-	} else if err != nil {
-		return nil, workflowProjectionError(err, "cannot read the impact target")
-	}
-	return []Event{workflowTypedEvent(eventID, WorkflowImpactDeclared, request.WorkID, actor, request.Now, expected, map[string]any{"edge_id": workflowFieldStringDefault(fields, "edge_id", "edge:"+request.OperationID), "edge_kind": workflowFieldStringDefault(fields, "edge_kind", "modifies"), "edge_class": workflowFieldStringDefault(fields, "edge_class", "hard"), "target_work_id": targetID, "target_kind": "work_item", "severity": workflowFieldStringDefault(fields, "severity", "non-breaking")})}, nil
-}
-
-func workflowAddConditionEvents(request WorkflowActionExecutionRequest, actor string, fields map[string]json.RawMessage, eventID string, expected int64) ([]Event, error) {
-	values := map[string]any{"condition_id": workflowFieldStringDefault(fields, "condition_id", "condition:"+request.OperationID), "await_type": workflowFieldStringDefault(fields, "await_type", "timer"), "await_ref": workflowFieldStringDefault(fields, "await_ref", "await:"+request.OperationID), "resolution_authority": workflowFieldStringDefault(fields, "resolution_authority", "durable_operation:"+request.OperationID)}
-	// Issue #87: a step delegating completion to an external actor may
-	// declare how long the wait is expected to take; exceeding it reads
-	// as overdue. Omitted or zero means no declared expectation.
-	if bound, ok := workflowFieldIntOK(fields, "expected_within_seconds"); ok {
-		values["expected_within_seconds"] = bound
-	}
-	return []Event{workflowTypedEvent(eventID, WorkflowConditionAdded, request.WorkID, actor, request.Now, expected, values)}, nil
-}
-
-func workflowResolveConditionEvents(request WorkflowActionExecutionRequest, actor string, fields map[string]json.RawMessage, eventID string, expected int64) ([]Event, error) {
-	return []Event{workflowTypedEvent(eventID, WorkflowConditionResolved, request.WorkID, actor, request.Now, expected, map[string]any{"condition_id": workflowFieldStringDefault(fields, "condition_id", "condition:"+request.OperationID), "resolution_evidence": workflowFieldStringsDefault(fields, "resolution_evidence", []string{"evidence:" + request.OperationID}), "resolved_by_event": workflowFieldStringDefault(fields, "resolved_by_event", eventID)})}, nil
-}
-
-func workflowCancelConditionEvents(request WorkflowActionExecutionRequest, actor string, fields map[string]json.RawMessage, eventID string, expected int64) ([]Event, error) {
-	return []Event{workflowTypedEvent(eventID, WorkflowConditionCancelled, request.WorkID, actor, request.Now, expected, map[string]any{"condition_id": workflowFieldStringDefault(fields, "condition_id", "condition:"+request.OperationID), "cancellation_authority": workflowFieldStringDefault(fields, "cancellation_authority", actor), "cancellation_evidence": workflowFieldStringsDefault(fields, "cancellation_evidence", []string{"evidence:" + request.OperationID}), "cancelled_by_event": workflowFieldStringDefault(fields, "cancelled_by_event", eventID)})}, nil
 }

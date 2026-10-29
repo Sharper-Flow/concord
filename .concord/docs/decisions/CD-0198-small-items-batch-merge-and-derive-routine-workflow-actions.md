@@ -67,4 +67,3 @@ No worker-failure record, combined worker acceptance or retry launcher exists.
   omitted predicates, diagnosis completeness, first-action starts and delivery
   refusal for missing, stale, failed, dirty or undeclared verification.
 - `python3 scripts/check-knowledge-index.py` checks identity and hashes.
-- `python3 scripts/check-doc-contract.py` checks the decision outline.

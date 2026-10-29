@@ -65,7 +65,7 @@ func newDomainShapeProjection(commit string, manifest KnowledgeManifest, archite
 func prepareDomainShapeProjection(ctx context.Context, home KnowledgeHome, commit string, shards knowledgeShards, manifest KnowledgeManifest, architecture knowledgeArchitecture, designated bool) (*domainShapeProjection, error) {
 	if !designated {
 		if len(shards.facts) != 0 {
-			return nil, domainShapeProjectionFailure("facts require the Product's designated knowledge home; a registered source cannot carry facts")
+			return nil, domainShapeProjectionFailure("facts require the Product's designated knowledge home")
 		}
 		return nil, nil
 	}

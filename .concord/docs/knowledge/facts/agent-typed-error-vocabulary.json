@@ -30,14 +30,9 @@
         "check_id": "go-test-race",
         "kind": "go_test",
         "value": "internal/store.TestEveryTypedErrorKindHasANamedConstant"
-      },
-      {
-        "check_id": "go-test-race",
-        "kind": "go_test",
-        "value": "internal/store.TestWorkflowSelfRepairTypedErrorVocabulary"
       }
     ],
-    "statement": "The schema owner projects the closed TS7 typed-error vocabulary from the canonical envelope schema. Its membership predicate accepts exactly the declared kinds, and its ordered list returns independent slices. Agent failure normalization and the store's self-repair admission read that shared vocabulary; their mappings, transaction rules, recovery decisions and authority remain with those callers."
+    "statement": "The schema owner projects the closed TS7 typed-error vocabulary from the canonical envelope schema. Its membership predicate accepts exactly the declared kinds, and its ordered list returns independent slices. Agent failure normalization reads that shared vocabulary; its mappings, transaction rules, recovery decisions and authority remain with that caller."
   },
   "kind": "invariant",
   "owner_domain_id": "agent-contract",

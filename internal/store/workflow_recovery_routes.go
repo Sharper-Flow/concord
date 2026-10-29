@@ -198,7 +198,7 @@ func workflowStalenessSpanTargets(definition WorkflowDefinition, stepID string) 
 // worker-run families' producer steps, record_finding records the findings
 // the research producer owns, and record_decision records the decision the
 // spike producer owns. Every other completion — a health reading, a
-// candidate revision, an impact declaration, a successor link, a fenced
+// candidate revision, a successor link, a fenced
 // start, a checkpoint, an evidence binding, or a verdict — never re-produces
 // the artifact an evaluator judges, whatever its mode. A family that gains a
 // new producing mechanism declares it here; nothing else changes.

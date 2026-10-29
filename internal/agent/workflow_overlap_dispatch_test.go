@@ -16,7 +16,7 @@ func seedAgentOverlapFixture(t *testing.T) (*store.Store, *Service, Authority, e
 	return seedAgentOverlapFixtureWith(t, []agentcontract.Capability{"work_relate"})
 }
 
-// seedAgentOverlapFixtureWith builds the same unresolved-overlap fixture under
+// seedAgentOverlapFixtureWith builds the same shared-Domain pair fixture under
 // a caller-chosen capability set, so a test may probe operations on tools other
 // than concord_work_relate.
 func seedAgentOverlapFixtureWith(t *testing.T, capabilities []agentcontract.Capability) (*store.Store, *Service, Authority, ed25519.PrivateKey, CallEnvelope, []byte) {
@@ -52,14 +52,9 @@ func seedAgentOverlapFixtureWith(t *testing.T, capabilities []agentcontract.Capa
 		{"work-2 contract", `INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class) VALUES('work-2',1,'overlap','internal_sqlite','[]','[]','now',?,'[]','[]',1,'prototype_internal')`, []any{actorRef}},
 		{"bindings", `INSERT INTO workflow_architecture_bindings(work_id,contract_version,product_id,domain_registry_content_hash,home_domain_id,projection_hash) VALUES('work-1',1,'product-1',?,'root',?),('work-2',1,'product-1',?,'root',?)`, []any{hash, hash, hash, hash}},
 		{"affected domains", `INSERT INTO workflow_contract_affected_domains(work_id,contract_version,domain_id) VALUES('work-1',1,'root'),('work-2',1,'root')`, nil},
-		// CD-0183: a contract holds its Domain claim once the item's workflow
-		// instance carries the execution-start fact, so the fixture gives both
-		// sides a started instance. Without this the pair claims nothing and
-		// derives no overlap to resolve.
+		// Both items are executing, so either may sequence against the other.
 		{"started instances", `INSERT INTO workflow_instances(work_id,definition_ref,definition_digest,current_step,instance_state,execution_started_at) VALUES('work-1','workflow.break_fix',?, 'repair','running','2026-08-19T00:00:00Z'),('work-2','workflow.break_fix',?,'repair','running','2026-08-19T00:00:00Z')`, []any{breakFixFixtureDigest(t), breakFixFixtureDigest(t)}},
 		{"started lifecycles", `UPDATE work_items SET lifecycle='in_progress' WHERE id IN ('work-1','work-2')`, nil},
-		// Only a write intersection blocks, so the pair must modify the same
-		// Domain. A shared affected Domain alone derives no overlap.
 		{"shared Domain writes", `INSERT INTO workflow_contract_domain_modifications(work_id,contract_version,domain_id) VALUES('work-1',1,'root'),('work-2',1,'root')`, nil},
 		{"leave write", `DELETE FROM write_guard`, nil},
 	}
@@ -73,12 +68,12 @@ func seedAgentOverlapFixtureWith(t *testing.T, capabilities []agentcontract.Capa
 		t.Fatal(err)
 	}
 	env := mutationEnvelope(grant, scopeVersionForProject(t, s, "project-1"))
-	input := []byte(`{"from_work_id":"work-1","to_work_id":"work-2","from_expected_version":2,"to_expected_version":2,"from_contract_version":1,"to_contract_version":1,"resolution_kind":"compatible_with","reason":"operator confirms compatible work","idempotency_key":"resolve-overlap-1"}`)
+	input := []byte(`{"from_work_id":"work-1","to_work_id":"work-2","from_expected_version":2,"to_expected_version":2,"from_contract_version":1,"to_contract_version":1,"resolution_kind":"depends_on","reason":"operator sequences the pair","idempotency_key":"resolve-overlap-1"}`)
 	return s, service, grant, privateKey, env, input
 }
 
 // TestResolveOverlapRoutineDispatchRecordsUnsignedAndRefusesASuppliedApproval
-// proves the routine compatible_with caller records its coordination answer
+// proves the routine depends_on caller records its coordination answer
 // unsigned: the success needs no challenge and consumes no approval, the
 // recorded event and projection carry the exact direction, kind, contract,
 // and version pins, and a supplied approval claim refuses with no effect.
@@ -87,7 +82,7 @@ func TestResolveOverlapRoutineDispatchRecordsUnsignedAndRefusesASuppliedApproval
 	s, service, _, _, env, input := seedAgentOverlapFixture(t)
 	// A genuine governing-cut challenge, not an unknown-reference guess.
 	setAgentDeclaredRequirements(t, s, "work-1", []string{"audit_required"})
-	destructive := []byte(strings.Replace(string(input), `"resolution_kind":"compatible_with"`, `"resolution_kind":"merged_into"`, 1))
+	destructive := []byte(strings.Replace(string(input), `"resolution_kind":"depends_on"`, `"resolution_kind":"merged_into"`, 1))
 	challenged := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_relate", Operation: "resolve_overlap", Input: destructive}, env)
 	if challenged.Error == nil || challenged.Error.Kind != "invariant_violation" {
 		t.Fatalf("destructive challenge dispatch outcome=%s error=%+v", challenged.Outcome, challenged.Error)
@@ -130,7 +125,7 @@ func TestResolveOverlapRoutineDispatchRecordsUnsignedAndRefusesASuppliedApproval
 	if err := s.DatabaseForTesting().QueryRow(`SELECT from_work_id,to_work_id,resolution_kind,from_contract_version,to_contract_version,approval_ref,invalidated_seq FROM workflow_overlap_resolutions`).Scan(&fromID, &toID, &kind, &fromContract, &toContract, &approvalRef, &invalidated); err != nil {
 		t.Fatal(err)
 	}
-	if fromID != "work-1" || toID != "work-2" || kind != "compatible_with" || fromContract != 1 || toContract != 1 || approvalRef != "" || invalidated != nil {
+	if fromID != "work-1" || toID != "work-2" || kind != "depends_on" || fromContract != 1 || toContract != 1 || approvalRef != "" || invalidated != nil {
 		t.Fatalf("recorded resolution=%s->%s %s contracts %d/%d approval=%q invalidated=%v, want the unsigned current work-1->work-2 pair at contracts 1/1", fromID, toID, kind, fromContract, toContract, approvalRef, invalidated)
 	}
 	var eventKind, eventToID, eventApprovalRef string
@@ -138,10 +133,10 @@ func TestResolveOverlapRoutineDispatchRecordsUnsignedAndRefusesASuppliedApproval
 	if err := s.DatabaseForTesting().QueryRow(`SELECT o.resolution_kind,o.to_work_id,o.approval_ref,f.version,t.version FROM workflow_overlap_resolutions o JOIN effect_receipts r ON r.event_id=o.resolution_id AND r.effect_seq=o.event_seq JOIN work_items f ON f.id=o.from_work_id JOIN work_items t ON t.id=o.to_work_id WHERE r.kind='workflow.overlap_resolved'`).Scan(&eventKind, &eventToID, &eventApprovalRef, &resulting, &toResulting); err != nil {
 		t.Fatal(err)
 	}
-	if eventKind != "compatible_with" || eventToID != "work-2" || eventApprovalRef != "" || resulting != 3 || toResulting != 3 {
-		t.Fatalf("resolution event kind=%s to=%s approval=%q versions=%d/%d, want the unsigned compatible_with event to work-2 at 3/3", eventKind, eventToID, eventApprovalRef, resulting, toResulting)
+	if eventKind != "depends_on" || eventToID != "work-2" || eventApprovalRef != "" || resulting != 3 || toResulting != 3 {
+		t.Fatalf("resolution event kind=%s to=%s approval=%q versions=%d/%d, want the unsigned depends_on event to work-2 at 3/3", eventKind, eventToID, eventApprovalRef, resulting, toResulting)
 	}
-	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM relations WHERE kind='compatible_with' AND work_id_from='work-1' AND work_id_to='work-2' AND resolution_id IS NOT NULL`); got != 1 {
+	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM relations WHERE kind='depends_on' AND work_id_from='work-1' AND work_id_to='work-2' AND resolution_id IS NOT NULL`); got != 1 {
 		t.Fatalf("resolution relation rows=%d, want 1", got)
 	}
 	if workVersion(t, s, "work-1") != 3 || workVersion(t, s, "work-2") != 3 {
@@ -176,7 +171,7 @@ func TestResolveOverlapBlocksRemovesWorkFromReady(t *testing.T) {
 	if len(before.Items) != 1 || before.Items[0].ID != "work-2" || deriveWorkBlocked(t, s, "work-2") {
 		t.Fatalf("peer was not ready before resolution: %+v", before.Items)
 	}
-	input = []byte(strings.Replace(string(input), `"resolution_kind":"compatible_with"`, `"resolution_kind":"blocks"`, 1))
+	input = []byte(strings.Replace(string(input), `"resolution_kind":"depends_on"`, `"resolution_kind":"blocks"`, 1))
 	request := InvokeRequest{Tool: "concord_work_relate", Operation: "resolve_overlap", Input: input}
 	resolved := dispatchMutation(t, s, service, request, env)
 	if resolved.Outcome != agentcontract.OutcomeOK {

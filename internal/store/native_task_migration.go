@@ -12,11 +12,24 @@ func applyNativeTaskCutover(ctx context.Context, tx *sql.Tx, retirementSQL strin
 	if err := validateNativeTaskCutover(ctx, tx); err != nil {
 		return err
 	}
+	var guarded bool
+	if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM write_guard WHERE active=1)`).Scan(&guarded); err != nil {
+		return err
+	}
+	if !guarded {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO write_guard(active) VALUES(1)`); err != nil {
+			return err
+		}
+	}
 	if err := normalizeNativeTaskCorrections(ctx, tx); err != nil {
 		return err
 	}
 	if _, err := tx.ExecContext(ctx, retirementSQL); err != nil {
 		return wrapFailure(KindUnavailable, "migrate", "native Task retirement failed", false, "roll back the upgrade transaction and correct the migration definition", err)
+	}
+	if !guarded {
+		_, err := tx.ExecContext(ctx, `DELETE FROM write_guard WHERE active=1`)
+		return err
 	}
 	return nil
 }
@@ -56,24 +69,12 @@ func normalizeNativeTaskCorrections(ctx context.Context, tx *sql.Tx) error {
 	if err := rows.Close(); err != nil {
 		return err
 	}
-	var guarded bool
-	if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM fold_guard WHERE active=1)`).Scan(&guarded); err != nil {
-		return err
-	}
-	if !guarded {
-		if _, err := tx.ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
-			return err
-		}
-	}
 	for _, update := range updates {
 		if _, err := tx.ExecContext(ctx, `UPDATE workflow_correction_state SET state=? WHERE work_id=?`, update.state, update.work); err != nil {
 			return workflowProjectionError(err, "cannot normalize legacy correction consumption")
 		}
 	}
-	if !guarded {
-		_, err = tx.ExecContext(ctx, `DELETE FROM fold_guard WHERE active=1`)
-	}
-	return err
+	return nil
 }
 
 func normalizeNativeTaskCorrection(raw string, consumedThrough int64) (correctionStateFact, error) {

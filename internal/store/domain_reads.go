@@ -5,21 +5,17 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
-	"slices"
-	"sort"
 	"strings"
 )
 
 // Bounded Product → Domain reads. These are the primary navigation path for
-// current Domains, their current law, typed architecture relations, local
-// attachments, and unresolved Domain overlap. The Git-derived registry is the
-// only authority; a Product without a projected registry refuses with a typed
+// current Domains, their current law, typed architecture relations, and local
+// attachments. The Git-derived registry is the only authority; a Product without a projected registry refuses with a typed
 // failure rather than an empty page.
 
 const (
 	domainListDefaultLimit = 20
 	domainListMaxLimit     = 100
-	domainOverlapPairLimit = 50
 )
 
 // DomainRegistryView is the authority watermark every Domain read carries: it
@@ -89,9 +85,7 @@ type DomainDetailResult struct {
 }
 
 type DomainAttachmentView struct {
-	ProjectEdges    []DomainProjectAttachment  `json:"project_attachments"`
 	ResourceEdges   []DomainResourceAttachment `json:"resource_attachments"`
-	ProjectVersion  int64                      `json:"project_set_version"`
 	ResourceVersion int64                      `json:"resource_set_version"`
 }
 
@@ -105,27 +99,6 @@ type DomainAttachmentsResult struct {
 	Registry    *DomainRegistryView  `json:"registry"`
 	Domain      DomainSummary        `json:"domain"`
 	Attachments DomainAttachmentView `json:"attachments"`
-}
-
-type DomainOverlapPair struct {
-	FromWorkID      string   `json:"from_work_id"`
-	ToWorkID        string   `json:"to_work_id"`
-	SharedDomainIDs []string `json:"shared_domain_ids"`
-	SharedLawIDs    []string `json:"shared_law_ids,omitempty"`
-	ResolutionState string   `json:"resolution_state"`
-	ResolutionKind  string   `json:"resolution_kind,omitempty"`
-}
-
-type DomainOverlapsRequest struct {
-	Product string
-	Domain  string
-}
-
-type DomainOverlapsResult struct {
-	ResultMeta
-	Registry  *DomainRegistryView `json:"registry"`
-	Pairs     []DomainOverlapPair `json:"pairs"`
-	Truncated bool                `json:"truncated"`
 }
 
 // Every Domain result type embeds ResultMeta, and Go promotes an embedded
@@ -178,9 +151,7 @@ type DomainResourceAttachmentPayload struct {
 }
 
 type DomainAttachmentViewPayload struct {
-	ProjectEdges    []DomainProjectAttachment         `json:"project_attachments"`
 	ResourceEdges   []DomainResourceAttachmentPayload `json:"resource_attachments"`
-	ProjectVersion  int64                             `json:"project_set_version"`
 	ResourceVersion int64                             `json:"resource_set_version"`
 }
 
@@ -199,22 +170,10 @@ func NewDomainAttachmentsPayload(result DomainAttachmentsResult) DomainAttachmen
 		Registry: result.Registry,
 		Domain:   result.Domain,
 		Attachments: DomainAttachmentViewPayload{
-			ProjectEdges:    sliceOrEmpty(result.Attachments.ProjectEdges),
 			ResourceEdges:   resources,
-			ProjectVersion:  result.Attachments.ProjectVersion,
 			ResourceVersion: result.Attachments.ResourceVersion,
 		},
 	}
-}
-
-type DomainOverlapsPayload struct {
-	Registry  *DomainRegistryView `json:"registry"`
-	Pairs     []DomainOverlapPair `json:"pairs"`
-	Truncated bool                `json:"truncated"`
-}
-
-func NewDomainOverlapsPayload(result DomainOverlapsResult) DomainOverlapsPayload {
-	return DomainOverlapsPayload{Registry: result.Registry, Pairs: sliceOrEmpty(result.Pairs), Truncated: result.Truncated}
 }
 
 // sliceOrEmpty renders an absent collection as an empty JSON array. Every
@@ -429,8 +388,8 @@ func queryDomainDetail(ctx context.Context, q queryer, req DomainDetailRequest) 
 	return out, nil
 }
 
-// QueryDomainAttachments returns the local Project and resource attachment
-// sets for one current Domain, with their set versions.
+// QueryDomainAttachments returns the local resource attachment set for one
+// current Domain, with its set version.
 func (s *Store) QueryDomainAttachments(ctx context.Context, req DomainAttachmentsRequest) (DomainAttachmentsResult, error) {
 	var out DomainAttachmentsResult
 	if s == nil || s.db == nil {
@@ -452,32 +411,11 @@ func queryDomainAttachments(ctx context.Context, q queryer, req DomainAttachment
 	summary.HomeDomain = summary.DomainID == registry.RootDomainID
 	out.Domain = summary
 	out.Registry = registry
-	// An unattached Domain is an authoritative empty edge set, so both edge
-	// collections serialize as arrays rather than null.
-	out.Attachments.ProjectEdges = []DomainProjectAttachment{}
+	// An unattached Domain is an authoritative empty edge set.
 	out.Attachments.ResourceEdges = []DomainResourceAttachment{}
-	if err := q.QueryRowContext(ctx, `SELECT version FROM domain_project_attachment_sets WHERE product_id=? AND domain_id=?`, req.Product, req.Domain).Scan(&out.Attachments.ProjectVersion); err != nil && err != sql.ErrNoRows {
-		return out, wrapFailure(KindUnavailable, "C22.DomainAttachments", "cannot read Project attachments", true, "retry once the database is readable", err)
-	}
 	if err := q.QueryRowContext(ctx, `SELECT version FROM domain_resource_attachment_sets WHERE product_id=? AND domain_id=?`, req.Product, req.Domain).Scan(&out.Attachments.ResourceVersion); err != nil && err != sql.ErrNoRows {
 		return out, wrapFailure(KindUnavailable, "C22.DomainAttachments", "cannot read resource attachments", true, "retry once the database is readable", err)
 	}
-	prows, err := q.QueryContext(ctx, `SELECT project_id,role FROM domain_project_attachment_edges WHERE product_id=? AND domain_id=? ORDER BY role DESC,project_id`, req.Product, req.Domain)
-	if err != nil {
-		return out, wrapFailure(KindUnavailable, "C22.DomainAttachments", "cannot read Project attachments", true, "retry once the database is readable", err)
-	}
-	defer prows.Close()
-	for prows.Next() {
-		var edge DomainProjectAttachment
-		if err := prows.Scan(&edge.ProjectID, &edge.Role); err != nil {
-			return out, wrapFailure(KindUnavailable, "C22.DomainAttachments", "cannot decode Project attachments", true, "retry once the database is readable", err)
-		}
-		out.Attachments.ProjectEdges = append(out.Attachments.ProjectEdges, edge)
-	}
-	if err := prows.Err(); err != nil {
-		return out, wrapFailure(KindUnavailable, "C22.DomainAttachments", "cannot enumerate Project attachments", true, "retry once the database is readable", err)
-	}
-	prows.Close()
 	rrows, err := q.QueryContext(ctx, `SELECT resource_id,purpose,environments FROM domain_resource_attachment_edges WHERE product_id=? AND domain_id=? ORDER BY resource_id`, req.Product, req.Domain)
 	if err != nil {
 		return out, wrapFailure(KindUnavailable, "C22.DomainAttachments", "cannot read resource attachments", true, "retry once the database is readable", err)
@@ -497,90 +435,8 @@ func queryDomainAttachments(ctx context.Context, q queryer, req DomainAttachment
 	if err := rrows.Err(); err != nil {
 		return out, wrapFailure(KindUnavailable, "C22.DomainAttachments", "cannot enumerate resource attachments", true, "retry once the database is readable", err)
 	}
-	out.ResultMeta = ResultMeta{QueryID: "C22.DomainAttachments", ContractVersion: "C22/1.0", ResolvedScope: ResolvedScope{ProductID: req.Product, DomainID: req.Domain}, Authority: "authoritative", OrderingKeys: []string{"role", "project_id", "resource_id"}}
+	out.ResultMeta = ResultMeta{QueryID: "C22.DomainAttachments", ContractVersion: "C22/1.0", ResolvedScope: ResolvedScope{ProductID: req.Product, DomainID: req.Domain}, Authority: "authoritative", OrderingKeys: []string{"resource_id"}}
 	return out, nil
-}
-
-// QueryDomainOverlaps reports exact shared-write pairs with at least one
-// execution-started side, including their current resolution. Its footprint
-// and freshness derivation are shared with consequential admission.
-func (s *Store) QueryDomainOverlaps(ctx context.Context, req DomainOverlapsRequest) (DomainOverlapsResult, error) {
-	var out DomainOverlapsResult
-	if s == nil || s.db == nil {
-		return out, newFailure(KindUnavailable, "C22.DomainOverlaps", "store is not open", false, "open a store before reading Domains")
-	}
-	return queryDomainOverlaps(ctx, s.db, req)
-}
-
-func queryDomainOverlaps(ctx context.Context, q queryer, req DomainOverlapsRequest) (DomainOverlapsResult, error) {
-	var out DomainOverlapsResult
-	omissions, err := duplicateActiveContractOmissions(ctx, q, req.Product)
-	if err != nil {
-		return out, err
-	}
-	registry, err := readDomainRegistry(ctx, q, req.Product)
-	if err != nil {
-		return out, err
-	}
-	out.Pairs = []DomainOverlapPair{}
-	if req.Domain != "" {
-		if _, err := domainExistsCurrent(ctx, q, req.Product, req.Domain); err != nil {
-			return out, err
-		}
-	}
-	// Every subject keeps its prospective footprint. The shared peer reader
-	// requires execution start, so two unstarted subjects never form a pair.
-	var subjects []string
-	if err := readOverlapString(ctx, q, `SELECT DISTINCT c.work_id FROM workflow_contracts c JOIN workflow_architecture_bindings b ON b.work_id=c.work_id AND b.contract_version=c.contract_version JOIN work_items w ON w.id=c.work_id WHERE c.superseded_by IS NULL AND w.lifecycle NOT IN ('completed','cancelled','superseded') AND (SELECT count(*) FROM workflow_contracts c3 WHERE c3.work_id=c.work_id AND c3.superseded_by IS NULL)=1 AND b.product_id=? ORDER BY c.work_id`, &subjects, req.Product); err != nil {
-		return out, err
-	}
-	seen := map[[2]string]bool{}
-	for _, subject := range subjects {
-		self, peers, err := readWorkflowDomainOverlapCandidatesTx(ctx, q, subject)
-		if err != nil {
-			return out, err
-		}
-		for _, peer := range peers {
-			overlap, intersects := workflowDomainOverlapPair(self, peer)
-			if !intersects {
-				continue
-			}
-			key := [2]string{overlap.FromWorkID, overlap.ToWorkID}
-			if seen[key] || (req.Domain != "" && !slices.Contains(overlap.SharedAffectedDomainIDs, req.Domain)) {
-				continue
-			}
-			seen[key] = true
-			state, kind, err := currentWorkflowOverlapResolutionTx(ctx, q, overlap)
-			if err != nil {
-				return out, err
-			}
-			if state == "unresolved" {
-				state = "absent"
-			}
-			out.Pairs = append(out.Pairs, DomainOverlapPair{FromWorkID: overlap.FromWorkID, ToWorkID: overlap.ToWorkID, SharedDomainIDs: overlap.SharedAffectedDomainIDs, SharedLawIDs: overlap.SharedLawIDs, ResolutionState: state, ResolutionKind: kind})
-			// A prospective subject can discover an earlier started peer after
-			// later-sorting pairs. Keep the smallest bounded canonical set.
-			boundDomainOverlapPairs(&out, seen)
-		}
-	}
-	out.Registry = registry
-	out.ResultMeta = ResultMeta{QueryID: "C22.DomainOverlaps", ContractVersion: "C22/1.0", ResolvedScope: ResolvedScope{ProductID: req.Product}, Authority: "authoritative", OrderingKeys: []string{"from_work_id", "to_work_id"}, Omissions: omissions}
-	return out, nil
-}
-
-func boundDomainOverlapPairs(out *DomainOverlapsResult, seen map[[2]string]bool) {
-	sort.Slice(out.Pairs, func(i, j int) bool {
-		if out.Pairs[i].FromWorkID == out.Pairs[j].FromWorkID {
-			return out.Pairs[i].ToWorkID < out.Pairs[j].ToWorkID
-		}
-		return out.Pairs[i].FromWorkID < out.Pairs[j].FromWorkID
-	})
-	if len(out.Pairs) > domainOverlapPairLimit {
-		last := out.Pairs[domainOverlapPairLimit]
-		delete(seen, [2]string{last.FromWorkID, last.ToWorkID})
-		out.Pairs = out.Pairs[:domainOverlapPairLimit]
-		out.Truncated = true
-	}
 }
 
 func domainExistsCurrent(ctx context.Context, q queryer, product, domain string) (DomainSummary, error) {
@@ -600,7 +456,7 @@ func domainExistsCurrent(ctx context.Context, q queryer, product, domain string)
 	return summary, nil
 }
 
-func readOverlapString(ctx context.Context, q queryer, query string, target *[]string, args ...any) error {
+func readDomainStringList(ctx context.Context, q queryer, query string, target *[]string, args ...any) error {
 	rows, err := q.QueryContext(ctx, query, args...)
 	if err != nil {
 		return wrapFailure(KindUnavailable, "domain_read", "cannot read Domain footprint", true, "retry once the workflow projection is readable", err)

@@ -22,7 +22,6 @@ type WorkPin struct {
 	CancelledInstanceCloses int64                     `json:"cancelled_instance_closes"`
 	WorkflowType            string                    `json:"workflow_type"`
 	Step                    string                    `json:"step"`
-	SelfRepair              *WorkflowSelfRepair       `json:"self_repair,omitempty"`
 	PendingOperatorDecision *WorkflowOperatorQuestion `json:"pending_operator_decision"`
 	// WithheldOperatorDecision names the checkpoint action whose question the
 	// step declares but the gate holds closed, with the reason and the remedy.
@@ -456,12 +455,6 @@ func workPinReadContractTx(ctx context.Context, tx *sql.Tx, workID string, pin *
 			}
 			pin.VerifiedCriteria = criteria
 		}
-		selfRepair, repairErr := readWorkflowSelfRepair(ctx, tx, workID, contract.Version)
-		if repairErr != nil {
-			return repairErr
-		}
-		contract.SelfRepair = selfRepair
-		pin.SelfRepair = contract.SelfRepair
 		pending, withheld, questionErr := workflowOperatorQuestionForDefinitionTx(ctx, tx, workID, pin.Step, pin.Version, definition, readDefinition, contract, workflowConfirmationFold{authority: state.ConfirmationAuthority, factFailure: state.ConfirmationFactFailure})
 		if questionErr != nil {
 			return questionErr

@@ -17,15 +17,7 @@ func mandateFixtureAdmission(ctx context.Context, q queryer, workID string, defi
 	if err != nil {
 		return err
 	}
-	rejected, err := workflowRejectedWorkerResultAvailable(ctx, q, workID, definition, step, subject)
-	if err != nil {
-		return err
-	}
-	state.WorkerFailureRecovery, err = workflowWorkerFailureRecoveryAvailable(ctx, q, workID, definition, step, subject)
-	if err != nil {
-		return err
-	}
-	mandate, err := loadWorkflowMandateAdmission(ctx, q, workID, definition, step, subject, state, rejected)
+	mandate, err := loadWorkflowMandateAdmission(ctx, q, workID, definition, step, subject, state)
 	if err != nil {
 		return err
 	}
@@ -124,8 +116,9 @@ func TestReadyReviewCannotBypassMandate(t *testing.T) {
 			// the report would stale that Review (CD-0242 D10).
 			law := WorkflowLawRevision{LawID: j.fixture.sources.lawProject + "/" + j.fixture.sources.lawID, ContentHash: j.fixture.sources.lawHash}
 			setAdmissionMandate(t, s, workID, law)
-			attempt, epoch := completeCurrentReviewForTest(t, j.fixture, j.repo, disposition)
-			payload := map[string]any{"attempt_id": attempt, "attempt_epoch": epoch}
+			qualifyReviewSubjectForTest(t, s, workID, j.repo)
+			report := currentReviewBlockForTest(t, s, workID, "", disposition)
+			payload := map[string]any{"review": report}
 			for _, bound := range []bool{false, true} {
 				if bound {
 					if err := j.action(t, "bind_evidence", map[string]any{"evidence_kind": "artifact", "immutable_subject_ref": law.LawID}, j.fixture.owner); err != nil {
@@ -136,21 +129,25 @@ func TestReadyReviewCannotBypassMandate(t *testing.T) {
 				before := j.effects(t)
 				beforeReview := string(mustJSONValue(pin.Review))
 				definition, state := loadedAdmissionForTest(t, s, workID, pin)
-				decision := workflowAdmit(definition, state, "accept_worker_result")
-				advertised := workPinContainsAction(pin.NextValidIntents, "accept_worker_result")
-				preflightErr := WorkflowActionPreflightWithRegistry(context.Background(), s, BuiltinWorkflowRegistry(), WorkflowActionPreflightRequest{
-					WorkID: workID, ExpectedVersion: pin.Version, ActionID: "accept_worker_result", Actor: j.fixture.owner, Payload: mustJSONValue(payload), SessionWorktree: j.repo,
+				decision := workflowAdmit(definition, state, "record_review")
+				advertised := workPinContainsAction(pin.NextValidIntents, "record_review")
+				ctx, err := prepareTerminalTestContext(t.Context(), s, workID, "record_review")
+				if err != nil {
+					t.Fatal(err)
+				}
+				preflightErr := WorkflowActionPreflightWithRegistry(ctx, s, BuiltinWorkflowRegistry(), WorkflowActionPreflightRequest{
+					WorkID: workID, ExpectedVersion: pin.Version, ActionID: "record_review", Actor: j.fixture.owner, Payload: mustJSONValue(payload), SessionWorktree: j.repo,
 				})
 				if after := j.effects(t); after != before {
 					t.Fatal("mandate preflight changed durable state")
 				}
-				executionErr := j.action(t, "accept_worker_result", payload, j.fixture.owner)
+				executionErr := recordReviewForTest(t, s, workID, j.fixture.owner, report)
 				accepted := issue1013Pin(t, s, workID)
 				if bound {
 					if !decision.Admitted || !advertised || preflightErr != nil || executionErr != nil {
 						t.Fatalf("bound mandate: admission=%+v, advertised=%v, preflight=%v, execution=%v", decision, advertised, preflightErr, executionErr)
 					}
-					if accepted.Step != pin.Step || accepted.Review.Accepted == nil || accepted.Review.Accepted.AttemptID != attempt || accepted.Review.Accepted.Report.Disposition != disposition {
+					if accepted.Step != pin.Step || accepted.Review.Accepted == nil || accepted.Review.Accepted.ReportDigest != reviewDigest(report) || accepted.Review.Accepted.Report.Disposition != disposition {
 						t.Fatalf("local acceptance advanced execution or lost the exact Review: %+v", accepted)
 					}
 					continue
@@ -165,25 +162,6 @@ func TestReadyReviewCannotBypassMandate(t *testing.T) {
 				}
 				if after := j.effects(t); after != before || string(mustJSONValue(accepted.Review)) != beforeReview {
 					t.Fatal("refused mandate acceptance changed durable state or Review authority")
-				}
-				if disposition == "ready_for_final_proof" {
-					combined := map[string]any{
-						"attempt_id": attempt, "attempt_epoch": epoch,
-						"delivery_artifact": "artifact:mandate-agreement", "delivery_state": "asserted",
-					}
-					preflightErr := WorkflowActionPreflightWithRegistry(t.Context(), s, BuiltinWorkflowRegistry(), WorkflowActionPreflightRequest{
-						WorkID: workID, ExpectedVersion: pin.Version, ActionID: "accept_worker_result", Actor: j.fixture.owner, Payload: mustJSONValue(combined), SessionWorktree: j.repo,
-					})
-					executionErr := j.action(t, "accept_worker_result", combined, j.fixture.owner)
-					var preflightFailure, executionFailure *Failure
-					if !failureAs(preflightErr, &preflightFailure) || !failureAs(executionErr, &executionFailure) ||
-						preflightFailure.Kind != KindMissingEvidence || executionFailure.Kind != KindMissingEvidence ||
-						preflightFailure.Detail != decision.Failure.Detail || executionFailure.Detail != decision.Failure.Detail {
-						t.Fatalf("delivery-bearing acceptance bypasses the mandate: preflight=%v, execution=%v", preflightErr, executionErr)
-					}
-					if j.effects(t) != before || string(mustJSONValue(issue1013Pin(t, s, workID).Review)) != beforeReview {
-						t.Fatal("refused delivery-bearing acceptance changed durable state or Review authority")
-					}
 				}
 				if !workPinContainsAction(pin.NextValidIntents, "bind_evidence") {
 					t.Fatal("unbound mandate hides evidence binding")
@@ -216,7 +194,7 @@ DELETE FROM write_guard`, workID); err != nil {
 						t.Fatal(err)
 					}
 				}
-				mandate, err := loadWorkflowMandateAdmission(t.Context(), s.db, workID, definition, "execution", "workflow_action", WorkflowAdmissionState{}, false)
+				mandate, err := loadWorkflowMandateAdmission(t.Context(), s.db, workID, definition, "execution", "workflow_action", WorkflowAdmissionState{})
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -224,14 +202,13 @@ DELETE FROM write_guard`, workID); err != nil {
 					action, step, capability string
 					localReview              bool
 				}{
-					{"accept_worker_result", "execution", "review", true},
-					{"accept_worker_result", "execution", "implementation", false},
-					{"accept_worker_result", "refine", "review", false},
+					{"record_review", "execution", "review", true},
+					{"record_review", "refine", "review", true},
 					{"record_delivery", "execution", "review", false},
 					{"record_verdict", "acceptance", "review", false},
 					{"complete", "release", "review", false},
 				} {
-					state := WorkflowAdmissionState{Step: test.step, ReviewResultAcceptance: test.capability == "review", Mandate: mandate}
+					state := WorkflowAdmissionState{Step: test.step, Mandate: mandate}
 					decision := WorkflowAdmissionDecision{}
 					refused := workflowAdmitDeliveryRefused(definition, state, test.action, &decision)
 					inputMissing := len(mandates) > 1 && !boundInput
@@ -254,43 +231,4 @@ DELETE FROM write_guard`, workID); err != nil {
 			}
 		})
 	}
-}
-
-func TestBaselineReviewMandateBindsTheRequestedResult(t *testing.T) {
-	f := seedCrossAttemptFixture(t, "baseline-review-exact-result")
-	f.buildTwoAttemptHistory(t)
-	check := func() {
-		t.Helper()
-		pin := issue1013Pin(t, f.s, f.workID)
-		definition, loaded := loadedAdmissionForTest(t, f.s, f.workID, pin)
-		// This isolated gate witness supplies the pending output mandate. The
-		// adapter journey approves the actual addition and its exact text pin.
-		loaded.Mandate = workflowMandateAdmission{Present: true, LawID: "law:future", AddedByContract: true, BindingStep: f.step}
-		advertised := WorkflowAdmissionDecision{}
-		if workflowAdmitDeliveryRefused(definition, loaded, "accept_worker_result", &advertised) {
-			t.Fatalf("an eligible Review is hidden by a sibling result: %v", advertised.Failure)
-		}
-		for _, target := range []struct {
-			attempt string
-			review  bool
-		}{{f.attemptR, false}, {f.attemptV, true}} {
-			state := loaded
-			payload := mustJSONValue(map[string]any{"attempt_id": target.attempt, "attempt_epoch": crossAttemptDispatchEpoch(t, f.s, f.workID, target.attempt)})
-			if err := bindWorkflowReviewRequest(t.Context(), f.s.db, &state, f.workID, "accept_worker_result", payload, f.dispatcher); err != nil {
-				t.Fatal(err)
-			}
-			decision := WorkflowAdmissionDecision{}
-			refused := workflowAdmitDeliveryRefused(definition, state, "accept_worker_result", &decision)
-			if refused == target.review {
-				t.Fatalf("requested %s (review=%v), latest class=%s: refused=%v failure=%v", target.attempt, target.review, loaded.AttemptCapabilityClass, refused, decision.Failure)
-			}
-			if refused && (decision.Failure == nil || !strings.Contains(decision.Failure.Detail, `"law:future" is one of the contract's own law additions`)) {
-				t.Fatalf("non-Review acceptance refused for the wrong reason: %v", decision.Failure)
-			}
-		}
-	}
-	check()
-	// A later in-flight non-Review changes neither completed sibling's class.
-	f.dispatch(t, "attempt:baseline-review-later-research", f.researchLane, f.dispatcher)
-	check()
 }

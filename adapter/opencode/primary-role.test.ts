@@ -5,15 +5,13 @@ import utilityRegistry from "../../contracts/agent-utilities.v1.json"
 import { guardPrimaryRole, PrimaryRoleRefusal } from "./primary-role"
 import { roleDeniedConcordTools } from "./generated-primary-profiles"
 import { configureHostLease } from "./host-lease"
-import { configureCiWatch } from "./ci-watch"
 import { syntheticHostVersionFixture } from "./host-version.test-support"
 
 syntheticHostVersionFixture()
 
 const MUTATING = ["concord_work_compact", "concord_work_define", "concord_work_relate", "concord_work_start", "concord_work_transition"]
 const READS = ["concord_product_view", "concord_work_browse", "concord_work_trace", "concord_knowledge", "concord_domain"]
-const WATCHING = ["concord_ci_watch"]
-const WORKFLOW_CATALOG = [...MUTATING, ...READS, ...WATCHING].sort()
+const WORKFLOW_CATALOG = [...MUTATING, ...READS].sort()
 const CATALOG = WORKFLOW_CATALOG
 const UTILITY_AGENTS = utilityRegistry.utilities.map((utility) => `concord-${utility.id}`)
 
@@ -62,7 +60,7 @@ describe("primary role guard", () => {
     }
   })
 
-  test("Concord-Planner is refused every work-state writer and keeps the reads and the watcher", async () => {
+  test("Concord-Planner is refused every work-state writer and keeps the reads", async () => {
     for (const toolID of MUTATING) {
       const { calls, definition } = recording()
       const refusal = await guardPrimaryRole(toolID, definition).execute({ request: {} }, context("Concord-Planner")).catch((error: unknown) => error)
@@ -73,7 +71,7 @@ describe("primary role guard", () => {
       expect(message).toContain("records nothing")
       expect(calls).toEqual([])
     }
-    for (const toolID of [...READS, ...WATCHING]) {
+    for (const toolID of READS) {
       const { calls, definition } = recording()
       expect(await guardPrimaryRole(toolID, definition).execute({ id: toolID }, context("Concord-Planner"))).toBe("ran")
       expect(calls).toEqual([{ id: toolID }])
@@ -147,5 +145,4 @@ describe("primary role guard", () => {
 // controls, so this file resets the factory's shared lease and peer state.
 afterAll(() => {
   configureHostLease({ reset: true })
-  configureCiWatch({ reset: true })
 })

@@ -3,7 +3,6 @@
     "tier": "derived"
   },
   "date": "2026-10-04T00:00:00Z",
-  "doc_contract_profile": "current",
   "evidence": [
     "internal/store/workflow_admission.go",
     "internal/store/workflow_completion.go",
@@ -36,7 +35,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:d18f2ac6dc06e110b34bf9dff5102f5a06c61fde59b13759760f161e938ce08d",
+  "sha256": "sha256:61743997b4df8e8041e53b3cd1849984bb880c5165a188c410dda0905d03d259",
   "status": "accepted",
   "summary": "Admission shares acceptance-deliverables refusals across preflight, work pins and execution. record_review validates the exact subject-bound payload; every delivery admission refuses behind a blocking or stale Review disposition. Late record_verdict keeps its declared terminal and premise-question recovery without advancing the step. No attempt-bound acceptance exception remains.",
   "tags": [

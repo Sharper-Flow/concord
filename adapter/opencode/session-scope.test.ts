@@ -1,7 +1,6 @@
 import { afterEach, expect, test } from "bun:test"
 import ConcordAdapterPlugin from "./concord-plugin"
 import { configureHostLease } from "./host-lease"
-import { configureCiWatch } from "./ci-watch"
 import { hostControlPlane, SESSION_ROUTE } from "./move-session"
 
 const SCOPE_KEY = "concord.task_scope"
@@ -36,7 +35,6 @@ const args = () => ({ subagent_type: "general", prompt: "Read the bounded source
 afterEach(() => {
   hostControlPlane().bind(undefined)
   configureHostLease({ reset: true })
-  configureCiWatch({ reset: true })
 })
 
 test("native Task preserves arguments without reading or changing Concord participation", async () => {

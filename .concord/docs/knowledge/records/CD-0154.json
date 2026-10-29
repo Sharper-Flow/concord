@@ -3,7 +3,6 @@
     "tier": "derived"
   },
   "date": "2026-09-16T00:00:00Z",
-  "doc_contract_profile": "legacy",
   "evidence": [
     "examples/opencode/README.md",
     "examples/opencode/agents/concord-0.md",
@@ -37,7 +36,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:7c8adfd75060d317b23a9d3299bf30b54ef3eeba8bc494c40b2948972b9f6abc",
+  "sha256": "sha256:b8876a55b07363eafa0be1636978081d82a4204557ef0b9588dea5c58b30f64e",
   "status": "accepted",
   "summary": "Concord keeps numbered agents host-owned, supplies an inert intake example and generated named primary profiles, and leaves live numbered definitions unchanged through every installer operation.",
   "tags": [

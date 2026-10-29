@@ -4,7 +4,6 @@ import path from "node:path"
 import { manifestDigest } from "./generated-contracts"
 import ConcordAdapterPlugin from "./concord-plugin"
 import { configureHostLease } from "./host-lease"
-import { configureCiWatch } from "./ci-watch"
 import { configureCoreBinary } from "./core-runtime"
 import { configureConcordAdapter } from "./concord"
 import { hostControlPlane } from "./move-session"
@@ -61,7 +60,6 @@ afterEach(() => {
   resetClaimedWorktrees()
   hostControlPlane().bind(undefined)
   configureConcordAdapter({ reset: true })
-  configureCiWatch({ reset: true })
   for (const directory of testDirectories.splice(0)) fs.rmSync(directory, { recursive: true, force: true })
 })
 

@@ -5,7 +5,6 @@
     "tier": "legislated"
   },
   "date": "2026-09-03T00:00:00Z",
-  "doc_contract_profile": "legacy",
   "evidence": [
     ".concord/docs/clarifications.md",
     ".concord/docs/vertical-integration.md"
@@ -21,7 +20,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:2955dc7e05f1e9fb4c675614da48ad35b22ba860ccd46e4d1fdf842f0e5d0529",
+  "sha256": "sha256:b82ad8362962d0b86c9c88fde8357ea5baec26a2711503872478519072881182",
   "status": "accepted",
   "summary": "episode is removed as an external authority and CD-0086 is superseded in full. The knowledge ladder is observation, lesson, decision, and every rung exists today. lesson graduation replaces the episode promotion seam. External-system identity lives in managed_resources and learned usage is a lesson tagged resource:<id>; a record stores a vendor documentation locator, never vendor content. The seven episode rows are exported and migrate to lesson records in their own Product homes.",
   "tags": [

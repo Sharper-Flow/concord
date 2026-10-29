@@ -32,7 +32,7 @@ this operation writes Product state only.
 
 ## Decision
 
-The operation-scoped checkout authorization remains independent of consent. CD-0013 D11 removes approval only for routine acceptance-backed completion; it preserves terminal evidence, live-workflow completion refusal, cancellation approval, destructive-effect approval, and historical-pin requirements. A main checkout acquires no implementation authority from this change.
+The operation-scoped checkout authorization remains independent of consent. CD-0013 D11 removes approval only for routine acceptance-backed completion; it preserves terminal evidence, live-workflow completion refusal, cancellation approval, and historical-pin requirements. A main checkout acquires no implementation authority from this change.
 
 
 ### D1. Main-checkout authority is operation-scoped
@@ -107,4 +107,3 @@ An identical committed removal replays through its retained authorized scope bef
 - `TestMainCheckoutRefusesImplementationOperations` proves the typed CD-0092 refusal for `worktree_claim`, nonterminal `worktree_reclaim`, and `workflow_action`. D5 authority tests prove eligible default-checkout shelving removal and refusal outside its conditions, preserving all existing removal gates.
 - `TestMainCheckoutAllowlistDeclaresBothSides` proves the two declarations and
   their closed entries.
-- The document contract and knowledge-closure validators pass.

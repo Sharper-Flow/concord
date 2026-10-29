@@ -142,12 +142,11 @@ re-evaluation, never "set and forget."
 | Database schema / migrations | External native authority (database) | Constraints and migrations enforce correctness; Concord reads the state. |
 | `morph_edit` vs `edit` routing | Instruction (always-on) | Behavioral policy every agent needs. |
 | `oc-test-gate`, `oc-fresh` | Host scripts | Standalone executables, cross-tool. |
-| CI waiting (`concord_ci_watch`) | OpenCode plugin tool | The plugin spawns the `concord ci-wait` verb slice by slice as a child process with zero model turns and wakes the calling session with the terminal report; the verb keeps polling, the deadline, and classification (CD-0160, CD-0199). |
 | `concord-explore` | Generated utility agent | The registry pins its read-only repository tools, Git command set, and wall-time cap. |
 | `concord-advisor` | Generated utility agent | The registry pins its read-only repository tools, Git command set, and wall-time cap; the generated body owns the collaborative posture (CD-0157). |
 | Worktree locator derivation (`concord worktree-locate`) | Core CLI verb (read-only) | The inputs are authority data — the Project's registered `canonical_path` locator — so only the core can read them without duplicating database access (issue #316). A host script would double-hop through this verb; the adapter owns no path or branch policy; `internal/store` stays verifier-only (`worktree_claim` verifies intent, never authors it). |
 | Directory-to-Project resolution (`concord project-resolve`) | Core CLI verb (read-only) | Registered locators are authority data, and CD-0008 D1 makes a path replaceable evidence rather than identity, so a host that joins on a directory name invents an identity Concord does not hold. The same rationale as `worktree-locate`, one direction earlier (issue #533, CD-0079). |
-| CD-id reservation listing (`concord cd-reservations`) | Core CLI verb (read-only) | Law-addition reservations and claimed-worktree ownership are folded authority data only the core can read, so the CD-id allocator and the allocation checker ask the store through one verb instead of duplicating database access. The same unauthenticated read boundary as `project-resolve` (CD-0079 D2). |
+| CD-id reservation listing (`concord cd-reservations`) | Core CLI verb (read-only) | Law-addition reservations and claimed-worktree ownership are folded authority data only the core can read, so an agent allocating the next CD id asks the store through one verb instead of reading the database. The same unauthenticated read boundary as `project-resolve` (CD-0079 D2). |
 | Spec / change records | Durable state | Source of truth. |
 
 ---

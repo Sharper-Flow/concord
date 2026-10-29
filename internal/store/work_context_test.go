@@ -140,7 +140,7 @@ type workContextFixture struct {
 // workContextReadingSources holds the real prerequisites the fixture's
 // declared readings resolve against at dispatch: two authorized Projects of
 // the work's Product, each with one canonical-path repository locator, and
-// the registered knowledge source's committed law record with its exact
+// the designated knowledge home's committed law record with its exact
 // canonical locator.
 type workContextReadingSources struct {
 	repoProject  string
@@ -170,7 +170,7 @@ func seedWorkContextReadingSources(t *testing.T, s *Store, workID string) workCo
 	out := workContextReadingSources{
 		repoProject: "project-repo", otherProject: "project-repo-2",
 		repoPath: "internal/store/work_context.go", otherPath: "pkg/other/source.go",
-		lawProject: "project-repo", lawID: "spec:one",
+		lawProject: "project", lawID: "spec:one", lawLocator: "workflow-law-locator",
 	}
 	// The workflow law home keeps its own committed copy of the seeded law
 	// document, so the workflow law context opens a real file.
@@ -223,6 +223,7 @@ func seedWorkContextReadingSources(t *testing.T, s *Store, workID string) workCo
 	}
 	writeKnowledgeFile(t, lawRepo, knowledgeRecordTree+"/spec-one.json", string(recordJSON)+"\n")
 	out.lawCommit = commitKnowledgeRepo(t, lawRepo, "synthetic law home with manifest record")
+	out.lawRepo = lawRepo
 	home := KnowledgeHome{HomeProjectID: homeProject, HomeLocatorID: homeLocator, RepoPath: lawRepo, HeadRef: "HEAD"}
 	digest, err := knowledgeContentDigest(ctx, home, out.lawCommit)
 	if err != nil {
@@ -288,36 +289,7 @@ func seedWorkContextReadingSources(t *testing.T, s *Store, workID string) workCo
 		}
 		repo := initKnowledgeRepo(t)
 		writeKnowledgeFile(t, repo, member.path, member.file)
-		if member.project == out.repoProject {
-			out.lawRepo, out.lawLocator = repo, member.locator
-			writeKnowledgeFile(t, repo, ".concord/docs/spec.md", body)
-			head := map[string]any{
-				"schema_version":  "1.2",
-				"supported_kinds": []string{"decision", "spec"},
-				"indexed_kinds":   []string{"decision", "spec"},
-			}
-			headJSON, err := json.Marshal(head)
-			if err != nil {
-				t.Fatal(err)
-			}
-			writeKnowledgeFile(t, repo, knowledgeHeadPath, string(headJSON)+"\n")
-			recordJSON, err := json.Marshal(KnowledgeRecord{
-				ID: out.lawID, Kind: "spec", Path: ".concord/docs/spec.md", Status: "accepted",
-				Date: "2026-10-01T00:00:00Z", Title: "Synthetic dispatch law",
-				Summary: "the fixture committed law record for declared reading resolution",
-				Tags:    []string{},
-				Scopes:  KnowledgeRecordScopes{Mode: "home", ProductIDs: []string{}, ProjectIDs: []string{}, DomainIDs: []string{}, TagIDs: []string{}},
-				SHA256:  out.lawHash, HomeDomainID: workContextTestChild,
-			})
-			if err != nil {
-				t.Fatal(err)
-			}
-			writeKnowledgeFile(t, repo, knowledgeRecordTree+"/spec-one.json", string(recordJSON)+"\n")
-		}
 		*member.commit = commitKnowledgeRepo(t, repo, "synthetic reading repository")
-		if member.project == out.repoProject {
-			out.lawCommit = *member.commit
-		}
 		var projectVersion int64
 		if err := s.DatabaseForTesting().QueryRow(`SELECT version FROM projects WHERE id=?`, member.project).Scan(&projectVersion); err != nil {
 			t.Fatal(err)
@@ -325,53 +297,8 @@ func seedWorkContextReadingSources(t *testing.T, s *Store, workID string) workCo
 		if err := s.AddProjectLocator(ctx, member.project, ProjectLocator{ID: member.locator, Kind: LocatorCanonicalPath, Value: repo}, projectVersion); err != nil {
 			t.Fatal(err)
 		}
-		if member.project == out.repoProject {
-			// The primary reading repository Project is also an explicitly
-			// registered Product knowledge source, and the fixture's law
-			// record lives in that registered source: the committed
-			// manifest, the law blob, and the git-derived projection rows
-			// under the registered source's own locator.
-			seedRegisteredSourceProjection(t, s, member.project, member.locator, repo, out.lawID, out.lawHash, out.lawCommit)
-		}
 	}
 	return out
-}
-
-// seedRegisteredSourceProjection pins the registered knowledge source's
-// git-derived projection rows to the exact committed identity, one statement
-// per Exec: modernc binds ? parameters per statement, so a multi-statement
-// batch misbinds.
-func seedRegisteredSourceProjection(t *testing.T, s *Store, projectID, locatorID, repo, lawID, lawHash, lawCommit string) {
-	t.Helper()
-	home := KnowledgeHome{HomeProjectID: projectID, HomeLocatorID: locatorID, RepoPath: repo, HeadRef: "HEAD"}
-	digest, err := knowledgeContentDigest(t.Context(), home, lawCommit)
-	if err != nil {
-		t.Fatal(err)
-	}
-	digest, err = domainShapeKnowledgeDigest(t.Context(), home, lawCommit, digest, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	db := s.DatabaseForTesting()
-	exec := func(tag, query string, args ...any) {
-		t.Helper()
-		if _, err := db.Exec(query, args...); err != nil {
-			t.Fatalf("registered source projection statement %q failed: %v", tag, err)
-		}
-	}
-	if _, err := db.Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
-		t.Fatal(err)
-	}
-	exec("registration", `INSERT OR REPLACE INTO product_knowledge_sources(product_id,project_id,locator_id,registered_at) VALUES('product',?,?,'2026-10-01T00:00:00Z')`, projectID, locatorID)
-	exec("law subject", `INSERT OR REPLACE INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES(?,?,?,?,?,?,?,?,?)`, projectID, locatorID, lawID, "spec", "accepted", ".concord/docs/spec.md", "Synthetic dispatch law", lawHash, lawCommit)
-	exec("archived record", `INSERT OR REPLACE INTO archived_work(id,type,title,completed_at,outcome_tag,lesson_tags,terminal_state,priority,summary,home_project_id,home_locator_id,note_path,commit_oid,content_hash,scope_mode,manifest_schema_version)
-		VALUES(?, 'spec', 'Synthetic dispatch law', '2026-10-01T00:00:00Z', 'accepted', '[]', 'completed', 2, 'the fixture committed law record for declared reading resolution', ?, ?, ?, ?, ?, 'home', '1.2')`, lawID, projectID, locatorID, ".concord/docs/spec.md", lawCommit, lawHash)
-	exec("watermark", `INSERT OR REPLACE INTO knowledge_index_watermark(home_project_id,home_locator_id,head_ref,scanned_commit_oid,scanned_content_digest,scanned_at,complete,projection_version)
-		VALUES(?,?,'HEAD',?,?,'test',1,?)`, projectID, locatorID, lawCommit, digest, knowledgeProjectionVersion)
-	exec("law domain home", `INSERT OR REPLACE INTO law_domain_homes(home_project_id,home_locator_id,law_id,product_id,domain_id,law_content_hash,scanned_commit_oid,product_wide_rationale) VALUES(?,?,?,?,?,?, 'test', '')`, projectID, locatorID, lawID, "product", workContextTestChild, lawHash)
-	if _, err := db.Exec(`DELETE FROM write_guard`); err != nil {
-		t.Fatal(err)
-	}
 }
 
 // repoReading builds one resolvable repository_file reading against the
@@ -390,7 +317,7 @@ func (f workContextFixture) repoReading(domain, rationale, which string) map[str
 }
 
 // knowledgeReading builds one resolvable knowledge reading pinned to the
-// fixture's committed law record: the registered source Project, the record
+// fixture's committed law record: the designated home Project, the record
 // ID, and the exact committed content hash.
 func (f workContextFixture) knowledgeReading() map[string]any {
 	return map[string]any{"domain_id": workContextTestChild, "reason": "the law reading carries the bounded reason", "source": map[string]any{"kind": "knowledge", "source_id": f.sources.lawProject, "law_id": f.sources.lawID, "content_hash": f.sources.lawHash}}
@@ -451,7 +378,7 @@ func seedWorkContextFixtureWithDefinition(t *testing.T, workID string, registere
 		"required_evidence":  []string{"verification"}, "route_conventions": []string{}, "spec_mandate": []string{}, "law_modifies": []string{},
 		"law_revisions": []WorkflowLawRevision{}, "law_boundary_version": 1, "rigor_class": "prototype_internal", "consequence_class": "internal_sqlite",
 		"architecture_binding": WorkflowArchitectureBinding{
-			DomainRegistryContentHash: "sha256:" + strings.Repeat("b", 64), HomeDomainID: workContextTestRoot, AffectedDomainIDs: []string{workContextTestRoot, workContextTestChild},
+			HomeDomainID: workContextTestRoot, AffectedDomainIDs: []string{workContextTestRoot, workContextTestChild},
 			DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{}, VerificationObligations: []WorkflowVerificationObligation{},
 		},
 	}))

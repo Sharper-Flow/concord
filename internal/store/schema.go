@@ -8097,10 +8097,77 @@ CREATE TRIGGER work_conflict_applications_guard_delete BEFORE DELETE ON work_con
 	},
 	{
 		Version:  163,
+		Name:     "retire_work_conflict_applications",
+		Breaking: true,
+		SQL: `
+DROP TABLE work_conflict_applications;
+`,
+	},
+	{
+		Version:  164,
+		Name:     "remove_unused_coordination",
+		Breaking: true,
+		SQL: `
+DROP TABLE work_size_overrides;
+DROP TABLE resource_claims;
+DROP TABLE workflow_action_obligations;
+DROP TABLE domain_project_attachment_edges;
+DROP TABLE domain_project_attachment_sets;
+DROP TABLE law_cross_source_relations;
+DROP TABLE product_knowledge_sources;
+DROP TABLE workflow_impact_notices;
+DROP TABLE workflow_external_conditions;
+DROP TABLE workflow_staleness_observations;
+INSERT INTO write_guard(active) VALUES(1);
+DELETE FROM effect_receipts WHERE kind IN ('workflow.impact_declared','workflow.impact_notice_recorded','workflow.staleness_observed','workflow.condition_added','workflow.condition_resolved','workflow.condition_cancelled');
+DELETE FROM write_guard;
+DROP TRIGGER workflow_law_baselines_completed;
+CREATE TABLE workflow_instances_v164 (
+    work_id TEXT PRIMARY KEY REFERENCES work_items(id) ON DELETE RESTRICT,
+    definition_ref TEXT NOT NULL,
+    definition_digest TEXT NOT NULL,
+    current_step TEXT NOT NULL,
+    instance_state TEXT NOT NULL CHECK(instance_state IN ('planned','ready','running','blocked','verifying','completed','cancelled','superseded','outside_repair')),
+    execution_actor_ref TEXT REFERENCES workflow_actors(actor_ref) ON DELETE RESTRICT,
+    execution_model TEXT NOT NULL DEFAULT '' CHECK(length(execution_model) <= 128),
+    started_at TEXT,
+    completed_at TEXT,
+    last_checkpoint_at TEXT,
+    execution_started_at TEXT,
+    outside_repair_state TEXT,
+    result_disposition TEXT NOT NULL DEFAULT '',
+    completion_payload TEXT CHECK(completion_payload IS NULL OR json_valid(completion_payload)),
+    completion_occurred_at TEXT,
+    unhealthy_verdict_seq INTEGER NOT NULL DEFAULT 0,
+    latest_non_dispatch_start_seq INTEGER NOT NULL DEFAULT 0,
+    CHECK(length(definition_ref) BETWEEN 2 AND 128),
+    CHECK(length(definition_digest) = 71 AND substr(definition_digest,1,7) = 'sha256:'),
+    CHECK(length(current_step) BETWEEN 2 AND 128),
+    CHECK(outside_repair_state IS NULL OR outside_repair_state IN ('active','completed','resumed'))
+);
+INSERT INTO workflow_instances_v164
+    (work_id, definition_ref, definition_digest, current_step, instance_state, execution_actor_ref, execution_model,
+     started_at, completed_at, last_checkpoint_at, execution_started_at, outside_repair_state, result_disposition,
+     completion_payload, completion_occurred_at, unhealthy_verdict_seq, latest_non_dispatch_start_seq)
+SELECT work_id, definition_ref, definition_digest, current_step,
+       CASE instance_state WHEN 'awaiting_condition' THEN 'blocked' ELSE instance_state END,
+       execution_actor_ref, execution_model, started_at, completed_at, last_checkpoint_at, execution_started_at,
+       outside_repair_state, result_disposition, completion_payload, completion_occurred_at, unhealthy_verdict_seq,
+       latest_non_dispatch_start_seq FROM workflow_instances;
+DROP TABLE workflow_instances;
+ALTER TABLE workflow_instances_v164 RENAME TO workflow_instances;
+CREATE INDEX workflow_instances_state ON workflow_instances(instance_state, work_id);
+CREATE TRIGGER workflow_instances_guard_insert BEFORE INSERT ON workflow_instances FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_instances is write-seam-only') WHERE NOT EXISTS (SELECT 1 FROM write_guard WHERE active=1); END;
+CREATE TRIGGER workflow_instances_guard_update BEFORE UPDATE ON workflow_instances FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_instances is write-seam-only') WHERE NOT EXISTS (SELECT 1 FROM write_guard WHERE active=1); END;
+CREATE TRIGGER workflow_instances_guard_delete BEFORE DELETE ON workflow_instances FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_instances is write-seam-only') WHERE NOT EXISTS (SELECT 1 FROM write_guard WHERE active=1); END;
+CREATE TRIGGER workflow_law_baselines_completed BEFORE UPDATE ON workflow_law_baselines WHEN NEW.enactment_effect_seq IS NOT NULL BEGIN SELECT RAISE(ABORT, 'workflow_law_baselines enactment requires its completed effect receipt') WHERE NOT EXISTS (SELECT 1 FROM effect_receipts r JOIN workflow_instances i ON i.work_id=r.subject_id JOIN work_items w ON w.id=i.work_id WHERE r.effect_seq=NEW.enactment_effect_seq AND r.kind='workflow.completed' AND r.subject_type='work_item' AND r.subject_id=NEW.work_id AND i.instance_state='completed' AND w.lifecycle='completed'); END;
+`,
+	},
+	{
+		Version:  165,
 		Name:     "native_task_cutover",
 		Breaking: true,
 		SQL: `
-INSERT INTO write_guard(active) VALUES(1);
 UPDATE workflow_review_state AS review SET state=json_set(state,'$.finding_sources',json(COALESCE((
  SELECT json_group_object(json_extract(notebook.finding,'$.finding_id'),json_object(
   'canonical_id',COALESCE(json_extract(fact.value,'$.FindingID'),'finding:'||notebook.source_seq||':'||notebook.ordinal),
@@ -8127,7 +8194,6 @@ UPDATE workflow_review_state AS review SET state=json_set(state,'$.finding_sourc
   SELECT 1 FROM json_each(review.state,'$.findings') AS retained
   WHERE json_extract(retained.value,'$.finding_id')=json_extract(notebook.finding,'$.finding_id'))
 ),'{}')));
-DELETE FROM write_guard;
 DROP TABLE workflow_group_members;
 DROP TABLE workflow_member_groups;
 DROP TABLE workflow_member_callers;

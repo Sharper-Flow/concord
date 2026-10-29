@@ -27,7 +27,7 @@ A refusal here is a named case failure, never a skip: the gate reports the
 stage that refused and the writer stays unevaluated.
 
 The invoke plan lists only operations supported by tagged registrations:
-capture, an optional two-work message chain, resource claim/release, and a plain
+capture, an optional two-work message chain, and a plain
 observation last. The gate hashes that plan and validates exact returned refs
 without inferring work versions. It checks the writer snapshot and both restores
 for the recorded current effects. Positive release success alone is not proof
@@ -67,8 +67,6 @@ INVOKE_PROJECT = "gate-project"
 INVOKE_REMOTE = "https://example.invalid/gate/project.git"
 INVOKE_TITLE = "Invoke Work"
 INVOKE_MESSAGE_BODY = "gate release-restore message chain"
-INVOKE_RESOURCE_KEY = "fence:gate-release-restore"
-INVOKE_RESOURCE_REASON = "gate release-restore claim"
 INVOKE_OBSERVATION_ID = "obs:0000000000000001"
 INVOKE_OBSERVATION_STATEMENT = "gate release-restore observation"
 # The message operations, their one closed required-input set, and the input
@@ -77,10 +75,6 @@ INVOKE_OBSERVATION_STATEMENT = "gate release-restore observation"
 MESSAGE_OPERATIONS = {
     "message_send": (frozenset({"work_id", "body", "expected_version", "idempotency_key"}), "work_relate_message_send_input"),
     "message_withdraw": (frozenset({"work_id", "message_id", "expected_version", "idempotency_key"}), "work_relate_message_withdraw_input"),
-}
-RESOURCE_OPERATIONS = {
-    "resource_claim": (frozenset({"work_id", "resource_key", "reason", "expected_version", "idempotency_key"}), "work_relate_resource_claim_input"),
-    "resource_release": (frozenset({"work_id", "resource_key", "expected_version", "idempotency_key"}), "work_relate_resource_release_input"),
 }
 OBSERVATION_OPERATIONS = {
     "observation_record": ((frozenset({"work_id", "statement", "idempotency_key"}), frozenset({"work_id", "idempotency_key"})),
@@ -283,12 +277,6 @@ def message_support(contracts: str, tag: str, legacy_bindings: str = "") -> bool
     return operation_family_support(contracts, tag, "concord_work_relate", specs, legacy_bindings)
 
 
-def resource_support(contracts: str, tag: str, legacy_bindings: str = "") -> bool:
-    """Whether the tag offers the approval-free resource-claim pair, both rows or neither."""
-    specs = {operation: ((required,), schema, required) for operation, (required, schema) in RESOURCE_OPERATIONS.items()}
-    return operation_family_support(contracts, tag, "concord_work_relate", specs, legacy_bindings)
-
-
 def observation_support(contracts: str, tag: str, legacy_bindings: str = "") -> bool:
     """Whether the tag offers the approval-free plain observation record."""
     return operation_family_support(contracts, tag, "concord_work_define", OBSERVATION_OPERATIONS, legacy_bindings)
@@ -311,16 +299,12 @@ def invoke_plan(facts: dict) -> tuple[str, ...]:
         plan += ["invoke:concord_work_define.capture",
                  "invoke:concord_work_relate.message_send",
                  "invoke:concord_work_relate.message_withdraw"]
-    if facts.get("has_resources", False):
-        plan += ["invoke:concord_work_relate.resource_claim",
-                 "invoke:concord_work_relate.resource_release"]
     if facts.get("has_observation", False):
         plan.append("invoke:concord_work_define.observation_record")
     return tuple(plan)
 
 
 TARGETED_OPERATIONS = ("concord_work_relate.message_send", "concord_work_relate.message_withdraw",
-                       "concord_work_relate.resource_claim", "concord_work_relate.resource_release",
                        "concord_work_define.observation_record")
 
 
@@ -383,7 +367,6 @@ def tag_facts(repo: Path, tag: str) -> dict:
     contracts = _git_show(repo, tag, contracts_path)
     bindings = _git_show(repo, tag, "internal/agent/payload_validation.go") if _needs_legacy_bindings(contracts) else ""
     facts["has_messages"] = message_support(contracts, tag, bindings)
-    facts["has_resources"] = resource_support(contracts, tag, bindings)
     facts["has_observation"] = observation_support(contracts, tag, bindings)
     return facts
 
@@ -498,7 +481,6 @@ def verify_invoke_snapshot(db: sqlite3.Connection, record: dict) -> None:
     """
     for proof, operation in (("works", "invoke:concord_work_define.capture"),
                              ("message", "invoke:concord_work_relate.message_send"),
-                             ("resource", "invoke:concord_work_relate.resource_claim"),
                              ("observation", "invoke:concord_work_define.observation_record")):
         if operation in record.get("plan", ()) and not record.get(proof):
             raise InvokeError("snapshot-effects", f"planned {proof} proof is missing")
@@ -512,20 +494,6 @@ def verify_invoke_snapshot(db: sqlite3.Connection, record: dict) -> None:
                           (message["id"],)).fetchall()
         if rows != [(message["sender"], message["recipient"], INVOKE_MESSAGE_BODY, "withdrawn")]:
             raise InvokeError("snapshot-effects", f"work_messages row {rows!r} does not match the recorded withdrawn message")
-    resource = record.get("resource")
-    if resource:
-        versions = tuple(resource[key] for key in ("input_version", "claim_version", "release_version"))
-        if (not all(type(value) is int and value > 0 for value in versions)
-                or versions[1] != versions[0] + 1 or versions[2] != versions[1] + 1):
-            raise InvokeError("snapshot-effects", f"claim/release receipt versions {versions!r} do not form a continuous pair")
-        sender = resource["sender"]
-        claim = db.execute("SELECT holder_work_id, holder_agent, holder_session, reason, state FROM resource_claims "
-                           "WHERE resource_key=?", (resource["key"],)).fetchall()
-        if claim != [(sender, INVOKE_AGENT, INVOKE_SESSION, INVOKE_RESOURCE_REASON, "released")]:
-            raise InvokeError("snapshot-effects", f"resource_claims row {claim!r} is not the released claim by {sender}")
-        version = db.execute("SELECT version FROM work_items WHERE id=?", (sender,)).fetchall()
-        if version != [(resource["release_version"],)]:
-            raise InvokeError("snapshot-effects", f"work_items version {version!r} != the released version {resource['release_version']}")
     observation = record.get("observation")
     if observation:
         projection = db.execute("SELECT observation_id, work_id, statement FROM work_observations WHERE observation_id=?",
@@ -604,22 +572,6 @@ def run_invoke_phase(run, repo: Path, tag: str, case: Path, store: Path, facts: 
         if withdrawn_id != sender:
             raise InvokeError("message-withdraw", f"withdraw changed work ref {withdrawn_id} is not the sender {sender}")
         record["message"] = {"id": message_id, "sender": sender, "recipient": recipient}
-    if facts.get("has_resources", False):
-        input_version = sender_version
-        claim = {"work_id": sender, "resource_key": INVOKE_RESOURCE_KEY, "reason": INVOKE_RESOURCE_REASON,
-                 "expected_version": input_version}
-        claim_kind, claim_version = receipt_ref(invoke("concord_work_relate", "resource_claim", claim, "gate-invoke-request-5",
-                                                       "gate-invoke-idempotency-5", "resource-claim"),
-                                                "resource-claim", {"resource_claim": INVOKE_RESOURCE_KEY, "work_item": sender})
-        release = {"work_id": sender, "resource_key": INVOKE_RESOURCE_KEY, "expected_version": claim_version}
-        release_kind, release_version = receipt_ref(invoke("concord_work_relate", "resource_release", release, "gate-invoke-request-6",
-                                                           "gate-invoke-idempotency-6", "resource-release"),
-                                                    "resource-release", {"resource_claim": INVOKE_RESOURCE_KEY, "work_item": sender})
-        if release_kind != claim_kind:
-            raise InvokeError("resource-release", f"release subject {release_kind} does not match the claim subject {claim_kind}")
-        record["resource"] = {"sender": sender, "key": INVOKE_RESOURCE_KEY, "input_version": input_version,
-                              "claim_version": claim_version, "release_version": release_version}
-        sender_version = release_version
     if facts.get("has_observation", False):
         # The earliest observation writers fold omitted refs/tags to JSON null
         # against array CHECK constraints, so the recipe carries explicit empty

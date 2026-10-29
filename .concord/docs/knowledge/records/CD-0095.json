@@ -5,7 +5,6 @@
     "tier": "legislated"
   },
   "date": "2026-09-01T00:00:00Z",
-  "doc_contract_profile": "legacy",
   "home_domain_id": "agent-call-boundary",
   "id": "CD-0095",
   "kind": "decision",
@@ -17,7 +16,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:ed3bf03a33e626caf4f65e5ef44c61737cd3d36ae369ef7cfaf27e0df4bfef6d",
+  "sha256": "sha256:8b4780f070eff032f6cff2b70efe91b9c4c79dc2749a4617080d0e245e71f05f",
   "status": "accepted",
   "summary": "Allows work_transition.worktree_reclaim from a registered Project default checkout when the addressed work item is terminal, because a terminal item holds no live implementation surface. Non-terminal work keeps the CD-0092 refusal.",
   "tags": [

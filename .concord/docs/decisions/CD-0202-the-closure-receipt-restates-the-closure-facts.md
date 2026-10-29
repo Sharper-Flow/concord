@@ -177,7 +177,3 @@ Scenario: The prose width truncates visibly
   proves the additive migration and its checksum pin.
 - `python3 scripts/generate-agent-contracts.py --check` proves the projected
   contracts match the registry.
-- `python3 scripts/check-doc-contract.py` proves this record carries the
-  current decision outline and passes the writing rules.
-- `python3 scripts/check-cd-allocation.py --no-fetch` proves the CD-0202
-  identifier allocates once.

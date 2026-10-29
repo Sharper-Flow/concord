@@ -45,13 +45,15 @@ required checks, review scope, and evidence binding still apply.
 ### D2. The operator approves six classes of decision
 
 1. **Product direction:** what the product offers, whom it serves, and which
-   outcomes it pursues. This includes a governed scope cut and any change to
-   the operator's approval boundary. Adding, removing, or reclassifying an
+   outcomes it pursues. This includes a governed scope cut, subject to D3's
+   Concord deletion exemption, and any change to the operator's approval boundary.
+   Adding, removing, or reclassifying an
    operator approval requires the operator's approval of its exact wording.
 2. **UI/UX:** new or changed design or interaction. Minor corrections that
    introduce no new design or interaction, such as a typo fix or restoring a
    broken button's approved behavior, need no fresh approval. Other UI/UX
-   changes retain operator review and acceptance.
+   changes retain operator review and acceptance, subject to D3's Concord deletion
+   exemption.
 3. **Production application data:** modifications to data in a deployed
    production application. Irreversible loss of customer data also requires
    approval, wherever the data is held. Ordinary Concord coordination writes
@@ -82,6 +84,12 @@ unneeded research records.
 Agents may remove dead code and genuinely incorrect tests within their scope.
 Deletion alone does not require approval. They do not remove valid checks to
 hide failures. Stated operator preferences remain binding.
+
+Within assigned work on Concord, a Concord agent may retire or delete Concord’s own laws, unwanted mechanisms and systems, and tests whose required behavior it retires, without per-deletion operator approval. Deletion alone does not trigger product-direction, UI/UX, or governed-scope-cut approval, including when it removes a Concord capability or a law that requires the mechanism.
+
+The agent records why, retires the governing requirements with or before the behavior, and delivers the removal through an ordinary pull request with independent review and required CI. The pull request and completion report list each retired law and its change in meaning. Each deleted test cites the clause that retires its behavior. Do not delete valid checks merely to hide failures or silently substitute an assigned item’s agreed outcome.
+
+This exemption does not authorize changes to other Products’ law or data, production application data, irreversible customer-data loss, removal or weakening of security protections, legal obligations, or increased spending. Their existing approval rules remain. Changes to the operator’s approval boundary still require approval of their exact wording. Existing operator-only gate waivers and current tool refusals remain binding.
 
 Approval is not authorization to exceed scope, impersonate an actor, fabricate
 evidence, or bypass a tool refusal. Missing information, credentials, host
@@ -129,11 +137,9 @@ required-review checks.
 | CD-0006 D5, D10; CD-0159 D4; CD-0218 D1; CD-0222 D1, D4, D5 | Law mandates and enactment require approval only under D2 |
 | CD-0033; CD-0037; CD-0096; CD-0118; CD-0122; CD-0166; CD-0198; CD-0215; CD-0217; CD-0222 D6; CD-0229 | Operator consent for their operations applies only under D2; D5 governs recovery |
 | CD-0154 D2 | Four roles, optional RTE and Planner, direct operator routing |
-| TS1, TS4, TS9 contracts; TS5 §5; clarifications TS1–TS9 binding; PM9 contract; CD-0028; CD-0029 | Retained approval gaps for overlap, cancellation, removal, repair, reconciliation, and research deletion apply only under D2 |
+| TS1, TS4, TS9 contracts; TS5 §5; clarifications TS1–TS9 binding; PM9 contract; CD-0029 | Retained approval gaps for overlap, cancellation, removal, repair, reconciliation, and research deletion apply only under D2 |
 
-An approval-table gap is not an approval class. Each approval point must be
-classified under D2 or as agent-owned, rather than retaining operator approval
-solely because its classification is missing. An operation that grants access
+An operation that grants access
 still requires security approval; routine work management does not acquire
 that class merely because it changes a record.
 
@@ -144,23 +150,22 @@ gate does not remove any other required check.
 
 ### D7. The remaining owners use the same approval boundary
 
-The following requirements apply D2 through D5; they create no approval class,
-execution route, or permission.
+The following requirements apply D2 through D5, including D3's Concord deletion
+exemption; they create no approval class, execution route, or permission.
 For these owners and every owner in D6, the qualification governs ordinary
 operator-consent clauses, including tables, acceptance criteria, verification
 prose, and summaries. An ordinary operation that passes its admission gates
-requires operator consent only when a D2 class applies. This qualification
-does not remove an operator-only waiver of an otherwise refusing gate.
+requires operator consent only when a D2 class applies.
 
 | Owner | Qualified subject |
 |---|---|
-| CD-0018 D4; CD-0153 D4; CD-0224 Decision and its overlap criteria | Merger and supersession do not independently require operator approval; a governing-requirement scope cut still does |
+| CD-0018 D4; CD-0224 Decision and its overlap criteria | Merger and supersession do not independently require operator approval; a governing-requirement scope cut follows D2 and D3's Concord deletion exemption |
 | CD-0094 D2, D3 and terminal-transition claims | Completion, cancellation, and destructive-effect approval follows D2, not terminal status alone |
-| CD-0105; CD-0144; CD-0178 D3; CD-0181; CD-0212 | Routine nonterminal worktree removal needs no consent outside D2 only when content and occupancy gates pass; existing operator-only destructive-removal waivers remain unchanged |
+| CD-0105; CD-0144; CD-0178 D3; CD-0181; CD-0212 | Worktree removal requires operator consent only under D2 |
 | CD-0142 Consequences; PM4 and compaction-retention-policy removal clauses | Per-item execution removal may be agent-directed within the assigned scope; its planning destination and preparation fences remain required |
 | CD-0210 D1, D2 and reconciliation criteria | Outside-repair disposition and reconciliation require operator consent only under D2 |
 | CD-0216 retirement contract | Physical research-pack deletion requires operator consent only under D2 |
-| CD-0218 D2 | Required retry approval follows D2; convergence and the retry wall remain required |
+| CD-0218 D2 | Recovery consent follows D2; current admission and safety requirements remain |
 | `priorities.md` quality and visibility clauses | Law-change and contract-supersession approval follows D2, not seriousness |
 | TS4 operation rows and overlap criteria; TS8 overlap proofs; TS1 and clarifications overlap summaries | Version-pinned overlap resolutions consume operator approval only under D2 |
 | PM6 publication sequence and content lock; TS4 publication row; PM9 payload summary | The durable publication intent freezes exact content and home; it is not operator approval |
@@ -182,14 +187,11 @@ It does not establish that the boundary is enforced at runtime.
 
 These amendments change consent, not other admission. Authentication,
 capability, source and actor identity, exact versions, scope, execution
-relinquishment, occupancy, clean-tree and merged-head gates, retention
+relinquishment, occupancy, normal reclaim's clean-tree and merged-head gates, retention
 eligibility, publication proof, workflow recovery admission, checkpoints,
 evidence, and required independent review keep their existing conditions and
-bounded exceptions. Dirty-tree, unmerged-branch, and live-occupancy refusals
-and their operator-only waivers remain unchanged. No agent gains a bypass.
-An approval that waives one of those gates remains required for that waiver,
-even when the ordinary operation has no D2 consent requirement.
-Operator-only size overrides, CD-0218 D5's release activation and cutover,
+bounded exceptions. No agent gains a bypass.
+CD-0218 D5's release activation and cutover,
 CD-0142 D3's choice of a non-Linear planning destination, and CD-0040 D9's
 exact exception for an unverifiable source also remain unchanged.
 D5's treatment of data recovery does not remove workflow recovery checks. Emergency salvage
@@ -216,9 +218,7 @@ this law; this record does not claim those mechanisms are implemented.
 
 ## Verification
 
-- `python3 scripts/check-doc-contract.py` checks the decision outline.
 - `python3 scripts/check-knowledge-index.py` checks the law record and relations.
-- `python3 scripts/check-conflict-rules.py` checks the table against `priorities.md`.
 - `python3 scripts/check-primary-prompts.py` checks the generated role sources.
 - `python3 scripts/generate-agent-profiles.py --check` checks their projection.
 - `bun test adapter/opencode/` checks the shipped asking instructions.

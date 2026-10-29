@@ -91,12 +91,6 @@ func init() {
 	// domain attachments result (C22.DomainAttachments)
 	// ------------------------------------------------------------------
 
-	// validateDomainProjectAttachments refuses the 65th link with an inline
-	// comparison and the read joins domain_project_attachment_edges 1:1, so
-	// the projection carries at most 64 rows.
-	registerOutputBound("/$defs/domain_attachments_result/properties/attachments/properties/project_attachments/maxItems",
-		goInlineBound("internal/store/domain_attachments.go", "validateDomainProjectAttachments", "len(links)", boundItems))
-
 	// Environments are bounded by the closed six-value C15 vocabulary and the
 	// duplicate refusal in validateResourceEnvironments, so any admitted list
 	// holds at most six distinct members.
@@ -342,39 +336,6 @@ func init() {
 	registerOutputBound("/$defs/domain_observation/properties/tags/maxItems", goInlineBound("internal/store/work_observations.go", "validateObservationBounds", "len(tags)", boundItems))
 
 	// ------------------------------------------------------------------
-	// domain overlap pair (C22.DomainOverlaps)
-	// ------------------------------------------------------------------
-
-	// Shared Domain IDs are the intersection of two admitted affected sets
-	// (workflowDomainOverlapPair); each set holds at most
-	// workflowArchitectureBindingMaxDomains IDs, so the pair can carry 64
-	// and the consumer maximum below must rise to admit it. The truncation
-	// constants beside the refusal envelope never apply to this read
-	// payload.
-	registerOutputBound("/$defs/domain_overlap_pair/properties/shared_domain_ids/maxItems",
-		goConstantBound("internal/store/workflow_architecture_binding.go", "workflowArchitectureBindingMaxDomains", boundItems))
-
-	// Shared law IDs are the intersection of two law-write sets, each the
-	// deduplicated union of admitted law additions (at most
-	// workflowArchitectureBindingMaxLawAdditions) and law modifications
-	// (stored under CHECK(json_array_length(law_modifies) <= 32) on
-	// workflow_contracts), so the pair holds at most 64.
-	registerOutputBound("/$defs/domain_overlap_pair/properties/shared_law_ids/maxItems",
-		sumBound(
-			goConstantBound("internal/store/workflow_architecture_binding.go", "workflowArchitectureBindingMaxLawAdditions", boundItems),
-			sqliteBound("workflow_contracts", "law_modifies"),
-		))
-
-	// ------------------------------------------------------------------
-	// domain overlaps result (C22.DomainOverlaps)
-	// ------------------------------------------------------------------
-
-	// The read keeps the smallest domainOverlapPairLimit canonical pairs
-	// and sets its truncation flag.
-	registerOutputBound("/$defs/domain_overlaps_result/properties/pairs/maxItems",
-		goConstantBound("internal/store/domain_reads.go", "domainOverlapPairLimit", boundItems))
-
-	// ------------------------------------------------------------------
 	// domain registry (embedded in C22 results)
 	// ------------------------------------------------------------------
 
@@ -443,21 +404,6 @@ func init() {
 	// knowledgeLimit refuses anything outside 1..knowledgeQueryLimit.
 	registerOutputBound("/$defs/knowledge_page/properties/items/maxItems",
 		goConstantBound("internal/store/git_knowledge.go", "knowledgeQueryLimit", boundItems))
-
-	// A per-source watermark is the scanned commit OID or one of the
-	// bounded literals "unreachable"/"unindexed"; the OID side passes
-	// validateCommitOID, whose two comparison operands admit exactly the
-	// 40- and 64-hex lengths.
-	registerOutputBound("/$defs/knowledge_page/properties/source_watermarks/items/properties/watermark/maxLength",
-		pkLengthSetBound("internal/store/git_knowledge.go", "validateCommitOID", "len(oid)"))
-
-	// One watermark is appended per resolved source without bound:
-	// resolveKnowledgeQuerySources returns the designated home plus every
-	// registered source, and the registration fold inserts one row per
-	// operator event with no count guard or CHECK, so the list grows with
-	// registrations and only the envelope byte ceiling applies.
-	registerOutputBound("/$defs/knowledge_page/properties/source_watermarks/maxItems",
-		unboundedOutput("the watermark list accumulates one entry per registered knowledge source with no cardinality guard: the registration fold inserts rows without a count CHECK (internal/store/product_knowledge_source.go:foldProductKnowledgeSourceRegistered) and queryQ9Federated appends one watermark per source (internal/store/knowledge_query.go:queryQ9Federated)", "internal/agent/runtime.go:readSizeRefusal"))
 
 	// The payload watermark is the designated home's scanned commit OID or
 	// the literal "unindexed": the same validateCommitOID length set.

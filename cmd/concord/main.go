@@ -86,12 +86,6 @@ func runWithInput(args []string, in io.Reader, out, errOut io.Writer) int {
 	if len(args) > 0 && args[0] == "repair" {
 		return runRepairCommand(args[1:], in, out, errOut)
 	}
-	// ci-wait is store-free (CD-0160): it queries GitHub through gh and a
-	// state file, never Concord authority, so it routes around the database
-	// open like the release verbs and consumes its JSON body directly.
-	if len(args) > 0 && args[0] == "ci-wait" {
-		return runStoreFreeJSONCommand("ci-wait", args[1:], in, out, errOut, runCiWait)
-	}
 	command, commandArgs, ok := routeCommand(args)
 	if ok {
 		return runJSONCommand(command, commandArgs, in, out, errOut)
@@ -158,16 +152,13 @@ var commandSpecs = []commandSpec{
 	{Canonical: "product-create", TwoWord: "product create", RequiredFields: requiredFields(field("product_id"), field("display_name"), field("stage_maturity"), field("stage_audience_commitment"), field("project_id"), field("project_display_name"), field("role")), Optional: "reason", Enums: "stage_maturity: prototype | alpha | beta | production | deprecated; stage_audience_commitment: operator_only | limited | public; role: primary | secondary"},
 	{Canonical: "resource-create", TwoWord: "resource create", RequiredFields: requiredFields(field("event_id"), field("resource_id"), field("product_id"), field("display_name"), field("class"), field("kind"), field("purpose"), field("stage_maturity"), field("stage_audience_commitment"), field("environments"), field("expected_product_version")), Optional: "locator_absence_reason, metadata_schema_version, metadata, owner_purpose, owner_environments", Enums: "stage_maturity: prototype | alpha | beta | production | deprecated; stage_audience_commitment: operator_only | limited | public"},
 	{Canonical: "resource-share", TwoWord: "resource share", RequiredFields: requiredFields(field("event_id"), field("resource_id"), field("product_id"), field("expected_resource_version")), Optional: "purpose, environments", Enums: "none"},
-	{Canonical: "domain-project-attachments-replace", TwoWord: "domain project-attachments-replace", RequiredFields: requiredFields(field("event_id"), field("product_id"), field("domain_id"), field("expected_version"), field("attachments")), Optional: "attachments (replaces the full edge set)", Enums: "attachments[].role: primary | secondary"},
 	{Canonical: "domain-resource-attachments-replace", TwoWord: "domain resource-attachments-replace", RequiredFields: requiredFields(field("event_id"), field("product_id"), field("domain_id"), field("expected_version"), field("attachments")), Optional: "attachments (replaces the full edge set)", Enums: "none"},
 	{Canonical: "project-create", TwoWord: "project create", RequiredFields: requiredFields(field("project_id"), field("display_name"), field("product_id"), field("role"), field("expected_product_version")), Optional: "reason", Enums: "role: primary | secondary"},
 	{Canonical: "product-project-add", TwoWord: "product project-add", RequiredFields: requiredFields(field("product_id"), field("project_id"), field("role"), field("expected_version")), Optional: "reason", Enums: "role: primary | secondary"},
-	{Canonical: "product-stage-update", TwoWord: "product stage-update", RequiredFields: requiredFields(field("product_id"), field("stage_maturity"), field("stage_audience_commitment"), field("expected_version")), Optional: "reason (cite the CD-0091 rung manifest when raising maturity)", Enums: "stage_maturity: prototype | alpha | beta | production | deprecated; stage_audience_commitment: operator_only | limited | public"},
+	{Canonical: "product-stage-update", TwoWord: "product stage-update", RequiredFields: requiredFields(field("product_id"), field("stage_maturity"), field("stage_audience_commitment"), field("expected_version")), Optional: "reason (cite the CD-0091 rung evidence when raising maturity)", Enums: "stage_maturity: prototype | alpha | beta | production | deprecated; stage_audience_commitment: operator_only | limited | public"},
 	{Canonical: "product-knowledge-home-designate", TwoWord: "product knowledge-home-designate", RequiredFields: requiredFields(field("product_id"), field("project_id"), field("locator_id"), field("expected_version")), Optional: "reason", Enums: "locator_id: a canonical_path locator of the member Project"},
 	{Canonical: "product-knowledge-home-clear", TwoWord: "product knowledge-home-clear", RequiredFields: requiredFields(field("product_id"), field("expected_version")), Optional: "reason", Enums: "none"},
 	{Canonical: "domain-shape-check", TwoWord: "domain shape-check", RequiredFields: requiredFields(field("product_id")), Optional: "checkout (clean exact pinned subject worktree of the designated home; defaults to its registered path)", Enums: "explicit operator command; strict ratchet; missing checks remain unverified; JSON report <=32768 bytes; diagnostics <=4096 bytes; failures exit nonzero"},
-	{Canonical: "product-knowledge-source-register", TwoWord: "product knowledge-source-register", RequiredFields: requiredFields(field("product_id"), field("project_id"), field("locator_id"), field("expected_version")), Optional: "reason", Enums: "locator_id: a canonical_path locator of the member Project, not the designated home"},
-	{Canonical: "product-knowledge-source-remove", TwoWord: "product knowledge-source-remove", RequiredFields: requiredFields(field("product_id"), field("project_id"), field("locator_id"), field("expected_version")), Optional: "reason", Enums: "locator_id: a registered knowledge source of the Product"},
 	{Canonical: "project-locator-add", TwoWord: "project locator-add", RequiredFields: requiredFields(field("project_id"), field("locator_id"), field("kind"), field("value"), field("expected_version")), Optional: "none", Enums: "kind: canonical_path | git_remote"},
 	{Canonical: "project-locator-update", TwoWord: "project locator-update", RequiredFields: requiredFields(field("project_id"), field("locator_id"), field("kind"), field("value"), field("expected_version")), Optional: "none", Enums: "kind: canonical_path | git_remote"},
 	{Canonical: "project-locator-remove", TwoWord: "project locator-remove", RequiredFields: requiredFields(field("project_id"), field("locator_id"), field("expected_version")), Optional: "none", Enums: "none"},
@@ -181,7 +172,6 @@ var commandSpecs = []commandSpec{
 	{Canonical: "receipt", RequiredFields: requiredFields(field("work_id")), Optional: "none", Enums: "prints the product-owned closure receipt markdown (CD-0169) for a completed work item; empty output when the item is not completed"},
 	{Canonical: "work-shelve", RequiredFields: requiredFields(field("operation_id"), field("idempotency_key"), field("work_id"), field("expected_version"), field("handoff")), Optional: "product_id, linear, actor, safety evidence", Enums: "reason is fixed to shelved; no sixth lifecycle state"},
 	{Canonical: "work-cancel", RequiredFields: requiredFields(field("operation_id"), field("idempotency_key"), field("work_id"), field("expected_version"), field("handoff")), Optional: "product_id, linear, actor, safety evidence", Enums: "reason is fixed to cancelled; removal is not archival"},
-	{Canonical: "ci-wait", RequiredFields: requiredFields(field("selector"), field("repo")), Optional: "mode (pr checks|merge), head_sha (pr), time_seconds_max, state_file", Enums: "selector.kind: pr|sha|run; mode: checks|merge"},
 	{Canonical: "session-prepare", RequiredFields: requiredFields(field("product_id"), field("work_id"), field("agent")), Optional: "task (max 8192 bytes; none on resume); agent is the active agent; handler refusals exit 2; required-field refusals exit 64", Enums: "none"},
 	{Canonical: "project-resolve", TwoWord: "project resolve", RequiredFields: requiredFields(field("directory")), Optional: "worktree (defaults to directory)", Enums: "none"},
 	{Canonical: "restore", RequiredFields: requiredFields(field("source"), field("destination")), Optional: "none", Enums: "source: existing verified backup snapshot path; destination: absolute clean path that does not yet exist and is not the live database"},
@@ -232,7 +222,6 @@ var verbUsages = []struct {
 	{"host-leases", []string{"host-leases                  # print live release leases; prunes stale ones"}},
 	{"upgrade", []string{"upgrade < JSON stdin      # apply pending migrations; {\"plan\":true} reports readiness"}},
 	{"repair", []string{"repair < JSON stdin          # verify assets, back up the database, repair the installed release (#912)"}},
-	{"ci-wait", []string{"ci-wait < JSON stdin         # one bounded slice of a GitHub CI wait (CD-0160)"}},
 }
 
 // isHelpFlag reports whether an argument asks for help; -h is an alias of
@@ -375,29 +364,6 @@ const dbOverrideEnv = "CONCORD_DB_PATH"
 // inputRefusalExit is the CLI transport signal for validation that precedes
 // dispatch. Store, handler, and output failures must not use this exit code.
 const inputRefusalExit = 64
-
-// runStoreFreeJSONCommand reads and validates a JSON command body for a verb
-// that never opens the store, then hands the raw bytes to its handler. It
-// mirrors runJSONCommand's input bounds and required-field gate without the
-// store open.
-func runStoreFreeJSONCommand(name string, args []string, in io.Reader, out, errOut io.Writer, handler func([]byte, io.Writer, io.Writer) int) int {
-	if len(args) != 0 {
-		writeDiagnostic(errOut, fmt.Sprintf("concord: unsupported arguments: %s", strings.Join(append([]string{name}, args...), " ")))
-		writeCommandUsageSection(errOut, name)
-		return 2
-	}
-	inputLimit := int64(agent.MaxRequestBytes)
-	raw, err := io.ReadAll(io.LimitReader(in, inputLimit+1))
-	if err != nil || int64(len(raw)) > inputLimit {
-		writeDiagnostic(errOut, fmt.Sprintf("input exceeds %d bytes", inputLimit))
-		return 1
-	}
-	if err := validateRequiredCommandFields(name, raw); err != nil {
-		writeOperatorDiagnostic(errOut, name, diagnosticText(err))
-		return inputRefusalExit
-	}
-	return handler(raw, out, errOut)
-}
 
 func runJSONCommand(command string, args []string, in io.Reader, out, errOut io.Writer) (exitCode int) {
 	if len(args) != 0 {
@@ -614,10 +580,7 @@ func runInvoke(raw []byte, s *store.Store, service *agent.Service, out, errOut i
 	return writeJSON(out, response, errOut)
 }
 
-// runProductKnowledgeConfiguration executes the four operator verbs that
-// configure a Product's knowledge source set (PM6 §2, CD-0200): designating
-// or clearing the shared-law home, and registering or removing a member
-// Project knowledge source. One request shape, one Product-scoped result.
+// runProductKnowledgeConfiguration designates or clears a Product's knowledge home.
 func runProductKnowledgeConfiguration(command string, raw []byte, s *store.Store, out, errOut io.Writer) int {
 	var request struct {
 		ProductID       string `json:"product_id"`
@@ -642,16 +605,6 @@ func runProductKnowledgeConfiguration(command string, raw []byte, s *store.Store
 		result, err = s.ClearProductKnowledgeHome(context.Background(), store.ProductKnowledgeHomeDesignation{
 			ProductID: request.ProductID, Reason: request.Reason, ExpectedVersion: request.ExpectedVersion,
 		})
-	case "product-knowledge-source-register":
-		result, err = s.RegisterProductKnowledgeSource(context.Background(), store.ProductKnowledgeSourceRegistration{
-			ProductID: request.ProductID, ProjectID: request.ProjectID, LocatorID: request.LocatorID,
-			Reason: request.Reason, ExpectedVersion: request.ExpectedVersion,
-		})
-	case "product-knowledge-source-remove":
-		result, err = s.RemoveProductKnowledgeSource(context.Background(), store.ProductKnowledgeSourceRegistration{
-			ProductID: request.ProductID, ProjectID: request.ProjectID, LocatorID: request.LocatorID,
-			Reason: request.Reason, ExpectedVersion: request.ExpectedVersion,
-		})
 	}
 	if err != nil {
 		writeOperatorDiagnostic(errOut, command, diagnosticText(err))
@@ -674,11 +627,11 @@ func runInternal(command string, raw []byte, service *agent.Service, s *store.St
 		return runProjectLocatorCommand(command, raw, s, out, errOut)
 	case "product-create":
 		return runProductCreate(command, raw, s, out, errOut)
-	case "resource-create", "resource-share", "domain-project-attachments-replace", "domain-resource-attachments-replace":
+	case "resource-create", "resource-share", "domain-resource-attachments-replace":
 		return runResourceDomainCommand(command, raw, s, clock, out, errOut)
 	case "project-create", "product-project-add", "product-stage-update":
 		return runProductProjectCommand(command, raw, s, out, errOut)
-	case "product-knowledge-home-designate", "product-knowledge-home-clear", "product-knowledge-source-register", "product-knowledge-source-remove":
+	case "product-knowledge-home-designate", "product-knowledge-home-clear":
 		return runProductKnowledgeConfiguration(command, raw, s, out, errOut)
 	case "backup":
 		return runBackup(command, raw, s, out, errOut)
@@ -901,20 +854,6 @@ func runResourceDomainCommand(command string, raw []byte, s *store.Store, clock 
 			return []string{request.EventID}, []operatorRef{{EntityKind: store.SubjectProduct, ID: request.ProductID}}, store.AddManagedResourceConsumer(ctx, s, store.AddManagedResourceConsumerRequest{
 				EventID: request.EventID, ResourceID: request.ResourceID, ProductID: request.ProductID,
 				Purpose: request.Purpose, Environments: request.Environments, ExpectedResourceVersion: request.ExpectedResourceVersion,
-				Actor: "operator", OccurredAt: clock().UTC(),
-			})
-		})
-	case "domain-project-attachments-replace":
-		return runOperatorRequest(command, raw, s, out, errOut, func(request struct {
-			EventID         string                          `json:"event_id"`
-			ProductID       string                          `json:"product_id"`
-			DomainID        string                          `json:"domain_id"`
-			ExpectedVersion int64                           `json:"expected_version"`
-			Attachments     []store.DomainProjectAttachment `json:"attachments"`
-		}) ([]string, []operatorRef, error) {
-			return []string{request.EventID}, []operatorRef{{EntityKind: store.SubjectProduct, ID: request.ProductID}}, store.ReplaceDomainProjectAttachments(ctx, s, store.DomainProjectAttachmentsRequest{
-				EventID: request.EventID, ProductID: request.ProductID, DomainID: request.DomainID,
-				ExpectedVersion: request.ExpectedVersion, Attachments: request.Attachments,
 				Actor: "operator", OccurredAt: clock().UTC(),
 			})
 		})

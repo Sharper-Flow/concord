@@ -1,9 +1,8 @@
 # Predecessor operational coverage
 
-> **Status:** Authorizing for floor condition 6 coverage assessment. Validated on
-> every CI run by `scripts/check-predecessor-coverage.py`. Companion to
+> **Status:** Authorizing for floor condition 6 coverage assessment. Companion to
 > [`priorities.md`](./priorities.md) (canonical floor definition) and
-> [`floor-readiness.md`](./floor-readiness.md) (authorizing readiness record).
+> [`floor-readiness.md`](./floor-readiness.md) (first-usable floor conditions).
 > **Issue:** [#78](https://github.com/Sharper-Flow/concord/issues/78).
 > **Review authority ([CD-0242](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D5):** review records the
 > verdict and Implement cannot accept its own result; no separate final evaluator
@@ -33,25 +32,6 @@ It is deliberately not organized by predecessor command shape.
 cloning, and CD-0006 fixes Concord's own workflow model. An enumeration organized
 around predecessor commands would smuggle that shape back in through the gate that
 exists to keep it out.
-
-### How this document holds authority
-
-Authority here comes from mechanical checking rather than assertion. A checklist
-that asserts its own authority drifts silently, which is the failure
-[`floor-readiness.md`](./floor-readiness.md) already avoids for the readiness
-manifest.
-
-`scripts/check-predecessor-coverage.py` parses the section tables on every CI run
-and rejects a covered outcome that names no existing repository path, an excluded
-outcome that carries no reason, a state outside the closed vocabulary, a
-duplicated outcome, a malformed row, and a tally that disagrees with the rows it
-summarises. An outcome cannot claim coverage against a deleted file, and the
-zero-not-covered claim cannot drift from the table beneath it.
-
-The validator does not judge whether the enumeration is *complete* — no mechanism
-can. Completeness remains an auditing obligation, and the audit that produced the
-current row set is recorded in issue
-[#150](https://github.com/Sharper-Flow/concord/issues/150).
 
 ### Coverage states
 
@@ -118,7 +98,7 @@ The spec-driven lifecycle from confirmed intent to released, evidenced change.
 |---|---|---|
 | Drive a unit of implementation work through a staged lifecycle with required evidence at each stage | Covered | `implementation` workflow definition, `internal/store/workflow_registry.go` |
 | Bind completion to recorded proof rather than assertion | Covered | `bind_evidence`, `RequiredEvidenceKinds`, `internal/store/workflow_completion.go` |
-| Require an evaluator distinct from the author on high-risk work | Covered | Review records the verdict and the engine refuses a verdict recorded by the executing Implement actor ([CD-0242 D5](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d5-execution-is-a-loop-that-main-controls)), enforced in `internal/store/workflow_completion.go` |
+| Require an evaluator distinct from the author on high-risk work | Covered | [CD-0242 D5-D6](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d5-execution-is-a-loop-that-main-controls) requires independent native Task Review. The coordinator owns obtaining it; Concord records subject-bound outcomes without mechanically attesting a distinct subagent producer. |
 | Reject a delivered end-state weaker than the approved one | Covered | CD-0012; completion clause 4 in `internal/store/workflow_completion.go` refuses a criterion with no passing proof, which a weaker or incomparable delivery cannot obtain (CD-0235 D2; WF04, WF50) |
 | Absorb a mid-execution discovery without discarding completed work or silently substituting scope | Covered | `link_successor` forward composition, `internal/store/workflow_dispatch.go` |
 | Resume interrupted work without losing workflow position or repeating external effects | Covered | Attempt epochs, claim/checkpoint/complete fencing in `internal/store/fence.go` |
@@ -126,14 +106,14 @@ The spec-driven lifecycle from confirmed intent to released, evidenced change.
 | Restart cleanly into a typed agent after a boundary rather than summarizing | Excluded | CD-0027: pinned continuity is re-derived per call (CD-0016), so a post-boundary session receives exact pinned state rather than a summary; restart would only preserve in-flight working memory, which the host owns. |
 | Cancel work safely, with approval and recorded evidence | Covered | Terminal lifecycle transitions require approval and evidence, `internal/agent/mutations.go` |
 | Delegate bounded subagent work | Excluded | Native Task belongs to the host under [CD-0242 D6](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-native-task-belongs-to-the-host). Concord records subject-bound stage outcomes, not subagent execution or model identity. |
-| Measure lane prompt behaviour with an evaluation harness | Excluded | Concord keeps no live-model prompt-evaluation harness. End-to-end tests take the simplest direct route, and lane contracts are enforced by the deterministic registry, packet, report, and dispatch checks. |
+| Measure lane prompt behaviour with an evaluation harness | Excluded | Concord keeps no lane registry or live-model prompt-evaluation harness under CD-0242 D6. Native Task behavior belongs to the host, not a Concord packet, report or dispatch contract. |
 | Isolate each unit of work in its own git worktree | Covered | `internal/store/worktrees.go` owns worktree creation as one durable cross-authority operation (atomic claim, probe-before-create, verify, append verified locator, reconcile on interruption) and reclamation from git facts; a second active worktree for the same set is refused. Reachable as `concord_work_transition.worktree_claim` / `.worktree_reclaim`, with the locator inputs (branch, base SHA, path) derived by the `concord worktree-locate` read verb — the named owner of the locator policy (issue #316) — so a caller reaches the claim with authority-derived intent instead of per-session conventions; `cmd/concord/worktree_locate_test.go` proves the located intent is accepted on the first attempt. Refusing mutating grants bound to the main checkout stands beside it in `internal/agent/authority.go`. |
 | Refuse raw file writes (edit, write, delete) to the trunk checkout through host tooling | Excluded | CD-0072: the predecessor enforced this half in an editor-host hook that intercepted write, edit, and destructive shell calls before execution, and no Concord surface can hold that control — `capability-placement.md` §1 does not list an interception point inside another tool's write path among Concord's surfaces, and a host script cannot intercept a call another tool makes. The operator accepted losing the enforcement on 2026-08-21 rather than shipping an editor plugin. Grant-level main-checkout refusal, the one-active-worktree-per-Project refusal, and git-fact reclamation remain in force and are not equivalent to the predecessor's combined guarantee. |
 | Sub-divide a change into an ordered task graph with per-task evidence policy | Excluded | CD-0013 makes the workflow step the unit of execution authority, with evidence obligations declared per workflow definition. A second sub-unit with its own evidence model would duplicate that authority. |
 | Run quality scanners over a change — code smell, architectural inconsistency, competitive comparison, optimization survey | Excluded | [`capability-placement.md`](./capability-placement.md) §3: analysis tooling is an external native authority. Tracked analysis uses a retained workflow family and records the external run's scope, report, and evidence (`workflows.md` §5); Concord does not implement scanners. |
 | Obtain independent review before acceptance | Covered | [CD-0242 D5](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d5-execution-is-a-loop-that-main-controls) requires independent native Task Review. The coordinator records its exact-subject outcome without Concord attesting producer identity. Native receipts and required CI retain their own authority. |
 | Track a small, well-understood durable change without the full spec-driven lifecycle | Not covered | `internal/store/workflow_small_route_outcomes_test.go` proves mandatory completion outcomes on the shared route but starts at execution, not entry. `internal/store/workflow_composition.go` retains the shared required stages. CD-0242 D4 assigns mandatory stages by change type and risk; this evidence does not establish the entry-to-completion lightweight journey. |
-| Obtain a review verdict on rendered visual or frontend output | Covered | `record_verdict` and the `EvidenceReview` requirement carry a review verdict regardless of which surface the reviewer inspected, `internal/store/workflow_registry.go`; the refusal of a verdict recorded by the executing Implement actor is enforced in `internal/store/workflow_completion.go` ([CD-0242 D5](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d5-execution-is-a-loop-that-main-controls)). Which surface a reviewer examines is lane methodology, host-owned under [CD-0043](./decisions/CD-0043-host-owned-lane-methodology.md) D1–D2: it reaches a dispatch only through the enumerated `CONCORD_HOST_INSTRUCTIONS` provenance surface and is never durable coordination state. Concord owes no skill here — the same coordination/analysis split this section applies to quality scanners. |
+| Obtain a review verdict on rendered visual or frontend output | Covered | `record_review` carries the exact-subject independent Review outcome under CD-0242 D5; native receipts and `record_verdict` retain verification authority. The host owns surface inspection and tool-specific procedure under [CD-0043](./decisions/CD-0043-host-owned-lane-methodology.md); portable methods ship as skills under CD-0246 without dispatch provenance. |
 
 ## 4. Research and investigation
 
@@ -157,9 +137,7 @@ Executing operational procedures with approval, conditions, and rollback.
 |---|---|---|
 | Execute an operational procedure with an approval step, checkpoints, and a cleanup obligation | Excluded | Accepted [CD-0218](./decisions/CD-0218-the-live-workflow-catalog-retains-three-execution-families.md) D1 retires ops choreography from new execution and adds no provider executor. D4 preserves archived definitions for historical reads, not new capture or dispatch. |
 | Roll back a partially executed operation | Excluded | Accepted [CD-0218](./decisions/CD-0218-the-live-workflow-catalog-retains-three-execution-families.md) D1 removes ops choreography without adding a rollback claim or authority for external effects. The archived `rollback_run` action is not a live rollback route. |
-| Wait on an external signal without polling, and distinguish waiting from never-completable | Excluded | Accepted [CD-0234](./decisions/CD-0234-the-engine-has-no-external-condition-resolver.md) D1-D2: no retained workflow family can open a condition and no resolver or wait authority exists, so no runtime path waits on an external signal. Recorded conditions stay readable and block consequential actions. |
 | Record the health of an operational run | Excluded | Accepted [CD-0218](./decisions/CD-0218-the-live-workflow-catalog-retains-three-execution-families.md) D1 removes ops choreography without adding a health observer. D4 preserves archived `record_health` history, not a live health-recording route. |
-| Claim a shared resource so concurrent agents do not collide outside the repository | Covered | `concord_work_relate.resource_claim` records a durable typed claim held by a work item; contention refuses with coordination, terminal transition releases, and `resource_claims` (PM1.Q13) resolves holder and reason before another agent acts (CD-0028); dispatched in `internal/agent/mutations.go` and exercised by `internal/agent/resource_claims_dispatch_test.go`. |
 | Throttle local test execution, wait on remote CI, keep worktrees fresh, bootstrap a project | Excluded | [`capability-placement.md`](./capability-placement.md) §6 places these as host scripts. They are cross-tool executables that outlive any coordination system, and Concord observes their results rather than owning them. |
 | Install, sync, pin, and roll back the coordination runtime itself | Excluded | Owned by the release and installer path (`scripts/release.py`, `scripts/install.py`), which CI validates. Not coordination territory. |
 | Diagnose a failing local environment interactively | Excluded | [`capability-placement.md`](./capability-placement.md) §6 places host diagnosis with host scripts and on-demand methodology. Concord observes the results a local environment produces; it does not own diagnosing one. |
@@ -192,7 +170,7 @@ Territory that appears across all six and is an outcome in its own right.
 | Reconstruct any subject at any point in its history | Excluded | [CD-0242 D2](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history): the store keeps current rows and finite verified snapshots, not history; no point-in-time reconstruction, retained log, or fold exists. |
 | Rebuild every projection from the event log without loss | Excluded | [CD-0242 D2](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history): the store keeps current rows and finite verified snapshots, not an event log, so no rebuild-from-log capability exists; the Git-derived knowledge index rebuilds from Git (CD-0242 D1). |
 | Constrain what an agent may do, scoped to a Product or Project | Covered | Per-call authorization and scope validation, `internal/agent/authority.go` |
-| Refuse a mutation whose scope version is stale, while allowing a refreshed read | Covered | `internal/agent/context_freshness_test.go` asserts the split directly: a stale read returns the refreshed scope version with a `context_refreshed` notice and records no domain event, while a stale mutation fails `stale_context` before any effect. Recorded as `fc2-context-freshness` (`satisfied`). |
+| Refuse a mutation whose scope version is stale, while allowing a refreshed read | Covered | `internal/agent/context_freshness_test.go` asserts the split directly: a stale read returns the refreshed scope version with a `context_refreshed` notice and records no domain event, while a stale mutation fails `stale_context` before any effect. |
 | Triage accumulated coordination residue — stale work, drifted worktrees, orphaned state | Covered | Worktree drift reclaims from git facts (`internal/store/worktrees.go`); stale plans are detected by staleness rules and revised through `supersede_contract` (`internal/store/workflow_event_constructors.go`). Concord has no separate residue sweep because residue is resolved where it is produced. |
 | Deliver agent behavioural methodology — rule rationale, structured preference elicitation | Excluded | [`capability-placement.md`](./capability-placement.md) §4 and [CD-0043](./decisions/CD-0043-host-owned-lane-methodology.md): host-specific procedure stays host-owned; portable methods ship as skills under CD-0246, not durable coordination state. |
 
@@ -202,11 +180,11 @@ Territory that appears across all six and is an outcome in its own right.
 
 | State | Count |
 |---|---|
-| Covered | 48 |
+| Covered | 47 |
 | Not covered | 1 |
-| Excluded with reason | 25 |
+| Excluded with reason | 24 |
 
-**Total enumerated outcomes: 74.**
+**Total enumerated outcomes: 72.**
 
 The small-change entry-to-completion journey remains unproved.
 Shared-route mandatory-outcome proof does not establish that

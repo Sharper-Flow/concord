@@ -5,7 +5,6 @@
     "tier": "legislated"
   },
   "date": "2026-08-23T00:00:00Z",
-  "doc_contract_profile": "legacy",
   "evidence": [
     "internal/store/schema.go",
     "internal/store/workflow_continuity.go",
@@ -24,9 +23,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:f5f79bcfc804344d1d4925cc5b6a4b20a16ffea0725a3db41f568f87160245d8",
+  "sha256": "sha256:959645f348268b3986c0ea31763f1ef4cff924bffbc7c323dc6482dc65e3adce",
   "status": "accepted",
-  "summary": "CD-0027 excludes lane restart only; orchestrator identity is recorded as a subject_type='session' row rather than a restart context boundary, the orphaned typed_agent_* columns and the restart boundary_kind are removed, and the orchestrator ruleset digest covers the resolved host artifacts the way CD-0034 host prompt provenance does.",
+  "summary": "CD-0027 excludes typed-lane restart. Session preparation records asserted orchestrator identity as a current session row, not a continuity boundary. Removed typed-agent columns and restart boundary kinds stay absent. The ruleset digest records only host artifacts actually resolved; it supplies neither workflow authority nor native Task producer attestation.",
   "tags": [
     "workflow",
     "lanes",

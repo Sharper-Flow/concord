@@ -1,7 +1,7 @@
 # Generated Concord agent tool surface
 
-Manifest digest: `sha256:d893f72dba433dd8737ff45959f78e3457bca20f6fa6f706dfe218eb1855b4c2`
-Payload schema digest: `sha256:186d5baadb21d84de06ec8497dd02c37c7fbac4759c1006899c5499f66e52bbc`
+Manifest digest: `sha256:9d79e1c7330aff88cd80b918b227f1c75d8fac7d6f6f2fd3c766902fb8339996`
+Payload schema digest: `sha256:2cd441222297554d8006db2f61b90c3a3b03440e75072c194ad7a7f97ef1cb16`
 Envelope schema: `1.0`
 
 | Operation | Kind | Query | Capability | Consequence | Availability |
@@ -14,7 +14,6 @@ Envelope schema: `1.0`
 | `concord_work_browse.blocked` | `read` | `PM1.Q4` | `product_read` | `read` | `always` |
 | `concord_work_browse.ready` | `read` | `PM1.Q5` | `product_read` | `read` | `always` |
 | `concord_work_browse.scope` | `read` | `PM1.Q6` | `product_read` | `read` | `always` |
-| `concord_work_browse.resource_claims` | `read` | `PM1.Q13` | `product_read` | `read` | `always` |
 | `concord_work_browse.messages` | `read` | `PM1.Q14` | `product_read` | `read` | `always` |
 | `concord_work_browse.worktree_audit` | `read` | `PM1.Q16` | `product_read` | `read` | `always` |
 | `concord_work_browse.worktree_inspect` | `read` | `CD-0096.R1` | `product_read` | `read` | `always` |
@@ -42,8 +41,6 @@ Envelope schema: `1.0`
 | `concord_work_transition.lifecycle` | `mutation` | `—` | `work_transition` | `lifecycle` | `always` |
 | `concord_work_transition.remove` | `mutation` | `—` | `work_transition` | `lifecycle` | `always` |
 | `concord_work_transition.workflow_action` | `mutation` | `—` | `work_transition` | `workflow_action` | `workflow_definition` |
-| `concord_work_transition.worker_reconcile` | `mutation` | `—` | `work_transition` | `recovery` | `always` |
-| `concord_work_transition.worker_abandon` | `mutation` | `—` | `work_transition` | `recovery` | `always` |
 | `concord_work_transition.worktree_claim` | `mutation` | `—` | `work_transition` | `lifecycle` | `always` |
 | `concord_work_transition.session_vacate` | `mutation` | `—` | `work_transition` | `lifecycle` | `always` |
 | `concord_work_transition.project_handoff_record` | `mutation` | `—` | `work_transition` | `lifecycle` | `always` |
@@ -54,8 +51,6 @@ Envelope schema: `1.0`
 | `concord_work_transition.worktree_destroy` | `mutation` | `—` | `work_transition` | `lifecycle` | `always` |
 | `concord_work_relate.set_memberships` | `mutation` | `—` | `work_relate` | `scope` | `always` |
 | `concord_work_relate.resolve_overlap` | `mutation` | `—` | `work_relate` | `relation` | `always` |
-| `concord_work_relate.resource_claim` | `mutation` | `—` | `work_relate` | `claim` | `always` |
-| `concord_work_relate.resource_release` | `mutation` | `—` | `work_relate` | `claim` | `always` |
 | `concord_work_relate.message_send` | `mutation` | `—` | `work_relate` | `relation` | `always` |
 | `concord_work_relate.message_withdraw` | `mutation` | `—` | `work_relate` | `relation` | `always` |
 | `concord_work_compact.publish` | `mutation` | `—` | `work_compact` | `publication` | `always` |
@@ -63,7 +58,6 @@ Envelope schema: `1.0`
 | `concord_domain.list` | `read` | `C22.DomainList` | `product_read` | `read` | `always` |
 | `concord_domain.detail` | `read` | `C22.DomainDetail` | `product_read` | `read` | `always` |
 | `concord_domain.attachments` | `read` | `C22.DomainAttachments` | `product_read` | `read` | `always` |
-| `concord_domain.overlaps` | `read` | `C22.DomainOverlaps` | `product_read` | `read` | `always` |
 | `concord_domain.footprint` | `read` | `C22.DomainFootprint` | `product_read` | `read` | `always` |
 | `concord_domain.shape` | `read` | `C22.DomainShape` | `product_read` | `read` | `always` |
 | `concord_work_transition.correct_delivery` | `mutation` | `—` | `work_transition` | `recovery` | `always` |

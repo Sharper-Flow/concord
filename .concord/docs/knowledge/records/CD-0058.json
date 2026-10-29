@@ -5,7 +5,6 @@
     "tier": "legislated"
   },
   "date": "2026-08-22T00:00:00Z",
-  "doc_contract_profile": "legacy",
   "evidence": [
     ".concord/docs/decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md"
   ],
@@ -20,7 +19,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:562b44d7382aefac107a4c1e750399dd873a27e507f6cd8a735f52d71a83a271",
+  "sha256": "sha256:958fc9b70cb1bd3471bf28728e504e7678e6e27e44993ea1c198f3bd8dc3658c",
   "status": "accepted",
   "summary": "Concrete model selection remains host-owned. Concord has no routing policy, model pin, fallback or subagent model-readback gate and its workflow results attest no executing model identity.",
   "tags": [

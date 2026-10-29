@@ -32,7 +32,9 @@ Repository-authored Product knowledge lives under `.concord/docs`,
 knowledge manifest and its record shards, the decisions, specifications,
 lessons, research, constitution, and reference records, the shipped operator
 conduct, and the acceptance scenarios. Each artifact keeps one canonical
-location. Git-authored Markdown stays the record body, and the manifest
+location in the designated Product knowledge home under
+[CD-0200](CD-0200-product-knowledge-resolves-through-one-designated-git-home.md).
+Git-authored Markdown stays the record body, and the manifest
 shards stay the composed authority under CD-0114.
 
 ### D2. The only escape is a recorded operator override
@@ -77,8 +79,7 @@ that override names.
 The canonical knowledge homes in this repository are under `.concord/`.
 The placement check refuses root docs/, instructions/, or scenarios/
 directories and compatibility symlinks for those paths alike. A new knowledge document lands
-under `.concord/` by default, and the closure check keeps every unprocessed
-document visible.
+under `.concord/` by default.
 
 ### D4. Installed conduct is a projection, not a second authoring home
 
@@ -126,12 +127,9 @@ validate it. Concord's own override list starts empty.
   root tree, an unapproved outside record, a prose denial, a cross-pair
   instruction, a superseded or non-decision anchor, a malformed or
   duplicated instruction, and accepts a valid recorded override.
-- `python3 scripts/check-knowledge-index.py` and
-  `python3 scripts/check-knowledge-closure.py` prove record integrity and
-  files-to-records coverage at the new home.
-- `python3 scripts/check-cd-allocation.py` proves ref-based composition
-  across the layout tiers. `python3 scripts/test-cd-allocation.py` and
-  `python3 scripts/test-renumber-cd.py` prove the lineage guards treat
-  records the comparison ref gained after the merge base as upstream
-  additions, and records the merge base carried as durable law.
+- `python3 scripts/check-knowledge-index.py` proves record integrity at the
+  new home.
+- `python3 scripts/test-renumber-cd.py` proves the lineage guards treat records
+  the comparison ref gained after the merge base as upstream additions, and
+  records the merge base carried as durable law.
 - `go test ./internal/store/` proves the store reads the migrated corpus.

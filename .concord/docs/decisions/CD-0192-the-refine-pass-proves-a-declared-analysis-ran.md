@@ -113,10 +113,5 @@ succeeds.
   declaration.
 - `python3 scripts/test-project-tooling.py` proves the checker and the schema
   refuse shell quoting and shell operators in an invocation.
-- `python3 scripts/check-doc-contract.py` proves this record carries the
-  current decision outline and passes the writing rules.
-- `python3 scripts/check-knowledge-index.py` and
-  `python3 scripts/check-knowledge-closure.py` prove this record registers
-  with a current content hash and no unprocessed document remains.
-- `python3 scripts/check-cd-allocation.py --no-fetch` proves the CD-0192
-  identifier allocates once.
+- `python3 scripts/check-knowledge-index.py` proves this record registers
+  with a current content hash.

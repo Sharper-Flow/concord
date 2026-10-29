@@ -5,7 +5,6 @@
     "tier": "legislated"
   },
   "date": "2026-08-01T00:00:00Z",
-  "doc_contract_profile": "legacy",
   "home_domain_id": "product-root:concord",
   "id": "CD-0006",
   "kind": "decision",
@@ -18,7 +17,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:d41a984a7fd00e915eb9a143a0c39d5b9c21e287169533213a8dbe4eb8a1a094",
+  "sha256": "sha256:0ad18d6c47002886a34c277f5c091f236cafca46629e9b94722312285131c0da",
   "status": "accepted",
   "summary": "Defines root Product policy under goals.md, without a predecessor full-successor requirement. CD-0082 governs demand-driven migration and correction. Workflow, governance, single-operator, and release-evidence duties remain.",
   "tags": [

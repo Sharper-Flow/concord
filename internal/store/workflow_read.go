@@ -7,9 +7,7 @@ import (
 	"time"
 )
 
-// WorkflowReadRequest bounds the existing workflow trace/read projection. It
-// is read-only: no condition is resolved and no warning is acknowledged while
-// constructing the response.
+// WorkflowReadRequest bounds the read-only workflow trace/read projection.
 type WorkflowReadRequest struct {
 	WorkID string
 	Limit  int
@@ -20,9 +18,6 @@ type WorkflowReadRequest struct {
 	// and are omitted; the instance fields stay current. A version the work
 	// never had refuses unknown_scope.
 	ContractVersion int64
-	// Now pins the read-time clock for await-health derivation; zero means
-	// wall clock.
-	Now time.Time
 }
 
 type WorkflowReadDefinition struct {
@@ -42,7 +37,6 @@ type WorkflowReadContract struct {
 	RigorClass          string                       `json:"rigor_class"`
 	ChangesProductTruth *bool                        `json:"changes_product_truth,omitempty"`
 	ArchitectureBinding *WorkflowArchitectureBinding `json:"architecture_binding,omitempty"`
-	SelfRepair          *WorkflowSelfRepair          `json:"self_repair,omitempty"`
 	ApprovedAt          string                       `json:"approved_at,omitempty"`
 	ApprovedBy          string                       `json:"approved_by,omitempty"`
 	SupersededBy        *int64                       `json:"superseded_by,omitempty"`
@@ -126,9 +120,6 @@ func readWorkflowContractVersion(ctx context.Context, q queryer, workID string, 
 	if contract.ArchitectureBinding, err = readWorkflowArchitectureBinding(ctx, q, workID, contract.Version); err != nil {
 		return contract, err
 	}
-	if contract.SelfRepair, err = readWorkflowSelfRepair(ctx, q, workID, contract.Version); err != nil {
-		return contract, err
-	}
 	return contract, nil
 }
 
@@ -167,42 +158,13 @@ func verifyReadWorkflowDefinition(definition WorkflowReadDefinition) (Registered
 	return resolveCurrentWorkflowDefinition(BuiltinWorkflowRegistry(), definition.Ref)
 }
 
-type WorkflowReadCondition struct {
-	ID                  string `json:"id"`
-	AwaitType           string `json:"await_type"`
-	AwaitRef            string `json:"await_ref"`
-	ResolutionAuthority string `json:"resolution_authority"`
-	State               string `json:"state"`
-	// ExpectedWithinSeconds is the declared wait bound (0 = none declared).
-	// Overdue/Health are derived at read time against that bound:
-	// an await beyond its bound reads overdue — unverified, never resolved.
-	ExpectedWithinSeconds int64  `json:"expected_within_seconds"`
-	AgeSeconds            int64  `json:"age_seconds"`
-	Overdue               bool   `json:"overdue"`
-	Health                string `json:"health"`
-}
-
-type WorkflowReadNotice struct {
-	NoticeID              string  `json:"notice_id"`
-	SourceWorkID          string  `json:"source_work_id"`
-	SourceContractVersion int64   `json:"source_contract_version"`
-	EntityKind            string  `json:"entity_kind"`
-	EntityRef             string  `json:"entity_ref"`
-	TargetWorkID          string  `json:"target_work_id"`
-	EdgeOwnerWorkID       string  `json:"edge_owner_work_id"`
-	EdgeID                string  `json:"edge_id"`
-	OldHash               *string `json:"old_hash,omitempty"`
-	NewHash               *string `json:"new_hash,omitempty"`
-	Severity              string  `json:"severity"`
-}
-
 type WorkflowReadParkedDelivery struct {
 	WorkID       string `json:"work_id"`
 	StepID       string `json:"step_id"`
 	ResumeAction string `json:"resume_action"`
 	// ParkedSeconds is a read-time display age derived from the work item's
-	// last update. Elapsed time holds no authority here, matching the
-	// await-health boundary: an old park is labeled, never resolved by clock.
+	// last update. Elapsed time holds no authority here: an old park is
+	// labeled, never resolved by clock.
 	ParkedSeconds int64 `json:"parked_seconds"`
 	// Unreconciled marks a terminal instance that left the delivery gate
 	// uncrossed: cancelled or superseded while a delivery was still owed.
@@ -228,22 +190,12 @@ type WorkflowReadProjection struct {
 	OperatorQuestion         *WorkflowOperatorQuestion         `json:"operator_question,omitempty"`
 	WithheldOperatorQuestion *WorkflowOperatorQuestionWithheld `json:"withheld_operator_question,omitempty"`
 	CandidateIDs             []string                          `json:"candidate_ids"`
-	Conditions               []WorkflowReadCondition           `json:"conditions"`
-	UnresolvedConditions     []string                          `json:"unresolved_conditions"`
-	// OverdueAwaits lists condition ids whose wait exceeded the declared
-	// bound, derived at read time — the waiting/never-completable split.
-	OverdueAwaits        []string                     `json:"overdue_awaits"`
-	AwaitHealth          []WorkflowReadCondition      `json:"await_health"`
-	UnreadableConditions []string                     `json:"unreadable_conditions"`
-	Ready                bool                         `json:"ready"`
-	BlockingConditions   []string                     `json:"blocking_conditions"`
-	ImpactNotices        []WorkflowReadNotice         `json:"impact_notices"`
-	CompletionWarnings   []string                     `json:"completion_warnings"`
-	StaleLawRevision     *StaleLawRevision            `json:"stale_law_revision,omitempty"`
-	ChangesProductTruth  bool                         `json:"changes_product_truth"`
-	ArchitectureBinding  *WorkflowArchitectureBinding `json:"architecture_binding,omitempty"`
-	ProposalRecord       *WorkflowProposalRecord      `json:"proposal_record,omitempty"`
-	ParkedDelivery       *WorkflowReadParkedDelivery  `json:"parked_delivery,omitempty"`
+	CompletionWarnings       []string                          `json:"completion_warnings"`
+	StaleLawRevision         *StaleLawRevision                 `json:"stale_law_revision,omitempty"`
+	ChangesProductTruth      bool                              `json:"changes_product_truth"`
+	ArchitectureBinding      *WorkflowArchitectureBinding      `json:"architecture_binding,omitempty"`
+	ProposalRecord           *WorkflowProposalRecord           `json:"proposal_record,omitempty"`
+	ParkedDelivery           *WorkflowReadParkedDelivery       `json:"parked_delivery,omitempty"`
 	// DeliveryAssertion carries the current completed delivery assertion with
 	// its typed correction. The asserted artifact is the unchanged original
 	// event; the correction, when present, holds the effective merge evidence
@@ -284,13 +236,6 @@ func readWorkflowProjectionTx(ctx context.Context, q queryer, request WorkflowRe
 	}
 	out.ChangesProductTruth = registered.Definition.ChangesProductTruth != nil && *registered.Definition.ChangesProductTruth
 	out.CandidateIDs = []string{}
-	out.Conditions = []WorkflowReadCondition{}
-	out.UnresolvedConditions = []string{}
-	out.OverdueAwaits = []string{}
-	out.AwaitHealth = []WorkflowReadCondition{}
-	out.UnreadableConditions = []string{}
-	out.BlockingConditions = []string{}
-	out.ImpactNotices = []WorkflowReadNotice{}
 	out.CompletionWarnings = []string{}
 	out.ParkedDelivery = parkedDeliveryRead(ctx, q, registered.Definition, request.WorkID, out.CurrentStep, out.State)
 	deliveryAssertion, assertionErr := workflowDeliveryAssertionRead(ctx, q, request.WorkID)
@@ -308,12 +253,6 @@ func readWorkflowProjectionTx(ctx context.Context, q queryer, request WorkflowRe
 		return out, err
 	}
 	if err := readWorkflowProjectionCandidatesTx(ctx, q, request, activeContractVersion, &out); err != nil {
-		return out, err
-	}
-	if err := readWorkflowProjectionConditionsTx(ctx, q, request, &out); err != nil {
-		return out, err
-	}
-	if err := readWorkflowProjectionNoticesTx(ctx, q, request, &out); err != nil {
 		return out, err
 	}
 	if err := readWorkflowProjectionWarningsTx(ctx, q, request.WorkID, &out); err != nil {
@@ -409,101 +348,11 @@ func readWorkflowProjectionCandidatesTx(ctx context.Context, q queryer, request 
 	return nil
 }
 
-func readWorkflowProjectionConditionsTx(ctx context.Context, q queryer, request WorkflowReadRequest, out *WorkflowReadProjection) error {
-	rows, err := q.QueryContext(ctx, `SELECT condition_id,await_type,await_ref,resolution_authority,condition_state,coalesce(expected_within_seconds,0),recorded_at FROM workflow_external_conditions WHERE work_id=? ORDER BY condition_id LIMIT ?`, request.WorkID, request.Limit)
-	if err != nil {
-		return wrapFailure(KindUnavailable, "workflow_read", "cannot read workflow conditions", true, "retry once the database is readable", err)
-	}
-	health := []WorkflowReadCondition{}
-	for rows.Next() {
-		var condition WorkflowReadCondition
-		var waitingSince string
-		if err := rows.Scan(&condition.ID, &condition.AwaitType, &condition.AwaitRef, &condition.ResolutionAuthority, &condition.State, &condition.ExpectedWithinSeconds, &waitingSince); err != nil {
-			rows.Close()
-			return wrapFailure(KindUnavailable, "workflow_read", "cannot scan workflow condition", true, "retry once the database is readable", err)
-		}
-		out.Conditions = append(out.Conditions, condition)
-		if condition.State == "open" {
-			out.UnresolvedConditions = append(out.UnresolvedConditions, condition.ID)
-			// Read-time health derivation: compare the wait's
-			// age to the declared bound. No state change, no timer.
-			if recorded, parseErr := time.Parse(time.RFC3339Nano, waitingSince); parseErr == nil {
-				clock := request.Now
-				if clock.IsZero() {
-					clock = time.Now().UTC()
-				}
-				condition.AgeSeconds = int64(clock.Sub(recorded).Seconds())
-				if condition.AgeSeconds < 0 {
-					condition.AgeSeconds = 0
-				}
-			}
-			condition.Health = "waiting"
-			if condition.ExpectedWithinSeconds > 0 && condition.AgeSeconds > condition.ExpectedWithinSeconds {
-				condition.Overdue = true
-				condition.Health = "overdue"
-				out.OverdueAwaits = append(out.OverdueAwaits, condition.ID)
-			}
-			health = append(health, condition)
-		}
-	}
-	if err := rows.Err(); err != nil {
-		rows.Close()
-		return wrapFailure(KindUnavailable, "workflow_read", "cannot scan workflow conditions", true, "retry once the database is readable", err)
-	}
-	rows.Close()
-	out.AwaitHealth = health
-	ready, err := deriveWorkflowReady(ctx, q, request.WorkID)
-	if err != nil {
-		return err
-	}
-	out.Ready = ready.Ready
-	out.BlockingConditions = append(out.BlockingConditions, ready.BlockingConditions...)
-	out.UnreadableConditions = append(out.UnreadableConditions, ready.UnknownConditions...)
-	return nil
-}
-
-func readWorkflowProjectionNoticesTx(ctx context.Context, q queryer, request WorkflowReadRequest, out *WorkflowReadProjection) error {
-	rows, err := q.QueryContext(ctx, `SELECT notice_id,source_work_id,source_contract_version,entity_kind,entity_ref,target_work_id,edge_owner_work_id,edge_id,old_hash,new_hash,severity FROM workflow_impact_notices WHERE target_work_id=? OR source_work_id=? ORDER BY recorded_at,notice_id LIMIT ?`, request.WorkID, request.WorkID, request.Limit)
-	if err != nil {
-		return wrapFailure(KindUnavailable, "workflow_read", "cannot read workflow impact notices", true, "retry once the database is readable", err)
-	}
-	for rows.Next() {
-		var notice WorkflowReadNotice
-		if err := rows.Scan(&notice.NoticeID, &notice.SourceWorkID, &notice.SourceContractVersion, &notice.EntityKind, &notice.EntityRef, &notice.TargetWorkID, &notice.EdgeOwnerWorkID, &notice.EdgeID, &notice.OldHash, &notice.NewHash, &notice.Severity); err != nil {
-			rows.Close()
-			return wrapFailure(KindUnavailable, "workflow_read", "cannot scan workflow impact notice", true, "retry once the database is readable", err)
-		}
-		out.ImpactNotices = append(out.ImpactNotices, notice)
-	}
-	if err := rows.Err(); err != nil {
-		rows.Close()
-		return wrapFailure(KindUnavailable, "workflow_read", "cannot scan workflow impact notices", true, "retry once the database is readable", err)
-	}
-	rows.Close()
-	return nil
-}
-
 func readWorkflowProjectionWarningsTx(ctx context.Context, q queryer, workID string, out *WorkflowReadProjection) error {
 	var warnings string
 	if err := q.QueryRowContext(ctx, `SELECT json_extract(completion_payload,'$.warnings') FROM workflow_instances WHERE work_id=? AND completion_payload IS NOT NULL`, workID).Scan(&warnings); err == nil && warnings != "" && warnings != "null" {
 		if json.Unmarshal([]byte(warnings), &out.CompletionWarnings) != nil {
 			return newFailure(KindInvariantViolation, "workflow_read", "completion warnings are malformed", false, "restore a verified backup into a new path with concord restore, then swap")
-		}
-	}
-	persisted, warningErr := workflowRecordedStalenessWarnings(ctx, q, workID)
-	if warningErr != nil {
-		return warningErr
-	}
-	for _, warning := range persisted {
-		found := false
-		for _, existing := range out.CompletionWarnings {
-			if existing == warning {
-				found = true
-				break
-			}
-		}
-		if !found {
-			out.CompletionWarnings = append(out.CompletionWarnings, warning)
 		}
 	}
 	return nil
@@ -540,9 +389,8 @@ func readWorkflowBacklogAlignment(ctx context.Context, q queryer, workID string)
 // parkedDeliveryRead derives the CD-0166 parked-delivery observation for a
 // work item whose current step is the delivery gate. ParkedSeconds is a
 // read-time display age taken from the work item's last update; elapsed time
-// holds no authority here, matching the await-health boundary, so an old park
-// is labeled and never resolved by clock. A terminal instance that left the
-// gate uncrossed reads as unreconciled.
+// holds no authority here, so an old park is labeled and never resolved by
+// clock. A terminal instance that left the gate uncrossed reads as unreconciled.
 func parkedDeliveryRead(ctx context.Context, q queryer, definition WorkflowDefinition, workID, currentStep, state string) *WorkflowReadParkedDelivery {
 	if !workflowStepIsDeliveryGate(workflowStep(definition, currentStep)) {
 		return nil

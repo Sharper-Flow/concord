@@ -15,7 +15,7 @@
   (structural enforcement), CD-0222 D3 (law-graph pruning),
   [`floor-readiness.md`](../floor-readiness.md),
   [`predecessor-operational-coverage.md`](../predecessor-operational-coverage.md)
-- **Preserves:** the floor-readiness state vocabulary and its state-conditional
+- **Preserves:** the coverage state vocabulary and its state-conditional
   obligations; the knowledge-index sha256 record integrity; CD-0013 D11's
   reserved surface; the closed-registry and digest mechanisms
 
@@ -50,10 +50,10 @@ integrity alone cannot establish the complete subject set.
 The inverse is equally a finding. A declared exception that has become covered
 is stale, and stale exceptions silently widen over time.
 
-### D2. One state vocabulary, reused from the floor manifest
+### D2. One state vocabulary
 
-Both planes use the state vocabulary and state-conditional obligations already
-accepted in `contracts/floor-readiness.schema.json`: `satisfied`,
+Both planes use one state vocabulary and its state-conditional obligations,
+defined once in `scripts/coverage_state.py`: `satisfied`,
 `outstanding`, `unmeasured`, `out_of_scope`, with `evidence` required when
 satisfied and forbidden otherwise, `issue` required when outstanding, and
 `reason` required for `unmeasured` and `out_of_scope`.
@@ -148,11 +148,8 @@ research and lessons that still serve current evidence are not obsolete design
 descriptions; their historical text is not rewritten under CD-0222 D1.
 
 Required checks refuse mechanically established gaps: undeclared unreachable Go
-functions and packages, unprocessed knowledge documents, missing cited files or
-Go tests, and drift from generated registries.
-The citation resolver covers accepted law, published knowledge, and shipped
-instructions. The installer tests bind the shipped instruction list to
-`.concord/instructions/`; the lane generator refuses drift in each agent
+functions and packages, and drift from generated registries. The installer tests bind the shipped instruction list to
+`.concord/instructions/`; the profile generator refuses drift in each agent
 definition it projects and any `.opencode/agents/` file it does not project.
 These are structural or real-tool
 checks under CD-0055, not judgments based on words such as legacy or obsolete.
@@ -180,8 +177,6 @@ That follow-up does not waive a required check or excuse new dead material.
    analysis surfaces as a manifest diff, which is the correct place to see it.
 5. A change that replaces code, an instruction, or a document carries the
    removal of what it replaced; a later cleanup round is not the default path.
-6. A citation in current law, published knowledge, or a shipped instruction to
-   a deleted file or Go test fails the required doc contract.
 
 ## Rejected alternatives
 
@@ -215,11 +210,6 @@ would fail on every unrelated edit while still not proving the document is true.
 - The reachability step fails on an undeclared unreachable function, and on a
   declared exception that is now reachable.
 - Both validators run in `.github/workflows/ci.yml`.
-- `scripts/check-knowledge-closure.py` refuses unprocessed documents in strict
-  mode.
-- `scripts/check-doc-contract.py` resolves current citations in accepted law,
-  published knowledge, and shipped instructions; `scripts/test-doc-contract.py`
-  proves the refusal and the passing counterpart for each population.
 - `python3 scripts/generate-agent-profiles.py --check` must refuse unprojected
   agent definitions. Regression coverage must prove the refusal and passing
   counterpart; projection equality alone does not prove directory closure.

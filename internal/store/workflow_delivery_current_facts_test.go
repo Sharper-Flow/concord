@@ -5,39 +5,6 @@ import (
 	"testing"
 )
 
-func TestWorkflowAcceptedDeliveryCurrentFactsWithoutLog(t *testing.T) {
-	const work = "accepted-delivery-current-facts"
-	f := qBuildAcceptance(t, work, "", false)
-	defer f.store.Close()
-	s := f.store
-	var attempt string
-	var dispatched int64
-	if err := s.db.QueryRow(`SELECT attempt_id,dispatch_seq FROM worker_attempts WHERE work_id=? ORDER BY dispatch_seq DESC LIMIT 1`, work).Scan(&attempt, &dispatched); err != nil {
-		t.Fatal(err)
-	}
-	seq, accepted, err := workflowAcceptedWorkerDelivery(t.Context(), s.db, work, int64(1)<<62, "test")
-	if err != nil || !accepted || seq != dispatched {
-		t.Fatalf("accepted fixture = %d,%v,%v; want dispatch %d", seq, accepted, err, dispatched)
-	}
-	assertWorkerFactsLogBlind(t, s, map[string]func() (any, error){
-		"accepted-delivery": func() (any, error) {
-			seq, accepted, err := workflowAcceptedWorkerDelivery(t.Context(), s.db, work, int64(1)<<62, "test")
-			return struct {
-				Seq      int64
-				Accepted bool
-			}{seq, accepted}, err
-		},
-		"before-acceptance": func() (any, error) {
-			seq, accepted, err := workflowAcceptedWorkerDelivery(t.Context(), s.db, work, dispatched, "test")
-			return struct {
-				Seq      int64
-				Accepted bool
-			}{seq, accepted}, err
-		},
-		"dispatch-source": func() (any, error) { return workflowAttemptDispatchSequence(t.Context(), s.db, work, attempt, "test") },
-	})
-}
-
 func TestWorkflowCurrentCorrectionRequestPreservesVerdictWindow(t *testing.T) {
 	const work = "current-correction-consumes-verdict"
 	f := qBuildAcceptance(t, work, "", false)

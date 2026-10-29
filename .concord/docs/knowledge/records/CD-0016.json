@@ -11,7 +11,6 @@
     "tier": "legislated"
   },
   "date": "2026-08-11T00:00:00Z",
-  "doc_contract_profile": "legacy",
   "evidence": [
     "internal/store/work_context.go",
     "internal/store/work_context_test.go",
@@ -29,7 +28,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:54da9b3e451c536abfcad467fbfcee3a76d28061c5404286242f8fc74ad93697",
+  "sha256": "sha256:b4923c784798e268a02957bc95789b93ffd0eb43fb512e11e5e8eb7eccaf3830",
   "status": "accepted",
   "summary": "Defines durable checkpoints, bounded boundaries, derived pinned context, typed restart availability, and the recorded work-context view.",
   "tags": [

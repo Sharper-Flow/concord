@@ -27,19 +27,12 @@ type WorkflowAdmissionState struct {
 	// LateCriterionAssociation admits missing applicable proof at a terminal
 	// or premise-question step without moving it back to a producer.
 	LateCriterionAssociation bool
-	// LawPinStale reports a staleness the contract recovery admits: a stale
-	// law revision, an unresolved Domain overlap, or the subject's own stale
-	// registry pin.
+	// LawPinStale reports a staleness the contract recovery admits: a
+	// deleted-law pin.
 	LawPinStale bool
 	// LawPinStaleError is the staleness boundary's refusal under the plain
 	// admission, nil when the pinned law is current.
 	LawPinStaleError error
-	// BreakingNotices is the count of breaking hard-edge impact notices
-	// targeting the work.
-	BreakingNotices int64
-	// ExternalConditionsOpen is the count of open consequential external
-	// conditions.
-	ExternalConditionsOpen int64
 	// DesignStale reports a recorded design a contract correction
 	// invalidated.
 	DesignStale bool
@@ -276,25 +269,11 @@ type workflowAdmissionLoad struct {
 	registry DefinitionRegistry
 }
 
-// staleness folds the law-pin staleness, breaking notices, open conditions,
-// design staleness, and artifact staleness.
+// staleness folds law-pin, design, and artifact staleness.
 func (l workflowAdmissionLoad) staleness(state *WorkflowAdmissionState) error {
-	lawErr := checkWorkflowLawRevisionStalenessAdmittingTx(l.ctx, l.q, l.workID, workflowStalePinAdmitNone)
-	// The staleness boundary's overlap half resolves the one active contract,
-	// so under a duplicated projection it raises the duplicate invariant the
-	// supersede recovery owns. The count itself classifies the recovery, so
-	// the boundary's duplicate refusal degrades and the state folds on.
-	if lawErr != nil && l.duplicated && workflowDuplicateContractProjection(lawErr) {
-		lawErr = nil
-	}
+	lawErr := checkWorkflowLawRevisionStalenessTx(l.ctx, l.q, l.workID)
 	state.LawPinStaleError = lawErr
-	state.LawPinStale = lawErr != nil && workflowContractRecoveryStaleness(lawErr, l.workID)
-	if err := l.q.QueryRowContext(l.ctx, `SELECT count(*) FROM workflow_impact_notices n JOIN workflow_impact_edges e ON e.work_id=n.edge_owner_work_id AND e.edge_id=n.edge_id WHERE n.target_work_id=? AND n.severity='breaking' AND e.edge_class='hard'`, l.workID).Scan(&state.BreakingNotices); err != nil {
-		return wrapFailure(KindUnavailable, l.subject, "cannot inspect workflow impact notices", true, "retry once the database is readable", err)
-	}
-	if openErr := l.q.QueryRowContext(l.ctx, `SELECT count(*) FROM workflow_external_conditions WHERE work_id=? AND condition_state='open'`, l.workID).Scan(&state.ExternalConditionsOpen); openErr != nil {
-		return wrapFailure(KindUnavailable, l.subject, "cannot inspect consequential workflow conditions", true, "retry once the database is readable", openErr)
-	}
+	state.LawPinStale = lawErr != nil && workflowContractRecoveryStaleness(lawErr)
 	_, designErr := readCurrentWorkflowDesign(l.ctx, l.q, l.workID)
 	if designErr != nil {
 		return designErr
@@ -529,9 +508,8 @@ func workflowAdmit(definition WorkflowDefinition, state WorkflowAdmissionState, 
 }
 
 // workflowAdmitInstanceRefused answers the refusals no action can pass:
-// outside repair, a terminal or archived instance, a pending size rerun, and a
-// breaking notice or open condition at a consequential boundary. Each phase
-// below reports true when it decided the action, with decision filled.
+// outside repair or a terminal or archived instance. Each phase below reports
+// true when it decided the action, with decision filled.
 func workflowAdmitInstanceRefused(definition WorkflowDefinition, state WorkflowAdmissionState, actionID string, decision *WorkflowAdmissionDecision) bool {
 	if state.OutsideRepairActive {
 		decision.Failure = newOutsideRepairRouteFailure("workflow_action", "managed workflow action refused: outside-repair disposition is active")
@@ -549,17 +527,6 @@ func workflowAdmitInstanceRefused(definition WorkflowDefinition, state WorkflowA
 			"workflow family "+definition.Ref+" is archived: new public workflow actions are refused", false,
 			"read the recorded history, or start retained-family work")
 		return true
-	}
-	consequence := workflowActionConsequence(definition, actionID)
-	if workflowImpactBoundary(actionID, consequence) {
-		if state.BreakingNotices != 0 {
-			decision.Failure = newFailure(KindInvariantViolation, "workflow_action", "breaking workflow impact notice blocks consequential execution", false, "reread_entities")
-			return true
-		}
-		if state.ExternalConditionsOpen != 0 {
-			decision.Failure = newFailure(KindNotTerminal, "workflow_action", "consequential action has unresolved external conditions", false, "reread_entities")
-			return true
-		}
 	}
 	return false
 }

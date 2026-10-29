@@ -145,8 +145,7 @@ func WorkflowActionPreflightWithRegistry(ctx context.Context, s *Store, registry
 // AuthorizeWorkflowActionAtBoundaryTx is the owning-action transaction
 // coordinator. The preflight, authorization, and the persisted action callback
 // share one transaction and one write guard, so a callback error or mutation
-// failure commits nothing. The boundary resolves no external condition
-// (CD-0234 D1): an open condition answers the admission refusal.
+// failure commits nothing.
 func AuthorizeWorkflowActionAtBoundaryTx(ctx context.Context, s *Store, registry DefinitionRegistry, request WorkflowActionPreflightRequest, authorize func(*Transaction) error, mutate func(*Transaction) error) error {
 	return authorizeWorkflowActionAtBoundaryCore(ctx, s, registry, request, nil, authorize, mutate)
 }
@@ -240,10 +239,6 @@ func workflowActionConsequence(definition WorkflowDefinition, actionID string) A
 		}
 	}
 	return ""
-}
-
-func workflowImpactBoundary(actionID string, consequence ActionConsequence) bool {
-	return consequence == ActionCrossAuthority || consequence == ActionExternalEffect || actionID == "complete"
 }
 
 func workflowActionPreflightTx(ctx context.Context, tx *sql.Tx, registry DefinitionRegistry, request WorkflowActionPreflightRequest) (RegisteredDefinition, error) {

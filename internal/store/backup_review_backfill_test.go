@@ -26,18 +26,18 @@ func TestBackupOlderSchemaWithAcceptedImplementationJob(t *testing.T) {
 	exec(`INSERT INTO products(id,display_name,stage_maturity,stage_audience_commitment,version,created_at,updated_at) VALUES('product-backup','Backup product','prototype','operator_only',1,?,?)`, retirementUpgradeTime, retirementUpgradeTime)
 	exec(`INSERT INTO product_projects VALUES('product-backup','project-backup','primary')`)
 	exec(`INSERT INTO work_projects VALUES('work-backup','project-backup','primary')`)
-	job := WorkerJobRecordedPayload{JobID: "job:backup", Revision: 1, ProjectScope: "project-backup"}
-	digest := DeriveWorkerJobDigest(job)
-	exec(`INSERT INTO worker_job_revisions(work_id,job_id,revision,contract_version,objective,stopping_condition,project_scope,path_scope,predicate_ids,checks,prerequisites,unresolved_refs,digest,state,recorded_at) VALUES('work-backup',?,1,1,'Preserve candidate','Candidate restored',?,'[]','[]','[]','[]','[]',?,'recorded',?)`, job.JobID, job.ProjectScope, digest, retirementUpgradeTime)
-	delivery := WorkerObservedDelivery{State: "clean", Commit: strings.Repeat("a", 40), Tree: strings.Repeat("b", 40)}
+	job := map[string]any{"job_id": "job:backup", "revision": 1, "project_scope": "project-backup"}
+	digest := "sha256:" + strings.Repeat("d", 64)
+	exec(`INSERT INTO worker_job_revisions(work_id,job_id,revision,contract_version,objective,stopping_condition,project_scope,path_scope,predicate_ids,checks,prerequisites,unresolved_refs,digest,state,recorded_at) VALUES('work-backup',?,1,1,'Preserve candidate','Candidate restored',?,'[]','[]','[]','[]','[]',?,'recorded',?)`, job["job_id"], job["project_scope"], digest, retirementUpgradeTime)
+	delivery := map[string]any{"state": "clean", "commit": strings.Repeat("a", 40), "tree": strings.Repeat("b", 40)}
 	events := []struct {
 		kind string
 		body any
 	}{
-		{WorkerJobRecorded, job},
-		{WorkflowActionCompleted, workflowActionCompletedPayload{ActionID: "dispatch_worker", WorkerAttemptID: "attempt:backup", WorkerCapabilityClass: "implementation", WorkerJob: &WorkerJobBinding{JobID: job.JobID, Revision: 1, Digest: digest}}},
-		{WorkerCompleted, WorkerCompletedPayload{AttemptID: "attempt:backup", ObservedDelivery: &delivery}},
-		{WorkflowActionCompleted, workflowActionCompletedPayload{ActionID: "accept_worker_result", WorkerAttemptID: "attempt:backup"}},
+		{"worker.job_recorded", job},
+		{WorkflowActionCompleted, map[string]any{"action_id": "dispatch_worker", "worker_attempt_id": "attempt:backup", "worker_capability_class": "implementation", "worker_job": map[string]any{"job_id": job["job_id"], "revision": 1, "digest": digest}}},
+		{"worker.completed", map[string]any{"attempt_id": "attempt:backup", "observed_delivery": delivery}},
+		{WorkflowActionCompleted, map[string]any{"action_id": "accept_worker_result", "worker_attempt_id": "attempt:backup"}},
 	}
 	for i, event := range events {
 		exec(`INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?,?,'work_item','work-backup','operator',?,1,?)`, fmt.Sprintf("backup-event-%d", i), event.kind, retirementUpgradeTime, string(mustJSONValue(event.body)))
@@ -68,7 +68,7 @@ func TestBackupOlderSchemaWithAcceptedImplementationJob(t *testing.T) {
 	}
 	defer restoredDB.Close()
 	state, err := readWorkflowReviewFacts(ctx, restoredDB, "work-backup")
-	want := WorkerReviewCandidate{ProjectID: job.ProjectScope, Commit: delivery.Commit, Tree: delivery.Tree}
+	want := ReviewCandidate{ProjectID: "project-backup", Commit: strings.Repeat("a", 40), Tree: strings.Repeat("b", 40)}
 	if err != nil || state.Candidate == nil || *state.Candidate != want {
 		t.Fatalf("restored candidate = %+v, %v; want %+v", state, err, want)
 	}
@@ -86,17 +86,5 @@ func TestBackupOlderSchemaWithAcceptedImplementationJob(t *testing.T) {
 	verified, err := VerifyBackup(ctx, snapshot)
 	if err != nil || verified.DBChecksum != manifest.DBChecksum {
 		t.Fatalf("snapshot changed after restore: %+v, %v", verified, err)
-	}
-}
-
-func TestLiveReviewCandidateRefusesMissingMemberRoster(t *testing.T) {
-	db, _ := g32ReviewFixture(t)
-	if _, err := db.Exec(`DROP TABLE workflow_group_members`); err != nil {
-		t.Fatal(err)
-	}
-	auth := workflowActionCompletedPayload{WorkerCapabilityClass: "implementation", WorkerJob: &WorkerJobBinding{JobID: "job:missing", Revision: 1}}
-	result := WorkerCompletedPayload{ObservedDelivery: &WorkerObservedDelivery{State: "clean", Commit: strings.Repeat("a", 40), Tree: strings.Repeat("b", 40)}}
-	if candidate, err := workflowAcceptedResultCandidate(t.Context(), db, "work-history", auth, result); err == nil || candidate != nil || !strings.Contains(err.Error(), "no such table: workflow_group_members") {
-		t.Fatalf("missing live roster admitted a candidate: %+v, %v", candidate, err)
 	}
 }

@@ -54,7 +54,7 @@ func TestRecordedHistoricalProjectionMigrationPreservesRows(t *testing.T) {
 		attempt, model, role, lifecycle, failure string
 	}{
 		{"attempt-migrated-preferred", "openai/gpt-5.6-luna", "preferred", "dispatched", ""},
-		{"attempt-migrated-undeclared", "anthropic/claude-unexpected", "undeclared", "failed", WorkerFailureModelIdentity},
+		{"attempt-migrated-undeclared", "anthropic/claude-unexpected", "undeclared", "failed", "model_identity"},
 	} {
 		at := time.Unix(int64(30+i), 0).UTC()
 		extra := map[string]any{

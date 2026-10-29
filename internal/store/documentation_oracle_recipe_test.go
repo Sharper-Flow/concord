@@ -36,8 +36,8 @@ func TestDocumentationRecipeRecordsReady(t *testing.T) {
 	const work = "documentation-recipe"
 	seed := seedWorkflowReturnRouteFixture(t, work, "workflow.break_fix", "repair")
 	f := &nativeTargetFixture{
-		s: seed.store, work: work, repo: repo, head: head, dispatchSubject: head,
-		actor: seed.owner, root: ".", recipePath: recipePath,
+		s: seed.store, work: work, repo: repo, head: head,
+		root: ".", recipePath: recipePath,
 		controlArgv: []string{"check", "knowledge-index"},
 	}
 	f.seedTargetAuthority(t)
@@ -60,22 +60,7 @@ func TestDocumentationRecipeRecordsReady(t *testing.T) {
 	if f.launches != 0 || p.ManifestBlob != manifestFile.BlobOID || p.ManifestDigest != manifestFile.SHA256 || p.RecipeSource != f.bundle.Control.RecipeSource || p.SubjectCommit != head || !p.StreamsComplete {
 		t.Fatalf("preparation lost its pinned recipe or ran acceptance: %+v launches=%d", p, f.launches)
 	}
-	control := f.bundle.Control
-	control.ReadinessEvidenceRefs = []string{f.prepare.OperationRef}
-	oracle := &AcceptanceOracle{Owners: []OracleOwner{f.bundle.Owner}, Cases: f.bundle.Cases, Controls: []OracleControl{control}}
-	if err := recordWorkerJobActionForTest(t, f.s, work, seed.owner, map[string]any{
-		"job_id": "job:documentation-recipe", "objective": f.bundle.Owner.Obligation,
-		"stopping_condition": f.bundle.Cases[0].ExpectedState, "path_scope": []string{".concord/docs"},
-		"predicate_ids": control.PredicateIDs, "ready": true, "acceptance_oracle": oracle,
-		"readiness_evidence": []string{f.prepare.OperationRef},
-	}); err != nil {
-		t.Fatalf("record recipe-qualified documentation job: %v", err)
-	}
-	jobs, err := readWorkerJobRevisions(ctx, f.s.db, work)
-	if err != nil || len(jobs) != 1 || !jobs[0].Ready || !oracleEntryIdentical(jobs[0].AcceptanceOracle, oracle) {
-		t.Fatalf("ready job lost the exact preparation: %+v, %v", jobs, err)
-	}
-	baseline := f.authorize(t, "documentation-baseline", seed.owner)
+	baseline := NativeOracleRequest{Phase: "execute", PreparationRunRef: f.prepare.OperationRef}
 	r, err := f.s.VerifyWorktree(ctx, f.request("documentation-baseline", &baseline))
 	if err != nil || r.Oracle == nil || r.Oracle.Qualification != "pass" || r.ExitCode != 0 || f.launches != 1 {
 		t.Fatalf("execute documentation check: oracle=%+v err=%v launches=%d output=%s", r.Oracle, err, f.launches, r.Output)
@@ -83,14 +68,14 @@ func TestDocumentationRecipeRecordsReady(t *testing.T) {
 	assertNativeTargetReceipt(t, r, "none", "check", ".")
 	t.Logf("recipe_commit=%s recipe_blob=%s native_preparation=%s qualification=%s native_execution=%s", head, manifestFile.BlobOID, f.prepare.OperationRef, p.Qualification, r.OperationRef)
 
-	const documentPath = ".concord/docs/decisions/CD-0102-lane-dispatch-runs-as-a-native-task.md"
+	const documentPath = ".concord/docs/goals.md"
 	document, err := os.ReadFile(filepath.Join(repo, documentPath))
 	if err != nil {
 		t.Fatal(err)
 	}
 	writeRepoFilesForTest(t, repo, map[string]string{documentPath: string(document) + "\nSynthetic fixture reference.\n"})
 	f.commitAndPrepare(t, "documentation-drift")
-	drift := f.authorize(t, "documentation-drift", seed.owner)
+	drift := NativeOracleRequest{Phase: "execute", PreparationRunRef: f.prepare.OperationRef}
 	r, err = f.s.VerifyWorktree(ctx, f.request("documentation-drift", &drift))
 	if err != nil || r.Oracle == nil || r.Oracle.Qualification != "fail" || r.ExitCode == 0 || f.launches != 2 {
 		t.Fatalf("candidate document drift escaped the pinned validator: oracle=%+v err=%v launches=%d output=%s", r.Oracle, err, f.launches, r.Output)
@@ -102,7 +87,7 @@ func TestDocumentationRecipeRecordsReady(t *testing.T) {
 		t.Fatalf("regenerate candidate document hash: %s: %v", out, err)
 	}
 	f.commitAndPrepare(t, "documentation-rehashed")
-	rehashed := f.authorize(t, "documentation-rehashed", seed.owner)
+	rehashed := NativeOracleRequest{Phase: "execute", PreparationRunRef: f.prepare.OperationRef}
 	r, err = f.s.VerifyWorktree(ctx, f.request("documentation-rehashed", &rehashed))
 	if err != nil || r.Oracle == nil || r.Oracle.Qualification != "pass" || r.ExitCode != 0 || f.launches != 3 {
 		t.Fatalf("updated candidate hash did not pass: oracle=%+v err=%v launches=%d output=%s", r.Oracle, err, f.launches, r.Output)

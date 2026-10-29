@@ -56,11 +56,6 @@ store reads (the store query contracts).
   This deletion introduces no recency column.
 - CD-0222: the Domain graph claims no launcher consumer; the registry
   authoring obligation and the adopted repository navigation stand.
-- The launcher-rendered floor items `fc1-portfolio-visibility`,
-  `fc1-full-product-scope`, and `fc1-domain-navigation` are out of scope with
-  the surface; the `fc1-operator-work-capture` item stands, and
-  `fc1-session-handoff` is unmeasured pending the live host-started
-  managed-entry witness.
 
 ### D4. Kept clauses keep their surviving owners
 
@@ -102,8 +97,7 @@ The released binary sheds the Charm dependency surface, the launcher tests,
 and the launcher query family. Operator acceptance of the TUI has no subject
 after deletion and does not become a new acceptance gate for the entry route.
 Coverage for the vacated records carries out-of-scope or unmeasured states
-rather than satisfied ones, and the floor manifest records the retired
-items the same way. `priorities.md` and `design-constraints.md` own the
+rather than satisfied ones. `priorities.md` and `design-constraints.md` own the
 constitutional primary-surface direction. This retirement waives no
 first-usable floor criterion.
 
@@ -115,11 +109,6 @@ first-usable floor criterion.
   resolves and vacated records carry their stated states.
 - `python3 scripts/check-doc-links.py` proves no document links a retired
   artifact.
-- `python3 scripts/check-floor-readiness.py` proves the retired floor items
-  carry out-of-scope reasons and the kept items keep resolving anchors.
-- `python3 scripts/check-doc-contract.py`,
-  `python3 scripts/check-knowledge-closure.py`, and
-  `python3 scripts/check-cd-allocation.py --no-fetch` pass.
 - `go test ./internal/store/ -run
   TestResolveContinuityWorkByDirectory` proves the directory binding that
   CD-0093 and CD-0176 keep, and `go test ./cmd/concord/ -run

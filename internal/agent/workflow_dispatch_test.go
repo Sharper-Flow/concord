@@ -872,7 +872,7 @@ func TestWorkflowActionDispatchUsesDefinitionApprovalChallenge(t *testing.T) {
 		t.Fatal("Q7 omitted the recorded workflow")
 	}
 	wantBinding := workflowArchitectureBindingForSeededRegistry(t, s)
-	if projection.ArchitectureBinding == nil || projection.ArchitectureBinding.DomainRegistryContentHash != wantBinding["domain_registry_content_hash"] || projection.ArchitectureBinding.HomeDomainID != wantBinding["home_domain_id"] {
+	if projection.ArchitectureBinding == nil || projection.ArchitectureBinding.HomeDomainID != wantBinding["home_domain_id"] {
 		t.Fatalf("agent approval did not persist readable architecture binding: %+v", projection.ArchitectureBinding)
 	}
 }

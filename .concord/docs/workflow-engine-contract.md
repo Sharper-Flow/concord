@@ -9,7 +9,7 @@
 > own authority with no escalation wall. Families compose shared stages under
 > the decision-model minimum, and generated definitions derive from one source.
 > **Scope:** Go registry, current workflow state, outcome evaluation,
-> completion, conditions, impact propagation, and the reserved `workflow_action`
+> completion, workflow composition, and the reserved `workflow_action`
 > dispatch path.
 > **Conformance carriers:** [`workflow-engine.v1.json`](../scenarios/workflow-engine.v1.json),
 > [`workflow-definition.schema.json`](../../contracts/workflow-definition.schema.json),
@@ -63,7 +63,7 @@ with the two schemas it cites. This record fills the implementation boundary
 CD-0013 left open: the common representation, the definition registry and
 digest check, the instance state machine, current workflow state, outcome
 evaluation, the ordered completion gate, the actor tuple and verdict
-authority, impact edges and notices, external condition refusal,
+authority, workflow composition,
 dispatch, and the built-in family graphs.
 
 ## Contract
@@ -73,8 +73,8 @@ For definitions declaring `approval_policy=consequence_v1`, CD-0013 D11 qualifie
 The binding contract is sections 1 through 12: the common representation and
 bounds, the definition registry, the instance state machine, current workflow
 state, outcome evaluation and strength, the
-ordered completion gate, the actor tuple and verdict authority, impact
-edges and notices, external condition refusal, dispatch, and the built-in
+ordered completion gate, the actor tuple and verdict authority, workflow
+composition, dispatch, and the built-in
 family graphs and actions. Section 13 records implementation-deferred items
 and carries no obligation.
 
@@ -88,7 +88,7 @@ payloads are typed objects, never free-form maps; unknown keys are refused
 
 | Value | Type/bound |
 |---|---|
-| `work_id`, `step_id`, `action_id`, `checkpoint_id`, `condition_id`, `edge_id` | identifier, 2–128 chars |
+| `work_id`, `step_id`, `action_id`, `checkpoint_id`, `edge_id` | identifier, 2–128 chars |
 | `ref` | lower-case registry/reference string, 2–128 chars |
 | `version`, `contract_version`, `attempt_epoch`, `request_id` sequence | positive integer, max 2,147,483,647 |
 | evidence/reference list | unique array, 0–32 items, each identifier |
@@ -172,7 +172,7 @@ drift. No fallback definition or response-wording path is accepted.
 ## 3. Workflow instance state machine
 
 `instance_state` is closed:
-`planned`, `ready`, `running`, `blocked`, `awaiting_condition`, `verifying`,
+`planned`, `ready`, `running`, `blocked`, `verifying`,
 `completed`, `cancelled`, `superseded`.
 
 | From | To | Operation | Authority/fence |
@@ -181,12 +181,10 @@ drift. No fallback definition or response-wording path is accepted.
 | `planned` | `ready` | contract, spec mandate, and definition approved | internal-inline; operator approval evidence |
 | `ready` | `running` | first action claimed | internal-inline for SQLite-only; fenced for cross-authority/external |
 | `running` | `running` | action checkpoint or successful action | inline or current `attempt_epoch` fence |
-| `running` | `blocked` | unresolved dependency or condition discovered | internal-inline |
-| `blocked` | `awaiting_condition` | a typed external condition is registered (no current definition declares the condition action, [CD-0242 D14](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source)) | internal-inline |
-| `awaiting_condition` | `running` | owning resolver supplies valid evidence (no resolver exists; CD-0234 D1) | internal-inline |
+| `running` | `blocked` | unresolved dependency discovered | internal-inline |
 | `running` | `verifying` | all execution steps are complete and verdict is requested | internal-inline |
 | `verifying` | `completed` | ordered completion gate succeeds | one internal transaction |
-| `running`, `blocked`, `awaiting_condition`, `verifying` | `cancelled` | explicit authorized cancellation | fenced when an attempt is owned |
+| `running`, `blocked`, `verifying` | `cancelled` | explicit authorized cancellation | fenced when an attempt is owned |
 | `planned`, `ready`, `running`, `verifying` | `superseded` | operator-approved `supersede_contract` supersedes the contract | internal-inline with successor link |
 
 An action failure records its typed failure result; it does not invent a state.
@@ -205,17 +203,11 @@ and recorded by its idempotency key. The names below identify the typed
 mutation records that the §12 action tables map actions to; omitted and unknown keys are
 refused. Only `CompleteWorkflowTxWithRegistry` records `workflow.completed`,
 after the ordered gate in §7; every other mutation route refuses it
-structurally. `workflow.staleness_observed` records an external observation
-and does not advance the work-item version.
+structurally.
 
 Every mutating workflow payload also carries `expected_version` and
 `resulting_version`, consecutive positive integers checked by the mutation;
 the rows below do not repeat this pair.
-
-`workflow.condition_cancelled` is the typed representation required by
-CD-0013 D10's “resolved or canceled” completion clause. It adds no await type
-or authority: operator cancellation is explicit, evidenced, and recorded
-beside the two resolver states.
 
 | Record | Exact payload fields and bounds |
 |---|---|
@@ -232,16 +224,10 @@ beside the two resolver states.
 | `workflow.backlog_alignment_recorded` | `work_id`, `searched` (2–4096, the search performed and its scope), `outcome` (`related_found` or `none_found`), `related_ids` (1–64 unique work ids, present only when `outcome` is `related_found`; the mutation refuses `related_found` with no ids and `none_found` with ids, and every id must name a real work item) |
 | `workflow.action_failed` | `work_id`, `step_id`, `attempt_epoch`, `failure_kind` (closed TS7 error kind), `recoverable` (boolean), `actor_ref` |
 | `workflow.evidence_bound` | `work_id`, `evidence_kind` (verification/review/approval/commit/durable_note/native_run/artifact), `immutable_subject_ref`, `producer_id`, `producer_run_ref`, `producer_watermark`, `observed_at`. For `evidence_kind=native_run` the `immutable_subject_ref` is the record's `xobs:` observation and the attributed record must be verified: an unverified report stays readable but cannot satisfy completion (CD-0040 D9), so the binding fails closed until a verification record answers the observation. |
-| `workflow.staleness_observed` | `rule_id`, `severity` (`warning` or `block`), `drifted` (boolean), `observed_at` (RFC3339), `accepted_inputs_digest` (SHA-256); the latest record for each rule is the staleness authority used by completion and reads, and exact action retries retain the first observation time |
 | `workflow.native_run_recorded` | `work_id`, `run_id` (1–128), `native_subject_ref` (1–2048 opaque non-secret), `subject_digest` (core-derived), `phase` (`start`/`health`/`rollback`/`cleanup`, fixed by the action ID), `status` (closed per-phase vocabulary), `evidence_ref`, `evidence_digest`, `asserted_at` (RFC3339, within the two-minute report skew bound), `reporting_authority_ref` (the authenticated actor's client, never caller input), `actor_ref`, and the embedded CD-0040 capture component: `capture_method`, the closed `observed_universe` structure (one item, exactly scoped, complete by closed-structure digest — validated by the shared D4 rules when recorded and read), the derived content-hashed `freshness_policy_ref`/`divergence_policy_ref` from the reviewed per-kind register, and the `observation_id` the run's phases share. The mutation registers that observation in `external_observations` as its shared provenance home, so one verification record answers every phase row and the attributed read (`NativeRunReport`) carries the derived verification state. |
 | `workflow.verdict_recorded` | `work_id`, `contract_version`, `predicate_id`, `verdict_kind` (`ok`, `outcome_mismatch`, `insufficient_evidence`), `verdict_actor_ref`, `evaluation_evidence` (1–32), `incomparable_with_approved` (boolean) |
 | `workflow.premise_confirmed` | `work_id`, `contract_version`, `confirming_actor_ref` |
 | `workflow.successor_linked` | `work_id`, `successor_work_id`, `relation_kind` (`forward_link`) |
-| `workflow.impact_declared` | `work_id`, `edge_id`, `edge_kind` (`modifies`, `depends_on`, `forward_link`), `edge_class` (`hard`, `soft`, `none`), `target_work_id`, `target_kind` (exactly `work_item`, matching the target-work foreign key), `severity` (`breaking`, `non-breaking`, `informational`) |
-| `workflow.impact_notice_recorded` | `work_id`, `notice_id`, `source_contract_version`, `entity_kind`, `entity_ref`, `target_work_id`, `edge_owner_work_id`, `edge_id`, `old_hash` (nullable digest), `new_hash` (nullable digest), `severity` |
-| `workflow.condition_added` | `work_id`, `condition_id`, `await_type` (`pr_merge`, `ci_result`, `timer`, `human_approval`, `remote_work_state`), `await_ref`, `resolution_authority` |
-| `workflow.condition_resolved` | `work_id`, `condition_id`, `resolution_evidence` (1–32 evidence refs), `resolved_by_event`; the stored `resolution_authority` is exactly `durable_operation:<op_id>`, and every evidence ref must be present in that completed operation's authoritative `evidence_refs` for this work item |
-| `workflow.condition_cancelled` | `work_id`, `condition_id`, `cancellation_authority` (`operator`), `cancellation_evidence` (1–32 evidence refs), `cancelled_by_event`; the recording actor must resolve to an `operator` actor tuple, and every cancellation evidence ref must be present in the stored durable authority operation |
 | `workflow.completed` | `work_id`, `terminal_state` (`completed`, `cancelled`, `superseded`), `final_verdict_kind`, `verdict_actor_ref`, `premise_confirmed` (boolean), `evidence_count` (non-negative, derived from the item's bound evidence history), `changed_refs_digest` (digest), `impact_verdict` (`breaking` or `non-breaking`), `warnings` (0–16 staleness-rule IDs) |
 
 ## 5. V15 projections, constraints, and state tables
@@ -265,9 +251,7 @@ Definition identity in these rows is the stable `ref` and content digest ([CD-02
 | `workflow_backlog_alignment` | `work_id TEXT`, `related_work_id TEXT NULL`, `searched TEXT`, `outcome TEXT`, `recorded_at TEXT`, `recorded_by TEXT` | PK `(work_id,related_work_id)`; FK work for both ids; checks closed outcome, a `none_found` work records no match rows, and no self-match; the declaration row carries a null `related_work_id`. Work removal clears rows naming the removed item in either column, because both foreign keys are `RESTRICT`. It does not reuse `workflow_candidate_sets`, whose composite FK binds to `workflow_contracts(work_id,contract_version)` and which therefore cannot hold a row before planning approves a contract |
 | `workflow_actors` | `actor_ref TEXT`, `principal_ref TEXT`, `client_ref TEXT`, `agent_ref TEXT`, `session_ref TEXT`, `actor_class TEXT`, `first_seen_at TEXT` | PK `actor_ref`; UNIQUE tuple `(principal_ref,client_ref,agent_ref,session_ref)`; checks nonempty tuple and `actor_class IN ('agent','operator')` |
 | `workflow_checkpoints` | `work_id TEXT`, `checkpoint_id TEXT`, `step_id TEXT`, `step_kind TEXT`, `attempt_epoch INTEGER`, `accepted_inputs_digest TEXT`, `result_evidence_refs TEXT`, `resume_cursor TEXT`, `idempotency_identity TEXT`, `actor_ref TEXT`, `request_id TEXT`, `recorded_at TEXT` | PK `(work_id,checkpoint_id)`; UNIQUE `(work_id,step_id,attempt_epoch)` and `(work_id,idempotency_identity)`; FK work/actor; closed step-kind check |
-| `workflow_external_conditions` | `work_id TEXT`, `condition_id TEXT`, `await_type TEXT`, `await_ref TEXT`, `resolution_authority TEXT`, `condition_state TEXT`, `resolution_evidence TEXT NULL`, `resolved_by_event TEXT NULL`, `cancellation_authority TEXT NULL`, `cancellation_evidence TEXT NULL`, `cancelled_by_event TEXT NULL`, `recorded_at TEXT`, `resolved_at TEXT NULL`, `cancelled_at TEXT NULL` | PK `(work_id,condition_id)`; FK work; checks await type closed, state `open|resolved|cancelled`, and exactly one complete resolution/cancellation shape |
 | `workflow_impact_edges` | `work_id TEXT`, `edge_id TEXT`, `edge_kind TEXT`, `edge_class TEXT`, `target_work_id TEXT`, `target_kind TEXT`, `severity TEXT`, `recorded_at TEXT` | PK `(work_id,edge_id)`; FK source/target work; closed edge/class/severity checks; hard `depends_on` and `forward_link` cycle check in transaction |
-| `workflow_impact_notices` | `notice_id TEXT`, `source_work_id TEXT`, `source_contract_version INTEGER`, `entity_kind TEXT`, `entity_ref TEXT`, `target_work_id TEXT`, `edge_owner_work_id TEXT`, `edge_id TEXT`, `old_hash TEXT NULL`, `new_hash TEXT NULL`, `severity TEXT`, `recorded_at TEXT` | PK `notice_id`; UNIQUE `(source_work_id,source_contract_version,entity_kind,entity_ref,target_work_id,severity)`; `notice_id` must equal the deterministic derivation in §9; FK source/target/edge-owner work and dependent-owned edge; closed severity |
 | `workflow_decision_records` | `work_id TEXT`, `question TEXT`, `options_considered TEXT`, `decision TEXT`, `rationale TEXT`, `consequences TEXT`, `inputs TEXT`, `poc_findings TEXT`, `supersedes TEXT NULL`, `superseded_by TEXT NULL`, `recorded_at TEXT` | PK `(work_id,question)`; FK work; checks decision enum and required nonempty fields |
 | `workflow_premise_confirmations` | `work_id TEXT`, `contract_version INTEGER`, `confirmed_by TEXT`, `confirmed_at TEXT` | PK `(work_id,contract_version)`; composite FK contract; FK actor; actor class must be `operator` |
 
@@ -465,10 +449,6 @@ Workflow state is current rows written by each mutation in one transaction, and 
 | verdict recorded | retain the verdict for the subject and expose it through the instance's verification view |
 | premise confirmed | insert operator confirmation |
 | successor linked | write the existing `forward_link` relation; workflow state remains independent |
-| impact declared/notice recorded | insert or deduplicate typed edge/notice rows |
-| condition added | insert an `open` condition with its owning `resolution_authority` |
-| condition resolved | transition `open → resolved`; require a work-item-bound durable operation authority and verify every evidence ref belongs to its completed authoritative result before filling resolution fields |
-| condition cancelled | transition `open → cancelled`; require the recording actor to resolve to an operator actor tuple, not merely a payload string, and verify every cancellation evidence ref against the stored durable authority operation; a resolved or cancelled condition cannot transition again |
 | completed | set terminal state and completed timestamp only after the completion transaction's prior clauses pass |
 | work item terminal (`work.transitioned` to `completed` or `cancelled`, `work.superseded`) | close a live instance in the same transaction: `superseded` mirrors the lifecycle, `cancelled` and completed-by-lifecycle both record `cancelled` because the completion gate never ran; an instance already terminal keeps its record |
 
@@ -530,15 +510,13 @@ are stable:
 | Order | Clause | Exact refusal | Recovery action |
 |---:|---|---|---|
 | 1 | Every required evidence binding exists, resolves to its immutable subject, and belongs to the approved contract | `missing_evidence` | `provide_evidence` |
-| 2 | Every declared condition is resolved or explicitly cancelled by its owning authority | `not_terminal` | `reread_entities` |
 | 3 | Every `modifies` edge is within the declared scope and the spec mandate is satisfied | `invariant_violation` | `reread_entities` |
-| 4 | Every approved predicate has a criterion-proof association on the current candidate, its actor tuple is complete, and it is recorded by Main, not the executing Implement actor ([CD-0242 D5](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d5-execution-is-a-loop-that-main-controls)) | `unauthorized` for same/partial actor; `missing_evidence` for absent verdict | `contact_operator` / `provide_evidence` |
+| 4 | Every approved predicate has a criterion-proof association on the current candidate, its actor tuple is complete, and an authorized coordinator records it using qualifying native receipts ([CD-0242 D5/D8](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d8-evidence-is-captured-by-its-producer-and-bound-to-its-subject)) | `unauthorized` for missing authority or partial actor; `missing_evidence` for absent verdict | `contact_operator` / `provide_evidence` |
 | 5 | Premise is confirmed with the authority the contract's decision fact requires: a verified operator for decision-bearing work, and under `consequence_v1` an authenticated coordinator for engineering work (CD-0013 D11) | `approval_required` or `missing_evidence` | `request_approval` / record the coordinator confirmation |
 | 6 | Every recorded verdict answers an approved predicate, and no declared blocking staleness rule drifted | `outcome_mismatch` or `stale_requires_review` | `contact_operator` / `refresh_context` |
-| 7 | The gate reads, impact notices, terminal metadata, lifecycle change, and the completion record commit in one transaction | `operation_conflict` | `reconcile_operation` |
+| 7 | The gate reads, terminal metadata, lifecycle change, and the completion record commit in one transaction | `operation_conflict` | `reconcile_operation` |
 
-The same transaction performs the reverse-edge impact scan and notice deduplication
-before writing the completion record. A response is not terminal until the commit
+A response is not terminal until the commit
 returns success. A failed commit produces no terminal state mutation.
 
 The shipped engine evaluates clause 6 from the pinned definition and the
@@ -628,74 +606,11 @@ input. Its metadata includes work, action, contract version, selected choice, an
 bounded premise summary. A recorded operator therefore means approval authority,
 not an identified individual human.
 
-## 9. Impact edges and notices
+## 9. Workflow composition
 
 `modifies`, hard/soft `depends_on`, and `forward_link` are typed edges. `modifies`
 is not cycle-checked. Hard `depends_on` and `forward_link` use the existing
-in-transaction recursive cycle check. At completion, reverse edges are selected in
-the bounded affected closure and the engine emits one notice per identity:
-
-```text
-(source_work_id, source_contract_version, entity_kind, entity_ref,
- target_work_id, severity)
-```
-
-The notice row additionally stores `edge_owner_work_id`, `edge_id`, `old_hash`,
-`new_hash`, and `recorded_at`. `edge_owner_work_id` is the dependent work that
-declared the inbound edge. `notice_id` is deterministic: concatenate the prefix `notice-v1\0`
-with the six fields in the displayed order, each encoded as
-`field_name=<UTF-8-byte-length>:<UTF-8-value>|`, then set
-`notice_id = "notice:" + hex(SHA-256(canonical_bytes))`. The event carries
-`notice_id`; the store recomputes it and rejects a mismatch as
-`invariant_violation` before inserting. The unique constraint is the identity
-above; repeating completion or replaying its idempotency key emits no second
-notice. Completion queries inbound `depends_on` edges; it does not require a spec
-mandate or a forward edge from the source. It records `entity_kind=work_item` and
-`entity_ref=<completed source work>`. The explicit completion verdict supplies the
-notice severity. Hard `depends_on` plus `breaking` blocks downstream execution at
-its consequential boundary. Soft plus breaking, and every non-breaking notice,
-warn without blocking. The static edge severity remains readable for compatibility
-but does not decide completion impact.
-
-For WF29's six values (`work-alpha`, `1`, `work_item`, `work-alpha`,
-`work-child`, `breaking`), this exact encoding yields
-`notice:8ea37498e2890b3fef5b65132eb0dfc3e7e4297ce6bb521ea4406c0366535503`.
-A contract revision uses the same reverse-edge direction and emits `breaking`
-when an active hard dependent consumed the superseded contract. It emits
-`non-breaking` for every other inbound dependent.
-
-## 10. External conditions
-
-The engine exposes no wait daemon, performs no polling, and has no condition
-resolver (CD-0234 D1). No retained family declares an action that
-opens, resolves, or cancels a condition. Recorded conditions are current rows
-that reads serve
-([CD-0242 D2](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
-A consequential action on work with an open condition refuses with
-`not_terminal`. The table states the owning-authority evidence a resolver added by
-a later decision must require.
-
-`await_type` is closed to:
-
-| Type | Required owning-authority evidence |
-|---|---|
-| `pr_merge` | provider PR ref, merged state, merge commit OID, and provider observation/run ref |
-| `ci_result` | provider run ref, checked commit OID, terminal conclusion, and provider observation/run ref |
-| `timer` | stored RFC3339 deadline, trusted current time at explicit check, and comparison evidence; no daemon |
-| `human_approval` | exact approval ref, operation digest, scope, consequence, approving actor, and approval evidence |
-| `remote_work_state` | target work ID, expected version, owning lifecycle event, observed terminal state, and evidence |
-
-Heuristics may locate candidate PRs or runs but cannot resolve a condition. Failed,
-ambiguous, stale, or unreadable authority leaves the condition open and returns a
-typed problem. Conditions participate in ordinary `blocks` relations and inherit
-CD-0008 unreadable-record semantics. `resolution_authority` is immutable from
-its recorded addition, has the exact form `durable_operation:<op_id>`, and
-must point to a completed durable operation for the same work item. Every
-resolution or cancellation evidence ref must be present in that operation's
-authoritative `evidence_refs`; actor class alone never establishes evidence
-authority. Cancellation is not provider resolution and can only be emitted by
-the operator with `cancellation_authority=operator` plus evidence from the
-stored durable authority operation.
+in-transaction recursive cycle check.
 
 ## 11. `workflow_action` dispatch
 
@@ -792,7 +707,7 @@ the exact argv.
 
 | Family and source | Ordered graph and family actions at each step |
 |---|---|
-| **Implementation** — [`workflows.md` §1](./workflows.md#1-the-shift-from-one-workflow-to-a-plurality) | `proposal[record_proposal] → alignment[record_alignment] → discovery[record_discovery] → design[record_design] → planning[approve_contract] → execution[start_execution, checkpoint_execution, bind_evidence, declare_impact, link_successor, record_delivery] → refine[start_refine, checkpoint_refine, bind_evidence, record_delivery] → acceptance[record_verdict, confirm_premise] → release[complete]`. Refine is mandatory at the `larger` and `crucial` sizes and requires artifact evidence at that step (CD-0138 D1; CD-0229 D5); the `small` composition walks define, implement, review, and ship. The CD-0156 alignment step follows proposal: record_alignment is the step's only advance exit, so backlog search cannot be skipped. A native Task result supplies no workflow exit. |
+| **Implementation** — [`workflows.md` §1](./workflows.md#1-the-shift-from-one-workflow-to-a-plurality) | `proposal[record_proposal] → alignment[record_alignment] → discovery[record_discovery] → design[record_design] → planning[approve_contract] → execution[start_execution, checkpoint_execution, bind_evidence, link_successor, record_delivery] → refine[start_refine, checkpoint_refine, bind_evidence, record_delivery] → acceptance[record_verdict, confirm_premise] → release[complete]`. Refine is mandatory at the `larger` and `crucial` sizes and requires artifact evidence at that step (CD-0138 D1; CD-0229 D5); the `small` composition walks define, implement, review, and ship. The CD-0156 alignment step follows proposal: record_alignment is the step's only advance exit, so backlog search cannot be skipped. A native Task result supplies no workflow exit. |
 | **Break-fix / RCA** — [`workflows.md` §3](./workflows.md#3-complete-work-kind-taxonomy) and §4 | `reproduce[record_reproduction] → alignment[record_alignment] → diagnose[record_root_cause] → planning[approve_contract] → repair[start_repair, checkpoint_repair, bind_evidence, link_successor, record_delivery] → refine[start_refine, checkpoint_refine, bind_evidence, record_delivery] → verify[bind_evidence, record_verdict, confirm_premise] → complete[complete]`. Refine is mandatory and requires artifact evidence at that step (CD-0138 D1). Verify carries the hold-mode `bind_evidence` route (CD-0124), so a green verify-tier run at `worktree_verify:sha256:<digest>` can be named as the verification producer. The CD-0156 alignment step follows reproduce on the same terms. |
 | **Research / investigation** — [`workflows.md` §4](./workflows.md#4-example-workflow-types) and CD-0215 D3 | `frame[frame_research, approve_contract] → investigate[record_finding, revise_candidates, bind_evidence] → findings[record_report, link_successor] → conclude[record_conclusion, record_verdict, confirm_premise] → complete[complete]`. Completion verb: findings recorded; `no_change` is valid. |
 
@@ -820,7 +735,6 @@ No result record is invented for a graph step.
 | `checkpoint_execution`, `checkpoint_repair`, `checkpoint_refine`, `checkpoint_run`, `checkpoint_poc`, `checkpoint_analysis`, `checkpoint_action` | `workflow.action_checkpointed`; the committed checkpoint fixes the attempt boundary, and the recorded current step is the resume point. `resume_cursor` may be empty, and no read depends on it. |
 | `bind_evidence` | `workflow.evidence_bound`; the producer names a completed durable operation, for example a green verify-tier run at `worktree_verify:sha256:<digest>` |
 | `revise_candidates` | `workflow.candidate_set_revised` |
-| `declare_impact` | `workflow.impact_declared` |
 | `link_successor` | `workflow.successor_linked` and the existing forward-link relation event |
 | `record_verdict` | `workflow.verdict_recorded`; the coordinator records the subject-bound verdict using qualifying native receipts, without attesting a subagent producer (CD-0242 D5/D8). CD-0116 governs any applicable operator-substitution route. |
 | `confirm_premise` | `workflow.premise_confirmed` |
@@ -832,9 +746,6 @@ No result record is invented for a graph step.
 | `record_delivery` | `workflow.action_completed`, which advances the external-effect step after its fenced start and the complete delivery admission |
 | `discard_poc` | `workflow.action_completed` with a discard artifact reference; no POC bytes become workflow authority |
 | `approve_operation` | approval evidence binding plus `workflow.action_completed` |
-| `add_condition` | `workflow.condition_added` |
-| `resolve_condition` | `workflow.condition_resolved` |
-| `cancel_condition` | `workflow.condition_cancelled` |
 | `rollback_run` | fenced `workflow.action_started` → `workflow.action_completed`/`workflow.action_failed`, with rollback evidence |
 | `cleanup_run` | `workflow.action_completed` with cleanup evidence |
 | `run_analysis` | fenced `workflow.action_started` → `workflow.action_completed`/`workflow.action_failed`; report evidence follows in `record_report` |
@@ -909,11 +820,6 @@ values; approval checks their grammar and the verdict actor interprets them
   Then the engine refuses with missing_evidence and records no
   completion.
 
-- Given a completion verdict recorded by the executing Implement actor
-  When record_verdict is dispatched
-  Then the engine refuses the verdict: Implement cannot accept its own
-  result ([CD-0242 D5](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d5-execution-is-a-loop-that-main-controls)).
-
 - Given a workflow action whose pinned definition digest is absent from the
   registry
   When the action is dispatched
@@ -922,12 +828,12 @@ values; approval checks their grammar and the verdict actor interprets them
 
 - Given a completion that satisfies the ordered completion gate
   When the completion transaction commits
-  Then contract, verdict, evidence, notices, and the completion record commit
+  Then contract, verdict, evidence, and the completion record commit
   together or not at all.
 
 ## Verification
 
-All five criteria are proved by scenarios of `.concord/scenarios/workflow-engine.v1.json`,
+The four criteria bind scenarios of `.concord/scenarios/workflow-engine.v1.json`,
 executed against production dispatch by
 `TestWorkflowScenarioCorpusExecutesExactProductionActions`
 (`internal/store/workflow_conformance_test.go`).
@@ -940,13 +846,10 @@ executed against production dispatch by
   Review assesses the delivery as `mismatch`, so no criterion proof exists,
   and which asserts a missing_evidence refusal with no completion record
   (CD-0235 D2).
-- Criterion 3 is proved by the bound `WF13-verdict-actor-distinctness`
-  scenario, whose verdict is recorded by the executing Implement actor and
-  asserts the refusal (CD-0242 D5).
-- Criterion 4 is proved by the bound `WF37-action-availability-before-register`
+- Criterion 3 is proved by the bound `WF37-action-availability-before-register`
   scenario, which dispatches before the definition is registered and asserts
   an invariant_violation refusal with no fallback.
-- Criterion 5 is proved by the bound `WF19-completion-one-transaction`
+- Criterion 4 is proved by the bound `WF19-completion-one-transaction`
   scenario, which fails a completion inside its transaction and asserts that
-  no completion record, notice, terminal metadata, or lifecycle change
+  no completion record, terminal metadata, or lifecycle change
   remains.

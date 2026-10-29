@@ -126,40 +126,6 @@ type StaleLawRevision struct {
 	RecoveryActions []string `json:"recovery_actions"`
 }
 
-type DomainOverlapRelationTuple struct {
-	SourceDomainID string `json:"source_domain_id"`
-	Kind           string `json:"kind"`
-	TargetDomainID string `json:"target_domain_id"`
-}
-
-type DomainOverlapDetail struct {
-	ProductID                     string                       `json:"product_id"`
-	FromWorkID                    string                       `json:"from_work_id"`
-	ToWorkID                      string                       `json:"to_work_id"`
-	FromContractVersion           int64                        `json:"from_contract_version"`
-	ToContractVersion             int64                        `json:"to_contract_version"`
-	SharedAffectedDomainIDs       []string                     `json:"shared_affected_domain_ids"`
-	SharedLawIDs                  []string                     `json:"shared_law_ids"`
-	SharedDomainModifications     []string                     `json:"shared_domain_modifications"`
-	SharedRelationTuples          []DomainOverlapRelationTuple `json:"shared_relation_tuples"`
-	OverlapClasses                []string                     `json:"overlap_classes"`
-	ResolutionState               string                       `json:"resolution_state"`
-	ResolutionKind                string                       `json:"resolution_kind,omitempty"`
-	RecoveryActions               []string                     `json:"recovery_actions"`
-	SharedAffectedDomainCount     int                          `json:"shared_affected_domain_count"`
-	SharedLawCount                int                          `json:"shared_law_count"`
-	SharedDomainModificationCount int                          `json:"shared_domain_modification_count"`
-	SharedRelationTupleCount      int                          `json:"shared_relation_tuple_count"`
-	DetailTruncated               bool                         `json:"detail_truncated"`
-}
-
-type DomainOverlap struct {
-	Overlaps         []DomainOverlapDetail `json:"overlaps"`
-	TotalOverlaps    int                   `json:"total_overlaps"`
-	ReturnedOverlaps int                   `json:"returned_overlaps"`
-	Truncated        bool                  `json:"truncated"`
-}
-
 type ExternalRefConflict struct {
 	ExistingWorkID string `json:"existing_work_id"`
 	ExternalRef    string `json:"external_ref"`
@@ -195,7 +161,6 @@ type TypedError struct {
 	Violations          []string             `json:"violations,omitempty"`
 	Options             []string             `json:"options,omitempty"`
 	StaleLawRevision    *StaleLawRevision    `json:"stale_law_revision,omitempty"`
-	DomainOverlap       *DomainOverlap       `json:"domain_overlap,omitempty"`
 	ExternalRefConflict *ExternalRefConflict `json:"external_ref_conflict,omitempty"`
 	SessionPlacement    *SessionPlacement    `json:"session_placement,omitempty"`
 	// ConsequenceSummary is the CD-0037 typed approval prompt. It is derived
@@ -746,7 +711,6 @@ var enforcedRecoveryCouplings = map[string][]string{
 	"budget_refused":         {"adjust_budget"},
 	"cancelled":              {"retry_same_request"},
 	"cross_repository_claim": {"use_declared_route"},
-	"domain_overlap":         {"request_approval"},
 	"invalid_cursor":         {"restart_query"},
 	"limit_exceeded":         {"reduce_limit", "contact_operator"},
 	"missing_evidence":       {"provide_evidence"},
@@ -754,7 +718,6 @@ var enforcedRecoveryCouplings = map[string][]string{
 	"resource_busy":          {"retry_same_request"},
 	"outcome_mismatch":       {"contact_operator"},
 	"stale_context":          {"refresh_context"},
-	"stale_law_revision":     {"request_approval"},
 	"timeout":                {"retry_same_request"},
 	"version_conflict":       {"reread_entities"},
 	// The outside-repair active refusal (CD-0210) carries the declared route
@@ -784,7 +747,7 @@ func PublicRecovery(kind, proposed string) string {
 		return "request_approval"
 	case "invalid_transition", "invalid_relation", "invariant_violation", "invalid_input":
 		return "reread_entities"
-	case "not_terminal", "stale_requires_review", "idempotency_conflict", "degraded_not_allowed":
+	case "not_terminal", "stale_requires_review", "stale_law_revision", "idempotency_conflict", "degraded_not_allowed":
 		// The caller acts on state it can reread: a lifecycle, a review
 		// pin, a conflicting key, an index it may opt into degraded for.
 		return "reread_entities"
@@ -838,11 +801,6 @@ func validateErrorReferenceCouplings(err TypedError) error {
 	}
 	if err.Kind == "stale_law_revision" {
 		if x := validateStaleLawRevisionCoupling(err.StaleLawRevision); x != nil {
-			return x
-		}
-	}
-	if err.Kind == "domain_overlap" {
-		if x := validateDomainOverlapCoupling(err.DomainOverlap); x != nil {
 			return x
 		}
 	}
@@ -912,38 +870,6 @@ func validateErrorRecoveryCouplings(err TypedError) error {
 func validateStaleLawRevisionCoupling(revision *StaleLawRevision) error {
 	if revision == nil || !BoundedBytes(revision.OldLawID, 2, 256) || !ValidSHA256Proof(revision.OldContentHash) || len(revision.RecoveryActions) == 0 || len(revision.RecoveryActions) > 4 || !boundedStrings(revision.RecoveryActions, 128) {
 		return errors.New("stale law revision coupling violated")
-	}
-	return nil
-}
-
-// validateDomainOverlapCoupling validates the domain-overlap payload the kind
-// requires: a consistent overlap envelope and bounded, closed overlap rows.
-func validateDomainOverlapCoupling(overlap *DomainOverlap) error {
-	if overlap == nil || len(overlap.Overlaps) == 0 || len(overlap.Overlaps) > 20 || overlap.TotalOverlaps < len(overlap.Overlaps) || overlap.ReturnedOverlaps != len(overlap.Overlaps) || overlap.TotalOverlaps < 1 || (!overlap.Truncated && overlap.TotalOverlaps != overlap.ReturnedOverlaps) {
-		return errors.New("domain overlap coupling violated")
-	}
-	for _, row := range overlap.Overlaps {
-		if x := validateDomainOverlapRow(row); x != nil {
-			return x
-		}
-	}
-	return nil
-}
-
-// validateDomainOverlapRow validates one overlap row's bounds, counts,
-// resolution state, and recovery actions.
-func validateDomainOverlapRow(overlap DomainOverlapDetail) error {
-	if !BoundedBytes(overlap.ProductID, 1, 128) || !BoundedBytes(overlap.FromWorkID, 1, 128) || !BoundedBytes(overlap.ToWorkID, 1, 128) || overlap.FromContractVersion <= 0 || overlap.ToContractVersion <= 0 || (len(overlap.SharedAffectedDomainIDs) == 0 && len(overlap.SharedLawIDs) == 0 && len(overlap.SharedDomainModifications) == 0 && len(overlap.SharedRelationTuples) == 0) || len(overlap.SharedAffectedDomainIDs) > 20 || len(overlap.SharedLawIDs) > 20 || len(overlap.SharedDomainModifications) > 20 || len(overlap.SharedRelationTuples) > 20 || overlap.SharedAffectedDomainCount < len(overlap.SharedAffectedDomainIDs) || overlap.SharedLawCount < len(overlap.SharedLawIDs) || overlap.SharedDomainModificationCount < len(overlap.SharedDomainModifications) || overlap.SharedRelationTupleCount < len(overlap.SharedRelationTuples) || len(overlap.OverlapClasses) == 0 || len(overlap.OverlapClasses) > 4 || len(overlap.RecoveryActions) == 0 || len(overlap.RecoveryActions) > 4 || (overlap.ResolutionState != "unresolved" && overlap.ResolutionState != "stale" && overlap.ResolutionState != "sequenced") {
-		return errors.New("domain overlap detail bounds violated")
-	}
-	if overlap.ResolutionState == "sequenced" && overlap.ResolutionKind != "depends_on" && overlap.ResolutionKind != "blocks" {
-		return errors.New("sequenced overlap must preserve its directed resolution kind")
-	}
-	allowedRecovery := map[string]bool{"wait": true, "resolve_overlap": true, "terminal_work": true, "supersede_contract": true}
-	for _, action := range overlap.RecoveryActions {
-		if !allowedRecovery[action] {
-			return errors.New("unknown domain overlap recovery action")
-		}
 	}
 	return nil
 }

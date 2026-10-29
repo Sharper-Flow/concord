@@ -63,8 +63,6 @@ machinery. Scope, law-change approval and independent review retain their owners
 
 ## Verification
 
-- `python3 scripts/check-doc-contract.py` checks the outline.
-- `python3 scripts/check-knowledge-closure.py --strict` checks registration closure.
 - `python3 scripts/check-knowledge-index.py` checks identity and content hashes.
 The passing structural checks do not prove scope or approval. Independent
 review must compare the actual delta with the approved scope and evidence.

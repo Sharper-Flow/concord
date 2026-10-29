@@ -61,7 +61,7 @@ question the row answered — which fields a glance row carries — returns to
 
 Three writers create work-to-work relations, each scoped to its own kinds.
 
-1. `concord_work_relate.resolve_overlap` writes `compatible_with`,
+1. `concord_work_relate.resolve_overlap` writes
    `depends_on`, `blocks`, `merged_into`, and `supersedes`. A `supersedes`
    or `merged_into` resolution commits the relation and the terminal
    transition in one transaction. A `merged_into` or `supersedes` resolution
@@ -87,9 +87,7 @@ record. CD-0026 D1 carries the full route.
 
 An unprocessed document stays not law. The authoritative negative is
 `concord_knowledge.resolve_note` returning `knowledge_missing` for the
-record the document would need, and
-[`scripts/check-knowledge-closure.py`](../../../scripts/check-knowledge-closure.py)
-enumerates the unprocessed set. Text search is not a substitute for either.
+record the document would need. Text search is not a substitute for it.
 
 The Domain reads `list`, `detail`, `attachments`, and `overlaps` remain.
 Existing `domain_observations` rows stay readable on `detail` under the
@@ -150,6 +148,5 @@ are, and relation changes write current rows in one transaction.
   `resolve_overlap` `blocks` row holds the blocked item out of PM1.Q5 ready.
 - `internal/store.TestRelationKindsEnforceTheirOwnGraphRules` proves the
   surviving relation kinds keep their own graph rules.
-- `python3 scripts/check-knowledge-closure.py` enumerates the unprocessed
-  set, and `python3 scripts/check-knowledge-index.py` proves the record
-  shards compose with the amended bodies under their recorded hashes.
+- `python3 scripts/check-knowledge-index.py` proves the record shards
+  compose with the amended bodies under their recorded hashes.

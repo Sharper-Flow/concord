@@ -5,7 +5,6 @@
     "tier": "legislated"
   },
   "date": "2026-09-12T00:00:00Z",
-  "doc_contract_profile": "legacy",
   "evidence": [
     "internal/store/workflow_registry.go",
     "internal/store/workflow_parts.go",
@@ -31,7 +30,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:d6758767c8e6f5058432c9abe0725fc3d70a508b53f8f8e960a9f1188503bf90",
+  "sha256": "sha256:53d8fd0f44c56a553acccf802e148714e7d3c8256df4e2ebca7443b6364b47bc",
   "status": "accepted",
   "summary": "Adds a mandatory artifact-backed refinement pass before verdicts in implementation and break-fix workflows, composed into the families' canonical source.",
   "tags": [

@@ -76,8 +76,8 @@ func TestAcceptedQ1ToQ10Corpus(t *testing.T) {
 		}
 		results[scenario.ID] = encoded
 	}
-	if run != 27 {
-		t.Fatalf("Q1-Q10 corpus scenarios executed = %d, want 27", run)
+	if run != 26 {
+		t.Fatalf("Q1-Q10 corpus scenarios executed = %d, want 26", run)
 	}
 }
 
@@ -146,17 +146,6 @@ func executeCorpusQuery(ctx context.Context, s *store.Store, id string, input ma
 			store.ResultMeta
 			Result store.DomainDetailResult `json:"result"`
 		}{detail.ResultMeta, detail}, nil
-	case "C22.DomainOverlaps":
-		result, overlapErr := s.QueryDomainOverlaps(ctx, store.DomainOverlapsRequest{Product: stringInput(input, "product"), Domain: stringInput(input, "domain")})
-		if overlapErr != nil {
-			return nil, overlapErr
-		}
-		return struct {
-			store.ResultMeta
-			Items     []store.DomainOverlapPair `json:"items"`
-			Registry  *store.DomainRegistryView `json:"registry"`
-			Truncated bool                      `json:"truncated"`
-		}{result.ResultMeta, result.Pairs, result.Registry, result.Truncated}, nil
 	case "PM1.Q1":
 		return s.QueryQ1(ctx, store.Q1Request{Product: stringInput(input, "product"), Project: stringInput(input, "project"), Limit: intInput(input, "limit"), Cursor: stringInput(input, "cursor")})
 	case "PM1.Q2":

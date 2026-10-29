@@ -375,8 +375,6 @@ These are named rather than silently decided by implication.
    the operator rather than defaulting to pass.
 4. **Cross-item outcome attribution.** When one item's end-state is delivered by another
    item's work, whether that is PM4 supersession, a typed relation, or neither.
-5. **Downstream notice class.** Whether an end-state revision emits a `breaking` notice
-   under CD-0006 R3 to work that declared a dependency on the original outcome.
 
 ## Supersession and amendments
 
@@ -409,6 +407,4 @@ governance by attributes rather than gate count.
 
 This record was accepted by the operator on 2026-08-08 and binds downstream work until
 superseded. A downstream change that contradicts it surfaces a conflict requiring
-explicit resolution rather than divergence inside implementation work. Decision
-records follow the outline governed by
-[CD-0175](CD-0175-decision-record-outline.md).
+explicit resolution rather than divergence inside implementation work.

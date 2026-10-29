@@ -874,7 +874,6 @@ func TestReopenedBootstrapClaimRecordsOwnIncarnationEvents(t *testing.T) {
 		WorkID: first.WorkID, ProjectID: first.ProjectID, DefaultRef: "origin/main",
 		PrincipalRef: "principal/operator", RequestID: "reclaim-incarnation-first",
 		ExpectedVersion: first.WorkVersion, Runner: ExecGitRunner{},
-		ReleaseOccupancy: true, OperatorApprovalRef: "approval:incarnation-first",
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -905,7 +904,6 @@ func TestReopenedBootstrapClaimRecordsOwnIncarnationEvents(t *testing.T) {
 		WorkID: first.WorkID, ProjectID: first.ProjectID, DefaultRef: "origin/main",
 		PrincipalRef: "principal/operator", RequestID: "reclaim-incarnation-reopened",
 		ExpectedVersion: reopened.WorkVersion, Runner: ExecGitRunner{},
-		ReleaseOccupancy: true, OperatorApprovalRef: "approval:incarnation-reopened",
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -1275,13 +1273,12 @@ func TestBootstrapRecordsOccupantSession(t *testing.T) {
 
 	// The resume route rebuilds a missing worktree under the existing work
 	// identity, so it claims a worktree too and owes the same occupant. The
-	// reclaim that frees it now has to release the occupant it just recorded,
-	// which is the operator-approved route a stale occupant takes.
+	// reclaim releases the legacy occupant because no live host lease
+	// predates it.
 	if _, err := s.ReclaimWorktree(ctx, WorktreeReclaimRequest{
 		WorkID: first.WorkID, ProjectID: first.ProjectID, DefaultRef: "origin/main",
 		PrincipalRef: "principal/operator", RequestID: "reclaim-occupancy-capture",
 		ExpectedVersion: first.WorkVersion, Runner: ExecGitRunner{},
-		ReleaseOccupancy: true, OperatorApprovalRef: "approval/occupancy-capture",
 	}); err != nil {
 		t.Fatal(err)
 	}

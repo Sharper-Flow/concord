@@ -5,7 +5,6 @@
     "tier": "legislated"
   },
   "date": "2026-09-19T00:00:00Z",
-  "doc_contract_profile": "legacy",
   "evidence": [
     "contracts/agent-utilities.v1.json",
     "scripts/generate-agent-profiles.py",
@@ -28,7 +27,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:ececc75071f2ec07ab32b58929c6e83e4dd9cc905708b95a079ce80f411647c3",
+  "sha256": "sha256:057eb8d8e4bd0e52940526b6a6a9dd2345a048307d79d5a6a938453fa1dc14ae",
   "status": "accepted",
   "summary": "Admits an advisor utility with an explore-matching read-only evidence channel, a collaborative body that refuses a supplied conclusion, permits a no-concerns result, and requires the adviser to state its serving model. Advisory output stays outside worker evidence and gates nothing.",
   "tags": [

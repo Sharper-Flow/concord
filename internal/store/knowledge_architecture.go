@@ -20,7 +20,7 @@ import (
 // (CD-0222 D2). The knowledge index rebuild reads them for the Product's
 // designated knowledge home at the scanned commit and refuses the whole
 // rebuild when either is malformed, the way a malformed record shard
-// refuses it. A registered source home carries neither in this version.
+// refuses it.
 const (
 	packageMapSchemaVersion = "1.0"
 	packageMapShapeVersion  = "1.1"

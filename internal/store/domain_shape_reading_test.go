@@ -132,7 +132,7 @@ func TestDomainShapeReadingProductIsolation(t *testing.T) {
 			if suffix == "b" {
 				law = "CD-0002"
 			}
-			if selected.ProductID != product || len(selected.Facts) != 4 || len(selected.GoverningLaw) != 1 || selected.GoverningLaw[0].LawID != law {
+			if selected.ProductID != product || len(selected.Facts) != 4 || len(selected.GoverningLaw) != 1 || selected.GoverningLaw[0] != law {
 				t.Fatalf("wrong Product facts/law: %+v", selected)
 			}
 			for _, fact := range selected.Facts {
@@ -161,7 +161,7 @@ func TestDomainShapeReadingProductIsolation(t *testing.T) {
 			if !bytes.Equal(actual, expected) || bytes.Contains(actual, []byte(`"product_id":"`+foreign+`"`)) {
 				t.Fatalf("selected and committed proof bytes differ: %s", actual)
 			}
-			for _, target := range []string{"archive", projectToolingManifestPath, selected.GoverningLaw[0].Path} {
+			for _, target := range []string{"archive", projectToolingManifestPath, ".concord/docs/decisions/" + law + "-synthetic.md"} {
 				raw, err := resolveDomainShapeReading(t.Context(), &shapeTamperRunner{GitRunner: CommittedReadGitRunner{}, target: target}, &witness)
 				if err == nil || len(raw) != 0 {
 					t.Fatalf("proof exposed tampered %s bytes: %s %v", target, raw, err)
@@ -247,11 +247,7 @@ func TestDomainShapeReadingReconstructsGoverningLawMembership(t *testing.T) {
 	wantIDs := "CD-0001,CD-0004,CD-0005,CD-0008,CD-0009"
 	t.Run("manifest-membership", func(t *testing.T) {
 		selection := DomainShapeResult{DomainIDs: []string{"fixture-law"}, Facts: []DomainShapeFact{{Fact: fact}}}
-		ids := []string{}
-		for _, law := range domainShapeManifestGoverningLaw(manifest, selection) {
-			ids = append(ids, law.LawID)
-		}
-		if strings.Join(ids, ",") != wantIDs {
+		if ids := domainShapeManifestGoverningLaw(manifest, selection); strings.Join(ids, ",") != wantIDs {
 			t.Fatalf("manifest law selection differs: %v", ids)
 		}
 	})
@@ -260,11 +256,7 @@ func TestDomainShapeReadingReconstructsGoverningLawMembership(t *testing.T) {
 	if err := json.Unmarshal(expected, &selected); err != nil {
 		t.Fatal(err)
 	}
-	ids := []string{}
-	for _, law := range selected.GoverningLaw {
-		ids = append(ids, law.LawID)
-	}
-	if strings.Join(ids, ",") != wantIDs {
+	if ids := selected.GoverningLaw; strings.Join(ids, ",") != wantIDs {
 		t.Fatalf("SQL law selection differs: %v", ids)
 	}
 	if err := declareShapeReading(t, f, reading); err != nil {
@@ -304,6 +296,8 @@ func TestDomainShapeReadingRefreshDuringReadKeepsOriginalBytes(t *testing.T) {
 	}
 }
 
+// The result carries law IDs only, so a forged projected law hash or title
+// never reaches the result bytes; a forged membership does and must refuse.
 func TestDomainShapeReadingRejectsProjectedLawForgery(t *testing.T) {
 	for _, mutation := range []string{"metadata", "membership"} {
 		t.Run(mutation, func(t *testing.T) {
@@ -331,8 +325,13 @@ func TestDomainShapeReadingRejectsProjectedLawForgery(t *testing.T) {
 			}); err != nil {
 				t.Fatal(err)
 			}
-			if _, err := resolveDomainShapeReading(ctx, CommittedReadGitRunner{}, &witness); !hasFailureKind(err, KindInvalidNoteProof) {
-				t.Fatalf("forged projected law %s acquired committed proof: %v", mutation, err)
+			raw, err := resolveDomainShapeReading(ctx, CommittedReadGitRunner{}, &witness)
+			if mutation == "metadata" {
+				if err != nil || bytes.Contains(raw, []byte("Forged law title")) {
+					t.Fatalf("nonprojected law metadata changed selected bytes: %s %v", raw, err)
+				}
+			} else if !hasFailureKind(err, KindInvalidNoteProof) {
+				t.Fatalf("forged projected law membership acquired committed proof: %v", err)
 			}
 		})
 	}

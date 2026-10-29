@@ -128,7 +128,7 @@ func TestApproveContractResearchBindingTakesEffectBeforeItsGate(t *testing.T) {
 		t.Fatal(err)
 	}
 	pack := createSimplePack(t, s, "same-action", workID)
-	approval := json.RawMessage(`{"spec_mandate":[],"law_modifies":[],"architecture_binding":{"domain_registry_content_hash":"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","home_domain_id":"root","affected_domain_ids":["root"],"domain_modifies":[],"domain_relation_modifies":[],"law_additions":[],"verification_obligations":[]}}`)
+	approval := json.RawMessage(`{"spec_mandate":[],"law_modifies":[],"architecture_binding":{"home_domain_id":"root","affected_domain_ids":["root"],"domain_modifies":[],"domain_relation_modifies":[],"law_additions":[],"verification_obligations":[]}}`)
 	if err := applyInvestigationGateApproval(t, s, workID, version, "same-action-refusal", actor, approval, nil); err == nil {
 		t.Fatal("approve_contract admitted pending questions without research_bindings")
 	} else {

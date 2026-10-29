@@ -9,7 +9,7 @@ import (
 	"testing"
 )
 
-func TestAdapterDispatchRecipeGenerated(t *testing.T) {
+func TestAdapterNativeRecipeGenerated(t *testing.T) {
 	root := filepath.Join("..", "..")
 	cmd := exec.Command("python3", "scripts/generate-adapter-oracle.py", "--check")
 	cmd.Dir = root
@@ -18,9 +18,9 @@ func TestAdapterDispatchRecipeGenerated(t *testing.T) {
 	}
 }
 
-func TestAdapterDispatchRecipeRecordsReady(t *testing.T) {
+func TestAdapterNativeRecipeRecordsReady(t *testing.T) {
 	ctx := context.Background()
-	const recipePath = ".concord/oracles/adapter/dispatch-acceptance.v1.json"
+	const recipePath = ".concord/oracles/adapter/native-acceptance.v1.json"
 	repo, head := storeOracleClone(t)
 	manifestFile, raw, err := nativeGitFile(ctx, ExecGitRunner{}, repo, head, recipePath)
 	if err != nil {
@@ -31,17 +31,17 @@ func TestAdapterDispatchRecipeRecordsReady(t *testing.T) {
 		t.Fatal(err)
 	}
 	gitRunStore(t, repo, "branch", "-m", "target-branch")
-	const work = "adapter-dispatch-recipe"
+	const work = "adapter-native-recipe"
 	seed := seedWorkflowReturnRouteFixture(t, work, "workflow.break_fix", "repair")
 	f := &nativeTargetFixture{
-		s: seed.store, work: work, repo: repo, head: head, dispatchSubject: head,
-		actor: seed.owner, root: "adapter/opencode", recipePath: recipePath,
-		controlArgv: []string{"check", "adapter-dispatch", "adapter-guards", "adapter-publication"},
+		s: seed.store, work: work, repo: repo, head: head,
+		root: "adapter/opencode", recipePath: recipePath,
+		controlArgv: []string{"check", "adapter-transport", "adapter-move", "adapter-publication"},
 	}
 	f.seedTargetAuthority(t)
-	f.bundle.Owner.Mechanism = OracleMechanism{ProjectID: "project", Path: "adapter/opencode/lane_dispatch.ts", EntryPoint: "dispatchLaneWorker"}
-	f.bundle.Control.CaseIDs = []string{"case:adapter-dispatch"}
-	f.bundle.Cases[0].CaseID = "case:adapter-dispatch"
+	f.bundle.Owner.Mechanism = OracleMechanism{ProjectID: "project", Path: "adapter/opencode/concord-plugin.ts", EntryPoint: "ConcordPlugin"}
+	f.bundle.Control.CaseIDs = []string{"case:adapter-native"}
+	f.bundle.Cases[0].CaseID = "case:adapter-native"
 	if err := validateNativeTargetManifest(manifest, f.bundle.Control); err != nil {
 		t.Fatal(err)
 	}
@@ -61,22 +61,7 @@ func TestAdapterDispatchRecipeRecordsReady(t *testing.T) {
 	if p.TargetMaterializer != "bun" || !slices.Equal(p.SelectedWitnessIDs, f.controlArgv[1:]) {
 		t.Fatalf("preparation lost its runtime or exact witnesses: %+v", p)
 	}
-	control := f.bundle.Control
-	control.ReadinessEvidenceRefs = []string{f.prepare.OperationRef}
-	oracle := &AcceptanceOracle{Owners: []OracleOwner{f.bundle.Owner}, Cases: f.bundle.Cases, Controls: []OracleControl{control}}
-	if err := recordWorkerJobActionForTest(t, f.s, work, seed.owner, map[string]any{
-		"job_id": "job:adapter-recipe", "objective": "preserve adapter dispatch publication and guards",
-		"stopping_condition": "the pinned adapter checks pass", "path_scope": []string{"adapter/opencode"},
-		"predicate_ids": control.PredicateIDs, "ready": true, "acceptance_oracle": oracle,
-		"readiness_evidence": []string{f.prepare.OperationRef},
-	}); err != nil {
-		t.Fatalf("record recipe-qualified adapter job: %v", err)
-	}
-	jobs, err := readWorkerJobRevisions(ctx, f.s.db, work)
-	if err != nil || len(jobs) != 1 || !jobs[0].Ready || !oracleEntryIdentical(jobs[0].AcceptanceOracle, oracle) {
-		t.Fatalf("ready job lost the exact preparation: %+v, %v", jobs, err)
-	}
-	o := f.authorize(t, "adapter-execute", seed.owner)
+	o := NativeOracleRequest{Phase: "execute", PreparationRunRef: f.prepare.OperationRef}
 	r, err := f.s.VerifyWorktree(ctx, f.request("adapter-execute", &o))
 	if err != nil || r.Oracle == nil || r.Oracle.Qualification != "pass" || r.ExitCode != 0 || f.launches != len(p.SelectedWitnessIDs) {
 		t.Fatalf("execute pinned adapter checks: oracle=%+v, %v launches=%d output=%s", r.Oracle, err, f.launches, r.Output)

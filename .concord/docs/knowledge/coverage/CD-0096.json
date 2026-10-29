@@ -18,10 +18,6 @@
     },
     {
       "kind": "go_test",
-      "value": "internal/agent.TestWorktreeDestroyDispatchDestructiveUnderApproval"
-    },
-    {
-      "kind": "go_test",
       "value": "internal/store.TestContinuityRePinsHeldLease"
     },
     {

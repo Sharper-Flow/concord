@@ -14,13 +14,13 @@
     },
     {
       "kind": "compatible_with",
-      "summary": "Two overlapping work items were judged able to proceed together.",
+      "summary": "Historical only: two overlapping work items were once judged able to proceed together. Work that shares a Domain now proceeds without a resolution, so no surface writes this kind; stored edges stay readable.",
       "inverse_label": null,
       "transitive": false,
       "link": "refused",
       "link_refusal": {
-        "message": "overlap-resolution relations must be created by resolve_overlap",
-        "recovery": "use resolve_overlap so operator approval, version pins, and lifecycle changes remain atomic"
+        "message": "compatible_with is retired: work that shares a Domain proceeds without a resolution",
+        "recovery": "record no relation, or use depends_on or blocks for real sequencing"
       },
       "written_by": ["workflow.overlap_resolved"]
     },

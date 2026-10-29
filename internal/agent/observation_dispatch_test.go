@@ -16,7 +16,7 @@ import (
 func TestObservationRecordDispatchContinuityAndNonAuthority(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	s, service, grant := claimsFixture(t)
+	s, service, grant := observationFixture(t)
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
 	if err != nil {
 		t.Fatal(err)

@@ -42,11 +42,11 @@ func TestIssue933OperatorActionSupersedesAsCurrentCoordinator(t *testing.T) {
 	const workID = "issue933-current-coordinator"
 	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", "repair")
 	defer fixture.store.Close()
-	successor := registryRepinSuccessorPayload(2, registryFixtureHash(), workID, 1)
+	successor := returnRouteSuccessorPayload(2, workID, 1)
 	if err := runIssue933OperatorAction(t, fixture.store, workID, "supersede_contract", successor, fixture.owner, fixture.operator); err != nil {
 		t.Fatalf("current-policy coordinator supersession: %v", err)
 	}
-	if version, active := activeStaleRegistryContract(t, fixture.store, workID); version != 2 || active != 1 {
+	if version, active := activeContractState(t, fixture.store, workID); version != 2 || active != 1 {
 		t.Fatalf("active contract version=%d count=%d, want 2/1", version, active)
 	}
 }
@@ -269,10 +269,7 @@ func TestVerdictOmittingContractVersionResolvesActiveContract(t *testing.T) {
 	}
 }
 
-// An accepted upstream-revision obligation must keep contract repair reachable
-// after productive acceptance, without count-derived retry authority: Main's
-// accept_worker_evidence of the completed review reopens operator correction
-// once every authorization in the pass carries a terminal disposition.
+// A recorded upstream-revision obligation keeps contract repair reachable.
 func TestCurrentReviewKeepsContractCorrectionAfterProductiveAccept(t *testing.T) {
 	const id = "correction-open-after-productive-accept"
 	j := pReturnReviewFixture(t, id, "workflow.break_fix", "revision_required")
@@ -284,18 +281,7 @@ func TestCurrentReviewKeepsContractCorrectionAfterProductiveAccept(t *testing.T)
 		t.Fatal(err)
 	}
 	reviewGateStartStep(t, j.s, id, "refine", "start_refine", j.fixture.owner)
-	reviewAttempt, reviewEpoch := completeCurrentReviewForTest(t, j.fixture, j.repo, "ready_for_final_proof")
-	if err := runVerdictActionAs(t, j.s, id, "accept_worker_evidence", json.RawMessage(`{"attempt_id":"`+reviewAttempt+`","attempt_epoch":`+fmt.Sprint(reviewEpoch)+`}`), 0, j.fixture.owner); err != nil {
-		t.Fatalf("Main accepted the refinement review evidence: %v", err)
-	}
-	entry := mustBuiltinDefinition(t, "workflow.break_fix")
-	decision, err := workflowRefineReviewCorrectionDecision(t.Context(), j.s.db, id, entry.Definition, "refine", "test", 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if decision != workflowRefineReviewCorrectionOpen {
-		t.Fatalf("review-evidence correction decision=%d, want open after productive acceptance", decision)
-	}
+	completeCurrentReviewForTest(t, j.fixture, j.repo, "revision_required")
 	successor := pContractSuccessor(t, j.s, id, "corrected premise after accepted Review")
 	if err := runVerdictActionAs(t, j.s, id, "supersede_contract", mustJSONValue(successor), 0, j.fixture.owner); err != nil {
 		t.Fatalf("supersede after productive acceptance: %v", err)

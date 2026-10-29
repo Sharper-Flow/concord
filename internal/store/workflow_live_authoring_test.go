@@ -187,55 +187,7 @@ func TestArchivedFamilyTerminalHistoryStaysReadable(t *testing.T) {
 	}
 }
 
-// TestNoRetainedWorkflowVersionDeclaresAConditionAction holds CD-0234 D1: the
-// engine has no condition resolver, so no version of a family outside the
-// archived set may declare an action that opens, resolves, or cancels a
-// condition. The walk covers every registered version, not only live heads.
-func TestNoRetainedWorkflowVersionDeclaresAConditionAction(t *testing.T) {
-	t.Parallel()
-	if got := retainedConditionActionDeclarations(BuiltinWorkflowDefinitions()); len(got) != 0 {
-		t.Fatalf("retained workflow versions declare condition actions: %s", strings.Join(got, ", "))
-	}
-	// Control: the walk flags a retained version that declares one, so an
-	// empty answer above is a finding rather than a blind walk.
-	probe := WorkflowDefinition{Ref: "workflow.implementation", StepGraph: WorkflowStepGraph{Steps: []WorkflowStep{{ID: "execution", Actions: []string{"add_condition"}}}}}
-	if got := retainedConditionActionDeclarations([]WorkflowDefinition{probe}); len(got) != 1 {
-		t.Fatalf("control declarations = %v, want the one retained step declaration", got)
-	}
-}
-
-func retainedConditionActionDeclarations(definitions []WorkflowDefinition) []string {
-	conditionAction := func(id string) bool {
-		return id == "add_condition" || id == "resolve_condition" || id == "cancel_condition"
-	}
-	var found []string
-	for _, definition := range definitions {
-		if workflowFamilyArchived(definition.Ref) {
-			continue
-		}
-		at := definition.Ref
-		for _, action := range definition.AvailableActions {
-			if conditionAction(action) {
-				found = append(found, at+" available "+action)
-			}
-		}
-		for _, action := range definition.ActionDefinitions {
-			if conditionAction(action.ID) {
-				found = append(found, at+" defines "+action.ID)
-			}
-		}
-		for _, step := range definition.StepGraph.Steps {
-			for _, action := range step.Actions {
-				if conditionAction(action) {
-					found = append(found, at+" step "+step.ID+" "+action)
-				}
-			}
-		}
-	}
-	return found
-}
-
-func TestLiveAuthoringActionUnionTargets31WithRecovery(t *testing.T) {
+func TestLiveAuthoringActionUnionTargets30WithRecovery(t *testing.T) {
 	t.Parallel()
 	declared := map[string]bool{}
 	for _, ref := range []string{"workflow.implementation", "workflow.break_fix", "workflow.research"} {
@@ -250,19 +202,28 @@ func TestLiveAuthoringActionUnionTargets31WithRecovery(t *testing.T) {
 	// The two recovery actions the engine admits off the pinned steps.
 	declared["reject_worker_result"] = true
 	declared["supersede_contract"] = true
-	if len(declared) != 31 {
-		names := make([]string, 0, len(declared))
-		for name := range declared {
-			names = append(names, name)
-		}
-		sort.Strings(names)
-		t.Fatalf("live authoring union holds %d IDs, want the 31 target: %s", len(declared), strings.Join(names, ","))
+	names := make([]string, 0, len(declared))
+	for name := range declared {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	want := []string{
+		"accept_worker_evidence", "accept_worker_result", "approve_contract", "bind_evidence",
+		"checkpoint_context", "checkpoint_execution", "checkpoint_refine", "checkpoint_repair",
+		"complete", "confirm_premise", "cross_context_boundary", "dispatch_worker", "frame_research",
+		"link_successor", "record_alignment", "record_conclusion", "record_delivery", "record_design",
+		"record_diagnosis", "record_finding", "record_proposal", "record_report", "record_verdict",
+		"record_work_context", "record_worker_job", "reject_worker_result", "request_correction",
+		"revise_candidates", "start_execution", "supersede_contract",
+	}
+	if !slices.Equal(names, want) {
+		t.Fatalf("live authoring union = %v, want %v", names, want)
 	}
 	retired := []string{
-		"accept_decision", "add_condition", "approve_operation", "cancel_condition",
+		"accept_decision", "approve_operation",
 		"checkpoint_action", "checkpoint_analysis", "checkpoint_poc", "checkpoint_run",
 		"cleanup_run", "declare_scope", "discard_poc", "frame_question", "record_decision",
-		"record_health", "record_option", "record_research", "resolve_condition",
+		"record_health", "record_option", "record_research",
 		"rollback_run", "run_analysis", "start_action", "start_poc", "start_run",
 		"record_reproduction", "record_root_cause", "start_repair", "start_refine",
 		"record_worker_failure", "record_discovery",
@@ -435,7 +396,7 @@ func TestCanonicalHeadsApproveRecordsExplicitPredicatesWithoutInventedOutcome(t 
 			"outcome_payload": map[string]any{"kind": "check", "check_ref": "check:canonical", "immutable_subject_ref": "commit:" + workID, "expected_result": "pass"},
 		}},
 		"architecture_binding": WorkflowArchitectureBinding{
-			DomainRegistryContentHash: "sha256:" + strings.Repeat("b", 64), HomeDomainID: "root", AffectedDomainIDs: []string{"root"},
+			HomeDomainID: "root", AffectedDomainIDs: []string{"root"},
 			DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{},
 			VerificationObligations: []WorkflowVerificationObligation{},
 		},
@@ -532,38 +493,8 @@ func TestCanonicalSupersedeRequiresExplicitOutcomePredicates(t *testing.T) {
 	}
 }
 
-func TestCanonicalResearchHeadDerivesFailureWithVersionedPacket(t *testing.T) {
+func TestCanonicalHeadsRequireBatchVerdictPayload(t *testing.T) {
 	t.Parallel()
-	registered, err := LiveWorkflowDefinitionForRef("workflow.research")
-	if err != nil {
-		t.Fatal(err)
-	}
-	definition := registered.Definition
-	if slices.Contains(definition.AvailableActions, "record_worker_failure") {
-		t.Fatal("record_worker_failure is still advertised on the canonical research head")
-	}
-	for _, action := range definition.ActionDefinitions {
-		if action.ID == "record_worker_failure" {
-			t.Fatal("record_worker_failure is still declared on the canonical research head")
-		}
-	}
-	if !workflowDerivedWorkerFailureActive(definition) {
-		t.Fatal("the canonical research head does not derive the workflow failure record")
-	}
-	packetRef := ""
-	for _, action := range definition.ActionDefinitions {
-		if action.ID != "dispatch_worker" {
-			continue
-		}
-		for _, field := range action.Payload.Fields {
-			if field.Name == "worker_packet" {
-				packetRef = field.SchemaRef
-			}
-		}
-	}
-	if packetRef != "worker_packet" {
-		t.Fatalf("canonical research dispatch packet ref = %q, want the current packet closure", packetRef)
-	}
 	// The canonical authoring gate reads the definition's own registry
 	// content: the batch-only record_verdict payload every current head
 	// declares. A head without that payload is not canonical.
@@ -634,7 +565,7 @@ func seedCutoverPin(t *testing.T, path, workID, ref string) string {
 
 func repinCutoverInstance(t *testing.T, s *Store, workID, ref string) {
 	t.Helper()
-	execStaleRegistryInFold(t, s, fmt.Sprintf(`UPDATE workflow_instances SET definition_ref='%s' WHERE work_id='%s'`, ref, workID))
+	execInFold(t, s, fmt.Sprintf(`UPDATE workflow_instances SET definition_ref='%s' WHERE work_id='%s'`, ref, workID))
 }
 
 func storedCounts(t *testing.T, path string) (events int64, migrations int64) {
@@ -695,7 +626,7 @@ func TestCutoverAllowsTerminalHistoricalPinsAtReadiness(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	execStaleRegistryInFold(t, s, `UPDATE work_items SET lifecycle='cancelled' WHERE id='`+workID+`'`)
+	execInFold(t, s, `UPDATE work_items SET lifecycle='cancelled' WHERE id='`+workID+`'`)
 	if err := s.Close(); err != nil {
 		t.Fatal(err)
 	}
@@ -747,7 +678,7 @@ func TestCutoverBlocksOutsideRepairArchivedPin(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	execStaleRegistryInFold(t, s, `UPDATE workflow_instances SET instance_state='outside_repair' WHERE work_id='`+workID+`'`)
+	execInFold(t, s, `UPDATE workflow_instances SET instance_state='outside_repair' WHERE work_id='`+workID+`'`)
 	if err := s.Close(); err != nil {
 		t.Fatal(err)
 	}
@@ -776,114 +707,12 @@ func TestCutoverAllowsExactCanonicalHeadsAtReadiness(t *testing.T) {
 	}
 }
 
-// TestResearchDerivedFailureRetriesAndRebuilds executes the research failure
-// extension end to end: a dispatched investigate attempt's terminal
-// worker.failed event derives exactly one workflow failure record at the
-// step, the correction context reads the original detail, a fresh retry
-// dispatch opens the next fenced epoch, and the log rebuild reproduces the
-// derived record and its correction.
-func TestResearchDerivedFailureRetriesAndRebuilds(t *testing.T) {
-	const workID = "research-derived-failure-retry"
-	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.research", "investigate")
-	s := fixture.store
-	dispatcher := diagnosisS1Actor(workID, "dispatcher")
-	lane := reviewGateLane(t, "research")
-	// The research step dispatches its own lane's packet; research declares
-	// no worker-job lifecycle, so the dispatch carries the packet alone.
-	dispatchResearchAttempt := func(attemptID, key string, correction *WorkflowCorrectionContext) {
-		task, binding := recordedPacketInputs(t, s, workID, lane.ID)
-		inputs := map[string]any{"task": task, "binding": binding, "constraints": []string{"do-not-modify-product-truth"}}
-		if correction != nil {
-			inputs["correction"] = correction
-		}
-		for member, value := range recordedPacketRecords(t, s, workID) {
-			inputs[member] = value
-		}
-		packet := map[string]any{
-			"schema_version": WorkerPacketSchemaVersion, "attempt_id": attemptID,
-			"lane_id": lane.ID, "lane_digest": lane.Digest,
-			"work_id": workID, "step_id": "investigate", "inputs": inputs,
-		}
-		if err := dispatchJobPacketForTest(t, s, workID, attemptID, dispatcher, key, packet); err != nil {
-			t.Fatal(err)
-		}
-	}
-	// The dispatch action's durable worker record materializes the attempt
-	// the terminal event names, under the same lane identity.
-	recordResearchDispatch := func(attemptID string) {
-		ownerRef, err := WorkflowActorRef(fixture.owner)
-		if err != nil {
-			t.Fatal(err)
-		}
-		window, err := findAuthorizedDispatchWindowCore(context.Background(), s.DatabaseForTesting(), workID, attemptID)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{{
-			EventID: "research-worker-dispatch-" + workID + "-" + attemptID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID,
-			Actor: ownerRef, OccurredAt: time.Unix(20, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerDispatched),
-			Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: attemptID, LaneID: lane.ID, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, ReadbackModel: preferredModelForLane(lane), PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion, PacketDigest: window.PacketDigest}),
-		}}}); err != nil {
-			t.Fatal(err)
-		}
-	}
-	attempt := "attempt:" + workID + ":1"
-	dispatchResearchAttempt(attempt, "research-failure-dispatch-"+workID, nil)
-	recordResearchDispatch(attempt)
-	if start := workflowCurrentStartAtStep(t, s, workID, "investigate"); start == nil || start.Epoch != 1 || len(workflowStartReceiptIDs(t, s, workID)) != 1 {
-		t.Fatalf("investigate current start after the dispatch = %+v, want one dispatch receipt at epoch 1", start)
-	}
-	detail := "the research lane failed before a judgeable report existed"
-	// The research failure ingest carries the recorded observation the
-	// promoted pin requires; the derivation it proves is unchanged.
-	if err := s2WorkerFailedLive(t, s, s2WorkerFailedAttributedEvent(workID, attempt, "failed-"+workID+"-1", preferredModelForLane(lane), WorkerFailureWorkerError, detail, time.Unix(30, 0).UTC())); err != nil {
-		t.Fatalf("the live terminal worker.failed ingest: %v", err)
-	}
-	records := s2DerivedFailureRecords(t, s, workID, attempt)
-	if len(records) != 1 {
-		t.Fatalf("derived failure records = %d, want exactly one from the original terminal event", len(records))
-	}
-	record := records[0]
-	if record["step"] != "investigate" || record["epoch"] != int64(1) {
-		t.Fatalf("derived record = %+v, want the investigate step at the window's epoch 1", record)
-	}
-	if record["actor"] != mustActorRef(t, dispatcher) {
-		t.Fatalf("derived record actor = %v, want the dispatch authorization's actor", record["actor"])
-	}
-	if !strings.HasSuffix(record["event_id"].(string), ":workflow-failure") {
-		t.Fatalf("derived record event id = %v, want the terminal event's derivation pair", record["event_id"])
-	}
-	correction, err := workflowCorrectionContext(context.Background(), s.db, workID, "investigate")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if correction == nil || correction.Disposition != "failed" || correction.Diagnosis != detail || correction.Strategy != "retry with a fresh fenced attempt" || correction.FailedAttemptID != attempt {
-		t.Fatalf("correction after the derived record = %+v, want the failed disposition carrying the original failure detail", correction)
-	}
-
-	// The failed attempt holds the step through the wall: a fresh dispatch is
-	// the admitted retry, consumes the derived correction context, and opens
-	// the next fenced epoch.
-	retryCorrection, retryCorrectionErr := workflowCorrectionContext(context.Background(), s.db, workID, "investigate")
-	if retryCorrectionErr != nil {
-		t.Fatal(retryCorrectionErr)
-	}
-	retry := "attempt:" + workID + ":2"
-	dispatchResearchAttempt(retry, "research-retry-dispatch-"+workID, retryCorrection)
-	recordResearchDispatch(retry)
-	start := workflowCurrentStartAtStep(t, s, workID, "investigate")
-	if start == nil || start.Epoch != 2 || len(workflowStartReceiptIDs(t, s, workID)) != 2 {
-		t.Fatalf("investigate current start after the retry = %+v, want two receipts and current epoch 2", start)
-	}
-
-}
-
 // insertCutoverContract copies the seeded instance's own definition pin into
 // the work's active contract, the shape an approval leaves behind, under the
 // write guard the write-seam-only contract table requires.
 func insertCutoverContract(t *testing.T, s *Store, workID string) {
 	t.Helper()
-	execStaleRegistryInFold(t, s, `INSERT INTO workflow_contracts
+	execInFold(t, s, `INSERT INTO workflow_contracts
 		(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,definition_ref,definition_digest)
 		SELECT i.work_id,1,'cutover contract pin','internal_sqlite','[]','[]','2026-10-11T00:00:00Z',
 		(SELECT actor_ref FROM workflow_actors LIMIT 1),'[]',i.definition_ref,i.definition_digest
@@ -894,7 +723,7 @@ func insertCutoverContract(t *testing.T, s *Store, workID string) {
 // given definition, the slot supersession points the old row at.
 func insertCutoverSuccessorContract(t *testing.T, s *Store, workID string, contractVersion int64, ref, digest string) {
 	t.Helper()
-	execStaleRegistryInFold(t, s, `INSERT INTO workflow_contracts
+	execInFold(t, s, `INSERT INTO workflow_contracts
 		(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,definition_ref,definition_digest)
 		VALUES('`+workID+`',`+fmt.Sprintf("%d", contractVersion)+`,'cutover successor pin','internal_sqlite','[]','[]','2026-10-11T00:00:00Z',
 		(SELECT actor_ref FROM workflow_actors LIMIT 1),'[]','`+ref+`','`+digest+`')`)
@@ -904,7 +733,7 @@ func insertCutoverSuccessorContract(t *testing.T, s *Store, workID string, contr
 // projection does: the old row points at the successor's version.
 func supersedeCutoverContract(t *testing.T, s *Store, workID string) {
 	t.Helper()
-	execStaleRegistryInFold(t, s, `UPDATE workflow_contracts SET superseded_by=2 WHERE work_id='`+workID+`' AND contract_version=1`)
+	execInFold(t, s, `UPDATE workflow_contracts SET superseded_by=2 WHERE work_id='`+workID+`' AND contract_version=1`)
 }
 
 // TestCutoverRefusesActiveArchivedContractBesideCanonicalInstance proves the
@@ -1014,7 +843,7 @@ func TestCutoverRefusesActiveArchivedContractWithoutInstance(t *testing.T) {
 		t.Fatal(err)
 	}
 	insertCutoverContract(t, s, workID)
-	execStaleRegistryInFold(t, s, `DELETE FROM workflow_instances WHERE work_id='`+workID+`'`)
+	execInFold(t, s, `DELETE FROM workflow_instances WHERE work_id='`+workID+`'`)
 	if err := s.Close(); err != nil {
 		t.Fatal(err)
 	}
@@ -1054,7 +883,7 @@ func seedCutoverDispositionFixture(t *testing.T) *Store {
 	repinCutoverInstance(t, s, "d-terminal", "workflow.generic_one_off")
 	insertCutoverContract(t, s, "a-archived") // Two blocking surfaces still select one work.
 	insertCutoverContract(t, s, "b-contract-only")
-	execStaleRegistryInFold(t, s, `DELETE FROM workflow_instances WHERE work_id='b-contract-only'`)
+	execInFold(t, s, `DELETE FROM workflow_instances WHERE work_id='b-contract-only'`)
 	insertCutoverSuccessorContract(t, s, "e-superseded-contract", 1, "workflow.ops_runbook", canonical.Digest)
 	insertCutoverSuccessorContract(t, s, "e-superseded-contract", 2, canonical.Definition.Ref, canonical.Digest)
 	supersedeCutoverContract(t, s, "e-superseded-contract")
@@ -1118,17 +947,6 @@ func TestCutoverDispositionSelectsAndCancelsExactlyBlockedWork(t *testing.T) {
 	}
 	files := map[string]string{}
 	for _, id := range []string{"a-archived", "b-contract-only"} {
-		current, err := cutoverReadWork(ctx, s, id)
-		if err != nil {
-			t.Fatal(err)
-		}
-		claim := operationEvent("claim-"+id, "work.resource_claimed", SubjectWorkItem, id, map[string]any{
-			"work_id": id, "resource_key": "fence:" + id, "reason": "cutover fixture", "holder_agent": "agent:test", "holder_session": "session:test",
-			"expected_version": current.version, "resulting_version": current.version + 1,
-		})
-		if err := applyWorkEvent(t, s, claim, workVersion(id, current.version)); err != nil {
-			t.Fatal(err)
-		}
 		dir := t.TempDir()
 		file := filepath.Join(dir, "retained.txt")
 		if err := os.WriteFile(file, []byte(id), 0o600); err != nil {
@@ -1139,11 +957,11 @@ func TestCutoverDispositionSelectsAndCancelsExactlyBlockedWork(t *testing.T) {
 			VALUES(?,?,'project',?,'synthetic-repository',? ,?,?,'verified','operator',?,'now','now')`, "wt-"+id, id, WorktreeSetID(id), "work/"+id, strings.Repeat("a", 40), dir, "req-"+id); err != nil {
 			t.Fatal(err)
 		}
-		execStaleRegistryInFold(t, s, fmt.Sprintf(`INSERT INTO worktree_entries(set_id,project_id,claim_op_id,branch,base_sha,path,repository_id,state,verified_at,git_facts)
+		execInFold(t, s, fmt.Sprintf(`INSERT INTO worktree_entries(set_id,project_id,claim_op_id,branch,base_sha,path,repository_id,state,verified_at,git_facts)
 			VALUES('%s','project','wt-%s','work/%s','%s','%s','synthetic-repository','active','now','{}')`, WorktreeSetID(id), id, id, strings.Repeat("a", 40), dir))
 	}
 	// Research content stays; only the cancelled work's active bindings drop.
-	execStaleRegistryInFold(t, s, `UPDATE work_items SET kind='research' WHERE id='c-canonical'`)
+	execInFold(t, s, `UPDATE work_items SET kind='research' WHERE id='c-canonical'`)
 	pack, err := createResearchPack(ctx, s, CreateResearchPackRequest{OwnerWorkID: "c-canonical", Revision: ResearchRevisionInput{Question: "cutover fixture", ScopeIn: json.RawMessage(`{}`), ScopeOut: json.RawMessage(`{}`), DoneWhen: json.RawMessage(`{}`), Method: "source"}})
 	if err != nil {
 		t.Fatal(err)
@@ -1225,10 +1043,6 @@ func TestCutoverDispositionSelectsAndCancelsExactlyBlockedWork(t *testing.T) {
 	if countRows(t, s, "active_research_consumers") != 0 {
 		t.Fatal("cancelled consumers still bind research")
 	}
-	var held int
-	if err := s.db.QueryRow(`SELECT count(*) FROM resource_claims WHERE state='held'`).Scan(&held); err != nil || held != 0 {
-		t.Fatalf("held resources = %d, %v", held, err)
-	}
 	for file, want := range files {
 		content, err := os.ReadFile(file)
 		if err != nil || string(content) != want {
@@ -1244,7 +1058,7 @@ func TestCutoverDispositionOutsideRepairRefusalRollsBackEveryCancellation(t *tes
 	ctx := context.Background()
 	s := seedCutoverDispositionFixture(t)
 	// The held item sorts second, so the first cancellation must roll back.
-	execStaleRegistryInFold(t, s, `INSERT INTO outside_repair_dispositions(work_id,approval_ref,state,reason,evidence_json,recorded_at)
+	execInFold(t, s, `INSERT INTO outside_repair_dispositions(work_id,approval_ref,state,reason,evidence_json,recorded_at)
 		VALUES('b-contract-only','approval:hold','active','synthetic outside repair','{}','now')`)
 	before := cutoverTableSnapshot(t, s, "work_items")
 	eventsBefore := countRows(t, s, "effect_receipts")

@@ -482,9 +482,7 @@ func TestKnowledgeManifestVocabularyBindingDetectsDivergence(t *testing.T) {
 }
 
 // Parsing the live shards is necessary but not sufficient: every head key the
-// store projects must reach the composed struct. A key the store leaves to
-// repository policy (manifestRootKeys false) stays in the head shard, which
-// the store never rewrites.
+// store declares must reach the composed struct.
 func TestLiveKnowledgeManifestHeadKeysSurviveComposition(t *testing.T) {
 	t.Parallel()
 	root := repositoryRootForTest(t)
@@ -496,7 +494,7 @@ func TestLiveKnowledgeManifestHeadKeysSurviveComposition(t *testing.T) {
 	if err := json.Unmarshal(shards.head, &head); err != nil {
 		t.Fatalf("decode manifest head: %v", err)
 	}
-	manifest, err := composeKnowledgeManifest(shards, manifestSharedHomeRole)
+	manifest, err := composeKnowledgeManifest(shards)
 	if err != nil {
 		t.Fatalf("compose live knowledge manifest: %v", err)
 	}
@@ -510,12 +508,11 @@ func TestLiveKnowledgeManifestHeadKeysSurviveComposition(t *testing.T) {
 		"dispositions":       manifest.Dispositions != nil,
 	}
 	for key := range head {
-		declared, known := manifestRootKeys[key]
-		if !known {
+		if !manifestRootKeys[key] {
 			t.Errorf("head carries a key the store does not declare: %q", key)
 			continue
 		}
-		if declared && !projected[key] {
+		if !projected[key] {
 			t.Errorf("composition dropped head key %q", key)
 		}
 	}

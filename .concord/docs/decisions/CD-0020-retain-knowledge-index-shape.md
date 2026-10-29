@@ -4,9 +4,6 @@
 **Amended:** 2026-09-20. D2 names exact lookup, closed filters, and ranked
 body discovery as distinct retrieval jobs with a listed falsifier, and
 reconciles record-kind vocabulary and the CD-0159 tier interaction.
-**Amended:** 2026-10-01. CD-0200 amends D1, D3, and Invariant 2: knowledge
-placement federates across one shared-law home plus registered sources, and
-reopen condition 1 is met by `POKE-711` subcheck C evidence.
 **Approval date:** 2026-08-13.
 **Approval:** Operator-approved review and continuation for GitHub issue #92.
 **Type:** Architecture decision (CD-0019 shape review).
@@ -55,11 +52,9 @@ rebuildable query projection and never authors durable knowledge or law.
 This current shape satisfies CD-0019's preservation requirement for the knowledge
 index. CD-0020 does not authorize a replacement index.
 
-The one-home placement boundary opens. A
-Product resolves knowledge over one designated shared-law home plus the
-member Project canonical-path locators the operator registers as sources.
-The manifest stays the authority per source, the projection stays derived
-per source, and registration stays explicit operator configuration.
+A Product resolves knowledge through one designated Git home under
+[CD-0200](CD-0200-product-knowledge-resolves-through-one-designated-git-home.md).
+Its manifest remains the authority and its projection remains derived.
 
 ### D2. Retain PM1.Q9 and Q10 as the knowledge-query boundary
 
@@ -135,17 +130,15 @@ add a second law-freshness enum, generic `HEAD` assumption, or duplicate entity-
 hash mechanism. Law status remains `accepted` or `superseded`; projection lag is
 read authority/freshness, not a change in law status.
 
-Over a registered source set, each source's
-watermark is verified separately, the answer carries per-source watermarks, and
-the cursor binds to a source-set digest. A missing or stale source refuses, or
-returns an explicit omission under allow_degraded; an empty answer is never an
-authoritative negative.
+The cursor binds the query and home identity. A missing or stale home
+refuses, or returns an explicit limitation under allow_degraded; a degraded
+empty answer is never an authoritative negative.
 
 #### Publication observation
 
-**1. Publication.** Concord uses the default branch advertised by a registered source's existing origin remote as that source's publication reference. A missing or ambiguous origin or default branch produces unknown publication state with the cause. Local `HEAD` and cached remote-tracking refs are not live publication observations.
+**1. Publication.** Concord uses the default branch advertised by the designated knowledge home's existing origin remote as its publication reference. A missing or ambiguous origin or default branch produces unknown publication state with the cause. Local `HEAD` and cached remote-tracking refs are not live publication observations.
 
-**2. Observation.** A caller explicitly requests one observation of one registered source. Ordinary knowledge reads and workflow boundaries do not invoke publication observation. Within one combined ten-second deadline, outside a store transaction, the noninteractive operation may discover the default branch once and fetch that branch once. It uses existing credentials and transport restrictions. Retries, alternate remotes, tag or submodule fetches, and history-widening fallbacks are outside this operation.
+**2. Observation.** A caller explicitly requests one observation of the designated knowledge home. Ordinary knowledge reads and workflow boundaries do not invoke publication observation. Within one combined ten-second deadline, outside a store transaction, the noninteractive operation may discover the default branch once and fetch that branch once. It uses existing credentials and transport restrictions. Retries, alternate remotes, tag or submodule fetches, and history-widening fallbacks are outside this operation.
 
 **3. Effects.** Git changes are limited to the selected origin remote-tracking ref and required objects and transfer metadata. Preserve checkouts, local branches, index entries, working-tree files, configured remotes, and source heads. Use the existing source/index owners for provenance; no second knowledge store or background synchronization is authorized.
 
@@ -193,10 +186,8 @@ new read operation. Architecture expansion and conformance repair remain separat
 
 1. Git remains the durable knowledge and Product-law authority; SQLite projection
    rows cannot author or amend it.
-2. The projection is rebuildable from one resolved canonical-home commit per
-   registered source and is replaced transactionally for that source; only the
-   shared-law home carries the Domain registry (amended 2026-10-01 by CD-0200
-   D2).
+2. The projection is rebuildable from one resolved canonical-home commit
+   and replaced transactionally. The home's manifest carries the Domain registry.
 3. Q9/Q10 remain bounded, typed, and explicit about authority, lag, reachability,
    omissions, commit identity, and content identity.
 4. Search/ranking metadata never becomes workflow or Product-law authority.
@@ -276,12 +267,7 @@ new read operation. Architecture expansion and conformance repair remain separat
 Reopen this decision only when at least one condition is proven:
 
 1. A repeated operator or agent job cannot be expressed by bounded Q9/Q10
-   without custom fan-out. **Met 2026-10-01:** `POKE-711` subcheck C needs
-   native search and resolution of records in a second repository, and
-   scoped search resolves only the backend home (observations
-   `obs:04017bbc5627c604`, `obs:3ae8fa4b2c826b04`). [CD-0200](CD-0200-knowledge-placement-federates-across-registered-git-sources.md)
-   resolves the condition through federated placement; the condition stands
-   closed for the single-home boundary it named.
+   without custom fan-out.
 2. Representative-scale evidence shows current bounded text or structural
    filters miss an accepted latency or output floor.
 3. Product-scoped external code intelligence cannot support an accepted cross-

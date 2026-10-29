@@ -231,7 +231,7 @@ func issue1013Pin(t *testing.T, s *Store, workID string) WorkPin {
 // required evidence names every kind the predecessor bound, so the successor
 // refuses completion until each kind is freshly bound after the supersession.
 func completeStepSuccessorPayload(workID string) json.RawMessage {
-	binding := `{"domain_registry_content_hash":"sha256:` + strings.Repeat("b", 64) + `","home_domain_id":"root","affected_domain_ids":["root"],"domain_modifies":[],"domain_relation_modifies":[],"law_additions":[],"verification_obligations":[]}`
+	binding := `{"home_domain_id":"root","affected_domain_ids":["root"],"domain_modifies":[],"domain_relation_modifies":[],"law_additions":[],"verification_obligations":[]}`
 	return json.RawMessage(`{"contract_version":2,"premise":"the delivered subject the durable evidence names","outcome_predicates":[{"predicate_id":"predicate:return-route","ordinal":0,"outcome_kind":"check","outcome_payload":{"kind":"check","check_ref":"check:return-route","immutable_subject_ref":"commit:` + workID + `","expected_result":"pass"}}],"required_evidence":["verification","review","artifact"],"route_conventions":["complete_step_correction"],"spec_mandate":[],"law_modifies":[],"rigor_class":"prototype_internal","decision_domains":[],"supersede_reason":"durable evidence contradicted the approved premise","audit_evidence":["evidence:complete-correction-` + workID + `"],"architecture_binding":` + binding + `}`)
 }
 
@@ -895,7 +895,7 @@ func TestCorrectionPayloadDeclarationRefusesNonIDPredicateID(t *testing.T) {
 // supersession approves after the complete-step correction: identical
 // predicate payloads, no reserved convention, version 3.
 func laterOrdinarySuccessorPayload(workID string) json.RawMessage {
-	binding := `{"domain_registry_content_hash":"sha256:` + strings.Repeat("b", 64) + `","home_domain_id":"root","affected_domain_ids":["root"],"domain_modifies":[],"domain_relation_modifies":[],"law_additions":[],"verification_obligations":[]}`
+	binding := `{"home_domain_id":"root","affected_domain_ids":["root"],"domain_modifies":[],"domain_relation_modifies":[],"law_additions":[],"verification_obligations":[]}`
 	return json.RawMessage(`{"contract_version":3,"premise":"the delivered subject the durable evidence names","outcome_predicates":[{"predicate_id":"predicate:return-route","ordinal":0,"outcome_kind":"check","outcome_payload":{"kind":"check","check_ref":"check:return-route","immutable_subject_ref":"commit:` + workID + `","expected_result":"pass"}}],"required_evidence":["verification","review","artifact"],"route_conventions":[],"spec_mandate":[],"law_modifies":[],"rigor_class":"prototype_internal","decision_domains":[],"architecture_binding":` + binding + `,"supersede_reason":"the corrected contract premise moved again","audit_evidence":["evidence:later-successor-` + workID + `"]}`)
 }
 
@@ -981,7 +981,7 @@ func completeStepPinnedDefinition(t *testing.T, s *Store, workID string) (Regist
 // staleLawSuccessorPayload mandates a current accepted law. The composed
 // successor derives current pins without a relation to the deleted law.
 func staleLawSuccessorPayload(workID string) json.RawMessage {
-	binding := `{"domain_registry_content_hash":"sha256:` + strings.Repeat("b", 64) + `","home_domain_id":"root","affected_domain_ids":["root"],"domain_modifies":[],"domain_relation_modifies":[],"law_additions":[],"verification_obligations":[]}`
+	binding := `{"home_domain_id":"root","affected_domain_ids":["root"],"domain_modifies":[],"domain_relation_modifies":[],"law_additions":[],"verification_obligations":[]}`
 	return json.RawMessage(`{"contract_version":2,"premise":"the delivered subject under the successor law","outcome_predicates":[{"predicate_id":"predicate:return-route","ordinal":0,"outcome_kind":"check","outcome_payload":{"kind":"check","check_ref":"check:return-route","immutable_subject_ref":"commit:` + workID + `","expected_result":"pass"}}],"required_evidence":["verification","review","artifact"],"route_conventions":["complete_step_correction"],"spec_mandate":["spec:two"],"law_modifies":[],"rigor_class":"prototype_internal","decision_domains":[],"architecture_binding":` + binding + `,"supersede_reason":"the approved premise moved to the successor law","audit_evidence":["evidence:complete-correction-` + workID + `"]}`)
 }
 

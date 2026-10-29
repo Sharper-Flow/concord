@@ -3,7 +3,6 @@
     "tier": "derived"
   },
   "date": "2026-10-20T00:00:00Z",
-  "doc_contract_profile": "current",
   "home_domain_id": "product-root:concord",
   "id": "CD-0241",
   "kind": "decision",
@@ -34,7 +33,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:2fbbfe71af16ab20ab888dc9db99bf9bb1131e8aceae34ba89c7b3929cc3ed65",
+  "sha256": "sha256:0877d61c798dae166cad3dbd204667310eabddbdff3f0bbff372f532bae1d5d6",
   "status": "accepted",
   "summary": "Declared rapid-development phases target one expiring integration branch and record reduced local gate evidence in merge commits. Phase completion uses those merges while the installed engine stays main-based. Main consolidation uses the full merge queue, automated releases remain main-only, and law, security, data-safety, migration, and release-tooling changes keep the full standard route.",
   "tags": [

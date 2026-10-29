@@ -5,7 +5,6 @@
     "tier": "legislated"
   },
   "date": "2026-09-28T00:00:00Z",
-  "doc_contract_profile": "current",
   "evidence": [
     "adapter/opencode/concord.ts",
     "adapter/opencode/host-lease.ts",
@@ -28,7 +27,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:7386936426bf5cbfd8322b0168efbcb3822e336b9c6d57b73514864de54beab8",
+  "sha256": "sha256:68259744c834234079ab952c978948ec6e93cb69d3bab7db47855fbbd893c9a9",
   "status": "accepted",
   "summary": "Each Concord call compares the pinned release with the installed current link. An observed mismatch in either direction adds one bounded notice with versions and reload remedy, including a full-warning fallback. Existing calls keep working under their pinned pair. Installer retention names holder sessions. No subagent-launch gate or worker-dispatch refusal remains.",
   "tags": [

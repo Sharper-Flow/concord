@@ -198,7 +198,6 @@ No release installation or session restart belongs to this decision's delivery.
   which asserts exit 2, no stdin read, and no authority storage for it.
 - `cmd/concord.TestDistinctReleasedCoresCoexistOnOneStore` proves compatible
   release coexistence and the new incompatible-floor boundary.
-- `python3 scripts/check-doc-contract.py`,
-  `python3 scripts/check-law-coverage.py`, and
+- `python3 scripts/check-law-coverage.py` and
   `python3 scripts/check-migration-compatibility.py` validate the law artifacts
   and breaking migration declaration.

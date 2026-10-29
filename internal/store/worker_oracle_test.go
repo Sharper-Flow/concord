@@ -274,34 +274,3 @@ func TestOwnerOracleControlsRetained(t *testing.T) {
 		t.Fatal("a dropped oracle counted as retaining its controls")
 	}
 }
-
-// Oracle capability derives only from the declared acceptance_oracle member.
-func TestOwnerOracleActiveDerivesFromDeclaredMember(t *testing.T) {
-	t.Parallel()
-	capable := BuiltinWorkflowDefinitions()
-	for _, definition := range capable {
-		if !workflowOwnerOracleActive(definition) {
-			t.Fatalf("%s declares record_worker_job without the oracle member", definition.Ref)
-		}
-	}
-	// The declared member is the only derivation: a definition whose
-	// record_worker_job payload omits the field is not oracle-capable even
-	// at the newest version shape.
-	stripped := cloneWorkflowDefinition(capable[0])
-	for index := range stripped.ActionDefinitions {
-		if stripped.ActionDefinitions[index].ID != "record_worker_job" {
-			continue
-		}
-		fields := stripped.ActionDefinitions[index].Payload.Fields
-		kept := fields[:0]
-		for _, field := range fields {
-			if field.Name != "acceptance_oracle" {
-				kept = append(kept, field)
-			}
-		}
-		stripped.ActionDefinitions[index].Payload.Fields = kept
-	}
-	if workflowOwnerOracleActive(stripped) {
-		t.Fatal("capability survived stripping the declared member")
-	}
-}

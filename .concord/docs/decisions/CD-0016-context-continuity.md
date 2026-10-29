@@ -121,7 +121,7 @@ must resolve as one commit object, and the pinned path must resolve as one
 ordinary blob at that commit. The current checkout is never the proof, so a
 changed or deleted checkout file cannot invalidate a reachable pinned
 commit, and a missing object refuses. A law reading resolves through the
-registered knowledge source its `source_id` names. The law ID and content
+Project knowledge home its `source_id` names. The law ID and content
 hash must join that source's exact projected law revision, and the
 revision's canonical locator must resolve in the git-derived projection. A
 moved law revision whose canonical locator no longer exists refuses as

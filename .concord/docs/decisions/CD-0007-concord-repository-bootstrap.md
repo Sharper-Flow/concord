@@ -108,7 +108,7 @@ recurring progression/evidence/recovery shape proves another type necessary.
 
 Replacement readiness requires:
 
-- root-policy scenario families for spec mandates, impact propagation, workflow
+- root-policy scenario families for spec mandates, workflow composition, workflow
   succession, proportional rigor, human legislation, authority-by-fact-type,
   Product migration, operator boundary, launcher boundary, and release evidence;
 - per-workflow normal completion, missing evidence/approval rejection,

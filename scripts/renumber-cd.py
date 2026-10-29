@@ -15,13 +15,11 @@ is landed is a question of lineage, not of any mutable record field: the
 record at the comparison ref, compared with the record at the merge base of
 this branch and that ref, proves what this branch carried before it could
 change anything. A tree record equal to the landed one, or descended from
-it, is durable law, and moving it is refused here for the same reason
-``check-cd-allocation.py`` reports it as a removal: a landed number is
-referenced by records this repository cannot see. A record the branch
-allocated after the merge base is branch-local even when the comparison ref
-later claimed the identifier for another record — that collision is the case
-the allocation check exists to catch, and renumbering this branch's record
-is the remedy that check prescribes. A changed title on an otherwise-landed
+it, is durable law, and moving it is refused here: a landed number is referenced
+by records this repository cannot see. A record the branch allocated after
+the merge base is branch-local even when the comparison ref later claimed
+the identifier for another record; renumbering this branch's record is the
+remedy for that collision. A changed title on an otherwise-landed
 record is drift, not a new allocation, and refuses like the record it edits.
 This holds when both sides changed the record after the merge base: an
 amendment on the comparison ref and a local edit are two changes to one
@@ -193,7 +191,7 @@ def plan(
         return [f"{old} and {new} are the same identifier"], None
 
     # An unreachable ref proves nothing either way, so it does not block an
-    # offline renumber; check-cd-allocation.py remains the enforcing check.
+    # offline renumber.
     # Landed is a property of lineage, not of any mutable record field: the
     # merge base proves which record this branch carried before the branch
     # could have changed it. A tree record equal to the landed one, or

@@ -200,9 +200,7 @@ retry returns a prior result, resumes a durable operation, or executes.
 
 `concord-plugin.ts` owns registration and the host hooks required by accepted
 decisions. [CD-0090](./decisions/CD-0090-per-turn-continuity-re-pin-hook.md)
-owns the continuity re-pin hook;
-[CD-0199](./decisions/CD-0199-the-plugin-owned-watcher-replaces-the-ci-wait-utility.md)
-owns the plugin CI watcher and its delivery hooks. `concord.ts` stays transport-only.
+owns the continuity re-pin hook. `concord.ts` stays transport-only.
 
 Native Task is the host's own surface. Concord adds no authorization,
 packaging, completion readback or recovery bridge for it (CD-0242 D6).
@@ -316,7 +314,6 @@ context, operation-bound approval, same-key retries, and native-system ownership
 
 The transport is exercised below scenario grain, so every criterion carries a
 typed exemption in the record naming the test that proves the guarantee.
-`python3 scripts/check-doc-contract.py` validates those recorded exemptions.
 
 - Criterion 1 is proved by `TestCommandBoundaryRejectsInvalidTrailingJSONAcrossCommands`
   (`cmd/concord/main_test.go`) and `TestCLIEndToEndRegistersClientAndInvokesRead`

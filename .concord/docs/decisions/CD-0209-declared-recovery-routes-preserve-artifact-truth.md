@@ -59,7 +59,7 @@ Its typed target result owns production: research uses `record_finding`,
 retained architecture-spike work uses `record_decision`, and other producers
 use `record_delivery`. CD-0218 limits which families admit new execution.
 A fenced start alone, Review outcome, verdict, evidence binding, checkpoint,
-candidate revision, impact declaration, successor link or step advance is
+candidate revision, successor link or step advance is
 never production. Native Task execution supplies no production authority.
 
 ### D5. Artifact staleness is current state
@@ -121,6 +121,4 @@ record participates in that boundary.
   liveness and real-engine conformance.
 - `go test ./internal/agent` checks public route journeys, exact evidence,
   no-effect refusals, replay and current Review correction before delivery.
-- `python3 scripts/check-doc-contract.py` checks the outline.
-- `python3 scripts/check-knowledge-index.py` and
-  `python3 scripts/check-knowledge-closure.py --strict` check registration.
+- `python3 scripts/check-knowledge-index.py` checks registration and closure.

@@ -21,7 +21,6 @@ export const roleDeniedConcordTools: Readonly<Record<string, { readonly boundary
   "concord-explore": {
     "boundary": "this Concord utility holds no Concord tool access: its declared tool set is its complete tool surface",
     "tools": [
-      "concord_ci_watch",
       "concord_domain",
       "concord_knowledge",
       "concord_product_view",
@@ -37,7 +36,6 @@ export const roleDeniedConcordTools: Readonly<Record<string, { readonly boundary
   "concord-lookup": {
     "boundary": "this Concord utility holds no Concord tool access: its declared tool set is its complete tool surface",
     "tools": [
-      "concord_ci_watch",
       "concord_domain",
       "concord_knowledge",
       "concord_product_view",
@@ -53,7 +51,6 @@ export const roleDeniedConcordTools: Readonly<Record<string, { readonly boundary
   "concord-advisor": {
     "boundary": "this Concord utility holds no Concord tool access: its declared tool set is its complete tool surface",
     "tools": [
-      "concord_ci_watch",
       "concord_domain",
       "concord_knowledge",
       "concord_product_view",

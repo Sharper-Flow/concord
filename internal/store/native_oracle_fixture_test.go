@@ -216,7 +216,7 @@ func seedOracleExecuteLedgerFixture(t *testing.T, s *Store, r *WorktreeVerifyRes
 	if err != nil {
 		t.Fatal(err)
 	}
-	plan := nativeOraclePlan{Request: request, RequestID: r.LeaseID, WorkID: r.WorkID, ProjectID: r.ProjectID, ContractVersion: preparation.ContractVersion, SubjectCommit: subject, WorktreeIdentity: workerWorktreeIdentity(r.Path), Bundle: bundle, BundleDigest: nativeBundleDigest(bundle),
+	plan := nativeOraclePlan{Request: request, RequestID: r.LeaseID, WorkID: r.WorkID, ProjectID: r.ProjectID, ContractVersion: preparation.ContractVersion, SubjectCommit: subject, WorktreeIdentity: nativeWorktreePathIdentity(r.Path), Bundle: bundle, BundleDigest: nativeBundleDigest(bundle),
 		Manifest:     nativeGoOracleManifest{Kind: "go_top_level_v1", PackageCwd: control.Cwd, Cases: cases},
 		ManifestFile: NativeOracleFile{Path: control.RecipeSource.Path, BlobOID: preparation.ManifestBlob, SHA256: preparation.ManifestDigest}, Files: slices.Clone(preparation.Files),
 		Environment: nativeGoEnvironment{ToolchainIdentity: preparation.ToolchainIdentity, Digest: preparation.BuildEnvironmentDigest},

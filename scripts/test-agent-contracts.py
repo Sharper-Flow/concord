@@ -127,12 +127,31 @@ class NativeTaskContractTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "missing payload schema missing"):
             generator.prune_payload_definitions(broken, {"schemas": {"root": {"ref": "#/$defs/root"}}}, [])
 
+    def test_pruning_respects_the_schema_document_owner(self):
+        self.defs["root"] = {"$ref": "#/$defs/leaf"}
+        self.defs["leaf"] = {"type": "string"}
+        schemas = {
+            "root": {"ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/root"},
+            "base_envelope": {"ref": "contracts/agent-tool-envelope.schema.json#/$defs/base"},
+        }
+        generator.prune_payload_definitions(self.payload, {"schemas": schemas}, [])
+        self.assertIn("root", self.payload["$defs"])
+        self.assertIn("leaf", self.payload["$defs"])
+        self.assertNotIn("base", self.payload["$defs"])
+
+    def test_pruning_keeps_current_action_schema_seeds(self):
+        self.defs["engine_entry"] = {"$ref": "#/$defs/engine_leaf"}
+        self.defs["engine_leaf"] = {"type": "string"}
+        generator.prune_payload_definitions(self.payload, {"schemas": {}}, [], ["engine_entry"])
+        self.assertIn("engine_entry", self.payload["$defs"])
+        self.assertIn("engine_leaf", self.payload["$defs"])
+
 # CD-0218 D1/D2 absence witnesses, not a production action catalog.
 RETIRED_PUBLISHED_ACTIONS = {
-    "accept_decision", "add_condition", "approve_operation", "cancel_condition",
+    "accept_decision", "approve_operation",
     "checkpoint_action", "checkpoint_analysis", "checkpoint_poc", "checkpoint_run",
     "cleanup_run", "declare_scope", "discard_poc", "frame_question", "record_decision",
-    "record_health", "record_option", "record_research", "resolve_condition", "rollback_run",
+    "record_health", "record_option", "record_research", "rollback_run",
     "run_analysis", "start_action", "start_poc", "start_run", "record_reproduction",
     "record_root_cause", "start_repair", "start_refine", "record_worker_failure", "record_discovery",
 }
@@ -144,7 +163,7 @@ class ApprovalDeclarationTests(unittest.TestCase):
         conditional = {
             "concord_work_define.capture", "concord_work_define.revise_intent",
             "concord_work_relate.resolve_overlap",
-            "concord_work_transition.workflow_action", "concord_work_transition.worktree_destroy",
+            "concord_work_transition.workflow_action",
         }
         for operation in manifest["operations"]:
             with self.subTest(operation=operation["id"]):
@@ -489,7 +508,7 @@ class CurrentScenarioCarrierTests(unittest.TestCase):
         corpus_path = ROOT / ".concord/scenarios/workflow-engine.v1.json"
         load = lane_checker._load_json
         corpus = load(corpus_path)
-        corpus["scenarios"] = [item for item in corpus["scenarios"] if item["id"] != "WF26-condition-actions-refused"]
+        corpus["scenarios"] = [item for item in corpus["scenarios"] if item["id"] != "WF48-lane-pipeline-typed-evidence"]
         with unittest.mock.patch.object(lane_checker, "_load_json", side_effect=lambda path: corpus if path == corpus_path else load(path)):
             findings = lane_checker.check_workflow_contracts()
         self.assertTrue(any("scenario" in finding and "got" in finding for finding in findings), findings)
@@ -566,8 +585,9 @@ class CurrentScenarioCarrierTests(unittest.TestCase):
                 elif mutation == "definition":
                     scenario["request"]["definition_ref"] = "workflow.missing"
                 else:
-                    condition = next(item for item in corpus["scenarios"] if item["id"] == "WF26-condition-actions-refused")
-                    condition["cases"][0]["expected"]["assertions"][0]["value"] = "not_a_real_error_kind"
+                    pipeline = next(item for item in corpus["scenarios"] if item["id"] == "WF48-lane-pipeline-typed-evidence")
+                    refused = next(case for case in pipeline["cases"] if case["id"] == "WF48-worker-self-accept-refused")
+                    refused["expected"]["assertions"][0]["value"] = "not_a_real_error_kind"
                 load = lane_checker._load_json
                 with unittest.mock.patch.object(lane_checker, "_load_json", side_effect=lambda path: corpus if path == corpus_path else load(path)):
                     findings = lane_checker.check_workflow_contracts()
@@ -821,12 +841,12 @@ class ToolDescriptionTests(unittest.TestCase):
         tool = next(tool for tool in manifest["tools"] if tool["id"] == "concord_domain")
         self.assertEqual(tool["operations"], [
             "concord_domain.list", "concord_domain.detail",
-            "concord_domain.attachments", "concord_domain.overlaps",
-            "concord_domain.footprint", "concord_domain.shape",
+            "concord_domain.attachments", "concord_domain.footprint",
+            "concord_domain.shape",
         ])
         self.assertEqual(tool["description"],
                           "Navigate Product architecture: current Domains, current law, "
-                          "attachments, unresolved overlap, the footprint of a change, and typed Domain Shape selected by one path, Domain or subject. Shape results are bounded to 32768 bytes and never execute Product checks.")
+                          "attachments, the footprint of a change, and typed Domain Shape selected by one path, Domain or subject. Shape results are bounded to 32768 bytes and never execute Product checks.")
 
     def test_tool_descriptions_do_not_name_retired_operations(self):
         retired = [
@@ -852,18 +872,6 @@ class ToolDescriptionTests(unittest.TestCase):
                     if tool["id"] == owner:
                         self.assertNotRegex(tool["description"],
                                             re.compile(r"\b" + re.escape(name) + r"\b", re.I))
-
-
-class CiWatchHostContractTests(unittest.TestCase):
-    def test_mode_budget_contract_and_drift(self):
-        host = json.loads((ROOT / "contracts/host-tool-surface.v1.json").read_text())
-        tool = next(tool for tool in host["tools"] if tool["name"] == "concord_ci_watch")
-        generator.validate_ci_watch_host_tool(tool)
-        for key, value in (("minimum", -1), ("maximum", 1800), ("default", 1800), ("default", 7200)):
-            with self.subTest(key=key), self.assertRaises(ValueError):
-                edited = copy.deepcopy(tool)
-                edited["args"]["properties"]["time_seconds_max"][key] = value
-                generator.validate_ci_watch_host_tool(edited)
 
 
 class WorkStartHostContractTests(unittest.TestCase):
@@ -1693,10 +1701,7 @@ class DeliveryDecidableTeachingTests(unittest.TestCase):
     """CD-0184: the authoring schema teaches that acceptance is decidable at
     delivery. The outcome_predicates array shared by approve_contract and
     supersede_contract carries the rule, and the generator refuses a
-    projection that drops it. The CD-0184 wait-rule teaching retired with
-    add_condition (CD-0218 D1): its absence is derived from the retired
-    published actions, so a projected wait variant is a stale copy the
-    generator refuses, never a silently skipped check.
+    projection that drops it.
     """
 
     def test_shipped_predicate_array_teaches_the_rule(self):
@@ -1709,35 +1714,11 @@ class DeliveryDecidableTeachingTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             generator.require_delivery_rule_teaching(defs)
 
-    def test_generator_refuses_a_stale_projected_wait_variant(self):
-        defs = copy.deepcopy(payload_schema["$defs"])
-        defs["work_transition_action_variant_add_condition"] = {"type": "object"}
-        with self.assertRaises(ValueError):
-            generator.require_delivery_rule_teaching(defs)
-
-    def test_generator_refuses_a_stale_projected_public_wait_variant(self):
-        defs = copy.deepcopy(payload_schema["$defs"])
-        defs["work_transition_action_public_variant_add_condition"] = {"type": "object"}
-        with self.assertRaises(ValueError):
-            generator.require_delivery_rule_teaching(defs)
-
     def test_generator_refuses_a_predicate_description_reduced_to_markers(self):
         defs = copy.deepcopy(payload_schema["$defs"])
         defs["workflow_action_outcome_predicates"]["description"] = "decidable at delivery; raised_from"
         with self.assertRaises(ValueError):
             generator.require_delivery_rule_teaching(defs)
-
-    def test_no_shipped_wait_teaching_remains(self):
-        # The wait rule's only carrier retired: no live action declares the
-        # wait field, and the projected surface carries no add_condition
-        # variant for a stale teaching to hide behind.
-        self.assertNotIn("work_transition_action_variant_add_condition", payload_schema["$defs"])
-        self.assertNotIn("work_transition_action_public_variant_add_condition", payload_schema["$defs"])
-        for name, schema in payload_schema["$defs"].items():
-            self.assertNotIn(
-                "expected_within_seconds", schema.get("properties", {}),
-                f"{name} carries a wait field with no live owner",
-            )
 
 
 def _schema_sample(node, root, path="$"):
@@ -1774,8 +1755,9 @@ def _schema_sample(node, root, path="$"):
         value = {}
         alternatives = node.get("oneOf", node.get("anyOf", [{}]))
         required = dict.fromkeys(node.get("required", []) + alternatives[0].get("required", []))
+        properties = node.get("properties", {}) | alternatives[0].get("properties", {})
         for name in required:
-            value[name] = _schema_sample(node["properties"][name], root, f"{path}.{name}")
+            value[name] = _schema_sample(properties[name], root, f"{path}.{name}")
         generator.schema_validate(value, node, root)
         return value
     if kind == "array":
@@ -1798,6 +1780,16 @@ def _schema_sample(node, root, path="$"):
             raise AssertionError(f"no canned value matches pattern {pattern} within {minimum}..{maximum} at {path}")
         return "x" * max(minimum, 1)
     raise AssertionError(f"schema node names no samplable type at {path}: {sorted(node)}")
+
+
+class SchemaSampleTests(unittest.TestCase):
+    def test_sampler_preserves_selected_alternative_properties(self):
+        schema = {
+            "type": "object", "additionalProperties": False,
+            "properties": {"applicable": {"type": "boolean"}},
+            "oneOf": [{"required": ["applicable"], "properties": {"applicable": {"const": True}}}],
+        }
+        self.assertEqual(_schema_sample(schema, {}), {"applicable": True})
 
 
 def _action_condition(defs, action_id):
@@ -1965,9 +1957,9 @@ class LiveAuthoringClosureTests(unittest.TestCase):
                          ["archived", "relocated", "renamed", "disabled"])
         # No authoring def names the retired tokens or a decision record.
         retired_tokens = {"accepted_decision", "insufficient_evidence", "remediated", "completed", "operator_defined"}
+        self.assertNotIn("workflow_outcome_payload", defs)
         text = json.dumps({name: defs[name] for name in ("workflow_action_outcome", "workflow_outcome_outcome",
-                                                         "workflow_action_outcome_predicates",
-                                                          "workflow_outcome_payload")},
+                                                         "workflow_action_outcome_predicates")},
                           sort_keys=True)
         for token in retired_tokens:
             self.assertNotIn(f'"{token}"', text, f"retired outcome token {token} is still authorable")
@@ -2666,15 +2658,14 @@ class CIContractRoutingTests(unittest.TestCase):
         direct = [step for step in workflow_job_steps("verify-adapter-rest") if "bun test adapter/opencode" in step["run"]]
         self.assertTrue(direct, "verify-adapter-rest must run the adapter suite directly")
         aggregate = workflow_job_block("verify-adapter")
-        self.assertEqual(job_needs(aggregate), ["verify-adapter-rest", "verify-adapter-dispatch"])
+        self.assertEqual(job_needs(aggregate), ["verify-adapter-rest"])
         self.assertRegex(aggregate, r"(?m)^ {4}if: always\(\)$")
         gate = workflow_job_steps("verify-adapter")
         self.assertEqual(len(gate), 1)
         self.assertEqual(gate[0]["env"], {
             "REST_RESULT": "${{ needs.verify-adapter-rest.result }}",
-            "DISPATCH_RESULT": "${{ needs.verify-adapter-dispatch.result }}",
         })
-        self.assertEqual(gate[0]["run"].strip().splitlines(), ['test "$REST_RESULT" = success', 'test "$DISPATCH_RESULT" = success'])
+        self.assertEqual(gate[0]["run"].strip().splitlines(), ['test "$REST_RESULT" = success'])
 
     def test_verify_tooling_runs_the_contract_selftest_directly(self):
         direct = [step for step in workflow_job_steps("verify-tooling") if "scripts/test-agent-contracts.py" in step["run"]]

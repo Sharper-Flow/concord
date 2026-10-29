@@ -1,12 +1,10 @@
 #!/usr/bin/env python3
 """Shared typed-anchor machinery for evidence-binding validators.
 
-The floor-readiness and law-coverage validators both judge whether a `satisfied`
-record is proved rather than asserted. The proof layer is the same in both
-planes: typed anchors must resolve, and the executable kinds must be invoked
-by a required workflow. Without a single source of truth the two validators
-would drift and a record that one validator accepted would be a finding to the
-other — the same defect restated in two syntaxes (CD-0047 D3).
+Evidence-binding validators judge whether a `satisfied` record is proved
+rather than asserted: typed anchors must resolve, and the executable kinds must
+be invoked by a required workflow. Keeping that proof layer in one module stops
+two validators from accepting different proofs (CD-0047 D3).
 
 Document-contract citations reuse native Go declaration presence without
 claiming the stronger coverage assertion verdict.

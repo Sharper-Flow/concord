@@ -925,28 +925,6 @@
       }
     },
     {
-      "id": "C22-domain-overlaps-authoritative-empty",
-      "query_id": "C22.DomainOverlaps",
-      "input": {
-        "product": "prod-alpha"
-      },
-      "expected": {
-        "authority": "authoritative",
-        "assertions": [
-          {
-            "path": "$.items",
-            "op": "eq",
-            "value": []
-          },
-          {
-            "path": "$.truncated",
-            "op": "eq",
-            "value": false
-          }
-        ]
-      }
-    },
-    {
       "id": "C22-unknown-domain-refuses",
       "query_id": "C22.DomainDetail",
       "input": {

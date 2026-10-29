@@ -256,9 +256,12 @@ func TestWorkflowActionFailedV2BindsCurrentExecutorAttempt(t *testing.T) {
 	}
 }
 
+// A workflow action failing with stale_law_revision must be recordable. Drive
+// the real fold rather than the closure predicate, so the assertion binds to the
+// layer that owns it.
 func TestWorkflowActionFailedAcceptsLawFailureKinds(t *testing.T) {
 	t.Parallel()
-	for _, kind := range []FailureKind{KindStaleLawRevision, KindDomainOverlap} {
+	for _, kind := range []FailureKind{KindStaleLawRevision} {
 		t.Run(string(kind), func(t *testing.T) {
 			workID := "authority-failed-" + string(kind)
 			s, executor, _ := seedOrdinaryExecutorAtExecution(t, workID)

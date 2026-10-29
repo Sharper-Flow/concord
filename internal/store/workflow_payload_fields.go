@@ -27,7 +27,7 @@ func confirmPremiseOperatorFields() []WorkflowPayloadField {
 	return []WorkflowPayloadField{
 		{Name: "selected_choice", ValueType: PayloadString, Required: true, Envelope: true, Enum: []string{"confirm", "revise", "stop"}},
 		{Name: "decision_context_digest", ValueType: PayloadDigest, Required: true, Envelope: true},
-		actionIntegerField("contract_version", false, 2147483647),
+		actionIntegerField("contract_version", false),
 	}
 }
 
@@ -43,7 +43,7 @@ func workflowOpenFindingsCorrectionField() WorkflowPayloadField {
 
 func canonicalVerdictActionFields() []WorkflowPayloadField {
 	return []WorkflowPayloadField{
-		actionIntegerField("contract_version", false, 2147483647),
+		actionIntegerField("contract_version", false),
 		actionItemArrayField("verdicts", true, 1, 8, "workflow_verdict_batch_entry"),
 	}
 }
@@ -52,7 +52,7 @@ func canonicalVerdictActionFields() []WorkflowPayloadField {
 // current publication projects its rules onto the batch-only action fields.
 func verdictBatchActionFields() []WorkflowPayloadField {
 	return []WorkflowPayloadField{
-		actionIntegerField("contract_version", false, 2147483647),
+		actionIntegerField("contract_version", false),
 		actionRefField("predicate_id", false),
 		actionEnumField("verdict_kind", false, "ok", "outcome_mismatch", "insufficient_evidence"),
 		actionStringField("verdict_actor_ref", false, 70),

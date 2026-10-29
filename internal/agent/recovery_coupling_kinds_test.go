@@ -14,29 +14,6 @@ import (
 // alone; these drive a store failure through failureEnvelope and encode it,
 // which is the path a caller actually receives.
 
-// storeOverlapFailure is the store-side refusal the Domain overlap guard emits,
-// with the recovery action the store proposed.
-func storeOverlapFailure(proposed string) *store.Failure {
-	return &store.Failure{
-		Kind:           store.KindDomainOverlap,
-		Op:             "workflow_domain_overlap",
-		Detail:         "active Product-changing workflows have unresolved Domain overlap",
-		RecoveryAction: proposed,
-		DomainOverlap: &store.DomainOverlapFailure{
-			Overlaps: []store.WorkflowDomainOverlap{{
-				ProductID: "prod-alpha", FromWorkID: "work-from", ToWorkID: "work-to",
-				FromContractVersion: 1, ToContractVersion: 1,
-				SharedAffectedDomainIDs:   []string{"root"},
-				OverlapClasses:            []string{"architecture"},
-				ResolutionState:           "unresolved",
-				RecoveryActions:           []string{"resolve_overlap"},
-				SharedAffectedDomainCount: 1,
-			}},
-			TotalOverlaps: 1, ReturnedOverlaps: 1,
-		},
-	}
-}
-
 // storeStaleLawFailure is the store-side refusal the law revision guard emits.
 func storeStaleLawFailure(proposed string) *store.Failure {
 	hash := "sha256:" + strings.Repeat("a", 64)
@@ -53,17 +30,10 @@ func storeStaleLawFailure(proposed string) *store.Failure {
 	}
 }
 
-// TestCarrierRefusalsAreDeliverableWhateverTheStoreProposes is the
-// reproduction. Both kinds were refused by validateError unless the recovery
-// action was request_approval, and neither was named in the coupling table,
-// so PublicRecovery passed any other contractual
-// proposal straight through. The pair then failed to marshal and the caller
-// received a transport fault in place of the refusal. The reconcile path
-// proposes reconcile_operation, which is contractual, which is how this
-// reached a caller.
+// Supported store actions survive projection with their typed companion fields.
+// Action payload constraints still apply, and prose remains remedy detail.
 func TestCarrierRefusalsAreDeliverableWhateverTheStoreProposes(t *testing.T) {
 	cases := map[string]func(string) *store.Failure{
-		"domain_overlap":     storeOverlapFailure,
 		"stale_law_revision": storeStaleLawFailure,
 	}
 	for _, kind := range sortedKeys(boolKeys(cases)) {
@@ -71,15 +41,29 @@ func TestCarrierRefusalsAreDeliverableWhateverTheStoreProposes(t *testing.T) {
 		for _, proposed := range append(contractRecoveryKindList(t), "free operator prose") {
 			name := kind + "/" + strings.ReplaceAll(proposed, " ", "_")
 			t.Run(name, func(t *testing.T) {
-				out := failureEnvelope(agentcontract.NewBase("coupling-1", "concord_work_transition", "workflow_action"), build(proposed))
+				failure := build(proposed)
+				if proposed == "use_declared_route" {
+					failure.RecoveryRefs = []string{"supersede_contract"}
+				}
+				out := failureEnvelope(agentcontract.NewBase("coupling-1", "concord_work_transition", "workflow_action"), failure)
 				if out.Error == nil || out.Error.Kind != kind {
 					t.Fatalf("failure produced error %+v, want kind %q", out.Error, kind)
 				}
 				if _, err := out.Encode(); err != nil {
 					t.Fatalf("store proposed recovery %q, so the %s refusal cannot be delivered: %v", proposed, kind, err)
 				}
-				if out.Error.RecoveryAction.Kind != "request_approval" {
-					t.Fatalf("store proposed %q and the envelope kept %q; the contract couples %s to request_approval", proposed, out.Error.RecoveryAction.Kind, kind)
+				want := proposed
+				if proposed == "correct_request" || proposed == "free operator prose" {
+					want = "reread_entities"
+				}
+				if out.Error.RecoveryAction.Kind != want {
+					t.Fatalf("store proposed %q and the envelope kept %q, want %q", proposed, out.Error.RecoveryAction.Kind, want)
+				}
+				if proposed == "use_declared_route" && strings.Join(out.Error.RecoveryAction.RequiredRefs, ",") != "supersede_contract" {
+					t.Fatalf("declared route refs lost: %+v", out.Error.RecoveryAction)
+				}
+				if proposed == "free operator prose" && out.Error.Details["recovery_detail"] != proposed {
+					t.Fatalf("store remedy prose lost: %+v", out.Error.Details)
 				}
 			})
 		}

@@ -5,7 +5,6 @@
     "tier": "legislated"
   },
   "date": "2026-09-28T00:00:00Z",
-  "doc_contract_profile": "current",
   "home_domain_id": "agent-adapter",
   "id": "CD-0190",
   "kind": "decision",
@@ -23,7 +22,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:83ccd74d257f26112cbbe6614e5496916c56c8736a97e91d419301c75f96f7de",
+  "sha256": "sha256:6b1fcc7a44374b69155a171df5b68c8b30a24d413df0961e7f0c5d67842296c0",
   "status": "accepted",
   "summary": "CD-0179 D1 and D4 released a session's occupancy rows inside the session_vacate commit, before the adapter moved the host session, so a refused move, a destination mismatch, or an unreadable landing left a live session in a worktree whose rows stood released. Amends both clauses: the vacate commit records the relocation request and releases nothing, the adapter-only vacate-landing verb records the readback-verified landing and releases the session's rows in one transaction, every refusal past the commit reports effect_state possible with a recovery that works — the adapter keeps the committed destination so the replay runs from wherever the host session sits, and a completed request's replay resolves with no write while no rows stand — and the replay resolves from the registered main checkout because it writes nothing there. The release always belongs to the readback-verified landing.",
   "tags": [

@@ -3,7 +3,6 @@
     "tier": "derived"
   },
   "date": "2026-10-27T00:00:00Z",
-  "doc_contract_profile": "current",
   "home_domain_id": "agent-adapter",
   "id": "CD-0246",
   "kind": "decision",
@@ -29,7 +28,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:35b848f65f70db449f9f851828d507c44a26bbf496317d6198762284eab7b110",
+  "sha256": "sha256:291660336457c90de7093c7c898375f6a98f5efc336adc8c0fc1feef4016bebe",
   "status": "accepted",
   "summary": "Concord ships tool-independent methods for diagnosis, interface design, work shaping and instruction improvement as occasional skills through the existing install path. Host agents and native subagents use that skill path; no generated lane or dispatch provenance is required. Host-specific procedure remains host-owned and a method creates no gate, approval, capability or authority.",
   "tags": [

@@ -5,7 +5,6 @@
     "tier": "legislated"
   },
   "date": "2026-09-04T00:00:00Z",
-  "doc_contract_profile": "legacy",
   "evidence": [
     "cmd/concord/work_bootstrap.go",
     "internal/store/bootstrap.go",
@@ -22,7 +21,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:c4229055c3025ad5b614cd1ec36d872edde9c133457e0d543edea3c69d201256",
+  "sha256": "sha256:d9cd01c2b572bf49fc1561b3bb55dc3d0768290adcff643d4a1e8d9f410924f3",
   "status": "accepted",
   "summary": "Amends CD-0098 so work_start admits a clean terminal Concord worktree as well as the Project default checkout. The core refuses live, dirty, leased, or dispatched origins before capture, the adapter forwards that refusal, and an empty ref in a linked origin resolves from origin/HEAD. The vacated origin remains for audit reclamation.",
   "tags": [

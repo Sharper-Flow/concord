@@ -32,7 +32,7 @@ func TestSupersessionInvalidatesPriorPremiseConfirmation(t *testing.T) {
 		"contract_version": 2, "premise": "Align the five sibling provider services.", "decision_domains": []string{},
 		"outcome_predicates": []map[string]any{{"predicate_id": "predicate:return-route", "ordinal": 0, "outcome_kind": "check", "outcome_payload": json.RawMessage(outcome)}},
 		"required_evidence":  []string{"verification"}, "route_conventions": []string{workflowCompleteStepCorrectionRoute}, "spec_mandate": []string{}, "law_modifies": []string{}, "rigor_class": "prototype_internal",
-		"architecture_binding": WorkflowArchitectureBinding{DomainRegistryContentHash: "sha256:" + strings.Repeat("b", 64), HomeDomainID: "root", AffectedDomainIDs: []string{"root"}, DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{}, VerificationObligations: []WorkflowVerificationObligation{}},
+		"architecture_binding": WorkflowArchitectureBinding{HomeDomainID: "root", AffectedDomainIDs: []string{"root"}, DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{}, VerificationObligations: []WorkflowVerificationObligation{}},
 	}
 	fields["law_revisions"] = []WorkflowLawRevision{}
 	fields["law_boundary_version"] = 1

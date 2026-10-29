@@ -144,7 +144,7 @@ read names are part of the contract; callers never create mirrored rows.
 | `supersedes`: A supersedes B | B superseded-by A | A is B's canonical replacement | no self-edge, duplicate, cycle, or second direct successor for B |
 | `implements`: A implements B | B implemented-by A | A fulfills another work item | no self-edge or duplicate; no lifecycle effect |
 
-CD-0222's work-pair grammar adds version-pinned `compatible_with`, `merged_into`, and
+CD-0222's work-pair grammar adds version-pinned `merged_into` and
 architecture-sequencing use of `blocks`/`depends_on`/`supersedes`; its
 implementation issue must update this table, schemas, records, and conformance in
 one major rather than partially accepting new relation strings.
@@ -194,24 +194,6 @@ Directly changing `superseded → needed` is invalid.
 This work-item operation is distinct from the managed-resource identity and
 attachment model in `product-data-model.md` §9. PM4 does not extend its
 supersession semantics to resources or other entity types.
-
-### 5.3 External blockers
-
-An external dependency is represented as a canonical `work_item` with kind
-`external_blocker`. CD-0008 D5 amends its typed `external_ref` into a closed condition
-carrying `await_type`, `await_ref`, `resolution_authority`, resolution evidence, and
-the resolving lifecycle record. Supported initial conditions are PR merge, CI result,
-timer, human approval, and remote-work state. It participates in the same foreign key (FK) enforced
-`blocks` relation as every other blocker.
-
-- External state is not silently treated as Concord authority.
-- Resolution is an accepted recorded Concord lifecycle transition backed by the applicable
-  evidence/actor contract.
-- Conditions are evaluated only on explicit request or consequential boundaries;
-  no polling/timer daemon or heuristic resolution is introduced.
-- No polymorphic relation endpoint points directly to a URL or provider object.
-- If real usage proves external blockers are not work, PM4 may be reopened for a
-  separate typed external-blocker projection; the derivation rule remains uniform.
 
 ## 6. Structural invariants
 

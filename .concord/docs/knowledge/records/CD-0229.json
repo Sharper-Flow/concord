@@ -3,7 +3,6 @@
     "tier": "derived"
   },
   "date": "2026-10-17T00:00:00Z",
-  "doc_contract_profile": "current",
   "home_domain_id": "workflow-engine",
   "id": "CD-0229",
   "kind": "decision",
@@ -37,9 +36,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:bdd4e4fc9a088695874d64efe33271240d1289dcf3672677c34f2315bc094d18",
+  "sha256": "sha256:492cd2472e7dc3360a88a5fa0c6a7bd5c48e430ead5a802c58c8ba6ec53435d0",
   "status": "accepted",
-  "summary": "A workflow definition is a composition of versioned parts, and each step is defined in exactly one part; the registry compiles compositions, and no released definition version is retained for history. The decision model sets each work item's size and its minimum steps, proof, and testing; the operator may move a size up or down, and a task that proves bigger than its size reruns the model and continues in the same item. Sized workflows record define start and merge-queue entry.",
+  "summary": "A workflow definition is a composition of versioned parts, and each step is defined in exactly one part; the registry compiles compositions, and no released definition version is retained for history. The decision model sets each work item's size and its minimum steps, proof, and testing; a task that proves bigger than its size reruns the model and continues in the same item. Sized workflows record define start and merge-queue entry.",
   "tags": [
     "workflow",
     "workflow-engine",

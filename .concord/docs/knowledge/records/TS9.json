@@ -38,7 +38,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:8a6ef8331ed89d2522d32c9dc0c99b6aae2ce792b4fe1a29c0e24c2dc6f2a80b",
+  "sha256": "sha256:5b9b1f1f54c04bf9c8c9a08ef04b0c853eb03874348e3ad655587ab473d2d129",
   "status": "accepted",
   "summary": "Sets deterministic pre-go-live evidence: state and effect oracles, strict schemas, negative probes, and generated-drift gates.",
   "tags": [

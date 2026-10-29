@@ -340,7 +340,6 @@ test("continuity transform renders a held-work block without parsing step action
         pending_operator_decision: null,
         latest_checkpoint: null,
         design_record: null,
-        unresolved_failure: null,
         work_pin: {
           work_id: "work-869",
           title: "Outside repair",

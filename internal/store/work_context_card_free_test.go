@@ -9,7 +9,6 @@ package store
 
 import (
 	"context"
-	"encoding/json"
 	"testing"
 )
 
@@ -106,39 +105,5 @@ func TestWorkContextViewStaysAbsentBesideCompanionOnlyHome(t *testing.T) {
 	}
 	if view != nil {
 		t.Fatalf("view = %+v, want the typed absent view", view)
-	}
-}
-
-// The closed packet admission refuses a work-context view carrying a
-// domain_cards member: cards are retired, never accepted.
-func TestWorkerPacketWorkContextRefusesDomainCards(t *testing.T) {
-	t.Parallel()
-	f := seedWorkContextFixture(t, "ctx-cardfree-packet")
-	defer f.store.Close()
-	if err := f.recordWorkContext(t, map[string]any{
-		"required_reading": []map[string]any{workContextRepoReading(workContextTestChild, "")},
-		"finding_refs":     []string{},
-		"context_findings": []map[string]any{workContextFinding(workContextTestChild, "direction", "the declared direction", "")},
-	}); err != nil {
-		t.Fatalf("declaration refused: %v", err)
-	}
-	view, err := readWorkContextView(context.Background(), f.store.DatabaseForTesting(), f.workID)
-	if err != nil || view == nil {
-		t.Fatalf("declared context = %+v err = %v", view, err)
-	}
-	var generic map[string]any
-	if err := json.Unmarshal(mustJSONValue(view), &generic); err != nil {
-		t.Fatal(err)
-	}
-	groups, _ := generic["domain_groups"].([]any)
-	if len(groups) == 0 {
-		t.Fatal("declared context lost its domain group")
-	}
-	for _, group := range groups {
-		group.(map[string]any)["domain_cards"] = []any{}
-	}
-	_, err = admittedWorkerPacketWorkContext(context.Background(), f.store.DatabaseForTesting(), f.workID, mustJSONValue(map[string]any{"inputs": map[string]any{"work_context": generic}}))
-	if !hasFailureKind(err, KindInvalidPayload) {
-		t.Fatalf("card-bearing packet = %v, want %s", err, KindInvalidPayload)
 	}
 }

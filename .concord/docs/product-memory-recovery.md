@@ -172,8 +172,7 @@ restore proof before introducing a daemon, remote store, or blob mechanism.
 ## Verification
 
 No corpus scenario exercises backup machinery, so every criterion carries a
-typed exemption naming the backup test that proves the guarantee. The checker
-`python3 scripts/check-doc-contract.py` validates those recorded exemptions.
+typed exemption naming the backup test that proves the guarantee.
 
 - Criterion 1 is proved by `TestBackupUsesOnlineSnapshotAndPM10Manifest`
   (`internal/store/backup_test.go`) and

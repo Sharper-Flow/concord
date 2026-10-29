@@ -51,15 +51,8 @@ implies precedence. The projected pair records the endpoint whose record
 declared it, because only that record can withdraw the conflict. Relations are
 authored only by an operator-approved Git manifest/spec/decision delta.
 
-Under CD-0200, a relation target outside the declaring
-manifest names its source Project through a structured `source_project_id`
-field. At the declaring registered source's
-rebuild, the relation validates over the Product's verified source set, a
-cross-source `conflicts_with` pair blocks the rebuild, and a non-home source
-may not declare precedence toward shared-home law. Only the shared-law home
-manifest carries the domain registry; a registered source manifest that
-ships one refuses, and its Domain references validate against the shared
-home's registry.
+The designated Product knowledge home's manifest carries the Domain
+registry. Its law Domain references validate against that registry.
 
 `scopes.mode` is explicit: `home` means the record belongs to this canonical
 home and has no installation-local IDs; `explicit` requires the declared ID
@@ -110,8 +103,8 @@ keeps the remaining obligations outstanding.
 
 ## Authoring
 
-Before pushing a new CD, run `python3 scripts/check-cd-allocation.py` locally;
-CI repeats this preflight against the fetched default branch of origin.
+A new CD takes the next number above every record under
+`.concord/docs/knowledge/records/` and every id `concord cd-reservations` lists.
 
 Coverage records for indexed law are authored as shards under `.concord/docs/knowledge/coverage/<id>.json`. After adding or editing a shard, run `python3 scripts/generate-law-coverage.py --update` to normalise it; `--check` proves every shard composes and is canonical.
 

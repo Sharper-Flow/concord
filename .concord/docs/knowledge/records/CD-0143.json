@@ -5,7 +5,6 @@
     "tier": "legislated"
   },
   "date": "2026-09-13T00:00:00Z",
-  "doc_contract_profile": "legacy",
   "evidence": [
     "internal/store/workflow_correction.go",
     "internal/store/workflow_dispatch.go",
@@ -40,7 +39,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:98f842367478e2274a663dee9393d571cfd087832dbf506f78487f1e8628d53d",
+  "sha256": "sha256:4bbf74ceaceb735da13ac3965b358608dc0b3798e333223885687958667df546",
   "status": "accepted",
   "summary": "Declared correction of delivered work needs a current unhealthy verdict, exact diagnosis, strategy, affected predicates/findings and bound evidence. Consequence-based workflows use coordinator authority without an independent consent gate. Implementation returns to execution and break-fix to repair. No worker failure disposition is required; completion stays fail-closed until every predicate is healthy and comparable.",
   "tags": [

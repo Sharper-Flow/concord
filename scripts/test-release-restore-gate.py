@@ -113,7 +113,6 @@ if sys.argv[1] == "invoke":
     operation = request["operation"]
     db.execute("CREATE TABLE IF NOT EXISTS work_items (id TEXT PRIMARY KEY, version INTEGER, title TEXT, lifecycle TEXT)")
     db.execute("CREATE TABLE IF NOT EXISTS work_messages (message_id TEXT PRIMARY KEY, sender_work_id TEXT, recipient_work_id TEXT, body TEXT, state TEXT)")
-    db.execute("CREATE TABLE IF NOT EXISTS resource_claims (resource_key TEXT PRIMARY KEY, holder_work_id TEXT, holder_agent TEXT, holder_session TEXT, reason TEXT, state TEXT)")
     db.execute("CREATE TABLE IF NOT EXISTS work_observations (observation_id TEXT PRIMARY KEY, work_id TEXT, statement TEXT,"
                " refs TEXT CHECK(json_type(refs)='array'), tags TEXT CHECK(json_type(tags)='array'))")
     if operation == "capture":
@@ -140,26 +139,6 @@ if sys.argv[1] == "invoke":
         db.execute("UPDATE work_items SET version=? WHERE id=?", (inp["expected_version"] + 1, inp["work_id"]))
         db.execute("UPDATE work_messages SET state='withdrawn' WHERE message_id=?", (inp["message_id"],))
         refs = [{{"entity_kind": "work_item", "id": inp["work_id"], "version": str(inp["expected_version"] + 1)}}]
-    elif operation == "resource_claim":
-        inp = request["input"]
-        current = db.execute("SELECT version FROM work_items WHERE id=?", (inp["work_id"],)).fetchone()
-        assert current and current[0] == inp["expected_version"], "claim needs the work item's current version"
-        db.execute("UPDATE work_items SET version=? WHERE id=?", (inp["expected_version"] + 1, inp["work_id"]))
-        db.execute("INSERT INTO resource_claims VALUES (?, ?, ?, ?, ?, 'held')",
-                   (inp["resource_key"], inp["work_id"], request["call_envelope"]["agent_ref"], request["call_envelope"]["session_ref"], inp["reason"]))
-        carrier = ("work_item", inp["work_id"]) if MODE == "current-resource-ref" else ("resource_claim", inp["resource_key"])
-        refs = [{{"entity_kind": carrier[0], "id": carrier[1], "version": str(inp["expected_version"] + 1)}}]
-    elif operation == "resource_release":
-        inp = request["input"]
-        current = db.execute("SELECT version FROM work_items WHERE id=?", (inp["work_id"],)).fetchone()
-        held = db.execute("SELECT state FROM resource_claims WHERE resource_key=?", (inp["resource_key"],)).fetchone()
-        assert current and current[0] == inp["expected_version"], "release needs the work item's current version"
-        assert held == ("held",), "release needs the held claim"
-        db.execute("UPDATE work_items SET version=? WHERE id=?", (inp["expected_version"] + 1, inp["work_id"]))
-        if MODE != "held-resource-projection":
-            db.execute("UPDATE resource_claims SET state='released' WHERE resource_key=?", (inp["resource_key"],))
-        carrier = ("work_item", inp["work_id"]) if MODE == "current-resource-ref" else ("resource_claim", inp["resource_key"])
-        refs = [{{"entity_kind": carrier[0], "id": carrier[1], "version": str(inp["expected_version"] + 1)}}]
     elif operation == "observation_record":
         inp = request["input"]
         # The v0.31.0 fold serialized omitted lists to JSON null against array
@@ -172,8 +151,6 @@ if sys.argv[1] == "invoke":
         print(json.dumps({{"outcome": "error", "error": {{"message": "unknown operation " + operation}}}}))
         sys.exit(1)
     db.commit()
-    if MODE == "bad-resource-ref" and operation == "resource_claim":
-        refs[0]["version"] = int(refs[0]["version"])
     if MODE == "capture-marshal-error" and operation == "capture":
         print("json: error calling MarshalJSON for type agent.Envelope: invalid result payload: type mismatch at $.changed_refs[0].version", file=sys.stderr)
         sys.exit(1)
@@ -205,10 +182,6 @@ source = sqlite3.connect("file:" + request["source"] + "?mode=ro", uri=True)
 target = sqlite3.connect(request["destination"])
 source.backup(target)
 source.close()
-if MODE == "lose-resource-effect":
-    target.execute("UPDATE resource_claims SET state='held'")
-if MODE == "rebuild-resource-effect" and second:
-    target.execute("UPDATE resource_claims SET state='held'")
 if MODE == "lose-effect":
     target.execute("UPDATE project_locators SET locator_value='https://example.invalid/other.git'")
 if MODE == "lose-work" or (MODE == "second-lose-work" and second):
@@ -349,7 +322,6 @@ class CaseTests(unittest.TestCase):
         self.assertEqual(verbs("v0.37.1"), ["product-create", "project-locator-add"])
         self.assertNotIn("product-knowledge-home-designate", verbs("v4.2.9"))
         self.assertIn("product-knowledge-home-designate", verbs("v4.3.0"))
-        self.assertNotIn("product-knowledge-source-register", verbs("v11.58.9"))
         self.assertEqual(len(verbs("v11.59.0")), len(gate.RECIPE))
         plan = plan_for("v4.5.0")
         self.assertNotEqual(gate.recipe_sha256(gate.recipe_for("v4.3.0"), plan), gate.recipe_sha256(gate.recipe_for("v4.7.0"), plan))
@@ -371,36 +343,12 @@ class CaseTests(unittest.TestCase):
         self.assertEqual(row["invoke"]["plan"], list(plan))
         self.assertNotEqual(row["recipe_sha256"], gate.recipe_sha256(gate.recipe_for("v0.8.0"), plan_for("v1.0.0")))
 
-    def test_resources_run_before_messages_exist(self) -> None:
-        row = self.case(self.fixture.publish("v0.26.1"), self.fixture.candidate())
-        self.assertCase(row, "pass", "complete")
-        self.assertEqual(row["invoke"]["plan"], ["client-register", "grant", "invoke:concord_work_define.capture",
-                                                "invoke:concord_work_relate.resource_claim", "invoke:concord_work_relate.resource_release"])
-
-    def test_current_resource_receipts_are_checked_without_relabeling(self) -> None:
-        row = self.case(self.fixture.publish("v1.0.0", mode="current-resource-ref"), self.fixture.candidate())
-        self.assertCase(row, "pass", "complete")
-
     def test_writer_current_effect_checks_precede_admission(self) -> None:
-        for tag, mode, stage in (("v0.37.2", "missing-current-effect", "snapshot-effects"),
-                                 ("v0.39.0", "held-resource-projection", "invoke-snapshot-effects"),
-                                 ("v0.40.0", "bad-resource-ref", "invoke-resource-claim")):
+        for tag, mode, stage in (("v0.37.2", "missing-current-effect", "snapshot-effects"),):
             with self.subTest(mode=mode):
                 row = self.case(self.fixture.publish(tag, mode=mode), self.fixture.candidate())
                 self.assertCase(row, "unknown", stage)
                 self.assertNotIn("invoke", row)
-                if mode == "bad-resource-ref":
-                    store = gate.sandbox_env(self.fixture.root / "work" / tag)["CONCORD_DB_PATH"]
-                    db = sqlite3.connect(f"file:{store}?mode=ro", uri=True)
-                    self.addCleanup(db.close)
-                    self.assertEqual(db.execute("SELECT state FROM resource_claims").fetchall(), [("held",)])
-
-    def test_both_restores_must_preserve_resource_effects(self) -> None:
-        for tag, mode, stage in (("v0.37.2", "lose-resource-effect", "effects"),
-                                 ("v0.39.0", "rebuild-resource-effect", "restore-again-effects")):
-            with self.subTest(mode=mode):
-                row = self.case(self.fixture.publish(tag), self.fixture.candidate(mode))
-                self.assertCase(row, "fail", stage)
 
     def test_both_restores_must_preserve_work_and_message_effects(self) -> None:
         for tag, mode, stage in (("v1.0.0", "lose-work", "effects"),

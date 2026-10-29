@@ -5,7 +5,6 @@
     "tier": "legislated"
   },
   "date": "2026-08-20T00:00:00Z",
-  "doc_contract_profile": "legacy",
   "evidence": [
     ".concord/docs/capability-placement.md",
     ".concord/docs/predecessor-operational-coverage.md",
@@ -22,7 +21,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:babb404c3183de68f99ddfeac5897911db7a6751c855171f8408b8ee0f4b00a8",
+  "sha256": "sha256:bf10d3cd3f0ac5930b308835cea41a34d05aa8bb86a3c6d2f9e50c311da804e9",
   "status": "accepted",
   "summary": "Host-specific procedure stays host-owned and is not durable coordination state. Portable methods and skills operating Concord-defined structure ship through the existing skill path. Coverage deferrals name the host; neither a loaded method nor a report establishes Product truth or verification evidence.",
   "tags": [

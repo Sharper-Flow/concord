@@ -19,10 +19,6 @@
     {
       "kind": "go_test",
       "value": "internal/store.TestWorktreeAuditReclaimsSquashContainedTerminalWork"
-    },
-    {
-      "kind": "validator",
-      "value": "scripts/check-doc-contract.py"
     }
   ],
   "id": "CD-0181",

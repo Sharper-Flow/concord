@@ -3,10 +3,8 @@
     "tier": "derived"
   },
   "date": "2026-09-27T00:00:00Z",
-  "doc_contract_profile": "current",
   "evidence": [
     "contracts/concord-knowledge-index.v1.schema.json",
-    "scripts/check-doc-contract.py",
     "internal/store/workflow_law_revision.go"
   ],
   "home_domain_id": "product-memory",
@@ -26,9 +24,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:a9f4c733267fbebc09def004f63d2b417d72d6b34601eaba5f78bef9c16f45f7",
+  "sha256": "sha256:67ff05cb61721e1f6be149fc0a3f1269649e0808cf31b46eaf84c02413cf13c8",
   "status": "accepted",
-  "summary": "Spec acceptance criteria resolve through a third binding form, a work-item predicate reference of work_id plus predicate_id that the closed schema and the Go manifest model declare additively, the doc-contract checker resolves as bound while discharge stays the work-item side's per-predicate verdict, and the law context resolves the dispatching work item's bindings so the packet lists which criterion each of its predicates discharges.",
+  "summary": "Spec acceptance criteria resolve through a third binding form, a work-item predicate reference of work_id plus predicate_id that the closed schema and the Go manifest model declare additively and authoring checks validate by shape, while discharge stays the work-item side's per-predicate verdict, and the law context resolves the dispatching work item's bindings so the packet lists which criterion each of its predicates discharges.",
   "tags": [
     "knowledge-index",
     "knowledge-manifest",

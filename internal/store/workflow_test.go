@@ -36,7 +36,6 @@ func TestWorkflowEventsFoldAtomically(t *testing.T) {
 	s := openTemp(t)
 	ctx := context.Background()
 	seedWork(t, s, "workflow-work")
-	seedWorkflowAuthority(t, s, "condition-authority", "workflow-work", "principal/resolver", "request:condition", []string{"approval:one"})
 	actor := DeriveWorkflowActorRef("principal/operator", "client/concord-1", "agent/runner", "session/1")
 	implementationDigest := workflowFixtureDigest(t)
 	base := int64(2)
@@ -60,26 +59,14 @@ func TestWorkflowEventsFoldAtomically(t *testing.T) {
 		workflowEventWithActor("checkpoint", WorkflowActionCheckpointed, "workflow-work", actor, map[string]any{
 			"work_id": "workflow-work", "expected_version": 6, "resulting_version": 7, "step_id": "execution", "step_kind": "external_effect", "attempt_epoch": 1, "checkpoint_payload": map[string]any{"action_id": "checkpoint_execution", "cursor": "one"}, "resume_cursor": "cursor:one", "actor_ref": actor, "request_id": "request:one", "checkpoint_id": "checkpoint:one", "accepted_inputs_digest": "sha256:" + strings.Repeat("c", 64), "idempotency_identity": "operation-checkpoint", "result_evidence_refs": []string{"evidence:one"},
 		}),
-		workflowEventWithActor("condition", WorkflowConditionAdded, "workflow-work", "authority:one", map[string]any{
-			"work_id": "workflow-work", "expected_version": 7, "resulting_version": 8, "condition_id": "condition:one", "await_type": "ci_result", "await_ref": "run:one", "resolution_authority": "durable_operation:condition-authority",
-		}),
 		workflowEvent("operator", WorkflowActorRecorded, "workflow-work", map[string]any{
-			"work_id": "workflow-work", "expected_version": 8, "resulting_version": 9, "actor_ref": DeriveWorkflowActorRef("principal/operator", "client/concord-1", "agent/operator", "session/operator"), "principal_ref": "principal/operator", "client_ref": "client/concord-1", "agent_ref": "agent/operator", "session_ref": "session/operator", "actor_class": "operator",
-		}),
-		workflowEventWithActor("cancel-condition", WorkflowConditionCancelled, "workflow-work", DeriveWorkflowActorRef("principal/operator", "client/concord-1", "agent/operator", "session/operator"), map[string]any{
-			"work_id": "workflow-work", "expected_version": 9, "resulting_version": 10, "condition_id": "condition:one", "cancellation_authority": "operator", "cancellation_evidence": []string{"approval:one"}, "cancelled_by_event": "event:cancelled",
-		}),
-		workflowEvent("impact", WorkflowImpactDeclared, "workflow-work", map[string]any{
-			"work_id": "workflow-work", "expected_version": 10, "resulting_version": 11, "edge_id": "edge:one", "edge_kind": "modifies", "edge_class": "none", "target_work_id": "workflow-work", "target_kind": "work_item", "severity": "informational",
-		}),
-		workflowEvent("notice", WorkflowImpactNoticeRecorded, "workflow-work", map[string]any{
-			"work_id": "workflow-work", "expected_version": 11, "resulting_version": 12, "notice_id": WorkflowNoticeID("workflow-work", 1, "spec", "spec:one", "workflow-work", "informational"), "source_contract_version": 1, "entity_kind": "spec", "entity_ref": "spec:one", "target_work_id": "workflow-work", "edge_owner_work_id": "workflow-work", "edge_id": "edge:one", "old_hash": nil, "new_hash": nil, "severity": "informational",
+			"work_id": "workflow-work", "expected_version": 7, "resulting_version": 8, "actor_ref": DeriveWorkflowActorRef("principal/operator", "client/concord-1", "agent/operator", "session/operator"), "principal_ref": "principal/operator", "client_ref": "client/concord-1", "agent_ref": "agent/operator", "session_ref": "session/operator", "actor_class": "operator",
 		}),
 		workflowEventWithActor("premise", WorkflowPremiseConfirmed, "workflow-work", DeriveWorkflowActorRef("principal/operator", "client/concord-1", "agent/operator", "session/operator"), map[string]any{
-			"work_id": "workflow-work", "expected_version": 12, "resulting_version": 13, "contract_version": 1, "confirming_actor_ref": DeriveWorkflowActorRef("principal/operator", "client/concord-1", "agent/operator", "session/operator"), "confirmation_authority": "operator",
+			"work_id": "workflow-work", "expected_version": 8, "resulting_version": 9, "contract_version": 1, "confirming_actor_ref": DeriveWorkflowActorRef("principal/operator", "client/concord-1", "agent/operator", "session/operator"), "confirmation_authority": "operator",
 		}),
 		workflowEventWithActor("candidate", WorkflowCandidateSetRevised, "workflow-work", actor, map[string]any{
-			"work_id": "workflow-work", "expected_version": 13, "resulting_version": 14, "contract_version": 1, "candidate_kind": "work_item", "candidate_ref": "candidate:one", "added": []string{"candidate:one"}, "removed": []string{},
+			"work_id": "workflow-work", "expected_version": 9, "resulting_version": 10, "contract_version": 1, "candidate_kind": "work_item", "candidate_ref": "candidate:one", "added": []string{"candidate:one"}, "removed": []string{},
 		}),
 	}
 	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: events, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "workflow-work"): base}}); err != nil {
@@ -92,8 +79,8 @@ func TestWorkflowEventsFoldAtomically(t *testing.T) {
 	if advances != 4 {
 		t.Fatalf("workflow fixture step advances=%d, want 4", advances)
 	}
-	if got := readWorkVersion(t, s, "workflow-work"); got != 18 {
-		t.Fatalf("workflow operation version=%d, want 18", got)
+	if got := readWorkVersion(t, s, "workflow-work"); got != 14 {
+		t.Fatalf("workflow operation version=%d, want 14", got)
 	}
 }
 
@@ -231,7 +218,6 @@ func TestWorkflowCompletionGateUsesFirstRefusalAndRollsBackAllTerminalWrites(t *
 	err := CompleteWorkflow(context.Background(), s, completion)
 	assertFailureKind(t, err, KindMissingEvidence)
 	assertTableCount(t, s, "effect_receipts", eventsBefore)
-	assertTableCount(t, s, "workflow_impact_notices", 0)
 	var state string
 	if err := s.DatabaseForTesting().QueryRow(`SELECT instance_state FROM workflow_instances WHERE work_id='ordered-gate-work'`).Scan(&state); err != nil {
 		t.Fatal(err)
@@ -283,7 +269,6 @@ func TestWorkflowCompletionGateCommitsTerminalEventOnlyAfterAllClauses(t *testin
 	if after := s.DurableCommits(); after != beforeReplay+1 {
 		t.Fatalf("completion replay bypassed the durable commit owner: %d -> %d", beforeReplay, after)
 	}
-	assertTableCount(t, s, "workflow_impact_notices", 0)
 }
 
 func TestWorkflowCompletionRequiresCurrentExplicitImpactVerdict(t *testing.T) {
@@ -325,58 +310,29 @@ func workflowCompletionEvent(ctx context.Context, tx *sql.Tx, request WorkflowAc
 	return workflowCompletionEventForDefinition(ctx, tx, BuiltinWorkflowRegistry(), registered.Definition, request, actor, raw)
 }
 
-func TestWorkflowConditionResolutionMustUseStoredAuthority(t *testing.T) {
-	t.Parallel()
-	s := openTemp(t)
-	seedWork(t, s, "condition-work")
-	seedWorkflowAuthority(t, s, "condition-authority", "condition-work", "principal/resolver", "request:condition", []string{"evidence:valid"})
-	added := workflowEventWithActor("condition-added", WorkflowConditionAdded, "condition-work", "principal/resolver", map[string]any{
-		"work_id": "condition-work", "expected_version": 2, "resulting_version": 3, "condition_id": "condition-1", "await_type": "ci_result", "await_ref": "run:one", "resolution_authority": "durable_operation:condition-authority",
-	})
-	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{added}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "condition-work"): 2}}); err != nil {
-		t.Fatal(err)
-	}
-	resolved := workflowEventWithActor("condition-resolved", WorkflowConditionResolved, "condition-work", "principal/resolver", map[string]any{
-		"work_id": "condition-work", "expected_version": 3, "resulting_version": 4, "condition_id": "condition-1", "resolution_evidence": []string{"evidence:forged"}, "resolved_by_event": "provider-event",
-	})
-	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{resolved}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "condition-work"): 3}}); err == nil {
-		t.Fatal("condition resolved through an authority different from the stored resolver")
-	}
-	var state string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT condition_state FROM workflow_external_conditions WHERE work_id='condition-work' AND condition_id='condition-1'`).Scan(&state); err != nil {
-		t.Fatal(err)
-	}
-	if state != "open" {
-		t.Fatalf("condition state = %q, want open", state)
-	}
-}
-
 type completionGateCase struct {
-	name             string
-	requiredEvidence []string
-	includeSpec      bool
-	emptyMandate     bool
-	omitImpact       bool
-	includeVerdict   bool
-	includePremise   bool
-	verdictKind      string
-	openCondition    bool
-	conflictNotice   bool
-	omitClosure      bool
-	wantKind         FailureKind
-	wantClause       int
+	name               string
+	requiredEvidence   []string
+	includeSpec        bool
+	emptyMandate       bool
+	includeVerdict     bool
+	includePremise     bool
+	verdictKind        string
+	completionConflict bool
+	omitClosure        bool
+	wantKind           FailureKind
+	wantClause         int
 }
 
 func TestWorkflowCompletionGateAdjacentClausePrecedenceAndRollback(t *testing.T) {
 	t.Parallel()
 	cases := []completionGateCase{
-		{name: "clause-1-before-2", requiredEvidence: []string{"verification", "review", "native_run"}, openCondition: true, wantKind: KindMissingEvidence, wantClause: 1},
-		{name: "clause-2-before-3", requiredEvidence: []string{"verification", "review"}, openCondition: true, wantKind: KindNotTerminal, wantClause: 2},
+		{name: "clause-1-before-3", requiredEvidence: []string{"verification", "review", "native_run"}, wantKind: KindMissingEvidence, wantClause: 1},
 		{name: "clause-3-before-4", requiredEvidence: []string{"verification", "review"}, wantKind: KindInvariantViolation, wantClause: 3},
 		{name: "clause-4-before-5", requiredEvidence: []string{"verification", "review"}, includeSpec: true, wantKind: KindMissingEvidence, wantClause: 4},
-		{name: "clause-5-before-7", requiredEvidence: []string{"verification", "review"}, includeSpec: true, includeVerdict: true, verdictKind: "ok", conflictNotice: true, wantKind: KindMissingEvidence, wantClause: 5},
-		{name: "clause-4-before-7", requiredEvidence: []string{"verification", "review"}, includeSpec: true, conflictNotice: true, wantKind: KindMissingEvidence, wantClause: 4},
-		{name: "clause-7-rollback", requiredEvidence: []string{"verification", "review"}, includeSpec: true, includeVerdict: true, includePremise: true, verdictKind: "ok", conflictNotice: true, wantKind: KindOperationConflict, wantClause: 7},
+		{name: "clause-5-before-7", requiredEvidence: []string{"verification", "review"}, includeSpec: true, includeVerdict: true, verdictKind: "ok", completionConflict: true, wantKind: KindMissingEvidence, wantClause: 5},
+		{name: "clause-4-before-7", requiredEvidence: []string{"verification", "review"}, includeSpec: true, completionConflict: true, wantKind: KindMissingEvidence, wantClause: 4},
+		{name: "clause-7-rollback", requiredEvidence: []string{"verification", "review"}, includeSpec: true, includeVerdict: true, includePremise: true, verdictKind: "ok", completionConflict: true, wantKind: KindOperationConflict, wantClause: 7},
 	}
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {
@@ -392,61 +348,7 @@ func TestWorkflowCompletionGateAdjacentClausePrecedenceAndRollback(t *testing.T)
 				t.Fatalf("failure=%+v err=%v, want kind=%s clause=%d", failure, err, testCase.wantKind, testCase.wantClause)
 			}
 			assertTableCount(t, s, "effect_receipts", eventsBefore)
-			assertTableCount(t, s, "workflow_impact_notices", 0)
 		})
-	}
-}
-
-// TestWorkflowActionBoundaryRefusesOpenConditionThroughAdmission holds CD-0234
-// D2 at the owning boundary: the boundary takes no resolver, and a
-// consequential action on work with an open condition answers the single
-// admission refusal before authorization or mutation runs, writing nothing.
-func TestWorkflowActionBoundaryRefusesOpenConditionThroughAdmission(t *testing.T) {
-	t.Parallel()
-	s, request := seedBoundaryActionRequest(t, "action-boundary-open-condition")
-	var eventsBefore int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts`).Scan(&eventsBefore); err != nil {
-		t.Fatal(err)
-	}
-	called := false
-	err := AuthorizeWorkflowActionAtBoundaryTx(context.Background(), s, BuiltinWorkflowRegistry(), request, func(*Transaction) error {
-		called = true
-		return nil
-	}, func(*Transaction) error {
-		called = true
-		return nil
-	})
-	var failure *Failure
-	if !failureAs(err, &failure) || failure.Kind != KindNotTerminal || failure.Detail != "consequential action has unresolved external conditions" || failure.Op != "workflow_action_preflight" {
-		t.Fatalf("boundary error=%v failure=%+v, want the admission not_terminal refusal", err, failure)
-	}
-	if called {
-		t.Fatal("boundary ran authorization or mutation on work with an open condition")
-	}
-	assertConditionState(t, s, "action-boundary-open-condition", "condition:gate", "open")
-	assertTableCount(t, s, "effect_receipts", eventsBefore)
-}
-
-func TestWorkflowReadyReportsUnreadableConditionWithoutRewrite(t *testing.T) {
-	t.Parallel()
-	s, _ := seedCompletionGateCase(t, "ready-unreadable", completionGateCase{requiredEvidence: []string{"verification", "review"}, openCondition: true})
-	if _, err := s.DatabaseForTesting().Exec(`DELETE FROM durable_operations WHERE op_id=?`, "gate-condition-ready-unreadable"); err != nil {
-		t.Fatal(err)
-	}
-	var before int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts`).Scan(&before); err != nil {
-		t.Fatal(err)
-	}
-	result, err := deriveWorkflowReady(context.Background(), s.DatabaseForTesting(), "ready-unreadable")
-	if err != nil || result.Ready || len(result.UnknownConditions) != 1 || result.UnknownConditions[0] != "condition:gate" {
-		t.Fatalf("ready result=%+v err=%v", result, err)
-	}
-	var after int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts`).Scan(&after); err != nil {
-		t.Fatal(err)
-	}
-	if after != before {
-		t.Fatalf("readiness derivation rewrote event history: before=%d after=%d", before, after)
 	}
 }
 
@@ -483,56 +385,11 @@ func TestWorkflowWarningStalenessIsRecordedForNextRead(t *testing.T) {
 	}
 }
 
-func TestWorkflowStalenessWarningsReadRecordedObservation(t *testing.T) {
-	s, _ := seedCompletionGateCase(t, "staleness-rebuild", completionGateCase{requiredEvidence: []string{"verification", "review"}})
-	fields := json.RawMessage(`{"staleness_rule_id":"staleness:warning","observed_drift":{"severity":"warning","drifted":true}}`)
-	if err := AppendWorkflowStalenessObservation(context.Background(), s, "staleness-rebuild:observation", "staleness-rebuild", "actor:staleness", testManifestDigest, fields, time.Date(2026, 8, 9, 0, 0, 0, 0, time.UTC)); err != nil {
-		t.Fatal(err)
-	}
-	definition := cloneWorkflowDefinition(BuiltinWorkflowDefinitions()[0])
-	definition.StalenessRules = []WorkflowStalenessRule{{ID: "staleness:warning", InputRef: "input:drifted", Severity: "warning"}}
-	var before []string
-	if err := s.Transact(context.Background(), func(tx *Transaction) error {
-		var err error
-		before, err = workflowStalenessWarnings(context.Background(), tx.tx, "staleness-rebuild", definition, nil)
-		return err
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if !reflect.DeepEqual(before, []string{"staleness:warning"}) {
-		t.Fatalf("staleness warnings=%v", before)
-	}
-	var retired int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM sqlite_schema WHERE type='table' AND name='workflow_staleness_warnings'`).Scan(&retired); err != nil {
-		t.Fatal(err)
-	}
-	if retired != 0 {
-		t.Fatal("retired staleness warning table remains")
-	}
-}
-
-func TestWorkflowContractRevisionEmitsBreakingNoticeForConsumedActiveDependent(t *testing.T) {
+func TestWorkflowContractRevisionAdvancesEffectFrontier(t *testing.T) {
 	t.Parallel()
-	source, actor := qContractNoticeFixture(t, "revision-source")
-	seedWork(t, source, "revision-dependent")
-	dependentActor := DeriveWorkflowActorRef("principal/operator", "client/concord-1", "agent/dependent", "session/revision-dependent")
-	digest := workflowFixtureDigest(t)
-	dependentEvents := []Event{
-		workflowEvent("revision-dependent-actor", WorkflowActorRecorded, "revision-dependent", map[string]any{"work_id": "revision-dependent", "expected_version": 2, "resulting_version": 3, "actor_ref": dependentActor, "principal_ref": "principal/operator", "client_ref": "client/concord-1", "agent_ref": "agent/dependent", "session_ref": "session/revision-dependent", "actor_class": "agent"}),
-		workflowEvent("revision-dependent-definition", WorkflowDefinitionSelected, "revision-dependent", map[string]any{"work_id": "revision-dependent", "expected_version": 3, "resulting_version": 4, "ref": workflowFixtureRef, "version": 1, "digest": digest, "work_kind": workflowFixtureWorkKind}),
-		workflowEventWithActor("revision-dependent-contract", WorkflowContractApproved, "revision-dependent", dependentActor, map[string]any{"work_id": "revision-dependent", "expected_version": 4, "resulting_version": 5, "contract_version": 1, "premise": "consume the source contract", "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:workflow", "immutable_subject_ref": "commit:dependent", "expected_result": "pass"}, "required_evidence": []string{"verification"}, "route_conventions": []string{}, "spec_mandate": []string{}, "rigor_class": "prototype_internal", "consequence_class": "internal_sqlite"}),
-		workflowEventWithActor("revision-dependent-start", WorkflowActionStarted, "revision-dependent", dependentActor, map[string]any{"work_id": "revision-dependent", "expected_version": 5, "resulting_version": 6, "step_id": "execution", "action_id": "start_execution", "attempt_epoch": 1, "accepted_inputs_digest": "sha256:" + strings.Repeat("b", 64), "idempotency_identity": "dependent-operation", "actor_ref": dependentActor}),
-	}
-	if err := applyWorkflowTestOperation(context.Background(), source, Operation{Events: dependentEvents, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "revision-dependent"): 2}}); err != nil {
-		t.Fatal(err)
-	}
-	dependentVersion := readWorkVersion(t, source, "revision-dependent")
+	source, actor := qContractRevisionFixture(t, "revision-source")
 	var sourceVersion int64
 	if err := source.DatabaseForTesting().QueryRow(`SELECT version FROM work_items WHERE id='revision-source'`).Scan(&sourceVersion); err != nil {
-		t.Fatal(err)
-	}
-	edge := workflowEventWithActor("revision-edge", WorkflowImpactDeclared, "revision-dependent", dependentActor, map[string]any{"work_id": "revision-dependent", "expected_version": dependentVersion, "resulting_version": dependentVersion + 1, "edge_id": "edge:revision", "edge_kind": "depends_on", "edge_class": "hard", "target_work_id": "revision-source", "target_kind": "work_item", "severity": "informational"})
-	if err := applyWorkflowTestOperation(context.Background(), source, Operation{Events: []Event{edge}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "revision-dependent"): dependentVersion}}); err != nil {
 		t.Fatal(err)
 	}
 	supersede := workflowEventWithActor("revision-supersede", WorkflowContractSuperseded, "revision-source", actor, map[string]any{"work_id": "revision-source", "expected_version": sourceVersion, "resulting_version": sourceVersion + 1, "previous_contract_version": 1, "new_contract_version": 2, "supersede_reason": "refresh approved contract", "audit_evidence": []string{"evidence:audit"}})
@@ -549,121 +406,34 @@ func TestWorkflowContractRevisionEmitsBreakingNoticeForConsumedActiveDependent(t
 	if err := tx.Commit(); err != nil {
 		t.Fatal(err)
 	}
-	wantIDs := []string{supersede.EventID, "notice-event:" + WorkflowNoticeID("revision-source", 2, "workflow_contract", "contract:1", "revision-dependent", "breaking")}
+	wantIDs := []string{supersede.EventID}
 	if !reflect.DeepEqual(result.EventIDs, wantIDs) {
 		t.Fatalf("supersession event IDs = %v, want %v", result.EventIDs, wantIDs)
 	}
 	var receiptCount, lastEffect, maximumReceipt int64
-	if err := source.db.QueryRow(`SELECT count(*),max(effect_seq),(SELECT last FROM store_sequences WHERE name='effect') FROM effect_receipts WHERE event_id IN (?,?)`, wantIDs[0], wantIDs[1]).Scan(&receiptCount, &maximumReceipt, &lastEffect); err != nil || receiptCount != 2 || maximumReceipt != lastEffect {
-		t.Fatalf("derived effect receipts = %d,%d,%d; %v", receiptCount, maximumReceipt, lastEffect, err)
+	if err := source.db.QueryRow(`SELECT count(*),max(effect_seq),(SELECT last FROM store_sequences WHERE name='effect') FROM effect_receipts WHERE event_id=?`, wantIDs[0]).Scan(&receiptCount, &maximumReceipt, &lastEffect); err != nil || receiptCount != 1 || maximumReceipt != lastEffect {
+		t.Fatalf("effect receipts = %d,%d,%d; %v", receiptCount, maximumReceipt, lastEffect, err)
 	}
 	var resultingVersion int64
 	if err := source.DatabaseForTesting().QueryRow(`SELECT version FROM work_items WHERE id='revision-source'`).Scan(&resultingVersion); err != nil {
 		t.Fatal(err)
 	}
-	if resultingVersion != sourceVersion+2 {
-		t.Fatalf("supersession committed version=%d, want %d", resultingVersion, sourceVersion+2)
-	}
-	var severity, entityKind string
-	if err := source.DatabaseForTesting().QueryRow(`SELECT severity,entity_kind FROM workflow_impact_notices WHERE source_work_id='revision-source' AND target_work_id='revision-dependent'`).Scan(&severity, &entityKind); err != nil {
-		t.Fatal(err)
-	}
-	if severity != "breaking" || entityKind != "workflow_contract" {
-		t.Fatalf("revision notice=%s/%s, want breaking/workflow_contract", severity, entityKind)
+	if resultingVersion != sourceVersion+1 {
+		t.Fatalf("supersession committed version=%d, want %d", resultingVersion, sourceVersion+1)
 	}
 	var frontier, latest int64
 	if err := source.DatabaseForTesting().QueryRow(`SELECT effect_seq,(SELECT MAX(effect_seq) FROM effect_receipts WHERE subject_type='work_item' AND subject_id='revision-source') FROM work_items WHERE id='revision-source'`).Scan(&frontier, &latest); err != nil {
 		t.Fatal(err)
 	}
 	if frontier != latest {
-		t.Fatalf("effect frontier = %d, want the nested impact notice's sequence %d", frontier, latest)
+		t.Fatalf("effect frontier = %d, want %d", frontier, latest)
 	}
 	var receiptSeq int64
-	if err := source.DatabaseForTesting().QueryRow(`SELECT effect_seq FROM effect_receipts WHERE event_id=? AND kind=? AND subject_id='revision-source'`, result.EventIDs[1], WorkflowImpactNoticeRecorded).Scan(&receiptSeq); err != nil {
+	if err := source.DatabaseForTesting().QueryRow(`SELECT effect_seq FROM effect_receipts WHERE event_id=? AND kind=? AND subject_id='revision-source'`, result.EventIDs[0], WorkflowContractSuperseded).Scan(&receiptSeq); err != nil {
 		t.Fatal(err)
 	}
 	if receiptSeq != latest {
-		t.Fatalf("notice receipt sequence = %d, want %d", receiptSeq, latest)
-	}
-}
-
-func TestWorkflowContractRevisionEmitsAdvisoryNoticesForOtherDependents(t *testing.T) {
-	t.Parallel()
-	for _, testCase := range []struct {
-		name            string
-		edgeClass       string
-		includeContract bool
-		terminal        bool
-	}{
-		{name: "soft active consumed", edgeClass: "soft", includeContract: true},
-		{name: "hard active unconsumed", edgeClass: "hard"},
-		{name: "hard inactive consumed", edgeClass: "hard", includeContract: true, terminal: true},
-	} {
-		t.Run(testCase.name, func(t *testing.T) {
-			sourceID := "revision-advisory-source-" + strings.ReplaceAll(testCase.name, " ", "-")
-			dependentID := "revision-advisory-dependent-" + strings.ReplaceAll(testCase.name, " ", "-")
-			s, actor := qContractNoticeFixture(t, sourceID)
-			seedWork(t, s, dependentID)
-			dependentActor := DeriveWorkflowActorRef("principal/operator", "client/concord-1", "agent/dependent", "session/"+dependentID)
-			digest := workflowFixtureDigest(t)
-			version := int64(2)
-			events := []Event{
-				workflowEvent("actor-"+dependentID, WorkflowActorRecorded, dependentID, map[string]any{"work_id": dependentID, "expected_version": version, "resulting_version": version + 1, "actor_ref": dependentActor, "principal_ref": "principal/operator", "client_ref": "client/concord-1", "agent_ref": "agent/dependent", "session_ref": "session/" + dependentID, "actor_class": "agent"}),
-				workflowEvent("definition-"+dependentID, WorkflowDefinitionSelected, dependentID, map[string]any{"work_id": dependentID, "expected_version": version + 1, "resulting_version": version + 2, "ref": workflowFixtureRef, "version": 1, "digest": digest, "work_kind": workflowFixtureWorkKind}),
-			}
-			version += 2
-			if testCase.includeContract {
-				events = append(events, workflowEventWithActor("contract-"+dependentID, WorkflowContractApproved, dependentID, dependentActor, map[string]any{"work_id": dependentID, "expected_version": version, "resulting_version": version + 1, "contract_version": 1, "premise": "consume source", "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:dependent", "immutable_subject_ref": "commit:" + dependentID, "expected_result": "pass"}, "required_evidence": []string{}, "route_conventions": []string{}, "spec_mandate": []string{}, "rigor_class": "prototype_internal", "consequence_class": "internal_sqlite"}))
-				version++
-			}
-			events = append(events, workflowEventWithActor("edge-"+dependentID, WorkflowImpactDeclared, dependentID, dependentActor, map[string]any{"work_id": dependentID, "expected_version": version, "resulting_version": version + 1, "edge_id": "edge:" + dependentID, "edge_kind": "depends_on", "edge_class": testCase.edgeClass, "target_work_id": sourceID, "target_kind": "work_item", "severity": "informational"}))
-			if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: events, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, dependentID): 2}}); err != nil {
-				t.Fatal(err)
-			}
-			if testCase.terminal {
-				if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); UPDATE workflow_instances SET instance_state='completed' WHERE work_id=?; DELETE FROM write_guard`, dependentID); err != nil {
-					t.Fatal(err)
-				}
-			}
-			var sourceVersion int64
-			if err := s.DatabaseForTesting().QueryRow(`SELECT version FROM work_items WHERE id=?`, sourceID).Scan(&sourceVersion); err != nil {
-				t.Fatal(err)
-			}
-			supersede := workflowEventWithActor("supersede-"+sourceID, WorkflowContractSuperseded, sourceID, actor, map[string]any{"work_id": sourceID, "expected_version": sourceVersion, "resulting_version": sourceVersion + 1, "previous_contract_version": 1, "new_contract_version": 2, "supersede_reason": "refresh", "audit_evidence": []string{"evidence:audit"}})
-			if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{supersede}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, sourceID): sourceVersion}}); err != nil {
-				t.Fatal(err)
-			}
-			var severity string
-			if err := s.DatabaseForTesting().QueryRow(`SELECT severity FROM workflow_impact_notices WHERE source_work_id=? AND target_work_id=?`, sourceID, dependentID).Scan(&severity); err != nil {
-				t.Fatal(err)
-			}
-			if severity != "non-breaking" {
-				t.Fatalf("revision advisory severity = %q", severity)
-			}
-		})
-	}
-}
-
-func seedBoundaryActionRequest(t *testing.T, workID string) (*Store, WorkflowActionPreflightRequest) {
-	t.Helper()
-	s, _ := seedCompletionGateCase(t, workID, completionGateCase{requiredEvidence: []string{"verification", "review"}, includeVerdict: true, includePremise: true, emptyMandate: true, openCondition: true})
-	actor := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/owner", SessionRef: "session/" + workID, ActorClass: ActorAgent}
-	var version int64
-	var step string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT w.version, i.current_step FROM work_items w JOIN workflow_instances i ON i.work_id=w.id WHERE w.id=?`, workID).Scan(&version, &step); err != nil {
-		t.Fatal(err)
-	}
-	return s, WorkflowActionPreflightRequest{WorkID: workID, ExpectedVersion: version, StepID: step, ActionID: "complete", Actor: actor}
-}
-
-func assertConditionState(t *testing.T, s *Store, workID, conditionID, want string) {
-	t.Helper()
-	var got string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT condition_state FROM workflow_external_conditions WHERE work_id=? AND condition_id=?`, workID, conditionID).Scan(&got); err != nil {
-		t.Fatal(err)
-	}
-	if got != want {
-		t.Fatalf("condition %s state=%q, want %q", conditionID, got, want)
+		t.Fatalf("supersession receipt sequence = %d, want %d", receiptSeq, latest)
 	}
 }
 
@@ -766,15 +536,6 @@ func seedCompletionGateCase(t *testing.T, workID string, testCase completionGate
 			t.Fatal(err)
 		}
 	}
-	if !testCase.omitImpact {
-		version := readWorkVersion(t, s, workID)
-		appendEvent(workflowEvent("gate-impact-"+workID, WorkflowImpactDeclared, workID, map[string]any{"work_id": workID, "expected_version": version, "resulting_version": version + 1, "edge_id": "edge:" + workID, "edge_kind": "modifies", "edge_class": "none", "target_work_id": workID, "target_kind": "work_item", "severity": "breaking"}))
-	}
-	if testCase.openCondition {
-		seedWorkflowAuthority(t, s, "gate-condition-"+workID, workID, "principal/condition", "request/condition", []string{"evidence:condition"})
-		version := readWorkVersion(t, s, workID)
-		appendEvent(workflowEvent("gate-condition-"+workID, WorkflowConditionAdded, workID, map[string]any{"work_id": workID, "expected_version": version, "resulting_version": version + 1, "condition_id": "condition:gate", "await_type": "ci_result", "await_ref": "run:gate", "resolution_authority": "durable_operation:gate-condition-" + workID}))
-	}
 	if testCase.includeSpec {
 		seedWorkflowAuthority(t, s, "gate-spec-"+workID, workID, "principal/spec", "request/spec", []string{"spec:one"})
 		version := readWorkVersion(t, s, workID)
@@ -785,16 +546,13 @@ func seedCompletionGateCase(t *testing.T, workID string, testCase completionGate
 			t.Fatal(err)
 		}
 	}
-	if testCase.conflictNotice {
-		dependentID := workID + "-dependent"
-		seedImpactDependent(t, s, dependentID, workID, "hard")
-		noticeID := WorkflowNoticeID(workID, 1, "work_item", workID, dependentID, "non-breaking")
+	if testCase.completionConflict {
 		if err := s.Transact(t.Context(), func(tx *Transaction) error {
 			scope, err := beginWrite(t.Context(), tx.tx)
 			if err != nil {
 				return err
 			}
-			_, err = appendPreparedEvent(t.Context(), tx.tx, Event{EventID: "notice-event:" + noticeID, Kind: "work.intent_revised", SubjectType: SubjectWorkItem, SubjectID: workID, Actor: executor, OccurredAt: time.Date(2026, 8, 9, 0, 0, 0, 0, time.UTC), PayloadVersion: 1, Payload: json.RawMessage(`{}`)})
+			_, err = appendPreparedEvent(t.Context(), tx.tx, Event{EventID: "gate-completion-" + workID, Kind: "work.intent_revised", SubjectType: SubjectWorkItem, SubjectID: workID, Actor: executor, OccurredAt: time.Date(2026, 8, 9, 0, 0, 0, 0, time.UTC), PayloadVersion: 1, Payload: json.RawMessage(`{}`)})
 			if err != nil {
 				return err
 			}
@@ -827,39 +585,6 @@ func TestWorkflowEvidenceBindingRejectsCrossWorkAndProducerIdentityLaundering(t 
 	})
 	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{mismatchedIdentity}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "evidence-work-a"): 2}}); err == nil {
 		t.Fatal("evidence with mismatched producer identity was accepted")
-	}
-}
-
-func TestWorkflowCancellationRejectsForgedEvidenceFromOperator(t *testing.T) {
-	t.Parallel()
-	s := openTemp(t)
-	seedWork(t, s, "cancel-evidence-work")
-	seedWorkflowAuthority(t, s, "cancel-authority", "cancel-evidence-work", "principal/provider", "request/provider", []string{"evidence:real"})
-	added := workflowEvent("cancel-condition-added", WorkflowConditionAdded, "cancel-evidence-work", map[string]any{
-		"work_id": "cancel-evidence-work", "expected_version": 2, "resulting_version": 3, "condition_id": "condition:cancel", "await_type": "human_approval", "await_ref": "approval:pending", "resolution_authority": "durable_operation:cancel-authority",
-	})
-	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{added}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "cancel-evidence-work"): 2}}); err != nil {
-		t.Fatal(err)
-	}
-	operator := DeriveWorkflowActorRef("principal/operator", "client/concord-1", "agent/operator", "session/cancel")
-	actor := workflowEvent("cancel-operator", WorkflowActorRecorded, "cancel-evidence-work", map[string]any{
-		"work_id": "cancel-evidence-work", "expected_version": 3, "resulting_version": 4, "actor_ref": operator, "principal_ref": "principal/operator", "client_ref": "client/concord-1", "agent_ref": "agent/operator", "session_ref": "session/cancel", "actor_class": "operator",
-	})
-	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{actor}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "cancel-evidence-work"): 3}}); err != nil {
-		t.Fatal(err)
-	}
-	cancel := workflowEventWithActor("cancel-forged", WorkflowConditionCancelled, "cancel-evidence-work", operator, map[string]any{
-		"work_id": "cancel-evidence-work", "expected_version": 4, "resulting_version": 5, "condition_id": "condition:cancel", "cancellation_authority": "operator", "cancellation_evidence": []string{"evidence:forged"}, "cancelled_by_event": "event:forged",
-	})
-	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{cancel}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "cancel-evidence-work"): 4}}); err == nil {
-		t.Fatal("operator forged cancellation evidence was accepted")
-	}
-	var state string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT condition_state FROM workflow_external_conditions WHERE work_id='cancel-evidence-work' AND condition_id='condition:cancel'`).Scan(&state); err != nil {
-		t.Fatal(err)
-	}
-	if state != "open" {
-		t.Fatalf("condition state = %q, want open", state)
 	}
 }
 
@@ -934,9 +659,7 @@ func TestWorkflowProjectionSchemaHasClosedChecksForeignKeysAndFoldGuards(t *test
 		"workflow_candidate_sets":        {"work_id", "contract_version", "candidate_kind", "candidate_ref", "candidate_role", "candidate_scope", "recorded_at", "recorded_by"},
 		"workflow_actors":                {"actor_ref", "principal_ref", "client_ref", "agent_ref", "session_ref", "actor_class", "first_seen_at"},
 		"workflow_checkpoints":           {"work_id", "checkpoint_id", "step_id", "step_kind", "attempt_epoch", "accepted_inputs_digest", "result_evidence_refs", "resume_cursor", "idempotency_identity", "actor_ref", "request_id", "recorded_at"},
-		"workflow_external_conditions":   {"work_id", "condition_id", "await_type", "await_ref", "resolution_authority", "condition_state", "resolution_evidence", "resolved_by_event", "cancellation_authority", "cancellation_evidence", "cancelled_by_event", "recorded_at", "resolved_at", "cancelled_at", "expected_within_seconds"},
 		"workflow_impact_edges":          {"work_id", "edge_id", "edge_kind", "edge_class", "target_work_id", "target_kind", "severity", "recorded_at"},
-		"workflow_impact_notices":        {"notice_id", "source_work_id", "source_contract_version", "entity_kind", "entity_ref", "target_work_id", "edge_owner_work_id", "edge_id", "old_hash", "new_hash", "severity", "recorded_at"},
 		"workflow_decision_records":      {"work_id", "question", "options_considered", "decision", "rationale", "consequences", "inputs", "poc_findings", "supersedes", "superseded_by", "recorded_at"},
 		"workflow_design_records":        {"work_id", "work_version", "approach", "decisions", "touched_refs", "recorded_at"},
 		"workflow_premise_confirmations": {"work_id", "contract_version", "confirmed_by", "confirmed_at"},
@@ -944,20 +667,20 @@ func TestWorkflowProjectionSchemaHasClosedChecksForeignKeysAndFoldGuards(t *test
 	expectedForeignKeys := map[string][]string{
 		"workflow_instances": {"work_items", "workflow_actors"}, "workflow_contracts": {"work_items", "workflow_actors", "workflow_contracts", "workflow_contracts"},
 		"workflow_candidate_sets": {"workflow_contracts", "workflow_contracts", "workflow_actors"}, "workflow_contract_predicates": {"workflow_contracts", "workflow_contracts"}, "workflow_actors": {}, "workflow_checkpoints": {"work_items", "workflow_actors"},
-		"workflow_external_conditions": {"work_items"}, "workflow_impact_edges": {"work_items", "work_items"}, "workflow_impact_notices": {"work_items", "work_items", "work_items", "workflow_impact_edges", "workflow_impact_edges"},
+		"workflow_impact_edges":     {"work_items", "work_items"},
 		"workflow_decision_records": {"work_items"}, "workflow_design_records": {"work_items"}, "workflow_premise_confirmations": {"workflow_contracts", "workflow_contracts", "workflow_actors"},
 	}
 	expectedUniqueKeys := map[string][][]string{
 		"workflow_instances": {{"work_id"}}, "workflow_contracts": {{"work_id", "contract_version"}}, "workflow_contract_predicates": {{"work_id", "contract_version", "predicate_id"}, {"work_id", "contract_version", "ordinal"}}, "workflow_candidate_sets": {{"work_id", "contract_version", "candidate_kind", "candidate_ref"}},
 		"workflow_actors": {{"actor_ref"}, {"principal_ref", "client_ref", "agent_ref", "session_ref"}}, "workflow_checkpoints": {{"work_id", "checkpoint_id"}, {"work_id", "step_id", "attempt_epoch"}, {"work_id", "idempotency_identity"}},
-		"workflow_external_conditions": {{"work_id", "condition_id"}}, "workflow_impact_edges": {{"work_id", "edge_id"}}, "workflow_impact_notices": {{"notice_id"}, {"source_work_id", "source_contract_version", "entity_kind", "entity_ref", "target_work_id", "severity"}},
+		"workflow_impact_edges":     {{"work_id", "edge_id"}},
 		"workflow_decision_records": {{"work_id", "question"}}, "workflow_design_records": {{"work_id", "work_version"}}, "workflow_premise_confirmations": {{"work_id", "contract_version"}},
 	}
 	enumFragments := map[string][]string{
 		"workflow_instances": {"'planned'", "'superseded'", "'outside_repair'", "'active'", "'resumed'"}, "workflow_contracts": {}, "workflow_contract_predicates": {"'exists'", "'check'"},
 		"workflow_candidate_sets": {"'work_item'", "candidate_role IN ('include')"}, "workflow_actors": {"'agent'", "'operator'"},
-		"workflow_checkpoints": {"'human_checkpoint'"}, "workflow_external_conditions": {"'pr_merge'", "'cancelled'"},
-		"workflow_impact_edges": {"'depends_on'", "'work_item'"}, "workflow_impact_notices": {"'breaking'"},
+		"workflow_checkpoints":      {"'human_checkpoint'"},
+		"workflow_impact_edges":     {"'depends_on'", "'work_item'"},
 		"workflow_decision_records": {"'accepted_decision'", "'insufficient_evidence'"}, "workflow_design_records": {}, "workflow_premise_confirmations": {},
 	}
 	for table, columns := range expectedColumns {
@@ -1178,19 +901,17 @@ func TestWorkflowGoverningCycleCombinesDependsOnAndForwardLink(t *testing.T) {
 	s := openTemp(t)
 	seedWork(t, s, "mixed-a")
 	seedWork(t, s, "mixed-b")
-	first := workflowEvent("mixed-depends", WorkflowImpactDeclared, "mixed-a", map[string]any{
-		"work_id": "mixed-a", "expected_version": 2, "resulting_version": 3, "edge_id": "edge-depends", "edge_kind": "depends_on", "edge_class": "hard", "target_work_id": "mixed-b", "target_kind": "work_item", "severity": "non-breaking",
-	})
-	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{first}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "mixed-a"): 2}}); err != nil {
+	if _, err := s.db.Exec(`INSERT INTO write_guard(active) VALUES(1); INSERT INTO workflow_impact_edges(work_id,edge_id,edge_kind,edge_class,target_work_id,target_kind,severity,recorded_at) VALUES('mixed-a','edge-depends','depends_on','hard','mixed-b','work_item','non-breaking','now'); DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
 	}
-	second := workflowEvent("mixed-forward", WorkflowImpactDeclared, "mixed-b", map[string]any{
-		"work_id": "mixed-b", "expected_version": 2, "resulting_version": 3, "edge_id": "edge-forward", "edge_kind": "forward_link", "edge_class": "hard", "target_work_id": "mixed-a", "target_kind": "work_item", "severity": "informational",
-	})
-	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{second}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "mixed-b"): 2}}); err == nil {
-		t.Fatal("mixed depends_on/forward_link cycle was accepted")
-	} else {
-		assertFailureKind(t, err, KindCycleDetected)
+	if err := s.Transact(t.Context(), func(tx *Transaction) error {
+		cycle, err := workflowEdgeWouldCycle(t.Context(), tx.tx, "mixed-b", "mixed-a", "forward_link")
+		if err == nil && !cycle {
+			t.Fatal("mixed depends_on/forward_link cycle was accepted")
+		}
+		return err
+	}); err != nil {
+		t.Fatal(err)
 	}
 	assertTableCount(t, s, "workflow_impact_edges", 1)
 }
@@ -1223,7 +944,7 @@ func fullWorkflowProjectionSnapshot(t *testing.T, s *Store) string {
 	t.Helper()
 	tables := []string{
 		"work_items", "relations", "workflow_instances", "workflow_contracts", "workflow_candidate_sets", "workflow_actors",
-		"workflow_checkpoints", "workflow_external_conditions", "workflow_impact_edges", "workflow_impact_notices",
+		"workflow_checkpoints", "workflow_impact_edges",
 		"workflow_decision_records", "workflow_design_records", "workflow_premise_confirmations",
 	}
 	var snapshot strings.Builder

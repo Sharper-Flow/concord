@@ -659,14 +659,6 @@ func workflowSemanticActionEvents(ctx context.Context, tx *sql.Tx, definition Wo
 		return workflowConfirmPremiseEvents(ctx, tx, definition, request, actor, fields, eventID, expected)
 	case "link_successor":
 		return workflowLinkSuccessorEvents(ctx, tx, definition, request, actor, fields, eventID, expected)
-	case "declare_impact":
-		return workflowDeclareImpactEvents(ctx, tx, request, actor, fields, eventID, expected)
-	case "add_condition":
-		return workflowAddConditionEvents(request, actor, fields, eventID, expected)
-	case "resolve_condition":
-		return workflowResolveConditionEvents(request, actor, fields, eventID, expected)
-	case "cancel_condition":
-		return workflowCancelConditionEvents(request, actor, fields, eventID, expected)
 	default:
 		return nil, nil
 	}
@@ -851,13 +843,6 @@ func workflowFieldStrings(fields map[string]json.RawMessage, name string) []stri
 	}
 	return values
 }
-func workflowFieldStringsDefault(fields map[string]json.RawMessage, name string, fallback []string) []string {
-	if values := workflowFieldStrings(fields, name); len(values) != 0 {
-		return values
-	}
-	return fallback
-}
-
 func workflowFieldStringDefaultMap(fields map[string]any, name, fallback string) string {
 	if value, ok := fields[name].(string); ok && value != "" {
 		return value

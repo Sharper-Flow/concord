@@ -12,11 +12,6 @@
 
 ## Context
 
-The registry has one utility, `ci-wait`. Its generator gives every utility the
-same bash-only tool projection and the same GitHub polling body. That shape
-cannot represent a repository exploration utility without granting edit tools
-or copying the utility outside the registry.
-
 Repository exploration needs read and search tools. It also needs a small
 read-only Git command set for history and diff questions. Exploration returns
 plain text to its parent. It does not carry a packet, report schema, evidence
@@ -30,7 +25,7 @@ Each utility declares `allowed_tools` beside its allowed bash commands and wall-
 time cap. The generator projects every known host tool as enabled only when its
 name appears in that allowance. Unknown tool names fail generation.
 
-`ci-wait` keeps only `bash`. The new `explore` utility allows `bash`, `read`,
+The `explore` utility allows `bash`, `read`,
 `glob`, `grep`, and `execute`. Edit, write, patch, task, web, Concord, and other
 tools remain disabled for `explore`, so it cannot change a repository file or
 record Concord state.
@@ -44,8 +39,7 @@ tool an operator connects.
 ### D2. The generator owns one body template per utility
 
 The manifest owns utility facts that other projections consume. The generator
-owns the body prose because no second consumer needs to parse that prose. The
-`ci-wait` body remains its current terminal CI procedure. The `explore` body
+owns the body prose because no second consumer needs to parse that prose. The `explore` body
 requires a bounded question, read and search steps, and a plain-text facts
 packet: observed facts with source `path:line`, relevant counts with their
 populations, historical commit identifiers, and explicit unknowns. It

@@ -110,11 +110,6 @@ func SeedDomainPayloadEvidence(ctx context.Context, s *store.Store, opts DomainP
 		return err
 	}
 
-	projectEdges := store.DomainProjectAttachmentsRequest{EventID: "payload-project-edges", ProductID: opts.ProductID, DomainID: PayloadChildDomainID, ExpectedVersion: 0, Attachments: []store.DomainProjectAttachment{{ProjectID: opts.ProjectID, Role: "primary"}}, Actor: "operator", OccurredAt: DomainEvidenceTime}
-	if err := store.ReplaceDomainProjectAttachments(ctx, s, projectEdges); err != nil {
-		return fmt.Errorf("pm1fixture: seed populated Project attachments: %w", err)
-	}
-
 	resource := store.ManagedResourceCreateRequest{
 		EventID: "payload-resource", ResourceID: PayloadResourceID, ProductID: opts.ProductID,
 		DisplayName: "Queue", Class: "infrastructure", Kind: "queue", Purpose: "dispatches synchronization work",

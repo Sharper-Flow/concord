@@ -25,7 +25,7 @@
     },
     {
       "criterion": 4,
-      "exemption": "Policy-only requirement for explicit law amendment. Knowledge closure and law-relation checks validate declared records."
+      "exemption": "Policy-only requirement for explicit law amendment. Knowledge-index and law-relation checks validate declared records."
     },
     {
       "criterion": 5,
@@ -57,10 +57,8 @@
     }
   ],
   "date": "2026-10-09T00:00:00Z",
-  "doc_contract_profile": "current",
   "evidence": [
     "scripts/check-public-content.py",
-    "scripts/check-doc-contract.py",
     "scripts/check-doc-links.py",
     "scripts/check-knowledge-index.py",
     "scripts/check-pr-linear-link.py"

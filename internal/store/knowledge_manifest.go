@@ -132,10 +132,7 @@ var manifestLawBearingKinds = map[string]bool{
 var manifestLawRelationSubjects = map[string]bool{"decision": true, "spec": true}
 
 // manifestRootKeys is the declared top-level vocabulary of the knowledge
-// manifest contract. The value records whether this package projects the key
-// onto a KnowledgeManifest field. A false value marks repository policy the
-// store does not interpret, such as the prose doc contract; the head shard
-// carries it and the store never rewrites that shard (CD-0114).
+// manifest contract, each key projected onto a KnowledgeManifest field.
 // TestKnowledgeManifestVocabularyMatchesSchema binds this set to
 // contracts/concord-knowledge-index.v1.schema.json.
 //
@@ -156,7 +153,6 @@ var manifestRootKeys = map[string]bool{
 	"knowledge_roots":    true,
 	"exclusions":         true,
 	"operator_overrides": true,
-	"doc_contract":       false,
 }
 
 var lawRelationKinds = map[string]bool{
@@ -175,7 +171,6 @@ type KnowledgeManifest struct {
 	KnowledgeRoots        []string                    `json:"knowledge_roots,omitempty"`
 	Exclusions            []string                    `json:"exclusions,omitempty"`
 	OperatorOverrides     []KnowledgeOperatorOverride `json:"operator_overrides,omitempty"`
-	DocContract           *KnowledgeDocContract       `json:"doc_contract,omitempty"`
 	Records               []KnowledgeRecord           `json:"records"`
 	Dispositions          []KnowledgeDisposition      `json:"dispositions"`
 	domainRegistryPresent bool
@@ -192,18 +187,6 @@ type KnowledgeOperatorOverride struct {
 	ProductID  string `json:"product_id"`
 	RecordedIn string `json:"recorded_in"`
 	Reason     string `json:"reason"`
-}
-
-type KnowledgeDocContract struct {
-	Enforced      bool                      `json:"enforced"`
-	Spec          *KnowledgeDocContractSpec `json:"spec,omitempty"`
-	Decision      *KnowledgeDocContractSpec `json:"decision,omitempty"`
-	BannedPhrases []string                  `json:"banned_phrases,omitempty"`
-}
-
-type KnowledgeDocContractSpec struct {
-	RequiredSections []string `json:"required_sections"`
-	ACRequired       bool     `json:"ac_required"`
 }
 
 type KnowledgeDomainRegistry struct {
@@ -249,10 +232,6 @@ type KnowledgeRecord struct {
 	LawRelations       []KnowledgeRelation   `json:"law_relations,omitempty"`
 	HomeDomainID       string                `json:"home_domain_id,omitempty"`
 	AppliesToDomainIDs []string              `json:"applies_to_domain_ids,omitempty"`
-	// DocContractProfile carries the authored CD-0175 decision outline
-	// generation ("legacy" or "current"). The store never interprets it; it is
-	// carried so a re-marshaled manifest keeps the authored value.
-	DocContractProfile string `json:"doc_contract_profile,omitempty"`
 	// Evidence names implementation paths (scenarios, tests, code) that
 	// carry this record's guidance. The offline validator fails when an
 	// evidence path no longer exists — the structural law/implementation
@@ -315,13 +294,9 @@ type KnowledgeDisposition struct {
 
 // KnowledgeRelation is authored in the Git knowledge manifest. It is never a
 // source of precedence by itself; conflicts_with records an unresolved pair.
-// A relation whose target lives in another manifest names that manifest's
-// source Project in SourceProjectID (CD-0200); a target inside the same
-// manifest leaves the field empty.
 type KnowledgeRelation struct {
-	Kind            string `json:"kind"`
-	TargetID        string `json:"target_id"`
-	SourceProjectID string `json:"source_project_id,omitempty"`
+	Kind     string `json:"kind"`
+	TargetID string `json:"target_id"`
 }
 
 type KnowledgeRecordScopes struct {
@@ -337,12 +312,11 @@ func (manifest *KnowledgeManifest) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(data, &fields); err != nil {
 		return err
 	}
-	// Additive read (CD-0177): only declared, projected keys reach the model;
-	// an undeclared key, and a declared key the store does not interpret, are
-	// dropped rather than refused.
+	// Additive read (CD-0177): only declared keys reach the model; an
+	// undeclared key is dropped rather than refused.
 	modeled := make(map[string]json.RawMessage, len(fields))
 	for key, value := range fields {
-		if projected := manifestRootKeys[key]; projected {
+		if manifestRootKeys[key] {
 			modeled[key] = value
 		}
 	}
@@ -458,7 +432,6 @@ func (manifest KnowledgeManifest) MarshalJSON() ([]byte, error) {
 		KnowledgeRoots    []string                    `json:"knowledge_roots,omitempty"`
 		Exclusions        []string                    `json:"exclusions,omitempty"`
 		OperatorOverrides []KnowledgeOperatorOverride `json:"operator_overrides,omitempty"`
-		DocContract       *KnowledgeDocContract       `json:"doc_contract,omitempty"`
 		Records           []map[string]any            `json:"records"`
 	}
 	registry := manifest.DomainRegistry
@@ -470,8 +443,7 @@ func (manifest KnowledgeManifest) MarshalJSON() ([]byte, error) {
 		SchemaVersion: manifest.SchemaVersion, SupportedKinds: manifest.SupportedKinds,
 		IndexedKinds: manifest.IndexedKinds, DomainRegistry: &registry,
 		KnowledgeRoots: manifest.KnowledgeRoots, Exclusions: manifest.Exclusions,
-		OperatorOverrides: manifest.OperatorOverrides,
-		DocContract:       manifest.DocContract, Records: records,
+		OperatorOverrides: manifest.OperatorOverrides, Records: records,
 	})
 }
 
@@ -486,12 +458,6 @@ func manifestRecordEntry(record KnowledgeRecord) map[string]any {
 		relations := make([]map[string]string, 0, len(record.LawRelations))
 		for _, relation := range record.LawRelations {
 			entry := map[string]string{"kind": relation.Kind, "target_id": relation.TargetID}
-			if relation.SourceProjectID != "" {
-				// CD-0200: a cross-source target names its source Project
-				// through the structured field, so the committed shard
-				// carries the relation's full endpoint identity.
-				entry["source_project_id"] = relation.SourceProjectID
-			}
 			relations = append(relations, entry)
 		}
 		entry["law_relations"] = relations
@@ -501,9 +467,6 @@ func manifestRecordEntry(record KnowledgeRecord) map[string]any {
 	}
 	if record.HomeDomainID != "" {
 		entry["home_domain_id"] = record.HomeDomainID
-	}
-	if record.DocContractProfile != "" {
-		entry["doc_contract_profile"] = record.DocContractProfile
 	}
 	if len(record.AppliesToDomainIDs) > 0 {
 		entry["applies_to_domain_ids"] = record.AppliesToDomainIDs
@@ -529,10 +492,10 @@ func knowledgeDomainRegistryZero(registry KnowledgeDomainRegistry) bool {
 }
 
 func parseKnowledgeManifest(data []byte) (KnowledgeManifest, error) {
-	return parseKnowledgeManifestForRole(data, manifestRecordPathPrefix, manifestSharedHomeRole)
+	return parseKnowledgeManifestAtPrefix(data, manifestRecordPathPrefix)
 }
 
-func parseKnowledgeManifestForRole(data []byte, pathPrefix string, role knowledgeManifestRole) (KnowledgeManifest, error) {
+func parseKnowledgeManifestAtPrefix(data []byte, pathPrefix string) (KnowledgeManifest, error) {
 	if len(data) == 0 || len(data) > maxKnowledgeManifest {
 		return KnowledgeManifest{}, newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "manifest is empty or exceeds the bounded size", false, "publish a bounded v1 manifest")
 	}
@@ -549,7 +512,7 @@ func parseKnowledgeManifestForRole(data []byte, pathPrefix string, role knowledg
 		return KnowledgeManifest{}, newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "manifest contains trailing JSON values", false, "publish exactly one JSON object")
 	}
 	applyLegacyAuthorityTier(&manifest)
-	if err := validateKnowledgeManifestForRole(manifest, pathPrefix, role); err != nil {
+	if err := validateKnowledgeManifestAtPrefix(manifest, pathPrefix); err != nil {
 		return KnowledgeManifest{}, err
 	}
 	return manifest, nil
@@ -577,26 +540,14 @@ func applyLegacyAuthorityTier(manifest *KnowledgeManifest) {
 }
 
 func validateKnowledgeManifest(manifest KnowledgeManifest) error {
-	return validateKnowledgeManifestForRole(manifest, manifestRecordPathPrefix, manifestSharedHomeRole)
+	return validateKnowledgeManifestAtPrefix(manifest, manifestRecordPathPrefix)
 }
 
-// knowledgeManifestRole names where a manifest sits in a federated Product
-// (CD-0200). The shared-law home role keeps the registry-required validation.
-// A registered source role refuses a local Domain registry — only the
-// shared-law home carries one — and defers its Domain-ID checks to the
-// rebuild, which validates them against the home's registry.
-type knowledgeManifestRole int
-
-const (
-	manifestSharedHomeRole knowledgeManifestRole = iota
-	manifestRegisteredSourceRole
-)
-
-func validateKnowledgeManifestForRole(manifest KnowledgeManifest, pathPrefix string, role knowledgeManifestRole) error {
+func validateKnowledgeManifestAtPrefix(manifest KnowledgeManifest, pathPrefix string) error {
 	if !knowledgeManifestSchemaAccepted(manifest.SchemaVersion) || manifest.SupportedKinds == nil || manifest.IndexedKinds == nil || manifest.Records == nil {
 		return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "manifest schema version or required root fields are invalid", false, "publish strict schema 1.2 or 1.3 root fields")
 	}
-	covered, err := validateManifestRoleRegistry(manifest, role)
+	covered, err := validateManifestRegistry(manifest)
 	if err != nil {
 		return err
 	}
@@ -619,20 +570,11 @@ func validateKnowledgeManifestForRole(manifest KnowledgeManifest, pathPrefix str
 	if len(manifest.Records) > maxManifestRecords {
 		return newFailure(KindKnowledgeIndexIncomplete, "parse_knowledge_manifest", "manifest contains too many records", true, "split the knowledge authority into bounded homes")
 	}
-	return validateManifestRecordPopulation(manifest, pathPrefix, role, supported, indexed, covered)
+	return validateManifestRecordPopulation(manifest, pathPrefix, supported, indexed, covered)
 }
 
-func validateManifestRoleRegistry(manifest KnowledgeManifest, role knowledgeManifestRole) (func(string) bool, error) {
+func validateManifestRegistry(manifest KnowledgeManifest) (func(string) bool, error) {
 	hasRegistry := manifest.domainRegistryPresent || !knowledgeDomainRegistryZero(manifest.DomainRegistry)
-	if role == manifestRegisteredSourceRole {
-		if hasRegistry {
-			return nil, newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "only the shared-law home carries the Domain registry", false, "remove the registry from this source manifest and reference the shared home's Domain IDs")
-		}
-		if len(manifest.OperatorOverrides) > 0 {
-			return nil, newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "operator overrides belong to the shared-law home manifest", false, "record CD-0194 placement exceptions in the shared home's manifest")
-		}
-		return func(string) bool { return false }, nil
-	}
 	if !hasRegistry {
 		return nil, newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "schema 1.2 requires a domain registry", false, "publish the bounded domain registry")
 	}
@@ -642,7 +584,7 @@ func validateManifestRoleRegistry(manifest KnowledgeManifest, role knowledgeMani
 	return validatedOverrideCoverage(manifest.OperatorOverrides, manifest.DomainRegistry.ProductKey)
 }
 
-func validateManifestRecordPopulation(manifest KnowledgeManifest, pathPrefix string, role knowledgeManifestRole, supported, indexed map[string]bool, covered func(string) bool) error {
+func validateManifestRecordPopulation(manifest KnowledgeManifest, pathPrefix string, supported, indexed map[string]bool, covered func(string) bool) error {
 	ids := map[string]bool{}
 	paths := map[string]bool{}
 	for _, record := range manifest.Records {
@@ -655,10 +597,8 @@ func validateManifestRecordPopulation(manifest KnowledgeManifest, pathPrefix str
 			// unambiguously. The rebuild refuses it for work notes too.
 			return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "stable ID contains '/', which the source-qualified reference form reserves", false, "publish a stable ID without '/'")
 		}
-		if role == manifestSharedHomeRole {
-			if err := validateManifestLawHome(record, manifest.DomainRegistry); err != nil {
-				return err
-			}
+		if err := validateManifestLawHome(record, manifest.DomainRegistry); err != nil {
+			return err
 		}
 		if ids[record.ID] {
 			return newFailure(KindKnowledgeAmbiguous, "parse_knowledge_manifest", "manifest contains duplicate stable IDs", false, "assign one stable ID to one canonical record")
@@ -674,12 +614,7 @@ func validateManifestRecordPopulation(manifest KnowledgeManifest, pathPrefix str
 	if err := validateManifestRelations(manifest); err != nil {
 		return err
 	}
-	if role == manifestSharedHomeRole {
-		if err := validateKnowledgeDomainLawReferences(manifest.DomainRegistry, manifest.Records); err != nil {
-			return err
-		}
-	}
-	return nil
+	return validateKnowledgeDomainLawReferences(manifest.DomainRegistry, manifest.Records)
 }
 
 // knowledgeDomainGraphs collects the parent, dependency, and replacement
@@ -975,38 +910,12 @@ func validateManifestRecordRelations(record KnowledgeRecord, byID map[string]Kno
 		if !lawRelationKinds[relation.Kind] || relation.TargetID == "" {
 			return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "law relation kind or target is invalid", false, "use one closed relation kind and a distinct law ID")
 		}
-		// The self-edge refusal compares same-manifest endpoints. A
-		// relation carrying an explicit source_project_id names another
-		// source's node, so a bare ID both sources hold is not a
-		// self-edge; the rebuild refuses a qualified target that names
-		// the declaring source's own Project (CD-0200 source-qualified
-		// identity).
-		if relation.SourceProjectID == "" && relation.TargetID == record.ID {
+		if relation.TargetID == record.ID {
 			return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "law relation is a self-edge", false, "use one closed relation kind and a distinct law ID")
 		}
-		if strings.Contains(relation.TargetID, "/") {
-			// A cross-source target is named by the structured
-			// source_project_id field, never by packing the qualified
-			// string form into target_id (CD-0200).
-			return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "law relation target contains '/'; name the target source with source_project_id instead", false, "keep target_id a bare law ID and declare source_project_id")
-		}
 		target, ok := byID[relation.TargetID]
-		if relation.SourceProjectID != "" {
-			// CD-0200 source-qualified identity: an explicit source
-			// project names the target's endpoint, so the relation is
-			// cross-source by declaration. A local record holding the
-			// same bare ID cannot capture the endpoint. Target
-			// existence, source-set membership, and the precedence
-			// rules validate over the verified source set at rebuild.
-			key := relation.Kind + "\x00" + record.ID + "\x00" + relation.SourceProjectID + "/" + relation.TargetID
-			if seen[key] {
-				return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "law relation is duplicated", false, "declare each typed law relation once")
-			}
-			seen[key] = true
-			continue
-		}
 		if !ok {
-			return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "law relation target is not a declared decision/spec record", false, "reference a decision or spec in the same manifest, or name its source with source_project_id")
+			return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "law relation target is not a declared decision/spec record", false, "reference a decision or spec in the same manifest")
 		}
 		if !manifestLawRelationSubjects[target.Kind] {
 			return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "law relation target is not a declared decision/spec record", false, "reference a decision or spec in the same manifest")
@@ -1558,29 +1467,29 @@ func domainRegistryContentHash(registry KnowledgeDomainRegistry) string {
 // that predates the shards carries the aggregate file, and that is the shape
 // it is read in; a commit with neither is the legacy, explicitly-supported
 // state with no manifest.
-func readKnowledgeManifest(ctx context.Context, repo, commit string, role knowledgeManifestRole) (KnowledgeManifest, bool, error) {
-	return readKnowledgeManifestRunner(ctx, runGitRunner{}, repo, commit, role)
+func readKnowledgeManifest(ctx context.Context, repo, commit string) (KnowledgeManifest, bool, error) {
+	return readKnowledgeManifestRunner(ctx, runGitRunner{}, repo, commit)
 }
 
 // readKnowledgeManifestRunner reads the manifest at a commit through the
 // caller's runner, so the dispatch reading resolution proves the committed
 // manifest under its committed-read policy runner and tests can inject a
 // deterministic runner.
-func readKnowledgeManifestRunner(ctx context.Context, runner GitRunner, repo, commit string, role knowledgeManifestRole) (KnowledgeManifest, bool, error) {
-	manifest, _, missing, err := readKnowledgeManifestShardsRunner(ctx, runner, repo, commit, role)
+func readKnowledgeManifestRunner(ctx context.Context, runner GitRunner, repo, commit string) (KnowledgeManifest, bool, error) {
+	manifest, _, missing, err := readKnowledgeManifestShardsRunner(ctx, runner, repo, commit)
 	return manifest, missing, err
 }
 
 // readKnowledgeManifestShardsRunner is readKnowledgeManifestRunner that also
 // returns the shards a sharded commit was composed from. A commit read in
 // the aggregate shape, or carrying no manifest, returns empty shards.
-func readKnowledgeManifestShardsRunner(ctx context.Context, runner GitRunner, repo, commit string, role knowledgeManifestRole) (KnowledgeManifest, knowledgeShards, bool, error) {
+func readKnowledgeManifestShardsRunner(ctx context.Context, runner GitRunner, repo, commit string) (KnowledgeManifest, knowledgeShards, bool, error) {
 	shards, sharded, err := readKnowledgeShardsAtCommitRunner(ctx, runner, repo, commit)
 	if err != nil {
 		return KnowledgeManifest{}, knowledgeShards{}, false, err
 	}
 	if sharded {
-		manifest, err := composeKnowledgeManifest(shards, role)
+		manifest, err := composeKnowledgeManifest(shards)
 		if err != nil {
 			return KnowledgeManifest{}, knowledgeShards{}, false, err
 		}
@@ -1593,13 +1502,13 @@ func readKnowledgeManifestShardsRunner(ctx context.Context, runner GitRunner, re
 		}
 		return manifest, shards, false, nil
 	}
-	manifest, missing, err := readAggregateKnowledgeManifestRunner(ctx, runner, repo, commit, role)
+	manifest, missing, err := readAggregateKnowledgeManifestRunner(ctx, runner, repo, commit)
 	return manifest, knowledgeShards{}, missing, err
 }
 
 // readAggregateKnowledgeManifestRunner reads a commit that predates the
 // shards: the aggregate file, or the legacy state with no manifest.
-func readAggregateKnowledgeManifestRunner(ctx context.Context, runner GitRunner, repo, commit string, role knowledgeManifestRole) (KnowledgeManifest, bool, error) {
+func readAggregateKnowledgeManifestRunner(ctx context.Context, runner GitRunner, repo, commit string) (KnowledgeManifest, bool, error) {
 	entry, err := gitTreeEntryRunner(ctx, runner, repo, commit, knowledgeManifestPath)
 	if err != nil {
 		// A missing manifest is the legacy, explicitly-supported state.
@@ -1623,7 +1532,7 @@ func readAggregateKnowledgeManifestRunner(ctx context.Context, runner GitRunner,
 	if err != nil {
 		return KnowledgeManifest{}, false, wrapFailure(KindInvalidNoteProof, "read_knowledge_manifest", "cannot read the committed manifest blob", true, "restore the manifest blob and retry", err)
 	}
-	manifest, err := parseKnowledgeManifestForRole(content, aggregateRecordPathPrefix(content), role)
+	manifest, err := parseKnowledgeManifestAtPrefix(content, aggregateRecordPathPrefix(content))
 	if err != nil {
 		return KnowledgeManifest{}, false, err
 	}
@@ -1657,8 +1566,8 @@ func aggregateRecordPathPrefix(data []byte) string {
 	return manifestRecordPathPrefix
 }
 
-func verifyManifestRecord(ctx context.Context, repo, commit string, record KnowledgeRecord, role knowledgeManifestRole) error {
-	_, err := verifyManifestRecordRunner(ctx, runGitRunner{}, repo, commit, record, role)
+func verifyManifestRecord(ctx context.Context, repo, commit string, record KnowledgeRecord) error {
+	_, err := verifyManifestRecordRunner(ctx, runGitRunner{}, repo, commit, record)
 	return err
 }
 
@@ -1666,8 +1575,8 @@ func verifyManifestRecord(ctx context.Context, repo, commit string, record Knowl
 // the caller's runner: the committed manifest declares the record, the
 // projection agrees with the declaration, and the declared blob's bytes hash
 // to the recorded revision. Only verified bytes leave this owner.
-func verifyManifestRecordRunner(ctx context.Context, runner GitRunner, repo, commit string, record KnowledgeRecord, role knowledgeManifestRole) ([]byte, error) {
-	manifest, missing, err := readKnowledgeManifestRunner(ctx, runner, repo, commit, role)
+func verifyManifestRecordRunner(ctx context.Context, runner GitRunner, repo, commit string, record KnowledgeRecord) ([]byte, error) {
+	manifest, missing, err := readKnowledgeManifestRunner(ctx, runner, repo, commit)
 	if err != nil {
 		return nil, err
 	}

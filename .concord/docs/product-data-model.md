@@ -86,7 +86,7 @@ Product-internal architecture through which law and work are organized.
   managed resources without becoming either one.
 - Domain identity, hierarchy, and architecture relations are declared in the
   Product's Git knowledge manifest. SQLite projects that law and owns only local
-  stage/Project/resource attachments. Neither side infers identity from paths,
+  stage/resource attachments. Neither side infers identity from paths,
   tags, repository names, or planning groups.
 - A Domain may have zero or one parent Domain. The `subdomain_of` hierarchy is
   acyclic; additional architecture relations follow CD-0222's endpoint-specific

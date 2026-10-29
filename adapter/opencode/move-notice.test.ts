@@ -6,7 +6,6 @@
 import { afterEach, describe, expect, test } from "bun:test"
 import ConcordAdapterPlugin from "./concord-plugin"
 import { configureHostLease } from "./host-lease"
-import { configureCiWatch } from "./ci-watch"
 import { configureCoreBinary } from "./core-runtime"
 import { manifestDigest } from "./generated-contracts"
 import { configureConcordAdapter, moveSessionToClaimedWorktree, moveSessionToRegisteredMainCheckout, takeWorkNotices, vacateTerminalWorktree, work_transition } from "./concord"
@@ -134,7 +133,6 @@ afterEach(async () => {
   configureConcordAdapter({ reset: true })
   await ConcordAdapterPlugin({})
   configureHostLease({ reset: true })
-  configureCiWatch({ reset: true })
 })
 
 describe("a confirmed worktree_claim move records the move notice", () => {

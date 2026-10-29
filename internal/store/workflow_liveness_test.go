@@ -695,36 +695,13 @@ func livenessApply(ctx context.Context, s *Store, workID string, move livenessMo
 			return bindErr
 		}
 	}
-	// CD-0198 D4: the combined accept carries its delivery fields only at the
-	// delivery-admitting refinement step, and its admission reads a green
-	// verify run. The explorer injects the fields there, strips them
-	// everywhere else, and seeds the run inside the action's transaction, so
-	// a refused probe leaves no run behind and a committed replay lands the
-	// proof the real coordinator binds. record_delivery keeps its existing
-	// witness-side seeding, so its probes at refine refuse as they always
-	// have and the combined accept stays the step's explored exit.
 	seedGreenRun := false
-	if move.action == "accept_worker_result" {
+	if move.action == "record_delivery" {
 		stepID, stepErr := livenessStep(ctx, s, workID)
 		if stepErr != nil {
 			return stepErr
 		}
-		var fields map[string]json.RawMessage
-		if err := json.Unmarshal(payload, &fields); err != nil {
-			return err
-		}
-		if workflowAcceptDeliveryAdmissionActive(entry.Definition, stepID) {
-			fields["delivery_artifact"], _ = json.Marshal("artifact:liveness-delivery")
-			fields["delivery_state"], _ = json.Marshal("asserted")
-			seedGreenRun = true
-		} else {
-			delete(fields, "delivery_artifact")
-			delete(fields, "delivery_state")
-		}
-		payload, bindErr = json.Marshal(fields)
-		if bindErr != nil {
-			return bindErr
-		}
+		seedGreenRun = stepID == "refine"
 	}
 	evidenceRefs := []string{livenessSubjectRef}
 	switch move.action {
@@ -793,8 +770,8 @@ func livenessGreenRunDigest(workID, action string, sequence int) string {
 
 // livenessSeedGreenVerifyTx seeds, inside the action's own transaction, one
 // green worktree_verify run acquired just after the current refine start and
-// binds it as verification evidence, the proof the CD-0192 refine exit and
-// the CD-0198 D4 combined accept consume. It returns the work version after
+// binds it as verification evidence for the CD-0192 refine exit.
+// It returns the work version after
 // the binding, which the caller's action request must carry.
 func livenessSeedGreenVerifyTx(ctx context.Context, sqlTx *sql.Tx, workID, digest string) (int64, error) {
 	var occurred string
@@ -867,11 +844,17 @@ func livenessBindRecordedState(ctx context.Context, s *Store, workID, actionID s
 		return raw, nil
 	}
 	if _, declared := fields["open_finding_ids"]; declared {
-		lineage, err := readWorkerOracleFindingLineageTx(ctx, s.db, workID)
+		review, err := loadWorkflowReviewState(ctx, s.db, workID)
 		if err != nil {
 			return nil, err
 		}
-		if ids := lineage.openFindingIDs(); len(ids) == 0 {
+		ids := []string{}
+		for _, finding := range review.Findings {
+			if finding.Status == "open" {
+				ids = append(ids, finding.FindingID)
+			}
+		}
+		if len(ids) == 0 {
 			delete(fields, "open_finding_ids")
 		} else {
 			fields["open_finding_ids"], err = json.Marshal(ids)

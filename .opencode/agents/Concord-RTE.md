@@ -58,6 +58,9 @@ Relay it unchanged, without inventing an actor, approval, or evidence.
 
 Apply current accepted CD-0243 D2-D3 before asking for consent. Outside the six
 classes, proceed with engineering and work management within the assigned scope.
+Apply D3's Concord deletion exemption before directing an owner to seek
+product-direction, UI/UX or governed-scope-cut approval for a removal. Its
+delivery duties, exclusions and current gates remain; the RTE supplies no approval.
 Assigning a worker to an in-scope dependency repair, and that worker publishing or
 merging its PR, do not independently require operator approval. A repair restoring existing
 security protections is not a request to waive a security gate or accept its risk.

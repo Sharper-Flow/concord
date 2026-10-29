@@ -272,7 +272,7 @@ status.
 3. **Size:** one programmed, versioned decision model sets `small`, `larger`,
    or `crucial` from the recorded inputs; the size selects the composition,
    and rules derived from change type and risk set its mandatory stages
-   (CD-0229 D4, D5; CD-0242 D4). The operator may move a size, and an agent
+   (CD-0229 D4, D5; CD-0242 D4). An agent
    may only request a rerun or add steps (CD-0229 D4). A task that proves
    bigger than its size reruns the model, adds the newly required steps, and
    continues without redoing completed work (CD-0242 D4); no production-line

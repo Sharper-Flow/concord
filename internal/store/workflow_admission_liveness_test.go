@@ -15,8 +15,7 @@ package store
 // detector names an admitted action rather than passing vacuously.
 //
 // The model folds current Review, contracts, staleness, design, verdicts,
-// artifacts, delivery, and mandates. Breaking notices and external conditions
-// stay zero.
+// artifacts, delivery, and mandates. No state is skipped.
 
 import (
 	"fmt"
@@ -28,8 +27,6 @@ import (
 	"strings"
 	"testing"
 )
-
-const admissionModelWorkID = "admission-model"
 
 func TestAdmissionWorkflowStateKeepsArtifactStaleBit(t *testing.T) {
 	for _, definition := range BuiltinWorkflowDefinitions() {
@@ -74,9 +71,8 @@ type admissionModelState struct {
 	// contracts is the active contract count: 2 is the duplicated
 	// projection the supersede recovery owns.
 	contracts int64
-	// stale is the pin staleness: "", "law" (a stale law revision every
-	// action refuses on), or "registry" (the subject's own stale registry
-	// pin).
+	// stale is the pin staleness: "" or "law" (a deleted-law pin every
+	// action refuses on).
 	stale string
 	// designStale is a recorded design a contract correction invalidated.
 	designStale bool
@@ -156,15 +152,10 @@ func admissionStateActions(definition WorkflowDefinition, state admissionModelSt
 var admissionRecoveryActions = []string{"supersede_contract", "record_verdict", "request_correction", "bind_evidence"}
 
 // admissionModelStaleError is the staleness boundary's refusal the model
-// folds for one staleness class and admission.
+// folds for one staleness class.
 func admissionModelStaleError(stale string) error {
-	switch stale {
-	case "law":
+	if stale == "law" {
 		return newFailure(KindStaleLawRevision, "workflow_law_revision", "the model's pinned law revision is stale", false, "supersede the workflow contract")
-	case "registry":
-		failure := newFailure(KindStaleRequiresReview, "workflow_domain_overlap", "the model's Domain registry pin is stale", false, "supersede the workflow contract")
-		failure.StaleDomainRegistryPin = &StaleDomainRegistryPin{WorkID: admissionModelWorkID}
-		return failure
 	}
 	return nil
 }
@@ -223,7 +214,7 @@ func admissionWorkflowState(definition WorkflowDefinition, state admissionModelS
 		RefinementWorkflow:          refinement,
 		ActiveContracts:             state.contracts,
 		LateCriterionAssociation:    admissionLateCriterionAssociation(definition, state),
-		LawPinStale:                 staleErr != nil && workflowContractRecoveryStaleness(staleErr, admissionModelWorkID),
+		LawPinStale:                 staleErr != nil && workflowContractRecoveryStaleness(staleErr),
 		LawPinStaleError:            staleErr,
 		DesignStale:                 state.designStale,
 		ArtifactStale:               state.artifactStale,
@@ -617,8 +608,8 @@ func admissionAgentMoveName(before, after admissionModelState) string {
 	return "observation_record"
 }
 
-// admissionEnvironmentMoves are the moves no agent controls: a law revision
-// or a Domain registry change makes the active contract's pin stale, and a
+// admissionEnvironmentMoves are the moves no agent controls: a breaking law
+// cutover makes the active contract's pin stale (CD-0036), and a
 // review's findings can prove a larger change bigger (CD-0229 D5), which
 // sets the size stop.
 func admissionEnvironmentMoves(state admissionModelState) []admissionModelState {
@@ -627,9 +618,9 @@ func admissionEnvironmentMoves(state admissionModelState) []admissionModelState 
 	}
 	var moves []admissionModelState
 	if state.stale == "" {
-		law, registry := state, state
-		law.stale, registry.stale = "law", "registry"
-		moves = append(moves, law, registry)
+		law := state
+		law.stale = "law"
+		moves = append(moves, law)
 	}
 	if !state.sizeStop {
 		proved := state
@@ -743,7 +734,7 @@ func wellFormedAdmissionStates(definition WorkflowDefinition) iter.Seq[admission
 			for _, count := range contracts {
 				stales, designs, verdicts, artifacts := []string{""}, []bool{false}, []string{""}, []bool{false}
 				if count > 0 {
-					stales = []string{"", "law", "registry"}
+					stales = []string{"", "law"}
 					if design {
 						designs = []bool{false, true}
 					}
@@ -1132,7 +1123,7 @@ func TestAdmissionModelKeyRejectsInvalidFields(t *testing.T) {
 }
 
 var (
-	admissionKeyStales   = []string{"", "law", "registry"}
+	admissionKeyStales   = []string{"", "law"}
 	admissionKeyVerdicts = []string{"", "ok", "bad"}
 	admissionKeyMandates = []string{"", "missing", "bound"}
 )

@@ -35,9 +35,8 @@ active or newly landed workflow overlaps its Domain footprint or invalidates a
 law, architecture relation, dependency, or resource assumption. Non-authoritative
 snapshots never masquerade as current authority.
 
-**Implication.** CD-0006 R3 retains declared `modifies` and hard/soft
-`depends_on` edges, completion-time breaking/non-breaking notices, and bounded
-downstream checks. CD-0222 adds a typed architecture binding to every
+**Implication.** CD-0006 R3 retains hard/soft `depends_on` edges and bounded
+freshness checks. CD-0222 adds a typed architecture binding to every
 Product-changing contract. Intersecting affected Domains require a resolution
 pinned to both contract versions before both items hold execution authority;
 exact law/Domain/relation writes are marked as write overlap. The check reruns
@@ -154,7 +153,7 @@ default. Ownership and architecture are recorded facts, not active integrations.
 **Direction.** Typed, schema-validated state is the canonical ownership form.
 The Product Git knowledge home owns shared Domain identity, hierarchy, and
 architecture relations; SQLite projects that law and owns local
-Domain→Project/resource attachments. Domains are never derived from tags, paths,
+Domain→resource attachments. Domains are never derived from tags, paths,
 or external planning membership. See
 [`product-data-model.md`](./product-data-model.md) and
 [`capability-placement.md`](./capability-placement.md).

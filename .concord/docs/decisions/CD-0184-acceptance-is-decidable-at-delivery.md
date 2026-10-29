@@ -2,8 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-09-27
-- **Scope:** Approved-contract outcome predicates, the add_condition hold
-  condition, and the generated authoring schema for the work-transition tool
+- **Scope:** Approved-contract outcome predicates and the generated authoring schema for the work-transition tool
   surface
 - **Related:** CD-0012, CD-0013, CD-0018
 - **Approval:** The operator approved this decision in contract version 1 of
@@ -39,13 +38,6 @@ a separate follow-up work item. The delivering item captures the follow-up and
 links it `raised_from` before it completes (CD-0018 D3). The follow-up's own
 contract is approved when the observation is due, so its acceptance is
 decidable at its own delivery.
-
-### D2. A hold must not wait for observation
-
-An `add_condition` hold waits for an event that a declared authority resolves.
-It must not hold the delivering item open to observe production over a time
-window. A hold for observation strands the item for the whole window, and this
-rule removes that failure.
 
 ### D3. One-shot live checks stay allowed
 
@@ -85,8 +77,6 @@ named follow-up work item (`work-1c891f4b4249eb9ae6bbbf17`).
 - Close `immutable_subject_ref` to commit or artifact subjects. Rejected: the
   delivering commit is unknown at approval, and live contracts use other
   subject prefixes.
-- Hold the delivering item open with an `add_condition` timer. Rejected: the
-  item strands for the whole window, which is the failure this rule removes.
 - Amend CD-0012 D6 in place. Rejected: an accepted record changes through a
   new record, and D6 governs discovered scope, not predicate content.
 - Build the registered check-evaluator registry in this change. Rejected: it
@@ -113,7 +103,3 @@ timing, stays a named follow-up.
   that `advertisedAdmissionTeachingGaps` reports its absence.
 - `python3 scripts/test-agent-contracts.py` proves the generator refuses a
   projection without the rule.
-- `python3 scripts/check-knowledge-closure.py` proves this record is
-  registered in the manifest shards.
-- `python3 scripts/check-doc-contract.py` proves this record's outline and
-  style.

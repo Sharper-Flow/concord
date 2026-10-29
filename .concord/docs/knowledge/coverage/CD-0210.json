@@ -89,24 +89,12 @@
       "value": "internal/agent.TestOutsideRepairIdempotentReplayReplaysRecordedResult"
     },
     {
-      "kind": "validator",
-      "value": "scripts/check-cd-allocation.py"
-    },
-    {
       "kind": "go_test",
       "value": "cmd/concord.TestDistinctReleasedCoresCoexistOnOneStore"
     },
     {
       "kind": "validator",
-      "value": "scripts/check-doc-contract.py"
-    },
-    {
-      "kind": "validator",
       "value": "scripts/check-knowledge-index.py"
-    },
-    {
-      "kind": "validator",
-      "value": "scripts/check-knowledge-closure.py"
     },
     {
       "kind": "validator",

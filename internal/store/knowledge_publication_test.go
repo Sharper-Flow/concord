@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"os"
@@ -60,6 +61,13 @@ func (r *publicationTestRunner) RunNoninteractive(ctx context.Context, repo stri
 		out = r.transform(args, out)
 	}
 	return out, err
+}
+
+func memberMigrationExec(t *testing.T, db *sql.DB, query string, args ...any) {
+	t.Helper()
+	if _, err := db.ExecContext(t.Context(), query, args...); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func publicationEdit(t *testing.T, s *Store, query string, args ...any) {
@@ -298,7 +306,7 @@ func TestKnowledgePublicationHistoricalAndRebuildRetention(t *testing.T) {
 }
 
 func TestKnowledgePublicationCachedProvenanceDrift(t *testing.T) {
-	for _, drift := range []string{"origin", "served", "path", "head_ref", "home", "registration"} {
+	for _, drift := range []string{"origin", "served", "path", "head_ref", "home", "designation"} {
 		t.Run(drift, func(t *testing.T) {
 			s, home, _ := publicationFixture(t)
 			first := publicationObserve(t, s, home)
@@ -314,7 +322,7 @@ func TestKnowledgePublicationCachedProvenanceDrift(t *testing.T) {
 				home.HeadRef = "refs/heads/main"
 			case "home":
 				publicationEdit(t, s, `DELETE FROM product_knowledge_homes WHERE product_id='publication-product'`)
-			case "registration":
+			case "designation":
 				publicationEdit(t, s, `UPDATE products SET version=version+1 WHERE id='publication-product'`)
 			}
 			got, err := s.KnowledgePublicationForRead(t.Context(), home, served, false)
@@ -338,15 +346,15 @@ func TestKnowledgePublicationSourceContainment(t *testing.T) {
 		}
 	}
 	authorizeKnowledgeProductMembership(t, s, "publication-product", other.HomeProjectID)
-	publicationEdit(t, s, `INSERT INTO product_knowledge_sources(product_id,project_id,locator_id,registered_at) VALUES('publication-product',?,?,'registered')`, other.HomeProjectID, other.HomeLocatorID)
+	publicationEdit(t, s, `UPDATE product_knowledge_homes SET project_id=?,locator_id=? WHERE product_id='publication-product'`, other.HomeProjectID, other.HomeLocatorID)
 	got := publicationObserve(t, s, other)
 	if got.Comparison != "match" || got.ProjectID != other.HomeProjectID {
-		t.Fatalf("registered non-home = %+v", got)
+		t.Fatalf("replacement home = %+v", got)
 	}
 	publicationEdit(t, s, `DELETE FROM product_knowledge_homes WHERE product_id='publication-product'`)
 	cached, err := s.KnowledgePublicationForRead(t.Context(), other, got.ServedCommit, false)
 	if err != nil || cached.Comparison != "unknown" {
-		t.Fatalf("registered source after home removal = %+v, %v", cached, err)
+		t.Fatalf("previous home after designation removal = %+v, %v", cached, err)
 	}
 }
 

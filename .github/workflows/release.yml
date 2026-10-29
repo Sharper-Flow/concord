@@ -60,37 +60,15 @@ jobs:
       contents: read
     uses: ./.github/workflows/ci.yml
 
-  # Event-dependent main checks that queue verification cannot prove: CD
-  # allocation against freshly fetched peer refs. Only the reuse route needs
-  # this job; the fallback above runs the same assertion in its own main-push
-  # context.
-  refresh-main-checks:
-    name: refresh event-dependent main checks
-    needs: verify-lookup
-    if: needs.verify-lookup.outputs.mode == 'reuse'
-    runs-on: ubuntu-latest
-    steps:
-      - name: Check out the pushed target
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-        with:
-          ref: ${{ github.sha }}
-          fetch-depth: 0
-          persist-credentials: false
-      - name: Refresh CD allocation against the main push base
-        run: |
-          git fetch origin main --quiet
-          git fetch origin '+refs/heads/*:refs/remotes/origin/*' --quiet
-          python3 scripts/check-cd-allocation.py --no-fetch
-
   # The admission gate. `always()` makes every dependency state explicit:
   # publication requires the lookup to have succeeded AND either
-  # (mode=reuse with refresh succeeded and fallback skipped) or
-  # (mode=full with fallback succeeded and refresh skipped). A failed,
-  # cancelled, unknown, or conflicting state refuses admission, and the
-  # script's exit code - not the mode output alone - is what prepare sees.
+  # (mode=reuse with the fallback skipped) or (mode=full with the fallback
+  # succeeded). A failed, cancelled, unknown, or conflicting state refuses
+  # admission, and the script's exit code - not the mode output alone - is
+  # what prepare sees.
   admit-verification:
     name: admit verified merged SHA
-    needs: [verify-lookup, ci-fallback, refresh-main-checks]
+    needs: [verify-lookup, ci-fallback]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -104,13 +82,12 @@ jobs:
         env:
           LOOKUP_RESULT: ${{ needs.verify-lookup.result }}
           MODE: ${{ needs.verify-lookup.outputs.mode }}
-          REFRESH_RESULT: ${{ needs.refresh-main-checks.result }}
           FALLBACK_RESULT: ${{ needs.ci-fallback.result }}
-        run: python3 scripts/release-evidence.py gate --mode "$MODE" --lookup-result "$LOOKUP_RESULT" --refresh-result "$REFRESH_RESULT" --fallback-result "$FALLBACK_RESULT"
+        run: python3 scripts/release-evidence.py gate --mode "$MODE" --lookup-result "$LOOKUP_RESULT" --fallback-result "$FALLBACK_RESULT"
 
-  # One verification arm is skipped on every route. Explicit status checks keep
-  # that skip from suppressing admitted publication; cancellation and actual
-  # dependency results still refuse it.
+  # The reuse route skips the fallback. Explicit status checks keep that skip
+  # from suppressing admitted publication; cancellation and actual dependency
+  # results still refuse it.
   prepare:
     name: compute release
     needs: admit-verification

@@ -3,7 +3,6 @@
     "tier": "derived"
   },
   "date": "2026-09-28T00:00:00Z",
-  "doc_contract_profile": "current",
   "home_domain_id": "agent-adapter",
   "id": "CD-0189",
   "kind": "decision",
@@ -25,7 +24,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:49836983a988dd773763b86b8b2fcfbe98c6f57672405eb50bb20b321b01b9ca",
+  "sha256": "sha256:7235f5a9d17a1aee5167ee5e025ca8aff112a7cd490dbcd1b180bef89b8eb99a",
   "status": "accepted",
   "summary": "session-prepare runs one bounded bare registry probe of the calling host in the claimed worktree under the calling host's inherited environment, so the verified registry is the one the calling session resolves with, and probe refusals are typed. The configured launch command, its option, and every Go launch obligation are retired; Concord launches nothing.",
   "tags": [

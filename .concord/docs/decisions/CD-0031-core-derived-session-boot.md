@@ -28,7 +28,7 @@ managed action. The per-turn hook re-renders the same bytes through
 - the selected Product and work IDs;
 - the canonical continuity payload, including workflow step, approved contract,
   complete `spec_mandate`, pending operator decision, latest checkpoint,
-  unresolved failure, boundary watermark, pending-message count, un-promoted observations, and typed restart availability.
+  boundary watermark, pending-message count, un-promoted observations, and typed restart availability.
 
 The packet is capped by its own 65,536-byte boot-packet bound, independently of
 the agent-envelope bound. The envelope's request and response

@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-const ManifestDigest = "sha256:39f37b5976b2ccd22fc89eec6c0be685e49d661a1576053c318c2306e7061cc7"
+const ManifestDigest = "sha256:d1237e1128fdeafd886ee4fd2cd6e6609eef828d169896aa57a96c87994b988e"
 
 type OperationKind string
 
@@ -166,7 +166,6 @@ var GeneratedPayloadRules = map[string]GeneratedPayloadRule{
 	"domain_relation":                                       {Required: []string{"kind", "source_domain_id", "target_domain_id", "state"}, Properties: []string{"kind", "source_domain_id", "target_domain_id", "state", "governing_law_ids"}},
 	"domain_shape_fact":                                     {Required: []string{"fact", "path", "content_hash"}, Properties: []string{"fact", "path", "content_hash"}},
 	"domain_shape_input":                                    {Required: []string{"product_id"}, Properties: []string{"product_id", "path", "domain_id", "subject", "requested_budget_seconds"}},
-	"domain_shape_law":                                      {Required: []string{"law_id", "content_hash"}, Properties: []string{"law_id", "content_hash"}},
 	"domain_shape_result":                                   {Required: []string{"product_id", "home_project_id", "home_locator_id", "selector", "knowledge_commit", "snapshot_content_hash", "registry_content_hash", "package_map_content_hash", "tooling_commit", "tooling_content_hash", "roots", "domain_ids", "facts", "governing_law", "reference_verification", "extractor_verification"}, Properties: []string{"product_id", "home_project_id", "home_locator_id", "selector", "knowledge_commit", "snapshot_content_hash", "registry_content_hash", "package_map_content_hash", "tooling_commit", "tooling_content_hash", "roots", "domain_ids", "facts", "governing_law", "reference_verification", "extractor_verification"}},
 	"domain_shape_root":                                     {Required: []string{"path", "role"}, Properties: []string{"path", "role", "owner_domain_id", "domain_ids"}},
 	"domain_shape_selector":                                 {Required: []string{}, Properties: []string{"path", "domain_id", "subject"}},

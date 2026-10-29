@@ -135,7 +135,7 @@ func TestDomainShapeReadingDelegatedProductIsolation(t *testing.T) {
 			if suffix == "b" {
 				law = "CD-0002"
 			}
-			if selected.ProductID != product || len(selected.Facts) != 4 || len(selected.GoverningLaw) != 1 || selected.GoverningLaw[0].LawID != law {
+			if selected.ProductID != product || len(selected.Facts) != 4 || len(selected.GoverningLaw) != 1 || selected.GoverningLaw[0] != law {
 				t.Fatalf("wrong Product facts/law: %+v", selected)
 			}
 			for _, fact := range selected.Facts {
@@ -273,11 +273,7 @@ func TestDomainShapeReadingReconstructsGoverningLawMembership(t *testing.T) {
 	wantIDs := "CD-0001,CD-0004,CD-0005,CD-0008,CD-0009"
 	t.Run("manifest-membership", func(t *testing.T) {
 		selection := DomainShapeResult{DomainIDs: []string{"fixture-law"}, Facts: []DomainShapeFact{{Fact: fact}}}
-		ids := []string{}
-		for _, law := range domainShapeManifestGoverningLaw(manifest, selection) {
-			ids = append(ids, law.LawID)
-		}
-		if strings.Join(ids, ",") != wantIDs {
+		if ids := domainShapeManifestGoverningLaw(manifest, selection); strings.Join(ids, ",") != wantIDs {
 			t.Fatalf("manifest law selection differs: %v", ids)
 		}
 	})
@@ -286,11 +282,7 @@ func TestDomainShapeReadingReconstructsGoverningLawMembership(t *testing.T) {
 	if err := json.Unmarshal(expected, &selected); err != nil {
 		t.Fatal(err)
 	}
-	ids := []string{}
-	for _, law := range selected.GoverningLaw {
-		ids = append(ids, law.LawID)
-	}
-	if strings.Join(ids, ",") != wantIDs {
+	if ids := selected.GoverningLaw; strings.Join(ids, ",") != wantIDs {
 		t.Fatalf("SQL law selection differs: %v", ids)
 	}
 	if err := declareShapeReading(t, f, reading); err != nil {
@@ -330,38 +322,31 @@ func TestDomainShapeReadingRefreshDuringReadKeepsOriginalBytes(t *testing.T) {
 	}
 }
 
+// The result carries law IDs only, so a forged projected law hash or title
+// never reaches the result bytes; a forged membership does and must refuse.
 func TestDomainShapeReadingRejectsProjectedLawForgery(t *testing.T) {
-	for _, mutation := range []string{"content_hash", "membership"} {
-		t.Run(mutation, func(t *testing.T) {
-			f, home, product, _, _ := shapeReadingWorkflowFixture(t, "a")
-			defer f.store.Close()
-			ctx := context.Background()
-			if err := f.store.Transact(ctx, func(tx *Transaction) error {
-				mustTxExec(t, tx, `INSERT INTO write_guard(active) VALUES(1)`)
-				if mutation == "content_hash" {
-					mustTxExec(t, tx, `DELETE FROM law_bodies WHERE home_project_id=? AND law_id='CD-0001'`, home.HomeProjectID)
-					mustTxExec(t, tx, `UPDATE law_subjects SET content_hash=? WHERE home_project_id=? AND law_id='CD-0001'`, "sha256:"+strings.Repeat("f", 64), home.HomeProjectID)
-				} else {
-					mustTxExec(t, tx, `DELETE FROM law_domain_homes WHERE home_project_id=? AND law_id='CD-0001'`, home.HomeProjectID)
-				}
-				mustTxExec(t, tx, `DELETE FROM write_guard`)
-				return nil
-			}); err != nil {
-				t.Fatal(err)
-			}
-			forged, _ := shapeReading(t, f.store, product, DomainShapeSelector{Subject: "invariant-a"})
-			var witnesses []dispatchReadingWitness
-			if err := f.store.readSnapshot(ctx, func(q queryer) error {
-				var err error
-				witnesses, err = sampleDispatchReadingIdentities(ctx, q, f.workID, []WorkContextReading{forged})
-				return err
-			}); err != nil {
-				t.Fatal(err)
-			}
-			if err := resolveDispatchReadingWitnesses(ctx, CommittedReadGitRunner{}, witnesses); !hasFailureKind(err, KindInvalidNoteProof) {
-				t.Fatalf("forged projected law %s acquired committed proof: %v", mutation, err)
-			}
-		})
+	f, home, product, _, _ := shapeReadingWorkflowFixture(t, "a")
+	defer f.store.Close()
+	ctx := context.Background()
+	if err := f.store.Transact(ctx, func(tx *Transaction) error {
+		mustTxExec(t, tx, `INSERT INTO write_guard(active) VALUES(1)`)
+		mustTxExec(t, tx, `DELETE FROM law_domain_homes WHERE home_project_id=? AND law_id='CD-0001'`, home.HomeProjectID)
+		mustTxExec(t, tx, `DELETE FROM write_guard`)
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	forged, _ := shapeReading(t, f.store, product, DomainShapeSelector{Subject: "invariant-a"})
+	var witnesses []dispatchReadingWitness
+	if err := f.store.readSnapshot(ctx, func(q queryer) error {
+		var err error
+		witnesses, err = sampleDispatchReadingIdentities(ctx, q, f.workID, []WorkContextReading{forged})
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := resolveDispatchReadingWitnesses(ctx, CommittedReadGitRunner{}, witnesses); !hasFailureKind(err, KindInvalidNoteProof) {
+		t.Fatalf("forged projected law membership acquired committed proof: %v", err)
 	}
 }
 

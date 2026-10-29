@@ -86,9 +86,8 @@ func init() {
 	registerOutputBound("/$defs/domain_shape_result/properties/domain_ids/items/maxLength", manifestID)
 	registerOutputBound("/$defs/domain_shape_result/properties/governing_law/maxItems", goConstantBound(manifest, "maxManifestRecords", boundItems))
 
-	// Law revision references come from the admitted manifest records.
-	registerOutputBound("/$defs/domain_shape_law/properties/law_id/maxLength", manifestID)
-	registerOutputBound("/$defs/domain_shape_law/properties/content_hash/maxLength", goInlineBound("internal/store/git_knowledge.go", "validateContentHash", "len(hash)", boundBytes))
+	// Law IDs come from the admitted manifest records.
+	registerOutputBound("/$defs/domain_shape_result/properties/governing_law/items/maxLength", manifestID)
 
 	// footprintSelectPathsTx appends exactly one shape per admitted path.
 	registerOutputBound("/$defs/domain_footprint_result/properties/shapes/maxItems", goConstantBound("internal/store/domain_footprint.go", "footprintMaxPaths", boundItems))

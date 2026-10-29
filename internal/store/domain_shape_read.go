@@ -27,16 +27,10 @@ type DomainShapeFact struct {
 	ContentHash string     `json:"content_hash"`
 }
 
-// DomainShapeLaw identifies a complete law revision in the result's knowledge
-// home at KnowledgeCommit. Descriptive metadata stays in the pinned manifest.
-type DomainShapeLaw struct {
-	LawID       string `json:"law_id"`
-	ContentHash string `json:"content_hash"`
-}
-
 // DomainShapeResult pins both the selection and its sources. Fact paths/hashes
-// name raw shards at KnowledgeCommit in the named home; GoverningLaw carries
-// each law's own committed identity. SnapshotContentHash is not a result hash.
+// name raw shards at KnowledgeCommit in the named home; GoverningLaw lists the
+// selected law IDs, whose bytes and hashes resolve from the manifest at
+// KnowledgeCommit. SnapshotContentHash is not a result hash.
 // A required-reading consumer can pin the exact json.Marshal(result) bytes.
 type DomainShapeResult struct {
 	ProductID             string              `json:"product_id"`
@@ -52,7 +46,7 @@ type DomainShapeResult struct {
 	Roots                 []DomainShapeRoot   `json:"roots"`
 	DomainIDs             []string            `json:"domain_ids"`
 	Facts                 []DomainShapeFact   `json:"facts"`
-	GoverningLaw          []DomainShapeLaw    `json:"governing_law"`
+	GoverningLaw          []string            `json:"governing_law"`
 	ReferenceVerification string              `json:"reference_verification"`
 	ExtractorVerification string              `json:"extractor_verification"`
 }
@@ -156,7 +150,7 @@ func selectDomainShape(snapshot DomainShapeSnapshot, home KnowledgeHome, product
 		Selector: selector, KnowledgeCommit: snapshot.KnowledgeCommit, SnapshotContentHash: snapshot.ContentHash,
 		RegistryContentHash: snapshot.RegistryContentHash, PackageMapContentHash: snapshot.MapContentHash,
 		ToolingCommit: snapshot.ToolingCommit, ToolingContentHash: snapshot.ToolingContentHash,
-		Roots: []DomainShapeRoot{}, DomainIDs: []string{}, Facts: []DomainShapeFact{}, GoverningLaw: []DomainShapeLaw{},
+		Roots: []DomainShapeRoot{}, DomainIDs: []string{}, Facts: []DomainShapeFact{}, GoverningLaw: []string{},
 		ReferenceVerification: snapshot.ReferenceVerification, ExtractorVerification: snapshot.ExtractorVerification}
 	rootPaths, domains := map[string]bool{}, map[string]bool{}
 	owner := domainShapeOwningRoot(snapshot.Roots, selector.Path)
@@ -231,7 +225,7 @@ func domainShapeSubjectMatches(fact DomainFact, subject string) bool {
 	return false
 }
 
-func domainShapeGoverningLawTx(ctx context.Context, q queryer, home KnowledgeHome, product string, selection DomainShapeResult) ([]DomainShapeLaw, error) {
+func domainShapeGoverningLawTx(ctx context.Context, q queryer, home KnowledgeHome, product string, selection DomainShapeResult) ([]string, error) {
 	explicit := map[string]bool{}
 	for _, item := range selection.Facts {
 		for _, id := range item.Fact.GoverningLawIDs {
@@ -240,7 +234,7 @@ func domainShapeGoverningLawTx(ctx context.Context, q queryer, home KnowledgeHom
 	}
 	domains, _ := json.Marshal(selection.DomainIDs)
 	laws, _ := json.Marshal(sortedKeys(explicit))
-	rows, err := q.QueryContext(ctx, `SELECT DISTINCT s.law_id,s.content_hash
+	rows, err := q.QueryContext(ctx, `SELECT DISTINCT s.law_id
 	FROM law_subjects s JOIN law_domain_homes h USING(home_project_id,home_locator_id,law_id)
 	WHERE s.home_project_id=? AND s.home_locator_id=? AND h.product_id=? AND s.status='accepted'
 	AND (h.domain_id IN (SELECT value FROM json_each(?)) OR s.law_id IN (SELECT value FROM json_each(?))
@@ -250,10 +244,10 @@ func domainShapeGoverningLawTx(ctx context.Context, q queryer, home KnowledgeHom
 		return nil, err
 	}
 	defer rows.Close()
-	result := []DomainShapeLaw{}
+	result := []string{}
 	for rows.Next() {
-		var law DomainShapeLaw
-		if err := rows.Scan(&law.LawID, &law.ContentHash); err != nil {
+		var law string
+		if err := rows.Scan(&law); err != nil {
 			return nil, err
 		}
 		result = append(result, law)

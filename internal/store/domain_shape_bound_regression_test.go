@@ -55,7 +55,7 @@ func TestCommittedAgentSurfaceAndMixedRootShapeFitBound(t *testing.T) {
 	}
 }
 
-func TestDomainShapeMixedRootLawReferencesPreserveCompleteContext(t *testing.T) {
+func TestDomainShapeMixedRootLawIDsPreserveCompleteContext(t *testing.T) {
 	ctx := context.Background()
 	s := openTemp(t)
 	home, product := domainShapeProjectionFixture(t, s, "a")
@@ -67,9 +67,9 @@ func TestDomainShapeMixedRootLawReferencesPreserveCompleteContext(t *testing.T) 
 	writeManifestFixture(t, home.RepoPath, fixtures...)
 	commit := commitKnowledgeRepo(t, home.RepoPath, "synthetic complete mixed-root law context")
 	manifest := composeWorkingTreeManifest(t, home.RepoPath)
-	want := make([]DomainShapeLaw, len(manifest.Records))
+	want := make([]string, len(manifest.Records))
 	for i, record := range manifest.Records {
-		want[i] = DomainShapeLaw{LawID: record.ID, ContentHash: record.SHA256}
+		want[i] = record.ID
 	}
 	for _, selector := range []DomainShapeSelector{{DomainID: "fixture-law"}, {Path: "legacy/file.go"}} {
 		shape, err := s.QueryDomainShape(ctx, product, selector)

@@ -17,7 +17,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:7e73d733239fd1103ffa83e65f02eb88606b4fbf9b6ce3efc8daa20ccda5b441",
+  "sha256": "sha256:fe6a44cfcf1d964fc0e9701170ebffb9edb393af410bf03842bd6173496682e7",
   "status": "published",
   "summary": "Canonical Product data model with Domains and managed execution under CD-0222; CD-0213 places planning and business grouping in Linear through the Linear MCP server.",
   "tags": [

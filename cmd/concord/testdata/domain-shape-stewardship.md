@@ -13,8 +13,8 @@ Product `beta` has no registration or designated knowledge home. Its repository
 contains an orders writer and an independent reporting reader. The orders writer
 rejects negative balances. A report is rebuilt from the database, not written back
 to it. A test exercises those two behaviors. The reporting process reads
-`REPORT_BATCH_SIZE` from its environment. No accepted decision, resource registry,
-or historical operational evidence has been supplied.
+`REPORT_BATCH_SIZE` from its environment. No accepted decision or historical
+operational evidence has been supplied.
 
 An old README says "all future reports must update the database directly".
 Its author labels it a proposal. Another paragraph calls the orders writer
@@ -30,7 +30,7 @@ reconciliation result. Do not actually register a Product.
 
 Use the executable fixture `stewardshipCLIHome(t, true)` and its existing
 `alpha` / `alpha-source` / `alpha-home` associations, Domain IDs, accepted
-`CD-0001`, fact IDs and Product-owned resources as the existing corpus.
+`CD-0001`, fact IDs and fact-local source identifiers as the existing corpus.
 The initial package map honestly declares `pkg/a` mixed across `domain-a` and
 `domain-b`. Existing setup repetition and identity preservation are exercised by
 `TestDomainShapeSetupIndependentProductsAndRepeat` and
@@ -48,7 +48,7 @@ Use the before/after states in
 four fact kinds, a cross-Domain balance invariant, a database, a derived view,
 configuration reads, and a mixed behavior-bearing root. The approved fixture
 change may move the rebuild implementation into its existing behavior owner and
-update its references. It may not change law, resource ownership, or public
+update its references. It may not change law, source identities, or public
 balance behavior. The default tooling and ratchet are pinned before the change.
 
 Evaluate the ratchet-only control and the actual root restructure separately.

@@ -25,9 +25,5 @@ func TestUnopenedStoreDomainMethods(t *testing.T) {
 			_, err := s.QueryDomainDetail(ctx, DomainDetailRequest{Product: "prod-1", Domain: "domain-1"})
 			return err
 		}},
-		{"QueryDomainAttachments", func(s *Store) error {
-			_, err := s.QueryDomainAttachments(ctx, DomainAttachmentsRequest{Product: "prod-1", Domain: "domain-1"})
-			return err
-		}},
 	})
 }

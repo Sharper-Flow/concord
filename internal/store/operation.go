@@ -212,10 +212,6 @@ var eventKindRegistry = map[string]EventKindRegistration{
 	"work_project.removed":                    registerEventKind[membershipPayload](1, EventAppendAuthorityGeneric, workMembershipEdge.foldRemoved, nil),
 	"work_project.role_changed":               registerEventKind[membershipPayload](1, EventAppendAuthorityGeneric, workMembershipEdge.foldRoleChanged, nil),
 	"compaction_link.published":               registerEventKind[compactionLinkPayload](3, EventAppendAuthorityGeneric, foldCompactionLinkPublished, nil),
-	"managed_resource.created":                registerEventKind[managedResourceCreatedPayload](1, EventAppendAuthorityGeneric, foldManagedResourceCreated, nil),
-	"managed_resource.consumer_added":         registerEventKind[managedResourceConsumerAddedPayload](1, EventAppendAuthorityGeneric, foldManagedResourceConsumerAdded, nil),
-	"managed_resource.updated":                registerEventKind[managedResourceUpdatedPayload](1, EventAppendAuthorityGeneric, foldManagedResourceUpdated, nil),
-	"domain.resource_attachments_replaced":    registerEventKind[domainResourceAttachmentsReplacedPayload](1, EventAppendAuthorityGeneric, foldDomainResourceAttachmentsReplaced, nil),
 	"domain.observation_recorded":             registerEventKind[domainObservationRecordedPayload](1, EventAppendAuthorityGeneric, foldDomainObservationRecorded, nil),
 	"domain.observation_dismissed":            registerEventKind[domainObservationDismissedPayload](1, EventAppendAuthorityGeneric, foldDomainObservationDismissed, nil),
 	WorkerJobRecorded:                         registerEventKind[WorkerJobRecordedPayload](1, EventAppendAuthorityWorkflow, foldWorkerJobRecorded, validateWorkerJobRecordedPayload),
@@ -283,6 +279,9 @@ func prepareRegisteredEvent(event Event) (preparedRegisteredEvent, error) {
 		"product.planning_mode_set", "initiative_entry.added", "initiative_entry.removed",
 		"initiative_entry.reordered", "initiative_entry.requiredness_changed", "initiative.narrative_revised":
 		return preparedRegisteredEvent{stage: StageDecode}, retiredEventAppendRefused(event.Kind)
+	case retiredManagedResourceCreated, retiredManagedResourceConsumerAdded,
+		retiredManagedResourceUpdated, retiredDomainResourceAttachments:
+		return preparedRegisteredEvent{stage: StageDecode}, catalogRetiredEventAppendRefused(event.Kind)
 	}
 	registration, ok := registeredEventKind(event.Kind)
 	if !ok {
@@ -422,9 +421,6 @@ func applyOperationTx(ctx context.Context, tx *sql.Tx, operation Operation, scop
 	if err := validateMembershipInvariantsTx(ctx, tx); err != nil {
 		return output, err
 	}
-	if err := validateDomainAttachmentInvariantsTx(ctx, tx); err != nil {
-		return output, err
-	}
 	if err := scope.close(ctx); err != nil {
 		return output, err
 	}
@@ -545,9 +541,6 @@ func applyOperationObserved(ctx context.Context, s *Store, operation Operation, 
 	}
 	output.EventIDs = append([]string{}, scope.eventIDs[startReceipt:]...)
 	if err := validateMembershipInvariantsTx(ctx, tx.Tx); err != nil {
-		return output, rollback(err)
-	}
-	if err := validateDomainAttachmentInvariantsTx(ctx, tx.Tx); err != nil {
 		return output, rollback(err)
 	}
 	output.Impact, err = membershipImpact(ctx, tx.Tx, operation)

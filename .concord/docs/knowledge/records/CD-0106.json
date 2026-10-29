@@ -20,9 +20,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:b82ad8362962d0b86c9c88fde8357ea5baec26a2711503872478519072881182",
+  "sha256": "sha256:6834797874d35597e6178ee9e280ad24244e17818bf40310916e3fb57109339b",
   "status": "accepted",
-  "summary": "episode is removed as an external authority and CD-0086 is superseded in full. The knowledge ladder is observation, lesson, decision, and every rung exists today. lesson graduation replaces the episode promotion seam. External-system identity lives in managed_resources and learned usage is a lesson tagged resource:<id>; a record stores a vendor documentation locator, never vendor content. The seven episode rows are exported and migrate to lesson records in their own Product homes.",
+  "summary": "episode is removed as an external authority and CD-0086 is superseded in full. The knowledge ladder is observation, lesson, decision. lesson graduation replaces the episode promotion seam. Learned external-system usage is a Product-scoped lesson tagged resource:<id>; a record stores a vendor documentation locator, never vendor content.",
   "tags": [
     "knowledge",
     "lesson",

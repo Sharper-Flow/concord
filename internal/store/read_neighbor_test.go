@@ -688,7 +688,6 @@ func TestReadEntryPointsWithNeighbor(t *testing.T) {
 			_, err := BackupWithOptions(ctx, s, optioned, BackupOptions{SnapshotID: "neighbor-snapshot"})
 			return err
 		}},
-		{name: "Resources", run: func() error { _, err := s.Resources(ctx, ResourcesRequest{ProductID: "prod"}); return err }},
 		{name: "BlockedSessions", run: func() error { _, err := s.BlockedSessions(ctx, time.Now(), []string{"prod"}, 100); return err }},
 		{name: "ReadSessionClaimedWorktree", run: func() error {
 			_, err := ReadSessionClaimedWorktree(ctx, s, "neighbor-work", "proj")

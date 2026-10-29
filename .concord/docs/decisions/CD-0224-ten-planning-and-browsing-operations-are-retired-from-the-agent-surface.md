@@ -89,7 +89,7 @@ An unprocessed document stays not law. The authoritative negative is
 `concord_knowledge.resolve_note` returning `knowledge_missing` for the
 record the document would need. Text search is not a substitute for it.
 
-The Domain reads `list`, `detail`, `attachments`, and `overlaps` remain.
+The Domain reads `list`, `detail`, and `overlaps` remain.
 Existing `domain_observations` rows stay readable on `detail` under the
 bounded open window, an observation satisfies nothing, and promotion out of
 an observation stays the CD-0018 `raised_from` capture path that CD-0068 D4

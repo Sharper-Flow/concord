@@ -75,7 +75,7 @@ func TestWorkSizeCaptureIgnoresOversizedFactSelection(t *testing.T) {
 	}
 }
 
-func TestWorkSizeCaptureIgnoresUnconsumedFactResourceDrift(t *testing.T) {
+func TestWorkSizeCaptureIgnoresUnconsumedFactMembershipDrift(t *testing.T) {
 	ctx := context.Background()
 	s := openTemp(t)
 	home, product := domainShapeProjectionFixture(t, s, "a")
@@ -83,15 +83,26 @@ func TestWorkSizeCaptureIgnoresUnconsumedFactResourceDrift(t *testing.T) {
 		t.Fatal(err)
 	}
 	before := recordShapeWorkSize(t, s, home, product, []string{"src/file.go"})
-	mutateSizeProjection(t, s, `UPDATE resource_products SET product_id='anchor-product-project-a' WHERE resource_id='database-a'`)
+	// An added membership drifts the model-owned Project join without
+	// touching the shape content sizing consumes.
+	mutateSizeProjection(t, s,
+		`INSERT OR IGNORE INTO projects(id,display_name,version,created_at,updated_at) VALUES('project-drift','project-drift',1,'now','now')`,
+		`INSERT INTO product_projects(product_id,project_id,role) VALUES('product-a','project-drift','secondary')`)
+	if _, err := s.QueryDomainFootprint(ctx, DomainFootprintRequest{Product: product, Paths: []string{"src/file.go"}}); err != nil {
+		t.Fatalf("unconsumed membership drift failed the footprint: %v", err)
+	}
+	after := recordShapeWorkSize(t, s, home, product, []string{"src/file.go"})
+	if before.Inputs != after.Inputs || before.Size != after.Size || !reflect.DeepEqual(before.Footprint, after.Footprint) {
+		t.Fatalf("unconsumed membership drift changed sizing: before=%+v after=%+v", before, after)
+	}
+	// Removing the membership a stored fact names is consumed drift: the
+	// public footprint refuses through the shape projection, and the public
+	// result stays empty.
+	mutateSizeProjection(t, s, `DELETE FROM product_projects WHERE product_id='product-a' AND project_id='project-a'`)
 	public, err := s.QueryDomainFootprint(ctx, DomainFootprintRequest{Product: product, Paths: []string{"src/file.go"}})
 	assertFailureKind(t, err, KindInvalidNoteProof)
 	if !reflect.DeepEqual(public, DomainFootprintResult{}) {
 		t.Fatal("public footprint suppressed a shape reference failure")
-	}
-	after := recordShapeWorkSize(t, s, home, product, []string{"src/file.go"})
-	if before.Inputs != after.Inputs || before.Size != after.Size || !reflect.DeepEqual(before.Footprint, after.Footprint) {
-		t.Fatalf("unconsumed resource drift changed sizing: before=%+v after=%+v", before, after)
 	}
 }
 

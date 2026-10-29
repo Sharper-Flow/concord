@@ -6,7 +6,7 @@
 > **Binding inputs:** PM1–PM9, CD-0002 I1–I6, PM2 global SQLite authority,
 > PM6 git notes, compaction-retention-policy projection pruning, PM8 no-CAS boundary, PM9 no-receipt boundary.
 > **Does not decide:** remote replication provider, encryption/key custody, retention
-> schedule, C15, TS1–TS9, or a new blob store.
+> schedule, TS1–TS9, or a new blob store.
 
 [CD-0243 D7](decisions/CD-0243-four-roles-and-six-operator-approval-classes.md#d7-the-remaining-owners-use-the-same-approval-boundary)
 qualifies every operator-consent clause in this record, including tables and

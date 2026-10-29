@@ -140,24 +140,6 @@
               "const": "concord_domain"
             },
             "operation": {
-              "const": "attachments"
-            },
-            "query_id": {
-              "const": "C22.DomainAttachments"
-            }
-          }
-        },
-        {
-          "required": [
-            "tool",
-            "operation",
-            "query_id"
-          ],
-          "properties": {
-            "tool": {
-              "const": "concord_domain"
-            },
-            "operation": {
               "const": "footprint"
             },
             "query_id": {
@@ -603,24 +585,6 @@
           ],
           "properties": {
             "tool": {
-              "const": "concord_product_view"
-            },
-            "operation": {
-              "const": "resources"
-            },
-            "query_id": {
-              "const": "C15.Resources"
-            }
-          }
-        },
-        {
-          "required": [
-            "tool",
-            "operation",
-            "query_id"
-          ],
-          "properties": {
-            "tool": {
               "const": "concord_work_trace"
             },
             "operation": {
@@ -709,7 +673,6 @@
         "operation": {
           "enum": [
             "",
-            "attachments",
             "blocked",
             "blocked_sessions",
             "capture",
@@ -744,7 +707,6 @@
             "resolve_note",
             "observe_publication",
             "resolve_overlap",
-            "resources",
             "revise_intent",
             "scope",
             "search",
@@ -774,7 +736,7 @@
         },
         "query_id": {
           "type": "string",
-          "pattern": "^(PM1\\.Q(1[0-46]|[1-9])|CD-0020\\.R1|CD-0030\\.R1|CD-0040\\.R1|CD-0096\\.R1|CD-0182\\.R1|C15\\.Resources|C19\\.(Continuity|MutationResult)|C22\\.Domain(List|Detail|Attachments|Overlaps|Footprint|Shape))$"
+          "pattern": "^(PM1\\.Q(1[0-46]|[1-9])|CD-0020\\.R1|CD-0030\\.R1|CD-0040\\.R1|CD-0096\\.R1|CD-0182\\.R1|C19\\.(Continuity|MutationResult)|C22\\.Domain(List|Detail|Overlaps|Footprint|Shape))$"
         },
         "outcome": {
           "enum": [
@@ -1193,7 +1155,6 @@
         },
         "operation": {
           "enum": [
-            "attachments",
             "blocked",
             "blocked_sessions",
             "capture",
@@ -1228,7 +1189,6 @@
             "resolve_note",
             "observe_publication",
             "resolve_overlap",
-            "resources",
             "revise_intent",
             "scope",
             "search",
@@ -1258,7 +1218,7 @@
         },
         "query_id": {
           "type": "string",
-          "pattern": "^(PM1\\.Q(1[0-46]|[1-9])|CD-0020\\.R1|CD-0030\\.R1|CD-0040\\.R1|CD-0096\\.R1|CD-0182\\.R1|C15\\.Resources|C19\\.(Continuity|MutationResult)|C22\\.Domain(List|Detail|Attachments|Overlaps|Footprint|Shape))$"
+          "pattern": "^(PM1\\.Q(1[0-46]|[1-9])|CD-0020\\.R1|CD-0030\\.R1|CD-0040\\.R1|CD-0096\\.R1|CD-0182\\.R1|C19\\.(Continuity|MutationResult)|C22\\.Domain(List|Detail|Overlaps|Footprint|Shape))$"
         },
         "reason_code": {
           "type": "string",

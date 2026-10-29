@@ -32,9 +32,9 @@ as an empty result, or replace the source with unreviewed local guidance.
 ## Shared investigation
 
 1. Establish the selected Product, its designated knowledge home, registered
-   source Projects, current Domain registry, resources, repository subject, and
-   approved change scope. Read them with `concord_product_view.resolve`,
-   `concord_product_view.resources`, and `concord_domain.list`. Preserve valid
+   source Projects, current Domain registry, repository subject, and
+   approved change scope. Read them with `concord_product_view.resolve`
+   and `concord_domain.list`. Preserve valid
    authored identities; a display key is not permission to change a Product or
    source association.
 2. Inspect existing knowledge, implementation entry points, tests, operating

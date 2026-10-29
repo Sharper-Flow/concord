@@ -2,7 +2,6 @@ package pm1fixture
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 
 	"github.com/sharper-flow/concord/internal/store"
@@ -12,9 +11,8 @@ import (
 // single-Domain evidence fixture holds Concord's own registry shape, this one
 // exists so every optional field a Domain read can carry is non-zero at once: a
 // child Domain with a parent, an architecture relation with governing law, a law
-// with applicability beyond its home, and both attachment kinds. A read of this
-// state exercises every declared property of its result schema rather than the
-// subset a minimal Product happens to populate.
+// with applicability beyond its home. A read of this state exercises every
+// declared property rather than the subset a minimal Product populates.
 
 const (
 	// PayloadRootDomainID is the registry root and the child Domain's parent.
@@ -23,13 +21,10 @@ const (
 	PayloadChildDomainID = "sync"
 	// PayloadLawID is the accepted decision homed to the child Domain.
 	PayloadLawID = "CD-0101"
-	// PayloadResourceID is the managed resource attached to the child Domain.
-	PayloadResourceID = "payload-queue"
 
-	payloadProductKey       = "payload"
-	payloadLawPath          = ".concord/docs/decisions/CD-0101.md"
-	payloadLawBody          = "The child Domain owns synchronization law.\n"
-	payloadResourceMetadata = `{}`
+	payloadProductKey = "payload"
+	payloadLawPath    = ".concord/docs/decisions/CD-0101.md"
+	payloadLawBody    = "The child Domain owns synchronization law.\n"
 )
 
 // DomainPayloadEvidenceOptions names the identities the populated registry binds
@@ -69,10 +64,9 @@ func (o DomainPayloadEvidenceOptions) validate() error {
 }
 
 // SeedDomainPayloadEvidence projects the two-Domain registry for opts.ProductID,
-// binds a nonterminal contract per work item to the child Domain, and attaches
-// both the home Project and a managed resource to it. The Product and Project
-// must already exist; SeedProductAndProject creates them at the version this
-// fixture expects.
+// binds a nonterminal contract per work item to the child Domain.
+// The Product and Project must already exist;
+// SeedProductAndProject creates them at the version this fixture expects.
 func SeedDomainPayloadEvidence(ctx context.Context, s *store.Store, opts DomainPayloadEvidenceOptions) error {
 	if err := opts.validate(); err != nil {
 		return err
@@ -110,20 +104,6 @@ func SeedDomainPayloadEvidence(ctx context.Context, s *store.Store, opts DomainP
 		return err
 	}
 
-	resource := store.ManagedResourceCreateRequest{
-		EventID: "payload-resource", ResourceID: PayloadResourceID, ProductID: opts.ProductID,
-		DisplayName: "Queue", Class: "infrastructure", Kind: "queue", Purpose: "dispatches synchronization work",
-		StageMaturity: "production", StageAudienceCommitment: "limited", Environments: []string{"production"},
-		MetadataSchemaVersion: "1", Metadata: json.RawMessage(payloadResourceMetadata),
-		ExpectedProductVersion: 2, Actor: "operator", OccurredAt: DomainEvidenceTime,
-	}
-	if _, err := store.CreateManagedResource(ctx, s, resource); err != nil {
-		return fmt.Errorf("pm1fixture: seed managed resource: %w", err)
-	}
-	resourceEdges := store.DomainResourceAttachmentsRequest{EventID: "payload-resource-edges", ProductID: opts.ProductID, DomainID: PayloadChildDomainID, ExpectedVersion: 0, Attachments: []store.DomainResourceAttachment{{ResourceID: PayloadResourceID, Purpose: "dispatches synchronization work", Environments: []string{"production"}}}, Actor: "operator", OccurredAt: DomainEvidenceTime.Add(1)}
-	if err := store.ReplaceDomainResourceAttachments(ctx, s, resourceEdges); err != nil {
-		return fmt.Errorf("pm1fixture: seed populated resource attachments: %w", err)
-	}
 	return nil
 }
 

@@ -27,8 +27,7 @@
       "operations": [
         "concord_product_view.resolve",
         "concord_product_view.snapshot",
-        "concord_product_view.blocked_sessions",
-        "concord_product_view.resources"
+        "concord_product_view.blocked_sessions"
       ]
     },
     {
@@ -127,11 +126,10 @@
     },
     {
       "id": "concord_domain",
-      "description": "Navigate Product architecture: current Domains, current law, attachments, the footprint of a change, and typed Domain Shape selected by one path, Domain or subject. Shape results are bounded to 32768 bytes and never execute Product checks.",
+      "description": "Navigate Product architecture: current Domains, current law, the footprint of a change, and typed Domain Shape selected by one path, Domain or subject. Shape results are bounded to 32768 bytes and never execute Product checks.",
       "operations": [
         "concord_domain.list",
         "concord_domain.detail",
-        "concord_domain.attachments",
         "concord_domain.footprint",
         "concord_domain.shape"
       ]
@@ -187,27 +185,6 @@
       "query_id": "PM1.Q12",
       "input_schema": "#/schemas/product_view_blocked_sessions_input",
       "result_schema": "#/schemas/blocked_sessions_page",
-      "capability": "product_read",
-      "consequence": "read",
-      "approval": "none",
-      "metadata": {
-        "context": "ambient",
-        "idempotency": "request_id",
-        "pagination": "cursor",
-        "output_bytes": 51200,
-        "versions": [
-          "1.0"
-        ]
-      },
-      "supported_budget_seconds": 300
-    },
-    {
-      "id": "concord_product_view.resources",
-      "tool": "concord_product_view",
-      "kind": "read",
-      "query_id": "C15.Resources",
-      "input_schema": "#/schemas/product_view_resources_input",
-      "result_schema": "#/schemas/resource_page",
       "capability": "product_read",
       "consequence": "read",
       "approval": "none",
@@ -1253,27 +1230,6 @@
       "supported_budget_seconds": 300
     },
     {
-      "id": "concord_domain.attachments",
-      "tool": "concord_domain",
-      "kind": "read",
-      "query_id": "C22.DomainAttachments",
-      "input_schema": "#/schemas/domain_attachments_input",
-      "result_schema": "#/schemas/domain_attachments_result",
-      "capability": "product_read",
-      "consequence": "read",
-      "approval": "none",
-      "metadata": {
-        "context": "explicit",
-        "idempotency": "request_id",
-        "pagination": "none",
-        "output_bytes": 51200,
-        "versions": [
-          "1.0"
-        ]
-      },
-      "supported_budget_seconds": 300
-    },
-    {
       "id": "concord_domain.footprint",
       "tool": "concord_domain",
       "kind": "read",
@@ -1462,14 +1418,6 @@
       "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/continuity_snapshot",
       "closed": true
     },
-    "domain_attachments_input": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/domain_attachments_input",
-      "closed": true
-    },
-    "domain_attachments_result": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/domain_attachments_result",
-      "closed": true
-    },
     "domain_detail_input": {
       "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/domain_detail_input",
       "closed": true
@@ -1534,10 +1482,6 @@
       "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/product_view_resolve_input",
       "closed": true
     },
-    "product_view_resources_input": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/product_view_resources_input",
-      "closed": true
-    },
     "product_view_snapshot_input": {
       "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/product_view_snapshot_input",
       "closed": true
@@ -1548,10 +1492,6 @@
     },
     "research_read_result": {
       "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/research_read_result",
-      "closed": true
-    },
-    "resource_page": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/resource_page",
       "closed": true
     },
     "session_boot_packet": {
@@ -1884,6 +1824,6 @@
       "digest"
     ]
   },
-  "payload_digest": "sha256:b9fb13a8c7af0db460dbf553754d436dd4c5253abab8ecfbbb52a3afb6f5f84e",
-  "digest": "sha256:44ad3f8b1ab2c2cce1d32609428efbaedbf5a92286d514536c86485c0e7bcabd"
+  "payload_digest": "sha256:e3f3085870c65c9818821c7e47d0cd745b27816bc20d3b6443f3d76cd48e799a",
+  "digest": "sha256:de890cbfa6b8bf97c04667c2c27df8f6e6d94125e9bc31b6a23e50ffb276ce90"
 }

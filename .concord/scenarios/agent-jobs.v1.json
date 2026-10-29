@@ -91,10 +91,6 @@
   {
    "id": "AJ8",
    "name": "execute_operational_work"
-  },
-  {
-   "id": "AJ9",
-   "name": "read_resource_inventory"
   }
  ],
  "scenarios": [
@@ -1088,68 +1084,6 @@
     "invariants": [
      "honest_recovery",
      "evidence_authority"
-    ]
-   }
-  },
-  {
-   "id": "AJ9-product-resources",
-   "job_id": "AJ9",
-   "instruction": "Which external systems does this Product own or consume, and where is each vendor's documentation?",
-   "initial_state": {
-    "fixture": "PM1",
-    "ambient_project": "proj-web"
-   },
-   "expected": {
-    "assertions": [
-     {
-      "target": "result",
-      "path": "resource_ids",
-      "op": "set_eq",
-      "value": [
-       "vendor-api"
-      ]
-     },
-     {
-      "target": "result",
-      "path": "owner_product_id",
-      "op": "eq",
-      "value": "prod-alpha"
-     },
-     {
-      "target": "result",
-      "path": "consumer_product_ids",
-      "op": "set_eq",
-      "value": [
-       "prod-beta"
-      ]
-     },
-     {
-      "target": "result",
-      "path": "documentation_locator",
-      "op": "eq",
-      "value": "/vendor/api-docs"
-     },
-     {
-      "target": "effects",
-      "path": "vendor_content_inlined",
-      "op": "absent"
-     },
-     {
-      "target": "effects",
-      "path": "resource_mutation",
-      "op": "absent"
-     },
-     {
-      "target": "authority",
-      "path": "status",
-      "op": "eq",
-      "value": "authoritative"
-     }
-    ],
-    "invariants": [
-     "correct_scope",
-     "canonical_authority",
-     "bounded_context"
     ]
    }
   }

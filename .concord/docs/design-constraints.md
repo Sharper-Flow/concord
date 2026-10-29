@@ -144,16 +144,15 @@ Accepted CD-0012 additionally requires completion criteria to include an **outco
 
 ## 11. Product ownership is declarative, not bridged
 
-**Requirement.** A Product declaratively owns its Domains, Projects, and managed
-resources, but Concord does not bridge to external systems or call their APIs by
+**Requirement.** A Product declaratively owns its Domains and Projects,
+but Concord does not bridge to external systems or call their APIs by
 default. Ownership and architecture are recorded facts, not active integrations.
 
 **Implication.** External systems may be pulled in as signals (e.g. azure job status), but those signals are read-only inputs, not Concord-authored state. Concord does not take responsibility for operational state it cannot authoritatively track.
 
 **Direction.** Typed, schema-validated state is the canonical ownership form.
 The Product Git knowledge home owns shared Domain identity, hierarchy, and
-architecture relations; SQLite projects that law and owns local
-Domain→resource attachments. Domains are never derived from tags, paths,
+architecture relations; SQLite projects that law. Domains are never derived from tags, paths,
 or external planning membership. See
 [`product-data-model.md`](./product-data-model.md) and
 [`capability-placement.md`](./capability-placement.md).

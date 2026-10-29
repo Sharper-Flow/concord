@@ -12,17 +12,13 @@
 
 ## TL;DR
 
-A Product **declaratively owns or consumes** Projects, infrastructure, SaaS
-solutions, and **Domains**. A Domain is the canonical Product-internal
-architectural unit that owns behavior, invariants, and law. Concord records
-canonical identity plus ownership/use links—it does **not** bridge to external
-members or call their APIs. The model makes both ownership and architecture
-legible to agents.
+A Product owns Projects and **Domains**. A Domain is the canonical
+Product-internal architectural unit that owns behavior, invariants, and law.
+Concord records canonical identity and membership. The model makes ownership
+and architecture legible to agents.
 
-Ownership alone is not enough to act safely. Each owned thing also declares a
-**lifecycle stage** (§8) and may be **shared with other Products** (§9). Those
-properties compose into the rules that decide how much rigor a piece of work must
-carry (§10).
+Each Product declares a **lifecycle stage** (§8), which Projects and Domains
+may override.
 
 Product-changing work additionally binds to one home Domain, every affected
 Domain, exact governing law revisions, authorized law changes, and verification
@@ -51,9 +47,9 @@ follows them without restating the ranked list.
 
 ## 2. Member and architecture types
 
-A Product owns durable members and one canonical architecture. Projects and
-managed resources identify physical or external scope. Domains identify the
-Product-internal architecture through which law and work are organized.
+A Product owns durable Projects and one canonical architecture. Projects
+identify repository scope. Domains identify the Product-internal architecture
+through which law and work are organized.
 
 ### 2.1 Repositories
 - Git repos are locators on stable Project identities (e.g. `alpha-web`,
@@ -64,37 +60,21 @@ Product-internal architecture through which law and work are organized.
 - These are the *code* members — the units Concord orchestrates
   changes/worktrees against.
 
-### 2.2 Infrastructure
-- Operational resources the Product depends on: azure jobs, crons, deployed
-  services, databases, queues, etc.
-- **Recorded:** kind, identifier, role/purpose, owning Product.
-- **Not** live-polled by the ownership model (that's the optional signal layer).
-
-### 2.3 SaaS solutions
-- Third-party services: Supabase, PostHog, Stripe, etc.
-- **Recorded:** provider, what it's used for, environment(s), role.
-- Concord knows *"Alpha uses Supabase for its DB and PostHog for analytics"*
-  as a **fact** — not by querying them.
-
 ### 2.4 Domains (architecture authority)
 - A **Domain** is a stable Product-internal unit that owns behavior, invariants,
   architectural contracts, and the code that implements them. It is not a
   cross-cutting concern. A rule that binds several Domains belongs to the
   enforcing Domain as an invariant fact
   ([CD-0244 D1 and D6](decisions/CD-0244-domains-own-code-exclusively-and-hold-typed-facts.md#d1-a-domain-exclusively-owns-its-code)).
-- Every Domain belongs to exactly one Product. It may refer to Projects and
-  managed resources without becoming either one.
+- Every Domain belongs to exactly one Product.
 - Domain identity, hierarchy, and architecture relations are declared in the
-  Product's Git knowledge manifest. SQLite projects that law and owns only local
-  stage/resource attachments. Neither side infers identity from paths,
-  tags, repository names, or planning groups.
+  Product's Git knowledge manifest. SQLite projects that law. Neither side
+  infers identity from paths, tags, repository names, or planning groups.
 - A Domain may have zero or one parent Domain. The `subdomain_of` hierarchy is
   acyclic; additional architecture relations follow CD-0222's endpoint-specific
   grammar.
-- Example: "Alpha → Sync Domain → accepted sync law, active changes, cron
-  resource, sync API dependency, and `alpha-sync` Project."
 - Domains are where current law, active workflows, evidence, decisions,
-  resources, and recent changes are surfaced together.
+  typed facts, and recent changes are surfaced together.
 
 `component` is a retired authority term. It may appear in historical records or
 ordinary UI prose during migration, but no second component identity or generic
@@ -106,7 +86,7 @@ grouping store survives the CD-0222 target state.
 
 - Everything a Product owns is **co-located and navigable together**. An agent
   working on a Product immediately sees its Domains and, through them, current
-  law, Projects, managed resources, active work, evidence, and ops.
+  law, Projects, active work, evidence, and ops.
 - *"Where things belong"* must be **obvious** — no hunting across disconnected
   systems to learn what a Product comprises.
 - This is a **first-class design goal**, not a nice-to-have. The data model
@@ -120,12 +100,11 @@ grouping store survives the CD-0222 target state.
 Both query directions are first-class:
 
 - **Product → members:** *"What does Alpha own?"* → its Domains, Projects,
-  resources, current law, active work, and ops.
-- **Member → Product:** *"Which Product owns this azure job / repo / SaaS?"* →
-  Alpha.
+  current law, active work, and ops.
+- **Member → Product:** *"Which Product contains this Project?"* → Alpha.
 
-The census/registry must be queryable by agents through CD-0005's governed surface;
-accepted C15 defines the inventory while any new operation still follows TS8/TS9.
+Membership is queryable by agents through CD-0005's governed surface;
+new operations follow TS8/TS9.
 
 ---
 
@@ -140,28 +119,18 @@ Product {
       locators: [{ id, kind: repo, path?, remote? }] }
   ],                                    // accepted PM5 membership
   knowledge_home?: { project_id, locator_id }, // accepted PM6 placement
-  resource_links: [
-    { resource_id, role: owner|consumer, purpose, environments },
-  ],                                    // accepted C15 membership
   domains: [
     { id, name, purpose, parent_domain_id?, status, registry_content_hash,
-      project_links: [{ project_id, role: primary|supporting }],
-      resource_links: [{ resource_id, purpose, environments }],
       current_law_refs, active_workflows, recent_changes, stage_override? }
   ],
   domain_relations,
   ...ops scoped to this Product
 }
-
-ManagedResource {
-  id, class, kind, display_name, purpose, stage, environments,
-  locators: [{ authority_kind, authority_id, namespace?, kind, value, role }],
-}
 ```
 
-`stage` is decided (§8). Product↔Project membership follows accepted PM5. Non-Project
-resource identity and attachments follow accepted C15. Domain replacement and
-work-item supersession keep their bounded owners in CD-0222 and PM4.
+`stage` is decided (§8). Product↔Project membership follows accepted PM5.
+Domain replacement and work-item supersession keep their bounded owners in
+CD-0222 and PM4.
 
 Business grouping lives in Linear under CD-0213. Product embeds no grouping record, and grouping is not a second Product,
 Domain, or architecture authority.
@@ -183,7 +152,7 @@ a flat list of changes or workflows.
 - Open a Product and reach its Domain law and unresolved work overlap.
 - Exact Domain-detail reads retain canonical relation tuples for governed work.
 - Drill into a Domain to see its current law, dependencies, active workflows,
-  evidence, decisions, resources, recent changes, and operational
+  evidence, decisions, typed facts, recent changes, and operational
   signals.
 - A change or workflow is **architecture-bound history** from the Domain; it is not the
   top-level browse path.
@@ -248,9 +217,6 @@ promise exists.
 - **Project or Domain** may override it. A Product can hold a production web app
   and a prototype sibling repo; one stage for the whole Product would be a lie
   about one of them.
-- **Infrastructure and SaaS resources** carry their own stage. A shared
-  production database does not become less production because a prototype repo
-  happens to link to it.
 
 Absent an override, a member inherits its Product's stage.
 
@@ -291,33 +257,6 @@ can act on; "this was accepted" is not.
 
 ---
 
-## 9. Shared and linked resources
-
-> **Status:** **Accepted by C15, 2026-08-06.** Binding detail:
-> [`managed-resource-inventory.md`](./managed-resource-inventory.md).
-
-§2.2 and §2.3 record infrastructure and SaaS solutions as members beneath one
-owning Product. That is insufficient in practice: **some managed resources are
-shared across Products.** A single Supabase project, a shared queue, an
-observability account, or a CI runner pool may serve several Products at once.
-
-Two candidate shapes were evaluated. C15 selects the resource-first registry.
-
-| Shape | How it works | Cost |
-|---|---|---|
-| **Extend membership** | Keep Product-owns-members. Add a primary owner plus an optional `shared_with` list. | **Rejected:** copies can diverge in identity, stage, and ownership. |
-| **Resource-first registry** | Resources become first-class entities with their own identity and stage. Products link as one owner plus zero-or-more consumers. | **Selected:** canonical both-direction ownership, sharing, stage, and work links. |
-
-Per-resource stage attaches once to canonical resource identity. Managed resources
-store explicit stage; they do not dynamically inherit
-from several linked Products. Exactly one Product owns; others consume. Native
-systems retain runtime authority.
-
-What is **not** open: credentials and secrets stay out of the census (§1), and
-cost or billing attribution is not part of this model.
-
----
-
 ## 10. Bounded replacement relations
 
 > **Status:** Bounded existing mechanisms. CD-0222 owns Domain replacement and
@@ -329,30 +268,18 @@ the atomic terminal transition. These relations have separate owners and
 semantics.
 
 The Product model does not define a generic replacement state machine or a
-Product, Project, resource, or workflow replacement home. C15 still defines
-canonical managed-resource identity, sharing, stage, locators, and work links.
-The released managed-resource and Domain-attachment operator surfaces remain in
-scope. Migration and correction are demand-driven operations under CD-0082.
-
----
-
-## 11. How stage and sharing compose
-
-Stage (§8.5) and sharing (§9) compose into one cross-field rule: **effective
-rigor is the greatest across the touch set**. No field can lower the rigor owed
-to another touched resource or Product.
+Product, Project, or workflow replacement home. Migration and correction are
+demand-driven operations under CD-0082.
 
 ---
 
 ## 12. Open questions
 
-C1, C15, C16, and Domain authority are accepted by CD-0007, the managed-resource
-contract, CD-0006, and CD-0222 respectively. The remaining model-internal open
-question is:
+C1, C16, and Domain authority are accepted by CD-0007, CD-0006, and CD-0222
+respectively. The remaining model-internal open question is:
 
-1. **Typing depth.** Are members typed further (e.g. infra sub-kinds:
-   job/cron/service/db), or kept as opaque tagged records? **Lean:** light typing
-   + tags — enough to be legible, not so much it ossifies.
+1. **Typing depth.** Are members typed further or kept as opaque tagged records?
+   **Lean:** light typing and tags, enough to be legible without ossifying.
 
 ---
 

@@ -188,7 +188,7 @@ func domainShapeToolingAt(ctx context.Context, home KnowledgeHome, commit string
 
 func domainShapeReferencesTx(ctx context.Context, q queryer, product string, shape *domainShapeProjection, manifest KnowledgeManifest) (DomainFactReferences, error) {
 	refs := DomainFactReferences{Registry: shape.Registry, Roots: shape.FactRoots, ValidationMode: DomainFactUnverifiedReferences,
-		AcceptedLawIDs: map[string]bool{}, ResourceIDs: map[string]bool{}, Facts: map[string]DomainFactKind{}, ProjectIDs: map[string]bool{}, RequiredCheckIDs: map[string]bool{}}
+		AcceptedLawIDs: map[string]bool{}, Facts: map[string]DomainFactKind{}, ProjectIDs: map[string]bool{}, RequiredCheckIDs: map[string]bool{}}
 	for _, record := range manifest.Records {
 		if manifestLawBearingKinds[record.Kind] && record.Status == "accepted" {
 			refs.AcceptedLawIDs[record.ID] = true
@@ -204,60 +204,45 @@ func domainShapeReferencesTx(ctx context.Context, q queryer, product string, sha
 }
 
 func readDomainShapeModelReferencesTx(ctx context.Context, q queryer, product string, refs *DomainFactReferences) error {
-	for _, population := range []struct {
-		query  string
-		target map[string]bool
-	}{
-		{`SELECT project_id FROM product_projects WHERE product_id=?`, refs.ProjectIDs},
-		{`SELECT r.resource_id FROM managed_resources r JOIN resource_products p ON p.resource_id=r.resource_id WHERE p.product_id=? AND p.role='owner'`, refs.ResourceIDs},
-	} {
-		rows, err := q.QueryContext(ctx, population.query, product)
-		if err != nil {
-			return err
-		}
-		for rows.Next() {
-			var id string
-			if err := rows.Scan(&id); err != nil {
-				_ = rows.Close()
-				return err
-			}
-			population.target[id] = true
-		}
-		err = rows.Err()
-		_ = rows.Close()
-		if err != nil {
-			return err
-		}
+	rows, err := q.QueryContext(ctx, `SELECT project_id FROM product_projects WHERE product_id=?`, product)
+	if err != nil {
+		return err
 	}
-	return nil
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			_ = rows.Close()
+			return err
+		}
+		refs.ProjectIDs[id] = true
+	}
+	err = rows.Err()
+	_ = rows.Close()
+	return err
 }
 
-// Git identities remain immutable, but resource ownership and Project
-// membership can change without a Git edit. Recheck those model-owned joins
-// in the reading transaction rather than treating the projection as authority.
+// Project membership can change without a Git edit, so the reading
+// transaction rechecks the model-owned Project joins the snapshot facts name.
 func validateDomainShapeSnapshotModelTx(ctx context.Context, q queryer, product string, snapshot DomainShapeSnapshot) error {
 	if len(snapshot.Facts) == 0 {
 		return nil
 	}
-	refs := DomainFactReferences{ResourceIDs: map[string]bool{}, ProjectIDs: map[string]bool{}}
+	refs := DomainFactReferences{ProjectIDs: map[string]bool{}}
 	if err := readDomainShapeModelReferencesTx(ctx, q, product, &refs); err != nil {
 		return err
 	}
 	for _, fact := range snapshot.Facts {
 		valid := true
 		switch fact.Kind {
-		case DomainFactDataObject:
-			valid = refs.ResourceIDs[fact.DataObject.ResourceID]
 		case DomainFactStateAuthority:
-			valid = refs.ResourceIDs[fact.StateAuthority.AuthoritativeResourceID]
 			for _, copy := range fact.StateAuthority.DerivedCopies {
-				valid = valid && refs.ResourceIDs[copy.ResourceID] && refs.ProjectIDs[copy.RebuildRoute.ProjectID]
+				valid = valid && refs.ProjectIDs[copy.RebuildRoute.ProjectID]
 			}
 		case DomainFactConfigCoupling:
 			valid = refs.ProjectIDs[fact.ConfigCoupling.ReadBy.ProjectID]
 		}
 		if !valid {
-			return domainShapeProjectionFailure("fact no longer resolves to current Product-owned resources or member Projects: " + fact.ID)
+			return domainShapeProjectionFailure("fact no longer resolves to current member Projects: " + fact.ID)
 		}
 	}
 	return nil

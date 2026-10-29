@@ -9,7 +9,7 @@
 > rule, and the Advance postmortem.
 > **Does not decide:** request context/authorization/idempotency envelope (TS5),
 > transport (TS6), shared result/error schema (TS7), surface evolution (TS8),
-> measurement evidence (TS9), workflow-type registration/gate vocabulary, or C15.
+> measurement evidence (TS9), or workflow-type registration/gate vocabulary.
 
 ## Context
 

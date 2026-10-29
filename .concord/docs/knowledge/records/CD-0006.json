@@ -17,7 +17,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:0ad18d6c47002886a34c277f5c091f236cafca46629e9b94722312285131c0da",
+  "sha256": "sha256:506c0c7d15a6d7fcbbc871f45e2ba1799208d97b592f5fb84c5b10a83256d2a4",
   "status": "accepted",
   "summary": "Defines root Product policy under goals.md, without a predecessor full-successor requirement. CD-0082 governs demand-driven migration and correction. Workflow, governance, single-operator, and release-evidence duties remain.",
   "tags": [

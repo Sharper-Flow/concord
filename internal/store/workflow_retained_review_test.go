@@ -53,8 +53,9 @@ func retainedReviewFail(t *testing.T, j *candidateJourney, attempt, capability, 
 	workerTerminalEventThroughSeam(t, j.s, event)
 }
 
-func retainedReviewEdit(t *testing.T, j *candidateJourney, job WorkerJobBinding, lane, attempt string) string {
+func retainedReviewEdit(t *testing.T, j *candidateJourney, job WorkerJobBinding, lane string) string {
 	t.Helper()
+	const attempt = "failed-editor"
 	if err := descendantDispatch(t, j, lane, attempt, job, nil); err != nil {
 		t.Fatalf("editing authorization: %v", err)
 	}
@@ -73,7 +74,7 @@ func TestRetainedFailedEditingReviewRecovery(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			head := retainedReviewEdit(t, j, job, lane, "failed-editor")
+			head := retainedReviewEdit(t, j, job, lane)
 			var failedBefore string
 			if err := j.s.db.QueryRow(`SELECT terminal_payload FROM worker_attempts WHERE work_id=? AND attempt_id='failed-editor'`, j.workID).Scan(&failedBefore); err != nil {
 				t.Fatal(err)
@@ -112,7 +113,7 @@ func TestRetainedFailedEditingReviewRecovery(t *testing.T) {
 
 func TestRetainedFailedEditingReviewCanRepair(t *testing.T) {
 	j, job := retainedReviewFixture(t, "retained-repair-output")
-	input := retainedReviewEdit(t, j, job, "implement", "failed-editor")
+	input := retainedReviewEdit(t, j, job, "implement")
 	job = retainedReviewRevision(t, j, []string{"seed.txt"})
 	output := ""
 	attempt, epoch := completeCurrentReviewForBoundJobForTest(t, j.fixture, j.repo, "continue", job, func(report *WorkerReviewBlock) {
@@ -135,7 +136,7 @@ func TestRetainedFailedEditingReviewBounds(t *testing.T) {
 	for _, shape := range []string{"dirty", "nonancestor", "review_scope", "failed_scope", "empty_scope", "mixed_rejected", "completed_unaccepted", "in_flight", "abandoned", "multiple_failed"} {
 		t.Run(shape, func(t *testing.T) {
 			j, job := retainedReviewFixture(t, "retained-bound-"+shape)
-			retainedReviewEdit(t, j, job, "implement", "failed-editor")
+			retainedReviewEdit(t, j, job, "implement")
 			paths := []string{"seed.txt"}
 			if shape == "review_scope" {
 				paths = []string{"other.txt"}
@@ -223,7 +224,7 @@ func TestRetainedReviewAcceptanceDrift(t *testing.T) {
 	for _, shape := range []string{"new_editor", "new_acceptance", "new_revision", "report_input", "contract"} {
 		t.Run(shape, func(t *testing.T) {
 			j, job := retainedReviewFixture(t, "retained-accept-drift-"+shape)
-			retainedReviewEdit(t, j, job, "implement", "failed-editor")
+			retainedReviewEdit(t, j, job, "implement")
 			job = retainedReviewRevision(t, j, []string{"seed.txt"})
 			attempt, _ := completeCurrentReviewForBoundJobForTest(t, j.fixture, j.repo, "continue", job)
 			auth, result, err := readReviewAttempt(t.Context(), j.s.db, j.workID, attempt)

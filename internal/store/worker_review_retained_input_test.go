@@ -17,7 +17,7 @@ func TestRetainedReviewPacketRequiresExactDisclosure(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	head := retainedReviewEdit(t, j, job, "implement", "failed-editor")
+	head := retainedReviewEdit(t, j, job, "implement")
 	job = retainedReviewRevision(t, j, []string{"seed.txt"})
 	// Force status to reconsider the stat cache without changing file content.
 	mtime := time.Now().Add(-time.Hour)
@@ -102,7 +102,7 @@ func TestRetainedReviewPacketRequiresExactDisclosure(t *testing.T) {
 
 func TestRetainedReviewContinuityDoesNotDropMissingObservation(t *testing.T) {
 	j, job := retainedReviewFixture(t, "retained-continuity-observation")
-	retainedReviewEdit(t, j, job, "implement", "failed-editor")
+	retainedReviewEdit(t, j, job, "implement")
 	retainedReviewRevision(t, j, []string{"seed.txt"})
 	if err := os.WriteFile(filepath.Join(j.repo, "seed.txt"), []byte("unqualified dirty change\n"), 0o600); err != nil {
 		t.Fatal(err)

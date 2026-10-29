@@ -246,12 +246,13 @@ func TestFinalReviewVerifySatisfactionRequiresCurrentAcceptedRevision(t *testing
 			if err := appendLaneBoundWorkerDispatch(t, f.store, workID, attempt, lane, &job); err != nil {
 				t.Fatal(err)
 			}
-			if outcome == "failed" {
+			switch outcome {
+			case "failed":
 				event := s2WorkerFailedAttributedEvent(workID, attempt, "failed-"+attempt, preferredModelForLane(lane), WorkerFailureFallbackBlocked, "verification could not complete", time.Now().UTC())
 				if err := s2WorkerFailedLive(t, f.store, event); err != nil {
 					t.Fatal(err)
 				}
-			} else if outcome == "missing-observation" {
+			case "missing-observation":
 				event := jobBoundCompletionEvent(workID, "completed-"+attempt, attempt, lane, time.Now().UTC(), &job, f.entry.Path)
 				err := f.store.Transact(t.Context(), func(tx *Transaction) error {
 					_, err := ApplyWorkerEvidenceOperationTx(t.Context(), tx, event)
@@ -263,7 +264,7 @@ func TestFinalReviewVerifySatisfactionRequiresCurrentAcceptedRevision(t *testing
 				if err := acceptChangeTestAttempt(t, f, workID, attempt); err == nil {
 					t.Fatal("accepted Verify whose terminal ingest refused")
 				}
-			} else {
+			default:
 				completeChangeAcceptanceAttempt(t, f, workID, attempt, strings.Repeat("2", 40))
 				if outcome == "rejected" {
 					if err := runVerdictActionAs(t, f.store, workID, "reject_worker_result", mustJSONValue(map[string]any{

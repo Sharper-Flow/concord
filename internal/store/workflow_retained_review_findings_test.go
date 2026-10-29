@@ -13,7 +13,7 @@ func TestRetainedReviewFindingsRemainVisibleAfterAcceptance(t *testing.T) {
 		}
 		t.Run(name, func(t *testing.T) {
 			j, job := retainedReviewFixture(t, "retained-finding-"+name)
-			retainedReviewEdit(t, j, job, "implement", "failed-editor")
+			retainedReviewEdit(t, j, job, "implement")
 			job = retainedReviewRevision(t, j, []string{"seed.txt"})
 			oracle, err := readWorkerJobOracle(t.Context(), j.s.db, j.workID, job)
 			if err != nil || oracle == nil {
@@ -88,7 +88,7 @@ func TestRetainedReviewFindingObservationKeepsCandidateBoundary(t *testing.T) {
 
 func TestRetainedReviewReadyForFinalProofSatisfiesJob(t *testing.T) {
 	j, job := retainedReviewFixture(t, "retained-ready-for-proof")
-	head := retainedReviewEdit(t, j, job, "implement", "failed-editor")
+	head := retainedReviewEdit(t, j, job, "implement")
 	job = retainedReviewRevision(t, j, []string{"seed.txt"})
 	attempt, epoch := completeCurrentReviewForBoundJobForTest(t, j.fixture, j.repo, "ready_for_final_proof", job)
 	if err := j.action(t, "accept_worker_result", map[string]any{"attempt_id": attempt, "attempt_epoch": epoch}, j.fixture.owner); err != nil {
@@ -114,7 +114,7 @@ func TestRetainedReviewAcceptanceIgnoresCommittedSatisfaction(t *testing.T) {
 	for _, disposition := range []string{"continue", "ready_for_final_proof"} {
 		t.Run(disposition, func(t *testing.T) {
 			j, job := retainedReviewFixture(t, "retained-committed-satisfaction-"+disposition)
-			retainedReviewEdit(t, j, job, "implement", "failed-editor")
+			retainedReviewEdit(t, j, job, "implement")
 			if err := recordWorkerJobFieldsForTest(t, j.s, j.workID, j.fixture.owner, map[string]any{
 				"job_id": "job:other", "objective": "Other accepted work", "stopping_condition": "other passes",
 				"checks": []string{"go test ./internal/store/"}, "ready": true, "readiness_evidence": []string{"evidence:coordinator-ready"}, "path_scope": []string{"other.txt"},

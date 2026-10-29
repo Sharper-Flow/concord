@@ -35,9 +35,7 @@ in every release containing one README that defers indefinitely.
 
 So the repository states that a capability exists somewhere else, ships an empty
 directory shaped like that somewhere else, and has no check that could notice the
-difference. `check-predecessor-coverage.py` validates that a covered outcome names an
-existing path and an excluded outcome carries a reason. It cannot detect a reason
-pointing at an unbuilt surface.
+difference.
 
 ## Decision
 

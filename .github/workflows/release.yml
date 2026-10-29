@@ -85,9 +85,9 @@ jobs:
           FALLBACK_RESULT: ${{ needs.ci-fallback.result }}
         run: python3 scripts/release-evidence.py gate --mode "$MODE" --lookup-result "$LOOKUP_RESULT" --fallback-result "$FALLBACK_RESULT"
 
-  # One verification arm is skipped on every route. Explicit status checks keep
-  # that skip from suppressing admitted publication; cancellation and actual
-  # dependency results still refuse it.
+  # The reuse route skips the fallback. Explicit status checks keep that skip
+  # from suppressing admitted publication; cancellation and actual dependency
+  # results still refuse it.
   prepare:
     name: compute release
     needs: admit-verification

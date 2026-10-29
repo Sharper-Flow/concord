@@ -110,6 +110,9 @@ keeps the remaining obligations outstanding.
 
 ## Authoring
 
+A new CD takes the next number above every record under
+`.concord/docs/knowledge/records/` and every id `concord cd-reservations` lists.
+
 Coverage records for indexed law are authored as shards under `.concord/docs/knowledge/coverage/<id>.json`. After adding or editing a shard, run `python3 scripts/generate-law-coverage.py --update` to normalise it; `--check` proves every shard composes and is canonical.
 
 Knowledge records are authored as one sorted-key JSON object per file under

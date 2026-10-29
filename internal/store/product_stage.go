@@ -6,8 +6,8 @@ import (
 )
 
 // ProductStageChange is the operator request shape for recording a Product's
-// maturity and audience commitment. CD-0091 D1 governs promotion: the rung
-// evidence is a repository manifest checked by CI, the store records the
+// maturity and audience commitment. CD-0091 D1 governs promotion: the change
+// cites evidence meeting the target rung's bar, the store records the
 // resulting claim, and the cited reason is the durable link between them.
 type ProductStageChange struct {
 	ProductID               string

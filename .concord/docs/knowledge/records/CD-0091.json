@@ -18,7 +18,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:4492f22a6ed27a23d53927e3ebcfed0154d71691224a012a50b11b05fb5a6fd8",
+  "sha256": "sha256:fab8dc1f884070cdee0e74f04affa7507b34ec3076e19dcad513672b63f88388",
   "status": "accepted",
   "summary": "Defines the maturity and audience-commitment promotion ladder as evidence claims: a change that raises a Product's rung cites evidence meeting that rung's bar. Records Concord at prototype and operator_only.",
   "tags": [

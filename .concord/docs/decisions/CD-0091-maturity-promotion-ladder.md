@@ -39,6 +39,8 @@ when the change that sets the field cites evidence meeting the target rung's bar
 in D3 or D4. A field set without that evidence is drift, in the same sense that a
 replacement-ready claim without floor evidence is drift.
 
+### D2. Retired: the per-rung readiness manifest
+
 ### D3. The maturity rungs and their evidence bars
 
 Each rung adds to the rung below it.

@@ -2,7 +2,7 @@
 
 > **Status:** Authorizing for floor condition 6 coverage assessment. Companion to
 > [`priorities.md`](./priorities.md) (canonical floor definition) and
-> [`floor-readiness.md`](./floor-readiness.md) (authorizing readiness record).
+> [`floor-readiness.md`](./floor-readiness.md) (first-usable floor conditions).
 > **Issue:** [#78](https://github.com/Sharper-Flow/concord/issues/78).
 > **Review authority ([CD-0242](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D5):** review records the
 > verdict and Implement cannot accept its own result; no separate final evaluator
@@ -173,7 +173,7 @@ Territory that appears across all six and is an outcome in its own right.
 | Reconstruct any subject at any point in its history | Excluded | [CD-0242 D2](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history): the store keeps current rows and finite verified snapshots, not history; no point-in-time reconstruction, retained log, or fold exists. |
 | Rebuild every projection from the event log without loss | Excluded | [CD-0242 D2](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history): the store keeps current rows and finite verified snapshots, not an event log, so no rebuild-from-log capability exists; the Git-derived knowledge index rebuilds from Git (CD-0242 D1). |
 | Constrain what an agent may do, scoped to a Product or Project | Covered | Per-call authorization and scope validation, `internal/agent/authority.go` |
-| Refuse a mutation whose scope version is stale, while allowing a refreshed read | Covered | `internal/agent/context_freshness_test.go` asserts the split directly: a stale read returns the refreshed scope version with a `context_refreshed` notice and records no domain event, while a stale mutation fails `stale_context` before any effect. Recorded as `fc2-context-freshness` (`satisfied`). |
+| Refuse a mutation whose scope version is stale, while allowing a refreshed read | Covered | `internal/agent/context_freshness_test.go` asserts the split directly: a stale read returns the refreshed scope version with a `context_refreshed` notice and records no domain event, while a stale mutation fails `stale_context` before any effect. |
 | Triage accumulated coordination residue — stale work, drifted worktrees, orphaned state | Covered | Worktree drift reclaims from git facts (`internal/store/worktrees.go`); stale plans are detected by staleness rules and revised through `supersede_contract` (`internal/store/workflow_event_constructors.go`). Concord has no separate residue sweep because residue is resolved where it is produced. |
 | Deliver agent behavioural methodology — rule rationale, structured preference elicitation | Excluded | [`capability-placement.md`](./capability-placement.md) §4: always-on behavioural policy is an instruction and on-demand methodology is a skill. Both are host-owned surfaces, not durable coordination state. [CD-0043](./decisions/CD-0043-host-owned-lane-methodology.md) makes this the governing rule for worker lane methodology and records the channel it must travel. |
 

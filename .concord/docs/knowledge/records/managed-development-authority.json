@@ -1,4 +1,10 @@
 {
+  "applies_to_domain_ids": [
+    "agent-surface",
+    "durable-authority",
+    "work-coordination",
+    "workflow-engine"
+  ],
   "authority": {
     "tier": "derived"
   },
@@ -82,7 +88,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:be6bc3fe7b7191fc021f79ed0d5c8f38b79051bd7f48fdeda6817033e3f7ecdd",
+  "sha256": "sha256:4d66232d08e5483a1e2bc268c342a22f076826700cfb0f4ce3396110574c1722",
   "status": "accepted",
   "summary": "Assigns planning to Linear through the Linear MCP server, keeps managed workflow, review, merge, isolation, and law authority in their existing owners, and preserves the outside-work and defect-repair boundaries.",
   "tags": [

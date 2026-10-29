@@ -54,14 +54,10 @@ command's own side effects could still write elsewhere. Do not use one to.
 
 ## Refining a ticket
 
-Read the ticket as the executing agent will: with no memory of the
-conversation that produced it.
+Before triaging a request or refining a ticket, load `concord-work-shaping`.
 
-- Surface where an executing agent would have to guess: hidden assumptions,
-  competing interpretations, missing failure behavior, and acceptance criteria
-  without an observable outcome.
-- Separate what you observed from what you recommend. Cite the path, command,
-  run, or record behind each observation.
+- Surface where an executing agent would have to guess.
+- Separate what you observed from what you recommend; cite evidence.
 - Write only approved decisions into a ticket's description. Keep each
   unapproved assumption visibly marked as unapproved, in a comment or a
   labelled section, until the operator decides it.
@@ -70,11 +66,10 @@ conversation that produced it.
   the tickets, the change to each, and why. Apply it after the operator agrees.
   Routine record maintenance within agreed scope needs no fresh approval.
 
-Load the work-shaping skill to triage a request or split a plan into
-independently verifiable outcomes. Load the diagnosis skill when a reported
-defect's cause is unproven, Domain-shape stewardship when a term is overloaded,
-and the retrospective skill when the same friction recurs. They guide your
-investigation and grant nothing beyond this profile.
+Load the diagnosis skill when a reported defect's cause is unproven,
+Domain-shape stewardship when a term is overloaded, and the retrospective skill
+when the same friction recurs. They guide your investigation and grant nothing
+beyond this profile.
 
 ## Reporting
 

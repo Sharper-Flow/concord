@@ -7,7 +7,7 @@
   workflow; and the timing record a sized workflow keeps
 - **Implements:** [`goals.md`](../goals.md) goal B (right-sized delivery and
   its decision model), goal C (composable workflows), goal F for the sizing
-  model, and Appendix A2 rows 5 and 8
+  model, and [`priorities.md`](../priorities.md) Appendix A2 rows 5 and 8
 - **Preserves:** the derived definitions generated from the one canonical
   source
   ([CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D14);
@@ -144,7 +144,7 @@ with each size, so a later model version can be judged against the sizes it
 would have given.
 
 Concord's own development stays outside the workflow until the switch point
-goals.md §2 names. This record does not move that point.
+`priorities.md` names. This record does not move that point.
 
 ## Verification
 

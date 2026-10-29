@@ -11,6 +11,63 @@ import (
 	"github.com/sharper-flow/concord/internal/store"
 )
 
+func TestRetainedWorkflowInvokeAcrossManifestChange(t *testing.T) {
+	ctx := t.Context()
+	r, grant, raw, first := committedWorkflowReplay(t)
+	opID := "workflow-" + mutationDigest(r.Tool, r.Operation, r.Envelope, raw)[7:31]
+	producerDigest := "sha256:" + strings.Repeat("0", 64)
+	if _, err := r.Store.DatabaseForTesting().Exec(`UPDATE durable_operations SET contract_digest=? WHERE op_id=?`, producerDigest, opID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.Store.DatabaseForTesting().Exec(`UPDATE idempotency_records SET authorized_scope_snapshot=json_set(authorized_scope_snapshot,'$.mutation_response.manifest_digest',?) WHERE op_id=?`, producerDigest, opID); err != nil {
+		t.Fatal(err)
+	}
+	driftWorkPinVersion(t, r.Store, "work-1")
+	before := workflowReplayEffectCounts(t, r.Store)
+	ownerBefore, err := store.Step(ctx, r.Store, opID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	commits := r.Store.DurableCommits()
+	response, err := Invoke(ctx, r.Store, r.Authority, mustMarshalInvoke(t, InvokeRequest{Tool: r.Tool, Operation: r.Operation, Input: raw}, r.Envelope))
+	if err != nil || response.Outcome != agentcontract.OutcomeOK || !response.Replayed {
+		t.Fatalf("retained workflow response refused: err=%v response=%+v error=%+v", err, response, response.Error)
+	}
+	requireReplayCommit(t, r.Store, "retained-replay", commits, 0, true)
+	transaction := workflowTransactionReplay(t, r, grant, raw)
+	for _, replay := range []agentcontract.Envelope{response, transaction} {
+		if replay.Outcome != agentcontract.OutcomeOK || !replay.Replayed || string(replay.Result) != string(first.Result) || !reflect.DeepEqual(replay.ChangedRefs, first.ChangedRefs) || !reflect.DeepEqual(replay.NextValidIntents, first.NextValidIntents) || !reflect.DeepEqual(replay.ResolvedScope, first.ResolvedScope) || !reflect.DeepEqual(replay.Omissions, first.Omissions) || !reflect.DeepEqual(replay.EvidenceRefs, first.EvidenceRefs) {
+			t.Fatalf("replay replaced original workflow facts: first=%+v replay=%+v", first, replay)
+		}
+		if replay.ManifestDigest != agentcontract.ManifestDigest {
+			t.Fatal("replay envelope did not bind the current invocation manifest")
+		}
+	}
+	requireReplayCommit(t, r.Store, "retained-replay", commits+1, 1, true)
+	if workflowReplayEffectCounts(t, r.Store) != before {
+		t.Fatal("workflow replay repeated effects or replaced the later work state")
+	}
+	ownerAfter, err := store.Step(ctx, r.Store, opID)
+	if err != nil || !reflect.DeepEqual(ownerBefore, ownerAfter) {
+		t.Fatalf("replay rewrote producer facts: before=%+v after=%+v err=%v", ownerBefore, ownerAfter, err)
+	}
+	commits = r.Store.DurableCommits()
+	conflicting := json.RawMessage(strings.Replace(string(raw), "The bounded stakes statement.", "A different stakes statement.", 1))
+	conflict, err := Invoke(ctx, r.Store, r.Authority, mustMarshalInvoke(t, InvokeRequest{Tool: r.Tool, Operation: r.Operation, Input: conflicting}, r.Envelope))
+	if err != nil || conflict.Error == nil || conflict.Error.Kind != "idempotency_conflict" {
+		t.Fatalf("changed workflow intent received retained response: err=%v error=%+v", err, conflict.Error)
+	}
+	mismatchedEnv := r.Envelope
+	mismatchedEnv.ManifestDigest = producerDigest
+	mismatched, err := Invoke(ctx, r.Store, r.Authority, mustMarshalInvoke(t, InvokeRequest{Tool: r.Tool, Operation: r.Operation, Input: raw}, mismatchedEnv))
+	if err != nil || mismatched.Error == nil || mismatched.Error.EffectState != agentcontract.EffectNone || mismatched.Replayed {
+		t.Fatalf("mismatched invocation reached workflow replay: err=%v error=%+v", err, mismatched.Error)
+	}
+	if r.Store.DurableCommits() != commits || workflowReplayEffectCounts(t, r.Store) != before {
+		t.Fatal("refused workflow retry changed state")
+	}
+}
+
 func TestRetainedReconcileInvokeAcrossManifestChange(t *testing.T) {
 	ctx := t.Context()
 	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_transition"})
@@ -63,10 +120,8 @@ func TestRetainedReconcileInvokeAcrossManifestChange(t *testing.T) {
 		}
 	}
 	after := mutationProjectionState(t, s)
-	delete(before, "idempotency_observations")
-	delete(after, "idempotency_observations")
 	if !reflect.DeepEqual(before, after) {
-		t.Fatal("replay repeated a business effect")
+		t.Fatal("ordinary replay changed retained state or replay metadata")
 	}
 	for _, vector := range []struct {
 		name    string

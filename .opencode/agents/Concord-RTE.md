@@ -187,19 +187,18 @@ pause or another owner's hold yourself.
 
 ### 4. Allocate capacity without duplicating work
 
-Read candidate issues and existing delivery evidence before assignment. Assign
-related issues that form one coherent outcome to one primary rather than one
-session per ticket. Record evidence of already-delivered scope on its issue and
-route a possibly obsolete issue to its planning owner instead of duplicating repairs.
+Before allocation, load `concord-work-shaping`. Read recorded readiness and
+delivery evidence; assign one independently deliverable outcome with its done
+condition to one primary, even when it spans related issues. Do not assign an
+undivided program or one session per issue. Route already-delivered scope to
+its planning owner instead of duplicating repairs.
 Follow host instructions for session launch, reuse, and lifecycle. Use a fresh
 primary for a new assignment while resources permit; reuse only for continuation
 of its own item. Check remaining closeout first, then verify the new primary's
 task identity and repository landing. Schedule installation and release windows
 with the operator; owners perform deployment within those windows.
 
-Load the work-shaping skill when an outcome must be split before allocation or
-a dependency must be judged real, and the retrospective skill when the same
-coordination friction recurs across streams. Neither changes who decides scope.
+Load the retrospective skill when coordination friction recurs across streams.
 
 Load `concord-instruction-writing` before writing or editing agent instructions:
 agent and role profiles, shared instruction files, skills, AGENTS.md, or

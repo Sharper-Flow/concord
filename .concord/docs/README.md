@@ -6,22 +6,22 @@
 > **Codename:** Concord (concordance: bringing scattered work into one view).
 > **Created:** 2026-07-25, from predecessor-state analysis and product-design work.
 > **Repository:** [`Sharper-Flow/concord`](https://github.com/Sharper-Flow/concord); Go module [`github.com/sharper-flow/concord`](https://pkg.go.dev/github.com/sharper-flow/concord).
-> **Goals and conflict rules:** [`goals.md`](./goals.md)
-> **Operating envelope and standing law:** [`priorities.md`](./priorities.md)
+> **Goals (guidance):** [`goals.md`](./goals.md)
+> **Operating envelope, constraints, conflict rules, and standing law:** [`priorities.md`](./priorities.md)
 
 Concord is a set of tools and infrastructure for one operator and many
 concurrent local AI agents working on one machine. It uses OpenCode to
 coordinate agent-led development of software Products. Product → Domain
 architecture binds specifications, work, and evidence so independently clean
-changes cannot silently enact contradictory Product truth. Its goals and conflict
-rules are in [`goals.md`](./goals.md); its operating envelope and standing law
-are in [`priorities.md`](./priorities.md).
+changes cannot silently enact contradictory Product truth. Its goals are in
+[`goals.md`](./goals.md), as guidance; its operating envelope, constraints,
+conflict rules, and standing law are in [`priorities.md`](./priorities.md).
 
 ---
 
 ## How to read this set
 
-1. Start with [`goals.md`](./goals.md) for the goals, their measures, and the conflict rules, then [`priorities.md`](./priorities.md) for the operating envelope and the standing law.
+1. Start with [`goals.md`](./goals.md) for the goals and their measures, then [`priorities.md`](./priorities.md) for the operating envelope, the constraints, the conflict rules, and the standing law.
 2. Read [`design-constraints.md`](./design-constraints.md) for the hard boundaries that shape architecture.
 3. Read [`core-architecture.md`](./core-architecture.md) for the Go-core direction, state authority (CD-0002: SQLite sole authority), and consolidated resilience invariants.
 4. Read [`clarifications.md`](./clarifications.md) for accepted decisions and
@@ -34,8 +34,8 @@ are in [`priorities.md`](./priorities.md).
 
 | Document | What it owns |
 |---|---|
-| [`goals.md`](./goals.md) | The operator's goals, their measures, the conflict rules, and the constraints. **Accepted law, ranked first.** |
-| [`priorities.md`](./priorities.md) | Operating envelope and the standing law that serves each goal. **Authority after [`goals.md`](./goals.md).** |
+| [`goals.md`](./goals.md) | The operator's goals and their measures. **Guidance, not law.** |
+| [`priorities.md`](./priorities.md) | Operating envelope, constraints, conflict rules, and the standing law that serves each goal. **Accepted law, ranked first.** |
 | [`knowledge/coverage/`](./knowledge/coverage/) | **Authorizing coverage record:** how each indexed law record is proved, by typed anchor rather than by repository path; an indexed record the shards omit is a validator finding (CD-0047). One shard per record; readers compose the record through `scripts/knowledge_index.py` (CD-0114). |
 | [`reachability-exceptions.v1.json`](./reachability-exceptions.v1.json) | **Authorizing exception record:** functions no `cmd/concord` invocation reaches that the repository has decided to keep; reachability itself is computed, so an undeclared unreachable function is a validator finding (CD-0047). |
 | [`core-architecture.md`](./core-architecture.md) | Go-core direction, state authority (CD-0002), consolidated resilience invariants. |
@@ -139,7 +139,7 @@ are in [`priorities.md`](./priorities.md).
 
 Concord's own development runs outside the Concord workflow until the sized
 workflow takes a small change from start to merge queue in one hour or less
-([`goals.md`](./goals.md) §2). Until then, pull requests, required checks, and
+([`priorities.md`](./priorities.md#how-concords-own-development-runs-during-the-rebuild)). Until then, pull requests, required checks, and
 an independent review carry quality, and law and Domain changes land in Git
 through those pull requests.
 [`CD-0122`](./decisions/CD-0122-concord-workflow-scope-and-defect-repair.md)

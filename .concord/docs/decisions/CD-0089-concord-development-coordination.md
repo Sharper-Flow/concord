@@ -27,7 +27,7 @@ surface owns planning, review, merge, or predecessor evidence.
 
 ### D1. Concord's own development follows the measured switch point
 
-[`goals.md` — How Concord's own development runs during the rebuild](../goals.md#how-concords-own-development-runs-during-the-rebuild)
+[`priorities.md` — How Concord's own development runs during the rebuild](../priorities.md#how-concords-own-development-runs-during-the-rebuild)
 owns the current development route and measured switch point. Until that switch
 point is proven, agents build Concord outside Concord's workflow, with pull
 requests, required checks, and independent review. This decision grants no
@@ -66,13 +66,13 @@ bootstrap authority boundaries apply to self-development.
 
 ## Consequences
 
-- Concord development follows the adoption boundary in `goals.md` and links
+- Concord development follows the adoption boundary in `priorities.md` and links
   planning and delivery facts to their owning systems.
 - Pull requests and required checks retain their authority for main-branch
   integration. CD-0241 defines eligible rapid-phase local integration evidence
   without waiving independent review.
 - The readiness floor remains measurable evidence, distinct from the workflow
-  switch point in `goals.md`.
+  switch point in `priorities.md`.
 - Advance remains a reference source with no Concord write path.
 
 ## Rejected alternatives
@@ -86,7 +86,7 @@ remains an evidence claim governed by the accepted floor and release evidence.
 ## Verification
 
 - The development route and any adoption claim satisfy the measured switch point
-  in `goals.md`; no readiness claim substitutes for it.
+  in `priorities.md`; no readiness claim substitutes for it.
 - Planned work and defect claims link to authoritative Linear issues.
 - Main-branch review and merge claims link to the pull request and required
   checks. Eligible phase-local integration claims link to the local merge and

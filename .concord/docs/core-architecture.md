@@ -5,7 +5,7 @@
 > **Purpose:** Record the Go-core language direction and the consolidated resilience invariant set that any core topology must satisfy. State authority is settled elsewhere (see §0).
 > This is the single place a reader looks to understand how the runtime is layered.
 
-> **Authority:** [`goals.md`](./goals.md) owns the unranked goals and conflict rules; [`priorities.md`](./priorities.md) owns the operating envelope and standing law. This document records an architecture direction within those constraints.
+> **Authority:** [`goals.md`](./goals.md) records the unranked goals as guidance; [`priorities.md`](./priorities.md) owns the operating envelope, constraints, conflict rules, and standing law. This document records an architecture direction within those constraints.
 
 ---
 
@@ -178,7 +178,7 @@ details; this table does not duplicate them.
 
 | Doc | Link | Relationship |
 |---|---|---|
-| [`priorities.md`](./priorities.md) | Canonical authority | Operating envelope and standing law under the unranked goals and conflict rules in [`goals.md`](./goals.md). |
+| [`priorities.md`](./priorities.md) | Canonical authority | Operating envelope, constraints, conflict rules, and standing law serving the unranked goals in [`goals.md`](./goals.md). |
 | [`design-constraints.md`](./design-constraints.md) | NFRs and constraints | §7 updated to reference this document. §5 read-path target retained. |
 | [`decisions/CD-0002-concord-state-authority.md`](./decisions/CD-0002-concord-state-authority.md) | State authority | Sole durable authority for SQLite; invariants I1–I6. |
 | [`clarifications.md`](./clarifications.md) | Build-authorizing decisions | The product-memory contracts shape Product memory; TS1–TS9 shape the current agent tool surface; CD-0006/CD-0007/CD-0008/CD-0222 settle root policy, repository boundary, mechanism hardening, and Product-law architecture. |

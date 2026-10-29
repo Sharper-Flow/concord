@@ -36,9 +36,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:9850cc74e3f2f2149645afffaf2d67a975fadda36c6f1945b927e6bb503b7fc9",
+  "sha256": "sha256:371dc644eb02116da9932b7e89f1b3fbfb23a7f835c643073e8597772b01b782",
   "status": "accepted",
-  "summary": "goals.md owns Concord's own development route: agents build Concord outside its workflow until the measured switch point is proven, and this decision grants no earlier adoption authority. Linear MCP owns planning under CD-0213. Pull requests and required checks retain main-branch review and merge authority; CD-0241 defines eligible rapid-phase local integration evidence without waiving existing independent review.",
+  "summary": "priorities.md owns Concord's own development route: agents build Concord outside its workflow until the measured switch point is proven, and this decision grants no earlier adoption authority. Linear MCP owns planning under CD-0213. Pull requests and required checks retain main-branch review and merge authority; CD-0241 defines eligible rapid-phase local integration evidence without waiving existing independent review.",
   "tags": [
     "authority",
     "coordination",

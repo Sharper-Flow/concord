@@ -3,11 +3,9 @@
     "tier": "derived"
   },
   "date": "2026-10-16T00:00:00Z",
-  "home_domain_id": "product-root:concord",
   "id": "goals",
-  "kind": "constitution",
+  "kind": "reference",
   "path": ".concord/docs/goals.md",
-  "product_wide_rationale": "The operator's goals, their measures, and the conflict rules apply to every Domain, and they rank first in Concord's direction.",
   "scopes": {
     "domain_ids": [],
     "mode": "home",
@@ -15,9 +13,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:10655837a4859614c01ce0f2a74ae56cecd75ddbf68175a35608bdbbfacb46de",
-  "status": "accepted",
-  "summary": "The operator's goals for Concord: purpose, six equal goals with measures, the conflict rules (Appendix A), constraints, and the conflicts that remain open with current Concord text (Appendix C). Accepted law, ranked first; priorities.md follows it. Where it conflicts with an accepted decision record, goals.md sets the direction, and the conflicting record is amended under CD-0036 D2 (in place when compatible, by a superseding record when breaking) before work relies on it.",
+  "sha256": "sha256:59f493fb420163fc19abb8e6c063c7a23805fd09bc1b68d85c3964b03cb562d8",
+  "status": "published",
+  "summary": "The operator's goals for Concord, as guidance, not law: purpose, six equal goals with measures, non-goals, and open questions. The constraints, the conflict rules, and the route for Concord's own development are law in priorities.md.",
   "tags": [
     "goals",
     "direction",

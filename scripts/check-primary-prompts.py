@@ -50,6 +50,8 @@ FULL_PROFILE_FILES = ("Concord-RTE.md", "Concord.md")
 PLANNER_PROFILE_FILE = "Concord-Planner.md"
 PRIMARY_BUILD_TOOLS = ("edit", "write", "patch")
 RTE_REQUIRED_PHRASES = (
+    "Before allocation, load `concord-work-shaping`",
+    "assign one independently deliverable outcome with its done condition to one primary, even when it spans related issues",
     "Load `concord-instruction-writing` before writing or editing agent instructions",
     "The RTE coordinates dependencies, not another session's technical choices or operator approvals",
     "They contact you for coordination, not permission",
@@ -120,6 +122,7 @@ RTE_REQUIRED_PHRASES = (
 # in the RTE body is a regression, whatever the surrounding sentence says.
 RTE_FORBIDDEN_PATTERN = re.compile(r"coordination\s+issue", re.IGNORECASE)
 CONCORD_REQUIRED_PHRASES = (
+    "Before execution, load `concord-work-shaping`",
     "Load `concord-law-writing` when drafting, amending or pruning Product law",
     "Load `concord-instruction-writing` before writing or editing agent instructions",
     "You are Concord, the primary agent",
@@ -139,6 +142,7 @@ CONCORD_REQUIRED_PHRASES = (
     "A law revision you enact without operator approval is `derived` under CD-0230 D4, even when the prior revision was operator-approved",
 )
 PLANNER_REQUIRED_PHRASES = (
+    "Before triaging a request or refining a ticket, load `concord-work-shaping`",
     "The user may choose to start this optional session",
     "It is never a gate on Concord's work",
     "Surface where an executing agent would have to guess",

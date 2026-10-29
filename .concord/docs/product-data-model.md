@@ -77,9 +77,11 @@ Product-internal architecture through which law and work are organized.
   as a **fact** — not by querying them.
 
 ### 2.4 Domains (architecture authority)
-- A **Domain** is a stable Product-internal architectural identity: a capability,
-  subsystem, service, or cross-cutting concern that owns behavior, invariants,
-  and architectural contracts.
+- A **Domain** is a stable Product-internal unit that owns behavior, invariants,
+  architectural contracts, and the code that implements them. It is not a
+  cross-cutting concern. A rule that binds several Domains belongs to the
+  enforcing Domain as an invariant fact
+  ([CD-0244 D1 and D6](decisions/CD-0244-domains-own-code-exclusively-and-hold-typed-facts.md#d1-a-domain-exclusively-owns-its-code)).
 - Every Domain belongs to exactly one Product. It may refer to Projects and
   managed resources without becoming either one.
 - Domain identity, hierarchy, and architecture relations are declared in the

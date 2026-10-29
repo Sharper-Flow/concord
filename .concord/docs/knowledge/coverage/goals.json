@@ -1,5 +1,5 @@
 {
   "id": "goals",
-  "reason": "The goals, their measures, and the conflict rules are judgements a reader applies to a proposed change, not propositions about a running system, so no executable anchor can decide whether a change followed them. Goal F builds the conflict rules and the sizing model into Concord as a mechanism, and that mechanism will carry its own coverage. Link integrity is proved by scripts/check-doc-links.py.",
+  "reason": "goals.md is guidance, not law: the goals and their measures are judgements a reader applies to a proposed change, not propositions about a running system, so no executable anchor can decide whether a change followed them. The conflict rules and constraints are law in priorities.md and carry their coverage there. Link integrity is proved by scripts/check-doc-links.py.",
   "state": "out_of_scope"
 }

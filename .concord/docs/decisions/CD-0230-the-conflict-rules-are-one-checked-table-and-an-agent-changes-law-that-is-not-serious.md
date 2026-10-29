@@ -2,12 +2,12 @@
 
 - **Status:** Accepted
 - **Date:** 2026-10-17
-- **Scope:** How Concord applies the conflict rules of `goals.md` Appendix A:
+- **Scope:** How Concord applies the conflict rules of `priorities.md` Appendix A:
   the machine-readable rule table, the mechanism that enforces each rule, the
   record of each application, law-change authority under R3 and P12, the
   operator approval classes, and the follow-up ledger
-- **Implements:** [`goals.md`](../goals.md) goal F for the conflict rules,
-  Appendix A, and goal E's measure that follow-up items get closed
+- **Implements:** [`goals.md`](../goals.md) goal F for the conflict rules in
+  [`priorities.md`](../priorities.md) Appendix A, and goal E's measure that follow-up items get closed
 - **Preserves:** CD-0159 D1, D3, D6, and D7, the authority tier and its checks;
   the ban on a silent scope cut and a substituted outcome in CD-0006 and
   [CD-0012](CD-0012-bind-stated-goals-to-delivered-outcomes.md); CD-0036 D1
@@ -21,12 +21,12 @@
 
 ## Context
 
-Appendix A of `goals.md` is accepted constitutional law. It gives a rule for
+Appendix A of `priorities.md` is accepted constitutional law. It gives a rule for
 each pair of goals (A1) and for each conflict situation by change size (A2).
 Goal F asks that the rules become "a mechanism inside Concord, not prose", so
 the operator's spot checks can show that agents follow them.
 
-Today the rules exist only as text in `goals.md` and in coordinator
+Today the rules exist only as text in `priorities.md` and in coordinator
 instructions. No record shows which rule settled a conflict. Accepted records
 still require operator approval for every law change: CD-0006 D5 ("Human
 approval is always required to enact law changes or governed scope cuts"),
@@ -43,12 +43,12 @@ if serious than consult the user", and P12 defines serious.
 A contract file under `contracts/` holds every A1 cell and every A2 row: the
 rule ID, the goals or situation in conflict, the rule for each size, the actor
 who applies it, and its enforcing mechanism. The rule text stays in
-`goals.md`. The table cites each rule by its ID and records the `goals.md`
-content hash it was checked against.
+`priorities.md`. The table cites each rule by its ID and records the
+`priorities.md` content hash it was checked against.
 
 A validator in the repository's required checks refuses the table when a cell
 or row of Appendix A is missing, when a rule names no mechanism kind, or when
-the `goals.md` content hash differs from the recorded one.
+the `priorities.md` content hash differs from the recorded one.
 
 ### D2. Each rule names how it is enforced
 
@@ -160,8 +160,9 @@ without operator approval, so its standing shows who last enacted it.
 Missing classifications are implementation gaps, not approval classes. Current
 tool refusals still follow their admitted recovery routes until aligned.
 
-Every change to `goals.md` moves its content hash, so the change that edits
-`goals.md` also checks the table against it and records the new hash.
+Every change to `priorities.md` moves its content hash, so the change that
+edits `priorities.md` also checks the table against it and records the new
+hash.
 
 ## Verification
 
@@ -263,6 +264,20 @@ claim; missing records leave the outcome unproved. Carrier tests do not prove
 those judgments; the delivery's recorded independent review supplies the
 application evidence. A2 row 4's boundary-change handling remains open below.
 
+R1 and A2 row 1 use D2's recorded-review method.
+`internal/store.TestReviewCompletionRetainsAppliedRuleContextClaims` also retains
+R1/A2-1 claims; the same source-binding controls protect their inputs.
+`scripts/testdata/conflict-review-bloat-cases.md` supplies removed and retained
+fix-made bloat, older bloat with and without a follow-up item, older bloat removed
+outside the change's scope, and unknown-origin cases for independent application
+of the existing method. Review judges whether the fix made the bloat against the
+change's recorded base, not the author's claim. When a follow-up item covers the
+bloat, missing base evidence leaves the outcome unproved; bloat shipped without
+one violates R1 whatever its origin. Carrier tests do not prove those judgments; the delivery's
+recorded independent review supplies the application evidence. The follow-up
+item's rule label, raising-change link enforcement and saved view remain D6's
+open duty below.
+
 D3's live recorder retains readable current settlement evidence.
 `internal/agent.TestConflictObservationHistoryRoundTrip` records then reads
 the full rule, effective size and outcome through the existing history read,
@@ -287,7 +302,7 @@ pointer, not the remaining enforcement and proof assigned below:
 | R2, A2 rows 2 and 4 | [CON-1098](https://linear.app/sharper-flow/issue/CON-1098). `internal/agent.TestResolveOverlapDependsOnRecordsDirectedSequencingWithoutConsent` proves directed work-item sequencing, not selection of the shared-Domain step or release when the other change completes it. Shared stages do not by themselves prove A2 row 4's boundary-change handling. |
 | D4 and D5; CD-0243 runtime alignment | [CON-1100](https://linear.app/sharper-flow/issue/CON-1100). Recorded review does not establish prevention of external data loss, automatic six-class inference, or enforcement on the ad-hoc route. Contract-time consent and worktree waivers do not establish informed approval of a specific loss. Classifications, carrier tests and the selected synthetic reviews do not prove whole-record runtime alignment. |
 | U, A2 row 7 | [CON-1343](https://linear.app/sharper-flow/issue/CON-1343). Contract-time `ui_ux` consent does not prove approval of a development preview of the final candidate, or renewed approval of a changed experience, as CD-0242 D9 requires. |
-| R1, A2 rows 1, 5 and 6; D6 | [CON-1101](https://linear.app/sharper-flow/issue/CON-1101). Naming follow-up labels in the table does not enforce labels, raising-change links, the Linear view, or closure tracking. CD-0242 D5 and D9 own repairing review and final-candidate proof, not old size-specific review counts. |
+| A2 rows 5 and 6; D6 | [CON-1101](https://linear.app/sharper-flow/issue/CON-1101). Naming follow-up labels in the table does not enforce labels, raising-change links, the Linear view, or closure tracking. CD-0242 D5 and D9 own repairing review and final-candidate proof, not old size-specific review counts. |
 | A2 row 8 | [CON-1344](https://linear.app/sharper-flow/issue/CON-1344). Same-item resizing does not prove adding required stages while retaining completed work. CD-0229's Verification also retains the separate small-work proof and timing owners. |
 
 Passing `python3 scripts/check-law-coverage.py` does not establish whole-record
@@ -303,7 +318,7 @@ an unproved retained rule satisfied or permits bypassing a current gate.
   registered.
 - `python3 scripts/run-script-tests.py` must prove that the rule-table
   validator refuses a missing A1 cell or A2 row, a rule with no mechanism
-  kind, and a stale `goals.md` hash, that it reports each gap, and that each
+  kind, and a stale `priorities.md` hash, that it reports each gap, and that each
   rule that files follow-up items names its label.
 - `go test ./internal/store` must prove consent follows the six classes,
   including exact-text approval for approval-boundary changes, while an

@@ -25,7 +25,7 @@ func TestCommittedConfigurationFacts(t *testing.T) {
 	refs := DomainFactReferences{
 		Registry: manifest.DomainRegistry, Roots: packages.domainFactRoots(),
 		ValidationMode: DomainFactUnverifiedReferences,
-		ProjectIDs: map[string]bool{"concord": true},
+		ProjectIDs:     map[string]bool{"concord": true},
 	}
 	for _, test := range []struct {
 		id, owner, root, path, symbol, setting string

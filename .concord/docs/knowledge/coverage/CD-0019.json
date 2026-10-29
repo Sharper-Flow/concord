@@ -1,10 +1,5 @@
 {
-  "evidence": [
-    {
-      "kind": "validator",
-      "value": "scripts/check-predecessor-coverage.py"
-    }
-  ],
   "id": "CD-0019",
-  "state": "satisfied"
+  "reason": "A method decision: it directs how each preserved feature's shape is chosen, which no executable check decides.",
+  "state": "out_of_scope"
 }

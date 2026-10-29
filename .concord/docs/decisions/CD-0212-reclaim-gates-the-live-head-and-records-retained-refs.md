@@ -492,6 +492,5 @@ and the native removal stays behind the commit.
   regenerated payload schema projection.
 - `python3 scripts/check-doc-contract.py`,
   `python3 scripts/check-knowledge-index.py`,
-  `python3 scripts/check-knowledge-closure.py`,
-  `python3 scripts/check-cd-allocation.py`, and
+  `python3 scripts/check-knowledge-closure.py`, and
   `python3 scripts/check-doc-links.py` pass over this record.

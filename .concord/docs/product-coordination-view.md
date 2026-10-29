@@ -3,7 +3,6 @@
 **Status:** Accepted C17 contract. The ranked-query contract is owned by the product-memory query contract.
 **Storage ([CD-0242](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2):** ranking reads current rows;
 no fold, event history, or replay exists.
-**Readiness:** see [`floor-readiness.v1.json`](./floor-readiness.v1.json).
 
 The coordination queries provide two
 bounded modes over canonical Product-scoped reads, structural grouping only,

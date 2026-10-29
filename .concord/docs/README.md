@@ -142,8 +142,3 @@ New Concord development uses Concord agents and its workflow under
 Work already underway outside the workflow and authorized workflow-defect repair
 follow that rule and
 [CD-0122](./decisions/CD-0122-concord-workflow-scope-and-defect-repair.md).
-
-The maturity manifests
-[`maturity-readiness.v1.json`](./maturity-readiness.v1.json) (alpha) and
-[`maturity-readiness.beta.v1.json`](./maturity-readiness.beta.v1.json) (beta)
-record current condition states and evidence.

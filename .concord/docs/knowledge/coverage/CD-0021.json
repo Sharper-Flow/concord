@@ -1,10 +1,5 @@
 {
-  "evidence": [
-    {
-      "kind": "validator",
-      "value": "scripts/check-floor-readiness.py"
-    }
-  ],
   "id": "CD-0021",
-  "state": "satisfied"
+  "reason": "An interpretation of floor condition 1's scope; no executable check decides it.",
+  "state": "out_of_scope"
 }

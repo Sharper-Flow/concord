@@ -121,109 +121,24 @@ def test_no_linear_pointers_and_mixed_provider_refresh():
         assert json.loads(snapshot.read_text())["issues"] == {"123": "open", "CON-1": "open"}
 
 
-def test_maturity_manifest_population_matches_the_checker_glob():
-    with tempfile.TemporaryDirectory(prefix="maturity-planes-") as directory:
+def test_collection_merges_planes_without_duplicates():
+    with tempfile.TemporaryDirectory(prefix="issue-planes-") as directory:
         root = Path(directory)
-        docs = root / ".concord/docs"
-        docs.mkdir(parents=True)
-        for name, issue in (
-            ("maturity-readiness.v1.json", 41),
-            ("maturity-readiness.beta.v1.json", "CON-72"),
-            ("maturity-readiness.production.v1.json", "CON-73"),
-        ):
-            (docs / name).write_text(
-                json.dumps({"items": [{"state": "outstanding", "issue": issue}]}), encoding="utf-8"
-            )
-        (docs / "floor-readiness.v1.json").write_text(
-            json.dumps({"items": [{"state": "outstanding", "issue": "CON-99"}]}), encoding="utf-8"
-        )
-        population = coverage_state.maturity_manifest_paths(root)
-        assert [path.name for path in population] == [
-            "maturity-readiness.beta.v1.json",
-            "maturity-readiness.production.v1.json",
-            "maturity-readiness.v1.json",
-        ]
-
-
-def test_collection_merges_maturity_and_established_planes_without_duplicates():
-    with tempfile.TemporaryDirectory(prefix="maturity-planes-") as directory:
-        root = Path(directory)
-        docs = root / ".concord/docs"
-        docs.mkdir(parents=True)
-        (docs / "maturity-readiness.v1.json").write_text(json.dumps({"items": [
+        items = root / "items-plane.json"
+        items.write_text(json.dumps({"items": [
             {"id": "a2-legacy", "state": "outstanding", "issue": 41},
             {"id": "a1-done", "state": "satisfied", "evidence": [{"kind": "validator", "value": "v"}]},
-        ]}), encoding="utf-8")
-        (docs / "maturity-readiness.beta.v1.json").write_text(json.dumps({"items": [
             {"id": "b2-blocked", "state": "outstanding", "issue": "CON-72"},
-        ]}), encoding="utf-8")
-        (docs / "maturity-readiness.production.v1.json").write_text(json.dumps({"items": [
-            {"id": "p1-blocked", "state": "outstanding", "issue": "CON-72"},
             {"id": "p2-shape", "state": "outstanding", "issue": "not-an-issue"},
         ]}), encoding="utf-8")
-        coverage = root / "records-plane.json"
-        coverage.write_text(json.dumps({"records": [
+        records = root / "records-plane.json"
+        records.write_text(json.dumps({"records": [
             {"state": "outstanding", "issue": "CON-72"},
             {"state": "outstanding", "issue": "CON-77"},
         ]}), encoding="utf-8")
-        registry = (*((path, "items") for path in coverage_state.maturity_manifest_paths(root)), (coverage, "records"))
-        with mock.patch.object(coverage_state, "ISSUE_STATE_MANIFESTS", registry):
+        with mock.patch.object(coverage_state, "ISSUE_STATE_MANIFESTS", ((items, "items"), (records, "records"))):
             collected = coverage_state.collect_outstanding_issues()
         assert collected == [41, "CON-72", "CON-77"], collected
-
-
-def test_registry_keeps_the_established_planes_and_maturity_population():
-    registered = {(path, key) for path, key in coverage_state.ISSUE_STATE_MANIFESTS}
-    assert (coverage_state.ROOT / ".concord/docs/knowledge/coverage", "records") in registered
-    assert (coverage_state.ROOT / ".concord/docs/reachability-exceptions.v1.json", "exceptions") in registered
-    for manifest in sorted((coverage_state.ROOT / ".concord/docs").glob("maturity-readiness*.json")):
-        assert (manifest, "items") in registered, manifest
-
-
-def test_snapshot_refresh_covers_a_closed_maturity_pointer():
-    with tempfile.TemporaryDirectory(prefix="maturity-refresh-") as directory:
-        root = Path(directory)
-        docs = root / ".concord/docs"
-        docs.mkdir(parents=True)
-        (docs / "maturity-readiness.beta.v1.json").write_text(json.dumps({"items": [
-            {"id": "b2-blocked", "state": "outstanding", "issue": "CON-70"},
-        ]}), encoding="utf-8")
-        snapshot = root / "issue-state.v1.json"
-        input_path = root / "input.json"
-        input_path.write_text(json.dumps({
-            "schema_version": "1.0",
-            "observations": [observation("CON-70", "completed", "2020-01-01T00:00:00Z")],
-        }), encoding="utf-8")
-        registry = tuple((path, "items") for path in coverage_state.maturity_manifest_paths(root))
-        with mock.patch.object(coverage_state, "ROOT", root), mock.patch.object(
-            coverage_state, "ISSUE_STATE", snapshot
-        ), mock.patch.object(coverage_state, "ISSUE_STATE_MANIFESTS", registry), mock.patch.multiple(
-            updater, ROOT=root, ISSUE_STATE=snapshot
-        ), mock.patch.object(
-            updater.subprocess, "run", side_effect=AssertionError("no implicit network/Go route")
-        ):
-            code, output = run("--linear-observations", input_path)
-            assert code == 0, output
-            stored = json.loads(snapshot.read_text())
-            assert stored["issues"] == {"CON-70": "closed"}, stored
-            assert stored["linear_read_at"] == {"CON-70": "2020-01-01T00:00:00Z"}
-            findings = []
-            assert coverage_state.load_issue_states(findings) == {"CON-70": "closed"}, findings
-            coverage_state.check_outstanding_pointer({"issue": "CON-70"}, "maturity", stored["issues"], findings)
-            assert "must point at a live issue" in findings[0], findings
-
-
-
-def test_registered_maturity_pointers_enter_collection():
-    manifests = set(coverage_state.maturity_manifest_paths(coverage_state.ROOT))
-    assert manifests, "no maturity manifest is registered"
-
-    def plane(path):
-        return {"items": [{"state": "outstanding", "issue": "CON-70"}]} if path in manifests else {}
-
-    with mock.patch.object(coverage_state, "load_plane", side_effect=plane):
-        collected = coverage_state.collect_outstanding_issues()
-    assert collected == ["CON-70"], collected
 
 
 def test_snapshot_metadata_rejects_missing_extra_invalid_or_later_times():

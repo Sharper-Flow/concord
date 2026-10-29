@@ -206,5 +206,4 @@ only caller expiry would bound.
   `agent_grants` table in the schema.
 - `python3 scripts/check-doc-contract.py`, `python3 scripts/check-json.py`,
   `python3 scripts/check-doc-links.py`, `python3 scripts/check-knowledge-index.py`,
-  `python3 scripts/check-law-coverage.py`, and
-  `python3 scripts/check-cd-allocation.py` pass.
+  and `python3 scripts/check-law-coverage.py` pass.

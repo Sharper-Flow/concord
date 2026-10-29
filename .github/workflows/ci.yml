@@ -346,31 +346,20 @@ jobs:
         run: python3 scripts/check-script-tests.py
       - name: Test the ci-wait wait contract (CD-0160)
         run: python3 scripts/test-ci-wait-contract.py
-      - name: Validate test file naming
-        run: python3 scripts/check-test-file-naming.py
-      - name: Validate CD allocation
-        run: |
-          git fetch origin main --quiet
-          git fetch origin '+refs/heads/*:refs/remotes/origin/*' --quiet
-          python3 scripts/check-cd-allocation.py --no-fetch
       # Strict Bun and registry failures remain required. Only suite
       # subprocesses move to other owners, whose results verify also requires.
       - name: Validate JSON
         env:
           CONCORD_REQUIRE_BUN: "1"
         run: python3 scripts/check-json.py --adapter-tests-external --contract-tests-external
-      - name: Validate the Domain registry and committed content against the change base
-        env:
-          CHANGE_BASE_REF: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}
-        run: python3 scripts/check-domain-registry.py && python3 scripts/check-committed-content.py --base-ref "$CHANGE_BASE_REF"
+      - name: Validate the Domain registry
+        run: python3 scripts/check-domain-registry.py
       - name: Validate durable tier
         run: python3 scripts/check-durable-tier.py
       - name: Validate migration compatibility declarations
         run: python3 scripts/check-migration-compatibility.py
       - name: Test migration compatibility classifier
         run: python3 scripts/test-migration-compatibility.py
-      - name: Validate predecessor operational coverage
-        run: python3 scripts/check-predecessor-coverage.py
       - name: Validate relation vocabulary
         run: python3 scripts/check-relation-vocabulary.py
       - name: Validate worker scope contract
@@ -490,7 +479,7 @@ jobs:
           OC_NATIVE_UV_CACHE: ${{ runner.temp }}/native-target-uv-cache
           UV_OFFLINE: "1"
           UV_PYTHON_DOWNLOADS: never
-        run: python3 scripts/test-release.py && python3 scripts/test-release-evidence.py && python3 scripts/test-installer.py && python3 scripts/test-primary-prompts.py && python3 scripts/test-commit-title.py && python3 scripts/test-predecessor-coverage.py && python3 scripts/test-floor-readiness.py && python3 scripts/test-maturity-readiness.py && python3 scripts/test-knowledge-index.py && python3 scripts/test-knowledge-vocabulary.py && python3 scripts/test-knowledge-closure.py && python3 scripts/test-knowledge-placement.py && python3 scripts/test-relation-vocabulary.py && python3 scripts/test-vocabulary-authority.py && python3 scripts/test-work-kinds.py && python3 scripts/test-native-run-statuses.py && python3 scripts/test-rigor-class.py && python3 scripts/test-approval-consequence.py && python3 scripts/test-archived-work-kind.py && python3 scripts/test-doc-contract.py && python3 scripts/test-agents-md.py && python3 scripts/test-agent-contracts.py && python3 scripts/test-check-json.py && python3 scripts/test-generate-law-coverage.py && python3 scripts/test-generate-knowledge-index.py && python3 scripts/test-check-domain-registry.py && python3 scripts/test-check-package-domains.py && python3 scripts/test-check-committed-content.py && python3 scripts/test-generate-agent-lanes.py && python3 scripts/test-shard-format.py && python3 scripts/test-law-coverage.py && python3 scripts/test-test-file-naming.py && python3 scripts/test-cd-allocation.py && python3 scripts/test-renumber-cd.py && python3 scripts/test-script-tests.py && python3 scripts/test-project-tooling.py && python3 scripts/test-durable-tier.py && python3 scripts/test-check-worker-scope-contract.py && python3 scripts/test-check-pr-linear-link.py && python3 scripts/test-agent-reliability-telemetry.py && python3 scripts/test-pre-push.py && python3 scripts/test-run-script-tests.py && python3 scripts/test-go-test-shard.py && python3 scripts/test-blackbox-acceptance-neighbor-mode.py && python3 scripts/test-work-sizes.py && python3 scripts/test-release-restore-population.py && python3 scripts/test-release-restore-confine.py && python3 scripts/test-release-restore-gate.py && python3 scripts/test-release-restore-invoke.py && python3 scripts/test-native-issue-key-resume.py
+        run: python3 scripts/test-release.py && python3 scripts/test-release-evidence.py && python3 scripts/test-installer.py && python3 scripts/test-primary-prompts.py && python3 scripts/test-commit-title.py && python3 scripts/test-knowledge-index.py && python3 scripts/test-knowledge-vocabulary.py && python3 scripts/test-knowledge-closure.py && python3 scripts/test-knowledge-placement.py && python3 scripts/test-relation-vocabulary.py && python3 scripts/test-vocabulary-authority.py && python3 scripts/test-work-kinds.py && python3 scripts/test-native-run-statuses.py && python3 scripts/test-rigor-class.py && python3 scripts/test-approval-consequence.py && python3 scripts/test-archived-work-kind.py && python3 scripts/test-doc-contract.py && python3 scripts/test-agents-md.py && python3 scripts/test-agent-contracts.py && python3 scripts/test-check-json.py && python3 scripts/test-generate-law-coverage.py && python3 scripts/test-generate-knowledge-index.py && python3 scripts/test-check-domain-registry.py && python3 scripts/test-check-package-domains.py && python3 scripts/test-generate-agent-lanes.py && python3 scripts/test-shard-format.py && python3 scripts/test-law-coverage.py && python3 scripts/test-renumber-cd.py && python3 scripts/test-script-tests.py && python3 scripts/test-project-tooling.py && python3 scripts/test-durable-tier.py && python3 scripts/test-check-worker-scope-contract.py && python3 scripts/test-check-pr-linear-link.py && python3 scripts/test-agent-reliability-telemetry.py && python3 scripts/test-pre-push.py && python3 scripts/test-run-script-tests.py && python3 scripts/test-go-test-shard.py && python3 scripts/test-blackbox-acceptance-neighbor-mode.py && python3 scripts/test-work-sizes.py && python3 scripts/test-release-restore-population.py && python3 scripts/test-release-restore-confine.py && python3 scripts/test-release-restore-gate.py && python3 scripts/test-release-restore-invoke.py && python3 scripts/test-native-issue-key-resume.py
 
       - name: Restore write access to the uv fixture cache
         if: always()

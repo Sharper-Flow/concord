@@ -12,10 +12,6 @@
   },
   "date": "2026-08-14T00:00:00Z",
   "doc_contract_profile": "legacy",
-  "evidence": [
-    "scripts/check-floor-readiness.py",
-    ".concord/docs/floor-readiness.v1.json"
-  ],
   "home_domain_id": "operator-surface",
   "id": "CD-0021",
   "kind": "decision",
@@ -27,7 +23,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:fe5c28b114c84de6fd150606e5cea69ea520e25e65340a98001ef4d1dda129ea",
+  "sha256": "sha256:590d32f406d31df95e90f31c169b7ff4ead7bcc13d0421ffce5d54263c92265e",
   "status": "accepted",
   "summary": "Floor condition 1 is claimable without an operator authoring surface: planning happens through an agent session, and full Product scope means every Product is reachable from the operator's session and the agent read surface rather than a result set spanning Products.",
   "tags": [

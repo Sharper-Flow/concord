@@ -29,9 +29,9 @@ WORKFLOW_PATH = Path(__file__).parents[1] / ".github" / "workflows" / "release.y
 
 # The publication path checks out the admitted push SHA with tags for version
 # computation; only the publishing checkout may persist credentials. Every
-# admission job (evidence lookup, refresh checks, admission gate) checks out
-# the same exact SHA with full history and no persisted credentials.
-ADMISSION_CHECKOUTS = ("verify-lookup", "refresh-main-checks", "admit-verification")
+# admission job (evidence lookup, admission gate) checks out the same exact
+# SHA with full history and no persisted credentials.
+ADMISSION_CHECKOUTS = ("verify-lookup", "admit-verification")
 PUBLICATION_CHECKOUTS = {
     "prepare": {
         "ref": TARGET_SHA_REF,

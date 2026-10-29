@@ -13,10 +13,6 @@
       "value": "internal/store.TestCompleteStepContractCorrectionReopensCompletedInstance"
     },
     {
-      "kind": "validator",
-      "value": "scripts/check-cd-allocation.py"
-    },
-    {
       "kind": "go_test",
       "value": "internal/store.TestCompleteStepCorrectionCutoffPersistsAcrossLaterSuccessor"
     },

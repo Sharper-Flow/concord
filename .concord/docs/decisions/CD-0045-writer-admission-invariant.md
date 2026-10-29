@@ -3,8 +3,8 @@
 - **Status:** Accepted
 - **Date:** 2026-08-20
 - **Scope:** The concurrency invariant borne by Priority 2, usability-floor
-  condition 5, and core invariant 8; the vocabulary the floor manifest and the
-  conformance harness share; issue #191
+  condition 5, and core invariant 8; the vocabulary the conformance harness
+  uses; issue #191
 - **Approval:** Operator accepted the drafted decision as written on 2026-08-20; the
   public record is
   [issue #191 comment](https://github.com/Sharper-Flow/concord/issues/191#issuecomment-5359834142)
@@ -35,7 +35,7 @@ wait owned the observed tail**. The harness reports what the decision describes.
 identity. Nothing in the executable evidence claims zero waiting, because
 nothing measured it.
 
-Floor item `fc5-concurrent-process-conformance` needs a falsifiable bound on
+Usability-floor condition 5 needs a falsifiable bound on
 writer-admission wait, distinct from commit duration and escaped busy failures.
 
 ## Decision
@@ -102,12 +102,9 @@ The invariant derives from Priority 2 and is non-negotiable and checkable.
 
 ## Consequences
 
-- Usability-floor condition 5 and floor item
-  `fc5-concurrent-process-conformance` state a requirement a run can fail. The
-  item's evidence cites `internal/store/conformance_test.go`, the ten-process
-  harness that bears the claim.
-- The floor manifest's title-equality check forces `priorities.md` and
-  `floor-readiness.v1.json` to move together. That is the mechanism working.
+- Usability-floor condition 5 states a requirement a run can fail.
+  `internal/store/conformance_test.go`, the ten-process harness, bears the
+  claim.
 - Priority 2 requires "No hand-repair of history" and "safe evolution for
   in-flight work" alongside the checkable concurrency clause.
 
@@ -131,11 +128,6 @@ efficiently". Rejected: unfalsifiable claims are what this decision exists to
 remove, and an unbounded qualitative claim is the same defect in a more agreeable
 register.
 
-**Amend only the floor manifest.** Rejected: the manifest copies its conditions
-from `priorities.md` and the checker enforces the copy. Amending the derived
-record while leaving the source wrong is the drift `floor-readiness.md` §*Why it
-is a manifest* was written to prevent.
-
 ## Verification
 
 - `.concord/docs/decisions/CD-0045-writer-admission-invariant.md` exists with status
@@ -143,10 +135,6 @@ is a manifest* was written to prevent.
   `.concord/docs/knowledge/records/CD-0045.json`, composed by `scripts/knowledge_index.py`.
 - No document claims zero lock waiting or zero contention for Concord-owned
   writes while `busy_timeout` queueing remains the selected mechanism.
-- `.concord/docs/floor-readiness.v1.json` item `fc5-concurrent-process-conformance` names
-  the three distinguished quantities and cites the ten-process harness.
-- `python3 scripts/check-floor-readiness.py` passes with the condition title
-  matching `priorities.md`.
 - `python3 scripts/check-json.py`, `python3 scripts/check-doc-links.py`,
   `python3 scripts/check-knowledge-index.py`, and
   `python3 scripts/check-public-content.py` pass.

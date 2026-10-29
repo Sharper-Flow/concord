@@ -213,7 +213,7 @@ func (d *semanticReviewFixture) dispatch(t *testing.T, attempt, lane string) Wor
 	return WorkerReviewCandidate{}
 }
 
-func (d *semanticReviewFixture) completion(t *testing.T, attempt, lane string, candidate WorkerReviewCandidate, close bool) Event {
+func (d *semanticReviewFixture) completion(t *testing.T, attempt, lane string, candidate WorkerReviewCandidate, closeFinding bool) Event {
 	t.Helper()
 	capability := lane
 	if lane == "implement" {
@@ -231,7 +231,7 @@ func (d *semanticReviewFixture) completion(t *testing.T, attempt, lane string, c
 	tie := d.tie
 	finding := WorkerReviewFinding{FindingID: d.localID, Status: "open", Severity: "P2", Confidence: "high", Detail: "The source must support the citation claim.", EvidenceRefs: []string{}, ClosureRefs: []string{}, Oracle: &tie}
 	p.Review = &WorkerReviewBlock{Disposition: "correction_required", InputCandidate: candidate, OutputCandidate: candidate, Dependencies: deps, Findings: []WorkerReviewFinding{finding}, Assessments: []WorkerReviewAssessment{}, RemainingObligations: []WorkerReviewObligation{}}
-	if close {
+	if closeFinding {
 		p.Review.Disposition = "ready_for_final_proof"
 		p.Review.Findings[0].Status = "closed"
 		p.Review.Findings[0].ClosureRefs = []string{"fixture:source-supports-claim"}

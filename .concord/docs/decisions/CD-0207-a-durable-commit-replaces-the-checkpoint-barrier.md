@@ -135,5 +135,3 @@ not change.
 - `python3 scripts/check-knowledge-index.py` and
   `python3 scripts/check-knowledge-closure.py` prove this record registers
   with a current content hash and no unprocessed document remains.
-- `python3 scripts/check-cd-allocation.py --no-fetch` proves the CD-0207
-  identifier allocates once.

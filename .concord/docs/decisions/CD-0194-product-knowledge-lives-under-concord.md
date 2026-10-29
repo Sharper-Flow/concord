@@ -129,9 +129,7 @@ validate it. Concord's own override list starts empty.
 - `python3 scripts/check-knowledge-index.py` and
   `python3 scripts/check-knowledge-closure.py` prove record integrity and
   files-to-records coverage at the new home.
-- `python3 scripts/check-cd-allocation.py` proves ref-based composition
-  across the layout tiers. `python3 scripts/test-cd-allocation.py` and
-  `python3 scripts/test-renumber-cd.py` prove the lineage guards treat
-  records the comparison ref gained after the merge base as upstream
-  additions, and records the merge base carried as durable law.
+- `python3 scripts/test-renumber-cd.py` proves the lineage guards treat records
+  the comparison ref gained after the merge base as upstream additions, and
+  records the merge base carried as durable law.
 - `go test ./internal/store/` proves the store reads the migrated corpus.

@@ -317,12 +317,12 @@ authorization has nothing to bind.
 - `TestDispatchRefusesImplementationLaneFromDefaultCheckout` proves D7.
 - A repository check proves D6: no `opencode run` spawn remains in the adapter.
 - `internal/agent.TestAgentJobsCorpus` runs the TS1 corpus against this dispatch
-  path, so the floor item `fc2-ts1-corpus-executed` keeps naming the real route.
+  path.
 - The scenario `WF48-lane-pipeline-typed-evidence` drives the registered lanes
-  through this path, so the floor item `fc3-lane-pipeline` keeps its evidence.
+  through this path.
 - The coverage shard `.concord/docs/knowledge/coverage/CD-0102.json`, composed by
   `scripts/knowledge_index.py`, records CD-0102 as proved once the tests above
   pass.
 - `python3 scripts/check-doc-contract.py`, `python3 scripts/check-json.py`,
-  `python3 scripts/check-doc-links.py`, `python3 scripts/check-knowledge-index.py`,
-  and `python3 scripts/check-cd-allocation.py` pass.
+  `python3 scripts/check-doc-links.py`, and
+  `python3 scripts/check-knowledge-index.py` pass.

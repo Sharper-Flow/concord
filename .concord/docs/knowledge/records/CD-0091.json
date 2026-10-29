@@ -18,9 +18,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:367f0e2d8303d6c71a270c4e140323e8566cc9946a130c70f7b4bd1a4601615b",
+  "sha256": "sha256:fab8dc1f884070cdee0e74f04affa7507b34ec3076e19dcad513672b63f88388",
   "status": "accepted",
-  "summary": "Defines the maturity and audience-commitment promotion ladder as evidence claims that reuse the floor-readiness mechanism. Records Concord at prototype and operator_only.",
+  "summary": "Defines the maturity and audience-commitment promotion ladder as evidence claims: a change that raises a Product's rung cites evidence meeting that rung's bar. Records Concord at prototype and operator_only.",
   "tags": [
     "governance",
     "maturity"

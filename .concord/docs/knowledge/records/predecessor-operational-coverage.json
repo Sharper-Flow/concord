@@ -4,7 +4,6 @@
   },
   "date": "2026-08-24T00:00:00Z",
   "evidence": [
-    "scripts/check-predecessor-coverage.py",
     ".concord/docs/priorities.md"
   ],
   "id": "predecessor-operational-coverage",
@@ -17,9 +16,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:d97557f650836ab6683e85864f792d91f6a89c2828eb90fe14c61deec4043359",
+  "sha256": "sha256:1264aef89b9acb149fdfd74715da00f87d47af5740eaa7f123f39d6cb46b45d3",
   "status": "published",
-  "summary": "Per-territory assessment of Concord's operational coverage against the predecessor, validated on every CI run.",
+  "summary": "Per-territory assessment of Concord's operational coverage against the predecessor.",
   "tags": [
     "predecessor",
     "coverage"

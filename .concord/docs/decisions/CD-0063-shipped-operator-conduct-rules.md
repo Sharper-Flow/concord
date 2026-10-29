@@ -221,6 +221,5 @@ private predecessor history and host tool coupling into a public release.
   repairs, and uninstalls while preserving the user layer and unrelated agents.
   An opt-in real-host probe checks the resolved model, tool setting, permissions,
   and instruction registration before and after an upgrade adds competing defaults.
-- `python3 scripts/check-json.py`, `python3 scripts/check-doc-links.py`,
-  `python3 scripts/check-public-content.py`, and
-  `python3 scripts/check-cd-allocation.py` pass.
+- `python3 scripts/check-json.py`, `python3 scripts/check-doc-links.py`, and
+  `python3 scripts/check-public-content.py` pass.

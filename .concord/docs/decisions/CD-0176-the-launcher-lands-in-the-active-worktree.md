@@ -81,6 +81,5 @@ migration, event, or operator setting changes.
   that establish the directory (CD-0098).
 - `python3 scripts/check-doc-contract.py`,
   `python3 scripts/check-knowledge-index.py`,
-  `python3 scripts/generate-knowledge-index.py --check`,
-  `python3 scripts/check-knowledge-closure.py`, and
-  `python3 scripts/check-cd-allocation.py --no-fetch` pass.
+  `python3 scripts/generate-knowledge-index.py --check`, and
+  `python3 scripts/check-knowledge-closure.py` pass.

@@ -17,8 +17,7 @@ in new syntax (CD-0047 D3).
 
 The subject set comes from the knowledge index rather than from this manifest,
 so a record cannot escape coverage by being absent (CD-0047 D1). Anchor
-resolution lives in `scripts/evidence_anchors.py` so the same proof machinery
-is shared with `scripts/check-floor-readiness.py`, and outstanding-pointer
+resolution lives in `scripts/evidence_anchors.py`, and outstanding-pointer
 liveness lives in `scripts/coverage_state.py` so it is shared with every other
 plane that declares the same states.
 """

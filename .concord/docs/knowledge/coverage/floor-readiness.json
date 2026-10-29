@@ -1,5 +1,5 @@
 {
   "id": "floor-readiness",
-  "reason": "Descriptive companion. The authorizing record is .concord/docs/floor-readiness.v1.json and scripts/check-floor-readiness.py measures it on every run.",
+  "reason": "Defines the first-usable floor conditions; no executable check decides whether the floor is met.",
   "state": "out_of_scope"
 }

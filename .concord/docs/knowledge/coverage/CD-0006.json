@@ -11,10 +11,6 @@
     {
       "kind": "scenario",
       "value": "WF02-planning-requires-outcome"
-    },
-    {
-      "kind": "validator",
-      "value": "scripts/check-floor-readiness.py"
     }
   ],
   "id": "CD-0006",

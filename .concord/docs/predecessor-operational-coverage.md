@@ -1,9 +1,8 @@
 # Predecessor operational coverage
 
-> **Status:** Authorizing for floor condition 6 coverage assessment. Validated on
-> every CI run by `scripts/check-predecessor-coverage.py`. Companion to
+> **Status:** Authorizing for floor condition 6 coverage assessment. Companion to
 > [`priorities.md`](./priorities.md) (canonical floor definition) and
-> [`floor-readiness.md`](./floor-readiness.md) (authorizing readiness record).
+> [`floor-readiness.md`](./floor-readiness.md) (first-usable floor conditions).
 > **Issue:** [#78](https://github.com/Sharper-Flow/concord/issues/78).
 > **Review authority ([CD-0242](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D5):** review records the
 > verdict and Implement cannot accept its own result; no separate final evaluator
@@ -33,25 +32,6 @@ It is deliberately not organized by predecessor command shape.
 cloning, and CD-0006 fixes Concord's own workflow model. An enumeration organized
 around predecessor commands would smuggle that shape back in through the gate that
 exists to keep it out.
-
-### How this document holds authority
-
-Authority here comes from mechanical checking rather than assertion. A checklist
-that asserts its own authority drifts silently, which is the failure
-[`floor-readiness.md`](./floor-readiness.md) already avoids for the readiness
-manifest.
-
-`scripts/check-predecessor-coverage.py` parses the section tables on every CI run
-and rejects a covered outcome that names no existing repository path, an excluded
-outcome that carries no reason, a state outside the closed vocabulary, a
-duplicated outcome, a malformed row, and a tally that disagrees with the rows it
-summarises. An outcome cannot claim coverage against a deleted file, and the
-zero-not-covered claim cannot drift from the table beneath it.
-
-The validator does not judge whether the enumeration is *complete* — no mechanism
-can. Completeness remains an auditing obligation, and the audit that produced the
-current row set is recorded in issue
-[#150](https://github.com/Sharper-Flow/concord/issues/150).
 
 ### Coverage states
 
@@ -193,7 +173,7 @@ Territory that appears across all six and is an outcome in its own right.
 | Reconstruct any subject at any point in its history | Excluded | [CD-0242 D2](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history): the store keeps current rows and finite verified snapshots, not history; no point-in-time reconstruction, retained log, or fold exists. |
 | Rebuild every projection from the event log without loss | Excluded | [CD-0242 D2](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history): the store keeps current rows and finite verified snapshots, not an event log, so no rebuild-from-log capability exists; the Git-derived knowledge index rebuilds from Git (CD-0242 D1). |
 | Constrain what an agent may do, scoped to a Product or Project | Covered | Per-call authorization and scope validation, `internal/agent/authority.go` |
-| Refuse a mutation whose scope version is stale, while allowing a refreshed read | Covered | `internal/agent/context_freshness_test.go` asserts the split directly: a stale read returns the refreshed scope version with a `context_refreshed` notice and records no domain event, while a stale mutation fails `stale_context` before any effect. Recorded as `fc2-context-freshness` (`satisfied`). |
+| Refuse a mutation whose scope version is stale, while allowing a refreshed read | Covered | `internal/agent/context_freshness_test.go` asserts the split directly: a stale read returns the refreshed scope version with a `context_refreshed` notice and records no domain event, while a stale mutation fails `stale_context` before any effect. |
 | Triage accumulated coordination residue — stale work, drifted worktrees, orphaned state | Covered | Worktree drift reclaims from git facts (`internal/store/worktrees.go`); stale plans are detected by staleness rules and revised through `supersede_contract` (`internal/store/workflow_event_constructors.go`). Concord has no separate residue sweep because residue is resolved where it is produced. |
 | Deliver agent behavioural methodology — rule rationale, structured preference elicitation | Excluded | [`capability-placement.md`](./capability-placement.md) §4: always-on behavioural policy is an instruction and on-demand methodology is a skill. Both are host-owned surfaces, not durable coordination state. [CD-0043](./decisions/CD-0043-host-owned-lane-methodology.md) makes this the governing rule for worker lane methodology and records the channel it must travel. |
 

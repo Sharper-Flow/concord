@@ -98,7 +98,7 @@ Commands read one strict JSON object from stdin:
   concord product-stage-update < JSON stdin
   concord product stage-update < JSON stdin
     required: product_id, stage_maturity, stage_audience_commitment, expected_version
-    optional: reason (cite the CD-0091 rung manifest when raising maturity)
+    optional: reason (cite the CD-0091 rung evidence when raising maturity)
     accepted values: stage_maturity: prototype | alpha | beta | production | deprecated; stage_audience_commitment: operator_only | limited | public
   concord product-knowledge-home-designate < JSON stdin
   concord product knowledge-home-designate < JSON stdin

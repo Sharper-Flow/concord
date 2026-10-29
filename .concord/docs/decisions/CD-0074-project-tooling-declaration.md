@@ -136,5 +136,4 @@ be structurally validated, drifts silently, and is already pointer-only by
   boundaries, schema/checker lexical agreement, and multiline invocations) and
   runs in CI.
 - `python3 scripts/check-doc-links.py`, `python3 scripts/check-agents-md.py`,
-  `python3 scripts/check-cd-allocation.py --no-fetch`, and
-  `python3 scripts/check-knowledge-index.py` pass.
+  and `python3 scripts/check-knowledge-index.py` pass.

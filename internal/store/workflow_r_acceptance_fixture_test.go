@@ -3,7 +3,6 @@ package store
 import (
 	"encoding/json"
 	"fmt"
-	"strings"
 	"testing"
 	"time"
 )
@@ -53,7 +52,7 @@ func rReviseContract(t *testing.T, s *Store, workID, actorRef string, domains []
 		"decision_domains": domains,
 		// The same Domain write authority the seeded contract carries.
 		"architecture_binding": WorkflowArchitectureBinding{
-			DomainRegistryContentHash: "sha256:" + strings.Repeat("b", 64), HomeDomainID: "root", AffectedDomainIDs: []string{"root"},
+			HomeDomainID: "root", AffectedDomainIDs: []string{"root"},
 			DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{},
 			VerificationObligations: []WorkflowVerificationObligation{},
 		},

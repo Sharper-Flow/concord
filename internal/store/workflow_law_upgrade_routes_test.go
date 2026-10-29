@@ -229,7 +229,7 @@ func TestWorkflowLawUpgradeContractRoutes(t *testing.T) {
 				fields := lawUpgradeContractFields(contract != 0)
 				if definitionRef != "workflow.research" {
 					fields["outcome_predicates"] = []map[string]any{{"predicate_id": "predicate:primary", "ordinal": 0, "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:upgrade", "immutable_subject_ref": "commit:upgrade", "expected_result": "pass"}}}
-					fields["architecture_binding"] = map[string]any{"domain_registry_content_hash": "sha256:" + strings.Repeat("b", 64), "home_domain_id": "root", "affected_domain_ids": []string{"root"}, "domain_modifies": []string{}, "domain_relation_modifies": []any{}, "law_additions": []any{}, "verification_obligations": []any{}}
+					fields["architecture_binding"] = map[string]any{"home_domain_id": "root", "affected_domain_ids": []string{"root"}, "domain_modifies": []string{}, "domain_relation_modifies": []any{}, "law_additions": []any{}, "verification_obligations": []any{}}
 				}
 				lawUpgradeRefusal(t, s, id, 0, func() error {
 					return lawUpgradeAction(t, s, id, owner, action, fields)

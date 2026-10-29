@@ -89,8 +89,7 @@ func TestReviewJobAuthoritySurvivesSupersession(t *testing.T) {
 	defer s.Close()
 	job := &WorkerJobBinding{JobID: "job:old-authority", Revision: 1}
 	recordWorkerJobRevisionForTest(t, s, id, f.owner, job)
-	rescanned := driftStaleRegistryFixture(t, s)
-	if err := runApprovalActionTx(t, s, BuiltinWorkflowRegistry(), id, "supersede_contract", f.owner, nil, "", "", string(registryRepinSuccessorPayload(2, rescanned, id, 1))); err != nil {
+	if err := runApprovalActionTx(t, s, BuiltinWorkflowRegistry(), id, "supersede_contract", f.owner, nil, "", "", string(returnRouteSuccessorPayload(2, id, 1))); err != nil {
 		t.Fatal(err)
 	}
 	ready, err := readyWorkerJobRevisions(context.Background(), s.db, id)

@@ -553,7 +553,8 @@ func TestCompositeRelationKindsNameTheirOwningOperation(t *testing.T) {
 		name, kind, wantDetail string
 		removed                bool
 	}{
-		{name: "compatible_with added", kind: "compatible_with", wantDetail: "resolve_overlap"},
+		{name: "compatible_with added", kind: "compatible_with", wantDetail: "compatible_with is retired"},
+		{name: "compatible_with removed", kind: "compatible_with", wantDetail: "historical overlap-resolution records", removed: true},
 		{name: "merged_into added", kind: "merged_into", wantDetail: "resolve_overlap"},
 	}
 	for _, testCase := range cases {

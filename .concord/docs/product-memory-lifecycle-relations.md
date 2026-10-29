@@ -144,7 +144,7 @@ read names are part of the contract; callers never create mirrored rows.
 | `supersedes`: A supersedes B | B superseded-by A | A is B's canonical replacement | no self-edge, duplicate, cycle, or second direct successor for B |
 | `implements`: A implements B | B implemented-by A | A fulfills another work item | no self-edge or duplicate; no lifecycle effect |
 
-CD-0222's work-pair grammar adds version-pinned `compatible_with`, `merged_into`, and
+CD-0222's work-pair grammar adds version-pinned `merged_into` and
 architecture-sequencing use of `blocks`/`depends_on`/`supersedes`; its
 implementation issue must update this table, schemas, records, and conformance in
 one major rather than partially accepting new relation strings.

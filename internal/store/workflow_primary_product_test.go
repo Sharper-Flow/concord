@@ -51,7 +51,7 @@ func crossProductBindingApproval(t *testing.T, s *Store, workID string, actor Wo
 	for _, action := range []string{"record_proposal", "record_alignment"} {
 		version = issue31WorkflowAction(t, s, workID, version, action, "cross-product-"+workID+"-"+action, actor)
 	}
-	approval := json.RawMessage(`{"spec_mandate":[],"law_modifies":[],"architecture_binding":{"domain_registry_content_hash":"` + crossProductRegistryHash + `","home_domain_id":"root","affected_domain_ids":["root"],"domain_modifies":[],"domain_relation_modifies":[],"law_additions":[],"verification_obligations":[]}}`)
+	approval := json.RawMessage(`{"spec_mandate":[],"law_modifies":[],"architecture_binding":{"home_domain_id":"root","affected_domain_ids":["root"],"domain_modifies":[],"domain_relation_modifies":[],"law_additions":[],"verification_obligations":[]}}`)
 	issue31WorkflowActionWithPayload(t, s, workID, version, "approve_contract", "cross-product-"+workID+"-approve", actor, approval)
 }
 
@@ -83,7 +83,7 @@ func TestWorkflowBindingProductFollowsThePrimaryMembership(t *testing.T) {
 	if productID != "product" {
 		t.Fatalf("binding Product = %q, want the primary Product product", productID)
 	}
-	binding := WorkflowArchitectureBinding{DomainRegistryContentHash: crossProductRegistryHash, HomeDomainID: "root", AffectedDomainIDs: []string{"root"}, DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{}, VerificationObligations: []WorkflowVerificationObligation{}}
+	binding := WorkflowArchitectureBinding{HomeDomainID: "root", AffectedDomainIDs: []string{"root"}, DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{}, VerificationObligations: []WorkflowVerificationObligation{}}
 	if err := validateArchitectureBindingTx(ctx, tx, workID, registered.Definition, &binding, []string{}, []string{}, nil); err != nil {
 		t.Fatalf("cross-Product work refused architecture binding validation: %v", err)
 	}

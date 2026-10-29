@@ -132,7 +132,6 @@ type ContinuitySnapshot struct {
 	// ActiveVerifyLeases re-pins the reading session's held verify leases
 	// (CD-0096 D5), newest first, bounded. Empty when the session named no
 	// identity or holds none.
-	UnresolvedOverlaps      []WorkflowDomainOverlap     `json:"unresolved_overlaps"`
 	CompatibleLawAmendments []CompatibleLawAmendment    `json:"compatible_law_amendments"`
 	ActiveVerifyLeases      []ActiveWorktreeVerifyLease `json:"active_verify_leases,omitempty"`
 	WorkPin                 *WorkPin                    `json:"work_pin,omitempty"`
@@ -263,7 +262,6 @@ func continuityReadIdentityTx(ctx context.Context, tx *sql.Tx, workID string, ou
 	out.ProductIdentity = []string{}
 	out.SpecMandate = []string{}
 	out.StepActions = []string{}
-	out.UnresolvedOverlaps = []WorkflowDomainOverlap{}
 	out.CompatibleLawAmendments = []CompatibleLawAmendment{}
 	if err := publishedWorkAbsenceQ(ctx, tx, workID, "C19.Continuity"); err != nil {
 		return out, err
@@ -330,10 +328,6 @@ func continuityReadManagedHistoryTx(ctx context.Context, tx *sql.Tx, req Continu
 		return contractErr
 	}
 	if err := continuityReadContractTx(ctx, tx, req.Work, out, activeContractVersion, currentStep, workVersion, definition, registry); err != nil {
-		return err
-	}
-	out.UnresolvedOverlaps, err = readWorkflowUnresolvedDomainOverlapsTx(ctx, tx, req.Work)
-	if err != nil {
 		return err
 	}
 	if err := continuityReadCheckpointTx(ctx, tx, req.Work, out); err != nil {
@@ -425,11 +419,6 @@ func continuityReadContractTx(ctx context.Context, tx *sql.Tx, work string, out 
 			return bindingErr
 		}
 		contract.ArchitectureBinding = binding
-		selfRepair, repairErr := readWorkflowSelfRepair(ctx, tx, work, contract.Version)
-		if repairErr != nil {
-			return repairErr
-		}
-		contract.SelfRepair = selfRepair
 		out.ArchitectureBinding = contract.ArchitectureBinding
 		out.Contract = &contract
 		revisions, revisionErr := readWorkflowLawRevisions(ctx, tx, work, contract.Version)

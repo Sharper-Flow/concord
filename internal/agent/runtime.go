@@ -964,20 +964,6 @@ func projectStoreFailureDetails(out *agentcontract.Envelope, sf *store.Failure) 
 	if sf.StaleLawRevision != nil {
 		out.Error.StaleLawRevision = &agentcontract.StaleLawRevision{OldLawID: sf.StaleLawRevision.OldLawID, OldContentHash: sf.StaleLawRevision.OldContentHash, RecoveryActions: append([]string(nil), sf.StaleLawRevision.RecoveryActions...)}
 	}
-	if sf.DomainOverlap != nil {
-		out.Error.DomainOverlap = &agentcontract.DomainOverlap{TotalOverlaps: sf.DomainOverlap.TotalOverlaps, ReturnedOverlaps: sf.DomainOverlap.ReturnedOverlaps, Truncated: sf.DomainOverlap.Truncated}
-		for _, overlap := range sf.DomainOverlap.Overlaps {
-			// The envelope contract requires an array for every shared list.
-			// An architecture-only overlap carries empty law, modification,
-			// and relation lists; a nil slice marshals as null and makes the
-			// refusal undeliverable.
-			converted := agentcontract.DomainOverlapDetail{ProductID: overlap.ProductID, FromWorkID: overlap.FromWorkID, ToWorkID: overlap.ToWorkID, FromContractVersion: overlap.FromContractVersion, ToContractVersion: overlap.ToContractVersion, SharedAffectedDomainIDs: nonNilStrings(overlap.SharedAffectedDomainIDs), SharedLawIDs: nonNilStrings(overlap.SharedLawIDs), SharedDomainModifications: nonNilStrings(overlap.SharedDomainModifications), SharedRelationTuples: []agentcontract.DomainOverlapRelationTuple{}, OverlapClasses: nonNilStrings(overlap.OverlapClasses), ResolutionState: overlap.ResolutionState, ResolutionKind: overlap.ResolutionKind, RecoveryActions: nonNilStrings(overlap.RecoveryActions), SharedAffectedDomainCount: overlap.SharedAffectedDomainCount, SharedLawCount: overlap.SharedLawCount, SharedDomainModificationCount: overlap.SharedDomainModificationCount, SharedRelationTupleCount: overlap.SharedRelationTupleCount, DetailTruncated: overlap.DetailTruncated}
-			for _, tuple := range overlap.SharedRelationTuples {
-				converted.SharedRelationTuples = append(converted.SharedRelationTuples, agentcontract.DomainOverlapRelationTuple{SourceDomainID: tuple.SourceDomainID, Kind: tuple.Kind, TargetDomainID: tuple.TargetDomainID})
-			}
-			out.Error.DomainOverlap.Overlaps = append(out.Error.DomainOverlap.Overlaps, converted)
-		}
-	}
 	if sf.ExternalRefConflict != nil {
 		out.Error.ExternalRefConflict = &agentcontract.ExternalRefConflict{ExistingWorkID: sf.ExternalRefConflict.ExistingWorkID, ExternalRef: sf.ExternalRefConflict.ExternalRef}
 	}
@@ -1167,8 +1153,6 @@ func mapFailureKind(kind store.FailureKind) string {
 		return "stale_requires_review"
 	case store.KindStaleLawRevision:
 		return "stale_law_revision"
-	case store.KindDomainOverlap:
-		return "domain_overlap"
 	}
 	// A store kind whose value is already a public kind passes through. The
 	// cases above are the genuine renames, where the store's name and the
@@ -1314,7 +1298,7 @@ func (r runtime) readResult(ctx context.Context, base agentcontract.Envelope, in
 		return r.readKnowledgeResolveNote(ctx, base, input)
 	case "concord_knowledge.observe_publication":
 		return r.readKnowledgeObservePublication(ctx, base, input)
-	case "concord_domain.list", "concord_domain.detail", "concord_domain.attachments", "concord_domain.overlaps":
+	case "concord_domain.list", "concord_domain.detail", "concord_domain.attachments":
 		return r.readDomain(ctx, base, input, queryID)
 	case "concord_domain.footprint":
 		return r.readDomainFootprint(ctx, base, input)
@@ -1782,9 +1766,6 @@ func ContinuityPayload(snapshot store.ContinuitySnapshot) map[string]any {
 	}
 	// Empty peer signals stay out of the prompt. This keeps the unchanged
 	// projection's bytes stable while non-empty signals remain visible.
-	if len(snapshot.UnresolvedOverlaps) > 0 {
-		pinned["unresolved_overlaps"] = snapshot.UnresolvedOverlaps
-	}
 	if len(snapshot.CompatibleLawAmendments) > 0 {
 		pinned["compatible_law_amendments"] = snapshot.CompatibleLawAmendments
 	}

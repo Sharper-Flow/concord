@@ -217,51 +217,6 @@ func TestKnowledgeIndexWithoutPackageMapProjectsNoPackages(t *testing.T) {
 	}
 }
 
-// TestPackageMapChangeKeepsRegistryPin proves a map-only commit moves the
-// map's own hash and leaves the registry content hash an architecture
-// binding pins current, while a registry change stales the same pin.
-func TestPackageMapChangeKeepsRegistryPin(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	repo := architectureFixtureRepo(t)
-	s, home := architectureFixtureStore(t, repo)
-	pin := workflowOverlapFootprint{ProductID: "arch-product", AffectedDomains: []string{"fixture-law"}}
-	if err := s.DatabaseForTesting().QueryRow(`SELECT content_hash FROM domain_registries WHERE product_id='arch-product'`).Scan(&pin.RegistryHash); err != nil {
-		t.Fatal(err)
-	}
-	mapHash := func() string {
-		var hash string
-		if err := s.DatabaseForTesting().QueryRow(`SELECT DISTINCT map_content_hash FROM knowledge_package_domains WHERE home_project_id=?`, home.HomeProjectID).Scan(&hash); err != nil {
-			t.Fatal(err)
-		}
-		return hash
-	}
-	before := mapHash()
-
-	writeKnowledgeFile(t, repo, knowledgePackageMapPath, `{"packages":[{"domain_ids":["fixture-law"],"path":"internal/gamma"}],"schema_version":"1.0"}`+"\n")
-	commitKnowledgeRepo(t, repo, "map-only change")
-	if err := s.EnsureKnowledgeIndexFresh(ctx, home); err != nil {
-		t.Fatal(err)
-	}
-	if mapHash() == before {
-		t.Fatal("fixture premise: the map-only commit did not move the map hash")
-	}
-	if err := currentWorkflowDomainRegistryCheckTx(ctx, s.DatabaseForTesting(), pin); err != nil {
-		t.Fatalf("map-only change staled the registry pin: %v", err)
-	}
-
-	manifest := composeWorkingTreeManifest(t, repo)
-	manifest.DomainRegistry.Domains[1].Purpose = "fixture law home, revised"
-	writeManifestShards(t, repo, manifest)
-	commitKnowledgeRepo(t, repo, "registry change")
-	if err := s.EnsureKnowledgeIndexFresh(ctx, home); err != nil {
-		t.Fatal(err)
-	}
-	if err := currentWorkflowDomainRegistryCheckTx(ctx, s.DatabaseForTesting(), pin); err == nil {
-		t.Fatal("control: a registry change left the pin current, so the map-only case proves nothing")
-	}
-}
-
 // TestFreshWatermarkOverAnOlderWritersPackageMapRebuilds proves a watermark
 // an older binary stamped over the same commit, without the architecture
 // rows, reads stale and rebuilds on demand.

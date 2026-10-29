@@ -79,7 +79,6 @@ func workflowContractRecoveryPayloadFields() []WorkflowPayloadField {
 		actionStringField("supersede_reason", true, 4096),
 		actionListField("audit_evidence", true, 1, 32),
 		actionObjectField("architecture_binding", false, "architecture_binding"),
-		actionObjectField("self_repair", false, "workflow_self_repair"),
 		actionObjectField("design_record", false, "workflow_design_content"),
 	}
 }
@@ -410,37 +409,19 @@ func readWorkflowLawRevisions(ctx context.Context, q queryer, workID string, con
 	return revisions, nil
 }
 
-// workflowContractRecoveryStaleness is the one predicate that decides whether
-// a staleness refusal admits operator-approved contract recovery for the named
-// subject: a stale law revision, an unresolved Domain overlap, or the
-// subject's own stale Domain registry pin. guardSupersedeContractRecovery and
-// both workflow_action preflights share it, so no surface can widen the
-// recovery admission on its own (CD-0222 D7). A marker naming another item, a
-// Product with no registry, and every other refusal stay refused.
-func workflowContractRecoveryStaleness(err error, workID string) bool {
+// workflowContractRecoveryStaleness reports whether a staleness refusal
+// admits operator-approved contract recovery: only a CD-0036 deleted-law pin
+// does. guardSupersedeContractRecovery and both workflow_action preflights
+// share it, so no surface can widen the recovery admission on its own.
+func workflowContractRecoveryStaleness(err error) bool {
 	var failure *Failure
-	if !failureAs(err, &failure) {
-		return false
-	}
-	switch failure.Kind {
-	case KindStaleLawRevision, KindDomainOverlap:
-		return true
-	case KindStaleRequiresReview:
-		return failure.StaleDomainRegistryPin != nil && failure.StaleDomainRegistryPin.WorkID == workID
-	default:
-		return false
-	}
+	return failureAs(err, &failure) && failure.Kind == KindStaleLawRevision
 }
 
-func checkWorkflowLawRevisionStalenessTx(ctx context.Context, tx *sql.Tx, workID string) error {
-	return checkWorkflowLawRevisionStalenessAdmittingTx(ctx, tx, workID, workflowStalePinAdmitNone)
-}
-
-// checkWorkflowLawRevisionStalenessAdmittingTx is the same staleness boundary
-// with one admission extension the workflow-action surfaces pass. Attempt
-// disposition admits a stale registry pin whose marker names workID itself;
-// a peer's stale pin, a stale law revision, and every other refusal stand.
-func checkWorkflowLawRevisionStalenessAdmittingTx(ctx context.Context, tx queryer, workID string, admission workflowStalePinAdmission) error {
+// checkWorkflowLawRevisionStalenessTx refuses an action whose active contract
+// pins a law that no longer exists (CD-0036). It is the only post-approval
+// comparison of a contract with current law (CD-0222 D7).
+func checkWorkflowLawRevisionStalenessTx(ctx context.Context, tx queryer, workID string) error {
 	var mandateJSON string
 	// This boundary reads the law revisions that one approved contract pins.
 	// An absent projection pins nothing, and an ambiguous one names no single
@@ -475,7 +456,7 @@ func checkWorkflowLawRevisionStalenessAdmittingTx(ctx context.Context, tx querye
 		return mandateErr
 	}
 	if len(mandated) == 0 {
-		return checkWorkflowDomainOverlapTxAdmitting(ctx, tx, workID, admission)
+		return nil
 	}
 	homeProjectID, homeLocatorID, err := workflowLawHome(ctx, tx, workID)
 	if err != nil {
@@ -486,7 +467,7 @@ func checkWorkflowLawRevisionStalenessAdmittingTx(ctx context.Context, tx querye
 		return err
 	}
 	if stale == nil {
-		return checkWorkflowDomainOverlapTxAdmitting(ctx, tx, workID, admission)
+		return nil
 	}
 	failure := newFailure(KindStaleLawRevision, "check_workflow_law_revision", "workflow contract pins a deleted law", false, "reconcile_operation")
 	failure.StaleLawRevision = stale
@@ -494,10 +475,9 @@ func checkWorkflowLawRevisionStalenessAdmittingTx(ctx context.Context, tx querye
 }
 
 // CheckWorkflowConsequentialBoundaryTx is the CD-0222 D7 preflight for a
-// caller-owned mutation transaction. It validates both halves the boundary
-// owes — the contract's law revision pins and its active Domain overlaps — in
-// the transaction that owns the write, so neither can change between the check
-// and the effect. It is read-only and returns a typed refusal.
+// caller-owned mutation transaction. It validates the contract's law revision
+// pins in the transaction that owns the write, so they cannot change between
+// the check and the effect. It is read-only and returns a typed refusal.
 func CheckWorkflowConsequentialBoundaryTx(ctx context.Context, transaction *Transaction, workID string) error {
 	tx, err := transactionSQL(transaction, "check_workflow_law_revision")
 	if err != nil {

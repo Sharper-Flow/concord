@@ -87,8 +87,6 @@ func companionFields(err *TypedError) {
 		err.CurrentVersions = []ChangedRef{{EntityKind: "work_item", ID: "work-1", Version: "2"}}
 	case "budget_refused":
 		err.SupportedBudgetSeconds = 30
-	case "domain_overlap":
-		err.DomainOverlap = coupledDomainOverlap()
 	case "stale_law_revision":
 		err.StaleLawRevision = coupledStaleLawRevision()
 	}
@@ -157,48 +155,25 @@ func TestPublicRecoveryHonorsEnforcedCouplings(t *testing.T) {
 
 func TestCoordinationRecoveryPreservesSupportedOwnerAction(t *testing.T) {
 	t.Parallel()
-	for _, kind := range []string{"domain_overlap", "stale_law_revision"} {
-		for _, action := range []string{"reconcile_operation", "reread_entities", "use_declared_route", "request_approval"} {
-			t.Run(kind+"/"+action, func(t *testing.T) {
-				if got := PublicRecovery(kind, action); got != action {
-					t.Errorf("PublicRecovery(%q, %q) = %q, want owner action", kind, action, got)
-				}
-				typed := TypedError{Kind: kind, RecoveryAction: RecoveryAction{Kind: action}, EffectState: EffectNone}
-				companionFields(&typed)
-				if action == "use_declared_route" {
-					typed.RecoveryAction.RequiredRefs = []string{"supersede_contract"}
-				}
-				out := NewCoreError(NewBase("owner-action", "concord_work_transition", "workflow_action"), typed)
-				if _, err := out.Encode(); err != nil {
-					t.Fatalf("supported owner action must serialize with typed details: %v", err)
-				}
-				typed.DomainOverlap, typed.StaleLawRevision = nil, nil
-				if err := validateError(typed); err == nil {
-					t.Fatal("missing typed companion passed validation")
-				}
-			})
-		}
-	}
-}
-
-// coupledDomainOverlap builds the smallest overlap block the envelope contract
-// accepts. It matches what boundWorkflowDomainOverlapFailure produces for one
-// unresolved architecture-only pair.
-func coupledDomainOverlap() *DomainOverlap {
-	return &DomainOverlap{
-		Overlaps: []DomainOverlapDetail{{
-			ProductID: "prod-alpha", FromWorkID: "work-from", ToWorkID: "work-to",
-			FromContractVersion: 1, ToContractVersion: 1,
-			SharedAffectedDomainIDs:   []string{"root"},
-			SharedLawIDs:              []string{},
-			SharedDomainModifications: []string{},
-			SharedRelationTuples:      []DomainOverlapRelationTuple{},
-			OverlapClasses:            []string{"architecture"},
-			ResolutionState:           "unresolved",
-			RecoveryActions:           []string{"resolve_overlap"},
-			SharedAffectedDomainCount: 1,
-		}},
-		TotalOverlaps: 1, ReturnedOverlaps: 1,
+	for _, action := range []string{"reconcile_operation", "reread_entities", "use_declared_route", "request_approval"} {
+		t.Run(action, func(t *testing.T) {
+			if got := PublicRecovery("stale_law_revision", action); got != action {
+				t.Errorf("PublicRecovery(stale_law_revision, %q) = %q, want owner action", action, got)
+			}
+			typed := TypedError{Kind: "stale_law_revision", RecoveryAction: RecoveryAction{Kind: action}, EffectState: EffectNone}
+			companionFields(&typed)
+			if action == "use_declared_route" {
+				typed.RecoveryAction.RequiredRefs = []string{"supersede_contract"}
+			}
+			out := NewCoreError(NewBase("owner-action", "concord_work_transition", "workflow_action"), typed)
+			if _, err := out.Encode(); err != nil {
+				t.Fatalf("supported owner action must serialize with typed details: %v", err)
+			}
+			typed.StaleLawRevision = nil
+			if err := validateError(typed); err == nil {
+				t.Fatal("missing typed companion passed validation")
+			}
+		})
 	}
 }
 

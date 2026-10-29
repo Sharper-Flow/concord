@@ -230,7 +230,7 @@ set at the D5 boundary.
 - Criterion 6 keeps its completion anchor:
   `go test ./internal/store/ -run TestWorkflowCompletionRequiresCurrentExplicitImpactVerdict`.
 - Criterion 7 keeps its ordinary-recovery anchors:
-  `go test ./internal/store/ -run TestStaleRegistryRescanAdmitsExactlyOneRePinRoute`
+  `go test ./internal/store/ -run TestStaleLawHoldsLateVerdictUntilRePin`
   and `go test ./internal/store/ -run TestCompleteStepCorrectionStaleLawStaysBehindTheGate`.
 - Criterion 8's derived-failure actor and fenced checkpoint anchors are:
   `go test ./internal/store/ -run TestDerivedWorkerFailureRecordsOnceFromTheOriginalTerminalEvent`,

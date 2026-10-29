@@ -863,7 +863,11 @@ func foldRelationRemoved(ctx context.Context, tx *sql.Tx, event Event) error {
 		return newFailure(KindRelationContractViolation, "fold_event",
 			"supersedes relations are removed by reopening the superseded work item", false,
 			"reopen the superseded work item through its active supersession edge")
-	case "compatible_with", "merged_into":
+	case "compatible_with":
+		return newFailure(KindRelationContractViolation, "fold_event",
+			"compatible_with edges are historical overlap-resolution records", false,
+			"leave the edge in place; work that shares a Domain proceeds without a resolution")
+	case "merged_into":
 		return newFailure(KindRelationContractViolation, "fold_event",
 			"overlap-resolution relations are owned by resolve_overlap", false,
 			"use resolve_overlap so operator approval, version pins, and lifecycle changes remain atomic")

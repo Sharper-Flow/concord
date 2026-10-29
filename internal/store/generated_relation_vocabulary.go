@@ -22,7 +22,7 @@ type relationLinkRefusal struct {
 }
 
 var relationLinkRefusals = map[string]relationLinkRefusal{
-	"compatible_with": {Message: "overlap-resolution relations must be created by resolve_overlap", Recovery: "use resolve_overlap so operator approval, version pins, and lifecycle changes remain atomic"},
+	"compatible_with": {Message: "compatible_with is retired: work that shares a Domain proceeds without a resolution", Recovery: "record no relation, or use depends_on or blocks for real sequencing"},
 	"merged_into":     {Message: "overlap-resolution relations must be created by resolve_overlap", Recovery: "use resolve_overlap so operator approval, version pins, and lifecycle changes remain atomic"},
 	"supersedes":      {Message: "supersedes relations must be created by work.superseded", Recovery: "append a work.superseded event so the edge and lifecycle change remain atomic"},
 }

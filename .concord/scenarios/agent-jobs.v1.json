@@ -611,10 +611,10 @@
   {
    "id": "AJ5-resolve-domain-overlap",
    "job_id": "AJ5",
-   "instruction": "Record the compatible overlap answer for work-1 and work-2 unsigned, and settle the destructive merged_into control through one consumed operator approval.",
+   "instruction": "Record the depends_on sequencing answer for work-1 and work-2 unsigned, and settle the destructive merged_into control through one consumed operator approval.",
    "initial_state": {
     "fixture": "domain-overlap",
-    "idempotency_seed": "compatible-work-1-work-2"
+    "idempotency_seed": "depends-on-work-1-work-2"
    },
    "expected": {
     "assertions": [
@@ -622,7 +622,7 @@
       "target": "state",
       "path": "overlap.current_resolution.kind",
       "op": "eq",
-      "value": "compatible_with"
+      "value": "depends_on"
      },
      {
       "target": "state",
@@ -638,7 +638,7 @@
      },
      {
       "target": "state",
-      "path": "relations.compatible_with",
+      "path": "relations.depends_on",
       "op": "contains",
       "value": {
        "source": "work-1",

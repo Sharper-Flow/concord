@@ -106,7 +106,7 @@ func TestWorkflowActionSemanticEventsAreFollowedByUniversalCompletion(t *testing
 	for _, action := range []string{"record_proposal", "record_alignment"} {
 		version = issue31WorkflowAction(t, s, "workflow-issue31-actions", version, action, "issue31-"+action, actor)
 	}
-	approval := json.RawMessage(`{"spec_mandate":[],"law_modifies":[],"architecture_binding":{"domain_registry_content_hash":"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","home_domain_id":"root","affected_domain_ids":["root"],"domain_modifies":[],"domain_relation_modifies":[],"law_additions":[],"verification_obligations":[]}}`)
+	approval := json.RawMessage(`{"spec_mandate":[],"law_modifies":[],"architecture_binding":{"home_domain_id":"root","affected_domain_ids":["root"],"domain_modifies":[],"domain_relation_modifies":[],"law_additions":[],"verification_obligations":[]}}`)
 	version = issue31WorkflowActionWithPayload(t, s, "workflow-issue31-actions", version, "approve_contract", "issue31-approve", actor, approval)
 	if version != 10 {
 		t.Fatalf("approve_contract resulting version=%d, want 10", version)
@@ -184,7 +184,7 @@ func TestApproveContractPersistsEvidenceAndRigor(t *testing.T) {
 			for _, action := range []string{"record_proposal", "record_alignment"} {
 				version = issue31WorkflowAction(t, s, workID, version, action, "contract-fields-"+testCase.name+"-"+action, actor)
 			}
-			approval := json.RawMessage(`{` + testCase.extraFields + `"spec_mandate":[],"law_modifies":[],"architecture_binding":{"domain_registry_content_hash":"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","home_domain_id":"root","affected_domain_ids":["root"],"domain_modifies":[],"domain_relation_modifies":[],"law_additions":[],"verification_obligations":[]}}`)
+			approval := json.RawMessage(`{` + testCase.extraFields + `"spec_mandate":[],"law_modifies":[],"architecture_binding":{"home_domain_id":"root","affected_domain_ids":["root"],"domain_modifies":[],"domain_relation_modifies":[],"law_additions":[],"verification_obligations":[]}}`)
 			issue31WorkflowActionWithPayload(t, s, workID, version, "approve_contract", "contract-fields-"+testCase.name+"-approve", actor, approval)
 			var requiredEvidence, rigorClass string
 			if err := s.DatabaseForTesting().QueryRow(`SELECT required_evidence,rigor_class FROM workflow_contracts WHERE work_id=? AND contract_version=1`, workID).Scan(&requiredEvidence, &rigorClass); err != nil {

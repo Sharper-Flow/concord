@@ -159,7 +159,7 @@ requires operator consent only when a D2 class applies.
 
 | Owner | Qualified subject |
 |---|---|
-| CD-0018 D4; CD-0153 D4; CD-0224 Decision and its overlap criteria | Merger and supersession do not independently require operator approval; a governing-requirement scope cut follows D2 and D3's Concord deletion exemption |
+| CD-0018 D4; CD-0224 Decision and its overlap criteria | Merger and supersession do not independently require operator approval; a governing-requirement scope cut follows D2 and D3's Concord deletion exemption |
 | CD-0094 D2, D3 and terminal-transition claims | Completion, cancellation, and destructive-effect approval follows D2, not terminal status alone |
 | CD-0105; CD-0144; CD-0178 D3; CD-0181; CD-0212 | Worktree removal requires operator consent only under D2 |
 | CD-0142 Consequences; PM4 and compaction-retention-policy removal clauses | Per-item execution removal may be agent-directed within the assigned scope; its planning destination and preparation fences remain required |

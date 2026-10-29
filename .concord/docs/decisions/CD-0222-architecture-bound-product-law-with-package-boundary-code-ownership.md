@@ -16,7 +16,7 @@
   surviving store query bounds and authority over exact Domain-detail reads;
   `applies_to_domain_ids` as optional.
 [CD-0243 D6](CD-0243-four-roles-and-six-operator-approval-classes.md#d6-existing-approval-requirements-follow-these-classes)
-governs D1, D4, and D5: law mandates and enactment require approval only under its six classes. It also governs D6's overlap approval rule. Law homes, applicability, footprint, and architecture checks remain required.
+governs D1, D4, and D5: law mandates and enactment require approval only under its six classes. It also governs the approval rule for work relations that `resolve_overlap` records. Law homes, applicability, footprint, and architecture checks remain required.
 
 ## Context
 
@@ -46,7 +46,7 @@ law; they do not outrank it.
 
 ## Decision
 
-D6's approval rule follows CD-0013 D11: `depends_on`, `blocks`, and `compatible_with` are routine version-pinned coordination answers; `merged_into` and `supersedes` abandon or replace work identity and require operator approval only when a CD-0243 D2 class applies. Current Domain intersections, judged-content freshness, both endpoint versions, the dedicated atomic writer, cycle rules, and D7 consequential admission remain required. Routine supersession grants neither legislative authority nor a standing overlap exemption.
+`resolve_overlap` records work relations under CD-0013 D11: `depends_on` and `blocks` are routine version-pinned coordination answers; `merged_into` and `supersedes` abandon or replace work identity and require operator approval only when a CD-0243 D2 class applies. Both endpoint versions, the dedicated atomic writer, and cycle rules remain required. Routine supersession grants no legislative authority.
 
 ### D1. Product law and architectural concordance serve the goals
 
@@ -219,14 +219,14 @@ family has its own owner, endpoint constraints, metadata, and graph rules.
 | Work | `home_in` | Domain | Exactly one for Product-changing work |
 | Work | `impacts`, `modifies` | Domain | Closed contract fields; all modified Domains are impacted |
 | Work | `governed_by`, `modifies`, `adds`, `verifies` | Law | Revision-pinned contract fields; modified/added law is operator-mandated |
-| Work | `blocks`, `depends_on`, `raised_from`, `compatible_with`, `merged_into`, `supersedes` | Work | Closed work-pair grammar; overlap resolutions pin both contract versions |
+| Work | `blocks`, `depends_on`, `raised_from`, `merged_into`, `supersedes` | Work | Closed work-pair grammar; `resolve_overlap` pins both contract versions |
 
-The Work→Work row above lists this record's overlap-relevant members. PM4 owns the full
+The Work→Work row above lists the work relations this record governs. PM4 owns the full
 stored work-relation vocabulary and its migration, including retained
 `implements` behavior and legacy `parent` reads.
 
 Inverse browse directions are derived; callers do not author duplicate inverse
-edges. `shares_contract_with` and `compatible_with` use one canonical ordered
+edges. `shares_contract_with` uses one canonical ordered
 pair. `replaces` is stateful and therefore has an owning relation record rather
 than a pair of booleans. Generic parentage no longer represents both architecture
 and initiative membership.
@@ -268,8 +268,7 @@ The binding composes with, rather than duplicates, the outcome contract,
 Every named Domain and law must resolve inside the derived Product scope. A
 modified Domain must be affected. A modified or added law must be owned by an
 affected Domain. Law modifications remain a subset of the approved mandate.
-The contract pins Domain-registry content hashes and law revisions; local
-attachment mutations and all overlap resolutions use expected versions.
+The contract pins law revisions; local attachment mutations use expected versions.
 
 Workflow definitions with `changes_product_truth=false` cannot write Product law,
 Domain identity, Domain relations, or Product behavior. Research may recommend a
@@ -285,42 +284,12 @@ visible in the contract the operator approves. `legislated` law remains
 reachable only through a Product-changing workflow type, and the architecture
 binding stays reserved for Product-changing contracts regardless of tier.
 
-### D6. Architectural overlap is explicit before concurrent work proceeds
+### D6. Concurrent work reconciles through Git
 
-For each nonterminal Product-changing work item that has started execution,
-Concord derives its active architecture footprint from the approved contract.
-An approved contract that has not started execution has no active footprint and
-does not block a peer. Two executing items block execution authority only when
-at least one exact write intersection exists: shared law additions or
-modifications, shared Domain modifications, or shared Domain-relation
-modifications. A shared `affected_domain_ids` value alone is architecture
-proximity and does not block execution authority.
-
-The derived overlap detail retains the shared affected Domains and marks the
-architecture class when a blocking write overlap also shares a Domain. Only a
-blocking write overlap requires a resolution before both items may hold
-execution authority.
-`concord_domain.overlaps` reports the pairs admission checks (exact shared write,
-at least one execution-started side) with admission's resolution freshness.
-The closed resolutions are:
-
-| Resolution | Record |
-|---|---|
-| Both contracts are compatible | symmetric `compatible_with`, operator-approved |
-| One must land and revalidate before the other | hard `depends_on` / `blocks` |
-| The intents become one surviving item | `merged_into` |
-| One intent replaces the other | `supersedes` |
-| One item ends | terminal lifecycle state |
-
-An overlap resolution records both work IDs and both approved contract versions.
-Changing either contract makes the resolution stale. An agent may explain an
-overlap and draft a resolution; only the operator may approve compatibility,
-merger, supersession, or a sequence that changes Product scope.
-
-This is deliberately conservative. Same-Domain work may be compatible, but
-Concord records that conclusion rather than assuming it. The cost is a bounded
-decision; the avoided failure is two agents independently enacting contradictory
-Product truth.
+Two in-progress items may change the same law, Domain, or Domain relation.
+Concord does not block either item for that overlap and records no resolution
+for it. The item that merges later merges main into its branch and fixes any
+conflict, as with any other code change; D7 then applies to it.
 
 ### D7. Revalidation is transactional at every consequential action
 
@@ -335,11 +304,21 @@ owns each authoritative workflow mutation. They apply at:
 - any Concord-authorized merge/ship decision or acceptance of its result; and
 - completion and compaction.
 
-The preflight validates current Domain-registry hashes, local attachment versions,
-law revision pins,
-relation grammar, active overlaps, and overlap resolutions. A conflicting action
-returns a typed refusal naming the exact Domains, laws, work items, contract
-versions, and closed recovery choices. Read-only inspection remains available.
+The preflight validates local attachment versions and relation grammar.
+Contract approval and revision also validate the architecture binding against
+the current Domain registry and accepted law, and pin the law revisions.
+
+A Product law or Domain registry change merged on main never invalidates work
+already in progress. After approval, no action compares the contract with the
+current Domain registry, and only a CD-0036 breaking cutover compares it with
+current law. Where a merged change overlaps the item's work, the item merges
+main into its branch and fixes the conflict, as with any other code change.
+CD-0242 D7 then decides which of the item's records the changed candidate makes
+stale.
+
+A conflicting action returns a typed refusal naming the exact Domains, laws,
+work items, contract versions, and closed recovery choices. Read-only
+inspection remains available.
 
 Concord does not kill a host process or claim that a Git merge did not occur.
 It refuses to admit stale or contradictory output into Product truth. A clean
@@ -347,9 +326,7 @@ textual merge, passing tests, or a model's semantic-confidence score cannot
 satisfy this boundary.
 
 CD-0036 remains the authority for a breaking law cutover. A same-ID compatible
-amendment remains compatible because the operator enacted it as such. New
-architecture overlap created after execution began blocks the affected item's
-next authoritative mutation until resolved; it is not grandfathered.
+amendment remains compatible because the operator enacted it as such.
 
 ### D8. Business grouping lives in Linear
 
@@ -403,7 +380,7 @@ it preserves two vocabularies and invites future authority drift.
 
 CD-0002 and CD-0011 remain unchanged. The architecture graph is represented by
 Git-authoritative Domain/law records plus typed SQLite projections, local
-attachments, workflow contracts, and overlap resolutions inside the existing
+attachments, workflow contracts, and work relations inside the existing
 single-host authority. The single committed SQLite write order supports the
 transactional operational checks in D7 without becoming a second architecture
 writer.
@@ -430,7 +407,7 @@ dependency order:
 
 1. Git-authored Domain identity/relations, local attachment projections, manifest evolution, and compatibility
    rebuilds;
-2. architecture-bound workflow contracts and overlap/resolution projections;
+2. architecture-bound workflow contracts;
 3. consequential-boundary revalidation and adversarial multi-process scenarios;
 4. Initiative event/projection/surface migration with the current TS8/TS9
    deterministic evidence;
@@ -478,32 +455,20 @@ graph. Product law approval does not authorize live-state cutover.
 
 ## Required conformance
 
-1. Two items with an exact shared write cannot both gain execution authority
-   without a current compatible resolution. An execution claimant checks all
-   started same-Product peers, including peers in another Project or repository.
-   Proximity alone requires zero answers.
-2. Subject to D7's compatible-amendment rule, two contracts approved against the same law revision and landed sequentially
-   cannot admit a jointly contradictory second result after the first changes the
-   governing law or architecture graph.
-3. A revision changing judged content invalidates the prior judgment; a
-   content-neutral revision preserves it with its original recorded contract
-   versions. Reordering a set does not invalidate. A changed-then-reverted or
-   reopened claim cannot revive an invalidated resolution.
-4. A new overlap introduced while one item is executing blocks its next
-   checkpoint/result acceptance without killing the host process.
-5. Every current spec and decision resolves to one home Domain; dangling or
+1. A Product law or Domain registry change merged on main after approval leaves
+   an in-progress item's contract, records, and evidence admissible.
+2. Every current spec and decision resolves to one home Domain; dangling or
    cross-Product Domain references fail the manifest transactionally.
-6. `depends_on` and `shares_contract_with` Domain relations refuse without a
+3. `depends_on` and `shares_contract_with` Domain relations refuse without a
    current governing law ID; subdomain cycles refuse.
-7. Shared business grouping never satisfies an architecture overlap.
-8. Legacy component/Epic rows and manifests read back through the canonical
+4. Legacy component/Epic rows and manifests read back through the canonical
    Domain vocabulary without rewriting (CD-0242 D2).
-9. Current clients cannot write legacy component/Epic forms. Mismatched manifest
+5. Current clients cannot write legacy component/Epic forms. Mismatched manifest
    digests fail before a domain effect under
    [TS8 §3](../agent-tool-surface-evolution.md#3-digest-failure-and-static-loading),
    without a client compatibility window.
-10. The accepted ten-process SQLite correctness, latency-population, backup,
-    restore, and rebuild evidence remains green.
+6. The accepted ten-process SQLite correctness, latency-population, backup,
+   restore, and rebuild evidence remains green.
 
 ## Alternatives considered
 
@@ -516,9 +481,9 @@ graph. Product law approval does not authorize live-state cutover.
 - **Retain Epic/component internally forever and relabel the UI.** Rejected:
   permanent dual vocabulary preserves the conceptual error and creates two
   future authorities.
-- **Block only exact law-ID collisions.** Rejected: independently introduced law
-  can contradict inside one Domain without sharing an ID. Same-Domain overlap
-  therefore requires an explicit compatibility decision.
+- **Block concurrent work that shares a write until a recorded resolution.**
+  Rejected: the later merge reconciles through Git like any other code change,
+  and the block stranded in-progress work.
 - **Let semantic similarity author conflicts.** Rejected: probabilistic inference
   may assist review but cannot own persistence or workflow authority.
 - **Reserve a Domain with a long-lived lock.** Rejected: it serializes compatible
@@ -539,8 +504,6 @@ graph. Product law approval does not authorize live-state cutover.
 
 - Concord's structure now matches its purpose: many agents act through one
   accepted Product law and architecture graph.
-- Architectural overlap appears before contradictory output can enter Product
-  truth, even when Git reports no textual conflict.
 - Specifications become pruned, owned, browsable Product deliverables rather
   than documents attached to work after the fact.
 - Business grouping stays in Linear without becoming architectural authority.
@@ -549,8 +512,6 @@ graph. Product law approval does not authorize live-state cutover.
 
 ### Cost
 
-- Same-Domain concurrent work pays an explicit compatibility or sequencing
-  decision.
 - Knowledge-manifest, workflow-contract, projection, and launcher migrations are major and
   require compatibility evidence. Agent-surface changes follow TS8 and TS9.
 - The TS9 exception is not reusable.
@@ -563,7 +524,7 @@ graph. Product law approval does not authorize live-state cutover.
 
 ## Amendment map
 
-- **CD-0006 D5/D10/R3:** architecture binding and overlap revalidation accompany
+- **CD-0006 D5/D10/R3:** architecture binding and D7 revalidation accompany
   law conflict, spec mandate, and cross-workflow impact checks.
 - **CD-0015:** law relations are Git-authored and closed; every law has one
   Domain home and architecture-bound workflow use.
@@ -584,11 +545,12 @@ added Domain-shape requirements as outstanding; these anchors do not prove them.
 - `python3 scripts/check-knowledge-index.py` proves record identity, placement, and the relation graph.
 - `python3 scripts/check-law-coverage.py` resolves this record's typed coverage anchors.
 - `python3 scripts/test-check-domain-registry.py` proves the referential checks without a participation rule.
-- `internal/store.TestWorkflowDomainOverlapDerivesTypedIntersectionsAndCompatibleResolution` proves the carried shared-write overlap rule.
+- `internal/store.TestConsequentialBoundariesAdmitASharedDomainPeer` and `internal/store.TestExecutionClaimAdmitsASharedDomainPeer` prove D6: a shared-Domain peer blocks no boundary.
+- `internal/store.TestResolveOverlapRecordsRoutineRelations` and `internal/store.TestResolveOverlapMergeAndSupersessionAreAtomic` prove the `resolve_overlap` relation writer.
 - `internal/store.TestKnowledgeManifestV12RequiresLawHomeForApplicability` proves the carried one-home invariant.
 - `internal/store.TestValidateWorkContextDomainTxRefusals` proves declared context, scope, and rationale bounds without an inventory.
 - `internal/store.TestReadWorkContextOverflowRefusesReadNotRetention` proves context bounds refuse instead of truncate.
 - `go test ./internal/store -run 'TestBlockedSessionsRoutesAttentionUnderBurst|TestDispatchAdmitsPacketConsumingLatestCheckpoint'` and its companion witness selectors prove coordination without global navigation artifacts.
 - `python3 scripts/test-check-package-domains.py` proves package-grain coverage and Domain reference checks, not CD-0244's code-root roles or fact ownership. The existing validator still enforces the replaced multi-Domain listing rule until that implementation changes.
-- `internal/store.TestPackageMapChangeKeepsRegistryPin` proves a map change leaves architecture-binding pins current.
+- `internal/store.TestAuthorizedFailedRetrySurvivesRegistryChange` proves a Domain registry change leaves in-progress work admitted (D7).
 - `internal/store.TestDomainFootprintJoinsPackageMapLawEvidenceAndCoverage` proves the footprint join and its order.

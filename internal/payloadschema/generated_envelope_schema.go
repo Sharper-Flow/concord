@@ -261,7 +261,6 @@ const GeneratedEnvelopeSchemaDocument = `{
             "mutation_result",
             "observation_record",
             "observations",
-            "overlaps",
             "footprint",
             "shape",
             "publish",
@@ -1038,7 +1037,6 @@ const GeneratedEnvelopeSchemaDocument = `{
             "mutation_result",
             "observation_record",
             "observations",
-            "overlaps",
             "footprint",
             "shape",
             "publish",
@@ -1731,24 +1729,6 @@ const GeneratedEnvelopeSchemaDocument = `{
             },
             "query_id": {
               "const": "C22.DomainAttachments"
-            },
-            "tool": {
-              "const": "concord_domain"
-            }
-          },
-          "required": [
-            "tool",
-            "operation",
-            "query_id"
-          ]
-        },
-        {
-          "properties": {
-            "operation": {
-              "const": "overlaps"
-            },
-            "query_id": {
-              "const": "C22.DomainOverlaps"
             },
             "tool": {
               "const": "concord_domain"
@@ -2542,23 +2522,6 @@ const GeneratedEnvelopeSchemaDocument = `{
           "if": {
             "properties": {
               "kind": {
-                "const": "domain_overlap"
-              }
-            },
-            "required": [
-              "kind"
-            ]
-          },
-          "then": {
-            "required": [
-              "domain_overlap"
-            ]
-          }
-        },
-        {
-          "if": {
-            "properties": {
-              "kind": {
                 "const": "missing_evidence"
               }
             },
@@ -2871,212 +2834,6 @@ const GeneratedEnvelopeSchemaDocument = `{
           "maxProperties": 20,
           "type": "object"
         },
-        "domain_overlap": {
-          "additionalProperties": false,
-          "properties": {
-            "overlaps": {
-              "items": {
-                "additionalProperties": false,
-                "properties": {
-                  "detail_truncated": {
-                    "type": "boolean"
-                  },
-                  "from_contract_version": {
-                    "minimum": 1,
-                    "type": "integer"
-                  },
-                  "from_work_id": {
-                    "maxLength": 128,
-                    "minLength": 1,
-                    "type": "string"
-                  },
-                  "overlap_classes": {
-                    "items": {
-                      "enum": [
-                        "architecture",
-                        "law_write",
-                        "domain_write",
-                        "domain_relation_write"
-                      ],
-                      "type": "string"
-                    },
-                    "maxItems": 4,
-                    "minItems": 1,
-                    "type": "array",
-                    "uniqueItems": true
-                  },
-                  "product_id": {
-                    "maxLength": 128,
-                    "minLength": 1,
-                    "type": "string"
-                  },
-                  "recovery_actions": {
-                    "items": {
-                      "enum": [
-                        "wait",
-                        "resolve_overlap",
-                        "terminal_work",
-                        "supersede_contract"
-                      ],
-                      "type": "string"
-                    },
-                    "maxItems": 4,
-                    "minItems": 1,
-                    "type": "array",
-                    "uniqueItems": true
-                  },
-                  "resolution_kind": {
-                    "enum": [
-                      "compatible_with",
-                      "depends_on",
-                      "blocks",
-                      "merged_into",
-                      "supersedes"
-                    ],
-                    "type": "string"
-                  },
-                  "resolution_state": {
-                    "enum": [
-                      "unresolved",
-                      "stale",
-                      "sequenced"
-                    ],
-                    "type": "string"
-                  },
-                  "shared_affected_domain_count": {
-                    "minimum": 0,
-                    "type": "integer"
-                  },
-                  "shared_affected_domain_ids": {
-                    "items": {
-                      "maxLength": 256,
-                      "minLength": 1,
-                      "type": "string"
-                    },
-                    "maxItems": 20,
-                    "type": "array",
-                    "uniqueItems": true
-                  },
-                  "shared_domain_modification_count": {
-                    "minimum": 0,
-                    "type": "integer"
-                  },
-                  "shared_domain_modifications": {
-                    "items": {
-                      "maxLength": 256,
-                      "minLength": 1,
-                      "type": "string"
-                    },
-                    "maxItems": 20,
-                    "type": "array",
-                    "uniqueItems": true
-                  },
-                  "shared_law_count": {
-                    "minimum": 0,
-                    "type": "integer"
-                  },
-                  "shared_law_ids": {
-                    "items": {
-                      "maxLength": 256,
-                      "minLength": 2,
-                      "type": "string"
-                    },
-                    "maxItems": 20,
-                    "type": "array",
-                    "uniqueItems": true
-                  },
-                  "shared_relation_tuple_count": {
-                    "minimum": 0,
-                    "type": "integer"
-                  },
-                  "shared_relation_tuples": {
-                    "items": {
-                      "additionalProperties": false,
-                      "properties": {
-                        "kind": {
-                          "enum": [
-                            "depends_on",
-                            "shares_contract_with",
-                            "replaces"
-                          ],
-                          "type": "string"
-                        },
-                        "source_domain_id": {
-                          "maxLength": 256,
-                          "minLength": 1,
-                          "type": "string"
-                        },
-                        "target_domain_id": {
-                          "maxLength": 256,
-                          "minLength": 1,
-                          "type": "string"
-                        }
-                      },
-                      "required": [
-                        "source_domain_id",
-                        "kind",
-                        "target_domain_id"
-                      ],
-                      "type": "object"
-                    },
-                    "maxItems": 20,
-                    "type": "array"
-                  },
-                  "to_contract_version": {
-                    "minimum": 1,
-                    "type": "integer"
-                  },
-                  "to_work_id": {
-                    "maxLength": 128,
-                    "minLength": 1,
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "product_id",
-                  "from_work_id",
-                  "to_work_id",
-                  "from_contract_version",
-                  "to_contract_version",
-                  "shared_affected_domain_ids",
-                  "shared_law_ids",
-                  "shared_domain_modifications",
-                  "shared_relation_tuples",
-                  "overlap_classes",
-                  "resolution_state",
-                  "recovery_actions",
-                  "shared_affected_domain_count",
-                  "shared_law_count",
-                  "shared_domain_modification_count",
-                  "shared_relation_tuple_count",
-                  "detail_truncated"
-                ],
-                "type": "object"
-              },
-              "maxItems": 20,
-              "minItems": 1,
-              "type": "array"
-            },
-            "returned_overlaps": {
-              "minimum": 1,
-              "type": "integer"
-            },
-            "total_overlaps": {
-              "minimum": 1,
-              "type": "integer"
-            },
-            "truncated": {
-              "type": "boolean"
-            }
-          },
-          "required": [
-            "overlaps",
-            "total_overlaps",
-            "returned_overlaps",
-            "truncated"
-          ],
-          "type": "object"
-        },
         "effect_state": {
           "enum": [
             "none",
@@ -3133,7 +2890,6 @@ const GeneratedEnvelopeSchemaDocument = `{
             "outcome_mismatch",
             "stale_requires_review",
             "stale_law_revision",
-            "domain_overlap",
             "degraded_not_allowed",
             "unreachable",
             "invalid_cursor",

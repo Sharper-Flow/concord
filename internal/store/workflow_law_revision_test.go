@@ -329,7 +329,7 @@ func TestWorkflowLawRevisionDeletedLawRecoveryAtExecution(t *testing.T) {
 	if err := runVerdictActionAs(t, s, workID, "supersede_contract", mustJSONValue(successor), 0, actor); err != nil {
 		t.Fatalf("deleted-law recovery at execution: %v", err)
 	}
-	if version, active := activeStaleRegistryContract(t, s, workID); version != 2 || active != 1 {
+	if version, active := activeContractState(t, s, workID); version != 2 || active != 1 {
 		t.Fatalf("recovery active contract=%d count=%d, want 2/1", version, active)
 	}
 	pins, err := readWorkflowLawRevisions(t.Context(), s.db, workID, 2)
@@ -749,12 +749,9 @@ func insertAcceptedLaw(t *testing.T, s *Store, lawID, hash string) {
 	}
 }
 
-// The read form and the mutation form must agree: on an empty law mandate
-// with an active Domain overlap, both return the typed overlap refusal. The
-// read form is the tx-scoped boundary the admission fold runs inside its own
-// transaction; a non-transactional twin once returned nil here — the overlap
-// half of the boundary silently omitted from the read path (issue #376).
-func TestWorkflowLawRevisionStalenessReadFormRunsTheOverlapHalf(t *testing.T) {
+// The read form and the mutation form agree: an active peer that shares the
+// item's Domain and law refuses neither (CD-0222 D6).
+func TestWorkflowLawRevisionStalenessAdmitsASharedDomainPeer(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	s, _ := seedOverlapProjection(t, "overlap-left", "overlap-right", true)
@@ -767,16 +764,12 @@ func TestWorkflowLawRevisionStalenessReadFormRunsTheOverlapHalf(t *testing.T) {
 		defer tx.Rollback()
 		return checkWorkflowLawRevisionStalenessTx(ctx, tx, "overlap-left")
 	}()
-	var readFailure *Failure
-	if !errors.As(readErr, &readFailure) || readFailure.Kind != KindDomainOverlap || readFailure.DomainOverlap == nil || len(readFailure.DomainOverlap.Overlaps) != 1 {
-		t.Fatalf("read form: expected typed overlap refusal, got %v", readErr)
+	if readErr != nil {
+		t.Fatalf("read form refused beside a shared-Domain peer: %v", readErr)
 	}
-
-	var txFailure *Failure
-	txErr := s.Transact(ctx, func(tx *Transaction) error {
+	if err := s.Transact(ctx, func(tx *Transaction) error {
 		return CheckWorkflowConsequentialBoundaryTx(ctx, tx, "overlap-left")
-	})
-	if !errors.As(txErr, &txFailure) || txFailure.Kind != KindDomainOverlap {
-		t.Fatalf("mutation form: expected typed overlap refusal, got %v", txErr)
+	}); err != nil {
+		t.Fatalf("mutation form refused beside a shared-Domain peer: %v", err)
 	}
 }

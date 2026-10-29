@@ -67,11 +67,15 @@ func lawHistory(t *testing.T, s *Store, lawID, shape string) func(string) {
 		t.Helper()
 		path := filepath.Join(".concord", "docs", "decisions", lawID+".md")
 		write := func(text, message string) {
-			if err := os.MkdirAll(filepath.Join(repo, filepath.Dir(path)), 0o755); err != nil {
-				t.Fatal(err)
-			}
-			if err := os.WriteFile(filepath.Join(repo, path), []byte(text), 0o644); err != nil {
-				t.Fatal(err)
+			// A text edit moves the record's pinned hash with the document.
+			record := `{"id":"` + lawID + `","path":".concord/docs/decisions/` + lawID + `.md","sha256":"` + externalLawHash(text) + `"}` + "\n"
+			for file, content := range map[string]string{path: text, ".concord/docs/knowledge/manifest.json": "{}\n", externalRecordPath(lawID): record} {
+				if err := os.MkdirAll(filepath.Join(repo, filepath.Dir(file)), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(filepath.Join(repo, file), []byte(content), 0o644); err != nil {
+					t.Fatal(err)
+				}
 			}
 			gitRunStore(t, repo, "add", "-A")
 			gitRunStore(t, repo, "commit", "-q", "--allow-empty", "-m", message)
@@ -133,9 +137,17 @@ func lawHistory(t *testing.T, s *Store, lawID, shape string) func(string) {
 			gitRunStore(t, repo, "merge", "-q", "--no-ff", "-m", "merge the item", item)
 			gitRunStore(t, repo, "checkout", "-q", "-")
 		}
-		main := strings.TrimSpace(string(mustGit(t, repo, "rev-parse", "main-line")))
-		lawChangeFold(t, s, `UPDATE law_subjects SET scanned_commit_oid=? WHERE law_id=?`, main, lawID)
+		scanMain(t, s, repo)
 	}
+}
+
+// scanMain points the source's whole projection at main's commit, as one
+// rebuild of main would.
+func scanMain(t *testing.T, s *Store, repo string) {
+	t.Helper()
+	main := strings.TrimSpace(string(mustGit(t, repo, "rev-parse", "main-line")))
+	lawChangeFold(t, s, `UPDATE law_subjects SET scanned_commit_oid=?`, main)
+	lawChangeFold(t, s, `UPDATE domain_registries SET scanned_commit_oid=?`, main)
 }
 
 func mustGit(t *testing.T, repo string, args ...string) []byte {
@@ -187,20 +199,17 @@ func TestLawAttributionExternalEditDoesNotBlock(t *testing.T) {
 
 // The item's own undeclared law edit is still refused after it reaches main:
 // by squash, by squash and a later sync of main into the item from either
-// side, or by a true merge that leaves no separating fork point. So is
-// an outside edit the text proof cannot cover: a tier change.
+// side, or by a true merge that leaves no separating fork point.
 func TestLawAttributionOwnEditStillRefuses(t *testing.T) {
 	s := seedLawChangeFixture(t, "inventory-seed")
 	seedExternalLaw(t, s, "law-own")
 	seedExternalLaw(t, s, "law-synced")
 	seedExternalLaw(t, s, "law-main-first")
 	seedExternalLaw(t, s, "law-merged")
-	seedExternalLaw(t, s, "law-tier")
 	attributionItem(t, s, "own-d-squash", []string{}, []string{})
 	attributionItem(t, s, "own-c2-main-first", []string{}, []string{})
 	attributionItem(t, s, "own-c-synced", []string{}, []string{})
 	attributionItem(t, s, "own-b-merged", []string{}, []string{})
-	attributionItem(t, s, "own-a-tier", []string{}, []string{})
 	for _, item := range []struct{ id, law, shape string }{{"own-d-squash", "law-own", historyOwn}, {"own-c2-main-first", "law-main-first", historyMainFirst}, {"own-c-synced", "law-synced", historySynced}, {"own-b-merged", "law-merged", historyMerged}} {
 		reviseExternalLaw(t, s, item.law, externalLawHash(externalLawOwnText))
 		err := CompleteWorkflow(t.Context(), s, attributionCompletionWith(t, s, item.id, lawHistory(t, s, item.law, item.shape)))
@@ -210,10 +219,6 @@ func TestLawAttributionOwnEditStillRefuses(t *testing.T) {
 		}
 		reviseExternalLaw(t, s, item.law, externalLawHash(externalLawStartText))
 	}
-	reviseExternalLaw(t, s, "law-tier", externalLawHash(externalLawMainText))
-	lawChangeFold(t, s, `UPDATE law_subjects SET authority_tier='legislated' WHERE law_id='law-tier'`)
-	err := CompleteWorkflow(t.Context(), s, attributionCompletionWith(t, s, "own-a-tier", lawHistory(t, s, "law-tier", historyKept)))
-	requireFailureKind(t, err, KindOutcomeMismatch, "an untouched file does not prove a tier change external")
 }
 
 type failingLawGit struct{}
@@ -249,5 +254,173 @@ func TestLawAttributionReplayKeepsRecordedResult(t *testing.T) {
 	workflowLawExternalGit = previous
 	if err := CompleteWorkflow(t.Context(), s, pending); err != nil {
 		t.Fatalf("provable attribution refused after Git returned: %v", err)
+	}
+}
+
+const (
+	externalRegistryPath = ".concord/docs/knowledge/domain-registry.json"
+	externalRegistryText = `{"root_domain_id":"root","domains":[]}` + "\n"
+)
+
+func externalRecordPath(lawID string) string {
+	return ".concord/docs/knowledge/records/" + lawID + ".json"
+}
+
+func externalLawRecord(lawID, tier string) string {
+	return `{"id":"` + lawID + `","path":".concord/docs/decisions/` + lawID + `.md","authority":{"tier":"` + tier + `"}}` + "\n"
+}
+
+// shardHistory commits the start knowledge tree, then the edit: on main by
+// another change (kept, rebased), or by the item and squash-merged to main
+// (own). An empty value deletes the file.
+func shardHistory(t *testing.T, s *Store, start, edit map[string]string, shape string) func(string) {
+	return func(repo string) {
+		t.Helper()
+		apply := func(files map[string]string, message string) {
+			for path, text := range files {
+				full := filepath.Join(repo, path)
+				if text == "" {
+					if err := os.Remove(full); err != nil && !os.IsNotExist(err) {
+						t.Fatal(err)
+					}
+					continue
+				}
+				if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(full, []byte(text), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			gitRunStore(t, repo, "add", "-A")
+			gitRunStore(t, repo, "commit", "-q", "--allow-empty", "-m", message)
+		}
+		apply(map[string]string{".concord/docs/knowledge/manifest.json": "{}\n"}, "knowledge head")
+		apply(start, "start knowledge")
+		gitRunStore(t, repo, "branch", "main-line")
+		unrelated := map[string]string{"unrelated.txt": shape + "\n"}
+		switch shape {
+		case historyKept, historyRebased:
+			gitRunStore(t, repo, "checkout", "-q", "main-line")
+			apply(edit, "outside knowledge edit")
+			gitRunStore(t, repo, "checkout", "-q", "-")
+			if shape == historyRebased {
+				gitRunStore(t, repo, "merge", "-q", "--ff-only", "main-line")
+			}
+			apply(unrelated, "unrelated item change")
+		case historyOwn:
+			apply(edit, "item knowledge edit")
+			gitRunStore(t, repo, "checkout", "-q", "main-line")
+			apply(edit, "squash of the item")
+			gitRunStore(t, repo, "checkout", "-q", "-")
+		default:
+			t.Fatalf("unknown history shape %q", shape)
+		}
+		scanMain(t, s, repo)
+	}
+}
+
+func removeExternalLaw(t *testing.T, s *Store, lawID string) {
+	t.Helper()
+	for _, table := range []string{"law_domain_applicability", "law_domain_homes", "law_subjects"} {
+		lawChangeFold(t, s, `DELETE FROM `+table+` WHERE law_id=?`, lawID)
+	}
+}
+
+// A law added, removed, or re-tiered on main, or a Domain registry entry
+// edited on main, does not block an item whose history never made it, and
+// does not become that item's enactment.
+func TestLawAttributionExternalInventoryChangeDoesNotBlock(t *testing.T) {
+	s := seedLawChangeFixture(t, "inventory-seed")
+	seedExternalLaw(t, s, "law-removed")
+	seedExternalLaw(t, s, "law-retiered")
+	for _, id := range []string{"inventory-z-added", "inventory-y-removed", "inventory-x-retiered", "inventory-w-registry"} {
+		attributionItem(t, s, id, []string{}, []string{})
+	}
+	cases := []struct {
+		id, shape string
+		start     map[string]string
+		edit      map[string]string
+		project   func()
+		reset     func()
+	}{
+		{"inventory-z-added", historyKept, map[string]string{}, map[string]string{externalRecordPath("law-added"): externalLawRecord("law-added", "derived"), ".concord/docs/decisions/law-added.md": externalLawMainText},
+			func() { seedExternalLaw(t, s, "law-added") }, func() { removeExternalLaw(t, s, "law-added") }},
+		{"inventory-y-removed", historyRebased, map[string]string{externalRecordPath("law-removed"): externalLawRecord("law-removed", "derived"), ".concord/docs/decisions/law-removed.md": externalLawStartText}, map[string]string{externalRecordPath("law-removed"): "", ".concord/docs/decisions/law-removed.md": ""},
+			func() { removeExternalLaw(t, s, "law-removed") }, func() { seedExternalLaw(t, s, "law-removed") }},
+		{"inventory-x-retiered", historyKept, map[string]string{externalRecordPath("law-retiered"): externalLawRecord("law-retiered", "derived")}, map[string]string{externalRecordPath("law-retiered"): externalLawRecord("law-retiered", "legislated")},
+			func() {
+				lawChangeFold(t, s, `UPDATE law_subjects SET authority_tier='legislated' WHERE law_id='law-retiered'`)
+			}, func() {
+				lawChangeFold(t, s, `UPDATE law_subjects SET authority_tier='derived' WHERE law_id='law-retiered'`)
+			}},
+		{"inventory-w-registry", historyRebased, map[string]string{externalRegistryPath: externalRegistryText}, map[string]string{externalRegistryPath: `{"root_domain_id":"root","domains":["edited"]}` + "\n"},
+			func() {
+				lawChangeFold(t, s, `UPDATE domains SET purpose='edited on main' WHERE domain_id='workflow-engine'`)
+			}, func() {
+				lawChangeFold(t, s, `UPDATE domains SET purpose='test domain' WHERE domain_id='workflow-engine'`)
+			}},
+	}
+	for _, item := range cases {
+		item.project()
+		if err := CompleteWorkflow(t.Context(), s, attributionCompletionWith(t, s, item.id, shardHistory(t, s, item.start, item.edit, item.shape))); err != nil {
+			t.Fatalf("%s: a change the item never made blocked completion: %v", item.id, err)
+		}
+		if proof, recorded := externalLawEnactment(t, s, item.id); recorded {
+			t.Fatalf("%s: external change recorded as the item's enactment: %s", item.id, proof)
+		}
+		item.reset()
+	}
+}
+
+// The item's own undeclared addition, tier change, registry edit, or text
+// change made by pointing a record at an existing document is still refused
+// after it is squash-merged to main.
+func TestLawAttributionOwnInventoryChangeStillRefuses(t *testing.T) {
+	s := seedLawChangeFixture(t, "inventory-seed")
+	seedExternalLaw(t, s, "law-own-tier")
+	seedExternalLaw(t, s, "law-own-repointed")
+	const existingDocument = ".concord/docs/notes/existing.md"
+	for _, id := range []string{"own-inventory-z-added", "own-inventory-y-tier", "own-inventory-x-registry", "own-inventory-w-repointed"} {
+		attributionItem(t, s, id, []string{}, []string{})
+	}
+	cases := []struct {
+		id, want    string
+		start, edit map[string]string
+		project     func()
+		reset       func()
+	}{
+		{"own-inventory-z-added", "law project/law-own-added changed outside the active contract", map[string]string{}, map[string]string{externalRecordPath("law-own-added"): externalLawRecord("law-own-added", "derived"), ".concord/docs/decisions/law-own-added.md": externalLawOwnText},
+			func() { seedExternalLaw(t, s, "law-own-added") }, func() { removeExternalLaw(t, s, "law-own-added") }},
+		{"own-inventory-y-tier", "law project/law-own-tier changed outside the active contract", map[string]string{externalRecordPath("law-own-tier"): externalLawRecord("law-own-tier", "derived")}, map[string]string{externalRecordPath("law-own-tier"): externalLawRecord("law-own-tier", "legislated")},
+			func() {
+				lawChangeFold(t, s, `UPDATE law_subjects SET authority_tier='legislated' WHERE law_id='law-own-tier'`)
+			}, func() {
+				lawChangeFold(t, s, `UPDATE law_subjects SET authority_tier='derived' WHERE law_id='law-own-tier'`)
+			}},
+		{"own-inventory-x-registry", "outside the declared scope", map[string]string{externalRegistryPath: externalRegistryText}, map[string]string{externalRegistryPath: `{"root_domain_id":"root","domains":["own"]}` + "\n"},
+			func() {
+				lawChangeFold(t, s, `UPDATE domains SET purpose='edited by the item' WHERE domain_id='workflow-engine'`)
+			}, func() {
+				lawChangeFold(t, s, `UPDATE domains SET purpose='test domain' WHERE domain_id='workflow-engine'`)
+			}},
+		{"own-inventory-w-repointed", "law project/law-own-repointed changed outside the active contract",
+			map[string]string{externalRecordPath("law-own-repointed"): externalLawRecord("law-own-repointed", "derived"), ".concord/docs/decisions/law-own-repointed.md": externalLawStartText, existingDocument: externalLawOwnText},
+			map[string]string{externalRecordPath("law-own-repointed"): `{"id":"law-own-repointed","path":"` + existingDocument + `","authority":{"tier":"derived"}}` + "\n"},
+			func() {
+				reviseExternalLaw(t, s, "law-own-repointed", externalLawHash(externalLawOwnText))
+				lawChangeFold(t, s, `UPDATE law_subjects SET path=? WHERE law_id='law-own-repointed'`, existingDocument)
+			}, func() {
+				reviseExternalLaw(t, s, "law-own-repointed", externalLawHash(externalLawStartText))
+			}},
+	}
+	for _, item := range cases {
+		item.project()
+		err := CompleteWorkflow(t.Context(), s, attributionCompletionWith(t, s, item.id, shardHistory(t, s, item.start, item.edit, historyOwn)))
+		requireFailureKind(t, err, KindOutcomeMismatch, item.id+" own undeclared change")
+		if !strings.Contains(err.Error(), item.want) {
+			t.Fatalf("%s: refusal does not name the item's own change: %v", item.id, err)
+		}
+		item.reset()
 	}
 }

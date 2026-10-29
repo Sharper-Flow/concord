@@ -6,55 +6,6 @@ import (
 	"testing"
 )
 
-// One work item whose contract projection is ambiguous must not disable the
-// Product. Every claim runs the overlap scan over its peers, so a refusal on a
-// peer stopped every session from claiming any worktree, including the claim
-// the ambiguous item's own operator recovery needs.
-func TestOverlapFootprintTreatsAnAmbiguousPeerAsHoldingNoClaim(t *testing.T) {
-	ctx := context.Background()
-	s, _ := seedOverlapProjection(t, "isolation-left", "isolation-right", false)
-	duplicateActiveContractForTest(ctx, t, s, "isolation-right")
-
-	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer tx.Rollback()
-
-	ambiguous, err := readWorkflowOverlapFootprintTx(ctx, tx, "isolation-right")
-	if err != nil {
-		t.Fatalf("ambiguous peer refused the overlap scan: %v", err)
-	}
-	if ambiguous.ContractVersion != 0 || len(ambiguous.AffectedDomains) != 0 {
-		t.Fatalf("ambiguous peer reported a Domain claim: %#v", ambiguous)
-	}
-
-	clean, err := readWorkflowOverlapFootprintTx(ctx, tx, "isolation-left")
-	if err != nil {
-		t.Fatalf("clean item refused while a peer was ambiguous: %v", err)
-	}
-	if clean.ContractVersion != 1 || len(clean.AffectedDomains) == 0 {
-		t.Fatalf("clean item lost its Domain claim: %#v", clean)
-	}
-}
-
-// A Domain read joins the active contract, so an ambiguous item would appear
-// twice and misreport the Domain. The read omits it and names it, rather than
-// refusing the whole Product.
-func TestDomainOverlapsOmitTheAmbiguousItemAndKeepTheRest(t *testing.T) {
-	ctx := context.Background()
-	s, _ := seedOverlapProjection(t, "omission-left", "omission-right", false)
-	duplicateActiveContractForTest(ctx, t, s, "omission-right")
-
-	overlaps, err := s.QueryDomainOverlaps(ctx, DomainOverlapsRequest{Product: "product"})
-	if err != nil {
-		t.Fatalf("Domain overlaps refused because one item was ambiguous: %v", err)
-	}
-	if !omissionNames(overlaps.Omissions, "omission-right") {
-		t.Fatalf("overlap omissions do not name the excluded item: %#v", overlaps.Omissions)
-	}
-}
-
 // The recovery that retires duplicate contracts runs through the law-revision
 // staleness boundary before it can retire anything, so refusing an ambiguous
 // projection there left supersede_contract unreachable and the duplicates in
@@ -77,15 +28,6 @@ func TestLawRevisionStalenessAdmitsAnAmbiguousProjection(t *testing.T) {
 	if err := checkWorkflowLawRevisionStalenessTx(ctx, tx, "staleness-left"); err != nil {
 		t.Fatalf("clean item refused while a peer was ambiguous: %v", err)
 	}
-}
-
-func omissionNames(omissions []string, workID string) bool {
-	for _, omission := range omissions {
-		if strings.Contains(omission, workID) {
-			return true
-		}
-	}
-	return false
 }
 
 // duplicateActiveContractForTest copies the active contract and its

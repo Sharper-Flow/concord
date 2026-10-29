@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"reflect"
-	"strings"
 	"testing"
 )
 
@@ -22,7 +21,7 @@ func progressBoundariesSuccessorPayload(t *testing.T, s *Store, workID string) j
 		t.Fatalf("active contract declares no predicate to repeat: %+v", projection.Contract)
 	}
 	predicate := projection.Contract.OutcomePredicates[0]
-	binding := `{"domain_registry_content_hash":"sha256:` + strings.Repeat("b", 64) + `","home_domain_id":"root","affected_domain_ids":["root"],"domain_modifies":[],"domain_relation_modifies":[],"law_additions":[],"verification_obligations":[]}`
+	binding := `{"home_domain_id":"root","affected_domain_ids":["root"],"domain_modifies":[],"domain_relation_modifies":[],"law_additions":[],"verification_obligations":[]}`
 	successor := map[string]any{
 		"contract_version": 2,
 		"premise":          projection.Contract.Premise,

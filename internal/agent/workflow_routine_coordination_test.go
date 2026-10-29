@@ -7,7 +7,6 @@ import (
 	"context"
 	"crypto/ed25519"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"reflect"
 	"sort"
@@ -73,14 +72,6 @@ func routineCoordinationFixture(t *testing.T) (*store.Store, *Service, ed25519.P
 	}
 	routineCoordinationDriveWorkflow(t, s, "work-1", actor, true)
 	routineCoordinationDriveWorkflow(t, s, "work-2", actor, false)
-	// The contender's prospective footprint against the execution-claimed
-	// peer is the derived unresolved overlap, and both lifecycles come from
-	// the real action folds, never a projection write.
-	err = store.InspectWorkflowDomainOverlap(ctx, s, "work-2")
-	failure := &store.Failure{}
-	if !errors.As(err, &failure) || failure.Kind != store.KindDomainOverlap {
-		t.Fatalf("fixture pair derives no unresolved overlap for the contender work-2: %v", err)
-	}
 	for _, workID := range []string{"work-1", "work-2"} {
 		if got := workLifecycle(t, s, workID); got != "in_progress" {
 			t.Fatalf("fixture %s lifecycle = %q, want the action-fold in_progress", workID, got)
@@ -535,7 +526,7 @@ func TestRoutineCoordinationDestructiveKindsRefuseInvalidSuppliedApproval(t *tes
 }
 
 // TestRoutineCoordinationRoutineKindsRefuseASuppliedApprovalClaim: the
-// routine kinds — compatible_with, depends_on, blocks — are coordination
+// routine kinds — depends_on and blocks — are coordination
 // answers the authenticated caller records without operator consent. This
 // pins the same-Product fresh refusal. The transaction derives the
 // request's consent requirement, the tail consumes nothing, and the effect
@@ -549,7 +540,7 @@ func TestRoutineCoordinationDestructiveKindsRefuseInvalidSuppliedApproval(t *tes
 // unknown-reference guess. No authority row is fabricated anywhere.
 func TestRoutineCoordinationRoutineKindsRefuseASuppliedApprovalClaim(t *testing.T) {
 	t.Parallel()
-	for _, kind := range []string{store.ResolutionCompatibleWith, store.ResolutionDependsOn, store.ResolutionBlocks} {
+	for _, kind := range []string{store.ResolutionDependsOn, store.ResolutionBlocks} {
 		t.Run(kind, func(t *testing.T) {
 			t.Parallel()
 			s, service, _, env := routineCoordinationFixture(t)
@@ -639,7 +630,7 @@ func sameChangedRefs(t *testing.T, original, replayed *[]agentcontract.ChangedRe
 // marker, and the exact original result payload and changed refs.
 func TestRoutineCoordinationCachedReplayPreservesOriginalResultWithoutNewEffects(t *testing.T) {
 	t.Parallel()
-	for _, kind := range []string{store.ResolutionCompatibleWith, store.ResolutionDependsOn, store.ResolutionBlocks} {
+	for _, kind := range []string{store.ResolutionDependsOn, store.ResolutionBlocks} {
 		t.Run(kind, func(t *testing.T) {
 			t.Parallel()
 			s, service, _, env := routineCoordinationFixture(t)
@@ -743,7 +734,7 @@ func TestRoutineCoordinationCachedReplayPreservesOriginalResultWithoutNewEffects
 func TestRoutineCoordinationTransactionalCacheHitRefusesAnAddedRoutineClaim(t *testing.T) {
 	t.Parallel()
 	s, service, _, env := routineCoordinationFixture(t)
-	binding := routineOverlapExactBinding(t, s, store.ResolutionCompatibleWith)
+	binding := routineOverlapExactBinding(t, s, store.ResolutionDependsOn)
 	input := routineOverlapResolveInput(t, binding, "routine-tx-cache-claim")
 	withClaim, err := injectApproval(input, "challenge:transactional-cache-claim")
 	if err != nil {
@@ -826,11 +817,11 @@ func TestRoutineCoordinationTransactionalCacheHitRefusesAnAddedRoutineClaim(t *t
 func TestRoutineCoordinationCachedClaimRefusesBeforeWriterRelease(t *testing.T) {
 	t.Parallel()
 	s, service, _, env := routineCoordinationFixture(t)
-	binding := routineOverlapExactBinding(t, s, store.ResolutionCompatibleWith)
+	binding := routineOverlapExactBinding(t, s, store.ResolutionDependsOn)
 	input := routineOverlapResolveInput(t, binding, "routine-cached-claim-writer")
 	unsigned := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_relate", Operation: "resolve_overlap", Input: input}, env)
 	if unsigned.Outcome != agentcontract.OutcomeOK || unsigned.Error != nil {
-		t.Fatalf("unsigned routine compatible_with outcome=%s error=%+v, want the plain success", unsigned.Outcome, unsigned.Error)
+		t.Fatalf("unsigned routine depends_on outcome=%s error=%+v, want the plain success", unsigned.Outcome, unsigned.Error)
 	}
 	baselineEvents := agentCurrentEffects(t, s)
 	baselineResolutions := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM workflow_overlap_resolutions`)
@@ -968,11 +959,6 @@ func crossProductRoutineCoordinationFixture(t *testing.T, capabilities []agentco
 	}
 	routineCoordinationDriveWorkflow(t, s, "work-1", actor, true)
 	routineCoordinationDriveWorkflow(t, s, "work-2", actor, false)
-	err = store.InspectWorkflowDomainOverlap(ctx, s, "work-2")
-	failure := &store.Failure{}
-	if !errors.As(err, &failure) || failure.Kind != store.KindDomainOverlap {
-		t.Fatalf("cross-Product fixture pair derives no unresolved overlap for the contender work-2: %v", err)
-	}
 	for _, workID := range []string{"work-1", "work-2"} {
 		if got := workLifecycle(t, s, workID); got != "in_progress" {
 			t.Fatalf("cross-Product fixture %s lifecycle = %q, want the action-fold in_progress", workID, got)
@@ -1025,24 +1011,24 @@ func routineOverlapConsumedApprovalWitness(t *testing.T, s *store.Store, label s
 func TestRoutineCoordinationCrossProductRoutineKindNeedsNoConsent(t *testing.T) {
 	t.Parallel()
 	s, service, grant, _, env := crossProductRoutineCoordinationFixture(t, []agentcontract.Capability{"work_relate", "cross_scope"})
-	binding := routineOverlapExactBinding(t, s, store.ResolutionCompatibleWith)
-	input := routineOverlapResolveInput(t, binding, "routine-cross-product-compatible")
+	binding := routineOverlapExactBinding(t, s, store.ResolutionDependsOn)
+	input := routineOverlapResolveInput(t, binding, "routine-cross-product-depends-on")
 	request := InvokeRequest{Tool: "concord_work_relate", Operation: "resolve_overlap", Input: input}
 	approved := dispatchMutation(t, s, service, request, env)
 	if approved.Outcome != agentcontract.OutcomeOK {
-		t.Fatalf("approved cross-Product compatible_with outcome=%s error=%+v, want the settled resolution", approved.Outcome, approved.Error)
+		t.Fatalf("approved cross-Product depends_on outcome=%s error=%+v, want the settled resolution", approved.Outcome, approved.Error)
 	}
 	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM workflow_overlap_resolutions`); got != 1 {
-		t.Fatalf("the approved cross-Product compatible_with left %d resolutions, want the settled one", got)
+		t.Fatalf("the approved cross-Product depends_on left %d resolutions, want the settled one", got)
 	}
 	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM effect_receipts WHERE kind='workflow.overlap_resolved'`); got != 1 {
-		t.Fatalf("the approved cross-Product compatible_with left %d resolution events, want one", got)
+		t.Fatalf("the approved cross-Product depends_on left %d resolution events, want one", got)
 	}
 	if got := workVersion(t, s, "work-1"); got != binding.fromVersion+1 {
-		t.Fatalf("cross-Product compatible_with left work-1 at v%d, want the single step to %d", got, binding.fromVersion+1)
+		t.Fatalf("cross-Product depends_on left work-1 at v%d, want the single step to %d", got, binding.fromVersion+1)
 	}
 	if got := workVersion(t, s, "work-2"); got != binding.toVersion+1 {
-		t.Fatalf("cross-Product compatible_with left work-2 at v%d, want the single step to %d", got, binding.toVersion+1)
+		t.Fatalf("cross-Product depends_on left work-2 at v%d, want the single step to %d", got, binding.toVersion+1)
 	}
 	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM agent_approval_challenges`); got != 0 {
 		t.Fatalf("ordinary cross-Product coordination minted %d challenges", got)
@@ -1058,49 +1044,49 @@ func TestRoutineCoordinationCrossProductRoutineKindNeedsNoConsent(t *testing.T) 
 		t.Fatalf("the routine cross-Product event carries an approval binding: row=%q ref=%q scope=%q digest=%q versions=%q consequence=%q", recordedRef, eventRef, eventScope, eventDigest, eventVersions, eventConsequence)
 	}
 	if eventActor != grant.PrincipalRef {
-		t.Fatalf("cross-Product compatible_with actor = %q, want the authenticated caller %q", eventActor, grant.PrincipalRef)
+		t.Fatalf("cross-Product depends_on actor = %q, want the authenticated caller %q", eventActor, grant.PrincipalRef)
 	}
 	var snapshot string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT authorized_scope_snapshot FROM idempotency_records WHERE idempotency_key=?`, "routine-cross-product-compatible").Scan(&snapshot); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT authorized_scope_snapshot FROM idempotency_records WHERE idempotency_key=?`, "routine-cross-product-depends-on").Scan(&snapshot); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(snapshot, `"durable_commit":true`) {
-		t.Fatalf("cross-Product compatible_with committed a non-durable snapshot: %s", snapshot)
+		t.Fatalf("cross-Product depends_on committed a non-durable snapshot: %s", snapshot)
 	}
 	if !strings.Contains(snapshot, `"product_ids":["product-1","product-2"]`) {
-		t.Fatalf("cross-Product compatible_with snapshot lost the derived Product set: %s", snapshot)
+		t.Fatalf("cross-Product depends_on snapshot lost the derived Product set: %s", snapshot)
 	}
 	// Exact replay preserves the original result and writes no second effect.
 	replayed := dispatchMutation(t, s, service, request, env)
 	if replayed.Outcome != agentcontract.OutcomeOK || replayed.Error != nil {
-		t.Fatalf("cached cross-Product compatible_with replay outcome=%s error=%+v, want the original cached success", replayed.Outcome, replayed.Error)
+		t.Fatalf("cached cross-Product depends_on replay outcome=%s error=%+v, want the original cached success", replayed.Outcome, replayed.Error)
 	}
 	if !replayed.Replayed {
-		t.Fatalf("cached cross-Product compatible_with replay carries replayed=false, want the replayed marker")
+		t.Fatalf("cached cross-Product depends_on replay carries replayed=false, want the replayed marker")
 	}
 	if !sameResultPayload(t, approved.Result, replayed.Result) {
-		t.Fatalf("cached cross-Product compatible_with replay result payload differs from the original: original=%s replayed=%s", approved.Result, replayed.Result)
+		t.Fatalf("cached cross-Product depends_on replay result payload differs from the original: original=%s replayed=%s", approved.Result, replayed.Result)
 	}
 	if !sameChangedRefs(t, approved.ChangedRefs, replayed.ChangedRefs) {
-		t.Fatalf("cached cross-Product compatible_with replay changed refs %+v differ from the original %+v", replayed.ChangedRefs, approved.ChangedRefs)
+		t.Fatalf("cached cross-Product depends_on replay changed refs %+v differ from the original %+v", replayed.ChangedRefs, approved.ChangedRefs)
 	}
 	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM agent_approvals`); got != 0 {
 		t.Fatalf("ordinary cross-Product replay left %d approval rows", got)
 	}
 	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM workflow_overlap_resolutions`); got != 1 {
-		t.Fatalf("cached cross-Product compatible_with replay left %d resolutions, want the settled one", got)
+		t.Fatalf("cached cross-Product depends_on replay left %d resolutions, want the settled one", got)
 	}
 	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM effect_receipts WHERE kind='workflow.overlap_resolved'`); got != 1 {
-		t.Fatalf("cached cross-Product compatible_with replay left %d resolution events, want the settled one", got)
+		t.Fatalf("cached cross-Product depends_on replay left %d resolution events, want the settled one", got)
 	}
 	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM idempotency_records`); got != 1 {
-		t.Fatalf("cached cross-Product compatible_with replay left %d idempotency receipts, want the original alone", got)
+		t.Fatalf("cached cross-Product depends_on replay left %d idempotency receipts, want the original alone", got)
 	}
 	if got := workVersion(t, s, "work-1"); got != binding.fromVersion+1 {
-		t.Fatalf("cached cross-Product compatible_with replay left work-1 at v%d, want the settled %d", got, binding.fromVersion+1)
+		t.Fatalf("cached cross-Product depends_on replay left work-1 at v%d, want the settled %d", got, binding.fromVersion+1)
 	}
 	if got := workVersion(t, s, "work-2"); got != binding.toVersion+1 {
-		t.Fatalf("cached cross-Product compatible_with replay left work-2 at v%d, want the settled %d", got, binding.toVersion+1)
+		t.Fatalf("cached cross-Product depends_on replay left work-2 at v%d, want the settled %d", got, binding.toVersion+1)
 	}
 }
 
@@ -1112,7 +1098,7 @@ func TestRoutineCoordinationCrossProductRoutineKindNeedsNoConsent(t *testing.T) 
 func TestRoutineCoordinationCrossProductRoutineKindRefusesWithoutCrossScope(t *testing.T) {
 	t.Parallel()
 	s, service, _, _, env := crossProductRoutineCoordinationFixture(t, []agentcontract.Capability{"work_relate"})
-	binding := routineOverlapExactBinding(t, s, store.ResolutionCompatibleWith)
+	binding := routineOverlapExactBinding(t, s, store.ResolutionDependsOn)
 	input := routineOverlapResolveInput(t, binding, "routine-cross-product-no-grant")
 	refused := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_relate", Operation: "resolve_overlap", Input: input}, env)
 	if refused.Error == nil || refused.Error.Kind != "unauthorized" || !strings.Contains(refused.Error.Message, "cross_scope") {

@@ -361,13 +361,12 @@ func TestFirstCallApproveContractAdmitsFromPublishedVariant(t *testing.T) {
 	// the pinned obligation ID with the current pinned law spec:one.
 	legalBinding := func() map[string]any {
 		return map[string]any{
-			"domain_registry_content_hash": "sha256:" + strings.Repeat("b", 64),
-			"home_domain_id":               "root",
-			"affected_domain_ids":          []string{"root"},
-			"domain_modifies":              []string{},
-			"domain_relation_modifies":     []map[string]any{},
-			"law_additions":                []map[string]any{{"law_id": "law:new", "home_domain_id": "root"}},
-			"verification_obligations":     []map[string]any{{"law_id": "spec:one", "obligation_id": pinnedObligation}},
+			"home_domain_id":           "root",
+			"affected_domain_ids":      []string{"root"},
+			"domain_modifies":          []string{},
+			"domain_relation_modifies": []map[string]any{},
+			"law_additions":            []map[string]any{{"law_id": "law:new", "home_domain_id": "root"}},
+			"verification_obligations": []map[string]any{{"law_id": "spec:one", "obligation_id": pinnedObligation}},
 		}
 	}
 	input := firstCallActionInput(t, defs, "work_transition_action_variant_approve_contract", workID, version, map[string]any{
@@ -520,13 +519,12 @@ func firstCallBreakFixSeed(t *testing.T, workID string) (*Store, WorkflowActor) 
 	defs := firstCallPublishedDefs(t)
 	binding := func() map[string]any {
 		return map[string]any{
-			"domain_registry_content_hash": "sha256:" + strings.Repeat("b", 64),
-			"home_domain_id":               "root",
-			"affected_domain_ids":          []string{"root"},
-			"domain_modifies":              []string{},
-			"domain_relation_modifies":     []map[string]any{},
-			"law_additions":                []map[string]any{{"law_id": "law:new", "home_domain_id": "root"}},
-			"verification_obligations":     []map[string]any{{"law_id": "spec:one", "obligation_id": (*pin.Obligations)[0]}},
+			"home_domain_id":           "root",
+			"affected_domain_ids":      []string{"root"},
+			"domain_modifies":          []string{},
+			"domain_relation_modifies": []map[string]any{},
+			"law_additions":            []map[string]any{{"law_id": "law:new", "home_domain_id": "root"}},
+			"verification_obligations": []map[string]any{{"law_id": "spec:one", "obligation_id": (*pin.Obligations)[0]}},
 		}
 	}
 	approve := firstCallActionInput(t, defs, "work_transition_action_variant_approve_contract", workID, version, map[string]any{
@@ -562,13 +560,12 @@ func TestFirstCallSupersedeContractAdmitsFromPublishedVariant(t *testing.T) {
 	defs := firstCallPublishedDefs(t)
 	successorBinding := func() map[string]any {
 		return map[string]any{
-			"domain_registry_content_hash": "sha256:" + strings.Repeat("b", 64),
-			"home_domain_id":               "root",
-			"affected_domain_ids":          []string{"root"},
-			"domain_modifies":              []string{},
-			"domain_relation_modifies":     []map[string]any{},
-			"law_additions":                []map[string]any{{"law_id": "law:successor", "home_domain_id": "root"}},
-			"verification_obligations":     []map[string]any{{"law_id": "spec:one", "obligation_id": (*pin.Obligations)[0]}},
+			"home_domain_id":           "root",
+			"affected_domain_ids":      []string{"root"},
+			"domain_modifies":          []string{},
+			"domain_relation_modifies": []map[string]any{},
+			"law_additions":            []map[string]any{{"law_id": "law:successor", "home_domain_id": "root"}},
+			"verification_obligations": []map[string]any{{"law_id": "spec:one", "obligation_id": (*pin.Obligations)[0]}},
 		}
 	}
 	supersedeInput := func(mutate func(fields map[string]any)) map[string]any {

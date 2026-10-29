@@ -286,7 +286,6 @@ func TestMutationDurabilityConditionalPlans(t *testing.T) {
 		durable  bool
 		approval bool
 	}{
-		{"compatible_with", "compatible_with", true, false},
 		{"depends_on", "depends_on", false, false},
 		{"blocks", "blocks", true, false},
 		{"merged_into", "merged_into", true, false},

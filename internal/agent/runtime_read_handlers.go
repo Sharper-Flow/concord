@@ -914,12 +914,6 @@ func (r runtime) readDomain(ctx context.Context, base agentcontract.Envelope, in
 			return failureEnvelope(base, err), nil
 		}
 		return r.resultEnvelope(base, result.ResultMeta, r.scope(result.ResultMeta), store.NewDomainAttachmentsPayload(result))
-	case "overlaps":
-		result, err := r.Store.QueryDomainOverlaps(ctx, store.DomainOverlapsRequest{Product: product, Domain: in.DomainID})
-		if err != nil {
-			return failureEnvelope(base, err), nil
-		}
-		return r.resultEnvelope(base, result.ResultMeta, r.scope(result.ResultMeta), store.NewDomainOverlapsPayload(result))
 	default:
 		// Every Domain operation names its own read. Refusing an unmatched
 		// operation keeps a new one from silently answering with another

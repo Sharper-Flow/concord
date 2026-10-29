@@ -12,9 +12,7 @@ import (
 // the consent bit. Under consequence_v1 a supersession or correction request
 // is routine record-keeping: the authenticated coordinator acts unsigned, the
 // duplicate-recovery and complete-step routes consent without a consumed
-// operator approval, self-repair may be classified only by the real recorded
-// agent-class coordinator, and a classified contract gains no CD-0150 overlap
-// exemption. Every retained gate holds unchanged: stale-law and complete-step
+// operator approval. Every retained gate holds unchanged: stale-law and complete-step
 // state gates, audit-evidence and predecessor-set walls, exact failed
 // attempt/epoch retry binding, the convergence wall, failure counts, and the
 // legacy operator identity requirement on old pins.
@@ -85,54 +83,6 @@ func recoveryEventFieldsWith(fields map[string]any, key string, value any) map[s
 	}
 	clone[key] = value
 	return clone
-}
-
-func setConcordProductKey(t *testing.T, s *Store) {
-	t.Helper()
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1);
-		UPDATE domain_registries SET product_key='concord' WHERE product_id='product';
-		DELETE FROM write_guard`); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func setContractSelfRepair(t *testing.T, s *Store, workID string) {
-	t.Helper()
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1);
-		UPDATE workflow_contracts SET self_repair_json='{"refusal_kind":"domain_overlap","blocked_operation":"workflow_action.dispatch_worker","evidence_refs":["obs:routine-repair"]}' WHERE work_id=? AND contract_version=1;
-		DELETE FROM write_guard`, workID); err != nil {
-		t.Fatal(err)
-	}
-}
-
-// recordRoutineSelfRepairActor records one complete actor tuple directly and
-// returns its reference, so an invoker's recorded class is exactly the test's
-// declaration.
-func recordRoutineSelfRepairActor(t *testing.T, s *Store, actor WorkflowActor) string {
-	t.Helper()
-	actorRef, err := WorkflowActorRef(actor)
-	if err != nil {
-		t.Fatal(err)
-	}
-	tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer tx.Rollback()
-	if err := enterWrite(context.Background(), tx); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := tx.Exec(`INSERT INTO workflow_actors(actor_ref,principal_ref,client_ref,agent_ref,session_ref,actor_class,first_seen_at) VALUES(?,?,?,?,?,?,?)`, actorRef, actor.PrincipalRef, actor.ClientRef, actor.AgentRef, actor.SessionRef, string(actor.ActorClass), time.Now().UTC().Format(time.RFC3339Nano)); err != nil {
-		_ = leaveWrite(context.Background(), tx)
-		t.Fatal(err)
-	}
-	if err := leaveWrite(context.Background(), tx); err != nil {
-		t.Fatal(err)
-	}
-	if err := tx.Commit(); err != nil {
-		t.Fatal(err)
-	}
-	return actorRef
 }
 
 func TestRoutineRecovery(t *testing.T) {
@@ -368,90 +318,6 @@ func TestRoutineRecovery(t *testing.T) {
 		freshPayload := json.RawMessage(`{"attempt_id":"attempt:routine-retry-fresh","worker_packet":{}}`)
 		if err := validateFailedWorkerRetryIdentity(ctx, s.DatabaseForTesting(), workID, step, freshPayload); err != nil {
 			t.Fatalf("fresh retry identity refused: %v", err)
-		}
-	})
-
-	t.Run("self-repair follows the policy, the actor class, and loses the overlap exemption", func(t *testing.T) {
-		t.Parallel()
-		const workID = "routine-self-repair-new"
-		fixture := seedWorkflowReturnRouteFixtureWithDefinition(t, workID, workflowFixtureDefinition(t, 2), "execution", []string{"verification"}, []string{"verification", "review", "artifact"})
-		s := fixture.store
-		setConcordProductKey(t, s)
-		coordinator := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/coordinator", SessionRef: "session/" + workID + "-coordinator", ActorClass: ActorAgent}
-		coordinatorRef := recordRoutineSelfRepairActor(t, s, coordinator)
-		// The seed already recorded the fixture operator's tuple.
-		operatorRef, err := WorkflowActorRef(fixture.operator)
-		if err != nil {
-			t.Fatal(err)
-		}
-		unknownRef, err := WorkflowActorRef(WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/unrecorded", SessionRef: "session/" + workID + "-unrecorded", ActorClass: ActorAgent})
-		if err != nil {
-			t.Fatal(err)
-		}
-		workerRef := recordRoutineSelfRepairActor(t, s, WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/repair-worker", SessionRef: "session/" + workID + "-worker", ActorClass: ActorAgent})
-		lane := BuiltinLaneDefinitions()[0]
-		dispatch := workerDispatchEvent(workID, "routine-self-repair-dispatch-"+workID, lane, map[string]any{"attempt_id": "attempt:routine-self-repair-" + workID, "lane_actor_ref": workerRef})
-		dispatch.Actor = workerRef
-		dispatch.OccurredAt = time.Unix(45, 0).UTC()
-		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{dispatch}}); err != nil {
-			t.Fatal(err)
-		}
-		policyDefinition := routineRecoveryPolicyDefinition(workflowFixtureDefinition(t, 2))
-		legacyDefinition := workflowFixtureDefinition(t, 2).Definition
-		classify := func(actorRef string, definition WorkflowDefinition) error {
-			tx, txErr := s.DatabaseForTesting().BeginTx(context.Background(), nil)
-			if txErr != nil {
-				t.Fatal(txErr)
-			}
-			defer tx.Rollback()
-			return validateWorkflowSelfRepairAuthorityForDefinitionTx(context.Background(), tx, workID, actorRef, definition)
-		}
-		// The recorded agent-class coordinator classifies its own contract.
-		if err := classify(coordinatorRef, policyDefinition); err != nil {
-			t.Fatalf("consequence_v1 coordinator self-repair classification refused: %v", err)
-		}
-		// An operator-class invoker is not a coordinator.
-		err = classify(operatorRef, policyDefinition)
-		var operatorFailure *Failure
-		if err == nil || !failureAs(err, &operatorFailure) || operatorFailure.Kind != KindInvalidOperation || !strings.Contains(operatorFailure.Detail, "actor class is not authorized") {
-			t.Fatalf("consequence_v1 self-repair classification by an operator-class actor returned %v, want the agent-class refusal", err)
-		}
-		// An unrecorded actor carries no authority at all.
-		err = classify(unknownRef, policyDefinition)
-		var unknownFailure *Failure
-		if err == nil || !failureAs(err, &unknownFailure) || unknownFailure.Kind != KindInvalidOperation || !strings.Contains(unknownFailure.Detail, "not recorded") {
-			t.Fatalf("consequence_v1 self-repair classification by an unrecorded actor returned %v, want the recorded-actor refusal", err)
-		}
-		// A worker's authority ends at its report.
-		err = classify(workerRef, policyDefinition)
-		var workerFailure *Failure
-		if err == nil || !failureAs(err, &workerFailure) || workerFailure.Kind != KindUnauthorized || !strings.Contains(workerFailure.Detail, "worker actors cannot classify") {
-			t.Fatalf("consequence_v1 self-repair classification by a worker returned %v, want the worker refusal", err)
-		}
-		// The legacy pin keeps its recorded operator requirement on the same
-		// seeded store.
-		if err := classify(coordinatorRef, legacyDefinition); err == nil || !strings.Contains(err.Error(), "operator-approved contract") {
-			t.Fatalf("legacy self-repair classification by an agent returned %v, want the operator requirement refusal", err)
-		}
-		if err := classify(operatorRef, legacyDefinition); err != nil {
-			t.Fatalf("legacy operator classification refused: %v", err)
-		}
-		// The overlap exemption follows the same policy answer. The legacy
-		// classified contract resolves through the real exemption owner; the
-		// consequence_v1 classification exempts nothing.
-		setContractSelfRepair(t, s, workID)
-		exempt, err := workflowSelfRepairExemptTx(context.Background(), s.DatabaseForTesting(), workID)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if !exempt {
-			t.Fatal("legacy self-repair classification lost the CD-0150 overlap exemption")
-		}
-		if workflowSelfRepairOverlapExempt(policyDefinition) {
-			t.Fatal("consequence_v1 self-repair classification kept the CD-0150 overlap exemption")
-		}
-		if !workflowSelfRepairOverlapExempt(legacyDefinition) {
-			t.Fatal("legacy self-repair classification lost the CD-0150 overlap exemption")
 		}
 	})
 

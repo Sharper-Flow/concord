@@ -106,10 +106,11 @@ func TestPreflightAndMutationRequireAcceptedReadyDisposition(t *testing.T) {
 	}
 }
 
-// A ready Review cannot bypass an unresolved Domain overlap on Main acceptance.
-func TestReadyReviewAcceptCannotRideAnUnrelatedRefusal(t *testing.T) {
-	const workID = "ready-review-overlap"
-	const peerID = "ready-review-overlap-peer"
+// Two executing items that write the same Domain do not block each other
+// (CD-0222 D6): a ready Review is accepted beside the peer.
+func TestReadyReviewAcceptProceedsBesideASharedDomainWriter(t *testing.T) {
+	const workID = "ready-review-shared-writer"
+	const peerID = "ready-review-shared-writer-peer"
 	j, _ := descendantReviewFixture(t, workID)
 	s := j.s
 	attempt, epoch := completeCurrentReviewForTest(t, j.fixture, j.repo, "ready_for_final_proof")
@@ -117,17 +118,9 @@ func TestReadyReviewAcceptCannotRideAnUnrelatedRefusal(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Both executing items modify root under the same current registry.
-	execStaleRegistryInFold(t, s, `INSERT INTO workflow_contract_domain_modifications(work_id,contract_version,domain_id) VALUES('`+workID+`',1,'root')`)
-	seedStaleRegistryRescanPeer(t, s, peerID, ownerRef)
-	before := j.effects(t)
-	err = j.action(t, "accept_worker_result", map[string]any{"attempt_id": attempt, "attempt_epoch": epoch}, j.fixture.owner)
-	var failure *Failure
-	if err == nil || !failureAs(err, &failure) || failure.Kind != KindDomainOverlap {
-		t.Fatalf("ready Review acceptance beside an unresolved overlap = %v, want the overlap refusal", err)
+	execInFold(t, s, `INSERT INTO workflow_contract_domain_modifications(work_id,contract_version,domain_id) VALUES('`+workID+`',1,'root')`)
+	seedRootWriterPeer(t, s, peerID, ownerRef)
+	if err := j.action(t, "accept_worker_result", map[string]any{"attempt_id": attempt, "attempt_epoch": epoch}, j.fixture.owner); err != nil {
+		t.Fatalf("ready Review acceptance beside a shared Domain writer = %v, want admitted", err)
 	}
-	if after := j.effects(t); after != before {
-		t.Fatal("refused acceptance changed durable state")
-	}
-	reviewGateRequireStep(t, s, workID, "repair")
 }

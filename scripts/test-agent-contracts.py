@@ -743,12 +743,12 @@ class ToolDescriptionTests(unittest.TestCase):
         tool = next(tool for tool in manifest["tools"] if tool["id"] == "concord_domain")
         self.assertEqual(tool["operations"], [
             "concord_domain.list", "concord_domain.detail",
-            "concord_domain.attachments", "concord_domain.overlaps",
-            "concord_domain.footprint", "concord_domain.shape",
+            "concord_domain.attachments", "concord_domain.footprint",
+            "concord_domain.shape",
         ])
         self.assertEqual(tool["description"],
                           "Navigate Product architecture: current Domains, current law, "
-                          "attachments, unresolved overlap, the footprint of a change, and typed Domain Shape selected by one path, Domain or subject. Shape results are bounded to 32768 bytes and never execute Product checks.")
+                          "attachments, the footprint of a change, and typed Domain Shape selected by one path, Domain or subject. Shape results are bounded to 32768 bytes and never execute Product checks.")
 
     def test_tool_descriptions_do_not_name_retired_operations(self):
         retired = [

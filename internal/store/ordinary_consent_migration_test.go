@@ -30,7 +30,7 @@ INSERT INTO work_items(id,kind,title,lifecycle,priority,version,created_at,updat
 	for seq := 1; seq <= 6; seq++ {
 		execSixClassSQL(t, db, `INSERT INTO effect_receipts(event_id,effect_seq,kind,subject_type,subject_id,actor,payload_version) VALUES(?,?,'fixture','work_item','ordinary-from',?,1)`, fmt.Sprintf("ordinary-receipt-%d", seq), seq, actor)
 	}
-	for index, kind := range []string{ResolutionCompatibleWith, ResolutionDependsOn, ResolutionBlocks, ResolutionMergedInto, ResolutionSupersedes} {
+	for index, kind := range []string{"compatible_with", ResolutionDependsOn, ResolutionBlocks, ResolutionMergedInto, ResolutionSupersedes} {
 		claim := ""
 		if index >= 3 {
 			claim = "approval:historical"

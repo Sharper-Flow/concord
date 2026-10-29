@@ -173,35 +173,3 @@ func activeWorkflowContractVersions(ctx context.Context, q queryer, workID strin
 	}
 	return versions, nil
 }
-
-// duplicateActiveContractOmissions names the work items a Domain read leaves
-// out because their contract projection is ambiguous. A Domain read joins the
-// active contract, so an item holding two would appear twice and misreport the
-// Domain. Excluding it keeps the rest of the Product readable, and naming it
-// here keeps the exclusion visible rather than silent: a caller that sees an
-// omission knows the view is partial and which item to repair.
-func duplicateActiveContractOmissions(ctx context.Context, q queryer, productID string) ([]string, error) {
-	rows, err := q.QueryContext(ctx, `SELECT c.work_id
-		FROM workflow_contracts c
-		WHERE c.superseded_by IS NULL
-		  AND EXISTS (SELECT 1 FROM workflow_architecture_bindings b WHERE b.work_id=c.work_id AND b.product_id=?)
-		  AND (SELECT count(*) FROM workflow_contracts c2 WHERE c2.work_id=c.work_id AND c2.superseded_by IS NULL)>1
-		GROUP BY c.work_id
-		ORDER BY c.work_id`, productID)
-	if err != nil {
-		return nil, workflowProjectionError(err, "cannot inspect active workflow contracts")
-	}
-	defer rows.Close()
-	omissions := []string{}
-	for rows.Next() {
-		var workID string
-		if err := rows.Scan(&workID); err != nil {
-			return nil, workflowProjectionError(err, "cannot scan an ambiguous workflow contract projection")
-		}
-		omissions = append(omissions, "ambiguous-contract:"+workID)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, workflowProjectionError(err, "cannot enumerate ambiguous workflow contract projections")
-	}
-	return omissions, nil
-}

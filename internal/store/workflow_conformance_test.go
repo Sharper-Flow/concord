@@ -437,11 +437,11 @@ func prepareCorpusImpactDependent(t *testing.T, s *Store, source string, registe
 		version = issue31WorkflowAction(t, s, workID, version, action, workID+":"+action, actor)
 	}
 	binding := corpusArchitectureBinding()
-	var hash, root string
-	if err := s.db.QueryRowContext(ctx, `SELECT content_hash,root_domain_id FROM domain_registries WHERE product_id='product'`).Scan(&hash, &root); err != nil {
+	var root string
+	if err := s.db.QueryRowContext(ctx, `SELECT root_domain_id FROM domain_registries WHERE product_id='product'`).Scan(&root); err != nil {
 		t.Fatal(err)
 	}
-	binding["domain_registry_content_hash"], binding["home_domain_id"], binding["affected_domain_ids"] = hash, root, []string{root}
+	binding["home_domain_id"], binding["affected_domain_ids"] = root, []string{root}
 	version = issue31WorkflowActionWithPayload(t, s, workID, version, "approve_contract", workID+":approve", actor, mustJSONValue(map[string]any{"architecture_binding": binding, "spec_mandate": []string{}, "law_modifies": []string{}}))
 	version = issue31WorkflowAction(t, s, workID, version, "record_design", workID+":design", actor)
 	if err := runVerdictActionAs(t, s, workID, "declare_impact", mustJSONValue(map[string]any{"target_work_id": source, "edge_id": "edge:corpus-dependent", "edge_kind": "depends_on", "edge_class": "hard", "severity": "informational"}), version, actor); err != nil {
@@ -739,11 +739,11 @@ func TestCorpusCaptureObservationReadsApprovedContract(t *testing.T) {
 		version = issue31WorkflowAction(t, s, workID, version, action, workID+":"+action, actor)
 	}
 	binding := corpusArchitectureBinding()
-	var hash, root string
-	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT content_hash,root_domain_id FROM domain_registries WHERE product_id='product'`).Scan(&hash, &root); err != nil {
+	var root string
+	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT root_domain_id FROM domain_registries WHERE product_id='product'`).Scan(&root); err != nil {
 		t.Fatal(err)
 	}
-	binding["domain_registry_content_hash"], binding["home_domain_id"], binding["affected_domain_ids"] = hash, root, []string{root}
+	binding["home_domain_id"], binding["affected_domain_ids"] = root, []string{root}
 	payload, err := json.Marshal(map[string]any{"spec_mandate": []string{}, "law_modifies": []string{}, "architecture_binding": binding})
 	if err != nil {
 		t.Fatal(err)
@@ -787,7 +787,7 @@ func TestWorkflowInlineTransactionRollbackLeavesNoSemanticOrActionEvents(t *test
 	for _, action := range []string{"record_proposal", "record_alignment"} {
 		version = issue31WorkflowAction(t, s, workID, version, action, workID+":"+action, actor)
 	}
-	payload := testApprovalPayload(t, s, workID, "approve_contract", json.RawMessage(`{"spec_mandate":[],"law_modifies":[],"architecture_binding":{"domain_registry_content_hash":"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","home_domain_id":"root","affected_domain_ids":["root"],"domain_modifies":[],"domain_relation_modifies":[],"law_additions":[],"verification_obligations":[]}}`))
+	payload := testApprovalPayload(t, s, workID, "approve_contract", json.RawMessage(`{"spec_mandate":[],"law_modifies":[],"architecture_binding":{"home_domain_id":"root","affected_domain_ids":["root"],"domain_modifies":[],"domain_relation_modifies":[],"law_additions":[],"verification_obligations":[]}}`))
 	before := contractCorrectionEffectSnapshot(t, s, workID)
 	var beforeContracts int
 	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM workflow_contracts WHERE work_id=?`, workID).Scan(&beforeContracts); err != nil {
@@ -830,7 +830,7 @@ func TestWorkflowInlineTransactionRollbackLeavesNoSemanticOrActionEvents(t *test
 }
 
 func corpusArchitectureBinding() map[string]any {
-	return map[string]any{"domain_registry_content_hash": "sha256:" + strings.Repeat("b", 64), "home_domain_id": "domain/corpus-main", "affected_domain_ids": []string{"domain/corpus-main"}, "domain_modifies": []string{}, "domain_relation_modifies": []any{}, "law_additions": []any{}, "verification_obligations": []any{}}
+	return map[string]any{"home_domain_id": "domain/corpus-main", "affected_domain_ids": []string{"domain/corpus-main"}, "domain_modifies": []string{}, "domain_relation_modifies": []any{}, "law_additions": []any{}, "verification_obligations": []any{}}
 }
 
 func workflowCurrentVersion(ctx context.Context, s *Store, workID string) (int64, error) {

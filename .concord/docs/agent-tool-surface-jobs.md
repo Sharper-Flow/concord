@@ -308,9 +308,8 @@ items to proceed concurrently using only the pre-5.0 AJ5 surface. No legitimate 
 can produce the required version-pinned resolution. The passing scenario
 `AJ5-resolve-domain-overlap` drives the real `concord_work_relate.resolve_overlap`
 dispatch path, observes the approval challenge, consumes the bound operator approval,
-and asserts the current `compatible_with` resolution plus its relation companion. It
-also actively proves that an ordinary `compatible_with` link writes no overlap
-authority. `internal/agent.TestAgentJobsCorpus`, scenario `AJ5-resolve-domain-overlap`, is the executable binding.
+and asserts the current `depends_on` resolution plus its relation companion. It
+also actively proves that an ordinary link writes no overlap authority. `internal/agent.TestAgentJobsCorpus`, scenario `AJ5-resolve-domain-overlap`, is the executable binding.
 
 This amendment adds one scenario, bringing the corpus to 23. It does not add a ninth
 job or a tenth tool. Operator approval for the current manifest change is recorded in

@@ -442,10 +442,6 @@ func approvalDecisionDigest(t *testing.T, s *Store, workID string) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	contract.SelfRepair, err = readWorkflowSelfRepair(ctx, tx, workID, contract.Version)
-	if err != nil {
-		t.Fatal(err)
-	}
 	return ComputeWorkflowDecisionContextDigest(workID, workVersion, definition, contract, "confirm_premise")
 }
 

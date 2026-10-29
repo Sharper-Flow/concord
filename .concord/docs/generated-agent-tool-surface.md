@@ -1,7 +1,7 @@
 # Generated Concord agent tool surface
 
-Manifest digest: `sha256:40b67b479cec62ced2a34f674eaf033c3c033415c515e60ec687c78e79758b9d`
-Payload schema digest: `sha256:ecd9f54e3cd5b229c648680b30c09fbc245341de2848472f2435977803730fcf`
+Manifest digest: `sha256:27c3bf34922a120a01cf9ac30f7a5cd6b5317a94d40f9f6a5fefc9a959dbb225`
+Payload schema digest: `sha256:a8acd860168f18bb9c60905d69539be4b7af6ae7de2b90be2d5f8471f89d87d2`
 Envelope schema: `1.0`
 
 | Operation | Kind | Query | Capability | Consequence | Availability |
@@ -63,7 +63,6 @@ Envelope schema: `1.0`
 | `concord_domain.list` | `read` | `C22.DomainList` | `product_read` | `read` | `always` |
 | `concord_domain.detail` | `read` | `C22.DomainDetail` | `product_read` | `read` | `always` |
 | `concord_domain.attachments` | `read` | `C22.DomainAttachments` | `product_read` | `read` | `always` |
-| `concord_domain.overlaps` | `read` | `C22.DomainOverlaps` | `product_read` | `read` | `always` |
 | `concord_domain.footprint` | `read` | `C22.DomainFootprint` | `product_read` | `read` | `always` |
 | `concord_domain.shape` | `read` | `C22.DomainShape` | `product_read` | `read` | `always` |
 | `concord_work_transition.correct_delivery` | `mutation` | `—` | `work_transition` | `recovery` | `always` |

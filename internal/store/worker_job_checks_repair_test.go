@@ -1015,7 +1015,7 @@ func checksRepairSupersedeContract(t *testing.T, s *Store, workID string) {
 			"required_evidence":  []string{"verification"}, "route_conventions": []string{}, "spec_mandate": []string{}, "law_modifies": []string{},
 			"law_revisions": []WorkflowLawRevision{}, "law_boundary_version": 1, "rigor_class": "prototype_internal", "consequence_class": "internal_sqlite",
 			"architecture_binding": WorkflowArchitectureBinding{
-				DomainRegistryContentHash: "sha256:" + strings.Repeat("b", 64), HomeDomainID: "root", AffectedDomainIDs: []string{"root"},
+				HomeDomainID: "root", AffectedDomainIDs: []string{"root"},
 				DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{}, VerificationObligations: []WorkflowVerificationObligation{},
 			},
 		},

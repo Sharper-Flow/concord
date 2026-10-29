@@ -106,7 +106,6 @@ type workflowContractApprovedPayload struct {
 	LawModifies         []string                           `json:"law_modifies"`
 	LawRevisions        []WorkflowLawRevision              `json:"law_revisions"`
 	ArchitectureBinding *WorkflowArchitectureBinding       `json:"architecture_binding,omitempty"`
-	SelfRepair          *WorkflowSelfRepair                `json:"self_repair,omitempty"`
 	LawBoundaryVersion  int                                `json:"law_boundary_version,omitempty"`
 	RigorClass          string                             `json:"rigor_class"`
 	ConsequenceClass    string                             `json:"consequence_class,omitempty"`
@@ -1127,9 +1126,6 @@ func foldValidatedWorkflowContractApproval(ctx context.Context, tx *sql.Tx, even
 	if err := requireActor(ctx, tx, event.Actor); err != nil {
 		return err
 	}
-	if err := validateWorkflowSelfRepairAuthorityTx(ctx, tx, event.SubjectID, event.Actor, p.SelfRepair); err != nil {
-		return err
-	}
 	return persistWorkflowContractApprovalTx(ctx, tx, event, registered, p)
 }
 
@@ -1214,7 +1210,7 @@ func persistWorkflowContractApprovalTx(ctx context.Context, tx *sql.Tx, event Ev
 	if p.LawChange != nil {
 		lawChange = workflowJSON(p.LawChange)
 	}
-	_, err := tx.ExecContext(ctx, `INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class,self_repair_json,definition_ref,definition_digest,decision_domains,law_change) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, event.SubjectID, p.ContractVersion, p.Premise, p.ConsequenceClass, workflowJSON(p.RequiredEvidence), workflowJSON(p.RouteConventions), event.OccurredAt.UTC().Format(time.RFC3339Nano), event.Actor, workflowJSON(p.SpecMandate), workflowJSON(p.LawModifies), p.LawBoundaryVersion, p.RigorClass, workflowJSON(p.SelfRepair), registered.Definition.Ref, registered.Digest, decisionDomains, lawChange)
+	_, err := tx.ExecContext(ctx, `INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class,definition_ref,definition_digest,decision_domains,law_change) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, event.SubjectID, p.ContractVersion, p.Premise, p.ConsequenceClass, workflowJSON(p.RequiredEvidence), workflowJSON(p.RouteConventions), event.OccurredAt.UTC().Format(time.RFC3339Nano), event.Actor, workflowJSON(p.SpecMandate), workflowJSON(p.LawModifies), p.LawBoundaryVersion, p.RigorClass, registered.Definition.Ref, registered.Digest, decisionDomains, lawChange)
 	if err != nil {
 		return workflowProjectionError(err, "cannot record immutable workflow contract")
 	}
@@ -1453,9 +1449,6 @@ func finishWorkflowContractSupersessionTx(ctx context.Context, tx *sql.Tx, event
 		if n, _ := result.RowsAffected(); n != 1 {
 			return newFailure(KindProjectionNotFound, "fold_event", "predecessor workflow contract does not exist or is already superseded", false, "reload the exact active contract versions")
 		}
-	}
-	if err := invalidateWorkflowOverlapForContractRevisionTx(ctx, tx, event, p.PredecessorContractVersions, p.NewContractVersion); err != nil {
-		return err
 	}
 	// A contract supersession before the confirming Review is accepted voids an
 	// unconfirmed checks repair (CD-0205 D4): the named revisions lose their

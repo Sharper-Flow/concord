@@ -39,8 +39,8 @@ func TestProductChangingApprovalDerivesTheRegistryItPins(t *testing.T) {
 	}
 	env := mutationEnvelope(grant, scopeVersion)
 
-	// The agent learns the hash it pins from a Domain read. That read is the
-	// first demand: it derives the registry from committed content.
+	// The agent learns the root Domain it binds from a Domain read. That read
+	// is the first demand: it derives the registry from committed content.
 	detail := dispatchRead(t, s, service, InvokeRequest{Tool: "concord_domain", Operation: "list", Input: json.RawMessage(`{"product_id":"product-1","page":{"cursor":null,"limit":10}}`)}, env)
 	if detail.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("domain list on a committed-only registry: %+v", detail.Error)
@@ -74,13 +74,12 @@ func TestProductChangingApprovalDerivesTheRegistryItPins(t *testing.T) {
 	version := advanceCapturedWorkToContract(t, s, service, env, "work-1", "derived-registry")
 	fields := workflowContractFieldsFixture()
 	fields["architecture_binding"] = map[string]any{
-		"domain_registry_content_hash": listed.Registry.ContentHash,
-		"home_domain_id":               listed.Registry.RootDomainID,
-		"affected_domain_ids":          []string{listed.Registry.RootDomainID},
-		"domain_modifies":              []string{},
-		"domain_relation_modifies":     []any{},
-		"law_additions":                []any{},
-		"verification_obligations":     []any{},
+		"home_domain_id":           listed.Registry.RootDomainID,
+		"affected_domain_ids":      []string{listed.Registry.RootDomainID},
+		"domain_modifies":          []string{},
+		"domain_relation_modifies": []any{},
+		"law_additions":            []any{},
+		"verification_obligations": []any{},
 	}
 	resp, _ := approvedWorkflowContract(t, s, service, grant, privateKey, env, version, fields, "derived-registry-approval")
 	if resp.Outcome != agentcontract.OutcomeOK {
@@ -106,13 +105,13 @@ func TestProductChangingApprovalDerivesTheRegistryWithoutAPriorRead(t *testing.T
 	if err != nil {
 		t.Fatalf("pm1fixture.SeedCommittedProductDomain: %v", err)
 	}
-	// Learn the committed registry's hash through the production path before
-	// testing approval with every trace of the derived projection removed.
+	// Learn the committed registry's root Domain through the production path
+	// before testing approval with every trace of the derived projection removed.
 	if err := s.RebuildKnowledgeIndex(ctx, home); err != nil {
 		t.Fatal(err)
 	}
-	var contentHash, rootDomainID string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT content_hash, root_domain_id FROM domain_registries WHERE product_id='product-1'`).Scan(&contentHash, &rootDomainID); err != nil {
+	var rootDomainID string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT root_domain_id FROM domain_registries WHERE product_id='product-1'`).Scan(&rootDomainID); err != nil {
 		t.Fatal(err)
 	}
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
@@ -136,13 +135,12 @@ func TestProductChangingApprovalDerivesTheRegistryWithoutAPriorRead(t *testing.T
 	version := advanceCapturedWorkToContract(t, s, service, env, "work-1", "derived-registry-noread")
 	fields := workflowContractFieldsFixture()
 	fields["architecture_binding"] = map[string]any{
-		"domain_registry_content_hash": contentHash,
-		"home_domain_id":               rootDomainID,
-		"affected_domain_ids":          []string{rootDomainID},
-		"domain_modifies":              []string{},
-		"domain_relation_modifies":     []any{},
-		"law_additions":                []any{},
-		"verification_obligations":     []any{},
+		"home_domain_id":           rootDomainID,
+		"affected_domain_ids":      []string{rootDomainID},
+		"domain_modifies":          []string{},
+		"domain_relation_modifies": []any{},
+		"law_additions":            []any{},
+		"verification_obligations": []any{},
 	}
 	// Owning-start source verification and the pre-contract actions derive
 	// their own law inventory. Remove projections only after those demands,

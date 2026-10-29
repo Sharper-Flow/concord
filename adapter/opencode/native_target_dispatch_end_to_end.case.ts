@@ -342,7 +342,6 @@ async function driveToReadyJob(
   expect(response.outcome, JSON.stringify(response)).toBe("ok")
   const domainList = await invoke("concord_domain", { operation: "list", input: { product_id: PRODUCT_ID, page: { cursor: null, limit: 10 } } }, context)
   expect(domainList.outcome).toBe("ok")
-  const registryHash = ((domainList.result as JSONRecord).registry as JSONRecord).content_hash as string
   response = await transition(8, "approve_contract", "native-e2e-approve-contract", {
     premise: APPROVED_OBJECTIVE,
     outcome_predicates: [predicate],
@@ -354,7 +353,6 @@ async function driveToReadyJob(
     // engineering work, which records without a consent question.
     decision_domains: [],
     architecture_binding: {
-      domain_registry_content_hash: registryHash,
       home_domain_id: `product-root:${PRODUCT_ID}`,
       affected_domain_ids: [`product-root:${PRODUCT_ID}`],
       domain_modifies: [],

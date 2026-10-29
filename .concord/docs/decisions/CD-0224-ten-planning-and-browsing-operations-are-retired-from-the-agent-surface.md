@@ -61,7 +61,7 @@ question the row answered — which fields a glance row carries — returns to
 
 Three writers create work-to-work relations, each scoped to its own kinds.
 
-1. `concord_work_relate.resolve_overlap` writes `compatible_with`,
+1. `concord_work_relate.resolve_overlap` writes
    `depends_on`, `blocks`, `merged_into`, and `supersedes`. A `supersedes`
    or `merged_into` resolution commits the relation and the terminal
    transition in one transaction. A `merged_into` or `supersedes` resolution

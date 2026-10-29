@@ -3,15 +3,14 @@ package store
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
 )
 
-// d7BoundaryDomain, d7BoundaryLaw, and d7BoundaryProduct are the exact names a
-// D7 refusal must report back to the caller.
+// d7BoundaryDomain, d7BoundaryLaw, and d7BoundaryProduct are the Domain, law,
+// and Product two concurrent contracts share in the peer fixture.
 const (
 	d7BoundaryDomain  = "root"
 	d7BoundaryLaw     = "spec:one"
@@ -20,9 +19,9 @@ const (
 
 // seedD7BoundaryOverlap positions one Product-changing workflow instance at the
 // named definition step and gives a second active work item an identical
-// architecture footprint, so every consequential boundary on the first item has
-// an unresolved Domain overlap against the second.
-func seedD7BoundaryOverlap(t *testing.T, workID, otherID, step string) (*Store, WorkflowActor, int64) {
+// architecture footprint: both modify the same Domain and the same law, and no
+// resolution relates them.
+func seedD7BoundaryOverlap(t *testing.T, workID, otherID, step string) *Store {
 	t.Helper()
 	ctx := context.Background()
 	s := openTemp(t)
@@ -120,16 +119,13 @@ func seedD7BoundaryOverlap(t *testing.T, workID, otherID, step string) (*Store, 
 	if err := tx.Commit(); err != nil {
 		t.Fatal(err)
 	}
-	// CD-0144: a contract holds its Domains from execution start. Every D7
-	// boundary here sits at or after execution, so both items hold theirs and
-	// the refusal stays mutual.
 	setWorkLifecycleForTesting(t, s, workID, "in_progress")
 	setWorkLifecycleForTesting(t, s, otherID, "in_progress")
 	if got := currentStep(t, s, workID); got != step {
 		t.Fatalf("fixture step=%q, want %q", got, step)
 	}
 	assertD7ConflictEstablished(t, s, workID, otherID)
-	return s, actor, readWorkVersion(t, s, workID)
+	return s
 }
 
 // assertD7ConflictEstablished proves the fixture actually created the
@@ -153,52 +149,6 @@ func assertD7ConflictEstablished(t *testing.T, s *Store, workID, otherID string)
 	}
 	if activeContracts != 2 || sharedDomains != 1 || sharedLaws != 1 || resolutions != 0 {
 		t.Fatalf("conflict not established: contracts=%d domains=%d laws=%d resolutions=%d", activeContracts, sharedDomains, sharedLaws, resolutions)
-	}
-}
-
-// assertD7TypedRefusal asserts the full D7 refusal shape: the exact Domains,
-// laws, work items, contract versions, and closed recovery choices.
-func assertD7TypedRefusal(t *testing.T, err error, workID, otherID string) {
-	t.Helper()
-	var failure *Failure
-	if !errors.As(err, &failure) {
-		t.Fatalf("boundary error=%v, want a typed store failure", err)
-	}
-	if failure.Kind != KindDomainOverlap {
-		t.Fatalf("boundary failure kind=%s, want %s (err=%v)", failure.Kind, KindDomainOverlap, err)
-	}
-	if failure.DomainOverlap == nil || len(failure.DomainOverlap.Overlaps) != 1 {
-		t.Fatalf("boundary refusal carries no single typed overlap: %#v", failure.DomainOverlap)
-	}
-	overlap := failure.DomainOverlap.Overlaps[0]
-	from, to := workID, otherID
-	if to < from {
-		from, to = to, from
-	}
-	if overlap.ProductID != d7BoundaryProduct || overlap.FromWorkID != from || overlap.ToWorkID != to {
-		t.Fatalf("refusal work items product=%q from=%q to=%q, want %q %q %q", overlap.ProductID, overlap.FromWorkID, overlap.ToWorkID, d7BoundaryProduct, from, to)
-	}
-	if overlap.FromContractVersion != 1 || overlap.ToContractVersion != 1 {
-		t.Fatalf("refusal contract versions from=%d to=%d, want 1 and 1", overlap.FromContractVersion, overlap.ToContractVersion)
-	}
-	if len(overlap.SharedAffectedDomainIDs) != 1 || overlap.SharedAffectedDomainIDs[0] != d7BoundaryDomain {
-		t.Fatalf("refusal Domains=%v, want [%s]", overlap.SharedAffectedDomainIDs, d7BoundaryDomain)
-	}
-	if len(overlap.SharedLawIDs) != 1 || overlap.SharedLawIDs[0] != d7BoundaryLaw {
-		t.Fatalf("refusal laws=%v, want [%s]", overlap.SharedLawIDs, d7BoundaryLaw)
-	}
-	if len(overlap.SharedDomainModifications) != 1 || overlap.SharedDomainModifications[0] != d7BoundaryDomain {
-		t.Fatalf("refusal Domain writes=%v, want [%s]", overlap.SharedDomainModifications, d7BoundaryDomain)
-	}
-	if overlap.ResolutionState != "unresolved" {
-		t.Fatalf("refusal resolution state=%q, want unresolved", overlap.ResolutionState)
-	}
-	wantRecovery := []string{"wait", "resolve_overlap", "terminal_work", "supersede_contract"}
-	if strings.Join(overlap.RecoveryActions, ",") != strings.Join(wantRecovery, ",") {
-		t.Fatalf("refusal recovery choices=%v, want %v", overlap.RecoveryActions, wantRecovery)
-	}
-	if strings.Join(overlap.OverlapClasses, ",") != "architecture,law_write,domain_write" {
-		t.Fatalf("refusal overlap classes=%v", overlap.OverlapClasses)
 	}
 }
 
@@ -280,163 +230,46 @@ func runSupersedeRecoveryFold(t *testing.T, s *Store, workID string, payload jso
 	return tx.Commit()
 }
 
-// TestWorkflowSupersedeOverlapRecoveryAgreesAcrossPinDiscoveryPreflightAndFold
-// holds the single admission owner at the surfaces that answer
-// supersede_contract: an unresolved Domain overlap at a step whose correction
-// checkpoint refuses admits the recovery, and discovery, the work pin, the
-// read-only preflight, and the dispatch fold answer identically for that
-// state. Discovery once re-classified the overlap through the correction
-// checkpoint and refused a recovery the fold admitted.
-func TestWorkflowSupersedeOverlapRecoveryAgreesAcrossPinDiscoveryPreflightAndFold(t *testing.T) {
+// Two executing items that modify the same Domain and the same law do not block
+// each other at any consequential boundary (CD-0222 D6): the later one merges
+// the earlier one's changes, and the boundary check admits both.
+func TestConsequentialBoundariesAdmitASharedDomainPeer(t *testing.T) {
 	t.Parallel()
-	ctx := context.Background()
-	workID := "d7-supersede-agreement"
-	otherID := "d7-supersede-agreement-other"
-	s, actor, _ := seedD7BoundaryOverlap(t, workID, otherID, "planning")
-
-	// The contrast first, on the seeded state: the recovery admission widened
-	// no other route, so the checkpoint advance still refuses with the typed
-	// overlap refusal (CD-0186).
-	if err := attemptD7BoundaryAction(ctx, s, workID, "approve_contract", actor, readWorkVersion(t, s, workID)); err == nil {
-		t.Fatal("approve_contract passed while the overlap stands unresolved")
-	} else {
-		assertD7TypedRefusal(t, err, workID, otherID)
-	}
-
-	payload := supersedeRecoveryPayload(t, workID, 2, nil)
-	_, action, err := WorkflowActionDefinitionFor(ctx, s, BuiltinWorkflowRegistry(), workID, "supersede_contract")
-	if err != nil {
-		t.Fatalf("discovery refused the overlap recovery the fold admits: %v", err)
-	}
-	if action.ID != "supersede_contract" || action.Approval != ActionApprovalRequired {
-		t.Fatalf("recovery action = %+v, want the approval-required contract recovery", action)
-	}
-	pin, err := ReadWorkPin(ctx, s, workID)
-	if err != nil {
-		t.Fatalf("read work pin under the overlap: %v", err)
-	}
-	if !workPinContainsAction(pin.NextValidIntents, "supersede_contract") {
-		t.Fatalf("pin omits supersede_contract under the overlap; intents = %v", intentActionIDs(pin.NextValidIntents))
-	}
-	if err := WorkflowActionPreflightWithRegistry(ctx, s, BuiltinWorkflowRegistry(), WorkflowActionPreflightRequest{
-		WorkID: workID, ExpectedVersion: readWorkVersion(t, s, workID), ActionID: "supersede_contract", Payload: payload, Actor: actor,
-	}); err != nil {
-		t.Fatalf("preflight refused the overlap recovery: %v", err)
-	}
-	if err := runSupersedeRecoveryFold(t, s, workID, payload, actor); err != nil {
-		t.Fatalf("dispatch fold refused the overlap recovery: %v", err)
-	}
-	var superseded, active int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM workflow_contracts WHERE work_id=? AND contract_version=1 AND superseded_by IS NOT NULL`, workID).Scan(&superseded); err != nil || superseded != 1 {
-		t.Fatalf("predecessor contract superseded=%d err=%v, want one", superseded, err)
-	}
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL`, workID).Scan(&active); err != nil || active != 1 {
-		t.Fatalf("active contracts after recovery=%d err=%v, want one", active, err)
-	}
-}
-
-// TestD7ConsequentialBoundariesRefuseUnresolvedOverlap covers the CD-0222 D7
-// boundaries that are enacted as workflow actions: contract approval, execution
-// dispatch, checkpoint and evidence binding, worker-result acceptance, verdict
-// and premise confirmation, merge/ship successor linkage, and completion.
-func TestD7ConsequentialBoundariesRefuseUnresolvedOverlap(t *testing.T) {
-	t.Parallel()
-	for _, testCase := range []struct {
-		boundary string
-		step     string
-		actionID string
-	}{
-		{boundary: "contract approval", step: "planning", actionID: "approve_contract"},
-		{boundary: "execution dispatch", step: "execution", actionID: "start_execution"},
-		{boundary: "checkpoint", step: "execution", actionID: "checkpoint_execution"},
-		{boundary: "evidence binding", step: "execution", actionID: "bind_evidence"},
-		{boundary: "worker result acceptance", step: "execution", actionID: "accept_worker_result"},
-		{boundary: "merge ship successor", step: "execution", actionID: "link_successor"},
-		{boundary: "verdict", step: "acceptance", actionID: "record_verdict"},
-		{boundary: "premise confirmation", step: "acceptance", actionID: "confirm_premise"},
-		{boundary: "completion", step: "release", actionID: "complete"},
-	} {
-		t.Run(testCase.boundary, func(t *testing.T) {
+	for _, step := range []string{"planning", "execution", "acceptance", "release"} {
+		t.Run(step, func(t *testing.T) {
 			ctx := context.Background()
-			workID := "d7-" + testCase.actionID
-			otherID := "d7-other-" + testCase.actionID
-			s, actor, version := seedD7BoundaryOverlap(t, workID, otherID, testCase.step)
-			var eventsBefore int
-			if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts`).Scan(&eventsBefore); err != nil {
-				t.Fatal(err)
-			}
-
-			err := attemptD7BoundaryAction(ctx, s, workID, testCase.actionID, actor, version)
-			assertD7TypedRefusal(t, err, workID, otherID)
-
-			if got := readWorkVersion(t, s, workID); got != version {
-				t.Fatalf("refused boundary changed work version=%d, want %d", got, version)
-			}
-			if got := currentStep(t, s, workID); got != testCase.step {
-				t.Fatalf("refused boundary advanced step=%q, want %q", got, testCase.step)
-			}
-			assertTableCount(t, s, "effect_receipts", eventsBefore)
-
-			// D7: read-only inspection remains available while the boundary refuses.
-			if _, err := ReadWorkflowProjection(ctx, s, WorkflowReadRequest{WorkID: workID}); err != nil {
-				t.Fatalf("read-only workflow inspection failed while the boundary refused: %v", err)
-			}
-			if err := InspectWorkflowDomainOverlap(ctx, s, otherID); err == nil {
-				t.Fatal("the concurrent item reports no overlap, so the refusal was not mutual")
-			}
-
-			// Control: once the operator resolves the overlap, the same call no
-			// longer refuses for this reason. Without it the assertions above
-			// would also pass against a fixture that refused for any other cause.
-			actorRef, err := WorkflowActorRef(actor)
-			if err != nil {
-				t.Fatal(err)
-			}
-			otherVersion := readWorkVersion(t, s, otherID)
-			if err := s.Transact(ctx, func(tx *Transaction) error {
-				_, resolveErr := ResolveWorkflowDomainOverlapTx(ctx, tx, WorkflowDomainOverlapResolutionRequest{
-					EventID: "d7-resolve-" + testCase.actionID, FromWorkID: workID, ToWorkID: otherID,
-					FromExpectedVersion: version, ToExpectedVersion: otherVersion, FromContractVersion: 1, ToContractVersion: 1,
-					ResolutionKind: ResolutionCompatibleWith, Reason: "operator approved concurrent change",
-					Actor:      actorRef,
-					OccurredAt: time.Date(2026, 8, 19, 1, 0, 0, 0, time.UTC),
-				})
-				return resolveErr
-			}); err != nil {
-				t.Fatalf("overlap resolution: %v", err)
-			}
-			resolvedErr := attemptD7BoundaryAction(ctx, s, workID, testCase.actionID, actor, readWorkVersion(t, s, workID))
-			var resolvedFailure *Failure
-			if errors.As(resolvedErr, &resolvedFailure) && resolvedFailure.Kind == KindDomainOverlap {
-				t.Fatalf("resolved overlap still refused as domain_overlap: %v", resolvedErr)
+			workID, otherID := "shared-peer-"+step, "shared-peer-other-"+step
+			s := seedD7BoundaryOverlap(t, workID, otherID, step)
+			for _, id := range []string{workID, otherID} {
+				if err := s.Transact(ctx, func(tx *Transaction) error {
+					return CheckWorkflowConsequentialBoundaryTx(ctx, tx, id)
+				}); err != nil {
+					t.Fatalf("boundary for %s beside a shared-Domain peer = %v, want admitted", id, err)
+				}
 			}
 		})
 	}
 }
 
-// TestD7ExecutionClaimBoundaryRefusesUnresolvedOverlap covers the D7 execution
-// claim boundary, which is owned by the durable fence transaction rather than
-// by the workflow action coordinator.
-func TestD7ExecutionClaimBoundaryRefusesUnresolvedOverlap(t *testing.T) {
+// The execution claim, owned by the durable fence transaction, admits a step
+// claim beside a shared-Domain peer (CD-0222 D6).
+func TestExecutionClaimAdmitsASharedDomainPeer(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	const workID = "d7-claim"
-	const otherID = "d7-claim-other"
-	s, _, _ := seedD7BoundaryOverlap(t, workID, otherID, "execution")
-	var operationsBefore int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM durable_operations`).Scan(&operationsBefore); err != nil {
+	const workID = "shared-peer-claim"
+	const otherID = "shared-peer-claim-other"
+	s := seedD7BoundaryOverlap(t, workID, otherID, "execution")
+	var definitionRef, definitionDigest string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT definition_ref,definition_digest FROM workflow_instances WHERE work_id=?`, workID).Scan(&definitionRef, &definitionDigest); err != nil {
 		t.Fatal(err)
 	}
 	request := ClaimRequest{
-		OpID: "op:d7-claim", WorkID: workID, WorkflowTypeRef: workflowFixtureRef, WorkflowTypeDigest: mustBuiltinDefinition(t, workflowFixtureRef).Digest,
+		OpID: "op:shared-peer-claim", WorkID: workID, WorkflowTypeRef: definitionRef, WorkflowTypeDigest: definitionDigest,
 		StepID: "execution", StepKind: StepExternalEffect, AcceptedInputsDigest: "sha256:" + strings.Repeat("a", 64),
 		AcceptedScopeSnapshot: `{"work_id":"` + workID + `"}`, PrincipalRef: "principal/operator", Tool: "concord_work_transition",
-		IdempotencyKey: "d7-claim", RequestID: "request:d7-claim", ObservedAt: time.Unix(1, 0).UTC(), ContractDigest: testManifestDigest,
+		IdempotencyKey: "shared-peer-claim", RequestID: "request:shared-peer-claim", ObservedAt: time.Unix(1, 0).UTC(), ContractDigest: testManifestDigest,
 	}
-	_, err := ClaimStepAuthorized(ctx, s, request, nil)
-	assertD7TypedRefusal(t, err, workID, otherID)
-	assertTableCount(t, s, "durable_operations", operationsBefore)
-	if _, err := ReadWorkflowProjection(ctx, s, WorkflowReadRequest{WorkID: workID}); err != nil {
-		t.Fatalf("read-only workflow inspection failed while the claim boundary refused: %v", err)
+	if _, err := ClaimStepAuthorized(ctx, s, request, nil); err != nil {
+		t.Fatalf("execution claim beside a shared-Domain peer = %v, want admitted", err)
 	}
 }

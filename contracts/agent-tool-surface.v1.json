@@ -130,12 +130,11 @@
     },
     {
       "id": "concord_domain",
-      "description": "Navigate Product architecture: current Domains, current law, attachments, unresolved overlap, the footprint of a change, and typed Domain Shape selected by one path, Domain or subject. Shape results are bounded to 32768 bytes and never execute Product checks.",
+      "description": "Navigate Product architecture: current Domains, current law, attachments, the footprint of a change, and typed Domain Shape selected by one path, Domain or subject. Shape results are bounded to 32768 bytes and never execute Product checks.",
       "operations": [
         "concord_domain.list",
         "concord_domain.detail",
         "concord_domain.attachments",
-        "concord_domain.overlaps",
         "concord_domain.footprint",
         "concord_domain.shape"
       ]
@@ -1341,27 +1340,6 @@
       "supported_budget_seconds": 300
     },
     {
-      "id": "concord_domain.overlaps",
-      "tool": "concord_domain",
-      "kind": "read",
-      "query_id": "C22.DomainOverlaps",
-      "input_schema": "#/schemas/domain_overlaps_input",
-      "result_schema": "#/schemas/domain_overlaps_result",
-      "capability": "product_read",
-      "consequence": "read",
-      "approval": "none",
-      "metadata": {
-        "context": "explicit",
-        "idempotency": "request_id",
-        "pagination": "none",
-        "output_bytes": 51200,
-        "versions": [
-          "1.0"
-        ]
-      },
-      "supported_budget_seconds": 300
-    },
-    {
       "id": "concord_domain.footprint",
       "tool": "concord_domain",
       "kind": "read",
@@ -1572,14 +1550,6 @@
     },
     "domain_list_result": {
       "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/domain_list_result",
-      "closed": true
-    },
-    "domain_overlaps_input": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/domain_overlaps_input",
-      "closed": true
-    },
-    "domain_overlaps_result": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/domain_overlaps_result",
       "closed": true
     },
     "external_observation_input": {
@@ -1996,6 +1966,6 @@
       "digest"
     ]
   },
-  "payload_digest": "sha256:ecd9f54e3cd5b229c648680b30c09fbc245341de2848472f2435977803730fcf",
-  "digest": "sha256:40b67b479cec62ced2a34f674eaf033c3c033415c515e60ec687c78e79758b9d"
+  "payload_digest": "sha256:a8acd860168f18bb9c60905d69539be4b7af6ae7de2b90be2d5f8471f89d87d2",
+  "digest": "sha256:27c3bf34922a120a01cf9ac30f7a5cd6b5317a94d40f9f6a5fefc9a959dbb225"
 }

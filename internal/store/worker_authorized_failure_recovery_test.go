@@ -211,9 +211,10 @@ func TestAuthorizedCheckpointFailureRecoveryNeedsNoDispatchEvidence(t *testing.T
 }
 
 // The live definition derives the failure record from the terminal itself
-// (CD-0198 D5), so the retry stands on a recorded failure; a registry rescan
-// must still refuse the retry dispatch and keep it off the work pin.
-func TestAuthorizedFailedRetryDoesNotMaskRegistryStaleness(t *testing.T) {
+// (CD-0198 D5), so the retry stands on a recorded failure. A Domain registry
+// change merged on main never invalidates in-progress work (CD-0222 D7): the
+// retry stays advertised and admitted after the registry changes.
+func TestAuthorizedFailedRetrySurvivesRegistryChange(t *testing.T) {
 	const workID = "authorized-failed-retry-stale-registry"
 	const attemptID = "attempt:authorized-failed-retry-stale-registry"
 	breakFix := mustBuiltinDefinition(t, "workflow.break_fix")
@@ -237,13 +238,13 @@ func TestAuthorizedFailedRetryDoesNotMaskRegistryStaleness(t *testing.T) {
 	if recorded != 1 {
 		t.Fatalf("the terminal derived %d failure records, want 1", recorded)
 	}
-	driftStaleRegistryFixture(t, s)
+	driftRegistryFixture(t, s)
 	pin, err := ReadWorkPin(context.Background(), s, workID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if workPinContainsAction(pin.NextValidIntents, "dispatch_worker") {
-		t.Fatal("the work pin advertises a retry refused for registry staleness")
+	if !workPinContainsAction(pin.NextValidIntents, "dispatch_worker") {
+		t.Fatalf("the work pin withdrew the retry after a registry change: %+v", pin.NextValidIntents)
 	}
 	freshID := attemptID + ":fresh"
 	freshPacket := joinPacketFor(t, s, workID, "repair", freshID, "implement", laneDigest)
@@ -253,8 +254,8 @@ func TestAuthorizedFailedRetryDoesNotMaskRegistryStaleness(t *testing.T) {
 		Payload:         mustJSONValue(map[string]any{"attempt_id": freshID, "worker_packet": freshPacket}),
 		SessionWorktree: dispatchSessionWorktree(t, s, workID),
 	})
-	if !hasFailureKind(err, KindStaleRequiresReview) {
-		t.Fatalf("retry preflight error=%v, want the registry staleness refusal", err)
+	if err != nil {
+		t.Fatalf("retry preflight after a registry change = %v, want admitted", err)
 	}
 }
 

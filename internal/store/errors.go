@@ -200,7 +200,6 @@ const (
 	KindLaneDefinitionInvalid        FailureKind = "lane_definition_invalid"
 	KindUnauthorized                 FailureKind = "unauthorized"
 	KindStaleLawRevision             FailureKind = "stale_law_revision"
-	KindDomainOverlap                FailureKind = "domain_overlap"
 	// KindUnauthorizedDispatch marks a worker-dispatch evidence write that
 	// names a work item with no authorized, unconsumed dispatch window at
 	// the current step epoch. CD-0059 makes this refusal structural: one
@@ -250,16 +249,6 @@ type Failure struct {
 	// StaleLawRevision carries the deleted law ID and its pinned digest without
 	// requiring callers to parse Detail.
 	StaleLawRevision *StaleLawRevision `json:"stale_law_revision,omitempty"`
-	// DomainOverlap carries both active contract identities and every derived
-	// bounded intersection needed to choose one of the closed recovery paths.
-	DomainOverlap *DomainOverlapFailure `json:"domain_overlap,omitempty"`
-	// StaleDomainRegistryPin is a store-internal marker naming the work item
-	// whose own approved contract pins a Domain registry hash the latest
-	// rescan replaced. Recovery admission matches the marker to the subject
-	// item structurally instead of matching refusal text. The empty json tag
-	// keeps the marker out of the agent envelope, whose schema this failure
-	// does not amend.
-	StaleDomainRegistryPin *StaleDomainRegistryPin `json:"-"`
 	// ExternalRefConflict identifies the live work item that owns a colliding
 	// external reference.
 	ExternalRefConflict *ExternalRefConflict `json:"external_ref_conflict,omitempty"`

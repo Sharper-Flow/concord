@@ -7,7 +7,7 @@
     ".concord/docs/knowledge/coverage/CD-0218.json",
     "internal/store/workflow_registry_test.go",
     "internal/store/workflow_diagnosis_derived_start_test.go",
-    "internal/store/workflow_stale_registry_repin_test.go",
+    "internal/store/workflow_stale_law_late_verdict_test.go",
     "internal/store/workflow_worker_failure_retry_test.go",
     "internal/store/terminal_absence_test.go"
   ],
@@ -23,7 +23,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:185833e8b5d2ee63598f3771b6aa0674e7b6fb6c6fe081a00003c076cba1957b",
+  "sha256": "sha256:f77661ef92ddc17b904f93960c12d5c10eeb924b7596c9fc865e30089a2aca70",
   "status": "accepted",
   "summary": "Retains three execution families and distinguishes unchanged retained-state readback from typed absence for execution state collected under CD-0242 D2.",
   "tags": [

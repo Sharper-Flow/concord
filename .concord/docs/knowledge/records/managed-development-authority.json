@@ -1,5 +1,7 @@
 {
   "applies_to_domain_ids": [
+    "agent-surface",
+    "durable-authority",
     "work-coordination",
     "workflow-engine"
   ],

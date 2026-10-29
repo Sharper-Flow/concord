@@ -203,12 +203,8 @@ set at the D5 boundary.
 
 ## Verification
 
-- `python3 scripts/check-doc-contract.py` proves this record carries the current
-  decision outline, its criteria grammar, and the writing rules.
 - `python3 scripts/check-knowledge-index.py` proves the record shard, the
   content hashes, and the composed aggregate agree.
-- `python3 scripts/check-knowledge-closure.py` proves no unprocessed document
-  remains under the knowledge roots.
 - `python3 scripts/check-law-coverage.py` validates this record's executable
   evidence anchors.
 - `python3 scripts/check-doc-links.py` and `python3 scripts/check-knowledge-placement.py`

@@ -158,9 +158,7 @@ func modelJSONFields(model reflect.Type) map[string]reflect.Type {
 // unmodeledShardKeys walks one decoded shard beside the Go type the reader
 // decodes it into and returns every key path that type does not declare. The
 // check is per object type, so a key declared on one type does not admit the
-// same key on another. At the manifest root, a key manifestRootKeys declares
-// but does not project (the doc_contract policy, CD-0114) is schema-owned and
-// its subtree is not walked.
+// same key on another.
 func unmodeledShardKeys(path string, value any, model reflect.Type) []string {
 	for model.Kind() == reflect.Pointer {
 		model = model.Elem()
@@ -173,12 +171,6 @@ func unmodeledShardKeys(path string, value any, model reflect.Type) []string {
 			fields := modelJSONFields(model)
 			for key, nested := range typed {
 				child := path + "." + key
-				if model == reflect.TypeFor[KnowledgeManifest]() {
-					projected, declared := manifestRootKeys[key]
-					if declared && !projected {
-						continue
-					}
-				}
 				fieldType, declared := fields[key]
 				if !declared {
 					findings = append(findings, child)
@@ -203,17 +195,16 @@ func unmodeledShardKeys(path string, value any, model reflect.Type) []string {
 }
 
 // TestUnmodeledShardKeysChecksEachObjectType holds the guard's precision: a
-// record key that only another object type declares is found, a key that
-// only shares a prefix with the schema-owned doc_contract subtree is found,
-// and the doc_contract subtree itself is not walked.
+// record key that only another object type declares is found, and so is an
+// undeclared head key.
 func TestUnmodeledShardKeysChecksEachObjectType(t *testing.T) {
 	t.Parallel()
 	record := map[string]any{"id": "CD-0001", "reason": "declared only on dispositions", "scopes": map[string]any{"mode": "home", "state": "declared only on relations"}}
 	if got, want := unmodeledShardKeys("$", record, reflect.TypeFor[KnowledgeRecord]()), []string{"$.reason", "$.scopes.state"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("record findings = %v, want %v", got, want)
 	}
-	head := map[string]any{"schema_version": "1.3", "doc_contract": map[string]any{"anything": true}, "doc_contract_extra": true}
-	if got, want := unmodeledShardKeys("$", head, reflect.TypeFor[KnowledgeManifest]()), []string{"$.doc_contract_extra"}; !reflect.DeepEqual(got, want) {
+	head := map[string]any{"schema_version": "1.3", "future_root": map[string]any{"anything": true}}
+	if got, want := unmodeledShardKeys("$", head, reflect.TypeFor[KnowledgeManifest]()), []string{"$.future_root"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("head findings = %v, want %v", got, want)
 	}
 }

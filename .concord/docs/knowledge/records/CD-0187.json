@@ -5,7 +5,6 @@
     "tier": "legislated"
   },
   "date": "2026-09-28T00:00:00Z",
-  "doc_contract_profile": "current",
   "evidence": [
     "contracts/lane-step-dispatch.v1.json",
     "internal/store/generated_lane_step_dispatch.go",

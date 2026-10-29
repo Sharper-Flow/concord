@@ -5,7 +5,6 @@
     "tier": "legislated"
   },
   "date": "2026-10-08T00:00:00Z",
-  "doc_contract_profile": "current",
   "evidence": [
     "internal/store/defect_intake.go",
     "internal/store/defect_intake_test.go",
@@ -49,7 +48,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:3732062f903f00b08e1fbca6c0bf892051742a0bface47ad29edcb0e904dd36f",
+  "sha256": "sha256:721aac5574a69bfab3babe226c526445231d7376453d9f2e6c8b82b015409ae3",
   "status": "accepted",
   "summary": "Every new public bug capture carries a defect_intake record with a canonical failure shape, a reproduction, a declared earlier-defect search, and explicit historical siblings. One transaction-scoped Product-membership owner computes the complete sorted sibling snapshot inside the capture transaction and rolls back before any durable or worktree effect. One earlier matching bug makes the report recurrent, and recurrence hard-blocks bug capture until completed same-Product same-shape research in workflow.research covers every current sibling; research capture needs no prerequisite and must omit root_cause_work_id. Classification is immutable across revision, kind conversion refuses, and recorded captures read back as recorded (CD-0242 D2). CD-0149 D2's explore body is amended to a facts-only packet.",
   "tags": [

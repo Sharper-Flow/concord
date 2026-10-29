@@ -148,9 +148,6 @@ Concord's own development follows
 
 ## Verification
 
-- `python3 scripts/check-doc-contract.py` and
-  `python3 scripts/check-knowledge-closure.py` pass when the record is
-  registered.
 - `internal/store.TestWorkflowPartsDefineEachStepOnce`,
   `internal/store.TestWorkflowCompositionCompilesWithoutNewStepCode`, and
   `internal/store.TestLiveHeadsAreTheirCompiledCompositions` exercise D1-D3's

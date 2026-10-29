@@ -3,7 +3,6 @@
     "tier": "derived"
   },
   "date": "2026-09-30T00:00:00Z",
-  "doc_contract_profile": "current",
   "home_domain_id": "worker-lanes",
   "id": "CD-0197",
   "kind": "decision",
@@ -21,7 +20,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:833fd3622e65585d8704e570d62915c666f7e9d5478b9d116607d19e115c5aaf",
+  "sha256": "sha256:fac6a2d6fd3bd91d4f98988286b27b73a3a2eac7ddb9afafdfb3840639429e15",
   "status": "accepted",
   "summary": "A dispatch-pinned Review report names one CD-0242 D5 disposition and up to 64 ranked findings with closed severity and confidence. Oracle-bound findings retain their classifications and canonical identities. Resolution claims carry qualifying native references for executable requirements and exact judged-case identities for Review-judged requirements. Judged proposals close only on Main's acceptance of the exact current Review, never at ingest or rejection. The report grants no workflow verdict or acceptance authority.",
   "tags": [

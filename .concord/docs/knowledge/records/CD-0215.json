@@ -7,7 +7,6 @@
     "tier": "derived"
   },
   "date": "2026-10-09T00:00:00Z",
-  "doc_contract_profile": "current",
   "evidence": [
     "internal/store/research_retirement_test.go",
     "internal/agent/research_surface_test.go",

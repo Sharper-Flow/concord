@@ -3,7 +3,6 @@
     "tier": "derived"
   },
   "date": "2026-09-21T00:00:00Z",
-  "doc_contract_profile": "legacy",
   "evidence": [
     "internal/ciwait/ci_wait.go"
   ],

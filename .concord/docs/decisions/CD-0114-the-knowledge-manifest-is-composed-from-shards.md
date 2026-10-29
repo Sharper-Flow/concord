@@ -22,7 +22,7 @@ no merge driver, so the conflict had no queue-side cure: every second landing
 rebased, regenerated, and pushed again.
 
 The aggregate carried nothing the shards did not, except the root fields
-(`knowledge_roots`, `exclusions`, `dispositions`, `doc_contract`) that the
+(`knowledge_roots`, `exclusions`, `dispositions`) that the
 generator copied forward from the previous aggregate.
 
 ## Decision

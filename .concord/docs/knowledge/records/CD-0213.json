@@ -3,7 +3,6 @@
     "tier": "derived"
   },
   "date": "2026-10-09T00:00:00Z",
-  "doc_contract_profile": "current",
   "evidence": [
     ".concord/docs/knowledge/coverage/CD-0213.json",
     "scripts/check-pr-linear-link.py"

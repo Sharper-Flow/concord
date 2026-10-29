@@ -77,8 +77,7 @@ that override names.
 The canonical knowledge homes in this repository are under `.concord/`.
 The placement check refuses root docs/, instructions/, or scenarios/
 directories and compatibility symlinks for those paths alike. A new knowledge document lands
-under `.concord/` by default, and the closure check keeps every unprocessed
-document visible.
+under `.concord/` by default.
 
 ### D4. Installed conduct is a projection, not a second authoring home
 
@@ -126,9 +125,8 @@ validate it. Concord's own override list starts empty.
   root tree, an unapproved outside record, a prose denial, a cross-pair
   instruction, a superseded or non-decision anchor, a malformed or
   duplicated instruction, and accepts a valid recorded override.
-- `python3 scripts/check-knowledge-index.py` and
-  `python3 scripts/check-knowledge-closure.py` prove record integrity and
-  files-to-records coverage at the new home.
+- `python3 scripts/check-knowledge-index.py` proves record integrity at the
+  new home.
 - `python3 scripts/test-renumber-cd.py` proves the lineage guards treat records
   the comparison ref gained after the merge base as upstream additions, and
   records the merge base carried as durable law.

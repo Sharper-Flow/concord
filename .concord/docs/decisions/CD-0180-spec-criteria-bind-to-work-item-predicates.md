@@ -2,7 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-09-27
-- **Scope:** The knowledge manifest's criterion bindings, the doc-contract checker's resolution rule, the law context projection, and the lane packet's law context
+- **Scope:** The knowledge manifest's criterion bindings, the law context projection, and the lane packet's law context
 - **Related:** CD-0114, CD-0159, CD-0177
 - **Approval:** The operator approved this decision in contract version 1 of
   work item `work-439bd3dfda3079826824710f`.
@@ -10,9 +10,8 @@
 ## Context
 
 Two acceptance-criteria systems exist with no structural bridge. Spec Gherkin
-criteria bind to scenario ids through criterion_bindings in the knowledge
-manifest, and the doc-contract checker accepts only a scenario id or an
-exemption reason. Work items carry outcome predicates, and completion
+criteria bind to scenario ids or exemption reasons through
+criterion_bindings in the knowledge manifest. Work items carry outcome predicates, and completion
 evaluates each predicate through its own verdict. Nothing links a predicate to
 the criterion it discharges, so verify evidence cannot chain from a command
 result to a predicate to a criterion to law.
@@ -29,14 +28,12 @@ JSON Schema declares the form, and the store's Go manifest model declares it
 in the same change (CD-0177 D2). The form is additive, so the schema_version
 stays at 1.3.
 
-### D2. The checker resolves the form, and verdicts stay on the work item
+### D2. Authoring validates the form, and verdicts stay on the work item
 
-`scripts/check-doc-contract.py` resolves a predicate-bound criterion as bound
-and validates the two field shapes. The checker carries no verdict-level
-discharge. It cannot reach the store, so whether the named predicate passed is
-the work-item side's per-predicate verdict, never a finding of this check.
-The knowledge-index checker and the shard generator validate the same closed
-shapes at authoring.
+The knowledge-index checker and the shard generator validate the two closed
+field shapes at authoring. No repository check judges discharge. A CI check
+cannot reach the store, so whether the named predicate passed is the work-item
+side's per-predicate verdict.
 
 ### D3. The packet's law context lists the bound criteria
 
@@ -50,8 +47,8 @@ law-revision pins already bind the item to the exact law it discharges.
 
 ## Alternatives considered
 
-- Let the checker verify discharge against the store. Rejected: a CI checker
-  cannot reach the store, and a checker that pretended to would decide
+- Let a repository check verify discharge against the store. Rejected: a CI check
+  cannot reach the store, and a check that pretended to would decide
   correctness it cannot observe.
 - Teach the packet to parse the manifest itself. Rejected: the adapter would
   grow a second manifest reader beside the store's, and the two would drift.
@@ -77,8 +74,6 @@ rule of migration 98.
 - `TestContinuityLawContextCarriesThisWorkPredicateCriteria` proves the
   resolution: the law context lists this work's predicate bindings in
   criterion order and drops another work's bindings and scenario bindings.
-- `python3 scripts/test-doc-contract.py` carries the checker cases: a
-  predicate-bound criterion resolves as bound, and each bad shape reports.
 - `python3 scripts/test-knowledge-index.py` proves the authoring side
   validates the closed shapes.
 - `bun test adapter/opencode/packet.test.ts` proves the packet lists the

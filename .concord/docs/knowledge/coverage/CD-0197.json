@@ -71,10 +71,6 @@
     {
       "kind": "adapter_test",
       "value": "adapter/opencode/lane_completion.test.ts#the attempt readback carries a reported disposition and per-severity counts"
-    },
-    {
-      "kind": "validator",
-      "value": "scripts/check-doc-contract.py"
     }
   ],
   "id": "CD-0197",

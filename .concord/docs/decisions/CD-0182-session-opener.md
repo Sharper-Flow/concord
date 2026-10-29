@@ -214,7 +214,5 @@ record adds no second landing rule inside one repository.
   re-reads the addressed handoff after its verified landing records
   placement, renders the shared bind's bounded job, and resolves the
   standing bind with no second consumed event.
-- `python3 scripts/check-doc-contract.py`,
-  `python3 scripts/check-knowledge-index.py`,
-  `python3 scripts/generate-knowledge-index.py --check`, and
-  `python3 scripts/check-knowledge-closure.py` pass.
+- `python3 scripts/check-knowledge-index.py` and
+  `python3 scripts/generate-knowledge-index.py --check` pass.

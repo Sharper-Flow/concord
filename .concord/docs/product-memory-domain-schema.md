@@ -232,8 +232,7 @@ caveated, and no private SaaS storage internals are inferred.
 ## Verification
 
 The corpus scenarios are query-shaped and prove no schema-boundary claim, so
-every criterion carries a typed exemption naming its proof. `python3 scripts/check-doc-contract.py` validates
-those recorded exemptions.
+every criterion carries a typed exemption naming its proof.
 
 - Criterion 1 states CD-0242 D2 as law. It is proved by
   `TestEventLogRetirementFreshStore` and

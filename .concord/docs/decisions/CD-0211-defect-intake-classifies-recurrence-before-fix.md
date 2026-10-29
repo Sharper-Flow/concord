@@ -271,6 +271,5 @@ This record does not complete that item or authorize an installation.
 - `python3 scripts/test-generate-agent-lanes.py` proves the facts-only body.
 - `python3 scripts/generate-agent-contracts.py --check` and
   `python3 scripts/generate-agent-lanes.py --check` prove generated consistency.
-- `python3 scripts/check-json.py`, `python3 scripts/check-doc-contract.py`,
-  and `python3 scripts/check-public-content.py` check accepted law and public
-  artifacts against this accepted record.
+- `python3 scripts/check-json.py` and `python3 scripts/check-public-content.py`
+  check accepted law and public artifacts against this accepted record.

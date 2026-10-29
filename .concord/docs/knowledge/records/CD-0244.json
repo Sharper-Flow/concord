@@ -3,7 +3,6 @@
     "tier": "derived"
   },
   "date": "2026-10-23T00:00:00Z",
-  "doc_contract_profile": "current",
   "home_domain_id": "product-root:concord",
   "id": "CD-0244",
   "kind": "decision",
@@ -22,7 +21,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:8158367de8b4aa923dbc4e4b5096ee09efbea5e4a16fe4c2c094c057f82833b0",
+  "sha256": "sha256:37511e9e13be3000810c34434b04f6e2404fcf33ae204c45517cb9b615ae60a0",
   "status": "accepted",
   "summary": "Domains exclusively own code at package or module grain, with composition, test-support, and transitional mixed roots. Four typed fact kinds distinguish law from observed behavior. Product-declared boundary checks and extractors, a strict ratchet, bounded one-call retrieval, and knowledge-home setup apply to every Product. Runtime implementation and real migration remain outstanding.",
   "tags": [

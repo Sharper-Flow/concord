@@ -168,5 +168,4 @@ Scenario: The loaded state matches the abstract successor
 - `go test ./internal/store/ -run TestReachableAdmissionStateReachesTerminal` proves the second scenario.
 - `go test ./internal/store/ -run 'TestAdmissionConformanceLocalJobAcceptHolds|TestCurrentReviewAdmissionLoaderConformsToAcceptedDisposition'` proves the fourth scenario through current Main intake and all four Review dispositions.
 - `go test ./internal/store/ -run TestWorkflowAdmitDecisionTable` proves the pure function's total decision table.
-- `python3 scripts/check-doc-contract.py --report-only` proves this record carries the current decision outline and passes the writing rules.
 - `TestOwnerOracleRecovery` covers the open-set bound and declared recovery without truncation or a second admission owner.

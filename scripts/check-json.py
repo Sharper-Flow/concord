@@ -140,27 +140,6 @@ def main(argv: list[str] | None = None) -> int:
         if checked.returncode:
             findings.append(f"law coverage drift: {checked.stdout.strip() or checked.stderr.strip()}")
 
-    # Knowledge closure: files-to-records inverse coverage. Runs
-    # --strict, so a document under a declared knowledge_root with no manifest
-    # record fails the check. Warn mode cannot fail, and a check that cannot
-    # fail states an invariant without holding it.
-    knowledge_closure_checker = ROOT / "scripts/check-knowledge-closure.py"
-    if knowledge_closure_checker.is_file():
-        checked = subprocess.run([sys.executable, str(knowledge_closure_checker), "--strict"], cwd=ROOT, capture_output=True, text=True)
-        if checked.returncode:
-            findings.append(f"knowledge closure drift: {checked.stdout.strip() or checked.stderr.strip()}")
-
-    # Doc contract: outline + Gherkin ACs + STE
-    # subset on records in scope. The script self-gates on doc_contract.enforced;
-    # when false it runs in report-only mode and exits 0 even with findings.
-    # Nesting it under check-json.py would only fire on exit 1, which is
-    # exactly when enforcement is true and we want a fail signal.
-    doc_contract_checker = ROOT / "scripts/check-doc-contract.py"
-    if doc_contract_checker.is_file():
-        checked = subprocess.run([sys.executable, str(doc_contract_checker)], cwd=ROOT, capture_output=True, text=True)
-        if checked.returncode:
-            findings.append(f"doc contract drift: {checked.stdout.strip() or checked.stderr.strip()}")
-
     for finding in findings[:MAX_FINDINGS]:
         print(finding)
     if len(findings) > MAX_FINDINGS:

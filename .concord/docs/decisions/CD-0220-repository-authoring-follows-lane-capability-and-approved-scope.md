@@ -123,8 +123,6 @@ Host permission resolution and independent review remain separate evidence oblig
 
 - `python3 scripts/test-generate-agent-lanes.py` checks capability-derived direct-editor denials for non-editing lanes and preserves editing-lane law bindings.
 - `python3 scripts/generate-agent-lanes.py --check` detects generated permission or instruction drift.
-- `python3 scripts/check-doc-contract.py` checks the decision outline and prose; it does not prove author approval.
-- `python3 scripts/check-knowledge-closure.py --strict` checks registration closure; it does not prove author approval.
 - `python3 scripts/check-knowledge-index.py` checks record identity and content proofs; independent review checks approval and the actual source delta.
 - `bun test adapter/opencode/lane_capabilities.test.ts` exercises direct tool
   denials, worktree targeting, opening-packet identity, single-child binding,

@@ -60,8 +60,8 @@ times a real distilled page and three orders of magnitude under the
 predecessor's failure, so it rejects the disease without rationing the cure.
 
 Decision records are out of the byte bound, deliberately. They are a
-different artifact class — CD-0013 is accepted law at 34.5 KB — and their
-discipline is structural (the doc contract, knowledge closure), not size.
+different artifact class — CD-0013 is accepted law at 34.5 KB — and review,
+not a size bound, holds their discipline.
 The markdown-only rule still reaches them: every non-markdown artifact under
 `.concord/docs/decisions/` is enumerated in the budget inventory with a reason, so a
 new one fails until acknowledged and drift becomes a reviewable manifest

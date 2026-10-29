@@ -2,10 +2,6 @@
   "evidence": [
     {
       "kind": "validator",
-      "value": "scripts/check-doc-contract.py"
-    },
-    {
-      "kind": "validator",
       "value": "scripts/check-knowledge-index.py"
     }
   ],

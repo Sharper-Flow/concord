@@ -71,8 +71,5 @@ changes.
 - `internal/store.TestCompleteStepCorrectionStaleLawStaysBehindTheGate` proves
   the gated shape: the complete-step correction route refuses outside
   break-fix and implementation and outside the D1 gate.
-- `python3 scripts/check-doc-contract.py` proves this record carries the
-  current decision outline and passes the writing rules.
-- `python3 scripts/check-knowledge-index.py` and
-  `python3 scripts/check-knowledge-closure.py` prove this record registers
-  with a current content hash and no unprocessed document remains.
+- `python3 scripts/check-knowledge-index.py` proves this record registers
+  with a current content hash.

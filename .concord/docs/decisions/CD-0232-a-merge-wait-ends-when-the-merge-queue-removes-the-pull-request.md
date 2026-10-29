@@ -140,6 +140,9 @@ The `concord_ci_watch` input schema already refuses every such value.
 
 ## Verification
 
+- `internal/ciwait.TestCiWaitMergeQueueObservationQualification` proves that
+  the last queue observation records an entry or absence only for an open
+  pull request on the watched head.
 - `internal/ciwait.TestCiWaitPRMergeModeQueueRemovalEndsTheWait` proves a fresh
   removal ends the wait and names the failed merge-group run.
 - `internal/ciwait.TestCiWaitPRMergeModeQueueRemovalPrecedesCheckFailures` proves

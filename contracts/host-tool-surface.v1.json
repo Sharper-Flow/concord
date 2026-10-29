@@ -321,8 +321,7 @@
             "type": "integer",
             "description": "Maximum wait budget in seconds. Checks mode defaults to and caps at 1800; merge mode defaults to and caps at 7200. A shorter explicit budget is preserved across slices. Bounds: 0..7200 value inclusive",
             "minimum": 0,
-            "maximum": 7200,
-            "default": 1800
+            "maximum": 7200
           }
         },
         "required": [

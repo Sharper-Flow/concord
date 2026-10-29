@@ -2230,8 +2230,8 @@ def validate_ci_watch_host_tool(tool: dict) -> None:
         fail("concord_ci_watch mode must admit checks and merge only")
     budget = properties.get("time_seconds_max", {})
     if (budget.get("type") != "integer" or budget.get("minimum") != 0
-            or budget.get("maximum") != 7200 or budget.get("default") != 1800):
-        fail("concord_ci_watch time_seconds_max must be an integer bounded 0..7200 with checks default 1800")
+            or budget.get("maximum") != 7200 or "default" in budget):
+        fail("concord_ci_watch time_seconds_max must be an integer bounded 0..7200 without a mode-independent default")
 
 
 def validate_worker_read_host_tool(tool: dict) -> None:

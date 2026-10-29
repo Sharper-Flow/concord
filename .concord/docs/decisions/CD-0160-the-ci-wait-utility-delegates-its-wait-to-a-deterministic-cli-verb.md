@@ -162,6 +162,7 @@ own words, never a success.
   reports merged, dropped, and failed-check outcomes after thirty minutes.
   `TestCiWaitModeBudgets` proves the defaults and refusal bounds;
   `TestCiWaitMergeTimeoutRetainsQueueObservation` proves timeout detail
-  survives a resumed slice.
+  survives a resumed slice. `TestCiWaitResumeCannotChangeModeOrDeadline`
+  proves that a resume cannot change either mode's original deadline.
 - `go test -race ./internal/ciwait/ ./cmd/concord/` proves the verb inside its
   engine and command package suites, including `TestCiWaitIngress`.

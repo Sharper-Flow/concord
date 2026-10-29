@@ -28,7 +28,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:ee34e8baa55e63a5dee7c527f9570f996fffbe3ae43cf9e61d8fe2c9e1b267b2",
+  "sha256": "sha256:e2458b31ff96a9cde5ac28f09c41c2c19108102554ecfd73a402309c6bff304b",
   "status": "accepted",
   "summary": "Moves the ci-wait wait into a store-free concord ci-wait CLI verb that polls, carries the original deadline across slices, defaults to and caps checks at 1800 seconds and merge waits at 7200 seconds, and retains the last queue observation in a merge timeout. Terminal outcomes derive from observed results; a named pull request commit and later head supersession qualify the subject. GitHub failures are explicit errors.",
   "tags": [

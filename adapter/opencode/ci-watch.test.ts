@@ -289,7 +289,8 @@ test("watcher contract preserves shared runtime bounds", () => {
   expect(contract.properties.selector.properties.kind).toMatchObject({ type: "string", enum: ["pr", "sha", "run"] })
   expect(contract.properties.selector.properties.value).toMatchObject({ type: "string", minLength: 1, maxLength: 64 })
   expect(contract.properties.mode).toMatchObject({ type: "string", enum: ["checks", "merge"] })
-  expect(contract.properties.time_seconds_max).toMatchObject({ type: "integer", minimum: 0, maximum: 7200, default: 1800 })
+  expect(contract.properties.time_seconds_max).toMatchObject({ type: "integer", minimum: 0, maximum: 7200 })
+  expect(contract.properties.time_seconds_max.default).toBeUndefined()
   // The execution validator enforces the published enums at runtime, not
   // only in the schema document.
   expect(validateCiWatchArgs({ repo: "owner/name", selector: { kind: "branch", value: "main" } })).toBeString()
@@ -834,7 +835,8 @@ test("the host publishes concord_ci_watch args as per-field argument schemas", (
   expect(selector).toMatchObject({ type: "object", additionalProperties: false, required: ["kind", "value"] })
   expect((selector.properties as Record<string, unknown>).kind).toMatchObject({ enum: ["pr", "sha", "run"] })
   expect(args.mode).toMatchObject({ enum: ["checks", "merge"] })
-  expect(args.time_seconds_max).toMatchObject({ type: "integer", minimum: 0, maximum: 7200, default: 1800 })
+  expect(args.time_seconds_max).toMatchObject({ type: "integer", minimum: 0, maximum: 7200 })
+  expect((args.time_seconds_max as Record<string, unknown>).default).toBeUndefined()
 })
 
 test("a JSON-Schema envelope of the arguments is refused, never unwrapped", async () => {

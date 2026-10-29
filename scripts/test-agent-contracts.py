@@ -781,7 +781,7 @@ class CiWatchHostContractTests(unittest.TestCase):
         host = json.loads((ROOT / "contracts/host-tool-surface.v1.json").read_text())
         tool = next(tool for tool in host["tools"] if tool["name"] == "concord_ci_watch")
         generator.validate_ci_watch_host_tool(tool)
-        for key, value in (("minimum", -1), ("maximum", 1800), ("default", 7200)):
+        for key, value in (("minimum", -1), ("maximum", 1800), ("default", 1800), ("default", 7200)):
             with self.subTest(key=key), self.assertRaises(ValueError):
                 edited = copy.deepcopy(tool)
                 edited["args"]["properties"]["time_seconds_max"][key] = value

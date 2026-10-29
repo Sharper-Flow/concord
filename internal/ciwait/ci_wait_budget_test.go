@@ -118,3 +118,24 @@ func TestCiWaitMergeQueueObservationQualification(t *testing.T) {
 		})
 	}
 }
+
+func TestCiWaitResumeCannotChangeModeOrDeadline(t *testing.T) {
+	for _, mode := range []string{"checks", "merge"} {
+		t.Run(mode, func(t *testing.T) {
+			file := filepath.Join(t.TempDir(), "wait.json")
+			state, _, err := ciWaitLoadOrCreate(Request{Repo: "o/r", Selector: &Selector{Kind: "pr", Value: "1"}, Mode: mode, TimeSecondsMax: ciWaitBudget(600), StateFile: file})
+			if err != nil {
+				t.Fatal(err)
+			}
+			ciWaitSaveState(state, file)
+			otherMode := "merge"
+			if mode == "merge" {
+				otherMode = "checks"
+			}
+			resumed, _, err := ciWaitLoadOrCreate(Request{StateFile: file, Mode: otherMode, TimeSecondsMax: ciWaitBudget(7200)})
+			if err != nil || !reflect.DeepEqual(resumed, state) {
+				t.Fatalf("resume must preserve original mode and deadline: state=%+v resumed=%+v err=%v", state, resumed, err)
+			}
+		})
+	}
+}

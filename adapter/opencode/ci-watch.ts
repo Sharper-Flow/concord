@@ -375,7 +375,7 @@ const ciWatchBudgetSchema = ciWatchContract.properties.time_seconds_max
 const repoPattern = new RegExp(ciWatchRepoSchema.pattern)
 
 function modeBudget(mode: unknown): number {
-  return mode === "merge" ? ciWatchBudgetSchema.maximum : ciWatchBudgetSchema.default
+  return mode === "merge" ? ciWatchBudgetSchema.maximum : 1800
 }
 
 function watchBudget(args: CiWatchArgs): number {

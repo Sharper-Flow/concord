@@ -169,8 +169,8 @@ test("the watcher publishes the authored contract byte for byte", async () => {
   const output = { description: "", parameters: {}, jsonSchema: undefined as unknown }
   await publishCiWatchDefinition({ toolID: "concord_ci_watch" }, output)
   expect(output.jsonSchema).toEqual(hostToolSchemas.concord_ci_watch)
-  expect(Buffer.byteLength(JSON.stringify(output.jsonSchema), "utf8")).toBe(1235)
-  expect(Buffer.byteLength(JSON.stringify(hostToolSchemas.concord_ci_watch), "utf8")).toBe(1235)
+  expect(Buffer.byteLength(JSON.stringify(output.jsonSchema), "utf8")).toBe(1220)
+  expect(Buffer.byteLength(JSON.stringify(hostToolSchemas.concord_ci_watch), "utf8")).toBe(1220)
   const watcher = ciWatchTool()
   expect(watcher.description).toEqual(hostToolDescriptions.concord_ci_watch)
   expect(watcher.args).toEqual(hostToolSchemas.concord_ci_watch.properties)

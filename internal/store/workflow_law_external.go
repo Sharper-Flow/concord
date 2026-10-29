@@ -90,22 +90,8 @@ func (s *Store) lawCandidateProof(ctx context.Context, workID string) *workflowL
 	if fork == "" || fork == candidate.Commit {
 		return nil
 	}
-	untouched := func(paths []string) bool {
-		if len(paths) == 0 {
-			return false
-		}
-		for _, path := range paths {
-			own, ok := workflowLawGitBlob(gitCtx, repo, candidate.Commit, path)
-			start, known := workflowLawGitBlob(gitCtx, repo, fork, path)
-			if !ok || !known || own != start {
-				return false
-			}
-		}
-		args := append([]string{"rev-list", "-1", "--full-history", "--simplify-merges", "--end-of-options", fork + ".." + candidate.Commit, "--"}, paths...)
-		touched, err := workflowLawExternalGit.Run(gitCtx, repo, args...)
-		return err == nil && strings.TrimSpace(string(touched)) == ""
-	}
-	var shards []*workflowLawShardIndex
+	history := workflowLawHistory{repo: repo, fork: fork, candidate: candidate.Commit}
+	var shards workflowLawShardIndexes
 	for _, commit := range []string{fork, candidate.Commit, scanned} {
 		index, err := readWorkflowLawShardIndex(gitCtx, repo, commit)
 		if err != nil {
@@ -116,32 +102,74 @@ func (s *Store) lawCandidateProof(ctx context.Context, workID string) *workflowL
 	proof := &workflowLawCandidateProof{candidate: *candidate, source: source, scanned: scanned, laws: map[string]bool{}}
 	now := workflowLawInventoryMap(after)
 	for _, id := range ids {
-		lawID := strings.TrimPrefix(id, candidate.ProjectID+"/")
-		var records, paths []string
-		for _, index := range shards {
-			records = append(records, index.records[lawID]...)
-			paths = append(paths, index.documents[lawID]...)
-		}
-		if _, exists := now[id]; len(records) == 0 && !exists && shards[1].recordTree != "" {
-			// No read commit holds the removed law's record, so the
-			// whole record tree must be untouched.
-			records = append(records, shards[1].recordTree)
-		}
-		if len(records) != 0 && untouched(uniqueSorted(append(paths, records...))) {
+		_, exists := now[id]
+		if history.untouched(gitCtx, shards.lawFiles(strings.TrimPrefix(id, candidate.ProjectID+"/"), !exists)) {
 			proof.laws[id] = true
 		}
 	}
 	if registryMoved && workflowLawRegistryHomedAt(ctx, s.db, source, scanned) {
-		var registries []string
-		for _, index := range shards {
-			registries = append(registries, index.registry)
-		}
-		proof.registry = untouched(uniqueSorted(registries))
+		proof.registry = history.untouched(gitCtx, shards.registries())
 	}
 	if len(proof.laws) == 0 && !proof.registry {
 		return nil
 	}
 	return proof
+}
+
+// workflowLawHistory is the candidate's own history: the commits after its
+// merge base with the scanned main commit.
+type workflowLawHistory struct {
+	repo, fork, candidate string
+}
+
+// untouched reports that every path is the same, or equally absent, in the
+// candidate and at the fork, and that no commit between them changed it.
+func (h workflowLawHistory) untouched(ctx context.Context, paths []string) bool {
+	if len(paths) == 0 {
+		return false
+	}
+	for _, path := range paths {
+		own, ok := workflowLawGitBlob(ctx, h.repo, h.candidate, path)
+		start, known := workflowLawGitBlob(ctx, h.repo, h.fork, path)
+		if !ok || !known || own != start {
+			return false
+		}
+	}
+	args := append([]string{"rev-list", "-1", "--full-history", "--simplify-merges", "--end-of-options", h.fork + ".." + h.candidate, "--"}, paths...)
+	touched, err := workflowLawExternalGit.Run(ctx, h.repo, args...)
+	return err == nil && strings.TrimSpace(string(touched)) == ""
+}
+
+// workflowLawShardIndexes holds the fork, candidate, and scanned commit
+// indexes, in that order.
+type workflowLawShardIndexes []*workflowLawShardIndex
+
+// lawFiles lists every record shard holding the law and every document those
+// records name. It is empty when no file can carry the law, which leaves the
+// delta charged.
+func (indexes workflowLawShardIndexes) lawFiles(lawID string, removed bool) []string {
+	var records, paths []string
+	for _, index := range indexes {
+		records = append(records, index.records[lawID]...)
+		paths = append(paths, index.documents[lawID]...)
+	}
+	if len(records) == 0 && removed && indexes[1].recordTree != "" {
+		// No read commit holds the removed law's record, so the whole
+		// record tree must be untouched.
+		records = append(records, indexes[1].recordTree)
+	}
+	if len(records) == 0 {
+		return nil
+	}
+	return uniqueSorted(append(paths, records...))
+}
+
+func (indexes workflowLawShardIndexes) registries() []string {
+	var registries []string
+	for _, index := range indexes {
+		registries = append(registries, index.registry)
+	}
+	return uniqueSorted(registries)
 }
 
 // workflowLawShardIndex locates, at one commit, each law's record shard and

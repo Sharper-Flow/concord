@@ -11,15 +11,19 @@ import (
 	"testing"
 )
 
-const externalLawStartText = "# Outside law\n\nThe start text.\n"
+const (
+	externalLawStartText = "# Outside law\n\nThe start text.\n"
+	externalLawMainText  = "# Outside law\n\nEdited on main by another change.\n"
+	externalLawOwnText   = "# Outside law\n\nEdited by the item itself.\n"
+)
 
 func externalLawHash(text string) string {
 	sum := sha256.Sum256([]byte(text))
 	return "sha256:" + hex.EncodeToString(sum[:])
 }
 
-// reviseExternalLaw moves one law's projected text as a merge outside the item
-// would, keeping its tier and Domains.
+// reviseExternalLaw moves one law's projected text as a scan of main would,
+// keeping its tier and Domains.
 func reviseExternalLaw(t *testing.T, s *Store, lawID, hash string) {
 	t.Helper()
 	tx := lawChangeTx(t, s)
@@ -37,28 +41,83 @@ func reviseExternalLaw(t *testing.T, s *Store, lawID, hash string) {
 	}
 }
 
-// seedExternalLaw seeds a law whose start text is real committed bytes.
 func seedExternalLaw(t *testing.T, s *Store, lawID string) {
 	t.Helper()
 	seedLawChangeLaw(t, s, lawID, "derived", "agent-surface")
 	reviseExternalLaw(t, s, lawID, externalLawHash(externalLawStartText))
 }
 
-// candidateLawText commits text at the law's path in the item's candidate.
-func candidateLawText(t *testing.T, lawID, text string) func(string) {
+// The shapes an item's branch can take against main's law edit.
+const (
+	historyKept    = "kept"    // the item never synced main
+	historyRebased = "rebased" // the item synced main before review
+	historyOwn     = "own"     // the item's own edit, squash-merged to main
+	historyMerged  = "merged"  // the item's own edit, true-merged into main
+)
+
+// lawHistory builds main and the item's candidate in the claimed repository
+// and points the law's projection at main's commit.
+func lawHistory(t *testing.T, s *Store, lawID, shape string) func(string) {
 	return func(repo string) {
 		t.Helper()
-		path := filepath.Join(repo, ".concord", "docs", "decisions", lawID+".md")
-		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-			t.Fatal(err)
+		path := filepath.Join(".concord", "docs", "decisions", lawID+".md")
+		write := func(text, message string) {
+			if err := os.MkdirAll(filepath.Join(repo, filepath.Dir(path)), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(repo, path), []byte(text), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			gitRunStore(t, repo, "add", "-A")
+			gitRunStore(t, repo, "commit", "-q", "--allow-empty", "-m", message)
 		}
-		if err := os.WriteFile(path, []byte(text), 0o644); err != nil {
-			t.Fatal(err)
+		unrelated := func() {
+			if err := os.WriteFile(filepath.Join(repo, "unrelated.txt"), []byte(shape+"\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			gitRunStore(t, repo, "add", "-A")
+			gitRunStore(t, repo, "commit", "-q", "-m", "unrelated item change")
 		}
-		gitRunStore(t, repo, "add", "-A")
-		gitRunStore(t, repo, "commit", "-m", "candidate law text")
+		write(externalLawStartText, "law start text")
+		gitRunStore(t, repo, "branch", "main-line")
+		switch shape {
+		case historyKept, historyRebased:
+			gitRunStore(t, repo, "checkout", "-q", "main-line")
+			write(externalLawMainText, "outside law edit")
+			gitRunStore(t, repo, "checkout", "-q", "-")
+			if shape == historyRebased {
+				gitRunStore(t, repo, "merge", "-q", "--ff-only", "main-line")
+			}
+			unrelated()
+		case historyOwn:
+			write(externalLawOwnText, "item law edit")
+			gitRunStore(t, repo, "checkout", "-q", "main-line")
+			write(externalLawOwnText, "squash of the item")
+			gitRunStore(t, repo, "checkout", "-q", "-")
+		case historyMerged:
+			write(externalLawOwnText, "item law edit")
+			item := strings.TrimSpace(string(mustGit(t, repo, "rev-parse", "HEAD")))
+			gitRunStore(t, repo, "checkout", "-q", "main-line")
+			gitRunStore(t, repo, "merge", "-q", "--no-ff", "-m", "merge the item", item)
+			gitRunStore(t, repo, "checkout", "-q", "-")
+		}
+		main := strings.TrimSpace(string(mustGit(t, repo, "rev-parse", "main-line")))
+		lawChangeFold(t, s, `UPDATE law_subjects SET scanned_commit_oid=? WHERE law_id=?`, main, lawID)
 	}
 }
+
+func mustGit(t *testing.T, repo string, args ...string) []byte {
+	t.Helper()
+	out, err := ExecGitRunner{}.Run(context.Background(), repo, args...)
+	if err != nil {
+		t.Fatalf("git %v: %v", args, err)
+	}
+	return out
+}
+
+// Each reviewSubjectClaim registers another canonical locator, and a later
+// claim resolves only when its item sorts first, so items claim in descending
+// order.
 
 func externalLawEnactment(t *testing.T, s *Store, workID string) (string, bool) {
 	t.Helper()
@@ -72,43 +131,51 @@ func externalLawEnactment(t *testing.T, s *Store, workID string) (string, bool) 
 	return *proof, true
 }
 
-// A law edit merged outside the item, which the item's reviewed candidate
-// never made, neither blocks completion nor becomes the item's enactment.
+// A law edit merged to main by another change neither blocks an item whose
+// history never made it, synced or not, nor becomes that item's enactment.
 func TestLawAttributionExternalEditDoesNotBlock(t *testing.T) {
 	s := seedLawChangeFixture(t, "inventory-seed")
 	seedExternalLaw(t, s, "law-outside")
-	attributionItem(t, s, "outside-a", []string{}, []string{})
+	attributionItem(t, s, "outside-z-kept", []string{}, []string{})
+	attributionItem(t, s, "outside-y-rebased", []string{}, []string{})
 	attributionItem(t, s, "outside-peer", []string{}, []string{})
-	reviseExternalLaw(t, s, "law-outside", externalLawHash("# Outside law\n\nEdited on main by another change.\n"))
-	requireFailureKind(t, enactLawChange(t, s, "outside-a", nil, nil), KindOutcomeMismatch, "no reviewed candidate proves the edit external")
-	event := attributionCompletionWith(t, s, "outside-a", candidateLawText(t, "law-outside", externalLawStartText))
-	if err := CompleteWorkflow(t.Context(), s, event); err != nil {
-		t.Fatalf("an edit the candidate never made blocked completion: %v", err)
-	}
-	if proof, recorded := externalLawEnactment(t, s, "outside-a"); recorded {
-		t.Fatalf("external edit recorded as the item's enactment: %s", proof)
+	reviseExternalLaw(t, s, "law-outside", externalLawHash(externalLawMainText))
+	requireFailureKind(t, enactLawChange(t, s, "outside-z-kept", nil, nil), KindOutcomeMismatch, "no reviewed candidate proves the edit external")
+	for _, item := range []struct{ id, shape string }{{"outside-z-kept", historyKept}, {"outside-y-rebased", historyRebased}} {
+		if err := CompleteWorkflow(t.Context(), s, attributionCompletionWith(t, s, item.id, lawHistory(t, s, "law-outside", item.shape))); err != nil {
+			t.Fatalf("%s: an edit the item never made blocked completion: %v", item.shape, err)
+		}
+		if proof, recorded := externalLawEnactment(t, s, item.id); recorded {
+			t.Fatalf("%s: external edit recorded as the item's enactment: %s", item.shape, proof)
+		}
 	}
 	requireFailureKind(t, enactLawChange(t, s, "outside-peer", nil, nil), KindOutcomeMismatch, "a peer cannot consume an external edit as attribution")
 }
 
-// The item's own undeclared law edit is still refused, as is an outside edit
-// the text proof cannot cover: a tier change.
+// The item's own undeclared law edit is still refused after it reaches main,
+// by squash or by a true merge that leaves no separating fork point, as is
+// an outside edit the text proof cannot cover: a tier change.
 func TestLawAttributionOwnEditStillRefuses(t *testing.T) {
 	s := seedLawChangeFixture(t, "inventory-seed")
 	seedExternalLaw(t, s, "law-own")
+	seedExternalLaw(t, s, "law-merged")
 	seedExternalLaw(t, s, "law-tier")
-	attributionItem(t, s, "own-z", []string{}, []string{})
-	attributionItem(t, s, "own-tier", []string{}, []string{})
-	edited := "# Outside law\n\nEdited by the item itself.\n"
-	reviseExternalLaw(t, s, "law-own", externalLawHash(edited))
-	err := CompleteWorkflow(t.Context(), s, attributionCompletionWith(t, s, "own-z", candidateLawText(t, "law-own", edited)))
-	requireFailureKind(t, err, KindOutcomeMismatch, "own undeclared edit")
-	if err == nil || !strings.Contains(err.Error(), "project/law-own changed outside the active contract") {
-		t.Fatalf("refusal does not name the item's own law: %v", err)
+	attributionItem(t, s, "own-c-squash", []string{}, []string{})
+	attributionItem(t, s, "own-b-merged", []string{}, []string{})
+	attributionItem(t, s, "own-a-tier", []string{}, []string{})
+	for _, item := range []struct{ id, law, shape string }{{"own-c-squash", "law-own", historyOwn}, {"own-b-merged", "law-merged", historyMerged}} {
+		reviseExternalLaw(t, s, item.law, externalLawHash(externalLawOwnText))
+		err := CompleteWorkflow(t.Context(), s, attributionCompletionWith(t, s, item.id, lawHistory(t, s, item.law, item.shape)))
+		requireFailureKind(t, err, KindOutcomeMismatch, item.shape+" own undeclared edit")
+		if !strings.Contains(err.Error(), "project/"+item.law+" changed outside the active contract") {
+			t.Fatalf("%s: refusal does not name the item's own law: %v", item.shape, err)
+		}
+		reviseExternalLaw(t, s, item.law, externalLawHash(externalLawStartText))
 	}
+	reviseExternalLaw(t, s, "law-tier", externalLawHash(externalLawMainText))
 	lawChangeFold(t, s, `UPDATE law_subjects SET authority_tier='legislated' WHERE law_id='law-tier'`)
-	err = CompleteWorkflow(t.Context(), s, attributionCompletionWith(t, s, "own-tier", candidateLawText(t, "law-tier", externalLawStartText)))
-	requireFailureKind(t, err, KindOutcomeMismatch, "start text does not prove a tier change external")
+	err := CompleteWorkflow(t.Context(), s, attributionCompletionWith(t, s, "own-a-tier", lawHistory(t, s, "law-tier", historyKept)))
+	requireFailureKind(t, err, KindOutcomeMismatch, "an untouched file does not prove a tier change external")
 }
 
 type failingLawGit struct{}
@@ -117,19 +184,20 @@ func (failingLawGit) Run(context.Context, string, ...string) ([]byte, error) {
 	return nil, errors.New("git unavailable")
 }
 
-// Attribution is decided once, at the live gate. A completion replay keeps the
-// recorded result without Git; a first completion Git cannot prove refuses.
+// Attribution is decided once, before the live gate's transaction. A
+// completion replay keeps the recorded result without Git; a first
+// completion Git cannot prove refuses.
 func TestLawAttributionReplayKeepsRecordedResult(t *testing.T) {
 	s := seedLawChangeFixture(t, "inventory-seed")
 	seedExternalLaw(t, s, "law-outside")
 	attributionItem(t, s, "replay-z", []string{}, []string{})
 	attributionItem(t, s, "replay-b", []string{}, []string{})
-	reviseExternalLaw(t, s, "law-outside", externalLawHash("# Outside law\n\nEdited on main by another change.\n"))
-	event := attributionCompletionWith(t, s, "replay-z", candidateLawText(t, "law-outside", externalLawStartText))
+	reviseExternalLaw(t, s, "law-outside", externalLawHash(externalLawMainText))
+	event := attributionCompletionWith(t, s, "replay-z", lawHistory(t, s, "law-outside", historyRebased))
 	if err := CompleteWorkflow(t.Context(), s, event); err != nil {
 		t.Fatal(err)
 	}
-	pending := attributionCompletionWith(t, s, "replay-b", candidateLawText(t, "law-outside", externalLawStartText))
+	pending := attributionCompletionWith(t, s, "replay-b", lawHistory(t, s, "law-outside", historyRebased))
 	previous := workflowLawExternalGit
 	workflowLawExternalGit = failingLawGit{}
 	t.Cleanup(func() { workflowLawExternalGit = previous })

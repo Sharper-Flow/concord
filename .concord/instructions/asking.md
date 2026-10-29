@@ -32,6 +32,10 @@ UI corrections, and security repairs restoring existing protections do not
 independently require approval. Another class may still apply. Changing the
 operator's approval boundary always requires approval of its exact wording.
 
+For preview or early-design approval, show the inspectable material and the
+version being approved. Ask an ordinary question and record the answer in the
+existing work record.
+
 Every operator approval question names the applicable class above or the existing
 operator-only reservation, and the concrete consequence that requires it. Existing
 reservations include gate waivers and decisions accepted law expressly leaves to

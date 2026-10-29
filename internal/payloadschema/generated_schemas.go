@@ -28598,6 +28598,30 @@ const GeneratedPayloadSchemaDocument = `{
         "input_candidate": {
           "$ref": "#/$defs/worker_packet_review_candidate"
         },
+        "retained_failed_edit": {
+          "additionalProperties": false,
+          "description": "Producer-observed unaccepted delta after failed editing attempts. input_candidate is the qualified descendant; accepted_candidate is the still-accepted baseline. Dispatch requires this exact disclosure when its sealed preparation carries retained recovery proof.",
+          "properties": {
+            "accepted_candidate": {
+              "$ref": "#/$defs/worker_packet_review_candidate"
+            },
+            "changed_paths": {
+              "items": {
+                "maxLength": 4194304,
+                "minLength": 1,
+                "type": "string"
+              },
+              "maxItems": 4194304,
+              "minItems": 0,
+              "type": "array"
+            }
+          },
+          "required": [
+            "accepted_candidate",
+            "changed_paths"
+          ],
+          "type": "object"
+        },
         "size": {
           "$ref": "#/$defs/work_size_summary",
           "description": "The recorded work size and its model/operator provenance at dispatch. Omitted when unsized; never inferred from the objective or job line estimate."

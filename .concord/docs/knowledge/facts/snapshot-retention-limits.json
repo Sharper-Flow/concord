@@ -1,0 +1,19 @@
+{
+  "config_coupling": {
+    "effect": "Cleanup considers verified pre-upgrade and pre-repair snapshot pairs in the data root's backups directory, ordered newest first by manifest creation time. It removes pairs outside the newest eight or older than 30 days, except the newest and just-created snapshots. Recovery exclusions defer pruning, so the count is not an unconditional disk-space bound. Foreign exports and unverified pairs are untouched.",
+    "environments": ["development", "production", "test"],
+    "read_by": {
+      "path": "cmd/concord/snapshot_retention.go",
+      "project_id": "concord",
+      "symbol": "pruneManagedSnapshots"
+    },
+    "setting": "managedSnapshotCount / managedSnapshotAge",
+    "source": "Compile-time cmd/concord constants managedSnapshotCount = 8 and managedSnapshotAge = 30 * 24 hours; upgrade and repair call the pruner after making a verified managed snapshot."
+  },
+  "id": "snapshot-retention-limits",
+  "kind": "config_coupling",
+  "owner_domain_id": "durable-authority",
+  "owning_root": "cmd/concord",
+  "schema_version": "1.0",
+  "standing": "observed"
+}

@@ -42,6 +42,13 @@ reads the newest merge-queue event. The first answer records its event ID as
 the wait's baseline, or an empty baseline when the timeline holds no event.
 The state file carries the baseline, so a resumed slice keeps it.
 
+The same query reads `mergeQueueEntry`'s state and position. For an open pull
+request on the watched head, the verb records that entry or its absence as
+the last queue observation. This detail does not change the removal verdict;
+it supplies the timeout report required by CD-0160 D3. GitHub's
+[pulls reference](https://docs.github.com/en/graphql/reference/pulls)
+defines the nullable entry and its fields.
+
 The wait ends as `failure` when one answer shows all of these facts:
 
 - the newest event is a removal whose ID differs from the baseline;
@@ -133,6 +140,9 @@ The `concord_ci_watch` input schema already refuses every such value.
 
 ## Verification
 
+- `internal/ciwait.TestCiWaitMergeQueueObservationQualification` proves that
+  the last queue observation records an entry or absence only for an open
+  pull request on the watched head.
 - `internal/ciwait.TestCiWaitPRMergeModeQueueRemovalEndsTheWait` proves a fresh
   removal ends the wait and names the failed merge-group run.
 - `internal/ciwait.TestCiWaitPRMergeModeQueueRemovalPrecedesCheckFailures` proves

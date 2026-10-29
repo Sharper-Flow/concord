@@ -246,35 +246,15 @@ func readWorkflowContinuityForRegistry(ctx context.Context, s *Store, req Contin
 	// Candidate identity is sampled with the dependencies, then its immutable
 	// tree resolves after the read snapshot closes. Dispatch revalidates it
 	// against the sealed native observation; this read grants no authority.
-	receipt, reviewSize, err := continuityReadReviewSubjectTx(ctx, tx, req.Work, out.WorkPin)
+	reviewSubject, err := sampleContinuityReviewSubjectTx(ctx, tx, req.Work, &out)
 	if err != nil {
 		return out, err
 	}
 	if err := tx.Rollback(); err != nil {
 		return out, err
 	}
-	if receipt != nil {
-		commit := strings.TrimPrefix(receipt.SubjectRef, "commit:")
-		tree, treeErr := readReviewCandidateTree(ctx, CommittedReadGitRunner{}, receipt.Path, commit)
-		if treeErr != nil {
-			out.ReviewInputWarning = treeErr
-		} else {
-			out.ReviewInput = &WorkerReviewInput{InputCandidate: WorkerReviewCandidate{ProjectID: receipt.ProjectID, Commit: commit, Tree: tree}, Dependencies: *out.WorkPin.Review.Dependencies, Size: reviewSize}
-		}
-	}
+	observeContinuityReviewSubject(ctx, &out, reviewSubject)
 	return out, nil
-}
-
-func continuityReadReviewSubjectTx(ctx context.Context, tx *sql.Tx, workID string, pin *WorkPin) (*WorktreeVerifyResult, *WorkSizeSummary, error) {
-	if pin == nil || pin.Review == nil || pin.Review.Dependencies == nil {
-		return nil, nil, nil
-	}
-	receipt, err := readCurrentOracleSubjectReceipt(ctx, tx, workID)
-	if err != nil || receipt == nil {
-		return nil, nil, err
-	}
-	size, err := readWorkSizeSummary(ctx, tx, workID)
-	return receipt, size, err
 }
 
 func continuityReadIdentityTx(ctx context.Context, tx *sql.Tx, workID string, out ContinuitySnapshot) (ContinuitySnapshot, error) {

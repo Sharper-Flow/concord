@@ -5,12 +5,10 @@ import (
 	"database/sql"
 )
 
-// finalReviewWorkerJobTx returns the one revision a Review may bind when no
-// revision is ready (CD-0205 D2): the latest revision of the job dispatched by
-// the delivery anchor, the newest accepted implementation delivery, when that
-// delivery is Main's current candidate, the revision is current under the
-// active contract, and its satisfaction comes from that exact acceptance. It
-// returns nil otherwise. It reads SQL only and authors no job or choice.
+// finalReviewWorkerJobTx binds final Review to accepted candidate provenance
+// and the exact revision's current satisfaction. A repairing Review can install
+// the candidate without replacing an earlier producer's satisfaction. Neither
+// fact substitutes for the other; no ready revision or older anchor is invented.
 func finalReviewWorkerJobTx(ctx context.Context, q queryer, workID string) (*WorkerJobBinding, error) {
 	var ready bool
 	if err := q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM worker_job_revisions j WHERE j.work_id=? AND `+workerJobReadyPredicate+`)`, workID).Scan(&ready); err != nil {
@@ -23,20 +21,32 @@ func finalReviewWorkerJobTx(ctx context.Context, q queryer, workID string) (*Wor
 	if err != nil || review.Candidate == nil {
 		return nil, err
 	}
-	anchor, err := newestAcceptedImplementationDeliveryTx(ctx, q, workID)
-	if err != nil || anchor == nil || anchor.candidate != *review.Candidate {
+	anchor, err := newestAcceptedCandidateAttemptTx(ctx, q, workID, *review.Candidate)
+	if err != nil || anchor == nil {
 		return nil, err
 	}
 	binding := anchor.job
 	var satisfied bool
 	if err := q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM worker_job_revisions j
-JOIN worker_attempt_dispositions e ON e.work_id=j.work_id AND e.attempt_id=? AND e.action_id='accept_worker_result'
+JOIN effect_receipts r ON r.effect_seq=j.satisfied_seq AND r.event_id=j.satisfied_result_ref
+ AND r.subject_type='work_item' AND r.subject_id=j.work_id AND r.kind='workflow.action_completed'
+JOIN worker_attempt_dispositions e ON e.work_id=j.work_id AND e.action_id='accept_worker_result'
  AND (e.seq=j.satisfied_seq AND e.event_id=j.satisfied_result_ref OR e.first_acceptance_seq=j.satisfied_seq)
+JOIN worker_authorizations a ON a.work_id=e.work_id AND a.attempt_id=e.attempt_id
+ AND json_extract(a.payload,'$.worker_job.job_id')=j.job_id
+ AND json_extract(a.payload,'$.worker_job.revision')=j.revision AND json_extract(a.payload,'$.worker_job.digest')=j.digest
+JOIN worker_attempts t ON t.work_id=e.work_id AND t.attempt_id=e.attempt_id
+ AND t.lifecycle_state='completed' AND t.terminal_kind='worker.completed'
+ AND json_extract(t.terminal_payload,'$.worker_job.job_id')=j.job_id
+ AND json_extract(t.terminal_payload,'$.worker_job.revision')=j.revision AND json_extract(t.terminal_payload,'$.worker_job.digest')=j.digest
 WHERE j.work_id=? AND j.job_id=? AND j.revision=? AND j.digest=? AND j.state='satisfied' AND j.satisfied_seq>0
+ AND j.satisfied_seq<=?
+ AND NOT EXISTS(SELECT 1 FROM worker_attempt_dispositions conflict WHERE conflict.work_id=e.work_id
+  AND conflict.attempt_id=e.attempt_id AND conflict.action_id IN ('reject_worker_result','record_worker_failure') AND conflict.seq>=j.satisfied_seq)
  AND j.revision=(SELECT MAX(latest.revision) FROM worker_job_revisions latest WHERE latest.work_id=j.work_id AND latest.job_id=j.job_id)
  AND (`+workerJobDependenciesCurrentPredicate+`)
  AND j.contract_version=(SELECT c.contract_version FROM workflow_contracts c WHERE c.work_id=j.work_id AND c.superseded_by IS NULL))`,
-		anchor.attempt, workID, binding.JobID, binding.Revision, binding.Digest).Scan(&satisfied); err != nil {
+		workID, binding.JobID, binding.Revision, binding.Digest, anchor.seq).Scan(&satisfied); err != nil {
 		return nil, wrapFailure(KindUnavailable, "workflow_action", "cannot read the delivery anchor's worker-job revision", true, "retry once the worker-job projection is readable", err)
 	}
 	if !satisfied {
@@ -65,27 +75,32 @@ WHERE j.work_id=? AND j.job_id=? AND j.revision=? AND j.digest=? AND j.state='sa
 	return &binding, nil
 }
 
-type implementationDelivery struct {
-	attempt   string
-	job       WorkerJobBinding
-	candidate WorkerReviewCandidate
+type acceptedCandidateAttempt struct {
+	seq int64
+	job WorkerJobBinding
 }
 
-// newestAcceptedImplementationDeliveryTx returns the delivery anchor: the
-// newest accepted job-bound implementation result on the work's claimed
-// worktree. A member result delivers on its member worktree and is skipped.
-// The anchor must carry a clean core observation; when the newest result has
-// none, there is no anchor and no older delivery stands in for it.
-func newestAcceptedImplementationDeliveryTx(ctx context.Context, q queryer, workID string) (*implementationDelivery, error) {
-	rows, err := q.QueryContext(ctx, `SELECT attempt_id FROM worker_attempt_dispositions WHERE work_id=? AND action_id='accept_worker_result' ORDER BY seq DESC`, workID)
+// The newest claimed-worktree producer must qualify; an invalid newest result
+// never falls back to an older acceptance. An unchanged continue Review only
+// grants execution permission and supplies no new candidate provenance.
+func newestAcceptedCandidateAttemptTx(ctx context.Context, q queryer, workID string, current WorkerReviewCandidate) (*acceptedCandidateAttempt, error) {
+	rows, err := q.QueryContext(ctx, `SELECT e.attempt_id,e.seq,
+ NOT EXISTS(SELECT 1 FROM worker_attempt_dispositions conflict WHERE conflict.work_id=e.work_id AND conflict.attempt_id=e.attempt_id
+  AND conflict.action_id IN ('reject_worker_result','record_worker_failure') AND conflict.seq>=e.first_acceptance_seq)
+ FROM worker_attempt_dispositions e WHERE e.work_id=? AND e.action_id='accept_worker_result' ORDER BY e.seq DESC`, workID)
 	if err != nil {
 		return nil, wrapFailure(KindUnavailable, "workflow_action", "cannot read accepted worker attempts", true, "retry once the worker attempt projection is readable", err)
 	}
 	// Close the cursor before attempt reads on the single pooled connection.
-	var attempts []string
+	type acceptance struct {
+		attempt string
+		seq     int64
+		current bool
+	}
+	var attempts []acceptance
 	for rows.Next() {
-		var attempt string
-		if err := rows.Scan(&attempt); err != nil {
+		var attempt acceptance
+		if err := rows.Scan(&attempt.attempt, &attempt.seq, &attempt.current); err != nil {
 			rows.Close()
 			return nil, err
 		}
@@ -97,14 +112,14 @@ func newestAcceptedImplementationDeliveryTx(ctx context.Context, q queryer, work
 		return nil, err
 	}
 	for _, attempt := range attempts {
-		auth, result, err := readReviewAttempt(ctx, q, workID, attempt)
+		auth, result, err := readReviewAttempt(ctx, q, workID, attempt.attempt)
 		if err == sql.ErrNoRows {
-			continue
+			return nil, nil
 		}
 		if err != nil {
 			return nil, err
 		}
-		if auth.WorkerCapabilityClass != "implementation" || auth.WorkerJob == nil {
+		if auth.WorkerJob == nil {
 			continue
 		}
 		if base, err := workflowMemberResultBase(ctx, q, workID, auth); err != nil || base != nil {
@@ -113,13 +128,41 @@ func newestAcceptedImplementationDeliveryTx(ctx context.Context, q queryer, work
 			}
 			continue
 		}
-		candidate, err := workflowResultCandidate(ctx, q, workID, auth, result)
-		if err != nil || candidate == nil {
+		if workerReviewContinuesJob(auth, result) && result.Review.InputCandidate == result.Review.OutputCandidate {
+			continue
+		}
+		if !attempt.current {
+			return nil, nil
+		}
+		matches, err := acceptedAttemptMatchesCandidateTx(ctx, q, workID, auth, result, current)
+		if err != nil || !matches {
 			return nil, err
 		}
-		return &implementationDelivery{attempt: attempt, job: *auth.WorkerJob, candidate: *candidate}, nil
+		return &acceptedCandidateAttempt{seq: attempt.seq, job: *auth.WorkerJob}, nil
 	}
 	return nil, nil
+}
+
+func acceptedAttemptMatchesCandidateTx(ctx context.Context, q queryer, workID string, auth workflowActionCompletedPayload, result WorkerCompletedPayload, current WorkerReviewCandidate) (bool, error) {
+	if result.ObservedDelivery == nil || result.ObservedDelivery.State != "clean" {
+		return false, nil
+	}
+	switch auth.WorkerCapabilityClass {
+	case "implementation", "review":
+		if auth.WorkerCapabilityClass == "review" && result.Review == nil {
+			return false, nil
+		}
+	default:
+		lane, err := LookupLane(auth.WorkerLaneID, auth.WorkerLaneDigest)
+		if err != nil || lane.CapabilityClass != auth.WorkerCapabilityClass || workerLaneEdits(lane.ID, lane.Digest) || auth.WorkerSubjectCommit != current.Commit {
+			return false, nil
+		}
+	}
+	candidate, err := workflowAcceptedResultCandidate(ctx, q, workID, auth, result)
+	if err != nil || candidate == nil || *candidate != current {
+		return false, err
+	}
+	return true, nil
 }
 
 // requireWorkerReviewJobRevisionStateTx is Review's state-only job admission:

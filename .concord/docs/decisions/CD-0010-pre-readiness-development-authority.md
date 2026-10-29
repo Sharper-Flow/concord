@@ -20,9 +20,9 @@ Concord development preserves these authority boundaries:
   authority for Product law.
 - Advance is reference-only. Concord does not dual-write predecessor state.
 
-[`priorities.md` — How Concord's own development runs during the rebuild](../priorities.md#how-concords-own-development-runs-during-the-rebuild)
-owns the outside-workflow development route and its measured adoption boundary.
-Replacement readiness does not grant workflow-adoption authority.
+[How Concord's own development runs during the rebuild](../priorities.md#how-concords-own-development-runs-during-the-rebuild)
+in `priorities.md` owns Concord's development route. Replacement-readiness claims
+do not determine that route.
 
 ## Rationale
 

@@ -137,13 +137,11 @@ conflict rules, and standing law are in [`priorities.md`](./priorities.md).
 
 ## Current status
 
-Concord's own development runs outside the Concord workflow until the sized
-workflow takes a small change from start to merge queue in one hour or less
-([`priorities.md`](./priorities.md#how-concords-own-development-runs-during-the-rebuild)). Until then, pull requests, required checks, and
-an independent review carry quality, and law and Domain changes land in Git
-through those pull requests.
-[`CD-0122`](./decisions/CD-0122-concord-workflow-scope-and-defect-repair.md)
-permits that outside work.
+New Concord development uses Concord agents and its workflow under
+[`priorities.md`](./priorities.md#how-concords-own-development-runs-during-the-rebuild).
+Work already underway outside the workflow and authorized workflow-defect repair
+follow that rule and
+[CD-0122](./decisions/CD-0122-concord-workflow-scope-and-defect-repair.md).
 
 The maturity manifests
 [`maturity-readiness.v1.json`](./maturity-readiness.v1.json) (alpha) and

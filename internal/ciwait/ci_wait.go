@@ -48,6 +48,7 @@ const (
 	ciWaitCommandRetryDelay = 2 * time.Second
 	ciWaitPRRollupPageSize  = 100
 	ciWaitDefaultBudget     = 1800
+	ciWaitMergeBudget       = 7200
 	ciWaitShutdownSlack     = 5 * time.Second
 	ciWaitStateDir          = "concord"
 	ciWaitStateFilePrefix   = "ci-wait-"
@@ -59,7 +60,7 @@ var ciWaitCommandTimeout = 45 * time.Second
 
 // Request is the JSON request decoded by the CI-wait CLI.
 // TimeSecondsMax is a pointer so an explicit 0 (deadline immediately) stays
-// distinct from an omitted field (the registry's 1800-second default).
+// distinct from an omitted field (the mode's default budget).
 type Request = ciWaitRequest
 
 // The concrete wire type names appear in encoding/json's CLI diagnostics.
@@ -91,6 +92,7 @@ type ciWaitReport struct {
 	HeadSHA    string         `json:"head_sha,omitempty"`
 	RunURL     string         `json:"run_url,omitempty"`
 	MergeState string         `json:"merge_state,omitempty"`
+	MergeQueue *ciWaitQueue   `json:"merge_queue,omitempty"`
 	Checks     *ciWaitChecks  `json:"checks,omitempty"`
 	Failures   []ciWaitDetail `json:"failures,omitempty"`
 	Iterations int            `json:"iterations"`
@@ -127,18 +129,19 @@ type ciWaitDetail struct {
 // ciWaitState is the durable slice of one wait: the deadline anchor plus the
 // counters the CLI owns. The model never supplies these values.
 type ciWaitState struct {
-	SchemaVersion  int       `json:"schema_version"`
-	Selector       Selector  `json:"selector"`
-	Repo           string    `json:"repo"`
-	BudgetSeconds  int       `json:"budget_seconds"`
-	StartedAt      time.Time `json:"started_at"`
-	DeadlineAt     time.Time `json:"deadline_at"`
-	Iterations     int       `json:"iterations"`
-	LastSHA        string    `json:"last_sha,omitempty"`
-	HeadSHA        string    `json:"head_sha,omitempty"`
-	LastMergeState string    `json:"last_merge_state,omitempty"`
-	Mode           string    `json:"mode,omitempty"`
-	OwnerPID       int       `json:"owner_pid,omitempty"`
+	SchemaVersion  int          `json:"schema_version"`
+	Selector       Selector     `json:"selector"`
+	Repo           string       `json:"repo"`
+	BudgetSeconds  int          `json:"budget_seconds"`
+	StartedAt      time.Time    `json:"started_at"`
+	DeadlineAt     time.Time    `json:"deadline_at"`
+	Iterations     int          `json:"iterations"`
+	LastSHA        string       `json:"last_sha,omitempty"`
+	HeadSHA        string       `json:"head_sha,omitempty"`
+	LastMergeState string       `json:"last_merge_state,omitempty"`
+	LastMergeQueue *ciWaitQueue `json:"last_merge_queue,omitempty"`
+	Mode           string       `json:"mode,omitempty"`
+	OwnerPID       int          `json:"owner_pid,omitempty"`
 	// ExpectedHeadSHA is the commit the caller named. HeadSHA stays empty
 	// until the pull request head reaches it.
 	ExpectedHeadSHA string `json:"expected_head_sha,omitempty"`
@@ -167,8 +170,7 @@ func Run(request Request, out io.Writer) int {
 	}()
 	ciWaitSaveState(state, stateFile)
 
-	// The wall-time budget is a ceiling on the caller's declaration, never a
-	// grant: a caller cannot extend a wait the registry bounds at 1800s.
+	// The original deadline survives every slice; resuming never renews it.
 	if !time.Now().Before(state.DeadlineAt) {
 		return ciWaitFinishTimeout(state, out)
 	}
@@ -203,6 +205,7 @@ func Run(request Request, out io.Writer) int {
 					SHA:        state.LastSHA,
 					HeadSHA:    state.HeadSHA,
 					MergeState: state.LastMergeState,
+					MergeQueue: state.LastMergeQueue,
 					StateFile:  stateFile,
 				}
 				ciWaitSaveState(state, stateFile)
@@ -219,6 +222,7 @@ func Run(request Request, out io.Writer) int {
 			report.SHA = state.LastSHA
 			report.HeadSHA = state.HeadSHA
 			report.MergeState = state.LastMergeState
+			report.MergeQueue = state.LastMergeQueue
 			return ciWaitEmit(out, report, 1)
 		}
 		if terminal {
@@ -243,6 +247,7 @@ func Run(request Request, out io.Writer) int {
 		HeadSHA:    lastObservation.HeadSHA,
 		RunURL:     lastObservation.RunURL,
 		MergeState: lastObservation.MergeState,
+		MergeQueue: state.LastMergeQueue,
 		Checks:     lastObservation.Checks,
 		Iterations: state.Iterations,
 		Elapsed:    int(time.Since(state.StartedAt).Seconds()),
@@ -481,6 +486,7 @@ func ciWaitPollPR(ctx context.Context, state *ciWaitState) (ciWaitReport, bool, 
 	// Queue removal retains precedence over head-check failures.
 	if state.Mode == "merge" {
 		removal, err := ciWaitMergeQueueRemoval(ctx, state)
+		report.MergeQueue = state.LastMergeQueue
 		if err != nil {
 			return ciWaitReport{}, false, err
 		}
@@ -1039,11 +1045,14 @@ func ciWaitLoadOrCreate(request Request) (*ciWaitState, string, error) {
 	}
 
 	budget := ciWaitDefaultBudget
+	if mode == "merge" {
+		budget = ciWaitMergeBudget
+	}
 	if request.TimeSecondsMax != nil {
-		budget = *request.TimeSecondsMax
-		if budget < 0 || budget > ciWaitDefaultBudget {
-			return nil, "", fmt.Errorf("time_seconds_max must be between 0 and %d", ciWaitDefaultBudget)
+		if *request.TimeSecondsMax < 0 || *request.TimeSecondsMax > budget {
+			return nil, "", fmt.Errorf("time_seconds_max must be between 0 and %d for %s mode", budget, mode)
 		}
+		budget = *request.TimeSecondsMax
 	}
 	now := time.Now().UTC()
 	state := &ciWaitState{
@@ -1215,9 +1224,17 @@ func ciWaitFinishTimeout(state *ciWaitState, out io.Writer) int {
 		SHA:        state.LastSHA,
 		HeadSHA:    state.HeadSHA,
 		MergeState: state.LastMergeState,
+		MergeQueue: state.LastMergeQueue,
 	}
 	if state.HeadSHA == "" && state.ExpectedHeadSHA != "" {
 		report.Reason = "the wall-time deadline expired before the pull request head reached the expected head"
+	}
+	if queue := state.LastMergeQueue; queue != nil {
+		if queue.Present {
+			report.Reason += fmt.Sprintf("; last observed merge queue state %s at position %d", queue.State, queue.Position)
+		} else {
+			report.Reason += "; the last observed pull request was not in the merge queue"
+		}
 	}
 	return ciWaitEmit(out, report, 1)
 }

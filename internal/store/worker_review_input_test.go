@@ -78,7 +78,7 @@ func TestReviewContinuityCarriesRecordedWorkSize(t *testing.T) {
 }
 
 func TestReviewDispatchRequiresExactReviewInput(t *testing.T) {
-	for _, field := range []string{"missing", "project", "commit", "tree", "criterion", "architecture", "other lane", "valid", "size valid", "size missing", "size effective", "size model", "size operator", "size version", "size timestamp", "size stale", "unsized size"} {
+	for _, field := range []string{"missing", "project", "commit", "tree", "criterion", "architecture", "other lane", "valid", "size valid", "size missing", "size effective", "size model", "size operator", "size version", "size timestamp", "size stale", "unsized size", "retained injected"} {
 		t.Run(field, func(t *testing.T) {
 			f := seedWorkContextFixture(t, "review-input-"+strings.ReplaceAll(field, " ", "-"))
 			t.Cleanup(func() { _ = f.store.Close() })
@@ -116,6 +116,8 @@ func TestReviewDispatchRequiresExactReviewInput(t *testing.T) {
 				t.Fatal(err)
 			}
 			switch field {
+			case "retained injected":
+				descriptor.RetainedFailedEdit = &WorkerReviewRetainedFailedEdit{AcceptedCandidate: descriptor.InputCandidate, ChangedPaths: []string{"seed.txt"}}
 			case "project":
 				descriptor.InputCandidate.ProjectID = "another-project"
 			case "commit":

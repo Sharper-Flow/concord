@@ -496,22 +496,14 @@ func validateLiveWorkflowLawChangeTx(ctx context.Context, tx *sql.Tx, workID str
 }
 
 // Every enacted law and registry delta must lie inside the active scope.
-// No merged edit is excluded without recorded attribution. Operator-approved
-// text must match its pins; other law revisions must carry the derived tier.
+// A merged edit is excluded only by a completed peer's recorded enactment or
+// by Git proof that the reviewed candidate's history never made it.
+// Operator-approved text must match its pins; other law revisions must carry
+// the derived tier.
 func checkWorkflowLawChangeEnactmentTx(ctx context.Context, tx *sql.Tx, workID string, change *WorkflowLawChange, binding *WorkflowArchitectureBinding) error {
-	before, after, err := readWorkflowLawBaselineTx(ctx, tx, workID)
+	before, after, declaredLaws, err := readWorkflowLawAttributedBaselineTx(ctx, tx, workID, change)
 	if err != nil {
 		return err
-	}
-	declaredLaws := map[string]bool{}
-	if change != nil {
-		for _, reference := range change.LawIDs {
-			canonical, err := workflowLawInventoryReference(reference, before, after)
-			if err != nil {
-				return err
-			}
-			declaredLaws[canonical] = true
-		}
 	}
 	for _, id := range workflowLawInventoryDifferences(before, after) {
 		if !declaredLaws[id] {

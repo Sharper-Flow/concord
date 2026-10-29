@@ -315,6 +315,7 @@ type workflowActionCompletedPayload struct {
 	WorkerPacketDigest       string                           `json:"worker_packet_digest,omitempty"`
 	WorkerSubjectCommit      string                           `json:"worker_subject_commit,omitempty"`
 	WorkerOraclePreparations []WorkerOraclePreparationBinding `json:"worker_oracle_preparations,omitempty"`
+	WorkerRetainedReview     *retainedReviewProof             `json:"worker_retained_review,omitempty"`
 	// WorkerPacketPredicateIDs carries the typed outcome predicate ids the
 	// dispatch_worker authorization extracted from the same packet bytes it
 	// digested. The worker completion fold reads them as the immutable
@@ -2359,6 +2360,9 @@ func validateWorkflowActionCompletedShape(p workflowActionCompletedPayload) erro
 }
 
 func validateWorkflowCompletionDispatchMetadata(p workflowActionCompletedPayload) error {
+	if err := validateRetainedReviewMetadata(p); err != nil {
+		return err
+	}
 	if err := validateWorkerOraclePreparationBindings(p); err != nil {
 		return err
 	}
@@ -3433,8 +3437,18 @@ func validateWorkerAttemptAction(ctx context.Context, tx *sql.Tx, event Event, p
 			return err
 		}
 	}
-	if capability == "review" && (payload.ActionID == "accept_worker_evidence" || payload.ActionID == "accept_worker_result") {
-		return validateReviewAcceptance(ctx, tx, event.SubjectID, payload.WorkerAttemptID, payload.ActorRef)
+	switch payload.ActionID {
+	case "accept_worker_result", "accept_worker_evidence":
+		var disposed bool
+		if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM worker_attempt_dispositions WHERE work_id=? AND attempt_id=? AND action_id IN ('accept_worker_result','accept_worker_evidence','reject_worker_result'))`, event.SubjectID, payload.WorkerAttemptID).Scan(&disposed); err != nil {
+			return workflowProjectionError(err, "cannot inspect the worker result disposition")
+		}
+		if disposed {
+			return newFailure(KindIllegalLifecycleTransition, "fold_event", "worker result is already dispositioned", false, "keep the recorded disposition; use record_delivery for delivery or a fresh worker attempt for remaining work")
+		}
+		if capability == "review" {
+			return validateReviewAcceptance(ctx, tx, event.SubjectID, payload.WorkerAttemptID, payload.ActorRef)
+		}
 	}
 	return nil
 }

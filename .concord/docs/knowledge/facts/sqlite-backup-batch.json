@@ -1,0 +1,19 @@
+{
+  "config_coupling": {
+    "effect": "Online backup and online restore pass 100 pages to each driver Step call, continuing until the copy finishes or fails. The source snapshot remains pinned across batches; the number of batches is not a size limit on the database.",
+    "environments": ["development", "production", "test"],
+    "read_by": {
+      "path": "internal/store/internal/sqlitedb/snapshot.go",
+      "project_id": "concord",
+      "symbol": "copyOnlineBackup"
+    },
+    "setting": "BackupStepPages",
+    "source": "Compile-time sqlitedb.BackupStepPages constant, int32(100); copyOnlineBackup and copyOnlineRestore both consume it."
+  },
+  "id": "sqlite-backup-batch",
+  "kind": "config_coupling",
+  "owner_domain_id": "durable-authority",
+  "owning_root": "internal/store/internal/sqlitedb",
+  "schema_version": "1.0",
+  "standing": "observed"
+}

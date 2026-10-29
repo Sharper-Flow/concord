@@ -1,0 +1,19 @@
+{
+  "config_coupling": {
+    "effect": "A nonempty override becomes an absolute database path. The resolver refuses an override inside a Git repository or worktree by probing the nearest existing ancestor with Git. The calling databasePath function then applies store.AdmitStorePath before store or maintenance-state access.",
+    "environments": ["development", "production", "test"],
+    "read_by": {
+      "path": "cmd/concord/main.go",
+      "project_id": "concord",
+      "symbol": "resolveDatabasePath"
+    },
+    "setting": "CONCORD_DB_PATH",
+    "source": "Process environment CONCORD_DB_PATH, named by dbOverrideEnv; an unset or empty value selects store.DefaultPath instead."
+  },
+  "id": "database-path-override",
+  "kind": "config_coupling",
+  "owner_domain_id": "durable-authority",
+  "owning_root": "cmd/concord",
+  "schema_version": "1.0",
+  "standing": "observed"
+}

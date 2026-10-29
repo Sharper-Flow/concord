@@ -1,0 +1,19 @@
+{
+  "config_coupling": {
+    "effect": "The authority DSN enables foreign-key enforcement on every connection, and store open verifies the live value is 1. The backup read-only DSN also enables foreign keys; the readiness read-only DSN declares only busy_timeout.",
+    "environments": ["development", "production", "test"],
+    "read_by": {
+      "path": "internal/store/internal/sqlitedb/connection.go",
+      "project_id": "concord",
+      "symbol": "DSN"
+    },
+    "setting": "foreign_keys",
+    "source": "Compile-time sqlitedb foreignKeys constant ON in the authority DSN, and foreign_keys(1) in ReadOnlyDataSource."
+  },
+  "id": "sqlite-foreign-keys",
+  "kind": "config_coupling",
+  "owner_domain_id": "durable-authority",
+  "owning_root": "internal/store/internal/sqlitedb",
+  "schema_version": "1.0",
+  "standing": "observed"
+}

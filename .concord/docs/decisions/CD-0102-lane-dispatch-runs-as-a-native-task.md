@@ -271,8 +271,12 @@ authorization has nothing to bind.
 
 ## Verification
 
-- `TestDispatchOpensSingleUseAuthorizationWindow` proves D1: one action opens one
-  window, and a second worker start finds none.
+- `internal/store.TestDispatchFoldOpensAFencedWindowAgainstTheStepEpoch` proves
+  that one `dispatch_worker` action opens D1's fenced authorization window and
+  records a positive attempt epoch on the current execution-step start, and
+  `internal/store.TestWorkerDispatchRejectsReuseOfAConsumedWindow` proves the
+  window is single-use: after the authorized attempt consumes it, a second
+  worker dispatch is refused.
 - `adapter/opencode/dispatch-window.test.ts` proves D2 window binding: a call
   without the exact session, lane and attempt reference refuses, and one
   matching call consumes the window and replaces caller arguments with the
@@ -304,8 +308,12 @@ authorization has nothing to bind.
   and terminal-event tests retain their obligations.
 - `adapter/opencode/lane_completion.test.ts` checks native failure-part identity
   and leaves an absent after-hook result for the terminal event to settle.
-- The adapter test `lane report resolves from the worker result body` proves D5,
-  including the missing-report failure.
+- `adapter/opencode/worker-report-selector.test.ts` proves D5's report
+  resolution: the shared report-protocol selector selects the designated
+  `concord-worker-result-v1` frame of the worker output as the lane report, and
+  `adapter/opencode/dispatch.test.ts` proves the missing-report failure: a
+  worker result that carries no report is worker-fail with `invalid_report`,
+  not a completion.
 - `TestDispatchRefusesImplementationLaneFromDefaultCheckout` proves D7.
 - A repository check proves D6: no `opencode run` spawn remains in the adapter.
 - `internal/agent.TestAgentJobsCorpus` runs the TS1 corpus against this dispatch

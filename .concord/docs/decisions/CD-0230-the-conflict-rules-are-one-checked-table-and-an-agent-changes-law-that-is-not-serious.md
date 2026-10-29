@@ -205,6 +205,13 @@ classes, and `internal/agent.TestWorkflowApprovalBoundaryConsent` checks that a
 routine action raises no challenge. The authored class remains a review
 judgment.
 
+U and A2 row 7 use the existing operator boundary. The agent asks the operator
+directly for preview and early visual-design approval under CD-0242 D9 and
+records the answer in the existing work record. `internal/store.TestSixClassApprovalPolicy`
+and `internal/store.TestSixClassDecisionDomainsAuthoring` prove the classified
+UI/UX consent boundary. They do not prove approval of a final preview or mockup,
+renewed approval of a changed experience, or interception of a Git push or merge.
+
 S, P10, A2 row 9 and P8 use D2's recorded-review method.
 `internal/store.TestReviewCompletionRetainsAppliedRuleContextClaims` follows a
 live Review completion into the work-pin and continuity reads. It checks exact
@@ -320,7 +327,6 @@ pointer, not the remaining enforcement and proof assigned below:
 | D3's letter-versus-intent conflict | [CON-1097](https://linear.app/sharper-flow/issue/CON-1097). The law-side review cases exercise raised and silently applied conflicts. They do not prove that agents raise a conflict they never report. |
 | R2, A2 rows 2 and 4 | [CON-1098](https://linear.app/sharper-flow/issue/CON-1098). `internal/agent.TestResolveOverlapDependsOnRecordsDirectedSequencingWithoutConsent` proves directed work-item sequencing, not selection of the shared-Domain step or release when the other change completes it. Shared stages do not by themselves prove A2 row 4's boundary-change handling. |
 | D4 and D5; CD-0243 runtime alignment | [CON-1100](https://linear.app/sharper-flow/issue/CON-1100). Recorded review does not establish prevention of external data loss, automatic six-class inference, or enforcement on the ad-hoc route. Contract-time consent does not establish informed approval of a specific loss. Classifications, carrier tests and the selected synthetic reviews do not prove whole-record runtime alignment. |
-| U, A2 row 7 | [CON-1343](https://linear.app/sharper-flow/issue/CON-1343). Contract-time `ui_ux` consent does not prove approval of a development preview of the final candidate, or renewed approval of a changed experience, as CD-0242 D9 requires. |
 | A2 row 6; D6 | [CON-1101](https://linear.app/sharper-flow/issue/CON-1101). Naming follow-up labels in the table does not enforce labels, raising-change links, the Linear view, or closure tracking. Nothing records or checks that the coordinator schedules a shipping-blocking unrelated bug first. |
 | A2 row 8 | [CON-1344](https://linear.app/sharper-flow/issue/CON-1344). Same-item resizing does not prove adding required stages while retaining completed work. CD-0229's Verification also retains the separate small-work proof and timing owners. |
 

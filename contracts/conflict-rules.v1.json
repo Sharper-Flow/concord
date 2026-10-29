@@ -1,6 +1,6 @@
 {
   "schema_version": "1.1",
-  "catalog_generation": 18,
+  "catalog_generation": 19,
   "source": {
     "path": ".concord/docs/priorities.md",
     "sha256": "sha256:f646153d789b42b07038b3f1c5df6b3c08f62861b2cb8df9163bf8d7ab67889c"
@@ -77,8 +77,12 @@
       "actors": [
         "operator"
       ],
-      "state": "outstanding",
-      "issue": "CON-1343"
+      "state": "satisfied",
+      "mechanism": "operator_boundary",
+      "evidence": [
+        {"kind": "go_test", "value": "internal/store.TestSixClassApprovalPolicy"},
+        {"kind": "go_test", "value": "internal/store.TestSixClassDecisionDomainsAuthoring"}
+      ]
     },
     {
       "id": "P1",
@@ -545,8 +549,12 @@
       "actors": [
         "operator"
       ],
-      "state": "outstanding",
-      "issue": "CON-1343"
+      "state": "satisfied",
+      "mechanism": "operator_boundary",
+      "evidence": [
+        {"kind": "go_test", "value": "internal/store.TestSixClassApprovalPolicy"},
+        {"kind": "go_test", "value": "internal/store.TestSixClassDecisionDomainsAuthoring"}
+      ]
     },
     {
       "row": 8,

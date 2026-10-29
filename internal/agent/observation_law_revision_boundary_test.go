@@ -228,8 +228,8 @@ func runStaleLawBoundaryRefusal(t *testing.T, build func(idempotencyKey, observa
 	if strings.Join(stale.RecoveryActions, ",") != "supersede_contract,terminal_work" {
 		t.Fatalf("refusal recovery choices=%v, want [supersede_contract terminal_work]", stale.RecoveryActions)
 	}
-	if response.Error.RecoveryAction.Kind != "request_approval" {
-		t.Fatalf("refusal recovery action=%q, want request_approval", response.Error.RecoveryAction.Kind)
+	if response.Error.RecoveryAction.Kind != "reconcile_operation" {
+		t.Fatalf("refusal recovery action=%q, want reconcile_operation", response.Error.RecoveryAction.Kind)
 	}
 
 	// The refusal left no effect: no event, no observation row, no version

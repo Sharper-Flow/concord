@@ -30,14 +30,8 @@ func storeStaleLawFailure(proposed string) *store.Failure {
 	}
 }
 
-// TestCarrierRefusalsAreDeliverableWhateverTheStoreProposes is the
-// reproduction. Both kinds were refused by validateError unless the recovery
-// action was request_approval, and neither was named in the coupling table,
-// so PublicRecovery passed any other contractual
-// proposal straight through. The pair then failed to marshal and the caller
-// received a transport fault in place of the refusal. The reconcile path
-// proposes reconcile_operation, which is contractual, which is how this
-// reached a caller.
+// Supported store actions survive projection with their typed companion fields.
+// Action payload constraints still apply, and prose remains remedy detail.
 func TestCarrierRefusalsAreDeliverableWhateverTheStoreProposes(t *testing.T) {
 	cases := map[string]func(string) *store.Failure{
 		"stale_law_revision": storeStaleLawFailure,
@@ -47,15 +41,29 @@ func TestCarrierRefusalsAreDeliverableWhateverTheStoreProposes(t *testing.T) {
 		for _, proposed := range append(contractRecoveryKindList(t), "free operator prose") {
 			name := kind + "/" + strings.ReplaceAll(proposed, " ", "_")
 			t.Run(name, func(t *testing.T) {
-				out := failureEnvelope(agentcontract.NewBase("coupling-1", "concord_work_transition", "workflow_action"), build(proposed))
+				failure := build(proposed)
+				if proposed == "use_declared_route" {
+					failure.RecoveryRefs = []string{"supersede_contract"}
+				}
+				out := failureEnvelope(agentcontract.NewBase("coupling-1", "concord_work_transition", "workflow_action"), failure)
 				if out.Error == nil || out.Error.Kind != kind {
 					t.Fatalf("failure produced error %+v, want kind %q", out.Error, kind)
 				}
 				if _, err := out.Encode(); err != nil {
 					t.Fatalf("store proposed recovery %q, so the %s refusal cannot be delivered: %v", proposed, kind, err)
 				}
-				if out.Error.RecoveryAction.Kind != "request_approval" {
-					t.Fatalf("store proposed %q and the envelope kept %q; the contract couples %s to request_approval", proposed, out.Error.RecoveryAction.Kind, kind)
+				want := proposed
+				if proposed == "correct_request" || proposed == "free operator prose" {
+					want = "reread_entities"
+				}
+				if out.Error.RecoveryAction.Kind != want {
+					t.Fatalf("store proposed %q and the envelope kept %q, want %q", proposed, out.Error.RecoveryAction.Kind, want)
+				}
+				if proposed == "use_declared_route" && strings.Join(out.Error.RecoveryAction.RequiredRefs, ",") != "supersede_contract" {
+					t.Fatalf("declared route refs lost: %+v", out.Error.RecoveryAction)
+				}
+				if proposed == "free operator prose" && out.Error.Details["recovery_detail"] != proposed {
+					t.Fatalf("store remedy prose lost: %+v", out.Error.Details)
 				}
 			})
 		}

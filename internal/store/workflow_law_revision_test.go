@@ -3,6 +3,7 @@ package store
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -114,6 +115,32 @@ func TestWorkflowLawRevisionMissingPinnedProjectionIsStale(t *testing.T) {
 	got, err := findStaleWorkflowLawRevision(context.Background(), s.DatabaseForTesting(), "p", "l", "law-missing", 1, []string{"spec:missing"})
 	if err != nil || got == nil || got.OldLawID != "spec:missing" || got.OldContentHash != "sha256:"+strings.Repeat("a", 64) {
 		t.Fatalf("missing pinned law diagnosis = %+v err=%v, want stale deleted law and pinned hash", got, err)
+	}
+}
+
+func TestWorkflowStaleLawBoundaryNamesRecoveryWithoutApproval(t *testing.T) {
+	t.Parallel()
+	s, _ := seedCompletionGateCase(t, "law-recovery", completionGateCase{requiredEvidence: []string{"verification", "review"}, includeVerdict: true, includePremise: true})
+	oldHash := "sha256:" + strings.Repeat("a", 64)
+	attachWorkflowLawPin(t, s, "law-recovery", oldHash)
+	cutoverLawProjection(t, s)
+	ctx, err := s.EstablishKnowledgeSourceSetProof(t.Context(), "law-recovery")
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = s.Transact(ctx, func(tx *Transaction) error {
+		return CheckWorkflowConsequentialBoundaryTx(ctx, tx, "law-recovery")
+	})
+	var failure *Failure
+	if !errors.As(err, &failure) || failure.Kind != KindStaleLawRevision {
+		t.Fatalf("boundary=%v, want stale_law_revision", err)
+	}
+	if failure.RecoveryAction != "reconcile_operation" {
+		t.Errorf("boundary recovery=%q, want reconcile_operation", failure.RecoveryAction)
+	}
+	stale := failure.StaleLawRevision
+	if stale == nil || stale.OldLawID != "spec:one" || stale.OldContentHash != oldHash || strings.Join(stale.RecoveryActions, ",") != "supersede_contract,terminal_work" {
+		t.Fatalf("boundary lost typed recovery choices: %+v", stale)
 	}
 }
 

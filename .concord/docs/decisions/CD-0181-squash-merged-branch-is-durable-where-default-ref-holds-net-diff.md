@@ -6,14 +6,10 @@
   content class, for branches whose squash merge deleted the remote head
   branch
 - **Preserves:** CD-0144 D4 in full, the remote-ref count as the first way to
-  pass, the clean-tree and observed-session gates, and operator approval for
-  destructive removal
+  pass, and the clean-tree and observed-session reclaim gates
 - **Related:** CD-0096, CD-0104, CD-0105, CD-0118, CD-0144
 - **Approval:** The operator approved this decision in contract version 1 of
   work item `work-77b5c1691911819c7d94abcd`.
-
-Operator consent for destructive removal follows [CD-0243 D7](CD-0243-four-roles-and-six-operator-approval-classes.md#d7-the-remaining-owners-use-the-same-approval-boundary).
-Other admission, safety, and evidence requirements remain required.
 
 ## Context
 

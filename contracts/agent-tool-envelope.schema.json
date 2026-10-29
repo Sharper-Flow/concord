@@ -1929,16 +1929,7 @@
           "then": {
             "required": [
               "stale_law_revision"
-            ],
-            "properties": {
-              "recovery_action": {
-                "properties": {
-                  "kind": {
-                    "const": "request_approval"
-                  }
-                }
-              }
-            }
+            ]
           }
         },
         {

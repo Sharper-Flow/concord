@@ -1168,11 +1168,8 @@ func TestReclaimWorktreeKeepsLiveOccupantRefusal(t *testing.T) {
 	}
 }
 
-// TestDestroyRefusesOccupiedWorktreeDespiteApproval pins that the destructive
-// tier's operator approval does not reach the occupancy gate. The approval
-// covers discarding the clean-tree and durable-branch gates, which protect
-// committed and uncommitted work. It does not authorize stranding a session.
-func TestDestroyRefusesOccupiedWorktreeDespiteApproval(t *testing.T) {
+// Destructive removal discards content but never strands a live session.
+func TestDestroyDestructiveRefusesOccupiedWorktree(t *testing.T) {
 	t.Parallel()
 	s, git, _ := worktreeFixture(t)
 	writeProtectingHostLease(t, s)
@@ -1188,8 +1185,7 @@ func TestDestroyRefusesOccupiedWorktreeDespiteApproval(t *testing.T) {
 		WorkID: "work-w", ProjectID: "project-w", DefaultRef: "origin/main",
 		ExpectedVersion: 4, PrincipalRef: "principal-1", RequestID: "destroy-occupied",
 		Now: time.Unix(30, 0).UTC(), Runner: git,
-		OperatorApprovalRef: "approval:destroy-forced",
-		Destructive:         true,
+		Destructive: true,
 	})
 	if err == nil {
 		t.Fatal("a destructive destroy must still refuse an occupied worktree")
@@ -1203,7 +1199,7 @@ func TestDestroyRefusesOccupiedWorktreeDespiteApproval(t *testing.T) {
 	}
 }
 
-func TestDestroyReleasesRecordedStaleOccupancyWithApproval(t *testing.T) {
+func TestDestroyReleasesLegacyOccupancyWithoutLiveHostLease(t *testing.T) {
 	t.Parallel()
 	s, git, _ := worktreeFixture(t)
 	req := baseClaim(git)
@@ -1217,7 +1213,7 @@ func TestDestroyReleasesRecordedStaleOccupancyWithApproval(t *testing.T) {
 		WorkID: "work-w", ProjectID: "project-w", DefaultRef: "origin/main",
 		ExpectedVersion: 4, PrincipalRef: "principal-1", RequestID: "destroy-stale-occupancy",
 		Now: time.Unix(30, 0).UTC(), Runner: git,
-		OperatorApprovalRef: "approval:destroy-stale", Destructive: true, ReleaseOccupancy: true,
+		Destructive: true,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -1226,7 +1222,7 @@ func TestDestroyReleasesRecordedStaleOccupancyWithApproval(t *testing.T) {
 		t.Fatalf("entry=%+v, want reclaimed", entry)
 	}
 	if worktreeOccupancyByEntry(t, s, entry.SetID, entry.ProjectID, entry.ClaimOpID) != "" {
-		t.Fatalf("operator-approved destructive reclaim must release every occupancy row: entry=%+v", entry)
+		t.Fatalf("an empty host lease observation must release the stale legacy occupancy row: entry=%+v", entry)
 	}
 	if _, still := git.worktrees[claimed.Entry.Path]; still {
 		t.Fatal("native worktree was not removed")

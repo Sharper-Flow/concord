@@ -582,7 +582,7 @@ func TestReclaimRefusalReasonMatrix(t *testing.T) {
 			wantKind: KindWorktreeOwnershipConflict,
 		},
 		{
-			name: "dirty non-terminal destroy without waiver",
+			name: "dirty non-terminal destroy",
 			setup: func(t *testing.T) (*con829Fixture, string, func() error) {
 				f := con829FixtureNew(t)
 				path, _ := f.claimWork("work-refuse-nonterminal")
@@ -599,26 +599,6 @@ func TestReclaimRefusalReasonMatrix(t *testing.T) {
 			},
 			wantKind:   KindInvalidOperation,
 			wantDetail: []string{"dirty"},
-		},
-		{
-			name: "destructive removal without approval",
-			setup: func(t *testing.T) (*con829Fixture, string, func() error) {
-				f := con829FixtureNew(t)
-				path, _ := f.claimWork("work-refuse-destructive")
-				f.completeWork("work-refuse-destructive")
-				if err := writeFile(filepath.Join(path, "tracked.txt"), "dirty\n"); err != nil {
-					t.Fatal(err)
-				}
-				return f, path, func() error {
-					_, err := destroyWorktreeForTest(context.Background(), f.s, WorktreeDestroyRequest{
-						WorkID: "work-refuse-destructive", ProjectID: "project-w", DefaultRef: "origin/main",
-						ExpectedVersion: 4, Destructive: true, PrincipalRef: "principal-1", RequestID: "refuse-destructive",
-					})
-					return err
-				}
-			},
-			wantKind:   KindInvalidOperation,
-			wantDetail: []string{"operator approval"},
 		},
 		{
 			name: "started work outside the unstarted gate",

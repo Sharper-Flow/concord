@@ -957,7 +957,7 @@ itself changes. For S, P10 and A2-9, read what could be lost, the verified
 recovery route or its absence, and the explanation supplied before acting.
 Where consent is required, identify the operator's informed approval of that
 specific loss: general task or contract approval is not informed approval of
-that loss, and a worktree destructive waiver is not customer-data consent.
+that loss.
 An operator may approve explained irreversible loss without recovery;
 missing recovery alone creates no new approval class.
 

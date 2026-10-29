@@ -1875,10 +1875,10 @@ func TestAdmissionGateRefusesSupersededClaimLanding(t *testing.T) {
 		t.Fatal(err)
 	}
 	version := readWorkVersion(t, f.store, f.workID)
+	vacateAndLandSession(t, f, f.sourceSession, f.sourceTree, mainCheckout)
 	if _, err := f.store.ReclaimWorktree(ctx, WorktreeReclaimRequest{
 		WorkID: f.workID, ProjectID: f.sourceProject, DefaultRef: "origin/main", PrincipalRef: "principal-1",
 		RequestID: "ph-reclaim-w", ExpectedVersion: version, Now: time.Unix(45, 0).UTC(), Runner: ExecGitRunner{},
-		ReleaseOccupancy: true, OperatorApprovalRef: "approval:superseded-claim-test",
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -2107,7 +2107,6 @@ func TestRecordProjectHandoffBindsPreservationToTheClaimedSourceWorktree(t *test
 	if _, err := f.store.ReclaimWorktree(context.Background(), WorktreeReclaimRequest{
 		WorkID: f.workID, ProjectID: f.sourceProject, DefaultRef: "origin/main", PrincipalRef: "principal-1",
 		RequestID: "ph-bind-reclaim", ExpectedVersion: version, Now: time.Unix(50, 0).UTC(), Runner: ExecGitRunner{},
-		ReleaseOccupancy: true, OperatorApprovalRef: "approval:bind-reclaim",
 	}); err != nil {
 		t.Fatal(err)
 	}

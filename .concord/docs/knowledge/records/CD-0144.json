@@ -22,7 +22,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:c51154184beeb57e6daef8fd584f5ffdf1eb3745de77ea9379299eaebd997b66",
+  "sha256": "sha256:0ae88d6183ab444da5a3126dfdc3030ae710ec393dbc47bd9aa45b54f8854b33",
   "status": "accepted",
   "summary": "Adds local Git content-risk drift classes that suppress reclaim recommendations.",
   "tags": [

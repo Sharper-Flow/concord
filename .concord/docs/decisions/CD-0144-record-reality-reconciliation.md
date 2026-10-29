@@ -6,8 +6,7 @@
 - **Approval:** The operator approved this bounded reconciliation duty.
 - **Related:** CD-0222, CD-0088, CD-0095, CD-0096, CD-0118
 - **Preserves:** Local Git and SQLite as audit authorities; the clean-tree,
-  merged-branch, and observed-session reclaim gates; operator approval for
-  destructive removal
+  merged-branch, and observed-session reclaim gates
 
 **Approval amendment:** [CD-0243 D7](CD-0243-four-roles-and-six-operator-approval-classes.md#d7-the-remaining-owners-use-the-same-approval-boundary)
 qualifies every operator-consent clause in this record, including tables and
@@ -50,8 +49,8 @@ external service remains a separate decision.
 
 - The audit identifies uncommitted changes and unpushed commits before any
   reclaim recommendation can discard them.
-- Content-bearing worktrees remain visible and require inspection or an
-  operator-selected recovery instead of an automatic reclaim path.
+- Content-bearing worktrees remain visible and require inspection instead of
+  an automatic reclaim path.
 
 ## Verification
 

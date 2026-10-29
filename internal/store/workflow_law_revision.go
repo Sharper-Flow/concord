@@ -469,7 +469,7 @@ func checkWorkflowLawRevisionStalenessTx(ctx context.Context, tx queryer, workID
 	if stale == nil {
 		return nil
 	}
-	failure := newFailure(KindStaleLawRevision, "check_workflow_law_revision", "workflow contract pins a deleted law", false, "request_approval")
+	failure := newFailure(KindStaleLawRevision, "check_workflow_law_revision", "workflow contract pins a deleted law", false, "reconcile_operation")
 	failure.StaleLawRevision = stale
 	return failure
 }

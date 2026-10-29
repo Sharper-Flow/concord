@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -14,8 +15,7 @@ import (
 
 // CD-0096 D3 Destroy and D5 continuity through the agent tool surface,
 // against real git. Destroy reclaims merged terminal work under the unchanged
-// git gates; CD-0243 D7 reserves approval for the existing safety waivers. The
-// continuity read re-pins the reading session's held verify leases.
+// git gates. The continuity read re-pins the reading session's held verify leases.
 
 func authorityInvoke(t *testing.T, s *store.Store, service *Service, grant Authority, tool, operation string, input map[string]any) agentcontract.Envelope {
 	t.Helper()
@@ -81,12 +81,19 @@ func TestWorktreeDestroyDispatchNonTerminalNeedsNoConsent(t *testing.T) {
 	}
 }
 
-func TestWorktreeDestroyDispatchDestructiveUnderApproval(t *testing.T) {
+func TestWorktreeDestroyDispatchDiscardsObsoleteContentWithoutConsent(t *testing.T) {
 	t.Parallel()
 	s, service, grant, _, _, _ := tiersFixture(t)
 	worktreePath := filepath.Join(filepath.Dir(s.Path()), "worktrees", "project-1", "work-1")
 	completeWork(t, s, "work-1")
 	vacateLinkedWorktree(t, s, service, grant, worktreePath, "destroy-dirty-vacate")
+	for _, content := range []string{"obsolete first change\n", "obsolete second change\n"} {
+		if err := os.WriteFile(filepath.Join(worktreePath, "README.md"), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		gitRun(t, worktreePath, "add", "README.md")
+		gitRun(t, worktreePath, "commit", "-m", "obsolete development change")
+	}
 	if err := os.WriteFile(filepath.Join(worktreePath, "README.md"), []byte("# dirty\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -99,74 +106,35 @@ func TestWorktreeDestroyDispatchDestructiveUnderApproval(t *testing.T) {
 		t.Fatalf("refused response=%+v err=%+v, want the dirty-tree refusal", refused, refused.Error)
 	}
 
-	// Destructive intent mints the operator challenge.
-	challenge := authorityInvoke(t, s, service, grant, "concord_work_transition", "worktree_destroy", map[string]any{
+	removed := authorityInvoke(t, s, service, grant, "concord_work_transition", "worktree_destroy", map[string]any{
 		"work_id": "work-1", "expected_version": 4, "default_ref": "main", "destructive": true, "idempotency_key": "destroy-dirty",
 	})
-	if challenge.Outcome != agentcontract.OutcomeError || challenge.Error == nil || challenge.Error.Kind != "approval_required" {
-		t.Fatalf("challenge response=%+v err=%+v, want approval_required", challenge, challenge.Error)
-	}
-	challengeRef, _ := challenge.Error.Details["approval_ref"].(string)
-
-	scopeVersion, _, err := s.ScopeVersion(context.Background(), "project-1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	env := mutationEnvelope(grant, scopeVersion)
-	raw, _ := json.Marshal(map[string]any{"work_id": "work-1", "expected_version": 4, "default_ref": "main", "destructive": true, "idempotency_key": "destroy-dirty"})
-	digest := mutationDigest("concord_work_transition", "worktree_destroy", env, raw)
-	scope := map[string]any{"product_id": "product-1", "product_ids": []string{"product-1"}, "project_ids": []string{"project-1"}, "work_ids": []string{"work-1"}, "scope_version": scopeVersion}
-	versions := map[string]any{"work": 4}
-	env.HostApproval = signedHostApproval(mustKey(t), challengeRef, digest, scope, versions, grant.SessionRef, grant.AgentRef, grant.Worktree, fixedTime(), "destroy-force-1")
-	approvedRaw, _ := json.Marshal(map[string]any{"work_id": "work-1", "expected_version": 4, "default_ref": "main", "destructive": true, "idempotency_key": "destroy-dirty", "approval": map[string]any{"approval_ref": challengeRef}})
-	approved, approvalErr := Dispatch(context.Background(), s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "worktree_destroy", Input: approvedRaw}, env)
-	if approvalErr != nil {
-		t.Fatal(approvalErr)
-	}
-	if approved.Outcome != agentcontract.OutcomeOK {
-		t.Fatalf("approved response=%+v err=%+v", approved, approved.Error)
+	if removed.Outcome != agentcontract.OutcomeOK || removed.Error != nil {
+		t.Fatalf("removed response=%+v err=%+v, want removal without consent", removed, removed.Error)
 	}
 	if _, err := os.Stat(worktreePath); !os.IsNotExist(err) {
 		t.Fatalf("dirty worktree still present at %s", worktreePath)
 	}
 }
 
-// A session that ends without vacating leaves its occupancy recorded. The
-// operator-approved destroy is the declared route that releases the stale
-// record, and the approval does not need to discard the git safety gates.
-func TestWorktreeDestroyDispatchApprovedReleasesStaleOccupancy(t *testing.T) {
+func TestWorktreeDestroyDispatchKeepsOccupancyRefusalWithoutConsent(t *testing.T) {
 	t.Parallel()
 	s, service, grant, _, _, _ := tiersFixture(t)
 	worktreePath := filepath.Join(filepath.Dir(s.Path()), "worktrees", "project-1", "work-1")
 
-	refused := authorityInvoke(t, s, service, grant, "concord_work_transition", "worktree_destroy", map[string]any{
-		"work_id": "work-1", "expected_version": 3, "default_ref": "main", "idempotency_key": "destroy-stale",
-	})
-	if refused.Outcome != agentcontract.OutcomeError || refused.Error == nil || refused.Error.Kind != "approval_required" {
-		t.Fatalf("refused response=%+v err=%+v, want approval_required", refused, refused.Error)
-	}
-	challengeRef, _ := refused.Error.Details["approval_ref"].(string)
-
-	scopeVersion, _, err := s.ScopeVersion(context.Background(), "project-1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	env := mutationEnvelope(grant, scopeVersion)
-	raw, _ := json.Marshal(map[string]any{"work_id": "work-1", "expected_version": 3, "default_ref": "main", "idempotency_key": "destroy-stale"})
-	digest := mutationDigest("concord_work_transition", "worktree_destroy", env, raw)
-	scope := map[string]any{"product_id": "product-1", "product_ids": []string{"product-1"}, "project_ids": []string{"project-1"}, "work_ids": []string{"work-1"}, "scope_version": scopeVersion}
-	versions := map[string]any{"work": 3}
-	env.HostApproval = signedHostApproval(mustKey(t), challengeRef, digest, scope, versions, grant.SessionRef, grant.AgentRef, grant.Worktree, fixedTime(), "destroy-stale-1")
-	approvedRaw, _ := json.Marshal(map[string]any{"work_id": "work-1", "expected_version": 3, "default_ref": "main", "idempotency_key": "destroy-stale", "approval": map[string]any{"approval_ref": challengeRef}})
-	approved, approvalErr := Dispatch(context.Background(), s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "worktree_destroy", Input: approvedRaw}, env)
-	if approvalErr != nil {
-		t.Fatal(approvalErr)
-	}
-	if approved.Outcome != agentcontract.OutcomeOK {
-		t.Fatalf("approved response=%+v err=%+v, want the stale occupancy released", approved, approved.Error)
-	}
-	if _, err := os.Stat(worktreePath); !os.IsNotExist(err) {
-		t.Fatalf("worktree still present at %s", worktreePath)
+	for _, destructive := range []bool{false, true} {
+		refused := authorityInvoke(t, s, service, grant, "concord_work_transition", "worktree_destroy", map[string]any{
+			"work_id": "work-1", "expected_version": 3, "default_ref": "main", "destructive": destructive, "idempotency_key": "destroy-stale",
+		})
+		if refused.Outcome != agentcontract.OutcomeError || refused.Error == nil || refused.Error.Kind != "unauthorized" {
+			t.Fatalf("refused response=%+v err=%+v, want occupancy refusal without consent", refused, refused.Error)
+		}
+		if !strings.Contains(refused.Error.Message, grant.SessionRef) || !strings.Contains(refused.Error.Message, worktreePath) {
+			t.Fatalf("refusal %q must name the occupying session and worktree", refused.Error.Message)
+		}
+		if _, err := os.Stat(worktreePath); err != nil {
+			t.Fatalf("occupied worktree must remain: %v", err)
+		}
 	}
 }
 

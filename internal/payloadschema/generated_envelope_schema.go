@@ -2513,15 +2513,6 @@ const GeneratedEnvelopeSchemaDocument = `{
             ]
           },
           "then": {
-            "properties": {
-              "recovery_action": {
-                "properties": {
-                  "kind": {
-                    "const": "request_approval"
-                  }
-                }
-              }
-            },
             "required": [
               "stale_law_revision"
             ]

@@ -9,8 +9,8 @@ import (
 	"time"
 )
 
-// CD-0096 D3/D5 store coverage: the Destroy tier (terminal gate, unchanged
-// git gates, destructive removal under approval), and the session-continuity
+// CD-0096 D3/D5 store coverage: the Destroy tier (safe git gates and
+// consent-free destructive removal), and the session-continuity
 // re-pin of held verify leases.
 
 // seedWorktreeLifecycle moves a fixture work item to a terminal lifecycle.
@@ -34,8 +34,7 @@ func destroyWorktreeForTest(ctx context.Context, s *Store, req WorktreeDestroyRe
 		WorkID: req.WorkID, ProjectID: req.ProjectID, DefaultRef: req.DefaultRef,
 		PrincipalRef: req.PrincipalRef, RequestID: req.RequestID,
 		ExpectedVersion: req.ExpectedVersion, Now: req.Now, Runner: req.Runner,
-		RequireTerminal: true, OperatorApprovalRef: req.OperatorApprovalRef, Destructive: req.Destructive,
-		ReleaseOccupancy: req.ReleaseOccupancy,
+		RequireTerminal: true, Destructive: req.Destructive,
 	}
 	reclaimReq.HostLeases = s.ReadHostLeases()
 	runner := reclaimReq.Runner
@@ -95,24 +94,6 @@ func TestDestroyNonTerminalWithoutApproval(t *testing.T) {
 	}
 }
 
-func TestDestroyNonTerminalWithApprovalKeepsGitGates(t *testing.T) {
-	t.Parallel()
-	s, worktreePath := realGitTiersFixture(t)
-	// CD-0243 D7 preserves git gates even with a supplied approval.
-	entry, err := destroyWorktreeForTest(context.Background(), s, WorktreeDestroyRequest{
-		WorkID: "work-w", ProjectID: "project-w", DefaultRef: "main",
-		ExpectedVersion: 3, OperatorApprovalRef: "approval:destroy-nt", PrincipalRef: "principal-1", RequestID: "destroy-nt-2", Now: time.Unix(30, 0).UTC()})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if entry.State != worktreeEntryReclaimed {
-		t.Fatalf("entry=%+v", entry)
-	}
-	if _, probeErr := (ExecGitRunner{}).Run(context.Background(), worktreePath, "rev-parse", "--abbrev-ref", "HEAD"); probeErr == nil {
-		t.Fatal("worktree still reachable after destroy")
-	}
-}
-
 func TestDestroyRefusesDirtyTreeAndNamesDestructiveRoute(t *testing.T) {
 	t.Parallel()
 	s, worktreePath := realGitTiersFixture(t)
@@ -126,12 +107,12 @@ func TestDestroyRefusesDirtyTreeAndNamesDestructiveRoute(t *testing.T) {
 	if err == nil || err.(*Failure).Kind != KindInvalidOperation {
 		t.Fatalf("destroy err=%v, want invalid_operation", err)
 	}
-	if !strings.Contains(err.(*Failure).Detail, "dirty") || !strings.Contains(err.(*Failure).RecoveryAction, "destructive destroy") {
+	if !strings.Contains(err.(*Failure).Detail, "dirty") || !strings.Contains(err.(*Failure).RecoveryAction, "worktree_destroy with destructive=true") {
 		t.Fatalf("refusal=%q recovery=%q, want the dirty refusal naming the destructive route", err.(*Failure).Detail, err.(*Failure).RecoveryAction)
 	}
 }
 
-func TestDestroyDestructiveWithApprovalForcesRemoval(t *testing.T) {
+func TestDestroyDestructiveWithoutApprovalForcesRemoval(t *testing.T) {
 	t.Parallel()
 	s, worktreePath := realGitTiersFixture(t)
 	seedWorktreeLifecycle(t, s)
@@ -140,7 +121,7 @@ func TestDestroyDestructiveWithApprovalForcesRemoval(t *testing.T) {
 	}
 	entry, err := destroyWorktreeForTest(context.Background(), s, WorktreeDestroyRequest{
 		WorkID: "work-w", ProjectID: "project-w", DefaultRef: "main",
-		ExpectedVersion: 4, OperatorApprovalRef: "approval:destroy-force", Destructive: true,
+		ExpectedVersion: 4, Destructive: true,
 		PrincipalRef: "principal-1", RequestID: "destroy-force", Now: time.Unix(30, 0).UTC()})
 	if err != nil {
 		t.Fatal(err)
@@ -150,19 +131,6 @@ func TestDestroyDestructiveWithApprovalForcesRemoval(t *testing.T) {
 	}
 	if _, probeErr := (ExecGitRunner{}).Run(context.Background(), worktreePath, "rev-parse", "--abbrev-ref", "HEAD"); probeErr == nil {
 		t.Fatal("dirty worktree still reachable after forced removal")
-	}
-}
-
-func TestDestroyDestructiveWithoutApprovalRefuses(t *testing.T) {
-	t.Parallel()
-	s, _ := realGitTiersFixture(t)
-	seedWorktreeLifecycle(t, s)
-	_, err := destroyWorktreeForTest(context.Background(), s, WorktreeDestroyRequest{
-		WorkID: "work-w", ProjectID: "project-w", DefaultRef: "main",
-		ExpectedVersion: 4, Destructive: true,
-		PrincipalRef: "principal-1", RequestID: "destroy-unapproved", Now: time.Unix(30, 0).UTC()})
-	if err == nil || err.(*Failure).Kind != KindInvalidOperation {
-		t.Fatalf("destroy err=%v, want the unapproved-destructive refusal", err)
 	}
 }
 

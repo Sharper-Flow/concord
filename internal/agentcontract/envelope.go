@@ -718,7 +718,6 @@ var enforcedRecoveryCouplings = map[string][]string{
 	"resource_busy":          {"retry_same_request"},
 	"outcome_mismatch":       {"contact_operator"},
 	"stale_context":          {"refresh_context"},
-	"stale_law_revision":     {"request_approval"},
 	"timeout":                {"retry_same_request"},
 	"version_conflict":       {"reread_entities"},
 	// The outside-repair active refusal (CD-0210) carries the declared route
@@ -748,7 +747,7 @@ func PublicRecovery(kind, proposed string) string {
 		return "request_approval"
 	case "invalid_transition", "invalid_relation", "invariant_violation", "invalid_input":
 		return "reread_entities"
-	case "not_terminal", "stale_requires_review", "idempotency_conflict", "degraded_not_allowed":
+	case "not_terminal", "stale_requires_review", "stale_law_revision", "idempotency_conflict", "degraded_not_allowed":
 		// The caller acts on state it can reread: a lifecycle, a review
 		// pin, a conflicting key, an index it may opt into degraded for.
 		return "reread_entities"

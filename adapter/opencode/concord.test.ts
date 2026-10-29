@@ -5042,7 +5042,7 @@ test("portable continuation posture leaves host protocol names to the host surfa
   expect(askingSource).toContain("Ask the operator directly for the six approval classes")
   expect(askingSource).toContain("Every operator approval question names the applicable class above or the existing")
   expect(askingSource).toContain("operator-only reservation, and the concrete consequence that requires it.")
-  expect(askingSource).toContain("reservations include gate waivers and decisions accepted law expressly leaves to")
+  expect(askingSource).toContain("reservations include decisions accepted law expressly leaves to")
   expect(askingSource).toContain("Without an applicable class or operator-only reservation, decide within your scope")
   expect(askingSource).toContain("and record the reason instead of asking for discretionary approval.")
   expect(askingSource).toContain("neither an RTE nor a Planner supplies permission or operator approval.")

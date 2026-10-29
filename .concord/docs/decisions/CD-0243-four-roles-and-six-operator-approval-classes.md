@@ -139,9 +139,7 @@ required-review checks.
 | CD-0154 D2 | Four roles, optional RTE and Planner, direct operator routing |
 | TS1, TS4, TS9 contracts; TS5 §5; clarifications TS1–TS9 binding; PM9 contract; CD-0028; CD-0029 | Retained approval gaps for overlap, cancellation, removal, repair, reconciliation, and research deletion apply only under D2 |
 
-An approval-table gap is not an approval class. Each approval point must be
-classified under D2 or as agent-owned, rather than retaining operator approval
-solely because its classification is missing. An operation that grants access
+An operation that grants access
 still requires security approval; routine work management does not acquire
 that class merely because it changes a record.
 
@@ -157,14 +155,13 @@ exemption; they create no approval class, execution route, or permission.
 For these owners and every owner in D6, the qualification governs ordinary
 operator-consent clauses, including tables, acceptance criteria, verification
 prose, and summaries. An ordinary operation that passes its admission gates
-requires operator consent only when a D2 class applies. This qualification
-does not remove an operator-only waiver of an otherwise refusing gate.
+requires operator consent only when a D2 class applies.
 
 | Owner | Qualified subject |
 |---|---|
 | CD-0018 D4; CD-0224 Decision and its overlap criteria | Merger and supersession do not independently require operator approval; a governing-requirement scope cut follows D2 and D3's Concord deletion exemption |
 | CD-0094 D2, D3 and terminal-transition claims | Completion, cancellation, and destructive-effect approval follows D2, not terminal status alone |
-| CD-0105; CD-0144; CD-0178 D3; CD-0181; CD-0212 | Routine nonterminal worktree removal needs no consent outside D2 only when content and occupancy gates pass; existing operator-only destructive-removal waivers remain unchanged |
+| CD-0105; CD-0144; CD-0178 D3; CD-0181; CD-0212 | Worktree removal requires operator consent only under D2 |
 | CD-0142 Consequences; PM4 and compaction-retention-policy removal clauses | Per-item execution removal may be agent-directed within the assigned scope; its planning destination and preparation fences remain required |
 | CD-0210 D1, D2 and reconciliation criteria | Outside-repair disposition and reconciliation require operator consent only under D2 |
 | CD-0216 retirement contract | Physical research-pack deletion requires operator consent only under D2 |
@@ -190,13 +187,10 @@ It does not establish that the boundary is enforced at runtime.
 
 These amendments change consent, not other admission. Authentication,
 capability, source and actor identity, exact versions, scope, execution
-relinquishment, occupancy, clean-tree and merged-head gates, retention
+relinquishment, occupancy, normal reclaim's clean-tree and merged-head gates, retention
 eligibility, publication proof, workflow recovery admission, checkpoints,
 evidence, and required independent review keep their existing conditions and
-bounded exceptions. Dirty-tree, unmerged-branch, and live-occupancy refusals
-and their operator-only waivers remain unchanged. No agent gains a bypass.
-An approval that waives one of those gates remains required for that waiver,
-even when the ordinary operation has no D2 consent requirement.
+bounded exceptions. No agent gains a bypass.
 Operator-only size overrides, CD-0218 D5's release activation and cutover,
 CD-0142 D3's choice of a non-Linear planning destination, and CD-0040 D9's
 exact exception for an unverifiable source also remain unchanged.

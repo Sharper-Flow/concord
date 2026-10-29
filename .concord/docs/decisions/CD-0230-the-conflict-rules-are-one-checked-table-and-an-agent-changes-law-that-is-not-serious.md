@@ -127,9 +127,7 @@ An agent corrects a factual documentation error inside its work item without an 
 The six classes and their boundaries are defined by CD-0243 D2: product
 direction, UI/UX, production application data, security, increased spending,
 and legal obligations. Every applicable class counts. Decisions outside them
-belong to agents under CD-0243 D3. A gap in the table's classification is not
-an independent approval requirement; each point must be classified under a
-class or as agent-owned.
+belong to agents under CD-0243 D3.
 
 The UI/UX class includes approval of a development preview of the final candidate before it is pushed to a shared remote or merged ([CD-0242 D9](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d9-completion-needs-proof-approvals-delivery-and-publication)).
 
@@ -171,8 +169,7 @@ its reason and review checks the applicable approval classes.
 A record the operator legislated becomes `derived` when an agent revises it
 without operator approval, so its standing shows who last enacted it.
 
-Missing classifications are implementation gaps, not approval classes. Current
-tool refusals still follow their admitted recovery routes until aligned.
+Current tool refusals still follow their admitted recovery routes until aligned.
 
 Every change to `priorities.md` moves its content hash, so the change that
 edits `priorities.md` also checks the table against it and records the new
@@ -180,14 +177,12 @@ hash.
 
 ## Verification
 
-The table and its census are implemented; complete rule enforcement is not.
+The table is implemented; complete rule enforcement is not.
 `python3 scripts/test-conflict-rules.py` exercises D1 and D2's structural
 checks, including `recorded_review` with resolving evidence anchors and refusal
 of missing or prose-only evidence. These checks do not prove that a review
-applied a rule. `internal/store.TestOperatorApprovalInventoryTableCoversCensus` and
-`internal/store.TestOperatorApprovalInventoryRegistryExpansionIsCovered`
-check D5's declared approval-point inventory, not six-class consent behavior.
-`python3 scripts/check-conflict-rules.py` reports both rule and approval-point
+applied a rule.
+`python3 scripts/check-conflict-rules.py` reports rule
 gaps. Passing that validator does not satisfy an outstanding entry.
 
 R3, P12 and A2 row 3 reuse the managed-workflow law-change checks.
@@ -334,7 +329,7 @@ pointer, not the remaining enforcement and proof assigned below:
 |---|---|
 | D3's letter-versus-intent conflict | [CON-1097](https://linear.app/sharper-flow/issue/CON-1097). The law-side review cases exercise raised and silently applied conflicts. They do not prove that agents raise a conflict they never report. |
 | R2, A2 rows 2 and 4 | [CON-1098](https://linear.app/sharper-flow/issue/CON-1098). `internal/agent.TestResolveOverlapDependsOnRecordsDirectedSequencingWithoutConsent` proves directed work-item sequencing, not selection of the shared-Domain step or release when the other change completes it. Shared stages do not by themselves prove A2 row 4's boundary-change handling. |
-| D4 and D5; CD-0243 runtime alignment | [CON-1100](https://linear.app/sharper-flow/issue/CON-1100). Recorded review does not establish prevention of external data loss, automatic six-class inference, or enforcement on the ad-hoc route. Contract-time consent and worktree waivers do not establish informed approval of a specific loss. Classifications, carrier tests and the selected synthetic reviews do not prove whole-record runtime alignment. |
+| D4 and D5; CD-0243 runtime alignment | [CON-1100](https://linear.app/sharper-flow/issue/CON-1100). Recorded review does not establish prevention of external data loss, automatic six-class inference, or enforcement on the ad-hoc route. Contract-time consent does not establish informed approval of a specific loss. Classifications, carrier tests and the selected synthetic reviews do not prove whole-record runtime alignment. |
 | A2 row 6; D6 | [CON-1101](https://linear.app/sharper-flow/issue/CON-1101). Naming follow-up labels in the table does not enforce labels, raising-change links, the Linear view, or closure tracking. Nothing records or checks that the coordinator schedules a shipping-blocking unrelated bug first. |
 | A2 row 8 | [CON-1344](https://linear.app/sharper-flow/issue/CON-1344). Same-item resizing does not prove adding required stages while retaining completed work. CD-0229's Verification also retains the separate small-work proof and timing owners. |
 

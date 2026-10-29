@@ -107,7 +107,6 @@ func builtinWorkflowActionCatalog() workflowActionCatalog {
 		"complete":               nil,
 		"confirm_premise":        {confirmPremiseOperatorPayload},
 		"cross_context_boundary": nil,
-		"declare_impact":         nil,
 		"dispatch_worker":        {workerDispatchAction},
 		"frame_research":         nil,
 		"link_successor":         nil,

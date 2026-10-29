@@ -53,7 +53,7 @@ func TestWorkRemovalRefusesInFlightAttempt(t *testing.T) {
 	} {
 		t.Run(operation.name, func(t *testing.T) {
 			_, err := operation.run(ctx, req)
-			if !hasFailureKind(err, KindResourceClaimHeld) || !strings.Contains(err.Error(), "live or unknown worker attempt") {
+			if !hasFailureKind(err, KindNotTerminal) || !strings.Contains(err.Error(), "live or unknown worker attempt") {
 				t.Fatalf("removal did not refuse the in-flight attempt: %v", err)
 			}
 		})

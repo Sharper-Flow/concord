@@ -59,7 +59,6 @@ const continuityWith = (view: unknown, marker: unknown): Record<string, unknown>
       pending_operator_decision: null,
       latest_checkpoint: null,
       design_record: null,
-      unresolved_failure: null,
     },
     view,
     marker,

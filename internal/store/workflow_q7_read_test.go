@@ -2,7 +2,6 @@ package store
 
 import (
 	"context"
-	"encoding/json"
 	"reflect"
 	"strings"
 	"testing"
@@ -97,7 +96,7 @@ func TestQ7ProjectsParkedDelivery(t *testing.T) {
 	}
 }
 
-func TestQ7ProjectsCandidatesNoticesAndWarnings(t *testing.T) {
+func TestQ7ProjectsCandidatesAndWarnings(t *testing.T) {
 	t.Parallel()
 	const workID = "q7-fields"
 	s, completion := seedCompletionGateCase(t, workID, completionGateCase{requiredEvidence: []string{"verification", "review"}, emptyMandate: true})
@@ -108,31 +107,24 @@ func TestQ7ProjectsCandidatesNoticesAndWarnings(t *testing.T) {
 		t.Fatal(err)
 	}
 	executor := completion.Actor
-	noticeID := WorkflowNoticeID(workID, 1, "spec", "spec:one", workID, "informational")
 	events := []Event{
 		workflowEventWithActor("q7-candidate", WorkflowCandidateSetRevised, workID, executor, map[string]any{
 			"work_id": workID, "expected_version": version, "resulting_version": version + 1, "contract_version": 1,
 			"candidate_kind": "work_item", "candidate_ref": "candidate:one", "added": []string{"candidate:one"}, "removed": []string{},
 		}),
-		workflowEvent("q7-notice", WorkflowImpactNoticeRecorded, workID, map[string]any{
-			"work_id": workID, "expected_version": version + 1, "resulting_version": version + 2, "notice_id": noticeID,
-			"source_contract_version": 1, "entity_kind": "spec", "entity_ref": "spec:one", "target_work_id": workID,
-			"edge_owner_work_id": workID, "edge_id": "edge:" + workID, "old_hash": nil, "new_hash": nil, "severity": "informational",
-		}),
 	}
 	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: events, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}); err != nil {
 		t.Fatal(err)
 	}
-	if err := AppendWorkflowStalenessObservation(ctx, s, "q7-warning", workID, executor, testManifestDigest,
-		json.RawMessage(`{"staleness_rule_id":"staleness:warning","observed_drift":{"severity":"warning","drifted":true}}`), time.Unix(10, 0).UTC()); err != nil {
+	if _, err := s.db.Exec(`INSERT INTO write_guard(active) VALUES(1); UPDATE workflow_instances SET completion_payload='{"warnings":["staleness:warning"]}' WHERE work_id=?; DELETE FROM write_guard`, workID); err != nil {
 		t.Fatal(err)
 	}
 	full, err := ReadWorkflowProjection(ctx, s, WorkflowReadRequest{WorkID: workID})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(full.CandidateIDs) != 1 || full.CandidateIDs[0] != "candidate:one" || len(full.ImpactNotices) != 1 || full.ImpactNotices[0].NoticeID != noticeID || len(full.CompletionWarnings) != 1 || full.CompletionWarnings[0] != "staleness:warning" {
-		t.Fatalf("fixture did not populate the full reader: candidates=%v notices=%v warnings=%v", full.CandidateIDs, full.ImpactNotices, full.CompletionWarnings)
+	if len(full.CandidateIDs) != 1 || full.CandidateIDs[0] != "candidate:one" || len(full.CompletionWarnings) != 1 || full.CompletionWarnings[0] != "staleness:warning" {
+		t.Fatalf("fixture did not populate the full reader: candidates=%v warnings=%v", full.CandidateIDs, full.CompletionWarnings)
 	}
 	out, err := s.QueryQ7(ctx, Q7Request{Work: workID})
 	if err != nil {
@@ -144,9 +136,6 @@ func TestQ7ProjectsCandidatesNoticesAndWarnings(t *testing.T) {
 	projection := out.Result.Workflow
 	if len(projection.CandidateIDs) != 1 || projection.CandidateIDs[0] != "candidate:one" {
 		t.Errorf("Q7 candidate IDs = %v, want [candidate:one]", projection.CandidateIDs)
-	}
-	if len(projection.ImpactNotices) != 1 || projection.ImpactNotices[0].NoticeID != noticeID {
-		t.Errorf("Q7 impact notices = %v, want notice %s", projection.ImpactNotices, noticeID)
 	}
 	if len(projection.CompletionWarnings) != 1 || projection.CompletionWarnings[0] != "staleness:warning" {
 		t.Errorf("Q7 completion warnings = %v, want [staleness:warning]", projection.CompletionWarnings)

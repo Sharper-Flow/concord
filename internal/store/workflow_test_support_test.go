@@ -404,7 +404,7 @@ func ptrTime(value time.Time) *time.Time { return &value }
 
 // CompleteWorkflow drives the ordered completion gate directly, outside the
 // workflow action boundary that shipped completion runs through. It owns one
-// durable transaction from the first gate clause through all impact notices
+// durable transaction from the first gate clause through terminal metadata
 // and the reserved completion append.
 func CompleteWorkflow(ctx context.Context, s *Store, event Event) error {
 	return CompleteWorkflowWithRegistry(ctx, s, BuiltinWorkflowRegistry(), event)
@@ -430,7 +430,7 @@ func CompleteWorkflowWithRegistry(ctx context.Context, s *Store, registry Defini
 		return replay.Commit()
 	}
 	// CD-0200: the completion's law boundary verifies the Product's complete
-	// registered source set before this transaction opens. The verification
+	// designated knowledge home before this transaction opens. The verification
 	// probes git and rebuilds through the pool, and the transaction-scoped
 	// boundary clause proves it from the returned context.
 	ctx, err = s.EstablishKnowledgeSourceSetProof(ctx, event.SubjectID)

@@ -61,7 +61,7 @@ test("the four operations issue #352 reported, and their controls, all validate"
   // The controls were never broken. They fail here only if the validator has
   // become permissive rather than correct, which is the way a green run of the
   // repaired operations above could otherwise lie.
-  const repaired = ["concord_work_trace.continuity", "concord_work_trace.research", "concord_work_browse.resource_claims", "concord_work_browse.messages"]
+  const repaired = ["concord_work_trace.continuity", "concord_work_trace.research", "concord_work_browse.messages"]
   const controls = ["concord_work_trace.history", "concord_work_browse.scope"]
   for (const name of [...repaired, ...controls]) {
     const pair = declaredPairs.find((item) => `${item.tool}.${item.operation}` === name)

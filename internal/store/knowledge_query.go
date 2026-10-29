@@ -9,7 +9,6 @@ import (
 	"errors"
 	"io"
 	"slices"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -41,10 +40,6 @@ type Q9Request struct {
 	// handler suppressed under AllowDegraded. Each named source degrades
 	// through the same per-source path a stale watermark uses.
 	DemandFailures []KnowledgeDemandFailure
-	// RegistrationsUnread says the source-registration read was suppressed.
-	// It marks every Q9-resolved source except the designated home
-	// unadmitted; a recovered home-only set stays authoritative.
-	RegistrationsUnread bool
 }
 
 type KnowledgeItem struct {
@@ -73,14 +68,10 @@ type KnowledgeItem struct {
 
 type Q9Result struct {
 	ResultMeta
-	Items           []KnowledgeItem           `json:"items"`
-	Publications    []KnowledgePublication    `json:"publications"`
-	IndexWatermark  string                    `json:"index_watermark"`
-	SourceOmissions []KnowledgeSourceOmission `json:"source_omissions,omitempty"`
-	// SourceWatermarks carries the per-source freshness verdict of a
-	// Product-wide Q9 over a registered source set (CD-0200). It stays empty
-	// for a single-source answer, whose output is unchanged.
-	SourceWatermarks []KnowledgeSourceWatermark `json:"source_watermarks,omitempty"`
+	Items            []KnowledgeItem           `json:"items"`
+	Publications     []KnowledgePublication    `json:"publications"`
+	IndexWatermark   string                    `json:"index_watermark"`
+	SourceOmissions  []KnowledgeSourceOmission `json:"source_omissions,omitempty"`
 	publicationReads []knowledgePublicationRead
 }
 
@@ -107,15 +98,6 @@ const (
 	KnowledgeSourceDegraded     KnowledgeSourceOmissionKind = "knowledge_source_degraded"
 	KnowledgeSourceDemandFailed KnowledgeSourceOmissionKind = "knowledge_source_demand_failed"
 )
-
-// KnowledgeSourceWatermark is one registered source's verified freshness
-// verdict inside a federated Q9 answer.
-type KnowledgeSourceWatermark struct {
-	ProjectID string `json:"project_id"`
-	LocatorID string `json:"locator_id"`
-	Watermark string `json:"watermark"`
-	Authority string `json:"authority"`
-}
 
 type Q10Request struct {
 	Work          string
@@ -258,7 +240,7 @@ func queryQ9(ctx context.Context, db *sql.DB, req Q9Request, observedAt time.Tim
 		}
 		sources = []KnowledgeHome{home}
 	}
-	return queryQ9Federated(ctx, db, req, sources, observedAt)
+	return queryQ9Home(ctx, db, req, sources[0], observedAt)
 }
 
 // validateKnowledgeHomeForQueryCore reads the freshness verdict for one home.
@@ -406,7 +388,7 @@ func queryQ10(ctx context.Context, db *sql.DB, req Q10Request) (Q10Result, error
 		}
 		if sourceScopeWhere != "" {
 			query += sourceScopeWhere
-			scanArgs = append(scanArgs, req.Product, req.Product)
+			scanArgs = append(scanArgs, req.Product)
 		}
 		return db.QueryRowContext(ctx, query, scanArgs...).Scan(&homeProject, &homeLocator, &path, &commit, &hash, &kind, &title, &date, &status, &lessonTagsJSON, &summary, &successor, &scopeMode, &manifestSchemaVersion)
 	}
@@ -452,11 +434,11 @@ func queryQ10(ctx context.Context, db *sql.DB, req Q10Request) (Q10Result, error
 			return out, err
 		}
 	} else {
-		record, manifestRole, recordErr := knowledgeProjectedRecordTx(ctx, db, lookupID, kind, status, date, title, summary, hash, scopeMode, lessonTagsJSON, homeProject, homeLocator, path)
+		record, recordErr := knowledgeProjectedRecordTx(ctx, db, lookupID, kind, status, date, title, summary, hash, scopeMode, lessonTagsJSON, homeProject, homeLocator, path)
 		if recordErr != nil {
 			return out, recordErr
 		}
-		manifestRecord, stop, err := verifyQ10ManifestRecord(ctx, req, record, manifestRole, manifestSchemaVersion, storedHome.RepoPath, commit, &out)
+		manifestRecord, stop, err := verifyQ10ManifestRecord(ctx, req, record, manifestSchemaVersion, storedHome.RepoPath, commit, &out)
 		if stop {
 			return out, err
 		}
@@ -515,50 +497,19 @@ func resolveQ10Lookup(ctx context.Context, db *sql.DB, req Q10Request) (Q10Reque
 }
 
 func q10SourceScopeWhere(ctx context.Context, db *sql.DB, req Q10Request, homeSupplied bool) (string, error) {
-	// CD-0200: a bare law-ID resolution reads inside the requested Product's
-	// registered source set, and its ambiguity reads inside that set. Another
-	// Product's law with the same ID can neither make this Product's law
-	// ambiguous nor answer for it. A work lookup keeps the historical
-	// whole-corpus read: an archived work note is frozen evidence whose
-	// recorded home is part of its identity, so a later home designation or
-	// source registration can neither hide the note nor relocate its answer.
-	// A Product whose source set does not resolve (no designated home) keeps
-	// the historical whole-corpus law lookup too: Q10 proves a recorded
-	// locator, and the current source set governs Product-wide search, not
-	// the historical note read.
-	isLawLookup := req.KnowledgeID != ""
-	var sourceScope []KnowledgeHome
-	if !homeSupplied && req.Product != "" && isLawLookup {
-		sources, srcErr := resolveKnowledgeQuerySources(ctx, db, req.Product, "PM1.Q10")
-		if srcErr == nil {
-			sourceScope = sources
-		} else {
-			var failure *Failure
-			if !errors.As(srcErr, &failure) || failure.Kind != KindUnknownScope && failure.Kind != KindAmbiguousScope {
-				return "", srcErr
-			}
+	// Work notes keep their recorded historical home. Product-scoped bare
+	// knowledge IDs use the current designation when one exists.
+	if homeSupplied || req.Product == "" || req.KnowledgeID == "" {
+		return "", nil
+	}
+	if _, err := resolveKnowledgeQuerySources(ctx, db, req.Product, "PM1.Q10"); err != nil {
+		var failure *Failure
+		if errors.As(err, &failure) && (failure.Kind == KindUnknownScope || failure.Kind == KindAmbiguousScope) {
+			return "", nil
 		}
+		return "", err
 	}
-	sourceScopeWhere := ""
-	if len(sourceScope) > 0 {
-		sourceScopeWhere = ` AND (EXISTS (SELECT 1 FROM product_knowledge_homes h WHERE h.product_id = ? AND h.project_id = archived_work.home_project_id AND h.locator_id = archived_work.home_locator_id) OR EXISTS (SELECT 1 FROM product_knowledge_sources s WHERE s.product_id = ? AND s.project_id = archived_work.home_project_id AND s.locator_id = archived_work.home_locator_id))`
-	}
-	// CD-0200: a bare law-ID answer asserts uniqueness over the registered
-	// source set, so the set must be verified before the answer is
-	// authoritative. A registered source that has never indexed, or whose
-	// watermark is stale or unreachable, could hold a second copy of the same
-	// ID that this projection cannot see — the same population refusal Q9
-	// gives. A one-element set, a caller-supplied home, a qualified
-	// reference, and a work lookup verify trivially or not at all, exactly
-	// as before.
-	if len(sourceScope) > 1 && !homeSupplied {
-		for _, source := range sourceScope {
-			if _, _, err := validateKnowledgeHomeForQueryCore(ctx, db, source, false, "PM1.Q10"); err != nil {
-				return "", err
-			}
-		}
-	}
-	return sourceScopeWhere, nil
+	return ` AND EXISTS (SELECT 1 FROM product_knowledge_homes h WHERE h.product_id = ? AND h.project_id = archived_work.home_project_id AND h.locator_id = archived_work.home_locator_id)`, nil
 }
 
 func q10NoteHasMultipleHomes(ctx context.Context, db *sql.DB, product, lookupID, sourceScopeWhere string) (bool, error) {
@@ -566,7 +517,7 @@ func q10NoteHasMultipleHomes(ctx context.Context, db *sql.DB, product, lookupID,
 	countArgs := []any{lookupID}
 	if sourceScopeWhere != "" {
 		countQuery += sourceScopeWhere
-		countArgs = append(countArgs, product, product)
+		countArgs = append(countArgs, product)
 	}
 	var homes int
 	if scanErr := db.QueryRowContext(ctx, countQuery, countArgs...).Scan(&homes); scanErr != nil {
@@ -613,8 +564,8 @@ func admitQ10ManifestAuthority(ctx context.Context, db *sql.DB, manifestRecord K
 // parameter's degraded allowance; stop says the caller must return the out
 // as it now stands instead of continuing to the canonical result. The
 // caller resolves the returned entry's declared authority after this proof.
-func verifyQ10ManifestRecord(ctx context.Context, req Q10Request, record KnowledgeRecord, manifestRole knowledgeManifestRole, manifestSchemaVersion, repoPath, commit string, out *Q10Result) (KnowledgeRecord, bool, error) {
-	manifest, missing, manifestErr := readKnowledgeManifest(ctx, repoPath, commit, manifestRole)
+func verifyQ10ManifestRecord(ctx context.Context, req Q10Request, record KnowledgeRecord, manifestSchemaVersion, repoPath, commit string, out *Q10Result) (KnowledgeRecord, bool, error) {
+	manifest, missing, manifestErr := readKnowledgeManifest(ctx, repoPath, commit)
 	if manifestErr != nil || missing {
 		if manifestErr == nil {
 			manifestErr = newFailure(KindInvalidNoteProof, "PM1.Q10", "recorded manifest is missing at the historical commit", false, "restore the committed manifest")
@@ -625,7 +576,7 @@ func verifyQ10ManifestRecord(ctx context.Context, req Q10Request, record Knowled
 	if manifestSchemaVersion != "" && manifestSchemaVersion != manifest.SchemaVersion {
 		return KnowledgeRecord{}, true, newFailure(KindInvariantViolation, "PM1.Q10", "indexed manifest schema version disagrees with the historical manifest", false, "rebuild the git-derived knowledge index")
 	}
-	if err := verifyManifestRecord(ctx, repoPath, commit, record, manifestRole); err != nil {
+	if err := verifyManifestRecord(ctx, repoPath, commit, record); err != nil {
 		_, verifyErr := q10HistoricalFailure(out, req.AllowDegraded, "recorded manifest declaration or blob could not be verified", err)
 		return KnowledgeRecord{}, true, verifyErr
 	}
@@ -640,19 +591,15 @@ func verifyQ10ManifestRecord(ctx context.Context, req Q10Request, record Knowled
 	return manifestRecord, false, nil
 }
 
-// knowledgeProjectedRecordTx assembles the projected manifest record and the
-// manifest role for one archived knowledge record over whichever queryer the
+// knowledgeProjectedRecordTx assembles the projected manifest record
+// for one archived knowledge record over whichever queryer the
 // caller already holds — the SQL discovery half of the committed-record
 // proof, so the Git verification runs with no database access. A law-bearing
 // record requires its projected law-domain home at the exact hash.
-func knowledgeProjectedRecordTx(ctx context.Context, q queryer, lookupID, kind, status, date, title, summary, hash, scopeMode, lessonTagsJSON, homeProject, homeLocator, path string) (KnowledgeRecord, knowledgeManifestRole, error) {
+func knowledgeProjectedRecordTx(ctx context.Context, q queryer, lookupID, kind, status, date, title, summary, hash, scopeMode, lessonTagsJSON, homeProject, homeLocator, path string) (KnowledgeRecord, error) {
 	var tags []string
 	if err := json.Unmarshal([]byte(lessonTagsJSON), &tags); err != nil {
-		return KnowledgeRecord{}, manifestSharedHomeRole, newFailure(KindInvariantViolation, "PM1.Q10", "indexed manifest tags are malformed", false, "rebuild the git-derived knowledge index")
-	}
-	manifestRole, roleErr := resolveKnowledgeManifestRole(ctx, q, KnowledgeHome{HomeProjectID: homeProject, HomeLocatorID: homeLocator})
-	if roleErr != nil {
-		return KnowledgeRecord{}, manifestSharedHomeRole, roleErr
+		return KnowledgeRecord{}, newFailure(KindInvariantViolation, "PM1.Q10", "indexed manifest tags are malformed", false, "rebuild the git-derived knowledge index")
 	}
 	record := KnowledgeRecord{ID: lookupID, Kind: kind, Path: path, Status: status, Date: date, Title: title, Summary: summary, Tags: tags, Scopes: KnowledgeRecordScopes{Mode: scopeMode}, SHA256: hash}
 	for _, scope := range []struct {
@@ -661,28 +608,28 @@ func knowledgeProjectedRecordTx(ctx context.Context, q queryer, lookupID, kind, 
 	}{{"archived_work_products", "product_id", &record.Scopes.ProductIDs}, {"archived_work_projects", "project_id", &record.Scopes.ProjectIDs}, {"archived_work_tags", "tag_id", &record.Scopes.TagIDs}} {
 		values, queryErr := archivedScopeIDs(ctx, q, scope.table, scope.column, lookupID, homeProject, homeLocator)
 		if queryErr != nil {
-			return KnowledgeRecord{}, manifestSharedHomeRole, queryErr
+			return KnowledgeRecord{}, queryErr
 		}
 		*scope.target = values
 	}
 	values, queryErr := archivedScopeIDs(ctx, q, "archived_work_domains", "domain_id", lookupID, homeProject, homeLocator)
 	if queryErr != nil {
-		return KnowledgeRecord{}, manifestSharedHomeRole, queryErr
+		return KnowledgeRecord{}, queryErr
 	}
 	record.Scopes.DomainIDs = values
 	if manifestLawBearingKinds[kind] {
 		if err := q.QueryRowContext(ctx, `SELECT domain_id,product_wide_rationale FROM law_domain_homes WHERE home_project_id=? AND home_locator_id=? AND law_id=? AND law_content_hash=?`, homeProject, homeLocator, lookupID, hash).Scan(&record.HomeDomainID, &record.ProductWideRationale); err != nil {
-			return KnowledgeRecord{}, manifestSharedHomeRole, q10LawDomainProjectionFailure(err)
+			return KnowledgeRecord{}, q10LawDomainProjectionFailure(err)
 		}
 		record.homeDomainPresent = true
 		record.productWideRationalePresent = record.ProductWideRationale != ""
 		applicability, applicabilityErr := archivedLawApplicability(ctx, q, homeProject, homeLocator, lookupID)
 		if applicabilityErr != nil {
-			return KnowledgeRecord{}, manifestSharedHomeRole, applicabilityErr
+			return KnowledgeRecord{}, applicabilityErr
 		}
 		record.AppliesToDomainIDs, record.appliesToDomainsPresent = applicability, true
 	}
-	return record, manifestRole, nil
+	return record, nil
 }
 
 // manifestRecordByID locates the authoritative manifest entry a projection
@@ -847,23 +794,15 @@ func knowledgeKinds(values []string) ([]string, error) {
 	return values, nil
 }
 
-// knowledgeResumeKey carries the source-qualified paging position, so two
-// sources holding the same law ID page as two records.
+// knowledgeResumeKey carries the paging position within one knowledge home.
 type knowledgeResumeKey struct {
-	MatchClass    int
-	CompletedAt   string
-	ID            string
-	HomeProjectID string
-	HomeLocatorID string
+	MatchClass  int
+	CompletedAt string
+	ID          string
 }
 
-// federatedKnowledgeCursor pages a Product-wide Q9 over a registered source
-// set. The cursor binds to the SHA-256 digest of the source set it paged
-// over and to the requested Project filter, so a registration, a removal, or
-// a scope change between pages invalidates the outstanding cursor instead of
-// silently changing coverage (CD-0200). The recorded source identity makes a
-// colliding ID in two sources two records, not one.
-type federatedKnowledgeCursor struct {
+// knowledgeCursor binds the query and the designated home's identity.
+type knowledgeCursor struct {
 	Version                        int `json:"version"`
 	Product, Project, Domain, Text string
 	Kinds, Tags                    []string
@@ -889,32 +828,24 @@ func decodeCursorFields(b []byte, cursor any) error {
 	return nil
 }
 
-func encodeFederatedKnowledgeCursor(cursor federatedKnowledgeCursor) (string, error) {
+func encodeKnowledgeCursor(cursor knowledgeCursor) (string, error) {
 	b, err := json.Marshal(cursor)
 	if err != nil {
-		return "", wrapFailure(KindInvalidCursor, "PM1.Q9", "cannot encode the federated knowledge cursor", false, "restart the bounded knowledge query", err)
+		return "", wrapFailure(KindInvalidCursor, "PM1.Q9", "cannot encode the knowledge cursor", false, "restart the bounded knowledge query", err)
 	}
 	return base64.RawURLEncoding.EncodeToString(b), nil
 }
 
-func decodeFederatedKnowledgeCursor(raw string, req Q9Request, kinds, tags []string, sourcesDigest string) (federatedKnowledgeCursor, error) {
+func decodeKnowledgeCursor(raw string, req Q9Request, kinds, tags []string, sourcesDigest string) (knowledgeCursor, error) {
 	b, err := base64.RawURLEncoding.DecodeString(raw)
-	var cursor federatedKnowledgeCursor
+	var cursor knowledgeCursor
 	if err != nil || decodeCursorFields(b, &cursor) != nil || cursor.Version != 3 || cursor.Product != req.Product || cursor.Project != req.Project || cursor.Domain != req.Domain || cursor.Text != req.Text || cursor.SourcesDigest != sourcesDigest || !slices.Equal(cursor.Kinds, kinds) || !slices.Equal(cursor.Tags, tags) || cursor.MatchClass < 0 || cursor.MatchClass > 2 || req.Text == "" && cursor.MatchClass != 0 || cursor.CompletedAt == "" || cursor.ID == "" || cursor.HomeProjectID == "" || cursor.HomeLocatorID == "" {
-		return federatedKnowledgeCursor{}, newFailure(KindInvalidCursor, "PM1.Q9", "cursor does not match the requested knowledge query or the Product's current source set", false, "restart the query without the cursor, or use a cursor returned for the same source set")
+		return knowledgeCursor{}, newFailure(KindInvalidCursor, "PM1.Q9", "cursor does not match the requested knowledge query or its home", false, "restart the query without the cursor, or use a cursor returned for the same home")
 	}
 	return cursor, nil
 }
 
-// queryQ9Federated runs one bounded Q9 request over the Product's full
-// registered source set (CD-0200). Each source's watermark is verified
-// separately; an unreachable or stale source refuses the whole answer unless
-// the caller allows degradation, in which case the answer carries an explicit
-// omission per missing source and never reads as an authoritative negative.
-// Items merge under the global accepted ordering
-// (structured_match, completed_at desc, id, source). Single-source answers
-// retain their metadata and degraded rows (CD-0200 D3).
-func queryQ9Federated(ctx context.Context, db *sql.DB, req Q9Request, sources []KnowledgeHome, observedAt time.Time) (Q9Result, error) {
+func queryQ9Home(ctx context.Context, db *sql.DB, req Q9Request, home KnowledgeHome, observedAt time.Time) (Q9Result, error) {
 	var out Q9Result
 	limit, err := knowledgeLimit(req.Limit)
 	if err != nil {
@@ -925,37 +856,28 @@ func queryQ9Federated(ctx context.Context, db *sql.DB, req Q9Request, sources []
 		return out, err
 	}
 	tags := orderedStrings(nonEmptyStrings(req.Tags))
-	digest := knowledgeSourceSetDigest(sources)
+	digest := knowledgeSourceSetDigest([]KnowledgeHome{home})
 	var resume *knowledgeResumeKey
 	if req.Cursor != "" {
-		cursor, err := decodeFederatedKnowledgeCursor(req.Cursor, req, kinds, tags, digest)
+		cursor, err := decodeKnowledgeCursor(req.Cursor, req, kinds, tags, digest)
 		if err != nil {
 			return out, err
 		}
-		resume = &knowledgeResumeKey{MatchClass: cursor.MatchClass, CompletedAt: cursor.CompletedAt, ID: cursor.ID, HomeProjectID: cursor.HomeProjectID, HomeLocatorID: cursor.HomeLocatorID}
+		resume = &knowledgeResumeKey{MatchClass: cursor.MatchClass, CompletedAt: cursor.CompletedAt, ID: cursor.ID}
 	}
-	page := federatedKnowledgePage{
-		merged:     make([]KnowledgeItem, 0, limit),
-		watermarks: make([]KnowledgeSourceWatermark, 0, len(sources)),
-		omissions:  make([]string, 0),
+	page := knowledgeHomePage{
+		merged:    make([]KnowledgeItem, 0, limit),
+		omissions: make([]string, 0),
 	}
-	for _, source := range sources {
-		if err := page.readSource(ctx, db, req, source, len(sources), kinds, tags, limit, resume, &out); err != nil {
-			return out, err
-		}
+	if err := page.readHome(ctx, db, req, home, kinds, tags, limit, resume, &out); err != nil {
+		return out, err
 	}
-	merged, watermarks, omissions := page.merged, page.watermarks, page.omissions
-	degraded, demandFailed := page.degraded, page.demandFailed
-	sort.SliceStable(merged, func(i, j int) bool {
-		return knowledgeItemLess(merged[i], merged[j])
-	})
-	if len(merged) > limit {
-		merged = merged[:limit]
-	}
+	merged, omissions := page.merged, page.omissions
+	degraded := page.degraded
 	var cursor *string
 	if len(merged) == limit {
 		last := merged[len(merged)-1]
-		encoded, err := encodeFederatedKnowledgeCursor(federatedKnowledgeCursor{Version: 3, Product: req.Product, Project: req.Project, Domain: req.Domain, Text: req.Text, Kinds: kinds, Tags: tags, SourcesDigest: digest, HomeProjectID: last.HomeProjectID, HomeLocatorID: last.HomeLocatorID, MatchClass: last.MatchClass, CompletedAt: last.CompletedAt, ID: last.ID})
+		encoded, err := encodeKnowledgeCursor(knowledgeCursor{Version: 3, Product: req.Product, Project: req.Project, Domain: req.Domain, Text: req.Text, Kinds: kinds, Tags: tags, SourcesDigest: digest, HomeProjectID: last.HomeProjectID, HomeLocatorID: last.HomeLocatorID, MatchClass: last.MatchClass, CompletedAt: last.CompletedAt, ID: last.ID})
 		if err != nil {
 			return out, err
 		}
@@ -965,64 +887,47 @@ func queryQ9Federated(ctx context.Context, db *sql.DB, req Q9Request, sources []
 	if degraded {
 		authority = "degraded"
 	}
-	watermark := ""
-	if len(sources) == 1 {
-		watermark = watermarks[0].Watermark
-	}
+	watermark := page.watermark
 	meta := knowledgeWatermarkMeta("PM1.Q9", watermark, authority, observedAt)
 	meta.ResolvedScope = ResolvedScope{ProductID: req.Product, ProjectID: req.Project}
 	meta.Omissions = omissions
 	meta.NextCursor = cursor
 	out.ResultMeta = meta
 	out.Items = merged
-	out.IndexWatermark = watermarks[0].Watermark
-	if len(sources) > 1 {
-		out.SourceWatermarks = watermarks
-	} else if demandFailed {
-		// Demand degradation makes even a single affected watermark explicit.
-		out.SourceWatermarks = watermarks
-	}
+	out.IndexWatermark = watermark
 	return out, nil
 }
 
-type federatedKnowledgePage struct {
-	merged                 []KnowledgeItem
-	watermarks             []KnowledgeSourceWatermark
-	omissions              []string
-	degraded, demandFailed bool
+type knowledgeHomePage struct {
+	merged    []KnowledgeItem
+	watermark string
+	omissions []string
+	degraded  bool
 }
 
-func (page *federatedKnowledgePage) readSource(ctx context.Context, db *sql.DB, req Q9Request, source KnowledgeHome, sourceCount int, kinds, tags []string, limit int, resume *knowledgeResumeKey, out *Q9Result) error {
+func (page *knowledgeHomePage) readHome(ctx context.Context, db *sql.DB, req Q9Request, source KnowledgeHome, kinds, tags []string, limit int, resume *knowledgeResumeKey, out *Q9Result) error {
 	label := source.HomeProjectID + "/" + source.HomeLocatorID
 	scanned, authority, err := validateKnowledgeHomeForQueryCore(ctx, db, source, req.AllowDegraded, "PM1.Q9")
 	if err != nil {
-		return federatedSourceFailure(err, label)
+		return knowledgeHomeFailure(err, label)
 	}
 	verdict := scanned
 	if verdict == "" {
 		verdict = "unindexed"
 	}
 	if authority != "authoritative" {
-		if sourceCount > 1 && scanned == "" {
-			verdict = "unreachable"
-		}
 		page.degraded = true
-		if sourceCount == 1 {
-			page.omissions = append(page.omissions, "knowledge_index_lagging_or_unreachable")
-		} else {
-			out.SourceOmissions = append(out.SourceOmissions, KnowledgeSourceOmission{Kind: KnowledgeSourceDegraded, ProjectID: source.HomeProjectID, LocatorID: source.HomeLocatorID})
-		}
+		page.omissions = append(page.omissions, "knowledge_index_lagging_or_unreachable")
 	}
 	// A suppressed demand failure degrades the source through this same
 	// per-source path, naming the source and the cause; it never relabels
 	// a freshness verdict the source's own watermark already carries.
 	if cause := knowledgeDemandFailureCause(req, source); cause != "" {
-		page.demandFailed = true
 		page.degraded = true
 		authority = "degraded"
 		out.SourceOmissions = append(out.SourceOmissions, KnowledgeSourceOmission{Kind: KnowledgeSourceDemandFailed, ProjectID: source.HomeProjectID, LocatorID: source.HomeLocatorID, Cause: cause})
 	}
-	page.watermarks = append(page.watermarks, KnowledgeSourceWatermark{ProjectID: source.HomeProjectID, LocatorID: source.HomeLocatorID, Watermark: verdict, Authority: authority})
+	page.watermark = verdict
 	served := scanned
 	if scanned == "unreachable" {
 		// The reachability verdict is not a commit. A degraded query still
@@ -1035,19 +940,11 @@ func (page *federatedKnowledgePage) readSource(ctx context.Context, db *sql.DB, 
 		}
 	}
 	out.publicationReads = append(out.publicationReads, knowledgePublicationRead{home: source, commit: served})
-	if authority != "authoritative" && sourceCount > 1 {
-		return nil
-	}
 	if authority == "authoritative" {
 		if err := validateKnowledgeCoverageCore(ctx, db, source, scanned, kinds); err != nil {
 			return err
 		}
-		for _, omission := range knowledgeCoverageOmissions(ctx, db, source, scanned) {
-			if sourceCount > 1 {
-				omission = label + ":" + omission
-			}
-			page.omissions = append(page.omissions, omission)
-		}
+		page.omissions = append(page.omissions, knowledgeCoverageOmissions(ctx, db, source, scanned)...)
 	}
 	paged := req
 	paged.Cursor = ""
@@ -1065,30 +962,8 @@ func (page *federatedKnowledgePage) readSource(ctx context.Context, db *sql.DB, 
 	return nil
 }
 
-func knowledgeItemLess(a, b KnowledgeItem) bool {
-	if a.MatchClass != b.MatchClass {
-		return a.MatchClass < b.MatchClass
-	}
-	if a.CompletedAt != b.CompletedAt {
-		return a.CompletedAt > b.CompletedAt
-	}
-	if a.ID != b.ID {
-		return a.ID < b.ID
-	}
-	// CD-0200: two sources may hold the same law ID. The source identity
-	// breaks the tie, so the colliding records order deterministically
-	// and the continuation key below can name each one.
-	if a.HomeProjectID != b.HomeProjectID {
-		return a.HomeProjectID < b.HomeProjectID
-	}
-	return a.HomeLocatorID < b.HomeLocatorID
-}
-
 // knowledgeDemandFailureCause returns the cause recorded for this source's
-// suppressed demand, or "" when its demand succeeded. An unread registration
-// set marks every resolved source except the designated home unadmitted: a
-// recovered home-only resolution leaves no source to degrade, and the
-// answer's aggregate authority follows the per-source rule alone.
+// suppressed demand, or "" when its demand succeeded.
 func knowledgeDemandFailureCause(req Q9Request, source KnowledgeHome) string {
 	for _, failure := range req.DemandFailures {
 		if failure.ProjectID == source.HomeProjectID && failure.LocatorID == source.HomeLocatorID {
@@ -1098,16 +973,10 @@ func knowledgeDemandFailureCause(req Q9Request, source KnowledgeHome) string {
 			return failure.FailureKind
 		}
 	}
-	if req.RegistrationsUnread && !(source.HomeProjectID == req.Home.HomeProjectID && source.HomeLocatorID == req.Home.HomeLocatorID) {
-		return "registrations_unread"
-	}
 	return ""
 }
 
-// federatedSourceFailure names the source a federated refusal belongs to, so
-// an operator sees which registered source refused rather than a bare
-// authority verdict.
-func federatedSourceFailure(err error, label string) error {
+func knowledgeHomeFailure(err error, label string) error {
 	var failure *Failure
 	if failureAs(err, &failure) {
 		classified := *failure
@@ -1203,12 +1072,8 @@ func buildKnowledgeQueryForScope(req Q9Request, kinds, tags []string, limit int,
 	where = append(where, `(input.text = '' OR `+exactMatch+` OR (`+tokenTextMatch+`))`)
 	cursorWhere := ""
 	if resume != nil {
-		// The continuation key carries the record's source identity, so a
-		// colliding ID in two registered sources resumes past exactly the
-		// records already returned (CD-0200). For one source, the key's
-		// identity equals the query's own home.
-		cursorWhere = " WHERE (aw.match_class > ? OR (aw.match_class = ? AND (aw.completed_at < ? OR (aw.completed_at = ? AND (aw.id > ? OR (aw.id = ? AND (aw.home_project_id > ? OR (aw.home_project_id = ? AND aw.home_locator_id > ?))))))))"
-		args = append(args, resume.MatchClass, resume.MatchClass, resume.CompletedAt, resume.CompletedAt, resume.ID, resume.ID, resume.HomeProjectID, resume.HomeProjectID, resume.HomeLocatorID)
+		cursorWhere = " WHERE (aw.match_class > ? OR (aw.match_class = ? AND (aw.completed_at < ? OR (aw.completed_at = ? AND aw.id > ?))))"
+		args = append(args, resume.MatchClass, resume.MatchClass, resume.CompletedAt, resume.CompletedAt, resume.ID)
 	}
 	args = append(args, limit)
 	scopeSelect := `COALESCE((SELECT json_group_array(domain_id) FROM (` +

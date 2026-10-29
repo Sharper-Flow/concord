@@ -42,7 +42,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:2b96987cc5843b7d7cbf000e111178da235b88a304fc25d17d1a4b775b7aa477",
+  "sha256": "sha256:018a861135e3a658b15536fb4170d9939370a05a41668b39c2f2e289fdfe0a9d",
   "status": "accepted",
   "summary": "Defines bounded read tools including the durable knowledge surface.",
   "tags": [

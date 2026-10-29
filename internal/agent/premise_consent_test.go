@@ -128,7 +128,7 @@ func premiseConsentSnapshot(t *testing.T, s *store.Store) map[string]string {
 		"challenges": `SELECT challenge_ref,status,used_count FROM agent_approval_challenges ORDER BY challenge_ref`,
 		"approvals":  `SELECT approval_ref,used_count FROM agent_approvals ORDER BY approval_ref`,
 	}
-	for _, table := range []string{"effect_receipts", "workflow_instances", "workflow_contracts", "workflow_candidate_sets", "workflow_actors", "workflow_checkpoints", "workflow_external_conditions", "workflow_impact_edges", "workflow_impact_notices", "workflow_decision_records", "workflow_premise_confirmations"} {
+	for _, table := range []string{"effect_receipts", "workflow_instances", "workflow_contracts", "workflow_candidate_sets", "workflow_actors", "workflow_checkpoints", "workflow_impact_edges", "workflow_decision_records", "workflow_premise_confirmations"} {
 		queries[table] = fmt.Sprintf(`SELECT count(*) FROM %s`, table)
 	}
 	for key, query := range queries {

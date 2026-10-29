@@ -237,7 +237,7 @@ Complex agent workflows cannot fit into a single directed acyclic graph (DAG) wi
    - *How*: Prerequisites pin specific job revisions and output digests within a work item. [Readiness checks](internal/store/worker_jobs.go) verify dependencies before a worker receives an execution packet.
 4. **Architectural authority graph (Domains and specifications)**
    - *Why*: Tracks how specifications and codebases relate across multi-repository projects.
-   - *How*: Law relations model refinement, supersession, and conflict across specifications. Domain relations declare boundary dependencies, shared contracts, and replacements. Inspect the [knowledge model](internal/store/knowledge_manifest.go) and [federated law validation](internal/store/product_knowledge_source.go).
+   - *How*: Law relations model refinement, supersession, and conflict across specifications. Domain relations declare boundary dependencies, shared contracts, and replacements. Inspect the [knowledge model](internal/store/knowledge_manifest.go) and [law validation](internal/store/law_boundary.go).
 5. **Provenance graph (Evidence bindings)**
    - *Why*: Records who produced what without prematurely declaring work accepted.
    - *How*: [Evidence bindings](internal/store/workflow.go) tie immutable artifacts to specific producers, run timestamps, and watermark digests. Gathering evidence and evaluating acceptance remain decoupled operations.

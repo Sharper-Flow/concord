@@ -263,48 +263,6 @@ func TestContextContinuityUsesRegisteredPayloadAndExactCheckpointVersion(t *test
 	}
 }
 
-func TestContextContinuityUnresolvedFailureRequiresNoLaterCompletion(t *testing.T) {
-	t.Parallel()
-	for _, testCase := range []struct {
-		name        string
-		completed   bool
-		wantFailure bool
-	}{
-		{name: "failure followed by success is resolved", completed: true, wantFailure: false},
-		{name: "failure without completion remains pinned", completed: false, wantFailure: true},
-	} {
-		t.Run(testCase.name, func(t *testing.T) {
-			s := openTemp(t)
-			actor, version := continuityTestWorkflow(t, s, "continuity-failure-"+testCase.name[:3])
-			actorRef, err := WorkflowActorRef(actor)
-			if err != nil {
-				t.Fatal(err)
-			}
-			failure := workflowEventWithActor("failure", WorkflowActionFailed, "continuity-failure-"+testCase.name[:3], actorRef, map[string]any{
-				"work_id": "continuity-failure-" + testCase.name[:3], "expected_version": version, "resulting_version": version + 1,
-				"step_id": "proposal", "attempt_epoch": 1, "failure_kind": "timeout", "recoverable": false, "actor_ref": actorRef,
-			})
-			events := []Event{failure}
-			if testCase.completed {
-				events = append(events, workflowEventWithActor("completion", WorkflowActionCompleted, failure.SubjectID, actorRef, map[string]any{
-					"work_id": failure.SubjectID, "expected_version": version + 1, "resulting_version": version + 2,
-					"step_id": "proposal", "attempt_epoch": 1, "action_id": "record_proposal", "result_evidence_refs": []string{}, "changed_refs": []string{}, "actor_ref": actorRef,
-				}))
-			}
-			if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: events, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, failure.SubjectID): version}}); err != nil {
-				t.Fatal(err)
-			}
-			snapshot, err := ReadWorkflowContinuity(context.Background(), s, ContinuityRequest{Work: failure.SubjectID, Limit: 20})
-			if err != nil {
-				t.Fatal(err)
-			}
-			if (snapshot.UnresolvedFailure != nil) != testCase.wantFailure {
-				t.Fatalf("unresolved failure=%+v want=%v", snapshot.UnresolvedFailure, testCase.wantFailure)
-			}
-		})
-	}
-}
-
 func TestContextContinuitySummaryCannotPoisonPinnedProjection(t *testing.T) {
 	t.Parallel()
 	s := openTemp(t)

@@ -22,7 +22,6 @@ CREATE TABLE worker_job_revisions(work_id TEXT,job_id TEXT,revision INTEGER,corr
 CREATE TABLE workflow_member_groups(work_id TEXT,group_id TEXT,controller_actor_ref TEXT,base_subject TEXT,permission TEXT,review_ref TEXT,recorded_seq INTEGER,PRIMARY KEY(work_id,group_id));
 CREATE TABLE workflow_group_members(work_id TEXT,group_id TEXT,member_id TEXT,job_id TEXT,job_revision INTEGER,job_digest TEXT,project_id TEXT,actor_ref TEXT,confirmed INTEGER);
 CREATE TABLE work_size_assessments(event_id TEXT,work_id TEXT,sequence INTEGER,model_version INTEGER,size_class TEXT,inputs_json TEXT,footprint_json TEXT,recorded_at TEXT,effect_seq INTEGER,review_basis TEXT);
-CREATE TABLE work_size_overrides(work_id TEXT PRIMARY KEY,size_class TEXT);
 ` + workflowReviewFactsDDL); err != nil {
 		t.Fatal(err)
 	}

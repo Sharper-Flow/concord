@@ -269,27 +269,6 @@ func TestDomainShapeProjectionRejectsInvalidFactsAndRoots(t *testing.T) {
 	}
 }
 
-func TestDomainShapeProjectionRegisteredSourceRefusesFacts(t *testing.T) {
-	ctx := context.Background()
-	home := KnowledgeHome{HomeProjectID: "shape-home", HomeLocatorID: "shape-home-locator", HeadRef: "HEAD"}
-	source := KnowledgeHome{HomeProjectID: "shape-source", HomeLocatorID: "shape-source-locator", HeadRef: "HEAD"}
-	s, source := seedFederatedProduct(t, "shape-product", home, source, "SOURCE-LAW", ".concord/docs/decisions/CD-0902-source-law.md", "Source law")
-	before, err := s.ReadDomainShapeSnapshot(ctx, home, "shape-product")
-	if err != nil {
-		t.Fatal(err)
-	}
-	writeKnowledgeFile(t, source.RepoPath, knowledgeFactTreeDir+"fact.json", `{}`)
-	commitKnowledgeRepo(t, source.RepoPath, "source carries a fact")
-	err = s.RebuildKnowledgeIndex(ctx, source)
-	if err == nil || !strings.Contains(err.Error(), "registered source cannot carry facts") {
-		t.Fatal(err)
-	}
-	after, err := s.ReadDomainShapeSnapshot(ctx, home, "shape-product")
-	if err != nil || !reflect.DeepEqual(before, after) {
-		t.Fatal("source changed the designated shape", err)
-	}
-}
-
 func TestDomainShapeProjectionClearsRemovedFactsAndKeepsOtherHome(t *testing.T) {
 	s := openTemp(t)
 	ctx := context.Background()

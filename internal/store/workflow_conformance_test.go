@@ -127,7 +127,7 @@ func readWorkflowScenarioCorpus(t *testing.T) workflowScenarioCorpus {
 	if err := json.Unmarshal(raw, &corpus); err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"WF01-capture-late-outcome", "WF02-planning-requires-outcome", "WF04-weaker-delivery", "WF05-stronger-delivery", "WF13-verdict-actor-distinctness", "WF19-completion-one-transaction", "WF26-condition-actions-refused", "WF29-impact-notice-identity", "WF37-action-availability-before-register", "WF47-evidence-commit-binding", "WF48-lane-pipeline-typed-evidence", "WF50-one-conjunct-weaker"}
+	want := []string{"WF01-capture-late-outcome", "WF02-planning-requires-outcome", "WF04-weaker-delivery", "WF05-stronger-delivery", "WF13-verdict-actor-distinctness", "WF19-completion-one-transaction", "WF37-action-availability-before-register", "WF47-evidence-commit-binding", "WF48-lane-pipeline-typed-evidence", "WF50-one-conjunct-weaker"}
 	if len(corpus.Scenarios) != len(want) {
 		t.Fatalf("scenario count=%d, want %d", len(corpus.Scenarios), len(want))
 	}
@@ -173,7 +173,7 @@ func runWorkflowScenarioCase(t *testing.T, scenario workflowScenario) {
 func executeWorkflowScenario(t *testing.T, action string, setup workflowCorpusSetup, request workflowCorpusRequest) (workflowObservation, error) {
 	t.Helper()
 	switch action {
-	case "capture", "add_condition", "resolve_condition", "cancel_condition", "record_proposal", "approve_contract", "record_verdict", "complete", "accept_worker_result":
+	case "capture", "record_proposal", "approve_contract", "record_verdict", "complete", "accept_worker_result":
 	default:
 		return workflowObservation{}, fmt.Errorf("action %q is not in the current corpus action union", action)
 	}
@@ -267,12 +267,12 @@ func prepareWorkflowCorpusState(t *testing.T, setup workflowCorpusSetup, request
 	t.Helper()
 	ctx := t.Context()
 	workID, proof := setup.FixtureRefs.WorkItem, setup.CurrentState.ProofCase
-	actions := map[string]string{"planning_without_outcome": "approve_contract", "weaker_delivery": "complete", "satisfied_delivery": "complete", "implement_verdict": "record_verdict", "completion_rollback": "complete", "impact_notice_identity": "complete", "missing_definition": "record_proposal", "evidence_commit_mismatch": "complete", "lane_pipeline": "accept_worker_result", "one_conjunct_weaker": "complete"}
+	actions := map[string]string{"planning_without_outcome": "approve_contract", "weaker_delivery": "complete", "satisfied_delivery": "complete", "implement_verdict": "record_verdict", "completion_rollback": "complete", "missing_definition": "record_proposal", "evidence_commit_mismatch": "complete", "lane_pipeline": "accept_worker_result", "one_conjunct_weaker": "complete"}
 	if proof != "" {
 		if action, ok := actions[proof]; !ok || action != request.ActionID {
 			return nil, nil, fmt.Errorf("current fixture proof case %q does not prepare action %q", proof, request.ActionID)
 		}
-	} else if !slices.Contains([]string{"capture", "record_proposal", "add_condition", "resolve_condition", "cancel_condition"}, request.ActionID) {
+	} else if !slices.Contains([]string{"capture", "record_proposal"}, request.ActionID) {
 		return nil, nil, fmt.Errorf("current fixture action %q requires a proof case", request.ActionID)
 	}
 	registry := BuiltinWorkflowRegistry()
@@ -298,16 +298,13 @@ func prepareWorkflowCorpusState(t *testing.T, setup workflowCorpusSetup, request
 		if proof == "missing_definition" {
 			registry = NewWorkflowDefinitionRegistry()
 		}
-	case "satisfied_delivery", "completion_rollback", "impact_notice_identity", "evidence_commit_mismatch":
+	case "satisfied_delivery", "completion_rollback", "evidence_commit_mismatch":
 		f := qCurrentAcceptance(t, workID, "review")
 		s, owner = f.store, f.owner
 		if err := f.run(ctx, "confirm_premise", "corpus-confirm", readWorkVersion(t, s, workID), nil, nil); err != nil {
 			return nil, nil, err
 		}
 		bindCompletionClosure(t, s, workID, owner)
-		if proof == "completion_rollback" || proof == "impact_notice_identity" {
-			prepareCorpusImpactDependent(t, s, workID, registered)
-		}
 		if proof == "completion_rollback" {
 			if _, err := s.db.ExecContext(ctx, `CREATE TRIGGER corpus_completion_conflict BEFORE INSERT ON effect_receipts WHEN NEW.kind='workflow.completed' BEGIN SELECT RAISE(ABORT,'injected completion append conflict'); END`); err != nil {
 				return nil, nil, err
@@ -424,31 +421,6 @@ func prepareWorkflowCorpusState(t *testing.T, setup workflowCorpusSetup, request
 	return s, registry, nil
 }
 
-func prepareCorpusImpactDependent(t *testing.T, s *Store, source string, registered RegisteredDefinition) {
-	t.Helper()
-	ctx := t.Context()
-	workID := source + "-dependent"
-	actor := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/dependent", SessionRef: "session/" + workID, ActorClass: ActorAgent}
-	if err := createCorpusCurrentWorkflow(ctx, s, workID, registered, actor, nil); err != nil {
-		t.Fatal(err)
-	}
-	version := readWorkVersion(t, s, workID)
-	for _, action := range []string{"record_proposal", "record_alignment"} {
-		version = issue31WorkflowAction(t, s, workID, version, action, workID+":"+action, actor)
-	}
-	binding := corpusArchitectureBinding()
-	var root string
-	if err := s.db.QueryRowContext(ctx, `SELECT root_domain_id FROM domain_registries WHERE product_id='product'`).Scan(&root); err != nil {
-		t.Fatal(err)
-	}
-	binding["home_domain_id"], binding["affected_domain_ids"] = root, []string{root}
-	version = issue31WorkflowActionWithPayload(t, s, workID, version, "approve_contract", workID+":approve", actor, mustJSONValue(map[string]any{"architecture_binding": binding, "spec_mandate": []string{}, "law_modifies": []string{}}))
-	version = issue31WorkflowAction(t, s, workID, version, "record_design", workID+":design", actor)
-	if err := runVerdictActionAs(t, s, workID, "declare_impact", mustJSONValue(map[string]any{"target_work_id": source, "edge_id": "edge:corpus-dependent", "edge_kind": "depends_on", "edge_class": "hard", "severity": "informational"}), version, actor); err != nil {
-		t.Fatal(err)
-	}
-}
-
 func workflowCorpusContractBytes(ctx context.Context, s *Store, workID string) ([]byte, error) {
 	projection, err := ReadWorkflowProjection(ctx, s, WorkflowReadRequest{WorkID: workID})
 	if err != nil {
@@ -468,7 +440,6 @@ func TestCorpusCurrentProofPreparationProfiles(t *testing.T) {
 		{"satisfied_delivery", "release", "complete", "", false},
 		{"implement_verdict", "acceptance", "record_verdict", "unauthorized", true},
 		{"completion_rollback", "release", "complete", "operation_conflict", false},
-		{"impact_notice_identity", "release", "complete", "", false},
 		{"missing_definition", "proposal", "record_proposal", "invariant_violation", false},
 		{"evidence_commit_mismatch", "release", "complete", "missing_evidence", false},
 		{"lane_pipeline", "execution", "accept_worker_result", "", false},
@@ -611,7 +582,7 @@ func TestCorpusCurrentRequestRejectsActorScopeAndActionMutations(t *testing.T) {
 			case "definition":
 				scenario.Request.DefinitionRef = "workflow.research"
 			case "action":
-				scenario.Request.ActionID = "resolve_condition"
+				scenario.Request.ActionID = "approve_contract"
 			case "proof_case":
 				scenario.Setup.CurrentState.ProofCase = "satisfied_delivery"
 			}
@@ -690,7 +661,6 @@ func TestCorpusCurrentStateChangeObservationUsesDurableRows(t *testing.T) {
 		fields    map[string]any
 		unchanged bool
 	}{
-		{"add_condition", map[string]any{"payload": map[string]any{"condition_id": "condition:probe"}}, true},
 		{"record_proposal", map[string]any{"problem": "The bounded problem.", "affected": []string{"The fixture."}, "stakes": "The bounded stakes.", "user_outcomes": []string{"The checked result."}}, false},
 	} {
 		t.Run(tc.action, func(t *testing.T) {
@@ -965,11 +935,6 @@ func observeWorkflowStore(ctx context.Context, s *Store, workID string, beforeSe
 	if terminal != nil || terminalTime.Valid || completedAt.Valid {
 		work["terminal_metadata"] = map[string]any{"record": terminal, "terminal_time": terminalTime.String, "completed_at": completedAt.String}
 	}
-	conditions := map[string]any{}
-	for _, condition := range projection.Conditions {
-		conditions[condition.ID] = map[string]any{"state": condition.State}
-	}
-	observation.State["condition"] = conditions
 	workers := map[string]any{}
 	rows, err := s.db.QueryContext(ctx, `SELECT attempt_id,lane_id,lifecycle_state,COALESCE(json_extract(terminal_payload,'$.evidence'),'[]') FROM worker_attempts WHERE work_id=? ORDER BY attempt_id`, workID)
 	if err != nil {
@@ -996,27 +961,6 @@ func observeWorkflowStore(ctx context.Context, s *Store, workID string, beforeSe
 		return observation, err
 	}
 	observation.State["workers"] = workers
-	notices := map[string]any{}
-	rows, err = s.db.QueryContext(ctx, `SELECT notice_id,target_work_id,severity FROM workflow_impact_notices WHERE source_work_id=? ORDER BY notice_id`, workID)
-	if err != nil {
-		return observation, err
-	}
-	for rows.Next() {
-		var id, target, severity string
-		if err := rows.Scan(&id, &target, &severity); err != nil {
-			_ = rows.Close()
-			return observation, err
-		}
-		notices[id] = map[string]any{"target_work_id": target, "severity": severity}
-	}
-	if err := rows.Err(); err != nil {
-		_ = rows.Close()
-		return observation, err
-	}
-	if err := rows.Close(); err != nil {
-		return observation, err
-	}
-	observation.State["impact_notices"] = notices
 	rows, err = s.DatabaseForTesting().QueryContext(ctx, `SELECT r.kind,COALESCE(d.action_id,''),COALESCE(d.attempt_id,''),r.actor FROM effect_receipts r LEFT JOIN worker_attempt_dispositions d ON d.work_id=r.subject_id AND d.event_id=r.event_id WHERE r.subject_type=? AND r.subject_id=? AND r.effect_seq>? ORDER BY r.effect_seq`, SubjectWorkItem, workID, beforeSeq)
 	if err != nil {
 		return observation, err

@@ -22,36 +22,12 @@ import (
 	"github.com/sharper-flow/concord/internal/store/storetest"
 )
 
-// demandHomeWork and demandSourceWork name the synthetic works whose contract
-// history each fixture manifest declares.
-const (
-	demandHomeWork   = "work-0f1e2d3c4b5a6978"
-	demandSourceWork = "work-aabbccdd11223344"
-)
+const demandHomeWork = "work-0f1e2d3c4b5a6978"
 
-// demandSearchHarness builds one Product whose designated home — and, when
-// withSource is set, one registered source — each carry a derived lesson and a
-// legislated decision. The decisions declare the synthetic works above, which
-// the store can later learn with a held negative; Git never moves, so only the
-// demand path can see the change.
-func demandSearchHarness(t *testing.T, withSource bool) (*store.Store, store.KnowledgeHome, store.KnowledgeHome) {
+func demandSearchHarness(t *testing.T, home store.KnowledgeHome) (*store.Store, store.KnowledgeHome) {
 	t.Helper()
-	source := store.KnowledgeHome{}
-	if withSource {
-		source = store.KnowledgeHome{HomeProjectID: "d-src", HomeLocatorID: "d-srcl"}
-	}
-	return demandSearchHarnessWithSources(t, store.KnowledgeHome{HomeProjectID: "d-home", HomeLocatorID: "d-loc"}, source)
-}
-
-func demandSearchHarnessWithSources(t *testing.T, home, source store.KnowledgeHome) (*store.Store, store.KnowledgeHome, store.KnowledgeHome) {
-	t.Helper()
-	withSource := source.HomeProjectID != ""
-	home.RepoPath = initDemandRepo(t, "home", demandHomeWork, true)
+	home.RepoPath = initDemandRepo(t, "home", demandHomeWork)
 	home.HeadRef = "HEAD"
-	if withSource {
-		source.RepoPath = initDemandRepo(t, "source", demandSourceWork, false)
-		source.HeadRef = "HEAD"
-	}
 	s, err := storetest.Open(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -70,19 +46,11 @@ func demandSearchHarnessWithSources(t *testing.T, home, source store.KnowledgeHo
 		}
 	}
 	seed(home.HomeProjectID, home.HomeLocatorID, home.RepoPath)
-	if withSource {
-		seed(source.HomeProjectID, source.HomeLocatorID, source.RepoPath)
-	}
 	if _, err := db.Exec(`INSERT INTO products(id,display_name,stage_maturity,stage_audience_commitment,version,created_at,updated_at) VALUES('demand-product','Demand product','prototype','operator_only',1,'now','now')`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := db.Exec(`INSERT INTO product_knowledge_homes(product_id,project_id,locator_id) VALUES('demand-product',?,?)`, home.HomeProjectID, home.HomeLocatorID); err != nil {
 		t.Fatal(err)
-	}
-	if withSource {
-		if _, err := db.Exec(`INSERT INTO product_knowledge_sources(product_id,project_id,locator_id,registered_at) VALUES('demand-product',?,?,'now')`, source.HomeProjectID, source.HomeLocatorID); err != nil {
-			t.Fatal(err)
-		}
 	}
 	if _, err := db.Exec(`DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
@@ -91,19 +59,12 @@ func demandSearchHarnessWithSources(t *testing.T, home, source store.KnowledgeHo
 	if err := s.RebuildKnowledgeIndex(ctx, home); err != nil {
 		t.Fatal(err)
 	}
-	if withSource {
-		if err := s.RebuildKnowledgeIndex(ctx, source); err != nil {
-			t.Fatal(err)
-		}
-	}
-	return s, home, source
+	return s, home
 }
 
 // initDemandRepo lays one committed lesson and one committed legislated
-// decision whose authority names the given synthetic work id. Only the
-// shared-law home carries the Domain registry; a registered source's manifest
-// omits it (CD-0200).
-func initDemandRepo(t *testing.T, name, workID string, withRegistry bool) string {
+// decision whose authority names the given synthetic work id.
+func initDemandRepo(t *testing.T, name, workID string) string {
 	t.Helper()
 	repo := t.TempDir()
 	lessonPath := ".concord/docs/lessons/demand-" + name + ".md"
@@ -139,14 +100,12 @@ func initDemandRepo(t *testing.T, name, workID string, withRegistry bool) string
 	for key, value := range manifest {
 		encoded[key] = value
 	}
-	if withRegistry {
-		encoded["domain_registry"] = map[string]any{
-			"schema_version": "1.0", "product_key": "demand-fixture", "root_domain_id": "product-root:demand-fixture",
-			"domains": []any{
-				map[string]any{"domain_id": "product-root:demand-fixture", "name": "Demand fixture", "purpose": "fixture registry", "status": "current", "architecture_relations": []any{}},
-				map[string]any{"domain_id": "fixture-law", "name": "fixture-law", "purpose": "fixture law home", "parent_domain_id": "product-root:demand-fixture", "status": "current", "architecture_relations": []any{}},
-			},
-		}
+	encoded["domain_registry"] = map[string]any{
+		"schema_version": "1.0", "product_key": "demand-fixture", "root_domain_id": "product-root:demand-fixture",
+		"domains": []any{
+			map[string]any{"domain_id": "product-root:demand-fixture", "name": "Demand fixture", "purpose": "fixture registry", "status": "current", "architecture_relations": []any{}},
+			map[string]any{"domain_id": "fixture-law", "name": "fixture-law", "purpose": "fixture law home", "parent_domain_id": "product-root:demand-fixture", "status": "current", "architecture_relations": []any{}},
+		},
 	}
 	manifestBytes, err := json.Marshal(encoded)
 	if err != nil {
@@ -158,15 +117,6 @@ func initDemandRepo(t *testing.T, name, workID string, withRegistry bool) string
 	}
 	if err := pm1fixture.WriteKnowledgeShards(repo, seed); err != nil {
 		t.Fatal(err)
-	}
-	if !withRegistry {
-		// The zero-value DomainRegistry field marshals with the key present,
-		// so WriteKnowledgeShards writes an empty registry shard. A registered
-		// source's manifest must carry none: remove it, mirroring the
-		// source-role fixtures the store tests write.
-		if err := os.Remove(filepath.Join(repo, ".concord/docs/knowledge/domain-registry.json")); err != nil && !os.IsNotExist(err) {
-			t.Fatal(err)
-		}
 	}
 	run := func(args ...string) {
 		t.Helper()
@@ -202,7 +152,7 @@ func demandContentHash(content string) string {
 // seedDemandHeldNegative teaches the store a work whose history is a held
 // negative: the declared work exists and carries no approved contract. No Git
 // content moves.
-func seedDemandHeldNegative(t *testing.T, s *store.Store, workID string) {
+func seedDemandHeldNegative(t *testing.T, s *store.Store) {
 	t.Helper()
 	db := s.DatabaseForTesting()
 	if _, err := db.Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
@@ -213,7 +163,7 @@ func seedDemandHeldNegative(t *testing.T, s *store.Store, workID string) {
 			t.Errorf("remove fold guard: %v", err)
 		}
 	}()
-	if _, err := db.Exec(`INSERT INTO work_items(id,kind,title,lifecycle,priority,version,created_at,updated_at) VALUES(?,'task','Demand fixture work','completed',1,1,'now','now')`, workID); err != nil {
+	if _, err := db.Exec(`INSERT INTO work_items(id,kind,title,lifecycle,priority,version,created_at,updated_at) VALUES(?,'task','Demand fixture work','completed',1,1,'now','now')`, demandHomeWork); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -231,9 +181,9 @@ func searchDemand(t *testing.T, s *store.Store, allowDegraded bool) agentcontrac
 
 func TestKnowledgeSearchHeldNegativeDemandRefusesWithoutDegraded(t *testing.T) {
 	t.Parallel()
-	s, _, _ := demandSearchHarness(t, false)
+	s, _ := demandSearchHarness(t, store.KnowledgeHome{HomeProjectID: "d-home", HomeLocatorID: "d-loc"})
 	defer s.Close()
-	seedDemandHeldNegative(t, s, demandHomeWork)
+	seedDemandHeldNegative(t, s)
 	response := searchDemand(t, s, false)
 	if response.Outcome != agentcontract.OutcomeError || response.Error == nil {
 		t.Fatalf("a held negative must refuse the strict search, got %+v", response)
@@ -242,9 +192,9 @@ func TestKnowledgeSearchHeldNegativeDemandRefusesWithoutDegraded(t *testing.T) {
 
 func TestKnowledgeSearchHeldNegativeDemandDegradesWithAllowDegraded(t *testing.T) {
 	t.Parallel()
-	s, _, _ := demandSearchHarness(t, false)
+	s, _ := demandSearchHarness(t, store.KnowledgeHome{HomeProjectID: "d-home", HomeLocatorID: "d-loc"})
 	defer s.Close()
-	seedDemandHeldNegative(t, s, demandHomeWork)
+	seedDemandHeldNegative(t, s)
 	response := searchDemand(t, s, true)
 	if response.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("the suppressed demand must degrade, not fail: %+v", response)
@@ -256,81 +206,13 @@ func TestKnowledgeSearchHeldNegativeDemandDegradesWithAllowDegraded(t *testing.T
 		"project_id": "d-home", "locator": "d-loc", "cause": "invalid_note_proof",
 	})
 	var payload struct {
-		Items            []map[string]any `json:"items"`
-		SourceWatermarks []map[string]any `json:"source_watermarks"`
-	}
-	if err := json.Unmarshal(response.Result, &payload); err != nil {
-		t.Fatal(err)
-	}
-	if len(payload.Items) == 0 {
-		t.Fatal("a single-source answer keeps its degraded rows")
-	}
-	if len(payload.SourceWatermarks) != 1 || payload.SourceWatermarks[0]["authority"] != "degraded" {
-		t.Fatalf("the affected source watermark must be explicit: %v", payload.SourceWatermarks)
-	}
-}
-
-func TestKnowledgeSearchMultiSourceSkipsDemandFailedSourceItems(t *testing.T) {
-	t.Parallel()
-	s, _, source := demandSearchHarness(t, true)
-	defer s.Close()
-	seedDemandHeldNegative(t, s, demandHomeWork)
-	response := searchDemand(t, s, true)
-	if response.Outcome != agentcontract.OutcomeOK || response.Authority != "degraded" {
-		t.Fatalf("the federated answer must degrade: outcome=%v authority=%q", response.Outcome, response.Authority)
-	}
-	assertKnowledgeNotice(t, response.Omissions, "knowledge_source_demand_failed", map[string]any{
-		"project_id": "d-home", "locator": "d-loc", "cause": "invalid_note_proof",
-	})
-	var payload struct {
-		Items            []map[string]any `json:"items"`
-		SourceWatermarks []map[string]any `json:"source_watermarks"`
-	}
-	if err := json.Unmarshal(response.Result, &payload); err != nil {
-		t.Fatal(err)
-	}
-	if len(payload.Items) == 0 {
-		t.Fatal("the demand-failed home's items must be skipped, not every item")
-	}
-	for _, item := range payload.Items {
-		if item["home_project_id"] != source.HomeProjectID {
-			t.Fatalf("only the answered source's items survive: %#v", payload.Items)
-		}
-	}
-	bySource := map[string]string{}
-	for _, mark := range payload.SourceWatermarks {
-		bySource[mark["project_id"].(string)] = mark["authority"].(string)
-	}
-	if bySource["d-home"] != "degraded" || bySource["d-src"] != "authoritative" {
-		t.Fatalf("per-source authority must follow the demand outcomes: %v", bySource)
-	}
-}
-
-func TestKnowledgeSearchMultiSourceKeepsHomeWhenSourceDemandFailed(t *testing.T) {
-	t.Parallel()
-	s, home, _ := demandSearchHarness(t, true)
-	defer s.Close()
-	seedDemandHeldNegative(t, s, demandSourceWork)
-	response := searchDemand(t, s, true)
-	if response.Outcome != agentcontract.OutcomeOK || response.Authority != "degraded" {
-		t.Fatalf("the federated answer must degrade when a source demand fails: outcome=%v authority=%q", response.Outcome, response.Authority)
-	}
-	assertKnowledgeNotice(t, response.Omissions, "knowledge_source_demand_failed", map[string]any{
-		"project_id": "d-src", "locator": "d-srcl", "cause": "invalid_note_proof",
-	})
-	var payload struct {
 		Items []map[string]any `json:"items"`
 	}
 	if err := json.Unmarshal(response.Result, &payload); err != nil {
 		t.Fatal(err)
 	}
 	if len(payload.Items) == 0 {
-		t.Fatal("the home's items must survive a failed source demand")
-	}
-	for _, item := range payload.Items {
-		if item["home_project_id"] != home.HomeProjectID {
-			t.Fatalf("the failed source's items must be skipped: %#v", payload.Items)
-		}
+		t.Fatal("a single-source answer keeps its degraded rows")
 	}
 }
 
@@ -346,9 +228,9 @@ func assertKnowledgeNotice(t *testing.T, notices []agentcontract.Notice, kind st
 
 func TestKnowledgeSearchDemandFailureNoticeMarshalsWithRealisticIdentifiers(t *testing.T) {
 	t.Parallel()
-	s, home, _ := demandSearchHarnessWithSources(t, store.KnowledgeHome{HomeProjectID: "concord", HomeLocatorID: "canonical-path"}, store.KnowledgeHome{})
+	s, home := demandSearchHarness(t, store.KnowledgeHome{HomeProjectID: "concord", HomeLocatorID: "canonical-path"})
 	defer s.Close()
-	seedDemandHeldNegative(t, s, demandHomeWork)
+	seedDemandHeldNegative(t, s)
 	response := searchDemand(t, s, true)
 	if response.Outcome != agentcontract.OutcomeOK || response.Authority != agentcontract.AuthorityDegraded {
 		t.Fatalf("suppressed demand must answer degraded: %+v", response)
@@ -361,24 +243,50 @@ func TestKnowledgeSearchDemandFailureNoticeMarshalsWithRealisticIdentifiers(t *t
 	})
 }
 
-func TestKnowledgeSearchDegradedSourceNoticeMarshalsWithLongLocator(t *testing.T) {
+func TestKnowledgeSearchDemandNoticeMarshalsWithLongLocator(t *testing.T) {
 	t.Parallel()
-	s, _, source := demandSearchHarnessWithSources(t,
-		store.KnowledgeHome{HomeProjectID: "d-home", HomeLocatorID: "d-loc"},
-		store.KnowledgeHome{HomeProjectID: "d-src", HomeLocatorID: "canonical-" + strings.Repeat("x", 80)})
+	s, source := demandSearchHarness(t, store.KnowledgeHome{HomeProjectID: "d-home", HomeLocatorID: "canonical-" + strings.Repeat("x", 80)})
 	defer s.Close()
-	// This repository belongs to the temporary synthetic fixture only.
-	if err := os.RemoveAll(source.RepoPath); err != nil {
-		t.Fatal(err)
-	}
+	seedDemandHeldNegative(t, s)
 	response := searchDemand(t, s, true)
 	if response.Outcome != agentcontract.OutcomeOK || response.Authority != agentcontract.AuthorityDegraded {
-		t.Fatalf("unreachable source must answer degraded: %+v", response)
+		t.Fatalf("suppressed demand must answer degraded: %+v", response)
 	}
 	if _, err := json.Marshal(response); err != nil {
 		t.Fatalf("long-locator degraded source does not marshal: %v", err)
 	}
-	assertKnowledgeNotice(t, response.Omissions, "knowledge_source_degraded", map[string]any{
-		"project_id": source.HomeProjectID, "locator": source.HomeLocatorID,
+	assertKnowledgeNotice(t, response.Omissions, "knowledge_source_demand_failed", map[string]any{
+		"project_id": source.HomeProjectID, "locator": source.HomeLocatorID, "cause": "invalid_note_proof",
 	})
+}
+
+func TestKnowledgeSearchUnreachableHomeKeepsDegradedCachedRows(t *testing.T) {
+	t.Parallel()
+	s, home := demandSearchHarness(t, store.KnowledgeHome{HomeProjectID: "d-home", HomeLocatorID: "canonical-" + strings.Repeat("x", 80)})
+	defer s.Close()
+	if err := os.RemoveAll(home.RepoPath); err != nil {
+		t.Fatal(err)
+	}
+	response := searchDemand(t, s, true)
+	if response.Outcome != agentcontract.OutcomeOK || response.Authority != agentcontract.AuthorityDegraded {
+		t.Fatalf("unreachable home must answer degraded: %+v", response)
+	}
+	if _, err := json.Marshal(response); err != nil {
+		t.Fatalf("unreachable home does not marshal: %v", err)
+	}
+	assertKnowledgeNotice(t, response.Omissions, "knowledge_index_lagging_or_unreachable", nil)
+	for _, notice := range response.Omissions {
+		if notice.Kind == "knowledge_source_demand_failed" {
+			t.Fatalf("unreachable home fabricated a failed demand: %+v", notice)
+		}
+	}
+	var payload struct {
+		Items []map[string]any `json:"items"`
+	}
+	if err := json.Unmarshal(response.Result, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if len(payload.Items) == 0 {
+		t.Fatal("unreachable home lost its cached rows")
+	}
 }

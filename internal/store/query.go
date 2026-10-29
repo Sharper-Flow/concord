@@ -201,13 +201,12 @@ type WorkItem struct {
 	Size         *WorkSizeSummary      `json:"size,omitempty"`
 }
 
-// WorkSizeSummary reports the current model decision and governing operator size.
+// WorkSizeSummary reports the current model decision.
 type WorkSizeSummary struct {
-	Size         WorkSize  `json:"size"`
-	ModelSize    WorkSize  `json:"model_size"`
-	OperatorSize *WorkSize `json:"operator_size,omitempty"`
-	ModelVersion int       `json:"model_version"`
-	RecordedAt   string    `json:"recorded_at"`
+	Size         WorkSize `json:"size"`
+	ModelSize    WorkSize `json:"model_size"`
+	ModelVersion int      `json:"model_version"`
+	RecordedAt   string   `json:"recorded_at"`
 }
 
 type Q4Result struct {
@@ -866,7 +865,7 @@ func readWorkSizeSummary(ctx context.Context, q queryer, workID string) (*WorkSi
 	if err != nil || !ok {
 		return nil, err
 	}
-	return &WorkSizeSummary{Size: decision.Effective, ModelSize: decision.Model.Size, OperatorSize: decision.OperatorSize, ModelVersion: decision.Model.ModelVersion, RecordedAt: decision.Model.RecordedAt}, nil
+	return &WorkSizeSummary{Size: decision.Effective, ModelSize: decision.Model.Size, ModelVersion: decision.Model.ModelVersion, RecordedAt: decision.Model.RecordedAt}, nil
 }
 
 // decodeRecordedIntent projects the intent fields a carrying revision needs

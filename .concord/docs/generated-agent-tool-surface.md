@@ -1,7 +1,7 @@
 # Generated Concord agent tool surface
 
-Manifest digest: `sha256:27c3bf34922a120a01cf9ac30f7a5cd6b5317a94d40f9f6a5fefc9a959dbb225`
-Payload schema digest: `sha256:a8acd860168f18bb9c60905d69539be4b7af6ae7de2b90be2d5f8471f89d87d2`
+Manifest digest: `sha256:44ad3f8b1ab2c2cce1d32609428efbaedbf5a92286d514536c86485c0e7bcabd`
+Payload schema digest: `sha256:b9fb13a8c7af0db460dbf553754d436dd4c5253abab8ecfbbb52a3afb6f5f84e`
 Envelope schema: `1.0`
 
 | Operation | Kind | Query | Capability | Consequence | Availability |
@@ -14,7 +14,6 @@ Envelope schema: `1.0`
 | `concord_work_browse.blocked` | `read` | `PM1.Q4` | `product_read` | `read` | `always` |
 | `concord_work_browse.ready` | `read` | `PM1.Q5` | `product_read` | `read` | `always` |
 | `concord_work_browse.scope` | `read` | `PM1.Q6` | `product_read` | `read` | `always` |
-| `concord_work_browse.resource_claims` | `read` | `PM1.Q13` | `product_read` | `read` | `always` |
 | `concord_work_browse.messages` | `read` | `PM1.Q14` | `product_read` | `read` | `always` |
 | `concord_work_browse.worktree_audit` | `read` | `PM1.Q16` | `product_read` | `read` | `always` |
 | `concord_work_browse.worktree_inspect` | `read` | `CD-0096.R1` | `product_read` | `read` | `always` |
@@ -54,8 +53,6 @@ Envelope schema: `1.0`
 | `concord_work_transition.worktree_destroy` | `mutation` | `—` | `work_transition` | `lifecycle` | `always` |
 | `concord_work_relate.set_memberships` | `mutation` | `—` | `work_relate` | `scope` | `always` |
 | `concord_work_relate.resolve_overlap` | `mutation` | `—` | `work_relate` | `relation` | `always` |
-| `concord_work_relate.resource_claim` | `mutation` | `—` | `work_relate` | `claim` | `always` |
-| `concord_work_relate.resource_release` | `mutation` | `—` | `work_relate` | `claim` | `always` |
 | `concord_work_relate.message_send` | `mutation` | `—` | `work_relate` | `relation` | `always` |
 | `concord_work_relate.message_withdraw` | `mutation` | `—` | `work_relate` | `relation` | `always` |
 | `concord_work_compact.publish` | `mutation` | `—` | `work_compact` | `publication` | `always` |

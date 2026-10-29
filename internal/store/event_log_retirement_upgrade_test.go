@@ -63,7 +63,7 @@ func retirementUpgradeFixture(t *testing.T) (*sql.DB, string) {
 	for _, id := range []string{"work-upgrade-from", "work-upgrade-to"} {
 		retirementUpgradeExec(t, db, `INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate) VALUES(?,1,'Preserve current rows','internal_sqlite','[]','[]',?,?,'[]')`, id, retirementUpgradeTime, actor)
 	}
-	for i, kind := range []string{EventExternalObservationCaptured, EventExternalObservationVerified, "workflow.overlap_resolved", "workflow.contract_superseded", "work.size_overridden"} {
+	for i, kind := range []string{EventExternalObservationCaptured, EventExternalObservationVerified, "workflow.overlap_resolved", "workflow.contract_superseded", "work.updated"} {
 		seq := []int{11, 13, 17, 19, 23}[i]
 		retirementUpgradeEnvelope(t, db, seq, fmt.Sprintf("event-upgrade-%d", i), kind)
 	}
@@ -71,7 +71,6 @@ func retirementUpgradeFixture(t *testing.T) (*sql.DB, string) {
 	retirementUpgradeExec(t, db, `INSERT INTO external_observations(observation_id,work_id,subject_kind,subject_ref,capture_method,captured_at,reporting_authority_ref,subject_digest,observed_universe,freshness_policy_ref,divergence_policy_ref,verification_state,verification_method,verified_at,verifying_authority_ref,verification_result,verification_omissions,created_event_seq,verified_event_seq) VALUES('xobs:upgrade','work-upgrade-from','git_position','synthetic-subject','trusted_client_report',?,'authority-capture',?,'{ "coverage": "complete", "refs": ["aa", "bb"] }','freshness-upgrade','divergence-upgrade','verified','git_probe',?,'authority-verify','matched','[ "omitted-aa" ]',11,13)`, retirementUpgradeTime, "sha256:"+strings.Repeat("b", 64), retirementUpgradeTime)
 	retirementUpgradeExec(t, db, `INSERT INTO workflow_overlap_resolutions VALUES('resolution-upgrade',17,'product-upgrade','work-upgrade-from','work-upgrade-to',1,1,'compatible_with','Preserve reason: café\nsecond line','',?,19)`, retirementUpgradeTime)
 	retirementUpgradeExec(t, db, `INSERT INTO work_size_assessments(event_id,work_id,sequence,model_version,size_class,inputs_json,footprint_json,recorded_at) VALUES('assessment-upgrade','work-upgrade-from',1,1,'small','{}','{}',?)`, retirementUpgradeTime)
-	retirementUpgradeExec(t, db, `INSERT INTO work_size_overrides VALUES('work-upgrade-from','event-upgrade-4',1,'larger',?)`, retirementUpgradeTime)
 	retirementUpgradeExec(t, db, `DELETE FROM fold_guard`)
 	retirementUpgradeExec(t, db, `INSERT INTO agent_installation_keys(key_name,key_bytes,created_at) VALUES('cursor',?,?)`, []byte(strings.Repeat("k", 32)), retirementUpgradeTime)
 	retirementUpgradeHealthy(t, db)
@@ -174,7 +173,7 @@ func retirementUpgradeMigrate(t *testing.T, db *sql.DB) {
 
 func TestEventLogRetirementUpgradePreservesCurrentRows(t *testing.T) {
 	db, path := retirementUpgradeFixture(t)
-	tables := []string{"external_observations", "workflow_overlap_resolutions", "work_size_overrides"}
+	tables := []string{"external_observations", "workflow_overlap_resolutions"}
 	before := make(map[string][][]any)
 	indexes := make(map[string][][]any)
 	indexColumns := make(map[string][][]any)
@@ -206,7 +205,7 @@ func TestEventLogRetirementUpgradePreservesCurrentRows(t *testing.T) {
 		if got := retirementUpgradeRows(t, db, `SELECT name,"unique",origin,partial FROM pragma_index_list(?) ORDER BY name`, table); !reflect.DeepEqual(got, indexes[table]) {
 			t.Errorf("%s indexes changed: before=%v after=%v", table, indexes[table], got)
 		}
-		for _, operation := range []string{"INSERT INTO " + table + " SELECT * FROM " + table, "UPDATE " + table + " SET " + map[string]string{"external_observations": "subject_ref=subject_ref", "workflow_overlap_resolutions": "reason=reason", "work_size_overrides": "size_class=size_class"}[table], "DELETE FROM " + table} {
+		for _, operation := range []string{"INSERT INTO " + table + " SELECT * FROM " + table, "UPDATE " + table + " SET " + map[string]string{"external_observations": "subject_ref=subject_ref", "workflow_overlap_resolutions": "reason=reason"}[table], "DELETE FROM " + table} {
 			if _, err := db.ExecContext(t.Context(), operation); err == nil || !strings.Contains(err.Error(), "write-seam-only") {
 				t.Errorf("unguarded %s = %v, want write-seam-only refusal", operation, err)
 			}
@@ -220,7 +219,6 @@ func TestEventLogRetirementUpgradePreservesCurrentRows(t *testing.T) {
 	for table, want := range map[string][][]any{
 		"external_observations":        {{"created_event_seq", "effect_receipts", "effect_seq", "RESTRICT"}, {"verified_event_seq", "effect_receipts", "effect_seq", "RESTRICT"}},
 		"workflow_overlap_resolutions": {{"event_seq", "effect_receipts", "effect_seq", "RESTRICT"}, {"invalidated_seq", "effect_receipts", "effect_seq", "RESTRICT"}},
-		"work_size_overrides":          {{"event_id", "effect_receipts", "event_id", "RESTRICT"}},
 	} {
 		got := retirementUpgradeRows(t, db, `SELECT "from","table","to",on_delete FROM pragma_foreign_key_list(?) WHERE "table"='effect_receipts' ORDER BY "from"`, table)
 		if !reflect.DeepEqual(got, want) {
@@ -233,8 +231,6 @@ func TestEventLogRetirementUpgradePreservesCurrentRows(t *testing.T) {
 		`UPDATE external_observations SET verified_event_seq=9999`,
 		`UPDATE workflow_overlap_resolutions SET event_seq=9999`,
 		`UPDATE workflow_overlap_resolutions SET invalidated_seq=9999`,
-		`UPDATE work_size_overrides SET event_id='missing-receipt'`,
-		`UPDATE work_size_overrides SET model_sequence=0`,
 		`UPDATE workflow_overlap_resolutions SET from_work_id=to_work_id`,
 	} {
 		if _, err := db.ExecContext(t.Context(), query); err == nil {

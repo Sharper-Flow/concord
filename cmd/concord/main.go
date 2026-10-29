@@ -168,7 +168,6 @@ var commandSpecs = []commandSpec{
 	{Canonical: "product-create", TwoWord: "product create", RequiredFields: requiredFields(field("product_id"), field("display_name"), field("stage_maturity"), field("stage_audience_commitment"), field("project_id"), field("project_display_name"), field("role")), Optional: "reason", Enums: "stage_maturity: prototype | alpha | beta | production | deprecated; stage_audience_commitment: operator_only | limited | public; role: primary | secondary"},
 	{Canonical: "resource-create", TwoWord: "resource create", RequiredFields: requiredFields(field("event_id"), field("resource_id"), field("product_id"), field("display_name"), field("class"), field("kind"), field("purpose"), field("stage_maturity"), field("stage_audience_commitment"), field("environments"), field("expected_product_version")), Optional: "locator_absence_reason, metadata_schema_version, metadata, owner_purpose, owner_environments", Enums: "stage_maturity: prototype | alpha | beta | production | deprecated; stage_audience_commitment: operator_only | limited | public"},
 	{Canonical: "resource-share", TwoWord: "resource share", RequiredFields: requiredFields(field("event_id"), field("resource_id"), field("product_id"), field("expected_resource_version")), Optional: "purpose, environments", Enums: "none"},
-	{Canonical: "domain-project-attachments-replace", TwoWord: "domain project-attachments-replace", RequiredFields: requiredFields(field("event_id"), field("product_id"), field("domain_id"), field("expected_version"), field("attachments")), Optional: "attachments (replaces the full edge set)", Enums: "attachments[].role: primary | secondary"},
 	{Canonical: "domain-resource-attachments-replace", TwoWord: "domain resource-attachments-replace", RequiredFields: requiredFields(field("event_id"), field("product_id"), field("domain_id"), field("expected_version"), field("attachments")), Optional: "attachments (replaces the full edge set)", Enums: "none"},
 	{Canonical: "project-create", TwoWord: "project create", RequiredFields: requiredFields(field("project_id"), field("display_name"), field("product_id"), field("role"), field("expected_product_version")), Optional: "reason", Enums: "role: primary | secondary"},
 	{Canonical: "product-project-add", TwoWord: "product project-add", RequiredFields: requiredFields(field("product_id"), field("project_id"), field("role"), field("expected_version")), Optional: "reason", Enums: "role: primary | secondary"},
@@ -176,8 +175,6 @@ var commandSpecs = []commandSpec{
 	{Canonical: "product-knowledge-home-designate", TwoWord: "product knowledge-home-designate", RequiredFields: requiredFields(field("product_id"), field("project_id"), field("locator_id"), field("expected_version")), Optional: "reason", Enums: "locator_id: a canonical_path locator of the member Project"},
 	{Canonical: "product-knowledge-home-clear", TwoWord: "product knowledge-home-clear", RequiredFields: requiredFields(field("product_id"), field("expected_version")), Optional: "reason", Enums: "none"},
 	{Canonical: "domain-shape-check", TwoWord: "domain shape-check", RequiredFields: requiredFields(field("product_id")), Optional: "checkout (clean exact pinned subject worktree of the designated home; defaults to its registered path)", Enums: "explicit operator command; strict ratchet; missing checks remain unverified; JSON report <=32768 bytes; diagnostics <=4096 bytes; failures exit nonzero"},
-	{Canonical: "product-knowledge-source-register", TwoWord: "product knowledge-source-register", RequiredFields: requiredFields(field("product_id"), field("project_id"), field("locator_id"), field("expected_version")), Optional: "reason", Enums: "locator_id: a canonical_path locator of the member Project, not the designated home"},
-	{Canonical: "product-knowledge-source-remove", TwoWord: "product knowledge-source-remove", RequiredFields: requiredFields(field("product_id"), field("project_id"), field("locator_id"), field("expected_version")), Optional: "reason", Enums: "locator_id: a registered knowledge source of the Product"},
 	{Canonical: "project-locator-add", TwoWord: "project locator-add", RequiredFields: requiredFields(field("project_id"), field("locator_id"), field("kind"), field("value"), field("expected_version")), Optional: "none", Enums: "kind: canonical_path | git_remote"},
 	{Canonical: "project-locator-update", TwoWord: "project locator-update", RequiredFields: requiredFields(field("project_id"), field("locator_id"), field("kind"), field("value"), field("expected_version")), Optional: "none", Enums: "kind: canonical_path | git_remote"},
 	{Canonical: "project-locator-remove", TwoWord: "project locator-remove", RequiredFields: requiredFields(field("project_id"), field("locator_id"), field("expected_version")), Optional: "none", Enums: "none"},
@@ -1093,10 +1090,7 @@ func runInvoke(raw []byte, s *store.Store, service *agent.Service, out, errOut i
 	return writeJSON(out, response, errOut)
 }
 
-// runProductKnowledgeConfiguration executes the four operator verbs that
-// configure a Product's knowledge source set (PM6 §2, CD-0200): designating
-// or clearing the shared-law home, and registering or removing a member
-// Project knowledge source. One request shape, one Product-scoped result.
+// runProductKnowledgeConfiguration designates or clears a Product's knowledge home.
 func runProductKnowledgeConfiguration(command string, raw []byte, s *store.Store, out, errOut io.Writer) int {
 	var request struct {
 		ProductID       string `json:"product_id"`
@@ -1121,16 +1115,6 @@ func runProductKnowledgeConfiguration(command string, raw []byte, s *store.Store
 		result, err = s.ClearProductKnowledgeHome(context.Background(), store.ProductKnowledgeHomeDesignation{
 			ProductID: request.ProductID, Reason: request.Reason, ExpectedVersion: request.ExpectedVersion,
 		})
-	case "product-knowledge-source-register":
-		result, err = s.RegisterProductKnowledgeSource(context.Background(), store.ProductKnowledgeSourceRegistration{
-			ProductID: request.ProductID, ProjectID: request.ProjectID, LocatorID: request.LocatorID,
-			Reason: request.Reason, ExpectedVersion: request.ExpectedVersion,
-		})
-	case "product-knowledge-source-remove":
-		result, err = s.RemoveProductKnowledgeSource(context.Background(), store.ProductKnowledgeSourceRegistration{
-			ProductID: request.ProductID, ProjectID: request.ProjectID, LocatorID: request.LocatorID,
-			Reason: request.Reason, ExpectedVersion: request.ExpectedVersion,
-		})
 	}
 	if err != nil {
 		writeOperatorDiagnostic(errOut, command, diagnosticText(err))
@@ -1153,11 +1137,11 @@ func runInternal(command string, raw []byte, service *agent.Service, s *store.St
 		return runProjectLocatorCommand(command, raw, s, out, errOut)
 	case "product-create":
 		return runProductCreate(command, raw, s, out, errOut)
-	case "resource-create", "resource-share", "domain-project-attachments-replace", "domain-resource-attachments-replace":
+	case "resource-create", "resource-share", "domain-resource-attachments-replace":
 		return runResourceDomainCommand(command, raw, s, clock, out, errOut)
 	case "project-create", "product-project-add", "product-stage-update":
 		return runProductProjectCommand(command, raw, s, out, errOut)
-	case "product-knowledge-home-designate", "product-knowledge-home-clear", "product-knowledge-source-register", "product-knowledge-source-remove":
+	case "product-knowledge-home-designate", "product-knowledge-home-clear":
 		return runProductKnowledgeConfiguration(command, raw, s, out, errOut)
 	case "backup":
 		return runBackup(command, raw, s, out, errOut)
@@ -1380,20 +1364,6 @@ func runResourceDomainCommand(command string, raw []byte, s *store.Store, clock 
 			return []string{request.EventID}, []operatorRef{{EntityKind: store.SubjectProduct, ID: request.ProductID}}, store.AddManagedResourceConsumer(ctx, s, store.AddManagedResourceConsumerRequest{
 				EventID: request.EventID, ResourceID: request.ResourceID, ProductID: request.ProductID,
 				Purpose: request.Purpose, Environments: request.Environments, ExpectedResourceVersion: request.ExpectedResourceVersion,
-				Actor: "operator", OccurredAt: clock().UTC(),
-			})
-		})
-	case "domain-project-attachments-replace":
-		return runOperatorRequest(command, raw, s, out, errOut, func(request struct {
-			EventID         string                          `json:"event_id"`
-			ProductID       string                          `json:"product_id"`
-			DomainID        string                          `json:"domain_id"`
-			ExpectedVersion int64                           `json:"expected_version"`
-			Attachments     []store.DomainProjectAttachment `json:"attachments"`
-		}) ([]string, []operatorRef, error) {
-			return []string{request.EventID}, []operatorRef{{EntityKind: store.SubjectProduct, ID: request.ProductID}}, store.ReplaceDomainProjectAttachments(ctx, s, store.DomainProjectAttachmentsRequest{
-				EventID: request.EventID, ProductID: request.ProductID, DomainID: request.DomainID,
-				ExpectedVersion: request.ExpectedVersion, Attachments: request.Attachments,
 				Actor: "operator", OccurredAt: clock().UTC(),
 			})
 		})

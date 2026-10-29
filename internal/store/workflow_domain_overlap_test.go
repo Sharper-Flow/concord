@@ -394,8 +394,8 @@ func TestResolveOverlapRecordsRoutineRelations(t *testing.T) {
 	assertFailureKind(t, err, KindInvalidPayload)
 }
 
-// merged_into and supersedes terminalize one endpoint atomically and release
-// its claims; reopening it retires the resolution and its relation.
+// merged_into and supersedes terminalize one endpoint atomically;
+// reopening it retires the resolution and its relation.
 func TestResolveOverlapMergeAndSupersessionAreAtomic(t *testing.T) {
 	t.Parallel()
 	for _, testCase := range []struct {
@@ -406,19 +406,15 @@ func TestResolveOverlapMergeAndSupersessionAreAtomic(t *testing.T) {
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			s, actor := seedOverlapProjection(t, "terminal-source", "terminal-target", false)
-			overlapFixtureExec(t, s, `INSERT INTO resource_claims(resource_key,holder_work_id,holder_agent,holder_session,reason,state,claimed_at) VALUES(?,?,?,?,?,'held',?)`, "resource:"+testCase.kind, testCase.terminalID, "agent:test", "session:test", "terminal cleanup", time.Now().UTC().Format(time.RFC3339Nano))
 			if err := resolveApprovedOverlap(t, s, "terminal-"+testCase.kind, "terminal-source", "terminal-target", 2, 2, testCase.kind, "operator terminal resolution", actor); err != nil {
 				t.Fatalf("terminal resolution: %v", err)
 			}
-			var lifecycle, claimState string
+			var lifecycle string
 			if err := s.DatabaseForTesting().QueryRow(`SELECT lifecycle FROM work_items WHERE id=?`, testCase.terminalID).Scan(&lifecycle); err != nil {
 				t.Fatal(err)
 			}
-			if err := s.DatabaseForTesting().QueryRow(`SELECT state FROM resource_claims WHERE resource_key=?`, "resource:"+testCase.kind).Scan(&claimState); err != nil {
-				t.Fatal(err)
-			}
-			if lifecycle != "superseded" || claimState != "released" {
-				t.Fatalf("terminal composite lifecycle=%q claim=%q", lifecycle, claimState)
+			if lifecycle != "superseded" {
+				t.Fatalf("terminal composite lifecycle=%q", lifecycle)
 			}
 			if err := applyWorkEvent(t, s, workReopenedFromSupersededEvent("terminal-reopen-"+testCase.kind, testCase.terminalID, "", 3, 4), nil); err != nil {
 				t.Fatalf("reopen terminal resolution: %v", err)

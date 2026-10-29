@@ -290,7 +290,7 @@ func TestManifestQ10VerifiesThePersistedProjectionOfRichRecords(t *testing.T) {
 		Evidence: []string{spec}, CriterionBindings: []KnowledgeCriterionBinding{{Criterion: 1, Scenario: "scenario-one"}},
 	})
 	commit := commitKnowledgeRepo(t, repo, "rich manifest knowledge")
-	manifest, missing, err := readKnowledgeManifest(ctx, repo, commit, manifestSharedHomeRole)
+	manifest, missing, err := readKnowledgeManifest(ctx, repo, commit)
 	if err != nil || missing || len(manifest.Records) != 1 {
 		t.Fatalf("read rich manifest=%#v missing=%v err=%v", manifest, missing, err)
 	}
@@ -301,7 +301,7 @@ func TestManifestQ10VerifiesThePersistedProjectionOfRichRecords(t *testing.T) {
 	driftedProjection := manifest.Records[0]
 	driftedProjection.Title = "Drifted"
 	driftedProjection.Evidence = nil
-	err = verifyManifestRecord(ctx, repo, commit, driftedProjection, manifestSharedHomeRole)
+	err = verifyManifestRecord(ctx, repo, commit, driftedProjection)
 	assertFailureKind(t, err, KindInvalidNoteProof)
 	if !strings.Contains(err.Error(), "title") {
 		t.Fatalf("invalid_note_proof did not name title: %v", err)
@@ -349,7 +349,7 @@ func TestQueryQ9StructuredTextRankingIsCursorSafe(t *testing.T) {
 		t.Fatalf("first page = %#v, err %v", first, err)
 	}
 	digest := knowledgeSourceSetDigest([]KnowledgeHome{home})
-	firstCursor, err := decodeFederatedKnowledgeCursor(*first.NextCursor, Q9Request{Text: "SQLITE", Limit: 1, Home: home}, nil, nil, digest)
+	firstCursor, err := decodeKnowledgeCursor(*first.NextCursor, Q9Request{Text: "SQLITE", Limit: 1, Home: home}, nil, nil, digest)
 	if err != nil || firstCursor.Version != 3 || firstCursor.MatchClass != 0 {
 		t.Fatalf("first cursor = %#v, err %v", firstCursor, err)
 	}
@@ -357,7 +357,7 @@ func TestQueryQ9StructuredTextRankingIsCursorSafe(t *testing.T) {
 	if err != nil || len(second.Items) != 1 || second.Items[0].ID != "newer-text" || second.NextCursor == nil {
 		t.Fatalf("second page = %#v, err %v", second, err)
 	}
-	secondCursor, err := decodeFederatedKnowledgeCursor(*second.NextCursor, Q9Request{Text: "SQLITE", Limit: 1, Home: home}, nil, nil, digest)
+	secondCursor, err := decodeKnowledgeCursor(*second.NextCursor, Q9Request{Text: "SQLITE", Limit: 1, Home: home}, nil, nil, digest)
 	if err != nil || secondCursor.MatchClass != 1 {
 		t.Fatalf("second cursor = %#v, err %v", secondCursor, err)
 	}

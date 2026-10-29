@@ -70,7 +70,7 @@ the case ([`priorities.md`](./priorities.md) Appendix A), not a ranking.
   remove one.
   - Inputs: subject, sensitivity, "blast radius, security, relatize size, span, etc."
   - "Span" means how many domains, packages, or repositories a change touches.
-  - The operator may move a size up or down. An agent may only ask for the model to run again.
+  - An agent may only ask for the model to run again.
 - Measure, small changes: "a small change should go from start to merge queue in 1 hour or less". "Start" is
   the agent's first action on a defined item, the Define step included.
 - Measure, larger and crucial changes: the operator is "not sure". Measure current start-to-merge-queue times

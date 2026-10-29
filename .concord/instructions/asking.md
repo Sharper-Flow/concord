@@ -45,7 +45,7 @@ existing work record.
 Every operator approval question names the applicable class above or the existing
 operator-only reservation, and the concrete consequence that requires it. Existing
 reservations include decisions accepted law expressly leaves to
-the operator, such as size overrides and release cutover. Law status,
+the operator, such as release cutover. Law status,
 seriousness, size, Domain count, and exact wording alone do not require approval.
 When a law change falls in a class, obtain its required approval when proposed,
 before implementation. Never batch these approvals at the end.

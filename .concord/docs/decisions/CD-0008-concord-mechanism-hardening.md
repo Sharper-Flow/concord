@@ -5,10 +5,8 @@
 **Decision owner:** Operator
 **Accepted by operator:** 2026-08-06
 **Scope:** Evidence resolution, unreadable-record isolation, workflow checkpoints,
-attempt fencing, external conditions, worktree topology, schema evolution, and the
+attempt fencing, worktree topology, schema evolution, and the
 SQLite confirmation and alternative-engine trigger.
-**External blockers:** PM4 §5.3 uses closed typed condition fields and the canonical
-work-item/`blocks` relation model.
 **Research:** [`R4-competitive-mechanism-hardening.md`](https://github.com/Sharper-Flow/concord/blob/a98dfe5db3fa2af53bd2d82829aec840e94e64c4/.concord/docs/research/R4-competitive-mechanism-hardening.md)
 
 ## Context
@@ -61,13 +59,12 @@ assumed idempotent; Concord's durable operation and probe own retry safety.
 Every mutation still requires TS5 scope, expected versions, authorization, and
 idempotency. Worktree possession grants no Product authority.
 
-Before execution and merge, refresh remote state and evaluate CD-0006 R3 declared
-impact. Dirty worktrees never silently rebase; conflicts never resolve heuristically.
+Before execution and merge, refresh remote state and validate pinned revisions
+under CD-0006 R3. Dirty worktrees never silently rebase; conflicts never resolve heuristically.
 File/touch-set scans may suggest edges or warn, but only accepted hard dependencies
-and typed conditions block.
+block.
 
-PR/CI/merge are typed external conditions. Dependents unblock on authoritative
-merge evidence, not branch push or “task complete.” Reclamation derives from Git
+Dependents unblock on authoritative merge evidence, not branch push or “task complete.” Reclamation derives from Git
 facts: clean tree, merged/reachable head, and no required external operation. A
 stale Concord projection is reconciled but cannot override stronger Git truth.
 
@@ -205,30 +202,6 @@ independently fences which recovery attempt currently owns completion authority.
 There are no distributed leases, replica IDs, heartbeat daemon, or hostname-based
 ownership heuristics in v1.
 
-## D5. Typed external conditions
-
-The PM4 external-blocker work-item model is retained and amended with a closed typed
-condition:
-
-```text
-await_type                  # pr_merge | ci_result | timer | human_approval |
-                            # remote_work_state
-await_ref
-resolution_authority
-resolution_evidence
-resolved_by_event
-```
-
-Conditions participate in ordinary canonical `blocks` relations, so PM4 ready/
-blocked derivation remains unchanged. Resolution is an attributable lifecycle event
-after checking the owning authority.
-
-- Evaluate on explicit operator/agent request and at consequential boundaries.
-- No polling, timer daemon, or automatic downstream rewrite.
-- Timer means compare trusted current time with a stored deadline when checked.
-- Failed/ambiguous/stale conditions remain open and surface a typed problem.
-- Heuristics may discover candidate CI runs/PRs but cannot resolve a condition.
-
 ## D6. Schema evolution and migration
 
 The cutover is one documented migration with a verified snapshot ([CD-0242 D13](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d13-the-cutover-is-one-documented-migration-with-a-verified-snapshot)).
@@ -268,7 +241,7 @@ such as network filesystems or multi-machine writes that this local test cannot 
 ### Positive
 
 - All live Product state remains globally visible across ten agents/worktrees.
-- Evidence and external conditions have named native authorities without split truth.
+- Evidence has named native authorities without split truth.
 - Unreadable records neither create false safety nor block unrelated work globally.
 - Interrupted and competing agents resume one durable operation without duplicate or
   stale authoritative completion.
@@ -276,7 +249,7 @@ such as network filesystems or multi-machine writes that this local test cannot 
 
 ### Cost
 
-- Workflow checkpoints, attempt epochs, typed conditions, and unreadable sets add
+- Workflow checkpoints, attempt epochs, and unreadable sets add
   schema and test surface.
 - Evidence consumers may re-query native producers for current truth.
 - Dependency-aware unreadable analysis requires a bounded closure query.

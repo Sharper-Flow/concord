@@ -116,7 +116,6 @@
         {"target": "state", "path": "work.lifecycle", "op": "eq", "value": "in_progress"},
         {"target": "state", "path": "verdicts.predicate:return-route", "op": "absent"},
         {"target": "state", "path": "work.terminal_metadata", "op": "absent"},
-        {"target": "state", "path": "impact_notices", "op": "eq", "value": {}},
         {"target": "result", "path": "state_unchanged", "op": "eq", "value": true},
         {"target": "effects", "path": "workflow.completed", "op": "absent"},
         {"target": "effects", "path": "events.order", "op": "eq", "value": []}
@@ -176,8 +175,8 @@
     },
     {
       "id": "WF19-completion-one-transaction", "scenario_number": 19,
-      "mechanism": "a completion append conflict rolls back the completion record, notices, terminal metadata and lifecycle change",
-      "initial_state": {"work": "work-alpha", "dependent": "work-alpha-dependent"}, "action": "complete",
+      "mechanism": "a completion append conflict rolls back the completion record, terminal metadata and lifecycle change",
+      "initial_state": {"work": "work-alpha"}, "action": "complete",
       "setup": {
         "fixture_refs": {"work_item": "work-alpha", "actors": ["actor:4ab6e3a017f83a02b9575d8e3e21c22a32affb19f225040a29fa15336d5e2fa7"], "definitions": ["workflow.implementation"], "evidence": [], "relations": []},
         "current_state": {"step": "release", "proof_case": "completion_rollback"}, "faults": []
@@ -193,143 +192,12 @@
         {"target": "communication", "path": "error.clause", "op": "eq", "value": 7},
         {"target": "communication", "path": "error.detail", "op": "eq", "value": "completion append conflicted"},
         {"target": "state", "path": "work.terminal_metadata", "op": "absent"},
-        {"target": "state", "path": "impact_notices.notice:bff320e7a2d8a9f3806685fcb267ec30f7370a9546861e11860af77be69a1428", "op": "absent"},
-        {"target": "state", "path": "impact_notices", "op": "eq", "value": {}},
         {"target": "result", "path": "state_unchanged", "op": "eq", "value": true},
         {"target": "result", "path": "contract_unchanged", "op": "eq", "value": true},
         {"target": "effects", "path": "workflow.completed", "op": "absent"},
         {"target": "effects", "path": "events.order", "op": "eq", "value": []}
       ]},
       "observations": {"expected_reads": [{"target": "state", "path": "work-alpha.current_step", "op": "eq", "value": "release"}, {"target": "state", "path": "work.lifecycle", "op": "eq", "value": "in_progress"}]}
-    },
-    {
-      "id": "WF26-condition-actions-refused",
-      "scenario_number": 26,
-      "mechanism": "the current public action boundary refuses undeclared condition actions without changing durable state",
-      "initial_state": {"work": "work-alpha", "family": "workflow.implementation", "step": "proposal", "actions": ["add_condition", "resolve_condition", "cancel_condition"]},
-      "action": "add_condition",
-      "cases": [
-        {
-          "id": "WF26-add-condition-refused",
-          "initial_state": {"work": "work-alpha", "family": "workflow.implementation", "step": "proposal", "action": "add_condition"},
-          "action": "add_condition",
-          "expected": {"assertions": [
-            {"target": "communication", "path": "error.kind", "op": "eq", "value": "invalid_transition"},
-            {"target": "communication", "path": "error.detail", "op": "eq", "value": "workflow action is not declared on the current step"},
-            {"target": "effects", "path": "workflow.condition_added", "op": "absent"},
-            {"target": "effects", "path": "events.order", "op": "eq", "value": []},
-            {"target": "result", "path": "state_unchanged", "op": "eq", "value": true},
-            {"target": "state", "path": "work-alpha.current_step", "op": "eq", "value": "proposal"},
-            {"target": "state", "path": "condition", "op": "eq", "value": {}}
-          ]},
-          "setup": {
-            "fixture_refs": {"work_item": "work-alpha", "actors": ["actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad"], "definitions": ["workflow.implementation"], "evidence": [], "relations": []},
-            "current_state": {"step": "proposal"}, "faults": []
-          },
-          "request": {
-            "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad", "definition_ref": "workflow.implementation", "action_id": "add_condition",
-            "fields": {"payload": {"work": "work-alpha", "condition_id": "condition:probe"}},
-            "idempotency": {"key": "wf26-add-condition-key", "request_id": "wf26-add-condition-request", "operation_id": "wf26-add-condition-operation", "accepted_inputs_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"},
-            "grant": {"principal_ref": "principal:operator", "client_ref": "client:concord-1", "agent_ref": "agent-engineer", "session_ref": "session-executor", "capability": "workflow_action", "scope": "project"},
-            "approval": {"required": false, "approval_ref": null},
-            "operation": {"op_id": "wf26-add-condition-operation"}
-          },
-          "observations": {"expected_reads": [{"target": "communication", "path": "error.kind", "op": "eq", "value": "invalid_transition"}]}
-        },
-        {
-          "id": "WF26-resolve-condition-refused",
-          "initial_state": {"work": "work-alpha", "family": "workflow.implementation", "step": "proposal", "action": "resolve_condition"},
-          "action": "resolve_condition",
-          "expected": {"assertions": [
-            {"target": "communication", "path": "error.kind", "op": "eq", "value": "invalid_transition"},
-            {"target": "communication", "path": "error.detail", "op": "eq", "value": "workflow action is not declared on the current step"},
-            {"target": "effects", "path": "workflow.condition_resolved", "op": "absent"},
-            {"target": "effects", "path": "events.order", "op": "eq", "value": []},
-            {"target": "result", "path": "state_unchanged", "op": "eq", "value": true},
-            {"target": "state", "path": "work-alpha.current_step", "op": "eq", "value": "proposal"},
-            {"target": "state", "path": "condition", "op": "eq", "value": {}}
-          ]},
-          "setup": {
-            "fixture_refs": {"work_item": "work-alpha", "actors": ["actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad"], "definitions": ["workflow.implementation"], "evidence": [], "relations": []},
-            "current_state": {"step": "proposal"}, "faults": []
-          },
-          "request": {
-            "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad", "definition_ref": "workflow.implementation", "action_id": "resolve_condition",
-            "fields": {"payload": {"work": "work-alpha", "condition_id": "condition:probe"}},
-            "idempotency": {"key": "wf26-resolve-condition-key", "request_id": "wf26-resolve-condition-request", "operation_id": "wf26-resolve-condition-operation", "accepted_inputs_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"},
-            "grant": {"principal_ref": "principal:operator", "client_ref": "client:concord-1", "agent_ref": "agent-engineer", "session_ref": "session-executor", "capability": "workflow_action", "scope": "project"},
-            "approval": {"required": false, "approval_ref": null},
-            "operation": {"op_id": "wf26-resolve-condition-operation"}
-          },
-          "observations": {"expected_reads": [{"target": "communication", "path": "error.kind", "op": "eq", "value": "invalid_transition"}]}
-        },
-        {
-          "id": "WF26-cancel-condition-refused",
-          "initial_state": {"work": "work-alpha", "family": "workflow.implementation", "step": "proposal", "action": "cancel_condition"},
-          "action": "cancel_condition",
-          "expected": {"assertions": [
-            {"target": "communication", "path": "error.kind", "op": "eq", "value": "invalid_transition"},
-            {"target": "communication", "path": "error.detail", "op": "eq", "value": "workflow action is not declared on the current step"},
-            {"target": "effects", "path": "workflow.condition_cancelled", "op": "absent"},
-            {"target": "effects", "path": "events.order", "op": "eq", "value": []},
-            {"target": "result", "path": "state_unchanged", "op": "eq", "value": true},
-            {"target": "state", "path": "work-alpha.current_step", "op": "eq", "value": "proposal"},
-            {"target": "state", "path": "condition", "op": "eq", "value": {}}
-          ]},
-          "setup": {
-            "fixture_refs": {"work_item": "work-alpha", "actors": ["actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad"], "definitions": ["workflow.implementation"], "evidence": [], "relations": []},
-            "current_state": {"step": "proposal"}, "faults": []
-          },
-          "request": {
-            "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad", "definition_ref": "workflow.implementation", "action_id": "cancel_condition",
-            "fields": {"payload": {"work": "work-alpha", "condition_id": "condition:probe"}},
-            "idempotency": {"key": "wf26-cancel-condition-key", "request_id": "wf26-cancel-condition-request", "operation_id": "wf26-cancel-condition-operation", "accepted_inputs_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"},
-            "grant": {"principal_ref": "principal:operator", "client_ref": "client:concord-1", "agent_ref": "agent-engineer", "session_ref": "session-executor", "capability": "workflow_action", "scope": "project"},
-            "approval": {"required": false, "approval_ref": null},
-            "operation": {"op_id": "wf26-cancel-condition-operation"}
-          },
-          "observations": {"expected_reads": [{"target": "communication", "path": "error.kind", "op": "eq", "value": "invalid_transition"}]}
-        }
-      ],
-      "setup": {
-        "fixture_refs": {"work_item": "work-alpha", "actors": ["actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad"], "definitions": ["workflow.implementation"], "evidence": [], "relations": []},
-        "current_state": {"step": "proposal"}, "faults": []
-      },
-      "request": {
-        "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad", "definition_ref": "workflow.implementation", "action_id": "add_condition",
-        "fields": {"payload": {"work": "work-alpha", "condition_id": "condition:probe"}, "title": "WF26-condition-actions-refused title", "value_statement": "fixture value statement", "project_ids": ["project"]},
-        "idempotency": {"key": "wf26-add-condition-key", "request_id": "wf26-add-condition-request", "operation_id": "wf26-add-condition-operation", "accepted_inputs_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"},
-        "grant": {"principal_ref": "principal:operator", "client_ref": "client:concord-1", "agent_ref": "agent-engineer", "session_ref": "session-executor", "capability": "workflow_action", "scope": "project"},
-        "approval": {"required": false, "approval_ref": null},
-        "operation": {"op_id": "wf26-add-condition-operation"}
-      },
-      "observations": {"expected_reads": [{"target": "communication", "path": "error.kind", "op": "eq", "value": "invalid_transition"}]}
-    },
-    {
-      "id": "WF29-impact-notice-identity", "scenario_number": 29,
-      "mechanism": "completion records the deterministic notice for a current hard dependent using the source contract and impact tuple",
-      "initial_state": {"work": "work-alpha", "dependent": "work-alpha-dependent", "source_contract_version": 1, "severity": "non-breaking"}, "action": "complete",
-      "setup": {
-        "fixture_refs": {"work_item": "work-alpha", "actors": ["actor:4ab6e3a017f83a02b9575d8e3e21c22a32affb19f225040a29fa15336d5e2fa7"], "definitions": ["workflow.implementation"], "evidence": [], "relations": []},
-        "current_state": {"step": "release", "proof_case": "impact_notice_identity"}, "faults": []
-      },
-      "request": {
-        "actor_ref": "actor:4ab6e3a017f83a02b9575d8e3e21c22a32affb19f225040a29fa15336d5e2fa7", "definition_ref": "workflow.implementation", "action_id": "complete", "fields": {"impact_verdict": "non-breaking"},
-        "idempotency": {"key": "wf29-key", "request_id": "wf29-request", "operation_id": "wf29-operation", "accepted_inputs_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"},
-        "grant": {"principal_ref": "principal/operator", "client_ref": "client/concord-1", "agent_ref": "agent/owner", "session_ref": "session/work-alpha", "capability": "workflow_action", "scope": "project"},
-        "approval": {"required": false, "approval_ref": null}, "operation": {"op_id": "wf29-operation"}
-      },
-      "expected": {"assertions": [
-        {"target": "communication", "path": "error", "op": "absent"},
-        {"target": "state", "path": "work.lifecycle", "op": "eq", "value": "completed"},
-        {"target": "state", "path": "impact_notices.notice:bff320e7a2d8a9f3806685fcb267ec30f7370a9546861e11860af77be69a1428", "op": "nonempty"},
-        {"target": "state", "path": "impact_notices.notice:bff320e7a2d8a9f3806685fcb267ec30f7370a9546861e11860af77be69a1428.target_work_id", "op": "eq", "value": "work-alpha-dependent"},
-        {"target": "state", "path": "impact_notices.notice:bff320e7a2d8a9f3806685fcb267ec30f7370a9546861e11860af77be69a1428.severity", "op": "eq", "value": "non-breaking"},
-        {"target": "result", "path": "contract_unchanged", "op": "eq", "value": true},
-        {"target": "effects", "path": "workflow.completed", "op": "nonempty"},
-        {"target": "effects", "path": "workflow.impact_notice_recorded", "op": "nonempty"}
-      ]},
-      "observations": {"expected_reads": [{"target": "state", "path": "work.terminal_metadata", "op": "nonempty"}]}
     },
     {
       "id": "WF37-action-availability-before-register", "scenario_number": 37,
@@ -468,7 +336,6 @@
         {"target": "state", "path": "verdicts.predicate:present", "op": "nonempty"},
         {"target": "state", "path": "verdicts.predicate:absent", "op": "absent"},
         {"target": "state", "path": "work.terminal_metadata", "op": "absent"},
-        {"target": "state", "path": "impact_notices", "op": "eq", "value": {}},
         {"target": "result", "path": "state_unchanged", "op": "eq", "value": true},
         {"target": "effects", "path": "workflow.completed", "op": "absent"},
         {"target": "effects", "path": "events.order", "op": "eq", "value": []}

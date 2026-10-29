@@ -33,9 +33,8 @@ identity, a living narrative, ordered entries, lifecycle rules, validators, and
 an agent surface. Initiative context is structurally stronger than Product
 architecture.
 
-The work, impact, and law graphs are also separate. CD-0006 R3 blocks only a
-declared hard dependency plus a breaking completion notice. CD-0018 D4 therefore
-leaves parallel safety to operator judgement. Two agents can plan distinct work
+The work and law graphs are also separate. CD-0018 D4 leaves parallel safety
+to operator judgement. Two agents can plan distinct work
 against one architectural area without a shared work edge, produce clean Git
 merges, and still enact contradictory Product behavior.
 
@@ -110,7 +109,7 @@ Git authority sees the same Domain IDs without embedding installation-local IDs
 in shared law.
 
 SQLite separately owns local attachments: a Domain stage override plus typed
-Domain→Project and Domain→managed-resource links. Those links map one shared
+Domain→managed-resource links. Those links map one shared
 architecture to the installation's Product census; they do not create or rename
 a Domain, author law, or define architecture dependencies. A Project or resource
 never becomes Domain identity. Domains never cross a Product boundary.
@@ -211,7 +210,6 @@ family has its own owner, endpoint constraints, metadata, and graph rules.
 | Domain | `depends_on` | Domain | Git-authored; same Product; directional; cites at least one current governing law ID |
 | Domain | `shares_contract_with` | Domain | Git-authored; same Product; canonical symmetric pair; cites at least one current governing law ID |
 | Domain | `replaces` | Domain | Git-authored; same Product; stateful `declared -> building -> coexisting -> cutover -> retired` relation |
-| Domain | `implemented_by` | Project | SQLite-local attachment; same Product membership; `primary | supporting`; zero or one primary |
 | Domain | `uses` | Managed resource | SQLite-local attachment; Product must own or consume the C15 resource; bounded purpose/environment metadata |
 | Law | `home` | Domain | Exactly one owner, authored in the Git manifest |
 | Law | `applies_to` | Domain | Zero or more explicit applicability targets |
@@ -256,7 +254,7 @@ verification_obligations[]        # law_id + workflow obligation ID
 ```
 
 The binding composes with, rather than duplicates, the outcome contract,
-`spec_mandate`, `law_modifies`, workflow conditions, and evidence policy:
+`spec_mandate`, `law_modifies`, and evidence policy:
 
 - `home_domain_id` says where the work belongs;
 - affected and modified Domains say where architectural assumptions may change;

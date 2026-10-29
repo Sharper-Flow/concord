@@ -16,46 +16,18 @@ func TestReplaceDomainAttachmentsFoldsSets(t *testing.T) {
 	}
 	seedCurrentDomain(t, s, "domain-product", "domain-a")
 	now := time.Date(2026, 8, 18, 12, 1, 0, 0, time.UTC)
-	if err := ReplaceDomainProjectAttachments(ctx, s, DomainProjectAttachmentsRequest{EventID: "domain-project-links", ProductID: "domain-product", DomainID: "domain-a", ExpectedVersion: 0, Attachments: []DomainProjectAttachment{{ProjectID: "domain-project", Role: "primary"}}, Actor: "operator", OccurredAt: now}); err != nil {
-		t.Fatalf("ReplaceDomainProjectAttachments() error = %v", err)
-	}
 	if err := ReplaceDomainResourceAttachments(ctx, s, DomainResourceAttachmentsRequest{EventID: "domain-resource-links", ProductID: "domain-product", DomainID: "domain-a", ExpectedVersion: 0, Attachments: []DomainResourceAttachment{{ResourceID: "domain-resource", Purpose: "uses queue", Environments: []string{"production"}}}, Actor: "operator", OccurredAt: now.Add(time.Second)}); err != nil {
 		t.Fatalf("ReplaceDomainResourceAttachments() error = %v", err)
 	}
-	var projectLinks, resourceLinks, projectVersion, resourceVersion int
-	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT count(*) FROM domain_project_attachment_edges WHERE product_id='domain-product' AND domain_id='domain-a'`).Scan(&projectLinks); err != nil {
-		t.Fatal(err)
-	}
+	var resourceLinks, resourceVersion int
 	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT count(*) FROM domain_resource_attachment_edges WHERE product_id='domain-product' AND domain_id='domain-a'`).Scan(&resourceLinks); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT version FROM domain_project_attachment_sets WHERE product_id='domain-product' AND domain_id='domain-a'`).Scan(&projectVersion); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT version FROM domain_resource_attachment_sets WHERE product_id='domain-product' AND domain_id='domain-a'`).Scan(&resourceVersion); err != nil {
 		t.Fatal(err)
 	}
-	if projectLinks != 1 || resourceLinks != 1 || projectVersion != 1 || resourceVersion != 1 {
-		t.Fatalf("attachments project=%d resource=%d versions=%d/%d", projectLinks, resourceLinks, projectVersion, resourceVersion)
-	}
-}
-
-func TestReplaceDomainProjectAttachmentsRejectsCrossProductProjectAndStaleSet(t *testing.T) {
-	t.Parallel()
-	s := openTemp(t)
-	ctx := context.Background()
-	setupProductWithProject(t, s, "domain-product-cross", "domain-project-cross")
-	setupProductWithProject(t, s, "other-product-cross", "other-project-cross")
-	seedCurrentDomain(t, s, "domain-product-cross", "domain-cross")
-	now := time.Date(2026, 8, 18, 12, 0, 0, 0, time.UTC)
-	if err := ReplaceDomainProjectAttachments(ctx, s, DomainProjectAttachmentsRequest{EventID: "domain-cross-bad", ProductID: "domain-product-cross", DomainID: "domain-cross", ExpectedVersion: 0, Attachments: []DomainProjectAttachment{{ProjectID: "other-project-cross", Role: "primary"}}, Actor: "operator", OccurredAt: now}); err == nil {
-		t.Fatal("cross-Product Project attachment succeeded")
-	}
-	if err := ReplaceDomainProjectAttachments(ctx, s, DomainProjectAttachmentsRequest{EventID: "domain-cross-good", ProductID: "domain-product-cross", DomainID: "domain-cross", ExpectedVersion: 0, Attachments: []DomainProjectAttachment{{ProjectID: "domain-project-cross", Role: "primary"}}, Actor: "operator", OccurredAt: now.Add(time.Second)}); err != nil {
-		t.Fatal(err)
-	}
-	if err := ReplaceDomainProjectAttachments(ctx, s, DomainProjectAttachmentsRequest{EventID: "domain-cross-stale", ProductID: "domain-product-cross", DomainID: "domain-cross", ExpectedVersion: 0, Attachments: nil, Actor: "operator", OccurredAt: now.Add(2 * time.Second)}); err == nil {
-		t.Fatal("stale Domain attachment set replacement succeeded")
+	if resourceLinks != 1 || resourceVersion != 1 {
+		t.Fatalf("resource attachments=%d version=%d", resourceLinks, resourceVersion)
 	}
 }
 

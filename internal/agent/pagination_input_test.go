@@ -31,7 +31,6 @@ var paginationBaseInputs = map[string]map[string]any{
 	"concord_work_browse.ready":                {},
 	"concord_work_browse.blocked":              {},
 	"concord_work_browse.scope":                {"product_id": "prod-alpha", "work_id": "work-done"},
-	"concord_work_browse.resource_claims":      {"product_id": "prod-alpha"},
 	"concord_work_browse.messages":             {"product_id": "prod-alpha", "work_id": "work-done"},
 	"concord_work_browse.worktree_audit":       {"product_id": "prod-alpha"},
 	"concord_work_trace.history":               {"work_id": "work-done"},

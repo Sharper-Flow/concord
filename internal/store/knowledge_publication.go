@@ -37,8 +37,8 @@ type KnowledgePublication struct {
 }
 
 const (
-	publicationRecovery             = "explicitly observe this registered knowledge source again"
-	publicationSourceRecovery       = "ask the source owner to verify the registered source, local repository access, and served revision through the existing source configuration route; then explicitly observe this source again"
+	publicationRecovery             = "explicitly observe this designated knowledge home again"
+	publicationSourceRecovery       = "ask the home owner to verify the designation, local repository access, and served revision through the existing configuration route; then explicitly observe this home again"
 	publicationOriginRecovery       = "ask the source owner to configure exactly one intended origin fetch URL through the existing source configuration route; then explicitly observe this source again"
 	publicationAccessRecovery       = "ask the source owner to check origin connectivity, configured transport, and existing credentials through the authorized access route; repair the observed failure before explicitly observing this source again"
 	publicationDefaultRecovery      = "ask the source owner to repair origin's advertised default branch and fully qualified branch reference through the existing repository configuration route; then explicitly observe this source again"
@@ -46,7 +46,7 @@ const (
 	publicationRaceRecovery         = "ask the source owner to resolve competing source or tracking-ref changes and verify source configuration and local ref-write access; then repeat the explicit observation and knowledge read"
 	publicationLagRecovery          = "ask the source owner to use its existing safe update route, or use an already authorized suitable source; then repeat the explicit publication observation and knowledge read"
 	publicationDeadlineRecovery     = "ask the source owner to check access and configured transport delays through the authorized access route; resolve the deadline failure before explicitly observing this source again"
-	publicationCancellationRecovery = "if observation is still wanted, resolve the caller cancellation before explicitly observing the registered source again"
+	publicationCancellationRecovery = "if observation is still wanted, resolve the caller cancellation before explicitly observing the designated home again"
 )
 
 var (
@@ -86,7 +86,7 @@ func publicationSourceSnapshot(ctx context.Context, q queryer, productID, projec
 		}
 	}
 	if selected.RepoPath == "" || len(projectID) > 128 || len(locatorID) > 128 {
-		return publicationSource{}, newFailure(KindUnknownScope, "knowledge_publication", "selector is not an exact registered Product knowledge source", false, "select a registered Project and locator pair")
+		return publicationSource{}, newFailure(KindUnknownScope, "knowledge_publication", "selector is not the exact designated Product knowledge home", false, "select the designated Project and locator pair")
 	}
 	var version int64
 	if err := q.QueryRowContext(ctx, `SELECT version FROM products WHERE id=?`, productID).Scan(&version); err != nil {
@@ -550,18 +550,18 @@ func (s *Store) KnowledgePublicationForRead(ctx context.Context, home KnowledgeH
 		return KnowledgePublication{}, err
 	}
 	if productID == "" {
-		return unknown("source is no longer registered for publication observation", publicationSourceRecovery)
+		return unknown("knowledge home is no longer designated for publication observation", publicationSourceRecovery)
 	}
 	source, err := publicationSourceSnapshot(ctx, s.db, productID, home.HomeProjectID, home.HomeLocatorID)
 	if err != nil {
 		var failure *Failure
 		if errors.As(err, &failure) && (failure.Kind == KindUnknownScope || failure.Kind == KindAmbiguousScope) {
-			return unknown("registered knowledge source set no longer resolves unambiguously", publicationSourceRecovery)
+			return unknown("designated knowledge home no longer resolves unambiguously", publicationSourceRecovery)
 		}
 		return KnowledgePublication{}, err
 	}
 	if source.Binding != binding || source.Home != home {
-		return unknown("registered source provenance changed since observation", publicationSourceRecovery)
+		return unknown("designated home provenance changed since observation", publicationSourceRecovery)
 	}
 	if result.ServedCommit != servedCommit {
 		return unknown("served commit differs from the observed source revision", publicationSourceRecovery)

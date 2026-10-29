@@ -8,7 +8,6 @@ import (
 	"slices"
 	"strings"
 	"testing"
-	"time"
 	"unicode/utf8"
 )
 
@@ -298,27 +297,6 @@ func TestWorkerJobDeliveredPathContainmentAtAcceptance(t *testing.T) {
 		job := recordJob(t, f, workID, "job:excluded", "owner", true)
 		attempt := deliver(t, f, workID, job, []string{"owner/value.go", "sibling/use.go"}, []WorkerDirectCallerRepair{repair("owner/value.go", "sibling/use.go")})
 		refused(t, f, workID, attempt, KindInvalidOperation, "repaired caller path sibling/use.go, which its dispatch excluded as another correction's recorded path")
-	})
-
-	t.Run("foreign-owned path refuses", func(t *testing.T) {
-		workID := "delivered-foreign"
-		f := seed(t, workID)
-		defer f.store.Close()
-		// Another work item in the same Project holds a path claim over the
-		// caller path this job's repair changes.
-		const otherWork = "delivered-foreign-owner"
-		seedWork(t, f.store, otherWork)
-		version := readWorkVersion(t, f.store, otherWork)
-		resulting := version + 1
-		claim := resourceClaimedPayload{ResourceKey: "path:caller/use.go", Reason: "another item's held path claim", HolderAgent: "agent/other", HolderSession: "session/other"}
-		claim.WorkflowVersionFields = WorkflowVersionFields{WorkID: otherWork, ExpectedVersion: &version, ResultingVersion: &resulting}
-		event := Event{EventID: "claim-foreign-caller", Kind: "work.resource_claimed", SubjectType: SubjectWorkItem, SubjectID: otherWork, Actor: "worker:test", OccurredAt: time.Unix(19, 0).UTC(), PayloadVersion: 1, Payload: mustJSONValue(claim)}
-		if err := applyWorkflowTestOperation(context.Background(), f.store, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, otherWork): version}}); err != nil {
-			t.Fatalf("record the foreign item's path claim: %v", err)
-		}
-		job := recordJob(t, f, workID, "job:foreign", "owner", true)
-		attempt := deliver(t, f, workID, job, []string{"caller/use.go", "owner/value.go"}, []WorkerDirectCallerRepair{repair("owner/value.go", "caller/use.go")})
-		refused(t, f, workID, attempt, KindInvalidOperation, "holds through claim path:caller/use.go over")
 	})
 
 	t.Run("repairs without an allowance refuse", func(t *testing.T) {

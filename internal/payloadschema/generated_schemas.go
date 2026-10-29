@@ -666,31 +666,6 @@ const GeneratedPayloadSchemaDocument = `{
       ],
       "type": "object"
     },
-    "continuity_failure": {
-      "additionalProperties": false,
-      "properties": {
-        "attempt_epoch": {
-          "minimum": 1,
-          "type": "integer"
-        },
-        "kind": {
-          "$ref": "#/$defs/short"
-        },
-        "recoverable": {
-          "type": "boolean"
-        },
-        "step_id": {
-          "$ref": "#/$defs/short"
-        }
-      },
-      "required": [
-        "kind",
-        "recoverable",
-        "step_id",
-        "attempt_epoch"
-      ],
-      "type": "object"
-    },
     "continuity_operator_decision": {
       "additionalProperties": false,
       "properties": {
@@ -1241,16 +1216,6 @@ const GeneratedPayloadSchemaDocument = `{
               "type": "array",
               "uniqueItems": true
             },
-            "unresolved_failure": {
-              "oneOf": [
-                {
-                  "$ref": "#/$defs/continuity_failure"
-                },
-                {
-                  "type": "null"
-                }
-              ]
-            },
             "withheld_operator_decision": {
               "oneOf": [
                 {
@@ -1293,8 +1258,7 @@ const GeneratedPayloadSchemaDocument = `{
             "spec_mandate",
             "pending_operator_decision",
             "latest_checkpoint",
-            "design_record",
-            "unresolved_failure"
+            "design_record"
           ],
           "type": "object"
         },
@@ -1491,34 +1455,6 @@ const GeneratedPayloadSchemaDocument = `{
         "attachments": {
           "additionalProperties": false,
           "properties": {
-            "project_attachments": {
-              "items": {
-                "additionalProperties": false,
-                "properties": {
-                  "project_id": {
-                    "$ref": "#/$defs/id"
-                  },
-                  "role": {
-                    "enum": [
-                      "primary",
-                      "supporting"
-                    ],
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "project_id",
-                  "role"
-                ],
-                "type": "object"
-              },
-              "maxItems": 100,
-              "type": "array"
-            },
-            "project_set_version": {
-              "minimum": 0,
-              "type": "integer"
-            },
             "resource_attachments": {
               "items": {
                 "additionalProperties": false,
@@ -1564,9 +1500,7 @@ const GeneratedPayloadSchemaDocument = `{
             }
           },
           "required": [
-            "project_attachments",
             "resource_attachments",
-            "project_set_version",
             "resource_set_version"
           ],
           "type": "object"
@@ -3274,7 +3208,7 @@ const GeneratedPayloadSchemaDocument = `{
     },
     "knowledge_observe_publication_input": {
       "additionalProperties": false,
-      "description": "Explicit cache/provenance exception for readers and writers with product_read. Requires one exact registered Product/source Project/locator tuple, never an arbitrary repository or ref. Performs one noninteractive origin default-branch discovery and one selected-branch fetch within a combined ten seconds, then persists timestamped provenance. Only the selected origin tracking ref, required objects and transfer metadata may change. No checkout synchronization, law mutation, or automatic network on ordinary reads.",
+      "description": "Explicit cache/provenance exception for readers and writers with product_read. Requires the exact Product/designated home Project/locator tuple, never an arbitrary repository or ref. Performs one noninteractive origin default-branch discovery and one selected-branch fetch within a combined ten seconds, then persists timestamped provenance. Only the selected origin tracking ref, required objects and transfer metadata may change. No checkout synchronization, law mutation, or automatic network on ordinary reads.",
       "properties": {
         "product_id": {
           "$ref": "#/$defs/id",
@@ -3286,11 +3220,11 @@ const GeneratedPayloadSchemaDocument = `{
         },
         "source_locator_id": {
           "$ref": "#/$defs/id",
-          "description": "Exact registered locator in that source tuple. Bounds: 1..128 code points inclusive"
+          "description": "Exact locator of that designated home. Bounds: 1..128 code points inclusive"
         },
         "source_project_id": {
           "$ref": "#/$defs/id",
-          "description": "Project in the Product's registered knowledge source tuple. Bounds: 1..128 code points inclusive"
+          "description": "Project of the Product's designated knowledge home. Bounds: 1..128 code points inclusive"
         }
       },
       "required": [
@@ -3355,12 +3289,6 @@ const GeneratedPayloadSchemaDocument = `{
               "content_hash": {
                 "$ref": "#/$defs/digest"
               },
-              "home_locator_id": {
-                "$ref": "#/$defs/id"
-              },
-              "home_project_id": {
-                "$ref": "#/$defs/id"
-              },
               "kind": {
                 "enum": [
                   "constitution",
@@ -3406,42 +3334,9 @@ const GeneratedPayloadSchemaDocument = `{
           "$ref": "#/$defs/cursor_output"
         },
         "publications": {
-          "description": "Cached publication provenance for each queried registered source, never an automatic origin check.",
+          "description": "Cached publication provenance for the queried knowledge home, never an automatic origin check.",
           "items": {
             "$ref": "#/$defs/knowledge_publication"
-          },
-          "type": "array"
-        },
-        "source_watermarks": {
-          "description": "CD-0200: one freshness verdict per registered knowledge source in a Product-wide answer, home first. Absent from a single-source answer.",
-          "items": {
-            "additionalProperties": false,
-            "properties": {
-              "authority": {
-                "enum": [
-                  "authoritative",
-                  "degraded"
-                ],
-                "type": "string"
-              },
-              "locator_id": {
-                "$ref": "#/$defs/id"
-              },
-              "project_id": {
-                "$ref": "#/$defs/id"
-              },
-              "watermark": {
-                "maxLength": 256,
-                "type": "string"
-              }
-            },
-            "required": [
-              "project_id",
-              "locator_id",
-              "watermark",
-              "authority"
-            ],
-            "type": "object"
           },
           "type": "array"
         },
@@ -10383,71 +10278,6 @@ const GeneratedPayloadSchemaDocument = `{
       ],
       "type": "object"
     },
-    "resource_claims_page": {
-      "additionalProperties": false,
-      "properties": {
-        "claims": {
-          "items": {
-            "additionalProperties": false,
-            "properties": {
-              "claimed_at": {
-                "maxLength": 58,
-                "minLength": 10,
-                "type": "string"
-              },
-              "holder_agent": {
-                "$ref": "#/$defs/id"
-              },
-              "holder_session": {
-                "$ref": "#/$defs/id"
-              },
-              "holder_work_id": {
-                "$ref": "#/$defs/id"
-              },
-              "reason": {
-                "maxLength": 512,
-                "minLength": 1,
-                "type": "string"
-              },
-              "released_at": {
-                "maxLength": 58,
-                "minLength": 10,
-                "type": "string"
-              },
-              "resource_key": {
-                "maxLength": 161,
-                "minLength": 3,
-                "pattern": "^[a-z][a-z0-9_-]{1,31}:[A-Za-z0-9][A-Za-z0-9._/-]{0,127}$",
-                "type": "string"
-              },
-              "state": {
-                "enum": [
-                  "held",
-                  "released"
-                ],
-                "type": "string"
-              }
-            },
-            "required": [
-              "resource_key",
-              "holder_work_id",
-              "holder_agent",
-              "holder_session",
-              "reason",
-              "state",
-              "claimed_at"
-            ],
-            "type": "object"
-          },
-          "maxItems": 100,
-          "type": "array"
-        }
-      },
-      "required": [
-        "claims"
-      ],
-      "type": "object"
-    },
     "resource_page": {
       "additionalProperties": false,
       "properties": {
@@ -12647,37 +12477,6 @@ const GeneratedPayloadSchemaDocument = `{
       },
       "type": "object"
     },
-    "work_browse_resource_claims_input": {
-      "additionalProperties": false,
-      "properties": {
-        "limit": {
-          "$ref": "#/$defs/limit",
-          "description": "Bounds: 1..100 value inclusive"
-        },
-        "page": {
-          "$ref": "#/$defs/page"
-        },
-        "product_id": {
-          "$ref": "#/$defs/id",
-          "description": "Bounds: 1..128 code points inclusive"
-        },
-        "requested_budget_seconds": {
-          "$ref": "#/$defs/requested_budget_seconds",
-          "description": "Bounds: >=1 value inclusive"
-        },
-        "resource_key": {
-          "description": "Bounds: 3..160 code points inclusive",
-          "maxLength": 160,
-          "minLength": 3,
-          "pattern": "^[a-z][a-z0-9_-]{1,31}:[A-Za-z0-9][A-Za-z0-9._/-]{0,127}$",
-          "type": "string"
-        }
-      },
-      "required": [
-        "product_id"
-      ],
-      "type": "object"
-    },
     "work_browse_scope_input": {
       "additionalProperties": false,
       "oneOf": [
@@ -14390,10 +14189,6 @@ const GeneratedPayloadSchemaDocument = `{
         "kind": {
           "$ref": "#/$defs/work_kind"
         },
-        "operator_size": {
-          "$ref": "#/$defs/work_size_class",
-          "description": "The operator's size for the work item (CD-0229 D6). It needs a consumed operator approval; reason explains the override. The effective size changes in place on the same work item."
-        },
         "priority": {
           "description": "Bounds: -100..100 value inclusive",
           "maximum": 100,
@@ -15009,10 +14804,6 @@ const GeneratedPayloadSchemaDocument = `{
           "maxLength": 64,
           "type": "string"
         },
-        "open_waits": {
-          "minimum": 0,
-          "type": "integer"
-        },
         "state": {
           "enum": [
             "live",
@@ -15030,8 +14821,7 @@ const GeneratedPayloadSchemaDocument = `{
         "work_id",
         "state",
         "evidence",
-        "attempts",
-        "open_waits"
+        "attempts"
       ],
       "type": "object"
     },
@@ -16154,89 +15944,6 @@ const GeneratedPayloadSchemaDocument = `{
       ],
       "type": "object"
     },
-    "work_relate_resource_claim_input": {
-      "additionalProperties": false,
-      "properties": {
-        "approval": {
-          "$ref": "#/$defs/approval"
-        },
-        "expected_version": {
-          "$ref": "#/$defs/version",
-          "description": "Bounds: >=1 value inclusive"
-        },
-        "idempotency_key": {
-          "$ref": "#/$defs/id",
-          "description": "Bounds: 1..128 code points inclusive"
-        },
-        "reason": {
-          "description": "Bounds: 1..512 code points inclusive",
-          "maxLength": 512,
-          "minLength": 1,
-          "type": "string"
-        },
-        "requested_budget_seconds": {
-          "$ref": "#/$defs/requested_budget_seconds",
-          "description": "Bounds: >=1 value inclusive"
-        },
-        "resource_key": {
-          "description": "Bounds: 3..160 code points inclusive",
-          "maxLength": 160,
-          "minLength": 3,
-          "pattern": "^[a-z][a-z0-9_-]{1,31}:[A-Za-z0-9][A-Za-z0-9._/-]{0,127}$",
-          "type": "string"
-        },
-        "work_id": {
-          "$ref": "#/$defs/id",
-          "description": "Bounds: 1..128 code points inclusive"
-        }
-      },
-      "required": [
-        "work_id",
-        "resource_key",
-        "reason",
-        "expected_version",
-        "idempotency_key"
-      ],
-      "type": "object"
-    },
-    "work_relate_resource_release_input": {
-      "additionalProperties": false,
-      "properties": {
-        "approval": {
-          "$ref": "#/$defs/approval"
-        },
-        "expected_version": {
-          "$ref": "#/$defs/version",
-          "description": "Bounds: >=1 value inclusive"
-        },
-        "idempotency_key": {
-          "$ref": "#/$defs/id",
-          "description": "Bounds: 1..128 code points inclusive"
-        },
-        "requested_budget_seconds": {
-          "$ref": "#/$defs/requested_budget_seconds",
-          "description": "Bounds: >=1 value inclusive"
-        },
-        "resource_key": {
-          "description": "Bounds: 3..160 code points inclusive",
-          "maxLength": 160,
-          "minLength": 3,
-          "pattern": "^[a-z][a-z0-9_-]{1,31}:[A-Za-z0-9][A-Za-z0-9._/-]{0,127}$",
-          "type": "string"
-        },
-        "work_id": {
-          "$ref": "#/$defs/id",
-          "description": "Bounds: 1..128 code points inclusive"
-        }
-      },
-      "required": [
-        "work_id",
-        "resource_key",
-        "expected_version",
-        "idempotency_key"
-      ],
-      "type": "object"
-    },
     "work_relation_graph": {
       "additionalProperties": false,
       "properties": {
@@ -16549,9 +16256,6 @@ const GeneratedPayloadSchemaDocument = `{
         "model_version": {
           "minimum": 1,
           "type": "integer"
-        },
-        "operator_size": {
-          "$ref": "#/$defs/work_size_class"
         },
         "recorded_at": {
           "maxLength": 64,
@@ -16960,9 +16664,6 @@ const GeneratedPayloadSchemaDocument = `{
           "$ref": "#/$defs/work_transition_action_variant_cross_context_boundary"
         },
         {
-          "$ref": "#/$defs/work_transition_action_variant_declare_impact"
-        },
-        {
           "$ref": "#/$defs/work_transition_action_variant_dispatch_worker"
         },
         {
@@ -17138,9 +16839,6 @@ const GeneratedPayloadSchemaDocument = `{
         },
         {
           "$ref": "#/$defs/work_transition_action_variant_cross_context_boundary"
-        },
-        {
-          "$ref": "#/$defs/work_transition_action_variant_declare_impact"
         },
         {
           "$ref": "#/$defs/work_transition_action_public_variant_dispatch_worker"
@@ -20556,168 +20254,6 @@ const GeneratedPayloadSchemaDocument = `{
             "mode",
             "checkpoint_id",
             "summary"
-          ],
-          "type": "object"
-        },
-        "idempotency_key": {
-          "$ref": "#/$defs/id",
-          "description": "Bounds: 1..128 code points inclusive"
-        },
-        "requested_budget_seconds": {
-          "$ref": "#/$defs/requested_budget_seconds",
-          "description": "Bounds: >=1 value inclusive"
-        },
-        "research_bindings": {
-          "description": "Bounds: 1..16 items inclusive",
-          "items": {
-            "additionalProperties": false,
-            "properties": {
-              "pack_id": {
-                "$ref": "#/$defs/id",
-                "description": "Bounds: 1..128 code points inclusive"
-              },
-              "required": {
-                "type": "boolean"
-              },
-              "revision": {
-                "description": "Bounds: >=1 value inclusive",
-                "minimum": 1,
-                "type": "integer"
-              },
-              "use_role": {
-                "enum": [
-                  "context",
-                  "design_input",
-                  "verification_basis",
-                  "decision_basis"
-                ],
-                "type": "string"
-              }
-            },
-            "required": [
-              "pack_id",
-              "revision",
-              "use_role",
-              "required"
-            ],
-            "type": "object"
-          },
-          "maxItems": 16,
-          "minItems": 1,
-          "type": "array"
-        },
-        "selected_choice": {
-          "enum": [
-            "confirm",
-            "revise",
-            "stop"
-          ],
-          "type": "string"
-        },
-        "work_id": {
-          "$ref": "#/$defs/id",
-          "description": "Bounds: 1..128 code points inclusive"
-        }
-      },
-      "required": [
-        "work_id",
-        "expected_version",
-        "action_id",
-        "idempotency_key",
-        "fields"
-      ],
-      "type": "object"
-    },
-    "work_transition_action_variant_declare_impact": {
-      "additionalProperties": false,
-      "not": {
-        "anyOf": [
-          {
-            "required": [
-              "selected_choice"
-            ]
-          },
-          {
-            "required": [
-              "decision_context_digest"
-            ]
-          }
-        ]
-      },
-      "properties": {
-        "action_id": {
-          "const": "declare_impact",
-          "type": "string"
-        },
-        "approval": {
-          "$ref": "#/$defs/approval"
-        },
-        "decision_context_digest": {
-          "$ref": "#/$defs/digest",
-          "description": "Bounds: 8..128 code points inclusive"
-        },
-        "evidence": {
-          "description": "Bounds: <=32 items inclusive",
-          "items": {
-            "$ref": "#/$defs/evidence"
-          },
-          "maxItems": 32,
-          "type": "array"
-        },
-        "expected_version": {
-          "$ref": "#/$defs/version",
-          "description": "Bounds: >=1 value inclusive"
-        },
-        "fields": {
-          "additionalProperties": false,
-          "description": "Bounds: <=32 properties inclusive",
-          "maxProperties": 32,
-          "properties": {
-            "edge_class": {
-              "enum": [
-                "hard",
-                "soft",
-                "none"
-              ],
-              "type": "string"
-            },
-            "edge_id": {
-              "description": "A workflow reference list item with no Unicode White_Space characters and 2-128 UTF-8 bytes. Slashes are allowed because touched refs name repository paths. Bounds: 1..128 code points inclusive; 2..128 UTF-8 bytes inclusive",
-              "maxLength": 128,
-              "minLength": 1,
-              "pattern": "^[^\\x09-\\x0d    -     　]+$",
-              "type": "string",
-              "x-maxBytes": 128,
-              "x-minBytes": 2
-            },
-            "edge_kind": {
-              "enum": [
-                "modifies",
-                "depends_on",
-                "forward_link"
-              ],
-              "type": "string"
-            },
-            "severity": {
-              "enum": [
-                "breaking",
-                "non-breaking",
-                "informational"
-              ],
-              "type": "string"
-            },
-            "target_work_id": {
-              "description": "A workflow reference list item with no Unicode White_Space characters and 2-128 UTF-8 bytes. Slashes are allowed because touched refs name repository paths. Bounds: 1..128 code points inclusive; 2..128 UTF-8 bytes inclusive",
-              "maxLength": 128,
-              "minLength": 1,
-              "pattern": "^[^\\x09-\\x0d    -     　]+$",
-              "type": "string",
-              "x-maxBytes": 128,
-              "x-minBytes": 2
-            }
-          },
-          "required": [
-            "target_work_id"
           ],
           "type": "object"
         },
@@ -30015,12 +29551,6 @@ const GeneratedPayloadSchemaDocument = `{
           "$ref": "#/$defs/workflow_backlog_alignment",
           "description": "The recorded backlog search. Absent when no search was recorded; none_found carries an empty related_ids list."
         },
-        "blocking_conditions": {
-          "items": {
-            "$ref": "#/$defs/id"
-          },
-          "type": "array"
-        },
         "candidate_ids": {
           "items": {
             "$ref": "#/$defs/id"
@@ -30032,38 +29562,7 @@ const GeneratedPayloadSchemaDocument = `{
           "items": {
             "$ref": "#/$defs/short"
           },
-          "type": "array"
-        },
-        "conditions": {
-          "items": {
-            "additionalProperties": false,
-            "properties": {
-              "await_ref": {
-                "$ref": "#/$defs/id"
-              },
-              "await_type": {
-                "$ref": "#/$defs/short"
-              },
-              "id": {
-                "$ref": "#/$defs/id"
-              },
-              "resolution_authority": {
-                "$ref": "#/$defs/id"
-              },
-              "state": {
-                "$ref": "#/$defs/short"
-              }
-            },
-            "required": [
-              "id",
-              "await_type",
-              "await_ref",
-              "resolution_authority",
-              "state"
-            ],
-            "type": "object"
-          },
-          "maxItems": 100,
+          "maxItems": 16,
           "type": "array"
         },
         "contract": {
@@ -30090,54 +29589,6 @@ const GeneratedPayloadSchemaDocument = `{
         },
         "delivery_assertion": {
           "$ref": "#/$defs/workflow_delivery_assertion"
-        },
-        "impact_notices": {
-          "items": {
-            "additionalProperties": false,
-            "properties": {
-              "edge_id": {
-                "$ref": "#/$defs/id"
-              },
-              "edge_owner_work_id": {
-                "$ref": "#/$defs/id"
-              },
-              "entity_kind": {
-                "$ref": "#/$defs/short"
-              },
-              "entity_ref": {
-                "$ref": "#/$defs/id"
-              },
-              "notice_id": {
-                "$ref": "#/$defs/id"
-              },
-              "severity": {
-                "$ref": "#/$defs/short"
-              },
-              "source_contract_version": {
-                "$ref": "#/$defs/version"
-              },
-              "source_work_id": {
-                "$ref": "#/$defs/id"
-              },
-              "target_work_id": {
-                "$ref": "#/$defs/id"
-              }
-            },
-            "required": [
-              "notice_id",
-              "source_work_id",
-              "source_contract_version",
-              "entity_kind",
-              "entity_ref",
-              "target_work_id",
-              "edge_owner_work_id",
-              "edge_id",
-              "severity"
-            ],
-            "type": "object"
-          },
-          "maxItems": 100,
-          "type": "array"
         },
         "operator_question": {
           "$ref": "#/$defs/operator_question",
@@ -30175,27 +29626,11 @@ const GeneratedPayloadSchemaDocument = `{
           ],
           "type": "object"
         },
-        "ready": {
-          "type": "boolean"
-        },
         "stale_law_revision": {
           "$ref": "#/$defs/workflow_stale_law_revision"
         },
         "state": {
           "$ref": "#/$defs/short"
-        },
-        "unreadable_conditions": {
-          "items": {
-            "$ref": "#/$defs/id"
-          },
-          "type": "array"
-        },
-        "unresolved_conditions": {
-          "items": {
-            "$ref": "#/$defs/id"
-          },
-          "maxItems": 100,
-          "type": "array"
         },
         "work_id": {
           "$ref": "#/$defs/retained_work_id"
@@ -30206,12 +29641,6 @@ const GeneratedPayloadSchemaDocument = `{
         "state",
         "current_step",
         "definition",
-        "conditions",
-        "unresolved_conditions",
-        "unreadable_conditions",
-        "ready",
-        "blocking_conditions",
-        "impact_notices",
         "completion_warnings"
       ],
       "type": "object"

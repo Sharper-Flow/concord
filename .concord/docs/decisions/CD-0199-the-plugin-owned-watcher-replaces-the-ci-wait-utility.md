@@ -7,7 +7,7 @@
   `concord ci-wait` verb in `cmd/concord` stays unchanged
 - **Preserves:** CD-0160 D1 through D5 and D7 in full (the verb half), CD-0161
   and CD-0168 in full (both bind the verb), CD-0166 D1 and D4 (no core prober,
-  no timer), CD-0028 D5, and CD-0149's remaining utilities
+  no timer), and CD-0149's remaining utilities
 - **Related:** CD-0017, CD-0149, CD-0160, CD-0161, CD-0166, CD-0168
 - **Approval:** The operator approved the work item contract that carries this
   record on 2026-09-30.
@@ -34,7 +34,7 @@ turn, and an idle session can drop one.
 as a plugin-owned child process, carries the state file across slices, and
 returns the tool call at once. The verb keeps polling, pacing, the deadline,
 and classification. The core gains nothing: no prober, no GitHub client, and
-no timer (CD-0166 D1/D4, CD-0028 D5).
+no timer (CD-0166 D1/D4).
 
 ### D2. Delivery rides the host's in-process client
 
@@ -72,8 +72,8 @@ wake before shipment. The verb keeps its contract.
   opens no listener, so every wake got connection refused.
 - A GitHub webhook receiver. Rejected: it needs a public endpoint and adds a
   service for no gain over the verb's own pacing on one host.
-- A core-side CI poller or automatic await-condition resolution in the store.
-  Rejected: CD-0166 D1/D4 and CD-0028 D5 forbid core-side pollers and timers.
+- A core-side CI poller.
+  Rejected: CD-0166 D1/D4 forbid core-side pollers and timers.
 
 ## Consequences
 

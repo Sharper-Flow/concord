@@ -3,7 +3,7 @@
 - **Status:** Accepted
 - **Date:** 2026-08-15
 - **Scope:** Agent tool surface; work-item messages; continuity snapshot
-- **Related:** CD-0014 (no polling), CD-0016 (continuity), CD-0028 (claims), issue #86
+- **Related:** CD-0014 (no polling), CD-0016 (continuity), issue #86
 
 ## Context
 

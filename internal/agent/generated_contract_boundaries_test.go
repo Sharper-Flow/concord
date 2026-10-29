@@ -17,8 +17,4 @@ func TestGeneratedOperationsCarryManifestOwnedBoundaries(t *testing.T) {
 	if !ok || research.Consequence != agentcontract.OperationConsequence("research") {
 		t.Fatalf("research consequence = %q, found=%t", research.Consequence, ok)
 	}
-	claim, ok := agentcontract.ValidateContractOperation("concord_work_relate", "resource_claim")
-	if !ok || claim.Consequence != agentcontract.OperationConsequence("claim") {
-		t.Fatalf("claim consequence = %q, found=%t", claim.Consequence, ok)
-	}
 }

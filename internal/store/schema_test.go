@@ -824,50 +824,6 @@ func TestMigrateV8ToV9AddsAgentAuthorityWithoutChangingPriorMigrations(t *testin
 	}
 }
 
-func TestMigrateV27ToV28PreservesImpactNoticesWithSourceOwnedEdges(t *testing.T) {
-	t.Parallel()
-	path := filepath.Join(t.TempDir(), "concord-v27.db")
-	ctx := context.Background()
-	db, err := sql.Open(driverName, dataSourceName(path))
-	if err != nil {
-		t.Fatal(err)
-	}
-	db.SetMaxOpenConns(1)
-	defer db.Close()
-	if _, err := db.ExecContext(ctx, schemaManifestDDL); err != nil {
-		t.Fatal(err)
-	}
-	for _, migration := range migrations[:27] {
-		if err := applyMigration(ctx, db, migration); err != nil {
-			t.Fatalf("migration %d: %v", migration.Version, err)
-		}
-		if _, err := db.ExecContext(ctx, `INSERT INTO schema_migrations(version,name,checksum,applied_at) VALUES(?,?,?,?)`, migration.Version, migration.Name, migration.checksum(), "2026-08-13T00:00:00Z"); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if _, err := db.ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1);
-INSERT INTO work_items(id,kind,title,lifecycle,urgency,priority,version,created_at,updated_at) VALUES
-('legacy-source','task','Source','needed','standard',1,1,'now','now'),
-('legacy-target','task','Target','needed','standard',1,1,'now','now');
-INSERT INTO workflow_impact_edges(work_id,edge_id,edge_kind,edge_class,target_work_id,target_kind,severity,recorded_at)
-VALUES('legacy-source','edge:legacy','depends_on','hard','legacy-target','work_item','breaking','now');
-INSERT INTO workflow_impact_notices(notice_id,source_work_id,source_contract_version,entity_kind,entity_ref,target_work_id,edge_id,old_hash,new_hash,severity,recorded_at)
-VALUES(?,'legacy-source',1,'spec','spec:one','legacy-target','edge:legacy',NULL,NULL,'breaking','now');
-DELETE FROM fold_guard`, WorkflowNoticeID("legacy-source", 1, "spec", "spec:one", "legacy-target", "breaking")); err != nil {
-		t.Fatal(err)
-	}
-	if err := Migrate(ctx, db); err != nil {
-		t.Fatal(err)
-	}
-	var owner string
-	if err := db.QueryRowContext(ctx, `SELECT edge_owner_work_id FROM workflow_impact_notices WHERE source_work_id='legacy-source'`).Scan(&owner); err != nil {
-		t.Fatal(err)
-	}
-	if owner != "legacy-source" {
-		t.Fatalf("migrated edge owner = %q, want legacy-source", owner)
-	}
-}
-
 func TestMigrateIsIdempotent(t *testing.T) {
 	t.Parallel()
 	s := openTemp(t)
@@ -1770,8 +1726,7 @@ func TestMigration40AddsDomainOverlapProjectionTables(t *testing.T) {
 	db := s.DatabaseForTesting()
 	for _, table := range []string{
 		"domain_registries", "domains", "domain_architecture_relations", "law_domain_homes",
-		"law_domain_applicability", "archived_work_domains", "domain_project_attachment_sets",
-		"domain_project_attachment_edges", "domain_resource_attachment_sets",
+		"law_domain_applicability", "archived_work_domains", "domain_resource_attachment_sets",
 		"domain_resource_attachment_edges", "managed_resources", "resource_products",
 		"workflow_architecture_bindings", "workflow_contract_affected_domains", "workflow_contract_domain_modifications",
 		"workflow_contract_domain_relation_modifications", "workflow_law_addition_reservations", "workflow_contract_law_additions", "workflow_contract_verification_obligations",
@@ -1790,13 +1745,13 @@ func TestMigration40AddsDomainOverlapProjectionTables(t *testing.T) {
 	if err := db.QueryRowContext(ctx, `SELECT count(*) FROM sqlite_master WHERE type='table' AND name='workflow_native_runs'`).Scan(&nativeRuns); err != nil || nativeRuns != 1 {
 		t.Fatalf("workflow_native_runs count=%d err=%v", nativeRuns, err)
 	}
-	for _, table := range []string{"domains", "domain_project_attachment_edges", "domain_resource_attachment_edges", "managed_resources", "resource_products"} {
+	for _, table := range []string{"domains", "domain_resource_attachment_edges", "managed_resources", "resource_products"} {
 		var err error
 		if _, err = db.ExecContext(ctx, "INSERT INTO "+table+" DEFAULT VALUES"); err == nil {
 			t.Fatalf("direct write to %s bypassed write guard", table)
 		}
 	}
-	for _, table := range []string{"domain_registries", "domains", "domain_architecture_relations", "law_domain_homes", "law_domain_applicability", "domain_project_attachment_sets", "domain_resource_attachment_sets"} {
+	for _, table := range []string{"domain_registries", "domains", "domain_architecture_relations", "law_domain_homes", "law_domain_applicability", "domain_resource_attachment_sets"} {
 		var count int
 		if err := db.QueryRowContext(ctx, `SELECT count(*) FROM sqlite_master WHERE type='trigger' AND name=?`, table+"_guard_insert").Scan(&count); err != nil || count != 1 {
 			t.Fatalf("write guard for %s count=%d err=%v", table, count, err)

@@ -102,11 +102,6 @@
       "authority": "check"
     },
     {
-      "table": "domain_project_attachment_edges",
-      "column": "role",
-      "authority": "check"
-    },
-    {
       "table": "domain_relation_governing_laws",
       "column": "kind",
       "authority": "fk"
@@ -173,11 +168,6 @@
     },
     {
       "table": "law_coverage_anchors",
-      "column": "kind",
-      "authority": "check"
-    },
-    {
-      "table": "law_cross_source_relations",
       "column": "kind",
       "authority": "check"
     },
@@ -263,11 +253,6 @@
       "validator": "scripts/check-relation-vocabulary.py"
     },
     {
-      "table": "resource_claims",
-      "column": "state",
-      "authority": "check"
-    },
-    {
       "table": "resource_products",
       "column": "role",
       "authority": "check"
@@ -311,12 +296,6 @@
       "validator": "scripts/check-work-sizes.py"
     },
     {
-      "table": "work_size_overrides",
-      "column": "size_class",
-      "authority": "contract",
-      "validator": "scripts/check-work-sizes.py"
-    },
-    {
       "table": "work_size_proof_facts",
       "column": "state",
       "authority": "check",
@@ -340,11 +319,6 @@
     {
       "table": "worker_attempts",
       "column": "terminal_kind",
-      "authority": "check"
-    },
-    {
-      "table": "workflow_action_obligations",
-      "column": "state",
       "authority": "check"
     },
     {
@@ -400,16 +374,6 @@
       "rationale": "This column stores correction-state JSON, not an enum; its CHECK requires valid JSON."
     },
     {
-      "table": "workflow_external_conditions",
-      "column": "await_type",
-      "authority": "check"
-    },
-    {
-      "table": "workflow_external_conditions",
-      "column": "condition_state",
-      "authority": "check"
-    },
-    {
       "table": "workflow_impact_edges",
       "column": "edge_class",
       "authority": "check"
@@ -427,16 +391,6 @@
     {
       "table": "workflow_impact_edges",
       "column": "target_kind",
-      "authority": "check"
-    },
-    {
-      "table": "workflow_impact_notices",
-      "column": "entity_kind",
-      "authority": "check"
-    },
-    {
-      "table": "workflow_impact_notices",
-      "column": "severity",
       "authority": "check"
     },
     {
@@ -488,11 +442,6 @@
       "column": "state",
       "authority": "check",
       "rationale": "This column stores current candidate, accepted Review and finding state as JSON, not an enum; its CHECK requires valid JSON."
-    },
-    {
-      "table": "workflow_staleness_observations",
-      "column": "severity",
-      "authority": "check"
     },
     {
       "table": "worktree_claims",

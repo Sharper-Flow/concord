@@ -156,40 +156,31 @@ func TestLawChangeBaselineMigrationPreservesHistoricalFacts(t *testing.T) {
 	}
 }
 
-func TestLawChangeBaselineCoversRegisteredSources(t *testing.T) {
-	for _, mode := range []string{"source law edit", "source graph change"} {
-		t.Run(mode, func(t *testing.T) {
-			s, home, source := seedCrossSourceBoundaryProduct(t, "law-start-source")
-			const id = "law-start-source-work"
-			seedKnowledgeWork(t, s, id, "Source inventory work")
-			lawChangeFold(t, s, `UPDATE work_projects SET project_id=? WHERE work_id=? AND role='primary'`, home.HomeProjectID, id)
-			startLawChange(t, s, id)
-			if mode == "source law edit" {
-				verified, err := s.EstablishKnowledgeSourceSetProof(t.Context(), id)
-				if err != nil {
-					t.Fatal(err)
-				}
-				lawChangeFold(t, s, `UPDATE law_subjects SET authority_tier='derived' WHERE home_project_id=? AND law_id='SRC-LAW'`, source.HomeProjectID)
-				tx := lawChangeTx(t, s)
-				err = checkWorkflowLawChangeEnactmentTx(t.Context(), tx, id, nil, nil)
-				_ = tx.Rollback()
-				requireFailureKind(t, err, KindInvalidOperation, "unverified all-source law inventory")
-				tx = lawChangeTx(t, s)
-				err = checkWorkflowLawChangeEnactmentTx(verified, tx, id, nil, nil)
-				_ = tx.Rollback()
-				requireFailureKind(t, err, KindOutcomeMismatch, "unmentioned registered-source law changed")
-				writeKnowledgeFile(t, source.RepoPath, "unrelated.go", "package synthetic\n")
-				commitKnowledgeRepo(t, source.RepoPath, "move past the verified source")
-				tx = lawChangeTx(t, s)
-				err = checkWorkflowLawChangeEnactmentTx(verified, tx, id, nil, nil)
-				_ = tx.Rollback()
-				requireFailureKind(t, err, KindInvalidOperation, "stale source proof cannot certify a law-free contract")
-			} else {
-				lawChangeFold(t, s, `DELETE FROM product_knowledge_sources WHERE project_id=?`, source.HomeProjectID)
-				requireFailureKind(t, enactLawChange(t, s, id, nil, nil), KindMissingEvidence, "source removal must not hide its law delta")
-			}
-		})
+func TestLawChangeBaselineCoversHomeLawEdit(t *testing.T) {
+	s, home := seedKnowledgeHomeProduct(t, "law-start-product", KnowledgeHome{HomeProjectID: "law-start-home", HomeLocatorID: "law-start-loc", HeadRef: "HEAD"}, "SRC-LAW", ".concord/docs/decisions/CD-0901-home.md", "Home law")
+	const id = "law-start-source-work"
+	seedKnowledgeWork(t, s, id, "Source inventory work")
+	lawChangeFold(t, s, `UPDATE work_projects SET project_id=? WHERE work_id=? AND role='primary'`, home.HomeProjectID, id)
+	startLawChange(t, s, id)
+	verified, err := s.EstablishKnowledgeSourceSetProof(t.Context(), id)
+	if err != nil {
+		t.Fatal(err)
 	}
+	lawChangeFold(t, s, `UPDATE law_subjects SET authority_tier='derived' WHERE home_project_id=? AND law_id='SRC-LAW'`, home.HomeProjectID)
+	tx := lawChangeTx(t, s)
+	err = checkWorkflowLawChangeEnactmentTx(t.Context(), tx, id, nil, nil)
+	_ = tx.Rollback()
+	requireFailureKind(t, err, KindInvalidOperation, "unverified all-source law inventory")
+	tx = lawChangeTx(t, s)
+	err = checkWorkflowLawChangeEnactmentTx(verified, tx, id, nil, nil)
+	_ = tx.Rollback()
+	requireFailureKind(t, err, KindOutcomeMismatch, "unmentioned home law changed")
+	writeKnowledgeFile(t, home.RepoPath, "unrelated.go", "package synthetic\n")
+	commitKnowledgeRepo(t, home.RepoPath, "move past the verified home")
+	tx = lawChangeTx(t, s)
+	err = checkWorkflowLawChangeEnactmentTx(verified, tx, id, nil, nil)
+	_ = tx.Rollback()
+	requireFailureKind(t, err, KindInvalidOperation, "stale source proof cannot certify a law-free contract")
 }
 
 func TestLawChangeBaselineInitializationRollsBackWithOwner(t *testing.T) {

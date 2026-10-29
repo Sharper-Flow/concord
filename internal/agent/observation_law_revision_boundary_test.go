@@ -29,7 +29,7 @@ const (
 func seedObservationLawBoundary(t *testing.T) (*store.Store, *Service, Authority, string) {
 	t.Helper()
 	ctx := context.Background()
-	s, service, grant := claimsFixture(t)
+	s, service, grant := observationFixture(t)
 
 	var projectVersion int64
 	if err := s.DatabaseForTesting().QueryRow(`SELECT version FROM projects WHERE id='project-1'`).Scan(&projectVersion); err != nil {

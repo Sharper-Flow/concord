@@ -109,9 +109,8 @@ Default self-documentation views are minimal by design:
 ### 2.4 Authority/freshness and related-work impact
 
 Self-documentation surfaces display authority/freshness indicators, not hidden
-guesses. CD-0006 R3's declared edges, completion notices, boundary verdicts, and
-version stamps are authoritative; browse views must not invent or silently clear
-impact state.
+guesses. CD-0006 R3's composition edges, accepted verdicts, and pinned revision
+checks are authoritative; browse views must not invent or silently clear state.
 
 CD-0222 adds the active architecture footprint: affected Domains, exact law pins,
 write overlaps, and the current version-pinned resolution. The default Domain

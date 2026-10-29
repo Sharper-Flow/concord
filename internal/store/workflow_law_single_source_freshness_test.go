@@ -12,8 +12,7 @@ import (
 // An empty mandate must not hide a committed law edit behind stale projection
 // rows, whether the caller omitted proof or retained proof from before the edit.
 func TestLawBaselineSingleSourceRejectsInvisibleStaleEdit(t *testing.T) {
-	s, home, source := seedCrossSourceBoundaryProduct(t, "single-baseline")
-	lawChangeFold(t, s, `DELETE FROM product_knowledge_sources WHERE project_id=?`, source.HomeProjectID)
+	s, home := seedKnowledgeHomeProduct(t, "single-baseline-product", KnowledgeHome{HomeProjectID: "single-baseline-home", HomeLocatorID: "single-baseline-loc", HeadRef: "HEAD"}, "HOME-LAW", ".concord/docs/decisions/CD-0901-home.md", "Home law")
 	const id = "single-baseline-work"
 	seedKnowledgeWork(t, s, id, "Single-source baseline work")
 	lawChangeFold(t, s, `UPDATE work_projects SET project_id=? WHERE work_id=? AND role='primary'`, home.HomeProjectID, id)
@@ -52,63 +51,54 @@ func TestLawBaselineSingleSourceRejectsInvisibleStaleEdit(t *testing.T) {
 }
 
 func TestLawBaselineInitializationRequiresFreshSourceProof(t *testing.T) {
-	for _, single := range []bool{true, false} {
-		for _, mode := range []string{"missing", "stale", "verified"} {
-			name := mode + "/federated"
-			if single {
-				name = mode + "/single"
-			}
-			t.Run(name, func(t *testing.T) {
-				s, home, source := seedCrossSourceBoundaryProduct(t, "initialize-proof")
-				if single {
-					lawChangeFold(t, s, `DELETE FROM product_knowledge_sources WHERE project_id=?`, source.HomeProjectID)
-				}
-				const id = "initialize-proof-work"
-				seedKnowledgeWork(t, s, id, "Initialized law inventory")
-				lawChangeFold(t, s, `UPDATE work_projects SET project_id=? WHERE work_id=? AND role='primary'`, home.HomeProjectID, id)
-				ctx := context.Background()
-				if mode != "missing" {
-					var err error
-					ctx, err = s.EstablishKnowledgeSourceSetProofForProject(ctx, home.HomeProjectID)
-					if err != nil {
-						t.Fatal(err)
-					}
-				}
-				if mode == "stale" {
-					writeKnowledgeFile(t, home.RepoPath, "unrelated.go", "package synthetic\n")
-					commitKnowledgeRepo(t, home.RepoPath, "move after start proof")
-				}
-				definition, err := LiveWorkflowDefinitionForRef("workflow.implementation")
+	for _, mode := range []string{"missing", "stale", "verified"} {
+		t.Run(mode, func(t *testing.T) {
+			s, home := seedKnowledgeHomeProduct(t, "initialize-proof-product", KnowledgeHome{HomeProjectID: "initialize-proof-home", HomeLocatorID: "initialize-proof-loc", HeadRef: "HEAD"}, "HOME-LAW", ".concord/docs/decisions/CD-0901-home.md", "Home law")
+			const id = "initialize-proof-work"
+			seedKnowledgeWork(t, s, id, "Initialized law inventory")
+			lawChangeFold(t, s, `UPDATE work_projects SET project_id=? WHERE work_id=? AND role='primary'`, home.HomeProjectID, id)
+			ctx := context.Background()
+			if mode != "missing" {
+				var err error
+				ctx, err = s.EstablishKnowledgeSourceSetProofForProject(ctx, home.HomeProjectID)
 				if err != nil {
 					t.Fatal(err)
 				}
-				err = s.Transact(ctx, func(tx *Transaction) error {
-					return InitializeWorkflowTx(ctx, tx, WorkflowInitializationRequest{WorkID: id, Definition: definition, Actor: lawChangeConstructorActor})
-				})
-				if mode == "verified" {
-					if err != nil {
-						t.Fatal(err)
-					}
-					var count int
-					if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM workflow_law_baselines WHERE work_id=?`, id).Scan(&count); err != nil || count != 1 {
-						t.Fatalf("verified initialization omitted its baseline: count=%d error=%v", count, err)
-					}
-					return
-				}
-				requireFailureKind(t, err, KindInvalidOperation, "unverified owning start")
-				message := "was not verified before this transaction"
-				if mode == "stale" {
-					message = "moved to a new commit after its verification"
-				}
-				if !strings.Contains(err.Error(), message) {
-					t.Fatalf("wrong %s initialization refusal: %v", mode, err)
+			}
+			if mode == "stale" {
+				writeKnowledgeFile(t, home.RepoPath, "unrelated.go", "package synthetic\n")
+				commitKnowledgeRepo(t, home.RepoPath, "move after start proof")
+			}
+			definition, err := LiveWorkflowDefinitionForRef("workflow.implementation")
+			if err != nil {
+				t.Fatal(err)
+			}
+			err = s.Transact(ctx, func(tx *Transaction) error {
+				return InitializeWorkflowTx(ctx, tx, WorkflowInitializationRequest{WorkID: id, Definition: definition, Actor: lawChangeConstructorActor})
+			})
+			if mode == "verified" {
+				if err != nil {
+					t.Fatal(err)
 				}
 				var count int
-				if err := s.DatabaseForTesting().QueryRow(`SELECT (SELECT count(*) FROM workflow_instances WHERE work_id=?)+(SELECT count(*) FROM workflow_law_baselines WHERE work_id=?)`, id, id).Scan(&count); err != nil || count != 0 {
-					t.Fatalf("unverified initialization left effects: count=%d error=%v", count, err)
+				if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM workflow_law_baselines WHERE work_id=?`, id).Scan(&count); err != nil || count != 1 {
+					t.Fatalf("verified initialization omitted its baseline: count=%d error=%v", count, err)
 				}
-			})
-		}
+				return
+			}
+			requireFailureKind(t, err, KindInvalidOperation, "unverified owning start")
+			message := "was not verified before this transaction"
+			if mode == "stale" {
+				message = "moved to a new commit after its verification"
+			}
+			if !strings.Contains(err.Error(), message) {
+				t.Fatalf("wrong %s initialization refusal: %v", mode, err)
+			}
+			var count int
+			if err := s.DatabaseForTesting().QueryRow(`SELECT (SELECT count(*) FROM workflow_instances WHERE work_id=?)+(SELECT count(*) FROM workflow_law_baselines WHERE work_id=?)`, id, id).Scan(&count); err != nil || count != 0 {
+				t.Fatalf("unverified initialization left effects: count=%d error=%v", count, err)
+			}
+		})
 	}
 }
 

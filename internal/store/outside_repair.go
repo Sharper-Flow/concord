@@ -346,7 +346,7 @@ func foldOutsideRepairReconciled(ctx context.Context, tx *sql.Tx, event Event, s
 	if err := removeTerminalResearchBindings(ctx, tx, event.SubjectID, event.OccurredAt); err != nil {
 		return err
 	}
-	return foldTerminalReleasesResourceClaims(ctx, tx, event)
+	return nil
 }
 
 func foldOutsideRepairResumed(ctx context.Context, tx *sql.Tx, event Event) error {

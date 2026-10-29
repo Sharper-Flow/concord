@@ -18,7 +18,7 @@ func TestCommittedAgentSurfaceAndMixedRootShapeFitBound(t *testing.T) {
 		t.Fatal(err)
 	}
 	commit := strings.TrimSpace(string(head))
-	manifest, shards, missing, err := readKnowledgeManifestShardsRunner(ctx, runner, root, commit, manifestSharedHomeRole)
+	manifest, shards, missing, err := readKnowledgeManifestShardsRunner(ctx, runner, root, commit)
 	if err != nil || missing {
 		t.Fatalf("committed manifest missing=%v: %v", missing, err)
 	}

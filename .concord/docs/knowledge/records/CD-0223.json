@@ -26,9 +26,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:ca235a54f8bacc83f9635a742044b2a73c7d62dd629940608e4d9716c4487bcd",
+  "sha256": "sha256:6f6b1309fc8cd174d9ca08f1f2aabe520006876b735fb9828c530b0c944d23fa",
   "status": "accepted",
-  "summary": "A dispatched worker has no general Concord state-query or mutation access. Its packet remains complete declared context. Explicit capabilities may expose bounded original pinned readings, scoped review diffs, and selection of recorded executable checks, not new context discovery or workflow authority. Review diffs span the first editing dispatch subject on the same claimed worktree across contract revisions to the pinned review subject and remain within the recorded approved job path scope. Bounded reads use immutable Git bytes and revalidate the active attempt. Native-oracle receipt authority stays with the host producer. Utilities retain complete Concord-tool denial, and missing context or executable backing uses the report boundary.",
+  "summary": "A dispatched worker has no general Concord state-query or mutation access. Its packet remains complete declared context. Explicit capabilities expose bounded pinned readings, scoped review diffs and recorded executable checks, not discovery or workflow authority. Review starts at the immutable pre-edit commit recorded by the authenticated initial worktree producer, covering coordinator and worker edits. The record binds work, Project and claim. Older work retains its recorded first editing dispatch subject; missing authentic history refuses without backfill or inference. Contract revisions do not reset the foundation. Reads remain within approved job paths, use immutable Git bytes and revalidate the active attempt. Native-oracle receipt authority stays with the host. Utilities retain complete Concord-tool denial.",
   "tags": [
     "agent-surface",
     "worker-attempts",

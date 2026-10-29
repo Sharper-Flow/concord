@@ -607,7 +607,7 @@ func deleteWorkOwnedProjections(ctx context.Context, tx *sql.Tx, workID string) 
 	if _, err := tx.ExecContext(ctx, `DELETE FROM workflow_backlog_alignment WHERE work_id=? OR related_work_id=?`, workID, workID); err != nil {
 		return projectionDeleteFailure("workflow_backlog_alignment", err)
 	}
-	for _, table := range []string{"workflow_law_baselines", "workflow_group_members", "workflow_member_groups"} {
+	for _, table := range []string{"worktree_review_foundations", "workflow_law_baselines", "workflow_group_members", "workflow_member_groups"} {
 		if _, err := tx.ExecContext(ctx, `DELETE FROM `+table+` WHERE work_id=?`, workID); err != nil { //nolint:gosec // closed source-owned table list.
 			return projectionDeleteFailure(table, err)
 		}

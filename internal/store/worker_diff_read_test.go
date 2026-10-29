@@ -135,7 +135,7 @@ func TestReadWorkerDiffMissingFirstHistoryRefusesRatherThanUsingLaterSubject(t *
 				}
 				foundationDispatchForTest(t, db, int64(seq), 1, fmt.Sprintf("attempt:%d", seq), "implement", subject, tree)
 			}
-			base, err := firstWorkerEditingSubject(context.Background(), db, "work", "claim", 4)
+			base, err := firstWorkerEditingSubject(context.Background(), db, "work", "project", "claim", 4)
 			if !hasFailureKind(err, KindUnauthorizedDispatch) || base != "" {
 				t.Fatalf("missing first %s selected a later subject: %q %v", missing, base, err)
 			}

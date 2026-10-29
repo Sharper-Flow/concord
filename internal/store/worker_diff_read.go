@@ -47,11 +47,10 @@ func workerDiffRefusal(detail string) error {
 	return newFailure(KindUnauthorizedDispatch, "worker_diff", detail, false, "use a live review with its original packet, claimed worktree, scoped job, and complete first-editing subject history")
 }
 
-// firstWorkerEditingSubject preserves the accumulated solution's foundation
-// across contract revisions (CD-0242 D5-D7). Each earlier authorization is
-// classified by its recorded capability class, not current lane content.
-// Missing first-editing identity or an unclassifiable row refuses.
-func firstWorkerEditingSubject(ctx context.Context, q queryer, workID, identity string, reviewSeq int64) (string, error) {
+// firstWorkerEditingSubject selects the host-recorded initial creation, or the
+// first editing subject for older work, across contract revisions. Earlier
+// authorizations still need their recorded capability class and identity.
+func firstWorkerEditingSubject(ctx context.Context, q queryer, workID, projectID, identity string, reviewSeq int64) (string, error) {
 	rows, err := q.QueryContext(ctx, `SELECT r.contract_version,a.attempt_id IS NOT NULL,COALESCE(a.capability_class,''),COALESCE(json_extract(r.payload,'$.worker_subject_commit'),''),COALESCE(json_extract(r.payload,'$.worker_worktree_identity'),'') FROM worker_authorizations r LEFT JOIN worker_attempts a ON a.work_id=r.work_id AND a.attempt_id=r.attempt_id WHERE r.work_id=? AND r.seq>0 AND r.seq<? ORDER BY r.seq`, workID, reviewSeq)
 	if err != nil {
 		return "", err
@@ -86,6 +85,10 @@ func firstWorkerEditingSubject(ctx context.Context, q queryer, workID, identity 
 	if err := rows.Err(); err != nil {
 		return "", err
 	}
+	if err := rows.Close(); err != nil {
+		return "", err
+	}
+	var first string
 	for _, d := range editors {
 		if d.tree == "" {
 			return "", workerDiffRefusal("editing authorization has no recorded worktree identity")
@@ -96,7 +99,14 @@ func firstWorkerEditingSubject(ctx context.Context, q queryer, workID, identity 
 		if !worktreeSHAPattern.MatchString(d.subject) {
 			return "", workerDiffRefusal("first editing authorization has no recorded raw subject")
 		}
-		return d.subject, nil
+		first = d.subject
+		break
+	}
+	if subject, err := hostReviewFoundationTx(ctx, q, workID, projectID, identity, reviewSeq); err != nil || subject != "" {
+		return subject, err
+	}
+	if first != "" {
+		return first, nil
 	}
 	return "", workerDiffRefusal("review contract has no first editing authorization on this worktree")
 }
@@ -161,7 +171,7 @@ func sampleWorkerDiff(ctx context.Context, q queryer, req WorkerDiffRequest, sna
 	if workerWorktreeIdentity(entry.Path) != req.WorktreeIdentity {
 		return workerDiffRefusal("review job belongs to another claimed worktree")
 	}
-	base, err := firstWorkerEditingSubject(ctx, q, req.WorkID, req.WorktreeIdentity, auth.Seq)
+	base, err := firstWorkerEditingSubject(ctx, q, req.WorkID, job.ProjectScope, req.WorktreeIdentity, auth.Seq)
 	if err != nil {
 		return err
 	}

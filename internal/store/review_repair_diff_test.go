@@ -77,7 +77,7 @@ func TestReviewRepairDispatchDoesNotResetAccumulatedDiffBase(t *testing.T) {
 		}
 		foundationDispatchForTest(t, db, int64(2+i*2), int64(i+1), id, id, subject, "claim")
 	}
-	base, err := firstWorkerEditingSubject(context.Background(), db, "work", "claim", 5)
+	base, err := firstWorkerEditingSubject(context.Background(), db, "work", "project", "claim", 5)
 	if err != nil || base != foundation {
 		t.Fatalf("Review reset the accumulated solution diff to its repair input: base=%q err=%v", base, err)
 	}

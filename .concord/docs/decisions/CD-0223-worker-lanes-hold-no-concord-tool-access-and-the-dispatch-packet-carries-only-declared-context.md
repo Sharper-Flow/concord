@@ -77,10 +77,19 @@ A page carries its source identity, whole-content hash, byte offsets, and EOF.
 No caller-supplied path, ref, packet replacement, or mutable-checkout fallback
 is admitted. A source read creates no workflow or evidence record.
 
-An `inspect_diff` capability reads only the committed delta from the recorded
-dispatch subject of the first editing attempt on the same claimed worktree
-to the review attempt's pinned subject. Contract revisions do not reset this
-foundation: Review inspects the accumulated solution under CD-0242 D5–D7.
+An `inspect_diff` capability reads only the committed delta from the immutable
+pre-edit starting commit the host records during initial worktree creation to
+the review attempt's pinned subject. This foundation covers coordinator edits
+as well as worker edits. Only the authenticated live creation producer may
+record it, before handing out the worktree; caller-selected historical commits
+and generic event replay cannot establish it. It binds the work, Project and
+worktree claim. A different claim at the same path cannot reuse it.
+
+Older work without this host record retains the recorded dispatch subject of
+its first editing attempt on the same claimed worktree. If neither authentic
+source exists, access refuses. Migration, adoption and reopen never invent a
+missing start. Contract revisions do not reset either foundation: Review
+inspects the accumulated solution under CD-0242 D5–D7.
 The host verifies exact review HEAD
 and a clean tree before access. The diff is restricted to the recorded
 approved job's path scope. Missing base identity or scope refuses; the host
@@ -196,3 +205,12 @@ still uses the report boundary, never a general worker Concord call.
   `TestReadWorkerReadingRevalidatesRegistrationAfterGit`, and
   `TestReadWorkerReadingRevalidatesAttemptLivenessAfterGit` cover immutable
   source pages, bounds, authorization, and concurrent invalidation.
+- `TestReadWorkerDiffHostFoundationCoversCoordinatorChange` proves coordinator-only
+  changes reach Review from the host-recorded start. `TestHostReviewFoundationSelection`
+  keeps claim, Project, worktree, chronology and earlier-authorization refusals.
+- `TestHostReviewFoundationClaimEligibility`,
+  `TestHostReviewFoundationCreationRollsBackWithClaim`,
+  `TestHostReviewFoundationGenericWorktreeEventCannotMintStart`,
+  `TestHostReviewFoundationUpgradeDoesNotBackfill`, and
+  `TestHostReviewFoundationMissingBeforeReopenStaysMissing` distinguish live
+  initial creation from adoption, retries and unrecorded older starts.

@@ -22,6 +22,7 @@ func workerFoundationCurrentDB(t *testing.T) *sql.DB {
 		CREATE TABLE worker_authorizations(work_id TEXT,attempt_id TEXT,seq INTEGER,contract_version INTEGER,payload TEXT);
 		CREATE TABLE worker_attempts(work_id TEXT,attempt_id TEXT,lane_id TEXT,lane_digest TEXT,capability_class TEXT,lifecycle_state TEXT,dispatch_seq INTEGER,dispatch_payload TEXT);
 		CREATE TABLE worker_job_revisions(work_id TEXT,job_id TEXT,revision INTEGER,state TEXT,satisfied_result_ref TEXT,satisfied_seq INTEGER,path_scope TEXT,digest TEXT,recorded_seq INTEGER,recorded_event_id TEXT,recorded_payload TEXT);
+		CREATE TABLE worktree_review_foundations(work_id TEXT,project_id TEXT,worktree_identity TEXT,subject_commit TEXT,captured_seq INTEGER,claim_op_id TEXT);
 	`)
 	if err != nil {
 		t.Fatal(err)
@@ -94,7 +95,7 @@ func TestWorkerEditingFoundationClassifiesRecordedClassNotCurrentLane(t *testing
 		staleFoundationAuthorizationForTest(t, db, 2, "attempt:research", "research", later, "claim")
 		foundationAttemptForTest(t, db, "attempt:research", "research", "research")
 		foundationDispatchForTest(t, db, 3, 1, "attempt:implement", "implement", subject, "claim")
-		base, err := firstWorkerEditingSubject(t.Context(), db, "work", "claim", 10)
+		base, err := firstWorkerEditingSubject(t.Context(), db, "work", "project", "claim", 10)
 		if err != nil || base != subject {
 			t.Fatalf("stale research history blocked the Review foundation: base=%q err=%v", base, err)
 		}
@@ -104,7 +105,7 @@ func TestWorkerEditingFoundationClassifiesRecordedClassNotCurrentLane(t *testing
 		staleFoundationAuthorizationForTest(t, db, 2, "attempt:implement", "implement", subject, "claim")
 		foundationAttemptForTest(t, db, "attempt:implement", "implement", "implementation")
 		foundationDispatchForTest(t, db, 3, 1, "attempt:later", "implement", later, "claim")
-		base, err := firstWorkerEditingSubject(t.Context(), db, "work", "claim", 10)
+		base, err := firstWorkerEditingSubject(t.Context(), db, "work", "project", "claim", 10)
 		if err != nil || base != subject {
 			t.Fatalf("stale editing dispatch lost its foundation: base=%q err=%v", base, err)
 		}
@@ -133,7 +134,7 @@ func TestWorkerEditingFoundationClassifiesRecordedClassNotCurrentLane(t *testing
 				foundationAttemptForTest(t, db, "attempt:earlier", "implement", class)
 			}
 			foundationDispatchForTest(t, db, 3, 1, "attempt:later", "implement", later, "claim")
-			base, err := firstWorkerEditingSubject(t.Context(), db, "work", "claim", 10)
+			base, err := firstWorkerEditingSubject(t.Context(), db, "work", "project", "claim", 10)
 			var failure *Failure
 			if base != "" || !failureAs(err, &failure) || failure.Kind != KindUnauthorizedDispatch || failure.Detail != refusal.detail {
 				t.Fatalf("unclassifiable earlier authorization did not refuse: base=%q err=%v", base, err)
@@ -198,7 +199,7 @@ func TestWorkerEditingFoundationWithoutLog(t *testing.T) {
 			foundationDispatchForTest(t, db, reviewSeq+1, 4, "after-review", "implement", strings.Repeat("c", 40), "claim")
 			check := func() {
 				t.Helper()
-				got, err := firstWorkerEditingSubject(t.Context(), db, "work", "claim", reviewSeq)
+				got, err := firstWorkerEditingSubject(t.Context(), db, "work", "project", "claim", reviewSeq)
 				if scenario.missing != "" {
 					if got != "" || !hasFailureKind(err, KindUnauthorizedDispatch) {
 						t.Fatalf("missing first %s: base=%q error=%v", scenario.missing, got, err)
@@ -224,7 +225,7 @@ func TestWorkerEditingFoundationAbsentOnThisWorktreeRefuses(t *testing.T) {
 	db := workerFoundationCurrentDB(t)
 	foundationDispatchForTest(t, db, 2, 1, "other-tree", "implement", strings.Repeat("a", 40), "other-claim")
 	foundationDispatchForTest(t, db, 3, 2, "verify", "verify", strings.Repeat("b", 40), "claim")
-	base, err := firstWorkerEditingSubject(t.Context(), db, "work", "claim", 10)
+	base, err := firstWorkerEditingSubject(t.Context(), db, "work", "project", "claim", 10)
 	var failure *Failure
 	if base != "" || !failureAs(err, &failure) || failure.Kind != KindUnauthorizedDispatch || failure.Detail != "review contract has no first editing authorization on this worktree" {
 		t.Fatalf("absent foundation on this worktree did not refuse: base=%q err=%v", base, err)

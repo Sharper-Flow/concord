@@ -847,9 +847,18 @@ func claimWorktreeStoreTx(ctx context.Context, tx *sql.Tx, req WorktreeClaimRequ
 		}
 		hostPIDStart = start
 	}
+	var priorCreation bool
+	if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM worktree_entries WHERE set_id=? AND project_id=? AND path=?) OR EXISTS(SELECT 1 FROM worktree_claims WHERE work_id=? AND project_id=? AND pinned_path=? AND op_id<>?)`, setID, req.ProjectID, derivedPath, req.WorkID, req.ProjectID, derivedPath, req.OpID).Scan(&priorCreation); err != nil {
+		return out, err
+	}
 	phase3Err := claimWorktreePhase3Tx(ctx, tx, req, setID, now, derivedBranch, req.BaseSHA, derivedPath, native.Facts, hostPIDStart)
 	if phase3Err != nil {
 		return out, phase3Err
+	}
+	if native.CreatedBranch && !priorCreation && native.Facts.headSHA == req.BaseSHA {
+		if err := recordHostReviewFoundationTx(ctx, tx, req.WorkID, req.ProjectID, req.OpID, derivedPath, native.Facts.headSHA); err != nil {
+			return out, err
+		}
 	}
 	entry, err := worktreeEntryByClaim(ctx, tx, req.OpID)
 	if err != nil {

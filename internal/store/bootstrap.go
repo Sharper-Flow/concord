@@ -1380,6 +1380,11 @@ func prepareBootstrapWorkTx(ctx context.Context, tx *sql.Tx, req BootstrapReques
 		if err := pinBootstrapClaimTx(ctx, tx, operationID, workID, req.ProjectID, journal.location, now); err != nil {
 			return err
 		}
+		if !existing && !journal.restarted {
+			if err := recordHostReviewFoundationTx(ctx, tx, workID, req.ProjectID, operationID, journal.location.Path, journal.location.BaseSHA); err != nil {
+				return err
+			}
+		}
 	}
 	return nil
 }

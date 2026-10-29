@@ -233,6 +233,7 @@ func deleteTerminalExecutionTx(ctx context.Context, tx *sql.Tx, workID string) e
 		// execution children are deleted explicitly.
 		`DELETE FROM worker_attempt_dispositions WHERE work_id=?1`,
 		`DELETE FROM worker_authorizations WHERE work_id=?1`,
+		`DELETE FROM worktree_review_foundations WHERE work_id=?1`,
 		`DELETE FROM worker_oracle_finding_facts WHERE work_id=?1`,
 		`DELETE FROM workflow_evidence_bindings WHERE work_id=?1`,
 		`DELETE FROM workflow_step_completions WHERE work_id=?1`,

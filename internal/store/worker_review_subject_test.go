@@ -1,12 +1,10 @@
 package store
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"slices"
 	"strings"
 	"testing"
@@ -25,7 +23,9 @@ import (
 func reviewSubjectClaim(t *testing.T, s *Store, workID string) (string, string) {
 	t.Helper()
 	ctx := context.Background()
-	root := t.TempDir()
+	root := initBootstrapStoreRepo(t)
+	runTestGit(t, root, "config", "user.email", "concord@example.invalid")
+	runTestGit(t, root, "config", "user.name", "Concord Review Subject Test")
 	var projectVersion int64
 	if err := s.db.QueryRow(`SELECT version FROM projects WHERE id='project'`).Scan(&projectVersion); err != nil {
 		t.Fatal(err)
@@ -33,43 +33,18 @@ func reviewSubjectClaim(t *testing.T, s *Store, workID string) (string, string) 
 	if err := s.AddProjectLocator(ctx, "project", ProjectLocator{ID: "review-repo-" + workID, Kind: LocatorCanonicalPath, Value: root}, projectVersion); err != nil {
 		t.Fatal(err)
 	}
-	git := newFakeWorktreeGit(root)
-	claim := baseClaim(git)
+	claim := baseClaim(newFakeWorktreeGit(root))
+	claim.Runner = ExecGitRunner{}
+	claim.BaseSHA = runTestGit(t, root, "rev-parse", "--verify", "HEAD^{commit}")
 	claim.WorkID, claim.ProjectID, claim.ExpectedVersion = workID, "project", readWorkVersion(t, s, workID)
 	claim.OpID, claim.RequestID = "review-claim-"+workID, "review-claim-"+workID
 	claimed, err := s.ClaimWorktree(ctx, claim)
 	if err != nil {
 		t.Fatal(err)
 	}
-	dir := claimed.Entry.Path
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	run := func(args ...string) string {
-		t.Helper()
-		cmd := exec.Command("git", append([]string{"-C", dir}, args...)...) //nolint:gosec // test-only git argv, fixed binary
-		var stderr bytes.Buffer
-		cmd.Stderr = &stderr
-		out, err := cmd.Output()
-		if err != nil {
-			t.Fatalf("seed claim repo %v: %v: %s", args, err, stderr.String())
-		}
-		return strings.TrimSpace(string(out))
-	}
-	run("init", "-b", "main")
-	run("config", "user.email", "concord@example.invalid")
-	run("config", "user.name", "Concord Review Subject Test")
-	if err := os.WriteFile(dir+"/seed.txt", []byte("review subject seed\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	run("add", "-A")
-	run("commit", "--allow-empty", "-m", "review subject seed")
-	head := run("rev-parse", "--verify", "HEAD^{commit}")
-	git.worktrees[dir] = claimed.Entry.Branch
-	git.worktreeRepos[dir] = dir
-	git.branches[claimed.Entry.Branch] = head
-	req := verifyRequest(git, "verify-"+workID, []string{"true"}, func(context.Context, string, []string, int) (int, []byte, bool, error) { return 0, nil, false, nil })
-	req.WorkID, req.ProjectID = workID, "project"
+	dir, head := claimed.Entry.Path, claim.BaseSHA
+	req := verifyRequest(nil, "verify-"+workID, []string{"true"}, func(context.Context, string, []string, int) (int, []byte, bool, error) { return 0, nil, false, nil })
+	req.WorkID, req.ProjectID, req.Runner = workID, "project", ExecGitRunner{}
 	if _, err := s.VerifyWorktree(ctx, req); err != nil {
 		t.Fatal(err)
 	}

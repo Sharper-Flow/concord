@@ -8080,6 +8080,27 @@ CREATE TRIGGER work_conflict_applications_guard_update BEFORE UPDATE ON work_con
 CREATE TRIGGER work_conflict_applications_guard_delete BEFORE DELETE ON work_conflict_applications BEGIN SELECT RAISE(ABORT, 'work_conflict_applications is write-seam-only') WHERE NOT EXISTS (SELECT 1 FROM write_guard WHERE active=1); END;
 `,
 	},
+	{
+		Version:        163,
+		Name:           "host_review_foundations",
+		Breaking:       true,
+		FoldMaintained: "advance",
+		SQL: `
+-- Existing work has no inferred pre-edit observation.
+CREATE TABLE worktree_review_foundations (
+    work_id TEXT NOT NULL REFERENCES work_items(id) ON DELETE RESTRICT,
+    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE RESTRICT,
+    worktree_identity TEXT NOT NULL,
+    subject_commit TEXT NOT NULL CHECK(length(subject_commit) IN (40,64) AND subject_commit NOT GLOB '*[^0-9a-f]*'),
+    claim_op_id TEXT NOT NULL REFERENCES worktree_claims(op_id) ON DELETE RESTRICT,
+    captured_seq INTEGER NOT NULL CHECK(captured_seq >= 0),
+    PRIMARY KEY(work_id,project_id,worktree_identity)
+);
+CREATE TRIGGER worktree_review_foundations_guard_insert BEFORE INSERT ON worktree_review_foundations BEGIN SELECT RAISE(ABORT, 'worktree_review_foundations is write-seam-only') WHERE NOT EXISTS (SELECT 1 FROM write_guard WHERE active=1); END;
+CREATE TRIGGER worktree_review_foundations_immutable BEFORE UPDATE ON worktree_review_foundations BEGIN SELECT RAISE(ABORT, 'host review foundation is immutable'); END;
+CREATE TRIGGER worktree_review_foundations_guard_delete BEFORE DELETE ON worktree_review_foundations BEGIN SELECT RAISE(ABORT, 'worktree_review_foundations is write-seam-only') WHERE NOT EXISTS (SELECT 1 FROM write_guard WHERE active=1); END;
+`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any

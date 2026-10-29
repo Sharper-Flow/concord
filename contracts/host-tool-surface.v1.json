@@ -366,7 +366,7 @@
     },
     {
       "name": "concord_worker_diff",
-      "description": "Read one byte page of the authorized review's committed diff. Supply only offset and length. The host binds the first editing dispatch subject on the same claimed worktree across contract revisions, the held review subject, and the pinned job's literal path scope. Returns both commits, whole-diff hash, byte offsets, EOF, base64 data, and text when the page is complete UTF-8. No worker-selected path or ref, replacement packet, mutable-checkout fallback, or workflow authority.",
+      "description": "Read a byte page of the authorized review's committed diff. Supply only offset and length. The host binds its immutable initial worktree start, or the recorded first editing subject for older work, to the held review subject and pinned job's literal paths. Contract revisions keep the foundation; missing history refuses. Returns commit IDs, whole-diff hash, offsets, EOF, base64 data and UTF-8 text. No worker-selected path or ref, replacement packet, mutable-checkout fallback or workflow authority.",
       "args": {
         "type": "object",
         "additionalProperties": false,

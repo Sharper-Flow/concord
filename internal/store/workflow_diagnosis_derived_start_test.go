@@ -461,7 +461,7 @@ func TestNonQualifyingActionsCannotStartTheRepairStep(t *testing.T) {
 	s := fixture.store
 	actor := fixture.owner
 	acceptCurrentReviewForTest(t, workContextFixture{store: s, workID: workID, owner: actor}, workerFixtureDirectory(t, s, workID), "ready_for_final_proof")
-	parkWorkflowInstanceAt(t, s, workID, "repair")
+	setWorkflowStepForOperatorVerdictTest(t, s, workID, "repair")
 	receiptsBefore := workflowStartReceiptIDs(t, s, workID)
 
 	contextPayload, err := json.Marshal(map[string]any{

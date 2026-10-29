@@ -12,8 +12,8 @@ import (
 
 // workflowEvidenceGapDefinition is a synthetic definition whose evidence
 // demands exceed its reach. Its only producer-bearing action is
-// accept_worker_result, which binds verification, review, and artifact and
-// nothing else, while the definition, its gate step, and its rigor rule all
+// record_review, which binds review and nothing else, while the definition,
+// its gate step, and its rigor rule all
 // require commit: no route through the graph can bind commit. The shape is
 // registry-valid so the refusal test can pin a real instance to it; the
 // definition is never shipped.
@@ -21,14 +21,14 @@ func workflowEvidenceGapDefinition() WorkflowDefinition {
 	changesProductTruth := false
 	steps := []WorkflowStep{
 		{ID: "gate", Kind: WorkflowStepHumanCheckpoint, Actions: []string{"approve_contract"}, RequiredEvidenceKinds: []EvidenceKind{EvidenceCommit}},
-		{ID: "worker_output", Kind: WorkflowStepInternalSQLite, Actions: []string{"accept_worker_result"}},
+		{ID: "review_output", Kind: WorkflowStepInternalSQLite, Actions: []string{"record_review"}},
 		{ID: "complete", Kind: WorkflowStepInternalSQLite, Actions: []string{"complete"}},
 	}
 	edges := []WorkflowEdge{
-		{From: "gate", To: "worker_output", Kind: WorkflowEdgeForward},
-		{From: "worker_output", To: "complete", Kind: WorkflowEdgeForward},
+		{From: "gate", To: "review_output", Kind: WorkflowEdgeForward},
+		{From: "review_output", To: "complete", Kind: WorkflowEdgeForward},
 	}
-	actions := []string{"accept_worker_result", "approve_contract", "complete"}
+	actions := []string{"record_review", "approve_contract", "complete"}
 	return WorkflowDefinition{
 		Ref: "workflow.evidence_gap", WorkKind: WorkKindGenericOneOff, ChangesProductTruth: &changesProductTruth,
 		StepGraph:             WorkflowStepGraph{StartStep: "gate", TerminalSteps: []string{"complete"}, Steps: steps, Edges: edges},
@@ -51,18 +51,16 @@ func registerWorkflowEvidenceGapDefinition() RegisteredDefinition {
 
 // TestSyntheticDefinitionEvidenceGapIsDetected gives the shipped reachability
 // invariant its negative. The synthetic definition demands commit where its
-// only reachable producer binds verification, review, and artifact, and the
+// only reachable producer binds review, and the
 // same check that holds every shipped definition to its reach names the gap
 // at all three requirement sites.
 func TestSyntheticDefinitionEvidenceGapIsDetected(t *testing.T) {
 	definition := workflowEvidenceGapDefinition()
 	producible := evidenceStrings(workflowReachableEvidenceKinds(definition))
-	for _, kind := range []string{"verification", "review", "artifact"} {
-		if !slices.Contains(producible, kind) {
-			t.Fatalf("accept_worker_result makes %q producible; producible=%v", kind, producible)
-		}
+	if !slices.Contains(producible, "review") {
+		t.Fatalf("record_review must make review producible; producible=%v", producible)
 	}
-	for _, kind := range []string{"commit", "approval", "durable_note", "native_run"} {
+	for _, kind := range []string{"commit", "approval", "durable_note", "native_run", "verification", "artifact"} {
 		if slices.Contains(producible, kind) {
 			t.Fatalf("no reachable action of the synthetic definition produces %q; producible=%v", kind, producible)
 		}
@@ -158,33 +156,14 @@ func TestApproveContractRefusesUnproducibleRequiredEvidence(t *testing.T) {
 		t.Fatalf("refusal left effects behind: contracts=%d approvals=%d version=%d want %d", contracts, approvals, versionAfter, version)
 	}
 
-	if err := runApprove("reachability-admit", `"verification"`); err != nil {
+	if err := runApprove("reachability-admit", `"review"`); err != nil {
 		t.Fatalf("approve_contract with a producible required_evidence kind: %v", err)
 	}
 	var stored string
 	if err := s.DatabaseForTesting().QueryRow(`SELECT required_evidence FROM workflow_contracts WHERE work_id=? AND contract_version=1`, workID).Scan(&stored); err != nil {
 		t.Fatal(err)
 	}
-	if stored != `["verification"]` {
+	if stored != `["review"]` {
 		t.Fatalf("stored required_evidence=%s, want the admitted kind alone", stored)
-	}
-}
-
-// TestWorkerAttemptEvidenceKindsCoverTheCapabilityMapping keeps the closed
-// accept_worker_result producer set equal to the codomain of
-// workerAttemptEvidenceKind, so the reachability table cannot drift from the
-// kind an accepted attempt actually binds as.
-func TestWorkerAttemptEvidenceKindsCoverTheCapabilityMapping(t *testing.T) {
-	t.Parallel()
-	produced := map[string]bool{}
-	for _, capability := range []string{"verification", "review", "implementation", "research", "design", "unlisted"} {
-		produced[workerAttemptEvidenceKind(capability)] = true
-	}
-	want := map[string]bool{}
-	for _, kind := range workflowWorkerAttemptEvidenceKinds {
-		want[string(kind)] = true
-	}
-	if !reflect.DeepEqual(produced, want) {
-		t.Fatalf("workerAttemptEvidenceKind produces %v, workflowWorkerAttemptEvidenceKinds declares %v", produced, want)
 	}
 }

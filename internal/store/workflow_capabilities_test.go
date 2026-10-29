@@ -10,15 +10,11 @@ import (
 
 // Each position holds one current family's expected gate, independent
 // of the capability owner. Step-local conditions remain in the gate callers.
-func releasedWorkflowGateExpectations(d WorkflowDefinition) [8]bool {
+func releasedWorkflowGateExpectations(d WorkflowDefinition) [4]bool {
 	implementation := d.Ref == "workflow.implementation"
 	breakFix := d.Ref == "workflow.break_fix"
 	research := d.Ref == "workflow.research"
-	return [8]bool{
-		implementation || breakFix,
-		implementation || breakFix || research,
-		implementation || breakFix || research,
-		implementation || breakFix,
+	return [4]bool{
 		implementation || breakFix,
 		implementation || breakFix,
 		implementation || breakFix,
@@ -33,10 +29,6 @@ func TestWorkflowCapabilitiesMatchReleasedGates(t *testing.T) {
 			want := releasedWorkflowGateExpectations(definition)
 			capabilities := [...]WorkflowCapability{
 				WorkflowCapabilityDerivedStepStart,
-				WorkflowCapabilityDerivedWorkerFailure,
-				WorkflowCapabilityFailureAttribution,
-				WorkflowCapabilityWorkerJobs,
-				WorkflowCapabilityAcceptDelivery,
 				WorkflowCapabilityRefineProof,
 				WorkflowCapabilityProducesDelivery,
 				WorkflowCapabilityRootCauseAnalysis,
@@ -51,19 +43,11 @@ func TestWorkflowCapabilitiesMatchReleasedGates(t *testing.T) {
 			if got := workflowCapabilities(definition); !slices.Equal(got, wantCapabilities) {
 				t.Errorf("capabilities = %v, want %v", got, wantCapabilities)
 			}
-			got := [4]bool{
-				workflowDerivedStepStartActive(definition),
-				workflowDerivedWorkerFailureActive(definition),
-				workflowFailureAttributionActive(definition),
-				workflowWorkerJobsActive(definition),
+			if got := workflowDerivedStepStartActive(definition); got != want[0] {
+				t.Errorf("derived start = %t, want %t", got, want[0])
 			}
-			for i, active := range got {
-				if active != want[i] {
-					t.Errorf("gate %d = %t, want %t", i, active, want[i])
-				}
-			}
-			if got := workflowDefinitionProducesDelivery(definition); got != want[6] {
-				t.Errorf("produces delivery = %t, want %t", got, want[6])
+			if got := workflowDefinitionProducesDelivery(definition); got != want[2] {
+				t.Errorf("produces delivery = %t, want %t", got, want[2])
 			}
 			steps := []string{"", "not-a-step"}
 			for _, step := range definition.StepGraph.Steps {
@@ -71,11 +55,8 @@ func TestWorkflowCapabilitiesMatchReleasedGates(t *testing.T) {
 			}
 			for _, step := range steps {
 				refine := step != "" && workflowRefinementStepID(definition) == step
-				if got := workflowAcceptDeliveryAdmissionActive(definition, step); got != (want[4] && refine) {
-					t.Errorf("accept delivery at %q = %t, want %t", step, got, want[4] && refine)
-				}
-				if got := workflowRefineProofGateActive(definition, step); got != (want[5] && refine) {
-					t.Errorf("refine proof at %q = %t, want %t", step, got, want[5] && refine)
+				if got := workflowRefineProofGateActive(definition, step); got != (want[1] && refine) {
+					t.Errorf("refine proof at %q = %t, want %t", step, got, want[1] && refine)
 				}
 			}
 		})
@@ -105,7 +86,7 @@ func TestWorkflowRootCauseCapabilityMatchesReleasedGates(t *testing.T) {
 			}); err != nil {
 				t.Fatal(err)
 			}
-			if releasedWorkflowGateExpectations(definition)[7] {
+			if releasedWorkflowGateExpectations(definition)[3] {
 				forceWorkLifecycleTransition(t, s, cause, "completed", "root cause analysis recorded")
 			}
 			tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
@@ -115,7 +96,7 @@ func TestWorkflowRootCauseCapabilityMatchesReleasedGates(t *testing.T) {
 			defer tx.Rollback()
 			classification := &DefectClassification{FailureShape: shape, RootCauseWorkID: cause}
 			err = admitRecurrenceBehindRootCauseTx(ctx, tx, "work-bug", classification, []string{"work-bug"})
-			if releasedWorkflowGateExpectations(definition)[7] {
+			if releasedWorkflowGateExpectations(definition)[3] {
 				if err != nil {
 					t.Fatalf("research RCA refused: %v", err)
 				}

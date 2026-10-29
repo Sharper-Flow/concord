@@ -29,10 +29,6 @@ type WorkflowActionExecutionRequest struct {
 	EvidenceKinds   []string
 	Actor           WorkflowActor
 	SessionWorktree string
-	// SessionWorktreeIdentity is computed by the core after the session
-	// worktree matches its active claim. It binds later worker evidence to that
-	// claim without placing a machine path in a public event.
-	SessionWorktreeIdentity string
 	// OperatorActor and OperatorApprovalRef are populated only after the signed
 	// approval for an operator-authorized action has been verified and consumed.
 	// It is never decoded from workflow action payload.
@@ -132,35 +128,6 @@ func workflowRouteActionDefinition(ctx context.Context, s *Store, registry Defin
 	case "supersede_contract":
 		action, err := workflowSupersedeContractDiscovery(ctx, s, registry, entry, workID)
 		return action, err == nil, err
-	case "record_worker_failure":
-		if slices.Contains(entry.Definition.AvailableActions, actionID) {
-			return WorkflowActionDefinition{}, false, nil
-		}
-		currentStep, err := workflowDiscoveryCurrentStep(ctx, s, workID)
-		if err != nil {
-			return WorkflowActionDefinition{}, false, err
-		}
-		available, err := workflowWorkerFailureRecoveryAvailable(ctx, s.db, workID, entry.Definition, currentStep, "workflow_action")
-		if err != nil || !available {
-			return WorkflowActionDefinition{}, false, err
-		}
-		return workerFailureRecoveryActionDefinition(), true, nil
-	case "reject_worker_result":
-		currentStep, err := workflowDiscoveryCurrentStep(ctx, s, workID)
-		if err != nil {
-			return WorkflowActionDefinition{}, false, err
-		}
-		if !stepDeclaresAction(entry.Definition, currentStep, "dispatch_worker") {
-			return WorkflowActionDefinition{}, false, newFailure(KindInvalidOperation, "workflow_action", "worker result rejection is unavailable outside a worker-dispatch step", false, "reread_entities")
-		}
-		available, err := workflowRejectedWorkerResultAvailable(ctx, s.db, workID, entry.Definition, currentStep, "workflow_action")
-		if err != nil {
-			return WorkflowActionDefinition{}, false, err
-		}
-		if !available {
-			return WorkflowActionDefinition{}, false, newFailure(KindInvalidOperation, "workflow_action", "worker result rejection is unavailable without a completed result", false, "accept or reject the completed worker result")
-		}
-		return workflowCorrectionActionDefinitionFor(entry.Definition, "reject_worker_result"), true, nil
 	case "request_correction":
 		currentStep, err := workflowDiscoveryCurrentStep(ctx, s, workID)
 		if err != nil {
@@ -173,7 +140,7 @@ func workflowRouteActionDefinition(ctx context.Context, s *Store, registry Defin
 		if !available {
 			return WorkflowActionDefinition{}, false, workflowCorrectionRequestUnavailableFailure("workflow_action", missing)
 		}
-		return workflowCorrectionActionDefinitionFor(entry.Definition, "request_correction"), true, nil
+		return workflowCorrectionRequestActionDefinition(), true, nil
 	}
 	return WorkflowActionDefinition{}, false, nil
 }
@@ -230,7 +197,7 @@ func workflowSupersedeContractDiscoveryTx(ctx context.Context, tx queryer, regis
 		}
 		return wrapFailure(KindUnavailable, "workflow_action", "cannot inspect workflow step", true, "retry once the workflow projection is readable", err)
 	}
-	state, _, _, stateErr := loadWorkflowAdmissionStateTxForRegistry(ctx, tx, workID, entry.Definition, currentStep, "workflow_action", registry)
+	state, _, stateErr := loadWorkflowAdmissionStateTxForRegistry(ctx, tx, workID, entry.Definition, currentStep, "workflow_action", registry)
 	if stateErr != nil {
 		return stateErr
 	}
@@ -291,10 +258,6 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, scope *writeScope
 		return result, err
 	}
 	decision := *guards.admissionDecision
-	workerClaimedWorktree, retryCorrection, rejectRetry, err := prepareWorkflowActionIntents(guards, &request)
-	if err != nil {
-		return result, err
-	}
 	if err := runWorkflowActionAdmissionGuards(guards, request, decision); err != nil {
 		return result, err
 	}
@@ -327,9 +290,6 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, scope *writeScope
 	if err != nil {
 		return result, err
 	}
-	if request.ActionID == "dispatch_worker" && retryCorrection != nil && assembly.attemptEpoch <= retryCorrection.FailedAttemptEpoch {
-		return result, newFailure(KindStaleAttempt, "workflow_action", "worker retry must open a fresh step epoch", false, "mint a new fenced worker attempt")
-	}
 	if request.ActionID == "complete" {
 		// The assembly's event list holds the actor- and operator-recording
 		// events for a tuple first seen on this action (a host restart mints
@@ -338,8 +298,7 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, scope *writeScope
 		// without them a restarted session cannot complete.
 		return applyCompleteWorkflowActionTx(ctx, tx, scope, registry, entry, request, guards.eventActor, payload, assembly.events)
 	}
-	var workerPacketDigest string
-	assembly.events, workerPacketDigest, err = appendGenericWorkflowCompletion(assemblyInput, assembly.attemptEpoch, assembly.events)
+	assembly.events, err = appendGenericWorkflowCompletion(assemblyInput, assembly.attemptEpoch, assembly.events)
 	if err != nil {
 		return result, err
 	}
@@ -355,29 +314,8 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, scope *writeScope
 	result.ChangedRefs = []string{request.WorkID}
 	result.OperationID = request.OperationID
 	result.ResultingVersion = request.ExpectedVersion + int64(len(operationResult.EventIDs))
-	// CD-0198 D5: the combined rejection records its retry dispatch in the
-	// same transaction, through the one dispatch owner below. The recursion
-	// re-folds the post-rejection state, so the wall, the correction
-	// context, and every packet rule answer from the state the rejection
-	// just committed; a refusal here fails the whole transaction and the
-	// rejection commits no partial writes. The response serializes the
-	// exact admitted retry dispatch — the derived packet bytes, the minted
-	// attempt identity, the digest the fresh window opened for, and the
-	// claimed worktree the authorization rested on — so the adapter's host
-	// launch routes through the core's own record and builds no packet.
-	var resultMapRetryRecord retryDispatchRecord
-	if rejectRetry != nil {
-		retryRecord, retryErr := appendRejectRetryDispatchTx(ctx, tx, scope, registry, request, entry, rejectRetry, &result)
-		if retryErr != nil {
-			return result, retryErr
-		}
-		resultMapRetryRecord = retryRecord
-	}
 	changedRef := map[string]any{"entity_kind": "work_item", "id": request.WorkID, "version": result.ResultingVersion}
-	resultMap := workflowActionResultMap(changedRef, request.OperationID, workerPacketDigest, resultMapRetryRecord, workerClaimedWorktree)
-	if err := appendWorkflowAssignmentGroupResult(resultMap, assembly.events); err != nil {
-		return result, err
-	}
+	resultMap := map[string]any{"changed_refs": []any{changedRef}, "next_valid_intents": []any{}, "operation_id": request.OperationID}
 	result.Result, _ = json.Marshal(resultMap)
 	durableChangedRef, _ := json.Marshal(changedRef)
 	if _, err := tx.ExecContext(ctx, `UPDATE durable_operations SET result_kind='completed',result_payload=?,changed_refs=?,completed_at=? WHERE op_id=? AND attempt_epoch=?`, string(result.Result), workflowJSON([]string{string(durableChangedRef)}), request.Now.UTC().Format(time.RFC3339Nano), request.OperationID, 1); err != nil {
@@ -391,7 +329,7 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, scope *writeScope
 // and interactive closed-question walls defer to their owning guards.
 func prepareWorkflowExecutionAdmission(g *workflowActionGuardContext) error {
 	request := g.request
-	admission, proofRuns, integrationRuns, err := loadWorkflowAdmissionStateTxForRegistry(g.ctx, g.tx, request.WorkID, g.entry.Definition, g.currentStep, "workflow_action", g.registry)
+	admission, proofRuns, err := loadWorkflowAdmissionStateTxForRegistry(g.ctx, g.tx, request.WorkID, g.entry.Definition, g.currentStep, "workflow_action", g.registry)
 	if err != nil {
 		return err
 	}
@@ -405,29 +343,8 @@ func prepareWorkflowExecutionAdmission(g *workflowActionGuardContext) error {
 	g.admissionState = &admission
 	g.admissionDecision = &decision
 	g.deliveryProofRuns = proofRuns
-	g.deliveryIntegrationRuns = integrationRuns
-	g.workerFailureRecovery = admission.WorkerFailureRecovery
-	g.correctionRecovery = admission.CorrectionRecovery
 	g.correctionRequestRecovery = admission.CorrectionRequestRecovery
 	g.correctionRequestMissing = admission.CorrectionRequestMissing
-	return nil
-}
-
-func appendWorkflowAssignmentGroupResult(resultMap map[string]any, events []Event) error {
-	for _, event := range events {
-		if event.Kind == WorkflowActionCompleted {
-			var completed workflowActionCompletedPayload
-			if err := json.Unmarshal(event.Payload, &completed); err != nil {
-				return err
-			}
-			if completed.AssignmentGroup != nil {
-				resultMap["assignment_group"] = struct {
-					GroupID string                `json:"group_id"`
-					Members []workflowGroupMember `json:"members"`
-				}{completed.AssignmentGroup.GroupID, completed.AssignmentGroup.Members}
-			}
-		}
-	}
 	return nil
 }
 
@@ -447,73 +364,6 @@ func readWorkflowActionStateTx(ctx context.Context, tx *sql.Tx, workID string, e
 		return "", "", conflict
 	}
 	return currentStep, state, nil
-}
-
-// appendRejectRetryDispatchTx records the combined rejection's retry dispatch
-// into result and returns the admitted retry record.
-func appendRejectRetryDispatchTx(ctx context.Context, tx *sql.Tx, scope *writeScope, registry DefinitionRegistry, request WorkflowActionExecutionRequest, entry RegisteredDefinition, rejectRetry *rejectRetryIntent, result *WorkflowActionExecutionResult) (retryDispatchRecord, error) {
-	retryResult, retryRecord, err := applyRejectRetryDispatchTx(ctx, tx, scope, registry, request, entry, rejectRetry)
-	if err != nil {
-		return retryDispatchRecord{}, err
-	}
-	result.EventIDs = append(result.EventIDs, retryResult.EventIDs...)
-	version, err := workflowInstanceStateVersionTx(ctx, tx, request.WorkID)
-	if err != nil {
-		return retryDispatchRecord{}, err
-	}
-	result.ResultingVersion = version
-	return retryRecord, nil
-}
-
-// prepareWorkflowActionIntents resolves the request intents the action's
-// later fences read: the claimed worker worktree and session identity for
-// dispatch_worker with its retry correction context, and the parsed retry
-// intent of a combined reject_worker_result.
-func prepareWorkflowActionIntents(guards *workflowActionGuardContext, request *WorkflowActionExecutionRequest) (workerClaimedWorktree string, retryCorrection *WorkflowCorrectionContext, rejectRetry *rejectRetryIntent, err error) {
-	if request.ActionID == "dispatch_worker" {
-		claimed, claimErr := activeWorkerClaimedWorktree(guards.ctx, guards.tx, request.WorkID, request.SessionWorktree)
-		if claimErr != nil {
-			return "", nil, nil, claimErr
-		}
-		canonical, canonicalErr := canonicalWorkerWorktreePath(request.SessionWorktree)
-		if canonicalErr != nil {
-			return "", nil, nil, newFailure(KindUnauthorizedDispatch, "worker_dispatch", "host session worktree identity cannot be resolved", false, "refresh the host session boundary")
-		}
-		request.SessionWorktreeIdentity = workerWorktreeIdentity(canonical)
-		workerClaimedWorktree = claimed
-		guards.request = *request
-	}
-	if request.ActionID == "dispatch_worker" {
-		// The completion fence reads the correction context the wall admission
-		// folded: a retry must open a fresh attempt epoch past the failed one.
-		correction, correctionErr := workflowCorrectionContext(guards.ctx, guards.tx, request.WorkID, guards.currentStep)
-		if correctionErr != nil {
-			return "", nil, nil, correctionErr
-		}
-		retryCorrection = correction
-		if err := validateFailedWorkerRetryIdentity(guards.ctx, guards.tx, request.WorkID, guards.currentStep, request.Payload); err != nil {
-			return "", nil, nil, err
-		}
-	}
-	if request.ActionID == "reject_worker_result" {
-		if err := validateRejectCorrectionPinValues(request.Payload, request.EvidenceRefs); err != nil {
-			return "", nil, nil, err
-		}
-		var parseErr error
-		rejectRetry, parseErr = parseRejectRetryIntent(guards.entry.Definition, request.Payload)
-		if parseErr != nil {
-			return "", nil, nil, parseErr
-		}
-		// A combined rejection with a retry prepared one dispatch proof
-		// before this transaction opened. The pre-rejection state the proof
-		// sampled must still stand at this outer entry.
-		if rejectRetry != nil {
-			if err := revalidateDispatchProofAtRejectEntry(guards.ctx, guards.tx, request.WorkID); err != nil {
-				return "", nil, nil, err
-			}
-		}
-	}
-	return workerClaimedWorktree, retryCorrection, rejectRetry, nil
 }
 
 // runWorkflowActionAdmissionGuards runs the recovery, boundary, and
@@ -571,14 +421,11 @@ func guardWorkflowActionActor(guards *workflowActionGuardContext, request Workfl
 	if err := guardRecordedActorTuple(guards); err != nil {
 		return err
 	}
-	if err := guardWorkflowMemberAction(guards.ctx, guards.tx, request); err != nil {
-		return err
-	}
 	if err := guardOperatorPremiseActor(guards); err != nil {
 		return err
 	}
 	if action := workflowActionDefinitionByID(guards.entry.Definition, request.ActionID); WorkflowActionOpensHeldAttempt(action) {
-		if err := guardStartTakeover(guards.ctx, guards.tx, action, request.WorkID, actorRef, workflowDispatchAssignment(request.Payload), request.SessionWorktreeIdentity, request.ApprovedTakeover); err != nil {
+		if err := guardStartTakeover(guards.ctx, guards.tx, action, request.WorkID, actorRef, request.ApprovedTakeover); err != nil {
 			return err
 		}
 	}
@@ -598,36 +445,6 @@ func prepareWorkflowActionEvidence(guards *workflowActionGuardContext, request *
 	request.EvidenceRefs = evidenceRefs
 	guards.request = *request
 	return payload, nil
-}
-
-// workflowActionResultMap builds the action's response envelope.
-func workflowActionResultMap(changedRef map[string]any, operationID, workerPacketDigest string, retryRecord retryDispatchRecord, workerClaimedWorktree string) map[string]any {
-	resultMap := map[string]any{"changed_refs": []any{changedRef}, "next_valid_intents": []any{}, "operation_id": operationID}
-	// CD-0067 D6: the dispatch_worker response surfaces worker_packet_digest
-	// on result only when the action was dispatch_worker. Every other verb
-	// keeps the existing minimal envelope so unrelated callers see no
-	// schema drift.
-	if workerPacketDigest != "" {
-		resultMap["worker_packet_digest"] = workerPacketDigest
-	}
-	if retryRecord.Digest != "" {
-		resultMap["worker_packet_digest"] = retryRecord.Digest
-	}
-	if retryRecord.AttemptID != "" {
-		resultMap["retry_attempt_id"] = retryRecord.AttemptID
-		resultMap["retry_worker_packet"] = retryRecord.Packet
-	}
-	if retryRecord.Worktree != "" {
-		resultMap["worker_worktree"] = retryRecord.Worktree
-	}
-	// Issue #1322: the authorized dispatch names the durable claimed worktree
-	// its authorization rested on, so the adapter can gate the calling tool
-	// context against a store-owned answer that survives a host process
-	// restart rather than against adapter memory alone.
-	if workerClaimedWorktree != "" {
-		resultMap["worker_worktree"] = workerClaimedWorktree
-	}
-	return resultMap
 }
 
 func workflowCompletionBoundaryPreflight(raw json.RawMessage) error {
@@ -694,7 +511,7 @@ func workflowActionEvidenceRefs(request WorkflowActionExecutionRequest, payload 
 	request.EvidenceRefs = dedupeWorkflowRefs(request.EvidenceRefs)
 	refs := append([]string(nil), request.EvidenceRefs...)
 	switch request.ActionID {
-	case "complete", "accept_worker_result", "accept_worker_evidence", "bind_evidence", "record_verdict":
+	case "complete", "record_review", "bind_evidence", "record_verdict":
 	default:
 		return refs, nil
 	}
@@ -708,15 +525,8 @@ func workflowActionEvidenceRefs(request WorkflowActionExecutionRequest, payload 
 			refs = dedupeWorkflowRefs(workflowFieldStrings(fields, "evidence_refs"))
 		}
 		return refs, nil
-	case "accept_worker_result", "accept_worker_evidence":
-		// The accepted attempt is the evidence the acceptance certifies. Its id
-		// joins the operation's evidence refs so the evidence_bound fold finds
-		// the acceptance as the binding's durable authority (#865); CD-0187's
-		// checkpoint accept binds under the same rule.
-		if attemptID := workflowFieldStringDefault(fields, "attempt_id", ""); attemptID != "" {
-			refs = dedupeWorkflowRefs(append(refs, attemptID))
-		}
-		return refs, nil
+	case "record_review":
+		return dedupeWorkflowRefs(append(refs, request.OperationID+":completed")), nil
 	case "bind_evidence":
 		// fields.evidence_ref is the declared route for naming the immutable
 		// subject. An explicit immutable_subject_ref overrides that fallback.
@@ -832,13 +642,8 @@ func workflowSemanticActionEvents(ctx context.Context, tx *sql.Tx, definition Wo
 		return workflowRecordDiagnosisEvents(ctx, tx, request, actor, fields, eventID, expected)
 	case "supersede_contract":
 		return workflowSupersedeContractEvents(ctx, tx, definition, request, actor, raw, fields, eventID, expected)
-	case "record_worker_job":
-		if workflowMemberVariant(fields) {
-			return nil, nil
-		}
-		return workflowRecordWorkerJobEvents(ctx, tx, request, actor, fields, eventID, expected)
-	case "accept_worker_result", "accept_worker_evidence":
-		return workflowAcceptWorkerResultEvents(ctx, tx, request, actor, fields, eventID, expected)
+	case "record_review":
+		return workflowRecordedReviewEvents(request, actor, eventID, expected)
 	case "bind_evidence", "record_research", "record_report", "accept_decision", "approve_operation":
 		return workflowEvidenceBindingEvents(request, actor, fields, eventID, expected)
 	case "record_verdict":
@@ -1170,21 +975,8 @@ func nullableWorkflowText(value string) any {
 	return value
 }
 
-// workerAttemptEvidenceKind maps a lane's capability class onto the closed
-// evidence kind its accepted report binds as.
-func workerAttemptEvidenceKind(capability string) string {
-	switch capability {
-	case "verification":
-		return "verification"
-	case "review":
-		return "review"
-	default:
-		return "artifact"
-	}
-}
-
 // Operator evaluation requires an advancing action from the pinned workflow's
-// preceding step, not merely a completed worker attempt.
+// preceding step.
 func requireOperatorVerdictExit(ctx context.Context, tx *sql.Tx, workID string) error {
 	registered, err := VerifyWorkflowInstanceDefinitionTx(ctx, tx, BuiltinWorkflowRegistry(), workID)
 	if err != nil {
@@ -1202,11 +994,11 @@ func requireOperatorVerdictExit(ctx context.Context, tx *sql.Tx, workID string) 
 	}
 	verdictStep := operatorVerdictStep(registered.Definition, currentStep)
 	if verdictStep == "" {
-		return newFailure(KindInvalidOperation, "workflow_action", "operator verdict identity requires a record_delivery or accept_worker_result exit or another definition-backed advancing exit", false, "request operator evaluation from the pinned verdict step")
+		return newFailure(KindInvalidOperation, "workflow_action", "operator verdict identity requires a definition-backed advancing exit", false, "request operator evaluation from the pinned verdict step")
 	}
 	advancingActions := advancingActionsBeforeStep(registered.Definition, verdictStep)
 	if len(advancingActions) == 0 {
-		return newFailure(KindInvalidOperation, "workflow_action", "operator verdict identity requires a record_delivery or accept_worker_result exit or another definition-backed advancing exit", false, "complete the pinned workflow step before requesting operator evaluation")
+		return newFailure(KindInvalidOperation, "workflow_action", "operator verdict identity requires a definition-backed advancing exit", false, "complete the pinned workflow step before requesting operator evaluation")
 	}
 	exits, err := readWorkflowExits(ctx, tx, workID)
 	if err != nil {
@@ -1223,7 +1015,7 @@ func requireOperatorVerdictExit(ctx context.Context, tx *sql.Tx, workID string) 
 	if carriedExitSatisfiedItsPinnedDefinition(verdictStep, exits) {
 		return nil
 	}
-	return newFailure(KindInvalidOperation, "workflow_action", "operator verdict identity requires a record_delivery or accept_worker_result exit or another definition-backed advancing exit", false, "complete the pinned workflow step before requesting operator evaluation")
+	return newFailure(KindInvalidOperation, "workflow_action", "operator verdict identity requires a definition-backed advancing exit", false, "complete the pinned workflow step before requesting operator evaluation")
 }
 
 // operatorVerdictStep returns the step that records the verdict: the current

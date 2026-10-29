@@ -2,11 +2,8 @@ import { expect, test } from "bun:test"
 import { contractOperations, hostToolSchemas, payloadSchemas, workflowActionPublicVariants } from "./generated-contracts"
 import { expandedPublishedRequestSchema, validateGeneratedPayload } from "./generated-contract-tests"
 import { publishCiWatchDefinition } from "./ci-watch"
-import { publishWorkerReadDefinition } from "./worker_source"
-import { publishWorkerCheckDefinition } from "./worker_control"
-import { publishWorkerDiffDefinition } from "./worker_diff"
 import { publishRequestDefinition, publishWorkStartDefinition } from "./concord"
-import { validateAgainstSchema } from "./dispatch"
+import { validateAgainstSchema } from "./core-runtime"
 
 // Bound-annotation contract for every enforced countable bound. The node
 // enforcing a bound teaches it in its own description, one clause per bound
@@ -275,9 +272,6 @@ async function publishedBoundRoots(): Promise<{ at: string; schema: unknown }[]>
   for (const [toolID, hook] of [
     ["concord_work_start", publishWorkStartDefinition],
     ["concord_ci_watch", publishCiWatchDefinition],
-    ["concord_worker_read", publishWorkerReadDefinition],
-    ["concord_worker_check", publishWorkerCheckDefinition],
-    ["concord_worker_diff", publishWorkerDiffDefinition],
   ] as const) {
     const output = { description: "", parameters: {}, jsonSchema: undefined as unknown }
     await hook({ toolID }, output)
@@ -465,7 +459,7 @@ test("every reachable enforced bound teaches its exact Bounds clause with role, 
   }
   // Pinned teaching examples: exact role, value, unit, and inclusive endpoints.
   expect(clauseTextsOf(payloadTable.work_define_observation_record_input.properties.statement)).toEqual(["Bounds: 1..512 code points inclusive"])
-  expect(clauseTextsOf((hostToolSchemas as unknown as SchemaTable).concord_worker_check.properties.control_id)).toEqual(
+  expect(clauseTextsOf(payloadTable.reference)).toEqual(
     ["Bounds: 1..128 code points inclusive", "Bounds: 2..128 UTF-8 bytes inclusive"].sort(),
   )
   expect([...findings]).toEqual([])

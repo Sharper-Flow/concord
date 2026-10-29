@@ -6,8 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -20,26 +19,6 @@ func TestWorkflowCorrectionAdmissionRejectsNBSPReference(t *testing.T) {
 	const legacyReference = "evidence:\u00a0legacy"
 	if fault := workflowCorrectionSchemaValuesFaultForAdmission(nil, []string{legacyReference}, nil); fault == "" {
 		t.Fatal("new correction admission accepted a non-breaking-space reference")
-	}
-}
-
-func TestSameWorkflowCorrectionIncludesFailureDetails(t *testing.T) {
-	base := &WorkflowCorrectionContext{
-		Disposition: "failed", Diagnosis: "diagnosis", Strategy: "strategy",
-		PredicateIDs: []string{"predicate:test"}, EvidenceRefs: []string{"evidence:test"},
-	}
-	for name, mutate := range map[string]func(*WorkflowCorrectionContext){
-		"failure kind":   func(value *WorkflowCorrectionContext) { value.FailureKind = "transport_failure" },
-		"failure detail": func(value *WorkflowCorrectionContext) { value.FailureDetail = "worker could not reach the service" },
-	} {
-		t.Run(name, func(t *testing.T) {
-			left := *base
-			right := *base
-			mutate(&right)
-			if sameWorkflowCorrection(&left, &right) {
-				t.Fatalf("sameWorkflowCorrection treated %s as equal", name)
-			}
-		})
 	}
 }
 
@@ -104,242 +83,43 @@ func TestIssue1013LateVerdictRecoveryPassesReadOnlyPreflight(t *testing.T) {
 	}
 }
 
-// A live dispatch holds contract correction. Terminal ingestion opens the
-// correction atomically, and another authorized dispatch closes that route
-// without promoting the failed report into delivery authority.
-func TestIssue1013ContractCorrectionAtFailedWorkerDispatch(t *testing.T) {
-	const workID = "issue1013-failed-worker-correction"
-	ctx := context.Background()
-	fixture, attemptID, epoch := seedCurrentRepairWorker(t, workID)
-	s := fixture.store
-	job := *s2DispatchJobBinding(t, s, workID, attemptID)
-	pin := issue1013Pin(t, s, workID)
-	if issue1013HasIntent(pin, "record_delivery") {
-		t.Fatalf("dispatched step offers record_delivery the fold refuses: %#v", pin.NextValidIntents)
+func TestRequestCorrectionRecordsSourceContext(t *testing.T) {
+	const workID = "request-correction-source"
+	j := pReturnReviewFixture(t, workID, "workflow.implementation", "correction_required")
+	_, action, err := WorkflowActionDefinitionFor(t.Context(), j.s, BuiltinWorkflowRegistry(), workID, "request_correction")
+	if err != nil || action.ID != "request_correction" {
+		t.Fatalf("resolve corrective return: %+v, %v", action, err)
 	}
-	if issue1013HasIntent(pin, "accept_worker_result") {
-		t.Fatalf("unfinished attempt is advertised as an acceptable result: %#v", pin.NextValidIntents)
-	}
-	if _, _, err := WorkflowActionDefinitionFor(ctx, s, BuiltinWorkflowRegistry(), workID, "supersede_contract"); err == nil {
-		t.Fatal("contract correction resolved while the worker attempt was live")
-	}
-
-	s2WorkerFailedAttributedLive(t, s, workID, attemptID, "the host observed the failed launch")
-	_, action, err := WorkflowActionDefinitionFor(ctx, s, BuiltinWorkflowRegistry(), workID, "supersede_contract")
-	if err != nil {
-		t.Fatalf("resolve contract correction after the recorded failure: %v", err)
-	}
-	if action.ID != "supersede_contract" || action.Approval != ActionApprovalRequired {
-		t.Fatalf("correction action = %#v, want operator-approved supersession", action)
-	}
-	pin = issue1013Pin(t, s, workID)
-	if pin.Correction == nil || pin.Correction.FailedAttemptID != attemptID || pin.Correction.FailedAttemptEpoch != epoch {
-		t.Fatalf("terminal ingestion lost its exact failure identity: %+v", pin.Correction)
-	}
-	source := *pin.Correction
-	var found bool
-	for _, intent := range pin.NextValidIntents {
-		if intent.ActionID == "supersede_contract" && intent.ExpectedVersion == pin.Version && intent.ReasonCode == "operator_contract_correction" {
-			found = true
-		}
-	}
-	if !found {
-		t.Fatalf("work pin has no failed-worker correction intent: %#v", pin.NextValidIntents)
-	}
-	if issue1013HasIntent(pin, "record_delivery") {
-		t.Fatalf("recorded failure alone restored record_delivery: %#v", pin.NextValidIntents)
-	}
-
-	next := attemptID + ":retry"
-	if err := dispatchWorkContextAttempt(t, fixture, issue1013CurrentDispatchPacket(t, fixture, next, job)); err != nil {
-		t.Fatalf("authorize the fresh correction attempt: %v", err)
-	}
-	if window := reviewSubjectWindow(t, s, workID, next); window.AttemptEpoch <= epoch {
-		t.Fatalf("fresh authorization epoch=%d, want greater than %d", window.AttemptEpoch, epoch)
-	}
-	if err := ApplyOperation(ctx, s, Operation{Events: []Event{implementDispatchEvidenceEvent(workID, next, laneForID(t), job)}}); err != nil {
+	payload := pReviewCorrectionPayload(t)
+	if err := j.action(t, "request_correction", payload, j.fixture.owner); err != nil {
 		t.Fatal(err)
 	}
-	before := contractCorrectionEffectSnapshot(t, s, workID)
-	if _, _, err := WorkflowActionDefinitionFor(ctx, s, BuiltinWorkflowRegistry(), workID, "supersede_contract"); err == nil {
-		t.Fatal("old failure reopened contract correction beside the live retry")
+	pin := issue1013Pin(t, j.s, workID)
+	if pin.Correction == nil {
+		t.Fatal("corrective return omitted its source context")
 	}
-	if after := contractCorrectionEffectSnapshot(t, s, workID); after != before {
-		t.Fatal("closed correction discovery changed durable state")
+	want := WorkflowCorrectionContext{Disposition: "verification", Diagnosis: "the accepted current Review requires correction", Strategy: "perform the declared corrective work and obtain applicable Review", PredicateIDs: []string{"predicate:return-route"}, EvidenceRefs: []string{"evidence:return-route-verification"}, SourceEventID: pin.Correction.SourceEventID, SourceEventSeq: pin.Correction.SourceEventSeq}
+	if want.SourceEventID == "" || want.SourceEventSeq < 1 || !reflect.DeepEqual(*pin.Correction, want) {
+		t.Fatalf("correction context=%+v, want %+v with exact durable source", pin.Correction, want)
 	}
-	if pin = issue1013Pin(t, s, workID); !sameWorkflowCorrection(pin.Correction, &source) || issue1013HasIntent(pin, "record_delivery") {
-		t.Fatalf("materialized retry erased an unresolved job source or acquired delivery authority: %+v", pin)
+	var sourceID, sourceDigest string
+	if err := j.s.db.QueryRow(`SELECT event_id,payload_digest FROM effect_receipts WHERE subject_id=? AND effect_seq=? AND kind=?`, workID, want.SourceEventSeq, WorkflowActionCompleted).Scan(&sourceID, &sourceDigest); err != nil || sourceID != want.SourceEventID || sourceDigest == "" {
+		t.Fatalf("correction source=%q digest=%q err=%v", sourceID, sourceDigest, err)
+	}
+	if err := payloadschema.Validate("work_pin", mustJSONValue(pin)); err != nil {
+		t.Fatalf("corrective work pin violates the response schema: %v", err)
+	}
+	before := j.effects(t)
+	if err := j.action(t, "request_correction", payload, j.fixture.owner); err == nil {
+		t.Fatal("a consumed Review admitted another correction")
+	}
+	if j.effects(t) != before || !reflect.DeepEqual(issue1013Pin(t, j.s, workID).Correction, &want) {
+		t.Fatal("refused repeated request changed effects or its exact source")
 	}
 }
 
-func TestRejectWorkerResultRecordsCorrectionContext(t *testing.T) {
-	const workID = "issue1013-rejected-worker-result"
-	s, workerRef, owner, attemptID := seedCompletedWorkerAtExecution(t, workID)
-	defer s.Close()
-	ownerRef, err := WorkflowActorRef(owner)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class) VALUES(?,1,'rejected worker contract','internal_sqlite','["verification"]','[]','now',?,'[]','[]',1,'prototype_internal'); INSERT INTO workflow_contract_predicates(work_id,contract_version,predicate_id,ordinal,outcome_kind,outcome_payload) VALUES(?,1,'predicate:primary',0,'check','{"kind":"check","check_ref":"check:workflow","immutable_subject_ref":"commit:old","expected_result":"pass"}'); DELETE FROM write_guard`, workID, ownerRef, workID); err != nil {
-		t.Fatal(err)
-	}
-
-	_, action, err := WorkflowActionDefinitionFor(context.Background(), s, BuiltinWorkflowRegistry(), workID, "reject_worker_result")
-	if err != nil {
-		t.Fatalf("resolve worker result rejection: %v", err)
-	}
-	if action.ID != "reject_worker_result" || action.ExecutionMode != ActionHold {
-		t.Fatalf("rejection action = %#v, want hold-mode reject_worker_result", action)
-	}
-	ctx := context.Background()
-	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	result, err := applyWorkflowActionRawTx(ctx, tx, newWriteScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
-		WorkID: workID, ExpectedVersion: 12, ActionID: "reject_worker_result", Payload: mustJSONValue(map[string]any{
-			"attempt_id": attemptID, "attempt_epoch": 2, "diagnosis": "the result misses the boundary case", "strategy": "change the helper and add a test",
-			"predicate_ids": []string{"predicate:primary"}, "evidence_refs": []string{"evidence:review"},
-		}), Actor: owner,
-		AcceptedInputsDigest: "sha256:" + strings.Repeat("f", 64), IdempotencyIdentity: "reject:" + workID, OperationID: "reject:" + workID,
-		PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "reject:" + workID, RequestID: "request:reject:" + workID, ContractDigest: testManifestDigest, Now: time.Unix(4, 0).UTC(),
-	})
-	if err != nil {
-		tx.Rollback()
-		t.Fatalf("reject worker result: %v", err)
-	}
-	if err := tx.Commit(); err != nil {
-		t.Fatal(err)
-	}
-	if result.ResultingVersion != 13 {
-		t.Fatalf("rejection result version=%d, want 13", result.ResultingVersion)
-	}
-
-	var workerAttempt, diagnosis string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.worker_attempt_id'),json_extract(payload,'$.correction_diagnosis') FROM worker_attempt_dispositions WHERE work_id=? AND attempt_id=? AND action_id='reject_worker_result' AND event_id=?`, workID, attemptID, "reject:"+workID+":completed").Scan(&workerAttempt, &diagnosis); err != nil {
-		t.Fatal(err)
-	}
-	if workerAttempt != attemptID || diagnosis == "" {
-		t.Fatalf("rejection event attempt=%q diagnosis=%q, want %q and a diagnosis", workerAttempt, diagnosis, attemptID)
-	}
-	pin, err := ReadWorkPin(ctx, s, workID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if pin.Correction == nil || pin.Correction.Disposition != "rejected" || pin.Correction.Diagnosis != "the result misses the boundary case" {
-		t.Fatalf("correction pin = %#v, want the recorded rejection context", pin.Correction)
-	}
-	if marshaled, marshalErr := json.Marshal(pin); marshalErr != nil {
-		t.Fatal(marshalErr)
-	} else if validErr := payloadschema.Validate("work_pin", marshaled); validErr != nil {
-		t.Fatalf("clean reject work pin does not satisfy the closed response schema: %v", validErr)
-	}
-	_, correctionAction, err := WorkflowActionDefinitionFor(ctx, s, BuiltinWorkflowRegistry(), workID, "supersede_contract")
-	if err != nil {
-		t.Fatalf("resolve contract correction after rejected result: %v", err)
-	}
-	if correctionAction.ID != "supersede_contract" || correctionAction.Approval != ActionApprovalRequired {
-		t.Fatalf("rejected-result correction action = %#v, want operator-approved supersession", correctionAction)
-	}
-	var correctionIntent bool
-	for _, intent := range pin.NextValidIntents {
-		if intent.ActionID == "supersede_contract" && intent.ExpectedVersion == pin.Version && intent.ReasonCode == "operator_contract_correction" {
-			correctionIntent = true
-		}
-	}
-	if !correctionIntent {
-		t.Fatalf("work pin has no rejected-result correction intent: %#v", pin.NextValidIntents)
-	}
-	start := workflowEventWithActor("restart-"+workID, WorkflowActionStarted, workID, workerRef, map[string]any{
-		"work_id": workID, "expected_version": 13, "resulting_version": 14, "step_id": "execution", "action_id": "start_execution", "attempt_epoch": 3,
-		"accepted_inputs_digest": "sha256:" + strings.Repeat("a", 64), "idempotency_identity": "restart:" + workID, "actor_ref": workerRef,
-	})
-	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{start}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 13}}); err != nil {
-		t.Fatalf("start fresh correction attempt: %v", err)
-	}
-	packetPayload, err := json.Marshal(dispatchWorkerPacket(t, s, workID, "execution", "attempt:fresh-"+workID))
-	if err != nil {
-		t.Fatal(err)
-	}
-	fieldsPayload, err := json.Marshal(map[string]any{"attempt_id": "attempt:fresh-" + workID, "worker_packet": json.RawMessage(packetPayload)})
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, err = invokeWorkflowActionForCD0059(ctx, t, s, WorkflowActionExecutionRequest{
-		WorkID: workID, ExpectedVersion: 14, ActionID: "dispatch_worker", Payload: fieldsPayload, SessionWorktree: dispatchSessionWorktree(t, s, workID),
-		Actor: owner, AcceptedInputsDigest: "sha256:" + strings.Repeat("b", 64), IdempotencyIdentity: "dispatch:" + workID, OperationID: "dispatch:" + workID,
-		PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "dispatch:" + workID, RequestID: "request:dispatch:" + workID, ContractDigest: testManifestDigest, Now: time.Unix(5, 0).UTC(),
-	})
-	if !hasFailureKind(err, KindInvalidPayload) {
-		t.Fatalf("dispatch without correction context error=%v, want invalid_payload", err)
-	}
-	// Equal prose and counts from a different source event do not consume the
-	// current correction: the source identity is part of the typed state.
-	if pin.Correction.SourceEventID == "" || pin.Correction.SourceEventSeq < 1 {
-		t.Fatalf("pin correction carries no source event identity: %#v", pin.Correction)
-	}
-	foreign := *pin.Correction
-	foreign.SourceEventSeq++
-	foreignPacket := dispatchWorkerPacket(t, s, workID, "execution", "attempt:fresh-"+workID)
-	foreignPacket["inputs"].(map[string]any)["correction"] = foreign
-	packetPayload, err = json.Marshal(foreignPacket)
-	if err != nil {
-		t.Fatal(err)
-	}
-	fieldsPayload, err = json.Marshal(map[string]any{"attempt_id": "attempt:fresh-" + workID, "worker_packet": json.RawMessage(packetPayload)})
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, err = invokeWorkflowActionForCD0059(ctx, t, s, WorkflowActionExecutionRequest{
-		WorkID: workID, ExpectedVersion: 14, ActionID: "dispatch_worker", Payload: fieldsPayload, SessionWorktree: dispatchSessionWorktree(t, s, workID),
-		Actor: owner, AcceptedInputsDigest: "sha256:" + strings.Repeat("e", 64), IdempotencyIdentity: "dispatch-foreign:" + workID, OperationID: "dispatch-foreign:" + workID,
-		PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "dispatch-foreign:" + workID, RequestID: "request:dispatch-foreign:" + workID, ContractDigest: testManifestDigest, Now: time.Unix(5, 0).UTC(),
-	})
-	if !hasFailureKind(err, KindInvalidPayload) || !strings.Contains(err.Error(), "does not consume the current correction context") {
-		t.Fatalf("dispatch with a foreign correction source error=%v, want the correction-consumption refusal", err)
-	}
-	packet := dispatchWorkerPacket(t, s, workID, "execution", "attempt:fresh-"+workID)
-	packet["inputs"].(map[string]any)["correction"] = pin.Correction
-	packetPayload, err = json.Marshal(packet)
-	if err != nil {
-		t.Fatal(err)
-	}
-	fieldsPayload, err = json.Marshal(map[string]any{"attempt_id": "attempt:fresh-" + workID, "worker_packet": json.RawMessage(packetPayload)})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err = invokeWorkflowActionForCD0059(ctx, t, s, WorkflowActionExecutionRequest{
-		WorkID: workID, ExpectedVersion: 14, ActionID: "dispatch_worker", Payload: fieldsPayload, SessionWorktree: dispatchSessionWorktree(t, s, workID),
-		Actor: owner, AcceptedInputsDigest: "sha256:" + strings.Repeat("c", 64), IdempotencyIdentity: "dispatch-valid:" + workID, OperationID: "dispatch-valid:" + workID,
-		PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "dispatch-valid:" + workID, RequestID: "request:dispatch-valid:" + workID, ContractDigest: testManifestDigest, Now: time.Unix(6, 0).UTC(),
-	}); err != nil {
-		t.Fatalf("dispatch with current correction context: %v", err)
-	}
-	// The dispatch intent alone consumes nothing: the fresh attempt must
-	// materialize before the rejection record is consumed.
-	if pin, err = ReadWorkPin(ctx, s, workID); err != nil {
-		t.Fatal(err)
-	} else if pin.Correction == nil {
-		t.Fatalf("pin correction vanished before the fresh attempt materialized: %#v", pin.Correction)
-	}
-	issue1013RecordWorkerDispatch(t, s, workID, "attempt:fresh-"+workID)
-	if pin, err = ReadWorkPin(ctx, s, workID); err != nil {
-		t.Fatal(err)
-	} else if pin.Correction != nil {
-		t.Fatalf("materialized dispatch did not consume correction context: %#v", pin.Correction)
-	}
-	if _, _, err = WorkflowActionDefinitionFor(ctx, s, BuiltinWorkflowRegistry(), workID, "supersede_contract"); err == nil {
-		t.Fatal("contract correction remained available after a later dispatch consumed the rejection")
-	}
-}
-
-// An accepted correction_required Review opens the correction (CD-0242 D8).
-// Its context binds the next dispatch at the producer step, a dispatch that
-// omits it refuses, and the accepted corrective delivery discharges it, so a
-// later lane dispatches with no correction.
-func TestCorrectionDispatchClearsPinContextForLaterLane(t *testing.T) {
+func TestCorrectiveReviewClearsPinContext(t *testing.T) {
 	const workID = "work-c1b9adae6631673333fc94b8"
-	ctx := context.Background()
 	j := pReturnReviewFixture(t, workID, "workflow.break_fix", "correction_required")
 	s, owner := j.s, j.fixture.owner
 	if err := j.action(t, "request_correction", pReviewCorrectionPayload(t), owner); err != nil {
@@ -350,107 +130,32 @@ func TestCorrectionDispatchClearsPinContextForLaterLane(t *testing.T) {
 	if pin.Correction == nil {
 		t.Fatal("work pin omitted the undischarged correction")
 	}
-	attemptID := "attempt:" + workID + ":corrective"
-	validatorCorrection, err := workflowCorrectionContextForDispatch(ctx, s.db, workID, "repair", attemptID)
+	validatorCorrection, err := readWorkflowCorrectionContext(t.Context(), s.db, workID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !sameWorkflowCorrection(pin.Correction, validatorCorrection) {
+	if !reflect.DeepEqual(pin.Correction, validatorCorrection) {
 		t.Fatalf("work pin correction=%#v, validator correction=%#v", pin.Correction, validatorCorrection)
 	}
-	job := reviewSubjectReadyRevision(t, j.fixture)
-	digest := registeredLaneIdentity(t, "implement")
-	withoutCorrection := joinPacketFor(t, s, workID, "repair", attemptID, "implement", digest)
-	withoutCorrection["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, s, workID, job, "implement")
-	prepared, err := PrepareWorkerDispatchFreshness(ctx, s, PrepareWorkerDispatchRequest{WorkID: workID, SessionWorktree: j.repo})
-	if err != nil {
-		t.Fatal(err)
-	}
 	before := j.effects(t)
-	_, err = dispatchJoinAttempt(WithWorkerDispatchPreparation(ctx, prepared), t, s, workID, readWorkVersion(t, s, workID), owner, withoutCorrection)
-	if !hasFailureKind(err, KindInvalidPayload) || !strings.Contains(err.Error(), "correction") {
-		t.Fatalf("dispatch without correction error=%v, want the correction invalid_payload refusal", err)
+	if err := j.action(t, "record_delivery", map[string]any{"delivery_artifact": "artifact:uncorrected", "delivery_state": "asserted"}, owner); err == nil {
+		t.Fatal("delivery without fresh Review discharged correction")
 	}
 	if j.effects(t) != before {
-		t.Fatal("refused dispatch changed durable state")
+		t.Fatal("refused delivery changed durable state")
 	}
 
 	pReturnProduce(t, j, "corrective")
+	if got := issue1013Pin(t, s, workID).Correction; !reflect.DeepEqual(got, validatorCorrection) {
+		t.Fatalf("subject observation alone consumed correction: %+v", got)
+	}
+	acceptCurrentReviewForTest(t, j.fixture, j.repo, "ready_for_final_proof")
 	pin = issue1013Pin(t, s, workID)
 	if pin.Correction != nil {
 		t.Fatalf("work pin retained discharged correction: %#v", pin.Correction)
 	}
-	later := "attempt:" + workID + ":later"
-	if correction, err := workflowCorrectionContextForDispatch(ctx, s.db, workID, "repair", later); err != nil || correction != nil {
-		t.Fatalf("later lane correction=%#v err=%v, want none", correction, err)
-	}
-	if err := descendantDispatch(t, j, "review", later, reviewSubjectReadyRevision(t, j.fixture), nil); err != nil {
-		t.Fatalf("later review dispatch after discharged correction: %v", err)
-	}
-}
-
-// convergenceSupersedeBasis supersedes a worker-correction fixture's active
-// contract through the real operator action with a complete architecture binding.
-func convergenceSupersedeBasis(t *testing.T, s *Store, workID string, owner WorkflowActor) error {
-	t.Helper()
-	ownerRef, err := WorkflowActorRef(owner)
-	if err != nil {
-		t.Fatal(err)
-	}
-	seedIssue31DomainRegistry(t, s)
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class) VALUES(?,1,'failed worker contract','internal_sqlite','["verification"]','[]','now',?,'[]','[]',1,'prototype_internal'); INSERT INTO workflow_contract_predicates(work_id,contract_version,predicate_id,ordinal,outcome_kind,outcome_payload) VALUES(?,1,'predicate:primary',0,'check','{"kind":"check","check_ref":"check:workflow","immutable_subject_ref":"commit:old","expected_result":"pass"}'); DELETE FROM write_guard`, workID, ownerRef, workID); err != nil {
-		t.Fatal(err)
-	}
-	binding := `{"domain_registry_content_hash":"sha256:` + strings.Repeat("b", 64) + `","home_domain_id":"root","affected_domain_ids":["root"],"domain_modifies":[],"domain_relation_modifies":[],"law_additions":[],"verification_obligations":[]}`
-	successor := json.RawMessage(`{"contract_version":2,"premise":"corrected predicate subject","outcome_predicates":[{"predicate_id":"predicate:primary","ordinal":0,"outcome_kind":"check","outcome_payload":{"kind":"check","check_ref":"check:workflow","immutable_subject_ref":"commit:e3d7c6e6","expected_result":"pass"}}],"required_evidence":["verification"],"route_conventions":[],"spec_mandate":[],"law_modifies":[],"rigor_class":"prototype_internal","architecture_binding":` + binding + `,"supersede_reason":"the pinned subject named an unrelated commit","audit_evidence":["evidence:` + workID + `-supersede"]}`)
-	return runIssue933OperatorAction(t, s, workID, "supersede_contract", successor, owner, operatorVerdictActor(t, workID))
-}
-
-// Repeated failed corrections retain their source without a retry budget.
-func TestWorkflowFourthCorrectionDispatchRetainsLaunchWindow(t *testing.T) {
-	const workID = "issue1013-fourth-correction-preflight"
-	s, owner, pin := seedIssue1013EscalatedCorrection(t, workID)
-	defer s.Close()
-	fixture := workContextFixture{store: s, owner: owner, workID: workID}
-	job := *s2DispatchJobBinding(t, s, workID, pin.Correction.FailedAttemptID)
-
-	attemptID := "attempt:" + workID + ":4"
-	if err := dispatchWorkContextAttempt(t, fixture, issue1013CurrentDispatchPacket(t, fixture, attemptID, job)); err != nil {
-		t.Fatalf("fourth correction dispatch: %v", err)
-	}
-	// An unresolved launch outcome still owns the authorization window.
-	fifth := "attempt:" + workID + ":5"
-	packet := issue1013CurrentDispatchPacket(t, fixture, fifth, job)
-	before := contractCorrectionEffectSnapshot(t, s, workID)
-	if err := dispatchWorkContextAttempt(t, fixture, packet); !hasFailureKind(err, KindOperationConflict) {
-		t.Fatalf("second dispatch beside pending authorization = %v, want operation_conflict", err)
-	}
-	if after := contractCorrectionEffectSnapshot(t, s, workID); after != before {
-		t.Fatal("refused parallel launch changed durable state")
-	}
-	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{implementDispatchEvidenceEvent(workID, attemptID, laneForID(t), job)}}); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func TestWorkPinRepeatedCorrectionAdvertisesRetry(t *testing.T) {
-	t.Parallel()
-	const workID = "issue1013-escalated-correction-pin"
-	s, _, pin := seedIssue1013EscalatedCorrection(t, workID)
-	defer s.Close()
-
-	if pin.Correction == nil || pin.Correction.FailedAttemptID != "attempt:"+workID+":3" {
-		t.Fatalf("correction = %#v, want the latest failed attempt", pin.Correction)
-	}
-	advertised := false
-	for _, intent := range pin.NextValidIntents {
-		if intent.ActionID != "dispatch_worker" {
-			continue
-		}
-		advertised = true
-	}
-	if !advertised {
-		t.Fatalf("escalated correction hid dispatch_worker: %#v", pin.NextValidIntents)
+	if correction, err := readWorkflowCorrectionContext(t.Context(), s.db, workID); err != nil || correction != nil {
+		t.Fatalf("later correction=%#v err=%v, want none", correction, err)
 	}
 }
 
@@ -484,99 +189,6 @@ func TestRepeatedVerificationCorrectionRequiresFreshVerdict(t *testing.T) {
 	}
 }
 
-// A dispatch intent whose worker attempt never materialized — the session died
-// between the dispatch_worker action and the host worker-dispatch call — leaves
-// the correction record live: the retry binding keeps naming the failed
-// attempt, and a later dispatch consumes the record only once its worker
-// attempt actually exists.
-func TestHalfMaterializedDispatchLeavesTheCorrectionRecordLive(t *testing.T) {
-	const workID = "correction-half-dispatch-live"
-	fixture := seedCrossAttemptFixture(t, workID)
-	s, attemptID := fixture.s, fixture.attemptR
-	fixture.dispatch(t, attemptID, fixture.researchLane, fixture.dispatcher)
-	epoch := crossAttemptDispatchEpoch(t, s, workID, attemptID)
-	failed := s2WorkerFailedAttributedEvent(workID, attemptID, "failed:"+attemptID, preferredModelForLane(fixture.researchLane), WorkerFailureFallbackBlocked, "the host observed the failed launch", corpusNow)
-	if err := s2WorkerFailedLive(t, s, failed); err != nil {
-		t.Fatal(err)
-	}
-
-	interrupted := "attempt:" + workID + ":interrupted"
-	pin := issue1013Pin(t, s, workID)
-	if pin.Correction == nil || pin.Correction.FailedAttemptID != attemptID || pin.Correction.FailedAttemptEpoch != epoch {
-		t.Fatalf("pin correction before the interrupted dispatch = %#v, want the failed attempt", pin.Correction)
-	}
-	source := *pin.Correction
-	fixture.authorizeDispatch(t, interrupted, fixture.researchLane, fixture.dispatcher)
-
-	pin = issue1013Pin(t, s, workID)
-	if !sameWorkflowCorrection(pin.Correction, &source) {
-		t.Fatalf("pin correction after the interrupted dispatch = %#v, want the live record", pin.Correction)
-	}
-
-	fixture.materializeDispatch(t, interrupted, fixture.researchLane, fixture.dispatcher)
-	pin = issue1013Pin(t, s, workID)
-	if pin.Correction != nil {
-		t.Fatalf("materialized dispatch retained the correction: %#v", pin.Correction)
-	}
-}
-
-func issue1013CurrentDispatchPacket(t *testing.T, fixture workContextFixture, attemptID string, job WorkerJobBinding) map[string]any {
-	t.Helper()
-	view, err := readWorkContextView(context.Background(), fixture.store.DatabaseForTesting(), fixture.workID)
-	if err != nil || view == nil {
-		t.Fatalf("current dispatch context=%+v err=%v", view, err)
-	}
-	packet := workContextDispatchPacket(t, fixture, attemptID, job, view)
-	correction, err := workflowCorrectionContextForDispatch(context.Background(), fixture.store.DatabaseForTesting(), fixture.workID, "repair", attemptID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if correction != nil {
-		packet["inputs"].(map[string]any)["correction"] = correction
-	}
-	return packet
-}
-
-func seedIssue1013EscalatedCorrection(t *testing.T, workID string) (*Store, WorkflowActor, WorkPin) {
-	t.Helper()
-	fixture, attemptID, epoch := seedCurrentRepairWorker(t, workID)
-	s, owner := fixture.store, fixture.owner
-	job := *s2DispatchJobBinding(t, s, workID, attemptID)
-	for round := 1; round <= 3; round++ {
-		s2WorkerFailedAttributedLive(t, s, workID, attemptID, "the host observed a failed corrective launch")
-		pin := issue1013Pin(t, s, workID)
-		if pin.Correction == nil || pin.Correction.FailedAttemptID != attemptID || pin.Correction.FailedAttemptEpoch != epoch || pin.Correction.FailureKind != WorkerFailureFallbackBlocked || pin.Correction.SourceEventID == "" || pin.Correction.SourceEventSeq < 1 {
-			t.Fatalf("failure %d lost its exact correction source: %+v", round, pin.Correction)
-		}
-		if !issue1013HasIntent(pin, "dispatch_worker") {
-			t.Fatalf("failure %d hid ordinary retry: %+v", round, pin.NextValidIntents)
-		}
-		if round == 3 {
-			return s, owner, pin
-		}
-		attemptID = fmt.Sprintf("attempt:%s:%d", workID, round+1)
-		if err := dispatchWorkContextAttempt(t, fixture, issue1013CurrentDispatchPacket(t, fixture, attemptID, job)); err != nil {
-			t.Fatalf("authorize corrective launch %d: %v", round+1, err)
-		}
-		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{implementDispatchEvidenceEvent(workID, attemptID, laneForID(t), job)}}); err != nil {
-			t.Fatal(err)
-		}
-		epoch = reviewSubjectWindow(t, s, workID, attemptID).AttemptEpoch
-	}
-	t.Fatal("repeated correction fixture did not return")
-	return nil, WorkflowActor{}, WorkPin{}
-}
-
-func issue1013RecordWorkerDispatch(t *testing.T, s *Store, workID, attemptID string) {
-	t.Helper()
-	lane := BuiltinLaneDefinitions()[0]
-	dispatch := workerDispatchEvent(workID, "issue1013-worker-dispatch-"+workID+"-"+attemptID, lane, map[string]any{"attempt_id": attemptID})
-	dispatch.OccurredAt = time.Unix(20, 0).UTC()
-	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{dispatch}}); err != nil {
-		t.Fatalf("record worker dispatch %s: %v", attemptID, err)
-	}
-}
-
 func issue1013StartRepair(t *testing.T, s *Store, workID string, owner WorkflowActor, expectedVersion, attemptEpoch int64) {
 	t.Helper()
 	// CD-0198 D3: on a derived-start pin the callable start is gone, and the
@@ -601,17 +213,6 @@ func issue1013StartRepair(t *testing.T, s *Store, workID string, owner WorkflowA
 	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{start}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): expectedVersion}}); err != nil {
 		t.Fatalf("start correction attempt %d: %v", attemptEpoch, err)
 	}
-}
-
-func issue1013CorrectionDispatchPayload(t *testing.T, s *Store, workID, stepID, attemptID string, correction *WorkflowCorrectionContext) json.RawMessage {
-	t.Helper()
-	packet := dispatchWorkerPacket(t, s, workID, stepID, attemptID)
-	packet["inputs"].(map[string]any)["correction"] = correction
-	packetPayload, err := json.Marshal(packet)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return mustJSONValue(map[string]any{"attempt_id": attemptID, "worker_packet": json.RawMessage(packetPayload)})
 }
 
 func issue1013Pin(t *testing.T, s *Store, workID string) WorkPin {
@@ -759,8 +360,8 @@ func TestCompleteStepContractCorrectionReturnsBreakFixToRepair(t *testing.T) {
 		t.Fatalf("complete-step correction pin does not satisfy the closed response schema: %v", validErr)
 	}
 
-	var verdicts, predecessorPredicates, attempts int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT (SELECT count(*) FROM effect_receipts WHERE subject_id=? AND kind=?), (SELECT count(*) FROM workflow_contract_predicates WHERE work_id=? AND contract_version=1), (SELECT count(*) FROM worker_attempts WHERE work_id=?)`, workID, WorkflowVerdictRecorded, workID, workID).Scan(&verdicts, &predecessorPredicates, &attempts); err != nil {
+	var verdicts, predecessorPredicates, starts int
+	if err := s.DatabaseForTesting().QueryRow(`SELECT (SELECT count(*) FROM effect_receipts WHERE subject_id=? AND kind=?), (SELECT count(*) FROM workflow_contract_predicates WHERE work_id=? AND contract_version=1), (SELECT count(*) FROM workflow_step_epochs WHERE work_id=?)`, workID, WorkflowVerdictRecorded, workID, workID).Scan(&verdicts, &predecessorPredicates, &starts); err != nil {
 		t.Fatal(err)
 	}
 	_, _, definitionRef, definitionDigest := completeStepInstancePin(t, s, workID)
@@ -782,12 +383,12 @@ func TestCompleteStepContractCorrectionReturnsBreakFixToRepair(t *testing.T) {
 	if activeCount != 1 || activeVersion != 2 || supersededBy != 2 {
 		t.Fatalf("contracts after supersession: active=%d version=%d predecessor superseded_by=%d", activeCount, activeVersion, supersededBy)
 	}
-	var verdictsAfter, predecessorPredicatesAfter, attemptsAfter int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT (SELECT count(*) FROM effect_receipts WHERE subject_id=? AND kind=?), (SELECT count(*) FROM workflow_contract_predicates WHERE work_id=? AND contract_version=1), (SELECT count(*) FROM worker_attempts WHERE work_id=?)`, workID, WorkflowVerdictRecorded, workID, workID).Scan(&verdictsAfter, &predecessorPredicatesAfter, &attemptsAfter); err != nil {
+	var verdictsAfter, predecessorPredicatesAfter, startsAfter int
+	if err := s.DatabaseForTesting().QueryRow(`SELECT (SELECT count(*) FROM effect_receipts WHERE subject_id=? AND kind=?), (SELECT count(*) FROM workflow_contract_predicates WHERE work_id=? AND contract_version=1), (SELECT count(*) FROM workflow_step_epochs WHERE work_id=?)`, workID, WorkflowVerdictRecorded, workID, workID).Scan(&verdictsAfter, &predecessorPredicatesAfter, &startsAfter); err != nil {
 		t.Fatal(err)
 	}
-	if verdictsAfter != verdicts || predecessorPredicatesAfter != predecessorPredicates || attemptsAfter != attempts {
-		t.Fatalf("supersession disturbed history: verdicts %d->%d predecessor predicates %d->%d attempts %d->%d", verdicts, verdictsAfter, predecessorPredicates, predecessorPredicatesAfter, attempts, attemptsAfter)
+	if verdictsAfter != verdicts || predecessorPredicatesAfter != predecessorPredicates || startsAfter != starts {
+		t.Fatalf("supersession disturbed history: verdicts %d->%d predecessor predicates %d->%d starts %d->%d", verdicts, verdictsAfter, predecessorPredicates, predecessorPredicatesAfter, starts, startsAfter)
 	}
 	step, state, refAfter, digestAfter := completeStepInstancePin(t, s, workID)
 	if refAfter != definitionRef || digestAfter != definitionDigest {
@@ -1037,45 +638,6 @@ func TestCompleteStepContractCorrectionRefusals(t *testing.T) {
 		}
 	})
 
-	t.Run("unsettled worker attempt", func(t *testing.T) {
-		t.Parallel()
-		const workID = "complete-correction-live-attempt"
-		fixture, _ := seedCompleteStepCorrection(t, workID, "workflow.break_fix", "verify", "complete")
-		db := fixture.store.DatabaseForTesting()
-		if _, err := db.Exec(`INSERT INTO write_guard(active) VALUES(1); INSERT INTO worker_attempts(work_id,attempt_id,lane_id,lane_digest,capability_class,readback_model,packet_schema_version,report_schema_version,lifecycle_state,dispatched_at) VALUES(?, 'attempt:unsettled', 'lane:implement', ?, 'work_transition', 'model/test', '1.0', '1.0', 'dispatched', '2026-09-22T00:00:00Z'); DELETE FROM write_guard`, workID, "sha256:"+strings.Repeat("a", 64)); err != nil {
-			t.Fatal(err)
-		}
-		err := issue1013Preflight(t, fixture.store, workID, "supersede_contract", completeStepSuccessorPayload(workID), fixture.owner)
-		var failure *Failure
-		if !errors.As(err, &failure) || failure.Kind != KindInvalidOperation {
-			t.Fatalf("preflight with a live attempt = %v, want refusal", err)
-		}
-	})
-
-	t.Run("completed report without disposition", func(t *testing.T) {
-		t.Parallel()
-		const workID = "complete-correction-undisposed-report"
-		const attemptID = "attempt:undisposed"
-		fixture, _ := seedCompleteStepCorrection(t, workID, "workflow.break_fix", "verify", "complete")
-		db := fixture.store.DatabaseForTesting()
-		if _, err := db.Exec(`INSERT INTO write_guard(active) VALUES(1); INSERT INTO worker_attempts(work_id,attempt_id,lane_id,lane_digest,capability_class,readback_model,packet_schema_version,report_schema_version,lifecycle_state,dispatched_at,completed_at) VALUES(?, ?, 'lane:implement', ?, 'work_transition', 'model/test', '1.0', '1.0', 'completed', '2026-09-22T00:00:00Z', '2026-09-22T00:00:01Z'); DELETE FROM write_guard`, workID, attemptID, "sha256:"+strings.Repeat("a", 64)); err != nil {
-			t.Fatal(err)
-		}
-		err := issue1013Preflight(t, fixture.store, workID, "supersede_contract", completeStepSuccessorPayload(workID), fixture.owner)
-		var failure *Failure
-		if !errors.As(err, &failure) || failure.Kind != KindInvalidOperation {
-			t.Fatalf("preflight with an undisposed completed report = %v, want refusal", err)
-		}
-		if _, _, err := WorkflowActionDefinitionFor(context.Background(), fixture.store, BuiltinWorkflowRegistry(), workID, "supersede_contract"); err == nil {
-			t.Fatal("discovery admitted correction with an undisposed completed report")
-		}
-		stalenessEvent(t, fixture.store, workID, WorkflowActionCompleted, `{"step_id":"complete","action_id":"accept_worker_result","worker_attempt_id":"attempt:undisposed"}`)
-		unsettled, err := workflowUnsettledWorkerAttempt(context.Background(), fixture.store.db, workID, "test", 0)
-		if err != nil || unsettled {
-			t.Fatalf("accepted report remains unsettled: unsettled=%t err=%v", unsettled, err)
-		}
-	})
-
 	t.Run("terminal work item", func(t *testing.T) {
 		t.Parallel()
 		const workID = "complete-correction-terminal"
@@ -1181,79 +743,33 @@ func issue1013HasIntent(pin WorkPin, actionID string) bool {
 	return false
 }
 
-// The fold must refuse correction refs the response schema cannot carry:
-// the correction pin serializes predicate_ids as ids (no slashes) and
-// evidence_refs as whitespace-free references. Input rules and fold checks
-// accept values those types forbid, so a reject can commit and then fail
-// its own closed response schema, which the caller sees as a
-// malformed_response after the effect.
-func TestRejectWorkerResultRefusesSchemaBreakingCorrectionRefs(t *testing.T) {
-	const workID = "reject-correction-refs-charset"
-	s, _, owner, attemptID := seedCompletedWorkerAtExecution(t, workID)
-	ownerRef, err := WorkflowActorRef(owner)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class) VALUES(?,1,'rejected worker contract','internal_sqlite','["verification"]','[]','now',?,'[]','[]',1,'prototype_internal'); INSERT INTO workflow_contract_predicates(work_id,contract_version,predicate_id,ordinal,outcome_kind,outcome_payload) VALUES(?,1,'predicate:primary',0,'check','{"kind":"check","check_ref":"check:workflow","immutable_subject_ref":"commit:old","expected_result":"pass"}'); DELETE FROM write_guard`, workID, ownerRef, workID); err != nil {
-		t.Fatal(err)
-	}
-	ctx := context.Background()
-	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, err = applyWorkflowActionRawTx(ctx, tx, newWriteScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
-		WorkID: workID, ExpectedVersion: 12, ActionID: "reject_worker_result", Payload: mustJSONValue(map[string]any{
-			"attempt_id": attemptID, "attempt_epoch": 2, "diagnosis": "the result misses the boundary case", "strategy": "change the helper and add a test",
-			"predicate_ids": []string{"predicate:primary/slash"}, "evidence_refs": []string{"evidence:review"},
-		}), Actor: owner, EvidenceRefs: []string{"evidence:mutation envelope locator with spaces and a length far beyond the one hundred twenty eight byte response bound"},
-		AcceptedInputsDigest: "sha256:" + strings.Repeat("f", 64), IdempotencyIdentity: "rejectcharset:" + workID, OperationID: "rejectcharset:" + workID,
-		PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "rejectcharset:" + workID, RequestID: "request:rejectcharset:" + workID, ContractDigest: testManifestDigest, Now: time.Unix(4, 0).UTC(),
-	})
-	if err == nil {
-		err = tx.Commit()
-		if err != nil {
-			t.Fatal(err)
-		}
-		pin, pinErr := ReadWorkPin(ctx, s, workID)
-		if pinErr != nil {
-			t.Fatal(pinErr)
-		}
-		if pin.Correction == nil {
-			t.Fatal("fold accepted the reject but the pin carries no correction context")
-		}
-		marshaled, marshalErr := json.Marshal(pin)
-		if marshalErr != nil {
-			t.Fatal(marshalErr)
-		}
-		if validErr := payloadschema.Validate("work_pin", marshaled); validErr != nil {
-			t.Fatalf("fold committed a reject whose work pin fails the closed response schema (caller sees malformed_response): %v", validErr)
-		}
-		t.Fatal("fold accepted correction values without any schema disagreement to report")
-	}
-	tx.Rollback()
-	var failure *Failure
-	if !errors.As(err, &failure) || failure.Kind != KindInvalidPayload || !strings.Contains(failure.Detail, "correction") {
-		t.Fatalf("reject failure=%v, want an invalid-payload refusal naming the correction values", err)
-	}
-}
-
-func TestInfrastructureFailuresRetainCorrectionSource(t *testing.T) {
-	const workID = "correction-count-infra"
-	s, owner, pin := seedIssue1013EscalatedCorrection(t, workID)
-	defer s.Close()
-	if pin.Correction == nil || pin.Correction.FailedAttemptID != "attempt:"+workID+":3" || pin.Correction.FailureKind != WorkerFailureFallbackBlocked {
-		t.Fatalf("correction after three infrastructure failures = %#v, want the latest source", pin.Correction)
-	}
-	source := *pin.Correction
-	fixture := workContextFixture{store: s, owner: owner, workID: workID}
-	job := *s2DispatchJobBinding(t, s, workID, source.FailedAttemptID)
-	next := "attempt:" + workID + ":4"
-	if err := dispatchWorkContextAttempt(t, fixture, issue1013CurrentDispatchPacket(t, fixture, next, job)); err != nil {
-		t.Fatalf("fourth dispatch after infrastructure failures: %v", err)
-	}
-	if after := issue1013Pin(t, s, workID); !sameWorkflowCorrection(after.Correction, &source) {
-		t.Fatalf("authorization erased the unresolved job source: %+v", after.Correction)
+// A correction must be representable in the response before its effect commits.
+func TestRequestCorrectionRefusesSchemaBreakingRefs(t *testing.T) {
+	for _, tc := range []struct{ name, field, value string }{
+		{"predicate slash", "predicate_ids", "predicate:primary/slash"},
+		{"evidence whitespace", "evidence_refs", "evidence:review with spaces"},
+		{"evidence length", "evidence_refs", "evidence:" + strings.Repeat("a", 129)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			workID := "correction-charset-" + strings.ReplaceAll(tc.name, " ", "-")
+			j := pReturnReviewFixture(t, workID, "workflow.implementation", "correction_required")
+			var payload map[string]any
+			if err := json.Unmarshal(pReviewCorrectionPayload(t), &payload); err != nil {
+				t.Fatal(err)
+			}
+			payload[tc.field] = []string{tc.value}
+			before := j.effects(t)
+			err := j.action(t, "request_correction", payload, j.fixture.owner)
+			if !hasFailureKind(err, KindInvalidPayload) {
+				t.Fatalf("correction with %s=%q: %v, want invalid_payload", tc.field, tc.value, err)
+			}
+			if j.effects(t) != before || issue1013Pin(t, j.s, workID).Correction != nil {
+				t.Fatal("invalid correction changed effects or acquired a source")
+			}
+			if err := payloadschema.Validate("work_pin", mustJSONValue(issue1013Pin(t, j.s, workID))); err != nil {
+				t.Fatalf("refused correction left a malformed response: %v", err)
+			}
+		})
 	}
 }
 
@@ -1268,94 +784,53 @@ func latestStepStartEpoch(t *testing.T, s *Store, workID, stepID string) int64 {
 	return epoch
 }
 
-// An accepted worker result closes the current correction source. A later
-// failed attempt owns a fresh source without inheriting the consumed one.
-func TestAcceptedWorkerResultClosesCorrectionSource(t *testing.T) {
+func TestCorrectiveReviewAllowsFreshCorrectionSource(t *testing.T) {
 	const workID = "correction-count-accept-reset"
-	ctx := context.Background()
-	fixture, attempt1, _ := seedCurrentRepairWorker(t, workID)
-	s := fixture.store
-	defer s.Close()
-	job := *s2DispatchJobBinding(t, s, workID, attempt1)
-	s2WorkerFailedAttributedLive(t, s, workID, attempt1, "lane fallback blocked before the model ran")
-	pin := issue1013Pin(t, s, workID)
-	if pin.Correction == nil || pin.Correction.FailedAttemptID != attempt1 || pin.Correction.FailureKind != WorkerFailureFallbackBlocked {
-		t.Fatalf("correction after infrastructure failure = %#v, want its exact source and kind", pin.Correction)
-	}
-
-	attempt2 := "attempt:" + workID + ":2"
-	if err := dispatchWorkContextAttempt(t, fixture, issue1013CurrentDispatchPacket(t, fixture, attempt2, job)); err != nil {
+	j := pReturnReviewFixture(t, workID, "workflow.break_fix", "correction_required")
+	if err := j.action(t, "request_correction", pReviewCorrectionPayload(t), j.fixture.owner); err != nil {
 		t.Fatal(err)
 	}
-	if err := ApplyOperation(ctx, s, Operation{Events: []Event{implementDispatchEvidenceEvent(workID, attempt2, laneForID(t), job)}}); err != nil {
-		t.Fatal(err)
+	source := issue1013Pin(t, j.s, workID).Correction
+	if source == nil || source.SourceEventID == "" || source.SourceEventSeq < 1 {
+		t.Fatalf("first correction has no source: %+v", source)
 	}
-	s2WorkerFailedAttributedLive(t, s, workID, attempt2, "lane fallback blocked before the model ran")
-	pin = issue1013Pin(t, s, workID)
-	if pin.Correction == nil || pin.Correction.FailedAttemptID != attempt2 {
-		t.Fatalf("correction after two infrastructure failures = %#v, want the latest failed source", pin.Correction)
-	}
-
-	// The accepted delivery continues the same job; a new job would open the
-	// next execution group, which needs an accepted Review first.
-	attempt3 := "attempt:" + workID + ":3"
-	if err := dispatchWorkContextAttempt(t, fixture, issue1013CurrentDispatchPacket(t, fixture, attempt3, job)); err != nil {
-		t.Fatal(err)
-	}
-	j := &candidateJourney{fixture: fixture, s: s, workID: workID, repo: workerFixtureDirectory(t, s, workID)}
-	var branch string
-	if err := s.db.QueryRow(`SELECT branch FROM worktree_entries WHERE set_id=? AND state='active'`, WorktreeSetID(workID)).Scan(&branch); err != nil {
-		t.Fatal(err)
-	}
-	gitRunStore(t, j.repo, "branch", "-m", branch)
-	j.laneDispatch(t, attempt3, "implementation", &job)
-	path := filepath.Join(j.repo, "internal", "store", job.JobID, "value.go")
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(path, []byte("package fixture\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	j.commit(t, "worker@example.invalid", "produce bounded implementation")
-	j.completeLane(t, attempt3, "implementation", &job, nil)
-	if err := j.action(t, "accept_worker_result", map[string]any{"attempt_id": attempt3, "attempt_epoch": reviewSubjectWindow(t, s, workID, attempt3).AttemptEpoch}, fixture.owner); err != nil {
-		t.Fatalf("accept the same-job delivery: %v", err)
-	}
-	j.observe(t, "accepted-delivery")
-	pin = issue1013Pin(t, s, workID)
+	pReturnProduce(t, j, "corrective")
+	acceptCurrentReviewForTest(t, j.fixture, j.repo, "ready_for_final_proof")
+	pin := issue1013Pin(t, j.s, workID)
 	if pin.Correction != nil {
-		t.Fatalf("accepted result left correction context: %#v", pin.Correction)
+		t.Fatalf("corrective Review left correction context: %#v", pin.Correction)
 	}
-	if step := currentStep(t, s, workID); step != "repair" {
-		t.Fatalf("local result acceptance advanced the step to %q, want repair", step)
+	if step := currentStep(t, j.s, workID); step != "repair" {
+		t.Fatalf("Review advanced the step to %q, want repair", step)
 	}
-
-	// The accepted job is satisfied; a continue Review admits the next job.
-	acceptCurrentReviewForTest(t, fixture, j.repo, "continue")
-	next := reviewSubjectReadyRevision(t, fixture)
-	attempt4 := "attempt:" + workID + ":4"
-	if err := dispatchWorkContextAttempt(t, fixture, issue1013CurrentDispatchPacket(t, fixture, attempt4, next)); err != nil {
+	pReturnProduce(t, j, "later-defect")
+	acceptCurrentReviewForTest(t, j.fixture, j.repo, "correction_required")
+	if err := j.action(t, "request_correction", pReviewCorrectionPayload(t), j.fixture.owner); err != nil {
 		t.Fatal(err)
 	}
-	if err := ApplyOperation(ctx, s, Operation{Events: []Event{implementDispatchEvidenceEvent(workID, attempt4, laneForID(t), next)}}); err != nil {
-		t.Fatal(err)
-	}
-	s2WorkerFailedAttributedLive(t, s, workID, attempt4, "lane fallback blocked before the model ran")
-	pin = issue1013Pin(t, s, workID)
-	if pin.Correction == nil || pin.Correction.FailedAttemptID != attempt4 {
-		t.Fatalf("correction after the accepted result = %#v, want the new failed source", pin.Correction)
+	pin = issue1013Pin(t, j.s, workID)
+	if pin.Correction == nil || pin.Correction.SourceEventID == source.SourceEventID || pin.Correction.SourceEventSeq <= source.SourceEventSeq || pin.Correction.Diagnosis != source.Diagnosis || !reflect.DeepEqual(pin.Correction.PredicateIDs, source.PredicateIDs) {
+		t.Fatalf("later correction=%+v, want fresh identity for the same declared direction", pin.Correction)
 	}
 }
 
-// A scope-preserving contract revision cannot erase an unresolved job source.
+// A scope-preserving contract revision cannot erase a genuine corrective request.
 func TestCorrectionSourceSurvivesContractSupersession(t *testing.T) {
 	const workID = "correction-count-supersede"
-	s, owner, pin := seedIssue1013EscalatedCorrection(t, workID)
-	defer s.Close()
-	if pin.Correction == nil || pin.Correction.FailedAttemptID != "attempt:"+workID+":3" {
-		t.Fatalf("correction before supersession = %#v, want the latest failed source", pin.Correction)
+	j := pReturnReviewFixture(t, workID, "workflow.break_fix", "correction_required")
+	s, owner := j.s, j.fixture.owner
+	if err := j.action(t, "request_correction", pReviewCorrectionPayload(t), owner); err != nil {
+		t.Fatal(err)
+	}
+	pin := issue1013Pin(t, s, workID)
+	if pin.Correction == nil || pin.Correction.SourceEventID == "" || pin.Correction.SourceEventSeq < 1 {
+		t.Fatalf("correction before supersession = %#v, want the genuine request source", pin.Correction)
 	}
 	source := *pin.Correction
+	var sourceDigest string
+	if err := s.db.QueryRow(`SELECT payload_digest FROM effect_receipts WHERE event_id=? AND effect_seq=?`, source.SourceEventID, source.SourceEventSeq).Scan(&sourceDigest); err != nil {
+		t.Fatal(err)
+	}
 	projection, err := ReadWorkflowProjection(t.Context(), s, WorkflowReadRequest{WorkID: workID})
 	if err != nil || projection.Contract == nil {
 		t.Fatalf("current contract=%+v err=%v", projection.Contract, err)
@@ -1386,38 +861,30 @@ func TestCorrectionSourceSurvivesContractSupersession(t *testing.T) {
 		t.Fatalf("active contract version = %d, want %d", activeVersion, contract.Version+1)
 	}
 	pin = issue1013Pin(t, s, workID)
-	if !sameWorkflowCorrection(pin.Correction, &source) {
-		t.Fatalf("correction across supersession = %#v, want the same failed source", pin.Correction)
+	if !reflect.DeepEqual(pin.Correction, &source) {
+		t.Errorf("correction across supersession = %#v, want the same genuine request", pin.Correction)
 	}
-
-	fixture := workContextFixture{store: s, owner: owner, workID: workID}
-	job := *s2DispatchJobBinding(t, s, workID, source.FailedAttemptID)
-	recordWorkerJobRevisionForTest(t, s, workID, owner, &job)
-	correctiveAttempt := "attempt:" + workID + ":4"
-	if err := dispatchWorkContextAttempt(t, fixture, issue1013CurrentDispatchPacket(t, fixture, correctiveAttempt, job)); err != nil {
-		t.Fatalf("dispatch the corrective attempt under the successor contract: %v", err)
+	var afterDigest string
+	if err := s.db.QueryRow(`SELECT payload_digest FROM effect_receipts WHERE event_id=? AND effect_seq=?`, source.SourceEventID, source.SourceEventSeq).Scan(&afterDigest); err != nil || afterDigest != sourceDigest {
+		t.Fatalf("supersession changed the source receipt: %q -> %q, %v", sourceDigest, afterDigest, err)
 	}
-	if err := ApplyOperation(t.Context(), s, Operation{Events: []Event{implementDispatchEvidenceEvent(workID, correctiveAttempt, laneForID(t), job)}}); err != nil {
-		t.Fatal(err)
+	pReturnProduce(t, j, "successor-correction")
+	acceptCurrentReviewForTest(t, j.fixture, j.repo, "correction_required")
+	if err := j.action(t, "request_correction", pReviewCorrectionPayload(t), owner); err != nil {
+		t.Fatalf("fresh corrective return under successor: %v", err)
 	}
-	epoch := reviewSubjectWindow(t, s, workID, correctiveAttempt).AttemptEpoch
-	s2WorkerFailedAttributedLive(t, s, workID, correctiveAttempt, "the host observed a failed corrective launch")
 	pin = issue1013Pin(t, s, workID)
-	if pin.Correction == nil || pin.Correction.FailedAttemptID != correctiveAttempt || pin.Correction.FailedAttemptEpoch != epoch || pin.Correction.SourceEventID == source.SourceEventID {
-		t.Fatalf("correction under the successor contract = %#v, want the new failed source", pin.Correction)
-	}
-	// The successor keeps the corrective dispatch route visible.
-	if !issue1013HasIntent(pin, "dispatch_worker") {
-		t.Fatalf("correction under the successor hid dispatch_worker: %#v", pin.NextValidIntents)
+	if pin.Correction == nil || pin.Correction.SourceEventID == source.SourceEventID || pin.Correction.SourceEventSeq <= source.SourceEventSeq {
+		t.Fatalf("successor correction=%+v, want fresh request identity", pin.Correction)
 	}
 }
 
 // The declared payload gate is the input surface that names the field: a
 // predicate id outside the id charset must be refused by the payload
 // declaration itself, before any correction-specific check runs.
-func TestRejectPayloadDeclarationRefusesNonIDPredicateID(t *testing.T) {
-	payload := json.RawMessage(`{"attempt_id":"attempt-correction-1","attempt_epoch":1,"diagnosis":"the delivered predicate id carries a slash","strategy":"re-request with an in-charset id","predicate_ids":["predicate:primary/slash"],"evidence_refs":["evidence:correction-gate"]}`)
-	err := validateWorkflowActionPayload(WorkflowDefinition{}, "reject_worker_result", payload)
+func TestCorrectionPayloadDeclarationRefusesNonIDPredicateID(t *testing.T) {
+	payload := json.RawMessage(`{"diagnosis":"the delivered predicate id carries a slash","strategy":"re-request with an in-charset id","predicate_ids":["predicate:primary/slash"],"evidence_refs":["evidence:correction-gate"]}`)
+	err := validateWorkflowActionPayload(WorkflowDefinition{}, "request_correction", payload)
 	var failure *Failure
 	if !errors.As(err, &failure) || failure.Kind != KindInvalidPayload || !strings.Contains(failure.Detail, `"predicate_ids"`) {
 		t.Fatalf("payload gate failure=%v, want an invalid-payload refusal naming predicate_ids", err)
@@ -1589,9 +1056,7 @@ func TestCompleteStepCorrectionRecoversDuplicateProjection(t *testing.T) {
 		t.Fatalf("duplicate fixture active contracts = %d, want 2", activeCount)
 	}
 	def := pinnedWorkflowDefinitionForTest(t, s, workID)
-	// The seeded proof records and satisfies one worker job in the primary
-	// Project, so the delivery facet folds a recorded, satisfied job.
-	model := admissionModelState{step: "complete", contracts: 2, verdict: "ok", artifact: true, jobs: "satisfied", jobsScope: "project", integration: true}
+	model := admissionModelState{step: "complete", contracts: 2, verdict: "ok", artifact: true}
 	conformanceCheckpoint(t, s, BuiltinWorkflowRegistry(), workID, def, model, "duplicate at the complete step")
 	if issue1013HasIntent(issue1013Pin(t, s, workID), "supersede_contract") {
 		t.Fatal("duplicate complete-step pin advertises supersession before the contradiction record")
@@ -1646,7 +1111,7 @@ func TestCompleteStepCorrectionRecoversDuplicateProjection(t *testing.T) {
 	// duplicates hid: its started delivery, the accepted current Review of
 	// the delivered candidate, and the engineering successor's coordinator
 	// confirmation.
-	model.started, model.engineering, model.integration = true, true, true
+	model.started, model.engineering = true, true
 	model.review = admissionModelReview{candidate: true, accepted: "ready_for_final_proof", current: true}
 	conformanceCheckpoint(t, s, BuiltinWorkflowRegistry(), workID, def, model, "after the duplicate correction")
 }
@@ -1658,17 +1123,11 @@ func TestCompleteStepCorrectionAdmissionUsesOnlyPriorHistory(t *testing.T) {
 		name              string
 		observationBefore bool
 		laterKind         string
-		state             string
-		action            string
 		wantBefore        bool
 		wantLive          bool
 	}{
-		{"later verdict", true, WorkflowVerdictRecorded, "", "", true, false},
-		{"later observation", false, WorkObservationRecorded, "", "", false, true},
-		{"accepted result", true, WorkflowActionCompleted, "completed", "accept_worker_result", false, true},
-		{"accepted evidence", true, WorkflowActionCompleted, "completed", "accept_worker_evidence", false, true},
-		{"rejected result", true, WorkflowActionCompleted, "completed", "reject_worker_result", false, true},
-		{"recorded failure", true, WorkflowActionCompleted, "failed", "record_worker_failure", false, true},
+		{"later verdict", true, WorkflowVerdictRecorded, true, false},
+		{"later observation", false, WorkObservationRecorded, false, true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
@@ -1679,19 +1138,6 @@ func TestCompleteStepCorrectionAdmissionUsesOnlyPriorHistory(t *testing.T) {
 			if test.observationBefore {
 				recordCompleteStepContradictionObservation(t, s, workID, fixture.owner)
 			}
-			if test.state != "" {
-				var completedAt, failedAt any
-				failureKind := ""
-				if test.state == "completed" {
-					completedAt = "2026-10-13T00:00:01Z"
-				} else {
-					failedAt = "2026-10-13T00:00:01Z"
-					failureKind = "abandoned"
-				}
-				if _, err := db.Exec(`INSERT INTO write_guard(active) VALUES(1); INSERT INTO worker_attempts(work_id,attempt_id,lane_id,lane_digest,capability_class,readback_model,packet_schema_version,report_schema_version,lifecycle_state,dispatched_at,completed_at,failed_at,failure_kind) VALUES(?, 'attempt:history', 'lane:implement', ?, 'work_transition', 'model/test', '1.0', '1.0', ?, '2026-10-13T00:00:00Z',?,?,?); DELETE FROM write_guard`, workID, "sha256:"+strings.Repeat("a", 64), test.state, completedAt, failedAt, failureKind); err != nil {
-					t.Fatal(err)
-				}
-			}
 			definition, ok := completeStepPinnedDefinition(t, s, workID)
 			if !ok {
 				t.Fatal("missing pinned definition")
@@ -1699,7 +1145,6 @@ func TestCompleteStepCorrectionAdmissionUsesOnlyPriorHistory(t *testing.T) {
 			if available, err := workflowCompleteStepCorrectionAvailable(ctx, db, workID, definition.Definition, "complete", "test", 0); err != nil || available != test.wantBefore {
 				t.Fatalf("admission before current update = %t,%v; want %t", available, err, test.wantBefore)
 			}
-			payload := mustJSONValue(map[string]any{"action_id": test.action, "worker_attempt_id": "attempt:history"})
 			var beforeSeq int64
 			if test.laterKind == WorkObservationRecorded {
 				recordCompleteStepContradictionObservation(t, s, workID, fixture.owner)
@@ -1716,20 +1161,13 @@ func TestCompleteStepCorrectionAdmissionUsesOnlyPriorHistory(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				event := Event{EventID: "later-history", Kind: test.laterKind, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: fixture.owner.PrincipalRef, OccurredAt: time.Date(2026, 10, 13, 0, 0, 1, 0, time.UTC), PayloadVersion: 1, Payload: payload}
+				event := Event{EventID: "later-history", Kind: test.laterKind, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: fixture.owner.PrincipalRef, OccurredAt: time.Date(2026, 10, 13, 0, 0, 1, 0, time.UTC), PayloadVersion: 1, Payload: json.RawMessage(`{}`)}
 				beforeSeq, err = appendPreparedEvent(ctx, tx, event)
 				if err != nil {
 					t.Fatal(err)
 				}
-				event.Seq = beforeSeq
-				if test.laterKind == WorkflowVerdictRecorded {
-					if _, err := tx.Exec(`UPDATE workflow_predicate_verdicts SET verdict_seq=? WHERE work_id=?`, beforeSeq, workID); err != nil {
-						t.Fatal(err)
-					}
-				} else {
-					if err := writeWorkerAuthorizationTx(ctx, tx, event, workflowActionCompletedPayload{ActionID: test.action, WorkerAttemptID: "attempt:history"}); err != nil {
-						t.Fatal(err)
-					}
+				if _, err := tx.Exec(`UPDATE workflow_predicate_verdicts SET verdict_seq=? WHERE work_id=?`, beforeSeq, workID); err != nil {
+					t.Fatal(err)
 				}
 				if err := scope.close(ctx); err != nil {
 					t.Fatal(err)
@@ -1741,7 +1179,7 @@ func TestCompleteStepCorrectionAdmissionUsesOnlyPriorHistory(t *testing.T) {
 			for _, boundary := range []struct {
 				seq  int64
 				want bool
-			}{{beforeSeq + 1, test.wantLive}, {0, test.wantLive}} {
+			}{{beforeSeq, test.wantBefore}, {beforeSeq + 1, test.wantLive}, {0, test.wantLive}} {
 				available, err := workflowCompleteStepCorrectionAvailable(ctx, db, workID, definition.Definition, "complete", "test", boundary.seq)
 				if err != nil || available != boundary.want {
 					t.Errorf("admission before sequence %d = %t, error = %v; want %t", boundary.seq, available, err, boundary.want)

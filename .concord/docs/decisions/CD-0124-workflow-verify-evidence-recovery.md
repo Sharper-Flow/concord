@@ -16,8 +16,8 @@ evidence kind still outstanding. The existing completion gate correctly refuses
 premise confirmation, but the prior action set provides no typed route that can
 repair the missing evidence without changing the step.
 
-Verdict correction is a separate route. It requires a completed and accepted
-worker delivery, returns to the declared `repair` step, and does not replace this
+Verdict correction is a separate route. It requires delivered work and a current
+unhealthy verdict, returns to the declared `repair` step, and does not replace this
 evidence-binding recovery.
 
 ## Decision
@@ -37,7 +37,7 @@ requirement calculation. They do not create a second requirement list.
 
 ### D3. Recovery preserves authority and refuses unsafe input
 
-The route preserves the active contract, attempts, prior evidence, verdicts,
+The route preserves the active contract, prior evidence, verdicts,
 and operator decisions. It refuses an unrelated kind, a satisfied requirement,
 an unauthorized actor, a stale version, and terminal work without a durable
 effect. An exact replay is idempotent and creates no duplicate binding.
@@ -59,6 +59,6 @@ deployment or stranded-work recovery.
 - Refusal tests prove no effect for unrelated, satisfied, unauthorized, stale,
   and terminal requests.
 - Replay tests prove one durable binding for one recovery identity.
-- Verdict correction requires a completed and accepted worker delivery, binds
+- Verdict correction requires delivered work and a current unhealthy verdict, binds
   a comparable healthy predicate set, and returns break-fix work to the
   `repair` step without rewriting recorded facts.

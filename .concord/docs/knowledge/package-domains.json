@@ -7,7 +7,6 @@
         "agent-evolution",
         "operator-surface",
         "product-memory",
-        "worker-lanes",
         "workflow-engine"
       ],
       "path": "adapter/opencode",
@@ -25,7 +24,6 @@
         "operator-surface",
         "product-memory",
         "work-coordination",
-        "worker-lanes",
         "workflow-engine"
       ],
       "path": "cmd/concord",
@@ -42,7 +40,6 @@
         "product-memory",
         "repository-verification",
         "work-coordination",
-        "worker-lanes",
         "workflow-engine"
       ],
       "path": "internal/agent",
@@ -101,7 +98,6 @@
         "product-memory",
         "repository-verification",
         "work-coordination",
-        "worker-lanes",
         "workflow-engine"
       ],
       "path": "internal/store",
@@ -151,7 +147,6 @@
         "product-memory",
         "repository-verification",
         "work-coordination",
-        "worker-lanes",
         "workflow-engine"
       ],
       "path": "scripts",

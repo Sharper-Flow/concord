@@ -93,9 +93,9 @@ def main(argv: list[str] | None = None) -> int:
     agents_dir = under(root / ".opencode" / "agents")
     if agents_dir.is_dir():
         agent_files.extend(sorted(agents_dir.glob("*.md")))
-    for pattern in ("agent-lanes*.json", "agent-lane-*.json"):
+    for pattern in ("agent-primary-profiles*.json", "agent-utilities*.json"):
         agent_files.extend(sorted(under(root / "contracts").glob(pattern)))
-    generator = under(root / "scripts" / "generate-agent-lanes.py")
+    generator = under(root / "scripts" / "generate-agent-profiles.py")
     if generator.is_file():
         agent_files.append(generator)
 

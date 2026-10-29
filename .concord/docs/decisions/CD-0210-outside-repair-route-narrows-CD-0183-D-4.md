@@ -42,15 +42,15 @@ step actions and managed next intents. Managed actions and ordinary lifecycle
 advancement cannot move the held work. Resuming it requires D2's declared
 reconciliation action. A duplicate active disposition refuses without effect.
 
-The disposition asserts no worker dispatch, verdict, premise confirmation, or
+The disposition asserts no verdict, premise confirmation or
 managed evidence. It admits historical repairs whose pull requests already
 merged. Those repairs use the same approval and reconciliation gates, not
 backdated workflow events.
 
 Existing execution-safety admission still applies. Hold and completion require
-stopped execution. They neither abandon live workers nor release claims beneath
-running work. Unused dispatch authorizations cannot start managed execution
-while the disposition holds. Failed terminal attempts remain historical facts.
+stopped managed execution and never release claims beneath running work.
+Native Task remains host-owned; it creates no managed authority while the
+disposition holds. Recorded failures never become successful outcomes.
 
 ### D2. One reconcile action closes or resumes the held work
 
@@ -104,7 +104,7 @@ setup and session start, under the approved host operational procedure:
   branch and never overwrites or removes one; it checks the new tree is
   clean and reports unexpected content.
 - It starts a new unmanaged agent session there (never a reused managed
-  worker session), with no inherited work selection, occupancy, or pin, and
+  execution session), with no inherited work selection, occupancy, or pin, and
   gives it the bounded defect plus the hold/work reference.
 - The repair publishes through ordinary PR, checks, and release;
   `outside_repair_reconcile` closes the hold.

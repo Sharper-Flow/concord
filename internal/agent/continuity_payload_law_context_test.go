@@ -10,9 +10,7 @@ import (
 	"github.com/sharper-flow/concord/internal/store"
 )
 
-// The dispatched lane packet reads the pinned continuity, so the resolved
-// contract-bound law and Domains and the recorded proposal ride the pinned
-// projection when present, and stay absent when the contract binds none.
+// Resolved law, Domains and the proposal remain available to resumed sessions.
 func TestContinuityPayloadProjectsLawContextAndProposal(t *testing.T) {
 	t.Parallel()
 	snapshot := store.ContinuitySnapshot{
@@ -32,15 +30,16 @@ func TestContinuityPayloadProjectsLawContextAndProposal(t *testing.T) {
 	if len(lawContext.Laws) != 1 || lawContext.Laws[0].LawID != "spec:one" {
 		t.Fatalf("law_context laws = %+v", lawContext.Laws)
 	}
-	proposal, ok := pinned["proposal_record"].(store.WorkerPacketProposal)
+	proposal, ok := pinned["proposal_record"].(map[string]any)
 	if !ok {
 		t.Fatalf("proposal_record payload type = %T", pinned["proposal_record"])
 	}
-	if proposal.Problem != "Workers receive bare law IDs" {
-		t.Fatalf("proposal problem = %v", proposal.Problem)
+	if proposal["problem"] != "Workers receive bare law IDs" {
+		t.Fatalf("proposal problem = %v", proposal["problem"])
 	}
-	if proposal.Constraints == nil || len(proposal.Constraints) != 0 {
-		t.Fatalf("proposal constraints = %#v, want a normalized empty list", proposal.Constraints)
+	constraints, ok := proposal["constraints"].([]string)
+	if !ok || constraints == nil || len(constraints) != 0 {
+		t.Fatalf("proposal constraints = %#v, want a normalized empty list", proposal["constraints"])
 	}
 }
 

@@ -26,10 +26,6 @@ func TestUnopenedStoreWorkItemMethods(t *testing.T) {
 			_, err := s.ExternalObservationsForWork(ctx, "work-1", time.Time{}, 10)
 			return err
 		}},
-		{"WorkerAttemptByIDTx", func(s *Store) error {
-			_, err := WorkerAttemptByIDTx(ctx, nil, "attempt-1")
-			return err
-		}},
 		{"readSnapshot latestWorkflowContractVersion", func(s *Store) error {
 			return s.readSnapshot(ctx, func(q queryer) error {
 				_, innerErr := latestWorkflowContractVersion(ctx, q, "work-1")

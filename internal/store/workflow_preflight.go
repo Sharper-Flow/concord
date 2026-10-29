@@ -231,7 +231,7 @@ func authorizeWorkflowActionAtBoundaryCore(ctx context.Context, s *Store, regist
 }
 
 func workflowActionConsequence(definition WorkflowDefinition, actionID string) ActionConsequence {
-	if actionID == "supersede_contract" || actionID == "record_verdict" || actionID == "record_worker_failure" || actionID == "reject_worker_result" || actionID == "request_correction" {
+	if actionID == "supersede_contract" || actionID == "record_verdict" || actionID == "request_correction" {
 		return ActionInternalSQLite
 	}
 	for _, action := range definition.ActionDefinitions {
@@ -276,7 +276,7 @@ func workflowActionPreflightTx(ctx context.Context, tx *sql.Tx, registry Definit
 	// step-legality refusal is never deferred. The recovery flags and the
 	// supersede classification below read the same folded state instead of
 	// re-deriving the conditions per site.
-	admission, _, _, admissionErr := loadWorkflowAdmissionStateTxForRegistry(ctx, tx, request.WorkID, entry.Definition, currentStep, "workflow_action_preflight", registry)
+	admission, _, admissionErr := loadWorkflowAdmissionStateTxForRegistry(ctx, tx, request.WorkID, entry.Definition, currentStep, "workflow_action_preflight", registry)
 	if admissionErr != nil {
 		return RegisteredDefinition{}, admissionErr
 	}
@@ -365,8 +365,6 @@ func preflightWorkflowActionStepTx(ctx context.Context, tx *sql.Tx, definition W
 
 func preflightWorkflowActionGuardsTx(ctx context.Context, tx *sql.Tx, definition WorkflowDefinition, currentStep string, request WorkflowActionPreflightRequest, admission WorkflowAdmissionState) error {
 	switch request.ActionID {
-	case "dispatch_worker":
-		return validateWorkerDispatchWorktree(ctx, tx, request.WorkID, request.SessionWorktree)
 	case "record_verdict":
 		return preflightWorkflowVerdictTx(ctx, tx, definition, currentStep, request)
 	case "request_correction":
@@ -376,8 +374,6 @@ func preflightWorkflowActionGuardsTx(ctx context.Context, tx *sql.Tx, definition
 			return workflowCorrectionRequestUnavailableFailure("workflow_action_preflight", admission.CorrectionRequestMissing)
 		}
 		return validateCorrectionRequestPayload(ctx, tx, request.WorkID, request.Payload, "workflow_action_preflight", admission.CorrectionRequestContext)
-	case "accept_worker_evidence", "accept_worker_result":
-		return preflightWorkflowWorkerAcceptanceTx(ctx, tx, definition, currentStep, request)
 	}
 	return nil
 }
@@ -395,32 +391,6 @@ func preflightWorkflowVerdictTx(ctx context.Context, tx *sql.Tx, definition Work
 		return err
 	}
 	return guardLateCriterionAssociations(ctx, tx, request.WorkID, definition, currentStep, fields)
-}
-
-func preflightWorkflowWorkerAcceptanceTx(ctx context.Context, tx *sql.Tx, definition WorkflowDefinition, currentStep string, request WorkflowActionPreflightRequest) error {
-	fields, fieldsErr := workflowActionObject(request.Payload)
-	if fieldsErr != nil {
-		return fieldsErr
-	}
-	if request.ActionID == "accept_worker_evidence" && !definitionStepAllows(definition, currentStep, request.ActionID) {
-		if err := validateRefineReviewEvidenceDisposition(ctx, tx, request.WorkID, definition, currentStep, fields, "workflow_action_preflight", 0); err != nil {
-			return err
-		}
-	}
-	attempt := workflowFieldStringDefault(fields, "attempt_id", "")
-	var capability string
-	if err := tx.QueryRowContext(ctx, `SELECT capability_class FROM worker_attempts WHERE work_id=? AND attempt_id=?`, request.WorkID, attempt).Scan(&capability); err != nil {
-		if err == sql.ErrNoRows {
-			return newFailure(KindProjectionNotFound, "workflow_action_preflight", "worker attempt does not exist for this work item", false, "dispatch the worker attempt before recording its result")
-		}
-		return wrapFailure(KindUnavailable, "workflow_action_preflight", "cannot read the requested worker capability", true, "retry once the database is readable", err)
-	}
-	if capability == "review" {
-		if err := workflowAcceptanceSubjectCurrent(ctx, tx, request.WorkID, []string{attempt}, nil); err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 // workflowEnvelopeProjectedPayload merges the envelope-carried values of
@@ -580,12 +550,8 @@ func workflowActionPayloadDefinition(definition WorkflowDefinition, actionID str
 		payloadDefinition = selected.Payload
 	}
 	if !found {
-		if actionID == "record_worker_failure" {
-			payloadDefinition = workerFailureRecoveryActionDefinition().Payload
-			found = true
-		}
-		if actionID == "reject_worker_result" || actionID == "request_correction" {
-			payloadDefinition = workflowCorrectionActionDefinitionFor(definition, actionID).Payload
+		if actionID == "request_correction" {
+			payloadDefinition = workflowCorrectionRequestActionDefinition().Payload
 			found = true
 		}
 	}

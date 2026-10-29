@@ -41,7 +41,7 @@ the current accepted law projection. No grandfather path exists.
 
 The stale check runs inside the transaction that owns each authoritative
 workflow action. It blocks new execution claims, checkpoints, evidence binding,
-worker-result acceptance, verdicts, premise confirmation, and completion.
+Review outcome recording, verdicts, premise confirmation, and completion.
 Read-only inspection remains available.
 
 The closed recovery paths are:
@@ -58,11 +58,10 @@ preserves CD-0006 D10 without creating a privileged writer.
 
 ### D4. Authority stop, not process preemption
 
-Concord does not kill OpenCode sessions or arbitrary host processes. Raw worker
-or host execution evidence may record what actually happened after the
-deletion, but the stale workflow cannot accept that result into Product truth.
-A typed lane dispatch using Concord authority is refused before spawn when its
-active contract is stale.
+Concord does not kill OpenCode sessions or arbitrary host processes. Native
+execution evidence may record what happened after deletion, but the stale
+workflow cannot accept that result into Product truth. Native Task remains
+host-owned and supplies no workflow authority.
 
 ### D5. One committed order
 

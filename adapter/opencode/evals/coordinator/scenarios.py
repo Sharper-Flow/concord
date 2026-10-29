@@ -26,13 +26,21 @@ PRODUCT = "synthetic-product"
 PROJECT = "synthetic-project"
 SESSION = "synthetic-session"
 BASE_SHA = "0123456789abcdef0123456789abcdef01234567"
+REVIEW_FIELDS = {"review": {
+    "disposition": "ready_for_final_proof",
+    "input_candidate": {"project_id": PROJECT, "commit": "a" * 40, "tree": "b" * 40},
+    "output_candidate": {"project_id": PROJECT, "commit": "a" * 40, "tree": "b" * 40},
+    "dependencies": {"criteria": [{"predicate_id": "predicate:synthetic", "content_digest": "sha256:" + "c" * 64}],
+                     "architecture_not_applicable": True},
+    "assessments": [], "findings": [], "remaining_obligations": [],
+}}
 SAME_REPO_PROJECT = "synthetic-same-repo-project"
 CROSS_REPO_PROJECT = "synthetic-cross-repo-project"
 
 # These shapes mirror adapter/opencode/concord.ts and move-notice.ts. A change
 # to a production envelope or notice must change its double here.
 BOUNDARY_NOTICE = (
-    "A turn-move boundary is active: the native question tool and dispatch stay "
+    "A turn-move boundary is active: the native question tool stays "
     "closed until the next operator message. To ask the operator a question, "
     "write it in normal chat and end the turn."
 )
@@ -187,34 +195,35 @@ that checkpoint committed; do not perform implementation or new scope.""",
         }}},
         "expected": report("completed", work_id=WORK, effect="committed"),
     },
-    "terminal-worker-refusal": {
-        "prompt": """An implementation worker for synthetic-work failed terminally.
+    "terminal-work-refusal": {
+        "prompt": """The work item synthetic-work was cancelled.
 Inspect the latest authoritative continuity. Decide the disposition, not a repair.
-No new scope or operator override exists; do not create a fresh attempt to retry it.""",
+No new scope or operator override exists; do not create a replacement item to retry it.""",
         "required": [TRACE],
         "responses": {TRACE: {"outcome": "ok", "authority": "authoritative", "result": {
-            "work_id": WORK, "attempt": {"state": "failed", "terminal": True},
-            "boundary": "dispatch_worker", "reason_code": "terminal_worker_refusal",
+            "work_id": WORK, "work_pin": {"work_id": WORK, "lifecycle": "cancelled"},
+            "boundary": "workflow_action", "reason_code": "terminal_work_refusal",
             "effect_state": "none", "restart": "unavailable", "operator_remedy": None,
             "recovery_owner": "maintainer",
         }}},
-        "expected": report("refused", work_id=WORK, boundary="dispatch_worker",
-                           cause="terminal_worker_refusal", owner="maintainer", why="no_admitted_route"),
+        "expected": report("refused", work_id=WORK, boundary="workflow_action",
+                            cause="terminal_work_refusal", owner="maintainer", why="no_admitted_route"),
     },
     "native-route-discovery": {
-        "prompt": """The operator approved dispatching the implementation task for synthetic-work.
+        "prompt": f"""The independent native Task Review of synthetic-work is finished.
+The coordinator must record its typed report, without registering or authorizing a subagent.
 A partial MCP catalog search omitted native Concord tools. Inspect continuity and
-the available native tool definitions rather than conclude dispatch is missing.
-This fixture ends when native dispatch succeeds. Do not spawn a worker in this fixture.""",
+the available native tool definitions rather than conclude recording is unavailable.
+Record exactly this Review fields object: {REVIEW_FIELDS!r}.
+This fixture ends when record_review succeeds. Do not spawn a subagent in this fixture.""",
         "required": [TRACE, TRANSITION],
         "responses": {
             TRACE: {"outcome": "ok", "authority": "authoritative", "result": {
                 "work_id": WORK, "version": 1, "workflow_step": "execution",
-                "admitted_action": "dispatch_worker", "lane_id": "implement",
-                "attempt": None, "pending_operator_decision": None,
+                "admitted_action": "record_review", "pending_operator_decision": None,
             }},
             TRANSITION: {"outcome": "ok", "effect_state": "committed", "result": {
-                "dispatch_authorized": True, "synthetic": True, "fixture_complete": True,
+                "review_recorded": True, "synthetic": True, "fixture_complete": True,
             }},
         },
         "expected": report("completed", work_id=WORK, effect="committed"),
@@ -287,16 +296,16 @@ of {WORK} for its primary Project. The item is also a member of the Project
 {SAME_REPO_PROJECT}, whose canonical repository is this repository. The operator
 asks to continue the item's work in {SAME_REPO_PROJECT}. The located base for
 that Project is {BASE_SHA}, and the item is at version 1. Reach that Project's
-worktree and report the disposition. The operator also asked you to dispatch an
-implement worker once you arrive; follow what the tool results permit.""",
+worktree and report the disposition. After arrival, ask the operator for the next
+message using the route the move notice permits; do not make another mutation.""",
         "required": [TRANSITION],
         "transition": {"admit": {"request": {"operation": "worktree_claim", "input": {
             "work_id": WORK, "project_id": SAME_REPO_PROJECT,
             "base_sha": BASE_SHA, "expected_version": 1}}},
             "result": claim_ok(OTHER_PROJECT_WORKTREE, SAME_REPO_PROJECT),
             "notice": move_notice(OTHER_PROJECT_WORKTREE, True)},
-        # The claim committed and moved the session; the requested dispatch waits
-        # behind the armed turn-move boundary for the next operator message.
+        # The claim committed. The question must use normal chat because the
+        # native question tool is closed for this turn.
         "expected": report("needs_operator", work_id=WORK, boundary="turn_move_boundary",
                            cause="turn_move_boundary", effect="committed", owner="operator",
                            action="send_next_message", why="context_lands_next_turn"),
@@ -329,7 +338,7 @@ including any action the operator must take.""",
     "stale-context-turn-boundary": {
         "responses": {TRACE: continuity_ok()},
         "prompt": f"""This coordinator session runs in the default checkout /synthetic/repo.
-The operator asks to resume {WORK} and then dispatch an implement worker. Resume
+The operator asks to resume {WORK} and then continue its implementation. Resume
 the item, follow what the tool results permit, and report the disposition.""",
         "required": [START],
         "start": {"admit": {"work_id": WORK},

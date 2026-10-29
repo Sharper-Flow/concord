@@ -11,7 +11,7 @@
   through `supersede_contract`; relation writes are current rows in one transaction ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history))
 - **Related:** CD-0005, CD-0020, CD-0030, CD-0114, CD-0213,
   [CD-0219](CD-0219-the-terminal-launcher-tui-is-retired.md), and
-  [CD-0223](CD-0223-worker-lanes-hold-no-concord-tool-access-and-the-dispatch-packet-carries-only-declared-context.md)
+  [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md)
 - **Approval:** Operator-delegated law ruling for
   [Concord (CON) issue 927](https://linear.app/sharper-flow/issue/CON-927),
   2026-10-11.

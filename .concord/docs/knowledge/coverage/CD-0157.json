@@ -2,19 +2,15 @@
   "evidence": [
     {
       "kind": "validator",
-      "value": "scripts/test-generate-agent-lanes.py"
+      "value": "scripts/test-generate-agent-profiles.py"
     },
     {
       "kind": "validator",
       "value": "scripts/check-agent-contracts.py"
     },
     {
-      "kind": "adapter_test",
-      "value": "adapter/opencode/session-scope.test.ts#a lane session cannot auto-start a generated utility"
-    },
-    {
       "kind": "generated",
-      "value": "adapter/opencode/generated-agent-lanes.ts#agentUtilities"
+      "value": "adapter/opencode/generated-primary-profiles.ts#roleDeniedConcordTools"
     }
   ],
   "id": "CD-0157",

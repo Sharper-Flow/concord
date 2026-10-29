@@ -6,7 +6,7 @@
 import { describe, expect, mock, test } from "bun:test"
 import { contractOperations, maxEnvelopeBytes, manifestDigest } from "./generated-contracts"
 import { envelopeFailurePath, validateGeneratedEnvelope } from "./generated-contract-tests"
-import { configureCoreBinary } from "./dispatch"
+import { configureCoreBinary } from "./core-runtime"
 import { fakeTool } from "./plugin-tool.fixture"
 
 mock.module("@opencode-ai/plugin", () => ({ tool: fakeTool }))

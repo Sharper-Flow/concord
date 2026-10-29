@@ -114,7 +114,7 @@ type ExistingBootstrapRequest struct {
 }
 
 // ValidateBootstrapOrigin validates a clean Concord worktree with no
-// active verify lease or worker attempt. It runs before bootstrap records new
+// active verify lease. It runs before bootstrap records new
 // work, so every refusal has no effect.
 func (s *Store) ValidateBootstrapOrigin(ctx context.Context, projectID, path string, runner GitRunner) (BootstrapOrigin, error) {
 	var origin BootstrapOrigin
@@ -176,15 +176,6 @@ func (s *Store) ValidateBootstrapOrigin(ctx context.Context, projectID, path str
 	if leased {
 		return origin, newFailure(KindResourceBusy, "work_bootstrap", "cannot chain from worktree "+origin.WorkID+" while a verify lease is active", true, "release the origin verify lease and retry")
 	}
-	// An authorization creates its attempt in_flight before the worker is
-	// dispatched; both states hold the origin.
-	var open bool
-	if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM worker_attempts WHERE work_id=? AND lifecycle_state IN ('in_flight','dispatched'))`, origin.WorkID).Scan(&open); err != nil {
-		return origin, wrapFailure(KindUnavailable, "work_bootstrap", "cannot inspect origin worker attempts", true, "retry once the database is readable", err)
-	}
-	if open {
-		return origin, newFailure(KindResourceBusy, "work_bootstrap", "cannot chain from worktree "+origin.WorkID+" while a worker attempt is dispatched or open", true, "complete or close the origin worker attempt and retry")
-	}
 	if err := tx.Commit(); err != nil {
 		return origin, wrapFailure(KindUnavailable, "work_bootstrap", "cannot finish reading the linked bootstrap origin", true, "retry the same operation", err)
 	}
@@ -205,9 +196,6 @@ func (s *Store) ResumeWorktreeLocation(ctx context.Context, productID, projectID
 	}
 	if productID == "" || projectID == "" || workID == "" {
 		return entry, newFailure(KindInvalidOperation, "work_resume", "resume requires the Product, Project, and work identity", false, "supply all three identities")
-	}
-	if err := authorizeMemberWorkScope(ctx, s.db, workID, projectID); err != nil {
-		return entry, err
 	}
 	// Removed execution authorizes Product and Project membership from its
 	// frozen outcome scope before any locator is exposed.

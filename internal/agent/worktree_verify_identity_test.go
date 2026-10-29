@@ -64,10 +64,10 @@ func TestWorktreeVerifyNewRequestRunsAgain(t *testing.T) {
 			// start of its own and the verdict route reads the execution
 			// production it needs.
 			verifyIdentityAction(t, s, "start_execution", map[string]any{}, grantActor, now)
-			reviewService, _, reviewGrant := newAuthorizedService(t, s, "client-o-review", grant.PrincipalRef, []agentcontract.Capability{"work_transition", "worker_dispatch"}, []string{"product-1"}, []string{"project-1"}, store.ProjectResolution{ProjectID: "project-1"})
+			reviewService, _, reviewGrant := newAuthorizedService(t, s, "client-o-review", grant.PrincipalRef, []agentcontract.Capability{"work_transition"}, []string{"product-1"}, []string{"project-1"}, store.ProjectResolution{ProjectID: "project-1"})
 			reviewService.Now = func() time.Time { return now }
 			fixture := oAgentFixture(t, s, reviewService, mutationEnvelope(reviewGrant, mustScopeVersion(t, s)), "work-2")
-			oAgentNativeJob(t, fixture)
+			oAgentPreparedOracle(t, fixture, []string{"predicate:primary"})
 			oAgentReview(t, fixture, "ready_for_final_proof", true)
 			integration := oAgentVerify(t, fixture, []string{"go", "test", "./..."})
 			verifyIdentityAction(t, s, "bind_evidence", map[string]any{"evidence_kind": "verification", "evidence_ref": integration}, grantActor, now)
@@ -178,11 +178,11 @@ func verifyIdentityAction(t *testing.T, s *store.Store, action string, fields ma
 	}
 	ctx := agentWorkflowSourceProof(t, context.Background(), s, request.WorkID)
 	if store.WorkflowActionRequiresSubjectFreshness(action) {
-		preparation, prepErr := store.PrepareWorkflowAcceptanceFreshness(ctx, s, store.PrepareWorkerDispatchRequest{WorkID: request.WorkID})
+		preparation, prepErr := store.PrepareWorkflowAcceptanceFreshness(ctx, s, store.PrepareWorkflowSubjectRequest{WorkID: request.WorkID})
 		if prepErr != nil {
 			t.Fatalf("verify-identity journey action %s: %v", action, prepErr)
 		}
-		ctx = store.WithWorkerDispatchPreparation(ctx, preparation)
+		ctx = store.WithWorkflowSubjectPreparation(ctx, preparation)
 	}
 	if err := s.Transact(ctx, func(tx *store.Transaction) error {
 		_, err := store.ApplyWorkflowActionTx(ctx, tx, store.BuiltinWorkflowRegistry(), request)
@@ -219,7 +219,7 @@ func verifyIdentityCorrectionReentry(t *testing.T, s *store.Store, grant Authori
 		"evidence_kind": "verification", "immutable_subject_ref": verifyOpRef,
 		"producer_id": producer, "producer_run_ref": verifyOpRef, "producer_watermark": watermark,
 	}, actor, now)
-	oAgentNativeJob(t, fixture)
+	oAgentPreparedOracle(t, fixture, []string{"predicate:primary"})
 	oAgentReview(t, fixture, "ready_for_final_proof", false, verifyOpRef)
 	verifyIdentityDelivery(t, s, actor, "evidence:verify-identity-refine-exit", now)
 	verifyIdentityDelivery(t, s, actor, "evidence:verify-identity-gate-exit", now)
@@ -229,7 +229,7 @@ func verifyIdentityCorrectionReentry(t *testing.T, s *store.Store, grant Authori
 			"predicate_id": "predicate:primary", "receipt_refs": []string{verifyOpRef},
 		}},
 	}, judge, now)
-	oAgentNativeJob(t, fixture)
+	oAgentPreparedOracle(t, fixture, []string{"predicate:primary"})
 	oAgentReview(t, fixture, "correction_required", false)
 	verifyIdentityAction(t, s, "request_correction", map[string]any{
 		"diagnosis":     "the delivered change does not satisfy the approved contract predicate",
@@ -237,7 +237,7 @@ func verifyIdentityCorrectionReentry(t *testing.T, s *store.Store, grant Authori
 		"predicate_ids": []string{"predicate:primary"},
 		"evidence_refs": []string{verifyOpRef},
 	}, actor, now)
-	oAgentNativeJob(t, fixture)
+	oAgentPreparedOracle(t, fixture, []string{"predicate:primary"})
 	oAgentReview(t, fixture, "ready_for_final_proof", false)
 	verifyIdentityDelivery(t, s, actor, "evidence:verify-identity-correction-reentry", now)
 }

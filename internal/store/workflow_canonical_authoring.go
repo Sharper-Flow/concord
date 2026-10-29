@@ -2,7 +2,6 @@ package store
 
 import (
 	"fmt"
-	"slices"
 )
 
 // Canonical authoring carries a verdicts batch and explicit outcome_predicates.
@@ -17,12 +16,6 @@ import (
 // admission keeps workflowContractRecoveryActionDefinition unchanged, so a
 // retained pin recorded under the paired shape replays through its frozen
 // decoder entry.
-//
-// The two coordinator correction actions publish the classic and the
-// failure-attribution contract as one variant pair : the
-// attribution variants are the authoring halves the promoted heads resolve,
-// and the store validates each call against the current definition of the
-// family the work item pins.
 func BuiltinWorkflowCanonicalRecoveryActionDefinitions() []WorkflowActionDefinition {
 	recovery := BuiltinWorkflowRecoveryActionDefinitions()
 	canonical := make([]WorkflowActionDefinition, 0, len(recovery)+2)
@@ -30,26 +23,6 @@ func BuiltinWorkflowCanonicalRecoveryActionDefinitions() []WorkflowActionDefinit
 		if action.ID == "supersede_contract" {
 			action.Payload = WorkflowPayloadDefinition{Closed: true, Fields: workflowCanonicalContractRecoveryPayloadFields(action.Payload.Fields)}
 		}
-		canonical = append(canonical, action)
-	}
-	// The two coordinator correction actions publish the classic and the
-	// failure-attribution contract as one variant pair: the attribution
-	// variant is the authoring half the promoted heads resolve, and the
-	// store validates each call against the current definition of the
-	// family the work item pins. The widest current contract carries the open-findings
-	// member the owner-oracle families declare beside the attribution
-	// field, so the pair dedupes into one published variant.
-	for _, actionID := range []string{"reject_worker_result", "request_correction"} {
-		action := workflowCorrectionActionDefinition()
-		if actionID == "request_correction" {
-			action = workflowCorrectionRequestActionDefinition()
-		}
-		fields := slices.Clone(action.Payload.Fields)
-		if actionID == "request_correction" {
-			fields = append(fields, workflowOpenFindingsCorrectionField())
-		}
-		fields = append(fields, workflowFailureAttributionField())
-		action.Payload = WorkflowPayloadDefinition{Closed: true, Fields: fields}
 		canonical = append(canonical, action)
 	}
 	return canonical

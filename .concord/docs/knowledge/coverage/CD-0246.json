@@ -6,7 +6,7 @@
     },
     {
       "kind": "validator",
-      "value": "scripts/test-generate-agent-lanes.py"
+      "value": "scripts/test-generate-agent-profiles.py"
     },
     {
       "kind": "validator",

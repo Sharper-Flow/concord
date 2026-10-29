@@ -10,7 +10,7 @@
 ## Context
 
 CD-0145 blocks concurrent Product writes until their overlap has a resolution.
-A Concord defect can also prevent that resolution or worker dispatch. CD-0147
+A Concord defect can also prevent that resolution or workflow progression. CD-0147
 permits code-first repair in this case, but its D3 adds no gate exception.
 
 The repair route needs durable authority that is narrower than a general
@@ -42,7 +42,7 @@ is the authority. The evidence references remain its auditable support.
 
 The Domain-overlap execution guard admits work with an active `self_repair`
 classification. It does not resolve, dismiss, or rewrite an overlap. It does
-not bypass lifecycle, contract, evidence, worker, worktree, or completion
+not bypass lifecycle, contract, evidence, worktree or completion
 checks.
 
 Unclassified work continues to use the CD-0145 shared-write predicate and its

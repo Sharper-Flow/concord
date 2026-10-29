@@ -1,21 +1,16 @@
 #!/usr/bin/env python3
-"""Generate the pinned adapter dispatch recipe; --check refuses stale output.
-
-The adapter package declares no third-party dependencies. Bun deletes an empty
-lock on install; the native materializer requires an explicit locked closure,
-so this generator records that empty closure from the real package manifest.
-"""
+"""Generate the pinned native adapter acceptance recipe; --check refuses drift."""
 import argparse
 import json
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-OUTPUT = ROOT / ".concord/oracles/adapter/dispatch-acceptance.v1.json"
+OUTPUT = ROOT / ".concord/oracles/adapter/native-acceptance.v1.json"
 PACKAGE = ROOT / "adapter/opencode/package.json"
 LOCK = PACKAGE.with_name("bun.lock")
 CHECKS = {
-    "adapter-dispatch": ["concord.test.ts", "lane_dispatch.test.ts"],
-    "adapter-guards": ["dispatch-window.test.ts", "native-task-refusal.test.ts", "session-scope.test.ts"],
+    "adapter-transport": ["concord.test.ts"],
+    "adapter-move": ["worktree-claim-move.test.ts", "session-vacate-move.test.ts", "turn-move-boundary.test.ts"],
     "adapter-publication": ["concord-plugin.test.ts"],
 }
 
@@ -29,9 +24,8 @@ def render() -> dict[Path, str]:
     harness += [name for files in CHECKS.values() for name in files]
     manifest = {
         "kind": "target_runner_v1", "materializer": "bun", "runner": "check", "root": "adapter/opencode",
-        "harness_files": [f"adapter/opencode/{name}" for name in harness],
-        "support_files": [],
-        "cases": {"case:adapter-dispatch": list(CHECKS)},
+        "harness_files": [f"adapter/opencode/{name}" for name in harness], "support_files": [],
+        "cases": {"case:adapter-native": list(CHECKS)},
         "checks": [{"witness": witness, "argv": ["python3", "acceptance.py", *files]} for witness, files in CHECKS.items()],
         "pin": {"bun": "1.4.0", "python": "3.13.7", "dep_manifest": "package.json", "dep_lock": "bun.lock"},
     }

@@ -10,7 +10,7 @@
     "internal/store/workflow.go",
     "internal/store/workflow_registry.go",
     "internal/store/workflow_action_guards.go",
-    "internal/store/worker_authority_boundary_test.go"
+    "internal/store/workflow_review.go"
   ],
   "home_domain_id": "workflow-engine",
   "id": "CD-0112",
@@ -25,7 +25,7 @@
   },
   "sha256": "sha256:709f4f712ad25e165dd36e28fa1c51141ff36b14c5f35ecadf996324809cf357",
   "status": "accepted",
-  "summary": "checkpoint_context and cross_context_boundary hold every step. record_delivery advances an external-effect step only after a fenced start with no later dispatch. accept_worker_result advances only for the exact completed attempt. record_worker_failure records the exact failed attempt without advancing, after which a fresh fenced start can lead to record_delivery or a successful lane acceptance. record_decision and accept_decision advance a pinned architecture-spike definition to premise confirmation; CD-0218 D1 excludes that family from new execution.",
+  "summary": "Context handoffs hold the stage. record_delivery exits a producing step after its current fenced start and complete delivery admission, including Review, native proof and applicable approvals. Native Task neither supplies delivery nor blocks the delivery route. Retained decision-record exits keep their definition-backed meaning without permitting new architecture-spike execution. No worker-result or failure-recording lifecycle remains.",
   "tags": [
     "workflow",
     "continuity",

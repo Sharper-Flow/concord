@@ -7,11 +7,11 @@ import { afterEach, describe, expect, test } from "bun:test"
 import ConcordAdapterPlugin from "./concord-plugin"
 import { configureHostLease } from "./host-lease"
 import { configureCiWatch } from "./ci-watch"
-import { configureCoreBinary } from "./dispatch"
+import { configureCoreBinary } from "./core-runtime"
 import { manifestDigest } from "./generated-contracts"
 import { configureConcordAdapter, moveSessionToClaimedWorktree, moveSessionToRegisteredMainCheckout, takeWorkNotices, vacateTerminalWorktree, work_transition } from "./concord"
 import { resetClaimedWorktrees } from "./claimed-worktree"
-import { dispatchRequiresNextTurn, resetTurnMoveBoundaries } from "./turn-move-boundary"
+import { questionRequiresNormalChat, resetTurnMoveBoundaries } from "./turn-move-boundary"
 import { recordMoveNotice, resetMoveNotices, takeMoveNotice } from "./move-notice"
 
 configureCoreBinary("concord")
@@ -56,7 +56,7 @@ const coreEnvelope = (tool: string, operation: string, fields: Record<string, un
   warnings: [], evidence_refs: [], replayed: false, changed_refs: [], next_valid_intents: [], ...fields,
 })
 
-const BOUNDARY_SENTENCE = "A turn-move boundary is active: the native question tool and dispatch stay closed until the next operator message"
+const BOUNDARY_SENTENCE = "A turn-move boundary is active: the native question tool stays closed until the next operator message"
 
 // Every recorded notice follows a landing the host read back, so none carries
 // unconfirmed-landing recovery; the boundary sentence appears exactly when the
@@ -168,7 +168,7 @@ describe("a confirmed worktree_claim move records the move notice", () => {
     const landedContext = { ...claimContext(), directory: "/claimed" } as Parameters<typeof moveSessionToClaimedWorktree>[1]
     const envelope = await moveSessionToClaimedWorktree(claimArgs(), landedContext, claimOkEnvelope())
     expect(envelope.outcome).toBe("ok")
-    expect(dispatchRequiresNextTurn("session-1")).toBe(false)
+    expect(questionRequiresNormalChat("session-1")).toBe(false)
     expectMoveNotice(takeMoveNotice("session-1"), "/claimed", false)
   })
 

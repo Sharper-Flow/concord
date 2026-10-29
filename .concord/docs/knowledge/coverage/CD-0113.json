@@ -6,10 +6,6 @@
     },
     {
       "kind": "go_test",
-      "value": "internal/store.TestReadWorkPinIncludesTheCurrentWorkerAttemptEpoch"
-    },
-    {
-      "kind": "go_test",
       "value": "internal/agent.TestMutationEnvelopePublishesPinnedObligationsAndDefinitionIdentity"
     },
     {
@@ -110,15 +106,7 @@
     },
     {
       "kind": "go_test",
-      "value": "internal/agent.TestRepeatedFailedWorkersUseOrdinaryLaunchAuthority"
-    },
-    {
-      "kind": "go_test",
       "value": "internal/store.TestWorkPinNamesTheRecoveryWithDuplicateActiveContracts"
-    },
-    {
-      "kind": "go_test",
-      "value": "internal/agent.TestMutationProjectionFailedAttemptMutations"
     },
     {
       "kind": "go_test",

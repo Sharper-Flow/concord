@@ -84,13 +84,12 @@ func rComplete(t *testing.T, f acceptanceRecoveryFixture) error {
 }
 
 // rAcceptanceModel is the abstract admission state of an rAcceptance item:
-// one active contract, the satisfied worker job in the Project, Main's
-// accepted Review of the current candidate with its criterion association
+// one active contract, the recorded Review of the current candidate with its
+// criterion association
 // (the model's ok verdict), and the recorded investigation.
 func rAcceptanceModel(engineering bool) admissionModelState {
 	return admissionModelState{
 		step: "acceptance", contracts: 1, verdict: "ok", artifact: true, engineering: engineering,
-		jobs: "satisfied", jobsScope: "project", integration: true,
 		review: admissionModelReview{accepted: "ready_for_final_proof", candidate: true, current: true},
 	}
 }

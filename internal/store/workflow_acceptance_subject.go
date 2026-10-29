@@ -9,23 +9,19 @@ import (
 // workflowAcceptanceSubjectCurrent compares immutable evidence with the native
 // pin on the caller's connection. Historical evidence stays readable; only an
 // acceptance consumes this check.
-func workflowAcceptanceSubjectCurrent(ctx context.Context, q queryer, workID string, reviewAttempts, evidenceRefs []string) error {
+func workflowAcceptanceSubjectCurrent(ctx context.Context, q queryer, workID string, candidate *ReviewCandidate, evidenceRefs []string) error {
 	var subjects []string
-	if prepared := workerDispatchPreparationFrom(ctx); prepared != nil && prepared.proof.acceptance && prepared.proof.pinReceipt != nil {
-		if prepared.proof.workID != workID || prepared.proof.observation == nil || prepared.proof.observation.State != "clean" {
+	if prepared := workflowSubjectPreparationFrom(ctx); prepared != nil && prepared.receipt != nil {
+		if prepared.workID != workID || prepared.candidate == nil {
 			return newFailure(KindStaleRequiresReview, "workflow_action", "terminal acceptance requires a clean native subject observation", false, "verify the clean worktree and prepare acceptance again")
 		}
-		subjects = append(subjects, prepared.proof.observation.Commit, strings.TrimPrefix(prepared.proof.pinReceipt.SubjectRef, "commit:"))
+		subjects = append(subjects, prepared.candidate.Commit, strings.TrimPrefix(prepared.receipt.SubjectRef, "commit:"))
 	}
-	for _, attempt := range reviewAttempts {
-		_, result, err := readReviewAttempt(ctx, q, workID, attempt)
-		if err != nil {
-			return err
+	if candidate != nil {
+		subjects = append(subjects, candidate.Commit)
+		if prepared := workflowSubjectPreparationFrom(ctx); prepared != nil && prepared.candidate != nil && *prepared.candidate != *candidate {
+			return reviewFailure(KindStaleRequiresReview, "accepted Review does not identify the live candidate's Project, commit and tree", workflowReviewRecovery("", "identifying the exact current candidate"))
 		}
-		if result.Review == nil {
-			return reviewFailure(KindMissingEvidence, "accepted Review has no output candidate", workflowReviewRecovery("", "identifying the current candidate's exact output"))
-		}
-		subjects = append(subjects, result.Review.OutputCandidate.Commit)
 	}
 	for _, ref := range evidenceRefs {
 		resolved, err := workflowAcceptanceEvidenceSubjects(ctx, q, workID, ref)
@@ -96,7 +92,7 @@ func workflowAcceptanceEvidenceSubjects(ctx context.Context, q queryer, workID, 
 // WorkflowActionRequiresSubjectFreshness is the closed terminal-gate set the
 // native mutation boundary prepares before opening its action transaction.
 func WorkflowActionRequiresSubjectFreshness(actionID string) bool {
-	return actionID == "record_verdict" || actionID == "confirm_premise" || actionID == "complete"
+	return actionID == "record_review" || actionID == "record_verdict" || actionID == "confirm_premise" || actionID == "complete"
 }
 
 func validateWorkflowAcceptanceFreshness(ctx context.Context, tx *sql.Tx, workID string) error {
@@ -104,14 +100,14 @@ func validateWorkflowAcceptanceFreshness(ctx context.Context, tx *sql.Tx, workID
 	if err != nil || subject == "" {
 		return err
 	}
-	prepared := workerDispatchPreparationFrom(ctx)
-	if prepared == nil || !prepared.proof.acceptance || prepared.proof.workID != workID {
+	prepared := workflowSubjectPreparationFrom(ctx)
+	if prepared == nil || prepared.workID != workID {
 		return newFailure(KindInvalidOperation, "workflow_action", "terminal acceptance reached live assembly without its sealed subject preparation", false, "prepare acceptance through the native mutation boundary before opening its transaction")
 	}
-	if prepared.proof.pinReceipt == nil || prepared.proof.observation == nil || prepared.proof.observation.State != "clean" || prepared.proof.observation.Commit != subject {
+	if prepared.receipt == nil || prepared.candidate == nil || prepared.candidate.Commit != subject {
 		return newFailure(KindStaleRequiresReview, "workflow_action", "the live clean HEAD does not match the qualified terminal subject", false, "verify the clean worktree and prepare acceptance again")
 	}
-	if err := prepared.revalidateDispatchIdentitiesTx(ctx, tx, workID, true); err != nil {
+	if err := prepared.revalidateTx(ctx, tx, workID); err != nil {
 		return err
 	}
 	return workflowAcceptanceSubjectCurrent(ctx, tx, workID, nil, nil)
@@ -124,9 +120,9 @@ func workflowAcceptedSubjectCurrent(ctx context.Context, q queryer, workID strin
 	if err != nil {
 		return err
 	}
-	var attempts []string
+	var candidate *ReviewCandidate
 	if state.Accepted != nil {
-		attempts = append(attempts, state.Accepted.AttemptID)
+		candidate = &state.Accepted.Report.OutputCandidate
 	}
 	version, err := activeWorkflowContractVersion(ctx, q, workID, "workflow_action")
 	if err != nil {
@@ -140,5 +136,5 @@ func workflowAcceptedSubjectCurrent(ctx context.Context, q queryer, workID strin
 	for _, verdict := range verdicts {
 		refs = append(refs, verdict.EvaluationEvidence...)
 	}
-	return workflowAcceptanceSubjectCurrent(ctx, q, workID, attempts, refs)
+	return workflowAcceptanceSubjectCurrent(ctx, q, workID, candidate, refs)
 }

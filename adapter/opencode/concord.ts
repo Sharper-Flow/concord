@@ -1,31 +1,22 @@
-import { createHash, sign as signBytes } from "node:crypto"
-import { b64, clientRef, privateKeyObject, randomNonce, SecretToolCredentialStore, type CredentialStore } from "./credentials"
+import { createHash } from "node:crypto"
+import { clientRef } from "./credentials"
 import { contractOperations, hostToolDescriptions, hostToolSchemas, maxEnvelopeBytes, payloadSchemas, workflowActionPublicVariants } from "./generated-contracts"
 import { activeManifestDigest, adoptManifestDigest, resolveDiskManifestDigest } from "./manifest-pin"
 import { validateGeneratedEnvelope, validateGeneratedPayload, envelopeFailurePath, payloadFailurePath, payloadFailureMessage } from "./generated-contract-tests"
-import { dispatchLaneWorker, dispatchRetriedLaneWorker, type LaneDispatchInput } from "./lane_dispatch"
 import { AdapterContractDefect } from "./adapter-contract-defect"
 // The typed fail-closed error re-exports so callers of this module can catch
 // it by class without importing the shared owner.
 export { AdapterContractDefect }
-import { abandonWorkerAttempt, hostAbandonmentObservation, hostSessionReader, withWorkerReadbackScope, type WorkerRecoveryContext } from "./dispatch"
-import { reconcileRetainedWorker } from "./worker_recovery"
-import { dispatchWindows, staleReleaseDispatchRefusal, dispatchDirectoryMismatch } from "./dispatch-window"
-import { agentLanes, type AgentLane } from "./generated-agent-lanes"
 import { hostControlPlane, MoveSessionUnavailable } from "./move-session"
-import { createRunSessionObservation, errorEnvelopeForLane, MAX_OUTPUT_BYTES, observeRunSessionLine, validateAgainstSchema, type AgentResultEnvelope, type RunLineMetadata, type RunSessionObservation } from "./dispatch"
-import { concordBinaryPath, CoreBinaryUnavailable } from "./dispatch"
+import { concordBinaryPath, CoreBinaryUnavailable, validateAgainstSchema } from "./core-runtime"
 import { createWorkStateReporter } from "./workflow-status"
 import { hostLeaseFault, releaseStaleness, type ReleaseStaleness } from "./host-lease"
-import { armTurnMoveBoundary, dispatchRequiresNextTurn } from "./turn-move-boundary"
+import { armTurnMoveBoundary, questionRequiresNormalChat } from "./turn-move-boundary"
 import { armedClaimedWorktree, armClaimedWorktree, clearClaimedWorktree, pendingVacateDestination, recordPendingVacateDestination, recordUnlandedClaimedWorktree, samePath, unlandedClaimedWorktree } from "./claimed-worktree"
 import { ensureConductLink } from "./project-link"
 import { queueWorkStartContinuation, clearWorkStartContinuation, resetWorkStartContinuations } from "./work-start-continuation"
 import { moveNoticeText, recordMoveNotice, takeMoveNotice } from "./move-notice"
-import type { WorkerReadingRequest } from "./worker_source"
-import type { WorkerDiffRequest } from "./worker_diff"
-import { canonicalWorkerControl, type WorkerCheckContext, type WorkerControlRequest } from "./worker_control"
-import { mutationResult, reconstructMutationResult } from "./packet"
+import { mutationResult, reconstructMutationResult } from "./mutation-result"
 
 type ToolContext = {
   sessionID: string
@@ -99,10 +90,11 @@ function withOperationNamed(delivered: HostToolArgs): HostToolArgs {
 }
 type JSONSchema = Record<string, unknown>
 type CoreConcordEnvelope = Record<string, unknown>
-type HostConcordEnvelope = CoreConcordEnvelope | AgentResultEnvelope
+type HostConcordEnvelope = CoreConcordEnvelope
 
-export interface ChildRunnerOptions { cwd?: string; env?: Record<string, string>; onStdoutLine?: (line: string, metadata?: RunLineMetadata | null) => Promise<void>; runSessionObservation?: RunSessionObservation }
-export interface ChildRunner { run(argv: string[], input: string, signal: AbortSignal, options?: ChildRunnerOptions): Promise<{ exitCode: number; stdout: string; stderr: string; runSessionObservation?: RunSessionObservation }> }
+export interface ChildRunnerOptions { cwd?: string; env?: Record<string, string> }
+export interface ChildRunner { run(argv: string[], input: string, signal: AbortSignal, options?: ChildRunnerOptions): Promise<{ exitCode: number; stdout: string; stderr: string }> }
+const MAX_OUTPUT_BYTES = 65_536
 
 function appendOutputTail(current: string, text: string): string {
   const combined = current + text
@@ -113,36 +105,19 @@ function appendOutputTail(current: string, text: string): string {
   return bytes.subarray(start).toString()
 }
 
-export async function readChildStdout(stream: ReadableStream<Uint8Array>, onLine?: (line: string, metadata?: RunLineMetadata | null) => Promise<void>, observation = createRunSessionObservation()): Promise<{ stdout: string; runSessionObservation: RunSessionObservation }> {
+export async function readChildStdout(stream: ReadableStream<Uint8Array>): Promise<{ stdout: string }> {
   const reader = stream.getReader()
   const decoder = new TextDecoder()
   let output = ""
-  let pending = ""
   for (;;) {
     const { done, value } = await reader.read()
     if (done) break
     const text = decoder.decode(value, { stream: true })
     output = appendOutputTail(output, text)
-    pending += text
-    for (;;) {
-      const newline = pending.indexOf("\n")
-      if (newline < 0) break
-      const line = pending.slice(0, newline)
-      pending = pending.slice(newline + 1)
-      if (line.trim()) {
-        const metadata = observeRunSessionLine(observation, line)
-        if (onLine) await onLine(line, metadata)
-      }
-    }
   }
   const final = decoder.decode()
   output = appendOutputTail(output, final)
-  pending += final
-  if (pending.trim()) {
-    const metadata = observeRunSessionLine(observation, pending)
-    if (onLine) await onLine(pending, metadata)
-  }
-  return { stdout: output, runSessionObservation: observation }
+  return { stdout: output }
 }
 
 const defaultRunner: ChildRunner = {
@@ -162,9 +137,9 @@ const defaultRunner: ChildRunner = {
     await child.stdin.end()
     const stderrPromise = new Response(child.stderr).text()
     try {
-      const [captured, stderr, exitCode] = await Promise.all([readChildStdout(child.stdout, options?.onStdoutLine, options?.runSessionObservation), stderrPromise, child.exited])
+      const [captured, stderr, exitCode] = await Promise.all([readChildStdout(child.stdout), stderrPromise, child.exited])
       signal.throwIfAborted()
-      return { exitCode, stdout: captured.stdout, stderr, runSessionObservation: captured.runSessionObservation }
+      return { exitCode, stdout: captured.stdout, stderr }
     } catch (error) {
       child.kill()
       await child.exited
@@ -176,12 +151,9 @@ const defaultRunner: ChildRunner = {
 }
 
 let runner: ChildRunner = defaultRunner
-let credentialsOverride: CredentialStore | null = null
-
-export function configureConcordAdapter(overrides: { runner?: ChildRunner; credentials?: CredentialStore; reset?: boolean } = {}) {
-  if (overrides.reset) { runner = defaultRunner; credentialsOverride = null; resetWorkStartContinuations() }
+export function configureConcordAdapter(overrides: { runner?: ChildRunner; reset?: boolean } = {}) {
+  if (overrides.reset) { runner = defaultRunner; resetWorkStartContinuations() }
   if (overrides.runner) runner = overrides.runner
-  if (overrides.credentials) credentialsOverride = overrides.credentials
 }
 
 function schemaName(ref: string): string {
@@ -496,11 +468,6 @@ export const adapterErrorTuples = {
   host_lease_missing: { kind: "transport_failure", adapter_reason: "host_lease_missing", effect_state: "none", recovery: "contact_operator" },
   unknown_effect: { kind: "operation_conflict", adapter_reason: "unknown_effect", effect_state: "possible", recovery: "reconcile_operation" },
   session_directory_unreadable: { kind: "transport_failure", adapter_reason: "session_directory_unreadable", effect_state: "none", recovery: "retry_same_request" },
-  worker_abandon_refused_none: { kind: "operation_conflict", adapter_reason: "worker_abandon_refused", effect_state: "none", recovery: "reconcile_operation" },
-  worker_abandon_refused_possible: { kind: "operation_conflict", adapter_reason: "worker_abandon_refused", effect_state: "possible", recovery: "reconcile_operation" },
-  worker_abandon_receipt_failed: { kind: "operation_conflict", adapter_reason: "worker_abandon_receipt_failed", effect_state: "possible", recovery: "reconcile_operation" },
-  worker_reconcile_failed_recorded: { kind: "operation_conflict", adapter_reason: "worker_reconcile_failed_recorded", effect_state: "possible", recovery: "reconcile_operation" },
-  lane_tool_refusal: { kind: "unauthorized", adapter_reason: "lane_tool_refusal", effect_state: "none", recovery: "contact_operator" },
   invalid_cli_input: { kind: "invalid_input", adapter_reason: "invalid_cli_input", effect_state: "none", recovery: "correct_request" },
   invalid_request_wrapper: { kind: "invalid_input", adapter_reason: "invalid_request_wrapper", effect_state: "none", recovery: "correct_request" },
   invalid_tool_input: { kind: "invalid_input", adapter_reason: "invalid_tool_input", effect_state: "none", recovery: "correct_request" },
@@ -682,63 +649,6 @@ function singleJSON(text: string): any {
   return parsed
 }
 
-export async function readBoundWorkerSource(request: WorkerReadingRequest, signal: AbortSignal, directory: string): Promise<unknown> {
-  return readBoundWorkerPage("worker-read", request, signal, directory)
-}
-
-export async function readBoundWorkerDiff(request: WorkerDiffRequest, signal: AbortSignal, directory: string): Promise<unknown> {
-  return readBoundWorkerPage("worker-diff", request, signal, directory)
-}
-
-async function readBoundWorkerPage(verb: "worker-read" | "worker-diff", request: WorkerReadingRequest | WorkerDiffRequest, signal: AbortSignal, directory: string): Promise<unknown> {
-  const label = verb === "worker-diff" ? "diff" : "source"
-  const leaseFault = hostLeaseFault()
-  if (leaseFault) throw new Error(`${leaseFault}; no ${label} read ran`)
-  const result = await runner.run([concordBinaryPath(), verb], JSON.stringify(request), signal, { cwd: directory })
-  if (result.exitCode !== 0) throw new Error(result.stderr.slice(-MAX_STDERR).trim() || `the core refused the pinned ${label} read`)
-  if (Buffer.byteLength(result.stdout) > 16_384) throw new Error(`pinned ${label} page exceeded its transport bound`)
-  return singleJSON(result.stdout)
-}
-
-export async function executeBoundWorkerControl(request: WorkerControlRequest, context: WorkerCheckContext, packetDigest: string, directory: string): Promise<unknown> {
-  const leaseFault = hostLeaseFault()
-  if (leaseFault) throw new Error(`${leaseFault}; no control execution ran`)
-  context.abort.throwIfAborted()
-  const ambient = await resolveAmbientContext(context, directory)
-  const productID = selectedProductID() || (ambient.productIDs.length === 1 ? ambient.productIDs[0] : "")
-  if (!productID || ambient.projectID !== request.project_id) throw new Error("recorded control requires the authorized Project and an unambiguous selected Product")
-  const client = clientRef()
-  const key = privateKeyObject(await (credentialsOverride ?? new SecretToolCredentialStore()).getPrivateKey(client))
-  context.abort.throwIfAborted()
-  const leaseID = crypto.randomUUID()
-  const assertion = {
-    client_ref: client, agent_ref: context.agent, session_ref: context.sessionID,
-    directory: context.directory, worktree: directory, manifest_digest: activeManifestDigest(),
-    work_id: request.work_id, product_id: productID, project_id: request.project_id,
-    attempt_id: request.attempt_id, packet_digest: packetDigest, worktree_identity: request.worktree_identity,
-    control_id: request.control_id, lease_id: leaseID, request_id: `${context.sessionID}-${context.messageID}`,
-    issued_at: new Date().toISOString(), nonce: randomNonce(),
-  }
-  const signed = { ...assertion, signature: b64(signBytes(null, Buffer.from(canonicalWorkerControl(assertion)), key)) }
-  // This route never retries a possibly executed workload or relabels a native
-  // failure as no effect. The lease identifies the existing producer's record.
-  const result = await runner.run([concordBinaryPath(), "worker-control"], JSON.stringify({ ...request, assertion: signed }), context.abort, { cwd: directory })
-  const refusal = `${result.stderr.slice(-MAX_STDERR).trim() || "native control result unavailable"}; reconcile native lease ${leaseID}`
-  if (result.exitCode !== 0 && !result.stdout.trim()) throw new Error(refusal)
-  if (Buffer.byteLength(result.stdout) > maxEnvelopeBytes) throw new Error(`native control response exceeded its transport bound; ${refusal}`)
-  let response: any
-  try { response = singleJSON(result.stdout) } catch (error) { throw new Error(`${String(error)}; ${refusal}`) }
-  if (response.work_id !== request.work_id || response.project_id !== request.project_id || response.lease_id !== leaseID || !record(response.oracle) || response.oracle.phase !== "execute" || response.oracle.attempt_id !== request.attempt_id || response.oracle.control_id !== request.control_id || response.oracle.worker_packet_digest !== packetDigest) {
-    throw new Error(`native control response differs from its bound request; ${refusal}`)
-  }
-  if (result.exitCode !== 0) {
-    const disposition = response.lease_disposition
-    const knownDisposition = record(disposition) && (disposition.state === "unknown" && disposition.outcome === undefined || disposition.state === "released" && (disposition.outcome === "completed" || disposition.outcome === "aborted"))
-    if (response.outcome !== "refused" || response.oracle.qualification !== "unavailable" || response.operation_ref !== `worktree_verify:${leaseID}` || typeof response.diagnostic !== "string" || !response.diagnostic || !knownDisposition) throw new Error(refusal)
-  }
-  return response
-}
-
 function saneWorkID(value: unknown): value is string {
   return typeof value === "string" && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(value)
 }
@@ -885,8 +795,8 @@ async function resolveSessionDirectory(context: ToolContext): Promise<string> {
 // invokeConcordOperation is the single `concord project-resolve` + `concord invoke`
 // transport for every adapter surface, including host-side callers outside the
 // tool exports below. It owns envelope construction, the closed core-response
-// contract check, and the approval_required resubmission. Native worker
-// dispatch can supply the canonical session directory that its window pins.
+// contract check, and the approval_required resubmission. Bootstrap supplies
+// its already-resolved placement when consuming an addressed handoff.
 async function invokeConcordOperationRaw(toolName: string, args: HostToolArgs, context: ToolContext, sessionDirectoryOverride?: string, ambientOverride?: AmbientContext): Promise<CoreConcordEnvelope> {
   const operation = args.operation
   const requestID = `${context.sessionID}-${context.messageID}`
@@ -1093,11 +1003,11 @@ async function reconcileUnknownEffect(toolName: string, args: HostToolArgs, cont
   }
 }
 
-export async function invokeConcordOperation(toolName: string, args: HostToolArgs, context: ToolContext, sessionDirectoryOverride?: string): Promise<CoreConcordEnvelope> {
-  let response = await invokeConcordOperationRaw(toolName, args, context, sessionDirectoryOverride)
+export async function invokeConcordOperation(toolName: string, args: HostToolArgs, context: ToolContext): Promise<CoreConcordEnvelope> {
+  let response = await invokeConcordOperationRaw(toolName, args, context)
   try {
     await reconstructMutationResult(response, { tool: toolName, operation: args.operation, idempotencyKey: args.input?.idempotency_key },
-      input => invokeConcordOperationRaw("concord_work_trace", { operation: "mutation_result", input }, context, sessionDirectoryOverride))
+      input => invokeConcordOperationRaw("concord_work_trace", { operation: "mutation_result", input }, context))
   } catch (error) {
     if (error instanceof AdapterContractDefect) throw error
     // The successful receipt remains truthful even when its retained document
@@ -1214,33 +1124,13 @@ async function encodeHostToolResult(toolName: string, args: HostToolArgs, contex
   return encodeHostResult(toolName, args.operation, requestID, envelope)
 }
 
-// The Project-session retirement read composes the core derivation with this
-// session's own adapter dispatch-window quiescence (CD-0182 amendment): the
-// core cannot see the adapter's windows, so an open, in-flight, settling, or
-// refused window downgrades a derived ready state to pending with the named
-// blocker. The composition only narrows readiness — it never upgrades a
-// pending core answer, and a session with no retained window passes the
-// core's answer through unchanged.
-function composeRetirementQuiescence(toolName: string, args: HostToolArgs, envelope: HostConcordEnvelope, sessionID: string): HostConcordEnvelope {
-  if (toolName !== "concord_work_trace" || args.operation !== "project_retirement" || envelope.outcome !== "ok") return envelope
-  const blocker = dispatchWindows().retirementBlocker(sessionID)
-  if (blocker === null) return envelope
-  const result = (envelope as { result?: { state?: string; blockers?: string[] } }).result
-  if (result?.state !== "ready_to_close_or_replace") return envelope
-  result.state = "pending"
-  result.blockers = [...(result.blockers ?? []), blocker]
-  return envelope
-}
-
 async function executeHostTool(toolName: string, args: HostToolArgs, context: ToolContext): Promise<ToolResult> {
-  // One staleness observation per tool call (CD-0191): the same reading
-  // feeds the dispatch gate and the result notice.
+  // One staleness observation per tool call keeps its result notice consistent.
   const staleness = releaseStaleness()
   const envelope = await invokeConcordOperation(toolName, args, context)
   const { envelope: settled, extraWarnings } = withReleaseStaleness(envelope, staleness)
-  const composed = composeRetirementQuiescence(toolName, args, settled, context.sessionID)
-  const warnings = operationIsMutation(toolName, args.operation) ? await workStateReporter.report(composed, context) : []
-  return appendWarnings(await encodeHostToolResult(toolName, args, context, composed), [...warnings, ...extraWarnings])
+  const warnings = operationIsMutation(toolName, args.operation) ? await workStateReporter.report(settled, context) : []
+  return appendWarnings(await encodeHostToolResult(toolName, args, context, settled), [...warnings, ...extraWarnings])
 }
 
 async function executeHostTransition(args: HostToolArgs, context: ToolContext): Promise<ToolResult> {
@@ -1249,59 +1139,6 @@ async function executeHostTransition(args: HostToolArgs, context: ToolContext): 
   const { envelope: settled, extraWarnings } = withReleaseStaleness(envelope, staleness)
   const warnings = await workStateReporter.report(settled, context)
   return appendMoveNotice(appendWarnings(await encodeHostToolResult("concord_work_transition", args, context, settled), [...warnings, ...extraWarnings]), context)
-}
-
-// CD-0017 D4, extended by CD-0223: a dispatched worker lane runs under a
-// managed parent and holds no Concord tool access — the dispatch packet is
-// its complete Concord context. The guard consults the host parent boundary,
-// which does not trust the selected agent or its prompt, and refuses before
-// the core is invoked, so a lane call records nothing. The guard is
-// fail-closed: only a host answer that positively resolves the caller as an
-// unparented coordinator session passes. A session with a managed parent, a
-// session whose scope the host cannot resolve, and a control plane that
-// cannot answer at all all refuse unauthorized with effect_state none — each
-// leaves the caller unproven, and an unproven caller may be a lane. No
-// coordinator route changes: a coordinator session resolves unparented and
-// passes unchanged. A caller-cancelled signal is not a scope answer: the
-// boundary stands down for it, so the transport keeps the typed cancelled
-// envelope and the reconciliation retry paths stay reachable.
-const laneToolBoundary = "Concord worker lanes hold no Concord tool access (CD-0017 D4, extended by CD-0223): the dispatch packet is the lane's complete Concord context"
-async function laneConcordRefusalReason(context: ToolContext): Promise<string | null> {
-  if (context.abort.aborted) return null
-  // Without a bound control plane the parent boundary cannot answer, so the
-  // caller cannot be proven a coordinator session and the call refuses.
-  if (!hostControlPlane().available()) {
-    return `${laneToolBoundary}; the host control plane is unbound, so the caller cannot be proven a coordinator session`
-  }
-  let managedParent: boolean
-  try {
-    managedParent = await hostControlPlane().hasManagedParent(context.sessionID, context.abort)
-  } catch (error) {
-    if (context.abort.aborted) return null
-    const detail = error instanceof Error ? error.message : String(error)
-    return `${laneToolBoundary}; Concord cannot resolve this session's managed Task scope, so it cannot prove the caller is a coordinator session (${detail})`
-  }
-  if (!managedParent) return null
-  return `${laneToolBoundary}; the caller session runs under a managed parent`
-}
-
-function laneConcordRefusalEnvelope(toolName: string, operation: string, context: ToolContext, reason: string): ToolResult {
-  const requestID = `${context.sessionID}-${context.messageID}`
-  const envelope = adapterError(toolName, operation, requestID, "lane_tool_refusal", `${reason}; the call is refused with effect_state none and records nothing.`)
-  return encodeHostResult(toolName, operation, requestID, envelope)
-}
-
-// laneGuarded fronts one concord_* tool entry with the lane guard, so every
-// entry checks the caller before its transport runs. work_start carries its
-// own closed result shape, so it supplies the refusal builder that speaks it.
-function laneGuarded(toolName: string, run: (args: any, context: ToolContext) => Promise<ToolResult>, refuse: (operation: string, context: ToolContext, reason: string) => ToolResult = (operation, context, reason) => laneConcordRefusalEnvelope(toolName, operation, context, reason)) {
-  return async (args: any, context: ToolContext): Promise<ToolResult> => {
-    const wrapped = args !== null && typeof args === "object" && args.request !== null && typeof args.request === "object"
-    const operation = wrapped ? String(hostRequest(args)?.operation ?? "") : ""
-    const reason = await laneConcordRefusalReason(context)
-    if (reason !== null) return refuse(operation, context, reason)
-    return run(args, context)
-  }
 }
 
 type WorkStartCaptureArgs = {
@@ -1865,12 +1702,8 @@ async function executeWorkStart(args: WorkStartArgs, context: ToolContext, warni
       }
       throw new WorkStartFailure("transport_failure", "move_session_refused", message, "none", "retry_same_request")
     }
-    // CD-0098 D3. The destination is read back from the host, not assumed from
-    // the request that asked for it, and success is refused unless the session
-    // now runs in the claimed worktree. Every refusal past the accepted move
-    // records the pending target first: the move was accepted but never proved
-    // to have landed, so the dispatch gate stays closed for this session until
-    // a confirmed landing, a vacate, or the durable gate takes over.
+    // Read the destination back from the host. An accepted but unconfirmed
+    // move retains its pending target so placement recovery can finish it.
     let landed: string
     try {
       landed = await hostControlPlane().sessionDirectory(context.sessionID, context.abort)
@@ -1918,18 +1751,8 @@ async function executeWorkStart(args: WorkStartArgs, context: ToolContext, warni
         warnings.push(`Concord did not record this session as the occupant of ${target.worktree.path}: ${message}. The worktree removal gates may not hold it for this session; replay work_start to retry the record.`)
       }
     }
-    // CD-0182 D5 amendment: the resume read above ran before this session's
-    // verified landing, and the frontier read renders a consumed bind only
-    // to a session whose verified placement stands, so a cold second
-    // coordinator session of the receiving Project captured no handoff — it
-    // would boot admitted by the shared bind without ever seeing the
-    // bounded job it dispatches under. The landing has now recorded this
-    // session's placement, so the boot re-reads the addressed handoff once:
-    // the shared bind's bounded job renders to this session too, and the
-    // consume below binds it before any dispatch arms. A re-read that still
-    // renders no handoff changes nothing: a handoff-free work stays
-    // handoff-free, and a boot whose landing did not record stays on the
-    // warning path above.
+    // A consumed handoff renders only after verified placement. Re-read once
+    // after landing so a receiving coordinator sees its bounded assignment.
     if (resume && !renderedHandoff && landingRecorded) {
       const refreshed = await runWorkStartChild([concordBinaryPath(), "work-resume"], JSON.stringify({ product_id: target.product_id, project_id: target.project_id, work_id: target.work_id, session_ref: context.sessionID, call_envelope: concordCallEnvelope(context, context.directory, ambient, target.product_id) }), context.abort, { cwd: context.directory })
       if (refreshed.exitCode === workResumeRefusalExit) throw new WorkStartFailure("resume_failure", "resume_refused", `the post-landing handoff re-read refused: ${refreshed.stderr.slice(0, MAX_STDERR)}`, "none", "contact_operator")
@@ -1953,10 +1776,8 @@ async function executeWorkStart(args: WorkStartArgs, context: ToolContext, warni
         throw new WorkStartFailure("resume_failure", "project_handoff_unconsumed", `Concord did not consume the addressed Project handoff for ${target.work_id}: ${handoff.message ?? "the consume refused"}. Managed execution stays gated until a typed consume succeeds.`, "none", "retry_same_request")
       }
     }
-    // The tool context landed in the claimed worktree, so this session's
-    // active claimed worktree is armed for the dispatch check. The arm sits
-    // behind every refusal the landing and the handoff bind can raise, so a
-    // boot that fails closed arms no dispatch.
+    // Remember the active claim only after landing and handoff consumption,
+    // so later relocation cannot act on an unconfirmed destination.
     armClaimedWorktree(context.sessionID, target.worktree.path)
     clearWorkStartContinuation(context.sessionID)
     // The session title names the goal the session-prepare contract derived.
@@ -1978,8 +1799,8 @@ async function executeWorkStart(args: WorkStartArgs, context: ToolContext, warni
       // the fact of the move. A rendered handoff appends the bounded job and
       // next action so the receiving session holds both without the envelope.
       output: renderedHandoff
-        ? `${moveNoticeText(target.worktree.path, dispatchRequiresNextTurn(context.sessionID))} Bounded job: ${renderedHandoff.bounded_job} Next action: ${renderedHandoff.next_action}`
-        : moveNoticeText(target.worktree.path, dispatchRequiresNextTurn(context.sessionID)),
+        ? `${moveNoticeText(target.worktree.path, questionRequiresNormalChat(context.sessionID))} Bounded job: ${renderedHandoff.bounded_job} Next action: ${renderedHandoff.next_action}`
+        : moveNoticeText(target.worktree.path, questionRequiresNormalChat(context.sessionID)),
       ...(recordedIssue ? { linear_issue: recordedIssue } : {}),
       // The consumed handoff's bounded job rides the result so the receiving
       // session holds its repository job and exact next action without the
@@ -1996,42 +1817,27 @@ async function executeWorkStart(args: WorkStartArgs, context: ToolContext, warni
   }
 }
 
-export const product_view = tool({ description: "Concord product view", args: argsSchema("concord_product_view"), execute: laneGuarded("concord_product_view", (args: HostToolCall, context: ToolContext): Promise<ToolResult> => executeHostTool("concord_product_view", hostRequest(args), context)) })
-export const work_browse = tool({ description: "Concord work browse", args: argsSchema("concord_work_browse"), execute: laneGuarded("concord_work_browse", (args: HostToolCall, context: ToolContext): Promise<ToolResult> => executeHostTool("concord_work_browse", hostRequest(args), context)) })
-export const work_trace = tool({ description: "Concord work trace", args: argsSchema("concord_work_trace"), execute: laneGuarded("concord_work_trace", (args: HostToolCall, context: ToolContext): Promise<ToolResult> => executeHostTool("concord_work_trace", hostRequest(args), context)) })
-export const knowledge = tool({ description: "Concord knowledge", args: argsSchema("concord_knowledge"), execute: laneGuarded("concord_knowledge", (args: HostToolCall, context: ToolContext): Promise<ToolResult> => executeHostTool("concord_knowledge", hostRequest(args), context)) })
-export const work_define = tool({ description: "Concord work define", args: argsSchema("concord_work_define"), execute: laneGuarded("concord_work_define", (args: HostToolCall, context: ToolContext): Promise<ToolResult> => executeHostTool("concord_work_define", hostRequest(args), context)) })
-export const domain = tool({ description: "Concord domain", args: argsSchema("concord_domain"), execute: laneGuarded("concord_domain", (args: HostToolCall, context: ToolContext): Promise<ToolResult> => executeHostTool("concord_domain", hostRequest(args), context)) })
-const guardedWorkTransition = laneGuarded("concord_work_transition", (args: HostToolCall, context: ToolContext): Promise<ToolResult> => executeHostTransition(hostRequest(args), context))
-export const work_transition = tool({ description: "Concord work transition. Use operation workflow_action for declared workflow actions. Use operation worker_abandon with the attempt and lane identity to close a dispatched attempt with no report. Use operation worker_reconcile to recover the original retained completed Task without a new worker run. Use action_id dispatch_worker with fields.lane_id to authorize a native worker; dispatch itself launches nothing. After authorization, issue one native foreground Task with the exact lane and attempt reference in the response, without a packet, resume, background or command fields. Route discovery does not prove admission at the current workflow step.", args: argsSchema("concord_work_transition"), execute: async (args: HostToolCall, context: ToolContext): Promise<ToolResult> => {
-  const request = hostRequest(args)
-  if (request.operation === "worker_reconcile") {
-    const declaration = contractOperations.find((item) => item.id === "concord_work_transition.worker_reconcile")
-    if (!declaration) throw new Error("worker_reconcile has no generated operation declaration")
-    const seconds = request.input?.requested_budget_seconds
-    // Unsupported values reach core budget admission unchanged. One admitted
-    // signal bounds the host guard, preparation, readback, evidence and receipt.
-    if (typeof seconds === "number" && Number.isSafeInteger(seconds) && seconds >= 1 && seconds <= declaration.supported_budget_seconds) {
-      context = { ...context, abort: AbortSignal.any([context.abort, AbortSignal.timeout(seconds * 1_000)]) }
-    }
-    return withWorkerReadbackScope(context.abort, abort => guardedWorkTransition(args, { ...context, abort }))
-  }
-  return guardedWorkTransition(args, context)
-} })
+export const product_view = tool({ description: "Concord product view", args: argsSchema("concord_product_view"), execute: (args: HostToolCall, context: ToolContext): Promise<ToolResult> => executeHostTool("concord_product_view", hostRequest(args), context) })
+export const work_browse = tool({ description: "Concord work browse", args: argsSchema("concord_work_browse"), execute: (args: HostToolCall, context: ToolContext): Promise<ToolResult> => executeHostTool("concord_work_browse", hostRequest(args), context) })
+export const work_trace = tool({ description: "Concord work trace", args: argsSchema("concord_work_trace"), execute: (args: HostToolCall, context: ToolContext): Promise<ToolResult> => executeHostTool("concord_work_trace", hostRequest(args), context) })
+export const knowledge = tool({ description: "Concord knowledge", args: argsSchema("concord_knowledge"), execute: (args: HostToolCall, context: ToolContext): Promise<ToolResult> => executeHostTool("concord_knowledge", hostRequest(args), context) })
+export const work_define = tool({ description: "Concord work define", args: argsSchema("concord_work_define"), execute: (args: HostToolCall, context: ToolContext): Promise<ToolResult> => executeHostTool("concord_work_define", hostRequest(args), context) })
+export const domain = tool({ description: "Concord domain", args: argsSchema("concord_domain"), execute: (args: HostToolCall, context: ToolContext): Promise<ToolResult> => executeHostTool("concord_domain", hostRequest(args), context) })
+export const work_transition = tool({ description: "Concord work transition. Use operation workflow_action for declared workflow actions, including record_review and record_verdict. Route discovery does not prove admission at the current workflow step.", args: argsSchema("concord_work_transition"), execute: (args: HostToolCall, context: ToolContext): Promise<ToolResult> => executeHostTransition(hostRequest(args), context) })
 export const work_relate = tool({
   description: "Concord work relate",
   args: argsSchema("concord_work_relate"),
-  execute: laneGuarded("concord_work_relate", async (args: HostToolCall, context: ToolContext): Promise<ToolResult> => {
+  execute: async (args: HostToolCall, context: ToolContext): Promise<ToolResult> => {
     const staleness = releaseStaleness()
     const request = hostRequest(args)
     const envelope = await invokeConcordOperation("concord_work_relate", request, context)
     const { envelope: settled, extraWarnings } = withReleaseStaleness(envelope, staleness)
     const warnings = operationIsMutation("concord_work_relate", request.operation) ? await workStateReporter.report(settled, context) : []
     return appendMoveNotice(appendWarnings(await encodeHostToolResult("concord_work_relate", request, context, settled), [...warnings, ...extraWarnings]), context)
-  }),
+  },
 })
-export const work_compact = tool({ description: "Concord work compact", args: argsSchema("concord_work_compact"), execute: laneGuarded("concord_work_compact", (args: HostToolCall, context: ToolContext): Promise<ToolResult> => executeHostTool("concord_work_compact", hostRequest(args), context)) })
-export const work_start = tool({ description: `${hostToolDescriptions.concord_work_start} ${workStartUsage}`, args: workStartArgsSchema(), execute: laneGuarded("concord_work_start", async (args: any, context: ToolContext): Promise<ToolResult> => {
+export const work_compact = tool({ description: "Concord work compact", args: argsSchema("concord_work_compact"), execute: (args: HostToolCall, context: ToolContext): Promise<ToolResult> => executeHostTool("concord_work_compact", hostRequest(args), context) })
+export const work_start = tool({ description: `${hostToolDescriptions.concord_work_start} ${workStartUsage}`, args: workStartArgsSchema(), execute: async (args: any, context: ToolContext): Promise<ToolResult> => {
   const staleness = releaseStaleness()
   // The work_start result envelope is the adapter's own closed shape with no
   // warnings member, so the staleness notice rides the output layer the
@@ -2041,49 +1847,7 @@ export const work_start = tool({ description: `${hostToolDescriptions.concord_wo
   let output = JSON.stringify(envelope)
   if (Buffer.byteLength(output) > maxEnvelopeBytes) output = JSON.stringify(workStartError("output_exceeded", `work_start result exceeds ${maxEnvelopeBytes} bytes`, { product_id: envelope.product_id, project_id: envelope.project_id, work_id: envelope.work_id, worktree_path: envelope.worktree_path }))
   return appendWarnings({ title: "concord_work_start", output, metadata: {} }, warnings)
-}, (_operation, _context, reason) => ({ title: "concord_work_start", output: JSON.stringify(workStartError("unauthorized", `${reason}; the call is refused with effect_state none and records nothing.`, {}, "contact_operator")), metadata: {} })) })
-
-// laneDispatchRequest decides whether a work_transition invocation routes to
-// the lane dispatcher (CD-0067 D5) or falls through to the generic core
-// transport. It is a pure helper so the routing decision can be tested
-// without standing up the dispatch path.
-//
-// Returns:
-//   - null: the invocation is not a dispatch_worker request; the caller must
-//     use the generic transport.
-//   - { error: string }: the request is a dispatch_worker request but lacks
-//     the tool-level lane_id vocabulary the adapter needs to derive the
-//     packet. The caller returns a typed invalid_input envelope.
-//   - LaneDispatchInput: the request is a well-formed dispatch_worker call
-//     with object-form fields and a string lane_id. The caller forwards it
-//     to dispatchLaneWorker.
-export function laneDispatchRequest(args: any): LaneDispatchInput | { error: string } | null {
-  if (!args || typeof args !== "object" || Array.isArray(args)) return null
-  const input = (args as { input?: unknown }).input
-  if (!input || typeof input !== "object" || Array.isArray(input)) return null
-  const inner = input as Record<string, unknown>
-  if (inner.action_id !== "dispatch_worker") return null
-  const fields = inner.fields
-  if (!fields || typeof fields !== "object" || Array.isArray(fields)) {
-    return { error: "dispatch_worker requires fields.lane_id naming the target lane" }
-  }
-  const laneId = (fields as Record<string, unknown>).lane_id
-  if (typeof laneId !== "string" || laneId.length === 0) {
-    return { error: "dispatch_worker requires fields.lane_id naming the target lane" }
-  }
-  if (typeof inner.work_id !== "string" || typeof inner.expected_version !== "number" || typeof inner.idempotency_key !== "string") {
-    return null
-  }
-  const approval = inner.approval
-  const approvalRef = approval && typeof approval === "object" && !Array.isArray(approval) && typeof (approval as Record<string, unknown>).approval_ref === "string" ? (approval as Record<string, unknown>).approval_ref as string : undefined
-  return { work_id: inner.work_id, expected_version: inner.expected_version, idempotency_key: inner.idempotency_key, lane_id: laneId, ...(approvalRef ? { approval_ref: approvalRef } : {}) }
-}
-
-// executeWorkTransition is the work_transition tool body. dispatch_worker is
-// routed through dispatchLaneWorker (CD-0067 D5); every other workflow_action
-// falls through to the generic core transport. The dispatch path shares the
-// same transport seam as every other adapter tool, so a host-side caller
-// receives the same envelope shape on either branch.
+} })
 
 // reportWorktreeRemoval puts the completed removal in front of the operator.
 // The agent that made the call may end its turn without relaying anything, and
@@ -2097,255 +1861,8 @@ async function reportWorktreeRemoval(args: HostToolArgs, context: ToolContext, e
   workStateReporter.enqueueNotice(context.sessionID, `Concord removed the worktree of ${workID}.`)
 }
 
-const WORKER_ABANDON_OPERATION = "worker_abandon"
-
-async function executeWorkerReconcile(args: HostToolArgs, context: ToolContext): Promise<HostConcordEnvelope> {
-  const operation = "worker_reconcile"
-  const requestID = `${context.sessionID}-${context.messageID}`
-  if (!validateGeneratedPayload("work_transition_worker_reconcile_input", args.input)) return adapterError("concord_work_transition", operation, requestID, "invalid_tool_input", `worker_reconcile input failed the generated contract: ${payloadFailureMessage("work_transition_worker_reconcile_input", args.input)}`)
-  const input = args.input as { work_id: string; attempt_id: string; task_part_id: string; idempotency_key: string }
-  const key = (phase: string) => `worker-reconcile-${createHash("sha256").update(`${phase}\0${input.idempotency_key}`).digest("hex")}`
-  const prepared = await invokeConcordOperation("concord_work_transition", { ...args, input: { ...args.input, idempotency_key: key("prepare") } }, context)
-  if (prepared.outcome !== "ok") return prepared
-  const recovery = (prepared.result as any)?.worker_recovery
-  if (!validateGeneratedPayload("worker_recovery_context", recovery)) return adapterError("concord_work_transition", operation, requestID, "malformed_core_response_operator", "the core supplied no closed original-attempt recovery context")
-  let result: AgentResultEnvelope
-  let recorded = false
-  try {
-    const mismatch = dispatchDirectoryMismatch(recovery.worker_worktree, await resolveSessionDirectory(context))
-    if (mismatch) throw new Error(mismatch)
-    result = await reconcileRetainedWorker(recovery as WorkerRecoveryContext, input.work_id, input.attempt_id, input.task_part_id, { credentials: credentialsOverride ?? undefined, evidenceRunner: runner, sessionReader: hostSessionReader() ?? undefined, workerDirectory: recovery.worker_worktree, onRecorded: () => { recorded = true } }, context.abort)
-  } catch (error) {
-    // The composite catch spans the retained-report proof read and the
-    // routine that submits evidence, so it cannot prove the composite
-    // stopped before any submission: the refusal carries the underlying
-    // cause and reconciles the original attempt.
-    return adapterError("concord_work_transition", operation, requestID, "unknown_effect", `retained-report recovery stopped: ${String(error)}`)
-  }
-  if (result.outcome !== "ok") {
-    if (recorded) {
-      dispatchWindows().releaseRetained(recovery.coordinator_session, input.attempt_id, recovery.dispatch.lane_id)
-      return adapterError("concord_work_transition", operation, requestID, "worker_reconcile_failed_recorded", result.error?.message ?? "the original worker attempt failed", { work_id: input.work_id, attempt_id: input.attempt_id, lifecycle_state: "failed" })
-    }
-    return adapterError("concord_work_transition", operation, requestID, "unknown_effect", result.error?.message ?? "worker reconciliation returned no completion")
-  }
-  const receipt = await invokeConcordOperation("concord_work_transition", { ...args, input: { ...args.input, idempotency_key: key("receipt") } }, context)
-  if (receipt.outcome !== "ok" || (receipt.result as any)?.worker_recovery?.lifecycle_state !== "completed") return adapterError("concord_work_transition", operation, requestID, "unknown_effect", "the worker evidence was acknowledged, but the matching completed-attempt receipt is unavailable")
-  dispatchWindows().releaseRetained(recovery.coordinator_session, input.attempt_id, recovery.dispatch.lane_id)
-  return receipt
-}
-
-function workerAbandonToken(idempotencyKey: string): string {
-  return createHash("sha256").update(`concord_work_transition.${WORKER_ABANDON_OPERATION}\0${idempotencyKey}`).digest("hex")
-}
-
-// ownRowAbandonRefusal reports whether an abandonment refusal is the
-// worktree-ownership gate naming the calling session itself as the live
-// holder. The store's live-occupancy refusal writes the holder's session ref
-// into the detail (validateNoLiveWorkerSession in internal/store/
-// worker_lanes.go), so the adapter can compare the named holder with the
-// calling session it owns. Both refusal shapes carry the gate kind, and both
-// release through session_vacate when the holder is this session; a refusal
-// naming any other session keeps the operator-owned recovery.
-export function ownRowAbandonRefusal(message: string, sessionID: string): boolean {
-  if (!message.includes("worktree_ownership_conflict")) return false
-  if (!sessionID) return false
-  return message.includes(`session ${sessionID} still holds the worker attempt worktree`) || message.includes(`session ${sessionID} holds a legacy occupancy row`)
-}
-
-async function executeWorkerAbandon(args: HostToolArgs, context: ToolContext): Promise<HostConcordEnvelope> {
-  const requestID = `${context.sessionID}-${context.messageID}`
-  const leaseFault = hostLeaseFault()
-  if (leaseFault) return adapterError("concord_work_transition", WORKER_ABANDON_OPERATION, requestID, "host_lease_missing", `${leaseFault}; no worker attempt was closed`)
-  const input = args.input
-  if (!validateGeneratedPayload("work_transition_worker_abandon_input", input)) {
-    return adapterError("concord_work_transition", WORKER_ABANDON_OPERATION, requestID, "invalid_tool_input", `worker_abandon input failed the generated contract: ${payloadFailureMessage("work_transition_worker_abandon_input", input)}`)
-  }
-  const abandonInput = input as { work_id: string; attempt_id: string; lane_id: string; detail: string; idempotency_key: string }
-  const lane = agentLanes.find((candidate) => candidate.id === abandonInput.lane_id)
-  if (!lane) return adapterError("concord_work_transition", WORKER_ABANDON_OPERATION, requestID, "invalid_tool_input", `worker_abandon does not recognize lane ${JSON.stringify(abandonInput.lane_id)}`)
-  const token = workerAbandonToken(abandonInput.idempotency_key)
-  const abandonEventID = `worker-abandon-${token}`
-  const result = await abandonWorkerAttempt(lane, { work_id: abandonInput.work_id, attempt_id: abandonInput.attempt_id }, abandonInput.detail, {
-    credentials: credentialsOverride ?? undefined,
-    evidenceRunner: runner,
-    abandonEventID,
-    failureAttribution: hostAbandonmentObservation(abandonInput.detail, { work_id: abandonInput.work_id, attempt_id: abandonInput.attempt_id, lane_id: abandonInput.lane_id, event_id: abandonEventID }),
-  }, context.abort, () => { dispatchWindows().releaseRetained(context.sessionID, abandonInput.attempt_id, abandonInput.lane_id) })
-  // The receipt follows the explicit committed fact the abandon route
-  // returned: the CLI success result. A committed close runs the receipt
-  // before any refusal vocabulary is matched: its envelope carries the
-  // coordinator's own detail as the diagnostic, so a detail quoting a
-  // refusal shape must never reroute the close through recovery below.
-  // A refusal never reaches the receipt or claims the attempt was closed:
-  // a none effect reports the core
-  // message, a possible effect keeps the reconcile instruction, and an
-  // untyped failure reports the uncertain effect.
-  if (result.committed) {
-    const receipt = await invokeConcordOperation("concord_work_transition", args, context)
-    if (receipt.outcome === "ok") {
-      return receipt
-    }
-    return workerAbandonReceiptFailure(requestID, receipt)
-  }
-  const message = result.envelope.error?.message ?? "worker abandonment returned no diagnostic"
-  // Own-row recovery: the gate refused because the calling session itself
-  // still occupies the worker attempt worktree. The named release route
-  // (vacate, abandon retry, re-land) runs here instead of falling to the
-  // operator; a foreign holder never reaches it.
-  if (ownRowAbandonRefusal(message, context.sessionID)) {
-    return recoverOwnRowAbandon(args, context, abandonInput, lane, token, requestID, message)
-  }
-  const effectState = result.envelope.error?.details?.effect_state
-  if (effectState === "none") {
-    return adapterError("concord_work_transition", WORKER_ABANDON_OPERATION, requestID, "worker_abandon_refused_none", message)
-  }
-  if (effectState === "possible") {
-    // The refusal keeps the same-abandon receipt instruction and the
-    // underlying durable cause; the reconcile recovery replaces the retry,
-    // which cannot confirm a receipt the adapter never read.
-    return adapterError("concord_work_transition", WORKER_ABANDON_OPERATION, requestID, "worker_abandon_refused_possible", `the abandonment has an uncertain effect: ${message}; reconcile the original worker_abandon attempt and its receipt`)
-  }
-  return adapterError("concord_work_transition", WORKER_ABANDON_OPERATION, requestID, "worker_abandon_refused_possible", "worker abandonment could not be recorded", { abandon_error_message: message })
-}
-
-function workerAbandonReceiptFailure(requestID: string, receipt: CoreConcordEnvelope, steps: string[] = []): HostConcordEnvelope {
-  const error = record(receipt.error) ? receipt.error : {}
-  return adapterError("concord_work_transition", WORKER_ABANDON_OPERATION, requestID, "worker_abandon_receipt_failed", "the worker attempt was closed, but the durable replay receipt was not confirmed", {
-    recovery_stopped_at: "worker_abandon_receipt",
-    ...(typeof receipt.outcome === "string" ? { receipt_outcome: receipt.outcome } : {}),
-    ...(typeof error.kind === "string" ? { receipt_error_kind: error.kind } : {}),
-    ...(typeof error.message === "string" ? { receipt_error_message: error.message } : {}),
-    ...(steps.length ? { recovery_steps: steps } : {}),
-  })
-}
-
-// recoverOwnRowAbandon releases the calling session's occupancy and closes the
-// attempt with the same derived event identity. The session re-lands before
-// the durable receipt, whose authority requires a linked worktree. A confirmed
-// close retires the exact dispatch authorization independently of the receipt;
-// later failures report the completed steps and do not retain a closed worker.
-async function recoverOwnRowAbandon(args: HostToolArgs, context: ToolContext, abandonInput: { work_id: string; attempt_id: string; lane_id: string; detail: string; idempotency_key: string }, lane: AgentLane, token: string, requestID: string, refusedMessage: string): Promise<HostConcordEnvelope> {
-  const steps: string[] = []
-  const recoveryNotices = (): Array<Record<string, unknown>> => steps.map((taken) => ({ kind: "worker_abandon_recovery", source_id: "adapter", details: { step: taken } }))
-  // The re-land returns the session to the claimed worktree the vacate moved
-  // it out of, so the recovery leaves it where it started. A refused abandon
-  // retry needs it as much as a closed one: after the vacate the session sits
-  // at the registered main checkout, so stopping there strands the
-  // coordinator — the re-land runs before that stop too, and its outcome
-  // rides the answer as a step either way.
-  const reland = async (): Promise<boolean> => {
-    const relandWarnings: string[] = []
-    let landed = false
-    try {
-      const relanded = await executeWorkStart({ work_id: abandonInput.work_id }, context, relandWarnings)
-      if (record(relanded) && relanded.outcome === "ok") {
-        landed = true
-        const relandPath = typeof relanded.worktree_path === "string" ? relanded.worktree_path : null
-        // The confirmed re-land supersedes the vacate's intermediate move
-        // notice: the composed answer must point the agent at the destination
-        // the session finally occupies, so the pending main-checkout notice
-        // is replaced before the result drains the queue. The notice rides
-        // the composed answer here rather than the re-land envelope, whose
-        // output this sequence discards.
-        if (relandPath) recordMoveNotice(context.sessionID, moveNoticeText(relandPath, dispatchRequiresNextTurn(context.sessionID)))
-        steps.push(`work_start: the session re-landed in ${relandPath ?? "the claimed worktree"}`)
-      } else {
-        const failure = record(relanded) && record(relanded.error) ? relanded.error : null
-        const detail = failure && typeof failure.message === "string" ? failure.message : "no diagnostic"
-        steps.push(`work_start re-land refused: ${detail}; replay work_start once the session's tool context runs in the claimed worktree`)
-      }
-    } catch (error) {
-      if (error instanceof AdapterContractDefect) throw error
-      const detail = error instanceof Error ? error.message : String(error)
-      steps.push(`work_start re-land refused: ${detail}; replay work_start once the session's tool context runs in the claimed worktree`)
-    }
-    for (const warning of relandWarnings) steps.push(`work_start warning: ${warning}`)
-    return landed
-  }
-  // 1. session_vacate: the named release route. The composed route records
-  // the release at the core and moves the session to the registered main
-  // checkout the core derives, never a destination this adapter names.
-  const vacateArgs: HostToolArgs = { operation: "session_vacate", input: { idempotency_key: `${requestID}-abandon-vacate` } }
-  let vacateCommitted = false
-  let vacateEffectState: "none" | "possible" | undefined
-  try {
-    const vacated = await invokeConcordOperation("concord_work_transition", vacateArgs, context)
-    if (!record(vacated) || vacated.outcome !== "ok") {
-      const failure = record(vacated) && record(vacated.error) ? vacated.error : null
-      if (failure && (failure.effect_state === "none" || failure.effect_state === "possible")) {
-        vacateEffectState = failure.effect_state
-      }
-      const detail = failure && typeof failure.message === "string" ? failure.message : "the core refused the vacate"
-      throw new Error(detail)
-    }
-    vacateCommitted = true
-    const moved = await moveSessionToRegisteredMainCheckout(vacateArgs, context, vacated)
-    if (!record(moved) || moved.outcome !== "ok") {
-      const failure = record(moved) && record(moved.error) ? moved.error : null
-      const detail = failure && typeof failure.message === "string" ? failure.message : "the vacate move did not confirm a landing"
-      throw new Error(detail)
-    }
-  } catch (error) {
-    if (error instanceof AdapterContractDefect) throw error
-    const message = error instanceof Error ? error.message : String(error)
-    // A committed core vacate records the relocation request durably even
-    // when its host move or readback failed afterwards; the occupancy rows
-    // stand until the vacate-landing verb records the verified landing. The
-    // stop reports a possible effect and names the committed request as a
-    // step (TS7 durable-outcome honesty); a refusal before the write keeps
-    // none.
-    if (vacateCommitted) steps.push("session_vacate: the relocation request is recorded at the core; the occupancy rows stand until the landing is recorded")
-    return adapterError("concord_work_transition", WORKER_ABANDON_OPERATION, requestID, (vacateCommitted ? "possible" : vacateEffectState ?? "none") === "possible" ? "worker_abandon_refused_possible" : "worker_abandon_refused_none", "the own-row recovery stopped at session_vacate", { recovery_stopped_at: "session_vacate", abandon_error_message: refusedMessage, recovery_error_message: message, ...(steps.length ? { recovery_steps: steps } : {}) })
-  }
-  steps.push("session_vacate: the session moved to the registered main checkout and the verified landing released its occupancy rows")
-  // 2. one abandon retry. The identity derives from the same idempotency key,
-  // so the retry carries the event identity the refused first write never
-  // committed; it either closes the attempt or reports why it still cannot.
-  const retry = await abandonWorkerAttempt(lane, { work_id: abandonInput.work_id, attempt_id: abandonInput.attempt_id }, abandonInput.detail, {
-    credentials: credentialsOverride ?? undefined,
-    evidenceRunner: runner,
-    abandonEventID: `worker-abandon-${token}`,
-    failureAttribution: hostAbandonmentObservation(abandonInput.detail, { work_id: abandonInput.work_id, attempt_id: abandonInput.attempt_id, lane_id: abandonInput.lane_id, event_id: `worker-abandon-${token}` }),
-  }, context.abort, () => { dispatchWindows().releaseRetained(context.sessionID, abandonInput.attempt_id, abandonInput.lane_id) })
-  // A recorded abandonment is itself an error envelope — the attempt is
-  // closed, so its result is terminal — and the retry's committed fact comes
-  // from its CLI success result. Any other outcome is a refusal of the retry
-  // (transport, signing, or a durable gate that still refuses) and reports
-  // its bound effect: none carries the core message without a closure claim,
-  // possible keeps the reconcile instruction.
-  const retryEffectState = retry.envelope.error?.details?.effect_state
-  if (!retry.committed) {
-    const retryMessage = retry.envelope.error?.message ?? "the abandon retry returned no diagnostic"
-    // The vacate moved this session to the registered main checkout, so the
-    // re-land runs before the stop: a refusal that ended at the main checkout
-    // would strand the coordinator away from its claimed worktree.
-    await reland()
-    return adapterError("concord_work_transition", WORKER_ABANDON_OPERATION, requestID, retryEffectState === "none" ? "worker_abandon_refused_none" : "worker_abandon_refused_possible", retryEffectState === "none" ? retryMessage : "the own-row recovery released the occupancy row, but the abandon retry still refused", { recovery_stopped_at: "worker_abandon_retry", abandon_error_message: refusedMessage, recovery_error_message: retryMessage, ...(steps.length ? { recovery_steps: steps } : {}) })
-  }
-  steps.push("worker_abandon: the retry closed the dispatched attempt")
-  // 3. Return to the linked worktree before the receipt's authority check.
-  if (!await reland()) {
-    return adapterError("concord_work_transition", WORKER_ABANDON_OPERATION, requestID, "worker_abandon_receipt_failed", "the worker attempt was closed, but the session did not re-land in the claimed worktree; the durable replay receipt was not recorded", { recovery_stopped_at: "work_start", recovery_steps: steps })
-  }
-  // 4. Record the durable receipt from the confirmed linked worktree.
-  const receipt = await invokeConcordOperation("concord_work_transition", args, context)
-  if (receipt.outcome !== "ok") {
-    return workerAbandonReceiptFailure(requestID, receipt, steps)
-  }
-  steps.push("worker_abandon: the durable replay receipt is recorded")
-  return { ...receipt, warnings: [...(Array.isArray(receipt.warnings) ? receipt.warnings : []), ...recoveryNotices()] } as HostConcordEnvelope
-}
-
-// A claimed worktree is only the session's worktree when the session runs in
-// it. work_start moves the session through the same route; worktree_claim
-// recorded the claim durably but never moved the session, so a later lane
-// dispatch inherited the session's original directory and wrote its delivery
-// into the wrong tree (issue #822). The move runs after the claim succeeds,
-// the landing is read back from the host rather than assumed, and a miss is
-// reported as a typed refusal whose remedy is a replay: the claim is
-// idempotent, so retrying worktree_claim adopts the durable claim and retries
-// only the move.
+// A durable claim does not prove host placement. Read back the landing and
+// name replay on a miss; the idempotent claim lets replay retry only placement.
 export async function moveSessionToClaimedWorktree(args: HostToolArgs, context: ToolContext, envelope: HostConcordEnvelope): Promise<HostConcordEnvelope> {
   if (args?.operation !== "worktree_claim") return envelope
   if (!record(envelope) || envelope.outcome !== "ok") return envelope
@@ -2362,10 +1879,7 @@ export async function moveSessionToClaimedWorktree(args: HostToolArgs, context: 
     const message = error instanceof Error ? error.message : String(error)
     return adapterError("concord_work_transition", "worktree_claim", requestID, "unknown_effect", `${message}; the claim is durable: reconcile the recorded claim, then replay the same worktree_claim request to finish host placement`, claimIdentity(args))
   }
-  // The move was accepted but the landing cannot be proved, so every refusal
-  // past the move records the pending target: dispatch stays closed for this
-  // session until a confirmed landing, a vacate, or the durable gate takes
-  // over (issue #1322).
+  // Retain an accepted but unconfirmed destination for placement recovery.
   let landed: string
   try {
     landed = await hostControlPlane().sessionDirectory(context.sessionID, context.abort)
@@ -2400,15 +1914,14 @@ export async function moveSessionToClaimedWorktree(args: HostToolArgs, context: 
     // never asserts that nothing was recorded.
     return adapterError("concord_work_transition", "worktree_claim", requestID, "unknown_effect", `${message}; the landing record is unsettled because the verb commits before it answers and the source occupancy stands: reconcile the recorded claim, then replay the same worktree_claim request to confirm or complete the landing record`, claimIdentity(args))
   }
-  // The landing is confirmed, so this session's active claimed worktree is
-  // armed for the dispatch check.
+  // Remember only the confirmed active claim for later relocation.
   armClaimedWorktree(context.sessionID, path)
   clearWorkStartContinuation(context.sessionID)
   if (!samePath(context.directory, path)) armTurnMoveBoundary(context.sessionID)
   // The confirmed move is a fact the agent must act on, so the result this
   // call encodes carries the notice: the new path, the paths-under-it rule,
   // and the surfaces the move made stale.
-  recordMoveNotice(context.sessionID, moveNoticeText(path, dispatchRequiresNextTurn(context.sessionID)))
+  recordMoveNotice(context.sessionID, moveNoticeText(path, questionRequiresNormalChat(context.sessionID)))
   return envelope
 }
 
@@ -2550,7 +2063,7 @@ export async function moveSessionToRegisteredMainCheckout(args: HostToolArgs, co
   if (premoved || moved || !samePath(context.directory, destination)) armTurnMoveBoundary(context.sessionID)
   // The verified landing moved the session to the registered main checkout,
   // so the result this call encodes carries the move notice.
-  recordMoveNotice(context.sessionID, moveNoticeText(destination, dispatchRequiresNextTurn(context.sessionID)))
+  recordMoveNotice(context.sessionID, moveNoticeText(destination, questionRequiresNormalChat(context.sessionID)))
   return envelope
 }
 
@@ -2558,48 +2071,11 @@ export async function moveSessionToRegisteredMainCheckout(args: HostToolArgs, co
 // queues the notice that tells a neighbouring session the directory is gone.
 export const WORKTREE_REMOVAL_OPERATIONS = new Set(["worktree_reclaim", "worktree_destroy", "worktree_audit_reclaim"])
 
-async function executeWorkTransition(args: HostToolArgs, context: ToolContext, staleness: ReleaseStaleness | null): Promise<HostConcordEnvelope> {
-  if (args?.operation === WORKER_ABANDON_OPERATION) return executeWorkerAbandon(args, context)
-  if (args?.operation === "worker_reconcile") return executeWorkerReconcile(args, context)
+async function executeWorkTransition(args: HostToolArgs, context: ToolContext, _staleness: ReleaseStaleness | null): Promise<HostConcordEnvelope> {
   if (WORKTREE_REMOVAL_OPERATIONS.has(args?.operation)) {
     const envelope = await invokeConcordOperation("concord_work_transition", args, context)
     await reportWorktreeRemoval(args, context, envelope)
     return envelope
-  }
-  if (args?.operation === "workflow_action") {
-    // CD-0191: the stale-release dispatch gate. A dispatch_worker action from
-    // a session whose pinned release differs from the installed release
-    // refuses here, before any core call, so no worker attempt opens on lane
-    // text the install replaced. Every other action keeps working. The
-    // refusal rides the dispatch surface's adapter-gate envelope
-    // (unauthorized_dispatch, boundary release_stale, refusal_kind
-    // stale_context in the details): TS7 pins adapter-origin tool-envelope
-    // error kinds to the transport set, and this envelope is the shape
-    // dispatch refusals already return.
-    const staleDispatch = record(args?.input) && args.input.action_id === "dispatch_worker" ? staleness : null
-    if (staleDispatch) {
-      const input = args.input
-      const fields = record(input.fields) ? input.fields : {}
-      const partial: { work_id?: string; lane_id?: string } = {}
-      if (typeof input.work_id === "string") partial.work_id = input.work_id
-      if (typeof fields.lane_id === "string") partial.lane_id = fields.lane_id
-      return errorEnvelopeForLane(null, partial, "error", "unauthorized_dispatch", staleReleaseDispatchRefusal(staleDispatch), "contact_operator", {
-        details: { boundary: "release_stale", refusal_kind: "stale_context", pinned_release: staleDispatch.pinnedRelease, installed_release: staleDispatch.installedRelease, remedy: STALE_RELEASE_REMEDY },
-      })
-    }
-    const request = laneDispatchRequest(args)
-    if (request && "error" in request) {
-      const fields = args?.input?.fields
-      const partial: { lane_id?: string } = {}
-      if (fields && typeof fields === "object" && !Array.isArray(fields)) {
-        const candidate = (fields as Record<string, unknown>).lane_id
-        if (typeof candidate === "string") partial.lane_id = candidate
-      }
-      return errorEnvelopeForLane(null, partial, "error", "invalid_input", request.error, "retry_same_request")
-    }
-    if (request) {
-      return dispatchLaneWorker(request, { context, invoke: invokeConcordOperation })
-    }
   }
   if (args?.operation === "session_vacate") {
     const input = args.input
@@ -2664,52 +2140,9 @@ async function executeWorkTransition(args: HostToolArgs, context: ToolContext, s
     args = { ...args, input: { ...(record(args.input) ? args.input : {}), host_pid: process.pid } }
   }
   const envelope = await invokeConcordOperation("concord_work_transition", args, context)
-  if (args?.operation === "workflow_action") {
-    const launched = await launchRetriedWorkerDispatch(args, context, envelope)
-    if (launched !== null) return launched
-  }
   const settled = await vacateTerminalWorktree(args, context, envelope)
   const landed = await moveSessionToClaimedWorktree(args, context, settled)
   return landed
-}
-
-// launchRetriedWorkerDispatch routes a combined rejection's committed retry
-// dispatch through the one post-commit host launch owner (CD-0198 D5). The
-// core's response carries the exact admitted retry dispatch — the derived
-// packet, the minted attempt identity, the digest the fresh window opened
-// for, and the claimed worktree — and this boundary arms the launch window
-// from those values alone. An envelope that carries no retry members (a
-// rejection-only response, an error such as the escalation wall, or any
-// other action) returns null and the ordinary path continues untouched; no
-// launch is attempted for a response that did not commit one.
-//
-// CD-0198 D5: the acknowledged output preserves the committed rejection's
-// mutation receipt beside the Task directive the launch owner produces:
-// changed_refs, next_valid_intents, and the core result receipt ride the
-// launch envelope under their core names. The copies come from the core
-// envelope the invoke boundary already validated against the generated
-// contracts, so no second validator runs; retry_worker_packet stays off the
-// copy because the launch consumed those exact bytes into the armed window
-// and the digest names the durable copy the store holds.
-async function launchRetriedWorkerDispatch(args: HostToolArgs, context: ToolContext, envelope: unknown): Promise<HostConcordEnvelope | null> {
-  if (!record(args?.input) || args.input.action_id !== "reject_worker_result") return null
-  if (!record(envelope) || envelope.outcome !== "ok") return null
-  const result = mutationResult(envelope)
-  if (!result || result.retry_worker_packet === null || typeof result.retry_worker_packet !== "object") return null
-  const attemptID = typeof result.retry_attempt_id === "string" ? result.retry_attempt_id : ""
-  const digest = typeof result.worker_packet_digest === "string" ? result.worker_packet_digest : ""
-  const worktree = typeof result.worker_worktree === "string" ? result.worker_worktree : ""
-  const launch = envelope.replayed === true
-    ? errorEnvelopeForLane(null, { attempt_id: attemptID }, "error", "unauthorized_dispatch", `the combined rejection replay names retry attempt ${attemptID}; it cannot recreate a lost dispatch window or authorize another Task. Recover the original attempt with worker_reconcile, or worker_abandon when no worker report exists; never redispatch this attempt`, "reconcile_operation", { details: { retry_attempt_id: attemptID, committed_dispatch: true } })
-    : await dispatchRetriedLaneWorker({ packet: result.retry_worker_packet, packetDigest: digest, attemptID, authorizedWorktree: worktree }, { context, credentials: credentialsOverride ?? undefined })
-  if (envelope.replayed === true) launch.error!.retry_safe = false
-  if (!record(launch)) return launch as HostConcordEnvelope
-  const receipt = Array.isArray(envelope.changed_refs) ? envelope.changed_refs : undefined
-  const intents = Array.isArray(envelope.next_valid_intents) ? envelope.next_valid_intents : undefined
-  const { retry_worker_packet: _consumed, ...resultReceipt } = result
-  const projected = record(envelope.result) && Object.hasOwn(envelope.result, "projection_reference")
-  return { ...launch, changed_refs: receipt, next_valid_intents: intents, result: projected ? envelope.result : resultReceipt,
-    ...(projected ? { warnings: envelope.warnings } : {}) } as HostConcordEnvelope
 }
 
 // vacateTerminalWorktree moves a session out of a work item's worktree after

@@ -1,114 +1,50 @@
-# CD-0191: A stale session sees its replaced release and cannot dispatch a worker
+# CD-0191: A stale session sees its replaced release
 
 - **Status:** Accepted
 - **Date:** 2026-09-28
-- **Scope:** The adapter's installed-versus-session release comparison at the
-  tool boundary, the results and `dispatch_worker` refusal of a stale
-  session, and the installer's retention output
-- **Related:** CD-0102, CD-0111, CD-0132
-- **Approval:** The operator approved this decision on work item
-  `work-fd94329981b8575144fe93ed`, with the objective and the design
-  recorded in its dispatch packet.
-- **Preserves:** CD-0111 D1's pinned pair, CD-0111 D2's lease-held retention,
-  and the closed envelope and refusal vocabulary
+- **Scope:** Installed-versus-session release notices and retained-release holders
+- **Related:** CD-0111, CD-0132, CD-0242
 
 ## Context
 
-CD-0111 pins a session's core calls to the release it started on, so an
-install never breaks a running session. The lane agent definitions under the
-host config directory are different. OpenCode loads them once at process
-start and never hot-reloads them, while `scripts/install.py` rewrites them in
-place on every install. After an install, every still-running session
-dispatches lanes with replaced lane text while believing it is current.
-
-No layer detected this. The adapter compared its stamped release root only
-with the core's lease at session start and never against the host's
-`current` symlink at call time. On 2026-09-28 this burned a terminal worker
-attempt: a verify lane self-failed under a predicate rule its process still
-held in memory after a lane fix shipped.
+CD-0111 pins a session's core and adapter pair. Installation can repoint the
+current release while an existing session continues using that pair.
 
 ## Decision
 
-The release-currency boundary stands: stale packet and release checks remain, and no relaunch repairs stale authority by itself. Each launch carries its own authority and safety checks ([CD-0242 D6](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-attempts-carry-their-own-authority-not-a-budget)).
-
 ### D1. The adapter owns installed-versus-session staleness
 
-At every concord tool call the adapter derives the data root as the parent of
-its stamped release root and reads the `current` symlink beside it. Any
-difference between the pinned release and the installed release is stale.
-The comparison costs one readlink per call. An absent or unreadable link is
-never stale: staleness is never guessed from a missing observation.
+At each Concord tool call, the adapter reads `current` beside its stamped
+release root. A different installed release is stale in either direction,
+including rollback. An absent or unreadable link is no observed mismatch;
+staleness is not guessed from absence.
 
-Inequality is the rule in both directions. An upgrade and a rollback both
-repoint `current` and rewrite the lane files a running process holds in
-memory, so both carry the same mismatch hazard.
+### D2. A stale result carries one bounded notice
 
-### D2. Every result from a stale session carries one bounded notice
+Each stale result names the pinned and installed versions and the reload
+remedy in the warnings channel. If warnings are full, the notice uses the
+tool-result output layer. Existing calls keep working under their pinned pair.
+The notice supplies no workflow authority and imposes no subagent launch gate.
 
-A stale session's every result carries one warning notice that names both
-versions and the restart remedy. The notice rides the envelope's bounded
-warnings channel in the closed notice shape, so no schema changes. When the
-core envelope already fills the warnings array, the same notice rides the
-tool-result output layer. Reads and every other mutation keep succeeding.
+### D4. Installation names retained-release holders
 
-### D3. The dispatch_worker action refuses while stale
-
-The adapter refuses a stale session's `dispatch_worker` action before any
-core call, so no worker attempt opens on lane text the install replaced. The
-refusal rides the dispatch surface's adapter-gate envelope, the shape the
-turn-move gate already uses: `unauthorized_dispatch` with the
-`release_stale` boundary, and the `stale_context` refusal kind in the error
-details. [TS7 section 9](../agent-result-envelope.md#9-adapter-failures-and-local-refusals)
-also admits adapter-origin authorization and recovery refusals, not only
-transport failures. It does not admit `stale_context` as an adapter-origin
-kind. This decision changes no schema, so the stale-context classification
-rides the details member the dispatch surface owns.
-
-Every other action keeps working. A stale session can finish its item,
-record its evidence, and reach a terminal state. Only new worker attempts
-close.
-
-### D4. The installer names the holder sessions
-
-The installer's lease observation already decides which release directories
-to retain. Its retention output now enumerates the holder sessions per
-retained release, each with its process id and its directory or worktree, so
-the operator knows exactly which sessions to restart.
+Retention output enumerates sessions holding each retained release, with
+process identity and directory or worktree. The operator can identify which
+sessions need reload. Lease-held release retention remains under CD-0111.
 
 ## Alternatives considered
 
-- Refuse every call while stale. Rejected: this bricks every live session on
-  each install and contradicts CD-0111's no-restart guarantee for reads.
-- Warn only and refuse nothing. Rejected: the terminal-attempt harm stays
-  open, because a warning does not stop a stale dispatch from launching a
-  worker on replaced lane text.
-- Compare releases only when the installed release is newer. Rejected: a
-  rollback leaves sessions dispatching against mismatched lane text with no
-  signal.
-- Compare in the core against a well-known path. Rejected: each release's
-  core derives its release from its own binary and cannot see host install
-  state.
-- Add a new envelope field for staleness. Rejected: the warnings channel
-  already carries bounded notices, and a schema change contradicts the
-  closed vocabulary.
-- List holder sessions through a separate command. Rejected: the install
-  moment is when the operator needs the list, and the installer already
-  queries the leases.
+- Refuse every stale call. Rejected: it would break running sessions on install.
+- Guess staleness from version ordering. Rejected: rollback also changes the pair.
+- Add another envelope field. Rejected: bounded notices already have an owner.
 
 ## Consequences
 
-A stale session stays usable: reads and non-dispatch mutations work, and
-every reply names both versions and the restart remedy. New worker attempts
-cannot open on replaced lane text, so no attempt burns on a rule the process
-no longer holds. The refusal precedes any core call, so it records nothing
-and needs no reconciliation. The install moment now answers the operator's
-question directly: which sessions hold which release, and which to restart.
+A running session keeps its pinned pair and sees the observed release mismatch.
+Concord creates no native Task admission or worker-dispatch refusal.
 
 ## Verification
 
-- `bun test adapter/opencode/` proves the resolver, the per-result notice,
-  the full-warnings fallback, and the dispatch refusal before any core call.
-- `python3 scripts/test-installer.py` proves the retention output names the
-  holder sessions per retained release.
-- `python3 scripts/check-doc-contract.py` proves this record's outline and
-  prose against the decision contract.
+- `bun test adapter/opencode/` checks release comparison and bounded notices.
+- `python3 scripts/test-installer.py` checks retained-release holder output.
+- `python3 scripts/check-doc-contract.py` checks the outline.

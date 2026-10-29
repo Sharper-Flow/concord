@@ -4,7 +4,7 @@
   },
   "date": "2026-09-24T00:00:00Z",
   "doc_contract_profile": "current",
-  "home_domain_id": "worker-lanes",
+  "home_domain_id": "agent-adapter",
   "id": "CD-0178",
   "kind": "decision",
   "law_relations": [
@@ -39,11 +39,11 @@
   },
   "sha256": "sha256:800ba5329722a45a8d366b4bc5e460bfc5c375050929342bf780786d2595b3fd",
   "status": "accepted",
-  "summary": "Lane workers stay native task subagents in the claimed worktree their assignment names, the coordinator's worktree or a concurrent group's member worktree (CD-0242 D5); a work item that touches a second repository gets a coordinator session in each repository, every verified landed session of the receiving Project may consume its shared handoff bind (CD-0182), and a worktree_claim for a Project in another repository refuses with cross_repository_claim before it creates a worktree; occupancy becomes one row per session carrying the host process identity, released by session_vacate, a verified landing elsewhere, or the end of the host process, and the caller-supplied session observation is no longer a release or removal input; removal content gates stay unchanged.",
+  "summary": "Native Task execution belongs to the host, without child-directory or producer attestation. Each repository has its own coordinator session and verified Project landing. Cross-repository worktree claims refuse before creation. Occupancy remains one row per session with checked process liveness, released by vacate, verified landing elsewhere or process end. Live occupancy blocks ordinary removal and content gates remain unchanged.",
   "tags": [
     "worktrees",
-    "worker-lanes",
+    "host",
     "occupancy"
   ],
-  "title": "Lane workers stay native subagents, and each repository gets its own coordinator session"
+  "title": "Each repository gets its own coordinator session"
 }

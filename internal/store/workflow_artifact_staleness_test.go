@@ -234,7 +234,7 @@ func foldStalenessState(t *testing.T, s *Store, workID string, definition Workfl
 	if err := tx.QueryRowContext(ctx, `SELECT current_step FROM workflow_instances WHERE work_id=?`, workID).Scan(&currentStep); err != nil {
 		t.Fatal(err)
 	}
-	state, _, _, foldErr := loadWorkflowAdmissionStateTxForRegistry(ctx, tx, workID, definition, currentStep, "staleness_test", BuiltinWorkflowRegistry())
+	state, _, foldErr := loadWorkflowAdmissionStateTxForRegistry(ctx, tx, workID, definition, currentStep, "staleness_test", BuiltinWorkflowRegistry())
 	if foldErr != nil {
 		t.Fatal(foldErr)
 	}

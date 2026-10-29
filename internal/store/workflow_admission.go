@@ -4,18 +4,13 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
-	"fmt"
 )
 
 // WorkflowAdmissionState is the abstract state workflow action admission
 // decides over. The tx-scoped loader derives it once, and workflowAdmit
 // consumes it so every admission site answers identically for the same state.
 type WorkflowAdmissionState struct {
-	Review                *WorkflowReviewState
-	ReviewLane            string
-	ReviewGroup           string
-	ReviewAcceptanceError *Failure
-	ReviewCorrective      bool
+	Review *WorkflowReviewState
 	// Step is the work item's current workflow step.
 	Step string
 	// Lifecycle is the work item's lifecycle.
@@ -39,10 +34,6 @@ type WorkflowAdmissionState struct {
 	// LawPinStaleError is the staleness boundary's refusal under the plain
 	// admission, nil when the pinned law is current.
 	LawPinStaleError error
-	// LawPinSelfError is the staleness boundary's refusal when the subject's
-	// own stale pin admits, nil when the boundary passes under that
-	// admission.
-	LawPinSelfError error
 	// BreakingNotices is the count of breaking hard-edge impact notices
 	// targeting the work.
 	BreakingNotices int64
@@ -60,28 +51,6 @@ type WorkflowAdmissionState struct {
 	// and confirm_premise refuses; only fresh production at the declared
 	// route target clears it.
 	ArtifactStale bool
-	// AttemptState is the latest worker attempt's lifecycle state.
-	AttemptState string
-	// AttemptCapabilityClass is that attempt's dispatch capability class.
-	AttemptCapabilityClass string
-	// PendingWorkerAuthorization has no observed launch outcome yet. It must
-	// be reconciled before the shared candidate can receive another writer.
-	PendingWorkerAuthorization bool
-	// LatestResultDisposition is the latest disposition action id over the
-	// worker results: accept_worker_result, accept_worker_evidence,
-	// reject_worker_result, record_worker_failure, or "" when none stands.
-	LatestResultDisposition string
-	// WorkerFailureRecovery reports an unsettled failed attempt the
-	// record_worker_failure recovery can record.
-	WorkerFailureRecovery bool
-	// CorrectionRecovery reports a completed result the reject_worker_result
-	// recovery can reject.
-	CorrectionRecovery bool
-	// ReviewResultAcceptance advertises an eligible Review result. Request
-	// binding replaces it with the exact requested attempt's capability.
-	ReviewResultAcceptance bool
-	// RefineReviewEvidenceAttemptID names the review available for hold-mode acceptance at refine.
-	RefineReviewEvidenceAttemptID string
 	// CorrectionRequestRecovery reports the delivery-gate corrective return
 	// stands open, with CorrectionRequestMissing naming the one missing
 	// prerequisite when it does not.
@@ -93,19 +62,6 @@ type WorkflowAdmissionState struct {
 	// payloads against it instead of re-entering the loader. It is nil when
 	// the step admits no correction request.
 	CorrectionRequestContext *WorkflowCorrectionContext
-	// UnconsumedUnboundRejection reports an unbound rejection at the
-	// current step no materialized dispatch has consumed yet.
-	UnconsumedUnboundRejection bool
-	// OracleOpenFindings is the count of the derived open ranked findings
-	// of an oracle-capable pin: the folded admission state stays
-	// a comparable value, so it carries the bound the dispatch refusal
-	// reads while the identity set itself is derived per surface from the
-	// one lineage reader. Zero on every pin that predates the acceptance
-	// oracle; dispatch refuses while the count exceeds
-	// WorkflowOpenOracleFindingsLimit instead of truncating blockers.
-	OracleOpenFindings int
-	// DispatchHold reports a dispatched worker holding the step's advance.
-	DispatchHold bool
 	// EvidenceRecoveryRoute reports an outstanding contract evidence
 	// requirement the recovery bind_evidence can settle.
 	EvidenceRecoveryRoute bool
@@ -222,24 +178,24 @@ func workflowFailureOf(err error) *Failure {
 // the caller's authoritative registry: correction routes resolve
 // their pins through it. A nil registry
 // selects the builtin registry.
-func loadWorkflowAdmissionStateTxForRegistry(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, currentStep, subject string, registry DefinitionRegistry) (WorkflowAdmissionState, []workflowVerificationRun, []workflowVerificationRun, error) {
+func loadWorkflowAdmissionStateTxForRegistry(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, currentStep, subject string, registry DefinitionRegistry) (WorkflowAdmissionState, []workflowVerificationRun, error) {
 	state := WorkflowAdmissionState{
 		Step:               currentStep,
 		RefinementWorkflow: workflowRefinementStepID(definition) != "",
 	}
 	if err := q.QueryRowContext(ctx, `SELECT wi.instance_state,(SELECT lifecycle FROM work_items WHERE id=wi.work_id),(SELECT count(*) FROM workflow_contracts wc WHERE wc.work_id=wi.work_id AND wc.superseded_by IS NULL) FROM workflow_instances wi WHERE wi.work_id=?`, workID).Scan(&state.InstanceState, &state.Lifecycle, &state.ActiveContracts); err != nil {
 		if err == sql.ErrNoRows {
-			return WorkflowAdmissionState{}, nil, nil, newFailure(KindProjectionNotFound, subject, "workflow instance is not recorded", false, "reread_entities")
+			return WorkflowAdmissionState{}, nil, newFailure(KindProjectionNotFound, subject, "workflow instance is not recorded", false, "reread_entities")
 		}
-		return WorkflowAdmissionState{}, nil, nil, wrapFailure(KindUnavailable, subject, "cannot read workflow admission state", true, "retry once the database is readable", err)
+		return WorkflowAdmissionState{}, nil, wrapFailure(KindUnavailable, subject, "cannot read workflow admission state", true, "retry once the database is readable", err)
 	}
 	active, err := outsideRepairActiveTx(ctx, q, workID)
 	if err != nil {
-		return WorkflowAdmissionState{}, nil, nil, err
+		return WorkflowAdmissionState{}, nil, err
 	}
 	state.OutsideRepairActive = active
 	if active || state.InstanceState == "outside_repair" {
-		return state, nil, nil, nil
+		return state, nil, nil
 	}
 	// A duplicated contract projection is the supersede recovery's subject:
 	// workflowAdmitSupersede admits its route on the count alone, and the
@@ -249,70 +205,58 @@ func loadWorkflowAdmissionStateTxForRegistry(ctx context.Context, q queryer, wor
 	// owns and every action still reaches its typed route.
 	l := workflowAdmissionLoad{ctx: ctx, q: q, workID: workID, definition: definition, currentStep: currentStep, subject: subject, duplicated: state.ActiveContracts > 1, registry: registry}
 	if err := l.staleness(&state); err != nil {
-		return WorkflowAdmissionState{}, nil, nil, err
-	}
-	if err := l.attemptAndReview(&state); err != nil {
-		return WorkflowAdmissionState{}, nil, nil, err
+		return WorkflowAdmissionState{}, nil, err
 	}
 	// Duplicate active contracts leave no single criteria set to review
 	// against, so no Review stands: every Review-gated action stays closed
 	// while the supersede recovery the duplicates require stays reachable.
 	review, reviewErr := loadWorkflowReviewState(ctx, q, workID)
 	if reviewErr != nil && l.duplicated && workflowDuplicateContractProjection(reviewErr) {
-		review, reviewErr = WorkflowReviewState{Findings: []WorkerReviewFinding{}, PublicationOutstanding: true}, nil
+		review, reviewErr = WorkflowReviewState{Findings: []ReviewFinding{}, PublicationOutstanding: true}, nil
 	}
 	if reviewErr != nil {
-		return WorkflowAdmissionState{}, nil, nil, reviewErr
+		return WorkflowAdmissionState{}, nil, reviewErr
 	}
 	state.Review = &review
-	// Authorization is not an observed start. The host may close an unstarted
-	// authorization through abandonment, whose liveness guard owns that fact.
-	// Every observed implementation start remains progress after termination.
-	var progressed bool
-	if err := q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM worker_attempts WHERE work_id=? AND capability_class='implementation' AND lifecycle_state<>'in_flight' AND NOT(lifecycle_state='failed' AND failure_kind=? AND readback_model=''))`, workID, WorkerFailureAbandoned).Scan(&progressed); err != nil {
-		return WorkflowAdmissionState{}, nil, nil, workflowProjectionError(err, "cannot read current execution progress")
-	}
-	review.ExecutionProgressed = review.ExecutionProgressed || progressed
-	correctionRoute, err := l.recoveryRoutes(&state)
-	if err != nil {
-		return WorkflowAdmissionState{}, nil, nil, err
+	if err := l.recoveryRoutes(&state); err != nil {
+		return WorkflowAdmissionState{}, nil, err
 	}
 	if err := l.holdsAndRecovery(&state); err != nil {
-		return WorkflowAdmissionState{}, nil, nil, err
+		return WorkflowAdmissionState{}, nil, err
 	}
 	if err := loadWorkflowAcceptanceAdmission(ctx, q, workID, definition, &state); err != nil {
-		return WorkflowAdmissionState{}, nil, nil, err
+		return WorkflowAdmissionState{}, nil, err
 	}
 	if state.ActiveContracts == 1 && workflowLateCriterionAssociationStep(definition, currentStep) {
 		missing, err := workflowMissingCriterionAssociations(ctx, q, workID)
 		if err != nil {
-			return WorkflowAdmissionState{}, nil, nil, err
+			return WorkflowAdmissionState{}, nil, err
 		}
 		state.LateCriterionAssociation = len(missing) != 0
 	}
 	if atComplete := workflowCompleteStepCorrectionStep(definition, currentStep); atComplete {
 		completeCorrection, completeErr := workflowCompleteStepCorrectionAvailable(ctx, q, workID, definition, currentStep, subject, 0)
 		if completeErr != nil {
-			return WorkflowAdmissionState{}, nil, nil, completeErr
+			return WorkflowAdmissionState{}, nil, completeErr
 		}
 		state.CompleteStepCorrection = completeCorrection
 	}
 	contractCorrection, contractCorrectionErr := workflowContractCorrectionAvailable(ctx, q, workID, definition, currentStep, subject)
 	if contractCorrectionErr != nil {
-		return WorkflowAdmissionState{}, nil, nil, contractCorrectionErr
+		return WorkflowAdmissionState{}, nil, contractCorrectionErr
 	}
 	state.ContractCorrectionAvailable = contractCorrection
-	delivery, proofRuns, integrationRuns, deliveryErr := loadWorkflowDeliveryAdmission(ctx, q, workID, definition, currentStep, "")
+	delivery, proofRuns, deliveryErr := loadWorkflowDeliveryAdmission(ctx, q, workID, definition, currentStep)
 	if deliveryErr != nil {
-		return WorkflowAdmissionState{}, nil, nil, deliveryErr
+		return WorkflowAdmissionState{}, nil, deliveryErr
 	}
 	state.Delivery = delivery
-	mandate, mandateErr := loadWorkflowMandateAdmission(ctx, q, workID, definition, currentStep, subject, state, correctionRoute)
+	mandate, mandateErr := loadWorkflowMandateAdmission(ctx, q, workID, definition, currentStep, subject, state)
 	if mandateErr != nil {
-		return WorkflowAdmissionState{}, nil, nil, mandateErr
+		return WorkflowAdmissionState{}, nil, mandateErr
 	}
 	state.Mandate = mandate
-	return state, proofRuns, integrationRuns, nil
+	return state, proofRuns, nil
 }
 
 // workflowAdmissionLoad carries the inputs every admission fold reads.
@@ -345,10 +289,6 @@ func (l workflowAdmissionLoad) staleness(state *WorkflowAdmissionState) error {
 	}
 	state.LawPinStaleError = lawErr
 	state.LawPinStale = lawErr != nil && workflowContractRecoveryStaleness(lawErr, l.workID)
-	state.LawPinSelfError = checkWorkflowLawRevisionStalenessAdmittingTx(l.ctx, l.q, l.workID, workflowStalePinAdmitOwnMarker)
-	if state.LawPinSelfError != nil && l.duplicated && workflowDuplicateContractProjection(state.LawPinSelfError) {
-		state.LawPinSelfError = nil
-	}
 	if err := l.q.QueryRowContext(l.ctx, `SELECT count(*) FROM workflow_impact_notices n JOIN workflow_impact_edges e ON e.work_id=n.edge_owner_work_id AND e.edge_id=n.edge_id WHERE n.target_work_id=? AND n.severity='breaking' AND e.edge_class='hard'`, l.workID).Scan(&state.BreakingNotices); err != nil {
 		return wrapFailure(KindUnavailable, l.subject, "cannot inspect workflow impact notices", true, "retry once the database is readable", err)
 	}
@@ -368,60 +308,8 @@ func (l workflowAdmissionLoad) staleness(state *WorkflowAdmissionState) error {
 	return nil
 }
 
-// attemptAndReview reads the latest worker attempt and result disposition.
-func (l workflowAdmissionLoad) attemptAndReview(state *WorkflowAdmissionState) error {
-	if err := l.q.QueryRowContext(l.ctx, `SELECT EXISTS(SELECT 1 FROM worker_attempts WHERE work_id=? AND lifecycle_state='in_flight')`, l.workID).Scan(&state.PendingWorkerAuthorization); err != nil {
-		return workflowProjectionError(err, "cannot read unresolved worker authorizations")
-	}
-	if err := l.q.QueryRowContext(l.ctx, `SELECT lifecycle_state,capability_class FROM worker_attempts WHERE work_id=? ORDER BY dispatched_at DESC,attempt_id DESC LIMIT 1`, l.workID).Scan(&state.AttemptState, &state.AttemptCapabilityClass); err != nil && err != sql.ErrNoRows {
-		return wrapFailure(KindUnavailable, l.subject, "cannot read the latest worker attempt", true, "retry once the worker attempt projection is readable", err)
-	}
-	if err := l.q.QueryRowContext(l.ctx, `SELECT result_disposition FROM workflow_instances WHERE work_id=?`, l.workID).Scan(&state.LatestResultDisposition); err != nil && err != sql.ErrNoRows {
-		return wrapFailure(KindUnavailable, l.subject, "cannot read the latest result disposition", true, "retry once the workflow projection is readable", err)
-	}
-	return nil
-}
-
-// recoveryRoutes folds the recovery and correction routes. It returns the
-// rejected-worker-result route before its dispatch-step restriction, which the
-// mandate fold reads.
-func (l workflowAdmissionLoad) recoveryRoutes(state *WorkflowAdmissionState) (bool, error) {
-	workerFailureRoute, workerFailureErr := workflowWorkerFailureRecoveryAvailable(l.ctx, l.q, l.workID, l.definition, l.currentStep, l.subject)
-	if workerFailureErr != nil {
-		return false, workerFailureErr
-	}
-	state.WorkerFailureRecovery = workerFailureRoute
-	results, correctionRouteErr := workflowRejectableWorkerResults(l.ctx, l.q, l.workID, l.definition, l.currentStep, l.subject, 0)
-	if correctionRouteErr != nil {
-		return false, correctionRouteErr
-	}
-	correctionRoute := len(results) > 0
-	for _, result := range results {
-		review, err := workflowAttemptIsReview(l.ctx, l.q, l.workID, result.AttemptID)
-		if err != nil {
-			return false, err
-		}
-		if review {
-			state.ReviewResultAcceptance = true
-			break
-		}
-	}
-	// The rejection recovery is a worker-dispatch-step route: off a step that
-	// declares dispatch_worker the state carries no recovery, so a caller
-	// cannot admit the rejection onto an unrelated step.
-	state.CorrectionRecovery = correctionRoute && stepDeclaresAction(l.definition, l.currentStep, "dispatch_worker")
-	// Both dispositions consume the same eligible completed result. A declared
-	// acceptance action is not an available intent after that result is settled.
-	if !correctionRoute && workflowDefinitionProducesDelivery(l.definition) && stepDeclaresAction(l.definition, l.currentStep, "accept_worker_result") {
-		state.ReviewAcceptanceError = workflowFailureOf(reviewFailure(KindMissingEvidence,
-			"result acceptance requires an undispositioned completed worker result",
-			"finish an admitted worker assignment and have Main accept its exact completed result"))
-	}
-	reviewEvidenceAttempt, reviewEvidenceErr := workflowRefineReviewEvidenceAttempt(l.ctx, l.q, l.workID, l.definition, l.currentStep, l.subject, 0)
-	if reviewEvidenceErr != nil {
-		return false, reviewEvidenceErr
-	}
-	state.RefineReviewEvidenceAttemptID = reviewEvidenceAttempt
+// recoveryRoutes folds the coordinator correction route.
+func (l workflowAdmissionLoad) recoveryRoutes(state *WorkflowAdmissionState) error {
 	// The delivery gate's corrective return reads the Review state this fold
 	// already carries, so the gate branch derives from the folded state and
 	// never re-enters the loader; every other step folds the shared
@@ -431,7 +319,7 @@ func (l workflowAdmissionLoad) recoveryRoutes(state *WorkflowAdmissionState) (bo
 	if workflowStepIsDeliveryGate(workflowStep(l.definition, l.currentStep)) {
 		gateContext, gateErr := workflowDeliveryGateCorrectionContextFolded(l.ctx, l.q, l.workID, l.definition, l.currentStep, l.subject, *state)
 		if gateErr != nil && !(l.duplicated && workflowDuplicateContractProjection(gateErr)) {
-			return false, gateErr
+			return gateErr
 		}
 		state.CorrectionRequestRecovery = gateErr == nil && gateContext != nil
 		if gateErr == nil && gateContext == nil {
@@ -443,35 +331,18 @@ func (l workflowAdmissionLoad) recoveryRoutes(state *WorkflowAdmissionState) (bo
 	} else {
 		correctionRequestContext, correctionRequestMissing, correctionRequestErr := workflowCorrectionRequestAdmissionForRegistry(l.ctx, l.q, l.workID, l.definition, l.currentStep, l.subject, 0, l.registry)
 		if correctionRequestErr != nil && !(l.duplicated && workflowDuplicateContractProjection(correctionRequestErr)) {
-			return false, correctionRequestErr
+			return correctionRequestErr
 		}
 		state.CorrectionRequestRecovery, state.CorrectionRequestMissing = correctionRequestContext != nil && correctionRequestErr == nil, correctionRequestMissing
 		if correctionRequestErr == nil {
 			state.CorrectionRequestContext = correctionRequestContext
 		}
 	}
-	return correctionRoute, nil
+	return nil
 }
 
-// holdsAndRecovery folds rejection and dispatch holds, oracle admission,
-// and evidence-binding recovery.
+// holdsAndRecovery folds evidence-binding recovery.
 func (l workflowAdmissionLoad) holdsAndRecovery(state *WorkflowAdmissionState) error {
-	// A current-step advance condition from the history's consumption answer.
-	if workflowStepCarriesRejectionHold(l.definition, l.currentStep) {
-		rejectionHold, rejectionHoldErr := workflowUnconsumedUnboundRejection(l.ctx, l.q, l.workID, l.currentStep, l.subject, 0)
-		if rejectionHoldErr != nil {
-			return rejectionHoldErr
-		}
-		state.UnconsumedUnboundRejection = rejectionHold
-	}
-	if err := loadWorkflowOracleAdmissionTx(l.ctx, l.q, l.workID, l.definition, state); err != nil {
-		return err
-	}
-	dispatchHold, holdErr := workflowDispatchHoldsStepAdvance(l.ctx, l.q, l.definition, l.workID, l.currentStep, 0)
-	if holdErr != nil {
-		return holdErr
-	}
-	state.DispatchHold = dispatchHold
 	if evidenceRecovery, evidenceErr := workflowEvidenceBindingRecoveryEligibility(l.ctx, l.q, l.definition, l.workID, l.currentStep, 0); evidenceErr != nil {
 		if !l.duplicated || !workflowDuplicateContractProjection(evidenceErr) {
 			return evidenceErr
@@ -631,28 +502,8 @@ func workflowAdmit(definition WorkflowDefinition, state WorkflowAdmissionState, 
 	if workflowAdmitInstanceRefused(definition, state, actionID, &decision) {
 		return decision
 	}
-	if actionID == "accept_worker_result" && state.ReviewAcceptanceError != nil {
-		decision.Failure = state.ReviewAcceptanceError
-		return decision
-	}
-	if workflowAdmitDispatchRefused(state, actionID, &decision) {
-		return decision
-	}
-	if state.Review != nil && workflowDefinitionProducesDelivery(definition) {
-		var reviewErr error
-		switch actionID {
-		case "dispatch_worker":
-			if state.ReviewLane == "implementation" {
-				if state.ReviewCorrective {
-					reviewErr = workflowAdmitArchitectureReview(*state.Review)
-				} else {
-					reviewErr = workflowAdmitReview(*state.Review, state.ReviewGroup)
-				}
-			}
-		case "complete":
-			reviewErr = workflowAdmitReview(*state.Review, "")
-		}
-		if reviewErr != nil {
+	if state.Review != nil && workflowDefinitionProducesDelivery(definition) && actionID == "complete" {
+		if reviewErr := workflowAdmitReview(*state.Review); reviewErr != nil {
 			decision.Failure = workflowFailureOf(reviewErr)
 			return decision
 		}
@@ -660,7 +511,7 @@ func workflowAdmit(definition WorkflowDefinition, state WorkflowAdmissionState, 
 	if actionID == "supersede_contract" {
 		return workflowAdmitSupersede(definition, state, decision)
 	}
-	if err := state.stalenessRefusal(actionID); err != nil {
+	if err := state.LawPinStaleError; err != nil {
 		decision.Failure = workflowFailureOf(err)
 		return decision
 	}
@@ -713,34 +564,9 @@ func workflowAdmitInstanceRefused(definition WorkflowDefinition, state WorkflowA
 	return false
 }
 
-// workflowAdmitDispatchRefused answers dispatch_worker's own bounds: a stale
-// design and the open oracle blocker bound.
-func workflowAdmitDispatchRefused(state WorkflowAdmissionState, actionID string, decision *WorkflowAdmissionDecision) bool {
-	if actionID == "dispatch_worker" {
-		if state.PendingWorkerAuthorization {
-			decision.Failure = newFailure(KindOperationConflict, "worker_dispatch", "a prior worker authorization has an unresolved launch outcome", false, "reconcile the current assignment's launch outcome before authorizing another attempt")
-			return true
-		}
-		if state.DesignStale {
-			decision.Failure = newFailure(KindMissingEvidence, "worker_dispatch", "contract correction invalidated the recorded design", false, "use supersede_contract with design_record before worker dispatch")
-			return true
-		}
-		// More than 32 genuine open oracle blockers is an
-		// explicit no-dispatch bound refusal. Blockers are never silently
-		// omitted to satisfy the bound; recovery is an approved scope or
-		// contract revision, or stopping the work.
-		if state.OracleOpenFindings > WorkflowOpenOracleFindingsLimit {
-			decision.Failure = newFailure(KindLimitExceeded, "worker_dispatch", fmt.Sprintf("the work holds %d open oracle blockers above the %d-ID bound; dispatch is refused rather than truncating the set", state.OracleOpenFindings, WorkflowOpenOracleFindingsLimit), false, "close findings through supported closures or an approved scope/contract revision, or stop the work")
-			return true
-		}
-	}
-	return false
-}
-
 // workflowAdmitDeliveryRefused answers delivery admission and the mandate.
 func workflowAdmitDeliveryRefused(definition WorkflowDefinition, state WorkflowAdmissionState, actionID string, decision *WorkflowAdmissionDecision) bool {
-	reviewOnly := actionID == "accept_worker_result" && state.ReviewResultAcceptance &&
-		!workflowAcceptDeliveryAdmissionActive(definition, state.Step)
+	reviewOnly := actionID == "record_review"
 	if failure := workflowAdmitMandate(definition, state.Step, state.Mandate, actionID, "workflow_action", reviewOnly); failure != nil {
 		decision.Failure = failure
 		return true
@@ -812,30 +638,6 @@ func workflowAdmitStepRefused(definition WorkflowDefinition, state WorkflowAdmis
 			return true
 		}
 	}
-	// The dispatch hold is the fold's own advance rule: while a dispatched
-	// worker holds the step's advance, every advancing action refuses except
-	// the accept that dispositions its report. Hold-moded actions — another
-	// fresh dispatch among them — keep their route. The refusal is the
-	// fold's advance-rule answer, enforced at event assembly.
-	if state.DispatchHold && actionID != "accept_worker_result" {
-		if mode, ok := workflowActionExecutionMode(definition, actionID); ok && mode == ActionAdvance {
-			decision.AdvanceHeld = true
-			decision.Failure = newFailure(KindIllegalLifecycleTransition, "workflow_action", "a dispatched worker attempt must advance through accept_worker_result", false, "accept the exact completed worker attempt, record the failed attempt at a human checkpoint, or dispatch a fresh worker")
-			return true
-		}
-	}
-	// The accept-side sibling of the dispatch hold; the payload-omitted held
-	// shapes defer to the guard and the fold.
-	if state.UnconsumedUnboundRejection && actionID == "accept_worker_result" {
-		mode, modeOK := workflowActionExecutionMode(definition, actionID)
-		advances := modeOK && mode == ActionAdvance &&
-			!workflowAcceptDeliveryAdmissionActive(definition, state.Step) &&
-			!workflowWorkerJobsActive(definition)
-		if failure := workflowRejectionAdvanceFailure(true, actionID, advances); failure != nil {
-			decision.Failure = failure
-			return true
-		}
-	}
 	if !workflowAdmissionStepAllows(definition, state, actionID) {
 		decision.OffStep = true
 		decision.Failure = newFailure(KindIllegalLifecycleTransition, "workflow_action", "workflow action is not declared on the current step", false, "reread_entities")
@@ -857,12 +659,6 @@ func workflowAdmissionStepAllows(definition WorkflowDefinition, state WorkflowAd
 		return state.ActiveContracts == 1 && state.LateCriterionAssociation && workflowLateCriterionAssociationStep(definition, state.Step)
 	case "bind_evidence":
 		return state.EvidenceRecoveryRoute
-	case "record_worker_failure":
-		return state.WorkerFailureRecovery
-	case "reject_worker_result":
-		return state.CorrectionRecovery
-	case "accept_worker_evidence":
-		return state.RefineReviewEvidenceAttemptID != ""
 	case "request_correction":
 		return state.CorrectionRequestRecovery
 	}
@@ -957,58 +753,4 @@ func workflowAdmitSupersede(definition WorkflowDefinition, state WorkflowAdmissi
 	}
 	decision.Admitted = true
 	return decision
-}
-
-// stalenessRefusal returns the staleness boundary's refusal for one action's
-// stale-pin admission class, or nil when the action's class admits. The
-// attempt-disposition actions admit the subject's own stale pin (CD-0222 D7).
-func (s WorkflowAdmissionState) stalenessRefusal(actionID string) error {
-	if workflowActionStalePinAdmission(actionID) != workflowStalePinAdmitNone {
-		return s.LawPinSelfError
-	}
-	return s.LawPinStaleError
-}
-
-// workflowStepCarriesRejectionHold: a named non-checkpoint step carries the hold.
-func workflowStepCarriesRejectionHold(definition WorkflowDefinition, currentStep string) bool {
-	step := workflowStep(definition, currentStep)
-	return step != nil && step.Kind != WorkflowStepHumanCheckpoint
-}
-
-// workflowUnconsumedUnboundRejection reports whether an unbound
-// reject_worker_result record at the current step stands unconsumed in the
-// prefix beforeSeq names (exclusive; 0 reads the current prefix), reusing the
-// correction walk's consumption rule over a shallow copy of its records.
-func workflowUnconsumedUnboundRejection(ctx context.Context, q queryer, workID, currentStep, subject string, beforeSeq int64) (bool, error) {
-	if currentStep == "" {
-		return false, nil
-	}
-	prefix := beforeSeq - 1
-	if beforeSeq <= 0 {
-		prefix = int64(1) << 62
-	}
-	history, err := workflowCorrectionWalkWorkerSatisfaction(ctx, q, workID, prefix, subject)
-	if err != nil {
-		return false, err
-	}
-	filtered := *history
-	filtered.records = make([]workflowCorrectionRecordState, 0, len(history.records))
-	for _, record := range history.records {
-		if record.fields.ActionID != "reject_worker_result" || record.jobKey != "" || record.fields.StepID != currentStep {
-			continue
-		}
-		filtered.records = append(filtered.records, record)
-	}
-	return filtered.openRecord("") != nil, nil
-}
-
-// workflowRejectionAdvanceFailure is the shared unconsumed-rejection advance
-// refusal; non-advancing held shapes keep their routes.
-func workflowRejectionAdvanceFailure(held bool, actionID string, advances bool) *Failure {
-	if !held || actionID != "accept_worker_result" || !advances {
-		return nil
-	}
-	return newFailure(KindIllegalLifecycleTransition, "workflow_action",
-		"an unconsumed rejected worker result holds the step's advance", false,
-		"dispatch a fresh worker whose materialized completion consumes the correction, then advance")
 }

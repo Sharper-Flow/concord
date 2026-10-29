@@ -481,6 +481,6 @@ func assertEvidenceLegacySelections(t *testing.T, s *Store, events []Event) {
 	if err := json.Unmarshal(correctionEvent.Payload, &fields); err != nil {
 		t.Fatal(err)
 	}
-	wantCorrection := correctionStateFact{Boundary: unboundAcceptance, Unresolved: map[string]bool{}, Records: []correctionRecordFact{{Seq: correctionSeq, SourceID: correctionEvent.EventID, Fields: fields}}, Repairs: map[string]checksRepairFact{}}
+	wantCorrection := correctionStateFact{Boundary: unboundAcceptance, Unresolved: map[string]bool{}, Records: []correctionRecordFact{{Seq: correctionSeq, SourceID: correctionEvent.EventID, Fields: fields}}}
 	row(`SELECT json_array(state) FROM workflow_correction_state WHERE work_id='evidence-corpus'`, []any{string(mustJSONValue(wantCorrection))})
 }

@@ -10,14 +10,6 @@ import (
 	"github.com/sharper-flow/concord/internal/testutil/schemawire"
 )
 
-// The whole-action decode budget is derived, not guessed: the capacity tests
-// walk the generated payload contract's declared maxima for every part a
-// worker packet can carry through the shared test-support witness, apply the
-// store-owned bounds the schema leaves to the writers, and prove the
-// constant holds the composition. A later part increase fails here instead
-// of at the transport, and any member the schema leaves unbounded fails the
-// walk with its exact path until its owner is inventoried.
-
 // TestCapacityWalkerWireTruth pins the wire arithmetic the derivation rests
 // on: maxLength bounds code points, not serialized bytes, and every
 // permitted scalar takes six encoded bytes — control escapes, Go HTML
@@ -90,32 +82,6 @@ func TestCapacityWalkerWireTruth(t *testing.T) {
 	}
 }
 
-// workerPacketCapacityOptions is the shared writer-bound inventory every
-// packet version's capacity derivation applies: the acceptance oracle and
-// the checks-repair metadata are writer-bounded members the generated schema
-// leaves unstated, the writer-stamped date-times carry the core writer's
-// RFC3339Nano UTC serialization, and the three context members ride the
-// context aggregate exactly once.
-func workerPacketCapacityOptions(defs map[string]any, packet, jobShape string, findingRefMax int) schemawire.Options {
-	return schemawire.Options{
-		Defs: defs,
-		PathBounds: map[string]int{
-			packet + "/inputs/review_input/worker_packet_review_input/retained_failed_edit/changed_paths":                                                                                 WorkerReviewRetainedPathsMaxBytes,
-			packet + "/inputs/worker_job/" + jobShape + "/direct_caller_allowance/law_bindings/items/worker_oracle_law_binding/source/work_context_reading_source_knowledge/content_hash": 71,
-			packet + "/inputs/worker_job/" + jobShape + "/acceptance_oracle":                                                                                                              OracleCombinedMaxBytes,
-			packet + "/inputs/worker_job/" + jobShape + "/checks_repair":                                                                                                                  WorkerJobChecksRepairMaxBytes,
-			packet + "/inputs/design_record/workflow_design_record/recorded_at":                                                                                                           32,
-			packet + "/inputs/proposal_record/workflow_proposal_record/recorded_at":                                                                                                       32,
-		},
-		Excludes: map[string]bool{
-			packet + "/inputs/work_context": true,
-			packet + "/inputs/checkpoint":   true,
-			packet + "/inputs/correction":   true,
-		},
-		FindingRefMax: findingRefMax,
-	}
-}
-
 // The shared repository-source schema leaves commit_oid to its consumer.
 // Oracle capacity uses the combined writer bound; the recipe's own scalar
 // guard must still refuse values outside the declared Git identity domain.
@@ -131,73 +97,15 @@ func TestOracleRecipeCommitOIDCapacityOwner(t *testing.T) {
 	}
 }
 
-// TestWorkflowActionPayloadBudgetDerivesFromDeclaredMaxima composes the
-// declared maxima of the worker packet identities and proves each shape
-// stays inside the whole-action decode budget. The three context members
-// contribute the context aggregate exactly once — the aggregate already
-// includes checkpoint, correction, and the whole view together with their
-// member names and delimiters, so the walk excludes the members and injects
-// the aggregate minus its own two braces plus the one comma the excluded
-// members surrender. The acceptance oracle contributes the store's own
-// 32 KiB bound, which the generated schema leaves to the writer, and the
-// writer-stamped date-times contribute the core writer's RFC3339Nano UTC
-// serialization (workflow.go design and proposal inserts). The ceiling's
-// exact rounding derives solely from the all-variants-plus-invoke
-// derivation in internal/agent; these packet shapes carry only their
-// ceiling guards.
-func TestWorkflowActionPayloadBudgetDerivesFromDeclaredMaxima(t *testing.T) {
-	defs, _ := payloadschema.Document()["$defs"].(map[string]any)
-	if defs == nil {
-		t.Fatal("the generated payload contract carries no $defs")
-	}
-	// The finding-reference owner condition: the event sequence is a
-	// non-negative int64 (nineteen digits), and at most sixteen declared
-	// findings per anchor keep the ordinal at two digits.
+func TestWorkflowCurrentActionWriterBounds(t *testing.T) {
 	if WorkContextActionFindingsMax != 16 {
 		t.Fatalf("WorkContextActionFindingsMax = %d, want 16; the finding-reference derivation rests on it", WorkContextActionFindingsMax)
 	}
-	// Quotes count: the reference serializes inside quotation marks.
-	findingRefMax := 2 + len("finding:") + 19 + 1 + 2
-	opt := workerPacketCapacityOptions(defs, "worker_packet", "worker_packet_worker_job", findingRefMax)
-	packetParts, err := schemawire.Max(defs["worker_packet"], "worker_packet", opt)
-	if err != nil {
-		t.Fatalf("the packet derivation hit an unbudgeted member: %v", err)
-	}
-	// The three excluded members contribute the context aggregate minus its
-	// own two braces plus the one comma the exclusion surrenders.
-	composed := packetParts + DispatchContextAggregateMaxBytes - 1
-	attemptID, err := schemawire.Max(defs["id"], "id", opt)
-	if err != nil {
-		t.Fatal(err)
-	}
-	wrapper := 1 + len(`"attempt_id"`) + 1 + attemptID + 1 + len(`"worker_packet"`) + 1 + 1
-	composed += wrapper
-	if composed > maxWorkflowActionPayloadBytes {
-		t.Fatalf("the composed declared maxima need %d bytes, above the %d-byte whole-action budget; derive the budget again", composed, maxWorkflowActionPayloadBytes)
-	}
-	// CD-0242 D14 retires comparisons between historical packet closures.
-	// The current walk includes checks repair and direct-caller members.
 	if maxWorkflowPredicateBytes != 64*1024 {
 		t.Fatalf("predicate bound = %d, want the unchanged 65536", maxWorkflowPredicateBytes)
 	}
 }
 
-// TestWorkerJobSplitActionPayloadDerivesFromDeclaredMaxima composes the
-// declared maxima of the record_worker_job split action through the same
-// walker and writer bounds the packet derivations use. The store's
-// whole-action decode budget owns the action FIELDS JSON, so the fields
-// derivation — the widest fields variant, the split contents included — is
-// the figure that budget must hold; the outer work-transition request
-// envelope rides the same shared ceiling through agent's MaxRequestBytes
-// alias, and this test reports its derived bytes without asserting them.
-// The generated schema leaves three member kinds
-// to their writers: every serialized acceptance oracle at its combined
-// 32 KiB bound, pinned once by definition name so both fields branches
-// carry it, and the anchored sha256 digests and raw commit oids at their
-// exact quoted serializations. The walk covers every member, so no term is
-// assumed to dominate: the derivation reports the fields figure, the split
-// contents, the request envelope, and the size of everything beside the
-// 64-oracle term.
 func TestWorkflowActionPayloadBudgetRefusesTypedAndWhole(t *testing.T) {
 	oversize := bytes.Repeat([]byte("x"), maxWorkflowActionPayloadBytes+1)
 	var target map[string]any

@@ -13,7 +13,7 @@ import { join } from "node:path"
 import { fixtureTempRoot, requireOwnedFixtureRun, runFixtureProcess } from "./fixture-temp-root"
 requireOwnedFixtureRun()
 import { configureConcordAdapter, invokeConcordOperation, work_start, work_transition } from "./concord"
-import { configureCoreBinary } from "./dispatch"
+import { configureCoreBinary } from "./core-runtime"
 import { hostControlPlane, MANAGED_TASK_SCOPE_KEY, MOVE_SESSION_ROUTE, SESSION_ROUTE } from "./move-session"
 import { configureHostLease } from "./host-lease"
 import { clearClaimedWorktree, pendingVacateDestination, resetClaimedWorktrees } from "./claimed-worktree"

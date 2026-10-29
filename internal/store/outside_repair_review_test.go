@@ -7,12 +7,11 @@ import (
 	"reflect"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/sharper-flow/concord/internal/workflowproof"
 )
 
-// Include the log, approval, dispatch, resource and outbox rows as well as all
+// Include the log, approval, action, resource and outbox rows as well as all
 // projections: a refusal must roll back the entire operation, not just work.
 func outsideRepairDatabaseSnapshot(t *testing.T, s *Store) string {
 	t.Helper()
@@ -143,93 +142,72 @@ func TestOutsideRepairLifecycleWriterRequiresScopedAuthorization(t *testing.T) {
 	}
 }
 
-func outsideRepairDispatchFixture(t *testing.T, label string) (*Store, cd0059DispatchSeed, string, string) {
+func outsideRepairExecutionFixture(t *testing.T, work string) (*Store, WorkflowActor) {
 	t.Helper()
 	s := openTemp(t)
-	seed := seedDispatchFixture(t, s, label)
-	attempt := "attempt-" + label
-	claimed := dispatchSessionWorktree(t, s, label)
-	request := cd781DispatchRequest(t, s, label, readWorkVersion(t, s, label), attempt, seed.ownerActor, claimed, label)
-	if _, err := invokeWorkflowActionForCD0059(context.Background(), t, s, request); err != nil {
+	t.Cleanup(func() { s.Close() })
+	actor, _ := continuityTestWorkflow(t, s, work)
+	return s, actor
+}
+
+func outsideRepairSettleAction(t *testing.T, s *Store, work string, actor WorkflowActor, kind string) {
+	t.Helper()
+	ref, err := WorkflowActorRef(actor)
+	if err != nil {
 		t.Fatal(err)
 	}
-	var digest string
-	if err := s.Transact(context.Background(), func(tx *Transaction) error {
-		window, err := FindAuthorizedDispatchWindowTx(context.Background(), tx.tx, label, attempt)
-		digest = window.PacketDigest
-		return err
-	}); err != nil {
+	version := readWorkVersion(t, s, work)
+	fields := map[string]any{"work_id": work, "expected_version": version, "resulting_version": version + 1,
+		"step_id": "proposal", "attempt_epoch": 1, "actor_ref": ref}
+	if kind == WorkflowActionFailed {
+		fields["failure_kind"], fields["recoverable"] = "timeout", false
+	} else {
+		fields["action_id"] = "checkpoint_context"
+	}
+	event := workflowEventWithActor(fmt.Sprintf("%s-settle-%d", work, version), kind, work, ref, fields)
+	if err := applyWorkflowTestOperation(t.Context(), s, Operation{Events: []Event{event}, ExpectedVersions: workVersion(work, version)}); err != nil {
 		t.Fatal(err)
 	}
-	return s, seed, attempt, digest
 }
 
 func TestOutsideRepairHoldRefusesOutstandingExecution(t *testing.T) {
-	for _, state := range []string{"in_flight", "dispatched"} {
-		t.Run(state, func(t *testing.T) {
-			s, seed, attempt, digest := outsideRepairDispatchFixture(t, "outside-live-"+state)
-			if state == "dispatched" {
-				lane := BuiltinLaneDefinitions()[0]
-				event := Event{EventID: "outside-running", Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: seed.workID, Actor: "worker:test", OccurredAt: time.Unix(20, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerDispatched),
-					Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: attempt, LaneID: lane.ID, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, ReadbackModel: preferredModelForLane(lane), PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion, PacketDigest: digest})}
-				if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{event}}); err != nil {
-					t.Fatal(err)
-				}
-			}
-			req := outsideRepairTestRequest(t, s, seed.workID, "hold")
-			before := outsideRepairDatabaseSnapshot(t, s)
-			assertFailureKind(t, outsideRepairApply(t, s, req, WorkflowOutsideRepairDispositionSet, workflowproof.Evidence{}), KindNotTerminal)
-			if outsideRepairDatabaseSnapshot(t, s) != before {
-				t.Fatal("refused live hold changed the database")
-			}
-		})
+	const work = "outside-live-action"
+	s, _ := outsideRepairExecutionFixture(t, work)
+	req := outsideRepairTestRequest(t, s, work, "hold")
+	before := outsideRepairDatabaseSnapshot(t, s)
+	assertFailureKind(t, outsideRepairApply(t, s, req, WorkflowOutsideRepairDispositionSet, workflowproof.Evidence{}), KindNotTerminal)
+	if outsideRepairDatabaseSnapshot(t, s) != before {
+		t.Fatal("refused live hold changed the database")
 	}
 }
 
-func TestOutsideRepairUnusedAuthorizationCannotDispatchAfterHold(t *testing.T) {
-	s, seed, attempt, digest := outsideRepairDispatchFixture(t, "outside-unused-window")
-	// A stranded authorization closes through the existing lawful abandonment
-	// route. Its unused window remains in history; the hold must fence its use.
-	abandon := Event{EventID: "outside-abandon", Kind: WorkerFailed, SubjectType: SubjectWorkItem, SubjectID: seed.workID, Actor: "worker:test", OccurredAt: time.Unix(30, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerFailed),
-		Payload: mustJSONValue(WorkerFailedPayload{AttemptID: attempt, FailureKind: WorkerFailureAbandoned, Detail: "the host stopped before dispatch"})}
-	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{abandon}}); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.Transact(context.Background(), func(tx *Transaction) error {
-		return ValidateWorkerDispatchWindow(context.Background(), tx, seed.workID, "", attempt, digest)
-	}); err != nil {
-		t.Fatalf("unused historical window before hold: %v", err)
-	}
-	if err := outsideRepairApply(t, s, outsideRepairTestRequest(t, s, seed.workID, "hold"), WorkflowOutsideRepairDispositionSet, workflowproof.Evidence{}); err != nil {
-		t.Fatalf("closed failed attempt must not block hold: %v", err)
+func TestOutsideRepairSettledActionCannotAdvanceAfterHold(t *testing.T) {
+	const work = "outside-settled-action"
+	s, actor := outsideRepairExecutionFixture(t, work)
+	outsideRepairSettleAction(t, s, work, actor, WorkflowActionFailed)
+	if err := outsideRepairApply(t, s, outsideRepairTestRequest(t, s, work, "hold"), WorkflowOutsideRepairDispositionSet, workflowproof.Evidence{}); err != nil {
+		t.Fatalf("closed failed action must not block hold: %v", err)
 	}
 	before := outsideRepairDatabaseSnapshot(t, s)
-	assertFailureKind(t, s.Transact(context.Background(), func(tx *Transaction) error {
-		return ValidateWorkerDispatchWindow(context.Background(), tx, seed.workID, "", attempt, digest)
-	}), KindOutsideRepairActive)
-	lane := BuiltinLaneDefinitions()[0]
-	event := Event{EventID: "outside-late-dispatch", Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: seed.workID, Actor: "worker:test", OccurredAt: time.Unix(40, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerDispatched),
-		Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: "attempt-late", LaneID: lane.ID, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, ReadbackModel: preferredModelForLane(lane), PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion, PacketDigest: digest})}
-	assertFailureKind(t, ApplyOperation(context.Background(), s, Operation{Events: []Event{event}}), KindOutsideRepairActive)
+	_, err := continuityAction(t, s, work, readWorkVersion(t, s, work), "record_proposal", "outside-late-action", nil, actor)
+	assertFailureKind(t, err, KindOutsideRepairActive)
 	if outsideRepairDatabaseSnapshot(t, s) != before {
-		t.Fatal("dispatch consumption while held changed the database")
+		t.Fatal("managed action while held changed the database")
 	}
-	assertWorkerAttemptState(t, s, seed.workID, attempt, "failed")
 }
 
 func TestOutsideRepairHoldWaitsForFailedActionSettlement(t *testing.T) {
 	work := "outside-failed-action"
-	s, owner, _, _ := seedFailedLaneAtExecution(t, work)
-	attempt := "attempt:" + work
+	s, actor := outsideRepairExecutionFixture(t, work)
 	req := outsideRepairTestRequest(t, s, work, "hold")
 	before := outsideRepairDatabaseSnapshot(t, s)
 	assertFailureKind(t, outsideRepairApply(t, s, req, WorkflowOutsideRepairDispositionSet, workflowproof.Evidence{}), KindNotTerminal)
 	if outsideRepairDatabaseSnapshot(t, s) != before {
 		t.Fatal("open action hold changed the database")
 	}
-	applyRecordWorkerFailureForTest(t, s, work, owner, attempt, latestStepStartEpoch(t, s, work, "execution"), readWorkVersion(t, s, work), "outside-settle-failure")
+	outsideRepairSettleAction(t, s, work, actor, WorkflowActionFailed)
 	if err := outsideRepairApply(t, s, outsideRepairTestRequest(t, s, work, "settled-hold"), WorkflowOutsideRepairDispositionSet, workflowproof.Evidence{}); err != nil {
-		t.Fatalf("failed closed attempt/action cannot strand outside repair: %v", err)
+		t.Fatalf("failed closed action cannot strand outside repair: %v", err)
 	}
 }
 
@@ -250,74 +228,60 @@ func TestOutsideRepairHoldRefusesPendingDurableOperation(t *testing.T) {
 	}
 }
 
-func TestOutsideRepairConsumedTerminalWindowDoesNotBlockHold(t *testing.T) {
-	s, seed, attempt, digest := outsideRepairDispatchFixture(t, "outside-consumed-window")
-	if err := seedWorkerEvidenceForAttempt(t, s, seed.workID, attempt, "outside-consumed", digest); err != nil {
+func TestOutsideRepairCompletedActionDoesNotBlockHold(t *testing.T) {
+	const work = "outside-completed-action"
+	s, actor := outsideRepairExecutionFixture(t, work)
+	outsideRepairSettleAction(t, s, work, actor, WorkflowActionCompleted)
+	completion := func() int64 {
+		t.Helper()
+		var seq int64
+		if err := s.db.QueryRow(`SELECT completion_seq FROM workflow_step_completions WHERE work_id=? AND step_id='proposal'`, work).Scan(&seq); err != nil {
+			t.Fatal(err)
+		}
+		return seq
+	}
+	before := completion()
+	if err := outsideRepairApply(t, s, outsideRepairTestRequest(t, s, work, "hold"), WorkflowOutsideRepairDispositionSet, workflowproof.Evidence{}); err != nil {
+		t.Fatalf("completed action without live execution blocks hold: %v", err)
+	}
+	if completion() != before {
+		t.Fatal("hold changed terminal action evidence")
+	}
+	if err := outsideRepairApply(t, s, outsideRepairTestRequest(t, s, work, "reconcile"), WorkflowOutsideRepairReconciled, outsideRepairSampleEvidence()); err != nil {
 		t.Fatal(err)
 	}
-	assertWorkerAttemptState(t, s, seed.workID, attempt, "completed")
-	workers := workerProjectionSnapshot(t, s)
-	if err := outsideRepairApply(t, s, outsideRepairTestRequest(t, s, seed.workID, "hold"), WorkflowOutsideRepairDispositionSet, workflowproof.Evidence{}); err != nil {
-		t.Fatalf("consumed authorization without live execution blocks hold: %v", err)
-	}
-	if after := workerProjectionSnapshot(t, s); after != workers {
-		t.Fatal("hold changed terminal worker evidence")
-	}
-	if err := outsideRepairApply(t, s, outsideRepairTestRequest(t, s, seed.workID, "reconcile"), WorkflowOutsideRepairReconciled, outsideRepairSampleEvidence()); err != nil {
-		t.Fatal(err)
-	}
-	if after := workerProjectionSnapshot(t, s); after != workers {
-		t.Fatal("reconciliation changed terminal worker evidence")
+	if completion() != before {
+		t.Fatal("reconciliation changed terminal action evidence")
 	}
 }
 
 func TestOutsideRepairReconcileRechecksOutstandingExecution(t *testing.T) {
-	for _, state := range []string{"in_flight", "dispatched"} {
-		t.Run(state, func(t *testing.T) {
-			testOutsideRepairReconcileOutstandingExecution(t, state)
-		})
-	}
-}
-
-func testOutsideRepairReconcileOutstandingExecution(t *testing.T, state string) {
-	s, seed, attempt, digest := outsideRepairDispatchFixture(t, "outside-recheck-"+state)
-	if state == "dispatched" {
-		lane := BuiltinLaneDefinitions()[0]
-		event := Event{EventID: "outside-recheck-dispatch", Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: seed.workID, Actor: "worker:test", OccurredAt: time.Unix(20, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerDispatched),
-			Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: attempt, LaneID: lane.ID, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, ReadbackModel: preferredModelForLane(lane), PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion, PacketDigest: digest})}
-		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{event}}); err != nil {
-			t.Fatal(err)
-		}
-	}
-	version := readWorkVersion(t, s, seed.workID)
-	claim := operationEvent("outside-recheck-claim", "work.resource_claimed", SubjectWorkItem, seed.workID, map[string]any{
-		"work_id": seed.workID, "resource_key": "fence:outside-recheck", "reason": "retain until execution stops",
+	const work = "outside-recheck-action"
+	s, actor := outsideRepairExecutionFixture(t, work)
+	version := readWorkVersion(t, s, work)
+	claim := operationEvent("outside-recheck-claim", "work.resource_claimed", SubjectWorkItem, work, map[string]any{
+		"work_id": work, "resource_key": "fence:outside-recheck", "reason": "retain until execution stops",
 		"holder_agent": "agent:test", "holder_session": "session:test", "expected_version": version, "resulting_version": version + 1,
 	})
-	if err := applyWorkEvent(t, s, claim, workVersion(seed.workID, version)); err != nil {
+	if err := applyWorkEvent(t, s, claim, workVersion(work, version)); err != nil {
 		t.Fatal(err)
 	}
 	// Reconciliation must protect outstanding execution even when a hold
 	// already exists in the current rows.
-	hold := outsideRepairTestRequest(t, s, seed.workID, "hold")
+	hold := outsideRepairTestRequest(t, s, work, "hold")
 	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1);
 		INSERT INTO outside_repair_dispositions(work_id,approval_ref,state,reason,evidence_json,recorded_at)
 		VALUES(?,?,'active','fixture with outstanding execution','{}','2026-10-23T00:00:00Z');
-		DELETE FROM write_guard`, seed.workID, hold.ApprovalRef); err != nil {
+		DELETE FROM write_guard`, work, hold.ApprovalRef); err != nil {
 		t.Fatal(err)
 	}
-	req := outsideRepairTestRequest(t, s, seed.workID, "reconcile")
+	req := outsideRepairTestRequest(t, s, work, "reconcile")
 	before := outsideRepairDatabaseSnapshot(t, s)
 	assertFailureKind(t, outsideRepairApply(t, s, req, WorkflowOutsideRepairReconciled, outsideRepairSampleEvidence()), KindNotTerminal)
 	if outsideRepairDatabaseSnapshot(t, s) != before {
 		t.Fatal("reconciliation with outstanding execution changed the database")
 	}
-	// Worker terminal evidence remains available, without managed advancement.
-	abandon := Event{EventID: "outside-recheck-abandon", Kind: WorkerFailed, SubjectType: SubjectWorkItem, SubjectID: seed.workID, Actor: "worker:test", OccurredAt: time.Unix(30, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerFailed),
-		Payload: mustJSONValue(WorkerFailedPayload{AttemptID: attempt, FailureKind: WorkerFailureAbandoned, Detail: "host ended without a report"})}
-	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{abandon}}); err != nil {
-		t.Fatal(err)
-	}
+	outsideRepairSettleAction(t, s, work, actor, WorkflowActionFailed)
 	if err := outsideRepairApply(t, s, req, WorkflowOutsideRepairReconciled, outsideRepairSampleEvidence()); err != nil {
 		t.Fatalf("settled execution did not release reconciliation: %v", err)
 	}

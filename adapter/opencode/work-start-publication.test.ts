@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test"
 import { publishWorkStartDefinition, work_start } from "./concord"
-import { validateAgainstSchema } from "./dispatch"
+import { validateAgainstSchema } from "./core-runtime"
 import { hostToolSchemas } from "./generated-contracts"
 
 async function publishedSchema(): Promise<Record<string, any>> {

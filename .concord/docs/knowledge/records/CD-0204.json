@@ -38,7 +38,7 @@
   },
   "sha256": "sha256:d18f2ac6dc06e110b34bf9dff5102f5a06c61fde59b13759760f161e938ce08d",
   "status": "accepted",
-  "summary": "Admission carries the acceptance-deliverables refusal while a premise question is open, so the preflight, the work pin, and execution refuse confirm_premise alike; the fresh-review refusal defers to the guards only for accept_worker_result, so every site refuses record_delivery behind a blocking Review disposition; and the late record_verdict route serves a premise-question step that does not declare record_verdict, so recorded ops runbooks at cleanup without a verdict record it there. The gate lives in admission code derived from the canonical source.",
+  "summary": "Admission shares acceptance-deliverables refusals across preflight, work pins and execution. record_review validates the exact subject-bound payload; every delivery admission refuses behind a blocking or stale Review disposition. Late record_verdict keeps its declared terminal and premise-question recovery without advancing the step. No attempt-bound acceptance exception remains.",
   "tags": [
     "workflow",
     "workflow-engine",

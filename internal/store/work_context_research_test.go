@@ -873,14 +873,6 @@ func researchBoundReadings(f workContextFixture) []map[string]any {
 	return readings
 }
 
-// seedResearchBoundJob prepares the claimed worktree subject and the ready
-// job whose native preparations and qualified subject ride the measured view.
-func seedResearchBoundJob(t *testing.T, f workContextFixture) {
-	t.Helper()
-	reviewSubjectClaim(t, f.store, f.workID)
-	reviewSubjectReadyRevision(t, f)
-}
-
 // researchBoundCarrierDeclaration records the fixed 16-finding carrier
 // declaration the tuned declaration selects beside its own 16 findings, so
 // the view holds 32 findings while each declaration stays inside its own
@@ -933,7 +925,6 @@ func researchBoundDeclaration(t *testing.T, f workContextFixture, packID string,
 // shrinks and re-approaches from below until the exact landing holds.
 func tuneResearchBoundView(t *testing.T, f workContextFixture, packID string, target int) (carrierSeq int64, firstLen, restLen int) {
 	t.Helper()
-	seedResearchBoundJob(t, f)
 	carrierSeq = researchBoundCarrierDeclaration(t, f, 500)
 	firstLen, restLen = 500, 500
 	if err := researchBoundDeclaration(t, f, packID, carrierSeq, firstLen, restLen); err != nil {
@@ -995,39 +986,11 @@ func TestWorkContextResearchSharedBounds(t *testing.T) {
 		if err := fixture.recordWorkContext(t, map[string]any{"context_findings": findings}); err != nil {
 			t.Fatalf("generic declaration refused: %v", err)
 		}
-		// One ranked slot rides a terminal report's review block: the
+		// One ranked slot rides a historical report's Review block: the
 		// mixed 32-slot view spans generic, ranked, and research entries.
-		lane := BuiltinLaneDefinitions()[0]
-		ownerRef, actorErr := WorkflowActorRef(fixture.owner)
-		if actorErr != nil {
-			t.Fatal(actorErr)
-		}
-		recordWorkerFixtureDispatchAuthorization(t, fixture.store, fixture.workID, "attempt-ctx-research-ranked", "repair", ownerRef)
-		if err := ApplyOperation(context.Background(), fixture.store, Operation{Events: []Event{workerDispatchEvent(fixture.workID, "attempt-ctx-research-ranked", lane, nil)}}); err != nil {
-			t.Fatal(err)
-		}
-		evidence := make([]WorkerReportEvidence, 0, len(lane.EvidenceObligations))
-		for _, obligation := range lane.EvidenceObligations {
-			evidence = append(evidence, WorkerReportEvidence{Obligation: obligation, Detail: "discharged " + obligation})
-		}
 		review := reviewBlockFixture()
-		review.Findings = []WorkerReviewFinding{{FindingID: "finding:mixed-count", Severity: "P2", Confidence: "low", Detail: "the ranked mixed-count blocker", Status: "open", Blocking: true, InScope: true, EvidenceRefs: []string{}, ClosureRefs: []string{}}}
-		if err := ApplyOperation(context.Background(), fixture.store, Operation{Events: []Event{Event{
-			EventID: "ctx-complete-research-ranked", Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: fixture.workID,
-			Actor: "worker:test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerCompleted),
-			Payload: mustJSONValue(WorkerCompletedPayload{
-				AttemptID: "attempt-ctx-research-ranked", ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion,
-				WorkerDirectory: workerFixtureDirectory(t, fixture.store, fixture.workID),
-				EvidenceOrigin:  WorkerEvidenceReported, Evidence: evidence,
-				Review: review,
-			}),
-		}}}); err != nil {
-			t.Fatalf("ranked review report refused: %v", err)
-		}
-		var rankedSeq int64
-		if err := fixture.store.DatabaseForTesting().QueryRow(`SELECT MAX(terminal_seq) FROM worker_attempts WHERE work_id=? AND terminal_kind=?`, fixture.workID, WorkerCompleted).Scan(&rankedSeq); err != nil {
-			t.Fatal(err)
-		}
+		review.Findings = []ReviewFinding{{FindingID: "finding:mixed-count", Severity: "P2", Confidence: "low", Detail: "the ranked mixed-count blocker", Status: "open", Blocking: true, InScope: true, EvidenceRefs: []string{}, ClosureRefs: []string{}}}
+		rankedSeq := seedContextFactTerminal(t, fixture, "worker.completed", map[string]any{"review": review})
 		var seq int64
 		if err := fixture.store.DatabaseForTesting().QueryRow(`SELECT declaration_seq FROM work_context_state WHERE work_id=?`, fixture.workID).Scan(&seq); err != nil {
 			t.Fatal(err)
@@ -1073,10 +1036,7 @@ func TestWorkContextResearchSharedBounds(t *testing.T) {
 		selections = append(selections, researchSelectionEntry(pack.PackID, 1, "f2", workContextTestChild))
 		versionBefore := readWorkVersion(t, fixture.store, fixture.workID)
 		eventsBefore := declarationEventCount(t, fixture)
-		startsBefore := dispatchStartedCount(t, fixture.store, fixture.workID)
-		if startsBefore != 1 {
-			t.Fatalf("dispatch_worker starts before refusal = %d, want 1 from setup", startsBefore)
-		}
+		before := outsideRepairDatabaseSnapshot(t, fixture.store)
 		err := recordResearchDeclarationTx(t, fixture, map[string]any{
 			"finding_refs": refs, "context_findings": []map[string]any{}, "research_finding_refs": selections,
 		}, nil)
@@ -1090,8 +1050,8 @@ func TestWorkContextResearchSharedBounds(t *testing.T) {
 		if got := declarationEventCount(t, fixture); got != eventsBefore {
 			t.Fatalf("refused 33-slot declaration left %d declaration events, want %d", got, eventsBefore)
 		}
-		if got := dispatchStartedCount(t, fixture.store, fixture.workID); got != startsBefore {
-			t.Fatalf("dispatch_worker starts after refusal = %d, want unchanged pre-refusal count %d", got, startsBefore)
+		if after := outsideRepairDatabaseSnapshot(t, fixture.store); after != before {
+			t.Fatal("refused 33-slot declaration changed database state")
 		}
 	})
 
@@ -1112,13 +1072,6 @@ func TestWorkContextResearchSharedBounds(t *testing.T) {
 		if len(raw) != 65536 {
 			t.Fatalf("tuned view measures %d bytes, want exactly 65536", len(raw))
 		}
-		packet, err := json.Marshal(map[string]any{"inputs": map[string]any{"work_context": view}})
-		if err != nil {
-			t.Fatal(err)
-		}
-		if _, err := admittedWorkerPacketWorkContext(context.Background(), fixture.store.DatabaseForTesting(), fixture.workID, packet); err != nil {
-			t.Fatalf("the admission refused a view at exactly the whole-view bound: %v", err)
-		}
 	})
 
 	t.Run("one byte over the whole view refuses the declaration whole", func(t *testing.T) {
@@ -1129,6 +1082,7 @@ func TestWorkContextResearchSharedBounds(t *testing.T) {
 		carrierSeq, firstLen, restLen := tuneResearchBoundView(t, fixture, pack.PackID, 65536)
 		versionBefore := readWorkVersion(t, fixture.store, fixture.workID)
 		eventsBefore := declarationEventCount(t, fixture)
+		before := outsideRepairDatabaseSnapshot(t, fixture.store)
 		err := researchBoundDeclaration(t, fixture, pack.PackID, carrierSeq, firstLen+1, restLen)
 		var failure *Failure
 		if err == nil || !errors.As(err, &failure) || failure.Kind != KindLimitExceeded || !strings.Contains(failure.Detail, "65536") {
@@ -1140,8 +1094,8 @@ func TestWorkContextResearchSharedBounds(t *testing.T) {
 		if got := declarationEventCount(t, fixture); got != eventsBefore {
 			t.Fatalf("refused over-bound declaration left %d declaration events, want %d", got, eventsBefore)
 		}
-		if got := dispatchStartedCount(t, fixture.store, fixture.workID); got != 0 {
-			t.Fatalf("dispatch_worker starts = %d, want zero behind the refusal", got)
+		if after := outsideRepairDatabaseSnapshot(t, fixture.store); after != before {
+			t.Fatal("refused over-bound declaration changed database state")
 		}
 	})
 

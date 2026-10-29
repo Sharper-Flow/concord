@@ -389,9 +389,6 @@ func preflightDispatchWorkflowAction(ctx context.Context, s *store.Store, author
 	if actorErr != nil {
 		return refuse(failureEnvelope(base, actorErr))
 	}
-	if err := s.CheckMemberOperation(ctx, memberWorkflowActor(actor), memberOperationScope(request.Input, env, op)); err != nil {
-		return refuse(failureEnvelope(base, err))
-	}
 	available, availabilityErr := store.WorkflowActionAvailableWithRegistry(ctx, s, registry, strictAction.WorkID)
 	if availabilityErr != nil {
 		return refuse(failureEnvelope(base, availabilityErr))
@@ -401,9 +398,6 @@ func preflightDispatchWorkflowAction(ctx context.Context, s *store.Store, author
 		// route (CD-0242 D13).
 		message := workflowRegistryUnavailableMessage(ctx, s, registry, strictAction.WorkID)
 		return refuse(coreError(base, "invalid_transition", message, "reread_entities", false))
-	}
-	if strictAction.ActionID == "dispatch_worker" {
-		ctx = store.WithHostLeaseSet(ctx, s.ReadHostLeases())
 	}
 	if err := preflightWorkflowActionRequestWithRegistry(ctx, s, request.Input, env, actor, registry); err != nil {
 		return refuse(failureEnvelope(base, err))
@@ -434,9 +428,6 @@ func dispatchAuthorizedRequest(ctx context.Context, s *store.Store, authority *S
 		if identityErr != nil {
 			return failureEnvelope(base, identityErr), nil
 		}
-		if err := s.CheckMemberOperation(ctx, memberWorkflowActor(identityGrant), memberOperationScope(request.Input, env, op)); err != nil {
-			return failureEnvelope(base, err), nil
-		}
 		r := runtime{Store: s, Authority: authority, Envelope: env, Tool: request.Tool, Operation: request.Operation, Budget: budget, Reader: identityGrant, mutationIdempotencyKey: idempotencyKey(request.Input)}
 		if replay, handled, replayErr := r.replayMutationBeforeScope(ctx, base, request.Input, identityGrant, op); replayErr != nil || handled {
 			if replayErr != nil {
@@ -452,10 +443,6 @@ func dispatchAuthorizedRequest(ctx context.Context, s *store.Store, authority *S
 	if err != nil {
 		return failureEnvelope(base, err), nil
 	}
-	if err := s.CheckMemberOperation(ctx, memberWorkflowActor(grant), memberOperationScope(request.Input, env, op)); err != nil {
-		return failureEnvelope(base, err), nil
-	}
-	ctx = store.WithSessionWorktreeOwner(ctx, store.SessionWorktreeOwner{ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef})
 	if resolvedProject, ok := grant.ScopeSnapshot["project_id"].(string); ok && resolvedProject != env.AmbientProjectID {
 		return coreError(base, "stale_context", "ambient Project no longer matches the signed worktree", "refresh_context", false), nil
 	}
@@ -1804,26 +1791,14 @@ func ContinuityPayload(snapshot store.ContinuitySnapshot) map[string]any {
 		pinned["law_context"] = snapshot.LawContext
 	}
 	if snapshot.ProposalRecord != nil {
-		pinned["proposal_record"] = snapshot.ProposalRecord.PacketProposal()
+		proposal := snapshot.ProposalRecord
+		pinned["proposal_record"] = map[string]any{"problem": proposal.Problem, "affected": proposal.Affected, "stakes": proposal.Stakes, "user_outcomes": proposal.UserOutcomes, "constraints": proposal.Constraints, "open_questions": proposal.OpenQuestions}
 	}
 	// The work's newest unconsumed Project-session handoff rides the pinned
 	// projection when present, so a Project-selected boot names the bounded
 	// job the receiving session must consume before managed execution.
 	if snapshot.PendingProjectHandoff != nil {
 		pinned["pending_project_handoff"] = snapshot.PendingProjectHandoff
-	}
-	// The dispatch-ready worker-job revisions ride the pinned projection in
-	// the packet's inputs.worker_job shape (CD-0205), so the dispatcher
-	// selects one by job_id and binds its recorded content verbatim. The
-	// absent field keeps work without ready jobs byte-stable.
-	if len(snapshot.ReadyWorkerJobs) > 0 {
-		pinned["ready_worker_jobs"] = snapshot.ReadyWorkerJobs
-	}
-	if len(snapshot.ChecksRepairReviewJobs) > 0 {
-		pinned["checks_repair_review_jobs"] = snapshot.ChecksRepairReviewJobs
-	}
-	if len(snapshot.ReviewWorkerJobs) > 0 {
-		pinned["review_worker_jobs"] = snapshot.ReviewWorkerJobs
 	}
 	// Resumed sessions receive available context or explicit unavailability.
 	// Absence keeps context-free payload bytes unchanged.

@@ -10,11 +10,9 @@
   "doc_contract_profile": "current",
   "evidence": [
     ".concord/docs/knowledge/coverage/CD-0220.json",
-    "scripts/generate-agent-lanes.py",
-    "scripts/test-generate-agent-lanes.py",
-    "adapter/opencode/lane_capabilities.native.case.ts"
+    "scripts/check-doc-contract.py"
   ],
-  "home_domain_id": "worker-lanes",
+  "home_domain_id": "workflow-engine",
   "id": "CD-0220",
   "kind": "decision",
   "path": ".concord/docs/decisions/CD-0220-repository-authoring-follows-lane-capability-and-approved-scope.md",
@@ -27,11 +25,11 @@
   },
   "sha256": "sha256:ff7369822e2e1ae17456433d8735ecb3ac708c04b9518e1448e490475d223bd3",
   "status": "accepted",
-  "summary": "Repository authoring follows lane capability and approved scope. Non-editing lanes deny native shell and named editors. A closed capability ceiling authenticates the dispatched child and attempt before native or MCP execution, without overriding narrower host permissions. Code Mode requires native proof of nested capability admission and refuses unqualified or unknown running host versions. Non-editing checks select only recorded executable controls through the existing execution owner. Ordinary check strings grant no execution authority. Product-law approval, review, unmanaged host work, and the absence of a filesystem or network sandbox remain explicit boundaries.",
+  "summary": "Repository authoring remains inside approved source and law scope. The coordinator resolves conflicts and approval routing; hashes and reports do not enact law. Generated projections retain their owning generators. Native Task and tool permissions remain host-owned without a Concord subagent interceptor or sandbox. Independent review checks the actual delta and approval evidence. Outside-workflow work gains no workflow verdict or completion authority.",
   "tags": [
-    "agent-lanes",
+    "scope",
     "authoring",
     "permissions"
   ],
-  "title": "Repository authoring follows lane capability and approved scope"
+  "title": "Repository authoring follows approved scope"
 }

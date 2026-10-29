@@ -91,8 +91,6 @@
         "concord_work_transition.lifecycle",
         "concord_work_transition.remove",
         "concord_work_transition.workflow_action",
-        "concord_work_transition.worker_abandon",
-        "concord_work_transition.worker_reconcile",
         "concord_work_transition.worktree_claim",
         "concord_work_transition.session_vacate",
         "concord_work_transition.project_handoff_record",
@@ -898,48 +896,6 @@
         ]
       },
       "supported_budget_seconds": 30
-    },
-    {
-      "id": "concord_work_transition.worker_reconcile",
-      "tool": "concord_work_transition",
-      "kind": "mutation",
-      "query_id": null,
-      "input_schema": "#/schemas/work_transition_worker_reconcile_input",
-      "result_schema": "#/schemas/mutation_result",
-      "capability": "work_transition",
-      "consequence": "recovery",
-      "approval": "none",
-      "metadata": {
-        "context": "ambient",
-        "idempotency": "required",
-        "pagination": "none",
-        "output_bytes": 51200,
-        "versions": [
-          "1.0"
-        ]
-      },
-      "supported_budget_seconds": 300
-    },
-    {
-      "id": "concord_work_transition.worker_abandon",
-      "tool": "concord_work_transition",
-      "kind": "mutation",
-      "query_id": null,
-      "input_schema": "#/schemas/work_transition_worker_abandon_input",
-      "result_schema": "#/schemas/mutation_result",
-      "capability": "work_transition",
-      "consequence": "recovery",
-      "approval": "none",
-      "metadata": {
-        "context": "ambient",
-        "idempotency": "required",
-        "pagination": "none",
-        "output_bytes": 51200,
-        "versions": [
-          "1.0"
-        ]
-      },
-      "supported_budget_seconds": 300
     },
     {
       "id": "concord_work_transition.worktree_claim",
@@ -1848,14 +1804,6 @@
     },
     "work_transition_session_vacate_input": {
       "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_transition_session_vacate_input",
-      "closed": true
-    },
-    "work_transition_worker_abandon_input": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_transition_worker_abandon_input",
-      "closed": true
-    },
-    "work_transition_worker_reconcile_input": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_transition_worker_reconcile_input",
       "closed": true
     },
     "work_transition_worktree_audit_reclaim_input": {

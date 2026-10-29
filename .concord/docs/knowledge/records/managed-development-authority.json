@@ -5,7 +5,6 @@
     "agent-surface",
     "durable-authority",
     "work-coordination",
-    "worker-lanes",
     "workflow-engine"
   ],
   "authority": {

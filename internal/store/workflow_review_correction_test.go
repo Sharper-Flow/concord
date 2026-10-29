@@ -3,59 +3,12 @@ package store
 import (
 	"context"
 	"encoding/json"
-	"fmt"
-	"os"
-	"path/filepath"
-	"strings"
+	"reflect"
 	"testing"
-	"time"
 )
-
-// Delivery needs an accepted ready Review of the current integrated candidate
-// and depended-on revisions. Dispatch order alone cannot invalidate Review.
-
-func reviewGateLane(t *testing.T, capabilityClass string) LaneDefinition {
-	t.Helper()
-	for _, lane := range BuiltinLaneDefinitions() {
-		if lane.CapabilityClass == capabilityClass {
-			return lane
-		}
-	}
-	t.Fatalf("no builtin lane carries capability class %q", capabilityClass)
-	return LaneDefinition{}
-}
-
-// reviewGateRunAttempt records the attempt's dispatch_worker authorization,
-// worker.dispatched evidence, and completed report; it returns the attempt's
-// recorded authorization epoch, which later accepts and rejects must name.
-func reviewGateRunAttempt(t *testing.T, s *Store, workID, attemptID, stepID string, lane LaneDefinition, ownerRef string, at int64) int64 {
-	t.Helper()
-	recordWorkerFixtureDispatchAuthorization(t, s, workID, attemptID, stepID, ownerRef)
-	// The authorization just opened the step's newest action start, so the
-	// latest start epoch is this attempt's recorded authorization epoch.
-	epoch := latestStepStartEpoch(t, s, workID, stepID)
-	dispatch := workerDispatchEvent(workID, "review-gate-dispatch-"+attemptID, lane, map[string]any{"attempt_id": attemptID})
-	dispatch.Actor = ownerRef
-	dispatch.OccurredAt = time.Unix(at, 0).UTC()
-	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{dispatch}}); err != nil {
-		t.Fatal(err)
-	}
-	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{
-		workerCompleteEventForLane(workID, "review-gate-completed-"+attemptID, attemptID, lane, time.Unix(at+1, 0).UTC(), workerFixtureDirectory(t, s, workID)),
-	}}); err != nil {
-		t.Fatal(err)
-	}
-	return epoch
-}
 
 func reviewGateStartStep(t *testing.T, s *Store, workID, stepID, startAction string, actor WorkflowActor) {
 	t.Helper()
-	// CD-0198 D3: current-head fixtures derive the step start from the
-	// step's qualifying checkpoint; released pins keep the callable start
-	// the caller named. The pinned definition decides, so one helper serves
-	// both sides of the derived-start boundary. The derivation pair — the
-	// checkpoint that its own derived start opened — binds the fence from
-	// the calling actor, exactly as the callable start did.
 	entry, err := VerifyWorkflowInstanceDefinition(context.Background(), s, BuiltinWorkflowRegistry(), workID)
 	if err != nil {
 		t.Fatal(err)
@@ -87,28 +40,14 @@ func reviewGateStartedEpoch(t *testing.T, s *Store, workID, action string) int64
 func reviewGateRequireStep(t *testing.T, s *Store, workID, want string) {
 	t.Helper()
 	if got := currentStep(t, s, workID); got != want {
-		t.Fatalf("current step = %q, want %q", got, want)
+		t.Fatalf("current step=%q, want %q", got, want)
 	}
 }
 
-func reviewGateAcceptResult(t *testing.T, s *Store, workID, attemptID string, epoch int64, acceptor WorkflowActor) error {
-	t.Helper()
-	payload := json.RawMessage(`{"attempt_id":"` + attemptID + `","attempt_epoch":` + fmt.Sprint(epoch) + `}`)
-	return runVerdictActionAs(t, s, workID, "accept_worker_result", payload, 0, acceptor)
-}
-
-func reviewGateRecordDelivery(t *testing.T, s *Store, workID string, acceptor WorkflowActor) error {
+func reviewGateRecordDelivery(t *testing.T, s *Store, workID string, actor WorkflowActor) error {
 	t.Helper()
 	payload := json.RawMessage(`{"delivery_artifact":"artifact:review-gate-` + workID + `","delivery_state":"asserted"}`)
-	return runVerdictActionAs(t, s, workID, "record_delivery", payload, 0, acceptor)
-}
-
-func reviewGateRejectResult(t *testing.T, s *Store, workID, attemptID string, epoch int64, actor WorkflowActor) {
-	t.Helper()
-	payload := json.RawMessage(`{"attempt_id":"` + attemptID + `","attempt_epoch":` + fmt.Sprint(epoch) + `,"diagnosis":"the review rejects the refined result","strategy":"implement the review findings and resubmit","predicate_ids":["predicate:return-route"],"evidence_refs":["evidence:return-route-verification"]}`)
-	if err := runVerdictActionAs(t, s, workID, "reject_worker_result", payload, 0, actor); err != nil {
-		t.Fatalf("reject worker result %s: %v", attemptID, err)
-	}
+	return runVerdictActionAs(t, s, workID, "record_delivery", payload, 0, actor)
 }
 
 func reviewGateRefineFixture(t *testing.T, workID, family string) *candidateJourney {
@@ -124,76 +63,37 @@ func reviewGateRefineFixture(t *testing.T, workID, family string) *candidateJour
 	return j
 }
 
-func reviewGateDriveRejection(t *testing.T, j *candidateJourney) {
-	t.Helper()
-	attempt, epoch := reviewGateCompleteReview(t, j, "correction_required")
-	reviewGateRejectResult(t, j.s, j.workID, attempt, epoch, j.fixture.owner)
-	attempt, epoch = reviewGateCompleteReview(t, j, "continue")
-	if err := reviewGateAcceptResult(t, j.s, j.workID, attempt, epoch, j.fixture.owner); err != nil {
-		t.Fatal(err)
-	}
-}
-
-// Re-record the same obligation after rejection; a new unrelated job would
-// leave the rejected revision required and unsatisfied at whole-work delivery.
 func reviewGateCompleteReview(t *testing.T, j *candidateJourney, disposition string) (string, int64) {
 	t.Helper()
-	job := WorkerJobBinding{JobID: "job:review-gate"}
-	recordWorkerJobRevisionForTest(t, j.s, j.workID, j.fixture.owner, &job)
-	attempt := fmt.Sprintf("review:gate:%d", job.Revision)
-	if err := descendantDispatch(t, j, "review", attempt, job, nil); err != nil {
-		t.Fatal(err)
-	}
-	j.laneDispatch(t, attempt, "review", &job)
-	j.completeReview(t, attempt, job, currentReviewBlockForTest(t, j.s, j.workID, attempt, disposition))
-	return attempt, reviewSubjectWindow(t, j.s, j.workID, attempt).AttemptEpoch
+	return completeCurrentReviewForTest(t, j.fixture, j.repo, disposition)
 }
 
-// Test setup, including verification, finishes before this effect snapshot.
-func reviewGateRefusal(t *testing.T, j *candidateJourney, route deliveryEntryRoute, attempt string, epoch int64, kind FailureKind, detail string) {
+func reviewGateDeliveryRefusal(t *testing.T, j *candidateJourney) {
 	t.Helper()
-	version := readWorkVersion(t, j.s, j.workID)
+	before := j.effects(t)
 	deliveries := reviewGateCountDeliveries(t, j.s, j.workID)
-	var before int
-	if err := j.s.db.QueryRow(`SELECT count(*) FROM effect_receipts`).Scan(&before); err != nil {
-		t.Fatal(err)
+	err := j.action(t, "record_delivery", map[string]any{"delivery_artifact": "artifact:review-gate-" + j.workID, "delivery_state": "asserted"}, j.fixture.owner)
+	if !hasFailureKind(err, KindStaleRequiresReview) {
+		t.Fatalf("delivery after candidate movement=%v, want stale_requires_review", err)
 	}
-	err := route.exit(t, j.s, j.workID, attempt, epoch, j.fixture.owner, nil, false)
-	var failure *Failure
-	if err == nil || !failureAs(err, &failure) || failure.Kind != kind || !strings.Contains(failure.Detail, detail) {
-		t.Fatalf("%s exit = %v, want %s naming %q", route.name, err, kind, detail)
-	}
-	var after int
-	if err := j.s.db.QueryRow(`SELECT count(*) FROM effect_receipts`).Scan(&after); err != nil {
-		t.Fatal(err)
-	}
-	if after != before || readWorkVersion(t, j.s, j.workID) != version || reviewGateCountDeliveries(t, j.s, j.workID) != deliveries {
-		t.Fatal("refused delivery changed events, work version, or delivery assertions")
+	if j.effects(t) != before || reviewGateCountDeliveries(t, j.s, j.workID) != deliveries {
+		t.Fatal("refused delivery changed durable state")
 	}
 	reviewGateRequireStep(t, j.s, j.workID, "refine")
 }
 
-func reviewGateExitWithCurrentReview(t *testing.T, j *candidateJourney, route deliveryEntryRoute) {
+func reviewGateExitWithCurrentReview(t *testing.T, j *candidateJourney) {
 	t.Helper()
-	attempt, epoch := reviewGateCompleteReview(t, j, "ready_for_final_proof")
-	pending := issue1013Pin(t, j.s, j.workID)
-	if workPinContainsAction(pending.NextValidIntents, "record_delivery") || !workPinContainsAction(pending.NextValidIntents, "accept_worker_result") {
-		t.Fatalf("unaccepted current Review intents = %+v, want acceptance without delivery", pending.NextValidIntents)
-	}
-	if route.name == "record_delivery" {
-		if err := reviewGateAcceptResult(t, j.s, j.workID, attempt, epoch, j.fixture.owner); err != nil {
-			t.Fatal(err)
-		}
-		reviewGateRequireStep(t, j.s, j.workID, "refine")
-	}
+	reviewGateCompleteReview(t, j, "ready_for_final_proof")
+	reviewGateRequireStep(t, j.s, j.workID, "refine")
 	j.bindVerification(t, j.observeRun(t, "refine-integration"))
-	if err := route.exit(t, j.s, j.workID, attempt, epoch, j.fixture.owner, nil, false); err != nil {
-		t.Fatalf("%s after current Review: %v", route.name, err)
+	if err := reviewGateRecordDelivery(t, j.s, j.workID, j.fixture.owner); err != nil {
+		t.Fatalf("delivery after current Review: %v", err)
 	}
 	reviewGateRequireStep(t, j.s, j.workID, "delivery")
 	pin := issue1013Pin(t, j.s, j.workID)
 	if !workPinContainsAction(pin.NextValidIntents, "record_delivery") {
-		t.Fatalf("current Review did not restore delivery: %+v", pin.NextValidIntents)
+		t.Fatalf("current Review did not restore gate exit: %+v", pin.NextValidIntents)
 	}
 	if err := reviewGateRecordDelivery(t, j.s, j.workID, j.fixture.owner); err != nil {
 		t.Fatalf("gate crossing after current Review: %v", err)
@@ -206,32 +106,23 @@ func reviewGateAcceptor(workID string) WorkflowActor {
 }
 
 func TestDeliveryRequiresReviewOfCurrentCandidate(t *testing.T) {
-	for _, route := range deliveryEntryRoutes() {
-		t.Run(route.name, func(t *testing.T) {
-			j := reviewGateRefineFixture(t, "review-gate-break-fix", "workflow.break_fix")
-			reviewGateDriveRejection(t, j)
-			attempt, epoch := reviewGateCompleteReview(t, j, "ready_for_final_proof")
-			pReturnProduce(t, j, "repair")
-			kind, detail := KindMissingEvidence, "a changed worker-job revision requires a current accepted Review"
-			if route.name == "accept_worker_result" {
-				kind, detail = KindStaleRequiresReview, "newer accepted candidate replaced this Review's input"
-			}
-			reviewGateRefusal(t, j, route, attempt, epoch, kind, detail)
-			pin := issue1013Pin(t, j.s, j.workID)
-			if workPinContainsAction(pin.NextValidIntents, "record_delivery") {
-				t.Fatalf("pin offered delivery behind unreviewed repair: %+v", pin.NextValidIntents)
-			}
-			// CD-0242 D5 keeps payload-blind acceptance as a hold. The
-			// exact stale acceptance above still refuses without any effect.
-			if !workPinContainsAction(pin.NextValidIntents, "accept_worker_result") {
-				t.Fatal("pin hid Main's result-disposition hold")
-			}
-			if err := j.action(t, "request_correction", reviewGateCorrectionPayload("evidence:return-route-verification"), j.fixture.owner); err == nil {
-				t.Fatal("refine admitted correction without an accepted correction-required Review")
-			}
-			reviewGateExitWithCurrentReview(t, j, route)
-		})
+	j := reviewGateRefineFixture(t, "review-gate-break-fix", "workflow.break_fix")
+	reviewGateCompleteReview(t, j, "correction_required")
+	reviewGateCompleteReview(t, j, "continue")
+	pReturnProduce(t, j, "repair")
+	reviewGateDeliveryRefusal(t, j)
+	pin := issue1013Pin(t, j.s, j.workID)
+	if workPinContainsAction(pin.NextValidIntents, "record_delivery") {
+		t.Fatalf("pin offered delivery behind unreviewed repair: %+v", pin.NextValidIntents)
 	}
+	before := j.effects(t)
+	if err := j.action(t, "request_correction", reviewGateCorrectionPayload("evidence:return-route-verification"), j.fixture.owner); err == nil {
+		t.Fatal("refine admitted correction without an applicable correction-required Review")
+	}
+	if j.effects(t) != before {
+		t.Fatal("refused corrective return changed durable state")
+	}
+	reviewGateExitWithCurrentReview(t, j)
 }
 
 func TestDeliveryGateDeclaresCorrectiveReturn(t *testing.T) {
@@ -247,96 +138,56 @@ func TestDeliveryGateDeclaresCorrectiveReturn(t *testing.T) {
 	}
 }
 
-// An unaccepted Review of the earlier candidate cannot authorize a candidate
-// changed by a later accepted implementation, regardless of dispatch order.
 func TestReviewOfReplacedCandidateCannotAuthorizeDelivery(t *testing.T) {
-	for _, route := range deliveryEntryRoutes() {
-		t.Run(route.name, func(t *testing.T) {
-			j := reviewGateRefineFixture(t, "review-gate-stale-review", "workflow.break_fix")
-			early, epoch := reviewGateCompleteReview(t, j, "ready_for_final_proof")
-			before := issue1013Pin(t, j.s, j.workID).Review.Candidate
-			reviewGateDriveRejection(t, j)
-			pReturnProduce(t, j, "repair")
-			after := issue1013Pin(t, j.s, j.workID).Review.Candidate
-			if before == nil || after == nil || *before == *after {
-				t.Fatal("repair did not replace the integrated candidate")
-			}
-			kind, detail := KindMissingEvidence, "accepted Review on the current candidate"
-			if route.name == "accept_worker_result" {
-				kind, detail = KindStaleRequiresReview, "newer accepted candidate replaced this Review's input"
-			}
-			reviewGateRefusal(t, j, route, early, epoch, kind, detail)
-			reviewGateExitWithCurrentReview(t, j, route)
-		})
+	j := reviewGateRefineFixture(t, "review-gate-stale-review", "workflow.break_fix")
+	early := currentReviewBlockForTest(t, j.s, j.workID, "", "ready_for_final_proof")
+	pReturnProduce(t, j, "repair")
+	if j.pinned(t) == early.OutputCandidate.Commit {
+		t.Fatal("repair did not replace the qualified subject")
 	}
+	before := j.effects(t)
+	if err := recordReviewForTest(t, j.s, j.workID, j.fixture.owner, early); !hasFailureKind(err, KindStaleRequiresReview) {
+		t.Fatalf("old report after candidate replacement=%v, want stale_requires_review", err)
+	}
+	if j.effects(t) != before {
+		t.Fatal("refused stale report changed durable state")
+	}
+	reviewGateDeliveryRefusal(t, j)
+	reviewGateExitWithCurrentReview(t, j)
 }
 
-// An accepted Review becomes inapplicable when its candidate changes. A later
-// completed Review with unchanged inputs does not invalidate it by chronology.
 func TestReviewApplicabilityFollowsCandidateNotDispatchOrder(t *testing.T) {
-	for _, route := range deliveryEntryRoutes() {
-		t.Run(route.name, func(t *testing.T) {
-			j := reviewGateRefineFixture(t, "review-gate-review-before-repair", "workflow.break_fix")
-			reviewGateDriveRejection(t, j)
-			early, epoch := reviewGateCompleteReview(t, j, "continue")
-			if err := reviewGateAcceptResult(t, j.s, j.workID, early, epoch, j.fixture.owner); err != nil {
-				t.Fatal(err)
-			}
-			early, epoch = reviewGateCompleteReview(t, j, "ready_for_final_proof")
-			pReturnProduce(t, j, "repair")
-			kind, detail := KindMissingEvidence, "a changed worker-job revision requires a current accepted Review"
-			if route.name == "accept_worker_result" {
-				kind, detail = KindStaleRequiresReview, "newer accepted candidate replaced this Review's input"
-			}
-			reviewGateRefusal(t, j, route, early, epoch, kind, detail)
-			reviewGateExitWithCurrentReview(t, j, route)
-		})
-	}
-	t.Run("later launch keeps unchanged Review applicable", func(t *testing.T) {
+	t.Run("changed subject needs current Review", func(t *testing.T) {
+		j := reviewGateRefineFixture(t, "review-gate-before-repair", "workflow.break_fix")
+		reviewGateCompleteReview(t, j, "continue")
+		reviewGateCompleteReview(t, j, "ready_for_final_proof")
+		pReturnProduce(t, j, "repair")
+		reviewGateDeliveryRefusal(t, j)
+		reviewGateExitWithCurrentReview(t, j)
+	})
+	t.Run("unchanged qualification and draft keep Review applicable", func(t *testing.T) {
 		j := reviewGateRefineFixture(t, "review-gate-unchanged", "workflow.break_fix")
 		before := issue1013Pin(t, j.s, j.workID).Review
-		attempt, epoch := reviewGateCompleteReview(t, j, "ready_for_final_proof")
+		draft := currentReviewBlockForTest(t, j.s, j.workID, "", "ready_for_final_proof")
+		j.observeRun(t, "unchanged-subject")
 		after := issue1013Pin(t, j.s, j.workID).Review
-		if before == nil || after == nil || before.Accepted.ReportRef != after.Accepted.ReportRef || *before.Candidate != *after.Candidate || !after.DependenciesCurrent {
-			t.Fatal("unchanged launch invalidated accepted Review")
+		if before == nil || after == nil || !reflect.DeepEqual(before.Accepted, after.Accepted) || *before.Candidate != *after.Candidate || !after.DependenciesCurrent || draft.OutputCandidate != *after.Candidate {
+			t.Fatal("unchanged qualification or draft invalidated recorded Review")
 		}
-		if err := workflowAdmitReview(*after, ""); err != nil {
-			t.Fatalf("unchanged launch invalidated readiness: %v", err)
+		if err := workflowAdmitReview(*after); err != nil {
+			t.Fatalf("unchanged subject lost readiness: %v", err)
 		}
-		// The new job still needs its own disposition before whole-work
-		// delivery, independently of the standing Review's applicability.
-		if err := j.action(t, "accept_worker_result", map[string]any{"attempt_id": attempt, "attempt_epoch": epoch}, j.fixture.owner); err != nil {
-			t.Fatal(err)
-		}
-		reviewGateRequireStep(t, j.s, j.workID, "refine")
 		j.bindVerification(t, j.observeRun(t, "unchanged-proof"))
 		if err := reviewGateRecordDelivery(t, j.s, j.workID, j.fixture.owner); err != nil {
-			t.Fatalf("unchanged accepted Review did not authorize delivery: %v", err)
+			t.Fatalf("unchanged recorded Review did not authorize delivery: %v", err)
 		}
 		reviewGateRequireStep(t, j.s, j.workID, "delivery")
 	})
 	t.Run("Review corrective output needs no further Review", func(t *testing.T) {
 		j := reviewGateRefineFixture(t, "review-gate-corrective-output", "workflow.break_fix")
-		job := reviewSubjectReadyRevision(t, j.fixture)
-		const attempt = "review:corrective-output"
-		if err := descendantDispatch(t, j, "review", attempt, job, nil); err != nil {
-			t.Fatal(err)
-		}
-		j.laneDispatch(t, attempt, "review", &job)
-		report := currentReviewBlockForTest(t, j.s, j.workID, attempt, "ready_for_final_proof")
-		path := filepath.Join(j.repo, "internal", "store", job.JobID, "value.go")
-		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(path, []byte("package fixture\nconst Value = 1\n"), 0o600); err != nil {
-			t.Fatal(err)
-		}
-		output := j.commit(t, "reviewer@example.invalid", "correct the scoped candidate")
-		report.OutputCandidate.Commit, report.OutputCandidate.Tree = output, reviewObservedTree(t, j.repo, output)
-		j.completeReview(t, attempt, job, report)
-		if err := reviewGateAcceptResult(t, j.s, j.workID, attempt, j.dispatchEpoch(t, attempt), j.fixture.owner); err != nil {
-			t.Fatal(err)
-		}
+		input := currentReviewBlockForTest(t, j.s, j.workID, "", "continue").InputCandidate
+		output := descendantCommit(t, j, "correct-the-candidate")
+		completeCurrentReviewForTest(t, j.fixture, j.repo, "ready_for_final_proof", func(report *ReviewBlock) { report.InputCandidate = input })
 		pin := issue1013Pin(t, j.s, j.workID)
 		if pin.Review.Candidate.Commit != output || pin.Review.Accepted.Report.OutputCandidate.Commit != output || !pin.Review.DependenciesCurrent {
 			t.Fatalf("corrective Review did not bind its output: %+v", pin.Review)
@@ -349,71 +200,50 @@ func TestReviewApplicabilityFollowsCandidateNotDispatchOrder(t *testing.T) {
 	})
 }
 
-// TestCurrentDeliveryGateAdmitsEvidenceBearingReturn exercises an admitted
-// request_correction on the current break-fix and implementation gates: a
-// parked gate with an outstanding post-rejection review offers the
-// evidence-bearing return, and the fold returns the item to the correction
-// target step for a fresh review.
 func TestCurrentDeliveryGateAdmitsEvidenceBearingReturn(t *testing.T) {
-	for _, tc := range []struct {
-		definitionRef string
-		targetStep    string
-	}{
-		{definitionRef: "workflow.break_fix", targetStep: "repair"},
-		{definitionRef: "workflow.implementation", targetStep: "execution"},
-	} {
-		t.Run(tc.definitionRef, func(t *testing.T) {
-			const workID = "current-gate-return"
-			ctx := context.Background()
-			j := reviewGateRefineFixture(t, workID, tc.definitionRef)
-			s := j.s
-			fixture := j.fixture
-			reviewGateDriveRejection(t, j)
+	for _, tc := range []struct{ family, target string }{{"workflow.break_fix", "repair"}, {"workflow.implementation", "execution"}} {
+		t.Run(tc.family, func(t *testing.T) {
+			j := reviewGateRefineFixture(t, "current-gate-return", tc.family)
+			reviewGateCompleteReview(t, j, "continue")
 			pReturnProduce(t, j, "repair")
-			parkWorkflowInstanceAt(t, s, workID, "delivery")
-			reviewGateRequireStep(t, s, workID, "delivery")
-
-			current := mustBuiltinDefinition(t, tc.definitionRef)
-			pinnedRef, pinnedDigest := reviewGateInstancePin(t, s, workID)
-			if pinnedRef != current.Definition.Ref || pinnedDigest != current.Digest {
-				t.Fatalf("pinned definition = %s %s, want %s %s", pinnedRef, pinnedDigest, current.Definition.Ref, current.Digest)
+			actor, err := WorkflowActorRef(j.fixture.owner)
+			if err != nil {
+				t.Fatal(err)
 			}
-
-			// The pin advertises the corrective return, not the delivery exit.
-			pin, pinErr := ReadWorkPin(ctx, s, workID)
-			if pinErr != nil {
-				t.Fatal(pinErr)
+			if err := advanceWorkflowTestInstanceToStep(t.Context(), j.s, j.workID, "delivery", actor); err != nil {
+				t.Fatal(err)
 			}
+			reviewGateRequireStep(t, j.s, j.workID, "delivery")
+			current := mustBuiltinDefinition(t, tc.family)
+			ref, digest := reviewGateInstancePin(t, j.s, j.workID)
+			if ref != current.Definition.Ref || digest != current.Digest {
+				t.Fatalf("pinned definition=%s %s, want %s %s", ref, digest, current.Definition.Ref, current.Digest)
+			}
+			pin := issue1013Pin(t, j.s, j.workID)
 			if workPinContainsAction(pin.NextValidIntents, "record_delivery") {
-				t.Fatalf("parked gate offered record_delivery: %#v", pin.NextValidIntents)
+				t.Fatal("stale gate offered delivery")
 			}
-			returnIntent := ""
+			reason := ""
 			for _, intent := range pin.NextValidIntents {
 				if intent.ActionID == "request_correction" {
-					returnIntent = intent.ReasonCode
+					reason = intent.ReasonCode
 				}
 			}
-			if returnIntent != "delivery_gate_correction" {
-				t.Fatalf("gate correction intent = %q, want delivery_gate_correction", returnIntent)
+			if reason != "delivery_gate_correction" {
+				t.Fatalf("gate return reason=%q", reason)
 			}
-
-			// The evidence-bearing return is admitted and returns the item to
-			// the correction target step for a fresh review.
-			deliveries := reviewGateCountDeliveries(t, s, workID)
-			if err := runVerdictActionAs(t, s, workID, "request_correction", reviewGateCorrectionPayload("evidence:return-route-verification"), 0, fixture.owner); err != nil {
-				t.Fatalf("evidence-bearing corrective return on the current gate: %v", err)
+			deliveries := reviewGateCountDeliveries(t, j.s, j.workID)
+			if err := j.action(t, "request_correction", reviewGateCorrectionPayload("evidence:return-route-verification"), j.fixture.owner); err != nil {
+				t.Fatalf("evidence-bearing gate return: %v", err)
 			}
-			reviewGateRequireStep(t, s, workID, tc.targetStep)
-			if count := reviewGateCountDeliveries(t, s, workID); count != deliveries {
-				t.Fatalf("corrective return changed delivery assertions from %d to %d", deliveries, count)
+			reviewGateRequireStep(t, j.s, j.workID, tc.target)
+			if count := reviewGateCountDeliveries(t, j.s, j.workID); count != deliveries {
+				t.Fatalf("return changed deliveries %d -> %d", deliveries, count)
 			}
 		})
 	}
 }
 
-// TestCurrentDeliveryGateReturnsWhenSuccessorStalesAcceptedReview: a
-// successor contract that changes a criterion leaves the accepted Review
-// inapplicable, so the parked gate offers only the evidence-bearing return.
 func TestCurrentDeliveryGateReturnsWhenSuccessorStalesAcceptedReview(t *testing.T) {
 	for _, family := range []string{"workflow.break_fix", "workflow.implementation"} {
 		t.Run(family, func(t *testing.T) {
@@ -422,7 +252,6 @@ func TestCurrentDeliveryGateReturnsWhenSuccessorStalesAcceptedReview(t *testing.
 			if err != nil {
 				t.Fatal(err)
 			}
-			// Park at the gate, then change the contract through its fold owner.
 			if err := advanceWorkflowTestInstanceToStep(t.Context(), j.s, j.workID, "delivery", owner); err != nil {
 				t.Fatal(err)
 			}
@@ -430,8 +259,7 @@ func TestCurrentDeliveryGateReturnsWhenSuccessorStalesAcceptedReview(t *testing.
 			delete(successor, "audit_evidence")
 			delete(successor, "supersede_reason")
 			successor["outcome_kind"] = "check"
-			predicates := successor["outcome_predicates"].([]any)
-			predicates[0].(map[string]any)["outcome_payload"].(map[string]any)["expected_result"] = "fail"
+			successor["outcome_predicates"].([]any)[0].(map[string]any)["outcome_payload"].(map[string]any)["expected_result"] = "fail"
 			version := readWorkVersion(t, j.s, j.workID)
 			successor["law_revisions"], successor["law_boundary_version"], successor["consequence_class"] = []WorkflowLawRevision{}, 1, "internal_sqlite"
 			event := workflowEventWithActor("p-gate-successor", WorkflowContractSuperseded, j.workID, owner, map[string]any{"work_id": j.workID, "expected_version": version, "resulting_version": version + 1, "previous_contract_version": 1, "new_contract_version": 2, "supersede_reason": "changed criterion", "audit_evidence": []string{"evidence:return-route-artifact"}, "successor_contract": successor})
@@ -446,18 +274,17 @@ func TestCurrentDeliveryGateReturnsWhenSuccessorStalesAcceptedReview(t *testing.
 			if !issue1013HasIntent(pin, "request_correction") {
 				t.Fatalf("stale gate hides corrective return: %+v", pin.NextValidIntents)
 			}
-			var reason string
+			reason := ""
 			for _, intent := range pin.NextValidIntents {
 				if intent.ActionID == "request_correction" {
 					reason = intent.ReasonCode
 				}
 			}
 			if reason != "delivery_gate_correction" {
-				t.Fatalf("gate correction intent=%q, want delivery_gate_correction", reason)
+				t.Fatalf("gate return reason=%q", reason)
 			}
-			payload := pReviewCorrectionPayload(t)
 			deliveries := reviewGateCountDeliveries(t, j.s, j.workID)
-			if err := j.action(t, "request_correction", payload, j.fixture.owner); err != nil {
+			if err := j.action(t, "request_correction", pReviewCorrectionPayload(t), j.fixture.owner); err != nil {
 				t.Fatalf("evidence-bearing current gate return: %v", err)
 			}
 			effect := "execution"
@@ -466,7 +293,7 @@ func TestCurrentDeliveryGateReturnsWhenSuccessorStalesAcceptedReview(t *testing.
 			}
 			reviewGateRequireStep(t, j.s, j.workID, effect)
 			if count := reviewGateCountDeliveries(t, j.s, j.workID); count != deliveries {
-				t.Fatalf("corrective return changed asserted deliveries from %d to %d", deliveries, count)
+				t.Fatalf("return changed deliveries %d -> %d", deliveries, count)
 			}
 		})
 	}

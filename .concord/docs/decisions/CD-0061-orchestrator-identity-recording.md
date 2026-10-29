@@ -5,8 +5,7 @@
 - **Scope:** Context continuity; session bootstrap; agent identity assertion
 - **Approval:** Operator approval for CD-0061
 - **Related:** CD-0016 (context continuity), CD-0027 (typed restart excluded),
-  CD-0049 (agent delivery and identity assertion), CD-0034 (host prompt
-  provenance), issue #254
+  CD-0049 (agent delivery and identity assertion), issue #254
 - **Approval:** Session-preparation identity assertion: Concord (CON) issue
   CON-910 (2026-10-13), under the Snowball coordinator's operator-delegated
   approval.
@@ -39,9 +38,8 @@ state is the workflow itself", and observes that restart "would also require a
 lane-selection authority rule (which lane may resume which step)". Every premise
 is lane-shaped.
 
-The CD-0049 D3 orchestrator is not a lane. It is the operator's own session, and
-it holds the authorities CD-0017 Invariant 4 forbids workers from holding. CD-0027
-never considered it.
+The CD-0049 D3 orchestrator is the operator's session, not a native Task
+subagent. CD-0242 D5 keeps workflow recording with the coordinator.
 
 So the two records do not disagree about Product capability. They collide over
 storage: CD-0016 reserved `workflow_context_boundaries.typed_agent_type`,
@@ -118,12 +116,9 @@ The orchestrator ruleset digest is a SHA-256 over the manifest of host-supplied
 artifacts the assertion resolved: the orchestrator definition file and the
 instruction chain it loads, each contributing kind, path, and content hash.
 
-This is the construction `computeHostPromptProvenance` already uses for CD-0034
-host prompt provenance, and it is the only honest answer available. A lane digest
-covers a Concord-generated contract body because Concord authors that body. D1 of
-CD-0049 places orchestrator authorship host-side, so there is no Concord artifact
-to digest, and a digest over bytes Concord did not author is a record of what was
-observed rather than a pin on what was approved.
+CD-0049 D1 places orchestrator authorship host-side. The digest records bytes
+the host assertion observed, not a Concord-authored contract or proof of which
+native Task subagent executed.
 
 ## Invariants
 
@@ -138,9 +133,7 @@ observed rather than a pin on what was approved.
 
 ## Consequences
 
-Issue #254 becomes implementable: the assertion slots beside the lane
-identity check in session-prepare, and its record has a home that no accepted
-decision forbids.
+Session preparation records coordinator identity without a lane-identity check.
 
 Session preparation acquires a durable write: the typed assertion record of
 D4. No entry surface performs a durable store write (CD-0108 as amended).
@@ -157,7 +150,7 @@ prose.
 CD-0061 supersedes nothing. It does not supersede CD-0027, whose exclusion of
 lane restart D1 restates and keeps closed, and it does not supersede CD-0049,
 whose D3 and Invariant 3 it implements. It amends one consequence of CD-0049, as
-described in D2, by the same amendment path CD-0017 and CD-0018 use for CD-0005.
+described in D2, through the existing law-amendment path.
 Changes to D1-D5 follow the accepted decision-supersession path and record
 explicit operator acceptance.
 

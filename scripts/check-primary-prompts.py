@@ -2,7 +2,7 @@
 """Validate the named primary profiles and the inert intake example.
 
 The generated named profiles `Concord-RTE`, `Concord`, and `Concord-Planner` ship
-as managed agents. scripts/generate-agent-lanes.py --check owns their byte
+as managed agents. scripts/generate-agent-profiles.py --check owns their byte
 equality with the profile contract; this check proves their portable role
 boundaries:
 

@@ -66,8 +66,8 @@ func TestDomainShapeReadingClosedSource(t *testing.T) {
 	}
 }
 
-// Reuse the real workflow/claim fixture and both E/F Product homes. Only the
-// fixture's model association changes; the action, dispatch and read are real.
+// Both Products have committed homes. Only the work's Product association
+// changes; declarations and selected-content proofs use their normal owners.
 func shapeReadingWorkflowFixture(t *testing.T, suffix string) (workContextFixture, KnowledgeHome, string, KnowledgeHome, string) {
 	t.Helper()
 	f := seedWorkContextFixture(t, "shape-reading-"+suffix)
@@ -96,32 +96,29 @@ func shapeReadingWorkflowFixture(t *testing.T, suffix string) (workContextFixtur
 	}); err != nil {
 		t.Fatal(err)
 	}
-	reviewSubjectClaim(t, f.store, f.workID)
 	return f, home, product, other, foreign
 }
 
 func declareShapeReading(t *testing.T, f workContextFixture, reading WorkContextReading) error {
 	t.Helper()
-	return f.recordWorkContext(t, map[string]any{"required_reading": []WorkContextReading{reading}, "finding_refs": []string{}, "context_findings": []WorkerContextFinding{}})
+	return f.recordWorkContext(t, map[string]any{"required_reading": []WorkContextReading{reading}, "finding_refs": []string{}, "context_findings": []WorkContextFinding{}})
 }
 
-func dispatchShapeReading(t *testing.T, f workContextFixture) WorkerReadingRequest {
+func sampleShapeReading(t *testing.T, f workContextFixture, product string, reading WorkContextReading) domainShapeReadingWitness {
 	t.Helper()
-	job := reviewSubjectReadyRevision(t, f)
-	attempt := "attempt-" + f.workID
-	packet := workContextDispatchPacket(t, f, attempt, job, currentFixtureView(t, f))
-	if err := freshnessDispatch(t, f, attempt, packet); err != nil {
-		t.Fatal(err)
-	}
-	raw, err := json.Marshal(packet)
+	var witness domainShapeReadingWitness
+	err := f.store.readSnapshot(t.Context(), func(q queryer) error {
+		var err error
+		witness, err = sampleDomainShapeReading(t.Context(), q, product, reading)
+		return err
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	window := reviewSubjectWindow(t, f.store, f.workID, attempt)
-	return WorkerReadingRequest{WorkID: f.workID, AttemptID: attempt, WorktreeIdentity: window.WorktreeIdentity, Packet: raw, Length: WorkerReadingPageMaxBytes}
+	return witness
 }
 
-func TestDomainShapeReadingDelegatedProductIsolation(t *testing.T) {
+func TestDomainShapeReadingProductIsolation(t *testing.T) {
 	for _, suffix := range []string{"a", "b"} {
 		t.Run(suffix, func(t *testing.T) {
 			f, home, product, other, foreign := shapeReadingWorkflowFixture(t, suffix)
@@ -150,43 +147,32 @@ func TestDomainShapeReadingDelegatedProductIsolation(t *testing.T) {
 			if len(view.RequiredReading) != 1 || len(view.DomainGroups) != 1 || view.DomainGroups[0].DomainID != "fixture-law" || len(view.DomainGroups[0].RequiredReadingOrdinals) != 1 {
 				t.Fatalf("reading not grouped: %+v", view)
 			}
-			request := dispatchShapeReading(t, f)
-			request.Length = 511
+			witness := sampleShapeReading(t, f, product, reading)
 			// A conflicting mutable checkout, even with valid foreign bytes,
 			// cannot replace this Product's committed selected content.
 			writeKnowledgeFile(t, home.RepoPath, knowledgeFactTreeDir+"invariant-"+suffix+".json", runKnowledgeGit(t, other.RepoPath, "show", "HEAD:"+knowledgeFactTreeDir+"invariant-"+strings.TrimPrefix(foreign, "product-")+".json"))
-			var actual []byte
-			for {
-				page, err := f.store.ReadWorkerReading(context.Background(), request)
-				if err != nil {
-					t.Fatal(err)
-				}
-				if page.ContentHash != reading.Source.ContentHash || page.TotalBytes != len(expected) || !strings.Contains(page.SourceIdentity, home.HomeProjectID) {
-					t.Fatalf("wrong pinned identity: %+v", page)
-				}
-				actual = append(actual, page.Data...)
-				if page.EOF {
-					break
-				}
-				request.Offset = page.NextOffset
+			actual, err := resolveDomainShapeReading(t.Context(), CommittedReadGitRunner{}, &witness)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if witness.contentHash != reading.Source.ContentHash || !strings.Contains(witness.identity, home.HomeProjectID) {
+				t.Fatalf("wrong pinned identity: %+v", witness)
 			}
 			if !bytes.Equal(actual, expected) || bytes.Contains(actual, []byte(`"product_id":"`+foreign+`"`)) {
-				t.Fatalf("normal and delegated selected bytes differ: %s", actual)
+				t.Fatalf("selected and committed proof bytes differ: %s", actual)
 			}
 			for _, target := range []string{"archive", projectToolingManifestPath, selected.GoverningLaw[0].Path} {
-				request.Offset = 0
-				request.Runner = &shapeTamperRunner{GitRunner: CommittedReadGitRunner{}, target: target}
-				page, err := f.store.ReadWorkerReading(context.Background(), request)
-				if err == nil || len(page.Data) != 0 {
-					t.Fatalf("worker exposed tampered %s bytes: %+v %v", target, page, err)
+				raw, err := resolveDomainShapeReading(t.Context(), &shapeTamperRunner{GitRunner: CommittedReadGitRunner{}, target: target}, &witness)
+				if err == nil || len(raw) != 0 {
+					t.Fatalf("proof exposed tampered %s bytes: %s %v", target, raw, err)
 				}
 			}
-			t.Logf("%s normal -> declaration -> dispatch -> worker_read: %d identical selected bytes", product, len(actual))
+			t.Logf("%s selection -> declaration -> committed proof: %d identical selected bytes", product, len(actual))
 		})
 	}
 }
 
-func TestDomainShapeReadingHeldDispatchSurvivesProjectionRefresh(t *testing.T) {
+func TestDomainShapeReadingHeldWitnessSurvivesProjectionRefresh(t *testing.T) {
 	for _, suffix := range []string{"a", "b"} {
 		t.Run(suffix, func(t *testing.T) {
 			f, home, product, other, foreign := shapeReadingWorkflowFixture(t, suffix)
@@ -196,8 +182,7 @@ func TestDomainShapeReadingHeldDispatchSurvivesProjectionRefresh(t *testing.T) {
 			if err := declareShapeReading(t, f, reading); err != nil {
 				t.Fatal(err)
 			}
-			request := dispatchShapeReading(t, f)
-			request.Length = 311
+			witness := sampleShapeReading(t, f, product, reading)
 			writeKnowledgeFile(t, home.RepoPath, "unrelated.txt", "Unrelated committed Product change.\n")
 			commitKnowledgeRepo(t, home.RepoPath, "unrelated Product change")
 			if err := f.store.RebuildKnowledgeIndex(ctx, home); err != nil {
@@ -207,31 +192,20 @@ func TestDomainShapeReadingHeldDispatchSurvivesProjectionRefresh(t *testing.T) {
 			if err != nil || current.KnowledgeCommit == reading.Source.CommitOID {
 				t.Fatalf("projection did not advance: %+v %v", current, err)
 			}
-			// The new projection cannot admit the stale pin for a new dispatch.
+			// The new projection cannot admit a newly sampled stale pin.
 			if err := f.store.readSnapshot(ctx, func(q queryer) error {
-				_, err := sampleDispatchReadingIdentities(ctx, q, f.workID, []WorkContextReading{reading})
+				_, err := sampleDomainShapeReading(ctx, q, product, reading)
 				return err
 			}); !hasFailureKind(err, KindProjectionConflict) {
-				t.Fatalf("dispatch admitted stale selection: %v", err)
+				t.Fatalf("sampling admitted stale selection: %v", err)
 			}
 			foreignSelection, err := f.store.QueryDomainShape(ctx, foreign, DomainShapeSelector{Path: "src/entry.go"})
 			if err != nil || foreignSelection.HomeProjectID != other.HomeProjectID {
 				t.Fatalf("foreign home changed: %+v %v", foreignSelection, err)
 			}
-			var actual []byte
-			for {
-				page, err := f.store.ReadWorkerReading(ctx, request)
-				if err != nil {
-					t.Fatal(err)
-				}
-				if page.ContentHash != reading.Source.ContentHash || page.TotalBytes != len(expected) {
-					t.Fatalf("held source repinned: %+v", page)
-				}
-				actual = append(actual, page.Data...)
-				if page.EOF {
-					break
-				}
-				request.Offset = page.NextOffset
+			actual, err := resolveDomainShapeReading(ctx, CommittedReadGitRunner{}, &witness)
+			if err != nil {
+				t.Fatal(err)
 			}
 			if !bytes.Equal(actual, expected) {
 				t.Fatal("held reading differs from original selected bytes")
@@ -296,15 +270,15 @@ func TestDomainShapeReadingReconstructsGoverningLawMembership(t *testing.T) {
 	if err := declareShapeReading(t, f, reading); err != nil {
 		t.Fatal(err)
 	}
-	request := dispatchShapeReading(t, f)
+	witness := sampleShapeReading(t, f, product, reading)
 	writeKnowledgeFile(t, home.RepoPath, "unrelated.txt", "Later Product revision.\n")
 	commitKnowledgeRepo(t, home.RepoPath, "advance synthetic law selection projection")
 	if err := f.store.RebuildKnowledgeIndex(ctx, home); err != nil {
 		t.Fatal(err)
 	}
-	page, err := f.store.ReadWorkerReading(ctx, request)
-	if err != nil || !page.EOF || !bytes.Equal(page.Data, expected) {
-		t.Fatalf("immutable law membership/metadata differ from SQL selected bytes: %+v %v", page, err)
+	raw, err := resolveDomainShapeReading(ctx, CommittedReadGitRunner{}, &witness)
+	if err != nil || !bytes.Equal(raw, expected) {
+		t.Fatalf("immutable law membership/metadata differ from SQL selected bytes: %s %v", raw, err)
 	}
 }
 
@@ -316,17 +290,17 @@ func TestDomainShapeReadingRefreshDuringReadKeepsOriginalBytes(t *testing.T) {
 	if err := declareShapeReading(t, f, reading); err != nil {
 		t.Fatal(err)
 	}
-	request := dispatchShapeReading(t, f)
-	request.Runner = &workerReadingProbeRunner{GitRunner: CommittedReadGitRunner{}, once: func() {
+	witness := sampleShapeReading(t, f, product, reading)
+	runner := &shapeReadingProbeRunner{GitRunner: CommittedReadGitRunner{}, once: func() {
 		writeKnowledgeFile(t, home.RepoPath, "unrelated.txt", "Advance during immutable read.\n")
-		commitKnowledgeRepo(t, home.RepoPath, "advance while the worker holds an original reading")
+		commitKnowledgeRepo(t, home.RepoPath, "advance while an original reading is held")
 		if err := f.store.RebuildKnowledgeIndex(ctx, home); err != nil {
 			t.Fatal(err)
 		}
 	}}
-	page, err := f.store.ReadWorkerReading(ctx, request)
-	if err != nil || !page.EOF || !bytes.Equal(page.Data, expected) {
-		t.Fatalf("projection-only race replaced or refused held bytes: %+v %v", page, err)
+	raw, err := resolveDomainShapeReading(ctx, runner, &witness)
+	if err != nil || !bytes.Equal(raw, expected) {
+		t.Fatalf("projection-only race replaced or refused held bytes: %s %v", raw, err)
 	}
 }
 
@@ -349,15 +323,15 @@ func TestDomainShapeReadingRejectsProjectedLawForgery(t *testing.T) {
 				t.Fatal(err)
 			}
 			forged, _ := shapeReading(t, f.store, product, DomainShapeSelector{Subject: "invariant-a"})
-			var witnesses []dispatchReadingWitness
+			var witness domainShapeReadingWitness
 			if err := f.store.readSnapshot(ctx, func(q queryer) error {
 				var err error
-				witnesses, err = sampleDispatchReadingIdentities(ctx, q, f.workID, []WorkContextReading{forged})
+				witness, err = sampleDomainShapeReading(ctx, q, product, forged)
 				return err
 			}); err != nil {
 				t.Fatal(err)
 			}
-			if err := resolveDispatchReadingWitnesses(ctx, CommittedReadGitRunner{}, witnesses); !hasFailureKind(err, KindInvalidNoteProof) {
+			if _, err := resolveDomainShapeReading(ctx, CommittedReadGitRunner{}, &witness); !hasFailureKind(err, KindInvalidNoteProof) {
 				t.Fatalf("forged projected law %s acquired committed proof: %v", mutation, err)
 			}
 		})
@@ -369,23 +343,20 @@ func TestDomainShapeReadingPinnedProofAndRefusals(t *testing.T) {
 	defer f.store.Close()
 	ctx := context.Background()
 	reading, expected := shapeReading(t, f.store, product, DomainShapeSelector{Subject: "invariant-a"})
-	sample := func(r WorkContextReading) ([]dispatchReadingWitness, error) {
-		var witnesses []dispatchReadingWitness
+	sample := func(r WorkContextReading) (domainShapeReadingWitness, error) {
+		var witness domainShapeReadingWitness
 		err := f.store.readSnapshot(ctx, func(q queryer) error {
 			var err error
-			witnesses, err = sampleDispatchReadingIdentities(ctx, q, f.workID, []WorkContextReading{r})
+			witness, err = sampleDomainShapeReading(ctx, q, product, r)
 			return err
 		})
-		return witnesses, err
+		return witness, err
 	}
-	witnesses, err := sample(reading)
+	witness, err := sample(reading)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := resolveDispatchReadingWitnesses(ctx, CommittedReadGitRunner{}, witnesses); err != nil {
-		t.Fatal(err)
-	}
-	actual, err := readDispatchReadingContent(ctx, CommittedReadGitRunner{}, witnesses[0])
+	actual, err := resolveDomainShapeReading(ctx, CommittedReadGitRunner{}, &witness)
 	if err != nil || !bytes.Equal(expected, actual) {
 		t.Fatalf("selected proof differs: %v", err)
 	}
@@ -418,7 +389,7 @@ func TestDomainShapeReadingPinnedProofAndRefusals(t *testing.T) {
 	for _, target := range []string{"archive", projectToolingManifestPath, ".concord/docs/decisions/CD-0001-synthetic.md"} {
 		t.Run("tampered "+target, func(t *testing.T) {
 			runner := &shapeTamperRunner{GitRunner: CommittedReadGitRunner{}, target: target}
-			raw, err := readDispatchReadingContent(ctx, runner, witnesses[0])
+			raw, err := resolveDomainShapeReading(ctx, runner, &witness)
 			if err == nil || len(raw) != 0 || !runner.changed {
 				t.Fatalf("tampered committed input exposed selected bytes: changed=%v error=%v", runner.changed, err)
 			}
@@ -439,11 +410,11 @@ func TestDomainShapeReadingPinnedProofAndRefusals(t *testing.T) {
 		t.Fatalf("projected byte tampering did not refuse the original hash: %v", err)
 	}
 	forged, _ := shapeReading(t, f.store, product, *reading.Source.Selector)
-	forgedWitnesses, err := sample(forged)
+	forgedWitness, err := sample(forged)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := resolveDispatchReadingWitnesses(ctx, CommittedReadGitRunner{}, forgedWitnesses); !hasFailureKind(err, KindInvalidNoteProof) {
+	if _, err := resolveDomainShapeReading(ctx, CommittedReadGitRunner{}, &forgedWitness); !hasFailureKind(err, KindInvalidNoteProof) {
 		t.Fatalf("repinned forged projection acquired committed proof: %v", err)
 	}
 }
@@ -463,74 +434,18 @@ func (r *shapeTamperRunner) Run(ctx context.Context, repo string, args ...string
 	return raw, err
 }
 
-func TestDomainShapeReadingDispatchAndWorkerRaceRefusals(t *testing.T) {
-	for _, drift := range []string{"locator", "source set", "watermark", "projection", "Product version", "home designation"} {
-		t.Run(drift, func(t *testing.T) {
-			f, home, product, _, _ := shapeReadingWorkflowFixture(t, "a")
-			defer f.store.Close()
-			ctx := context.Background()
-			reading, _ := shapeReading(t, f.store, product, DomainShapeSelector{Subject: "invariant-a"})
-			if err := declareShapeReading(t, f, reading); err != nil {
-				t.Fatal(err)
-			}
-			job := reviewSubjectReadyRevision(t, f)
-			view := currentFixtureView(t, f)
-			preparation, err := PrepareWorkerDispatchFreshness(ctx, f.store, PrepareWorkerDispatchRequest{WorkID: f.workID, SessionWorktree: dispatchSessionWorktree(t, f.store, f.workID)})
-			if err != nil {
-				t.Fatal(err)
-			}
-			if err := f.store.Transact(ctx, func(tx *Transaction) error {
-				mustTxExec(t, tx, `INSERT INTO write_guard(active) VALUES(1)`)
-				switch drift {
-				case "locator":
-					mustTxExec(t, tx, `UPDATE project_locators SET updated_at='drifted' WHERE project_id=?`, home.HomeProjectID)
-				case "source set":
-					mustTxExec(t, tx, `INSERT INTO product_knowledge_sources(product_id,project_id,locator_id,registered_at) SELECT ?,'project','workflow-law-locator','drifted'`, product)
-				case "watermark":
-					mustTxExec(t, tx, `UPDATE knowledge_index_watermark SET scanned_content_digest='drifted' WHERE home_project_id=?`, home.HomeProjectID)
-				case "projection":
-					mustTxExec(t, tx, `UPDATE knowledge_domain_facts SET fact_json=json_set(fact_json,'$.invariant.statement','Drifted statement.') WHERE home_project_id=? AND fact_id='invariant-a'`, home.HomeProjectID)
-				case "Product version":
-					mustTxExec(t, tx, `UPDATE products SET version=version+1 WHERE id=?`, product)
-				case "home designation":
-					mustTxExec(t, tx, `DELETE FROM product_knowledge_homes WHERE product_id=?`, product)
-				}
-				mustTxExec(t, tx, `DELETE FROM write_guard`)
-				return nil
-			}); err != nil {
-				t.Fatal(err)
-			}
-			attempt := "attempt-shape-drift"
-			err = dispatchBindingAttemptCtx(t, f.store, cd0059DispatchSeed{workID: f.workID, ownerActor: f.owner}, attempt, workContextDispatchPacket(t, f, attempt, job, view), WithWorkerDispatchPreparation(ctx, preparation))
-			if err == nil {
-				t.Fatal("changed sampled source borrowed an earlier proof")
-			}
-			checkZeroDispatchEffects(t, f.store, f.workID, attempt)
-		})
+type shapeReadingProbeRunner struct {
+	GitRunner
+	once func()
+}
+
+func (r *shapeReadingProbeRunner) Run(ctx context.Context, repo string, args ...string) ([]byte, error) {
+	if r.once != nil {
+		callback := r.once
+		r.once = nil
+		callback()
 	}
-	t.Run("worker refuses registration change after Git", func(t *testing.T) {
-		f, home, product, _, _ := shapeReadingWorkflowFixture(t, "a")
-		defer f.store.Close()
-		reading, _ := shapeReading(t, f.store, product, DomainShapeSelector{Subject: "invariant-a"})
-		if err := declareShapeReading(t, f, reading); err != nil {
-			t.Fatal(err)
-		}
-		request := dispatchShapeReading(t, f)
-		request.Runner = &workerReadingProbeRunner{GitRunner: CommittedReadGitRunner{}, once: func() {
-			if err := f.store.Transact(context.Background(), func(tx *Transaction) error {
-				mustTxExec(t, tx, `INSERT INTO write_guard(active) VALUES(1)`)
-				mustTxExec(t, tx, `UPDATE project_locators SET updated_at='drifted' WHERE project_id=?`, home.HomeProjectID)
-				mustTxExec(t, tx, `DELETE FROM write_guard`)
-				return nil
-			}); err != nil {
-				t.Fatal(err)
-			}
-		}}
-		page, err := f.store.ReadWorkerReading(context.Background(), request)
-		if !hasFailureKind(err, KindStaleRequiresReview) || len(page.Data) != 0 {
-			t.Fatalf("worker source race exposed content: %v %+v", err, page)
-		}
-	})
+	return r.GitRunner.Run(ctx, repo, args...)
 }
 
 func TestDomainShapeReadingExplicitDomainGroup(t *testing.T) {
@@ -563,9 +478,10 @@ func TestDomainShapeReadingExplicitDomainGroup(t *testing.T) {
 	if err := declareShapeReading(t, f, reading); err != nil {
 		t.Fatal(err)
 	}
-	page, err := f.store.ReadWorkerReading(ctx, dispatchShapeReading(t, f))
-	if err != nil || !page.EOF || !bytes.Equal(page.Data, expected) || page.ContentHash != reading.Source.ContentHash {
-		t.Fatalf("explicit Domain selection did not survive the approved root group: %+v %v", page, err)
+	witness := sampleShapeReading(t, f, product, reading)
+	raw, err := resolveDomainShapeReading(ctx, CommittedReadGitRunner{}, &witness)
+	if err != nil || !bytes.Equal(raw, expected) || witness.contentHash != reading.Source.ContentHash {
+		t.Fatalf("explicit Domain selection did not survive the approved root group: %s %v", raw, err)
 	}
 }
 
@@ -575,14 +491,14 @@ func TestOracleSourcesRefuseDomainShapeSelector(t *testing.T) {
 	selector := &DomainShapeSelector{Path: "src"}
 	law := WorkContextReadingSource{Kind: WorkContextSourceKnowledge, SourceID: "project-a", LawID: "law-a", ContentHash: "sha256:" + strings.Repeat("b", 64)}
 	recipe := WorkContextReadingSource{Kind: WorkContextSourceRepositoryFile, ProjectID: "project-a", Path: "harness/run.sh", CommitOID: strings.Repeat("a", 40)}
-	if err := validateWorkerJobLawSource("worker job", law); err != nil {
+	if err := validateOracleLawSource(law); err != nil {
 		t.Fatalf("valid law source refused: %v", err)
 	}
 	if err := validateOracleRecipeSource(recipe); err != nil {
 		t.Fatalf("valid recipe source refused: %v", err)
 	}
 	law.Selector, recipe.Selector = selector, selector
-	if err := validateWorkerJobLawSource("worker job", law); err == nil {
+	if err := validateOracleLawSource(law); err == nil {
 		t.Fatal("law binding admitted a domain_shape selector")
 	}
 	if err := validateOracleRecipeSource(recipe); err == nil {

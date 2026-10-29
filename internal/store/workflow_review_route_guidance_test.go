@@ -81,23 +81,7 @@ func TestReviewRouteGuidanceAdmission(t *testing.T) {
 	}
 }
 
-func TestReviewRouteGuidanceChecksRepair(t *testing.T) {
-	for _, pending := range []bool{false, true} {
-		state := workflowDeliveryAdmission{JobsRecorded: true, JobsIntegrated: true, ChecksRepairUnconfirmedReview: !pending}
-		var accepting *WorkerJobBinding
-		if pending {
-			accepting = &WorkerJobBinding{JobID: "job:repair", Revision: 2}
-			state.ChecksRepairPendingKeys = workerJobKey(accepting.JobID, accepting.Revision)
-		}
-		failure := workflowDeliveryJobsFailure(state, accepting)
-		if failure == nil || failure.Kind != KindMissingEvidence || failure.Op != "workflow_action" || failure.Detail != "the delivery assertion requires an accepted confirming Review for an unconfirmed checks repair" {
-			t.Fatalf("confirming Review refusal changed: %+v", failure)
-		}
-		requireReviewRouteGuidance(t, failure.RecoveryAction)
-		if !strings.Contains(failure.RecoveryAction, "confirming the checks repair with disposition continue or ready_for_final_proof before asserting whole-work delivery") {
-			t.Fatalf("guidance lost checks-repair dispositions: %s", failure.RecoveryAction)
-		}
-	}
+func TestReviewRouteGuidanceUnsatisfiedJob(t *testing.T) {
 	t.Run("unchanged unsatisfied job", func(t *testing.T) {
 		failure := workflowDeliveryJobsFailure(workflowDeliveryAdmission{JobsUnsatisfiedKeys: "job:unsatisfied|1"}, nil)
 		if failure == nil || failure.Kind != KindMissingEvidence || !strings.Contains(failure.Detail, "remain unsatisfied") {

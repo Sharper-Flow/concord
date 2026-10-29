@@ -1289,7 +1289,7 @@
                   "maxLength": 256
                 },
                 "report": {
-                  "$ref": "#/$defs/lane_report_review_block"
+                  "$ref": "#/$defs/workflow_review_report"
                 }
               }
             }
@@ -29397,7 +29397,7 @@
         }
       }
     },
-    "lane_report_review_block": {
+    "workflow_review_report": {
       "type": "object",
       "additionalProperties": false,
       "required": [
@@ -29417,7 +29417,7 @@
             "revision_required",
             "ready_for_final_proof"
           ],
-          "description": "An attributed Review disposition, not permission to advance. Main accepts the exact report through accept_worker_result. Blocking dispositions remain valid reports.",
+          "description": "The coordinator records an independently obtained Review outcome against its exact candidate through record_review. This disposition is not permission to advance. Blocking dispositions remain valid outcomes.",
           "type": "string"
         },
         "input_candidate": {

@@ -13,6 +13,33 @@ import (
 	"github.com/sharper-flow/concord/internal/store"
 )
 
+func retryJSON(value any) json.RawMessage {
+	raw, err := json.Marshal(value)
+	if err != nil {
+		panic(err)
+	}
+	return raw
+}
+
+func cloneWithApproval(t *testing.T, input map[string]any, ref string) map[string]any {
+	t.Helper()
+	var cloned map[string]any
+	if err := json.Unmarshal(retryJSON(input), &cloned); err != nil {
+		t.Fatal(err)
+	}
+	cloned["approval"] = map[string]any{"approval_ref": ref}
+	return cloned
+}
+
+func mustScopeVersion(t *testing.T, s *store.Store) string {
+	t.Helper()
+	version, _, err := s.ScopeVersion(t.Context(), "project-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return version
+}
+
 func seedCurrentWorkflowDomainFixture(t *testing.T, s *store.Store) {
 	t.Helper()
 	ctx := context.Background()

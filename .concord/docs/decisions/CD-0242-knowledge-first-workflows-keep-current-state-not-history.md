@@ -96,21 +96,23 @@ strategy and details only the next assignment.
 ### D5. Execution is a loop that Main controls
 
 Main owns the plan and every progression. Each implementation assignment
-carries one focused outcome. Main may run independent assignments of one work
-item as one concurrent group when their interfaces are settled and each member
-runs in its own claimed member worktree; dependent assignments run in sequence.
-Implement builds and verifies; Main integrates the group's results into one
-candidate and dispatches Review; Review inspects the accumulated solution, may
-commit corrective changes, verifies the corrected candidate, and reports.
-Workers do not dispatch workers.
+carries one focused outcome. Main may run independent assignments concurrently
+when their interfaces and worktree ownership are settled; dependent assignments
+run in sequence. Implement builds and verifies. Main integrates the results
+into one candidate and obtains independent Review through the host's native
+Task. Review inspects the accumulated solution, may commit corrective changes,
+verifies the corrected candidate, and reports.
 
 A review report names its input and output candidates, the criteria and
 architecture revisions it judged, its findings, its remaining obligations, and
 one disposition: continue, correction required, revision required, or ready
-for final proof. Main records its acceptance of the disposition. A new
-assignment group needs an accepted disposition of continue bound to the current
-integrated candidate; members of one group need no Review between them. A late
-or duplicate member result never replaces a newer accepted candidate. Leaving execution needs an accepted disposition of ready for final
+for final proof. Main records the typed report through `record_review`, with
+`review` as its payload and no attempt, lane, or job binding. The coordinator
+owns that claim; Concord checks the current subject and depended-on revisions,
+not which subagent produced it. A new assignment group needs an accepted
+disposition of continue bound to the current integrated candidate; members of
+one group need no Review between them. A late or duplicate result never
+replaces a newer accepted candidate. Leaving execution needs an accepted disposition of ready for final
 proof bound to the current candidate. An open in-scope blocking finding
 blocks both.
 
@@ -118,17 +120,19 @@ Implement cannot accept its own result. Review's corrective edits belong to its
 pass and need no further review. No separate final evaluator, and no executing
 actor distinctness beyond these rules, is required.
 
-### D6. Attempts carry their own authority, not a budget
+### D6. Native Task belongs to the host
 
-Authorization, actual start, terminal result, and result acceptance are
-distinct recorded facts. Each launch is one admitted request with its own
-scope, assignment, and subject bindings. No attempt count, correction count,
-convergence basis, escalation wall, or reset exists.
+The host owns native Task execution. Concord neither authorizes, packages,
+starts, reads back, reconciles, nor recovers subagent runs. It retains no lane
+registry, dispatch window, packet, worker report envelope, worker job, or
+producer-identity attestation. No compatibility launcher replaces these owners.
+Workflow stages own subject-bound results, not subagent execution.
 
-A launch confirmed never started leaves the assignment and its valid proof
-unchanged. A launch with an unknown effect is reconciled before another launch
-for that assignment. Each terminal result is accepted or rejected once. A
-useful partial result is accepted as progress with its remaining obligations.
+Main obtains independent review and records its actual outcome. A partial
+result remains progress with its remaining obligations. No attempt count,
+correction count, convergence basis, escalation wall, or reset exists.
+Removal of execution attestation never permits fabricated review or proof,
+skipped Review or Verify stages, or weaker required CI.
 
 Main sizes each assignment by complexity and relatedness. No production-line
 cap, size measurement, or mandatory split applies. Scope, prerequisite,
@@ -157,7 +161,16 @@ A verification receipt records what ran, the subject commit and tree, the
 relevant inputs and environment, the outcome, the producer, and the artifact
 location and digest. The tool captures these facts; agents do not re-enter
 them. Consumers reference one receipt. A new session reuses applicable
-receipts. A worker's statement that a check passed is not a receipt.
+receipts. An agent's statement that a check passed is not a receipt.
+
+Verify uses the existing `worktree_verify` producer receipts and
+`record_verdict`; it has no parallel subagent-report authority. Native
+preparation retains its declared bundle, subject, recipe and environment.
+Execution selects its exact `preparation_run_ref` and retains the producer's
+runner, clean-subject, environment, isolation and captured-result checks.
+Neither preparation nor execution requires a worker attempt, packet, epoch,
+lane or job. Criterion proof resolves through the retained preparation and
+bundle, never an inferred subagent identity.
 
 Failure and unknown outcomes are recorded as such. A receipt never claims a
 fact that was not captured.
@@ -243,6 +256,11 @@ Active work continues under the new model from verified current state. The
 cutover needs a verified recovery snapshot and the operator's approval of its
 destructive operation. Tooling explains missing or incompatible data and its
 migration route.
+
+Launcher retirement uses the verified-snapshot migration to remove worker
+state while preserving active work, knowledge, research, native receipts and
+worktrees. Supported historical reads report truthful absence; migration
+invents no successful outcome or subagent provenance.
 
 ### D14. Generated contracts derive from one source
 

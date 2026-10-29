@@ -65,14 +65,14 @@ func TestPinnedDeliveryGateRecoversThroughEvidenceBearingReturn(t *testing.T) {
 	c := acceptDeliveryCandidateAt(t, workID, "workflow.break_fix", "repair", false)
 	fixture := workflowReturnRouteFixture{store: c.f.store, owner: c.f.owner, operator: c.f.operator}
 	s := fixture.store
-	parkWorkflowInstanceAt(t, s, workID, "refine")
+	setWorkflowStepForOperatorVerdictTest(t, s, workID, "refine")
 	reviewGateStartStep(t, s, workID, "refine", "start_refine", fixture.owner)
 	c.j.bindVerification(t, c.early)
 	acceptCurrentReviewForTest(t, c.f, c.j.repo, "continue")
 	seedAcceptedImplementationDeliveryAt(t, s, workID, fixture.owner, "refine")
 	// Exercise gate recovery after the repair changed the reviewed candidate. A plain result
 	// disposition cannot itself assert delivery or move refine (CD-0242 D5).
-	parkWorkflowInstanceAt(t, s, workID, "delivery")
+	setWorkflowStepForOperatorVerdictTest(t, s, workID, "delivery")
 	reviewGateRequireStep(t, s, workID, "delivery")
 
 	pinnedRef, pinnedDigest := reviewGateInstancePin(t, s, workID)

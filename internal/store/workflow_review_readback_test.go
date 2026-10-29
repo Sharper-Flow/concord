@@ -18,22 +18,18 @@ func TestRetainedReviewCandidateReadback(t *testing.T) {
 		{"commit_only", "", ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			candidate := WorkerReviewCandidate{ProjectID: tc.project, Commit: strings.Repeat("a", 40), Tree: tc.tree}
-			state := WorkflowReviewState{Candidate: &candidate, Findings: []WorkerReviewFinding{}, PublicationOutstanding: true}
+			candidate := ReviewCandidate{ProjectID: tc.project, Commit: strings.Repeat("a", 40), Tree: tc.tree}
+			state := WorkflowReviewState{Candidate: &candidate, Findings: []ReviewFinding{}, PublicationOutstanding: true}
 			if tc.name == "complete" {
 				report := reviewBlockFixture()
 				report.InputCandidate, report.OutputCandidate = candidate, candidate
 				state.Dependencies = &report.Dependencies
 				state.Accepted = &WorkflowAcceptedReview{
-					AttemptID: "attempt-one", ReportRef: "worker-report:one", ActorRef: "actor-one",
+					ReportRef: "review:one", ActorRef: "actor-one",
 					ReportDigest: "sha256:" + strings.Repeat("c", 64), Report: *report,
 				}
 				state.Findings = report.Findings
-				state.ContinueConsumed, state.DependenciesCurrent = true, true
-				state.GroupID = "group-one"
-				state.Groups = map[string]workflowAssignmentGroup{"group-one": {}}
-				state.StaleJobs = map[string]bool{"job-one": true}
-				state.ExecutionProgressed = true
+				state.DependenciesCurrent = true
 			}
 			raw := mustJSONValue(state)
 			if err := payloadschema.Validate("workflow_review_state", raw); err != nil {
@@ -54,7 +50,7 @@ func TestRetainedReviewCandidateReadback(t *testing.T) {
 					t.Fatalf("%s = %q, present=%v; want %q, present=%v", field, got, present, want, want != "")
 				}
 			}
-			if candidate != (WorkerReviewCandidate{ProjectID: tc.project, Commit: strings.Repeat("a", 40), Tree: tc.tree}) {
+			if candidate != (ReviewCandidate{ProjectID: tc.project, Commit: strings.Repeat("a", 40), Tree: tc.tree}) {
 				t.Fatal("readback changed the retained candidate")
 			}
 			complete := tc.project != "" && tc.tree != ""
@@ -63,8 +59,8 @@ func TestRetainedReviewCandidateReadback(t *testing.T) {
 			}
 			report := reviewBlockFixture()
 			report.InputCandidate = candidate
-			if err := validateWorkerReviewBlock(report); (err == nil) != complete {
-				t.Fatalf("worker report admitted=%v, want %v: %v", err == nil, complete, err)
+			if err := validateReviewBlock(report); (err == nil) != complete {
+				t.Fatalf("Review report admitted=%v, want %v: %v", err == nil, complete, err)
 			}
 			if complete {
 				type unshapedState WorkflowReviewState
@@ -77,9 +73,9 @@ func TestRetainedReviewCandidateReadback(t *testing.T) {
 }
 
 func TestRetainedUnidentifiedFindingReadback(t *testing.T) {
-	for _, oracle := range []*WorkerOracleFinding{nil, {Classification: OracleClassificationFollowUp}} {
-		finding := WorkerReviewFinding{Severity: "P2", Confidence: "high", Detail: "The recorded proof is incomplete.", Oracle: oracle}
-		state := WorkflowReviewState{Findings: []WorkerReviewFinding{finding}, PublicationOutstanding: true}
+	for _, oracle := range []*ReviewOracleFinding{nil, {Classification: OracleClassificationFollowUp}} {
+		finding := ReviewFinding{Severity: "P2", Confidence: "high", Detail: "The recorded proof is incomplete.", Oracle: oracle}
+		state := WorkflowReviewState{Findings: []ReviewFinding{finding}, PublicationOutstanding: true}
 		raw := mustJSONValue(state)
 		if err := payloadschema.Validate("workflow_review_state", raw); err != nil {
 			t.Fatalf("unidentified finding readback rejected: %v", err)
@@ -101,37 +97,37 @@ func TestRetainedUnidentifiedFindingReadback(t *testing.T) {
 		if len(view.Findings) != 1 || !reflect.DeepEqual(view.Findings[0], expected) {
 			t.Fatalf("finding invented or lost recorded fields: %s", raw)
 		}
-		type reportedFinding WorkerReviewFinding
+		type reportedFinding ReviewFinding
 		if !bytes.Equal(mustJSONValue(finding), mustJSONValue(reportedFinding(finding))) || reviewDigest(finding) != reviewDigest(reportedFinding(finding)) {
-			t.Fatal("worker report bytes or digest differ from the unprojected finding")
+			t.Fatal("Review report bytes or digest differ from the unprojected finding")
 		}
 		if err := payloadschema.Validate("lane_report_review_finding", mustJSONValue(want)); err == nil {
 			t.Fatal("strict report schema admitted an unidentified finding")
 		}
-		if err := validateWorkerReviewFinding(finding); err == nil {
-			t.Fatal("worker report admission accepted an unidentified finding")
+		if err := validateReviewFinding(finding); err == nil {
+			t.Fatal("Review admission accepted an unidentified finding")
 		}
 	}
 }
 
 func TestRetainedFindingReadbackRejectsPartialIdentity(t *testing.T) {
-	cases := map[string]func(*WorkerReviewFinding){
-		"identity_only":    func(f *WorkerReviewFinding) { f.FindingID = "finding:known" },
-		"status_only":      func(f *WorkerReviewFinding) { f.Status = "open" },
-		"scope_only":       func(f *WorkerReviewFinding) { f.InScope = true },
-		"blocking_only":    func(f *WorkerReviewFinding) { f.Blocking = true },
-		"evidence_empty":   func(f *WorkerReviewFinding) { f.EvidenceRefs = []string{} },
-		"closure_empty":    func(f *WorkerReviewFinding) { f.ClosureRefs = []string{} },
-		"closure_claim":    func(f *WorkerReviewFinding) { f.ClosureRefs = []string{"evidence:closure"} },
-		"missing_severity": func(f *WorkerReviewFinding) { f.Severity = "" },
-		"bad_confidence":   func(f *WorkerReviewFinding) { f.Confidence = "certain" },
-		"oversized_detail": func(f *WorkerReviewFinding) { f.Detail = strings.Repeat("x", 513) },
+	cases := map[string]func(*ReviewFinding){
+		"identity_only":    func(f *ReviewFinding) { f.FindingID = "finding:known" },
+		"status_only":      func(f *ReviewFinding) { f.Status = "open" },
+		"scope_only":       func(f *ReviewFinding) { f.InScope = true },
+		"blocking_only":    func(f *ReviewFinding) { f.Blocking = true },
+		"evidence_empty":   func(f *ReviewFinding) { f.EvidenceRefs = []string{} },
+		"closure_empty":    func(f *ReviewFinding) { f.ClosureRefs = []string{} },
+		"closure_claim":    func(f *ReviewFinding) { f.ClosureRefs = []string{"evidence:closure"} },
+		"missing_severity": func(f *ReviewFinding) { f.Severity = "" },
+		"bad_confidence":   func(f *ReviewFinding) { f.Confidence = "certain" },
+		"oversized_detail": func(f *ReviewFinding) { f.Detail = strings.Repeat("x", 513) },
 	}
 	for name, change := range cases {
 		t.Run(name, func(t *testing.T) {
-			finding := WorkerReviewFinding{Severity: "P2", Confidence: "high", Detail: "The recorded proof is incomplete."}
+			finding := ReviewFinding{Severity: "P2", Confidence: "high", Detail: "The recorded proof is incomplete."}
 			change(&finding)
-			state := WorkflowReviewState{Findings: []WorkerReviewFinding{finding}, PublicationOutstanding: true}
+			state := WorkflowReviewState{Findings: []ReviewFinding{finding}, PublicationOutstanding: true}
 			if err := payloadschema.Validate("workflow_review_state", mustJSONValue(state)); err == nil {
 				t.Fatal("readback admitted a partial or malformed finding")
 			}
@@ -145,7 +141,7 @@ func TestRetainedFindingReadbackFieldInventory(t *testing.T) {
 		"FindingID": true, "Status": true, "InScope": true, "Blocking": true,
 		"EvidenceRefs": true, "ClosureRefs": true,
 	}
-	shape := reflect.TypeFor[WorkerReviewFinding]()
+	shape := reflect.TypeFor[ReviewFinding]()
 	for i := range shape.NumField() {
 		name := shape.Field(i).Name
 		if !fields[name] {
@@ -159,12 +155,10 @@ func TestRetainedFindingReadbackFieldInventory(t *testing.T) {
 }
 
 func TestRetainedFindingBackfillReadbackPreservesFacts(t *testing.T) {
-	db, _ := g32ReviewFixture(t)
-	records := []workflowReviewBackfillRecord{
-		{kind: WorkflowActionCompleted, raw: mustJSONValue(workflowActionCompletedPayload{ActionID: "dispatch_worker", WorkerAttemptID: "review:retained", WorkerCapabilityClass: "review"})},
-		{kind: WorkerCompleted, raw: []byte(`{"attempt_id":"review:retained","review":{"verdict":"no_ship","findings":[{"severity":"P2","confidence":"high","detail":"The recorded proof is incomplete."}],"resolved_findings":[]}}`)},
-	}
-	if err := backfillWorkflowReviewWork(t.Context(), db, "work-history", records); err != nil {
+	db, appendEvent := g32ReviewFixture(t)
+	appendEvent(WorkflowActionCompleted, map[string]any{"action_id": "dispatch_worker", "worker_attempt_id": "review:retained", "worker_capability_class": "review"})
+	appendEvent("worker.completed", json.RawMessage(`{"attempt_id":"review:retained","review":{"verdict":"no_ship","findings":[{"severity":"P2","confidence":"high","detail":"The recorded proof is incomplete."}],"resolved_findings":[]}}`))
+	if err := backfillWorkflowReviewFacts(t.Context(), db); err != nil {
 		t.Fatal(err)
 	}
 	readStored := func() string {
@@ -194,7 +188,7 @@ func TestRetainedReviewCandidateRejectsInvalidKnownIdentity(t *testing.T) {
 			candidate := map[string]string{"project_id": "project-one", "commit": strings.Repeat("a", 40), "tree": strings.Repeat("b", 40)}
 			candidate[field] = value
 			raw := mustJSONValue(map[string]any{
-				"candidate": candidate, "accepted_review": nil, "findings": []any{}, "continue_consumed": false,
+				"candidate": candidate, "accepted_review": nil, "findings": []any{},
 				"dependencies_current": false, "publication_outstanding": true,
 			})
 			if err := payloadschema.Validate("workflow_review_state", raw); err == nil {
@@ -207,9 +201,12 @@ func TestRetainedReviewCandidateRejectsInvalidKnownIdentity(t *testing.T) {
 func TestAcceptedTreeLessCandidateReadbackDoesNotRewriteFacts(t *testing.T) {
 	db, appendEvent := g32ReviewFixture(t)
 	const attempt = "implementation:without-tree"
-	appendEvent(WorkflowActionCompleted, workflowActionCompletedPayload{ActionID: "dispatch_worker", WorkerAttemptID: attempt, WorkerCapabilityClass: "implementation"})
-	appendEvent(WorkerCompleted, WorkerCompletedPayload{AttemptID: attempt, ObservedDelivery: &WorkerObservedDelivery{State: "clean", Commit: strings.Repeat("a", 40)}})
-	appendEvent(WorkflowActionCompleted, workflowActionCompletedPayload{ActionID: "accept_worker_result", WorkerAttemptID: attempt})
+	appendEvent(WorkflowActionCompleted, map[string]any{"action_id": "dispatch_worker", "worker_attempt_id": attempt, "worker_capability_class": "implementation"})
+	appendEvent("worker.completed", map[string]any{"attempt_id": attempt, "observed_delivery": map[string]any{"state": "clean", "commit": strings.Repeat("a", 40)}})
+	appendEvent(WorkflowActionCompleted, map[string]any{"action_id": "accept_worker_result", "worker_attempt_id": attempt})
+	if err := backfillWorkflowReviewFacts(t.Context(), db); err != nil {
+		t.Fatal(err)
+	}
 	readStored := func() string {
 		t.Helper()
 		var raw string

@@ -3,8 +3,7 @@
     "agent-adapter",
     "agent-call-boundary",
     "agent-contract",
-    "agent-surface",
-    "worker-lanes"
+    "agent-surface"
   ],
   "authority": {
     "contract_version": 1,

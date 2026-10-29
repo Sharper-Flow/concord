@@ -12,7 +12,7 @@
 A session left in a terminal worktree needs a safe route to its next item.
 
 The session can chain safely when the origin is a clean, terminal Concord
-worktree. A live item, dirty tree, active verify lease, or open worker attempt
+worktree. A live item, dirty tree or active verify lease
 must refuse before capture. The vacated worktree remains for the audit.
 
 ## Decision
@@ -22,8 +22,8 @@ must refuse before capture. The vacated worktree remains for the audit.
 `concord_work_start` admits the Project default checkout or an active Concord
 worktree whose item is `completed`, `cancelled`, or `superseded`.
 
-The origin check refuses a live item, a dirty tree, an active verify lease, an
-open worker attempt window, or a dispatched worker attempt. The core owns this
+The origin check refuses a live item, a dirty tree or an active verify lease.
+The core owns this
 refusal. The adapter forwards it and does not create a second origin rule.
 
 ### D2. A chained worktree starts from the default branch
@@ -47,9 +47,9 @@ Scenario: work_start chains from a terminal item's worktree
   And the session moves to the new worktree
   And the origin remains for worktree_audit_reclaim
 
-Scenario: work_start refuses a live, dirty, leased, or dispatched origin
+Scenario: work_start refuses a live, dirty or leased origin
   Given a session that runs in a Concord-claimed worktree
-  When the origin has a live lifecycle, dirty files, an active verify lease, or an open worker attempt
+  When the origin has a live lifecycle, dirty files or an active verify lease
   Then the core refuses before capture
   And the adapter forwards the core refusal
 ```
@@ -57,7 +57,7 @@ Scenario: work_start refuses a live, dirty, leased, or dispatched origin
 ## Verification
 
 - Core tests cover terminal admission, live refusal, dirty refusal, lease refusal,
-  worker-attempt refusal, default-branch base selection, and origin retention.
+  default-branch base selection and origin retention.
 - Adapter tests cover terminal-origin forwarding and agreement with the core's
   origin refusal.
 - `python3 scripts/check-knowledge-index.py` and the repository test tier pass.

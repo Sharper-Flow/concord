@@ -6,7 +6,7 @@
   three store admission routes those checks proved stranded
 - **Preserves:** CD-0201 D2, the liveness law; CD-0112 D1, continuity actions never move
   the step; every other route refusal keeps its scope (CD-0186)
-- **Related:** CD-0090, CD-0133, CD-0166, CD-0173, CD-0186
+- **Related:** CD-0090, CD-0166, CD-0173, CD-0186
 - **Approval:** The operator directed in session chat on 2026-10-02 that the
   checks stay strict, with no named exception, and that the engine routes
   change until the law holds. The operator approved the fix of all three

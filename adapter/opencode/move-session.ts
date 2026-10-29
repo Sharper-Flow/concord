@@ -75,7 +75,7 @@ export type RouteClient = {
   patch?: (options: { url: string; path?: Record<string, unknown>; body?: unknown; signal?: AbortSignal }) => Promise<RouteResult>
 }
 
-// SessionReader is the host session API the worker readback reads through:
+// SessionReader is the host API used to confirm continuation delivery:
 // one session record and one bounded page of its messages per call. The
 // result is the same route pair the generic client returns, so a test can
 // supply its own reader without a server.
@@ -137,10 +137,7 @@ export class HostControlPlane {
       { confirmWindowMs: 30_000, confirmPollMs: 100 }, metadata, beforePost)
   }
 
-  // sessionReader exposes the host session API the worker readback reads
-  // through: the session record and the bounded message pages. A host that
-  // handed the plugin no client answers null, and the readback refuses closed
-  // instead of spawning a substitute process.
+  // A host that supplies no client cannot confirm continuation delivery.
   sessionReader(): SessionReader | null {
     const client = this.#client
     if (!client) return null
@@ -202,7 +199,7 @@ export class HostControlPlane {
   }
 
   // Participation is a host session policy, not a stored copy of a worktree or
-  // workflow. Parent traversal keeps a managed worker inside the same boundary.
+  // workflow. Parent traversal resolves inherited participation for native children.
   // Reads are not cached: an agent switch or plugin reload cannot change scope.
   async taskScope(sessionID: string, signal: AbortSignal = AbortSignal.timeout(5_000)): Promise<"managed" | "unmanaged" | null> {
     const visited = new Set<string>()
@@ -224,10 +221,8 @@ export class HostControlPlane {
     }
   }
 
-  // A coordinator may use a host utility without a dispatch window. A lane
-  // inherits its coordinator's managed participation through its parent, so
-  // checking the parent boundary distinguishes the two without trusting the
-  // selected agent or its prompt.
+  // Host ancestry distinguishes a native child from its coordinator without
+  // trusting the selected agent or its prompt.
   async hasManagedParent(sessionID: string, signal: AbortSignal = AbortSignal.timeout(5_000)): Promise<boolean> {
     signal.throwIfAborted()
     let current = sessionID

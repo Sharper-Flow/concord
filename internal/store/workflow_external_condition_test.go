@@ -14,7 +14,7 @@ func TestExternalConditionHoldBlocksConsequentialExecution(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	const workID = "condition-hold-execution"
-	s, workerRef, owner, _ := seedWorkerAtExecution(t, workID)
+	s, executorRef, owner := seedOrdinaryExecutorAtExecution(t, workID)
 	ownerRef, err := WorkflowActorRef(owner)
 	if err != nil {
 		t.Fatal(err)
@@ -42,9 +42,9 @@ func TestExternalConditionHoldBlocksConsequentialExecution(t *testing.T) {
 
 	applyWorkflowTestConditionResolved(t, s, workID, ownerRef, "condition:hold", authorityEvidence)
 	assertWorkflowTestConditionState(t, s, workID, "condition:hold", "resolved")
-	// The lane attempt is still live, so its holder restarts; another actor's
+	// The execution fence is still live, so its holder restarts; another actor's
 	// start would be a takeover (CD-0013 criterion 25).
-	applyStartForTest(t, s, workID, workflowActorForRef(t, s, workerRef), readWorkVersion(t, s, workID), "condition-release-start")
+	applyStartForTest(t, s, workID, workflowActorForRef(t, s, executorRef), readWorkVersion(t, s, workID), "condition-release-start")
 	if got := currentStep(t, s, workID); got != "execution" {
 		t.Fatalf("released start moved the step to %q, want execution", got)
 	}

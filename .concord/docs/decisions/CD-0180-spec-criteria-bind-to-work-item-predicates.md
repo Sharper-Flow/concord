@@ -43,7 +43,7 @@ shapes at authoring.
 The law_subjects projection carries each law's authored bindings, and the
 continuity read resolves the ones naming the dispatching work item into that
 law's criteria. The packet's `inputs.law_context` carries them on the law's
-entry, so the worker reads which criterion each of this item's predicates
+entry, so the agent reads which criterion each of this item's predicates
 discharges. The
 verdict path is unchanged, because the predicate verdicts and the
 law-revision pins already bind the item to the exact law it discharges.
@@ -81,5 +81,3 @@ rule of migration 98.
   predicate-bound criterion resolves as bound, and each bad shape reports.
 - `python3 scripts/test-knowledge-index.py` proves the authoring side
   validates the closed shapes.
-- `bun test adapter/opencode/packet.test.ts` proves the packet lists the
-  bound criteria on the law's line.

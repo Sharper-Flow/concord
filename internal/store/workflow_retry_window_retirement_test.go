@@ -9,18 +9,18 @@ import (
 
 func TestRetryWindowAbsentFromCurrentReadSurfaces(t *testing.T) {
 	const workID = "retry-window-absent"
-	entry, err := BuiltinWorkflowDefinitionForRef("workflow.implementation")
-	if err != nil {
+	j := pReturnReviewFixture(t, workID, "workflow.implementation", "correction_required")
+	if err := j.action(t, "request_correction", pReviewCorrectionPayload(t), j.fixture.owner); err != nil {
 		t.Fatal(err)
 	}
-	s, _, failedID := seedAuthorizedFailedWorkerWithDefinition(t, workID, entry)
+	s := j.s
 	version := readWorkVersion(t, s, workID)
 	pin, err := ReadWorkPin(context.Background(), s, workID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if pin.Correction == nil || pin.Correction.FailedAttemptID != failedID || pin.Correction.SourceEventID == "" {
-		t.Fatalf("the pin lost the failed attempt's correction source: %+v", pin.Correction)
+	if pin.Correction == nil || pin.Correction.SourceEventID == "" || pin.Correction.SourceEventSeq < 1 {
+		t.Fatalf("the pin lost the genuine correction source: %+v", pin.Correction)
 	}
 	projection, err := ReadWorkflowProjection(context.Background(), s, WorkflowReadRequest{WorkID: workID})
 	if err != nil {
@@ -40,7 +40,7 @@ func TestRetryWindowAbsentFromCurrentReadSurfaces(t *testing.T) {
 		}
 	}
 	if readWorkVersion(t, s, workID) != version {
-		t.Fatal("reading the projections changed the failed attempt's work version")
+		t.Fatal("reading the projections changed the correction's work version")
 	}
 }
 

@@ -4,8 +4,8 @@
 - **Date:** 2026-09-12
 - **Scope:** Built-in implementation and break-fix workflow definitions
 - **Approval:** The operator approved this bounded workflow change.
-- **Related:** CD-0013, CD-0059, CD-0116
-- **Preserves:** External analysis ownership, worker fences, and the
+- **Related:** CD-0013, CD-0116
+- **Preserves:** External analysis ownership and the
   definitions active work derives from the canonical source
   ([CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D14)
 

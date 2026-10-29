@@ -41,7 +41,7 @@ func reviewedClosureContentHashQ(ctx context.Context, q queryer, workID string) 
 	if contractVersion != activeVersion {
 		return "", nil
 	}
-	if err := workflowRequireMain(ctx, q, workID, actor); err != nil {
+	if err := requireActor(ctx, q, actor); err != nil {
 		return "", err
 	}
 	var raw []byte

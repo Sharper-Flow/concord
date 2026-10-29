@@ -149,15 +149,14 @@ func TestExecutionStartBackfillMatchesFoldDerivation(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	const workID = "execution-start-derivation"
-	s, workerRef := seedDispatchedWorkerAtExecution(t, workID)
+	s, executorRef, _ := seedOrdinaryExecutorAtExecution(t, workID)
 	var version int64
 	if err := s.DatabaseForTesting().QueryRow(`SELECT version FROM work_items WHERE id=?`, workID).Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	// seedDispatchedWorkerAtExecution records the execution start at epoch 1
-	// and its dispatch authorization start at epoch 2, so this restart start
-	// is the third start the step has recorded.
-	restart := workflowEventWithActor("restart-"+workID, WorkflowActionStarted, workID, workerRef, map[string]any{"work_id": workID, "expected_version": version, "resulting_version": version + 1, "step_id": "execution", "action_id": "start_execution", "attempt_epoch": 3, "accepted_inputs_digest": "sha256:" + strings.Repeat("b", 64), "idempotency_identity": "restart:" + workID, "actor_ref": workerRef, "execution_model": preferredModelForLane(BuiltinLaneDefinitions()[0])})
+	// Two ordinary starts precede this restart; occurrence time does not
+	// replace their sequence order.
+	restart := workflowEventWithActor("restart-"+workID, WorkflowActionStarted, workID, executorRef, map[string]any{"work_id": workID, "expected_version": version, "resulting_version": version + 1, "step_id": "execution", "action_id": "start_execution", "attempt_epoch": 3, "accepted_inputs_digest": "sha256:" + strings.Repeat("b", 64), "idempotency_identity": "restart:" + workID, "actor_ref": executorRef, "execution_model": "model:fixture"})
 	restart.OccurredAt = restart.OccurredAt.Add(-time.Hour)
 	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{restart}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}); err != nil {
 		t.Fatal(err)
@@ -185,19 +184,19 @@ func TestExecutionStartBackfillMatchesFoldDerivation(t *testing.T) {
 	db := openMigratedTo(t, path, 106)
 	copyFixtureDataToPrefix(t, s, db, []string{"products", "projects", "product_projects", "work_items", "work_projects", "workflow_actors", "workflow_instances"}, map[string]map[string]string{
 		"products":           {"planning_mode": "'local_only'"},
-		"workflow_instances": {"definition_version": "2"},
+		"workflow_instances": {"definition_version": "1"},
 	}, "fold_guard")
 	start := func(id, action, identity string, expected, epoch int64) Event {
-		return workflowEventWithActor(id, WorkflowActionStarted, workID, workerRef, map[string]any{
+		return workflowEventWithActor(id, WorkflowActionStarted, workID, executorRef, map[string]any{
 			"work_id": workID, "expected_version": expected, "resulting_version": expected + 1,
 			"step_id": "execution", "action_id": action, "attempt_epoch": epoch,
 			"accepted_inputs_digest": "sha256:" + strings.Repeat("a", 64), "idempotency_identity": identity,
-			"actor_ref": workerRef, "execution_model": preferredModelForLane(BuiltinLaneDefinitions()[0]),
+			"actor_ref": executorRef, "execution_model": "model:fixture",
 		})
 	}
 	corpus := []Event{
-		start("start-"+workID, "start_execution", "start:"+workID, 8, 1),
-		start("fixture-dispatch-start-dispatch-"+workID, "dispatch_worker", "dispatch:dispatch-"+workID, version-2, 2),
+		start("start-"+workID+"-1", "start_execution", "start-"+workID+"-1", 9, 1),
+		start("start-"+workID+"-2", "start_execution", "start-"+workID+"-2", 10, 2),
 		restart,
 	}
 	var currentStarts int
@@ -242,7 +241,7 @@ func TestExecutionStartBackfillMatchesFoldDerivation(t *testing.T) {
 		parents: func(t *testing.T, prefix *Store, guard string) {
 			copyFixtureDataToPrefix(t, s, prefix.db, []string{"products", "projects", "product_projects", "work_items", "work_projects", "workflow_actors", "workflow_instances"}, map[string]map[string]string{
 				"products":           {"planning_mode": "'local_only'"},
-				"workflow_instances": {"definition_version": "2"},
+				"workflow_instances": {"definition_version": "1"},
 			}, guard)
 		},
 	}, 107, "ORDER BY e.seq", "ORDER BY e.seq DESC", queries, workerFactsQueryRows(t, s, queries))

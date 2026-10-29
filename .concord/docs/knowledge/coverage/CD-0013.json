@@ -6,10 +6,6 @@
     },
     {
       "kind": "go_test",
-      "value": "internal/agent.TestDispatchWorkerOverAnotherSessionsInFlightAttemptRequiresBoundApproval"
-    },
-    {
-      "kind": "go_test",
       "value": "internal/store.TestFencedStartTakeoverRequiresApprovalOnEveryCallableStart"
     },
     {

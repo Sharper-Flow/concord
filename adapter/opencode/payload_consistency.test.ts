@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test"
 import { payloadSchemas } from "./generated-contracts"
 import { validateGeneratedPayload } from "./generated-contract-tests"
-import { validateAgainstSchema } from "./dispatch"
+import { validateAgainstSchema } from "./core-runtime"
 
 const timestampSchema = { type: "string", format: "date-time", minLength: 20, maxLength: 64 }
 const textSchema = { type: "string", minLength: 2, maxLength: 128 }

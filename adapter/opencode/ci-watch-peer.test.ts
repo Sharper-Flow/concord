@@ -3,7 +3,7 @@ import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"
 import { bindCiWatchClient, ciWatchSettled, ciWatchTool, configureCiWatch, drainQueuedCiReports, registerCiWatchPeer, type CiWatchSnapshot } from "./ci-watch"
-import { configureCoreBinary } from "./dispatch"
+import { configureCoreBinary } from "./core-runtime"
 import { hostControlPlane } from "./move-session"
 
 const KEY = Symbol.for("concord.ci-watch.peer.v1")

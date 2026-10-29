@@ -25,7 +25,7 @@
   },
   "sha256": "sha256:7b53c912d79bede56a313c9afc36c6a59ec58493e67cb0665391e2d87c7412d8",
   "status": "accepted",
-  "summary": "Defines the versioned workflow registry, execution evidence, fail-closed completion gate, and engine-owned correction route for completed and accepted worker results.",
+  "summary": "Defines workflow registration, execution evidence, subject-bound stage results, fail-closed completion and declared correction of delivered work. Independent native Task Review remains required; the coordinator records outcomes without subagent execution attestation.",
   "tags": [
     "workflow",
     "evidence"

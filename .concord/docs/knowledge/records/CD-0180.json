@@ -7,8 +7,7 @@
   "evidence": [
     "contracts/concord-knowledge-index.v1.schema.json",
     "scripts/check-doc-contract.py",
-    "internal/store/workflow_law_revision.go",
-    "adapter/opencode/packet.ts"
+    "internal/store/workflow_law_revision.go"
   ],
   "home_domain_id": "product-memory",
   "id": "CD-0180",

@@ -11,32 +11,32 @@ import (
 	"strconv"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
-func TestMutationProjectionFailedAttemptMutations(t *testing.T) {
+func TestMutationProjectionCorrectionMutations(t *testing.T) {
 	f := newSpineExecutionFixture(t)
 	f.verify(t)
-	f.recordJob(t)
-	job := f.read(t).Pinned.Jobs[0]
-	const attempt = "attempt:oversized-failure"
-	f.startWorker(t, "implement", attempt)
-	// HTML escaping expands this legal terminal detail in each required copy
+	f.prepareControl(t)
+	f.implement(t)
+	f.proof = f.verify(t)
+	// HTML escaping expands legal Review and correction text in each required copy
 	// of the correction context. No content may be discarded to fit the wire.
 	detail := strings.Repeat("<", 4096)
-	failure := agentWorkerFailedAttributedEvent("oversized-failure", store.WorkerFailedPayload{
-		AttemptID: attempt, ReadbackModel: "openai/test-model", FailureKind: store.WorkerFailureWorkerError, Detail: detail,
-	})
-	failure.SubjectID, failure.OccurredAt = f.work, time.Now().UTC()
-	if err := f.s.Transact(t.Context(), func(tx *store.Transaction) error {
-		_, err := store.ApplyWorkerEvidenceOperationTx(t.Context(), tx, failure)
-		return err
-	}); err != nil {
-		t.Fatal(err)
-	}
+	pin := f.read(t).Pinned.Pin
+	candidate := store.ReviewCandidate{ProjectID: "project-1", Commit: gitRun(t, f.path, "rev-parse", "HEAD"), Tree: gitRun(t, f.path, "rev-parse", "HEAD^{tree}")}
+	report := store.ReviewBlock{Disposition: "correction_required", InputCandidate: candidate, OutputCandidate: candidate, Dependencies: *pin.Review.Dependencies,
+		Assessments: []store.ReviewAssessment{}, RemainingObligations: []store.ReviewObligation{}, Findings: []store.ReviewFinding{
+			{FindingID: "finding:projection-one", Status: "open", Severity: "P1", Confidence: "high", Detail: detail, Blocking: true, InScope: true, EvidenceRefs: []string{f.proof}, ClosureRefs: []string{}},
+			{FindingID: "finding:projection-two", Status: "open", Severity: "P1", Confidence: "high", Detail: detail, Blocking: true, InScope: true, EvidenceRefs: []string{f.proof}, ClosureRefs: []string{}},
+		}}
+	spineOK(t, f.action(t, "record_review", map[string]any{"review": report}))
+	reportRef := f.read(t).Pinned.Pin.Review.Accepted.ReportRef
+	spineOK(t, f.action(t, "bind_evidence", map[string]any{"evidence_kind": "review", "evidence_ref": reportRef}))
+	correction := map[string]any{"diagnosis": detail, "strategy": detail, "predicate_ids": []string{"predicate:primary"}, "evidence_refs": []string{reportRef}}
+	spineOK(t, f.action(t, "request_correction", correction))
 	if err := f.service.ExpandTrustedClientPolicy(t.Context(), f.env.ClientRef, TrustedClientPolicy{Capabilities: []agentcontract.Capability{"work_relate"}}); err != nil {
 		t.Fatal(err)
 	}
@@ -45,17 +45,15 @@ func TestMutationProjectionFailedAttemptMutations(t *testing.T) {
 		t.Fatal(err)
 	}
 	state := f.read(t)
-	if state.Pinned.Pin.Correction == nil || state.Pinned.Pin.Correction.FailureDetail != detail {
-		t.Fatal("failed attempt did not retain its complete correction context")
+	if state.Pinned.Pin.Correction == nil || state.Pinned.Pin.Correction.Diagnosis != detail || len(state.Pinned.Pin.Review.Findings) != 2 {
+		t.Fatal("Review correction did not retain its complete context and blockers")
 	}
 	for _, vector := range []struct {
 		name, tool, operation string
 		fields                map[string]any
 	}{
-		{"job correction", "concord_work_transition", "workflow_action", map[string]any{
-			"action_id": "record_worker_job", "fields": map[string]any{"job_id": job.JobID, "objective": "Correct the failed job without losing its failure context.", "stopping_condition": job.StoppingCondition,
-				"ready": true, "checks": job.Checks, "path_scope": job.PathScope, "acceptance_oracle": job.AcceptanceOracle,
-				"readiness_evidence": job.AcceptanceOracle.Controls[0].ReadinessEvidenceRefs},
+		{"correction", "concord_work_transition", "workflow_action", map[string]any{
+			"action_id": "request_correction", "fields": correction,
 		}},
 		{"message", "concord_work_relate", "message_send", map[string]any{"recipient_work_id": "work-projection-recipient", "body": "The failed job needs its recorded correction."}},
 	} {
@@ -118,7 +116,7 @@ func TestMutationProjectionFailedAttemptMutations(t *testing.T) {
 			if err != nil || committed <= before {
 				t.Fatalf("invalid committed version: %d %v", committed, err)
 			}
-			if err := json.Unmarshal([]byte(record.ResultPayload), &original); err != nil || len(original.Pins) != 1 || original.Pins[0].Version != committed || original.Pins[0].Correction.FailureDetail != detail || !reflect.DeepEqual(original.Intents, mutationResultIntents(nextIntentsFromPin(original.Pins[0]))) {
+			if err := json.Unmarshal([]byte(record.ResultPayload), &original); err != nil || len(original.Pins) != 1 || original.Pins[0].Version != committed || original.Pins[0].Correction.Diagnosis != detail || len(original.Pins[0].Review.Findings) != 2 || !reflect.DeepEqual(original.Intents, mutationResultIntents(nextIntentsFromPin(original.Pins[0]))) {
 				t.Fatalf("incomplete original pin or intents: err=%v", err)
 			}
 			if err := agentcontract.ValidateOperationPayload(vector.tool, vector.operation, []byte(record.ResultPayload), true); err != nil {
@@ -397,8 +395,12 @@ func TestMutationProjectionRejectsUntrustedRetainedDocuments(t *testing.T) {
 
 func TestMutationProjectionRequiresRetainedIdentity(t *testing.T) {
 	_, _, pin := enrichmentPinFixture(t)
-	pin.Correction = &store.WorkflowCorrectionContext{Disposition: "failed", PredicateIDs: []string{"predicate:primary"}, EvidenceRefs: []string{},
-		Diagnosis: strings.Repeat("<", 4096), Strategy: strings.Repeat("<", 4096), FailureDetail: strings.Repeat("<", 4096), SourceEventID: "failed-attempt-context", SourceEventSeq: 1}
+	refs := make([]string, 32)
+	for i := range refs {
+		refs[i] = strings.Repeat("<", 256)
+	}
+	pin.Correction = &store.WorkflowCorrectionContext{Disposition: "correction_required", PredicateIDs: []string{"predicate:primary"}, EvidenceRefs: refs,
+		Diagnosis: strings.Repeat("<", 4096), Strategy: strings.Repeat("<", 4096), SourceEventID: "correction-context", SourceEventSeq: 1}
 	changed := []agentcontract.ChangedRef{{EntityKind: "work_item", ID: pin.WorkID, Version: strconv.FormatInt(pin.Version, 10)}}
 	payload, intents, err := enrichMutationPayload(mutationPayload(changed, nil), []store.WorkPin{pin})
 	if err != nil {

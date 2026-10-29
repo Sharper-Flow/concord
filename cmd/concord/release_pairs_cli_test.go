@@ -810,7 +810,7 @@ func captureBaselineCutoverEvidence(t *testing.T, db *sql.DB) map[string][]strin
 			t.Fatal(err)
 		}
 		captured["effect_receipts"] = append(captured["effect_receipts"], mustJSON(t, []any{seq, id, kind, subjectType, subjectID, actor, version, cliPayloadDigest(t, payload)}))
-		if kind == store.WorkerDispatched || kind == store.WorkerCompleted || kind == store.WorkerFailed {
+		if kind == "worker.dispatched" || kind == "worker.completed" || kind == "worker.failed" {
 			captured["worker_payloads"] = append(captured["worker_payloads"], mustJSON(t, []any{id, string(payload)}))
 		}
 	}

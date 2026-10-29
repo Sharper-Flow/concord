@@ -2,8 +2,7 @@
   "applies_to_domain_ids": [
     "agent-adapter",
     "agent-call-boundary",
-    "agent-surface",
-    "worker-lanes"
+    "agent-surface"
   ],
   "authority": {
     "contract_version": 1,
@@ -13,11 +12,8 @@
   "date": "2026-08-21T00:00:00Z",
   "doc_contract_profile": "legacy",
   "evidence": [
-    "adapter/opencode/dispatch.ts",
     "cmd/concord/session.go",
     ".concord/docs/decisions/CD-0016-context-continuity.md",
-    ".concord/docs/decisions/CD-0017-typed-workers-and-model-routing.md",
-    ".concord/docs/decisions/CD-0034-host-prompt-provenance.md",
     "internal/agent/authority.go"
   ],
   "home_domain_id": "operator-surface",
@@ -33,7 +29,7 @@
   },
   "sha256": "sha256:b46a91265ff5e59695a8c259378a57966cb5f88b0d8d3f85a9042bf640c7908d",
   "status": "accepted",
-  "summary": "Concord-owned lane definitions reach a host only through a project's .opencode/agents/, because a global agent cannot be scoped and an environment-supplied definition presents no file for CD-0034 provenance to hash; Concord asserts required agent identity before managed action through session-prepare rather than relying on --agent, whose unknown-name failure mode is a silent substitution with a success exit code; the orchestrator is constrained and verified rather than authored, since CD-0016 excludes an agent_definitions table; a session with absent required identity refuses to start. A trusted client policy names the agents it may present, and authorization refuses any other; the scope is fail-closed, so a client naming no agent authorizes none and must be re-registered.",
+  "summary": "Managed session preparation asserts required agent identity rather than trusting a host fallback. Missing identity refuses start. Trusted client policy bounds the agent names a caller may present and an empty scope authorizes none. These checks attest no native Task producer identity.",
   "tags": [
     "agent-surface",
     "installer"

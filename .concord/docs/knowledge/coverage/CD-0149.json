@@ -2,7 +2,7 @@
   "evidence": [
     {
       "kind": "validator",
-      "value": "scripts/test-generate-agent-lanes.py"
+      "value": "scripts/test-generate-agent-profiles.py"
     },
     {
       "kind": "validator",
@@ -10,7 +10,7 @@
     },
     {
       "kind": "generated",
-      "value": "adapter/opencode/generated-agent-lanes.ts#agentUtilities"
+      "value": "adapter/opencode/generated-primary-profiles.ts#roleDeniedConcordTools"
     }
   ],
   "id": "CD-0149",

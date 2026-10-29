@@ -106,46 +106,29 @@ DELETE FROM write_guard`, WorktreeSetID(work), head, repo, repo); err != nil {
 			t.Fatalf("preparation stage %d: %+v", i, stage)
 		}
 	}
-	control.ReadinessEvidenceRefs = []string{result.OperationRef}
-	oracle := &AcceptanceOracle{Owners: []OracleOwner{owner}, Cases: []OracleCase{oracleCase}, Controls: []OracleControl{control}}
-	fields := map[string]any{
-		"job_id": "job:store-immediate-transaction", "objective": owner.Obligation,
-		"stopping_condition": oracleCase.ExpectedState, "path_scope": []string{"internal/store"},
-		"predicate_ids": owner.PredicateIDs, "checks": []string{"the pinned store transaction control"},
-		"ready": true, "readiness_evidence": []string{result.OperationRef}, "acceptance_oracle": oracle,
-	}
-	oracle.Cases[0].ExpectedState = "a different case expectation"
-	if err := recordWorkerJobActionForTest(t, s, work, fixture.owner, fields); failureKind(err) != KindInvalidPayload || !strings.Contains(err.Error(), "exact qualified native preparation") {
-		t.Fatalf("mismatched bundle did not refuse the genuine receipt: %v", err)
-	}
-	views, err := readWorkerJobRevisions(ctx, s.db, work)
-	if err != nil || len(views) != 0 {
-		t.Fatalf("refusal recorded a job revision: %+v, %v", views, err)
-	}
-	oracle.Cases[0] = oracleCase
-	if err := recordWorkerJobActionForTest(t, s, work, fixture.owner, fields); err != nil {
-		t.Fatalf("record prepared job: %v", err)
-	}
-	views, err = readWorkerJobRevisions(ctx, s.db, work)
-	if err != nil || len(views) != 1 {
-		t.Fatalf("recorded revisions: %+v, %v", views, err)
-	}
-	job := views[0]
-	if !job.Ready || job.State != "recorded" || job.ProjectScope != "project" || job.ContractVersion != 1 || job.Binding.Revision != 1 || job.AcceptanceOracle == nil || !oracleEntryIdentical(job.AcceptanceOracle, oracle) {
-		t.Fatalf("job is not the exact ready revision: %+v", job)
-	}
-	var payload []byte
-	if err := s.db.QueryRow(`SELECT recorded_payload FROM worker_job_revisions WHERE work_id=? ORDER BY recorded_seq DESC LIMIT 1`, work).Scan(&payload); err != nil {
+	// Caller mutation cannot replace the bundle retained by preparation.
+	bundle.Cases[0].ExpectedState = "a different case expectation"
+	var planRaw, digest string
+	if err := s.db.QueryRow(`SELECT native_plan_json,native_plan_sha256 FROM worktree_verify_leases WHERE lease_id=?`, result.LeaseID).Scan(&planRaw, &digest); err != nil {
 		t.Fatal(err)
 	}
-	var recorded WorkerJobRecordedPayload
-	if err := json.Unmarshal(payload, &recorded); err != nil {
+	var pinned nativeOraclePlan
+	if err := json.Unmarshal([]byte(planRaw), &pinned); err != nil {
 		t.Fatal(err)
 	}
-	if recorded.Readiness == nil || !recorded.Readiness.Ready || !slices.Equal(recorded.Readiness.Evidence, []string{result.OperationRef}) || DeriveWorkerJobDigest(recorded) != job.Binding.Digest {
-		t.Fatalf("recorded readiness or digest lost its preparation: %+v", recorded)
+	if nativeDigest([]byte(planRaw)) != digest || pinned.Bundle.Cases[0].ExpectedState != oracleCase.ExpectedState || pinned.BundleDigest != p.BundleDigest {
+		t.Fatal("preparation did not retain its immutable declared bundle")
 	}
-	t.Logf("recipe_commit=%s recipe_blob=%s native_run_ref=%s qualification=%s job_id=%s revision=%d digest=%s integration_wall_time=%s", head, manifest.BlobOID, result.OperationRef, p.Qualification, job.Binding.JobID, job.Binding.Revision, job.Binding.Digest, time.Since(started))
+	execute := request("execute")
+	execute.Oracle = &NativeOracleRequest{Phase: "execute", PreparationRunRef: result.OperationRef}
+	run, err := s.VerifyWorktree(ctx, execute)
+	if err != nil || run.Oracle == nil || run.Oracle.Qualification != "pass" || launches != 1 || run.Oracle.PreparationRunRef != result.OperationRef {
+		t.Fatalf("execute exact preparation: %+v %v launches=%d", run, err, launches)
+	}
+	if err := validateNativeOracleProducerTx(ctx, s.db, work, &run, "pass"); err != nil {
+		t.Fatalf("native producer receipt: %v", err)
+	}
+	t.Logf("recipe_commit=%s recipe_blob=%s native_run_ref=%s qualification=%s integration_wall_time=%s", head, manifest.BlobOID, run.OperationRef, run.Oracle.Qualification, time.Since(started))
 }
 
 // A selected native control compiles only its pinned test files and runs
@@ -160,7 +143,7 @@ func TestStoreTemplateOracleRecipeExecutes(t *testing.T) {
 	const selected = "TestOpenTempCopiesIsolatedLatestSchema"
 	repo, head := storeOracleClone(t)
 	seed := seedWorkflowReturnRouteFixture(t, work, "workflow.break_fix", "repair")
-	f := &nativeOracleFixture{s: seed.store, work: work, repo: repo, head: head, dispatchSubject: head, actor: seed.owner}
+	f := &nativeOracleFixture{s: seed.store, work: work, repo: repo, head: head}
 	f.qualify(t, "store-oracle", "internal/store", recipePath, "case:store-template-fixture", selected)
 	result, err := f.s.VerifyWorktree(ctx, f.request("execute", &f.a))
 	if err != nil || result.Oracle == nil || result.Oracle.Qualification != "pass" || result.ExitCode != 0 {

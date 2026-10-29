@@ -90,7 +90,7 @@ func agentCurrentEffects(t *testing.T, s *store.Store) string {
 		"workflow_actors", "workflow_step_epochs", "workflow_action_obligations",
 		"workflow_step_completions", "workflow_evidence_bindings", "workflow_delivery_state",
 		"workflow_overlap_resolutions", "work_context_state", "domain_observations",
-		"worker_authorizations", "worker_attempts", "worker_attempt_dispositions", "worker_job_revisions",
+		"workflow_review_state", "worktree_verify_leases", "worktree_entries", "worktree_claims",
 	} {
 		state[table] = agentRowsSnapshot(t, s, `SELECT * FROM `+table)
 	}

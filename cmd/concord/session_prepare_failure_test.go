@@ -46,7 +46,6 @@ func TestSessionPrepareCallbackFailureClassification(t *testing.T) {
 					identityCalls, bootCalls := 0, 0
 					var out, errOut bytes.Buffer
 					code := runSessionPrepare(commandSessionPrepareInput(t, result.WorkID, "run"), s, &out, &errOut,
-						func(string) error { return nil },
 						hostCommandAt(defaultHostResolution()),
 						func(context.Context, string, hostCommandResolution, string, string, string) (string, error) {
 							identityCalls++
@@ -112,7 +111,6 @@ func TestSessionPrepareIdentityAssertionSucceedsUnderAPinnedReader(t *testing.T)
 	run := func() (int, string, string) {
 		var out, errOut bytes.Buffer
 		code := runSessionPrepare(commandSessionPrepareInput(t, result.WorkID, "run"), s, &out, &errOut,
-			func(string) error { return nil },
 			hostCommandAt(defaultHostResolution()),
 			func(ctx context.Context, _ string, _ hostCommandResolution, productID, workID, _ string) (string, error) {
 				identityCalls++

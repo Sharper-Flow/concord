@@ -32,7 +32,7 @@ CD-0036 records each current contract's bounded `law_revisions` pins as
 `(law_id, content_hash)`. A changed hash under the same accepted ID is a
 compatible amendment. A new accepted ID that supersedes a mandated old ID is
 a breaking cutover: the old consumer receives typed `stale_law_revision` and
-workflow-authority actions, claims, worker-result acceptance, and completion
+workflow-authority actions, claims, Review outcome recording, and completion
 stop until one operator-approved `supersede_contract` action atomically installs
 a fully supplied successor contract, or the work reaches a terminal
 cancellation/supersession. Commit OIDs remain audit context only; recovery pins
@@ -226,7 +226,7 @@ beside the two resolver states.
 | `workflow.actor_recorded` | `work_id`, `actor_ref`, `principal_ref`, `client_ref`, `agent_ref`, `session_ref`, `actor_class` (`agent` or `operator`) |
 | `workflow.action_started` | `work_id`, `step_id`, `action_id`, `attempt_epoch`, `accepted_inputs_digest`, `idempotency_identity` (2–128), `actor_ref` |
 | `workflow.action_checkpointed` | `work_id`, `step_id`, `step_kind` (`internal_sqlite`, `cross_authority`, `external_effect`, or the existing definition-schema `human_checkpoint`), `attempt_epoch`, `checkpoint_payload` (typed action checkpoint, max 16 KiB), `resume_cursor` (0–2048), `actor_ref`, `request_id` |
-| `workflow.action_completed` | `work_id`, optional `action_id`, `step_id`, `attempt_epoch`, `result_evidence_refs` (0–32), `changed_refs` (0–32), `actor_ref`, optional `worker_attempt_id`. `worker_attempt_id` is allowed only for `accept_worker_result`, `record_worker_failure`, and `dispatch_worker`. It rejects undeclared current-step actions and invalid worker-result records. |
+| `workflow.action_completed` | `work_id`, optional `action_id`, `step_id`, `attempt_epoch`, `result_evidence_refs` (0–32), `changed_refs` (0–32), `actor_ref`. It rejects undeclared current-step actions. |
 | `workflow.proposal_recorded` | `work_id`, `problem` (1–4096), `affected` (1–16 unique entries of 1–256), `stakes` (1–2048), `user_outcomes` (1–16 unique entries of 1–512), `constraints` (0–16 unique entries of 1–512, omitted when absent), `open_questions` (0–16 unique entries of 1–512, omitted when absent), `out_of_scope` (0–16 unique entries of 1–512, omitted when absent; CD-0202) |
 | `workflow.design_recorded` | `work_id`, `approach` (2–4096), `decisions` (1–16 typed decisions with `id`, `question` (1–512), `choice` (1–1024), `rationale` (1–1024), and `rejected` (0–8 strings)), `touched_refs` (1–64 references) |
 | `workflow.backlog_alignment_recorded` | `work_id`, `searched` (2–4096, the search performed and its scope), `outcome` (`related_found` or `none_found`), `related_ids` (1–64 unique work ids, present only when `outcome` is `related_found`; the mutation refuses `related_found` with no ids and `none_found` with ids, and every id must name a real work item) |
@@ -325,7 +325,8 @@ The producer pins the installed toolchain and native target, with
 `GOTOOLCHAIN=local`, `GOPROXY=off`, `GOFLAGS=-mod=readonly`, `CGO_ENABLED=0`, and
 `GOWORK=off`. Each lease uses a private disposable `GOCACHE`.
 That family does not install or download missing dependencies. Target runners
-materialize verified cached dependencies into per-run scratch under CD-0205 D1.
+materialize verified cached dependencies into per-run scratch under the native
+verification requirements below.
 Unsupported recipes and unverified inputs remain unavailable. Ordinary shell
 output supplies no native fallback. No aggregate scratch-quota guarantee is implied.
 A pass requires actual run and terminal pass events for every selected case
@@ -336,22 +337,97 @@ Independent review judges candidate code for harness subversion, including
 process exit, output forgery, and initialization effects.
 Independent review still judges the semantic adequacy of those witnesses.
 
-Before test-program launch, the native owner proves the persisted dispatch's
-work, attempt, epoch, packet digest, exact job revision, control, and candidate.
-It joins the completed dispatch, attempt rows, preceding start, and job record
-through the existing authority; `in_flight` or `dispatched` is required.
-The completion builder records `worker_subject_commit` beside the packet
-digest from the same tx-scoped core `subject_commit` view admitted at dispatch.
-The workflow reader retains that recorded value without current derivation.
-The integrated work-context view exposes only `subject_commit`; no parallel
-`candidate_subject` property or independent subject reader survives.
-Current clean `HEAD`, current core subject, and recorded dispatch subject must
-be nonempty and equal. A completion that cannot join a current candidate refuses
-native oracle execution without packet-body retention or an inferred value.
-A forged attempt, another job's digest, terminal state, or mismatched candidate
-binding refuses with zero test-program launches. Acquisition and release also
-recheck applicability. Caller assertions and today's context supply no missing
-historical authorization, and preparation requires no worker authorization.
+Before test-program launch, the native owner resolves the exact retained
+`preparation_run_ref`, its declared control bundle, candidate, pinned recipe
+and runtime environment. Current clean `HEAD`, the current core subject and
+the prepared subject must be nonempty and equal. Missing, changed or
+mismatched bindings refuse with zero test-program launches. Acquisition,
+pre-launch admission and release recheck applicability. A finalized replay
+returns retained evidence without another launch. No worker attempt, epoch,
+packet, job or subagent identity is an execution prerequisite.
+
+Preparation resolves the exact pinned recipe, contained cwd, declared case
+witnesses and runtime environment. The producer and schema declare the closed
+set of supported recipe families, materializers, runners and isolation
+policies. Changes to that set need an approved design and executable tests of
+these obligations. The Project keeps its own language and tests; an unrelated
+module is not required to satisfy a recipe.
+
+Preparation materializes the recipe commit, not the candidate commit. Go
+preparation compiles without launching its test program. Target-runner
+preparation proves the exact selected witness population or check availability
+without invoking acceptance bodies. Collection may import code and run
+configuration or registration hooks from the pinned recipe snapshot. These
+actions grant no verification evidence.
+
+Each materializer owns the dependency manifest, lockfile and cache-integrity
+proof for its inputs. Candidate dependency inputs must equal the pinned
+recipe bytes. A recipe without dependencies declares that state. Missing or
+unequal inputs produce `unavailable`, not a download or readiness exception.
+Every runner pins its interpreter, executable inputs, collection behavior,
+exact witness population and result grammar.
+
+The producer excludes ambient credentials, runner overrides, plugin autoload
+and user configuration. Only the closed materializer and runner contracts may
+add declared environment inputs. It resolves installed exact runtime versions
+and fingerprints executables and consumed dependency inputs. It materializes
+dependencies from existing caches into per-run scratch with downloads disabled.
+Lock verification and dependency-integrity checks are required; offline or
+frozen options alone prove no cached-byte integrity. Materialization disables
+build and lifecycle scripts. A missing artifact, corrupt cache, unsupported
+runtime or unverified dependency produces `unavailable`. Private copies or
+post-run integrity checks detect changes to shared dependency inputs.
+
+Execution materializes the candidate and replaces harness, fixture, runner
+configuration and support inputs with pinned recipe bytes. The producer
+verifies subject blob identity and rechecks pinned file digests. It
+fingerprints consumed source, runtime, dependencies and executable inputs
+before and after execution. A changed input cannot produce a qualified pass.
+
+Preparation supplies readiness only, never verification authority. Its retained
+plan binds the exact declared owner, case and control bundle except readiness
+references, the subject and environment. Execution selects only its exact
+`preparation_run_ref`; a later preparation never silently replaces it.
+Unsupported recipes or unavailable inputs require explicit preparation recovery,
+not an invented reference, automatic execution or readiness exception.
+
+A recipe may require producer-enforced isolation. The producer derives the
+policy from the pinned recipe; callers cannot supply isolation commands,
+mounts, host paths or network exceptions. For required loopback-only isolation,
+the producer establishes and retains these boundaries for all hooks,
+collection, checks, acceptance bodies and descendants in preparation and execution:
+
+- Required loopback bind and connect remain usable within the workload. Host
+  loopback, host services and external networks are unreachable. Inherited
+  sockets, host IPC, descriptors and helpers cannot bridge the boundary.
+- Filesystem changes stay in per-run private scratch. Verified source, harness,
+  runtime and dependency inputs are read-only. Real user homes, shared caches,
+  ambient credentials and undeclared user configuration are not exposed.
+- Descendants cannot escape by replacing environments, sessions or process
+  groups. Completion, cancellation, timeout and output overflow terminate all
+  descendants before cleanup or a qualified result.
+
+Native environment, readiness and result bindings distinguish required policy
+from observed enforcement and bind the enforcing executable identity.
+Producer-owned observations establish enforcement, not recipe prose or candidate
+claims. Missing, unsupported, unestablished or changed required isolation
+produces `unavailable`, never unconfined fallback, reduced coverage, installation
+or readiness exception. Fresh readiness uses explicit preparation recovery.
+
+A recipe without required isolation retains its execution contract. Its evidence
+cannot satisfy a control requiring isolation. This grants no additional
+execution, verification, provisioning or Product-law authority and does not
+sandbox agent sessions or unmanaged host work. Every recipe family has these
+evidence limits:
+
+- Same-UID changes between digest observations can escape detection.
+- Test and collection processes have no enforced network isolation unless the
+  recipe requires it and the producer establishes it.
+- `PATH`, `LANG` and `LC_ALL` remain inherited environment inputs.
+- Candidate initialization or shared-interpreter code can forge reporter output.
+
+Native observations do not attest protection against hostile candidate code.
+Independent semantic review and existing acceptance authorities remain required.
 
 The existing lease retains a canonical producer plan and SHA-256 digest in
 separate columns; `command_json` remains a bare argument array.
@@ -438,8 +514,8 @@ receipt can become criterion proof, so a weaker or incomparable delivery has no
 proof and completion refuses it at clause 4 with `missing_evidence`
 ([CD-0235 D2](./decisions/CD-0235-the-independent-verdict-is-the-outcome-strength-evaluation.md#d2-completion-refuses-on-the-recorded-verdict)).
 
-Job-oracle controls use exit-status results and retained execution references
-(CD-0205, CD-0056). Their receipts are reported evidence, not per-predicate
+Native controls use exit-status results and retained execution references.
+Their receipts are producer evidence, not per-predicate
 evaluation, review verdicts, criterion discharge, or completion authority.
 Earlier-subject receipts are regression baselines. The oracle does not supply
 the deferred registered evaluator catalog or change the closed predicate union.
@@ -457,7 +533,7 @@ are stable:
 | 2 | Every declared condition is resolved or explicitly cancelled by its owning authority | `not_terminal` | `reread_entities` |
 | 3 | Every `modifies` edge is within the declared scope and the spec mandate is satisfied | `invariant_violation` | `reread_entities` |
 | 4 | Every approved predicate has a criterion-proof association on the current candidate, its actor tuple is complete, and it is recorded by Main, not the executing Implement actor ([CD-0242 D5](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d5-execution-is-a-loop-that-main-controls)) | `unauthorized` for same/partial actor; `missing_evidence` for absent verdict | `contact_operator` / `provide_evidence` |
-| 5 | Premise is confirmed with the authority the contract's decision fact requires: a verified operator for decision-bearing work, and under `consequence_v1` an authenticated non-worker coordinator for engineering work (CD-0013 D11) | `approval_required` or `missing_evidence` | `request_approval` / record the coordinator confirmation |
+| 5 | Premise is confirmed with the authority the contract's decision fact requires: a verified operator for decision-bearing work, and under `consequence_v1` an authenticated coordinator for engineering work (CD-0013 D11) | `approval_required` or `missing_evidence` | `request_approval` / record the coordinator confirmation |
 | 6 | Every recorded verdict answers an approved predicate, and no declared blocking staleness rule drifted | `outcome_mismatch` or `stale_requires_review` | `contact_operator` / `refresh_context` |
 | 7 | The gate reads, impact notices, terminal metadata, lifecycle change, and the completion record commit in one transaction | `operation_conflict` | `reconcile_operation` |
 
@@ -687,13 +763,10 @@ WF09, WF22, and WF25 each bind their criterion to a production route.
 
 ## 12. Live-family graphs and declared action mappings
 
-Every live family has typed
-action execution modes. The
-`accept_worker_result`, `record_worker_failure`, and `dispatch_worker` set lands
-on each dispatchable, non-terminal step. The generated lane-step join decides
-which step kinds receive that set. `record_delivery` remains the session exit
-after a fenced start with no later dispatch. The table lists family actions;
-definition composition adds the worker-action set. Break-fix, and the `larger`
+Every live family has typed action execution modes. `record_review` records the
+coordinator's subject-bound typed Review outcome without starting or attesting
+a subagent. `record_delivery` remains the producing-step exit after a fenced
+start. The table lists family actions. Break-fix, and the `larger`
 and `crucial` implementation compositions, carry a mandatory `refine`
 external-effect step between the producing step and its verdict step
 (CD-0138 D1; CD-0229 D5).
@@ -719,7 +792,7 @@ the exact argv.
 
 | Family and source | Ordered graph and family actions at each step |
 |---|---|
-| **Implementation** — [`workflows.md` §1](./workflows.md#1-the-shift-from-one-workflow-to-a-plurality) | `proposal[record_proposal] → alignment[record_alignment] → discovery[record_discovery] → design[record_design] → planning[approve_contract] → execution[start_execution, checkpoint_execution, bind_evidence, declare_impact, link_successor, record_delivery] → refine[start_refine, checkpoint_refine, bind_evidence, record_delivery] → acceptance[record_verdict, confirm_premise] → release[complete]`. Refine is mandatory at the `larger` and `crucial` sizes and requires artifact evidence at that step (CD-0138 D1; CD-0229 D5); the `small` composition walks define, implement, review, and ship. The CD-0156 alignment step follows proposal: record_alignment is the step's only advance exit, so the backlog search cannot be skipped, and the worker-action set stays off the step so no dispatched attempt can accept its way past the search. |
+| **Implementation** — [`workflows.md` §1](./workflows.md#1-the-shift-from-one-workflow-to-a-plurality) | `proposal[record_proposal] → alignment[record_alignment] → discovery[record_discovery] → design[record_design] → planning[approve_contract] → execution[start_execution, checkpoint_execution, bind_evidence, declare_impact, link_successor, record_delivery] → refine[start_refine, checkpoint_refine, bind_evidence, record_delivery] → acceptance[record_verdict, confirm_premise] → release[complete]`. Refine is mandatory at the `larger` and `crucial` sizes and requires artifact evidence at that step (CD-0138 D1; CD-0229 D5); the `small` composition walks define, implement, review, and ship. The CD-0156 alignment step follows proposal: record_alignment is the step's only advance exit, so backlog search cannot be skipped. A native Task result supplies no workflow exit. |
 | **Break-fix / RCA** — [`workflows.md` §3](./workflows.md#3-complete-work-kind-taxonomy) and §4 | `reproduce[record_reproduction] → alignment[record_alignment] → diagnose[record_root_cause] → planning[approve_contract] → repair[start_repair, checkpoint_repair, bind_evidence, link_successor, record_delivery] → refine[start_refine, checkpoint_refine, bind_evidence, record_delivery] → verify[bind_evidence, record_verdict, confirm_premise] → complete[complete]`. Refine is mandatory and requires artifact evidence at that step (CD-0138 D1). Verify carries the hold-mode `bind_evidence` route (CD-0124), so a green verify-tier run at `worktree_verify:sha256:<digest>` can be named as the verification producer. The CD-0156 alignment step follows reproduce on the same terms. |
 | **Research / investigation** — [`workflows.md` §4](./workflows.md#4-example-workflow-types) and CD-0215 D3 | `frame[frame_research, approve_contract] → investigate[record_finding, revise_candidates, bind_evidence] → findings[record_report, link_successor] → conclude[record_conclusion, record_verdict, confirm_premise] → complete[complete]`. Completion verb: findings recorded; `no_change` is valid. |
 
@@ -749,14 +822,14 @@ No result record is invented for a graph step.
 | `revise_candidates` | `workflow.candidate_set_revised` |
 | `declare_impact` | `workflow.impact_declared` |
 | `link_successor` | `workflow.successor_linked` and the existing forward-link relation event |
-| `record_verdict` | `workflow.verdict_recorded`; the verdict is recorded by an actor other than the executing Implement actor (CD-0242 D5; CD-0109), or by the operator's signed identity strictly when the item exited an external-effect step through `record_delivery` (CD-0116) |
+| `record_verdict` | `workflow.verdict_recorded`; the coordinator records the subject-bound verdict using qualifying native receipts, without attesting a subagent producer (CD-0242 D5/D8). CD-0116 governs any applicable operator-substitution route. |
 | `confirm_premise` | `workflow.premise_confirmed` |
 | `complete` | `workflow.completed`, only after the ordered gate in §7 |
 | `frame_question` | `workflow.action_completed`; the framed question is part of the action result and later decision-record evidence |
 | `record_research` | `workflow.action_completed` plus bound research evidence |
 | `record_decision` | `workflow.action_checkpointed` with the typed decision-record payload, then `workflow.action_completed`, which advances to `review`; the accepted record is bound in the outcome payload |
 | `accept_decision` | `workflow.evidence_bound` for operator acceptance plus `workflow.action_completed`, which advances `review` to `acceptance` |
-| `record_delivery` | `workflow.action_completed`, which advances the external-effect step when its fenced start ran and no lane attempt was dispatched in that attempt; a dispatched attempt cannot exit through delivery |
+| `record_delivery` | `workflow.action_completed`, which advances the external-effect step after its fenced start and the complete delivery admission |
 | `discard_poc` | `workflow.action_completed` with a discard artifact reference; no POC bytes become workflow authority |
 | `approve_operation` | approval evidence binding plus `workflow.action_completed` |
 | `add_condition` | `workflow.condition_added` |
@@ -766,34 +839,18 @@ No result record is invented for a graph step.
 | `cleanup_run` | `workflow.action_completed` with cleanup evidence |
 | `run_analysis` | fenced `workflow.action_started` → `workflow.action_completed`/`workflow.action_failed`; report evidence follows in `record_report` |
 | `record_report` | `workflow.action_completed` plus `workflow.evidence_bound` for the report's immutable subject |
-| `dispatch_worker` | fenced `workflow.action_started` then `workflow.action_completed` v2, bound to the authorized attempt and canonical worker-packet digest |
-| `accept_worker_result` | `workflow.evidence_bound` naming the accepted attempt as its `immutable_subject_ref`, with the lane's capability class as the evidence kind, then `workflow.action_completed` v2 bound to the exact completed attempt and current step epoch; admission rechecks dispatch order, work ownership, lifecycle, model readback, and non-self-acceptance (CD-0242 D5) before advancing. The verdict on the next step cites the attempt id. |
-| `record_worker_failure` | `workflow.action_completed` v2 in hold mode, bound to the exact failed attempt and current step epoch; admission rechecks dispatch order, work ownership, failed lifecycle, non-self-acceptance (CD-0242 D5), and prior recording. A fresh fenced start opens the recovery attempt. |
+| `record_review` | records `review`, the existing typed Review block, in the current Review state after subject, dependency, findings and disposition admission; no attempt, lane, job or report-envelope identity is required |
 
-`record_worker_job` requires the immutable owner/case/control oracle in the
-recorded job digest (CD-0205 D1). Every admitted dispatch carries that same
-oracle. Structure and retained readiness references join existing contract,
-Domain, Project, and law authority; preparation resolves pinned recipes
-before authorization. Supported Go and target-repository runners use the
-same native preparation, job, dispatch, and receipt authority joins.
-Preparation consumes recipe-commit bytes and supplies no verification pass.
-Execution consumes candidate-commit production inputs with pinned harness
-and runner inputs. Exact dependency pins, cached-byte integrity, input
-digests, and runtime policy remain the producer's obligations under CD-0205 D1.
-Its shared evidence limits apply to every recipe family.
-Unsupported or unavailable inputs refuse without a worker attempt or a
-readiness exception.
-`worker.completed` admits oracle receipts, ranked-finding ties, and closed
-resolution claims; no worker record invents them after the fact.
-Local job acceptance holds the step. Whole-work delivery still requires the
-complete parent admission, integration evidence, review verdicts, and
-operator confirmation; an oracle pass supplies none of those authorities.
+Native verification uses §5.1's retained preparation, bundle, subject,
+environment and producer receipt. Criterion coverage resolves through that
+preparation and bundle. Whole-work delivery still requires complete parent
+admission, integration evidence, Review and applicable approvals; a native
+pass supplies none of those authorities by itself.
 
 ### 12.2 Action definitions and composition
 
-Each launch is one admitted request with its own scope, assignment, and subject bindings ([CD-0242 D6](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-attempts-carry-their-own-authority-not-a-budget)). A launch confirmed never started leaves the
-assignment and its valid proof unchanged, and a launch with an unknown effect
-is reconciled before another launch for that assignment.
+Native Task execution belongs to the host, not workflow action composition
+([CD-0242 D6](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-native-task-belongs-to-the-host)).
 
 `action_definitions` carry closed payload field definitions and execution modes
 for each ID. Every registered definition declares an explicit `execution_mode`

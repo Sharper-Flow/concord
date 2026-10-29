@@ -48,7 +48,7 @@ func writeWorkContextFacts(ctx context.Context, q migrationRunner, event Event) 
 	return nil
 }
 
-func readWorkContextFindingSource(ctx context.Context, q queryer, workID string, seq int64) (Event, []WorkerContextFinding, []WorkerReviewFinding, error) {
+func readWorkContextFindingSource(ctx context.Context, q queryer, workID string, seq int64) (Event, []WorkContextFinding, []ReviewFinding, error) {
 	var source Event
 	err := q.QueryRowContext(ctx, `SELECT event_id,kind FROM effect_receipts WHERE effect_seq=? AND subject_type='work_item' AND subject_id=?`, seq, workID).Scan(&source.EventID, &source.Kind)
 	if err != nil {
@@ -59,21 +59,21 @@ func readWorkContextFindingSource(ctx context.Context, q queryer, workID string,
 		return source, nil, nil, err
 	}
 	defer rows.Close()
-	var generic []WorkerContextFinding
-	var ranked []WorkerReviewFinding
+	var generic []WorkContextFinding
+	var ranked []ReviewFinding
 	for rows.Next() {
 		var class, raw string
 		if err := rows.Scan(&class, &raw); err != nil {
 			return source, nil, nil, err
 		}
 		if class == "generic" {
-			var finding WorkerContextFinding
+			var finding WorkContextFinding
 			if err := json.Unmarshal([]byte(raw), &finding); err != nil {
 				return source, nil, nil, workContextFailure(KindInvariantViolation, "work_context_read", "stored context finding facts are malformed", "restore a verified backup into a new path with concord restore, then swap")
 			}
 			generic = append(generic, finding)
 		} else {
-			var finding WorkerReviewFinding
+			var finding ReviewFinding
 			if err := json.Unmarshal([]byte(raw), &finding); err != nil {
 				return source, nil, nil, workContextFailure(KindInvariantViolation, "work_context_read", "stored context finding facts are malformed", "restore a verified backup into a new path with concord restore, then swap")
 			}
@@ -84,13 +84,24 @@ func readWorkContextFindingSource(ctx context.Context, q queryer, workID string,
 }
 
 func workContextSourceHoldsFindings(kind string) bool {
-	return kind == WorkflowWorkContextRecorded || kind == WorkerCompleted || kind == WorkerFailed
+	return kind == WorkflowWorkContextRecorded || kind == WorkflowActionCompleted || kind == "worker.completed" || kind == "worker.failed"
+}
+
+func workContextTerminalFindingsAtEvent(event Event) ([]WorkContextFinding, []ReviewFinding, bool) {
+	var payload struct {
+		ContextFindings []WorkContextFinding `json:"context_findings"`
+		Review *ReviewBlock `json:"review"`
+	}
+	if err := json.Unmarshal(event.Payload, &payload); err != nil { return nil, nil, false }
+	var ranked []ReviewFinding
+	if payload.Review != nil { ranked = payload.Review.Findings }
+	return payload.ContextFindings, ranked, true
 }
 
 // Only migration148 reads source envelopes. Live readers use claims and the
 // single current declaration, while effect receipts supply source identity.
 func backfillWorkContextFacts(ctx context.Context, q migrationRunner) error {
-	rows, err := q.QueryContext(ctx, `SELECT seq,event_id,kind,subject_type,subject_id,payload FROM domain_events WHERE subject_type='work_item' AND kind IN (?,?,?) AND subject_id IN (SELECT id FROM work_items) ORDER BY seq`, WorkflowWorkContextRecorded, WorkerCompleted, WorkerFailed)
+	rows, err := q.QueryContext(ctx, `SELECT seq,event_id,kind,subject_type,subject_id,payload FROM domain_events WHERE subject_type='work_item' AND kind IN (?,'worker.completed','worker.failed') AND subject_id IN (SELECT id FROM work_items) ORDER BY seq`, WorkflowWorkContextRecorded)
 	if err != nil {
 		return err
 	}

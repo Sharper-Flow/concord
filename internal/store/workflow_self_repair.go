@@ -101,13 +101,6 @@ func validateWorkflowSelfRepairAuthorityTx(ctx context.Context, tx *sql.Tx, work
 // grants no overlap exemption.
 func validateWorkflowSelfRepairAuthorityForDefinitionTx(ctx context.Context, tx *sql.Tx, workID, actorRef string, definition WorkflowDefinition) error {
 	if definition.ApprovalPolicy == WorkflowApprovalPolicyConsequenceV1 {
-		authority, authorityErr := workflowEvaluationAuthority(ctx, tx, workID, actorRef)
-		if authorityErr != nil {
-			return authorityErr
-		}
-		if authority == WorkflowWorkerEvaluator {
-			return newFailure(KindUnauthorized, "workflow_self_repair", "worker actors cannot classify contract self-repair", false, "return the worker report to the coordinator")
-		}
 		return requireActorClass(ctx, tx, actorRef, string(ActorAgent))
 	}
 	var actorClass string

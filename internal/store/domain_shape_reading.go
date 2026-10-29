@@ -10,7 +10,7 @@ import (
 )
 
 // UnmarshalJSON keeps a required reading's source union closed even on internal
-// replay and worker-read paths that do not pass through the public authoring
+// replay paths that do not pass through the public authoring
 // schema. The closure belongs to the reading entry: oracle law and recipe
 // sources share the source type and keep their own closed-arm validators.
 func (reading *WorkContextReading) UnmarshalJSON(raw []byte) error {
@@ -77,28 +77,43 @@ func validateDomainShapeReadingSource(source WorkContextReadingSource) error {
 	return validateDomainShapeSelector(*source.Selector)
 }
 
-// sampleDomainShapeReading uses the same selected-read core as the normal read.
-// It samples SQL only; the dispatch owner proves Git after closing its snapshot.
-func sampleDomainShapeReading(ctx context.Context, q queryer, product string, reading WorkContextReading) (dispatchReadingWitness, error) {
-	var w dispatchReadingWitness
+const domainShapeReadingOp = "work_context_reading"
+
+type domainShapeReadingWitness struct {
+	arm, identity                            string
+	sourceProject, sourceLocator, sourceRepo string
+	commitOID, contentHash, sourceSetDigest  string
+	shape                                    *DomainShapeResult
+	shapeDomain                              string
+	locatorCreatedAt, locatorUpdatedAt       string
+	projectVersion                           int64
+	watermarkCommit, watermarkDigest         string
+	watermarkVersion                         int64
+	watermarkComplete                        bool
+}
+
+// sampleDomainShapeReading uses the normal selected-read core and samples SQL
+// only. Committed-content proof is separate from this query.
+func sampleDomainShapeReading(ctx context.Context, q queryer, product string, reading WorkContextReading) (domainShapeReadingWitness, error) {
+	var w domainShapeReadingWitness
 	if err := validateWorkContextReading(reading); err != nil {
 		return w, err
 	}
-	home, err := resolveKnowledgeQueryHome(ctx, q, product, "", KnowledgeHome{}, workerDispatchReadingResolutionOp)
+	home, err := resolveKnowledgeQueryHome(ctx, q, product, "", KnowledgeHome{}, domainShapeReadingOp)
 	if err != nil {
 		return w, err
 	}
 	if home.HomeProjectID != reading.Source.SourceID {
-		return w, newFailure(KindUnknownScope, workerDispatchReadingResolutionOp, "domain_shape source_id is not the work Product's designated home Project", false, "select the work Product's designated home")
+		return w, newFailure(KindUnknownScope, domainShapeReadingOp, "domain_shape source_id is not the work Product's designated home Project", false, "select the work Product's designated home")
 	}
-	sources, err := resolveKnowledgeQuerySources(ctx, q, product, workerDispatchReadingResolutionOp)
+	sources, err := resolveKnowledgeQuerySources(ctx, q, product, domainShapeReadingOp)
 	if err != nil {
 		return w, err
 	}
 	if !slices.ContainsFunc(sources, func(source KnowledgeHome) bool {
 		return source.HomeProjectID == home.HomeProjectID && source.HomeLocatorID == home.HomeLocatorID
 	}) {
-		return w, newFailure(KindUnknownScope, workerDispatchReadingResolutionOp, "domain_shape home is outside the Product knowledge-source set", false, "restore the Product home registration")
+		return w, newFailure(KindUnknownScope, domainShapeReadingOp, "domain_shape home is outside the Product knowledge-source set", false, "restore the Product home registration")
 	}
 	selected, err := selectedDomainShapeTx(ctx, q, home, product, *reading.Source.Selector)
 	if err != nil {
@@ -109,7 +124,7 @@ func sampleDomainShapeReading(ctx context.Context, q queryer, product string, re
 		return w, err
 	}
 	if selected.KnowledgeCommit != reading.Source.CommitOID || domainShapeBytesHash(raw) != reading.Source.ContentHash {
-		return w, newFailure(KindProjectionConflict, workerDispatchReadingResolutionOp, "domain_shape selection does not match the pinned commit and exact JSON hash", false, "read and explicitly pin the current selection")
+		return w, newFailure(KindProjectionConflict, domainShapeReadingOp, "domain_shape selection does not match the pinned commit and exact JSON hash", false, "read and explicitly pin the current selection")
 	}
 	// A root grouping explicitly covers the Product. A child grouping cannot
 	// conceal facts or mixed-root owners belonging to other affected Domains.
@@ -118,9 +133,9 @@ func sampleDomainShapeReading(ctx context.Context, q queryer, product string, re
 		return w, err
 	}
 	if reading.DomainID != root && (len(selected.DomainIDs) != 1 || selected.DomainIDs[0] != reading.DomainID) {
-		return w, newFailure(KindUnknownScope, workerDispatchReadingResolutionOp, "domain_shape selection does not fit the declared Domain group", false, "select one owning Domain or explicitly declare the approved Product-wide group")
+		return w, newFailure(KindUnknownScope, domainShapeReadingOp, "domain_shape selection does not fit the declared Domain group", false, "select one owning Domain or explicitly declare the approved Product-wide group")
 	}
-	w = dispatchReadingWitness{arm: WorkContextSourceDomainShape, identity: home.HomeProjectID + "/domain_shape@" + reading.Source.CommitOID + "/" + reading.Source.ContentHash,
+	w = domainShapeReadingWitness{arm: WorkContextSourceDomainShape, identity: home.HomeProjectID + "/domain_shape@" + reading.Source.CommitOID + "/" + reading.Source.ContentHash,
 		sourceProject: home.HomeProjectID, sourceLocator: home.HomeLocatorID, sourceRepo: home.RepoPath,
 		commitOID: selected.KnowledgeCommit, contentHash: reading.Source.ContentHash, sourceSetDigest: knowledgeSourceSetDigest(sources), shape: &selected, shapeDomain: reading.DomainID}
 	if err := sampleDomainShapeSourceAuthority(ctx, q, home, product, &w); err != nil {
@@ -132,35 +147,7 @@ func sampleDomainShapeReading(ctx context.Context, q queryer, product string, re
 	return w, nil
 }
 
-// A held packet already pins the selection. Sampling rechecks source authority,
-// not a projection that may now describe a later committed Product revision.
-func sampleHeldDomainShapeReading(ctx context.Context, q queryer, product string, reading WorkContextReading) (dispatchReadingWitness, error) {
-	var w dispatchReadingWitness
-	if err := validateWorkContextReading(reading); err != nil {
-		return w, err
-	}
-	home, err := resolveKnowledgeQueryHome(ctx, q, product, "", KnowledgeHome{}, workerDispatchReadingResolutionOp)
-	if err != nil {
-		return w, err
-	}
-	sources, err := resolveKnowledgeQuerySources(ctx, q, product, workerDispatchReadingResolutionOp)
-	if err != nil {
-		return w, err
-	}
-	if home.HomeProjectID != reading.Source.SourceID || !slices.ContainsFunc(sources, func(source KnowledgeHome) bool {
-		return source.HomeProjectID == home.HomeProjectID && source.HomeLocatorID == home.HomeLocatorID
-	}) {
-		return w, newFailure(KindUnknownScope, workerDispatchReadingResolutionOp, "domain_shape source is not the Product's registered designated home", false, "restore the original Product home registration")
-	}
-	w = dispatchReadingWitness{arm: WorkContextSourceDomainShape, identity: home.HomeProjectID + "/domain_shape@" + reading.Source.CommitOID + "/" + reading.Source.ContentHash,
-		sourceProject: home.HomeProjectID, sourceLocator: home.HomeLocatorID, sourceRepo: home.RepoPath,
-		commitOID: reading.Source.CommitOID, contentHash: reading.Source.ContentHash, sourceSetDigest: knowledgeSourceSetDigest(sources), shapeDomain: reading.DomainID,
-		shape: &DomainShapeResult{ProductID: product, HomeProjectID: home.HomeProjectID, HomeLocatorID: home.HomeLocatorID, Selector: *reading.Source.Selector}}
-	err = sampleDomainShapeSourceAuthority(ctx, q, home, product, &w)
-	return w, err
-}
-
-func sampleDomainShapeSourceAuthority(ctx context.Context, q queryer, home KnowledgeHome, product string, w *dispatchReadingWitness) error {
+func sampleDomainShapeSourceAuthority(ctx context.Context, q queryer, home KnowledgeHome, product string, w *domainShapeReadingWitness) error {
 	if err := q.QueryRowContext(ctx, `SELECT created_at,updated_at FROM project_locators WHERE project_id=? AND locator_id=?`, home.HomeProjectID, home.HomeLocatorID).Scan(&w.locatorCreatedAt, &w.locatorUpdatedAt); err != nil {
 		return err
 	}
@@ -172,20 +159,20 @@ func sampleDomainShapeSourceAuthority(ctx context.Context, q queryer, home Knowl
 		return err
 	}
 	if !member {
-		return newFailure(KindUnknownScope, workerDispatchReadingResolutionOp, "domain_shape home Project is outside the work Product", false, "restore the Product's home Project membership")
+		return newFailure(KindUnknownScope, domainShapeReadingOp, "domain_shape home Project is outside the work Product", false, "restore the Product's home Project membership")
 	}
 	return nil
 }
 
 func domainShapeReadingProofFailure() error {
-	return newFailure(KindInvalidNoteProof, workerDispatchReadingResolutionOp, "domain_shape selected content differs from its pinned committed inputs", false, "restore the original local committed inputs; never repin an authorized packet")
+	return newFailure(KindInvalidNoteProof, domainShapeReadingOp, "domain_shape selected content differs from its pinned committed inputs", false, "restore the original local committed inputs; never repin the declared selection")
 }
 
 // resolveDomainShapeReading proves the selected response, not a second lookup.
 // The canonical shard/architecture owners decode immutable inputs. The existing
 // pure selection owner must reproduce the sampled selection from those inputs.
 // Neither the checkout nor a moving default reference supplies any bytes.
-func resolveDomainShapeReading(ctx context.Context, runner GitRunner, w *dispatchReadingWitness) ([]byte, error) {
+func resolveDomainShapeReading(ctx context.Context, runner GitRunner, w *domainShapeReadingWitness) ([]byte, error) {
 	if w.shape == nil {
 		return nil, domainShapeReadingProofFailure()
 	}
@@ -222,8 +209,7 @@ func resolveDomainShapeReading(ctx context.Context, runner GitRunner, w *dispatc
 	if err != nil || len(raw) > DomainShapeResultMaxBytes || domainShapeBytesHash(raw) != w.contentHash {
 		return nil, domainShapeReadingProofFailure()
 	}
-	// Dispatch must prove the exact sampled SQL response as well as its hash.
-	// Held reads reconstruct without borrowing any moving projection metadata.
+	// Prove the exact sampled SQL response as well as its hash.
 	if w.shape.SnapshotContentHash != "" {
 		expected, err := json.Marshal(w.shape)
 		if err != nil || !bytes.Equal(raw, expected) {
@@ -233,7 +219,7 @@ func resolveDomainShapeReading(ctx context.Context, runner GitRunner, w *dispatc
 	return raw, nil
 }
 
-func reconstructDomainShapeReadingSnapshot(ctx context.Context, runner GitRunner, w *dispatchReadingWitness, shards knowledgeShards, snapshot *DomainShapeSnapshot) error {
+func reconstructDomainShapeReadingSnapshot(ctx context.Context, runner GitRunner, w *domainShapeReadingWitness, shards knowledgeShards, snapshot *DomainShapeSnapshot) error {
 	if len(shards.facts) != 0 {
 		if err := proveDomainShapeReadingTooling(ctx, runner, w.sourceRepo, snapshot); err != nil {
 			return err
@@ -261,7 +247,7 @@ func reconstructDomainShapeReadingSnapshot(ctx context.Context, runner GitRunner
 	return nil
 }
 
-func proveDomainShapeGoverningLaw(ctx context.Context, runner GitRunner, w *dispatchReadingWitness, manifest KnowledgeManifest, laws []DomainLawRecord) error {
+func proveDomainShapeGoverningLaw(ctx context.Context, runner GitRunner, w *domainShapeReadingWitness, manifest KnowledgeManifest, laws []DomainLawRecord) error {
 	for _, law := range laws {
 		index := slices.IndexFunc(manifest.Records, func(r KnowledgeRecord) bool { return r.ID == law.LawID })
 		if index < 0 {
@@ -332,9 +318,6 @@ func domainShapeManifestGoverningLaw(manifest KnowledgeManifest, selection Domai
 }
 
 func readDomainShapePinnedBlob(ctx context.Context, runner GitRunner, repo, commit, path string) ([]byte, error) {
-	w := dispatchReadingWitness{repoPath: repo, commitOID: commit, path: path}
-	if err := resolveRepositoryReading(ctx, runner, &w); err != nil {
-		return nil, err
-	}
-	return runner.Run(ctx, repo, "cat-file", "blob", commit+":"+path)
+	_, content, err := committedRegularBlobBytes(ctx, runner, repo, commit, path)
+	return content, err
 }

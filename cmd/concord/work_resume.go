@@ -105,7 +105,7 @@ func runWorkResume(raw []byte, s *store.Store, out, errOut io.Writer) int {
 		return 1
 	}
 	ctx := context.Background()
-	ctx, member, err := workResumeCaller(ctx, s, input, cwd)
+	ctx, err = workResumeCaller(ctx, s, input, cwd)
 	if err != nil {
 		writeOperatorDiagnostic(errOut, "work-resume", diagnosticText(err))
 		return storeFailureExit(err)
@@ -133,10 +133,6 @@ func runWorkResume(raw []byte, s *store.Store, out, errOut io.Writer) int {
 		if !errors.As(err, &failure) || failure.Kind != store.KindProjectionNotFound {
 			writeOperatorDiagnostic(errOut, "work-resume", diagnosticText(err))
 			return storeFailureExit(err)
-		}
-		if member != nil {
-			writeOperatorDiagnostic(errOut, "work-resume", diagnosticText(&store.Failure{Kind: store.KindUnauthorized, Op: "work_resume", Detail: "member worktree has not been claimed", RecoveryAction: "use worktree_claim as the authenticated bound member caller"}))
-			return workResumeRefusalExit
 		}
 		// A missing active tree may bootstrap; removed execution may not.
 		entry, err = bootstrapResumeWorktree(ctx, s, input, resolution)
@@ -235,15 +231,15 @@ func finishWorkResume(ctx context.Context, s *store.Store, input workResumeInput
 	return writeJSON(out, output, errOut)
 }
 
-// Resume reuses invoke's envelope and authorizer. Only the verified tuple may
-// select a member tree; the raw session selector never supplies that authority.
-func workResumeCaller(ctx context.Context, s *store.Store, input workResumeInput, cwd string) (context.Context, *store.WorkflowMemberCaller, error) {
+// Resume reuses invoke's envelope and authorizer. A raw session selector never
+// supplies authenticated client authority.
+func workResumeCaller(ctx context.Context, s *store.Store, input workResumeInput, cwd string) (context.Context, error) {
 	if input.CallEnvelope == nil {
-		return ctx, nil, s.RequireUnrestrictedBootstrapSession(ctx, input.SessionRef)
+		return ctx, nil
 	}
 	env := *input.CallEnvelope
-	refuse := func(detail string) (context.Context, *store.WorkflowMemberCaller, error) {
-		return ctx, nil, &store.Failure{Kind: store.KindUnauthorized, Op: "work_resume", Detail: detail, RecoveryAction: "resume with the original authenticated call_envelope"}
+	refuse := func(detail string) (context.Context, error) {
+		return ctx, &store.Failure{Kind: store.KindUnauthorized, Op: "work_resume", Detail: detail, RecoveryAction: "resume with the original authenticated call_envelope"}
 	}
 	if env.SchemaVersion != "1.0" || env.RequestID == "" || env.ClientRef == "" || env.AgentRef == "" || env.SessionRef == "" || env.ScopeVersion == "" {
 		return refuse("call_envelope is missing the invoke identity or context")
@@ -258,20 +254,13 @@ func workResumeCaller(ctx context.Context, s *store.Store, input workResumeInput
 	service.ProjectHostMatcher = func(ctx context.Context, _ *store.Transaction, host store.ResolvedProjectHost) (store.ProjectResolution, error) {
 		return s.MatchResolvedProjectHost(ctx, host)
 	}
-	grant, err := service.Authorize(ctx, agent.Invocation{ClientRef: env.ClientRef, PrincipalRef: env.PrincipalRef, SessionRef: env.SessionRef, AgentRef: env.AgentRef, Directory: env.Directory, Worktree: env.Worktree, ManifestDigest: env.ManifestDigest, HostAssertionDigest: env.HostAssertionDigest, RequiredCapability: "product_read", ProductID: input.ProductID, ProjectID: input.ProjectID})
+	_, err := service.Authorize(ctx, agent.Invocation{ClientRef: env.ClientRef, PrincipalRef: env.PrincipalRef, SessionRef: env.SessionRef, AgentRef: env.AgentRef, Directory: env.Directory, Worktree: env.Worktree, ManifestDigest: env.ManifestDigest, HostAssertionDigest: env.HostAssertionDigest, RequiredCapability: "product_read", ProductID: input.ProductID, ProjectID: input.ProjectID})
 	if err != nil {
 		var failure *store.Failure
 		if errors.As(err, &failure) {
-			return ctx, nil, err
+			return ctx, err
 		}
 		return refuse(err.Error())
 	}
-	member, err := store.ReadWorkflowMemberCaller(ctx, s, store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent})
-	if err != nil {
-		return ctx, nil, err
-	}
-	if member != nil {
-		ctx = store.WithSessionWorktreeOwner(ctx, store.SessionWorktreeOwner{ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef})
-	}
-	return ctx, member, nil
+	return ctx, nil
 }

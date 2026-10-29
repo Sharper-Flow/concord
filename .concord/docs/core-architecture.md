@@ -22,7 +22,7 @@ scopes.** Full records:
 Topology is **library-in-process — no daemon** (CD-0002 §2b).
 
 Linear owns planning through the Linear MCP server. Concord keeps managed
-execution contracts, sessions, worktrees, worker dispatch, evidence, and delivery
+execution contracts, sessions, worktrees, stage outcomes, evidence, and delivery
 receipts. A work unit can retain one reported issue identity (key, UUID, URL).
 The binary holds no Linear credential and makes no Linear API call. See
 [`CD-0213`](./decisions/CD-0213-linear-mcp-is-the-only-planning-authority.md) and
@@ -122,7 +122,7 @@ is stated once; companion documents reference this section rather than restating
 | 4 | **Graded recovery** | postmortem C6 | Every reachable inconsistent state has an explicit repair path: reconcile current rows, restore a verified snapshot, and reconcile against Git, worktrees, artifacts, and external effects ([CD-0242 D2](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)). |
 | 5 | **Ground-truth reclamation** | postmortem C4 | Resource reclamation keys off the resource's own facts, not a derived status field. Status disagreements are reconcilable, not silently vetoed. |
 | 6 | **Honest partial completion** | postmortem C3 | Sub-step failures degrade the verdict. `Result` has a distinct `Partial` state, not an error buried in an errors array. No advisory-only error beside unqualified success. |
-| 7 | **Per-item budgets** | postmortem C5 | APIs accept per-item budgets. A budget is honored or refused (`BudgetRefused`), never silently clamped. Operations scale with data, not with a fixed ceiling. Main sizes each assignment by complexity and relatedness, and scope, prerequisite, ownership, and safety checks remain; no attempt count, production-line cap, size measurement, or mandatory split exists ([CD-0242 D6](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-attempts-carry-their-own-authority-not-a-budget)). |
+| 7 | **Per-item budgets** | postmortem C5 | APIs accept per-item budgets. A budget is honored or refused (`BudgetRefused`), never silently clamped. Operations scale with data, not with a fixed ceiling. Main sizes each assignment by complexity and relatedness, and scope, prerequisite, ownership, and safety checks remain; no attempt count, production-line cap, size measurement, or mandatory split exists ([CD-0242 D6](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-native-task-belongs-to-the-host)). |
 | 8 | **Bounded writer admission** | [Data safety](./priorities.md#data-safety-constraint) | Many concurrent agents write to the same local state with zero escaped busy failures, zero lost or duplicated effects, and writer-admission wait bounded by the accepted target on the named acceptance population. Admission wait, commit duration, and escaped busy failure are measured and reported separately. Reads stay lock-free. Per-entity serialization, not a global mutex. See CD-0045 and CD-0011. |
 | 9 | **Bounded authoritative reads** | [Visibility and continuity](./priorities.md#visibility-and-continuity) | Reads are lock-free, bounded by Product scope, and paginated/streamed. Authority/freshness is typed and never guessed; related-work blocking follows CD-0006 R3 and CD-0222's architecture-overlap policy. |
 | 10 | **Typed degradation** | [Visibility and continuity](./priorities.md#visibility-and-continuity) | Every read carries an authority tag (`authoritative` / `degraded` / `unreachable`). Silent non-authoritative substitution is forbidden. |
@@ -163,10 +163,10 @@ details; this table does not duplicate them.
 |---|---|---|
 | CLI routing and host bootstrap | `cmd/concord/main.go`, `cmd/concord/work_bootstrap.go`, `cmd/concord/session.go` | Command admission, session identity; same-package tests |
 | Agent authorization and mutation | `internal/agent/runtime.go`, `internal/agent/mutations.go` | `internal/agent/authority.go`; approval, replay, and budget tests |
-| Adapter transport and native workers | `adapter/opencode/concord.ts`, `adapter/opencode/dispatch.ts`, `adapter/opencode/packet.ts` | `dispatch.test.ts`, `lane_dispatch.test.ts`, report-protocol tests |
+| Adapter transport and host context | `adapter/opencode/concord.ts`, `adapter/opencode/concord-plugin.ts` | Adjacent adapter tests |
 | SQLite connection and admission mechanism | `internal/store/internal/sqlitedb/connection.go`, `internal/store/internal/sqlitedb/read.go`, `internal/store/internal/sqlitedb/write.go` | One pooled connection and durable commit; adjacent tests, `internal/store/txbegin_guard_test.go` |
 | SQLite current-state and effect-receipt authority | `internal/store/doc.go`, `internal/store/store.go`, `internal/store/transaction.go`, `internal/store/events.go` | Transaction-scoped access; `txscope_test.go`, `tx_subprocess_guard_test.go` |
-| Work context and evidence | `internal/store/work_context.go`, `internal/store/worker_packet_binding.go`, `internal/store/worker_context_findings.go` | Declared sources, frontier, exact subject and attempt; adjacent tests |
+| Work context and evidence | `internal/store/work_context.go`, `internal/store/workflow_review.go`, `internal/store/worktree_verify_oracle.go` | Declared sources, exact subject, Review outcomes and producer receipts; adjacent tests |
 | Workflow action and protected writes | `internal/store/workflow_dispatch.go`, `internal/store/workflow_preflight.go`, `internal/store/workflow_domain_overlap.go` | Approved scope, law revision, and shared-write checks |
 | Sessions, worktrees, handoff | `internal/store/worktrees.go`, `internal/store/project_handoffs.go`, `internal/store/session_vacate.go` | Occupancy, same-Project incarnation, per-repository provenance; adjacent tests |
 | Research and knowledge law | `internal/store/research_types.go`, `internal/store/research_reads.go`, `internal/store/research_mutations.go`, `internal/store/law_boundary.go` | Version and source identity, consumer pins, staleness, accepted-law lookup |

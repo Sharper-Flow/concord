@@ -8,8 +8,7 @@
 **Issue:** [#70](https://github.com/Sharper-Flow/concord/issues/70).
 **Preserves:** C17 §5.1 (no computed importance score — ranking uses stored declared
 fields), C17 §5.2 (no activity-derived priority), C17 §5.4 (no third blocked state),
-C18 (the operator surface stays read-only), CD-0013/CD-0017 D4 (worker
-authority boundary).
+C18 (the operator surface stays read-only), CD-0013 (workflow authority).
 
 **Approval amendment:** [CD-0243 D7](CD-0243-four-roles-and-six-operator-approval-classes.md#d7-the-remaining-owners-use-the-same-approval-boundary)
 qualifies every operator-consent clause in this record, including tables and
@@ -201,9 +200,6 @@ happen to be in the same area — the edge records provenance, not topic similar
 - **`parent` for provenance:** asserts decomposition that did not occur.
 - **`supersedes` for the stopgap/durable pair:** asserts a replacement that has not
   happened yet; `supersedes` is a composite-operation-only kind.
-- **Lane dispatch (R7 Option D):** `dispatchWorker` has no production caller and
-  restart dispatch fails closed citing #57. Wiring dispatch is CD-0017 follow-through,
-  not a vocabulary question.
 - **Per-work-item claim/lease/fence:** rejected by #70's pre-spike decision and by
   the operating envelope's rejection of team-server ambition.
 

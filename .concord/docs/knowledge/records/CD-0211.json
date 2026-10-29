@@ -20,7 +20,6 @@
     "internal/agent/agent_defect_intake_test.go",
     "internal/agent/agent_defect_journey_test.go",
     "cmd/concord/work_bootstrap.go",
-    "scripts/generate-agent-lanes.py",
     "contracts/agent-tool-surface-payloads.schema.json",
     ".concord/docs/knowledge/coverage/CD-0211.json"
   ],

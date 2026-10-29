@@ -14,7 +14,6 @@
     "scripts/check-doc-contract.py",
     "scripts/check-law-coverage.py",
     "scripts/check-reachability.py",
-    "scripts/generate-agent-lanes.py",
     "scripts/knowledge_index.py",
     ".concord/docs/reachability-exceptions.v1.json"
   ],

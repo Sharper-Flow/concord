@@ -173,18 +173,24 @@ func TestWorkRemovalCancellationKeepsReasonDistinct(t *testing.T) {
 	}
 }
 
-func TestWorkLivenessKeepsUnverifiedWorkersUnknown(t *testing.T) {
-	liveness := workLivenessFromCounts("work", 2, 1, 1, 1, 1, 2, sql.NullString{String: "progress", Valid: true})
-	if liveness.State != "unknown" {
-		t.Fatalf("state = %q, want unknown", liveness.State)
-	}
-	if liveness.Attempts != 2 || liveness.OpenWaits != 1 || liveness.LastProgress != "progress" {
-		t.Fatalf("liveness = %+v", liveness)
-	}
-	joined := strings.Join(liveness.Evidence, " ")
-	for _, want := range []string{"unknown host state", "no declared bound", "operator decision"} {
-		if !strings.Contains(joined, want) {
-			t.Fatalf("evidence %q does not contain %q", joined, want)
+func TestWorkLivenessKeepsWaitAndDecisionEvidence(t *testing.T) {
+	for _, bounded := range []int64{0, 1} {
+		liveness := workLivenessFromCounts("work", bounded, 1, 2, sql.NullString{String: "progress", Valid: true})
+		wantState := "unknown"
+		if bounded > 0 {
+			wantState = "waiting"
+		}
+		if liveness.State != wantState || liveness.OpenWaits != int(bounded) || liveness.LastProgress != "progress" {
+			t.Fatalf("liveness = %+v, want state=%s bounded=%d and last progress", liveness, wantState, bounded)
+		}
+		joined := strings.Join(liveness.Evidence, " ")
+		for _, want := range []string{"no declared bound", "operator decision"} {
+			if !strings.Contains(joined, want) {
+				t.Fatalf("evidence %q does not contain %q", joined, want)
+			}
+		}
+		if bounded > 0 && !strings.Contains(joined, "bounded external wait") {
+			t.Fatalf("evidence %q omits the bounded wait", joined)
 		}
 	}
 }

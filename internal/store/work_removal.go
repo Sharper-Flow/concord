@@ -501,7 +501,6 @@ func validateRemovalGatesQ(ctx context.Context, q queryer, req WorkRemovalReques
 		{`SELECT count(*) FROM relations WHERE work_id_from=? OR work_id_to=?`, "work has unresolved relation dependencies"},
 		{`SELECT count(*) FROM workflow_impact_edges WHERE work_id=? OR target_work_id=?`, "work has unresolved workflow impact dependencies"},
 		{`SELECT count(*) FROM workflow_external_conditions WHERE work_id=? AND condition_state='open'`, "work has an unresolved external wait"},
-		{`SELECT count(*) FROM worker_attempts WHERE work_id=? AND lifecycle_state IN ('in_flight','dispatched')`, "work has a live or unknown worker attempt"},
 		{`SELECT count(*) FROM resource_claims WHERE holder_work_id=? AND state='held'`, "work has an active resource claim"},
 		{`SELECT count(*) FROM work_messages WHERE (sender_work_id=? OR recipient_work_id=?) AND state='sent'`, "work has an undelivered message"},
 		{`SELECT count(*) FROM worktree_claims WHERE work_id=? AND state IN ('pending','verified')`, "work has an active worktree claim"},
@@ -607,12 +606,12 @@ func deleteWorkOwnedProjections(ctx context.Context, tx *sql.Tx, workID string) 
 	if _, err := tx.ExecContext(ctx, `DELETE FROM workflow_backlog_alignment WHERE work_id=? OR related_work_id=?`, workID, workID); err != nil {
 		return projectionDeleteFailure("workflow_backlog_alignment", err)
 	}
-	for _, table := range []string{"workflow_law_baselines", "workflow_group_members", "workflow_member_groups"} {
+	for _, table := range []string{"workflow_law_baselines"} {
 		if _, err := tx.ExecContext(ctx, `DELETE FROM `+table+` WHERE work_id=?`, workID); err != nil { //nolint:gosec // closed source-owned table list.
 			return projectionDeleteFailure(table, err)
 		}
 	}
-	tables := []string{"workflow_impact_notices", "workflow_candidate_sets", "workflow_contract_predicates", "workflow_contract_law_revisions", "workflow_contract_law_modifications", "workflow_contract_verification_obligations", "workflow_contract_law_additions", "workflow_contract_domain_relation_modifications", "workflow_contract_domain_modifications", "workflow_contract_affected_domains", "workflow_law_addition_reservations", "workflow_architecture_bindings", "workflow_premise_confirmations", "workflow_context_boundaries", "workflow_context_checkpoints", "workflow_impact_edges", "workflow_external_conditions", "workflow_checkpoints", "workflow_decision_records", "workflow_native_runs", "workflow_contracts", "workflow_design_records", "workflow_proposal_records", "workflow_instances", "resource_claims", "work_messages", "work_observations", "work_conflict_applications", "work_size_overrides", "work_size_assessments", "external_observations", "worker_attempts", "relations", "work_projects", "linear_issue_links"}
+	tables := []string{"workflow_impact_notices", "workflow_candidate_sets", "workflow_contract_predicates", "workflow_contract_law_revisions", "workflow_contract_law_modifications", "workflow_contract_verification_obligations", "workflow_contract_law_additions", "workflow_contract_domain_relation_modifications", "workflow_contract_domain_modifications", "workflow_contract_affected_domains", "workflow_law_addition_reservations", "workflow_architecture_bindings", "workflow_premise_confirmations", "workflow_context_boundaries", "workflow_context_checkpoints", "workflow_impact_edges", "workflow_external_conditions", "workflow_checkpoints", "workflow_decision_records", "workflow_native_runs", "workflow_contracts", "workflow_design_records", "workflow_proposal_records", "workflow_instances", "resource_claims", "work_messages", "work_observations", "work_conflict_applications", "work_size_overrides", "work_size_assessments", "external_observations", "relations", "work_projects", "linear_issue_links"}
 	for _, table := range tables {
 		if err := deleteWorkProjectionTx(ctx, tx, table, workID); err != nil {
 			return err
@@ -750,22 +749,12 @@ type WorkLiveness struct {
 	WorkID       string   `json:"work_id"`
 	State        string   `json:"state"`
 	Evidence     []string `json:"evidence"`
-	Attempts     int      `json:"attempts"`
 	OpenWaits    int      `json:"open_waits"`
 	LastProgress string   `json:"last_progress,omitempty"`
 }
 
 func deriveWorkLivenessQ(ctx context.Context, q queryer, workID string) (WorkLiveness, error) {
-	var attempts, openWaits, unboundedWaits, openAttempts, failed, decisions int64
-	if err := q.QueryRowContext(ctx, `SELECT count(*) FROM worker_attempts WHERE work_id=?`, workID).Scan(&attempts); err != nil {
-		return WorkLiveness{}, wrapFailure(KindUnavailable, "work_liveness", "cannot read worker attempts", true, "retry once the worker projection is readable", err)
-	}
-	if err := q.QueryRowContext(ctx, `SELECT count(*) FROM worker_attempts WHERE work_id=? AND lifecycle_state IN ('in_flight','dispatched')`, workID).Scan(&openAttempts); err != nil {
-		return WorkLiveness{}, err
-	}
-	if err := q.QueryRowContext(ctx, `SELECT count(*) FROM worker_attempts WHERE work_id=? AND lifecycle_state='failed'`, workID).Scan(&failed); err != nil {
-		return WorkLiveness{}, err
-	}
+	var openWaits, unboundedWaits, decisions int64
 	if err := q.QueryRowContext(ctx, `SELECT count(*) FROM workflow_external_conditions WHERE work_id=? AND condition_state='open' AND expected_within_seconds IS NOT NULL`, workID).Scan(&openWaits); err != nil {
 		return WorkLiveness{}, err
 	}
@@ -779,27 +768,21 @@ func deriveWorkLivenessQ(ctx context.Context, q queryer, workID string) (WorkLiv
 	if err := q.QueryRowContext(ctx, `SELECT max(NULLIF(last_progress_at,'')) FROM work_items WHERE id=?`, workID).Scan(&latest); err != nil {
 		return WorkLiveness{}, err
 	}
-	return workLivenessFromCounts(workID, attempts, openAttempts, failed, openWaits, unboundedWaits, decisions, latest), nil
+	return workLivenessFromCounts(workID, openWaits, unboundedWaits, decisions, latest), nil
 }
 
-func workLivenessFromCounts(workID string, attempts, openAttempts, failed, openWaits, unboundedWaits, decisions int64, latest sql.NullString) WorkLiveness {
-	out := WorkLiveness{WorkID: workID, Attempts: int(attempts), OpenWaits: int(openWaits)}
+func workLivenessFromCounts(workID string, openWaits, unboundedWaits, decisions int64, latest sql.NullString) WorkLiveness {
+	out := WorkLiveness{WorkID: workID, OpenWaits: int(openWaits)}
 	if latest.Valid {
 		out.LastProgress = latest.String
 	}
 	switch {
-	case openAttempts > 0:
-		out.State = "unknown"
-		out.Evidence = []string{fmt.Sprintf("%d open worker attempt(s) have unknown host state", openAttempts)}
 	case openWaits > 0:
 		out.State = "waiting"
 		out.Evidence = []string{fmt.Sprintf("%d bounded external wait(s)", openWaits)}
 	case unboundedWaits > 0:
 		out.State = "unknown"
 		out.Evidence = []string{fmt.Sprintf("%d external wait(s) have no declared bound", unboundedWaits)}
-	case failed > 0:
-		out.State = "needs_attention"
-		out.Evidence = []string{fmt.Sprintf("%d failed worker attempt(s)", failed)}
 	default:
 		out.State = "unknown"
 		out.Evidence = []string{"host liveness has no verified active or waiting evidence"}

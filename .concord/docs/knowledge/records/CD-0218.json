@@ -9,7 +9,6 @@
     "internal/store/workflow_registry_test.go",
     "internal/store/workflow_diagnosis_derived_start_test.go",
     "internal/store/workflow_stale_registry_repin_test.go",
-    "internal/store/workflow_worker_failure_retry_test.go",
     "internal/store/terminal_absence_test.go"
   ],
   "home_domain_id": "workflow-engine",

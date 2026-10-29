@@ -154,8 +154,6 @@ func terminalCleanupBlockersQ(ctx context.Context, q queryer, workID string) err
 		{KindOperationConflict, `SELECT EXISTS(SELECT 1 FROM bootstrap_operations WHERE work_id=?1 AND state NOT IN ('completed','rolled_back'))`, "bootstrap effect has not settled"},
 		{KindOperationConflict, `SELECT EXISTS(SELECT 1 FROM durable_operations WHERE work_id=?1 AND (result_kind IS NULL OR result_kind IN ('pending','partial')))`, "durable effect has not reconciled"},
 		{KindOperationConflict, `SELECT EXISTS(SELECT 1 FROM work_removal_operations WHERE work_id=?1)`, "removal operation retains its separate identity fence"},
-		{KindOperationConflict, `SELECT EXISTS(SELECT 1 FROM worker_authorizations a WHERE a.work_id=?1 AND NOT EXISTS(SELECT 1 FROM worker_attempts t WHERE t.work_id=a.work_id AND t.attempt_id=a.attempt_id)) OR EXISTS(SELECT 1 FROM worker_attempts WHERE work_id=?1 AND lifecycle_state IN ('in_flight','dispatched'))`, "worker launch or execution is unknown or in flight"},
-		{KindOperationConflict, `SELECT EXISTS(SELECT 1 FROM worker_attempts a WHERE a.work_id=?1 AND a.lifecycle_state IN ('completed','failed') AND NOT EXISTS(SELECT 1 FROM worker_attempt_dispositions d WHERE d.work_id=a.work_id AND d.attempt_id=a.attempt_id))`, "terminal worker result or failure has not been reconciled"},
 		{KindOperationConflict, `SELECT EXISTS(SELECT 1 FROM workflow_action_obligations WHERE work_id=?1)`, "workflow action retains an unfinished obligation"},
 		{KindOperationConflict, `SELECT EXISTS(SELECT 1 FROM work_messages WHERE (sender_work_id=?1 OR recipient_work_id=?1) AND state='sent')`, "coordination message is still outstanding"},
 		{KindMissingEvidence, `SELECT EXISTS(SELECT 1 FROM workflow_external_conditions WHERE work_id=?1 AND condition_state='open')`, "external condition is unresolved"},
@@ -177,12 +175,12 @@ func terminalCleanupBlockersQ(ctx context.Context, q queryer, workID string) err
 			return newFailure(check.kind, "terminal_cleanup", check.detail, false, "release or reconcile the named consumer before retrying cleanup")
 		}
 	}
-	lineage, err := readWorkerOracleFindingLineageTx(ctx, q, workID)
+	state, err := readWorkflowReviewFacts(ctx, q, workID)
 	if err != nil {
 		return err
 	}
-	for _, finding := range lineage.findings {
-		if !finding.Closed && finding.blocks() {
+	for _, finding := range state.Findings {
+		if finding.Status == "open" && finding.InScope && finding.Blocking {
 			return newFailure(KindMissingEvidence, "terminal_cleanup", "execution retains an unresolved oracle finding", false, "resolve the finding before cleanup")
 		}
 	}
@@ -205,8 +203,6 @@ func deleteTerminalExecutionTx(ctx context.Context, tx *sql.Tx, workID string) e
 		`DELETE FROM work_messages WHERE sender_work_id=?1 OR recipient_work_id=?1`,
 		`DELETE FROM resource_claims WHERE holder_work_id=?1`,
 		`DELETE FROM workflow_law_baselines WHERE work_id=?1`,
-		`DELETE FROM workflow_group_members WHERE work_id=?1`,
-		`DELETE FROM workflow_member_groups WHERE work_id=?1`,
 		`DELETE FROM workflow_contract_predicates WHERE work_id=?1`,
 		`DELETE FROM workflow_contract_law_revisions WHERE work_id=?1`,
 		`DELETE FROM workflow_candidate_sets WHERE work_id=?1 OR (candidate_kind='work_item' AND candidate_ref=?1)`,
@@ -231,9 +227,6 @@ func deleteTerminalExecutionTx(ctx context.Context, tx *sql.Tx, workID string) e
 		`DELETE FROM workflow_instances WHERE work_id=?1 AND NOT EXISTS(SELECT 1 FROM work_items w WHERE w.id=?1 AND ` + retainedDefectClassificationSQL + `)`,
 		// A retained classification keeps work_items, so its cascade-owned
 		// execution children are deleted explicitly.
-		`DELETE FROM worker_attempt_dispositions WHERE work_id=?1`,
-		`DELETE FROM worker_authorizations WHERE work_id=?1`,
-		`DELETE FROM worker_oracle_finding_facts WHERE work_id=?1`,
 		`DELETE FROM workflow_evidence_bindings WHERE work_id=?1`,
 		`DELETE FROM workflow_step_completions WHERE work_id=?1`,
 		`DELETE FROM workflow_phase_exits WHERE work_id=?1`,
@@ -251,8 +244,6 @@ func deleteTerminalExecutionTx(ctx context.Context, tx *sql.Tx, workID string) e
 		`DELETE FROM work_size_proof_facts WHERE work_id=?1`,
 		`DELETE FROM work_observations WHERE work_id=?1`,
 		`DELETE FROM work_size_assessments WHERE work_id=?1`,
-		`DELETE FROM worker_attempts WHERE work_id=?1`,
-		`DELETE FROM worker_job_revisions WHERE work_id=?1`,
 		`DELETE FROM project_handoffs WHERE work_id=?1`,
 		`DELETE FROM outside_repair_reconciliations WHERE work_id=?1`,
 		`DELETE FROM outside_repair_dispositions WHERE work_id=?1`,

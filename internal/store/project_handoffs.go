@@ -1091,23 +1091,8 @@ func readSessionClaimedWorktreeTx(ctx context.Context, q queryer, workID, projec
 	return readErr
 }
 
-// sessionOwnedExecutionStoppedTx derives whether the session's own open,
-// in-flight, or refused execution stopped. A nonterminal attempt is one the
-// dispatch authorization bound in flight (lifecycle_state 'in_flight') or
-// whose worker evidence recorded (lifecycle_state 'dispatched'); 'completed'
-// and 'failed' are terminal. Ownership is derived from the dispatch
-// authorization chain, never from name equality: the dispatch_worker
-// completion binds the attempt to the authorizing workflow actor, and the
-// workflow_actors record binds that actor to its authenticated session. The
-// worker.dispatched event's Actor column carries the authenticated
-// principal/client actor the evidence boundary stamps, and workflow actor
-// refs are hashes, so neither is ever compared with the session reference.
-// An attempt with no dispatch authorization, an authorization that names no
-// actor, or an actor with no recorded session blocks readiness as unknown
-// attribution, and a positively identified attempt of ANOTHER session never
-// blocks this session's readiness. Nonterminal workflow actions the
-// session's actors started (a started action with no later completed or
-// failed event for the same step and attempt epoch) also block.
+// sessionOwnedExecutionStoppedTx checks the session's nonterminal workflow
+// actions through their authenticated actors, never by actor-name equality.
 func sessionOwnedExecutionStoppedTx(ctx context.Context, q queryer, workID, sessionRef string) (bool, error) {
 	return workExecutionStoppedTx(ctx, q, workID, sessionRef)
 }
@@ -1115,61 +1100,13 @@ func sessionOwnedExecutionStoppedTx(ctx context.Context, q queryer, workID, sess
 // An empty session selects all execution on the work. Session retirement uses
 // the same derivation with its ownership filter; outside repair holds all of it.
 func workExecutionStoppedTx(ctx context.Context, q queryer, workID, sessionRef string) (bool, error) {
-	rows, err := q.QueryContext(ctx, `SELECT attempt_id FROM worker_attempts WHERE work_id=? AND lifecycle_state IN ('in_flight','dispatched')`, workID)
-	if err != nil {
-		return false, wrapFailure(KindUnavailable, "project_retirement", "cannot read the work's open worker attempts", true, "retry once the database is readable", err)
-	}
-	attempts := []string{}
-	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
-			rows.Close()
-			return false, wrapFailure(KindUnavailable, "project_retirement", "cannot decode the open worker attempts", true, "retry once the database is readable", err)
-		}
-		attempts = append(attempts, id)
-	}
-	if err := rows.Err(); err != nil {
-		rows.Close()
-		return false, wrapFailure(KindUnavailable, "project_retirement", "cannot finish the open worker attempts read", true, "retry once the database is readable", err)
-	}
-	rows.Close()
-	if sessionRef == "" && len(attempts) != 0 {
-		return false, nil
-	}
-	for _, attemptID := range attempts {
-		// The dispatch authorization WorkerAttemptID/ActorRef pair is the
-		// only core ownership evidence: read the authorizing actor from the
-		// dispatch_worker completion, then resolve its authenticated session
-		// through workflow_actors.
-		actorRef, scanErr := workerAuthorizationActorTx(ctx, q, workID, attemptID)
-		if scanErr == sql.ErrNoRows {
-			return false, nil
-		}
-		if scanErr != nil {
-			return false, wrapFailure(KindUnavailable, "project_retirement", "cannot read the attempt's dispatch attribution", true, "retry once the database is readable", scanErr)
-		}
-		if actorRef == "" {
-			return false, nil
-		}
-		var ownerSession string
-		actorErr := q.QueryRowContext(ctx, `SELECT session_ref FROM workflow_actors WHERE actor_ref=?`, actorRef).Scan(&ownerSession)
-		if actorErr == sql.ErrNoRows {
-			return false, nil
-		}
-		if actorErr != nil {
-			return false, wrapFailure(KindUnavailable, "project_retirement", "cannot resolve the dispatch actor's authenticated session", true, "retry once the database is readable", actorErr)
-		}
-		if ownerSession == sessionRef {
-			return false, nil
-		}
-	}
 	// The session's own nonterminal workflow actions. The started action's
 	// actor_ref is a workflow actor hash, so the session binds through the
 	// workflow_actors record, and a started action whose step and attempt
 	// epoch has no later completed or failed event is still open, whoever
 	// else acted on the work since.
 	var open int
-	err = q.QueryRowContext(ctx, `SELECT count(*) FROM workflow_action_obligations f
+	err := q.QueryRowContext(ctx, `SELECT count(*) FROM workflow_action_obligations f
 		LEFT JOIN workflow_actors a ON a.actor_ref=f.actor_ref
 		WHERE f.state='started' AND f.work_id=? AND (?='' OR a.session_ref=?)`, workID, sessionRef, sessionRef).Scan(&open)
 	if err != nil {

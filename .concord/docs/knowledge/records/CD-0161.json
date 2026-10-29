@@ -9,8 +9,7 @@
   "evidence": [
     "cmd/concord/ci_wait.go",
     "internal/ciwait/ci_wait.go",
-    "internal/ciwait/ci_wait_test.go",
-    "contracts/agent-lanes.v1.json"
+    "internal/ciwait/ci_wait_test.go"
   ],
   "home_domain_id": "agent-adapter",
   "id": "CD-0161",

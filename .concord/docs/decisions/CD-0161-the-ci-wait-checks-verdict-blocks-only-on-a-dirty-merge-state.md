@@ -109,7 +109,7 @@ through the verb. CD-0160 D6 forbids caller-side polling methods.
   merged and closed pull requests in checks mode still report the watched
   head's passing, failing, pending, and empty check populations, without
   treating the pull request's terminal state as CI proof.
-- `python3 scripts/generate-agent-lanes.py --check` proves every generated
+- `python3 scripts/generate-agent-profiles.py --check` proves every generated
   projection matches the manifest and templates.
 - `go test ./internal/ciwait/ ./cmd/concord/` proves the verb inside its engine
   and command package suites, including `TestCiWaitIngress`.

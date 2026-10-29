@@ -248,9 +248,6 @@ func validateOutsideRepairFold(ctx context.Context, tx *sql.Tx, event Event, p w
 		if actorClass != string(ActorAgent) {
 			return workProjection{}, newFailure(KindUnauthorized, "outside_repair", "ordinary outside repair requires a recorded agent", false, "use the authenticated outside-repair boundary")
 		}
-		if err := workflowRequireMain(ctx, tx, event.SubjectID, event.Actor); err != nil {
-			return workProjection{}, err
-		}
 	}
 	work, err := readWork(ctx, tx, event.SubjectID)
 	if err != nil {

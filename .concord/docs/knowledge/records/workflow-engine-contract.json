@@ -42,7 +42,7 @@
   },
   "sha256": "sha256:a909fdf98c705d20e7de1341815666ee978fbea29cf638a04e1455414a65396d",
   "status": "accepted",
-  "summary": "Defines workflow authority, dispatch, evaluation, and atomic completion over current-state rows with no event log, fold, replay, or rebuild (CD-0242 D2). Each launch carries its own authority with no attempt count or escalation wall (CD-0242 D6), and generated definitions derive from one source (CD-0242 D14). Worker.completed v6 carries reported receipts and canonical ranked-finding resolution, while worker.failed remains v2. Oracle evidence does not supply predicate evaluation or new authority; review verdicts and operator confirmation keep their owners.",
+  "summary": "Defines current-state workflow authority, evaluation and atomic completion. The coordinator records typed subject-bound Review without attempt/lane/job binding. Native preparation retains its declared bundle, exact subject, pinned recipe and environment; execution selects exact preparation_run_ref and retains runner, isolation, integrity and producer receipt checks. Criterion coverage resolves through that retained preparation, not worker jobs. Native evidence supplies no semantic verdict, consent or completion authority by itself.",
   "tags": [
     "workflow",
     "contract"

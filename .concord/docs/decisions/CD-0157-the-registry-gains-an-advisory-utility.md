@@ -6,14 +6,13 @@
   allowance; the installer agent file list; [Concord (CON) issue
   315](https://linear.app/sharper-flow/issue/CON-315/add-a-concord-advisor-utility-for-coordinator-second-opinions)
 - **Approval:** The operator approved this bounded registry change.
-- **Related:** CD-0149, CD-0102, CD-0054, CD-0017, and CD-0081
-- **Preserves:** The worker authority boundary; the utility distinction from
-  lane evidence; fail-closed tool and command permissions
+- **Related:** CD-0149, CD-0058, CD-0242
+- **Preserves:** The utility distinction from workflow proof and fail-closed
+  host tool and command permissions
 
 ## Context
 
-A coordinator reaches decisions alone. The registry holds five worker lanes and
-three utilities. Research, exploration, and lookup return findings. Review
+A coordinator needs a second opinion. Exploration and lookup return findings. Review
 judges a change that already exists. No surface returns a reasoned opinion on a
 decision the coordinator has not yet made.
 
@@ -28,7 +27,7 @@ reliably.
 One further result bears on routing. Verification by the same model family
 yields less than verification across families, and the bias resists detection.
 Concord cannot act on that result. The host picks the serving model after the
-adapter has admitted the call, and CD-0054 D3 keeps the registry model-neutral.
+native host has admitted the call; CD-0058 keeps model selection host-owned.
 
 ## Decision
 
@@ -104,8 +103,8 @@ under a rollover. Disclosure accuracy under rollover is unverified.
 ### D5. Advisory output is not evidence
 
 CD-0149 D4 applies without change. The adviser returns text to its parent. It
-records no workflow state, starts no nested worker, and discharges no lane
-report. It gates nothing. A coordinator that accepts an adviser's objection
+records no workflow state, starts no nested Task, and supplies no Review or
+Verify proof. It gates nothing. A coordinator that accepts an adviser's objection
 carries that objection into the work record itself.
 
 ## Consequences
@@ -113,8 +112,6 @@ carries that objection into the work record itself.
 - The manifest digest moves, and all generated projections regenerate.
 - The installer ships `concord-advisor.md` with the existing definitions.
 - The adapter receives a typed utility entry without a new dispatch path.
-- A lane cannot consult the adviser. The adapter refuses a utility called from a
-  session with a managed parent.
 - The value of a consult depends on host routing this registry cannot verify.
   An operator who points the adviser at the caller's own model family gets a
   weaker result, and D4 makes that case auditable after the fact, not detected
@@ -122,10 +119,6 @@ carries that objection into the work record itself.
 
 ## Verification
 
-- `python3 scripts/generate-agent-lanes.py --check` proves every generated
-  projection matches the manifest and templates.
 - `python3 scripts/check-agent-contracts.py` validates the closed registry and
   the adapter projection.
 - The generator tests prove the advisory tool projection and body template.
-- The adapter session-scope tests prove that a session with a managed parent
-  cannot call the adviser.

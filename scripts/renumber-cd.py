@@ -64,7 +64,7 @@ GENERATORS: tuple[tuple[str, ...], ...] = (
     ("scripts/generate-knowledge-index.py", "--update"),
     ("scripts/generate-law-coverage.py", "--update"),
     ("scripts/generate-agent-contracts.py",),
-    ("scripts/generate-agent-lanes.py",),
+    ("scripts/generate-agent-profiles.py",),
 )
 
 # Outputs the generators own. This tool never edits them, and it fails when a

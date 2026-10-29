@@ -19,7 +19,7 @@ func loadedAdmissionForTest(t *testing.T, s *Store, workID string, pin WorkPin) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	state, _, _, err := loadWorkflowAdmissionStateTxForRegistry(ctx, tx, workID, entry.Definition, pin.Step, "admission_test", BuiltinWorkflowRegistry())
+	state, _, err := loadWorkflowAdmissionStateTxForRegistry(ctx, tx, workID, entry.Definition, pin.Step, "admission_test", BuiltinWorkflowRegistry())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -43,7 +43,7 @@ func TestDeliveryPrerequisiteAdmissionAgreement(t *testing.T) {
 				c = acceptDeliveryCandidateAt(t, workID, "workflow.implementation", step, false)
 			}
 			if stage == "before-start" {
-				parkWorkflowInstanceAt(t, c.f.store, workID, "refine")
+				setWorkflowStepForOperatorVerdictTest(t, c.f.store, workID, "refine")
 			}
 			if stage != "missing-epoch-proof" {
 				acceptDeliveryBindFresh(t, c, "agreement")
@@ -53,10 +53,9 @@ func TestDeliveryPrerequisiteAdmissionAgreement(t *testing.T) {
 			definition, state := loadedAdmissionForTest(t, fixture.store, workID, pin)
 			model := admissionModelState{
 				step: pin.Step, contracts: 1,
-				review: admissionModelReview{accepted: "ready_for_final_proof", candidate: true, current: true},
-				jobs:   "satisfied", jobsScope: "project", integration: stage != "missing-epoch-proof",
-				dispatched: stage != "before-start", engineering: true,
-				started: stage != "before-start", proof: stage == "green-proof",
+				review:      admissionModelReview{accepted: "ready_for_final_proof", candidate: true, current: true},
+				engineering: true,
+				started:     stage != "before-start", proof: stage == "green-proof",
 			}
 			want := admissionConformanceViewOf(admissionWorkflowState(definition, model))
 			// The unproved corrective candidate also invalidates the old
@@ -173,7 +172,7 @@ func TestDeliveryGuardKeepsProofEvidenceOutsideAbstractState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	state, runs, integrationRuns, err := loadWorkflowAdmissionStateTxForRegistry(ctx, tx, workID, entry.Definition, "refine", "workflow_action", BuiltinWorkflowRegistry())
+	state, runs, err := loadWorkflowAdmissionStateTxForRegistry(ctx, tx, workID, entry.Definition, "refine", "workflow_action", BuiltinWorkflowRegistry())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -188,7 +187,7 @@ func TestDeliveryGuardKeepsProofEvidenceOutsideAbstractState(t *testing.T) {
 			request: WorkflowActionExecutionRequest{WorkID: workID, ActionID: "record_delivery"},
 		}
 		if cached {
-			g.admissionState, g.admissionDecision, g.deliveryProofRuns, g.deliveryIntegrationRuns = &state, &decision, runs, integrationRuns
+			g.admissionState, g.admissionDecision, g.deliveryProofRuns = &state, &decision, runs
 		}
 		g.request.ProjectTooling = refineProofTooling(ProjectDeclaredTool{ID: "head", Invocation: "git rev-parse --verify HEAD^{commit}"})
 		if err := guardDeliveryAdmission(&g); err != nil {

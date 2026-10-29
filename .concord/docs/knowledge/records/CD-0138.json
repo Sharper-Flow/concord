@@ -21,10 +21,6 @@
     {
       "kind": "refines",
       "target_id": "CD-0013"
-    },
-    {
-      "kind": "refines",
-      "target_id": "CD-0059"
     }
   ],
   "path": ".concord/docs/decisions/CD-0138-mandatory-refinement-pass.md",

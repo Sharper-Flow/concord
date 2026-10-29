@@ -47,7 +47,7 @@ The adapter does not wait for a turn boundary before the move, and does not
 poll for one. The route exposes no boundary to wait on, so any wait Concord
 added would be a mechanism it invented and then described as the host's.
 
-After an accepted move, a refusal whose executing tool context has not landed may schedule one host-owned continuation of the original work-start request in the same session after its current run ends. The continuation uses the native host prompt route and needs no operator message. It neither reports work-start success nor proves placement. The ordinary placement check must verify the new tool context before success or worker dispatch. It adds no relaunch, polling for placement, alternative executor, or automatic retry cycle.
+After an accepted move, a refusal whose executing tool context has not landed may schedule one host-owned continuation of the original work-start request in the same session after its current run ends. The continuation uses the native host prompt route and needs no operator message. It neither reports work-start success nor proves placement. The ordinary placement check must verify the new tool context before success. It adds no relaunch, polling for placement, alternative executor or automatic retry cycle.
 
 ## Consequences
 

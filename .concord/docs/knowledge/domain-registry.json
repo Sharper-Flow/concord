@@ -60,7 +60,7 @@
       "domain_id": "agent-surface",
       "name": "Agent surface",
       "parent_domain_id": "product-root:concord",
-      "purpose": "Owns the composition and concordance of the agent contract, call authority, adapter, worker-lane, and evolution boundaries. It keeps cross-surface architecture together without owning its children's behavior.",
+      "purpose": "Owns the composition and concordance of the agent contract, call authority, adapter and evolution boundaries. It keeps cross-surface architecture together without owning its children's behavior.",
       "status": "current"
     },
     {
@@ -128,30 +128,6 @@
       "name": "Agent adapter",
       "parent_domain_id": "agent-surface",
       "purpose": "Owns OpenCode registration, host context and session placement, the permission bridge, CLI transport, and host-owned wait delivery. It carries the canonical surface without acquiring core call or workflow authority.",
-      "status": "current"
-    },
-    {
-      "architecture_relations": [
-        {
-          "governing_law_ids": ["TS7", "CD-0080"],
-          "kind": "depends_on",
-          "target_domain_id": "agent-call-boundary"
-        },
-        {
-          "governing_law_ids": ["TS4", "CD-0117"],
-          "kind": "depends_on",
-          "target_domain_id": "agent-contract"
-        },
-        {
-          "governing_law_ids": ["CD-0013", "CD-0117"],
-          "kind": "depends_on",
-          "target_domain_id": "workflow-engine"
-        }
-      ],
-      "domain_id": "worker-lanes",
-      "name": "Worker lanes",
-      "parent_domain_id": "agent-surface",
-      "purpose": "Owns typed lane contracts, dispatch identity, worker evidence and visibility, portable lane methods, and the boundary around host-owned worker execution. It does not own workflow state or host-specific procedure.",
       "status": "current"
     },
     {

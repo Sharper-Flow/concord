@@ -85,15 +85,6 @@ type lifecycleMutationInput struct {
 	Approval        *approvalInput              `json:"approval"`
 }
 
-type workerAbandonInput struct {
-	WorkID         string         `json:"work_id"`
-	AttemptID      string         `json:"attempt_id"`
-	LaneID         string         `json:"lane_id"`
-	Detail         string         `json:"detail"`
-	IdempotencyKey string         `json:"idempotency_key"`
-	Approval       *approvalInput `json:"approval"`
-}
-
 type workRemovalMutationInput struct {
 	OperationID           string                           `json:"operation_id"`
 	IdempotencyKey        string                           `json:"idempotency_key"`
@@ -1015,7 +1006,7 @@ func workflowApprovalBoundaryChanged(before, after store.WorkflowApprovalBoundar
 	if before.Definition.Digest != after.Definition.Digest || before.Definition.Definition.Ref != after.Definition.Definition.Ref {
 		return true
 	}
-	if before.WorkVersion != after.WorkVersion || before.ContractVersion != after.ContractVersion || before.DecisionDomainsPresent != after.DecisionDomainsPresent || before.EvaluatorAuthority != after.EvaluatorAuthority || before.Policy != after.Policy {
+	if before.WorkVersion != after.WorkVersion || before.ContractVersion != after.ContractVersion || before.DecisionDomainsPresent != after.DecisionDomainsPresent || before.Policy != after.Policy {
 		return true
 	}
 	if !slices.Equal(before.ActiveContractVersions, after.ActiveContractVersions) || !slices.Equal(before.DecisionDomains, after.DecisionDomains) {
@@ -1165,14 +1156,7 @@ func (r runtime) mutateWorkflowAction(ctx context.Context, base agentcontract.En
 	// The classified consent is the one approval answer: legacy metadata
 	// and operator upgrades survive only inside the legacy
 	// classification, and a takeover stays a separate mandatory approval.
-	// Approval admission keeps the store's execution-history refusal,
-	// including execution before lease rotation.
 	operatorVerdict := in.ActionID == "record_verdict" || in.ActionID == "complete" || in.ActionID == "request_correction"
-	if operatorVerdict || in.ActionID == "confirm_premise" {
-		if boundary.EvaluatorAuthority == store.WorkflowWorkerEvaluator {
-			return coreError(base, "unauthorized", "worker actors cannot submit operator decisions or complete work", "contact_operator", false), nil
-		}
-	}
 	if replay, handled, replayErr := r.replayMutationBeforeScope(ctx, base, raw, grant, op); replayErr != nil || handled {
 		if replayErr != nil {
 			return failureEnvelope(base, replayErr), nil
@@ -1253,7 +1237,7 @@ func (m *workflowActionMutation) execute(ctx context.Context, action store.Workf
 	// bind_evidence on a size-capable pin that holds a split
 	// resolves the same manifest, so the automatic integration discharge
 	// keeps only runs of declared tools.
-	if in.ActionID == "record_delivery" || in.ActionID == "accept_worker_result" || in.ActionID == "bind_evidence" {
+	if in.ActionID == "record_delivery" || in.ActionID == "bind_evidence" {
 		tooling, toolingErr := r.refineProofToolingForAction(ctx, in.WorkID, in.ActionID)
 		if toolingErr != nil {
 			return failureEnvelope(base, toolingErr), nil
@@ -1269,7 +1253,7 @@ func (m *workflowActionMutation) execute(ctx context.Context, action store.Workf
 		return *proofEnvelope, nil
 	}
 	ctx = verifiedCtx
-	ctx, err = r.prepareWorkerDispatchContext(ctx, in.WorkID, in.ActionID, payload)
+	ctx, err = r.prepareWorkflowSubjectContext(ctx, in.WorkID, in.ActionID)
 	if err != nil {
 		return failureEnvelope(base, err), nil
 	}
@@ -1400,38 +1384,21 @@ func (m *workflowActionMutation) applyTx(ctx context.Context, tx *store.Transact
 	return store.CompleteMutationResponseTx(ctx, tx, store.MutationIdempotencyInsert{Key: store.MutationIdempotencyKey{PrincipalRef: grant.PrincipalRef, Tool: r.Tool, OperationKind: "workflow_action", IdempotencyKey: in.IdempotencyKey}, CanonicalDigest: m.digest, OperationID: m.operationID, ResultPayload: string(resultPayload), ChangedRefs: string(changedJSON), AuthorizedScopeSnapshot: string(responseScope), ResultEventIDs: marshalEventIDs(execution.EventIDs), ObservedAt: r.Authority.now()})
 }
 
-// The dispatch admission is the one live subject-freshness owner, so an
-// ordinary dispatch and a combined rejection that carries a retry each
-// prepare their one sealed proof after replay, budget, and approval handling,
-// before the action transaction opens. Admission revalidates it with SQL only.
-func (r runtime) prepareWorkerDispatchContext(ctx context.Context, workID, actionID string, payload json.RawMessage) (context.Context, error) {
+// Observe Git after replay, budget, and approval handling, before the action
+// transaction opens. Admission revalidates the sealed identities with SQL only.
+func (r runtime) prepareWorkflowSubjectContext(ctx context.Context, workID, actionID string) (context.Context, error) {
 	if store.WorkflowActionRequiresSubjectFreshness(actionID) {
-		preparation, err := store.PrepareWorkflowAcceptanceFreshness(ctx, r.Store, store.PrepareWorkerDispatchRequest{WorkID: workID, SessionWorktree: r.Envelope.Worktree})
+		preparation, err := store.PrepareWorkflowAcceptanceFreshness(ctx, r.Store, store.PrepareWorkflowSubjectRequest{WorkID: workID})
 		if err != nil {
 			return ctx, err
 		}
-		return store.WithWorkerDispatchPreparation(ctx, preparation), nil
-	}
-	if actionID == "dispatch_worker" || (actionID == "reject_worker_result" && store.RejectRetryMemberPresent(payload)) {
-		request := store.PrepareWorkerDispatchRequest{WorkID: workID, SessionWorktree: r.Envelope.Worktree}
-		if actionID == "dispatch_worker" {
-			request.WorkerJob = store.WorkerJobBindingFromDispatchPayload(payload)
-			request.DispatchPayload = payload
-		} else {
-			request.WorkerAttemptID = store.WorkerAttemptIDFromRejectionPayload(payload)
-		}
-		preparation, err := store.PrepareWorkerDispatchFreshness(ctx, r.Store, request)
-		if err != nil {
-			return ctx, err
-		}
-		return store.WithWorkerDispatchPreparation(ctx, preparation), nil
+		return store.WithWorkflowSubjectPreparation(ctx, preparation), nil
 	}
 	return ctx, nil
 }
 
 // refineProofToolingForAction resolves the Project tooling manifest the
-// refine-exit proof consumes (CD-0192): record_delivery wherever the guard is
-// gated, and the CD-0198 D4 combined accept at its admitting refinement step.
+// refine-exit proof consumes: record_delivery wherever the guard is gated.
 // The resolution reads git outside the store transaction, so the caller runs
 // it before the action's transaction opens; nil reports that the Project
 // declares no manifest on its default ref.
@@ -1831,31 +1798,6 @@ func (r runtime) workProductForSize(ctx context.Context, workID string) (string,
 		}
 	}
 	return product, nil
-}
-
-// planWorkerAbandon records the adapter's durable idempotency receipt after the
-// host has appended the signed worker.failed event. The host owns session
-// observation and worker evidence, so this core operation records no event.
-func (r runtime) planWorkerAbandon(_ context.Context, base agentcontract.Envelope, raw []byte, _ string, _ Authority, _ agentcontract.ContractOperation, plan *mutationPlan) (agentcontract.Envelope, error, bool) {
-	var in workerAbandonInput
-	if err := decodeOperationInput(raw, &in); err != nil {
-		return base, err, true
-	}
-	if in.Approval != nil {
-		plan.approval = in.Approval.ApprovalRef
-	}
-	plan.scope["work_ids"] = []string{in.WorkID}
-	plan.effect = func(ctx context.Context, tx *store.Transaction, _ Authority) (json.RawMessage, []string, []agentcontract.ChangedRef, error) {
-		attempt, err := store.WorkerAttemptByIDTx(ctx, tx, in.AttemptID)
-		if err != nil {
-			return nil, nil, nil, err
-		}
-		if attempt.WorkID != in.WorkID || attempt.LaneID != in.LaneID || attempt.LifecycleState != "failed" || attempt.FailureKind != store.WorkerFailureAbandoned {
-			return nil, nil, nil, errors.New("worker abandonment receipt requires the matching abandoned worker attempt")
-		}
-		return mutationPayload(nil, plan.intents), nil, nil, nil
-	}
-	return agentcontract.Envelope{}, nil, false
 }
 
 // planLifecycle plans concord_work_transition.lifecycle.
@@ -4390,10 +4332,6 @@ func (r runtime) mutate(ctx context.Context, base agentcontract.Envelope, raw []
 		answer, err, handled = r.planReviseIntent(ctx, base, raw, digest, grant, op, plan)
 	case "concord_work_transition.lifecycle":
 		answer, err, handled = r.planLifecycle(ctx, base, raw, digest, grant, op, plan)
-	case "concord_work_transition.worker_abandon":
-		answer, err, handled = r.planWorkerAbandon(ctx, base, raw, digest, grant, op, plan)
-	case "concord_work_transition.worker_reconcile":
-		answer, err, handled = r.planWorkerReconcile(ctx, base, raw, plan)
 	case "concord_work_transition.remove":
 		answer, err, handled = r.planWorkRemoval(ctx, base, raw, digest, grant, op, plan)
 	case "concord_work_define.research_pack_create":
@@ -5389,9 +5327,6 @@ func (m *mutationExecution) executeTx(ctx context.Context, tx *store.Transaction
 	}
 	grant, err := r.Authority.AuthorizeTx(ctx, tx, m.host, inv)
 	if err != nil {
-		return err
-	}
-	if err := store.CheckMemberOperationTx(ctx, tx, memberWorkflowActor(grant), memberOperationScope(raw, r.Envelope, m.contractOp)); err != nil {
 		return err
 	}
 	crossProduct, err := r.deriveAuthorizedProductsTx(ctx, tx, scope, grant)

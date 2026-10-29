@@ -85,14 +85,6 @@ holds against prompt injection, tool-argument manipulation, and model error —
 the failure modes that occur in an envelope of many local agents. It does not
 hold against a shell, and it was never able to.
 
-### D2. CD-0044's process-level adversary is withdrawn
-
-CD-0044's decisions D1 through D6 constrain what a lane's model output can
-cause, with all their verification requirements binding. The proof never
-reaches the worker, so model output cannot capture the assertion that
-authorizes its own evidence. A same-UID process holding a shell is outside
-that boundary.
-
 ### D3. Absent tamper-evidence on the authority tables is accepted, not deferred
 
 The seven `agent_*` tables carry no trigger, hash chain, or attestation, and
@@ -112,8 +104,8 @@ work on it.
 produces; the `cross_scope` capability gate; manifest-digest pinning; typed
 `unauthorized` refusals; the operator approval checkpoint with core-derived
 consequence summaries (CD-0037 D5); and `principal_ref`, on which idempotency
-partitioning, worktree claim ownership, workflow actor authority checks (CD-0017
-D4, CD-0242 D5), and durable operation attribution all depend. These constrain model output
+partitioning, worktree claim ownership, workflow authority checks (CD-0242 D5),
+and durable operation attribution all depend. These constrain model output
 or carry checked identity. They stay.
 
 **Not load-bearing.** Ed25519 assertion signing, nonce replay protection, client

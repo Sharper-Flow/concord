@@ -7,9 +7,9 @@
   and the spent TS2322 allowance in `.concord/docs/adapter-host-pin.v1.json`; issue #560
 - **Approval:** Operator approved a decision record for this boundary rather
   than a bare defect fix. The implementation is accepted in PR #579.
-- **Related:** CD-0005, CD-0017 D2, TS6, TS7, issues #485 and #560
+- **Related:** CD-0005, TS6, TS7, issues #485 and #560
 - **Preserves:** The TS7 result envelope and its generated contract; the
-  envelope-thin adapter boundary CD-0017 D2 sets
+  envelope-thin adapter boundary in the transport contract
 
 ## Context
 
@@ -55,7 +55,7 @@ carrier and one parse: a reader never has to decide which of two copies is
 current, and the payload is not doubled against the host's byte ceiling.
 
 The adapter does not render prose for the model. A rendered summary would move
-presentation into the adapter, which CD-0017 D2 keeps envelope-thin, and would
+presentation into the envelope-thin adapter, and would
 put adapter wording between the core result and the reader.
 
 ### D3. The execute boundary states its own return type
@@ -109,7 +109,7 @@ Recording a divergence would have documented a crash as a design.
 **A cast to silence TS2322.** Rejected because the diagnostic was correct. The
 cast would have removed the last signal that the surface did not work.
 
-**An adapter-rendered human summary in `output`.** Rejected under CD-0017 D2.
+**An adapter-rendered human summary in `output`.** Rejected under D2.
 It reads better and costs fewer tokens, but it makes the adapter decide what
 the model learns about a core result.
 

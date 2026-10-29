@@ -4,15 +4,15 @@
 - **Date:** 2026-08-14
 - **Scope:** Agent tool surface; workflow verdict reads
 - **Related:** CD-0006 (D8 single operator), CD-0008 (D5 external conditions),
-  CD-0013 (D5 verdict distinctness), CD-0017 (D4 worker boundary), issue #125
+  CD-0013 (verdict authority), CD-0242 D5, issue #125
 
 ## Context
 
 The predecessor enumeration (`.concord/docs/predecessor-operational-coverage.md` §3)
 requires an acceptance verdict from "an authority the implementing agent cannot
 read or influence". Concord held the influence half: CD-0013 D5 refuses a
-verdict whose agent and session refs equal the recorded executing values, and
-CD-0017 D4 keeps workers from recording verdicts at all. The read half did not
+verdict whose agent and session refs equal the recorded executing values.
+The read half did not
 exist: verdict content reached no agent surface at all, so no session —
 executing or not — could audit an acceptance, and the executing session was not
 distinguished from any other reader.
@@ -36,7 +36,7 @@ recorded on the workflow instance, the `verdict` object is withheld and an
 explicit `redacted` omission (`executing_actor_verdict_read_scope`) is
 returned. Redaction is never silent.
 
-**D3. Influence remains write-side and unchanged.** CD-0013 D5 and CD-0017 D4
+**D3. Influence remains write-side.** CD-0013 and CD-0242 D5
 own the influence boundary. This decision adds no write rule.
 
 ## Rejected alternatives

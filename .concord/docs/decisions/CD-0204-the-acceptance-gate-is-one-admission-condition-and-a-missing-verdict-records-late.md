@@ -49,12 +49,12 @@ question is open for `confirm_premise`, and `workflowAdmit` refuses
 The preflight, the work pin, and execution read the same refusal. An
 unreadable read fails admission.
 
-### D2. Only the accept defers the fresh-review refusal
+### D2. Review recording checks its payload; delivery checks current state
 
-The fresh-review refusal defers to the guards only for
-`accept_worker_result`. Its attempt identity can name the ready review, and
-that check reads the payload. Over `record_delivery` the refusal depends on
-the state alone, so every admission site applies it.
+`record_review` validates its typed subject-bound report and dependencies.
+The fresh-Review requirement for `record_delivery` depends on current state,
+so every admission site applies the same refusal behind a blocking or stale
+Review disposition. No attempt-bound acceptance exception remains.
 
 ### D3. The late verdict route serves the premise-question step
 

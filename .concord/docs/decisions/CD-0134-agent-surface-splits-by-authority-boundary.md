@@ -4,14 +4,16 @@
 - **Date:** 2026-09-12
 - **Scope:** Agent-surface Domain granularity, TS1–TS9 law homing, and the registry migration
 - **Approval:** The operator approved this bounded decision objective in Concord work-2e8afff1f907a403561806e5; this record states the resulting decision.
-- **Related:** CD-0005, CD-0222 D2–D4 and D9, CD-0060 D1 and D4–D6, CD-0017, CD-0082, and TS1–TS9
+- **Related:** CD-0005, CD-0222 D2–D4 and D9, CD-0060 D1 and D4–D6, CD-0082, and TS1–TS9
 - **Preserves:** One-home law, non-empty Domains, Git registry authority, the static generated agent surface, and demand-driven migration
 
 ## Context
 
-The registry has one `agent-surface` Domain. It owns job and tool contracts, call context, transport, results, evolution, evidence, and worker lanes.
+The agent surface spans tool contracts, call context, transport, results,
+evolution and evidence.
 
-The TS1–TS9 records describe distinct contract boundaries. CD-0017 also separates the worker contract from the host-owned worker process.
+The TS1–TS9 records describe distinct contract boundaries. Native Task execution
+is host-owned under CD-0242 D6.
 
 The current Domain is valid, but it is too broad for precise law and work placement. A split must improve authority and navigation without turning each document into a Domain.
 
@@ -43,8 +45,7 @@ The registry adds these current children under `agent-surface`:
 |---|---|---|
 | `agent-contract` | Agent jobs, granularity, read intents, mutation intents, and operation contracts | TS1, TS2, TS3, TS4, CD-0216, CD-0035, CD-0038, CD-0069, CD-0113 |
 | `agent-call-boundary` | Scope, authorization, idempotency, result, error, evidence, and pagination semantics | TS5, TS7, CD-0023, CD-0027, CD-0037, CD-0071, CD-0080, CD-0132 |
-| `agent-adapter` | OpenCode registration, host context, permission bridge, and CLI transport | TS6, CD-0084, CD-0085, CD-0087, CD-0088, CD-0090 |
-| `worker-lanes` | Typed lane contracts, dispatch identity, worker evidence, lane visibility, and host-owned worker execution | CD-0017, CD-0034, CD-0043, CD-0044, CD-0054, CD-0056, CD-0058, CD-0063, CD-0064, CD-0067, CD-0070, CD-0081 |
+| `agent-adapter` | OpenCode registration, host context, permission bridge, CLI transport and shipped host methods | TS6, CD-0043, CD-0058, CD-0063, CD-0084, CD-0088, CD-0090, CD-0246 |
 | `agent-evolution` | Manifest identity, pre-go-live surface change, and deterministic change evidence | TS8, TS9, CD-0024, CD-0042 |
 
 The parent retains CD-0005 because that record indexes the complete agent surface and its cross-child invariants. CD-0134 also remains at the parent because it governs the decomposition itself. The migration marks the child-specific applicability of these clauses without creating a second home.
@@ -88,7 +89,7 @@ The registry and projection migration require a separate implementation change w
 
 ## Consequences
 
-- Law and work reads can distinguish contract, call, adapter, worker, and evolution concerns.
+- Law and work reads can distinguish contract, call, adapter and evolution concerns.
 - Cross-surface architecture remains visible through the parent Domain.
 - The migration changes registry and generated digests, so matching artifacts must move together.
 - The callable agent surface remains one generated, digest-bound contract.

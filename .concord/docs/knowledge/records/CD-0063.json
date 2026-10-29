@@ -6,10 +6,9 @@
   "doc_contract_profile": "legacy",
   "evidence": [
     "scripts/install.py",
-    "adapter/opencode/dispatch.ts",
     "skills/README.md"
   ],
-  "home_domain_id": "worker-lanes",
+  "home_domain_id": "agent-adapter",
   "id": "CD-0063",
   "kind": "decision",
   "path": ".concord/docs/decisions/CD-0063-shipped-operator-conduct-rules.md",

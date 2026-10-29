@@ -7,11 +7,9 @@
   "date": "2026-08-22T00:00:00Z",
   "doc_contract_profile": "legacy",
   "evidence": [
-    "internal/store/worker_lanes.go",
-    "adapter/opencode/dispatch.ts",
-    "internal/store/schema.go"
+    ".concord/docs/decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md"
   ],
-  "home_domain_id": "worker-lanes",
+  "home_domain_id": "agent-adapter",
   "id": "CD-0058",
   "kind": "decision",
   "path": ".concord/docs/decisions/CD-0058-no-model-routing.md",
@@ -24,7 +22,7 @@
   },
   "sha256": "sha256:562b44d7382aefac107a4c1e750399dd873a27e507f6cd8a735f52d71a83a271",
   "status": "accepted",
-  "summary": "Concord performs no model resolution: lane dispatch omits --model and the host selects the executing model. Actual readback_model is the sole recorded model evidence; missing or ambiguous readback records a failed attempt. Concord has no routing-policy record, load path, declared legal model set, or substitution guarantee. Migration 44 removes the five declared-side attempt columns and preserves existing rows; capability classes remain documentary labels.",
+  "summary": "Concrete model selection remains host-owned. Concord has no routing policy, model pin, fallback or subagent model-readback gate and its workflow results attest no executing model identity.",
   "tags": [
     "routing",
     "lanes",

@@ -72,7 +72,7 @@ func newNativeTargetBunFixture(t *testing.T, checks []bunFixtureCheck, files map
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	f := &bunFixtureForTest{
-		nativeTargetFixture: &nativeTargetFixture{s: seed.store, work: work, repo: t.TempDir(), actor: seed.owner, root: "plugin", recipePath: "plugin/recipe.json", materializer: "bun", runner: "check"},
+		nativeTargetFixture: &nativeTargetFixture{s: seed.store, work: work, repo: t.TempDir(), root: "plugin", recipePath: "plugin/recipe.json", materializer: "bun", runner: "check"},
 		cache:               filepath.Join(home, ".npm", "_cacache"),
 		marker:              filepath.Join(t.TempDir(), "script-ran"),
 		integrity:           map[string]string{},
@@ -145,7 +145,7 @@ func newNativeTargetBunFixture(t *testing.T, checks []bunFixtureCheck, files map
 	}
 	writeRepoFilesForTest(t, f.repo, all)
 	f.commitAll(t, "pinned bun check harness")
-	f.seedAuthority(t, seed)
+	f.seedAuthority(t)
 	return f
 }
 
@@ -158,10 +158,10 @@ func (f *bunFixtureForTest) cacheDigest(t *testing.T) string {
 	return string(digest)
 }
 
-// executeErr runs one authorized execute and returns its refusal.
+// executeErr selects the exact preparation and returns the execution refusal.
 func (f *bunFixtureForTest) executeErr(t *testing.T, id string) error {
 	t.Helper()
-	o := f.authorize(t, id, f.actor)
+	o := NativeOracleRequest{Phase: "execute", PreparationRunRef: f.prepare.OperationRef}
 	_, err := f.s.VerifyWorktree(context.Background(), f.request(id+"-execute", &o))
 	return err
 }
@@ -212,7 +212,7 @@ func TestNativeTargetAxisBunCheck(t *testing.T) {
 		t.Fatal(err)
 	}
 	f.commitAndPrepare(t, "broken")
-	o := f.authorize(t, "broken", f.actor)
+	o := NativeOracleRequest{Phase: "execute", PreparationRunRef: f.prepare.OperationRef}
 	r, err = f.s.VerifyWorktree(context.Background(), f.request("broken-execute", &o))
 	if err != nil || r.Oracle == nil || r.Oracle.Qualification != "fail" || r.ExitCode == 0 {
 		t.Fatalf("bun+check broken candidate %+v %v", r, err)
@@ -359,7 +359,7 @@ func TestNativeTargetAxisNoneCreatesNodeModules(t *testing.T) {
 		nativeTargetFixtureName(f.root, "scripts/check.sh"): "#!/usr/bin/env bash\nset -euo pipefail\nmkdir -p node_modules/dep\necho 1 > node_modules/dep/index.js\n",
 	})
 	f.commitAndPrepareRepin(t, "installing")
-	o := f.authorize(t, "installing", f.actor)
+	o := NativeOracleRequest{Phase: "execute", PreparationRunRef: f.prepare.OperationRef}
 	_, err := f.s.VerifyWorktree(context.Background(), f.request("installing-execute", &o))
 	want := "chkfix/node_modules/dep/index.js; the run created or changed chkfix/node_modules/dep/index.js inside the candidate tree; a recipe that needs dependencies declares a dependency materializer"
 	if err == nil || !strings.Contains(err.Error(), want) {

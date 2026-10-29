@@ -79,7 +79,7 @@ initialization/TestMain and is not a non-executing planning operation.
 | Store fixture, transaction or connection handling | Owner tests plus transaction/rollback/connection-invariant consumers; private database per test | Shared setup changes affect the package; admit the package or use required CI |
 | Migration or current-state recovery | Relevant pre/post-migration and recovery tests, including failure/rollback paths | Migration ordering or shared registry changes affect all store opens |
 | Native Go/Bun/uv integration | Relevant native-control cases with CI's pinned tools and prepared offline caches | Preparation or toolchain changes affect every native consumer |
-| Adapter | Explicit changed test files and caller files, with Product selection cleared | Shared adapter contract, setup or dispatch behavior changes |
+| Adapter | Explicit changed test files and caller files, with Product selection cleared | Shared adapter contract, setup or native host behavior changes |
 | Python tooling | One affected `scripts/test-*.py`; inspect imported helpers and callers | Unknown/transitive mapping or aggregate script changes need the tooling battery |
 | Documentation | Link and public-content validators | Law/knowledge inputs change: run their owning validators too |
 | Generated contracts | Edit manifest/schema, regenerate, then check generated parity and affected consumers | Shared schema/generator affects more than the edited example |
@@ -197,9 +197,9 @@ come from the original producer, not the reading machine's current checkout.
 
 ### Read native Bun results
 
-The two existing adapter CI executions also write Bun's native JUnit report with
-`--reporter=junit --reporter-outfile=...`. CI retains these as
-`adapter-test-results-rest` and `adapter-test-results-dispatch`, separately from
+The adapter CI execution also writes Bun's native JUnit report with
+`--reporter=junit --reporter-outfile=...`. CI retains this as
+`adapter-test-results-rest`, separately from
 the unchanged per-file timing artifacts. The CI run, job, checkout and pinned Bun
 setup supply provenance; console stdout/stderr remain in the same job's logs.
 There is no second collector, result cache or extra adapter execution.
@@ -209,7 +209,7 @@ choose a new report path outside the repository. Retain complete console output
 as well; a stale report cannot establish the current execution:
 
 ```sh
-bin/oc-test broad -- bun test ./adapter/opencode/dispatch_route_end_to_end.test.ts --reporter=junit --reporter-outfile="$BUN_RESULTS"
+bin/oc-test targeted -- bun test ./adapter/opencode/session-scope.test.ts --reporter=junit --reporter-outfile="$BUN_RESULTS"
 ```
 
 Check the expected file and case names, child `failure`/`error`/`skipped` elements,

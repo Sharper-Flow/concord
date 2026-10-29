@@ -8,7 +8,7 @@
 - **Approval:** Operator accepted the drafted decision as written on 2026-08-23;
   the public record is
   [issue #410 comment](https://github.com/Sharper-Flow/concord/issues/410#issuecomment-5387585623)
-- **Related:** CD-0034, CD-0043 (D1, D2, D3),
+- **Related:** CD-0043 (D1, D3),
   [`../managed-development-authority.md`](../managed-development-authority.md)
 - **Preserves:** CD-0043 D1 as amended by CD-0246, and D2; the skill admission boundary under
   CD-0043 D3; the closed lane registry and its digest; `agent-lane-packet.v1`
@@ -29,14 +29,8 @@ no negation, so a project can add instruction but never remove it. Agent
 definitions carry no instruction field, so an agent cannot scope what reaches
 it either.
 
-The consequence is that Concord can only improve what a lane receives by
-authoring instruction of its own and getting it loaded, and it can only make
-that instruction accountable by getting it recorded.
-
-CD-0043 D2 named `CONCORD_HOST_INSTRUCTIONS` the legal channel for methodology
-reaching a worker. That channel binds files for provenance. It does not load
-them, and it is an environment variable an operator must remember to export.
-Nothing today puts Concord-authored conduct in front of a Concord agent.
+Concord-authored conduct needs an explicit installed instruction path to reach
+host sessions. Merely storing its source does not load it.
 
 ## Decision
 
@@ -114,13 +108,11 @@ invariant, Go style, generated artifacts, knowledge closure, and the
 prohibitions. It does not restate a shipped rule, and the corpus does not
 restate repository law. One rule has one home.
 
-### D5. Loaded means recorded
+### D5. The host loads conduct
 
-A corpus file that reaches an agent is bound by content hash in the dispatch
-provenance manifest as `instruction_file`. Installing rules that a lane reads
-but the record omits would reproduce the defect this decision exists to close,
-and would weaken the CD-0034 guarantee that a silent injection change is
-visible in dispatch evidence.
+The installed conduct corpus reaches agents through the host's instruction
+loading path. Concord records no dispatch provenance manifest and does not
+attest which conduct a native Task subagent loaded (CD-0242 D6).
 
 ### D6. User customization stays outside shipped definitions
 
@@ -209,14 +201,11 @@ private predecessor history and host tool coupling into a public release.
 - `python3 scripts/check-law-coverage.py` checks the outstanding implementation
   pointer for the skill admission, portability, and install conformance required
   by CD-0245; it does not prove that conformance.
-- `contracts/agent-lanes.v1.json` keeps its version and
-  `contracts/agent-lanes.digest` is unchanged.
 - A test installs, asserts the project pointer and the central agents directory,
   uninstalls, and asserts both are reversed.
 - A test proves an upgrade leaves an existing project pointer resolving to the
   new version without editing that project.
 - A test proves a project without the pointer receives no corpus instruction.
-- A test proves the dispatch provenance digest moves when a corpus file changes.
 - A test installs, adds user agent configuration and instructions, upgrades,
   repairs, and uninstalls while preserving the user layer and unrelated agents.
   An opt-in real-host probe checks the resolved model, tool setting, permissions,

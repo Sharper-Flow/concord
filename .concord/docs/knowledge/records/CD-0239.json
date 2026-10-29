@@ -19,10 +19,6 @@
     {
       "kind": "refines",
       "target_id": "CD-0201"
-    },
-    {
-      "kind": "refines",
-      "target_id": "CD-0205"
     }
   ],
   "path": ".concord/docs/decisions/CD-0239-a-later-process-claim-permits-one-bounded-host-recovery-attempt.md",
@@ -35,7 +31,7 @@
   },
   "sha256": "sha256:da23f9cde3c8e137562ffafbadaf90255bde39b741ff626480f88ff5c0f6f794",
   "status": "accepted",
-  "summary": "A same-session landing from a different host process refreshes the recorded occupancy identity, and the caller reads the host lease set before the dispatch transaction opens. Under CD-0242 D6 no host_changed or other convergence basis, escalation wall, or attempt count exists; a recorded process claim or failure attribution authorizes no launch.",
+  "summary": "A same-session landing from a different host process refreshes occupancy in one transaction, with core-checked liveness and process start time. Repeated same-process landing is idempotent. The process association remains caller-supplied and attests neither session execution nor repaired code. It supplies no workflow result, native receipt or subagent authority.",
   "tags": [
     "worker",
     "retry",

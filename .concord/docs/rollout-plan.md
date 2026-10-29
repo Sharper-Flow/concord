@@ -43,7 +43,7 @@ Runtime implementation proceeds only when all of these are true:
    cross-workflow impact propagation.
 6. CD-0008 fixes mechanism hardening: immutable evidence subjects, typed degradation,
    and external conditions. [CD-0242 D2](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)
-   governs current-state recovery and schema evolution; [D6](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-attempts-carry-their-own-authority-not-a-budget)
+   governs current-state recovery and schema evolution; [D6](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-native-task-belongs-to-the-host)
    governs each attempt's scope, assignment, and subject bindings.
 7. CD-0215 fixes research context as bounded working context, not a second
    durable-knowledge authority.

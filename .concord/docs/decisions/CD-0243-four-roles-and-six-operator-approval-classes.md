@@ -127,7 +127,7 @@ required-review checks.
 | CD-0230 D4, D5 | Law-change authority, approval classes, listed gaps, recovery |
 | CD-0013 D11 | Workflow consent classification and routine actions |
 | CD-0006 D5, D10; CD-0159 D4; CD-0218 D1; CD-0222 D1, D4, D5 | Law mandates and enactment require approval only under D2 |
-| CD-0033; CD-0037; CD-0096; CD-0118; CD-0122; CD-0166; CD-0187; CD-0198; CD-0215; CD-0217; CD-0222 D6; CD-0229 | Operator consent for their operations applies only under D2; D5 governs recovery |
+| CD-0033; CD-0037; CD-0096; CD-0118; CD-0122; CD-0166; CD-0198; CD-0215; CD-0217; CD-0222 D6; CD-0229 | Operator consent for their operations applies only under D2; D5 governs recovery |
 | CD-0154 D2 | Four roles, optional RTE and Planner, direct operator routing |
 | TS1, TS4, TS9 contracts; TS5 §5; clarifications TS1–TS9 binding; PM9 contract; CD-0028; CD-0029 | Retained approval gaps for overlap, cancellation, removal, repair, reconciliation, and research deletion apply only under D2 |
 
@@ -166,7 +166,7 @@ does not remove an operator-only waiver of an otherwise refusing gate.
 | PM6 publication sequence and content lock; TS4 publication row; PM9 payload summary | The durable publication intent freezes exact content and home; it is not operator approval |
 | Workflow-engine contract and workflows outcome-contract and transition tables | Current contract and supersession consent follows D2; released historical definitions retain their pinned rules |
 | PM10 emergency-salvage recovery record | The recovery record remains required; operator consent follows D2, not the absence of a verified snapshot alone |
-| CD-0015 relation authoring and `law_modifies`; CD-0017 Supersession; CD-0040 D7 | Law-relation, law-delta, and freshness-policy revisions follow D4; they require operator approval only under D2 |
+| CD-0015 relation authoring and `law_modifies`; CD-0040 D7 | Law-relation, law-delta, and freshness-policy revisions follow D4; they require operator approval only under D2 |
 
 `specs-as-laws.md` and `concord-knowledge-index.md` are companion explanations,
 not new law. They follow this same boundary: a law conflict is identified and
@@ -220,5 +220,5 @@ this law; this record does not claim those mechanisms are implemented.
 - `python3 scripts/check-knowledge-index.py` checks the law record and relations.
 - `python3 scripts/check-conflict-rules.py` checks the table against `priorities.md`.
 - `python3 scripts/check-primary-prompts.py` checks the generated role sources.
-- `python3 scripts/test-generate-agent-lanes.py` checks their projection.
+- `python3 scripts/generate-agent-profiles.py --check` checks their projection.
 - `bun test adapter/opencode/` checks the shipped asking instructions.

@@ -63,7 +63,7 @@ after its durable commit succeeds, under CD-0050 D2's durability guarantee.
 ### D2. The enumeration names every family the store commits durably
 
 The consequential transaction families are grant, client, and approval authority;
-workflow action dispatch; cross-authority steps; worker evidence; and the
+workflow actions; cross-authority steps; producer evidence; and the
 following families:
 
 | Family | Sites | Why it is consequential |

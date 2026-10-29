@@ -72,7 +72,7 @@ func TestNativeTargetGitMetadataProducer(t *testing.T) {
 	gitRunStore(t, f.repo, "config", "remote.origin.url", "https://example.invalid/private-source")
 	gitRunStore(t, f.repo, "config", "credential.helper", "!exit 99")
 	gitRunStore(t, f.repo, "config", "core.hooksPath", hooks)
-	o := f.authorize(t, "git-metadata", f.actor)
+	o := NativeOracleRequest{Phase: "execute", PreparationRunRef: f.prepare.OperationRef}
 	r, err := f.s.VerifyWorktree(context.Background(), f.request("git-execute", &o))
 	if err != nil || r.Oracle == nil || r.Oracle.Qualification != "pass" {
 		t.Fatalf("candidate Git execution: %+v, %v", r, err)
@@ -110,11 +110,11 @@ func TestNativeTargetGitMetadataProducer(t *testing.T) {
 
 func TestNativeTargetGitMetadataTagDriftRequiresPreparation(t *testing.T) {
 	f := newNativeGitTargetFixture(t)
-	o := f.authorize(t, "git-before-tag-drift", f.actor)
+	o := NativeOracleRequest{Phase: "execute", PreparationRunRef: f.prepare.OperationRef}
 	before := f.prepare.Oracle.BuildEnvironmentDigest
 	gitRunStore(t, f.repo, "tag", "new-candidate-tag")
 	r, err := f.s.VerifyWorktree(context.Background(), f.request("git-tag-drift", &o))
-	if failureKind(err) != KindUnauthorizedDispatch || !strings.Contains(err.Error(), "preparation environment") || f.launches != 0 || r.Oracle != nil && r.Oracle.Qualification == "pass" {
+	if failureKind(err) != KindMissingEvidence || !strings.Contains(err.Error(), "environment or pinned inputs") || f.launches != 0 || r.Oracle != nil && r.Oracle.Qualification == "pass" {
 		t.Fatalf("tag drift launched with old readiness: %+v, %v, launches=%d", r, err, f.launches)
 	}
 	f.prepareWithCurrentBundle(t, "git-tag-reprepare")
@@ -138,7 +138,7 @@ func TestNativeTargetGitMetadataMutationCannotPass(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	o := f.authorize(t, "git-metadata-mutation", f.actor)
+	o := NativeOracleRequest{Phase: "execute", PreparationRunRef: f.prepare.OperationRef}
 	r, err := f.s.VerifyWorktree(context.Background(), f.request("git-mutated-execute", &o))
 	if err == nil || !strings.Contains(err.Error(), ".git/config") || r.Oracle == nil || r.Oracle.Qualification != "unavailable" || f.launches != 1 {
 		t.Fatalf("mutated Git inputs did not refuse through sealed inventory: %+v, %v, launches=%d", r, err, f.launches)
@@ -166,7 +166,7 @@ def test_value():
     assert 'app/value.py' in subprocess.check_output(['git', 'ls-files'], text=True).splitlines()
 `})
 	f.commitAndPrepareRepin(t, "git-pytest")
-	o := f.authorize(t, "git-pytest", f.actor)
+	o := NativeOracleRequest{Phase: "execute", PreparationRunRef: f.prepare.OperationRef}
 	r, err := f.s.VerifyWorktree(context.Background(), f.request("git-pytest-execute", &o))
 	if err != nil || r.Oracle == nil || r.Oracle.Qualification != "pass" || r.Oracle.GitMetadata == nil || f.launches != 1 {
 		t.Fatalf("metadata-aware pytest: %+v, %v, launches=%d", r, err, f.launches)
@@ -191,25 +191,19 @@ func TestNativeTargetGitMetadataCapacity(t *testing.T) {
 	if _, err := readOraclePreparationReceiptTx(context.Background(), f.s.db, f.work, "project", f.prepare.OperationRef); err != nil {
 		t.Fatalf("full metadata preparation did not survive its receipt join: %v", err)
 	}
-	o := f.authorize(t, "capacity-context", f.actor)
-	// Keep one ready job in this private fixture so context selects its
-	// original readiness plus the new preparation on the current candidate.
-	if _, err := f.s.db.Exec(`INSERT INTO write_guard(active) VALUES(1); UPDATE worker_job_revisions SET state='satisfied' WHERE work_id=? AND job_id<>?; DELETE FROM write_guard`, f.work, o.WorkerJobBinding.JobID); err != nil {
-		t.Fatal(err)
-	}
 	first := f.prepare
 	writeRepoFilesForTest(t, f.repo, map[string]string{"value.txt": "7\n\n"})
 	f.commitAndPrepare(t, "git-capacity-next")
 	view, err := readWorkContextView(t.Context(), f.s.db, f.work)
 	if err != nil || view == nil {
-		t.Fatalf("two full-tag preparations blocked work-context/dispatch reads: %v", err)
+		t.Fatalf("two full-tag preparations blocked work-context reads: %v", err)
 	}
 	if len(view.OraclePreparations) != 2 {
 		t.Fatalf("context selected %d preparations, want original and current", len(view.OraclePreparations))
 	}
 	raw, err := json.Marshal(view.OraclePreparations)
 	if err != nil || strings.Contains(string(raw), "git_metadata") {
-		t.Fatalf("dispatch context duplicated full receipt-only Git inventories: %s, %v", raw, err)
+		t.Fatalf("work context duplicated full receipt-only Git inventories: %s, %v", raw, err)
 	}
 	for _, prep := range view.OraclePreparations {
 		want := first.Oracle.BuildEnvironmentDigest
@@ -224,15 +218,12 @@ func TestNativeTargetGitMetadataCapacity(t *testing.T) {
 	}
 }
 
-func TestNativeTargetGitMetadataReviewRepair(t *testing.T) {
-	for _, tc := range []string{"scoped", "outside", "verify-lane", "tag-added", "tag-moved", "base-tag-added"} {
+func TestNativeTargetGitMetadataChangedCandidateRequiresPreparation(t *testing.T) {
+	for _, tc := range []string{"scoped", "outside", "tag-added", "tag-moved", "base-tag-added"} {
 		t.Run(tc, func(t *testing.T) {
 			f := newNativeGitTargetFixture(t)
-			lane := "review"
-			if tc == "verify-lane" {
-				lane = "verify"
-			}
-			o := f.authorizeLane(t, "git-review", f.actor, lane)
+			o := NativeOracleRequest{Phase: "execute", PreparationRunRef: f.prepare.OperationRef}
+			original := f.prepare
 			path := "value.txt"
 			if tc == "outside" {
 				path = "outside.txt"
@@ -254,43 +245,47 @@ func TestNativeTargetGitMetadataReviewRepair(t *testing.T) {
 				gitRunStore(t, f.repo, "tag", "new-base-tag", f.head)
 			}
 			r, err := f.s.VerifyWorktree(t.Context(), f.request("git-review-execute", &o))
+			if failureKind(err) != KindMissingEvidence || f.launches != 0 {
+				t.Fatalf("stale candidate preparation ran: %+v, %v, launches=%d", r, err, f.launches)
+			}
+			f.head = candidate
+			if _, err := f.s.VerifyWorktree(t.Context(), f.request("git-current-subject", nil)); err != nil {
+				t.Fatal(err)
+			}
+			f.prepareWithCurrentBundle(t, "git-current-prepare")
+			o = NativeOracleRequest{Phase: "execute", PreparationRunRef: f.prepare.OperationRef}
+			r, err = f.s.VerifyWorktree(t.Context(), f.request("git-current-execute", &o))
+			qualification, launches := "pass", 2
 			if tc != "scoped" {
-				if err == nil || f.launches != 0 {
-					t.Fatalf("unauthorized metadata repair ran: %+v, %v, launches=%d", r, err, f.launches)
-				}
-				if strings.HasPrefix(tc, "tag-") || tc == "base-tag-added" {
-					detail := "scoped repair Git metadata differs from its preparation ancestry"
-					if tc == "base-tag-added" {
-						detail = "preparation environment or pinned inputs differ from execution"
-					}
-					if failureKind(err) != KindUnauthorizedDispatch || !strings.Contains(err.Error(), detail) {
-						t.Fatalf("wrong tag-drift refusal: %v, want unauthorized_dispatch: %s", err, detail)
-					}
-				}
-				return
+				// Fresh preparation admits the subject, not a different harness:
+				// the pinned check still rejects changed file/tag inventories.
+				qualification, launches = "fail", 1
 			}
-			if err != nil || r.Oracle == nil || r.Oracle.Qualification != "pass" {
-				t.Fatalf("authorized metadata repair refused: %+v, %v", r, err)
+			if err != nil || r.Oracle == nil || r.Oracle.Qualification != qualification {
+				t.Fatalf("fresh metadata preparation refused: %+v, %v", r, err)
 			}
-			if r.Oracle.SubjectCommit != candidate || r.Oracle.GitMetadata.Candidate.Commit != candidate || !strings.Contains(r.Output, "candidate git witness "+candidate) || f.launches != 2 {
+			if r.Oracle.SubjectCommit != candidate || r.Oracle.GitMetadata.Candidate.Commit != candidate || f.launches != launches {
 				t.Fatalf("repair did not execute its actual Git candidate: %+v, output=%q, launches=%d", r.Oracle, r.Output, f.launches)
 			}
-			if r.Oracle.BuildEnvironmentDigest != f.prepare.Oracle.BuildEnvironmentDigest || f.prepare.Oracle.GitMetadata.Candidate.Commit != f.head || candidate == f.head {
+			if qualification == "pass" && !strings.Contains(r.Output, "candidate git witness "+candidate) || qualification == "fail" && r.ExitCode == 0 {
+				t.Fatalf("pinned Git harness result differs from its candidate: %+v", r)
+			}
+			if r.Oracle.BuildEnvironmentDigest != f.prepare.Oracle.BuildEnvironmentDigest || original.Oracle.GitMetadata.Candidate.Commit == candidate || f.prepare.Oracle.SubjectCommit != candidate {
 				t.Fatal("repair relabelled the original preparation")
 			}
 			assertNativeTargetPublicWire(t, r)
-			if err := validateNativeOracleProducerTx(t.Context(), f.s.db, f.work, &r, "pass"); err != nil {
-				t.Fatalf("native repaired receipt cannot join its original preparation: %v", err)
+			if err := validateNativeOracleProducerTx(t.Context(), f.s.db, f.work, &r, qualification); err != nil {
+				t.Fatalf("native repaired receipt cannot join its fresh preparation: %v", err)
 			}
-			r.Oracle.GitMetadata.Candidate.Commit = f.head
-			if err := validateNativeOracleProducerTx(t.Context(), f.s.db, f.work, &r, "pass"); err == nil {
+			r.Oracle.GitMetadata.Candidate.Commit = original.Oracle.SubjectCommit
+			if err := validateNativeOracleProducerTx(t.Context(), f.s.db, f.work, &r, qualification); err == nil {
 				t.Fatal("repair receipt could replace its actual candidate with the preparation subject")
 			}
 		})
 	}
 }
 
-func TestNativeTargetGitMetadataRepairPlanCapacity(t *testing.T) {
+func TestNativeTargetGitMetadataFreshPlanCapacity(t *testing.T) {
 	for _, format := range []string{"sha1", "sha256"} {
 		t.Run(format, func(t *testing.T) {
 			t.Setenv("GIT_DEFAULT_HASH", format)
@@ -309,17 +304,16 @@ func TestNativeTargetGitMetadataRepairPlanCapacity(t *testing.T) {
 			manifest["git_metadata"] = nativeGitMetadataMode
 			f.setManifestForTest(t, manifest)
 			f.commitAndPrepareRepin(t, "capacity-recipe")
-			o := f.authorizeLane(t, "capacity-review", f.actor, "review")
 			writeRepoFilesForTest(t, f.repo, map[string]string{"value.txt": "7\n\n"})
-			gitRunStore(t, f.repo, "add", "value.txt")
-			gitRunStore(t, f.repo, "-c", "user.email=oracle@example.invalid", "-c", "user.name=Oracle", "commit", "-m", "scoped capacity repair")
+			f.commitAndPrepare(t, "capacity-current-candidate")
+			o := NativeOracleRequest{Phase: "execute", PreparationRunRef: f.prepare.OperationRef}
 			r, err := f.s.VerifyWorktree(t.Context(), f.request("capacity-review-execute", &o))
 			if err != nil || r.Oracle == nil || r.Oracle.Qualification != "pass" {
 				t.Fatalf("full-tag %s repair failed: %+v, %v", format, r, err)
 			}
 			plan, _, err := readNativeOracleExecutePlanTx(t.Context(), f.s.db, f.work, &r)
-			if err != nil || plan.Target == nil || plan.Target.PreparedGitCandidate == nil {
-				t.Fatalf("repair did not retain its separate readiness view: %v", err)
+			if err != nil || plan.Target == nil || plan.Target.GitMetadata == nil {
+				t.Fatalf("execute did not retain its exact Git metadata: %v", err)
 			}
 			if plan.Target.GitMetadata.Candidate.ObjectFormat != format || len(plan.Target.GitMetadata.Candidate.Tags) != 79 || len(workflowJSON(plan)) > 65536 {
 				t.Fatalf("wrong %s full-tag repair capacity: %d bytes", format, len(workflowJSON(plan)))
@@ -328,7 +322,7 @@ func TestNativeTargetGitMetadataRepairPlanCapacity(t *testing.T) {
 				t.Fatalf("full-tag repair receipt lost its preparation join: %v", err)
 			}
 			assertNativeTargetPublicWire(t, r)
-			t.Logf("%s: 79 ancestral tags, three sealed views, %d-byte repair plan", format, len(workflowJSON(plan)))
+			t.Logf("%s: 79 ancestral tags, %d-byte exact-subject plan", format, len(workflowJSON(plan)))
 		})
 	}
 }

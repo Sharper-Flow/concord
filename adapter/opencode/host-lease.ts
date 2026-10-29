@@ -13,7 +13,7 @@
 
 import fs from "node:fs"
 import path from "node:path"
-import { concordBinaryPath, defaultRunner, type DispatchRunner } from "./dispatch"
+import { concordBinaryPath, defaultRunner, type CoreRunner } from "./core-runtime"
 import { coreBinary, releaseRoot } from "./generated-release"
 import { manifestDigest } from "./generated-contracts"
 
@@ -36,7 +36,7 @@ export function hostLeaseFault(): string | null {
 
 /** Test seam: clear a recorded fault, claim against an injected runner, or
  * stamp a release identity the way the installer would. */
-export function configureHostLease(options: { runner?: DispatchRunner; reset?: boolean; release?: { coreBinary: string; releaseRoot: string } } = {}) {
+export function configureHostLease(options: { runner?: CoreRunner; reset?: boolean; release?: { coreBinary: string; releaseRoot: string } } = {}) {
   if (options.reset) {
     leaseFault = null
     runner = defaultRunner
@@ -50,7 +50,7 @@ export function configureHostLease(options: { runner?: DispatchRunner; reset?: b
   }
 }
 
-let runner: DispatchRunner = defaultRunner
+let runner: CoreRunner = defaultRunner
 let claimedCoreBinary: string = coreBinary
 let claimedReleaseRoot: string = releaseRoot
 
@@ -64,8 +64,7 @@ export type LeaseLocation = { directory?: string; worktree?: string }
 // rewriting the `current` symlink beside the pinned root (the pinned root's
 // parent directory is the data root). A session whose pinned release differs
 // from the installed release still runs (CD-0111 D1 keeps the pair it started
-// with), but the lane definitions its process holds were rewritten on disk,
-// so staleness is visible on every result and lane dispatch refuses.
+// with), and staleness is visible on every result.
 export type ReleaseStaleness = {
   pinnedReleaseRoot: string
   installedReleaseRoot: string
@@ -100,8 +99,7 @@ export function resolveInstalledReleaseRoot(): string | null {
 
 /** releaseStaleness compares the pinned releaseRoot with the installed
  * release once. Any difference is stale, in both directions: an upgrade and
- * a rollback both rewrite the lane files a running process still holds in
- * memory. Returns null when the session is fresh or staleness cannot be
+ * a rollback can replace the installed release. Returns null when the session is fresh or staleness cannot be
  * determined. */
 export function releaseStaleness(): ReleaseStaleness | null {
   const pinned = claimedReleaseRoot

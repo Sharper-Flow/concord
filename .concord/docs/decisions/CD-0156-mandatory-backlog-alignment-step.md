@@ -5,7 +5,7 @@
 - **Scope:** Built-in implementation and break-fix workflow definitions, and the alignment projection
 - **Approval:** The operator approved this bounded workflow change.
 - **Related:** CD-0013, CD-0138
-- **Preserves:** Worker fences, relation authority, and the definitions active
+- **Preserves:** Relation authority and the definitions active
   work derives from the canonical source
   ([CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D14)
 
@@ -30,8 +30,8 @@ and `diagnose`. The step declares one advance action, `record_alignment`, plus
 the shared continuity holds. Because `workflowNextStep` follows the single
 forward edge and only an advance-mode action moves the step, `record_alignment`
 is the only route from `alignment` to the next step, and the search becomes
-structural rather than discretionary. The worker-action set stays off the step,
-so a dispatched attempt cannot accept its way past the search.
+structural rather than discretionary. A native Task result cannot substitute
+for the declared search action.
 
 ### D2. Placement after the first content step
 

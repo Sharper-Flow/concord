@@ -79,7 +79,7 @@ pinned by source, law ID, and content hash. Each reading and finding names a
 registry Domain.
 
 One transaction-scoped reader assembles the current work-context view from
-these records, the terminal worker reports that follow them, and exact research
+these records, recorded Review findings, and exact research
 selections resolved from the research authority. The reader
 adds no table and no migration. The work pin and the continuity snapshot carry
 the view. The view holds at most 32 readings and 32 findings within 64 KiB. A
@@ -95,8 +95,8 @@ into another record.
 A declaration refuses without effects if its resulting shared view exceeds the bounds. The
 check runs once in the live action transaction that records the declaration. A
 declaration that restores a bounded view remains admissible.
-Valid completed and failed worker reports, oracle blockers, retained receipts,
-acceptance, job records, and native verification evidence remain retained even
+Recorded Review outcomes, blockers, retained receipts,
+acceptance and native verification evidence remain retained even
 when the resulting view exceeds its read bound.
 
 When the shared reader refuses with `limit_exceeded`, the work pin and continuity
@@ -104,23 +104,21 @@ snapshot carry the closed `work_context_unavailable: {"reason":"limit_exceeded"}
 member instead of `work_context`. The two members are mutually exclusive. A
 successfully evaluated absent context emits neither member. Other reader errors
 propagate. The outside-repair hold and ambiguous-contract partial-pin exits
-remain unchanged. Strict readers and dispatch still refuse the over-bound view.
-Packet construction refuses the unavailable marker and never transmits it as
-work context.
+remain unchanged. Strict readers still refuse the over-bound view.
 
 The shared reader reports missing, stale, rebound, or inactive research
 selections as typed entries without content. A required unresolved selection
-refuses dispatch before a worker launches. Optional unresolved selections stay
+refuses required reliance. Optional unresolved selections stay
 visible without content and do not create a required reliance blocker.
 A missing consumer binding cannot establish optional reliance and refuses
-dispatch. Later revisions never replace selected content. Research body or
-selection-state changes participate in the existing full-view equality and
-dispatch revalidation, not a second context watermark or digest.
+reliance. Later revisions never replace selected content. Research body or
+selection-state changes participate in the existing full-view equality,
+not a second context watermark or digest.
 
-Every declared reading resolves before a worker spawns. A repository-file
+Declared readings retain exact source identity. A repository-file
 reading resolves in the declared Project's own repository: the pinned commit
 must resolve as one commit object, and the pinned path must resolve as one
-ordinary blob at that commit. The dispatch checkout is never the proof, so a
+ordinary blob at that commit. The current checkout is never the proof, so a
 changed or deleted checkout file cannot invalidate a reachable pinned
 commit, and a missing object refuses. A law reading resolves through the
 registered knowledge source its `source_id` names. The law ID and content
@@ -131,23 +129,16 @@ unavailable; an old recorded locator that still resolves stays valid. The
 store never rescans Git history to guess a home, never repins the declared
 hash, and keeps no replacement revision registry. Resolution never registers
 a source, fetches from the network, or mutates the declared readings. The
-resolution runs before the dispatch transaction opens, and the admission
-revalidates the sampled source identities inside it. A failure names the
-reading's ordinal and source identity and commits no dispatch effect.
+resolution does not authorize or start a subagent. A failure names the
+reading's ordinal and source identity.
 No replay or rebuild re-resolves a reading.
 
-The view bounds above constrain the derived view, not retained terminal
-evidence. The dispatch context is a separate capacity. The canonical JSON object
-formed from exactly the packet's present `inputs.work_context`, `inputs.checkpoint`, and
-`inputs.correction` members may not exceed 65,536 UTF-8 bytes, inclusive,
-with member names and delimiters counted. An over-bound dispatch refuses
-whole and never trims a finding, preparation, checkpoint, or correction to
-fit. The per-entry and view bounds above stay unchanged.
+The view bounds constrain the derived view, not retained evidence. A bounded
+read never trims a finding into a different claim.
 
 ## Consequences
 
 Context continuity is held in current rows ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)) and does not add a
-mutable daemon or a second agent identity authority. Future issue #57 dispatch
-must inject this canonical projection on every typed-agent call. Work-start
+mutable daemon or a second agent identity authority. Work-start
 preparation and the bounded per-turn hook supply continuity to operator sessions;
 no generic host hook or `agent_definitions` table exists.

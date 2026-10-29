@@ -12,6 +12,15 @@ import (
 
 const testManifestDigest = "sha256:0000000000000000000000000000000000000000000000000000000000000000"
 
+func mustActorRef(t *testing.T, actor WorkflowActor) string {
+	t.Helper()
+	ref, err := WorkflowActorRef(actor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return ref
+}
+
 // Synthetic projection fixtures still bind freshness to real committed bytes,
 // just as seedWorkflowLaw does. Source proof is established separately by the
 // caller before opening its workflow transaction.
@@ -93,26 +102,8 @@ func registerWorkflowFixtureFamily() []RegisteredDefinition {
 }
 
 func workflowFixtureWorkerDefinition() WorkflowDefinition {
-	definition := workflowFixtureShape(workflowFixtureWorkerActions(workflowFixtureBase()))
+	definition := workflowFixtureShape(workflowFixtureBase())
 	definition.Ref = workflowWorkerFixtureRef
-	return definition
-}
-
-func workflowFixtureWorkerActions(definition WorkflowDefinition) WorkflowDefinition {
-	for _, actionID := range []string{"accept_worker_result", "record_worker_failure", "dispatch_worker"} {
-		definition.AvailableActions = append(definition.AvailableActions, actionID)
-		action := currentActionDefinition(actionID, false)
-		action.RequiredCapability = "work_transition"
-		if actionID == "dispatch_worker" {
-			action.RequiredCapability = WorkerDispatchCapability
-		}
-		definition.ActionDefinitions = append(definition.ActionDefinitions, action)
-		for i := range definition.StepGraph.Steps {
-			if definition.StepGraph.Steps[i].Kind == WorkflowStepExternalEffect {
-				definition.StepGraph.Steps[i].Actions = append(definition.StepGraph.Steps[i].Actions, actionID)
-			}
-		}
-	}
 	return definition
 }
 

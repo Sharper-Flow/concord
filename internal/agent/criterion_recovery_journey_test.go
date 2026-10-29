@@ -17,7 +17,6 @@ func TestCriterion38RecoveryReevaluationJourney(t *testing.T) {
 	before := f.read(t)
 	candidate := *before.Pinned.Pin.Review.Candidate
 	proof := store.WorkPinEvidence{EvidenceKind: "verification", ImmutableSubjectRef: f.proof}
-	attempts := countRows(t, f.s.DatabaseForTesting(), `SELECT count(*) FROM worker_attempts WHERE capability_class='implementation'`)
 	challenges := countWorkflowApprovalChallenges(t, f.s)
 
 	f.administrativeRecovery(t)
@@ -88,7 +87,7 @@ func TestCriterion38RecoveryReevaluationJourney(t *testing.T) {
 	if refused.Error == nil || refused.Error.Kind != "missing_evidence" || refused.Error.EffectState != agentcontract.EffectNone || f.read(t).Pinned.Pin.Version != version {
 		t.Fatalf("changed obligation used the old Review or committed an effect: %+v", refused.Error)
 	}
-	f.recordJob(t)
+	f.prepareControl(t)
 	f.review(t, "correction_required", "")
 	report := f.read(t).Pinned.Pin.Review.Accepted.ReportRef
 	spineOK(t, f.action(t, "bind_evidence", map[string]any{"evidence_kind": "review", "evidence_ref": report}))
@@ -103,7 +102,7 @@ func TestCriterion38RecoveryReevaluationJourney(t *testing.T) {
 	if correction := f.read(t).Pinned.Pin.Correction; correction == nil || !slices.Contains(correction.EvidenceRefs, report) {
 		t.Fatal("the unmet changed obligation lost its correction authority")
 	}
-	f.recordJob(t)
+	f.prepareControl(t)
 	f.review(t, "ready_for_final_proof", f.proof)
 	spineOK(t, f.action(t, "bind_evidence", map[string]any{"evidence_kind": "verification", "evidence_ref": f.proof}))
 	f.advanceToAcceptance(t)
@@ -116,7 +115,6 @@ func TestCriterion38RecoveryReevaluationJourney(t *testing.T) {
 	spineOK(t, f.action(t, "complete", map[string]any{"impact_verdict": "non-breaking"}))
 	done := f.read(t)
 	if done.Pinned.Pin.Lifecycle != "completed" || *done.Pinned.Pin.Review.Candidate != candidate || len(done.Pinned.Pin.VerifiedCriteria) != 1 ||
-		countRows(t, f.s.DatabaseForTesting(), `SELECT count(*) FROM worker_attempts WHERE capability_class='implementation'`) != attempts ||
 		countWorkflowApprovalChallenges(t, f.s) != challenges || f.proofCommit != candidate.Commit {
 		t.Fatal("re-evaluation required no-op production, discarded proof, or introduced unrelated approval")
 	}

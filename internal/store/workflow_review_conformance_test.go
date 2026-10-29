@@ -21,17 +21,8 @@ func TestDeliveryGateCorrectionAdmitsInapplicableReview(t *testing.T) {
 	}
 	gitRunStore(t, repo, "branch", "-m", branch)
 	journey := &candidateJourney{fixture: f, s: f.store, workID: f.workID, repo: repo}
-	job := WorkerJobBinding{JobID: "job:gate-correction"}
-	conformanceImplementComplete(t, journey, &job, "attempt:gate-correction")
-	window := reviewSubjectWindow(t, f.store, f.workID, "attempt:gate-correction")
-	if err := journey.action(t, "accept_worker_result", map[string]any{"attempt_id": "attempt:gate-correction", "attempt_epoch": window.AttemptEpoch}, f.owner); err != nil {
-		t.Fatal(err)
-	}
-	journey.observe(t, "gate-correction-implementation")
-	attempt, epoch := completeCurrentReviewForTest(t, f, repo, "ready_for_final_proof")
-	if err := journey.action(t, "accept_worker_result", map[string]any{"attempt_id": attempt, "attempt_epoch": epoch}, f.owner); err != nil {
-		t.Fatal(err)
-	}
+	conformanceImplementChange(t, journey, "gate-correction")
+	completeCurrentReviewForTest(t, f, repo, "ready_for_final_proof")
 	ctx := t.Context()
 	loaded, err := loadWorkflowReviewState(ctx, f.store.db, f.workID)
 	if err != nil {
@@ -90,26 +81,19 @@ func TestCurrentReviewAdmissionLoaderConformsToAcceptedDisposition(t *testing.T)
 			}
 			gitRunStore(t, repo, "branch", "-m", branch)
 			journey := &candidateJourney{fixture: f, s: f.store, workID: f.workID, repo: repo}
-			job := WorkerJobBinding{JobID: "job:conformance"}
-			conformanceImplementComplete(t, journey, &job, "member:conformance")
-			window := reviewSubjectWindow(t, f.store, f.workID, "member:conformance")
-			if err := journey.action(t, "accept_worker_result", map[string]any{"attempt_id": "member:conformance", "attempt_epoch": window.AttemptEpoch}, f.owner); err != nil {
-				t.Fatal(err)
-			}
-			journey.observe(t, "accepted-implementation")
+			conformanceImplementChange(t, journey, "ordinary-implementation")
 			head := journey.head(t)
-			candidate := WorkerReviewCandidate{ProjectID: "project", Commit: head, Tree: reviewObservedTree(t, repo, head)}
+			candidate := ReviewCandidate{ProjectID: "project", Commit: head, Tree: reviewObservedTree(t, repo, head)}
 			dependencies, err := workflowReviewDependencies(t.Context(), f.store.db, f.workID)
 			if err != nil {
 				t.Fatal(err)
 			}
 			model := WorkflowReviewState{
-				Groups:              map[string]workflowAssignmentGroup{job.JobID: {Permission: "first_entry"}},
-				ExecutionProgressed: true, Dependencies: &dependencies, Candidate: &candidate,
-				Findings: []WorkerReviewFinding{}, PublicationOutstanding: true,
+				Dependencies: &dependencies,
+				Findings:     []ReviewFinding{}, PublicationOutstanding: true,
 			}
 			definition := pinnedWorkflowDefinitionForTest(t, f.store, f.workID)
-			global := admissionModelState{step: "repair", contracts: 1, review: admissionModelReview{candidate: true, progressed: true, group: "first_entry"}}
+			global := admissionModelState{step: "repair", contracts: 1}
 			check := func(label string) WorkflowAdmissionState {
 				t.Helper()
 				loaded := conformanceFold(t, f.store, BuiltinWorkflowRegistry(), f.workID, definition, label)
@@ -121,43 +105,36 @@ func TestCurrentReviewAdmissionLoaderConformsToAcceptedDisposition(t *testing.T)
 					t.Fatalf("%s: real Review %+v != global model %+v", label, got, want)
 				}
 				if loaded.Step != "repair" {
-					t.Fatalf("%s: local intake advanced to %s", label, loaded.Step)
+					t.Fatalf("%s: Review recording advanced to %s", label, loaded.Step)
 				}
 				return loaded
 			}
-			before := check("after implementation acceptance")
-			if err := workflowAdmitReview(*before.Review, "group:next"); !hasFailureKind(err, KindMissingEvidence) {
-				t.Fatalf("implementation acceptance opened an unrelated group without Review: %v", err)
+			before := check("after ordinary implementation")
+			if err := workflowAdmitReview(*before.Review); !hasFailureKind(err, KindMissingEvidence) {
+				t.Fatalf("ordinary implementation authorized exit without Review: %v", err)
 			}
-			attempt, epoch := completeCurrentReviewForTest(t, f, repo, disposition)
-			global.attempt, global.review.report = "completed", disposition
-			terminal := check("after unaccepted Review terminal")
-			if err := workflowAdmitReview(*terminal.Review, ""); !hasFailureKind(err, KindMissingEvidence) {
-				t.Fatalf("an unaccepted %s report authorized execution exit: %v", disposition, err)
-			}
-			if err := journey.action(t, "accept_worker_result", map[string]any{"attempt_id": attempt, "attempt_epoch": epoch}, f.owner); err != nil {
-				t.Fatalf("Main acceptance of %s: %v", disposition, err)
+			report := currentReviewBlockForTest(t, f.store, f.workID, "", disposition)
+			draft := check("after constructing unrecorded Review")
+			if err := workflowAdmitReview(*draft.Review); !hasFailureKind(err, KindMissingEvidence) {
+				t.Fatalf("unrecorded %s report authorized execution exit: %v", disposition, err)
 			}
 			actor, err := WorkflowActorRef(f.owner)
 			if err != nil {
 				t.Fatal(err)
 			}
-			report := WorkerReviewBlock{Disposition: disposition, InputCandidate: candidate, OutputCandidate: candidate, Dependencies: dependencies,
-				Assessments: []WorkerReviewAssessment{}, Findings: []WorkerReviewFinding{}, RemainingObligations: []WorkerReviewObligation{}}
-			model.Accepted = &WorkflowAcceptedReview{AttemptID: attempt, ReportRef: attempt + ":completed", ReportDigest: reviewDigest(report), ActorRef: actor, Report: report}
-			model.StaleJobs = map[string]bool{}
+			ref, _ := completeCurrentReviewForTest(t, f, repo, disposition)
+			model.Candidate = &candidate
+			model.Accepted = &WorkflowAcceptedReview{ReportRef: ref, ReportDigest: reviewDigest(report), ActorRef: actor, Report: *report}
 			model.DependenciesCurrent = true
-			global = admissionSuccessors(definition, global, "accept_worker_result")[0]
-			accepted := check("after Main acceptance")
-			for _, group := range []string{"", "group:next"} {
-				want := group == "" && disposition == "ready_for_final_proof" || group != "" && disposition == "continue"
-				if err := workflowAdmitReview(*accepted.Review, group); (err == nil) != want {
-					t.Fatalf("accepted %s, group %q: admitted=%v, want %v: %v", disposition, group, err == nil, want, err)
-				}
-				lifted := admissionWorkflowState(definition, global)
-				if err := workflowAdmitReview(*lifted.Review, group); (err == nil) != want {
-					t.Fatalf("global model accepted %s, group %q: admitted=%v, want %v: %v", disposition, group, err == nil, want, err)
-				}
+			global.review = admissionModelReview{candidate: true, current: true, accepted: disposition}
+			accepted := check("after record_review")
+			want := disposition == "ready_for_final_proof"
+			if err := workflowAdmitReview(*accepted.Review); (err == nil) != want {
+				t.Fatalf("recorded %s: admitted=%v, want %v: %v", disposition, err == nil, want, err)
+			}
+			lifted := admissionWorkflowState(definition, global)
+			if err := workflowAdmitReview(*lifted.Review); (err == nil) != want {
+				t.Fatalf("global model recorded %s: admitted=%v, want %v: %v", disposition, err == nil, want, err)
 			}
 		})
 	}

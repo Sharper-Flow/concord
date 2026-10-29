@@ -7,21 +7,15 @@
   "date": "2026-09-14T00:00:00Z",
   "doc_contract_profile": "legacy",
   "evidence": [
-    "contracts/agent-lanes.v1.json",
-    "contracts/agent-lanes.schema.json",
-    "adapter/opencode/generated-agent-lanes.ts",
-    "scripts/generate-agent-lanes.py",
+    "contracts/agent-utilities.v1.json",
+    "scripts/generate-agent-profiles.py",
+    "contracts/agent-primary-profiles.v1.json",
+    "scripts/check-primary-prompts.py",
     "scripts/install.py"
   ],
   "home_domain_id": "agent-contract",
   "id": "CD-0149",
   "kind": "decision",
-  "law_relations": [
-    {
-      "kind": "refines",
-      "target_id": "CD-0081"
-    }
-  ],
   "path": ".concord/docs/decisions/CD-0149-the-registry-gains-a-read-only-exploration-utility.md",
   "scopes": {
     "domain_ids": [],

@@ -17,7 +17,7 @@ type workflowMandateAdmission struct {
 	Failure          error
 }
 
-func loadWorkflowMandateAdmission(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, step, subject string, state WorkflowAdmissionState, rejected bool) (workflowMandateAdmission, error) {
+func loadWorkflowMandateAdmission(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, step, subject string, state WorkflowAdmissionState) (workflowMandateAdmission, error) {
 	var result workflowMandateAdmission
 	mandates, version, err := workflowSpecMandate(ctx, q, workID, subject)
 	if err != nil {
@@ -52,10 +52,7 @@ func loadWorkflowMandateAdmission(ctx context.Context, q queryer, workID string,
 		if result.LawID == "" {
 			result.LawID, result.AddedByContract = lawID, added
 			if added {
-				result.CorrectionAction, err = workflowMandateCorrectionAction(ctx, q, workID, definition, step, subject, state, rejected)
-				if err != nil {
-					return result, err
-				}
+				if state.ContractCorrectionAvailable { result.CorrectionAction = "supersede_contract" } else if state.CorrectionRequestRecovery { result.CorrectionAction = "request_correction" }
 			}
 		}
 		if !added {
@@ -64,28 +61,6 @@ func loadWorkflowMandateAdmission(ctx context.Context, q queryer, workID string,
 		}
 	}
 	return result, nil
-}
-
-func workflowMandateCorrectionAction(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, step, subject string, state WorkflowAdmissionState, rejected bool) (string, error) {
-	switch {
-	case state.ContractCorrectionAvailable:
-		return "supersede_contract", nil
-	case rejected:
-		return "reject_worker_result", nil
-	default:
-		failed := state.WorkerFailureRecovery
-		if stepDeclaresAction(definition, step, "record_worker_failure") {
-			var err error
-			failed, err = workflowFailedWorkerAttempt(ctx, q, workID, step, subject, true)
-			if err != nil {
-				return "", err
-			}
-		}
-		if failed {
-			return "record_worker_failure", nil
-		}
-	}
-	return "", nil
 }
 
 func workflowAdmitMandate(definition WorkflowDefinition, step string, state workflowMandateAdmission, actionID, subject string, reviewOnly bool) *Failure {
@@ -124,7 +99,7 @@ func workflowAdmitMandate(definition WorkflowDefinition, step string, state work
 		switch state.CorrectionAction {
 		case "supersede_contract":
 			recovery += fmt.Sprintf("; otherwise run supersede_contract on step %q", step)
-		case "reject_worker_result", "record_worker_failure":
+		case "request_correction":
 			recovery += fmt.Sprintf("; otherwise run %s, then supersede_contract, before %s", state.CorrectionAction, actionID)
 		}
 	}

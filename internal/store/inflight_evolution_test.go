@@ -58,7 +58,7 @@ func startSeededWorkflowPinnedToContext(t *testing.T, ctx context.Context, s *St
 		"work_id": workID, "expected_version": version, "resulting_version": version + 1,
 		"step_id": "proposal", "action_id": "record_proposal", "attempt_epoch": 1,
 		"accepted_inputs_digest": "sha256:evolution-start", "idempotency_identity": "evolution-start:" + workID,
-		"actor_ref": actorRef, "execution_model": preferredModelForLane(BuiltinLaneDefinitions()[0]),
+		"actor_ref": actorRef, "execution_model": "model:fixture",
 	})
 	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{start}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}); err != nil {
 		t.Fatal(err)
@@ -320,7 +320,7 @@ func TestInFlightWorkflowSurvivesRemoteLocatorUpgrade(t *testing.T) {
 	if _, err := tx.Exec(`INSERT INTO workflow_instances(work_id,definition_ref,definition_version,definition_digest,current_step,instance_state) VALUES(?,?,1,?,?,'planned')`, workID, definition.Definition.Ref, definition.Digest, startStep); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := tx.Exec(`UPDATE workflow_instances SET instance_state='running',execution_actor_ref=?,execution_model=? WHERE work_id=?`, actorRef, preferredModelForLane(BuiltinLaneDefinitions()[0]), workID); err != nil {
+	if _, err := tx.Exec(`UPDATE workflow_instances SET instance_state='running',execution_actor_ref=?,execution_model=? WHERE work_id=?`, actorRef, "model:fixture", workID); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := tx.Exec(`UPDATE work_items SET lifecycle='in_progress' WHERE id=?`, workID); err != nil {

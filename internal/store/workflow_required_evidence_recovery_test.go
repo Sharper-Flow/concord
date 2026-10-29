@@ -95,11 +95,11 @@ func (f acceptanceRecoveryFixture) run(ctx context.Context, actionID, label stri
 		ctx = verified
 	}
 	if WorkflowActionRequiresSubjectFreshness(actionID) {
-		prepared, err := PrepareWorkflowAcceptanceFreshness(ctx, f.store, PrepareWorkerDispatchRequest{WorkID: f.workID, SessionWorktree: f.repo})
+		prepared, err := PrepareWorkflowAcceptanceFreshness(ctx, f.store, PrepareWorkflowSubjectRequest{WorkID: f.workID})
 		if err != nil {
 			return err
 		}
-		ctx = WithWorkerDispatchPreparation(ctx, prepared)
+		ctx = WithWorkflowSubjectPreparation(ctx, prepared)
 	}
 	invoking, operator := f.actors()
 	request := WorkflowActionExecutionRequest{

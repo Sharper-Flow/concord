@@ -26,7 +26,7 @@ func TestCatalogActionUsesCurrentCatalog(t *testing.T) {
 
 func TestSharedWorkerJobDeclarationKeepsResearchReadOnly(t *testing.T) {
 	definition := mustBuiltinDefinition(t, "workflow.research").Definition
-	if !workflowChecksRepairActive(definition) || !workflowCallerScopeActive(definition) {
+	if !workflowCallerScopeActive(definition) {
 		t.Fatal("research does not reuse the shared worker-job declaration")
 	}
 	for _, lane := range BuiltinLaneDefinitions() {

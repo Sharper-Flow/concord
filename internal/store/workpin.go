@@ -23,7 +23,6 @@ type WorkPin struct {
 	WorkflowType            string                    `json:"workflow_type"`
 	Step                    string                    `json:"step"`
 	SelfRepair              *WorkflowSelfRepair       `json:"self_repair,omitempty"`
-	Attempt                 *WorkPinAttempt           `json:"attempt"`
 	PendingOperatorDecision *WorkflowOperatorQuestion `json:"pending_operator_decision"`
 	// WithheldOperatorDecision names the checkpoint action whose question the
 	// step declares but the gate holds closed, with the reason and the remedy.
@@ -89,20 +88,6 @@ type WorkPinVerifiedCriterion struct {
 	OutcomeKind    string          `json:"outcome_kind"`
 	OutcomePayload json.RawMessage `json:"outcome_payload"`
 	VerdictKind    string          `json:"verdict_kind"`
-}
-
-type WorkPinAttempt struct {
-	ID    string `json:"id"`
-	Epoch int64  `json:"epoch"`
-	Lane  string `json:"lane"`
-	State string `json:"state"`
-	// FailureAttribution exposes the failed attempt's terminal failure
-	// attribution exactly as the event-based reader resolves it: the
-	// recorded block, the explicit legacy_unavailable marker beside the
-	// source version that owns it, or a nil block for a capable terminal
-	// that recorded none. It stays absent on every attempt whose state is
-	// not failed.
-	FailureAttribution *WorkerFailureAttributionRecord `json:"failure_attribution,omitempty"`
 }
 
 type WorkPinEvidence struct {
@@ -265,7 +250,7 @@ func readWorkPinForRegistryTx(ctx context.Context, tx *sql.Tx, workID string, re
 		// projection, and workflowAdmitSupersede classifies the recovery, so
 		// the pin, the preflight, and the fold answer identically for the
 		// same state.
-		state, _, _, stateErr := loadWorkflowAdmissionStateTxForRegistry(ctx, tx, workID, registered.Definition, pin.Step, "work_pin", registry)
+		state, _, stateErr := loadWorkflowAdmissionStateTxForRegistry(ctx, tx, workID, registered.Definition, pin.Step, "work_pin", registry)
 		if stateErr != nil {
 			return pin, stateErr
 		}
@@ -283,9 +268,6 @@ func readWorkPinForRegistryTx(ctx context.Context, tx *sql.Tx, workID string, re
 		return pin, err
 	}
 	if err := workPinReadContractTx(ctx, tx, workID, &pin, readDefinition, registered.Definition, instanceState, activeContractVersion, state); err != nil {
-		return pin, err
-	}
-	if err := workPinReadAttemptTx(ctx, tx, workID, &pin); err != nil {
 		return pin, err
 	}
 	if err := workPinRecoveryIntentsTx(ctx, tx, workID, &pin, registered.Definition, instanceState, state); err != nil {
@@ -407,7 +389,7 @@ func verifyReadWorkflowDefinitionForRegistry(definition WorkflowReadDefinition, 
 // refuses; an action standing only behind the operator's approval keeps its
 // intent, because the approval wall is the advertised escape.
 func workPinStepIntentsTx(ctx context.Context, tx *sql.Tx, workID string, pin *WorkPin, definition WorkflowDefinition, registry DefinitionRegistry) (WorkflowAdmissionState, error) {
-	state, _, _, stateErr := loadWorkflowAdmissionStateTxForRegistry(ctx, tx, workID, definition, pin.Step, "work_pin", registry)
+	state, _, stateErr := loadWorkflowAdmissionStateTxForRegistry(ctx, tx, workID, definition, pin.Step, "work_pin", registry)
 	if stateErr != nil {
 		return WorkflowAdmissionState{}, stateErr
 	}
@@ -498,33 +480,6 @@ func workPinReadContractTx(ctx context.Context, tx *sql.Tx, workID string, pin *
 	return nil
 }
 
-// workPinReadAttemptTx reads the latest worker attempt and its workflow
-// epoch. An attempt row without a valid epoch is an invariant violation: the
-// pin refuses rather than guess which attempt window a dispatch targets.
-func workPinReadAttemptTx(ctx context.Context, tx *sql.Tx, workID string, pin *WorkPin) error {
-	var attempt WorkPinAttempt
-	var epoch sql.NullInt64
-	if err := tx.QueryRowContext(ctx, `SELECT a.attempt_id,a.lane_id,a.lifecycle_state,COALESCE((SELECT json_extract(e.payload,'$.attempt_epoch') FROM worker_authorizations e WHERE e.work_id=a.work_id AND e.attempt_id=a.attempt_id),(SELECT attempt_epoch FROM workflow_step_epochs e WHERE e.work_id=a.work_id AND e.step_id=(SELECT current_step FROM workflow_instances WHERE work_id=a.work_id)),0) FROM worker_attempts a WHERE a.work_id=? ORDER BY a.dispatched_at DESC,a.attempt_id DESC LIMIT 1`, workID).Scan(&attempt.ID, &attempt.Lane, &attempt.State, &epoch); err == nil {
-		if !epoch.Valid || epoch.Int64 < 1 {
-			return newFailure(KindInvariantViolation, "work_pin", "worker attempt has no valid workflow epoch", false, "reconcile the retained worker authorization and workflow step epoch before retrying")
-		}
-		attempt.Epoch = epoch.Int64
-		// The pin and the dedicated attribution reader use the same retained
-		// terminal fact inside this transaction.
-		if attempt.State == "failed" {
-			record, readErr := WorkerFailureAttributionForAttemptTx(ctx, tx, workID, attempt.ID)
-			if readErr != nil {
-				return readErr
-			}
-			attempt.FailureAttribution = record
-		}
-		pin.Attempt = &attempt
-	} else if err != sql.ErrNoRows {
-		return wrapFailure(KindUnavailable, "work_pin", "cannot read worker attempt", true, "retry once the database is readable", err)
-	}
-	return nil
-}
-
 // workPinRecoveryIntentsTx completes the intent set with every recovery and
 // correction route the folded admission state admits: worker-failure and
 // contract correction, the delivery-gate correction request,
@@ -537,12 +492,6 @@ func workPinRecoveryIntentsTx(ctx context.Context, tx *sql.Tx, workID string, pi
 		decision := workflowAdmit(definition, state, actionID)
 		return decision.Admitted
 	}
-	if state.WorkerFailureRecovery && admits("record_worker_failure") {
-		pin.NextValidIntents = append(pin.NextValidIntents, workPinIntentForAction(workerFailureRecoveryActionDefinition(), pin.Version, "worker_failure_recovery"))
-	}
-	if state.RefineReviewEvidenceAttemptID != "" && !workPinContainsAction(pin.NextValidIntents, "accept_worker_evidence") && admits("accept_worker_evidence") {
-		pin.NextValidIntents = append(pin.NextValidIntents, workPinIntentForAction(workflowActionDefinitionByID(definition, "accept_worker_evidence"), pin.Version, "refinement_review_evidence"))
-	}
 	// The contract recovery advertises exactly the pure decision's answer:
 	// the stale-law and duplicate recoveries the fold admits at a running
 	// step, and the ordinary correction admission, but never a terminal,
@@ -554,9 +503,6 @@ func workPinRecoveryIntentsTx(ctx context.Context, tx *sql.Tx, workID string, pi
 	}
 	if err := workPinCorrectionRequestIntentsTx(ctx, tx, workID, pin, definition, state); err != nil {
 		return err
-	}
-	if stepDeclaresAction(definition, pin.Step, "dispatch_worker") && state.CorrectionRecovery && admits("reject_worker_result") {
-		pin.NextValidIntents = append(pin.NextValidIntents, workPinIntentForAction(workflowCorrectionActionDefinitionFor(definition, "reject_worker_result"), pin.Version, "worker_result_rejection"))
 	}
 	// A completed instance with nonterminal work retains only the admitted
 	// complete-step contract correction. Every other action remains immutable.
@@ -587,10 +533,10 @@ func workPinCorrectionRequestIntentsTx(ctx context.Context, tx *sql.Tx, workID s
 		// decision admits the return.
 		pin.NextValidIntents = workPinWithoutAction(pin.NextValidIntents, "request_correction")
 		if state.CorrectionRequestRecovery && admitted {
-			pin.NextValidIntents = append(pin.NextValidIntents, workPinIntentForAction(workflowCorrectionActionDefinitionFor(definition, "request_correction"), pin.Version, "delivery_gate_correction"))
+			pin.NextValidIntents = append(pin.NextValidIntents, workPinIntentForAction(workflowCorrectionRequestActionDefinition(), pin.Version, "delivery_gate_correction"))
 		}
 	} else if state.CorrectionRequestRecovery && admitted && !workPinContainsAction(pin.NextValidIntents, "request_correction") {
-		pin.NextValidIntents = append(pin.NextValidIntents, workPinIntentForAction(workflowCorrectionActionDefinitionFor(definition, "request_correction"), pin.Version, "verification_correction"))
+		pin.NextValidIntents = append(pin.NextValidIntents, workPinIntentForAction(workflowCorrectionRequestActionDefinition(), pin.Version, "verification_correction"))
 	}
 	correction, correctionErr := workflowCorrectionContext(ctx, tx, workID, pin.Step)
 	if correctionErr != nil {

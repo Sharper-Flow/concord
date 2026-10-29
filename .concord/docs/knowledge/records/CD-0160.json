@@ -5,11 +5,9 @@
   "date": "2026-09-20T00:00:00Z",
   "doc_contract_profile": "legacy",
   "evidence": [
-    "contracts/agent-lanes.v1.json",
     "cmd/concord/ci_wait.go",
     "internal/ciwait/ci_wait.go",
-    "internal/ciwait/ci_wait_test.go",
-    "scripts/generate-agent-lanes.py"
+    "internal/ciwait/ci_wait_test.go"
   ],
   "home_domain_id": "agent-adapter",
   "id": "CD-0160",

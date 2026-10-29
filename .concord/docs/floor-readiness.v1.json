@@ -296,50 +296,12 @@
    ]
   },
   {
-   "id": "fc3-lane-pipeline",
+   "id": "fc3-subject-bound-review",
    "condition": "fc3",
-   "title": "Research, implementation, and review lanes complete an end-to-end synthetic workflow",
-   "requirement": "A synthetic scenario drives the registered lanes through one workflow producing typed worker evidence, and only a distinct owner accepts a completed attempt.",
+   "title": "Independent Review has a current subject-bound outcome",
+   "requirement": "CD-0242 D5 requires independent native Task Review and coordinator recording of the typed report against exact candidates and dependencies. Four dispositions and blocking findings govern progression. Concord does not attest the subagent producer or model. Verify retains native receipts and record_verdict under D8.",
    "state": "unmeasured",
-   "reason": "The current corpus proves owner acceptance of a registered Implement lane's typed result only; no current control drives the Research lane through the same workflow."
-  },
-  {
-   "id": "fc3-reviewer-model-distinctness",
-   "condition": "fc3",
-   "title": "Review reports the completion disposition and recorded readback identity stays bound evidence",
-   "requirement": "CD-0242 D5 governs: no reviewer/model distinctness is required; Review reports its disposition, Main records its acceptance, and Implement cannot accept its own result. The recorded readback model remains bound evidence of what executed.",
-   "state": "satisfied",
-   "evidence": [
-    {
-     "kind": "go_test",
-     "value": "internal/store.TestBlockingReviewDispositionAcceptsWithoutAdvancing"
-    },
-    {
-     "kind": "go_test",
-     "value": "internal/store.TestWorkerCannotInvokeAcceptWorkerResultAsItsOwnOwner"
-    },
-    {
-     "kind": "go_test",
-     "value": "internal/store.TestWorkerCompletionPreservesHostReadback"
-    }
-   ]
-  },
-  {
-   "id": "fc3-worker-authority-boundary",
-   "condition": "fc3",
-   "title": "Worker runs demonstrably create no nested workflow authority",
-   "requirement": "CD-0017 D4 forbids workers recording step transitions, verdicts, or completion. Worker attempts remain authority-free; negative tests prove self-transition, self-verdict, self-completion, stale-attempt acceptance, failed-attempt acceptance, and model-mismatch acceptance are refused without mutation.",
-   "state": "satisfied",
-   "evidence": [
-    {
-     "kind": "go_test",
-     "value": "internal/store.TestWorkerAuthorityBoundaryHoldsInBothDirections"
-    },
-    {
-     "kind": "go_test",
-     "value": "internal/store.TestWorkerCannotRecordItsOwnVerdict"
-    }
-   ]
+   "reason": "CON-1494 must bind and run the replacement subject/dependency/disposition and native-proof tests; retired launcher tests cannot establish this outcome."
   },
   {
    "id": "fc3-product-truth-classification",
@@ -362,18 +324,9 @@
    "id": "fc3-external-systems-retain-authority",
    "condition": "fc3",
    "title": "External systems retain authority for their own execution and enforcement",
-   "requirement": "External systems retain authority for their own execution and enforcement. Concord owns workflow coordination (progression, branching, retries, evidence, recovery, composition) while native systems (git, CI, cloud, database, service-manager operations) retain their own execution and enforcement authority. Worker attempts cannot create workflow authority; preflight authorization occurs at every cross-authority or external-effect boundary; external-effect steps drive native systems through typed consequence classes and never reimplement them.",
-   "state": "satisfied",
-   "evidence": [
-    {
-     "kind": "go_test",
-     "value": "internal/store.TestWorkerEventKindsAreNotWorkflowAuthority"
-    },
-    {
-     "kind": "go_test",
-     "value": "internal/store.TestAcceptWorkerResultRejectsWithoutMutation"
-    }
-   ]
+   "requirement": "External systems retain execution and enforcement authority. Concord owns workflow progression, branching, evidence, recovery and composition. Native systems, including Task, git, CI, cloud, databases and service managers, keep their own execution. Preflight still authorizes every Concord cross-authority or external-effect boundary through typed consequence classes.",
+   "state": "unmeasured",
+   "reason": "CON-1494 retires launcher-only authority tests under CD-0242 D6. Current native-boundary conformance must be bound and executed without inventing producer identity."
   },
   {
    "id": "fc4-authority-explicit",

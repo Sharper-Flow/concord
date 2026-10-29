@@ -6,10 +6,6 @@
     },
     {
       "kind": "go_test",
-      "value": "internal/agent.TestRepeatedFailedWorkersUseOrdinaryLaunchAuthority"
-    },
-    {
-      "kind": "go_test",
       "value": "internal/store.TestInvestigationArtifactAdmitsSingleItemProductByDomainRef"
     },
     {

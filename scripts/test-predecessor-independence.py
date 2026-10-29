@@ -44,9 +44,9 @@ def sandbox() -> Path:
     (root / "scripts").mkdir()
     (root / "adapter" / "opencode").mkdir(parents=True)
     surfaces = list((ROOT / ".opencode" / "agents").glob("*.md"))
-    surfaces += (ROOT / "contracts").glob("agent-lanes*.json")
-    surfaces += (ROOT / "contracts").glob("agent-lane-*.json")
-    generator = ROOT / "scripts" / "generate-agent-lanes.py"
+    surfaces += (ROOT / "contracts").glob("agent-primary-profiles*.json")
+    surfaces += (ROOT / "contracts").glob("agent-utilities*.json")
+    generator = ROOT / "scripts" / "generate-agent-profiles.py"
     if generator.is_file():
         surfaces.append(generator)
     surfaces += (ROOT / "adapter" / "opencode").glob("*.ts")
@@ -62,19 +62,19 @@ def test_clean_repository_passes() -> None:
     assert code == 0, out
 
 
-def test_lane_definition_with_predecessor_tool_fails() -> None:
+def test_utility_definition_with_predecessor_tool_fails() -> None:
     root = sandbox()
-    lane = root / ".opencode" / "agents" / "concord-research.md"
+    lane = root / ".opencode" / "agents" / "concord-explore.md"
     lane.write_text(lane.read_text() + "\nUse adv_change_show to read state.\n")
     code, out = run_check_with_root(root)
     assert code == 1, out
-    assert "concord-research.md" in out and "predecessor tool identifier" in out
+    assert "concord-explore.md" in out and "predecessor tool identifier" in out
 
 
-def test_lane_manifest_with_state_path_fails() -> None:
+def test_utility_manifest_with_state_path_fails() -> None:
     root = sandbox()
-    manifest = root / "contracts" / "agent-lanes.v1.json"
-    manifest.write_text(manifest.read_text().replace('"capabilities"', '"note": "reads ~/.local/share/Advance/change.json", "capabilities"', 1))
+    manifest = root / "contracts" / "agent-utilities.v1.json"
+    manifest.write_text(manifest.read_text().replace('"allowed_tools"', '"note": "reads ~/.local/share/Advance/change.json", "allowed_tools"', 1))
     code, out = run_check_with_root(root)
     assert code == 1, out
     assert "predecessor state path" in out
@@ -82,7 +82,7 @@ def test_lane_manifest_with_state_path_fails() -> None:
 
 def test_adapter_spawning_predecessor_fails() -> None:
     root = sandbox()
-    adapter = root / "adapter" / "opencode" / "dispatch.ts"
+    adapter = root / "adapter" / "opencode" / "core-runtime.ts"
     adapter.write_text(adapter.read_text() + "\n// fallback: run --agent adv concord-research\n")
     code, out = run_check_with_root(root)
     assert code == 1, out
@@ -91,11 +91,11 @@ def test_adapter_spawning_predecessor_fails() -> None:
 
 def test_generator_input_with_tool_prefix_fails() -> None:
     root = sandbox()
-    generator = root / "scripts" / "generate-agent-lanes.py"
+    generator = root / "scripts" / "generate-agent-profiles.py"
     generator.write_text(generator.read_text().replace("mode: subagent", "mode: subagent\n  adv_task_update: true", 1))
     code, out = run_check_with_root(root)
     assert code == 1, out
-    assert "generate-agent-lanes.py" in out
+    assert "generate-agent-profiles.py" in out
 
 
 def test_docs_citation_is_not_a_dependency() -> None:

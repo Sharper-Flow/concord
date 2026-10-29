@@ -114,7 +114,7 @@ func completeWorkflowInScopeTx(ctx context.Context, tx *sql.Tx, registry Definit
 	if err := requireActor(ctx, tx, event.Actor); err != nil {
 		return err
 	}
-	if err := workflowCompletionCallerAuthority(ctx, tx, event.SubjectID, event.Actor); err != nil {
+	if err := requireActor(ctx, tx, event.Actor); err != nil {
 		return err
 	}
 	if workflowDefinitionProducesDelivery(definition) {
@@ -122,7 +122,7 @@ func completeWorkflowInScopeTx(ctx context.Context, tx *sql.Tx, registry Definit
 		if err != nil {
 			return err
 		}
-		if err := workflowAdmitReview(review, ""); err != nil {
+		if err := workflowAdmitReview(review); err != nil {
 			return err
 		}
 	}
@@ -219,7 +219,7 @@ func verifyWorkflowCompletionVerdictsTx(ctx context.Context, tx *sql.Tx, workID 
 		if verdict == nil {
 			return workflowClauseFailure(KindMissingEvidence, 4, "workflow verdict is missing for approved predicate "+predicate.PredicateID, "provide_evidence")
 		}
-		if err := workflowCompletionActorDistinct(ctx, tx, workID, verdict.VerdictActorRef); err != nil {
+		if err := requireActor(ctx, tx, verdict.VerdictActorRef); err != nil {
 			return workflowClauseError(err, 4)
 		}
 		if err := verifyWorkflowCriterionAssociation(ctx, tx, workID, *verdict); err != nil {
@@ -394,13 +394,6 @@ func workflowPremiseConfirmationAuthority(ctx context.Context, tx *sql.Tx, defin
 	}
 	if err := requireActorClass(ctx, tx, confirmedBy, "agent"); err != nil {
 		return newFailure(KindInvalidOperation, "complete_workflow", "engineering premise confirmation is not coordinator typed", false, "record the coordinator confirmation")
-	}
-	authority, authorityErr := workflowEvaluationAuthority(ctx, tx, workID, confirmedBy)
-	if authorityErr != nil {
-		return authorityErr
-	}
-	if authority == WorkflowWorkerEvaluator {
-		return newFailure(KindInvalidOperation, "complete_workflow", "worker actors cannot hold an engineering premise confirmation", false, "record the coordinator confirmation")
 	}
 	return nil
 }
@@ -837,20 +830,6 @@ func verifyCompletionScopeAndMandates(ctx context.Context, tx *sql.Tx, workID st
 	return nil
 }
 
-// workflowCompletionActorDistinct requires Main to record the verdict.
-func workflowCompletionActorDistinct(ctx context.Context, tx queryer, workID, verdictActor string) error {
-	return workflowRequireMain(ctx, tx, workID, verdictActor)
-}
-
-// workflowActorsDistinctForExecutor rejects a worker accepting its own result
-// and requires Main to accept it.
-func workflowActorsDistinctForExecutor(ctx context.Context, tx queryer, workID, executorRef, verdictActor string) error {
-	if executorRef != "" && executorRef == verdictActor {
-		return reviewFailure(KindUnauthorized, "a worker cannot accept its own result", "return the terminal result to Main")
-	}
-	return workflowRequireMain(ctx, tx, workID, verdictActor)
-}
-
 func verifyBlockingStaleness(ctx context.Context, tx *sql.Tx, workID string, definition WorkflowDefinition, required []string) error {
 	observations, err := workflowStalenessObservationState(ctx, tx, workID)
 	if err != nil {
@@ -1270,9 +1249,4 @@ func WorkflowChangedRefsDigest(refs []string) string {
 	sort.Strings(copyRefs)
 	h := sha256.Sum256([]byte(strings.Join(copyRefs, "\x00")))
 	return "sha256:" + hex.EncodeToString(h[:])
-}
-
-// workflowCompletionCallerAuthority requires Main to complete the work.
-func workflowCompletionCallerAuthority(ctx context.Context, tx *sql.Tx, workID, completingActor string) error {
-	return workflowRequireMain(ctx, tx, workID, completingActor)
 }

@@ -389,22 +389,9 @@ func workflowSupersedeContractEvents(ctx context.Context, tx *sql.Tx, definition
 	return appendWorkflowDesignCorrection(ctx, tx, definition, request, actor, fields["design_record"], eventID, expected, events)
 }
 
-func workflowAcceptWorkerResultEvents(ctx context.Context, tx *sql.Tx, request WorkflowActionExecutionRequest, actor string, fields map[string]json.RawMessage, eventID string, expected int64) ([]Event, error) {
-	// Acceptance binds the attempt it certifies (#865). The evidence kind
-	// is the lane's capability class, so a verify lane's report is
-	// verification evidence and the completion gate's requirement is met
-	// by the lane that verified. The verdict on the next step cites the
-	// attempt id.
-	attemptID := workflowFieldStringDefault(fields, "attempt_id", "")
-	// The fold owns every refusal about the attempt itself: missing,
-	// foreign, incomplete, or without readback. This arm reads only the
-	// capability class and lets an absent row fall through to the fold.
-	var capability string
-	if err := tx.QueryRowContext(ctx, `SELECT capability_class FROM worker_attempts WHERE attempt_id=?`, attemptID).Scan(&capability); err != nil && err != sql.ErrNoRows {
-		return nil, workflowProjectionError(err, "cannot read the accepted worker attempt")
-	}
+func workflowRecordedReviewEvents(request WorkflowActionExecutionRequest, actor, eventID string, expected int64) ([]Event, error) {
 	return []Event{workflowTypedEvent(eventID+":evidence", WorkflowEvidenceBound, request.WorkID, actor, request.Now, expected, map[string]any{
-		"evidence_kind": workerAttemptEvidenceKind(capability), "immutable_subject_ref": attemptID,
+		"evidence_kind": string(EvidenceReview), "immutable_subject_ref": request.OperationID + ":completed",
 		"producer_id": request.PrincipalRef, "producer_run_ref": request.OperationID, "producer_watermark": request.RequestID,
 		"observed_at": request.Now.UTC().Format(time.RFC3339Nano),
 	})}, nil
@@ -556,7 +543,7 @@ func workflowRecordVerdictEvents(ctx context.Context, tx *sql.Tx, request Workfl
 // workflowVerdictReceiptAssociations validates a whole batch against one read
 // snapshot before either preflight admits it or event construction records it.
 func workflowVerdictReceiptAssociations(ctx context.Context, tx queryer, workID, verdictActor string, fields map[string]json.RawMessage) ([]workflowVerdictRecordedPayload, error) {
-	if err := workflowRequireMain(ctx, tx, workID, verdictActor); err != nil {
+	if err := requireActor(ctx, tx, verdictActor); err != nil {
 		return nil, err
 	}
 	entries, entriesErr := normalizeWorkflowVerdictEntries(fields)
@@ -763,13 +750,6 @@ func validateWorkflowEngineeringConfirmationTx(ctx context.Context, tx *sql.Tx, 
 	}
 	if request.SelectedChoice != "confirm" {
 		return newFailure(KindInvalidInput, "workflow_action", "an engineering premise confirmation records selected_choice confirm; revise follows the successor route", false, "confirm, or supersede through the successor route")
-	}
-	authority, authorityErr := workflowEvaluationAuthority(ctx, tx, request.WorkID, actor)
-	if authorityErr != nil {
-		return authorityErr
-	}
-	if authority == WorkflowWorkerEvaluator {
-		return newFailure(KindUnauthorized, "workflow_action", "worker actors cannot record an engineering premise confirmation", false, "return the worker report to the coordinator")
 	}
 	var invokerClass string
 	if tx.QueryRowContext(ctx, `SELECT actor_class FROM workflow_actors WHERE actor_ref=?`, actor).Scan(&invokerClass) != nil || invokerClass != "agent" {

@@ -404,7 +404,7 @@ func TestDeliveryAdmissionRefusalsMatchAcrossEntryRoutes(t *testing.T) {
 					return refineProofTooling(ProjectDeclaredTool{ID: "go-test-race", Invocation: "go test -race ./..."})
 				}, wantKind: KindMissingEvidence, wantDetail: "not a tool the Project declares"},
 				{name: "missing-step-start", routes: []string{"record_delivery"}, step: "work", seed: func(t *testing.T, c acceptDeliveryCandidate) *ProjectToolingManifest {
-					parkWorkflowInstanceAt(t, c.f.store, c.f.workID, "refine")
+					setWorkflowStepForOperatorVerdictTest(t, c.f.store, c.f.workID, "refine")
 					acceptDeliveryBindFresh(t, c, "unstarted")
 					return nil
 				}, wantKind: KindInvalidOperation, wantDetail: "requires the delivery step's fenced start action"},

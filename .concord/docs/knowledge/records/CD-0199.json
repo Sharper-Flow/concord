@@ -7,7 +7,6 @@
   "evidence": [
     "adapter/opencode/ci-watch.ts",
     "adapter/opencode/ci-watch.test.ts",
-    "contracts/agent-lanes.v1.json",
     "cmd/concord/ci_wait.go",
     "internal/ciwait/ci_wait.go"
   ],

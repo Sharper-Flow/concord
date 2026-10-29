@@ -8,7 +8,6 @@
   "doc_contract_profile": "legacy",
   "evidence": [
     "internal/agent/authority.go",
-    "internal/agent/worker_evidence.go",
     "internal/store/schema.go",
     "internal/store/blocked_sessions.go",
     ".concord/docs/reachability-exceptions.v1.json"
@@ -26,7 +25,7 @@
   },
   "sha256": "sha256:be36d281641550182713c4feb012e863a930b32445eadcf54d3952640f769034",
   "status": "accepted",
-  "summary": "Authorization becomes the registered client policy intersected with git-derived scope resolved from the invoke envelope on every call. The grant token, the agent_grants table, expiry, and use counts are removed, and host approval keeps its scope, challenge, and consequence bindings without a signature. Worker evidence signing under CD-0067 D6 is out of scope and keeps the client key registry and the nonce table. Approval challenges re-anchor to the session identity tuple, blocked-session Product scope moves to the session record, and the three unbuilt revocation methods are removed. This declines the core-issued opaque session handle CD-0071 D4 anticipated.",
+  "summary": "Per-call authorization intersects registered client policy with fresh Git-derived scope and requested capabilities, without grant tokens. Principal identity, idempotency, worktree ownership, manifest and scope refusals remain. Host approval keeps exact consequence/challenge/session bindings without a signature. Worker signing and its dedicated key lifecycle supply no authority after launcher retirement.",
   "tags": [
     "authority",
     "grants",

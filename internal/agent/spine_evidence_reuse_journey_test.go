@@ -15,10 +15,10 @@ import (
 func TestCriterion13ProducerFactsSurviveStageExitAndFreshSession(t *testing.T) {
 	f := newSpineExecutionFixture(t)
 	f.verify(t)
-	f.recordJob(t)
-	f.completeWorker(t)
+	f.prepareControl(t)
+	f.implement(t)
 	f.proof = f.verify(t)
-	f.recordJob(t)
+	f.prepareControl(t)
 	f.review(t, "ready_for_final_proof", f.proof)
 	before := f.read(t)
 	if before.Pinned.Pin.Review == nil || before.Pinned.Pin.Review.Accepted == nil {

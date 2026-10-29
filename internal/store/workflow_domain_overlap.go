@@ -491,21 +491,6 @@ const (
 	workflowStalePinAdmitOwnMarker
 )
 
-// workflowActionStalePinAdmission reports the stale-pin admission the D7
-// boundary owes one workflow action. Attempt disposition records facts about
-// attempts made under the pinned contract, so the subject's own stale pin
-// admits it and the item settles its attempt before it self-heals through
-// the contract re-pin. Contract-judgment actions (record_verdict, complete)
-// keep the full refusal, so terminal completion still requires the re-pin.
-func workflowActionStalePinAdmission(actionID string) workflowStalePinAdmission {
-	switch actionID {
-	case "accept_worker_result", "accept_worker_evidence", "reject_worker_result", "record_worker_failure":
-		return workflowStalePinAdmitOwnMarker
-	default:
-		return workflowStalePinAdmitNone
-	}
-}
-
 func currentWorkflowDomainRegistryCheckTx(ctx context.Context, q queryer, footprint workflowOverlapFootprint) error {
 	var registryHash string
 	if err := q.QueryRowContext(ctx, `SELECT content_hash FROM domain_registries WHERE product_id=?`, footprint.ProductID).Scan(&registryHash); err != nil {

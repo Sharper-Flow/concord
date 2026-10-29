@@ -2,7 +2,7 @@ import { test, expect } from "bun:test"
 import { readFileSync } from "node:fs"
 import { contractOperations, manifestDigest, payloadSchemas, workflowActionPublicVariants } from "./generated-contracts"
 import { expandedPublishedRequestSchema, validateGeneratedPayload, actionFieldsBranches } from "./generated-contract-tests"
-import { validateAgainstSchema } from "./dispatch"
+import { validateAgainstSchema } from "./core-runtime"
 
 const adapter = await import("./concord")
 

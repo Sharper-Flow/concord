@@ -1,12 +1,9 @@
 package store
 
 import (
-	"context"
 	"encoding/json"
-	"fmt"
 	"strings"
 	"testing"
-	"time"
 )
 
 // qCurrentAcceptance records a current implementation candidate, a captured
@@ -110,37 +107,11 @@ func qAssociationPayload(t *testing.T, f acceptanceRecoveryFixture) json.RawMess
 
 func qAcceptCriterionReview(t *testing.T, f workContextFixture, repo, receipt string) {
 	t.Helper()
-	j := &candidateJourney{fixture: f, s: f.store, workID: f.workID, repo: repo}
-	job := reviewSubjectReviewJob(t, f)
-	attempt := fmt.Sprintf("q:review:%s:%d", f.workID, readWorkVersion(t, f.store, f.workID))
-	if err := descendantDispatch(t, j, "review", attempt, job, nil); err != nil {
-		t.Fatal(err)
-	}
-	j.laneDispatch(t, attempt, "review", &job)
-	window := reviewSubjectWindow(t, f.store, f.workID, attempt)
-	report := currentReviewBlockForTest(t, f.store, f.workID, attempt, "ready_for_final_proof")
-	for _, criterion := range report.Dependencies.Criteria {
-		report.Assessments = append(report.Assessments, WorkerReviewAssessment{PredicateID: criterion.PredicateID, Assessment: "supported", ReceiptRefs: []string{receipt}})
-	}
-	lane := reviewGateLane(t, "review")
-	evidence := []WorkerReportEvidence{}
-	for _, obligation := range lane.EvidenceObligations {
-		if obligation != "severity" {
-			evidence = append(evidence, WorkerReportEvidence{Obligation: obligation, Detail: "Reviewed the candidate and its captured command receipt."})
+	completeCurrentReviewForTest(t, f, repo, "ready_for_final_proof", func(report *ReviewBlock) {
+		for _, criterion := range report.Dependencies.Criteria {
+			report.Assessments = append(report.Assessments, ReviewAssessment{PredicateID: criterion.PredicateID, Assessment: "supported", ReceiptRefs: []string{receipt}})
 		}
-	}
-	event := Event{EventID: attempt + ":completed", Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: f.workID, Actor: "worker:test", OccurredAt: time.Now().UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerCompleted), Payload: mustJSONValue(WorkerCompletedPayload{
-		AttemptID: attempt, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion, WorkerDirectory: repo,
-		Evidence: evidence, EvidenceOrigin: WorkerEvidenceReported, WorkerJob: &job, Review: report,
-	})}
-	prepared, err := PrepareWorkerTerminalDelivery(t.Context(), f.store, PrepareWorkerTerminalDeliveryRequest{WorkID: f.workID, AttemptID: attempt, EventID: event.EventID})
-	if err != nil {
-		t.Fatal(err)
-	}
-	workerTerminalEventThroughSeamCtx(t, WithWorkerTerminalPreparation(context.Background(), prepared), f.store, event)
-	if err := j.action(t, "accept_worker_result", map[string]any{"attempt_id": attempt, "attempt_epoch": window.AttemptEpoch}, f.owner); err != nil {
-		t.Fatalf("accept criterion Review: %v", err)
-	}
+	})
 }
 
 func TestQAssociateCurrentProofKeepsSeededContract(t *testing.T) {

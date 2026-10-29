@@ -27,7 +27,7 @@ import fs from "node:fs"
 import { homedir } from "node:os"
 import path from "node:path"
 import { hostToolDescriptions, hostToolSchemas } from "./generated-contracts"
-import { concordBinaryPath } from "./dispatch"
+import { concordBinaryPath } from "./core-runtime"
 import { hostControlPlane, SESSION_MESSAGES_ROUTE, SESSION_ROUTE, type PluginClientHost, type RouteResult } from "./move-session"
 import { promptAndConfirm as deliverHostPrompt, readSessionIdentity as hostSessionIdentity, type SessionIdentity } from "./host-prompt"
 

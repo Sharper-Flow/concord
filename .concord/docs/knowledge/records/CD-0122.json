@@ -23,10 +23,6 @@
     {
       "kind": "refines",
       "target_id": "CD-0089"
-    },
-    {
-      "kind": "refines",
-      "target_id": "CD-0102"
     }
   ],
   "path": ".concord/docs/decisions/CD-0122-concord-workflow-scope-and-defect-repair.md",

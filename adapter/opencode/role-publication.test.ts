@@ -15,20 +15,18 @@ import path from "node:path"
 import { contractOperations, hostToolSchemas, workflowActionPublicVariants } from "./generated-contracts"
 import { expandedPublishedRequestSchema } from "./generated-contract-tests"
 import { ciWatchTool, publishCiWatchDefinition } from "./ci-watch"
-import { publishWorkerReadDefinition } from "./worker_source"
-import { publishWorkerCheckDefinition } from "./worker_control"
-import { publishWorkerDiffDefinition } from "./worker_diff"
 import { guardPrimaryRole, PrimaryRoleRefusal } from "./primary-role"
 import { roleDeniedConcordTools } from "./generated-primary-profiles"
-import { agentLanes, agentUtilities } from "./generated-agent-lanes"
 
 const adapter = await import("./concord")
 
 // The complete registered catalog: the request tools plus the
 // separately hooked host tools.
 const CATALOG = [...new Set(contractOperations.map((operation: any) => operation.tool)), ...Object.keys(hostToolSchemas)].sort()
-const LANE_AGENTS = agentLanes.map((lane) => `concord-${lane.id}`)
-const UTILITY_AGENTS = agentUtilities.map((utility) => `concord-${utility.id}`)
+const utilities = JSON.parse(
+  fs.readFileSync(path.resolve(import.meta.dir, "../../contracts/agent-utilities.v1.json"), "utf8"),
+) as { utilities: Array<{ id: string; allowed_tools: string[] }> }
+const UTILITY_AGENTS = utilities.utilities.map((utility) => `concord-${utility.id}`)
 const READS = ["concord_product_view", "concord_work_browse", "concord_work_trace", "concord_knowledge", "concord_domain"]
 
 // Every registered parameter root, measured through the production
@@ -57,19 +55,6 @@ const watcherRegistration = {
 await publishCiWatchDefinition({ toolID: "concord_ci_watch" }, watcherRegistration)
 expect(watcherRegistration.jsonSchema).toBeObject()
 registeredBytes.set("concord_ci_watch", Buffer.byteLength(JSON.stringify(watcherRegistration.jsonSchema), "utf8"))
-const readerOutput = { description: "", parameters: {}, jsonSchema: undefined as unknown }
-await publishWorkerReadDefinition({ toolID: "concord_worker_read" }, readerOutput)
-expect(readerOutput.jsonSchema).toEqual(hostToolSchemas.concord_worker_read)
-registeredBytes.set("concord_worker_read", Buffer.byteLength(JSON.stringify(readerOutput.jsonSchema), "utf8"))
-const checkOutput = { description: "", parameters: {}, jsonSchema: undefined as unknown }
-await publishWorkerCheckDefinition({ toolID: "concord_worker_check" }, checkOutput)
-expect(checkOutput.jsonSchema).toEqual(hostToolSchemas.concord_worker_check)
-registeredBytes.set("concord_worker_check", Buffer.byteLength(JSON.stringify(checkOutput.jsonSchema), "utf8"))
-const diffOutput = { description: "", parameters: {}, jsonSchema: undefined as unknown }
-await publishWorkerDiffDefinition({ toolID: "concord_worker_diff" }, diffOutput)
-expect(diffOutput.jsonSchema).toEqual(hostToolSchemas.concord_worker_diff)
-const diffBytes = 398
-registeredBytes.set("concord_worker_diff", Buffer.byteLength(JSON.stringify(diffOutput.jsonSchema), "utf8"))
 
 function projectedBytes(role: string): { allowed: string[]; bytes: number } {
   const denied = new Set(roleDeniedConcordTools[role].tools)
@@ -96,7 +81,7 @@ test("every registered role's denial set stays inside the complete catalog", () 
     }
   }
   // The union covers the whole catalog. The watcher is denied by no primary
-  // profile, so losing it from the lane/utility projection would leave the
+  // profile, so losing it from the utility projection would leave the
   // catalog uncovered and fail here.
   expect([...deniedUnion].sort(), "the generated denials no longer cover the registered catalog").toEqual(CATALOG)
 })
@@ -105,22 +90,14 @@ test("the authored registries carry exactly the generated role population and gr
   const profiles = JSON.parse(
     fs.readFileSync(path.resolve(import.meta.dir, "../../contracts/agent-primary-profiles.v1.json"), "utf8"),
   ) as { profiles: Array<{ id: string; denied_concord_tools: string[] }> }
-  const manifest = JSON.parse(
-    fs.readFileSync(path.resolve(import.meta.dir, "../../contracts/agent-lanes.v1.json"), "utf8"),
-  ) as { lanes: Array<{ id: string }>; utilities: Array<{ id: string; allowed_tools: string[] }> }
-  const population = [...profiles.profiles.map((profile) => profile.id), ...LANE_AGENTS, ...UTILITY_AGENTS].sort()
+  const population = [...profiles.profiles.map((profile) => profile.id), ...UTILITY_AGENTS].sort()
   expect(Object.keys(roleDeniedConcordTools).sort(), "the generated role map and the authored registries disagree").toEqual(population)
   for (const profile of profiles.profiles) {
     expect([...roleDeniedConcordTools[profile.id].tools].sort(), profile.id).toEqual([...profile.denied_concord_tools].sort())
   }
-  // Utilities enumerate builtins. Lanes declare capabilities instead of
-  // utility-style tool lists.
-  for (const utility of manifest.utilities) {
+  for (const utility of utilities.utilities) {
     const granted = utility.allowed_tools.filter((tool) => CATALOG.includes(tool))
     expect(granted, `${utility.id} grants registered Concord tools`).toEqual([])
-  }
-  for (const lane of manifest.lanes) {
-    expect(Object.hasOwn(lane, "allowed_tools"), `${lane.id} gained a utility-style tool grant`).toBe(false)
   }
 })
 
@@ -133,8 +110,6 @@ test("per-role no-overlay byte budgets match the complete parameter roots", () =
   for (const [tool, size] of registeredBytes) {
     expect(Number.isFinite(size) && size > 0, `${tool} must carry a finite positive root size`).toBe(true)
   }
-  const READER_BUDGET = { allowed: ["concord_worker_read"], bytes: 601 }
-  const CHECKER_BUDGET = { allowed: ["concord_worker_check", "concord_worker_read"], bytes: 1013 }
   const EMPTY_BUDGET = { allowed: [] as string[], bytes: 0 }
   const PRIMARY_BUDGET = { allowed: CATALOG, bytes: 162_658 }
   // Neither full primary profile denies a tool, so each no-overlay budget
@@ -145,12 +120,6 @@ test("per-role no-overlay byte budgets match the complete parameter roots", () =
   const WRITERS = ["concord_work_compact", "concord_work_define", "concord_work_relate", "concord_work_start", "concord_work_transition"]
   const writerBytes = WRITERS.reduce((sum, tool) => sum + (registeredBytes.get(tool) ?? Number.NaN), 0)
   expect(projectedBytes("Concord-Planner")).toEqual({ allowed: CATALOG.filter((tool) => !WRITERS.includes(tool)), bytes: PRIMARY_BUDGET.bytes - writerBytes })
-  for (const lane of agentLanes) {
-    const role = `concord-${lane.id}`
-    const executes = lane.capabilities.some((capability) => ["run_tests", "run_targeted_checks", "run_validators"].includes(capability))
-    const expected = executes ? CHECKER_BUDGET : lane.capabilities.includes("read_repository") ? READER_BUDGET : EMPTY_BUDGET
-    expect(projectedBytes(role), role).toEqual(lane.capabilities.some(capability => capability === "inspect_diff") ? { allowed: [...expected.allowed, "concord_worker_diff"].sort(), bytes: expected.bytes + diffBytes } : expected)
-  }
   for (const role of UTILITY_AGENTS) {
     expect(projectedBytes(role), role).toEqual(EMPTY_BUDGET)
   }
@@ -187,12 +156,6 @@ test("publication is role-blind, so a denied role's budget is not an immutable c
       await adapter.publishWorkStartDefinition({ toolID: tool }, output)
     } else if (tool === "concord_ci_watch") {
       await publishCiWatchDefinition({ toolID: tool }, output)
-    } else if (tool === "concord_worker_read") {
-      await publishWorkerReadDefinition({ toolID: tool }, output)
-    } else if (tool === "concord_worker_check") {
-      await publishWorkerCheckDefinition({ toolID: tool }, output)
-    } else if (tool === "concord_worker_diff") {
-      await publishWorkerDiffDefinition({ toolID: tool }, output)
     } else {
       await adapter.publishRequestDefinition({ toolID: tool }, output)
     }

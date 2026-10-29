@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"os"
 	"path/filepath"
 	"reflect"
 	"strconv"
@@ -103,22 +104,55 @@ func TestWorkflowReplayTransactionUsesCommittedResponse(t *testing.T) {
 	requireReplayCommit(t, s, "tx-replay-owner", commits, 0, true)
 }
 
+func TestWorkflowReplaySurvivesMissingSessionWorktree(t *testing.T) {
+	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_transition"})
+	version := seedAgentWorkflow(t, s, grant)
+	scope, _, err := s.ScopeVersion(t.Context(), "project-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := mutationEnvelope(grant, scope)
+	env.Worktree = t.TempDir()
+	env.Directory = env.Worktree
+	raw := retryJSON(map[string]any{"work_id": "work-1", "expected_version": version, "action_id": "record_proposal", "idempotency_key": "replay-missing-worktree", "fields": map[string]any{
+		"problem": "The bounded problem statement.", "affected": []string{"The affected system."}, "stakes": "The bounded stakes statement.", "user_outcomes": []string{"The expected user outcome."},
+	}})
+	first := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: raw}, env)
+	if first.Outcome != agentcontract.OutcomeOK {
+		t.Fatalf("initial workflow action: %+v", first.Error)
+	}
+	before := workflowReplayEffectCounts(t, s)
+	missing, moved := env.Worktree, env.Worktree+"-moved"
+	if err := os.Rename(missing, moved); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := os.Rename(moved, missing); err != nil {
+			t.Error(err)
+		}
+	})
+	replay := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: raw}, env)
+	if replay.Outcome != agentcontract.OutcomeOK || !replay.Replayed || string(replay.Result) != string(first.Result) {
+		t.Fatalf("stored workflow replay depended on the live worktree: %+v", replay.Error)
+	}
+	if workflowReplayEffectCounts(t, s) != before {
+		t.Fatal("stored workflow replay changed durable progress")
+	}
+}
+
 type workflowReplayEffects struct {
-	Events, Operations, Attempts, Dispatches int
-	Version                                  int64
-	CurrentRows                              string
+	Events, Operations int
+	Version            int64
+	CurrentRows        string
 }
 
 func workflowReplayEffectCounts(t *testing.T, s *store.Store) workflowReplayEffects {
 	t.Helper()
 	var counts workflowReplayEffects
-	for table, target := range map[string]*int{"effect_receipts": &counts.Events, "durable_operations": &counts.Operations, "worker_attempts": &counts.Attempts} {
+	for table, target := range map[string]*int{"effect_receipts": &counts.Events, "durable_operations": &counts.Operations} {
 		if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM ` + table).Scan(target); err != nil {
 			t.Fatal(err)
 		}
-	}
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE kind=?`, store.WorkerDispatched).Scan(&counts.Dispatches); err != nil {
-		t.Fatal(err)
 	}
 	counts.Version = workOneVersion(t, s)
 	counts.CurrentRows = agentCurrentEffects(t, s)

@@ -6,8 +6,8 @@
   the `concord ci-wait` CLI verb in `cmd/concord`; the wait state file
 - **Approval:** The operator requested deterministic bounded waiting and
   approved the investigation that produced this record.
-- **Related:** CD-0017, CD-0081, CD-0149, CD-0157
-- **Preserves:** The worker authority boundary; fail-closed command
+- **Related:** CD-0149, CD-0157, CD-0199
+- **Preserves:** Workflow authority; fail-closed command
   permissions; the utility distinction from lane evidence
 
 ## Context
@@ -146,7 +146,7 @@ own words, never a success.
 
 ## Verification
 
-- `python3 scripts/generate-agent-lanes.py --check` proves every generated
+- `python3 scripts/generate-agent-profiles.py --check` proves every generated
   projection matches the manifest and templates.
 - `python3 scripts/test-ci-wait-contract.py` proves the CLI verb, its
   refusal paths, its deadline behavior, and the generated body's delegation.

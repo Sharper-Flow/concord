@@ -245,12 +245,12 @@ func TestPublicDefectJourneyThroughRealResearchCompletion(t *testing.T) {
 	if definitionRef != "workflow.research" {
 		t.Fatalf("root cause workflow family=%s", definitionRef)
 	}
-	var fencedStarts, workerDispatches int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FILTER (WHERE kind=?),count(*) FILTER (WHERE kind=?) FROM effect_receipts WHERE subject_id=?`, store.WorkflowActionStarted, store.WorkerDispatched, rcaID).Scan(&fencedStarts, &workerDispatches); err != nil {
+	var fencedStarts int
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_id=? AND kind=?`, rcaID, store.WorkflowActionStarted).Scan(&fencedStarts); err != nil {
 		t.Fatal(err)
 	}
-	if fencedStarts != 0 || workerDispatches != 0 {
-		t.Fatalf("lane-less research completion started %d fenced actions and dispatched %d workers", fencedStarts, workerDispatches)
+	if fencedStarts != 0 {
+		t.Fatalf("research completion started %d fenced actions", fencedStarts)
 	}
 
 	// 7. The recurrent retry is admitted behind the completed root cause.

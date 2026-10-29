@@ -6,8 +6,8 @@
 // the responding agent with every tool call, so the guard reads that
 // identity per call and never trusts the advisory switch notice. The denied
 // set is generated from both role registries: the primary profiles in
-// contracts/agent-primary-profiles.v1.json and the lanes and utilities in
-// contracts/agent-lanes.v1.json, so host visibility and execution denial
+// contracts/agent-primary-profiles.v1.json and the utilities in
+// contracts/agent-utilities.v1.json, so host visibility and execution denial
 // derive from one registry population.
 import { roleDeniedConcordTools } from "./generated-primary-profiles"
 

@@ -38,8 +38,8 @@ mapping.
 ### D2. Concord keeps managed execution state
 
 Concord keeps the facts of explicitly managed execution. These facts are the
-managed work unit, its typed execution contract, sessions, worktrees, worker
-dispatch, verification evidence, and delivery receipts. Workflow transitions,
+managed work unit, its typed execution contract, sessions, worktrees,
+subject-bound outcomes, verification evidence and delivery receipts. Workflow transitions,
 verdicts, and completion stay Concord authority.
 
 ### D3. One Linear issue identity per managed work unit

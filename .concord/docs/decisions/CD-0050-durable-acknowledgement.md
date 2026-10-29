@@ -9,7 +9,7 @@
   [issue #189](https://github.com/Sharper-Flow/concord/issues/189#issuecomment-5362562959),
   and accepted the record as drafted on merge approval; the public record is
   [issue #189 comment](https://github.com/Sharper-Flow/concord/issues/189#issuecomment-5365145398)
-- **Related:** CD-0002 §2b, CD-0011 §Decision item 3, CD-0036, CD-0044,
+- **Related:** CD-0002 §2b, CD-0011 §Decision item 3, CD-0036,
   CD-0046, [`design-constraints.md`](../design-constraints.md) §4,
   [`priorities.md` — Data safety](../priorities.md#data-safety-constraint)
 - **Preserves:** `synchronous=NORMAL` for ordinary writes; the conformance

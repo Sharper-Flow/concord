@@ -350,56 +350,6 @@ func TestContinuityFortyObservationsWindowAndContinuation(t *testing.T) {
 	}
 }
 
-// continuityReadyJobEvent records one dispatch-ready worker-job revision, so
-// the paging witness carries the ready set the unbounded scan returns
-// (CD-0205). The revision row and its receipt land together through the
-// current-row fixture route; the store's own ready predicate decides
-// readiness at read time.
-func continuityReadyJobEvent(t *testing.T, s *store.Store, index int) {
-	t.Helper()
-	jobID := fmt.Sprintf("job:liveness-%d", index)
-	var contractVersion int64
-	if err := s.DatabaseForTesting().QueryRow(`SELECT MAX(contract_version) FROM workflow_contracts WHERE work_id='work-1' AND superseded_by IS NULL`).Scan(&contractVersion); err != nil || contractVersion == 0 {
-		t.Fatalf("fixture contract version=%d err=%v", contractVersion, err)
-	}
-	objective := fmt.Sprintf("bounded paging objective %d for the liveness witness", index)
-	readiness := store.WorkerJobReadiness{Ready: true, Evidence: []string{"evidence:liveness-coordinator"}}
-	recording := store.WorkerJobRecordedPayload{
-		JobID: jobID, Revision: 1, ContractVersion: contractVersion, Objective: objective,
-		StoppingCondition: "the recorded checks pass", PathScope: []string{"internal/agent"},
-		PredicateIDs: []string{"predicate:primary"}, Checks: []string{"go test ./internal/agent/"},
-		Prerequisites: []store.WorkerJobPrerequisite{}, UnresolvedRefs: []string{},
-		Readiness:             &readiness,
-		WorkflowVersionFields: store.WorkflowVersionFields{WorkID: "work-1"},
-	}
-	recording.Digest = store.DeriveWorkerJobDigest(recording)
-	digest := recording.Digest
-	pathScope, _ := json.Marshal([]string{"internal/agent"})
-	predicates, _ := json.Marshal([]string{"predicate:primary"})
-	checks, _ := json.Marshal([]string{"go test ./internal/agent/"})
-	prerequisites, _ := json.Marshal([]store.WorkerJobPrerequisite{})
-	unresolved, _ := json.Marshal([]string{})
-	readinessJSON, _ := json.Marshal(readiness)
-	eventPayload, _ := json.Marshal(recording)
-	tx, err := s.DatabaseForTesting().Begin()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer tx.Rollback()
-	eventID := "liveness-job-" + jobID
-	seq := agentSeedReceipt(t, tx, eventID, store.WorkerJobRecorded, "work-1", "operator", 1, eventPayload)
-	if _, err := tx.Exec(`INSERT INTO write_guard(active) VALUES(1);
-		INSERT INTO worker_job_revisions(work_id,job_id,revision,contract_version,objective,stopping_condition,project_scope,path_scope,predicate_ids,checks,prerequisites,unresolved_refs,reserved_integration,readiness,digest,state,recorded_at,recorded_payload,recorded_seq,recorded_event_id)
-		VALUES('work-1',?,?,?,?,?,?,?,?,?,?,?,?,?,?, 'recorded', '2026-08-08T12:00:00Z',?,?,?);
-		DELETE FROM write_guard`,
-		jobID, 1, contractVersion, objective, "the recorded checks pass", "", string(pathScope), string(predicates), string(checks), string(prerequisites), string(unresolved), "", string(readinessJSON), digest, string(eventPayload), seq, eventID); err != nil {
-		t.Fatal(err)
-	}
-	if err := tx.Commit(); err != nil {
-		t.Fatal(err)
-	}
-}
-
 // TestContinuityFixedProjectionEnvelopeLiveness holds the continuity read to
 // its liveness bound: a fixed projection that renders past the envelope even
 // with the observation window empty must still answer successfully at the
@@ -461,12 +411,6 @@ func TestContinuityFixedProjectionEnvelopeLiveness(t *testing.T) {
 		"finding_refs":     []string{},
 		"context_findings": findings,
 	})
-	// Three dispatch-ready worker-job revisions ride the pinned projection in
-	// the packet's inputs.worker_job shape. The ready scan carries no SQL
-	// page limit, so the paged document must carry the whole set.
-	for i := 1; i <= 3; i++ {
-		continuityReadyJobEvent(t, s, i)
-	}
 	// Forty admitted observations grow the windowed collection. Their
 	// ampersands cost six serialized bytes each, so even the first window
 	// slice overruns the envelope; the fixed projection must answer with
@@ -487,8 +431,7 @@ func TestContinuityFixedProjectionEnvelopeLiveness(t *testing.T) {
 	// Fixture proof, before any read: with the observation window empty and
 	// one boundary kept, the fixed projection alone renders past the
 	// unchanged envelope bound, both work-context copies ride the captured
-	// snapshot, the ready set holds three revisions, and the observation
-	// population holds forty records.
+	// snapshot, and the observation population holds forty records.
 	captured, err := store.ReadWorkflowContinuity(ctx, s, store.ContinuityRequest{Work: "work-1", Limit: 1})
 	if err != nil {
 		t.Fatal(err)
@@ -512,9 +455,6 @@ func TestContinuityFixedProjectionEnvelopeLiveness(t *testing.T) {
 	}
 	if captured.WorkContext == nil || len(captured.WorkContext.Findings) != 16 {
 		t.Fatal("fixture lost the top-level work-context view")
-	}
-	if len(captured.ReadyWorkerJobs) != 3 {
-		t.Fatalf("fixture ready worker jobs = %d, want 3", len(captured.ReadyWorkerJobs))
 	}
 	if captured.ObservationsTotal != 40 {
 		t.Fatalf("fixture observation total = %d, want 40", captured.ObservationsTotal)
@@ -572,7 +512,6 @@ func TestContinuityFixedProjectionEnvelopeLiveness(t *testing.T) {
 					LatestCheckpoint *store.ContextCheckpoint `json:"latest_checkpoint"`
 					WorkPin          *store.WorkPin           `json:"work_pin"`
 					WorkContext      *store.WorkContextView   `json:"work_context"`
-					ReadyWorkerJobs  []store.WorkerPacketJob  `json:"ready_worker_jobs"`
 				} `json:"pinned"`
 				Boundaries struct {
 					Count      int64                   `json:"count"`
@@ -587,7 +526,7 @@ func TestContinuityFixedProjectionEnvelopeLiveness(t *testing.T) {
 			}
 			// The completed page sequence keeps every fixed member exactly:
 			// the escaped latest checkpoint, both work-context copies with
-			// all sixteen findings, the pin's intents, every ready job, and
+			// all sixteen findings, the pin's intents, and
 			// the whole observation population behind its paged read pointer.
 			if payload.Pinned.LatestCheckpoint == nil || payload.Pinned.LatestCheckpoint.Hypothesis != strings.Repeat("\\", 4096) {
 				t.Fatal("escaped latest checkpoint lost or truncated")
@@ -600,9 +539,6 @@ func TestContinuityFixedProjectionEnvelopeLiveness(t *testing.T) {
 			}
 			if payload.Pinned.WorkContext == nil || len(payload.Pinned.WorkContext.Findings) != 16 {
 				t.Fatal("top-level work-context view lost from the reconstructed document")
-			}
-			if len(payload.Pinned.ReadyWorkerJobs) != 3 {
-				t.Fatalf("reconstructed document carries %d ready worker jobs, want 3", len(payload.Pinned.ReadyWorkerJobs))
 			}
 			if payload.ObservationsTotal != 40 || payload.ObservationsRead == nil || payload.ObservationsRead.Operation != "observations" {
 				t.Fatalf("observation population lost its count or read pointer: total=%d read=%+v", payload.ObservationsTotal, payload.ObservationsRead)
@@ -950,9 +886,6 @@ func oversizedContinuationFixture(t *testing.T) (*store.Store, context.Context) 
 		"finding_refs":     []string{},
 		"context_findings": findings,
 	})
-	for i := 1; i <= 2; i++ {
-		continuityReadyJobEvent(t, s, i)
-	}
 	for i := range 8 {
 		observation, _ := json.Marshal(map[string]any{
 			"observation_id": fmt.Sprintf("obs:%016x", i), "statement": "😀 " + strings.Repeat("&", 500),

@@ -220,6 +220,6 @@ would fail on every unrelated edit while still not proving the document is true.
 - `scripts/check-doc-contract.py` resolves current citations in accepted law,
   published knowledge, and shipped instructions; `scripts/test-doc-contract.py`
   proves the refusal and the passing counterpart for each population.
-- `scripts/generate-agent-lanes.py --check` refuses unprojected agent definitions;
-  `scripts/test-generate-agent-lanes.py` proves the refusal and the passing
-  counterpart in `AgentDirectoryInventoryTests`.
+- `python3 scripts/generate-agent-profiles.py --check` must refuse unprojected
+  agent definitions. Regression coverage must prove the refusal and passing
+  counterpart; projection equality alone does not prove directory closure.

@@ -1,26 +1,5 @@
 {
-  "evidence": [
-    {
-      "kind": "go_test",
-      "value": "internal/store.TestMigrateV43ToV44DropsWorkerRoutingEvidenceAndPreservesRows"
-    },
-    {
-      "kind": "go_test",
-      "value": "internal/store.TestWorkerEventsRejectUnknownLanePacketAndPayloadFields"
-    },
-    {
-      "kind": "go_test",
-      "value": "internal/store.TestWorkerCompletionPreservesHostReadback"
-    },
-    {
-      "kind": "go_test",
-      "value": "internal/store.TestWorkerTerminalTransitionsAreSingleUseAndSubjectBound"
-    },
-    {
-      "kind": "go_test",
-      "value": "internal/store.TestWorkerCompletedAndFailedEventsRetainD5Evidence"
-    }
-  ],
   "id": "CD-0058",
-  "state": "satisfied"
+  "issue": "CON-1494",
+  "state": "outstanding"
 }

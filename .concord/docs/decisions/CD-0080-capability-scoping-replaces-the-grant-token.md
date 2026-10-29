@@ -7,12 +7,12 @@
 - **Approval:** Operator selected capability scoping without tokens on
   2026-08-28, after review of the two candidates recorded in issue #465. The
   pull request is the public record.
-- **Related:** CD-0071 (D1, D4, D6), CD-0044, CD-0037 D5, CD-0017 D4, CD-0067
-  D6, CD-0008, CD-0003, CD-0042, issues #465, #450
+- **Related:** CD-0071 (D1, D4, D6), CD-0037 D5, CD-0008, CD-0003,
+  CD-0042, CD-0242, issues #465, #450
 - **Preserves:** Git-derived scope resolution and its refusals, the
   `cross_scope` gate, manifest-digest pinning, typed `unauthorized` refusals,
   the operator approval checkpoint with core-derived consequence summaries,
-  `principal_ref` as checked identity, worker evidence signing under CD-0067 D6
+  `principal_ref` as checked identity
 
 ## Context
 
@@ -62,8 +62,8 @@ unchanged in effect and moved in site.
 ### D2. The grant token, its record, and its lifetime bounds are removed
 
 `principal_ref` survives on `agent_clients` and continues to carry checked
-identity for idempotency partitioning, worktree claim ownership, workflow actor
-distinctness under CD-0017 D4, and durable operation attribution.
+identity for idempotency partitioning, worktree claim ownership, workflow
+authority and durable operation attribution.
 
 ### D3. Host approval keeps its bindings and loses its signature
 
@@ -80,22 +80,6 @@ unexpired, and within its use count. All three remain.
 The Ed25519 verification and the nonce record on the host approval path are
 removed. The operator still approves a core-derived consequence summary, and
 tool input still cannot author or widen an approval.
-
-### D4. Worker evidence signing is out of scope and unchanged
-
-CD-0067 D6 binds worker evidence to the packet it came from, and the proof never
-reaches the worker. That property is distinct from grant issuance and is not
-reconsidered here.
-
-`internal/agent/worker_evidence.go` continues to verify an Ed25519 signature
-against the registered client key and to record a nonce. Three mechanisms
-therefore survive this record that CD-0071 D4 listed as not load-bearing:
-`agent_client_keys`, `agent_nonce_replay`, and client key rotation. They survive
-because worker evidence uses them, not because grant issuance does. The
-`client-register`, `client-key-rotate`, `client-revoke`, and
-`client-policy-update` verbs remain reachable.
-
-A later record may revisit worker evidence. This one does not.
 
 ### D5. Approval challenges bind to the session identity tuple
 
@@ -142,7 +126,7 @@ authority.*
 
 ### D7. The three revocation methods are removed
 
-The operator's revocation surface is `client-revoke` and `client-key-rotate`.
+The operator's client-policy revocation surface is `client-revoke`.
 An approval is single-use, challenge-bound, and expiring. Under CD-0071 D1 a
 caller able to exploit one is able to insert a replacement.
 
@@ -153,17 +137,11 @@ authorization. CD-0071 D5 forecloses a process-level authority boundary.
 
 ## Consequences
 
-- `agent_clients`, `agent_client_keys`,
-  `agent_nonce_replay`, `agent_approvals`, `agent_approval_challenges`, and
+- `agent_clients`, `agent_approvals`, `agent_approval_challenges`, and
   `agent_installation_keys` serve current consumers, the last for cursor
   signing, which is unrelated to agent authority.
-- The worker evidence vector requires canonical encoder discipline and a
-  Go-to-TypeScript agreement test.
 - Scope is fresh per call. A working tree that moves between calls is
   authorized against its current state.
-- The system retains Ed25519 signing for worker evidence only. An operator
-  reading the schema will find a key registry and a nonce table with one
-  consumer each, which D4 explains.
 
 ## Rejected alternatives
 
@@ -172,11 +150,6 @@ the invoke path already re-supplies every field the handle would name, so the
 handle preserves a memo rather than removing one. It also preserves the scope
 snapshot staleness that per-call resolution eliminates. Under P35 elimination
 outranks substitution, and this candidate substitutes.
-
-**Removing worker evidence signing in the same record.** Rejected as scope. The
-packet-digest binding in CD-0067 D6 delivers a property grant issuance never
-did, and replacing it needs its own argument. Bundling it would put two
-unrelated authority questions behind one approval.
 
 **Keeping the grant record as a read-only attribution row.** Rejected because
 nothing outside the authority path reads it for attribution. Durable operations

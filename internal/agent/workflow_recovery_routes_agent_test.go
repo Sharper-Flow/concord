@@ -53,43 +53,6 @@ func recoveryDomainRepository(t *testing.T, s *store.Store) string {
 	return home.RepoPath
 }
 
-// Record the job under the active contract, including after supersession.
-func recordRecoveryWorkerJob(t *testing.T, s *store.Store, service *Service, env CallEnvelope, jobID string) {
-	t.Helper()
-	active, err := s.ActiveWorkflowContract(context.Background(), "work-1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	recordReadyRetryJobWithChecks(t, s, service, env, jobID, active.Version, []string{"go vet ./..."})
-}
-
-// recoveryProducerLane resolves the producer lane the tuple names.
-// A missing or unregistered lane is a fixture defect, not a test
-// pass.
-func recoveryProducerLane(t *testing.T, laneID string) store.LaneDefinition {
-	t.Helper()
-	for _, candidate := range store.BuiltinLaneDefinitions() {
-		if candidate.ID == laneID {
-			return candidate
-		}
-	}
-	t.Fatalf("producer lane %q is not registered", laneID)
-	return store.LaneDefinition{}
-}
-
-// attemptEpoch reads the epoch of this exact authorized dispatch.
-func attemptEpoch(t *testing.T, s *store.Store, attemptID string) int64 {
-	t.Helper()
-	var epoch int64
-	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.attempt_epoch') FROM worker_authorizations WHERE work_id='work-1' AND attempt_id=?`, attemptID).Scan(&epoch); err != nil {
-		t.Fatalf("read dispatch epoch for %s: %v", attemptID, err)
-	}
-	if epoch == 0 {
-		t.Fatalf("attempt %s has no recorded dispatch epoch", attemptID)
-	}
-	return epoch
-}
-
 // stepOf reads the workflow instance's current step.
 func stepOf(t *testing.T, s *store.Store) string {
 	t.Helper()

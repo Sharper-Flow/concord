@@ -3,13 +3,13 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"sort"
 )
 
 // CD-0229 D5: "A `larger` change whose second review still finds one inside
 // its scope has proved bigger." The proof derives from recorded events only.
-// It is a review acceptance (accept_worker_evidence or accept_worker_result
-// of a completed review attempt) that falls after the item's latest size
+// It is a recorded Review that falls after the item's latest size
 // record while the effective size is larger, follows an earlier accepted
 // review and a later checkpoint_refine under the same contract version, and
 // whose report still carries a qualifying finding.
@@ -41,22 +41,11 @@ func workSizeAssessmentFrontierTx(ctx context.Context, q queryer, workID string)
 	return boundary, nil
 }
 
-// workSizeReviewFindsInScopeTx reads the accepted review attempt's report
-// recorded before its acceptance and reports whether it still carries a
-// qualifying finding.
-func workSizeReviewFindsInScopeTx(ctx context.Context, q queryer, workID, attemptID string, accepted int64) (bool, error) {
-	var seq int64
-	var raw string
-	err := q.QueryRowContext(ctx, `SELECT terminal_seq, terminal_payload FROM worker_attempts
-		WHERE work_id=? AND attempt_id=? AND terminal_kind=? AND terminal_seq<?`, workID, attemptID, WorkerCompleted, accepted).Scan(&seq, &raw)
-	if err != nil {
-		return false, wrapFailure(KindUnavailable, "work_size", "cannot read the accepted review report", true, "retry once the database is readable", err)
-	}
-	return workSizeReviewFindsInScope(raw, seq)
-}
-
 func workSizeReviewFindsInScope(raw string, seq int64) (bool, error) {
-	var report WorkerCompletedPayload
+	var report struct {
+		Review          *ReviewBlock      `json:"review"`
+		ContextFindings []json.RawMessage `json:"context_findings"`
+	}
 	if err := json.Unmarshal([]byte(raw), &report); err != nil {
 		return false, newFailure(KindInvariantViolation, "work_size", "a stored review report is malformed", false, "restore a verified backup into a new path with concord restore, then swap")
 	}
@@ -82,7 +71,7 @@ func workSizeReviewFindsInScope(raw string, seq int64) (bool, error) {
 		}
 		id := finding.Oracle.ContinuesFindingID
 		if id == "" {
-			id = workerRankedFindingID(seq, len(report.ContextFindings), index)
+			id = fmt.Sprintf("finding:%d:%d", seq, len(report.ContextFindings)+index)
 		}
 		if !resolved[id] {
 			return true, nil

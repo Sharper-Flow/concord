@@ -2,7 +2,7 @@
 
 The release installer owns adapter placement and version registration. Follow
 the [installation guide](../../.concord/docs/installation.md) for release artifacts,
-Secret Service prerequisites, upgrade, and uninstall behavior.
+prerequisites, upgrade, and uninstall behavior.
 
 The release installer places the adapter under `~/.config/opencode/tools/` and
 registers the plugin entry module `concord-plugin.ts` in the host `plugin`
@@ -12,18 +12,16 @@ plugin entry module as a factory, so `concord-plugin.ts` exports exactly one
 default factory and re-exports the tool definitions from `concord.ts`; the tool
 modules are never used as entry points directly.
 
-Worker evidence requires the OS Secret Service and `secret-tool`, with the
-registered Ed25519 private key stored under the Concord credential identity.
-The adapter does not store keys in a workspace, arguments, logs, or tool output.
-Missing credentials, an incompatible core, malformed stdout, or a failed
+The adapter presents the registered client reference selected by
+`CONCORD_CLIENT_REF`, defaulting to `opencode`. It reads no private signing key.
+An incompatible core, malformed stdout, or a failed
 transport returns a typed failure and does not guess an effect.
 
 ## Planning and recorded issue identity
 
 Agents use the Linear MCP server for all planning reads and writes. Concord
 owns managed execution, not an issue or Project mirror. Its binary makes no
-Linear API call and holds no Linear credential; the worker credential above
-remains separate.
+Linear API call and holds no Linear credential.
 
 After the agent creates or finds an issue through Linear MCP, it records the
 issue key, UUID, and URL with `concord_work_define.issue_link_record`.
@@ -57,9 +55,6 @@ other aliases are accepted:
 | `project-locator-add` | `project locator-add` |
 | `project-locator-update` | `project locator-update` |
 | `project-locator-remove` | `project locator-remove` |
-| `worker-dispatch` | — |
-| `worker-complete` | — |
-| `worker-fail` | — |
 | `worktree-locate` | — |
 
 `invoke` uses only its single-word form. A first installation
@@ -152,8 +147,7 @@ carries only exact additions (capabilities, Product, Project, and agent
 scope) plus a reason, and no client field: the target is always the calling
 agent's own trusted client, so a tool argument cannot widen a different
 client (CD-0071 D1). The core derives the exact additive diff against the
-stored policy, refuses requests that add nothing, exceed a policy bound, or
-name `worker_evidence`/`worker_dispatch` (no bearer route may request those),
+stored policy, refuses requests that add nothing or exceed a policy bound,
 and mints an operator challenge bound to the diff plus the current policy
 version. The first call returns `approval_required` with the challenge; the
 host asks the operator with the calling client, the policy version, the
@@ -184,14 +178,12 @@ before the adapter invokes a tool.
 ## Verbatim first installation
 
 The following synthetic example runs from a non-Git parent directory. The
-public key and seed are the RFC Ed25519 test pair; store the seed under the
-same client reference before using the adapter.
+public key is from the RFC Ed25519 test pair.
 
 ```sh
 export CONCORD_DB_PATH="$HOME/.local/share/concord/concord.db"
 mkdir -p workspace/concord-demo
 git -C workspace/concord-demo init --quiet
-printf '%s\n' 'base64:nWGxne/9WmC6hEr0kuwsxERJxWl7MmkZcDusAxyuf2A=' | secret-tool store --label='Concord demo client' service concord account demo-client
 
 printf '%s\n' '{"client_ref":"demo-client","key_id":"demo-key-1","principal_ref":"demo-operator","public_key":"11qYAYKxCrfVS/7TyWQHOg7hcvPapiMlrwIaaPcHURo=","capabilities":["product_read"],"product_scope":["demo-product"],"project_scope":["demo-project"],"agent_scope":["demo-agent"]}' | concord client-register
 printf '%s\n' '{"product_id":"demo-product","display_name":"Demo Product","stage_maturity":"prototype","stage_audience_commitment":"operator_only","project_id":"demo-project","project_display_name":"Demo Repository","role":"primary"}' | concord product-create
@@ -210,102 +202,38 @@ After installing the adapter, run an adapter tool from that repository. It
 resolves the matching locator and scope, then invokes the tool after core
 authorization.
 
-The `worker-*` verbs are internal orchestrator verbs. They use the same strict
-JSON-stdin boundary but are not capability-gated agent tools and do not expand TS8.
+## Native Tasks and coordinator outcomes
 
-## Typed worker lane dispatch
+OpenCode owns Task execution, child sessions, progress, cancellation, permissions,
+and model selection. The adapter does not intercept Task arguments, authorize
+subagents, package prompts, or read their results into Concord evidence.
 
-The public `concord_work_transition.workflow_action` route accepts
-`action_id: dispatch_worker` with `fields.lane_id`. The adapter builds the
-closed lane packet from recorded state, obtains core authorization, and opens
-one single-use window. Dispatch returns authorization only: its result names
-the exact lane and attempt reference and instructs the coordinator to issue one
-native foreground Task from the requesting session. Dispatch launches no
-worker, queues nothing, and performs no subtask write. The coordinator issues
-that Task with the exact selector: `subagent_type` names the registered
-`concord-<lane>` agent, `prompt` equals the returned attempt identifier, and
-`description` is a short label. No resume, background, command, or other
-execution-control field is admitted. The plugin binds the recorded packet to
-that call only and consumes the window once. A different lane, stale reference,
-or refused execution variant starts no worker and leaves the window usable.
-OpenCode owns the native worker card, child session, progress, cancellation,
-and model and provider selection; core authorization never bypasses a host
-denial. See
-[CD-0102](../../.concord/docs/decisions/CD-0102-lane-dispatch-runs-as-a-native-task.md).
+The coordinator obtains independent review through native Task, then records
+`record_review` through `concord_work_transition.workflow_action` with
+`fields: { review: <typed Review report> }`. The workflow checks the current
+candidate, dependencies, findings, and disposition. Concord does not attest
+which subagent produced the review; the coordinator owns that independence claim.
+The [payload schema](../../contracts/agent-tool-surface-payloads.schema.json)
+owns the typed report.
 
-There is no separate-session lane route: a lane runs only as the native Task
-child of its authorizing session (CD-0178 D1). An uncertain or failed Task is
-never replayed automatically. A failed native Task with authenticated child
-identity settles through the existing terminal-event route. A failure before
-child creation, including a native permission denial, retains the consumed
-attempt for the existing no-report recovery or
-[reconciliation](#recover-a-retained-completed-task) route; it fabricates no
-child and reopens no window.
+Native `worktree_verify` preparation retains its control bundle, subject, and
+environment. Execution selects only `phase: execute` and the exact
+`preparation_run_ref`. Captured producer receipts remain separate from the
+coordinator's `record_verdict`; neither a Task summary nor a claimed verdict
+replaces required verification evidence or CI.
 
-The worker returns its closed `agent-lane-report.v1` report as its final text
-part. [Completion](dispatch.ts) reads the child through the host session API,
-verifies its authorized opening and executing identity, and supplies canonical
-report identity itself. Worker-supplied identity cannot replace host evidence.
+### Managed session participation
 
-The adapter derives `attempt_id`, `lane_id`, and `lane_digest`
-from the authorized dispatch packet. An admitted completed report becomes
-`worker-complete` evidence. A
-missing, invalid, or failed report follows the typed worker-failure route.
-Workers return reports; they do not own workflow transitions, verdicts, operator
-approvals, or completion.
+`concord_work_start` enrolls its calling session before capture or resume. The
+host persists participation in session metadata, and the adapter verifies
+readback before work proceeds. Enrollment changes no host permission rules and
+stores no copy of a session directory or workflow state. Native Tasks retain
+their arguments and permissions regardless of participation.
 
-### Recover a retained completed Task
-
-A durability-pending result does not prove that evidence failed to commit.
-Do not run the worker again or abandon an attempt whose completed Task still
-holds its report. Use `concord_work_transition` operation `worker_reconcile`
-from the original Project's active claimed worktree, with current credentials
-whose verified client and principal equal the original evidence actor:
-
-```json
-{"request":{"operation":"worker_reconcile","input":{"work_id":"work-example","attempt_id":"attempt-example","task_part_id":"part-example","idempotency_key":"recover-example"}}}
-```
-
-`task_part_id` names the completed Task part in the original parent session's
-host transcript, not its child session or tool call. The
-[closed input schema](../../contracts/agent-tool-surface-payloads.schema.json)
-admits no report, packet, model, provenance, or signature argument, so the
-caller supplies no evidence and no fresh worker run happens: recovery reads
-the original host records itself and preserves the original event identities.
-The optional `requested_budget_seconds` bounds one invocation across
-preparation, host readback, evidence reconciliation, and receipt; no phase
-renews it.
-
-The session must run in the original active claimed worktree of the Project
-that owns it. A failed attempt refuses, as does missing or mismatched
-original proof. Repeat the same request to recover the receipt after a
-reported storage or transport fault; recovery also works after an adapter
-restart, because it holds no in-memory dispatch state. A successful receipt
-acknowledges the original completed attempt: it reconciles the evidence
-record and neither accepts the report nor advances the workflow.
-
-### Managed Task scope
-
-`concord_work_start` enrolls its calling session before capture or resume. A
-valid public dispatch also enrolls before core authorization. The host persists
-participation in session metadata, and the adapter verifies readback before
-work proceeds. Enrollment changes no host permission rules and stores no
-copy of a session directory or workflow state.
-
-Managed sessions require an authorized window for every Task. Children inherit
-participation from their host parent. An agent switch or host restart does not
-remove participation, and an unmanaged caller cannot resume a managed worker.
-An ordinary unmanaged Task retains its arguments and native permissions and
-produces no Concord evidence. Direct calls to registered Concord lanes still
-require authorization.
-
-Unmarked sessions remain unmanaged until they enter through work start or
-public dispatch. Use `concord_work_start` with the existing `work_id` when a
-session must resume managed work. Read-only Concord calls do not enroll it.
-If a later bootstrap step fails, recorded participation remains. If the host
-cannot persist or read scope, the affected operation refuses instead of
-starting unmanaged work. The host must support session metadata through its
-documented session API.
+Use `concord_work_start` with the existing `work_id` to resume managed work.
+Read-only Concord calls do not enroll a session. If a later bootstrap step
+fails, recorded participation remains. A host that cannot persist or read
+participation refuses the affected operation.
 
 ### The second coordinator session
 
@@ -342,9 +270,8 @@ transient failure, and the same request passes once the host answers.
 An operator who wraps the host binary does that in host configuration, outside
 this repository.
 
-`OPENCODE_BIN` stays a test seam. Adapter worker dispatch and the move-session
-version diagnostic stay on the bare host: worker lanes are not
-operator-resumable sessions.
+`OPENCODE_BIN` stays a test seam. The move-session version diagnostic stays on
+the bare host.
 
 ### The text-part channel
 
@@ -396,9 +323,7 @@ failed call warns and never changes a recorded outcome.
 
 The generated `Concord` primary agent works end to end without an RTE session.
 `Concord-RTE` is optional coordination for busy Product or Project work. Both
-profiles allow Task delegation; the adapter still requires an open typed
-dispatch window for a Concord execution lane. Broad Task permission does not
-grant lane authority. `Concord-Planner` is optional research and backlog
+profiles allow native Task delegation. `Concord-Planner` is optional research and backlog
 refinement: its profile edits only under `.planning/`, asks before any shell
 command it does not name, denies commit, push, pull-request, and release
 commands, delegates only to the read-only utilities, and the adapter refuses
@@ -407,8 +332,8 @@ so a redirect can still write outside `.planning/`; the ask default is the
 human gate. Numbered host examples keep their narrower Task policy;
 hosts own those files and may configure their permissions independently.
 
-The lane agent definitions also deny nested task dispatch. If a host wants
-per-lane model fallback behavior, configure the OMR plugin's ordered fallback
+The read-only utility definitions deny nested Task delegation. If a host wants
+per-agent model fallback behavior, configure the OMR plugin's ordered fallback
 targets under its plugin tuple, for example:
 
 ```jsonc

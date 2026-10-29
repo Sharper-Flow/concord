@@ -15,10 +15,6 @@
     {
       "kind": "validator",
       "value": "scripts/test-knowledge-index.py"
-    },
-    {
-      "kind": "adapter_test",
-      "value": "adapter/opencode/packet.test.ts#the law context carries the mandated criteria bound to this work item's predicates"
     }
   ],
   "id": "CD-0180",

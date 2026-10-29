@@ -221,7 +221,7 @@ func sessionPrepareFailureExit(err error, untypedExit int) int {
 // this directory under the calling host's environment: the session keeps
 // running in that host, so its registry is the one the session runs with
 // (CD-0189 D4).
-func runSessionPrepare(raw []byte, s *store.Store, out, errOut io.Writer, laneIdentity sessionAgentIdentityFunc, hostCommand sessionHostCommandFunc, identity sessionOrchestratorFunc, bootstrap sessionBootstrapFunc) int {
+func runSessionPrepare(raw []byte, s *store.Store, out, errOut io.Writer, hostCommand sessionHostCommandFunc, identity sessionOrchestratorFunc, bootstrap sessionBootstrapFunc) int {
 	var input sessionPrepareInput
 	if err := decodeObject(raw, &input); err != nil {
 		writeOperatorDiagnostic(errOut, "session-prepare", diagnosticText(err))
@@ -292,10 +292,6 @@ func runSessionPrepare(raw []byte, s *store.Store, out, errOut io.Writer, laneId
 	// they verify are the ones that directory resolves (CD-0093 D2). The
 	// registry probe runs there too, before the registry check reads the
 	// document it carried back (CD-0189 D4).
-	if err := laneIdentity(cwd); err != nil {
-		writeOperatorDiagnostic(errOut, "session-prepare", diagnosticText(err))
-		return sessionPrepareRefusalExit
-	}
 	host, err := hostCommand(context.Background(), cwd)
 	if err != nil {
 		writeOperatorDiagnostic(errOut, "session-prepare", diagnosticText(err))

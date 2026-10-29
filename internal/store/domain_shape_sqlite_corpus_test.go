@@ -84,7 +84,7 @@ func TestCommittedSQLiteMechanismShapeFitsBound(t *testing.T) {
 		t.Fatal(err)
 	}
 	snapshot := &newDomainShapeProjection(commit, manifest, architecture).Snapshot
-	if err := reconstructDomainShapeReadingSnapshot(ctx, runner, &dispatchReadingWitness{sourceRepo: root}, shards, snapshot); err != nil {
+	if err := reconstructDomainShapeReadingSnapshot(ctx, runner, &domainShapeReadingWitness{sourceRepo: root}, shards, snapshot); err != nil {
 		t.Fatal(err)
 	}
 	selector := DomainShapeSelector{Path: "internal/store/internal/sqlitedb/snapshot.go"}

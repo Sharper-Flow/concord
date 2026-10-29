@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test"
 import { createContinuityTransform, type ContinuitySessionSource } from "./continuity-hook"
-import { configureCoreBinary } from "./dispatch"
+import { configureCoreBinary } from "./core-runtime"
 
 const START = "<!-- concord:continuity:v1 -->"
 const END = "<!-- /concord:continuity:v1 -->"

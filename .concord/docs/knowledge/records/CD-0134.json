@@ -3,8 +3,7 @@
     "agent-adapter",
     "agent-call-boundary",
     "agent-contract",
-    "agent-evolution",
-    "worker-lanes"
+    "agent-evolution"
   ],
   "authority": {
     "contract_version": 1,
@@ -22,8 +21,7 @@
     ".concord/docs/agent-tool-surface-measurement.md",
     ".concord/docs/agent-call-context-contract.md",
     ".concord/docs/agent-adapter-transport-contract.md",
-    ".concord/docs/agent-result-envelope.md",
-    ".concord/docs/agent-lanes-contract.md"
+    ".concord/docs/agent-result-envelope.md"
   ],
   "home_domain_id": "agent-surface",
   "id": "CD-0134",

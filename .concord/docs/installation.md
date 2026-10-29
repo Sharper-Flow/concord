@@ -10,26 +10,8 @@ The installer performs all checks before changing the operator environment. It
 refuses to continue when any of these are missing:
 
 - Linux amd64;
-- `git`, `opencode`, `secret-tool`, `gnome-keyring-daemon`, `busctl`,
-  `dbus-run-session`, and `systemctl` commands;
-- a user-session D-Bus service named `org.freedesktop.secrets`; and
+- `git` and `opencode` commands; and
 - the installer's binary directory on `PATH`.
-
-The adapter reads its client signing key from Secret Service storage. If an
-unlocked compatible collection exists, the installer uses it without changing
-the provider. If no login collection exists, the installer creates an
-unencrypted `gnome-keyring-daemon` collection and a user service that unlocks it after
-the daemon starts. The keyring directory grants access only to its owner.
-
-Concord does not store a private key outside Secret Service or invent a general
-file-based fallback. Private keys do not enter process arguments, logs, stdout,
-temporary files, or a workspace. If setup cannot prove an unlocked collection,
-installation refuses and worker evidence signing fails closed.
-
-Credential state and its unlock service remain after uninstall. Client keys can
-outlive one installed release, and removing the unlock service would strand
-those credentials. Remove or revoke client keys before removing that host
-state.
 
 The installer also refuses to overwrite an existing user-authored adapter,
 launcher, version directory, or incompatible OpenCode configuration. When it
@@ -123,7 +105,7 @@ not modify unrelated configuration keys.
 
 ### Shared requirements and Product knowledge
 
-The release ships generated primary profiles and worker lanes in its agents
+The release ships generated primary profiles and coordinator utilities in its agents
 directory and the shared conduct corpus in its instructions directory. The
 installer owns these assets and registers the corpus through an absolute
 `current/instructions/*.md` pointer in each linked project's OpenCode
@@ -133,21 +115,21 @@ Product.
 | Requirement | Canonical owner and authority | Applicability and delivery |
 |---|---|---|
 | Planning through Linear MCP | [CD-0213](decisions/CD-0213-linear-mcp-is-the-only-planning-authority.md) | Reusable across Products; the generated primary states the operative planning rule. |
-| Lane source-edit boundary | [CD-0220](decisions/CD-0220-repository-authoring-follows-lane-capability-and-approved-scope.md) | Reusable lane contract; the generator derives the operative boundary from the capability registry. |
-| Committed-content conduct | [Shared conduct](../instructions/change.md) under [CD-0063](decisions/CD-0063-shipped-operator-conduct-rules.md) | Loaded from the installed corpus; editing and reviewing lanes identify its unique opening sentence, not a Product-relative file. |
+| Source-edit boundary | [CD-0220](decisions/CD-0220-repository-authoring-follows-lane-capability-and-approved-scope.md) | Approved scope and law-change authority remain distinct from host tool permission. |
+| Committed-content conduct | [Shared conduct](../instructions/change.md) under [CD-0063](decisions/CD-0063-shipped-operator-conduct-rules.md) | Loaded from the installed corpus, not inferred from a Product-relative filename. |
 | Concord repository engineering | [Concord's AGENTS.md](../../AGENTS.md) and the explicitly Concord-specific items 2 and 5 in [development authority](managed-development-authority.md#preserved-boundaries) | Repository instruction, not part of the shipped conduct corpus. Other boundaries keep their stated scope. |
-| An adopting Product's law and facts | That Product's canonical knowledge home | Product-scoped knowledge reads and bound worker readings; not inherited from Concord's source checkout. |
+| An adopting Product's law and facts | That Product's canonical knowledge home | Product-scoped knowledge reads and declared reading sources; not inherited from Concord's source checkout. |
 
 Decision identifiers in a generated profile identify Concord's governing source;
 they are not paths to similarly named files in the adopting Product. The profile
 states its required behavior without requiring that source checkout. Product law
-needed for an assignment still reaches workers through the declared bound reading
-route, with its own source identity and approval scope.
+needed for an assignment retains its declared source identity and approval
+scope. The coordinator supplies native Task assignments; Concord does not
+package or attest subagent prompts.
 
 Intentional user instruction entries continue to load alongside the installed
 corpus. A local `.concord/instructions/change.md` is not the shipped rule merely
 because its name matches; it loads only through a supported instruction entry.
-Delegated prompt provenance records the paths and content hashes it resolved.
 
 ### Customize agents without editing shipped files
 

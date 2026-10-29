@@ -459,16 +459,3 @@ func approvalWorkPinWithheld(snapshot ContinuitySnapshot) *WorkflowOperatorQuest
 	}
 	return snapshot.WorkPin.WithheldOperatorDecision
 }
-
-// workflowRetryDispatchCompletion authors the versioned dispatch completion
-// whose worker fields the current payload version carries.
-func workflowRetryDispatchCompletion(workID, actorRef string, expected int64, lane LaneDefinition) Event {
-	event := workflowEventWithActor("approval-retry-dispatch-"+workID, WorkflowActionCompleted, workID, actorRef, map[string]any{
-		"work_id": workID, "expected_version": expected, "resulting_version": expected + 1,
-		"step_id": "execution", "action_id": "dispatch_worker", "attempt_epoch": 2,
-		"worker_attempt_id": "attempt:approval-retry", "result_evidence_refs": []string{}, "changed_refs": []string{workID},
-		"worker_lane_id": lane.ID, "worker_lane_digest": lane.Digest,
-		"worker_capability_class": lane.CapabilityClass, "actor_ref": actorRef,
-	})
-	return event
-}

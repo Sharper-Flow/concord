@@ -6,7 +6,7 @@
   identity checks that guard a retarget; issue #689
 - **Approval:** The operator approved this replacement in-session on 2026-09-02
   and directed that a worktree never requires a relaunch.
-- **Related:** CD-0059, CD-0088, CD-0092, CD-0093, CD-0096, CD-0102, CD-0103,
+- **Related:** CD-0088, CD-0092, CD-0093, CD-0096, CD-0103,
   CD-0104, issue #689
 - **Preserves:** The `session-prepare` directory refusal, the lane definition
   check, and the read-back identity assertion
@@ -76,8 +76,8 @@ and it replays to convergence on its derived identity.
 
 ### D6. The launch path is removed
 
-The authorize-before-start rule in CD-0059 applies to the move and to lane
-dispatch under CD-0102.
+The move keeps its existing claim and placement authority. Native Task belongs
+to the host and requires no Concord dispatch authorization (CD-0242 D6).
 
 ## Consequences
 

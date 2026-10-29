@@ -1,7 +1,7 @@
 import { test, expect, mock } from "bun:test"
 import { contractOperations, workflowActionPublicVariants } from "./generated-contracts"
 import { advertisedAdmissionTeachingGaps, expandedPublishedRequestSchema, actionFieldsBranches } from "./generated-contract-tests"
-import { validateAgainstSchema } from "./dispatch"
+import { validateAgainstSchema } from "./core-runtime"
 
 const fakeTool = (config: unknown) => config
 mock.module("@opencode-ai/plugin", () => ({ tool: fakeTool }))

@@ -29,7 +29,7 @@ func newNativeTargetUVRunFixture(t *testing.T) *nativeTargetFixture {
 	t.Helper()
 	const work = "native-target-uvrun-work"
 	seed := seedWorkflowReturnRouteFixture(t, work, "workflow.break_fix", "repair")
-	f := &nativeTargetFixture{s: seed.store, work: work, repo: t.TempDir(), actor: seed.owner, root: "uvrun", recipePath: "uvrun/recipe.json", materializer: "uv", runner: "check"}
+	f := &nativeTargetFixture{s: seed.store, work: work, repo: t.TempDir(), root: "uvrun", recipePath: "uvrun/recipe.json", materializer: "uv", runner: "check"}
 	f.controlArgv = []string{"check", "wrapped"}
 	f.installCommittedUVProject(t)
 	lock := readNativeTargetUVLockForTest(t)
@@ -58,7 +58,7 @@ func newNativeTargetUVRunFixture(t *testing.T) *nativeTargetFixture {
 		},
 	})
 	f.commitAll(t, "pinned uv run wrapper harness")
-	f.seedAuthority(t, seed)
+	f.seedAuthority(t)
 	return f
 }
 
@@ -85,7 +85,7 @@ func TestNativeTargetAxisUVRunInTreeBuildArtifactRefuses(t *testing.T) {
 	f.commitAll(t, "harness writes a build artifact")
 	f.bundle.Control.RecipeSource.CommitOID = f.head
 	f.prepareWithCurrentBundle(t, "artifact")
-	o := f.authorize(t, "artifact", f.actor)
+	o := NativeOracleRequest{Phase: "execute", PreparationRunRef: f.prepare.OperationRef}
 	_, err := f.s.VerifyWorktree(context.Background(), f.request("artifact-execute", &o))
 	if err == nil || !strings.Contains(err.Error(), "consumed candidate inputs changed during execution: "+nativeTargetFixtureName(f.root, "native_target_uv.egg-info/PKG-INFO")) {
 		t.Fatalf("in-tree build artifact was not refused: %v", err)

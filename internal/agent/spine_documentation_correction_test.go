@@ -16,8 +16,7 @@ func TestSpineFactualDocumentationCorrectionWithoutApproval(t *testing.T) {
 	gitRun(t, f.path, "add", "pkg/value.go")
 	gitRun(t, f.path, "commit", "-qm", "fixture factual documentation error")
 	f.verify(t)
-	f.recordJob(t)
-	lane, job, epoch := f.startWorker(t, "implement", "attempt:doc-correction")
+	f.prepareControl(t)
 	if err := os.WriteFile(path, []byte("package spine\n\n// Value returns seven.\nfunc Value() int { return 7 }\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -28,9 +27,7 @@ func TestSpineFactualDocumentationCorrectionWithoutApproval(t *testing.T) {
 		t.Fatalf("the correction changed more than the factual documentation: %s", diff)
 	}
 	f.proof = f.verify(t)
-	f.finishWorker(t, lane, "attempt:doc-correction", job, nil)
-	spineOK(t, f.action(t, "accept_worker_result", map[string]any{"attempt_id": "attempt:doc-correction", "attempt_epoch": epoch}))
-	f.recordJob(t)
+	f.prepareControl(t)
 	f.review(t, "ready_for_final_proof", f.proof)
 	spineOK(t, f.action(t, "bind_evidence", map[string]any{"evidence_kind": "verification", "evidence_ref": f.proof}))
 	f.advanceToAcceptance(t)
@@ -50,8 +47,5 @@ func TestSpineFactualDocumentationCorrectionWithoutApproval(t *testing.T) {
 	}
 	if countWorkflowApprovalChallenges(t, f.s) != 0 || countRows(t, f.s.DatabaseForTesting(), `SELECT count(*) FROM agent_approvals`) != 0 || f.env.HostApproval != nil {
 		t.Fatal("factual documentation correction required an operator prompt")
-	}
-	if attempts := countRows(t, f.s.DatabaseForTesting(), `SELECT count(*) FROM worker_attempts`); attempts != 2 {
-		t.Fatalf("factual correction triggered extra implementation/review attempts: %d", attempts)
 	}
 }

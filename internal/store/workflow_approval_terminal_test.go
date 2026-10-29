@@ -75,11 +75,11 @@ func runApprovalActionTx(t *testing.T, s *Store, registry DefinitionRegistry, wo
 	}
 	var worktree string
 	if WorkflowActionRequiresSubjectFreshness(actionID) && s.DatabaseForTesting().QueryRow(`SELECT path FROM worktree_entries WHERE set_id=? AND state='active' LIMIT 1`, WorktreeSetID(workID)).Scan(&worktree) == nil {
-		prepared, err := PrepareWorkflowAcceptanceFreshness(ctx, s, PrepareWorkerDispatchRequest{WorkID: workID, SessionWorktree: worktree})
+		prepared, err := PrepareWorkflowAcceptanceFreshness(ctx, s, PrepareWorkflowSubjectRequest{WorkID: workID})
 		if err != nil {
 			return err
 		}
-		ctx = WithWorkerDispatchPreparation(ctx, prepared)
+		ctx = WithWorkflowSubjectPreparation(ctx, prepared)
 	}
 	version := readWorkVersion(t, s, workID)
 	request := WorkflowActionExecutionRequest{
@@ -141,7 +141,7 @@ func foldedApprovalAdmission(t *testing.T, s *Store, registry DefinitionRegistry
 	if err := tx.QueryRowContext(ctx, `SELECT current_step FROM workflow_instances WHERE work_id=?`, workID).Scan(&step); err != nil {
 		t.Fatal(err)
 	}
-	state, _, _, err := loadWorkflowAdmissionStateTxForRegistry(ctx, tx, workID, definition, step, "workflow_approval_terminal_test", registry)
+	state, _, err := loadWorkflowAdmissionStateTxForRegistry(ctx, tx, workID, definition, step, "workflow_approval_terminal_test", registry)
 	if err != nil {
 		t.Fatalf("fold admission state: %v", err)
 	}

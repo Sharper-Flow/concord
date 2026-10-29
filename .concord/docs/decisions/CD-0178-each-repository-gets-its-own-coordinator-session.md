@@ -1,11 +1,11 @@
-# CD-0178: Lane workers stay native subagents, and each repository gets its own coordinator session
+# CD-0178: Each repository gets its own coordinator session
 
 - **Status:** Accepted
 - **Date:** 2026-09-24
 - **Approval:** 2026-10-17. Coordinator approval under the operator's delegation
   for [Concord (CON) issue 160](https://linear.app/sharper-flow/issue/CON-160).
 - **Approval:** 2026-10-17. Coordinator approval under the operator's delegation for [Concord (CON) issue 1095](https://linear.app/sharper-flow/issue/CON-1095/worker-evidence-authority-gaps-generic-applyoperation-may-append).
-- **Scope:** Where a lane worker runs, how one work item reaches a second
+- **Scope:** How native delegation and one work item reach a second
   repository, and what protects a worktree from removal; issues #1358, #1322,
   #1125
 - **Approval:** The operator directed on 2026-09-24 that lane workers stay
@@ -14,10 +14,10 @@
   The operator approved replacement of the numbered-example guidance with the
   current profile as exact text on 2026-10-20 for
   [Concord (CON) issue 1274](https://linear.app/sharper-flow/issue/CON-1274).
-- **Related:** CD-0092, CD-0098, CD-0102, CD-0103, CD-0111, CD-0151, CD-0152,
+- **Related:** CD-0092, CD-0098, CD-0103, CD-0111, CD-0151, CD-0152,
   CD-0154, CD-0176, CD-0213
 - **P12:** Serious: the named primary agent and its permission boundary change.
-- **Preserves:** CD-0102 in full, CD-0103, CD-0104 D3 to D5, CD-0151, and the
+- **Preserves:** CD-0103, CD-0104 D3 to D5, CD-0151, and the
   within-repository move of CD-0098
 
 ## Context
@@ -38,13 +38,13 @@ project, so one session cannot see the sessions of another repository.
 A native `task` subagent runs in the instance of the session that calls it.
 Its parameters carry no directory, and upstream
 [issue 46424](https://github.com/anomalyco/opencode/issues/46424) asks for one
-and is open. So a native lane worker always runs where its coordinator runs.
+and is open. So a native Task subagent runs where its coordinator runs.
 
 A proof of concept on opencode 1.18.32 showed that the adapter can create a
 child session in another repository through `POST /session` with a
 `directory` query. That child renders no Task card, shows no live steps, and
-does not stop when the operator presses Esc. CD-0102 records that the
-operator rejected such a worker, and the operator confirmed that requirement.
+does not stop when the operator presses Esc. Concord creates no such subagent
+session; native Task remains host-owned under CD-0242 D6.
 
 Issue #1358 shows the cross-repository failure. A `worktree_claim` for a
 Project in another repository created the worktree, and then the host refused
@@ -63,17 +63,12 @@ repositories.
 
 ## Decision
 
-### D1. A lane worker is a native subagent in its coordinator's directory
+### D1. Native delegation belongs to the host
 
-A lane worker runs through the host `task` tool, as CD-0102 states. Its directory is the claimed worktree its assignment names: the dispatching
-coordinator's worktree, or a member worktree of a concurrent group
-([CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md)).
-Concord creates no worker session through the host session API, and Concord
-registers no plugin tool named `task`.
-
-Every new authenticated worker completion carries the nonempty worker directory the host observed. The live worker-evidence ingest checks that directory against the claimed worktree its assignment names before appending completion. An omitted or empty directory provides no proof and refuses without recording completion. Recovery of recorded completions repeats no live directory check ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)). An exact acknowledgment of recorded completion appends nothing and does not repeat the directory check.
-
-A new worker completion proves the active claimed worktree of the Project that the attempt's original dispatch authorization identifies. An active claim for another Project of the same work item is not proof. If the original Project or its active claim cannot be established, the completion refuses without recording a terminal outcome. Recovery and readback of recorded completions repeat no live check ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)). An exact acknowledgment appends no new completion and does not repeat this check.
+The coordinator uses native Task under the host's directory and permissions.
+Concord creates no subagent through a session API and registers no replacement
+`task` tool. It records subject-bound stage outcomes without proving the child,
+directory, model or execution identity that produced them under CD-0242 D5/D6.
 
 ### D2. One coordinator session per repository
 
@@ -86,7 +81,7 @@ A work item that touches two repositories has one coordinator session in each
 repository. The first session records the second Project membership with
 `set_memberships`. The second session starts in its own repository and calls
 `concord_work_start` with the `work_id`. It then drives that Project's part
-of the work in its own worktree and dispatches lanes there.
+of the work in its own worktree and delegates through native Task there.
 
 A session never moves into another repository. The core resolves the
 repository of the calling directory at each call, through the Project
@@ -111,7 +106,7 @@ execution authority described by this clause. They need no release train
 engineer (RTE) to complete their work. The user may choose to start `Concord-RTE`
 for concurrent Product or Project work. That optional session sequences the
 independent work-item sessions across authorized Projects. The RTE does not
-claim their worktrees, dispatch their lanes, accept their work, or publish for
+claim their worktrees, run their subagents, accept their work, or publish for
 them. Its tool permissions do not transfer their authority. It conveys facts
 and references, not substitute workflow or handoff evidence. Session placement
 and control procedures belong to the host's instructions, not the RTE profile.
@@ -177,9 +172,9 @@ report-only. D3 changes only the occupancy input.
 
 Work in two repositories needs two coordinator sessions. Both sessions act on
 one work item with one contract, and `expected_version` orders their writes.
-Neither session edits the other repository. The dispatch window is scoped to
-one session, so each session can dispatch a lane in its own repository. The
-workflow step stays shared: a transition by one session changes the step for
+Neither session edits the other repository. Native delegation stays with its
+repository-local coordinator. The workflow step stays shared: a transition by
+one session changes the step for
 both.
 
 The generated `Concord` profile carries the route of D2. Under CD-0154,

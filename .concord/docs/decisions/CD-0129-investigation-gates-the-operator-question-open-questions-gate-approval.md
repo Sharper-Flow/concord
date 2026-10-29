@@ -8,7 +8,7 @@
 - **Approval:** The operator approved the contract in Concord
   work-ef019d2c52d7241977e90ef1 on 2026-09-09, and chose the operator
   question as the obligated surface.
-- **Related:** CD-0030, CD-0113, CD-0117, and issues #903, #1010
+- **Related:** CD-0030, CD-0113, and issues #903, #1010
 - **Preserves:** Contract authority, architecture binding at approval,
   evidence provenance, and the recorded facts the store keeps
   ([CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2)
@@ -21,7 +21,7 @@ on an investigation the agent can settle.
 
 ## Decision
 
-For `approval_policy=consequence_v1`, the pending operator question exists only when CD-0013 D11 requires consent. Engineering confirmation has an authenticated non-worker route without a human choice digest, but still requires the recorded investigation and acceptance deliverables. Removing the question does not silently remove those checks or weaken declared open-question research obligations.
+For `approval_policy=consequence_v1`, the pending operator question exists only when CD-0013 D11 requires consent. Engineering confirmation uses an authenticated coordinator without a human choice digest, but still requires the recorded investigation and acceptance deliverables. Removing the question does not remove those checks or weaken declared open-question research obligations.
 
 
 ### D1. The operator question is the obligated surface

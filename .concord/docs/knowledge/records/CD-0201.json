@@ -32,10 +32,6 @@
     {
       "kind": "refines",
       "target_id": "CD-0172"
-    },
-    {
-      "kind": "refines",
-      "target_id": "CD-0193"
     }
   ],
   "path": ".concord/docs/decisions/CD-0201-workflow-action-admission-is-derived-once-and-every-reachable-state-stays-live.md",

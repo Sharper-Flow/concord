@@ -11,7 +11,6 @@
     "internal/agent/mutations.go",
     "internal/store/operator_verdict_test.go",
     "internal/agent/spine_criterion_authority_test.go",
-    "adapter/opencode/dispatch_route_end_to_end.test.ts",
     "internal/store/review_receipt_test.go",
     "internal/store/workflow_evaluation.go",
     "internal/store/workflow_evaluation_test.go"
@@ -35,7 +34,7 @@
   },
   "sha256": "sha256:5ed15bb6a807ac01737f4058beff48dc170d7db7b95a6d3ef4e1afbc18a6f37c",
   "status": "accepted",
-  "summary": "Verified operator identity permits verdicts and completion after an advancing recorded exit, including delivery, accepted-worker, research-report, and architecture-decision routes. Definition-source membership, evidence, predicate, premise, and version gates remain in force.",
+  "summary": "The recorded operator-substitution route requires its definition-backed exit and exact approval bindings where applicable. Consequence-based workflows retain coordinator verdict/completion recording against accepted ready Review and native receipts without subagent attestation. Approval cannot invent tests or replace evidence, predicate, premise, scope or version checks.",
   "tags": [
     "workflow",
     "evidence",

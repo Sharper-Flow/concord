@@ -91,7 +91,7 @@ func TestAdmissionLoaderFoldsDispatchCapabilityClass(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	state, _, _, err := loadWorkflowAdmissionStateTxForRegistry(t.Context(), tx, j.workID, definition.Definition, "repair", "workflow_admission_test", BuiltinWorkflowRegistry())
+	state, _, err := loadWorkflowAdmissionStateTxForRegistry(t.Context(), tx, j.workID, definition.Definition, "repair", "workflow_admission_test", BuiltinWorkflowRegistry())
 	if err != nil {
 		t.Fatal(err)
 	}

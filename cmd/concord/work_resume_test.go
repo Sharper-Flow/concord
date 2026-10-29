@@ -675,7 +675,6 @@ func TestSessionPrepareAcceptsEmptyTask(t *testing.T) {
 	t.Chdir(origin.Entry.Path)
 	var out, errOut bytes.Buffer
 	code := runSessionPrepare(commandSessionPrepareInput(t, origin.WorkID, ""), s, &out, &errOut,
-		func(string) error { return nil },
 		hostCommandAt(defaultHostResolution()),
 		func(context.Context, string, hostCommandResolution, string, string, string) (string, error) {
 			return "agent", nil

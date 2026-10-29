@@ -141,13 +141,6 @@ func workflowDeliveryCorrectionCoordinatorAdmitted(ctx context.Context, q querye
 	if actorClass != string(ActorAgent) {
 		return newFailure(KindUnauthorized, stage, "delivery correction takes no operator substitution for the coordinator of record", false, "attribute the correction to the recorded coordinator actor")
 	}
-	authority, err := workflowEvaluationAuthority(ctx, q, workID, actorRef)
-	if err != nil {
-		return err
-	}
-	if authority == WorkflowWorkerEvaluator {
-		return newFailure(KindUnauthorized, stage, "delivery correction takes no worker-lane actor for the coordinator of record", false, "attribute the correction to the recorded coordinator actor")
-	}
 	return nil
 }
 

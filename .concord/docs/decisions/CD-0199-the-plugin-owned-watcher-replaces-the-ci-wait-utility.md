@@ -8,7 +8,7 @@
 - **Preserves:** CD-0160 D1 through D5 and D7 in full (the verb half), CD-0161
   and CD-0168 in full (both bind the verb), CD-0166 D1 and D4 (no core prober,
   no timer), CD-0028 D5, and CD-0149's remaining utilities
-- **Related:** CD-0017, CD-0149, CD-0160, CD-0161, CD-0166, CD-0168
+- **Related:** CD-0149, CD-0160, CD-0161, CD-0166, CD-0168
 - **Approval:** The operator approved the work item contract that carries this
   record on 2026-09-30.
 
@@ -114,13 +114,14 @@ Scenario: The verb keeps its contract
 ```
 
 - `bun test adapter/opencode/ci-watch.test.ts` proves the first two scenarios.
-- `python3 scripts/generate-agent-lanes.py --check` proves the third scenario.
+- `python3 scripts/generate-agent-profiles.py --check` checks current utility
+  projections. Directory and installer checks must prove the third scenario.
 - `go test ./internal/ciwait/ ./cmd/concord/ -run 'TestCiWait|TestCIWait|TestGHRunID'`
   proves the fourth scenario, including `TestCiWaitIngress` in the command
   package.
 - `python3 scripts/test-ci-wait-contract.py` proves the verb contract offline.
-- `bun test adapter/opencode/session-scope.test.ts adapter/opencode/lane_dispatch.test.ts`
-  proves the utility admission boundary without the removed utility.
+- `bun test adapter/opencode/session-scope.test.ts` checks session scope.
+  Utility admission retains no worker dispatch authority.
 - One live CI wait on this host starts `concord_ci_watch` and observes zero
   model turns and one delivered wake. Its delivery protocol is the one
   `bun test adapter/opencode/ci-watch.test.ts` proves. This is D4's gate, and

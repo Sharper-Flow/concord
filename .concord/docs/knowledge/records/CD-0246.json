@@ -4,7 +4,7 @@
   },
   "date": "2026-10-27T00:00:00Z",
   "doc_contract_profile": "current",
-  "home_domain_id": "worker-lanes",
+  "home_domain_id": "agent-adapter",
   "id": "CD-0246",
   "kind": "decision",
   "law_relations": [
@@ -31,7 +31,7 @@
   },
   "sha256": "sha256:35b848f65f70db449f9f851828d507c44a26bbf496317d6198762284eab7b110",
   "status": "accepted",
-  "summary": "Concord may ship tool-independent engineering methods for diagnosing defects, designing interfaces, shaping work, and improving instructions and checks. A lane's generated definition carries the method its purpose uses, bound by dispatch provenance; other agents receive occasional methods as shipped skills through the existing install route. Host-specific procedure stays host-owned, and a method adds no workflow step, approval, packet field, capability, check, or authority.",
+  "summary": "Concord ships tool-independent methods for diagnosis, interface design, work shaping and instruction improvement as occasional skills through the existing install path. Host agents and native subagents use that skill path; no generated lane or dispatch provenance is required. Host-specific procedure remains host-owned and a method creates no gate, approval, capability or authority.",
   "tags": [
     "skills",
     "lanes",

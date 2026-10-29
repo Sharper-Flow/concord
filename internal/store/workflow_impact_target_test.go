@@ -57,14 +57,17 @@ func invokeDeclareImpact(ctx context.Context, t *testing.T, s *Store, workID str
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = invokeWorkflowActionForCD0059(ctx, t, s, WorkflowActionExecutionRequest{
+	request := WorkflowActionExecutionRequest{
 		WorkID: workID, ExpectedVersion: readWorkVersion(t, s, workID), ActionID: "declare_impact",
-		Payload: payload, Actor: actor, AcceptedInputsDigest: cd0059TestDigest(t, "impact-inputs"),
+		Payload: payload, Actor: actor, AcceptedInputsDigest: nativeDigest([]byte("impact-inputs")),
 		IdempotencyIdentity: "impact-test-op", OperationID: "op-impact-test", PrincipalRef: actor.PrincipalRef,
 		Tool: "concord_work_transition", IdempotencyKey: "impact-test-key", RequestID: "req-impact-test",
 		AcceptedScope: `{}`, ContractDigest: testManifestDigest,
+	}
+	return s.Transact(ctx, func(tx *Transaction) error {
+		_, err := ApplyWorkflowActionTx(ctx, tx, BuiltinWorkflowRegistry(), request)
+		return err
 	})
-	return err
 }
 
 func TestDeclareImpactWithoutTargetIsRefusedAtTheBoundary(t *testing.T) {

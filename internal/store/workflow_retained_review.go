@@ -73,7 +73,7 @@ func sampleRetainedReviewState(ctx context.Context, q queryer, work string, bind
 	if err := q.QueryRowContext(ctx, `SELECT COUNT(*), COALESCE(MAX(j.job_id=? AND j.revision=? AND j.digest=?),0)
  FROM worker_job_revisions j WHERE j.work_id=? AND (`+workerJobReadyInputsPredicate+`)
  AND (j.state='recorded' OR (j.state='satisfied' AND ?<>''
- AND NOT EXISTS (SELECT 1 FROM worker_attempt_dispositions d WHERE d.work_id=j.work_id AND d.event_id=j.satisfied_result_ref)))`,
+ AND NOT EXISTS (SELECT 1 FROM worker_attempt_dispositions d WHERE d.work_id=j.work_id AND d.seq>=j.satisfied_seq)))`,
 		binding.JobID, binding.Revision, binding.Digest, work, self).Scan(&ready, &selected); err != nil {
 		return nil, err
 	}

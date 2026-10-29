@@ -53,6 +53,7 @@ const (
 	historyRebased = "rebased" // the item synced main before review
 	historyOwn     = "own"     // the item's own edit, squash-merged to main
 	historyMerged  = "merged"  // the item's own edit, true-merged into main
+	historySynced  = "synced"  // the item's own edit, squash-merged, then main merged back
 )
 
 // lawHistory builds main and the item's candidate in the claimed repository
@@ -94,6 +95,13 @@ func lawHistory(t *testing.T, s *Store, lawID, shape string) func(string) {
 			gitRunStore(t, repo, "checkout", "-q", "main-line")
 			write(externalLawOwnText, "squash of the item")
 			gitRunStore(t, repo, "checkout", "-q", "-")
+		case historySynced:
+			write(externalLawOwnText, "item law edit")
+			gitRunStore(t, repo, "checkout", "-q", "main-line")
+			write(externalLawOwnText, "squash of the item")
+			gitRunStore(t, repo, "checkout", "-q", "-")
+			gitRunStore(t, repo, "merge", "-q", "--no-ff", "-m", "sync main", "main-line")
+			unrelated()
 		case historyMerged:
 			write(externalLawOwnText, "item law edit")
 			item := strings.TrimSpace(string(mustGit(t, repo, "rev-parse", "HEAD")))
@@ -152,18 +160,21 @@ func TestLawAttributionExternalEditDoesNotBlock(t *testing.T) {
 	requireFailureKind(t, enactLawChange(t, s, "outside-peer", nil, nil), KindOutcomeMismatch, "a peer cannot consume an external edit as attribution")
 }
 
-// The item's own undeclared law edit is still refused after it reaches main,
-// by squash or by a true merge that leaves no separating fork point, as is
+// The item's own undeclared law edit is still refused after it reaches main:
+// by squash, by squash and a later sync of main into the item, or by a true
+// merge that leaves no separating fork point. So is
 // an outside edit the text proof cannot cover: a tier change.
 func TestLawAttributionOwnEditStillRefuses(t *testing.T) {
 	s := seedLawChangeFixture(t, "inventory-seed")
 	seedExternalLaw(t, s, "law-own")
+	seedExternalLaw(t, s, "law-synced")
 	seedExternalLaw(t, s, "law-merged")
 	seedExternalLaw(t, s, "law-tier")
-	attributionItem(t, s, "own-c-squash", []string{}, []string{})
+	attributionItem(t, s, "own-d-squash", []string{}, []string{})
+	attributionItem(t, s, "own-c-synced", []string{}, []string{})
 	attributionItem(t, s, "own-b-merged", []string{}, []string{})
 	attributionItem(t, s, "own-a-tier", []string{}, []string{})
-	for _, item := range []struct{ id, law, shape string }{{"own-c-squash", "law-own", historyOwn}, {"own-b-merged", "law-merged", historyMerged}} {
+	for _, item := range []struct{ id, law, shape string }{{"own-d-squash", "law-own", historyOwn}, {"own-c-synced", "law-synced", historySynced}, {"own-b-merged", "law-merged", historyMerged}} {
 		reviseExternalLaw(t, s, item.law, externalLawHash(externalLawOwnText))
 		err := CompleteWorkflow(t.Context(), s, attributionCompletionWith(t, s, item.id, lawHistory(t, s, item.law, item.shape)))
 		requireFailureKind(t, err, KindOutcomeMismatch, item.shape+" own undeclared edit")

@@ -13,13 +13,16 @@ var workflowLawExternalGit GitRunner = ExecGitRunner{}
 
 // A law delta belongs to the completing item only when its own delivery made
 // it. The accepted Review's output candidate is that delivery, and the law's
-// projection is scanned from a main commit. When the candidate's law file is
-// byte-identical to the file at its merge base with that main commit, the
-// item's history did not edit the law: the edit reached main through another
-// change, whether or not the candidate later merged or rebased onto it. A
-// candidate that main already contains has no fork point that separates the
-// two, so it proves nothing. Only a text change with the law's tier and
-// Domains unchanged can be proved external. Anything unproved stays charged.
+// projection is scanned from a main commit. The delta is proved external when
+// the candidate's law file is byte-identical to the file at its merge base
+// with that main commit and no commit between the two touched the file: the
+// edit reached main through another change, whether or not the candidate
+// later merged or rebased onto it. A candidate that main already contains has
+// no fork point that separates the two, so it proves nothing. Only a text
+// change with the law's tier and Domains unchanged can be proved external.
+// Anything unproved stays charged, including an edit the item made and then
+// reverted. History cannot see an item edit whose commit a rebase dropped
+// because main already held the same change.
 
 type workflowLawCandidateProof struct {
 	candidate WorkerReviewCandidate
@@ -89,7 +92,11 @@ func (s *Store) lawCandidateProof(ctx context.Context, workID string) *workflowL
 		}
 		own := workflowLawGitLine(gitCtx, repo, "rev-parse", "--verify", "--end-of-options", candidate.Commit+":"+location.path)
 		start := workflowLawGitLine(gitCtx, repo, "rev-parse", "--verify", "--end-of-options", fork+":"+location.path)
-		if own != "" && own == start {
+		if own == "" || own != start {
+			continue
+		}
+		touched, err := workflowLawExternalGit.Run(gitCtx, repo, "rev-list", "-1", "--full-history", "--end-of-options", fork+".."+candidate.Commit, "--", location.path)
+		if err == nil && strings.TrimSpace(string(touched)) == "" {
 			proof.untouched[id] = location
 		}
 	}

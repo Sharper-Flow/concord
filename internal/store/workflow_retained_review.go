@@ -65,11 +65,16 @@ func sampleRetainedReviewState(ctx context.Context, q queryer, work string, bind
 	if err != nil || review.Candidate == nil {
 		return nil, err
 	}
-	if err := requireWorkerJobRevisionStateReadyTx(ctx, q, work, binding); err != nil {
-		return nil, nil // The ordinary job owner supplies its specific refusal.
-	}
 	var ready int
-	if err := q.QueryRowContext(ctx, `SELECT COUNT(*) FROM worker_job_revisions j WHERE j.work_id=? AND `+workerJobReadyPredicate, work).Scan(&ready); err != nil {
+	var selected bool
+	// The fold marks satisfaction before rechecking acceptance. Only this
+	// pending acceptance's own mark may stand in for the recorded state;
+	// a committed disposition cannot supply another retained-input proof.
+	if err := q.QueryRowContext(ctx, `SELECT COUNT(*), COALESCE(MAX(j.job_id=? AND j.revision=? AND j.digest=?),0)
+ FROM worker_job_revisions j WHERE j.work_id=? AND (`+workerJobReadyInputsPredicate+`)
+ AND (j.state='recorded' OR (j.state='satisfied' AND ?<>''
+ AND NOT EXISTS (SELECT 1 FROM worker_attempt_dispositions d WHERE d.work_id=j.work_id AND d.event_id=j.satisfied_result_ref)))`,
+		binding.JobID, binding.Revision, binding.Digest, work, self).Scan(&ready, &selected); err != nil {
 		return nil, err
 	}
 	job, err := readWorkerJobRevisionTx(ctx, q, work, binding)
@@ -80,7 +85,7 @@ func sampleRetainedReviewState(ctx context.Context, q queryer, work string, bind
 	if err != nil {
 		return nil, err
 	}
-	if ready != 1 || job.ContractVersion != version || job.ProjectScope != review.Candidate.ProjectID || len(job.PathScope) == 0 || job.ChecksRepair != nil {
+	if ready != 1 || !selected || job.ContractVersion != version || job.ProjectScope != review.Candidate.ProjectID || len(job.PathScope) == 0 || job.ChecksRepair != nil {
 		return nil, nil
 	}
 	// The latest accepted result must be the producer of the current candidate;

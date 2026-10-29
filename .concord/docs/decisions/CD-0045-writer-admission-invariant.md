@@ -15,7 +15,7 @@
 - **Preserves:** SQLite as sole durable authority; CD-0011's retention decision,
   accepted load profile, falsifier verdicts, and reopen conditions; Priority 2's
   substance as the data-safety constraint in
-  [`goals.md`](../goals.md#4-constraints-that-must-hold) §4 and
+  [`priorities.md`](../priorities.md#constraints) Constraints and
   [`priorities.md`](../priorities.md#data-safety-constraint)
 
 ## Context

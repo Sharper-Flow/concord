@@ -18,9 +18,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:43235d303cd5d59e0a970e842a172d03e9b2f97d4093ffd9aae0c0175a6d4602",
+  "sha256": "sha256:13373d9daf8f45d1736a7d8c3e84d4156aee36b4be39d73b91bf4046787e1177",
   "status": "accepted",
-  "summary": "Defines development authority: Linear MCP owns planning under CD-0213, pull requests and required checks own review and merge evidence, and goals.md owns the outside-workflow development route and its measured adoption boundary.",
+  "summary": "Defines development authority: Linear MCP owns planning under CD-0213, pull requests and required checks own review and merge evidence, and priorities.md owns the outside-workflow development route and its measured adoption boundary.",
   "tags": [
     "authority",
     "github"

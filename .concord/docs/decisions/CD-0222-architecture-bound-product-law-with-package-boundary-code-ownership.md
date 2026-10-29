@@ -50,9 +50,10 @@ D6's approval rule follows CD-0013 D11: `depends_on`, `blocks`, and `compatible_
 
 ### D1. Product law and architectural concordance serve the goals
 
-[`goals.md`](../goals.md) is the single home of Concord's purpose, its goals
-and their measures (§2), its constraints (§4), and the conflict rules that
-decide between goals (Appendix A). The goals are unranked. Appendix A settles
+[`goals.md`](../goals.md) records Concord's purpose, its goals, and their
+measures as guidance. [`priorities.md`](../priorities.md) holds the constraints
+and the conflict rules that decide between goals (Appendix A). The goals are
+unranked. Appendix A settles
 goal conflicts;
 [CD-0230](CD-0230-the-conflict-rules-are-one-checked-table-and-an-agent-changes-law-that-is-not-serious.md)
 governs applying and recording those rules.
@@ -65,8 +66,9 @@ of visibility and continuity.
 
 An accepted record's numbered priority reference identifies its subject, not
 precedence. Historical research and decision text is not rewritten. Living
-constitutional and contract documents use the goal and constraint names of
-[`goals.md`](../goals.md).
+constitutional and contract documents use the goal names of
+[`goals.md`](../goals.md) and the constraint names of
+[`priorities.md`](../priorities.md).
 
 Product-changing work has two valid law outcomes:
 

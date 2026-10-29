@@ -42,8 +42,8 @@ the first go-live decision must define future compatibility and measurement law.
 Open clarifications remain open; acceptance of these records does not close C8–C10
 or other explicitly deferred questions.
 
-[`goals.md`](./goals.md) owns the unranked goals and conflict rules;
-[`priorities.md`](./priorities.md) owns the operating envelope and standing law.
+[`goals.md`](./goals.md) records the unranked goals as guidance;
+[`priorities.md`](./priorities.md) owns the operating envelope, constraints, conflict rules, and standing law.
 
 ---
 

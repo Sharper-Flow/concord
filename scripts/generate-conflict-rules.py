@@ -2,7 +2,7 @@
 """Generate the Go conflict-rule catalog from the checked table.
 
 The generated file is metadata consumed by tests and the conflict recorder:
-the pinned goals.md source hash, the catalog generation, and the closed set of
+the pinned priorities.md source hash, the catalog generation, and the closed set of
 valid rule IDs and A2 row identifiers. It carries no approval classifier, no
 copied policy text, and no second sizing owner; LIVE validation only.
 """
@@ -28,7 +28,7 @@ def load() -> dict:
         raise SystemExit(f"{TABLE}: schema_version must be 1.1")
     source = value.get("source")
     if not isinstance(source, dict) or not str(source.get("sha256", "")).startswith("sha256:"):
-        raise SystemExit(f"{TABLE}: source.sha256 must pin the checked goals.md snapshot")
+        raise SystemExit(f"{TABLE}: source.sha256 must pin the checked priorities.md snapshot")
     rules = value.get("rules")
     if not isinstance(rules, list) or not rules:
         raise SystemExit(f"{TABLE}: rules must be a non-empty list")
@@ -63,7 +63,7 @@ def render(value: dict) -> str:
         "",
         "package store",
         "",
-        "// conflictRuleSourceHash pins the goals.md snapshot the shipped",
+        "// conflictRuleSourceHash pins the priorities.md snapshot the shipped",
         "// conflict-rule table was checked against (CD-0230 D6). The conflict",
         "// recorder consumes it; it never classifies consent.",
         f"const conflictRuleSourceHash = {json.dumps(str(value['source']['sha256']))}",

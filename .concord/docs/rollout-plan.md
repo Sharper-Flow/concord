@@ -1,8 +1,8 @@
 # Concord Rollout Plan
 
 > **Status:** Public bootstrap and Concord coordination sequence.
-> **Authority:** [`goals.md`](./goals.md) owns Product direction and conflict rules;
-> [`priorities.md`](./priorities.md) owns the operating envelope and standing law.
+> **Authority:** [`goals.md`](./goals.md) records Product direction as guidance;
+> [`priorities.md`](./priorities.md) owns the operating envelope, constraints, conflict rules, and standing law.
 > This document describes sequencing and entry conditions under those authorities.
 > **Origin:** Product direction recorded 2026-07-25; public bootstrap execution
 > authorized 2026-08-07 under CD-0007.
@@ -107,8 +107,8 @@ promotion. It imposes no schedule, so the demand-driven model above still holds.
 
 | Document | Role |
 |---|---|
-| [`goals.md`](./goals.md) | Product purpose, goals, measures, and conflict rules. |
-| [`priorities.md`](./priorities.md) | Operating envelope and standing law. |
+| [`goals.md`](./goals.md) | Product purpose, goals, and measures, as guidance. |
+| [`priorities.md`](./priorities.md) | Operating envelope, constraints, conflict rules, and standing law. |
 | [`managed-development-authority.md`](./managed-development-authority.md) | Concord development authority, explicit workflow participation, outside-work defect repair, and repository evidence. |
 | [`decisions/CD-0007-concord-repository-bootstrap.md`](./decisions/CD-0007-concord-repository-bootstrap.md) | Public repository, bootstrap, governance, release, privacy, and platform boundary. |
 | [`decisions/CD-0089-concord-development-coordination.md`](./decisions/CD-0089-concord-development-coordination.md) | Concord development coordination and explicit managed participation. |

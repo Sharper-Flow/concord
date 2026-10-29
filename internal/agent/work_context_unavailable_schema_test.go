@@ -73,7 +73,7 @@ func unavailableWorkPin(view, marker any) (map[string]any, error) {
 		"work_id": "work-test", "title": "fixture", "linear_issue_key": "CON-0000",
 		"project_id": "project-test", "project_display_name": "fixture",
 		"version": 1, "lifecycle": "in_progress", "cancelled_instance_closes": 0,
-		"workflow_type": "workflow.break_fix", "step": "planning", "attempt": nil,
+		"workflow_type": "workflow.break_fix", "step": "planning",
 		"pending_operator_decision": nil, "driving_sessions": []any{},
 		"watermark": "seq:1", "next_valid_intents": []any{},
 		"workflow_definition_digest": "sha256:" + strings.Repeat("a", 64),

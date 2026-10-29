@@ -148,7 +148,7 @@ func TestCorrectRequestRequiresPreEffectInputRefusal(t *testing.T) {
 			{"unauthorized", EffectNone, false},
 			{"approval_required", EffectNone, false},
 		} {
-			e := NewCoreError(NewBase("input-coupling", "concord_work_transition", "worker_abandon"), TypedError{Kind: test.kind, EffectState: test.effect, RetrySafe: test.retry, RecoveryAction: RecoveryAction{Kind: "correct_request"}})
+			e := NewCoreError(NewBase("input-coupling", "concord_work_transition", "lifecycle"), TypedError{Kind: test.kind, EffectState: test.effect, RetrySafe: test.retry, RecoveryAction: RecoveryAction{Kind: "correct_request"}})
 			e.Origin = origin
 			if origin == OriginAdapter {
 				e.Authority, e.Error.AdapterReason = AuthorityUnreachable, "invalid_tool_input"
@@ -193,7 +193,7 @@ func TestAdapterEnvelopeAdmitsSchemaVocabulary(t *testing.T) {
 	}
 	assertAdmitted := func(t *testing.T, typed TypedError) {
 		t.Helper()
-		e := NewCoreError(NewBase("adapter-vocabulary", "concord_work_transition", "worker_abandon"), typed)
+		e := NewCoreError(NewBase("adapter-vocabulary", "concord_work_transition", "lifecycle"), typed)
 		e.Origin, e.Authority = OriginAdapter, AuthorityUnreachable
 		if err := e.Validate(); err != nil {
 			t.Fatalf("schema-admitted adapter error refused: %v", err)
@@ -229,7 +229,7 @@ func TestAdapterEnvelopeAdmitsSchemaVocabulary(t *testing.T) {
 }
 
 func TestAdapterEnvelopeRetainsSchemaRejections(t *testing.T) {
-	base := NewCoreError(NewBase("adapter-rejections", "concord_work_transition", "worker_abandon"), TypedError{Kind: "transport_failure", AdapterReason: "missing_binary", EffectState: EffectNone, RecoveryAction: RecoveryAction{Kind: "contact_operator"}})
+	base := NewCoreError(NewBase("adapter-rejections", "concord_work_transition", "lifecycle"), TypedError{Kind: "transport_failure", AdapterReason: "missing_binary", EffectState: EffectNone, RecoveryAction: RecoveryAction{Kind: "contact_operator"}})
 	base.Origin, base.Authority = OriginAdapter, AuthorityUnreachable
 	for name, mutate := range map[string]func(*Envelope){
 		"unknown kind":             func(e *Envelope) { e.Error.Kind = "unknown_error_kind" },
@@ -290,7 +290,7 @@ func TestAdapterVacateGeneratedSchemaRecoveryScope(t *testing.T) {
 			if err := validate(e); err != nil {
 				t.Fatalf("adapter vacate recovery refused: %v", err)
 			}
-			e.Operation = "worker_abandon"
+			e.Operation = "lifecycle"
 			if err := validate(e); err == nil {
 				t.Fatal("vacate recovery admitted under another operation")
 			}

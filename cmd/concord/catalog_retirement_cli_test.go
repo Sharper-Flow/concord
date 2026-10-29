@@ -116,8 +116,8 @@ func TestCatalogRetirementReleasedBackupRecovery(t *testing.T) {
 		t.Fatalf("released recovery core identity: %+v", descriptor)
 	}
 	candidate := buildCoreFrom(t, repoSourceDir(t), "v0.0.0-catalog-retirement-candidate")
-	if descriptor := coreDescriptor(t, candidate); descriptor["schema_version"] != float64(165) || store.CurrentSchemaVersion() != 165 {
-		t.Fatalf("candidate must define catalog retirement schema 165: %+v", descriptor)
+	if descriptor := coreDescriptor(t, candidate); descriptor["schema_version"] != float64(store.CurrentSchemaVersion()) || store.CurrentSchemaVersion() < 165 {
+		t.Fatalf("candidate must include catalog retirement schema 165: %+v", descriptor)
 	}
 	root := t.TempDir()
 	path := filepath.Join(root, "source.db")
@@ -190,7 +190,11 @@ func TestCatalogRetirementReleasedBackupRecovery(t *testing.T) {
 	if err := json.Unmarshal([]byte(run(candidate, "upgrade", map[string]any{})), &upgrade); err != nil {
 		t.Fatal(err)
 	}
-	if upgrade.SchemaVersion != 165 || !reflect.DeepEqual(upgrade.Applied, []int{163, 164, 165}) {
+	tail := []int{}
+	for version := 163; version <= store.CurrentSchemaVersion(); version++ {
+		tail = append(tail, version)
+	}
+	if upgrade.SchemaVersion != store.CurrentSchemaVersion() || !reflect.DeepEqual(upgrade.Applied, tail) {
 		t.Fatalf("candidate must apply the complete breaking tail: %+v", upgrade)
 	}
 	db := mustOpenCutoverStore(t, path)

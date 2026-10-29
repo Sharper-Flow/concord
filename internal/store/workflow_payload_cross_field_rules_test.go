@@ -490,7 +490,7 @@ func TestCrossFieldSampleObjectUnion(t *testing.T) {
 
 // crossFieldSampleObject samples one admitted object for a schema node whose
 // branches the cross-field declarations split, following oneOf/anyOf into
-// their first branch and filling the enclosing node's own requireds.
+// their first branch and filling both required sets from their property declarations.
 func crossFieldSampleObject(defs map[string]any, node map[string]any) map[string]any {
 	node = mergeRefSiblings(defs, node)
 	object := map[string]any{}
@@ -498,7 +498,6 @@ func crossFieldSampleObject(defs map[string]any, node map[string]any) map[string
 	for _, keyword := range []string{"oneOf", "anyOf"} {
 		if branches, ok := node[keyword].([]any); ok && len(branches) > 0 {
 			if branch, ok := branches[0].(map[string]any); ok {
-				branch = mergeRefSiblings(defs, branch)
 				for name, value := range crossFieldSampleObject(defs, branch) {
 					object[name] = value
 				}

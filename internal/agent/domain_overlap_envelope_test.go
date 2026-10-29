@@ -13,7 +13,7 @@ func TestLawOnlyDomainOverlapRefusalIsDeliverable(t *testing.T) {
 	failure := &store.Failure{
 		Kind: store.KindDomainOverlap, Op: "workflow_domain_overlap",
 		Detail:         "active Product-changing workflows have unresolved Domain overlap",
-		RecoveryAction: "request_approval",
+		RecoveryAction: "reconcile_operation",
 		DomainOverlap: &store.DomainOverlapFailure{
 			Overlaps: []store.WorkflowDomainOverlap{{
 				ProductID: "concord", FromWorkID: "work-a", ToWorkID: "work-b",
@@ -65,7 +65,7 @@ func TestArchitectureOnlyDomainOverlapRefusalIsDeliverable(t *testing.T) {
 		Op:             "workflow_domain_overlap",
 		Detail:         "active Product-changing workflows have unresolved Domain overlap",
 		RetrySafe:      false,
-		RecoveryAction: "request_approval",
+		RecoveryAction: "reconcile_operation",
 		DomainOverlap: &store.DomainOverlapFailure{
 			Overlaps: []store.WorkflowDomainOverlap{{
 				ProductID: "concord", FromWorkID: "work-a", ToWorkID: "work-b",
@@ -135,7 +135,7 @@ func TestDomainOverlapRefusalAboveEnvelopeCapIsRefused(t *testing.T) {
 	failure := &store.Failure{
 		Kind: store.KindDomainOverlap, Op: "workflow_domain_overlap",
 		Detail:    "active Product-changing workflows have unresolved Domain overlap",
-		RetrySafe: false, RecoveryAction: "request_approval",
+		RetrySafe: false, RecoveryAction: "reconcile_operation",
 		DomainOverlap: &store.DomainOverlapFailure{
 			Overlaps: overlaps, TotalOverlaps: 21, ReturnedOverlaps: 21, Truncated: false,
 		},

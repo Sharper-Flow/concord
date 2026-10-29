@@ -212,21 +212,21 @@ func TestReclaimReplaysRecordedRemovalPlan(t *testing.T) {
 
 	// Fail-closed ownership: a merge target no branch name can hold leaves
 	// the protected default unestablished, so the stored ref is retained
-	// while the approved destructive directory removal still proceeds.
+	// while the destructive directory removal still proceeds.
 	t.Run("unestablished default retains the stored ref without blocking", func(t *testing.T) {
 		f := con829FixtureNew(t)
 		path, branch := f.claimWork("work-plan-unknown-default")
 		f.completeWork("work-plan-unknown-default")
-		if err := writeFile(filepath.Join(path, "tracked.txt"), "approved dirty content\n"); err != nil {
+		if err := writeFile(filepath.Join(path, "tracked.txt"), "dirty content\n"); err != nil {
 			t.Fatal(err)
 		}
 		req := f.reclaimRequest("work-plan-unknown-default", "plan-unknown-default")
-		req.RequireTerminal, req.Destructive, req.OperatorApprovalRef, req.DefaultRef = true, true, "concord_approval:plan-unknown", "not a valid ref"
+		req.RequireTerminal, req.Destructive, req.DefaultRef = true, true, "not a valid ref"
 		if _, err := f.s.ReclaimWorktree(context.Background(), req); err != nil {
-			t.Fatalf("the approved destructive removal must proceed, got %v", err)
+			t.Fatalf("the destructive removal must proceed, got %v", err)
 		}
 		if !f.worktreeGone(path) {
-			t.Fatal("the unestablished default must not block the approved directory removal")
+			t.Fatal("the unestablished default must not block the destructive directory removal")
 		}
 		if !f.refExists(branch) {
 			t.Fatalf("the stored ref %s must be retained when the protected default cannot be established", branch)
@@ -274,28 +274,28 @@ func TestReclaimReplaysRecordedRemovalPlan(t *testing.T) {
 		}
 	})
 
-	// Review case 4: an approved forced removal replays its recorded force
+	// Review case 4: a forced removal replays its recorded force
 	// and converges.
-	t.Run("approved forced removal replays and converges", func(t *testing.T) {
+	t.Run("forced removal replays and converges", func(t *testing.T) {
 		f := con829FixtureNew(t)
 		path, _ := f.claimWork("work-plan-force")
 		f.completeWork("work-plan-force")
-		if err := writeFile(filepath.Join(path, "tracked.txt"), "approved dirty content\n"); err != nil {
+		if err := writeFile(filepath.Join(path, "tracked.txt"), "dirty content\n"); err != nil {
 			t.Fatal(err)
 		}
 		req := f.reclaimRequest("work-plan-force", "plan-force")
-		req.RequireTerminal, req.Destructive, req.OperatorApprovalRef = true, true, "concord_approval:plan-force"
+		req.RequireTerminal, req.Destructive = true, true
 		removal := con829CommitRemoval(t, f, req)
 		if _, err := RunWorktreeNativeRemoval(context.Background(), con829FailingGitRunner{failPrefix: "worktree remove"}, removal); err == nil {
 			t.Fatal("expected the injected directory failure to surface")
 		}
 		retry := f.reclaimRequest("work-plan-force", "plan-force-retry")
-		retry.RequireTerminal, retry.Destructive, retry.OperatorApprovalRef = true, true, "concord_approval:plan-force"
+		retry.RequireTerminal, retry.Destructive = true, true
 		if _, err := f.s.ReclaimWorktree(context.Background(), retry); err != nil {
-			t.Fatalf("the recorded approved forced removal must converge, got %v", err)
+			t.Fatalf("the recorded forced removal must converge, got %v", err)
 		}
 		if !f.worktreeGone(path) {
-			t.Fatal("the approved directory removal is still pending")
+			t.Fatal("the forced directory removal is still pending")
 		}
 	})
 
@@ -309,11 +309,11 @@ func TestReclaimReplaysRecordedRemovalPlan(t *testing.T) {
 		if _, err := RunWorktreeNativeRemoval(context.Background(), con829FailingGitRunner{failPrefix: "worktree remove"}, removal); err == nil {
 			t.Fatal("expected the injected directory failure to surface")
 		}
-		if err := writeFile(filepath.Join(path, "tracked.txt"), "unapproved dirty content\n"); err != nil {
+		if err := writeFile(filepath.Join(path, "tracked.txt"), "dirty content after the recorded plan\n"); err != nil {
 			t.Fatal(err)
 		}
 		retry := f.reclaimRequest("work-plan-noescalate", "plan-noescalate-retry")
-		retry.RequireTerminal, retry.Destructive, retry.OperatorApprovalRef = true, true, "concord_approval:late"
+		retry.RequireTerminal, retry.Destructive = true, true
 		if _, err := f.s.ReclaimWorktree(context.Background(), retry); err == nil {
 			t.Fatal("a safe recorded plan must not replay as a forced removal")
 		}

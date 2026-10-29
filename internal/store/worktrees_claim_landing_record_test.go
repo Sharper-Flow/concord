@@ -188,12 +188,27 @@ func TestClaimLandingAfterReclaimRecordsSecondTransferAtSamePath(t *testing.T) {
 		t.Fatalf("first landing=%+v err=%v, want a fresh transfer", landing, err)
 	}
 
+	// Release the live process's row through its verified vacate landing
+	// before reclaiming either claim generation.
+	destination := git.worktreeRepos[claimedB.Entry.Path]
+	payload, err := json.Marshal(sessionVacatedPayload{WorkID: "work-w", ProjectID: "project-b", SessionRef: "ses-1", SourceDirectory: claimedB.Entry.Path, DestinationDirectory: destination})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ApplyOperation(ctx, s, Operation{Events: []Event{{
+		EventID: "claim-landing-vacate", Kind: "work.session_vacated", SubjectType: SubjectWorkItem, SubjectID: "work-w", Actor: "ses-1", OccurredAt: now, PayloadVersion: 2, Payload: payload,
+	}}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.RecordSessionVacateLanding(ctx, SessionVacateLandingRequest{WorkID: "work-w", SessionRef: "ses-1", LandedDirectory: destination, HostPID: 1, Now: now}); err != nil {
+		t.Fatal(err)
+	}
+
 	reclaim := func(projectID, requestID string, expectedVersion int64) {
 		t.Helper()
 		_, err := s.ReclaimWorktree(ctx, WorktreeReclaimRequest{
 			WorkID: "work-w", ProjectID: projectID, DefaultRef: "origin/main", PrincipalRef: "principal-1", RequestID: requestID, ExpectedVersion: expectedVersion,
 			Now: now, Runner: git,
-			ReleaseOccupancy: true, OperatorApprovalRef: "approval:claim-landing-test",
 		})
 		if err != nil {
 			t.Fatal(err)

@@ -156,8 +156,7 @@ func TestReclaimWorktreeReleasesOccupancyOnlyByProcessEnd(t *testing.T) {
 // A legacy row has no process identity, so the process-liveness proof has
 // nothing to read (CD-0178 D3). With a live lease predating the row, the
 // lease-set proof keeps it too (CD-0179): the audit pass refuses the
-// worktree typed, the row survives, and session_vacate — or an
-// operator-approved removal — releases it.
+// worktree typed, the row survives, and session_vacate releases it.
 func TestAuditReclaimRejectsLegacyOccupancyWithoutApproval(t *testing.T) {
 	s, git, _ := worktreeFixture(t)
 	writeProtectingHostLease(t, s)

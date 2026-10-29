@@ -32,7 +32,7 @@ this operation writes Product state only.
 
 ## Decision
 
-The operation-scoped checkout authorization remains independent of consent. CD-0013 D11 removes approval only for routine acceptance-backed completion; it preserves terminal evidence, live-workflow completion refusal, cancellation approval, destructive-effect approval, and historical-pin requirements. A main checkout acquires no implementation authority from this change.
+The operation-scoped checkout authorization remains independent of consent. CD-0013 D11 removes approval only for routine acceptance-backed completion; it preserves terminal evidence, live-workflow completion refusal, cancellation approval, and historical-pin requirements. A main checkout acquires no implementation authority from this change.
 
 
 ### D1. Main-checkout authority is operation-scoped

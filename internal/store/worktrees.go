@@ -70,8 +70,8 @@ type WorktreeEntry struct {
 // WorktreeOccupant is one live occupancy row for a worktree, projected from
 // worktree_occupancy (CD-0178 D3). HostPID and HostPIDStart stay empty for
 // legacy rows that carry no process identity: the process-liveness proof has
-// nothing to read, so such a row releases only through session_vacate, an
-// operator-approved removal, or the lease-set proof that its recording
+// nothing to read, so such a row releases only through session_vacate or
+// the lease-set proof that its recording
 // process ended (CD-0179).
 type WorktreeOccupant struct {
 	WorktreeID         string
@@ -1047,18 +1047,9 @@ type WorktreeReclaimRequest struct {
 	// item stays at needed and the worktree branch holds no commit beyond
 	// the Project's default ref. The reclaim surface leaves it false.
 	RequireUnstarted bool
-	// OperatorApprovalRef names the operator approval consumed for a safety
-	// waiver. The git safety gates are unaffected unless Destructive is true.
-	OperatorApprovalRef string
-	// Destructive declares that the consumed approval also covers discarding
-	// the git safety gates: the clean-tree and durable-branch checks are
-	// skipped and the native remove is forced. It requires a non-empty
-	// OperatorApprovalRef; the surface guarantees the pairing and the store
-	// refuses the combination that would skip gates unapproved.
+	// Destructive discards local development content without clean-tree or
+	// durable-branch checks. Identity and occupancy checks still apply.
 	Destructive bool
-	// ReleaseOccupancy permits an operator-approved destroy to clear a stale
-	// recorded occupant before the removal gate runs.
-	ReleaseOccupancy bool
 	// HostLeases is the live host lease set the caller read before the
 	// transaction began. A legacy occupancy row (no process identity)
 	// releases only when every lease in this set started after the row's
@@ -1489,7 +1480,7 @@ type WorktreeReclaimProbe struct {
 	// repinning.
 	DirectoryPending bool
 	// ReplayForce records the force flag the committed plan carries, so a
-	// replay of an approved forced removal keeps its recorded authority and
+	// replay of a forced removal keeps its recorded authority and
 	// a replay of a safe removal stays safe whatever the retry declares.
 	ReplayForce bool
 	// LiveHead is the one immutable live-HEAD observation every content gate
@@ -1517,24 +1508,17 @@ type WorktreeReclaimProbe struct {
 	Facts json.RawMessage
 }
 
-// WorktreeDestroyRequest drives the CD-0096 D3 Destroy tier under the unchanged
-// CD-0095 git gates. CD-0243 D7 retires nonterminal consent, not safety waivers.
+// WorktreeDestroyRequest drives the CD-0096 D3 Destroy tier.
 type WorktreeDestroyRequest struct {
 	WorkID          string
 	ProjectID       string
 	DefaultRef      string
 	ExpectedVersion int64
-	// OperatorApprovalRef names the consumed operator approval. Empty means
-	// the safe path only.
-	OperatorApprovalRef string
-	// Destructive declares that the approval also covers discarding the git
-	// safety gates.
-	Destructive      bool
-	ReleaseOccupancy bool
-	PrincipalRef     string
-	RequestID        string
-	Now              time.Time
-	Runner           GitRunner
+	Destructive     bool
+	PrincipalRef    string
+	RequestID       string
+	Now             time.Time
+	Runner          GitRunner
 }
 
 // DestroyWorktreeTx is the destroy on an existing transaction, so the agent
@@ -1897,19 +1881,18 @@ type liveHeadFacts struct {
 // and the bounded native-removal plan whose branch deletions a retry must
 // still converge (CD-0212 D3-D4).
 type worktreeReclaimFacts struct {
-	CleanTree        bool                     `json:"clean_tree,omitempty"`
-	DefaultRef       string                   `json:"default_ref,omitempty"`
-	StoredBranch     string                   `json:"stored_branch,omitempty"`
-	StoredRefAbsent  bool                     `json:"stored_ref_absent,omitempty"`
-	AlreadyAbsent    bool                     `json:"already_absent,omitempty"`
-	Forced           bool                     `json:"forced,omitempty"`
-	OperatorOverride string                   `json:"operator_override,omitempty"`
-	LiveHead         *liveHeadFacts           `json:"live_head,omitempty"`
-	SquashMerged     bool                     `json:"squash_merged,omitempty"`
-	RemoteReachable  bool                     `json:"remote_reachable,omitempty"`
-	CommitsBeyond    int                      `json:"commits_beyond,omitempty"`
-	RetainedRefs     []WorktreeRetainedRef    `json:"retained_refs,omitempty"`
-	BranchDeletions  []WorktreeBranchDeletion `json:"branch_deletions,omitempty"`
+	CleanTree       bool                     `json:"clean_tree,omitempty"`
+	DefaultRef      string                   `json:"default_ref,omitempty"`
+	StoredBranch    string                   `json:"stored_branch,omitempty"`
+	StoredRefAbsent bool                     `json:"stored_ref_absent,omitempty"`
+	AlreadyAbsent   bool                     `json:"already_absent,omitempty"`
+	Forced          bool                     `json:"forced,omitempty"`
+	LiveHead        *liveHeadFacts           `json:"live_head,omitempty"`
+	SquashMerged    bool                     `json:"squash_merged,omitempty"`
+	RemoteReachable bool                     `json:"remote_reachable,omitempty"`
+	CommitsBeyond   int                      `json:"commits_beyond,omitempty"`
+	RetainedRefs    []WorktreeRetainedRef    `json:"retained_refs,omitempty"`
+	BranchDeletions []WorktreeBranchDeletion `json:"branch_deletions,omitempty"`
 }
 
 // worktreeRefOutcome is one durable per-ref outcome row the reclamation
@@ -1969,7 +1952,7 @@ func probeWorktreeReclaim(ctx context.Context, runner GitRunner, req WorktreeRec
 	}
 	if probeErr != nil {
 		probe.AlreadyAbsent = true
-		probe.Facts = jsonMustMarshal(worktreeReclaimFacts{AlreadyAbsent: true, Forced: req.Destructive, OperatorOverride: approvalFactRef(req)})
+		probe.Facts = jsonMustMarshal(worktreeReclaimFacts{AlreadyAbsent: true, Forced: req.Destructive})
 		return probe, nil
 	}
 	return probeLiveWorktreeReclaim(ctx, runner, req, op, probe, branchOut)
@@ -2039,10 +2022,7 @@ func probeLiveWorktreeReclaim(ctx context.Context, runner GitRunner, req Worktre
 	}
 	live.Tip = strings.TrimSpace(string(tipOut))
 	probe.LiveHead = live
-	// A destructive removal runs under its consumed operator approval: the
-	// clean-tree and durable-branch gates are skipped and the native remove
-	// is forced (CD-0096 D3 Destroy). Identity pinning still applies, and a
-	// stored ref is still proven and pinned before any deletion.
+	// Destructive removal skips preservation checks, not identity pinning.
 	deletions, retained, planErr := planStoredRefDeletion(ctx, runner, req, op, entry, repoRoot, live, true, "")
 	if planErr != nil {
 		return WorktreeReclaimProbe{}, planErr
@@ -2059,7 +2039,7 @@ func probeLiveWorktreeReclaim(ctx context.Context, runner GitRunner, req Worktre
 	if strings.TrimSpace(string(statusOut)) != "" {
 		recovery := "commit or discard the changes before reclaiming"
 		if req.RequireTerminal {
-			recovery = "commit or discard the changes, or obtain an operator-approved destructive destroy"
+			recovery = "commit or discard the changes, or use worktree_destroy with destructive=true"
 		}
 		return probe, newFailure(KindInvalidOperation, op, "worktree tree is dirty", false, recovery)
 	}
@@ -2123,15 +2103,6 @@ func probeLiveWorktreeReclaim(ctx context.Context, runner GitRunner, req Worktre
 	return probe, nil
 }
 
-// approvalFactRef returns the operator approval reference a forced fact
-// records, empty on the safe path.
-func approvalFactRef(req WorktreeReclaimRequest) string {
-	if req.Destructive {
-		return req.OperatorApprovalRef
-	}
-	return ""
-}
-
 // storedRefAbsent reports whether the stored claim ref was observed missing:
 // no deletion was planned and no retention was recorded for it.
 func storedRefAbsent(deletions []WorktreeBranchDeletion, retained []WorktreeRetainedRef, entry WorktreeEntry) bool {
@@ -2153,13 +2124,12 @@ func storedRefAbsent(deletions []WorktreeBranchDeletion, retained []WorktreeReta
 // a caller cannot record a plan its gates did not prove.
 func (p WorktreeReclaimProbe) reclaimFacts(req WorktreeReclaimRequest) json.RawMessage {
 	facts := worktreeReclaimFacts{
-		DefaultRef:       p.DefaultRef,
-		StoredRefAbsent:  p.StoredRefAbsent,
-		AlreadyAbsent:    p.AlreadyAbsent,
-		Forced:           req.Destructive,
-		OperatorOverride: approvalFactRef(req),
-		RetainedRefs:     p.Retained,
-		BranchDeletions:  p.Deletions,
+		DefaultRef:      p.DefaultRef,
+		StoredRefAbsent: p.StoredRefAbsent,
+		AlreadyAbsent:   p.AlreadyAbsent,
+		Forced:          req.Destructive,
+		RetainedRefs:    p.Retained,
+		BranchDeletions: p.Deletions,
 	}
 	if !p.AlreadyAbsent && !req.Destructive && p.LiveHead.Tip != "" {
 		facts.CleanTree = p.LiveHead.Clean
@@ -2182,16 +2152,12 @@ func (p WorktreeReclaimProbe) reclaimFacts(req WorktreeReclaimRequest) json.RawM
 }
 
 // factsFor composes the reclamation facts the event records from the probe's
-// own observations and the request that will actually commit. The agent
-// surface captures its probe before the approval tail supplies the consumed
-// operator reference, so composing at the append boundary is what keeps the
-// committed forced facts naming the approval they consumed (CD-0212 D2).
+// own observations and the request that will actually commit.
 // Every planned fact still comes from the probe; the request contributes
-// only the destructive flag and the approval reference, which the
-// transaction re-validates.
+// only the destructive flag.
 func (p WorktreeReclaimProbe) factsFor(req WorktreeReclaimRequest) json.RawMessage {
 	if p.AlreadyAbsent {
-		return jsonMustMarshal(worktreeReclaimFacts{AlreadyAbsent: true, Forced: req.Destructive, OperatorOverride: approvalFactRef(req)})
+		return jsonMustMarshal(worktreeReclaimFacts{AlreadyAbsent: true, Forced: req.Destructive})
 	}
 	return p.reclaimFacts(req)
 }
@@ -2241,7 +2207,7 @@ func planStoredRefDeletion(ctx context.Context, runner GitRunner, req WorktreeRe
 		}
 		reason := "live head is the stored claim branch, durable: " + liveDurableVia
 		if destructive {
-			reason = "operator-approved destructive removal of the checked-out claim branch"
+			reason = "discarding the checked-out claim branch"
 		}
 		return append(deletions, WorktreeBranchDeletion{Branch: entry.Branch, ExpectedTip: live.Tip, Reason: reason}), retained, nil
 	}
@@ -2259,7 +2225,7 @@ func planStoredRefDeletion(ctx context.Context, runner GitRunner, req WorktreeRe
 		return deletions, append(retained, WorktreeRetainedRef{Branch: entry.Branch, Tip: resolved.tip, Reason: "cannot establish the protected default; the ref was retained"}), nil
 	}
 	if destructive {
-		return append(deletions, WorktreeBranchDeletion{Branch: entry.Branch, ExpectedTip: resolved.tip, Reason: "operator-approved destructive removal of the stored claim branch"}), retained, nil
+		return append(deletions, WorktreeBranchDeletion{Branch: entry.Branch, ExpectedTip: resolved.tip, Reason: "discarding the stored claim branch"}), retained, nil
 	}
 	// The independent proof runs against the tip the plan just pinned, not
 	// the mutable branch name it read it from: a ref that moved between the
@@ -3042,24 +3008,8 @@ func reclaimWorktreeStoreTx(ctx context.Context, tx *sql.Tx, req WorktreeReclaim
 }
 
 func validateReclaimLifecycleTx(ctx context.Context, tx *sql.Tx, req WorktreeReclaimRequest, op string) error {
-	// CD-0243 D7 permits nonterminal removal when content and occupancy
-	// gates pass. A destructive waiver still needs its operator approval.
-	if req.RequireTerminal {
-		var lifecycle string
-		err := tx.QueryRowContext(ctx, `SELECT lifecycle FROM work_items WHERE id=?`, req.WorkID).Scan(&lifecycle)
-		if err == sql.ErrNoRows {
-			return newFailure(KindUnknownScope, op, "work item does not exist", false, "select one existing work item")
-		}
-		if err != nil {
-			return wrapFailure(KindUnavailable, op, "cannot read the work item", true, "retry once the database is readable", err)
-		}
-		if req.Destructive && req.OperatorApprovalRef == "" {
-			return newFailure(KindInvalidOperation, op, "destructive removal requires the operator approval it would consume", false, "obtain an operator-approved destructive destroy")
-		}
-	}
 	// CD-0118: unstarted work reclaims without approval when the worktree
-	// holds nothing a merge could lose. Work that has moved past needed, or
-	// an operator-approved removal, are the only ways past this gate.
+	// holds nothing a merge could lose.
 	if req.RequireUnstarted {
 		var lifecycle string
 		err := tx.QueryRowContext(ctx, `SELECT lifecycle FROM work_items WHERE id=?`, req.WorkID).Scan(&lifecycle)
@@ -3069,8 +3019,8 @@ func validateReclaimLifecycleTx(ctx context.Context, tx *sql.Tx, req WorktreeRec
 		if err != nil {
 			return wrapFailure(KindUnavailable, op, "cannot read the work item", true, "retry once the database is readable", err)
 		}
-		if lifecycle != "needed" && req.OperatorApprovalRef == "" {
-			return newFailure(KindInvalidTransition, op, "work item is "+lifecycle+", so its worktree is not unstarted work", false, "start, complete, or cancel the work first, or obtain an operator-approved destroy")
+		if lifecycle != "needed" {
+			return newFailure(KindInvalidTransition, op, "work item is "+lifecycle+", so its worktree is not unstarted work", false, "start, complete, or cancel the work first")
 		}
 	}
 	return nil
@@ -3145,12 +3095,7 @@ func reclaimWorktreeEntryTx(ctx context.Context, tx *sql.Tx, req WorktreeReclaim
 	// and blocks removal; a row whose host process ended releases; a legacy
 	// row (no process identity) is released when every live host lease
 	// started after the row's recorded_at, which proves its recording process
-	// ended, and otherwise stays for session_vacate or an operator-approved
-	// removal. Operator-approved reclamation
-	// (ReleaseOccupancy with OperatorApprovalRef) clears every row of the
-	// worktree, and the destructive path appends the
-	// approval to the recorded event so an audit trail names the live
-	// occupants it released.
+	// ended, and otherwise stays for session_vacate.
 	occupants, err := worktreeOccupancyRowsTx(ctx, tx, setID, entry.ProjectID, entry.ClaimOpID)
 	if err != nil {
 		return out, nil, err
@@ -3762,7 +3707,7 @@ func branchHasNoCommitsBeyond(ctx context.Context, runner GitRunner, repoRoot, c
 	}
 	count := strings.TrimSpace(string(countOut))
 	if count != "0" {
-		return newFailure(KindInvalidOperation, op, label+" holds "+count+" commit(s) beyond "+defaultRef, false, "merge or remove the commits before reclaiming, or obtain an operator-approved destroy")
+		return newFailure(KindInvalidOperation, op, label+" holds "+count+" commit(s) beyond "+defaultRef, false, "merge or remove the commits before reclaiming")
 	}
 	return nil
 }
@@ -3821,8 +3766,7 @@ func appendReclaimedTx(ctx context.Context, tx *sql.Tx, req WorktreeReclaimReque
 }
 
 // releaseWorktreeOccupancyRowTx is the single-row release the reclaim path
-// runs when process liveness proves the row's host process has ended, or
-// when an operator-approved removal consumes the row. The release gate reads
+// runs when process liveness proves the row's host process has ended. The release gate reads
 // process liveness only (CD-0178 D3): the kernel is the authority, and the
 // kernel-derived pid_start is what makes that decision honest. The release
 // event names the recorded session.
@@ -3858,38 +3802,10 @@ func worktreeOccupantEnded(occ WorktreeOccupant, leases HostLeaseSet) bool {
 	return legacyOccupancyRowEnded(leases, occ.RecordedAt)
 }
 
-// WorktreeReclaimOccupancyWaiverRequired reads the same liveness rule as the
-// removal gate, without releasing rows. CD-0243 D7 preserves this operator-only
-// waiver even when ordinary nonterminal removal requires no consent.
-func (s *Store) WorktreeReclaimOccupancyWaiverRequired(ctx context.Context, req WorktreeReclaimRequest, probe WorktreeReclaimProbe) (bool, error) {
-	required := false
-	err := s.ReadTransaction(ctx, func(transaction *Transaction) error {
-		return worktreeReclaimOccupancyWaiverRequiredTx(ctx, transaction, req, probe, &required)
-	})
-	return required, err
-}
-
-func worktreeReclaimOccupancyWaiverRequiredTx(ctx context.Context, transaction *Transaction, req WorktreeReclaimRequest, probe WorktreeReclaimProbe, required *bool) error {
-	tx, err := transactionSQL(transaction, "worktree_destroy")
-	if err != nil {
-		return err
-	}
-	occupants, err := worktreeOccupancyRowsTx(ctx, tx, WorktreeSetID(req.WorkID), req.ProjectID, probe.Entry.ClaimOpID)
-	if err != nil {
-		return err
-	}
-	for _, occupant := range occupants {
-		if !worktreeOccupantEnded(occupant, req.HostLeases) {
-			*required = true
-		}
-	}
-	return nil
-}
-
 // reclaimOccupancyGateTx applies the occupancy release rules one reclaim or
 // removal must satisfy before it may take the worktree (CD-0178 D3, CD-0179
-// D3). A live process or unproven legacy row stays unless the exact operator
-// waiver releases it; every recorded release event names its session.
+// D3). A live process or unproven legacy row stays; every recorded release
+// event names its session.
 func reclaimOccupancyGateTx(ctx context.Context, tx *sql.Tx, req WorktreeReclaimRequest, op string, entry WorktreeEntry, setID string, occupants []WorktreeOccupant, incarnation int, now time.Time) error {
 	if len(occupants) == 0 {
 		return nil
@@ -3907,14 +3823,6 @@ func reclaimOccupancyGateTx(ctx context.Context, tx *sql.Tx, req WorktreeReclaim
 	if len(liveOccupants) == 0 {
 		return nil
 	}
-	if req.ReleaseOccupancy && req.OperatorApprovalRef != "" {
-		for _, sessionRef := range liveOccupants {
-			if err := releaseWorktreeOccupancyRowTx(ctx, tx, req, setID, entry.ProjectID, entry.ClaimOpID, sessionRef, incarnation, now); err != nil {
-				return err
-			}
-		}
-		return nil
-	}
 	return newRouteFailure(KindWorktreeOwnershipConflict, op,
 		fmt.Sprintf("sessions %s occupy worktree %s; removing it would strand those sessions", strings.Join(liveOccupants, ", "), entry.Path),
 		false, "session_vacate", "worktree_reclaim")
@@ -3922,8 +3830,7 @@ func reclaimOccupancyGateTx(ctx context.Context, tx *sql.Tx, req WorktreeReclaim
 
 // worktreeOccupancyRowsTx reads every occupancy row the named worktree holds,
 // in recorded_at order. The caller decides whether each row stays (live
-// process, legacy row without operator approval) or releases (dead process,
-// operator-approved release path). CD-0178 D3.
+// process, unproven legacy row) or releases (dead process). CD-0178 D3.
 func worktreeOccupancyRowsTx(ctx context.Context, tx *sql.Tx, setID, projectID, claimOpID string) ([]WorktreeOccupant, error) {
 	worktreeID := worktreeOccupancyID(setID, projectID, claimOpID)
 	rows, err := tx.QueryContext(ctx, `SELECT session_ref, recorded_at, host_pid, host_pid_start, has_process_identity FROM worktree_occupancy WHERE worktree_id=? ORDER BY recorded_at, session_ref`, worktreeID)

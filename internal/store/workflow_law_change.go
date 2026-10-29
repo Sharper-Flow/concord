@@ -325,8 +325,8 @@ func workflowLawChangeSubmittedPins(fields map[string]json.RawMessage) ([]Workfl
 	return pins, registryHash, nil
 }
 
-// Classified changes pin exactly their law and registry text. Agent-owned
-// changes carry no approval pins and must enact the derived tier instead.
+// Removals declare absence; classified changes pin the remaining law and registry
+// text. Agent-owned retained revisions carry the derived tier, not approval pins.
 func validateWorkflowLawChangePins(change *WorkflowLawChange, op string, needsApproval bool) error {
 	if len(change.Removals) > workflowLawChangeTextPinsMax || !slices.IsSorted(change.Removals) || len(slices.Compact(slices.Clone(change.Removals))) != len(change.Removals) {
 		return newFailure(KindInvalidPayload, op, "law_change removals must be a sorted unique list", false, "declare each removed law once")
@@ -524,7 +524,7 @@ func validateLiveWorkflowLawChangeTx(ctx context.Context, tx *sql.Tx, workID str
 // A merged edit is excluded only by a completed peer's recorded enactment or
 // by Git proof that the reviewed candidate's history never made it.
 // Operator-approved text must match its pins; other law revisions must carry
-// the derived tier.
+// the derived tier. A declared removal must be absent from the verified inventory.
 func checkWorkflowLawChangeEnactmentTx(ctx context.Context, tx *sql.Tx, workID string, change *WorkflowLawChange, binding *WorkflowArchitectureBinding) error {
 	before, after, declaredLaws, err := readWorkflowLawAttributedBaselineTx(ctx, tx, workID, change)
 	if err != nil {
@@ -568,7 +568,7 @@ func checkWorkflowLawChangeEnactmentTx(ctx context.Context, tx *sql.Tx, workID s
 		}
 		resolution, ok := resolutions[reference]
 		if !ok {
-			return newFailure(KindMissingEvidence, "complete_workflow", "the enacted law revision is missing from the Git projection: "+reference, false, "publish and rebuild the enacted law revision")
+			return newFailure(KindMissingEvidence, "complete_workflow", "the enacted law revision is missing from the Git projection: "+reference, false, "publish and rebuild the enacted law revision, or supersede the contract to declare its intended law_change_removals")
 		}
 		if resolution.tier != "derived" {
 			return newFailure(KindMissingEvidence, "complete_workflow", fmt.Sprintf("law %s, counted in a law change without the operator's approval of its exact text, must carry the derived tier, not %s (CD-0230 D4)", reference, resolution.tier), false, "record authority.tier derived on the changed law")

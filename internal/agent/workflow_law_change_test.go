@@ -18,7 +18,7 @@ import (
 // approves the text without replacing the coordinator as contract author.
 // Calls enter through the published tool boundary on the live break-fix pin.
 func TestWorkflowClassifiedLawChangeApproval(t *testing.T) {
-	testWorkflowLawChangeApproval(t, true, "derived")
+	testWorkflowLawChangeApproval(t, true, "derived", false)
 }
 
 func TestReviseInitializesVerifiedProductLawBaseline(t *testing.T) {
@@ -90,7 +90,7 @@ func TestCaptureLawBaselineUsesPreTransactionProofAndReplays(t *testing.T) {
 // CD-0243 D4 retires seriousness as a consent class, not tier checks at enactment.
 func TestWorkflowUnclassifiedLawChangeAdmission(t *testing.T) {
 	for _, tier := range []string{"derived", "legislated"} {
-		t.Run(tier, func(t *testing.T) { testWorkflowLawChangeApproval(t, false, tier) })
+		t.Run(tier, func(t *testing.T) { testWorkflowLawChangeApproval(t, false, tier, false) })
 	}
 }
 
@@ -104,7 +104,7 @@ func TestWorkflowLawRemovalApproval(t *testing.T) {
 	}
 }
 
-func testWorkflowLawChangeApproval(t *testing.T, classified bool, tier string, removal ...bool) {
+func testWorkflowLawChangeApproval(t *testing.T, classified bool, tier string, removing bool) {
 	t.Helper()
 	ctx := context.Background()
 	s, service, grant, privateKey := mutationDispatchFixture(t, []agentcontract.Capability{"work_transition"})
@@ -169,7 +169,6 @@ DELETE FROM write_guard`, hash, tier, hash); err != nil {
 		fields["decision_domains"] = []string{"security"}
 		fields["law_change_text_pins"] = []map[string]any{{"law_id": "law:test", "content_hash": hash}}
 	}
-	removing := len(removal) != 0 && removal[0]
 	if removing {
 		fields["law_change_removals"] = []string{"law:test"}
 		delete(fields, "law_change_text_pins")

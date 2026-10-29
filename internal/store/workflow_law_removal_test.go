@@ -84,6 +84,14 @@ func TestLawRemovalDeclarationSafeguards(t *testing.T) {
 	}
 	editLawChangeLaw(t, s, "law-retain")
 	requireFailureKind(t, enactLawChange(t, s, id, change, nil), KindApprovalRequired, "retained law still matches approved text exactly")
+	agentOwned := *change
+	agentOwned.Approval, agentOwned.TextPins = nil, nil
+	lawChangeFold(t, s, `UPDATE law_subjects SET authority_tier='legislated' WHERE law_id='law-retain'`)
+	requireFailureKind(t, enactLawChange(t, s, id, &agentOwned, nil), KindMissingEvidence, "a removal does not exempt a retained agent revision from the derived tier")
+	lawChangeFold(t, s, `UPDATE law_subjects SET authority_tier='derived' WHERE law_id='law-retain'`)
+	if err := enactLawChange(t, s, id, &agentOwned, nil); err != nil {
+		t.Fatal(err)
+	}
 	fields[workflowLawChangeTextPinsField] = mustJSONValue(lawChangePins("law-remove", "law-retain"))
 	_, err = deriveLawChange(t, s, id, lawChangeV1, fields, []string{"law-remove", "law-retain"}, nil, []string{"security"})
 	requireFailureKind(t, err, KindInvalidPayload, "removal cannot also claim retained text")

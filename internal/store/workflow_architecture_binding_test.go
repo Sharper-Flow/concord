@@ -394,8 +394,8 @@ func TestProductChangingContractPersistsArchitectureBindingAndReadSurfaces(t *te
 		}
 		err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}})
 		var failure *Failure
-		if !failureAs(err, &failure) || failure.Kind != KindUnknownScope || failure.Op != "workflow_architecture_binding" {
-			t.Fatalf("absent canonical relation refusal=%+v err=%v, want typed unknown scope", failure, err)
+		if !failureAs(err, &failure) || failure.Kind != KindInvalidPayload || failure.Op != "workflow_architecture_binding" {
+			t.Fatalf("absent canonical relation refusal=%+v err=%v, want typed invalid payload", failure, err)
 		}
 		var count, eventsAfter int
 		if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM workflow_contracts WHERE work_id=?`, workID).Scan(&count); err != nil {

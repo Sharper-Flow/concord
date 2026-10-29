@@ -439,7 +439,7 @@ func TestFirstCallApproveContractAdmitsFromPublishedVariant(t *testing.T) {
 		"architecture_binding": unknownDomainBinding,
 	})
 	mutantErr = firstCallApproveContract(t, s, workID, version, "first-call-approve-domain", unknownDomainMutant)
-	firstCallRequireRefusal(t, mutantErr, "architecture binding names an unknown Domain: ghost")
+	firstCallRequireRefusal(t, mutantErr, "architecture_binding.affected_domain_ids names an unknown Domain: ghost")
 
 	// Law-modification subset mutant: law_modifies names a law outside
 	// spec_mandate. The owning guard is validateLawModificationSubset.

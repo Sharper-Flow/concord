@@ -342,39 +342,6 @@ func init() {
 	registerOutputBound("/$defs/domain_observation/properties/tags/maxItems", goInlineBound("internal/store/work_observations.go", "validateObservationBounds", "len(tags)", boundItems))
 
 	// ------------------------------------------------------------------
-	// domain overlap pair (C22.DomainOverlaps)
-	// ------------------------------------------------------------------
-
-	// Shared Domain IDs are the intersection of two admitted affected sets
-	// (workflowDomainOverlapPair); each set holds at most
-	// workflowArchitectureBindingMaxDomains IDs, so the pair can carry 64
-	// and the consumer maximum below must rise to admit it. The truncation
-	// constants beside the refusal envelope never apply to this read
-	// payload.
-	registerOutputBound("/$defs/domain_overlap_pair/properties/shared_domain_ids/maxItems",
-		goConstantBound("internal/store/workflow_architecture_binding.go", "workflowArchitectureBindingMaxDomains", boundItems))
-
-	// Shared law IDs are the intersection of two law-write sets, each the
-	// deduplicated union of admitted law additions (at most
-	// workflowArchitectureBindingMaxLawAdditions) and law modifications
-	// (stored under CHECK(json_array_length(law_modifies) <= 32) on
-	// workflow_contracts), so the pair holds at most 64.
-	registerOutputBound("/$defs/domain_overlap_pair/properties/shared_law_ids/maxItems",
-		sumBound(
-			goConstantBound("internal/store/workflow_architecture_binding.go", "workflowArchitectureBindingMaxLawAdditions", boundItems),
-			sqliteBound("workflow_contracts", "law_modifies"),
-		))
-
-	// ------------------------------------------------------------------
-	// domain overlaps result (C22.DomainOverlaps)
-	// ------------------------------------------------------------------
-
-	// The read keeps the smallest domainOverlapPairLimit canonical pairs
-	// and sets its truncation flag.
-	registerOutputBound("/$defs/domain_overlaps_result/properties/pairs/maxItems",
-		goConstantBound("internal/store/domain_reads.go", "domainOverlapPairLimit", boundItems))
-
-	// ------------------------------------------------------------------
 	// domain registry (embedded in C22 results)
 	// ------------------------------------------------------------------
 

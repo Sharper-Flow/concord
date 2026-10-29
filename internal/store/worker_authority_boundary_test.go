@@ -707,7 +707,7 @@ func TestActionFailedSameAuthority(t *testing.T) {
 
 func TestWorkflowActionFailedAcceptsLawFailureKinds(t *testing.T) {
 	t.Parallel()
-	for _, failureKind := range []FailureKind{KindStaleLawRevision, KindDomainOverlap} {
+	for _, failureKind := range []FailureKind{KindStaleLawRevision} {
 		t.Run(string(failureKind), func(t *testing.T) {
 			workID := "authority-failed-" + string(failureKind)
 			s, workerRef, _, _ := seedWorkerAtExecution(t, workID)

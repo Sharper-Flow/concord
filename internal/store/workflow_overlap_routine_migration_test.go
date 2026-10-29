@@ -344,7 +344,7 @@ func TestRoutineOverlapAuthorityMigration(t *testing.T) {
 	if err := insertResolution("fixture-depends-on-invalidated", fromSeq, ResolutionDependsOn, "fixture historical sequencing settlement", toSeq); err != nil {
 		t.Fatal(err)
 	}
-	if err := insertResolution("probe-compatible-with", toSeq, ResolutionCompatibleWith, "fixture probe of the old check", nil); err == nil {
+	if err := insertResolution("probe-compatible-with", toSeq, "compatible_with", "fixture probe of the old check", nil); err == nil {
 		t.Fatal("the prefix schema admitted an empty compatible_with approval_ref; the prefix is not the pre-widening shape")
 	} else if strings.Contains(err.Error(), "workflow_overlap_resolutions is fold-only") {
 		t.Fatalf("the fold guard, not the old approval_ref check, refused the prefix probe: %v", err)
@@ -497,7 +497,7 @@ func TestRoutineOverlapAuthorityMigration(t *testing.T) {
 	if _, err := foldTx.Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
-	for _, kind := range []string{ResolutionCompatibleWith, ResolutionDependsOn, ResolutionBlocks} {
+	for _, kind := range []string{"compatible_with", ResolutionDependsOn, ResolutionBlocks} {
 		probeID := "probe-" + kind
 		if _, err := foldTx.ExecContext(ctx, `INSERT INTO workflow_overlap_resolutions(resolution_id,event_seq,product_id,from_work_id,to_work_id,from_contract_version,to_contract_version,resolution_kind,reason,approval_ref,created_at,invalidated_seq) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`,
 			probeID, toSeq, "overlap-authority-product", "overlap-from", "overlap-to", 1, 1, kind, "probe of the widened routine check", "", "2026-10-15T00:00:00Z", nil); err != nil {

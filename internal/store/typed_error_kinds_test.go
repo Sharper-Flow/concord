@@ -81,7 +81,7 @@ func TestEveryTypedErrorKindHasANamedConstant(t *testing.T) {
 		"invalid_relation":       KindInvalidRelation, "invariant_violation": KindInvariantViolation,
 		"missing_evidence": KindMissingEvidence, "not_terminal": KindNotTerminal,
 		"outcome_mismatch": KindOutcomeMismatch, "stale_requires_review": KindStaleRequiresReview,
-		"stale_law_revision": KindStaleLawRevision, "domain_overlap": KindDomainOverlap,
+		"stale_law_revision":    KindStaleLawRevision,
 		"outside_repair_active": KindOutsideRepairActive,
 		"degraded_not_allowed":  KindDegradedNotAllowed, "unreachable": KindUnreachable,
 		"invalid_cursor": KindInvalidCursor, "limit_exceeded": KindLimitExceeded,

@@ -29,7 +29,6 @@ import (
 	"testing"
 )
 
-const admissionModelWorkID = "admission-model"
 
 func TestAdmissionWorkflowStateKeepsArtifactStaleBit(t *testing.T) {
 	for _, definition := range BuiltinWorkflowDefinitions() {
@@ -100,9 +99,8 @@ type admissionModelState struct {
 	// contracts is the active contract count: 2 is the duplicated
 	// projection the supersede recovery owns.
 	contracts int64
-	// stale is the pin staleness: "", "law" (a stale law revision every
-	// action refuses on), or "registry" (the subject's own stale registry
-	// pin, which attempt disposition admits).
+	// stale is the pin staleness: "" or "law" (a deleted-law pin every
+	// action refuses on).
 	stale string
 	// designStale is a recorded design a contract correction invalidated.
 	designStale bool
@@ -201,18 +199,10 @@ func admissionStateActions(definition WorkflowDefinition, state admissionModelSt
 var admissionRecoveryActions = []string{"supersede_contract", "record_verdict", "record_worker_failure", "reject_worker_result", "request_correction", "bind_evidence"}
 
 // admissionModelStaleError is the staleness boundary's refusal the model
-// folds for one staleness class and admission.
-func admissionModelStaleError(stale string, ownMarker bool) error {
-	switch stale {
-	case "law":
+// folds for one staleness class.
+func admissionModelStaleError(stale string) error {
+	if stale == "law" {
 		return newFailure(KindStaleLawRevision, "workflow_law_revision", "the model's pinned law revision is stale", false, "supersede the workflow contract")
-	case "registry":
-		if ownMarker {
-			return nil
-		}
-		failure := newFailure(KindStaleRequiresReview, "workflow_domain_overlap", "the model's Domain registry pin is stale", false, "supersede the workflow contract")
-		failure.StaleDomainRegistryPin = &StaleDomainRegistryPin{WorkID: admissionModelWorkID}
-		return failure
 	}
 	return nil
 }
@@ -307,7 +297,7 @@ func admissionWorkflowState(definition WorkflowDefinition, state admissionModelS
 	case "failure_recorded":
 		attemptState, disposition = "failed", "record_worker_failure"
 	}
-	staleErr := admissionModelStaleError(state.stale, false)
+	staleErr := admissionModelStaleError(state.stale)
 	delivery := workflowDeliveryAdmission{Started: state.started, ProofRequired: workflowRefineProofGateActive(definition, state.step)}
 	if workflowWorkerJobsActive(definition) && state.jobs != "" {
 		// The CD-0205 job facet the one delivery admission reads: the
@@ -325,9 +315,8 @@ func admissionWorkflowState(definition WorkflowDefinition, state admissionModelS
 		RefinementWorkflow:          refinement,
 		ActiveContracts:             state.contracts,
 		LateCriterionAssociation:    admissionLateCriterionAssociation(definition, state),
-		LawPinStale:                 staleErr != nil && workflowContractRecoveryStaleness(staleErr, admissionModelWorkID),
+		LawPinStale:                 staleErr != nil && workflowContractRecoveryStaleness(staleErr),
 		LawPinStaleError:            staleErr,
-		LawPinSelfError:             admissionModelStaleError(state.stale, true),
 		DesignStale:                 state.designStale,
 		ArtifactStale:               state.artifactStale,
 		AttemptState:                attemptState,
@@ -943,8 +932,8 @@ func admissionAgentMoveName(before, after admissionModelState) string {
 	return "observation_record"
 }
 
-// admissionEnvironmentMoves are the moves no agent controls: a law revision
-// or a Domain registry change makes the active contract's pin stale, and a
+// admissionEnvironmentMoves are the moves no agent controls: a breaking law
+// cutover makes the active contract's pin stale (CD-0036), and a
 // review's findings can prove a larger change bigger (CD-0229 D5), which
 // sets the size stop.
 func admissionEnvironmentMoves(state admissionModelState) []admissionModelState {
@@ -953,9 +942,9 @@ func admissionEnvironmentMoves(state admissionModelState) []admissionModelState 
 	}
 	var moves []admissionModelState
 	if state.stale == "" {
-		law, registry := state, state
-		law.stale, registry.stale = "law", "registry"
-		moves = append(moves, law, registry)
+		law := state
+		law.stale = "law"
+		moves = append(moves, law)
 	}
 	if !state.sizeStop {
 		proved := state
@@ -1124,7 +1113,7 @@ func wellFormedAdmissionStates(definition WorkflowDefinition) iter.Seq[admission
 			for _, count := range contracts {
 				stales, designs, verdicts, artifacts := []string{""}, []bool{false}, []string{""}, []bool{false}
 				if count > 0 {
-					stales = []string{"", "law", "registry"}
+					stales = []string{"", "law"}
 					if design {
 						designs = []bool{false, true}
 					}
@@ -1539,7 +1528,7 @@ func TestAdmissionModelKeyRejectsInvalidFields(t *testing.T) {
 
 var (
 	admissionKeyAttempts  = []string{"", "completed", "failed", "failure_recorded", "rejected"}
-	admissionKeyStales    = []string{"", "law", "registry"}
+	admissionKeyStales    = []string{"", "law"}
 	admissionKeyVerdicts  = []string{"", "ok", "bad"}
 	admissionKeyMandates  = []string{"", "missing", "bound"}
 	admissionKeyJobs      = []string{"", "required", "satisfied"}

@@ -732,9 +732,6 @@ func TestReadEntryPointsWithNeighbor(t *testing.T) {
 			_, err := EvaluateProjectSessionRetirement(ctx, s, "neighbor-work", "proj", "neighbor-session")
 			return err
 		}},
-		{name: "InspectWorkflowDomainOverlap", run: func() error {
-			return InspectWorkflowDomainOverlap(ctx, s, "neighbor-work")
-		}},
 	}
 	for _, mode := range []neighbor.Mode{neighbor.Reader, neighbor.Writer} {
 		for _, row := range rows {

@@ -112,9 +112,6 @@ func TestArchitectureBindingCurrentValidationFailures(t *testing.T) {
 		name   string
 		mutate func(*Store, *WorkflowArchitectureBinding, *[]string, *[]WorkflowLawRevision)
 	}{
-		{name: "registry hash mismatch", mutate: func(_ *Store, b *WorkflowArchitectureBinding, _ *[]string, _ *[]WorkflowLawRevision) {
-			b.DomainRegistryContentHash = "sha256:" + strings.Repeat("c", 64)
-		}},
 		{name: "zero Product scope", mutate: func(s *Store, _ *WorkflowArchitectureBinding, _ *[]string, _ *[]WorkflowLawRevision) {
 			_, _ = s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); DELETE FROM work_projects WHERE work_id LIKE 'architecture-validation-zero-Product-scope'; DELETE FROM write_guard`)
 		}},

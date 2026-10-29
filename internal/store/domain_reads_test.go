@@ -131,44 +131,6 @@ func TestDomainDetailShowsCurrentLawRelationsAndRefusesUnknown(t *testing.T) {
 	assertFailureKind(t, err, KindUnknownDomain)
 }
 
-func TestDomainOverlapsDeriveFromCurrentContracts(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	s, actor := seedOverlapProjection(t, "overlap-left", "overlap-right", false)
-
-	overlaps, err := s.QueryDomainOverlaps(ctx, DomainOverlapsRequest{Product: "product"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(overlaps.Pairs) != 1 || overlaps.Pairs[0].ResolutionState != "absent" {
-		t.Fatalf("unresolved overlap pair wrong: %#v", overlaps.Pairs)
-	}
-	if overlaps.Pairs[0].FromWorkID != "overlap-left" || overlaps.Pairs[0].ToWorkID != "overlap-right" || len(overlaps.Pairs[0].SharedDomainIDs) != 1 || overlaps.Pairs[0].SharedDomainIDs[0] != "child" {
-		t.Fatalf("overlap pair identity wrong: %#v", overlaps.Pairs[0])
-	}
-
-	if err := s.Transact(ctx, func(tx *Transaction) error {
-		_, err := ResolveWorkflowDomainOverlapTx(ctx, tx, WorkflowDomainOverlapResolutionRequest{EventID: "read-overlap-compatible", FromWorkID: "overlap-left", ToWorkID: "overlap-right", FromExpectedVersion: 2, ToExpectedVersion: 2, FromContractVersion: 1, ToContractVersion: 1, ResolutionKind: ResolutionCompatibleWith, Reason: "operator approved", Actor: actor})
-		return err
-	}); err != nil {
-		t.Fatal(err)
-	}
-	resolved, err := s.QueryDomainOverlaps(ctx, DomainOverlapsRequest{Product: "product", Domain: "child"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(resolved.Pairs) != 1 || resolved.Pairs[0].ResolutionState != "current" || resolved.Pairs[0].ResolutionKind != ResolutionCompatibleWith {
-		t.Fatalf("resolved overlap pair wrong: %#v", resolved.Pairs)
-	}
-	otherDomain, err := s.QueryDomainOverlaps(ctx, DomainOverlapsRequest{Product: "product", Domain: "root"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(otherDomain.Pairs) != 0 {
-		t.Fatalf("root domain reported the child overlap: %#v", otherDomain.Pairs)
-	}
-}
-
 func TestDomainAttachmentsReadLocalSets(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

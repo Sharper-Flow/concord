@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -63,7 +64,7 @@ func outsideRepairDatabaseSnapshot(t *testing.T, s *Store) string {
 		}
 		rows.Close()
 		// Row identity, not scan order, is the invariant.
-		out.WriteString(table + ":" + fmt.Sprint(sortedStrings(records)) + "\n")
+		out.WriteString(table + ":" + fmt.Sprint(slices.Sorted(slices.Values(records))) + "\n")
 	}
 	return out.String()
 }

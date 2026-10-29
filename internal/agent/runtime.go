@@ -1298,7 +1298,7 @@ func (r runtime) readResult(ctx context.Context, base agentcontract.Envelope, in
 		return r.readKnowledgeResolveNote(ctx, base, input)
 	case "concord_knowledge.observe_publication":
 		return r.readKnowledgeObservePublication(ctx, base, input)
-	case "concord_domain.list", "concord_domain.detail", "concord_domain.attachments", "concord_domain.overlaps":
+	case "concord_domain.list", "concord_domain.detail", "concord_domain.attachments":
 		return r.readDomain(ctx, base, input, queryID)
 	case "concord_domain.footprint":
 		return r.readDomainFootprint(ctx, base, input)

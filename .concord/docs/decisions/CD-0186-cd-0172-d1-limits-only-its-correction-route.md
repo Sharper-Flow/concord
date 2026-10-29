@@ -16,14 +16,14 @@
 
 CD-0172 D1 ends with the sentence "Any other work kind or step refuses." Two
 review attempts against the correction shape read that sentence as refusing a
-stale-law or stale Domain registry `supersede_contract` re-pin at the complete
+stale-law `supersede_contract` re-pin at the complete
 step of a workflow kind that declares no complete-step correction route, for
 example `workflow.ops_runbook`.
 
 The store admits that re-pin through the ordinary stale recovery branch, and
 it did so before CD-0172 landed. The admission asks for no post-verdict
 observation and returns the instance to no earlier step.
-`TestStaleRegistryRescanHoldsLateVerdictUntilRePin` asserts the admitted
+`TestStaleLawHoldsLateVerdictUntilRePin` asserts the admitted
 shape, and `TestCompleteStepCorrectionStaleLawStaysBehindTheGate` asserts the
 gated shape. Written law and store behavior therefore read differently, and a
 reader of D1 alone cannot tell which one governs.
@@ -36,7 +36,7 @@ records the two review attempts that hit this conflict.
 
 CD-0172 D1's sentence "Any other work kind or step refuses" limits the
 complete-step correction route that D1 admits. It does not refuse the
-stale-law or stale Domain registry re-pin that ordinary stale recovery admits
+stale-law re-pin that ordinary stale recovery admits
 at the complete step of a workflow kind with no correction route (CD-0222 D7).
 
 That re-pin is admitted at any running step of any workflow kind through
@@ -52,8 +52,8 @@ does not apply to that recovery.
 ## Consequences
 
 A stale-pinned item of a non-correction workflow kind at its complete step
-keeps the ordinary stale recovery exit: the operator re-pins the law or the
-Domain registry, and the item proceeds without cancellation.
+keeps the ordinary stale recovery exit: the operator re-pins the law, and the
+item proceeds without cancellation.
 
 The refusal sentence keeps its full force on the route it names. A work kind
 or step outside break-fix and implementation still refuses the complete-step
@@ -65,7 +65,7 @@ changes.
 
 ## Verification
 
-- `internal/store.TestStaleRegistryRescanHoldsLateVerdictUntilRePin` proves
+- `internal/store.TestStaleLawHoldsLateVerdictUntilRePin` proves
   the admitted shape: a stale-pinned item of a non-correction workflow kind at
   its complete step re-pins through the ordinary stale recovery branch.
 - `internal/store.TestCompleteStepCorrectionStaleLawStaysBehindTheGate` proves

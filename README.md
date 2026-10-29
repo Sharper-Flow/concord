@@ -228,7 +228,7 @@ Complex agent workflows cannot fit into a single directed acyclic graph (DAG) wi
 
 1. **Task coordination graph (`blocks`, `depends_on`)**
    - *Why*: Manages inter-task dependencies and parallel execution queues.
-   - *How*: Directed relations from the [relation vocabulary](contracts/relation-vocabulary.v1.json) filter tasks from the [ready queue](internal/store/query.go). When concurrent tasks touch the same domain, resolved [Domain overlaps](internal/store/workflow_domain_overlap.go) sequence execution safely.
+   - *How*: Directed relations from the [relation vocabulary](contracts/relation-vocabulary.v1.json) filter tasks from the [ready queue](internal/store/query.go). When concurrent tasks touch the same Domain, the later agent merges the earlier change and an [overlap resolution](internal/store/workflow_domain_overlap.go) can record their order.
 2. **State execution graph (Workflow state machines)**
    - *Why*: Real engineering requires retries, rollbacks, and recovery paths that break strict DAG acyclicity.
    - *How*: Workflow definitions link execution stages through directed graphs with explicit cycle validation for approved retry and premise-recovery routes. Inspect the [graph validator](internal/store/workflow_registry.go) and [recovery routes](internal/store/workflow_recovery_routes.go).

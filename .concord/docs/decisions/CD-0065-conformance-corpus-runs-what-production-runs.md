@@ -91,8 +91,7 @@ two corpora to keep in sync.
 - `internal/store.TestWorkflowScenarioCorpusMutationsRerunAgainstAuthoritativeState`
   and `internal/store.TestWorkflowScenarioAssertionInterpreterRejectsMutatedExpectation`
   prove a mutated scenario or expectation fails.
-- `internal/store.TestOverlapBlocksRemovesWorkFromReady` and
-  `internal/store.TestDomainOverlapsDeriveFromCurrentContracts` prove Domain
-  overlap derivation and blocking.
+- `internal/store.TestOverlapBlocksRemovesWorkFromReady` proves a recorded
+  `blocks` resolution removes the blocked work from the ready queue.
 - `python3 scripts/check-agent-contracts.py`,
   `python3 scripts/check-json.py`, and `python3 scripts/check-doc-links.py` pass.

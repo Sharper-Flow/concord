@@ -23,7 +23,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:9b8b86227ac7d11764ecc3595c44cba0497adf251a12db5111cf3c8054df9e3a",
+  "sha256": "sha256:ecd502534f1a1c29184f20bbdd14925dffb723dce29b907018fcd18111ae50c5",
   "status": "accepted",
   "summary": "The conformance corpus runs current production definitions by reference, with no version pins (CD-0242 D14). Its twelve scenarios and fifteen cases run through the production action boundary and assert authoritative rows and events. No definition exists solely to give the corpus a non-Product-changing target. Obligations the corpus does not carry, such as Domain overlap refusal, require their own current behavioral controls.",
   "tags": [

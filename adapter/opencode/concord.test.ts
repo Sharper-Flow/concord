@@ -1852,7 +1852,7 @@ test("every declared query id passes the generated envelope contract", () => {
   }
 })
 
-test("overlap operation and refusal pass the generated adapter boundary", async () => {
+test("overlap resolution and stale-law refusal pass the generated adapter boundary", async () => {
   const success = coreEnvelope("concord_work_relate", "resolve_overlap", "ok", {
     result: { changed_refs: [], next_valid_intents: [] },
     changed_refs: [],
@@ -1864,33 +1864,10 @@ test("overlap operation and refusal pass the generated adapter boundary", async 
     from_work_id: "work-1", to_work_id: "work-2",
     from_expected_version: 2, to_expected_version: 2,
     from_contract_version: 1, to_contract_version: 1,
-    resolution_kind: "compatible_with", reason: "The approved contracts can proceed together.",
+    resolution_kind: "depends_on", reason: "The second item lands after the first.",
     idempotency_key: "resolve-overlap-1",
   }), contextFor()))
   expect(resolved.outcome).toBe("ok")
-
-  const refusal = coreEnvelope("concord_work_transition", "lifecycle", "error", {
-    error: {
-      kind: "domain_overlap", retry_safe: false,
-      recovery_action: { kind: "request_approval" }, effect_state: "none",
-      domain_overlap: {
-        overlaps: [{
-          product_id: "product-1", from_work_id: "work-1", to_work_id: "work-2",
-          from_contract_version: 1, to_contract_version: 1,
-          shared_affected_domain_ids: ["domain-1"], shared_law_ids: [],
-          shared_domain_modifications: [], shared_relation_tuples: [],
-          overlap_classes: ["architecture"], resolution_state: "unresolved",
-          recovery_actions: ["resolve_overlap"], shared_affected_domain_count: 1,
-          shared_law_count: 0, shared_domain_modification_count: 0,
-          shared_relation_tuple_count: 0, detail_truncated: false,
-        }],
-        total_overlaps: 1, returned_overlaps: 1, truncated: false,
-      },
-    },
-  })
-  expect(validateGeneratedEnvelope(refusal)).toBe(true)
-  const blocked: any = await runTransition(runnerWithContext(refusal))
-  expect(blocked.error.kind).toBe("domain_overlap")
 
   const staleLaw = coreEnvelope("concord_work_transition", "lifecycle", "error", {
     error: {

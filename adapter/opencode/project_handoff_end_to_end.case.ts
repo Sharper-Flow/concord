@@ -313,7 +313,6 @@ async function bootHandoffFixture(root: string, restartWitness = false): Promise
   await walk("record_diagnosis", { reproduction: "The defect reproduces from a clean store.", searched: "Searched the backlog for duplicate defect work.", outcome: "none_found", root_cause: "The defect is the fold's own pool." })
   const domainList = await invoke("concord_domain", "list", { product_id: PRODUCT_ID, page: { cursor: null, limit: 10 } }, sourceContext)
   expect(domainList.outcome).toBe("ok")
-  const registryHash = ((domainList.result as JSONRecord).registry as JSONRecord).content_hash as string
   await walk("approve_contract", {
     premise: "Deliver the bounded cross-Project handoff.",
     outcome_predicates: [HANDOFF_PREDICATE],
@@ -325,7 +324,6 @@ async function bootHandoffFixture(root: string, restartWitness = false): Promise
     // engineering work, which records without a consent question.
     decision_domains: [],
     architecture_binding: {
-      domain_registry_content_hash: registryHash,
       home_domain_id: `product-root:${PRODUCT_ID}`,
       affected_domain_ids: [`product-root:${PRODUCT_ID}`],
       domain_modifies: [],

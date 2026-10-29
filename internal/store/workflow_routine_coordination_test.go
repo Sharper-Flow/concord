@@ -2,7 +2,7 @@ package store
 
 // The store's own overlap-resolution and delivery-correction owners must
 // enforce the same approval classes the workflow policy defines, not just the
-// agent boundary. Routine overlap kinds (compatible_with, depends_on, blocks)
+// agent boundary. Routine overlap kinds (depends_on, blocks)
 // are coordination answers that need no consent; merged_into and supersedes
 // keep the approval requirement behind a consumed one-use approval whose
 // exact kind, direction, and version binding is a Dispatch-layer fact: there

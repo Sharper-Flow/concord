@@ -2,11 +2,11 @@
   "evidence": [
     {
       "kind": "go_test",
-      "value": "internal/store.TestD7ConsequentialBoundariesRefuseUnresolvedOverlap"
+      "value": "internal/store.TestConsequentialBoundariesAdmitASharedDomainPeer"
     },
     {
       "kind": "go_test",
-      "value": "internal/store.TestD7ExecutionClaimBoundaryRefusesUnresolvedOverlap"
+      "value": "internal/store.TestExecutionClaimAdmitsASharedDomainPeer"
     },
     {
       "kind": "go_test",
@@ -41,10 +41,6 @@
       "value": "internal/agent.TestAgentDomainRelationsAreAuthoritativeEmptyNotUnavailable"
     },
     {
-      "kind": "go_test",
-      "value": "internal/agent.TestAgentDomainOverlapsReturnUnresolvedPairsWithCoverage"
-    },
-    {
       "kind": "validator",
       "value": "scripts/check-domain-registry.py"
     },
@@ -70,19 +66,19 @@
     },
     {
       "kind": "go_test",
-      "value": "internal/store.TestWorkflowDomainOverlapDerivesTypedIntersectionsAndCompatibleResolution"
+      "value": "internal/store.TestResolveOverlapRecordsRoutineRelations"
     },
     {
       "kind": "go_test",
-      "value": "internal/store.TestWorkflowDomainOverlapClassifiesLawDomainAndRelationWrites"
+      "value": "internal/store.TestOrdinaryRelationsCannotWriteResolutionRelations"
     },
     {
       "kind": "go_test",
-      "value": "internal/store.TestWorkflowDomainOverlapGuardsLifecycleExecutionEntry"
+      "value": "internal/store.TestWorkerResultAcceptanceProceedsBesideASharedDomainWriter"
     },
     {
       "kind": "go_test",
-      "value": "internal/store.TestWorkflowDomainOverlapMergeAndSupersessionAreAtomicAndReopenStale"
+      "value": "internal/store.TestResolveOverlapMergeAndSupersessionAreAtomic"
     },
     {
       "kind": "go_test",
@@ -106,7 +102,7 @@
     },
     {
       "kind": "go_test",
-      "value": "internal/store.TestPackageMapChangeKeepsRegistryPin"
+      "value": "internal/store.TestAuthorizedFailedRetrySurvivesRegistryChange"
     },
     {
       "kind": "go_test",

@@ -65,7 +65,6 @@ func init() {
 	eventIDRaw := unboundedOutput("Event.validate admits any caller-supplied non-empty event id with no length bound (internal/store/events.go:164-180 checks presence only); the agent boundary mints digest-suffixed ids (internal/agent/mutations.go:1552-1553), but the raw identity is a valid durable event id and the resolved views project it verbatim", readSizeRefusalPath, mutationResultPath)
 
 	// Guard constants cited by more than one row.
-	overlapDetailItems := goConstantBound("internal/store/workflow_domain_overlap.go", "maxWorkflowOverlapDetailItems", boundItems)
 	handoffIDMax := goConstantBound("internal/store/project_handoffs.go", "projectHandoffIDMax", boundBytes)
 	handoffJobMax := goConstantBound("internal/store/project_handoffs.go", "projectHandoffJobMax", boundBytes)
 	handoffActionMax := goConstantBound("internal/store/project_handoffs.go", "projectHandoffActionMax", boundBytes)
@@ -218,18 +217,6 @@ func init() {
 	registerOutputBound("/$defs/continuity_checkpoint/properties/strategy/maxLength", checkpointStrategy)
 	registerOutputBound("/$defs/continuity_checkpoint/properties/touched_refs/maxItems", checkpointTouchedRefs)
 
-	// Domain overlap: the detail lists are hard-truncated to the shared
-	// detail constant with the truncation flag; recovery actions are the
-	// declared four-element slice; overlap classes are one fixed class plus
-	// three conditional single-element appends.
-	registerOutputBound("/$defs/continuity_domain_overlap/properties/overlap_classes/maxItems",
-		workflowAppendChainItemsBound("internal/store/workflow_domain_overlap.go", "workflowDomainOverlapPair", "classes"))
-	registerOutputBound("/$defs/continuity_domain_overlap/properties/recovery_actions/maxItems",
-		goSliceBound("internal/store/workflow_domain_overlap.go", "workflowOverlapRecoveryActions"))
-	for _, detail := range []string{"shared_affected_domain_ids", "shared_domain_modifications", "shared_law_ids", "shared_relation_tuples"} {
-		registerOutputBound("/$defs/continuity_domain_overlap/properties/"+detail+"/maxItems", overlapDetailItems)
-	}
-
 	// Operator question: both projections render the one fixed three-choice
 	// composite literal at the single construction site.
 	threeChoiceQuestion := workflowCompositeFieldItemsBound("internal/store/workflow_operator.go", "workflowOperatorQuestion", "Choices")
@@ -281,7 +268,6 @@ func init() {
 	registerOutputBound("/$defs/continuity_snapshot/properties/pinned/properties/spec_mandate/maxItems",
 		contractSpecMandate)
 	registerOutputBound("/$defs/continuity_snapshot/properties/pinned/properties/step_actions/maxItems", stepActionCount)
-	registerOutputBound("/$defs/continuity_snapshot/properties/pinned/properties/unresolved_overlaps/maxItems", overlapDetailItems)
 	registerOutputBound("/$defs/continuity_snapshot/properties/pinned/properties/workflow_step/maxLength", stepIDPattern)
 
 	// Work context domain groups: one group per distinct Domain across the
@@ -613,10 +599,6 @@ func init() {
 	registerOutputBound("/$defs/workflow_read/properties/unreadable_conditions/maxItems",
 		unboundedOutput("deriveWorkflowReady scans every open workflow_external_conditions row with no LIMIT (internal/store/workflow_conditions.go:21) and appends one unknown entry per condition whose authority is not a durable_operation of this work (internal/store/workflow_conditions.go:44-52), while the add_condition fold admits one condition per call with per-field byte caps only (internal/store/workflow.go:3906-3927), so the open-condition count is uncapped", readSizeRefusalPath))
 	registerOutputBound("/$defs/workflow_read/properties/unresolved_conditions/maxItems", readPageLimit)
-
-	// Self-repair: the shape validator's own constant.
-	registerOutputBound("/$defs/workflow_self_repair/properties/evidence_refs/maxItems",
-		goConstantBound("internal/store/workflow_self_repair.go", "workflowSelfRepairMaxEvidence", boundItems))
 }
 
 // ---------------------------------------------------------------------------

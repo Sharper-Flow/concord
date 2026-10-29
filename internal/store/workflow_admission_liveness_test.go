@@ -29,7 +29,6 @@ import (
 	"testing"
 )
 
-
 func TestAdmissionWorkflowStateKeepsArtifactStaleBit(t *testing.T) {
 	for _, definition := range BuiltinWorkflowDefinitions() {
 		for _, step := range definition.StepGraph.Steps {

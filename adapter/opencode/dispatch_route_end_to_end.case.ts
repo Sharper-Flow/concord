@@ -295,8 +295,6 @@ async function driveWorkflowToContract(
   expect(response.outcome, JSON.stringify(response)).toBe("ok")
   const domainList = await invoke("concord_domain", { operation: "list", input: { product_id: PRODUCT_ID, page: { cursor: null, limit: 10 } } }, context)
   expect(domainList.outcome).toBe("ok")
-  const registry = domainList.result as JSONRecord
-  const registryHash = (registry.registry as JSONRecord).content_hash as string
   response = await transition(8, "approve_contract", "e2e-approve-contract", {
     premise,
     outcome_predicates: outcomePredicates,
@@ -308,7 +306,6 @@ async function driveWorkflowToContract(
     // engineering work, which records without a consent question.
     decision_domains: [],
     architecture_binding: {
-      domain_registry_content_hash: registryHash,
       home_domain_id: `product-root:${PRODUCT_ID}`,
       affected_domain_ids: [`product-root:${PRODUCT_ID}`],
       domain_modifies: [],
@@ -577,7 +574,7 @@ routeDeclaration("accepts an unchanged new-law baseline Review before implementa
       law_change_reason: "The synthetic Product needs its missing route rule.",
       law_change_text_pins: [{ law_id: lawID, content_hash: lawHash }],
       architecture_binding: {
-        domain_registry_content_hash: domains.result.registry.content_hash, home_domain_id: rootDomain,
+        home_domain_id: rootDomain,
         affected_domain_ids: [rootDomain], domain_modifies: [], domain_relation_modifies: [],
         law_additions: [{ law_id: lawID, home_domain_id: rootDomain }], verification_obligations: [],
       },

@@ -24,7 +24,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:04c92145789382efb861d2a4c80a31cc9a841c3426a85e6dfb8aca89e9b84996",
+  "sha256": "sha256:2b5a95e22554bded8eb11ac70b500fbeeb70ee99791cb5cd20787cb04312b984",
   "status": "accepted",
   "summary": "Binds the current generated agent surface to one manifest digest, requires deterministic authority evidence, and removes unreleased compatibility, deprecation, model-trial gate, and replay machinery before go-live.",
   "tags": [

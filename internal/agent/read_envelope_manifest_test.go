@@ -56,7 +56,6 @@ var readMarshalInputs = map[string]string{
 	"concord_domain.list":        `{"product_id":"prod-alpha","page":{"cursor":null,"limit":10}}`,
 	"concord_domain.detail":      `{"product_id":"prod-alpha","domain_id":"root"}`,
 	"concord_domain.attachments": `{"product_id":"prod-alpha","domain_id":"root"}`,
-	"concord_domain.overlaps":    `{"product_id":"prod-alpha"}`,
 	"concord_domain.footprint":   `{"product_id":"prod-alpha","paths":["internal/store/store.go"],"page":{"cursor":null,"limit":10}}`,
 	"concord_domain.shape":       `{"product_id":"prod-alpha","path":"internal/store/store.go"}`,
 }

@@ -23,7 +23,7 @@
   {
    "id": "fc4",
    "ordinal": 4,
-   "title": "Required authority/freshness is explicit, CD-0006 R3's accepted cross-workflow impact policy is enforced, and CD-0222's architecture-overlap policy prevents unresolved concurrent Product-changing work from holding execution authority."
+   "title": "Required authority/freshness is explicit and CD-0006 R3's accepted cross-workflow impact policy is enforced."
   },
   {
    "id": "fc5",
@@ -246,10 +246,6 @@
     {
      "kind": "go_test",
      "value": "internal/agent.TestAgentDomainAttachmentsReturnTypedLocalEdgesWithCoverage"
-    },
-    {
-     "kind": "go_test",
-     "value": "internal/agent.TestAgentDomainOverlapsReturnUnresolvedPairsWithCoverage"
     }
    ]
   },
@@ -432,23 +428,6 @@
     {
       "kind": "go_test",
       "value": "internal/store.TestWorkflowWarningStalenessIsRecordedForNextRead"
-    }
-   ]
-  },
-  {
-   "id": "fc4-domain-overlap",
-   "condition": "fc4",
-   "title": "Concurrent Domain overlap blocks until explicitly resolved",
-   "requirement": "Two nonterminal Product-changing contracts with intersecting affected Domains cannot both hold execution authority without a current operator-approved resolution pinned to both contract versions, and every consequential mutation revalidates it transactionally.",
-   "state": "satisfied",
-   "evidence": [
-    {
-     "kind": "go_test",
-     "value": "internal/store.TestWorkflowDomainOverlapDerivesTypedIntersectionsAndCompatibleResolution"
-    },
-    {
-     "kind": "go_test",
-     "value": "internal/store.TestWorkflowDomainOverlapCrossProcessWorker"
     }
    ]
   },

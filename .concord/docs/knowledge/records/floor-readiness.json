@@ -17,7 +17,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:1bc40d048811a9f1afa94b26cb16cdf5a0891fd9adb168dc6f9c37407af0762e",
+  "sha256": "sha256:82f5e2c5ddfc195ed8f940d34660b331e0cc03d1cbf437019a6aac49c92476f4",
   "status": "published",
   "summary": "Keeps the first-usable floor definition as history and describes the floor-readiness contract and the check that measures each floor condition.",
   "tags": [

@@ -10,14 +10,14 @@ import (
 
 func TestWorkflowArchitectureBindingStrictShape(t *testing.T) {
 	t.Parallel()
-	valid := `{"domain_registry_content_hash":"sha256:` + strings.Repeat("a", 64) + `","home_domain_id":"root","affected_domain_ids":["root"],"domain_modifies":[],"domain_relation_modifies":[],"law_additions":[],"verification_obligations":[]}`
+	valid := `{"home_domain_id":"root","affected_domain_ids":["root"],"domain_modifies":[],"domain_relation_modifies":[],"law_additions":[],"verification_obligations":[]}`
 	var binding WorkflowArchitectureBinding
 	if err := json.Unmarshal([]byte(valid), &binding); err != nil {
 		t.Fatalf("valid binding rejected: %v", err)
 	}
 	for _, malformed := range []string{
-		`{"domain_registry_content_hash":"sha256:` + strings.Repeat("a", 64) + `","home_domain_id":"root","affected_domain_ids":["root"],"domain_modifies":[],"domain_relation_modifies":[],"law_additions":[],"verification_obligations":[],"future":true}`,
-		`{"domain_registry_content_hash":"sha256:` + strings.Repeat("a", 64) + `","home_domain_id":"root","affected_domain_ids":null,"domain_modifies":[],"domain_relation_modifies":[],"law_additions":[],"verification_obligations":[]}`,
+		`{"home_domain_id":"root","affected_domain_ids":["root"],"domain_modifies":[],"domain_relation_modifies":[],"law_additions":[],"verification_obligations":[],"future":true}`,
+		`{"home_domain_id":"root","affected_domain_ids":null,"domain_modifies":[],"domain_relation_modifies":[],"law_additions":[],"verification_obligations":[]}`,
 	} {
 		if err := json.Unmarshal([]byte(malformed), &binding); err == nil {
 			t.Fatalf("malformed binding accepted: %s", malformed)
@@ -27,7 +27,7 @@ func TestWorkflowArchitectureBindingStrictShape(t *testing.T) {
 	if err := json.Unmarshal([]byte(valid), &validObject); err != nil {
 		t.Fatal(err)
 	}
-	for _, field := range []string{"domain_registry_content_hash", "home_domain_id", "affected_domain_ids", "domain_modifies", "domain_relation_modifies", "law_additions", "verification_obligations"} {
+	for _, field := range []string{"home_domain_id", "affected_domain_ids", "domain_modifies", "domain_relation_modifies", "law_additions", "verification_obligations"} {
 		for _, mode := range []string{"missing", "null"} {
 			candidate := map[string]any{}
 			for key, value := range validObject {

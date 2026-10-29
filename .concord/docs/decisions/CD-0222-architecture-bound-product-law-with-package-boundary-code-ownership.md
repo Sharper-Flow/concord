@@ -546,11 +546,12 @@ added Domain-shape requirements as outstanding; these anchors do not prove them.
 - `python3 scripts/check-knowledge-index.py` proves record identity, placement, and the relation graph.
 - `python3 scripts/check-law-coverage.py` resolves this record's typed coverage anchors.
 - `python3 scripts/test-check-domain-registry.py` proves the referential checks without a participation rule.
-- `internal/store.TestWorkflowDomainOverlapDerivesTypedIntersectionsAndCompatibleResolution` proves the carried shared-write overlap rule.
+- `internal/store.TestConsequentialBoundariesAdmitASharedDomainPeer` and `internal/store.TestExecutionClaimAdmitsASharedDomainPeer` prove D6: a shared-Domain peer blocks no boundary.
+- `internal/store.TestResolveOverlapRecordsRoutineRelations` and `internal/store.TestResolveOverlapMergeAndSupersessionAreAtomic` prove the `resolve_overlap` relation writer.
 - `internal/store.TestKnowledgeManifestV12RequiresLawHomeForApplicability` proves the carried one-home invariant.
 - `internal/store.TestValidateWorkContextDomainTxRefusals` proves declared context, scope, and rationale bounds without an inventory.
 - `internal/store.TestReadWorkContextOverflowRefusesReadNotRetention` proves context bounds refuse instead of truncate.
 - `go test ./internal/store -run 'TestBlockedSessionsRoutesAttentionUnderBurst|TestDispatchAdmitsPacketConsumingLatestCheckpoint'` and its companion witness selectors prove coordination without global navigation artifacts.
 - `python3 scripts/test-check-package-domains.py` proves package-grain coverage and Domain reference checks, not CD-0244's code-root roles or fact ownership. The existing validator still enforces the replaced multi-Domain listing rule until that implementation changes.
-- `internal/store.TestPackageMapChangeKeepsRegistryPin` proves a map change leaves architecture-binding pins current.
+- `internal/store.TestAuthorizedFailedRetrySurvivesRegistryChange` proves a Domain registry change leaves in-progress work admitted (D7).
 - `internal/store.TestDomainFootprintJoinsPackageMapLawEvidenceAndCoverage` proves the footprint join and its order.

@@ -57,13 +57,12 @@ func TestWorkflowSupersedeDuplicateRecoveryAdmissionAgreesAcrossPinPreflightAndF
 		t.Fatal(err)
 	}
 	binding := map[string]any{
-		"domain_registry_content_hash": registryHash,
-		"home_domain_id":               homeDomain,
-		"affected_domain_ids":          []string{homeDomain},
-		"domain_modifies":              []string{},
-		"domain_relation_modifies":     []any{},
-		"law_additions":                []any{},
-		"verification_obligations":     []any{},
+		"home_domain_id":           homeDomain,
+		"affected_domain_ids":      []string{homeDomain},
+		"domain_modifies":          []string{},
+		"domain_relation_modifies": []any{},
+		"law_additions":            []any{},
+		"verification_obligations": []any{},
 	}
 	payload := supersedeRecoveryPayload(t, f.workID, 3, binding, 1, 2)
 	var fields map[string]any

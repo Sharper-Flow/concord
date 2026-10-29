@@ -99,14 +99,6 @@
       "reason": "These pure generator functions derive and validate canonical contract-field shapes and illustrative examples for scripts/schema-guidance, called by scripts/generate-agent-contracts.py. They share the runtime schema validator rather than maintaining a second example validator. The analysis roots ./cmd/... only and cannot see these build-time edges. CI runs generate-agent-contracts.py --check and the annotation tests to prove the projection; runtime refusals consume the generated descriptions without generating examples. No new operator command is warranted."
     },
     {
-      "id": "workflow-admission-inspection-seam",
-      "state": "out_of_scope",
-      "functions": [
-        "internal/store.InspectWorkflowDomainOverlap"
-      ],
-      "reason": "Agent tests (overlap_guard_scope_test.go, observation_law_revision_boundary_test.go) assert the Domain-overlap admission refusal outside a mutation, and the check that produces it, checkWorkflowDomainOverlapTxAdmitting, is unexported. The exported production read QueryDomainOverlaps returns overlap pairs, not that refusal. The seam runs the same check under readSnapshot with a queryer-only callback, so inspection takes no write lock and restates no rule."
-    },
-    {
       "id": "knowledge-manifest-current-tier-bindings",
       "state": "out_of_scope",
       "functions": [

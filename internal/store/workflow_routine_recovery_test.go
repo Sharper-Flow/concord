@@ -12,9 +12,7 @@ import (
 // the consent bit. Under consequence_v1 a supersession or correction request
 // is routine record-keeping: the authenticated coordinator acts unsigned, the
 // duplicate-recovery and complete-step routes consent without a consumed
-// operator approval, self-repair may be classified only by the real recorded
-// agent-class coordinator, and a classified contract gains no CD-0150 overlap
-// exemption. Every retained gate holds unchanged: stale-law and complete-step
+// operator approval. Every retained gate holds unchanged: stale-law and complete-step
 // state gates, audit-evidence and predecessor-set walls, exact failed
 // attempt/epoch retry binding, the convergence wall, failure counts, and the
 // legacy operator identity requirement on old pins.

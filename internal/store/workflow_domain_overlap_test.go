@@ -335,27 +335,14 @@ func seedCompletedWorkerOverlap(t *testing.T, workID, otherID string) (*Store, W
 	if err := tx.Commit(); err != nil {
 		t.Fatal(err)
 	}
-	// CD-0144: the peer holds its Domains only once its execution has started.
 	setWorkLifecycleForTesting(t, s, otherID, "in_progress")
 	return s, owner, attemptID, readWorkVersion(t, s, workID)
 }
 
-// The agent envelope refuses a domain_overlap error carrying more than twenty
-// overlaps (internal/agentcontract/envelope.go, domain overlap coupling). The producer
-// must therefore never emit more than that, whatever the byte budget allows.
-// Many small architecture-only overlaps fit well inside the byte budget, so a
-// byte-only bound keeps every entry and the refusal cannot be delivered.
-// CD-0183: an approved contract whose instance carries no execution-start
-// fact claims no Domains, so it cannot refuse a peer. Setting the fact
-// restores the claim, which keeps the boundary a move rather than a removal.
-// Both items stay in progress throughout: the lifecycle alone decides
-// nothing.
-// CD-0144, as amended by CD-0183: the claim attaches at execution start, and
-// the lifecycle moves at the first workflow action. Driving a break-fix
-// workflow to its repair step leaves the item in progress with the
-// execution-start fact recorded by the fold that began the external-effect
-// step.
-func TestExecutionStartMovesLifecycleIntoTheClaim(t *testing.T) {
+// CD-0183 D2: the first workflow action moves the lifecycle, and the
+// external-effect step records the execution-start fact. Driving a break-fix
+// workflow to its repair step leaves the item in progress with that fact set.
+func TestExecutionStartRecordsTheInstanceFact(t *testing.T) {
 	const workID = "claim-at-execution-start"
 	s, _, _, _ := seedCompletedWorkerAtExecution(t, workID)
 	var lifecycle string

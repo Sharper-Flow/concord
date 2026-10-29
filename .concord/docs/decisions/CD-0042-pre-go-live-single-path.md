@@ -77,8 +77,7 @@ contract.
 
 ### D5. Domain-overlap control lands on the primary path
 
-The generated current manifest exposes `concord_work_relate.resolve_overlap`
-and typed `domain_overlap` recovery. The accepted `AJ5-resolve-domain-overlap`
+The generated current manifest exposes `concord_work_relate.resolve_overlap`. The accepted `AJ5-resolve-domain-overlap`
 scenario and its real-dispatch binding prove the authority path and outcome.
 
 ### D6. First go-live must establish future evolution law

@@ -53,11 +53,11 @@ func TestTypedErrorKindsMatchEnvelopeSchema(t *testing.T) {
 	}
 }
 
-// stale_law_revision and domain_overlap are required members of the typed-error
-// vocabulary: TypedErrorKindAllowed must accept both.
+// stale_law_revision is a required member of the typed-error vocabulary:
+// TypedErrorKindAllowed must accept it.
 func TestPreviouslyOmittedKindsAreAccepted(t *testing.T) {
 	t.Parallel()
-	for _, kind := range []string{"stale_law_revision", "domain_overlap"} {
+	for _, kind := range []string{"stale_law_revision"} {
 		if !payloadschema.TypedErrorKindAllowed(kind) {
 			t.Errorf("%q must be accepted; the store fold omitted it while the agent layer accepted it", kind)
 		}

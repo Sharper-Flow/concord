@@ -35,7 +35,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:9de5a786c81a4d2efcd9ca9ad51870771c59473c5aa76c8a580ea0d290728386",
+  "sha256": "sha256:d875c47981d68615633fbc914d40bfb0a33366e6bff3a00723a4d97299e1b472",
   "status": "accepted",
   "summary": "The first workflow action moves a needed item to in_progress and enqueues the Linear update, the Domain-overlap peer claim reads the workflow instance's execution-start fact instead of the lifecycle, the workflow completion records the terminal lifecycle transition in one transaction, and the lifecycle refuses a completed target while the item's workflow instance is live.",
   "tags": [

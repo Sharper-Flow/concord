@@ -586,10 +586,6 @@ func TestWorkflowActionFailedV2BindsCurrentExecutorAttempt(t *testing.T) {
 	})
 }
 
-// The fold rejected kinds the rest of the system accepts, so a workflow action
-// failing with stale_law_revision or domain_overlap could not be recorded.
-// Drive the real fold rather than the closure predicate, so the assertion binds
-// to the layer where the defect bit.
 // seedDisposedFailedLane stages the failure topology: the fixture workflow at
 // execution with a lane dispatched as the executing actor, the lane's attempt
 // failed, and the owner's record_worker_failure disposing of it. The workflow
@@ -705,6 +701,9 @@ func TestActionFailedSameAuthority(t *testing.T) {
 	}
 }
 
+// A workflow action failing with stale_law_revision must be recordable. Drive
+// the real fold rather than the closure predicate, so the assertion binds to the
+// layer that owns it.
 func TestWorkflowActionFailedAcceptsLawFailureKinds(t *testing.T) {
 	t.Parallel()
 	for _, failureKind := range []FailureKind{KindStaleLawRevision} {

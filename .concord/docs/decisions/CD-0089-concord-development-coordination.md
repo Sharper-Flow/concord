@@ -25,13 +25,11 @@ surface owns planning, review, merge, or predecessor evidence.
 
 ## Decision
 
-### D1. Concord's own development follows the measured switch point
+### D1. priorities.md owns Concord's development route
 
-[`priorities.md` — How Concord's own development runs during the rebuild](../priorities.md#how-concords-own-development-runs-during-the-rebuild)
-owns the current development route and measured switch point. Until that switch
-point is proven, agents build Concord outside Concord's workflow, with pull
-requests, required checks, and independent review. This decision grants no
-earlier workflow-adoption authority.
+[How Concord's own development runs during the rebuild](../priorities.md#how-concords-own-development-runs-during-the-rebuild)
+in `priorities.md` owns Concord's development route, including new assignments,
+work already underway, and authorized workflow-defect repair.
 
 ### D2. Linear owns planning; GitHub owns review and merge
 
@@ -66,13 +64,12 @@ bootstrap authority boundaries apply to self-development.
 
 ## Consequences
 
-- Concord development follows the adoption boundary in `priorities.md` and links
-  planning and delivery facts to their owning systems.
+- Concord development follows `priorities.md` and links planning and delivery
+  facts to their owning systems.
 - Pull requests and required checks retain their authority for main-branch
   integration. CD-0241 defines eligible rapid-phase local integration evidence
   without waiving independent review.
-- The readiness floor remains measurable evidence, distinct from the workflow
-  switch point in `priorities.md`.
+- Replacement-readiness claims remain separate from Concord's development route.
 - Advance remains a reference source with no Concord write path.
 
 ## Rejected alternatives
@@ -85,8 +82,8 @@ remains an evidence claim governed by the accepted floor and release evidence.
 
 ## Verification
 
-- The development route and any adoption claim satisfy the measured switch point
-  in `priorities.md`; no readiness claim substitutes for it.
+- New Concord assignments, work already underway, and authorized defect repair
+  follow the development route in `priorities.md`.
 - Planned work and defect claims link to authoritative Linear issues.
 - Main-branch review and merge claims link to the pull request and required
   checks. Eligible phase-local integration claims link to the local merge and

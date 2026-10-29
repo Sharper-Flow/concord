@@ -17,9 +17,11 @@ Linux amd64 is the only release platform.
 - Surface conflicts with accepted decisions. Never silently narrow a contract.
 - One branch and worktree per change. Never implement directly on `main`, and
   never hand-make a worktree ([`CD-0088`](.concord/docs/decisions/CD-0088-host-owned-work-bootstrap-preserves-pre-readiness-authority.md)).
-- Concord coordinates explicitly managed development. Other project work and
-  defect repair may proceed outside the workflow under host permissions and
-  repository rules; they receive no Concord workflow authority or evidence.
+- For new Concord development, use Concord agents and the workflow route in
+  [`priorities.md`](.concord/docs/priorities.md#how-concords-own-development-runs-during-the-rebuild).
+  Work already underway outside the workflow and authorized workflow-defect
+  repair follow that section and
+  [CD-0122](.concord/docs/decisions/CD-0122-concord-workflow-scope-and-defect-repair.md).
   Asked to fix a Concord defect that the Concord workflow would hit or obstruct,
   tell the operator and recommend the general build agent, not a Concord agent.
 - Advance is public predecessor evidence only. Do not create or dual-write

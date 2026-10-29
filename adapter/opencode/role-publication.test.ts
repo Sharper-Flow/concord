@@ -136,7 +136,7 @@ test("per-role no-overlay byte budgets match the complete parameter roots", () =
   const READER_BUDGET = { allowed: ["concord_worker_read"], bytes: 601 }
   const CHECKER_BUDGET = { allowed: ["concord_worker_check", "concord_worker_read"], bytes: 1013 }
   const EMPTY_BUDGET = { allowed: [] as string[], bytes: 0 }
-  const PRIMARY_BUDGET = { allowed: CATALOG, bytes: 160_400 }
+  const PRIMARY_BUDGET = { allowed: CATALOG, bytes: 160_704 }
   // Neither full primary profile denies a tool, so each no-overlay budget
   // is the whole registered catalog at the full published total. Planner
   // loses exactly the work-state writers' roots.
@@ -170,7 +170,7 @@ test("grants select whole tools and never trim a published schema", async () => 
     const operations = contractOperations.filter((operation: any) => operation.tool === tool)
     expect(expanded.oneOf, tool).toHaveLength(operations.length)
   }
-  expect(registeredBytes.get("concord_work_transition")).toBe(99_561)
+  expect(registeredBytes.get("concord_work_transition")).toBe(99_865)
   expect(workflowActionPublicVariants.length).toBe(31)
 })
 

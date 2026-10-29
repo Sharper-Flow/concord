@@ -255,7 +255,7 @@ func TestLawChangeApprovalRequiresConsumedIdentity(t *testing.T) {
 	change := &WorkflowLawChange{Version: 2, TextPins: lawChangePins("law-agent")}
 	bind := func(r WorkflowActionExecutionRequest) error {
 		tx := lawChangeTx(t, s)
-		err := bindWorkflowLawChangeApprovalTx(t.Context(), tx, r, change)
+		err := bindWorkflowLawChangeApprovalTx(t.Context(), tx, r, change, []string{"product"})
 		_ = tx.Rollback()
 		return err
 	}
@@ -273,7 +273,7 @@ func TestLawChangeApprovalRequiresConsumedIdentity(t *testing.T) {
 		t.Fatalf("wrong consumed identity: %+v", change.Approval)
 	}
 	change.Approval.Operator.ActorClass = ActorAgent
-	requireFailureKind(t, validateWorkflowLawChangeApproval(change), KindUnauthorized, "agent relabeled operator")
+	requireFailureKind(t, validateWorkflowLawChangeApproval(change, true), KindUnauthorized, "agent relabeled operator")
 }
 
 func TestLawChangeCurrentScopeAndLiveTampering(t *testing.T) {
@@ -502,7 +502,7 @@ func lawChangeConstructorFields(t *testing.T, s *Store, version int, laws, domai
 	return lawChangeFields(t, values)
 }
 
-func constructLawChangeContract(t *testing.T, s *Store, definition WorkflowDefinition, registry DefinitionRegistry, workID, ownerRef string, fields map[string]json.RawMessage) (*WorkflowLawChange, *WorkflowArchitectureBinding) {
+func constructLawChangeContract(t *testing.T, s *Store, definition WorkflowDefinition, registry DefinitionRegistry, workID, ownerRef string, fields map[string]json.RawMessage, configure ...func(*WorkflowActionExecutionRequest)) (*WorkflowLawChange, *WorkflowArchitectureBinding) {
 	t.Helper()
 	expected := readWorkVersion(t, s, workID)
 	ctx, proofErr := s.EstablishKnowledgeSourceSetProof(t.Context(), workID)
@@ -512,6 +512,9 @@ func constructLawChangeContract(t *testing.T, s *Store, definition WorkflowDefin
 	tx := lawChangeTx(t, s)
 	eventID := fmt.Sprintf("law-change-contract-%s-%d", workID, expected)
 	r := WorkflowActionExecutionRequest{WorkID: workID, ExpectedVersion: expected, OperationID: eventID, Now: time.Unix(12, 0).UTC()}
+	for _, edit := range configure {
+		edit(&r)
+	}
 	var events []Event
 	var err error
 	if _, successor := fields["supersede_reason"]; successor {

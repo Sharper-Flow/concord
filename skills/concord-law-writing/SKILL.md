@@ -65,6 +65,15 @@ change to the approval boundary requires approval of its exact wording. Otherwis
 record the agent-owned reason and required authority tier. An implementation gap
 or tool refusal does not waive a current gate.
 
+For assigned work on Concord itself, apply CD-0243 D3's deletion exemption
+before classifying a retirement. Deleting Concord law, unwanted mechanisms and
+systems, and tests of retired behavior alone needs no product-direction, UI/UX
+or governed-scope-cut approval. Record why, retire governing requirements with
+or before behavior, and deliver an ordinary independently reviewed pull request
+with required CI. List retired law and meaning changes in the pull request and
+completion report; cite the retiring clause for each deleted test. Keep D3's
+exclusions and current gates. Other Products receive no such exemption.
+
 Read the selected Product's `.concord/tooling.v1.json` and use its declared
 checks and existing publication route. Update the canonical artifact and its
 required record, hash, Domain home, relations and coverage together. Regenerate

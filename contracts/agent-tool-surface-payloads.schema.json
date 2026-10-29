@@ -17374,6 +17374,24 @@
                     "a"
                   ]
                 },
+                "law_change_removals": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/law_id",
+                    "description": "Accepted shape: string matching ^\\S(?:[\\s\\S]*\\S)?$; Bounds: 2..256 code points inclusive; example: \"aa\"",
+                    "examples": [
+                      "aa"
+                    ]
+                  },
+                  "minItems": 1,
+                  "maxItems": 64,
+                  "description": "Accepted shape: array of string matching ^\\S(?:[\\s\\S]*\\S)?$; Bounds: 1..64 items inclusive; example: [\"aa\"]",
+                  "examples": [
+                    [
+                      "aa"
+                    ]
+                  ]
+                },
                 "law_change_text_pins": {
                   "type": "array",
                   "items": {
@@ -23301,6 +23319,24 @@
                   "description": "Accepted shape: string matching \\S; Bounds: 1..1024 code points inclusive; <=1024 UTF-8 bytes inclusive; example: \"a\"",
                   "examples": [
                     "a"
+                  ]
+                },
+                "law_change_removals": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/law_id",
+                    "description": "Accepted shape: string matching ^\\S(?:[\\s\\S]*\\S)?$; Bounds: 2..256 code points inclusive; example: \"aa\"",
+                    "examples": [
+                      "aa"
+                    ]
+                  },
+                  "minItems": 1,
+                  "maxItems": 64,
+                  "description": "Accepted shape: array of string matching ^\\S(?:[\\s\\S]*\\S)?$; Bounds: 1..64 items inclusive; example: [\"aa\"]",
+                  "examples": [
+                    [
+                      "aa"
+                    ]
                   ]
                 },
                 "law_change_text_pins": {

@@ -404,7 +404,7 @@ func TestEveryVerbHasAHelpRoute(t *testing.T) {
 func TestGroupHelp(t *testing.T) {
 	topLevel := topLevelHelp(t)
 	groups := commandGroups()
-	for _, want := range []string{"client", "product", "resource", "domain", "project"} {
+	for _, want := range []string{"client", "product", "domain", "project"} {
 		if !slices.Contains(groups, want) {
 			t.Fatalf("commandGroups() = %v, missing %q", groups, want)
 		}
@@ -826,10 +826,7 @@ func TestCommandRouterAcceptsCanonicalAndTwoWordFormsWithoutPanicking(t *testing
 		{"project-locator-remove"}, {"project", "locator-remove"},
 		{"project-resolve"}, {"project", "resolve"},
 		{"product-create"}, {"product", "create"},
-		{"resource-create"}, {"resource", "create"},
-		{"resource-share"}, {"resource", "share"},
 		{"domain-project-attachments-replace"}, {"domain", "project-attachments-replace"},
-		{"domain-resource-attachments-replace"}, {"domain", "resource-attachments-replace"},
 		{"project-create"}, {"project", "create"},
 		{"product-project-add"}, {"product", "project-add"},
 		{"predecessor-import"}, {"predecessor", "import"},

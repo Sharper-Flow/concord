@@ -1030,9 +1030,9 @@ func TestAgentJobsCorpus(t *testing.T) {
 	corpus := loadAgentJobsCorpus(t)
 
 	// The corpus count is pinned so scenario removal cannot masquerade as a
-	// complete binding run.
-	if len(corpus.Scenarios) != 22 {
-		t.Fatalf("corpus declares %d scenarios, want 22", len(corpus.Scenarios))
+	// complete binding run. AJ9 retired with the resource-inventory read.
+	if len(corpus.Scenarios) != 21 {
+		t.Fatalf("corpus declares %d scenarios, want 21", len(corpus.Scenarios))
 	}
 
 	for _, sc := range corpus.Scenarios {

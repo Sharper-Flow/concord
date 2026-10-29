@@ -28,21 +28,6 @@ func domainShapeProjectionFixture(t *testing.T, s *Store, suffix string) (Knowle
 	home := KnowledgeHome{HomeProjectID: "project-" + suffix, HomeLocatorID: "locator-" + suffix, RepoPath: repo, HeadRef: "HEAD"}
 	product := "product-" + suffix
 	authorizeKnowledgeProductHome(t, s, product, home, home.HomeProjectID)
-	db := s.DatabaseForTesting()
-	if _, err := db.Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
-		t.Fatal(err)
-	}
-	for _, id := range []string{"database-" + suffix, "cache-" + suffix} {
-		if _, err := db.Exec(`INSERT INTO managed_resources(resource_id,display_name,class,kind,purpose,stage_maturity,stage_audience_commitment,environments,locator_absence_reason,metadata_schema_version,metadata,version,created_at,updated_at) VALUES(?,?,'infrastructure','database','synthetic','prototype','operator_only','[]','planned','1.0','{}',1,'now','now')`, id, id); err != nil {
-			t.Fatal(err)
-		}
-		if _, err := db.Exec(`INSERT INTO resource_products(resource_id,product_id,role,purpose,environments) VALUES(?,?,'owner','synthetic','[]')`, id, product); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if _, err := db.Exec(`DELETE FROM write_guard`); err != nil {
-		t.Fatal(err)
-	}
 	for _, kind := range []DomainFactKind{DomainFactInvariant, DomainFactDataObject, DomainFactStateAuthority, DomainFactConfigCoupling} {
 		fact, _ := domainFactFixture(kind)
 		fact.ID, fact.OwnerDomainID = string(kind)+"-"+suffix, "fixture-law"
@@ -172,7 +157,10 @@ func TestDomainShapeProjectionRollbackAfterClear(t *testing.T) {
 }
 
 func TestDomainShapeProjectionRejectsInvalidFactsAndRoots(t *testing.T) {
-	for _, name := range []string{"foreign resource", "foreign project", "foreign law", "unknown check", "non-required check", "malformed tooling", "symlink tooling", "unknown domain", "missing invariant", "missing root", "file root", "symlink root", "symlink fact", "nested fact", "oversize fact"} {
+	// A resource source string is fact-local since the inventory retired, so
+	// "foreign resource" stopped being a refusal; Project membership, law,
+	// check, root, and fact-shape refusals stay.
+	for _, name := range []string{"foreign project", "foreign law", "unknown check", "non-required check", "malformed tooling", "symlink tooling", "unknown domain", "missing invariant", "missing root", "file root", "symlink root", "symlink fact", "nested fact", "oversize fact"} {
 		t.Run(name, func(t *testing.T) {
 			s := openTemp(t)
 			ctx := context.Background()
@@ -186,7 +174,7 @@ func TestDomainShapeProjectionRejectsInvalidFactsAndRoots(t *testing.T) {
 				t.Fatal(err)
 			}
 			id := "invariant-a"
-			if name == "foreign resource" || name == "missing invariant" {
+			if name == "missing invariant" {
 				id = "data_object-a"
 			}
 			if name == "foreign project" {
@@ -202,8 +190,6 @@ func TestDomainShapeProjectionRejectsInvalidFactsAndRoots(t *testing.T) {
 				t.Fatal(err)
 			}
 			switch name {
-			case "foreign resource":
-				fact.DataObject.ResourceID = "database-b"
 			case "foreign project":
 				fact.ConfigCoupling.ReadBy.ProjectID = "project-b"
 			case "foreign law":

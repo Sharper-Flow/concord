@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Validate the conflict-rule table against goals.md Appendix A (CD-0230 D1, D2, D6).
+"""Validate the conflict-rule table against priorities.md Appendix A (CD-0230 D1, D2, D6).
 
 The table cites each rule by ID and never copies its text. This checker derives
-the A1 cells, A2 rows, and rule IDs the table must hold from goals.md itself,
-and refuses the table when the goals.md bytes differ from the recorded hash.
+the A1 cells, A2 rows, and rule IDs the table must hold from priorities.md itself,
+and refuses the table when the priorities.md bytes differ from the recorded hash.
 
 Each rule, A2 row, and duty is either enforced or a gap. Enforced entries reuse
 the coverage `satisfied` shape: a mechanism kind plus executable evidence
@@ -34,7 +34,7 @@ from coverage_state import (  # noqa: E402
 from evidence_anchors import check_anchor  # noqa: E402
 
 TABLE = ROOT / "contracts/conflict-rules.v1.json"
-GOALS_PATH = ".concord/docs/goals.md"
+SOURCE_PATH = ".concord/docs/priorities.md"
 SCHEMA_VERSION = "1.1"
 
 MECHANISMS = ("programmed_check", "recorded_review", "recorded_decision", "operator_boundary")
@@ -42,8 +42,8 @@ ACTORS = ("agent", "coordinator", "operator", "decision_model")
 SIZES = ("Small", "Larger", "Crucial")
 SAME = "Same"
 
-# The rules and A2 rows whose goals.md text files follow-up items. This reads
-# the goals text at the recorded hash; a goals.md edit refuses the table until
+# The rules and A2 rows whose priorities.md text files follow-up items. This reads
+# the priorities.md text at the recorded hash; a priorities.md edit refuses the table until
 # this set and the table are checked against the new text.
 FOLLOW_UP_RULES = frozenset({"R1", "P4", "P6", "P7", "P9"})
 FOLLOW_UP_ROWS = frozenset({1, 5, 6})
@@ -95,16 +95,16 @@ def table_rows(text: str) -> list[list[str]]:
     return rows
 
 
-def parse_appendix(goals: str) -> tuple[dict[tuple[str, str], str], dict[int, dict[str, list[str]]], set[str], list[str]]:
+def parse_appendix(law_text: str) -> tuple[dict[tuple[str, str], str], dict[int, dict[str, list[str]]], set[str], list[str]]:
     """The A1 cells, the rule IDs each A2 size cell cites ("Same" cites the Small cell), and every rule ID Appendix A names."""
     findings: list[str] = []
-    appendix = section(goals, "Appendix A.", "##")
+    appendix = section(law_text, "Appendix A.", "##")
     a1_rows = table_rows(section(appendix, "A1.", "###"))
     a2_rows = table_rows(section(appendix, "A2.", "###"))
     if len(a1_rows) < 2:
-        findings.append("goals.md Appendix A has no A1 chart")
+        findings.append("priorities.md Appendix A has no A1 chart")
     if len(a2_rows) < 2:
-        findings.append("goals.md Appendix A has no A2 table")
+        findings.append("priorities.md Appendix A has no A2 table")
     cells: dict[tuple[str, str], str] = {}
     if a1_rows:
         columns = a1_rows[0][1:]
@@ -118,10 +118,10 @@ def parse_appendix(goals: str) -> tuple[dict[tuple[str, str], str], dict[int, di
         header = a2_rows[0]
         size_columns = [header.index(size) for size in SIZES if size in header]
         if len(size_columns) != len(SIZES):
-            findings.append(f"goals.md A2 table must carry the columns {list(SIZES)}")
+            findings.append(f"priorities.md A2 table must carry the columns {list(SIZES)}")
         for row in a2_rows[1:]:
             if not row[0].isdigit():
-                findings.append(f"goals.md A2 row {row[0]!r} is not numbered")
+                findings.append(f"priorities.md A2 row {row[0]!r} is not numbered")
                 continue
             sizes: dict[str, list[str]] = {}
             for size, index in zip(SIZES, size_columns):
@@ -331,7 +331,7 @@ def entries(value: dict, key: str, findings: list[str]) -> list:
 
 def validate(
     value: object,
-    goals: str,
+    law_text: str,
     issue_states: dict[str, str] | None,
     follow_up_rules: frozenset[str] | set[str] = FOLLOW_UP_RULES,
     follow_up_rows: frozenset[int] | set[int] = FOLLOW_UP_ROWS,
@@ -349,17 +349,17 @@ def validate(
     generation = value.get("catalog_generation")
     if not isinstance(generation, int) or isinstance(generation, bool) or generation < 1:
         findings.append("catalog_generation must be a positive integer per-revision identity")
-    expected_hash = "sha256:" + hashlib.sha256(goals.encode("utf-8")).hexdigest()
+    expected_hash = "sha256:" + hashlib.sha256(law_text.encode("utf-8")).hexdigest()
     source = value.get("source")
-    if not isinstance(source, dict) or set(source) != {"path", "sha256"} or source.get("path") != GOALS_PATH:
-        findings.append(f"source must carry exactly path {GOALS_PATH!r} and sha256")
+    if not isinstance(source, dict) or set(source) != {"path", "sha256"} or source.get("path") != SOURCE_PATH:
+        findings.append(f"source must carry exactly path {SOURCE_PATH!r} and sha256")
     elif source["sha256"] != expected_hash:
         findings.append(
-            f"source sha256 {source['sha256']} differs from {GOALS_PATH} ({expected_hash}); "
+            f"source sha256 {source['sha256']} differs from {SOURCE_PATH} ({expected_hash}); "
             "check the table and this checker's follow-up sets against the new text, then record the hash"
         )
 
-    cells, rows, rule_ids, parse_findings = parse_appendix(goals)
+    cells, rows, rule_ids, parse_findings = parse_appendix(law_text)
     findings.extend(parse_findings)
 
     seen_rules: set[str] = set()
@@ -375,12 +375,12 @@ def validate(
             findings.append(f"{prefix}: duplicate rule")
         seen_rules.add(identifier)
         if identifier not in rule_ids:
-            findings.append(f"{prefix}: goals.md Appendix A names no such rule")
+            findings.append(f"{prefix}: priorities.md Appendix A names no such rule")
         check_actors(rule, prefix, findings)
         check_label(rule, prefix, f"rule:{identifier}", identifier in follow_up_rules, findings)
         if check_mechanism(rule, prefix, issue_states, findings):
             gaps.append(f"{identifier} -> {rule.get('issue')}")
-    findings.extend(f"rule {identifier}: named by goals.md Appendix A but absent from the table" for identifier in sorted(rule_ids - seen_rules))
+    findings.extend(f"rule {identifier}: named by priorities.md Appendix A but absent from the table" for identifier in sorted(rule_ids - seen_rules))
 
     seen_cells: dict[tuple[str, str], str] = {}
     for index, cell in enumerate(entries(value, "a1", findings)):
@@ -396,11 +396,11 @@ def validate(
     for key in sorted(set(cells) | set(seen_cells), key=str):
         where = f"A1 cell {key[0]}/{key[1]}"
         if key not in seen_cells:
-            findings.append(f"{where}: in goals.md but absent from the table")
+            findings.append(f"{where}: in priorities.md but absent from the table")
         elif key not in cells:
-            findings.append(f"{where}: absent from goals.md")
+            findings.append(f"{where}: absent from priorities.md")
         elif seen_cells[key] != cells[key]:
-            findings.append(f"{where}: goals.md names {cells[key]}, the table names {seen_cells[key]!r}")
+            findings.append(f"{where}: priorities.md names {cells[key]}, the table names {seen_cells[key]!r}")
 
     seen_rows: set[int] = set()
     for index, row in enumerate(entries(value, "a2", findings)):
@@ -415,14 +415,14 @@ def validate(
             findings.append(f"{prefix}: duplicate row")
         seen_rows.add(number)
         if number not in rows:
-            findings.append(f"{prefix}: goals.md A2 has no such row")
+            findings.append(f"{prefix}: priorities.md A2 has no such row")
         elif row.get("sizes") != rows[number]:
-            findings.append(f"{prefix}: sizes must cite the rule IDs of each goals.md size cell, {rows[number]}, got {row.get('sizes')!r}")
+            findings.append(f"{prefix}: sizes must cite the rule IDs of each priorities.md size cell, {rows[number]}, got {row.get('sizes')!r}")
         check_actors(row, prefix, findings)
         check_label(row, prefix, f"rule:{prefix}", number in follow_up_rows, findings)
         if check_mechanism(row, prefix, issue_states, findings):
             gaps.append(f"{prefix} -> {row.get('issue')}")
-    findings.extend(f"A2 row {number}: in goals.md but absent from the table" for number in sorted(set(rows) - seen_rows))
+    findings.extend(f"A2 row {number}: in priorities.md but absent from the table" for number in sorted(set(rows) - seen_rows))
 
     seen_duties: set[str] = set()
     for index, duty in enumerate(entries(value, "duties", findings)):
@@ -446,13 +446,13 @@ def main(argv: list[str] | None = None) -> int:
     findings: list[str] = []
     value = load_json(TABLE, findings)
     try:
-        goals = (ROOT / GOALS_PATH).read_bytes().decode("utf-8")
+        law_text = (ROOT / SOURCE_PATH).read_bytes().decode("utf-8")
     except (OSError, UnicodeDecodeError) as exc:
-        findings.append(f"{GOALS_PATH}: unreadable: {exc}")
-        goals = None
+        findings.append(f"{SOURCE_PATH}: unreadable: {exc}")
+        law_text = None
     issue_states = load_issue_states(findings)
-    if value is not None and goals is not None:
-        table_findings, gaps = validate(value, goals, issue_states)
+    if value is not None and law_text is not None:
+        table_findings, gaps = validate(value, law_text, issue_states)
         findings.extend(table_findings)
         for gap in gaps:
             print(f"gap: {gap}")

@@ -13,9 +13,9 @@ assert SPEC and SPEC.loader
 checker = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(checker)
 
-# A synthetic Appendix A in the shape goals.md uses: one A1 chart and one A2
+# A synthetic Appendix A in the shape priorities.md uses: one A1 chart and one A2
 # table. The checker derives the cells and rows it requires from this text.
-GOALS = """# Goals
+SOURCE = """# Priorities
 
 ## Appendix A. Conflict rules
 
@@ -36,7 +36,7 @@ GOALS = """# Goals
 ## Appendix B. Other
 """
 
-GOALS_HASH = "sha256:" + hashlib.sha256(GOALS.encode("utf-8")).hexdigest()
+SOURCE_HASH = "sha256:" + hashlib.sha256(SOURCE.encode("utf-8")).hexdigest()
 ISSUES = {"CON-9001": "open", "CON-9002": "closed"}
 ANCHOR = {"kind": "validator", "value": "scripts/check-json.py"}
 
@@ -49,7 +49,7 @@ def table() -> dict:
     return {
         "schema_version": "1.1",
         "catalog_generation": 1,
-        "source": {"path": ".concord/docs/goals.md", "sha256": GOALS_HASH},
+        "source": {"path": ".concord/docs/priorities.md", "sha256": SOURCE_HASH},
         "rules": [
             {"id": "P1", "actors": ["agent"], **gap()},
             {"id": "P12", "actors": ["agent"], **gap()},
@@ -84,8 +84,8 @@ def table() -> dict:
     }
 
 
-def validate(value: dict, goals: str = GOALS, issues: dict | None = None):
-    return checker.validate(value, goals, ISSUES if issues is None else issues, follow_up_rules={"R1"}, follow_up_rows={1})
+def validate(value: dict, law_text: str = SOURCE, issues: dict | None = None):
+    return checker.validate(value, law_text, ISSUES if issues is None else issues, follow_up_rules={"R1"}, follow_up_rows={1})
 
 
 def test_valid_table_has_no_findings() -> None:
@@ -115,7 +115,7 @@ def test_missing_a2_row_is_refused() -> None:
     assert any("A2 row 2" in finding for finding in findings), findings
 
 
-def test_a2_sizes_must_cite_each_goals_size_cell() -> None:
+def test_a2_sizes_must_cite_each_source_size_cell() -> None:
     value = table()
     value["a2"][1]["sizes"]["crucial"] = ["R3"]
     findings, _ = validate(value)
@@ -140,7 +140,7 @@ def test_label_duty_must_be_listed() -> None:
     assert any("follow-up-label" in finding for finding in findings), findings
 
 
-def test_rule_named_by_goals_but_absent_from_table_is_refused() -> None:
+def test_rule_named_by_source_but_absent_from_table_is_refused() -> None:
     value = table()
     value["rules"] = [rule for rule in value["rules"] if rule["id"] != "P12"]
     findings, _ = validate(value)
@@ -206,8 +206,8 @@ def test_gap_may_not_carry_a_mechanism_kind() -> None:
     assert validate(value)[0], "a gap row names no mechanism kind"
 
 
-def test_stale_goals_hash_is_refused() -> None:
-    findings, _ = validate(table(), GOALS + "\nedited\n")
+def test_stale_source_hash_is_refused() -> None:
+    findings, _ = validate(table(), SOURCE + "\nedited\n")
     assert any("sha256" in finding for finding in findings), findings
 
 

@@ -1,7 +1,7 @@
 # Concord Design Constraints
 
 > **Status:** Aligned v3 under CD-0006 and CD-0222. Companion to [`priorities.md`](./priorities.md).
-> **Purpose:** Capture the non-functional requirements, hard constraints, and design directives that shape *how* Concord is built. [`goals.md`](./goals.md) owns the unranked goals and conflict rules; [`priorities.md`](./priorities.md) owns the operating envelope and standing law.
+> **Purpose:** Capture the non-functional requirements, hard constraints, and design directives that shape *how* Concord is built. [`goals.md`](./goals.md) records the unranked goals as guidance; [`priorities.md`](./priorities.md) owns the operating envelope, constraints, conflict rules, and standing law.
 
 ---
 

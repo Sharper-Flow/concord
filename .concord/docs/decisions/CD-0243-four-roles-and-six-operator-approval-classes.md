@@ -123,7 +123,7 @@ required-review checks.
 
 | Owner | Subject |
 |---|---|
-| `goals.md` §1, §4, A1 axis key, R3, S, U, P1, P5, P10, P12, A2 rows 3, 4, 7, 9, Appendix C row 3 | Roles, six approval classes, law-change and data-safety decisions |
+| `priorities.md` Constraints; Appendix A: A1 axis key, R3, S, U, P1, P5, P10, P12, A2 rows 3, 4, 7, 9; Appendix B row 3 | Roles, six approval classes, law-change and data-safety decisions |
 | CD-0230 D4, D5 | Law-change authority, approval classes, listed gaps, recovery |
 | CD-0013 D11 | Workflow consent classification and routine actions |
 | CD-0006 D5, D10; CD-0159 D4; CD-0218 D1; CD-0222 D1, D4, D5 | Law mandates and enactment require approval only under D2 |
@@ -218,7 +218,7 @@ this law; this record does not claim those mechanisms are implemented.
 
 - `python3 scripts/check-doc-contract.py` checks the decision outline.
 - `python3 scripts/check-knowledge-index.py` checks the law record and relations.
-- `python3 scripts/check-conflict-rules.py` checks the table against `goals.md`.
+- `python3 scripts/check-conflict-rules.py` checks the table against `priorities.md`.
 - `python3 scripts/check-primary-prompts.py` checks the generated role sources.
 - `python3 scripts/test-generate-agent-lanes.py` checks their projection.
 - `bun test adapter/opencode/` checks the shipped asking instructions.

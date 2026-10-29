@@ -34,7 +34,7 @@
     }
   ],
   "path": ".concord/docs/decisions/CD-0230-the-conflict-rules-are-one-checked-table-and-an-agent-changes-law-that-is-not-serious.md",
-  "product_wide_rationale": "It carries the goals Appendix A conflict rules and the authority to change Product law, which bind every child Domain and every law record, so no single child Domain can own it.",
+  "product_wide_rationale": "It carries the priorities.md Appendix A conflict rules and the authority to change Product law, which bind every child Domain and every law record, so no single child Domain can own it.",
   "scopes": {
     "domain_ids": [],
     "mode": "home",
@@ -42,9 +42,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:b7fa642237db81622ed1c9e83a87631b615f713ba802ef95e9ffa155d15a7423",
+  "sha256": "sha256:fd6b45502cdeeacf7c99f7e12a630a96b10c8a1ef6227af6bb511ed69756c9fe",
   "status": "accepted",
-  "summary": "One validated contract table holds every goals Appendix A rule with its enforcing mechanism or a listed gap, and applying a rule leaves a record. Law changes and operator consent follow CD-0243's six classes; changes to the approval boundary require exact-text operator approval. Seriousness, Domain count, crucial size, and a missing classification do not independently require approval. The RTE coordinates dependencies, and operator decisions go directly to the operator. Operator-free law revisions remain derived. Recovery and permanent loss follow CD-0243 D5. Follow-up items carry a rule label in Linear; six-class runtime alignment remains an implementation obligation.",
+  "summary": "One validated contract table holds every priorities.md Appendix A rule with its enforcing mechanism or a listed gap, and applying a rule leaves a record. Law changes and operator consent follow CD-0243's six classes; changes to the approval boundary require exact-text operator approval. Seriousness, Domain count, crucial size, and a missing classification do not independently require approval. The RTE coordinates dependencies, and operator decisions go directly to the operator. Operator-free law revisions remain derived. Recovery and permanent loss follow CD-0243 D5. Follow-up items carry a rule label in Linear; six-class runtime alignment remains an implementation obligation.",
   "tags": [
     "law",
     "authority",

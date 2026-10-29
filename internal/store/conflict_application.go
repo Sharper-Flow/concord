@@ -62,7 +62,7 @@ var conflictSourceHashShape = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
 
 // validateWorkConflictAppliedPayload is the frozen v1 semantic validator. It
 // holds every field required, nonblank, and inside its bound, and never
-// consults the current generated table, so a later table or goals change
+// consults the current generated table, so a later table or priorities.md change
 // cannot refuse replay of a recorded event.
 func validateWorkConflictAppliedPayload(_ Event, p ConflictApplication) error {
 	invalid := func(message string) error {

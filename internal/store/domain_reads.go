@@ -82,8 +82,7 @@ type DomainDetailResult struct {
 	Observations []DomainObservation  `json:"observations"`
 }
 
-// Every Domain result embeds ResultMeta, whose promoted fields belong to the
-// envelope. Payload types declare only the fields the closed wire schemas allow.
+// DomainListPayload excludes ResultMeta's envelope fields from the closed payload.
 type DomainListPayload struct {
 	Registry *DomainRegistryView `json:"registry"`
 	Domains  []DomainSummary     `json:"domains"`

@@ -75,36 +75,7 @@ func SeedDomainPayloadEvidence(ctx context.Context, s *store.Store, opts DomainP
 	if err != nil {
 		return err
 	}
-	if err := execDomainFold(ctx, s,
-		domainStatement{"knowledge locator", `INSERT INTO project_locators(locator_id,project_id,kind,locator_value,normalized_value,created_at,updated_at) VALUES(?,?,'canonical_path',?,?,'now','now')`, []any{opts.LocatorID, opts.ProjectID, repo, repo}},
-		domainStatement{"knowledge home", `INSERT INTO product_knowledge_homes(product_id,project_id,locator_id) VALUES(?,?,?)`, []any{opts.ProductID, opts.ProjectID, opts.LocatorID}},
-	); err != nil {
-		return err
-	}
-	home := store.KnowledgeHome{HomeProjectID: opts.ProjectID, HomeLocatorID: opts.LocatorID, RepoPath: repo, HeadRef: "HEAD"}
-	if err := s.RebuildKnowledgeIndex(ctx, home); err != nil {
-		return fmt.Errorf("pm1fixture: rebuild populated knowledge index: %w", err)
-	}
-
-	actorRef := store.DeriveWorkflowActorRef("human-1", "client-1", "agent-1", "session-1")
-	statements := []domainStatement{
-		{"workflow actor", `INSERT INTO workflow_actors(actor_ref,principal_ref,client_ref,agent_ref,session_ref,actor_class,first_seen_at) VALUES(?,'human-1','client-1','agent-1','session-1','operator','now')`, []any{actorRef}},
-	}
-	const contract = `INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class) VALUES(?,1,'populated domain payload','internal_sqlite','[]','[]','now',?,'[]','["` + PayloadLawID + `"]',1,'prototype_internal')`
-	const binding = `INSERT INTO workflow_architecture_bindings(work_id,contract_version,product_id,domain_registry_content_hash,home_domain_id,projection_hash) SELECT ?,1,?,content_hash,?,content_hash FROM domain_registries WHERE product_id=?`
-	for _, workID := range opts.WorkIDs {
-		statements = append(statements,
-			domainStatement{"contract " + workID, contract, []any{workID, actorRef}},
-			domainStatement{"architecture binding " + workID, binding, []any{workID, opts.ProductID, PayloadChildDomainID, opts.ProductID}},
-			domainStatement{"affected Domain " + workID, `INSERT INTO workflow_contract_affected_domains(work_id,contract_version,domain_id) VALUES(?,1,?)`, []any{workID, PayloadChildDomainID}},
-			domainStatement{"law modification " + workID, `INSERT INTO workflow_contract_law_modifications(work_id,contract_version,law_id) VALUES(?,1,?)`, []any{workID, PayloadLawID}},
-		)
-	}
-	if err := execDomainFold(ctx, s, statements...); err != nil {
-		return err
-	}
-
-	return nil
+	return seedDomainEvidence(ctx, s, DomainEvidenceOptions(opts), repo, PayloadChildDomainID, PayloadLawID, "populated domain payload")
 }
 
 // domainPayloadRepo commits a manifest declaring a root Domain and one child

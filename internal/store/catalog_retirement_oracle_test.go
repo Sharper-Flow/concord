@@ -64,13 +64,13 @@ func TestCatalogFreeFactSources(t *testing.T) {
 			for _, value := range []string{"", strings.Repeat("x", 257)} {
 				invalid := fact
 				if kind == DomainFactDataObject {
-					copy := *fact.DataObject
-					copy.ResourceID = value
-					invalid.DataObject = &copy
+					dataObject := *fact.DataObject
+					dataObject.ResourceID = value
+					invalid.DataObject = &dataObject
 				} else {
-					copy := *fact.StateAuthority
-					copy.AuthoritativeResourceID = value
-					invalid.StateAuthority = &copy
+					stateAuthority := *fact.StateAuthority
+					stateAuthority.AuthoritativeResourceID = value
+					invalid.StateAuthority = &stateAuthority
 				}
 				if err := parse(invalid); err == nil {
 					t.Fatal("source identity lost its scalar bound")

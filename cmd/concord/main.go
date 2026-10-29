@@ -499,7 +499,7 @@ func runJSONCommand(command string, args []string, in io.Reader, out, errOut io.
 	case "receipt":
 		return runReceipt(raw, s, out, errOut)
 	default:
-		return runInternal(command, raw, service, s, clock, out, errOut)
+		return runInternal(command, raw, service, s, out, errOut)
 	}
 }
 
@@ -1089,7 +1089,7 @@ func runProductKnowledgeConfiguration(command string, raw []byte, s *store.Store
 	return writeOperatorResult(command, s, result.EventIDs, []operatorRef{{EntityKind: store.SubjectProduct, ID: request.ProductID}}, out, errOut)
 }
 
-func runInternal(command string, raw []byte, service *agent.Service, s *store.Store, clock func() time.Time, out, errOut io.Writer) int {
+func runInternal(command string, raw []byte, service *agent.Service, s *store.Store, out, errOut io.Writer) int {
 	switch command {
 	case "domain-shape-check":
 		return runDomainShapeCheck(raw, s, out, errOut)

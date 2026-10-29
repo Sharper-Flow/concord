@@ -1,6 +1,6 @@
 {
   "schema_version": "1.1",
-  "catalog_generation": 17,
+  "catalog_generation": 18,
   "source": {
     "path": ".concord/docs/priorities.md",
     "sha256": "sha256:0b968a6c85f204cf33582c9647e2f05f72e6621fc8e8f9e4a0df7d3d607ab943"
@@ -504,8 +504,16 @@
         "coordinator"
       ],
       "follow_up_label": "rule:A2-5",
-      "state": "outstanding",
-      "issue": "CON-1101"
+      "state": "satisfied",
+      "mechanism": "programmed_check",
+      "evidence": [
+        {"kind": "go_test", "value": "internal/store.TestCrucialReviewExitRefusesHighOrMediumFinding"},
+        {"kind": "go_test", "value": "internal/store.TestReviewStateReadsCrucialFromEffectiveSize"},
+        {"kind": "go_test", "value": "internal/store.TestReviewCurrentAdmissionNegativeCases"},
+        {"kind": "go_test", "value": "internal/store.TestReviewCompletionRetainsAppliedRuleContextClaims"},
+        {"kind": "go_test", "value": "internal/store.TestDispatchRefusesStaleWorkContextPacket"},
+        {"kind": "go_test", "value": "internal/store.TestDispatchRefusesTamperedWorkContextPacket"}
+      ]
     },
     {
       "row": 6,

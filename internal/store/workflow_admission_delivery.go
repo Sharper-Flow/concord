@@ -484,8 +484,17 @@ func workflowAdmitReview(state WorkflowReviewState, group string) error {
 		}
 		return nil
 	}
-	if disposition != "ready_for_final_proof" {
+	return workflowAdmitReviewExit(state)
+}
+
+// Leaving execution needs accepted ready_for_final_proof. A crucial change
+// also needs no open in-scope high or medium finding (CD-0230 D2).
+func workflowAdmitReviewExit(state WorkflowReviewState) error {
+	if disposition := state.Accepted.Report.Disposition; disposition != "ready_for_final_proof" {
 		return reviewFailure(KindMissingEvidence, "leaving execution requires accepted ready_for_final_proof, not "+disposition, workflowReviewRecovery("follow any declared corrective/upstream obligation", "with disposition ready_for_final_proof on the current candidate before leaving execution"))
+	}
+	if blocker, severity := state.crucialExitBlocker(); blocker != "" {
+		return reviewFailure(KindMissingEvidence, "open in-scope "+severity+" finding "+blocker+" blocks a crucial change from leaving execution", workflowReviewRecovery("repair the finding "+blocker+" and capture its closure evidence", "carrying the evidenced closure of "+blocker))
 	}
 	return nil
 }

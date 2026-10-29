@@ -163,6 +163,7 @@ func TestDefaultCheckoutShelvingRefusals(t *testing.T) {
 		}},
 		{"reason", "requires shelving", func(_ *testing.T, _ *store.Store, in map[string]any, _ string) { in["reason"] = "cancelled" }},
 		{"missing claims", "recorded retired claims", func(t *testing.T, s *store.Store, _ map[string]any, _ string) {
+			removalFixtureSQL(t, s, `DELETE FROM worktree_review_foundations`)
 			removalFixtureSQL(t, s, `DELETE FROM worktree_claims`)
 		}},
 		{"pending claim", "active worktree claim", func(t *testing.T, s *store.Store, _ map[string]any, _ string) {

@@ -26,6 +26,11 @@ func reviewSubjectClaim(t *testing.T, s *Store, workID string) (string, string) 
 	root := initBootstrapStoreRepo(t)
 	runTestGit(t, root, "config", "user.email", "concord@example.invalid")
 	runTestGit(t, root, "config", "user.name", "Concord Review Subject Test")
+	if err := os.WriteFile(root+"/seed.txt", []byte("review subject seed\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runTestGit(t, root, "add", "--", "seed.txt")
+	runTestGit(t, root, "commit", "-m", "review subject seed")
 	var projectVersion int64
 	if err := s.db.QueryRow(`SELECT version FROM projects WHERE id='project'`).Scan(&projectVersion); err != nil {
 		t.Fatal(err)

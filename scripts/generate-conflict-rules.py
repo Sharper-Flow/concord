@@ -43,9 +43,6 @@ def load() -> dict:
         number = row.get("row") if isinstance(row, dict) else None
         if not isinstance(number, int) or isinstance(number, bool) or number < 1:
             raise SystemExit(f"{TABLE}: a2 row numbers must be positive integers")
-    points = value.get("approval_points")
-    if not isinstance(points, list) or not points:
-        raise SystemExit(f"{TABLE}: approval_points must be a non-empty inventory")
     generation = value.get("catalog_generation")
     if not isinstance(generation, int) or isinstance(generation, bool) or generation < 1:
         raise SystemExit(f"{TABLE}: catalog_generation must be a positive per-revision identity")

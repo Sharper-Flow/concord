@@ -66,18 +66,6 @@ def table() -> dict:
             {"row": 1, "sizes": {"small": ["R1"], "larger": ["R1"], "crucial": ["R1"]}, "actors": ["agent"], "follow_up_label": "rule:A2-1", **gap()},
             {"row": 2, "sizes": {"small": ["P12", "R3"], "larger": ["P12", "R3"], "crucial": []}, "actors": ["agent", "operator"], **gap()},
         ],
-        # A class-shaped point adds no gap row, so every existing expectation
-        # below keeps its exact counts.
-        "approval_points": [
-            {
-                "id": "registry-approve-contract",
-                "owner": {"path": "internal/store/workflow_registry.go", "symbol": "builtinActionPolicies", "branch": "approve_contract"},
-                "holding_law": "CD-0033",
-                "reachability": ["live", "legacy_pinned", "retired"],
-                "classification": {"class": "product"},
-                "evidence": ["internal/store/workflow_registry.go:1758"],
-            },
-        ],
         "duties": [
             {"id": "follow-up-label", **gap()},
         ],
@@ -243,49 +231,6 @@ def test_unknown_actor_is_refused() -> None:
     assert validate(value)[0]
 
 
-# approval_points negatives: closed owner triples, distinct ids, exactly one
-# of a D5 class or a named gap, a resolvable holding record, and a closed
-# reachability. Each test asserts the specific refusal.
-APPROVAL_OWNER = {"path": "internal/store/workflow_registry.go", "symbol": "builtinActionPolicies", "branch": "approve_contract"}
-
-
-def approval_point(**overrides) -> dict:
-    point = {
-        "id": "contract-approval-registry",
-        "owner": dict(APPROVAL_OWNER),
-        "holding_law": "CD-0033",
-        # One owner serves many definition contexts, so reachability is a
-        # non-empty list over the closed vocabulary.
-        "reachability": ["live"],
-        "classification": {"class": "product"},
-    }
-    point.update(overrides)
-    return point
-
-
-def approval_points_table(points=None) -> dict:
-    value = table()
-    value["approval_points"] = [approval_point()] if points is None else points
-    return value
-
-
-def test_approval_points_table_has_no_findings() -> None:
-    findings, _ = validate(approval_points_table())
-    assert findings == [], findings
-
-
-def test_approval_point_with_omitted_owner_field_is_refused() -> None:
-    value = approval_points_table()
-    del value["approval_points"][0]["owner"]["symbol"]
-    findings, _ = validate(value)
-    assert any("owner" in finding and "symbol" in finding for finding in findings), findings
-
-
-def test_duplicate_approval_point_id_is_refused() -> None:
-    value = approval_points_table(points=[approval_point(), approval_point(id="contract-approval-registry", owner={**APPROVAL_OWNER, "branch": "confirm_premise"})])
-    findings, _ = validate(value)
-    assert any("duplicate" in finding for finding in findings), findings
-
 def test_unhashable_actor_is_reported_not_raised() -> None:
     value = table()
     value["rules"][0]["actors"] = [["agent"]]
@@ -293,182 +238,15 @@ def test_unhashable_actor_is_reported_not_raised() -> None:
     assert any("actors must be a non-empty list" in finding for finding in findings), findings
 
 
-def test_unknown_holding_record_is_refused() -> None:
-    value = approval_points_table()
-    value["approval_points"][0]["holding_law"] = "CD-9999 D1"
-    findings, _ = validate(value)
-    assert any("resolves to no decision record" in finding for finding in findings), findings
-    value = approval_points_table()
-    value["approval_points"][0]["holding_law"] = "goals prose"
-    findings, _ = validate(value)
-    assert any("resolves to no decision record" in finding for finding in findings), findings
-
-
-def test_null_holding_is_accepted_only_on_reasoned_gaps_with_evidence() -> None:
-    value = approval_points_table()
-    value["approval_points"][0]["classification"] = {"gap_issue": "CON-9001", "reason": "unresolved holder; the source consent declaration is cited in evidence"}
-    value["approval_points"][0]["holding_law"] = None
-    value["approval_points"][0]["evidence"] = ["internal/agent/mutations.go:1442"]
-    findings, _ = validate(value)
-    assert findings == [], findings
-
-
-def test_null_holding_with_non_object_classification_is_refused_not_raised() -> None:
-    value = approval_points_table()
-    value["approval_points"][0]["holding_law"] = None
-    value["approval_points"][0]["classification"] = ["gap_issue"]
-    findings, _ = validate(value)
-    assert any("holding_law may be null only on an explicit gap row" in finding for finding in findings), findings
-
-
-def test_non_object_classification_with_a_holder_is_refused_normally() -> None:
-    value = approval_points_table()
-    value["approval_points"][0]["classification"] = ["gap_issue"]
-    findings, _ = validate(value)
-    assert any("classification must be a D2 class" in finding for finding in findings), findings
-
-
-def test_null_holding_on_a_class_row_is_refused() -> None:
-    value = approval_points_table()
-    value["approval_points"][0]["holding_law"] = None
-    findings, _ = validate(value)
-    assert any("holding_law may be null only on an explicit gap row" in finding for finding in findings), findings
-
-
-def test_null_holding_without_an_unresolved_holder_reason_is_refused() -> None:
-    value = approval_points_table()
-    value["approval_points"][0]["classification"] = {"gap_issue": "CON-9001", "reason": "consent retained"}
-    value["approval_points"][0]["holding_law"] = None
-    findings, _ = validate(value)
-    assert any("unresolved holder" in finding for finding in findings), findings
-    value = approval_points_table()
-    value["approval_points"][0]["classification"] = {"gap_issue": "CON-9001", "reason": "unresolved holder; the source consent declaration is cited in evidence"}
-    value["approval_points"][0]["holding_law"] = None
-    findings, _ = validate(value)
-    assert any("evidence" in finding for finding in findings), findings
-
-
-def test_wildcard_evidence_is_refused() -> None:
-    value = approval_points_table()
-    value["approval_points"][0]["evidence"] = ["internal/agent/*"]
-    findings, _ = validate(value)
-    assert any("evidence" in finding for finding in findings), findings
-
-
-def test_non_string_class_is_reported_not_raised() -> None:
-    value = approval_points_table()
-    value["approval_points"][0]["classification"] = {"class": []}
-    findings, _ = validate(value)
-    assert any("class must be exactly one of" in finding for finding in findings), findings
-
-
-def test_non_string_reachability_is_reported_not_raised() -> None:
-    value = approval_points_table()
-    value["approval_points"][0]["reachability"] = [["live"]]
-    findings, _ = validate(value)
-    assert any("reachability must be a non-empty list" in finding for finding in findings), findings
-
-
 def test_catalog_generation_must_be_a_positive_identity() -> None:
-    value = approval_points_table()
+    value = table()
     del value["catalog_generation"]
     findings, _ = validate(value)
     assert any("catalog_generation" in finding for finding in findings), findings
-    value = approval_points_table()
+    value = table()
     value["catalog_generation"] = 0
     findings, _ = validate(value)
     assert any("catalog_generation" in finding for finding in findings), findings
-
-
-def test_seventh_approval_class_is_refused() -> None:
-    value = approval_points_table()
-    value["approval_points"][0]["classification"] = {"class": "convenience"}
-    findings, _ = validate(value)
-    assert any("convenience" in finding for finding in findings), findings
-
-
-def test_six_classes_and_structural_dispositions() -> None:
-    classes = ["product", "ui_ux", "production_data", "security", "increased_spending", "legal"]
-    classifications = [{"class": name} for name in classes] + [
-        {"classes": classes},
-        {"agent_owned": True, "reason": "ordinary coordination within scope"},
-        {"preserved_gate": "worktree_content_waiver", "reason": "explicit operator-only waiver"},
-        {"legacy": True, "reason": "released metadata, not a new approval class"},
-    ]
-    for classification in classifications:
-        value = approval_points_table()
-        value["approval_points"][0]["classification"] = classification
-        assert validate(value)[0] == [], classification
-
-
-def test_structural_dispositions_refuse_unknown_mixed_or_empty_shapes() -> None:
-    for classification in [
-        {"classes": []}, {"classes": ["product", "product"]},
-        {"classes": ["serious_law"]}, {"class": "product_preference"},
-        {"class": "destructive_verified_recovery"},
-        {"agent_owned": False, "reason": "ordinary"},
-        {"legacy": True}, {"preserved_gate": "", "reason": "waiver"},
-        {"preserved_gate": "convenience", "reason": "not an existing gate"},
-        {"agent_owned": True, "reason": ""},
-        {"classes": ["security"], "agent_owned": True, "reason": "mixed"},
-        {"class": "security", "legacy": True, "reason": "mixed"},
-    ]:
-        value = approval_points_table()
-        value["approval_points"][0]["classification"] = classification
-        assert validate(value)[0], classification
-
-
-def test_approval_point_needs_exactly_one_classification() -> None:
-    value = approval_points_table()
-    value["approval_points"][0]["classification"] = {}
-    findings, _ = validate(value)
-    assert any("classification" in finding for finding in findings), findings
-    value = approval_points_table()
-    value["approval_points"][0]["classification"] = {"class": "serious_law", "gap_issue": "CON-9001", "reason": "both"}
-    findings, _ = validate(value)
-    assert any("classification" in finding for finding in findings), findings
-
-
-def test_approval_point_gap_must_name_a_reasoned_issue() -> None:
-    value = approval_points_table()
-    value["approval_points"][0]["classification"] = {"gap_issue": "CON-9001"}
-    findings, _ = validate(value)
-    assert any("gap_issue" in finding or "reason" in finding for finding in findings), findings
-    value = approval_points_table()
-    value["approval_points"][0]["classification"] = {"gap_issue": "CON-9002", "reason": "closed owner"}
-    findings, _ = validate(value)
-    assert any("closed" in finding for finding in findings), findings
-
-
-def test_approval_point_owner_path_must_exist_in_the_repository() -> None:
-    value = approval_points_table()
-    value["approval_points"][0]["owner"] = {**APPROVAL_OWNER, "path": "internal/store/no-such-owner-file.go"}
-    findings, _ = validate(value)
-    assert any("owner path" in finding for finding in findings), findings
-
-
-def test_unknown_approval_reachability_is_refused() -> None:
-    value = approval_points_table()
-    value["approval_points"][0]["reachability"] = ["wildcard_legacy"]
-    findings, _ = validate(value)
-    assert any("reachability" in finding for finding in findings), findings
-
-
-def test_scalar_approval_reachability_is_refused() -> None:
-    value = approval_points_table()
-    value["approval_points"][0]["reachability"] = "live"
-    findings, _ = validate(value)
-    assert any("reachability" in finding for finding in findings), findings
-
-
-def test_every_approval_gap_is_reported() -> None:
-    gap_point = approval_point(
-        id="takeover-consent",
-        owner={**APPROVAL_OWNER, "branch": "record_takeover"},
-        classification={"gap_issue": "CON-9001", "reason": "consent retained until the holding record is amended"},
-    )
-    _, gaps = validate(approval_points_table(points=[approval_point(), gap_point]))
-    assert "approval-point takeover-consent -> CON-9001" in gaps, gaps
 
 
 def test_repository_table_passes() -> None:

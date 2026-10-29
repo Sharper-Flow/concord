@@ -488,7 +488,7 @@ func checkWorkflowLawRevisionStalenessAdmittingTx(ctx context.Context, tx querye
 	if stale == nil {
 		return checkWorkflowDomainOverlapTxAdmitting(ctx, tx, workID, admission)
 	}
-	failure := newFailure(KindStaleLawRevision, "check_workflow_law_revision", "workflow contract pins a deleted law", false, "request_approval")
+	failure := newFailure(KindStaleLawRevision, "check_workflow_law_revision", "workflow contract pins a deleted law", false, "reconcile_operation")
 	failure.StaleLawRevision = stale
 	return failure
 }

@@ -18,8 +18,7 @@ CD-0178 D3 records one occupancy row per session, with the host process
 identity, and releases a row whose host process ended. Two gaps remain.
 
 The first gap is the row that has no process identity. A claim wrote such a
-row before that rule, and the rule left it releasable only by session_vacate
-or an operator-approved removal. A terminal, clean, merged worktree then
+row before that rule. A terminal, clean, merged worktree then
 refused reclaim with worktree_ownership_conflict forever, because the session
 that recorded the row no longer exists and nobody can vacate on its behalf.
 

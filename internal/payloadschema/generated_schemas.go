@@ -26748,7 +26748,7 @@ const GeneratedPayloadSchemaDocument = `{
         },
         "destructive": {
           "default": false,
-          "description": "Declares intent to remove without the clean-tree and merged-branch gates. Requires operator approval; the approval this consumes also covers non-terminal removal.",
+          "description": "Declares intent to discard local development content without the clean-tree and merged-branch gates.",
           "type": "boolean"
         },
         "expected_version": {

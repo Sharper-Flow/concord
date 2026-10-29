@@ -118,6 +118,32 @@ func TestWorkflowLawRevisionMissingPinnedProjectionIsStale(t *testing.T) {
 	}
 }
 
+func TestWorkflowStaleLawBoundaryNamesRecoveryWithoutApproval(t *testing.T) {
+	t.Parallel()
+	s, _ := seedCompletionGateCase(t, "law-recovery", completionGateCase{requiredEvidence: []string{"verification", "review"}, includeVerdict: true, includePremise: true})
+	oldHash := "sha256:" + strings.Repeat("a", 64)
+	attachWorkflowLawPin(t, s, "law-recovery", oldHash)
+	cutoverLawProjection(t, s)
+	ctx, err := s.EstablishKnowledgeSourceSetProof(t.Context(), "law-recovery")
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = s.Transact(ctx, func(tx *Transaction) error {
+		return CheckWorkflowConsequentialBoundaryTx(ctx, tx, "law-recovery")
+	})
+	var failure *Failure
+	if !errors.As(err, &failure) || failure.Kind != KindStaleLawRevision {
+		t.Fatalf("boundary=%v, want stale_law_revision", err)
+	}
+	if failure.RecoveryAction != "reconcile_operation" {
+		t.Errorf("boundary recovery=%q, want reconcile_operation", failure.RecoveryAction)
+	}
+	stale := failure.StaleLawRevision
+	if stale == nil || stale.OldLawID != "spec:one" || stale.OldContentHash != oldHash || strings.Join(stale.RecoveryActions, ",") != "supersede_contract,terminal_work" {
+		t.Fatalf("boundary lost typed recovery choices: %+v", stale)
+	}
+}
+
 func TestWorkflowLawRevisionRecontractsThroughProductionRoutes(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {

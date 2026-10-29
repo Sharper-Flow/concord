@@ -443,7 +443,7 @@ func TestStaleLawRevisionRequiresSHA256Proofs(t *testing.T) {
 	t.Parallel()
 	base := NewBase("stale-law", "concord_work_transition", "workflow_action")
 	valid := NewCoreError(base, TypedError{
-		Kind: "stale_law_revision", RecoveryAction: RecoveryAction{Kind: "request_approval"}, EffectState: EffectNone,
+		Kind: "stale_law_revision", RecoveryAction: RecoveryAction{Kind: "reconcile_operation"}, EffectState: EffectNone,
 		StaleLawRevision: &StaleLawRevision{OldLawID: "spec:old", OldContentHash: "sha256:" + strings.Repeat("a", 64), RecoveryActions: []string{"supersede_contract"}},
 	})
 	if _, err := valid.Encode(); err != nil {
@@ -514,7 +514,7 @@ func TestDomainOverlapSequencedAndGloballyBoundedDetailsValidate(t *testing.T) {
 		RecoveryActions: []string{"wait", "resolve_overlap", "terminal_work"}, SharedAffectedDomainCount: 20, SharedLawCount: 20,
 		SharedDomainModificationCount: 20, SharedRelationTupleCount: 20, DetailTruncated: true,
 	}
-	err := NewCoreError(base, TypedError{Kind: "domain_overlap", RecoveryAction: RecoveryAction{Kind: "request_approval"}, EffectState: EffectNone, DomainOverlap: &DomainOverlap{Overlaps: []DomainOverlapDetail{detail}, TotalOverlaps: 20, ReturnedOverlaps: 1, Truncated: true}})
+	err := NewCoreError(base, TypedError{Kind: "domain_overlap", RecoveryAction: RecoveryAction{Kind: "reconcile_operation"}, EffectState: EffectNone, DomainOverlap: &DomainOverlap{Overlaps: []DomainOverlapDetail{detail}, TotalOverlaps: 20, ReturnedOverlaps: 1, Truncated: true}})
 	encoded, encodeErr := err.Encode()
 	if encodeErr != nil {
 		t.Fatalf("bounded sequenced overlap rejected: %v", encodeErr)
@@ -523,7 +523,7 @@ func TestDomainOverlapSequencedAndGloballyBoundedDetailsValidate(t *testing.T) {
 		t.Fatalf("bounded overlap envelope is too close to the transport cap: %d", len(encoded))
 	}
 	detail.ResolutionState = "current"
-	invalid := NewCoreError(base, TypedError{Kind: "domain_overlap", RecoveryAction: RecoveryAction{Kind: "request_approval"}, EffectState: EffectNone, DomainOverlap: &DomainOverlap{Overlaps: []DomainOverlapDetail{detail}, TotalOverlaps: 1, ReturnedOverlaps: 1}})
+	invalid := NewCoreError(base, TypedError{Kind: "domain_overlap", RecoveryAction: RecoveryAction{Kind: "reconcile_operation"}, EffectState: EffectNone, DomainOverlap: &DomainOverlap{Overlaps: []DomainOverlapDetail{detail}, TotalOverlaps: 1, ReturnedOverlaps: 1}})
 	if _, encodeErr := invalid.Encode(); encodeErr == nil {
 		t.Fatal("schema-invalid current resolution state was accepted")
 	}

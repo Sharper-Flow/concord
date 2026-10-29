@@ -21,8 +21,10 @@ func sameWorkflowLawSources(a, b *workflowLawBaseline) bool {
 	return a.NoHome == b.NoHome && a.Home == b.Home && reflect.DeepEqual(a.Sources, b.Sources)
 }
 
-func recordWorkflowLawEnactmentTx(ctx context.Context, tx *sql.Tx, completion Event) error {
-	before, after, err := readWorkflowLawBaselineTx(ctx, tx, completion.SubjectID)
+// The proof holds only the item's own law: an externally made delta is not
+// this item's enactment, so a peer cannot consume it as attribution.
+func recordWorkflowLawEnactmentTx(ctx context.Context, tx *sql.Tx, completion Event, change *WorkflowLawChange) error {
+	before, after, err := readWorkflowLawAttributedBaselineTx(ctx, tx, completion.SubjectID, change)
 	if err != nil {
 		return err
 	}

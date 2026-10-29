@@ -155,7 +155,7 @@ func completeWorkflowInScopeTx(ctx context.Context, tx *sql.Tx, registry Definit
 		return err
 	}
 	if contract.LawBoundaryVersion == 1 {
-		return recordWorkflowLawEnactmentTx(ctx, tx, event)
+		return recordWorkflowLawEnactmentTx(ctx, tx, event, contract.LawChange)
 	}
 	return nil
 }

@@ -128,7 +128,7 @@ as an ordinary description, but it cannot identify a second grouping entity or
 own links. The canonical browse path is:
 
 ```text
-Product -> active work, then Domain -> current law, evidence, decisions, resources
+Product -> active work, then Domain -> current law, evidence, decisions, typed facts
 ```
 
 Selecting a Product lands on its Product-scoped, non-terminal work list. That

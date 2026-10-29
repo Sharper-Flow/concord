@@ -85,7 +85,7 @@ normally proceeds against settled law.
 ### D6. Context-rich navigation, not a control center
 
 Substantive approval, conflict resolution, editing,
-history, resources, and planning happen inside the selected Product/workflow.
+history and planning happen inside the selected Product/workflow.
 
 Every human question must first provide the purpose, relevant context, concrete
 example, and consequence of each option. Concord never asks the operator to choose

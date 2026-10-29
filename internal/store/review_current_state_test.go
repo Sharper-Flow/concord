@@ -466,3 +466,73 @@ func TestReviewCurrentProofAssociationHasNoCallerVerdict(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// goals.md A2 row 5: a crucial change leaves execution only when Review
+// reports no open in-scope high- or medium-severity finding, whatever the
+// reporter's blocking flag. Other sizes and assignment groups keep the
+// blocking rule.
+func TestCrucialReviewExitRefusesHighOrMediumFinding(t *testing.T) {
+	finding := func(severity string, inScope bool, status string) []WorkerReviewFinding {
+		return []WorkerReviewFinding{{FindingID: "finding:" + severity, Severity: severity, InScope: inScope, Blocking: false, Status: status}}
+	}
+	tests := []struct {
+		name     string
+		crucial  bool
+		group    string
+		findings []WorkerReviewFinding
+		admitted bool
+	}{
+		{"crucial open in-scope P0", true, "", finding("P0", true, "open"), false},
+		{"crucial open in-scope P1", true, "", finding("P1", true, "open"), false},
+		{"crucial open in-scope P2", true, "", finding("P2", true, "open"), false},
+		{"crucial open in-scope P3", true, "", finding("P3", true, "open"), true},
+		{"crucial out-of-scope P1", true, "", finding("P1", false, "open"), true},
+		{"crucial closed P1", true, "", finding("P1", true, "closed"), true},
+		{"larger open in-scope P1", false, "", finding("P1", true, "open"), true},
+		{"crucial group opening keeps the blocking rule", true, "group:first", finding("P1", true, "open"), true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			report := reviewBlockFixture()
+			report.Disposition = "ready_for_final_proof"
+			if tc.group != "" {
+				report.Disposition = "continue"
+			}
+			state := WorkflowReviewState{Candidate: &report.OutputCandidate, Accepted: &WorkflowAcceptedReview{Report: *report}, DependenciesCurrent: true, Findings: tc.findings, Crucial: tc.crucial}
+			err := workflowAdmitReview(state, tc.group)
+			if (err == nil) != tc.admitted {
+				t.Fatalf("admitted=%v, want %v: %v", err == nil, tc.admitted, err)
+			}
+			if err != nil && !strings.Contains(err.Error(), "blocks a crucial change from leaving execution") {
+				t.Fatalf("refusal %v does not name the crucial exit rule", err)
+			}
+		})
+	}
+}
+
+func TestReviewStateReadsCrucialFromEffectiveSize(t *testing.T) {
+	db, _ := g32ReviewFixture(t)
+	read := func() bool {
+		t.Helper()
+		state, err := loadWorkflowReviewState(t.Context(), db, "work-history")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return state.Crucial
+	}
+	if read() {
+		t.Fatal("an unsized item is crucial")
+	}
+	if _, err := db.Exec(`INSERT INTO work_size_assessments(work_id,sequence,model_version,size_class,inputs_json,footprint_json,recorded_at) VALUES('work-history',1,1,'crucial','{}','{}','t')`); err != nil {
+		t.Fatal(err)
+	}
+	if !read() {
+		t.Fatal("a crucial model size is not crucial")
+	}
+	if _, err := db.Exec(`INSERT INTO work_size_overrides VALUES('work-history','larger')`); err != nil {
+		t.Fatal(err)
+	}
+	if read() {
+		t.Fatal("the operator's larger size does not govern over the model's crucial")
+	}
+}

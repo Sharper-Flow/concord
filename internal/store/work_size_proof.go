@@ -14,7 +14,7 @@ import (
 // review and a later checkpoint_refine under the same contract version, and
 // whose report still carries a qualifying finding.
 //
-// Severity reads high as P0/P1 and medium as P2 (CD-0230 D4). A finding
+// Severity reads high as P0/P1 and medium as P2 (CD-0230 D2). A finding
 // qualifies when its oracle tie blocks delivery (it is not a follow-up), it
 // is P0-P2, and the same report does not resolve it; an oracle-free finding
 // has no scope classification and qualifies at P0-P2 in a correction_required
@@ -22,8 +22,6 @@ import (
 
 // RecoveryWorkSizeRerun names the one exit of the CD-0229 D6 stop.
 const RecoveryWorkSizeRerun = "rerun the size model through revise_intent with size_inputs"
-
-var workSizeProofSeverities = map[string]bool{"P0": true, "P1": true, "P2": true}
 
 // deriveWorkSizeProofsTx reads the current pre-write proof window. Admitted
 // writers advance the window only after validation has consumed this state.
@@ -71,7 +69,7 @@ func workSizeReviewFindsInScope(raw string, seq int64) (bool, error) {
 		resolved[resolution.FindingID] = true
 	}
 	for index, finding := range report.Review.Findings {
-		if !workSizeProofSeverities[finding.Severity] {
+		if !reviewHighOrMediumSeverities[finding.Severity] {
 			continue
 		}
 		if finding.Oracle == nil {

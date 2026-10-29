@@ -34,6 +34,8 @@ type WorkflowReviewState struct {
 	GroupID                string                    `json:"group_id,omitempty"`
 	DependenciesCurrent    bool                      `json:"dependencies_current"`
 	PublicationOutstanding bool                      `json:"publication_outstanding"`
+	// Crucial records the item's effective size, which tightens the exit rule.
+	Crucial bool `json:"-"`
 }
 
 type workflowReviewCandidateView struct {
@@ -206,6 +208,11 @@ func loadWorkflowReviewState(ctx context.Context, q queryer, workID string) (Wor
 			}
 		}
 	}
+	size, sized, err := readEffectiveWorkSize(ctx, q, workID)
+	if err != nil {
+		return state, err
+	}
+	state.Crucial = sized && size.Effective == WorkSizeCrucial
 	if err := loadWorkflowAssignmentGroups(ctx, q, workID, &state); err != nil {
 		return state, err
 	}
@@ -268,6 +275,25 @@ func (state WorkflowReviewState) blocker() string {
 		}
 	}
 	return ""
+}
+
+// reviewHighOrMediumSeverities reads the conflict rules' "high or medium
+// problem" on the closed P0-P3 scale: P0 and P1 are high, P2 is medium (CD-0230 D2).
+var reviewHighOrMediumSeverities = map[string]bool{"P0": true, "P1": true, "P2": true}
+
+// crucialExitBlocker names an open in-scope high- or medium-severity finding,
+// whatever its reported blocking flag. Only a crucial change leaving execution
+// consults it (goals.md A2 row 5).
+func (state WorkflowReviewState) crucialExitBlocker() (id, severity string) {
+	if !state.Crucial {
+		return "", ""
+	}
+	for _, finding := range state.Findings {
+		if finding.Status == "open" && finding.InScope && reviewHighOrMediumSeverities[finding.Severity] {
+			return finding.FindingID, finding.Severity
+		}
+	}
+	return "", ""
 }
 
 func bindWorkflowReviewIntent(state *WorkflowAdmissionState, actionID string, payload json.RawMessage) error {

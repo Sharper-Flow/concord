@@ -455,6 +455,9 @@ func workflowAdmitReview(state WorkflowReviewState, group string) error {
 	if blocker := state.blocker(); blocker != "" {
 		return reviewFailure(KindMissingEvidence, "open in-scope blocking finding "+blocker+" blocks execution progression", workflowReviewRecovery("repair the blocking finding "+blocker+" and capture its closure evidence", "carrying the evidenced closure of "+blocker))
 	}
+	if blocker, severity := state.crucialExitBlocker(); group == "" && blocker != "" {
+		return reviewFailure(KindMissingEvidence, "open in-scope "+severity+" finding "+blocker+" blocks a crucial change from leaving execution", workflowReviewRecovery("repair the finding "+blocker+" and capture its closure evidence", "carrying the evidenced closure of "+blocker))
+	}
 	if admitted, found := state.Groups[group]; group != "" && found {
 		applicable := state.Accepted != nil && state.Candidate != nil && state.Accepted.Report.OutputCandidate == *state.Candidate
 		if !applicable || admitted.ReviewRef == state.Accepted.ReportRef {

@@ -77,6 +77,17 @@ automatic execution gate is added. Existing consent and safety gates remain.
 Review may detect a violation only after the action, and Concord cannot
 intercept external tools it does not mediate.
 
+For A2 row 5:
+
+Review repairs and verifies findings inside the change's scope and reports the
+rest for follow-up items, as CD-0242 D5 describes. A high or medium problem is a
+Review finding of severity `P0`, `P1` (high) or `P2` (medium); `P3` is low. A
+crucial change cannot leave execution or complete while the current Review state
+holds an open in-scope high or medium finding, whatever the reporter's blocking
+flag. The coordinator ends the loop by dispatching corrections and Review until
+that holds. Small and larger changes keep CD-0242 D5's blocking rule. No review
+count, ledger or separate final evaluator is added.
+
 ### D3. Applying a rule leaves a record
 
 When an agent, the coordinator, or the operator settles a conflict, the work
@@ -278,6 +289,19 @@ recorded independent review supplies the application evidence. The follow-up
 item's rule label, raising-change link enforcement and saved view remain D6's
 open duty below.
 
+A2 row 5 uses a programmed check in the existing Review admission.
+`internal/store.TestCrucialReviewExitRefusesHighOrMediumFinding` proves a crucial
+change cannot leave execution with an open in-scope `P0`-`P2` finding marked
+non-blocking, while `P3`, out-of-scope, closed, larger-size and group-opening
+cases stay admitted; `internal/store.TestReviewStateReadsCrucialFromEffectiveSize`
+proves the rule follows the effective size, including the operator's size.
+`internal/store.TestReviewCurrentAdmissionNegativeCases` proves the every-size
+blocking rule. `scripts/testdata/conflict-review-repair-cases.md` supplies
+in-scope repair, unverified fix, dropped and claimed follow-up, and crucial
+medium-finding cases for independent application of the existing review method,
+which judges in-scope repair and follow-up filing that the check does not decide.
+The follow-up item's rule label, link and saved view remain D6's open duty.
+
 D3's live recorder retains readable current settlement evidence.
 `internal/agent.TestConflictObservationHistoryRoundTrip` records then reads
 the full rule, effective size and outcome through the existing history read,
@@ -302,7 +326,7 @@ pointer, not the remaining enforcement and proof assigned below:
 | R2, A2 rows 2 and 4 | [CON-1098](https://linear.app/sharper-flow/issue/CON-1098). `internal/agent.TestResolveOverlapDependsOnRecordsDirectedSequencingWithoutConsent` proves directed work-item sequencing, not selection of the shared-Domain step or release when the other change completes it. Shared stages do not by themselves prove A2 row 4's boundary-change handling. |
 | D4 and D5; CD-0243 runtime alignment | [CON-1100](https://linear.app/sharper-flow/issue/CON-1100). Recorded review does not establish prevention of external data loss, automatic six-class inference, or enforcement on the ad-hoc route. Contract-time consent and worktree waivers do not establish informed approval of a specific loss. Classifications, carrier tests and the selected synthetic reviews do not prove whole-record runtime alignment. |
 | U, A2 row 7 | [CON-1343](https://linear.app/sharper-flow/issue/CON-1343). Contract-time `ui_ux` consent does not prove approval of a development preview of the final candidate, or renewed approval of a changed experience, as CD-0242 D9 requires. |
-| A2 rows 5 and 6; D6 | [CON-1101](https://linear.app/sharper-flow/issue/CON-1101). Naming follow-up labels in the table does not enforce labels, raising-change links, the Linear view, or closure tracking. CD-0242 D5 and D9 own repairing review and final-candidate proof, not old size-specific review counts. |
+| A2 row 6; D6 | [CON-1101](https://linear.app/sharper-flow/issue/CON-1101). Naming follow-up labels in the table does not enforce labels, raising-change links, the Linear view, or closure tracking. Nothing records or checks that the coordinator schedules a shipping-blocking unrelated bug first. |
 | A2 row 8 | [CON-1344](https://linear.app/sharper-flow/issue/CON-1344). Same-item resizing does not prove adding required stages while retaining completed work. CD-0229's Verification also retains the separate small-work proof and timing owners. |
 
 Passing `python3 scripts/check-law-coverage.py` does not establish whole-record

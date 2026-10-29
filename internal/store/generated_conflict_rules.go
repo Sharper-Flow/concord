@@ -9,7 +9,7 @@ const conflictRuleSourceHash = "sha256:0b968a6c85f204cf33582c9647e2f05f72e6621fc
 
 // conflictRuleCatalogGeneration is the table's per-revision identity.
 // Consumers pin it beside the source hash; it never classifies consent.
-const conflictRuleCatalogGeneration = 17
+const conflictRuleCatalogGeneration = 18
 
 // conflictRuleIDSet is the closed set of valid conflict-rule IDs and A2
 // row identifiers the checked table carries.

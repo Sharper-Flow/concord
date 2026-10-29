@@ -351,7 +351,7 @@ func TestWorkflowApprovalBoundary(t *testing.T) {
 		if absentState.Policy.Class != WorkflowApprovalClassRoutine || absentState.Policy.Consent != WorkflowConsentNone {
 			t.Fatalf("absent-fact record_verdict classified %s/%s, want routine/none", absentState.Policy.Class, absentState.Policy.Consent)
 		}
-		if _, err := ReadWorkflowApprovalBoundary(ctx, absentStore, absentRegistry, WorkflowActionPreflightRequest{WorkID: absentID, ActionID: "confirm_premise", Actor: absentOwner}); refusalKind(err) != KindInvalidInput {
+		if _, err := ReadWorkflowApprovalBoundary(ctx, absentStore, absentRegistry, WorkflowActionPreflightRequest{WorkID: absentID, ActionID: "confirm_premise", Actor: absentOwner}); refusalKind(err) != KindInvariantViolation {
 			t.Fatalf("absent-fact confirmation = %v, want the typed absence refusal", err)
 		}
 

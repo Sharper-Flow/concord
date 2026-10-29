@@ -357,8 +357,8 @@ func TestEngineeringConfirmation(t *testing.T) {
 		s, _, _, _, coordinator := engineeringConfirmationSeed(t, workID, "")
 		_, err := runEngineeringConfirmation(t, s, engineeringConfirmationDefinition(t), workID, ownerRefForTest(t, coordinator), nil, confirmationFields(true, ""))
 		var failure *Failure
-		if err == nil || !failureAs(err, &failure) || failure.Kind != KindInvalidInput {
-			t.Fatalf("null decision fact returned %v, want the fail-closed invalid-input refusal", err)
+		if err == nil || !failureAs(err, &failure) || failure.Kind != KindInvariantViolation {
+			t.Fatalf("null decision fact returned %v, want the fail-closed invariant-violation refusal", err)
 		}
 	})
 }

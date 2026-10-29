@@ -576,7 +576,7 @@ func foldWorkflowConfirmationTx(ctx context.Context, q queryer, workID string, d
 	var domains []string
 	if stored.Valid {
 		if err := json.Unmarshal([]byte(stored.String), &domains); err != nil {
-			fold.factFailure = newFailure(KindInvalidInput, "workflow_admission", "the stored decision-domain fact is malformed", false, "restore a verified backup into a new path with concord restore, then swap")
+			fold.factFailure = newFailure(KindInvariantViolation, "workflow_admission", "the stored decision-domain fact is malformed", false, "restore a verified backup into a new path with concord restore, then swap")
 			return fold, nil
 		}
 	}

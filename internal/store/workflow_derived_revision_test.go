@@ -151,7 +151,7 @@ func TestDerivedLawRevisionOnNonProductChangingContract(t *testing.T) {
 		if !failureAs(err, &failure) || !strings.Contains(failure.Detail, "cannot carry architecture_binding") {
 			t.Fatalf("refusal does not name the binding boundary: %v", err)
 		}
-		if failure.Kind != KindInvalidPayload || failure.RetrySafe || failure.EffectPossible || len(failure.CommittedRefs) != 0 || failure.RecoveryAction != "correct_request" {
+		if failure.Kind != KindInvalidPayload || failure.RetrySafe || failure.EffectPossible || len(failure.CommittedRefs) != 0 || failure.RecoveryAction != "omit architecture_binding" {
 			t.Fatalf("binding refusal does not admit pre-effect request correction: %+v", failure)
 		}
 	})

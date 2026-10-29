@@ -78,7 +78,7 @@ func TestCurrentShapeClaimLandingGenerationCheckPreserved(t *testing.T) {
 	before := currentEffectRows(t, s)
 	err = ApplyOperation(context.Background(), s, Operation{Events: []Event{event}})
 	var failure *Failure
-	if !failureAs(err, &failure) || failure.Kind != KindInvalidPayload || !strings.Contains(failure.Detail, "claim generation the landed path no longer carries") {
+	if !failureAs(err, &failure) || failure.Kind != KindInvariantViolation || !strings.Contains(failure.Detail, "claim generation the landed path no longer carries") {
 		t.Fatalf("stale-generation landing = %v", err)
 	}
 	if len(currentEffectRows(t, s)) != len(before) {

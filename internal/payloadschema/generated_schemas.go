@@ -1514,7 +1514,7 @@ const GeneratedPayloadSchemaDocument = `{
           }
         }
       ],
-      "description": "One UTF-8 JSON shard named <id>.json, at most 16384 bytes. Duplicate keys and trailing content refuse. Parser also validates same-Product current Domain, owning-root, current accepted law, managed resource, invariant and resolved repository/required-check anchor references. Reference declarations do not prove execution or extractor verification. Text, name, path, symbol, environment and resource limits additionally apply in UTF-8 bytes; existing knowledge-reference identity limits count Unicode code points.",
+      "description": "One UTF-8 JSON shard named <id>.json, at most 16384 bytes. Duplicate keys and trailing content refuse. Parser also validates same-Product current Domain, owning-root, current accepted law, invariant and resolved repository/required-check anchor references; resource IDs are bounded fact-local source strings with no registration lookup. Reference declarations do not prove execution or extractor verification. Text, name, path, symbol, environment and resource limits additionally apply in UTF-8 bytes; existing knowledge-reference identity limits count Unicode code points.",
       "oneOf": [
         {
           "not": {

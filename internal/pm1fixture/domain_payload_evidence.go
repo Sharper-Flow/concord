@@ -32,9 +32,9 @@ const (
 type DomainPayloadEvidenceOptions struct {
 	// Dir is a caller-owned directory that receives the manifest Git repo.
 	Dir string
-	// ProductID owns the projected registry and the managed resource.
+	// ProductID owns the projected registry.
 	ProductID string
-	// ProjectID is the knowledge home Project and the attached Project.
+	// ProjectID is the knowledge home Project.
 	ProjectID string
 	// LocatorID names the canonical-path locator for that home.
 	LocatorID string

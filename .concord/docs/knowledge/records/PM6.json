@@ -44,7 +44,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:541a195f135c32a896bb3a3029d988247d21149755ddd7dfe21199c7e615d557",
+  "sha256": "sha256:a9bfced45621dd7030a3fbb5ee9c80cbd54147bf35de026bd79e66c358efa00f",
   "status": "accepted",
   "summary": "Verifies canonical Git note identity and publication recovery; canonical discovery is independent of settled linkage and does not itself authorize terminal cleanup.",
   "tags": [

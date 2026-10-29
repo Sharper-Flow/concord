@@ -4632,8 +4632,7 @@ finally:
     connection.close()
 
 
-# The catalog retirement (163) drops tables an older binary names, and the
-# conflict application evidence table (162), which the recorder maintains
+# The conflict application evidence table (162), which the recorder maintains
 # per effect, sets the live compatibility floor. The owning-start law baseline
 # table (161) also requires current writers. The ordinary-consent CHECK
 # rebuilds (160) and the six-class decision-domain column replacement (159)

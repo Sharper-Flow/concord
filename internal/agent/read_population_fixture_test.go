@@ -466,8 +466,7 @@ func (fx readPopulationFixture) seedPopulationPeerWork(t *testing.T) {
 	execPopulationStatement(t, fx.store, `INSERT INTO workflow_instances(work_id,definition_ref,definition_digest,current_step,instance_state,execution_started_at) VALUES(?,'workflow.break_fix',?,'repair','running','2026-08-19T00:00:00Z')`, readPopulationPeer, breakFixFixtureDigest(t))
 }
 
-// seedPopulationDomainRows attaches the home Project to the child Domain and
-// records a Domain observation, so the Domain attachment and observation reads
+// seedPopulationDomainRows records a Domain observation so observation reads
 // answer rows instead of empty collections.
 func (fx readPopulationFixture) seedPopulationDomainRows(t *testing.T) {
 	t.Helper()

@@ -2,8 +2,11 @@ package store
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 )
@@ -79,30 +82,33 @@ func TestWorkSizeCaptureIgnoresUnconsumedFactMembershipDrift(t *testing.T) {
 	ctx := context.Background()
 	s := openTemp(t)
 	home, product := domainShapeProjectionFixture(t, s, "a")
+	// The facts name a second member Project, so removing that membership
+	// drifts only fact references and leaves the sized home intact.
+	setupProductWithProject(t, s, "fact-other-product", "project-fact")
+	mutateSizeProjection(t, s,
+		`INSERT INTO product_projects(product_id,project_id,role) VALUES('product-a','project-fact','secondary')`)
+	for _, id := range []string{"state_authority-a", "config_coupling-a"} {
+		path := knowledgeFactTreeDir + id + ".json"
+		raw, err := os.ReadFile(filepath.Join(home.RepoPath, path))
+		if err != nil {
+			t.Fatal(err)
+		}
+		writeKnowledgeFile(t, home.RepoPath, path, strings.ReplaceAll(string(raw), `"project_id":"project-a"`, `"project_id":"project-fact"`))
+	}
+	commitKnowledgeRepo(t, home.RepoPath, "facts name a second member Project")
 	if err := s.EnsureKnowledgeIndexFresh(ctx, home); err != nil {
 		t.Fatal(err)
 	}
 	before := recordShapeWorkSize(t, s, home, product, []string{"src/file.go"})
-	// An added membership drifts the model-owned Project join without
-	// touching the shape content sizing consumes.
-	mutateSizeProjection(t, s,
-		`INSERT OR IGNORE INTO projects(id,display_name,version,created_at,updated_at) VALUES('project-drift','project-drift',1,'now','now')`,
-		`INSERT INTO product_projects(product_id,project_id,role) VALUES('product-a','project-drift','secondary')`)
-	if _, err := s.QueryDomainFootprint(ctx, DomainFootprintRequest{Product: product, Paths: []string{"src/file.go"}}); err != nil {
-		t.Fatalf("unconsumed membership drift failed the footprint: %v", err)
-	}
-	after := recordShapeWorkSize(t, s, home, product, []string{"src/file.go"})
-	if before.Inputs != after.Inputs || before.Size != after.Size || !reflect.DeepEqual(before.Footprint, after.Footprint) {
-		t.Fatalf("unconsumed membership drift changed sizing: before=%+v after=%+v", before, after)
-	}
-	// Removing the membership a stored fact names is consumed drift: the
-	// public footprint refuses through the shape projection, and the public
-	// result stays empty.
-	mutateSizeProjection(t, s, `DELETE FROM product_projects WHERE product_id='product-a' AND project_id='project-a'`)
+	mutateSizeProjection(t, s, `DELETE FROM product_projects WHERE product_id='product-a' AND project_id='project-fact'`)
 	public, err := s.QueryDomainFootprint(ctx, DomainFootprintRequest{Product: product, Paths: []string{"src/file.go"}})
 	assertFailureKind(t, err, KindInvalidNoteProof)
 	if !reflect.DeepEqual(public, DomainFootprintResult{}) {
 		t.Fatal("public footprint suppressed a shape reference failure")
+	}
+	after := recordShapeWorkSize(t, s, home, product, []string{"src/file.go"})
+	if before.Inputs != after.Inputs || before.Size != after.Size || !reflect.DeepEqual(before.Footprint, after.Footprint) {
+		t.Fatalf("unconsumed fact membership drift changed sizing: before=%+v after=%+v", before, after)
 	}
 }
 

@@ -283,7 +283,7 @@ var reviewHighOrMediumSeverities = map[string]bool{"P0": true, "P1": true, "P2":
 
 // crucialExitBlocker names an open in-scope high- or medium-severity finding,
 // whatever its reported blocking flag. Only a crucial change leaving execution
-// consults it (goals.md A2 row 5).
+// consults it (priorities.md A2 row 5).
 func (state WorkflowReviewState) crucialExitBlocker() (id, severity string) {
 	if !state.Crucial {
 		return "", ""

@@ -467,7 +467,7 @@ func TestReviewCurrentProofAssociationHasNoCallerVerdict(t *testing.T) {
 	}
 }
 
-// goals.md A2 row 5: a crucial change leaves execution only when Review
+// priorities.md A2 row 5: a crucial change leaves execution only when Review
 // reports no open in-scope high- or medium-severity finding, whatever the
 // reporter's blocking flag. Other sizes and assignment groups keep the
 // blocking rule.

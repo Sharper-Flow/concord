@@ -116,14 +116,6 @@ def main(argv: list[str] | None = None) -> int:
         if checked.returncode:
             findings.append(f"domain registry drift: {checked.stdout.strip() or checked.stderr.strip()}")
 
-    conflict_rules_checker = ROOT / "scripts/check-conflict-rules.py"
-    if not conflict_rules_checker.is_file():
-        findings.append("conflict rule checker is missing: scripts/check-conflict-rules.py")
-    else:
-        checked = subprocess.run([sys.executable, str(conflict_rules_checker)], cwd=ROOT, capture_output=True, text=True)
-        if checked.returncode:
-            findings.append(f"conflict rule table drift: {checked.stdout.strip() or checked.stderr.strip()}")
-
     agent_jobs_checker = ROOT / "scripts/check-agent-jobs.py"
     if agent_jobs_checker.is_file():
         checked = subprocess.run([sys.executable, str(agent_jobs_checker)], cwd=ROOT, capture_output=True, text=True)

@@ -41,9 +41,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:ddfc5514273ace3770d2414da7cc4a30e9cfb6ddb2096079daf661393ec314ab",
+  "sha256": "sha256:a5a213990e42109412f44ca717201aaae772d04a48768435a6f77b569307e223",
   "status": "accepted",
-  "summary": "One validated contract table holds every priorities.md Appendix A rule with its enforcing mechanism or a listed gap, and applying a rule leaves a record. Law changes and operator consent follow CD-0243's six classes; changes to the approval boundary require exact-text operator approval. Seriousness, Domain count, crucial size, and a missing classification do not independently require approval. The RTE coordinates dependencies, and operator decisions go directly to the operator. Operator-free law revisions remain derived. Recovery and permanent loss follow CD-0243 D5. Follow-up items carry a rule label in Linear; six-class runtime alignment remains an implementation obligation.",
+  "summary": "priorities.md Appendix A is the only copy of the conflict rules; each rule names its enforcing mechanism or a gap, and applying a rule leaves a finding or work-record entry. Law changes and operator consent follow CD-0243's six classes; changes to the approval boundary require exact-text operator approval. Seriousness, Domain count, crucial size, and a missing classification do not independently require approval. The RTE coordinates dependencies, and operator decisions go directly to the operator. Operator-free law revisions remain derived. Recovery and permanent loss follow CD-0243 D5. Follow-up items carry a rule label in Linear; six-class runtime alignment remains an implementation obligation.",
   "tags": [
     "law",
     "authority",
@@ -51,5 +51,5 @@
     "governance",
     "product-law"
   ],
-  "title": "The conflict rules are one checked table, and law changes follow the operator's approval boundary"
+  "title": "Each conflict rule names its mechanism, and law changes follow the operator's approval boundary"
 }

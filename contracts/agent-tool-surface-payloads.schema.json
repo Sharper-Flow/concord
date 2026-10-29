@@ -3100,7 +3100,7 @@
         },
         "record_kinds": {
           "type": "array",
-          "maxItems": 5,
+          "maxItems": 4,
           "uniqueItems": true,
           "items": {
             "type": "string",
@@ -3108,11 +3108,10 @@
               "lifecycle",
               "relation",
               "phase_exit",
-              "evidence_binding",
-              "conflict_application"
+              "evidence_binding"
             ]
           },
-          "description": "Select current retained record categories, not historical event kinds. Bounds: <=5 items inclusive"
+          "description": "Select current retained record categories, not historical event kinds. Bounds: <=4 items inclusive"
         },
         "page": {
           "$ref": "#/$defs/page"
@@ -5609,8 +5608,7 @@
                   "lifecycle",
                   "relation",
                   "phase_exit",
-                  "evidence_binding",
-                  "conflict_application"
+                  "evidence_binding"
                 ]
               },
               "position": {
@@ -5710,55 +5708,6 @@
               "observed_at": {
                 "type": "string",
                 "minLength": 1
-              },
-              "conflict_application": {
-                "type": "object",
-                "additionalProperties": false,
-                "required": [
-                  "rule_id",
-                  "rule_source_hash",
-                  "catalog_generation",
-                  "size_assessment_sequence",
-                  "model_version",
-                  "size",
-                  "outcome",
-                  "settlement_ref"
-                ],
-                "properties": {
-                  "rule_id": {
-                    "type": "string",
-                    "minLength": 1
-                  },
-                  "rule_source_hash": {
-                    "type": "string",
-                    "pattern": "^sha256:[0-9a-f]{64}$"
-                  },
-                  "catalog_generation": {
-                    "type": "integer",
-                    "minimum": 1
-                  },
-                  "size_assessment_sequence": {
-                    "type": "integer",
-                    "minimum": 1
-                  },
-                  "model_version": {
-                    "type": "integer",
-                    "minimum": 1
-                  },
-                  "size": {
-                    "$ref": "#/$defs/work_size_class"
-                  },
-                  "outcome": {
-                    "type": "string",
-                    "minLength": 1,
-                    "maxLength": 4096
-                  },
-                  "settlement_ref": {
-                    "type": "string",
-                    "minLength": 1,
-                    "maxLength": 256
-                  }
-                }
               }
             },
             "oneOf": [
@@ -5773,11 +5722,6 @@
                 ],
                 "not": {
                   "anyOf": [
-                    {
-                      "required": [
-                        "conflict_application"
-                      ]
-                    },
                     {
                       "required": [
                         "work_id_from"
@@ -5872,11 +5816,6 @@
                   "anyOf": [
                     {
                       "required": [
-                        "conflict_application"
-                      ]
-                    },
-                    {
-                      "required": [
                         "lifecycle"
                       ]
                     },
@@ -5950,11 +5889,6 @@
                 ],
                 "not": {
                   "anyOf": [
-                    {
-                      "required": [
-                        "conflict_application"
-                      ]
-                    },
                     {
                       "required": [
                         "lifecycle"
@@ -6047,11 +5981,6 @@
                   "anyOf": [
                     {
                       "required": [
-                        "conflict_application"
-                      ]
-                    },
-                    {
-                      "required": [
                         "lifecycle"
                       ]
                     },
@@ -6098,105 +6027,6 @@
                     {
                       "required": [
                         "contract_version"
-                      ]
-                    }
-                  ]
-                }
-              },
-              {
-                "properties": {
-                  "entry_kind": {
-                    "const": "conflict_application"
-                  }
-                },
-                "required": [
-                  "conflict_application"
-                ],
-                "not": {
-                  "anyOf": [
-                    {
-                      "required": [
-                        "lifecycle"
-                      ]
-                    },
-                    {
-                      "required": [
-                        "from"
-                      ]
-                    },
-                    {
-                      "required": [
-                        "work_id_from"
-                      ]
-                    },
-                    {
-                      "required": [
-                        "work_id_to"
-                      ]
-                    },
-                    {
-                      "required": [
-                        "relation_kind"
-                      ]
-                    },
-                    {
-                      "required": [
-                        "created_at"
-                      ]
-                    },
-                    {
-                      "required": [
-                        "resolution_id"
-                      ]
-                    },
-                    {
-                      "required": [
-                        "action_id"
-                      ]
-                    },
-                    {
-                      "required": [
-                        "step_id"
-                      ]
-                    },
-                    {
-                      "required": [
-                        "contract_version"
-                      ]
-                    },
-                    {
-                      "required": [
-                        "binding_id"
-                      ]
-                    },
-                    {
-                      "required": [
-                        "evidence_kind"
-                      ]
-                    },
-                    {
-                      "required": [
-                        "immutable_subject_ref"
-                      ]
-                    },
-                    {
-                      "required": [
-                        "producer_id"
-                      ]
-                    },
-                    {
-                      "required": [
-                        "producer_run_ref"
-                      ]
-                    },
-                    {
-                      "required": [
-                        "producer_watermark"
-                      ]
-                    },
-                    {
-                      "required": [
-                        "observed_at"
                       ]
                     }
                   ]
@@ -11232,28 +11062,6 @@
             }
           }
         },
-        "conflict": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": [
-            "rule_id",
-            "outcome"
-          ],
-          "properties": {
-            "rule_id": {
-              "type": "string",
-              "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"
-            },
-            "outcome": {
-              "type": "string",
-              "minLength": 1,
-              "maxLength": 4096,
-              "pattern": "\\S",
-              "x-maxBytes": 4096,
-              "description": "Bounds: 1..4096 code points inclusive; <=4096 UTF-8 bytes inclusive"
-            }
-          }
-        },
         "statement": {
           "type": "string",
           "minLength": 1,
@@ -11305,11 +11113,6 @@
                 "required": [
                   "external"
                 ]
-              },
-              {
-                "required": [
-                  "conflict"
-                ]
               }
             ]
           }
@@ -11323,30 +11126,6 @@
               {
                 "required": [
                   "statement"
-                ]
-              },
-              {
-                "required": [
-                  "conflict"
-                ]
-              }
-            ]
-          }
-        },
-        {
-          "required": [
-            "conflict"
-          ],
-          "not": {
-            "anyOf": [
-              {
-                "required": [
-                  "statement"
-                ]
-              },
-              {
-                "required": [
-                  "external"
                 ]
               }
             ]

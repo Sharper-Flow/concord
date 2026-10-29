@@ -1,10 +1,9 @@
-# CD-0230: The conflict rules are one checked table, and law changes follow the operator's approval boundary
+# CD-0230: Each conflict rule names its mechanism, and law changes follow the operator's approval boundary
 
 - **Status:** Accepted
 - **Date:** 2026-10-17
 - **Scope:** How Concord applies the conflict rules of `priorities.md` Appendix A:
-  the machine-readable rule table, the mechanism that enforces each rule, the
-  record of each application, law-change authority under R3 and P12, the
+  the mechanism that enforces each rule, the record of each application, law-change authority under R3 and P12, the
   operator approval classes, and the follow-up ledger
 - **Implements:** [`goals.md`](../goals.md) goal F for the conflict rules in
   [`priorities.md`](../priorities.md) Appendix A, and goal E's measure that follow-up items get closed
@@ -38,17 +37,11 @@ if serious than consult the user", and P12 defines serious.
 
 ## Decision
 
-### D1. One machine-readable table holds the rules
+### D1. Appendix A is the only copy of the rules
 
-A contract file under `contracts/` holds every A1 cell and every A2 row: the
-rule ID, the goals or situation in conflict, the rule for each size, the actor
-who applies it, and its enforcing mechanism. The rule text stays in
-`priorities.md`. The table cites each rule by its ID and records the
-`priorities.md` content hash it was checked against.
-
-A validator in the repository's required checks refuses the table when a cell
-or row of Appendix A is missing, when a rule names no mechanism kind, or when
-the `priorities.md` content hash differs from the recorded one.
+The rule text lives only in `priorities.md` Appendix A. No contract table,
+generated catalog, or content-hash tie copies it. This record's Verification
+names each rule's enforcing mechanism or its gap.
 
 ### D2. Each rule names how it is enforced
 
@@ -58,8 +51,8 @@ that a tool records; an operator boundary where the operator approves or
 accepts; or a gap. Each rule uses the cheapest kind that upholds it (Appendix
 A P3). A prose instruction alone is not a mechanism.
 
-A gap row names the follow-up item that will build its mechanism. The
-validator reports every gap, so the gap count measures progress toward goal F.
+A gap names, in this record's Verification, the follow-up item that will
+build its mechanism.
 
 For S, P10, A2 row 9 and P8:
 
@@ -92,7 +85,9 @@ count, ledger or separate final evaluator is added.
 
 When an agent, the coordinator, or the operator settles a conflict, the work
 record names the rule ID, the change's size, and the outcome. The operator's
-spot checks read these records.
+spot checks read these records. No dedicated store record carries a
+settlement: Review records it as a finding, and other settlements name the rule
+in the existing work record or pull request.
 
 A conflict between a law's letter and its stated intent is a law conflict. The
 agent raises it under R3 and does not apply the letter silently.
@@ -145,17 +140,19 @@ does not authorize bypassing a current tool gate (CD-0243 D6).
 ### D6. Follow-up items form a checkable ledger
 
 A follow-up item that a rule creates is a Linear issue. It carries a label
-naming the rule ID and a link to the change that raised it. The rule table
-names that label for each rule that files follow-up items. A Linear view
+naming the rule ID and a link to the change that raised it. A Linear view
 filtered by those labels lists the open items by rule, age, and raising
 change, so goal E's measure, that follow-up items get closed and not only
-filed, can be checked. Until a check enforces the label, the rule table lists
-the D6 label duty as a gap.
+filed, can be checked. Until a check enforces the label, the D6 label duty is
+a gap.
 
 ## Alternatives considered
 
 - Keep the rules as prose and rely on review. Goal F rules this out.
-- Copy the rule text into the table. Two copies would drift.
+- Keep a machine-readable copy of the rules, checked against `priorities.md`
+  by content hash. The copy cost a CI round on every `priorities.md` edit and
+  its generation counter collided across changes, while review still decided
+  whether a rule was applied.
 - Require approval based on seriousness or Domain count alone. CD-0243 D2
   reserves approval for six classes, including changes to that boundary.
 - Keep the follow-up ledger in the store. CD-0213 keeps planning facts in
@@ -171,21 +168,9 @@ without operator approval, so its standing shows who last enacted it.
 
 Current tool refusals still follow their admitted recovery routes until aligned.
 
-Every change to `priorities.md` moves its content hash, so the change that
-edits `priorities.md` also checks the table against it and records the new
-hash.
-
 ## Verification
 
-The table is implemented; complete rule enforcement is not.
-`python3 scripts/test-conflict-rules.py` exercises D1 and D2's structural
-checks, including `recorded_review` with resolving evidence anchors and refusal
-of missing or prose-only evidence. These checks do not prove that a review
-applied a rule.
-`python3 scripts/check-conflict-rules.py` reports rule
-gaps. Passing that validator does not satisfy an outstanding entry.
-
-R3, P12 and A2 row 3 reuse the managed-workflow law-change checks.
+Complete rule enforcement is not implemented. R3, P12 and A2 row 3 reuse the managed-workflow law-change checks.
 `internal/store.TestLawChangeAgentOwnedReasonAndTier` proves a reason and
 derived-tier enactment without treating seriousness, size or Domain count as
 consent triggers. `internal/store.TestLawChangeSixClassesPinExactText` and
@@ -247,7 +232,7 @@ removes code a current law still requires; a law retirement in the same change
 complies, as
 [CD-0042 D3](CD-0042-pre-go-live-single-path.md#d3-superseded-development-paths-are-deleted)
 expects. P3 permits adequate guidance for an ordinary law; D2's ban
-on prose-only mechanisms governs the conflict-rule table. The cases' source
+on prose-only mechanisms governs the conflict rules. The cases' source
 labels and recorded sizes are fictional inputs, not real operation receipts or
 an assessment of the delivery's size. Carrier tests do not prove those judgments.
 The delivery's recorded independent review supplies the application evidence;
@@ -306,20 +291,10 @@ medium-finding cases for independent application of the existing review method,
 which judges in-scope repair and follow-up filing that the check does not decide.
 The follow-up item's rule label, link and saved view remain D6's open duty.
 
-D3's live recorder retains readable current settlement evidence.
-`internal/agent.TestConflictObservationHistoryRoundTrip` records then reads
-the full rule, effective size and outcome through the existing history read,
-including retry identity and paging. `internal/agent.TestConflictObservationHistoryRespectsScope`
-checks the reader's Product boundary. `internal/store.TestConflictApplicationCurrentRecordSurvivesSizeAndReopen`
-checks that later sizing and reopening preserve the recorded assessment.
-`internal/store.TestConflictApplicationCurrentRecordMigrationDoesNotRestoreReceipts`
-checks that old digest-only receipts are not reconstructed.
-`internal/store.TestConflictApplicationCurrentRecordGuardsAndCleanup` and
-`internal/store.TestConflictApplicationCurrentRecordRemovedWithWork` check
-removal with the work record. This is spot-check evidence under CD-0242 D2,
-not history, replay, approval or proof that the settlement followed its rule.
-The review method records applicable-rule findings through existing report
-carriers; its projection tests prove shipping, not semantic rule application.
+D3 has no dedicated carrier. Review records an applied rule as a finding whose
+statement starts `conflict-rule:<rule ID>`;
+`internal/store.TestReviewCompletionRetainsAppliedRuleContextClaims` proves the
+carrier. Nothing checks that a settlement outside Review names its rule.
 
 `python3 scripts/check-law-coverage.py` validates the outstanding coverage
 pointer, not the remaining enforcement and proof assigned below:
@@ -329,7 +304,7 @@ pointer, not the remaining enforcement and proof assigned below:
 | D3's letter-versus-intent conflict | [CON-1097](https://linear.app/sharper-flow/issue/CON-1097). The law-side review cases exercise raised and silently applied conflicts. They do not prove that agents raise a conflict they never report. |
 | R2, A2 rows 2 and 4 | [CON-1098](https://linear.app/sharper-flow/issue/CON-1098). `internal/agent.TestResolveOverlapDependsOnRecordsDirectedSequencingWithoutConsent` proves directed work-item sequencing, not selection of the shared-Domain step or release when the other change completes it. Shared stages do not by themselves prove A2 row 4's boundary-change handling. |
 | D4 and D5; CD-0243 runtime alignment | [CON-1100](https://linear.app/sharper-flow/issue/CON-1100). Recorded review does not establish prevention of external data loss, automatic six-class inference, or enforcement on the ad-hoc route. Contract-time consent does not establish informed approval of a specific loss. Classifications, carrier tests and the selected synthetic reviews do not prove whole-record runtime alignment. |
-| A2 row 6; D6 | [CON-1101](https://linear.app/sharper-flow/issue/CON-1101). Naming follow-up labels in the table does not enforce labels, raising-change links, the Linear view, or closure tracking. Nothing records or checks that the coordinator schedules a shipping-blocking unrelated bug first. |
+| A2 row 6; D6 | [CON-1101](https://linear.app/sharper-flow/issue/CON-1101). Nothing enforces labels, raising-change links, the Linear view, or closure tracking. Nothing records or checks that the coordinator schedules a shipping-blocking unrelated bug first. |
 | A2 row 8 | [CON-1344](https://linear.app/sharper-flow/issue/CON-1344). Same-item resizing does not prove adding required stages while retaining completed work. CD-0229's Verification also retains the separate small-work proof and timing owners. |
 
 Passing `python3 scripts/check-law-coverage.py` does not establish whole-record
@@ -340,13 +315,7 @@ CD-0243 replaces seriousness, Domain count, crucial size, and unclassified
 approval points as independent consent triggers. Neither replacement makes
 an unproved retained rule satisfied or permits bypassing a current gate.
 
-- `python3 scripts/run-script-tests.py` must prove that the rule-table
-  validator refuses a missing A1 cell or A2 row, a rule with no mechanism
-  kind, and a stale `priorities.md` hash, that it reports each gap, and that each
-  rule that files follow-up items names its label.
 - `go test ./internal/store` must prove consent follows the six classes,
   including exact-text approval for approval-boundary changes, while an
   agent-enacted law revision records the `derived` tier. Classification and
   runtime alignment are separate implementation obligations under CD-0243 D6.
-- `python3 scripts/check-conflict-rules.py` checks each recorded conflict rule
-  and its source hash; it does not by itself prove six-class runtime consent.

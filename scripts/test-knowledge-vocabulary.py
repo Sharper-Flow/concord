@@ -17,14 +17,12 @@ binding = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(binding)
 
 CHECKER = binding.load_checker()
-DOC_CONTRACT = binding.load_doc_contract_checker()
-CLOSURE = binding.load_closure_checker()
 GENERATOR = binding.load_generator()
 SCHEMA = json.loads(binding.SCHEMA.read_text(encoding="utf-8"))
 
 
 def validate(schema: dict) -> list[str]:
-    return binding.validate(schema, CHECKER, DOC_CONTRACT, CLOSURE)
+    return binding.validate(schema, CHECKER)
 
 
 def validate_generator(schema: dict) -> list[str]:
@@ -106,9 +104,9 @@ def test_schema_record_property_removal_is_reported() -> None:
 
 def test_schema_root_property_divergence_is_reported() -> None:
     schema = copy.deepcopy(SCHEMA)
-    del schema["properties"]["doc_contract"]
+    del schema["properties"]["exclusions"]
     findings = validate(schema)
-    assert findings == ["ALLOWED_ROOT: enforced by the checker, absent from the schema: doc_contract"]
+    assert findings == ["ALLOWED_ROOT: enforced by the checker, absent from the schema: exclusions"]
 
 
 def test_record_kind_divergence_is_reported() -> None:
@@ -131,64 +129,6 @@ def test_indexed_kind_divergence_is_reported() -> None:
     schema["properties"]["indexed_kinds"]["items"]["enum"].remove("reference")
     findings = validate(schema)
     assert findings == ["KINDS (indexed_kinds): enforced by the checker, absent from the schema: reference"]
-
-
-def test_legacy_decision_set_schema_divergence_is_reported() -> None:
-    """The frozen CD-0175 boundary binds schema, checker, and generator in
-    both directions, so no single enforcement point can widen the set."""
-    schema = copy.deepcopy(SCHEMA)
-    schema["$defs"]["legacyDecisionProfileId"]["enum"].append("CD-9999")
-    assert validate(schema) == [
-        "LEGACY_DECISION_PROFILE_IDS: declared in schema, absent from the checker: CD-9999"
-    ]
-    assert validate_generator(schema) == [
-        "generator LEGACY_DECISION_PROFILE_IDS: declared in schema, absent from the checker: CD-9999"
-    ]
-
-
-def test_legacy_decision_set_growth_in_an_enforcer_is_reported() -> None:
-    schema = copy.deepcopy(SCHEMA)
-    with mock.patch.object(
-        CHECKER, "LEGACY_DECISION_PROFILE_IDS", CHECKER.LEGACY_DECISION_PROFILE_IDS | {"CD-9999"}
-    ):
-        assert validate(schema) == [
-            "LEGACY_DECISION_PROFILE_IDS: enforced by the checker, absent from the schema: CD-9999"
-        ]
-    with mock.patch.object(
-        GENERATOR, "LEGACY_DECISION_PROFILE_IDS", GENERATOR.LEGACY_DECISION_PROFILE_IDS | {"CD-9999"}
-    ):
-        assert validate_generator(schema) == [
-            "generator LEGACY_DECISION_PROFILE_IDS: enforced by the checker, absent from the schema: CD-9999"
-        ]
-
-
-def test_legacy_spec_set_schema_divergence_is_reported() -> None:
-    """The frozen spec boundary binds schema, checker, and generator in both
-    directions, so no single enforcement point can widen the set."""
-    schema = copy.deepcopy(SCHEMA)
-    schema["$defs"]["legacySpecProfileId"]["enum"].append("future-spec")
-    assert validate(schema) == [
-        "LEGACY_SPEC_PROFILE_IDS: declared in schema, absent from the checker: future-spec"
-    ]
-    assert validate_generator(schema) == [
-        "generator LEGACY_SPEC_PROFILE_IDS: declared in schema, absent from the checker: future-spec"
-    ]
-
-
-def test_legacy_spec_set_growth_in_an_enforcer_is_reported() -> None:
-    schema = copy.deepcopy(SCHEMA)
-    with mock.patch.object(
-        CHECKER, "LEGACY_SPEC_PROFILE_IDS", CHECKER.LEGACY_SPEC_PROFILE_IDS | {"future-spec"}
-    ):
-        assert validate(schema) == [
-            "LEGACY_SPEC_PROFILE_IDS: enforced by the checker, absent from the schema: future-spec"
-        ]
-    with mock.patch.object(
-        GENERATOR, "LEGACY_SPEC_PROFILE_IDS", GENERATOR.LEGACY_SPEC_PROFILE_IDS | {"future-spec"}
-    ):
-        assert validate_generator(schema) == [
-            "generator LEGACY_SPEC_PROFILE_IDS: enforced by the checker, absent from the schema: future-spec"
-        ]
 
 
 def test_law_bearing_tier_divergence_is_reported() -> None:
@@ -276,20 +216,6 @@ def test_class_exclusions_remain_in_the_schema_alternation() -> None:
     pattern = default_path_clause(SCHEMA)["then"]["properties"]["path"]["pattern"]
     for member in ("work/", "research/", "[Gg][Ee][Nn][Ee][Rr][Aa][Tt][Ee][Dd]"):
         assert member in pattern, member
-
-
-def test_exclusion_pattern_divergence_is_reported() -> None:
-    schema = copy.deepcopy(SCHEMA)
-    schema["$defs"]["knowledgeExclusions"]["items"]["pattern"] = "^.*/$"
-    findings = validate(schema)
-    assert len(findings) == 1 and findings[0].startswith("EXCLUSION_RE: schema declares '^.*/$'")
-
-
-def test_doc_contract_field_divergence_is_reported() -> None:
-    schema = copy.deepcopy(SCHEMA)
-    schema["$defs"]["docContract"]["properties"]["work_note"] = {"$ref": "#/$defs/docContractKind"}
-    findings = validate(schema)
-    assert findings == ["DOC_CONTRACT_FIELDS: declared in schema, absent from the checker: work_note"]
 
 
 def test_law_kind_divergence_is_reported() -> None:

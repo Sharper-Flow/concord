@@ -5,7 +5,6 @@
     "tier": "legislated"
   },
   "date": "2026-09-06T00:00:00Z",
-  "doc_contract_profile": "legacy",
   "evidence": [
     "internal/store/knowledge_shards.go",
     "scripts/knowledge_index.py",
@@ -28,7 +27,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:b1b78c20929a27fc10f0bc071f2bf7e7c56223710316647ea9b060e337768304",
+  "sha256": "sha256:390c3e115e33629838eead2765c1e1560a5175a3f1df5bfd13555f17a24f4a4d",
   "status": "accepted",
   "summary": "The knowledge manifest and law-coverage record are committed as shards and composed on read. A lesson publication adds a note, one record shard, and one coverage shard on a branch, published by pull-request merge. Historical reads support pre-shard aggregate commits. Separate shards keep concurrent additions from editing one aggregate.",
   "tags": [

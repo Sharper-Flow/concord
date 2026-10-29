@@ -145,6 +145,5 @@ the moment of refusal, not as a stored column.
   projection re-pins held leases and carries no target.
 - `python3 scripts/generate-agent-contracts.py --check` is clean with 62
   operations.
-- `python3 scripts/check-doc-contract.py`, `python3 scripts/check-json.py`,
-  `python3 scripts/check-doc-links.py`, `python3 scripts/check-knowledge-closure.py`,
-  and `python3 scripts/check-knowledge-index.py` pass on this record.
+- `python3 scripts/check-json.py`, `python3 scripts/check-doc-links.py`, and
+  `python3 scripts/check-knowledge-index.py` pass on this record.

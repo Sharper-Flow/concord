@@ -5,7 +5,6 @@
     "tier": "legislated"
   },
   "date": "2026-08-20T00:00:00Z",
-  "doc_contract_profile": "legacy",
   "evidence": [
     ".concord/docs/decisions/CD-0011-retain-sqlite-after-conformance.md",
     "internal/store/conformance_test.go",

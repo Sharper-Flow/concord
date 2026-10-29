@@ -91,7 +91,6 @@ Scenario: work in progress is never interrupted
 
 ## Verification
 
-- The record passes `python3 scripts/check-doc-contract.py` and
-  `python3 scripts/check-knowledge-index.py`.
+- The record passes `python3 scripts/check-knowledge-index.py`.
 - The predicate values are read from `concord host-leases` and the `current`
   root. The decision changes no code.

@@ -34,15 +34,7 @@
     },
     {
       "kind": "validator",
-      "value": "scripts/check-doc-contract.py"
-    },
-    {
-      "kind": "validator",
       "value": "scripts/check-knowledge-index.py"
-    },
-    {
-      "kind": "validator",
-      "value": "scripts/check-knowledge-closure.py"
     }
   ],
   "id": "CD-0192",

@@ -3,7 +3,6 @@
     "tier": "derived"
   },
   "date": "2026-10-23T00:00:00Z",
-  "doc_contract_profile": "current",
   "home_domain_id": "product-root:concord",
   "id": "CD-0243",
   "kind": "decision",
@@ -94,7 +93,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:900875bc2d924e4f7019b26e32c8166ebad36cc6ac06b8bc8eece153fa9e7d69",
+  "sha256": "sha256:a99422f580b17d029fbba87d70ff0693aec6ced659fb223a39d94fb30af0df8a",
   "status": "accepted",
   "summary": "Four roles separate operator approval, self-sufficient item delivery, optional RTE coordination, and optional Planner assistance as Product Owner. Six approval classes retain consequential operator decisions. Within assigned Concord work, agents may retire Concord law, unwanted mechanisms and systems, and tests of retired behavior without per-deletion product-direction, UI/UX or governed-scope-cut approval. Recorded reasons, law retirement, test-clause citations, independent PR review, required CI, exclusions and current gates remain. Approval-boundary changes require exact-text approval. Runtime consent alignment remains unproved.",
   "tags": [

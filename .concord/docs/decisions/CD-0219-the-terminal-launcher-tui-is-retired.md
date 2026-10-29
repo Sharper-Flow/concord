@@ -109,8 +109,6 @@ first-usable floor criterion.
   resolves and vacated records carry their stated states.
 - `python3 scripts/check-doc-links.py` proves no document links a retired
   artifact.
-- `python3 scripts/check-doc-contract.py` and
-  `python3 scripts/check-knowledge-closure.py` pass.
 - `go test ./internal/store/ -run
   TestResolveContinuityWorkByDirectory` proves the directory binding that
   CD-0093 and CD-0176 keep, and `go test ./cmd/concord/ -run

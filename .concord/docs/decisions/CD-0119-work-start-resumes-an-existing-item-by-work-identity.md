@@ -143,7 +143,5 @@ Scenario: Occupancy never refuses the move
   D1, D3, and D4.
 - `python3 scripts/generate-agent-contracts.py --check` passes with the
   pinned `oneOf` host manifest.
-- `python3 scripts/check-doc-contract.py`, `python3 scripts/check-json.py`,
-  `python3 scripts/check-doc-links.py`,
-  `python3 scripts/check-knowledge-closure.py`, and
+- `python3 scripts/check-json.py`, `python3 scripts/check-doc-links.py`, and
   `python3 scripts/check-knowledge-index.py` pass on this record.

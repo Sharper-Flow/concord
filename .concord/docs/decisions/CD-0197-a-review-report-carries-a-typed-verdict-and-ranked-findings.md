@@ -183,6 +183,5 @@ Scenario: The adapter refuses at admission and the summary carries typed counts
 - `bun test adapter/opencode/dispatch.test.ts` proves the adapter refusals and the typed ride-through.
 - `bun test adapter/opencode/lane_completion.test.ts` proves the attempt summary carries the verdict and the per-severity counts.
 - `python3 scripts/generate-agent-lanes.py --check` proves the generated Go, TypeScript, docs, and lane prompts carry the requirement.
-- `python3 scripts/check-doc-contract.py` proves this record carries the current decision outline and passes the writing rules.
 - `TestOwnerOracleFinding` and `TestOwnerOracleLineage` cover classified
   verdicts and canonical lineage.

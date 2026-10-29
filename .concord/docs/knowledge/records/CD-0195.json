@@ -3,7 +3,6 @@
     "tier": "derived"
   },
   "date": "2026-09-30T00:00:00Z",
-  "doc_contract_profile": "current",
   "home_domain_id": "durable-authority",
   "id": "CD-0195",
   "kind": "decision",
@@ -21,7 +20,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:49e0addc31cd3c4edc11099bf0c5afb29597ed53b60e7de4adb4a9fe6b2ea52b",
+  "sha256": "sha256:4e5b553e7ac3e48fb70e69dedd201d82ddca7453717a95dd833bc6b6732aa04c",
   "status": "accepted",
   "summary": "The escaped SQLITE_BUSY occurrences on record through 2026-09-30 are Concord application defects, not storage-engine limits: the open-path key write is repaired by PR #1462, and write transactions spanning subprocesses are repaired under CON-752. No write transaction stays open across a subprocess, network call, or large filesystem operation, and the acceptance workload gains worktree claim and reclaim concurrency. CD-0011's escaped-busy reopen condition stands unchanged for later escapes, with the single-writer comparison first. Refines CD-0011.",
   "tags": [

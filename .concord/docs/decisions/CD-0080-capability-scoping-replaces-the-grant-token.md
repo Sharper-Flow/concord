@@ -204,6 +204,6 @@ only caller expiry would bound.
   against the identity tuple.
 - D6 is proved by a blocked-session read that returns unchanged output with no
   `agent_grants` table in the schema.
-- `python3 scripts/check-doc-contract.py`, `python3 scripts/check-json.py`,
-  `python3 scripts/check-doc-links.py`, `python3 scripts/check-knowledge-index.py`,
-  and `python3 scripts/check-law-coverage.py` pass.
+- `python3 scripts/check-json.py`, `python3 scripts/check-doc-links.py`,
+  `python3 scripts/check-knowledge-index.py`, and
+  `python3 scripts/check-law-coverage.py` pass.

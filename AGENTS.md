@@ -80,7 +80,7 @@ inference. Conventional Commit titles are load-bearing for release semver.
 |---|---|
 | What the CLI accepts, and its JSON-stdin rules | `commandSpecs` in [`cmd/concord/main.go`](cmd/concord/main.go); `concord --help` |
 | The verification contract a branch must satisfy | [`.github/workflows/ci.yml`](.github/workflows/ci.yml) |
-| Knowledge manifest, unprocessed enumeration, and doc contract | [`.concord/docs/knowledge/`](.concord/docs/knowledge/) composed by [`scripts/knowledge_index.py`](scripts/knowledge_index.py); [`contracts/concord-knowledge-index.v1.schema.json`](contracts/concord-knowledge-index.v1.schema.json); [`scripts/check-knowledge-closure.py`](scripts/check-knowledge-closure.py); [`scripts/check-doc-contract.py`](scripts/check-doc-contract.py) |
+| Knowledge manifest | [`.concord/docs/knowledge/`](.concord/docs/knowledge/) composed by [`scripts/knowledge_index.py`](scripts/knowledge_index.py); [`contracts/concord-knowledge-index.v1.schema.json`](contracts/concord-knowledge-index.v1.schema.json) |
 | Local conformance workload and host admission | header comment in [`bin/oc-test`](bin/oc-test) |
 | Changed-behavior test selection, widening, and local evidence | [`TESTING.md`](TESTING.md) |
 | Which quality tools and check commands are declared ready | [`.concord/tooling.v1.json`](.concord/tooling.v1.json) |

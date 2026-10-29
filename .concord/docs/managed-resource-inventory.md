@@ -310,8 +310,7 @@ secret storage.
 
 No corpus scenario exercises the managed-resource model, so every criterion
 carries a typed exemption in the record naming the store test that proves
-the guarantee. `python3 scripts/check-doc-contract.py` validates those
-recorded exemptions.
+the guarantee.
 
 - Criterion 1 is proved by
   `TestCreateManagedResourceAndAddConsumerAreEventBacked`

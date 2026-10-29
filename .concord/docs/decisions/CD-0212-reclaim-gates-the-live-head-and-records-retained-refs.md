@@ -490,7 +490,5 @@ and the native removal stays behind the commit.
   rather than a holder refusal.
 - `python3 scripts/generate-agent-contracts.py --check` verifies the
   regenerated payload schema projection.
-- `python3 scripts/check-doc-contract.py`,
-  `python3 scripts/check-knowledge-index.py`,
-  `python3 scripts/check-knowledge-closure.py`, and
+- `python3 scripts/check-knowledge-index.py` and
   `python3 scripts/check-doc-links.py` pass over this record.

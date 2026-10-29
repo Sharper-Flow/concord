@@ -5,7 +5,6 @@
     "tier": "legislated"
   },
   "date": "2026-09-20T00:00:00Z",
-  "doc_contract_profile": "legacy",
   "evidence": [
     ".concord/docs/decisions/CD-0078-terminal-placement-belongs-to-the-host.md",
     ".concord/docs/decisions/CD-0108-the-launcher-is-the-zlauncher-replacement.md",
@@ -32,7 +31,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:c8168330138d55568fce7a1d5cf39da9998dc40c3e3b2d8fc85f8fb82af24fac",
+  "sha256": "sha256:f8b9c225002b72bf5c91f94b369848d74edb18d19e0220751e4713d191fe15fd",
   "status": "accepted",
   "summary": "No Concord component creates, names, splits, focuses, or destroys a tab, pane, window, or session: the host owns placement and starts and resumes operator sessions, and a host-started session enters managed work through concord_work_start. The boundary binds every Concord binary with no session entry route; the entry route's resume and pass-through duties retired with it.",
   "tags": [

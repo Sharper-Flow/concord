@@ -120,6 +120,5 @@ resolver.
   refuses a directory other than the active claimed worktree.
 - `go test ./cmd/concord/ -run TestDeterministicHostRegistryRefusalsExit2`
   proves D3: probe and registry refusals are typed and deterministic.
-- `python3 scripts/check-doc-contract.py`, `python3 scripts/check-json.py`,
-  `python3 scripts/check-doc-links.py`, and
+- `python3 scripts/check-json.py`, `python3 scripts/check-doc-links.py`, and
   `python3 scripts/check-knowledge-index.py` pass.

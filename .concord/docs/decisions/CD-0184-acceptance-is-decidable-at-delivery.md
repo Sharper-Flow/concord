@@ -113,7 +113,3 @@ timing, stays a named follow-up.
   that `advertisedAdmissionTeachingGaps` reports its absence.
 - `python3 scripts/test-agent-contracts.py` proves the generator refuses a
   projection without the rule.
-- `python3 scripts/check-knowledge-closure.py` proves this record is
-  registered in the manifest shards.
-- `python3 scripts/check-doc-contract.py` proves this record's outline and
-  style.

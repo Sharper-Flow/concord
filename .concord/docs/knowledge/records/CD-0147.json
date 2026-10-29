@@ -5,13 +5,11 @@
     "tier": "legislated"
   },
   "date": "2026-09-14T00:00:00Z",
-  "doc_contract_profile": "legacy",
   "evidence": [
     ".concord/docs/decisions/CD-0122-concord-workflow-scope-and-defect-repair.md",
     ".concord/docs/decisions/CD-0144-record-reality-reconciliation.md",
     ".concord/docs/decisions/CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md",
-    "scripts/check-knowledge-index.py",
-    "scripts/check-knowledge-closure.py"
+    "scripts/check-knowledge-index.py"
   ],
   "home_domain_id": "product-root:concord",
   "id": "CD-0147",

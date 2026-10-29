@@ -98,5 +98,3 @@ Recorded results do not change. A recorded failure authorizes no launch ([CD-024
 - `internal/agent.TestHostRestartDoesNotSupplyRetryAuthority` must prove a
   live host lease supplies no convergence credit or retry consent and leaves
   each dispatch subject to ordinary admission.
-- `python3 scripts/check-knowledge-closure.py` and
-  `python3 scripts/check-doc-contract.py` must pass after approval and registration.

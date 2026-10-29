@@ -218,7 +218,6 @@ this law; this record does not claim those mechanisms are implemented.
 
 ## Verification
 
-- `python3 scripts/check-doc-contract.py` checks the decision outline.
 - `python3 scripts/check-knowledge-index.py` checks the law record and relations.
 - `python3 scripts/check-conflict-rules.py` checks the table against `priorities.md`.
 - `python3 scripts/check-primary-prompts.py` checks the generated role sources.

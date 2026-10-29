@@ -84,7 +84,5 @@ authority for breaking law cutovers; a law edit triggers reassessment only of th
 
 - `python3 scripts/check-knowledge-index.py --update` recomputes the decision
   record hash and validates the composed knowledge index.
-- `python3 scripts/check-doc-contract.py` validates the decision document.
-- `python3 scripts/check-knowledge-closure.py --strict` validates record closure.
 - `test -f .concord/docs/decisions/CD-0153-contract-content-staleness-for-overlap-resolutions.md`
   verifies the amendment file exists.

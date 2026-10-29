@@ -96,7 +96,6 @@ assigned scope outrank it.
 ## Verification
 
 - `python3 scripts/check-knowledge-index.py` checks publication identity and hashes.
-- `python3 scripts/check-doc-contract.py` checks this decision's document structure.
 - `python3 scripts/check-agent-contracts.py` checks the admitted skill inventory, skill portability, and the absent packet methodology property.
 - `python3 scripts/test-generate-agent-lanes.py` checks which generated lanes carry which method.
 - `python3 scripts/test-installer.py` checks that the admitted skills install and are discoverable through the registered skill path.

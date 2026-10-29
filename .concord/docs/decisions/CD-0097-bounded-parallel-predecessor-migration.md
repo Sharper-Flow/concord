@@ -198,5 +198,4 @@ the expansion is its own command.
 - No mode command writes, freezes, disables, or deletes predecessor state.
 - The knowledge record, coverage shard, and generated manifests for this
   decision are rebuilt by their owning scripts, and `scripts/check-json.py`,
-  `scripts/check-doc-links.py`, `scripts/check-knowledge-closure.py`,
-  `scripts/check-doc-contract.py`, and `scripts/check-knowledge-index.py` pass.
+  `scripts/check-doc-links.py`, and `scripts/check-knowledge-index.py` pass.

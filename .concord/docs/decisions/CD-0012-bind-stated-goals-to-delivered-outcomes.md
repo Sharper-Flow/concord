@@ -409,6 +409,4 @@ governance by attributes rather than gate count.
 
 This record was accepted by the operator on 2026-08-08 and binds downstream work until
 superseded. A downstream change that contradicts it surfaces a conflict requiring
-explicit resolution rather than divergence inside implementation work. Decision
-records follow the outline governed by
-[CD-0175](CD-0175-decision-record-outline.md).
+explicit resolution rather than divergence inside implementation work.

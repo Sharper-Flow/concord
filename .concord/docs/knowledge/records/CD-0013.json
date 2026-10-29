@@ -5,7 +5,6 @@
     "tier": "legislated"
   },
   "date": "2026-08-08T00:00:00Z",
-  "doc_contract_profile": "legacy",
   "evidence": [
     ".concord/scenarios/workflow-engine.v1.json",
     "internal/store/workflow_conformance_test.go",
@@ -23,7 +22,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:7b53c912d79bede56a313c9afc36c6a59ec58493e67cb0665391e2d87c7412d8",
+  "sha256": "sha256:8f8f3d688d2da384558aa1da0afffc12a2f8afaff35b80fd42a1313e4e682b3a",
   "status": "accepted",
   "summary": "Defines the versioned workflow registry, execution evidence, fail-closed completion gate, and engine-owned correction route for completed and accepted worker results.",
   "tags": [

@@ -26,7 +26,4 @@ CI provisions Python from the adapter recipe's pin; keep those runtime pins
 aligned and confirm this test passes rather than skips after a re-pin.
 
 This control does not prove citation correctness or preserve a document's meaning.
-Required CI runs the existing document-contract and link checks in a Git checkout;
-Review judges the factual change. `check-doc-contract.py` needs Git inventory and
-history that native snapshots do not contain. Its report-only or unregistered-draft
-modes are not substitutes for those checks on registered records.
+Required CI runs the link check in a Git checkout; review judges the factual change.

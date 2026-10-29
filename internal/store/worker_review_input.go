@@ -41,6 +41,56 @@ func (continuityReviewGitRunner) Run(ctx context.Context, path string, args ...s
 	return (CommittedReadGitRunner{}).Run(ctx, path, append([]string{"--no-optional-locks", "-c", "core.fsmonitor=false"}, args...)...)
 }
 
+type continuityReviewSubject struct {
+	receipt  *WorktreeVerifyResult
+	size     *WorkSizeSummary
+	retained *retainedReviewState
+	entries  []WorktreeEntry
+}
+
+func sampleContinuityReviewSubjectTx(ctx context.Context, tx *sql.Tx, work string, out *ContinuitySnapshot) (continuityReviewSubject, error) {
+	var subject continuityReviewSubject
+	if out.WorkPin == nil || out.WorkPin.Review == nil || out.WorkPin.Review.Dependencies == nil {
+		return subject, nil
+	}
+	var err error
+	subject.receipt, err = readCurrentOracleSubjectReceipt(ctx, tx, work)
+	if err != nil || subject.receipt == nil {
+		return subject, err
+	}
+	subject.size, err = readWorkSizeSummary(ctx, tx, work)
+	if err != nil || len(out.ReadyWorkerJobs) != 1 {
+		return subject, err
+	}
+	job := out.ReadyWorkerJobs[0]
+	subject.retained, err = sampleRetainedReviewState(ctx, tx, work, WorkerJobBinding{JobID: job.JobID, Revision: job.Revision, Digest: job.Digest}, "")
+	if err != nil || subject.retained == nil {
+		return subject, err
+	}
+	subject.entries, err = worktreeEntriesCore(ctx, tx, work)
+	return subject, err
+}
+
+// Call only after closing the read snapshot: Git observation grants no
+// dispatch authority, and a missing observation stays a typed read warning.
+func observeContinuityReviewSubject(ctx context.Context, out *ContinuitySnapshot, subject continuityReviewSubject) {
+	receipt := subject.receipt
+	if receipt == nil {
+		return
+	}
+	commit := strings.TrimPrefix(receipt.SubjectRef, "commit:")
+	tree, err := readReviewCandidateTree(ctx, CommittedReadGitRunner{}, receipt.Path, commit)
+	if err != nil {
+		out.ReviewInputWarning = err
+		return
+	}
+	out.ReviewInput = &WorkerReviewInput{InputCandidate: WorkerReviewCandidate{ProjectID: receipt.ProjectID, Commit: commit, Tree: tree}, Dependencies: *out.WorkPin.Review.Dependencies, Size: subject.size}
+	out.ReviewInput.RetainedFailedEdit, out.ReviewInputWarning = observeContinuityRetainedReview(ctx, out.ReviewInput, subject.retained, subject.entries, receipt)
+	if out.ReviewInputWarning != nil {
+		out.ReviewInput = nil
+	}
+}
+
 // Continuity observes the same delta owner after closing its SQL snapshot.
 // This descriptor is unsealed: dispatch compares it with its own preparation.
 func observeContinuityRetainedReview(ctx context.Context, input *WorkerReviewInput, sample *retainedReviewState, entries []WorktreeEntry, receipt *WorktreeVerifyResult) (*WorkerReviewRetainedFailedEdit, error) {

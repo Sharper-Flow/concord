@@ -117,12 +117,20 @@ func sampleRetainedReviewState(ctx context.Context, q queryer, work string, bind
 	if err != nil {
 		return nil, err
 	}
+	state.Editors, err = readRetainedReviewEditors(ctx, q, work, state, self)
+	if err != nil || len(state.Editors) == 0 {
+		return nil, err
+	}
+	return state, nil
+}
+
+func readRetainedReviewEditors(ctx context.Context, q queryer, work string, state *retainedReviewState, self string) ([]retainedReviewEditor, error) {
 	rows, err := q.QueryContext(ctx, `SELECT a.attempt_id,a.seq,a.payload,a.contract_version,
  COALESCE(t.dispatch_seq,0),COALESCE(t.lifecycle_state,''),COALESCE(t.terminal_kind,''),
  COALESCE(t.terminal_seq,0),COALESCE(t.terminal_event_id,''),COALESCE(t.terminal_payload,''),
  EXISTS(SELECT 1 FROM worker_attempt_dispositions d WHERE d.work_id=a.work_id AND d.attempt_id=a.attempt_id AND d.action_id IN ('accept_worker_result','accept_worker_evidence','reject_worker_result'))
  FROM worker_authorizations a LEFT JOIN worker_attempts t USING(work_id,attempt_id)
- WHERE a.work_id=? AND a.seq>? AND a.attempt_id<>? ORDER BY a.seq`, work, acceptedSeq, self)
+ WHERE a.work_id=? AND a.seq>? AND a.attempt_id<>? ORDER BY a.seq`, work, state.AcceptanceSeq, self)
 	if err != nil {
 		return nil, err
 	}
@@ -163,21 +171,22 @@ func sampleRetainedReviewState(ctx context.Context, q queryer, work string, bind
 	if err != nil || len(editors) == 0 {
 		return nil, err
 	}
+	var qualified []retainedReviewEditor
 	for _, row := range editors {
-		if row.version != version || row.auth.WorkerJob == nil || row.auth.WorkerJob.JobID != binding.JobID || row.lifecycle != "failed" || row.kind != WorkerFailed || row.editor.Dispatch == 0 || row.editor.Terminal <= row.editor.Dispatch || row.disposition {
+		if row.version != state.Contract || row.auth.WorkerJob == nil || row.auth.WorkerJob.JobID != state.Job.JobID || row.lifecycle != "failed" || row.kind != WorkerFailed || row.editor.Dispatch == 0 || row.editor.Terminal <= row.editor.Dispatch || row.disposition {
 			return nil, nil
 		}
 		failedJob, err := readWorkerJobRevisionTx(ctx, q, work, *row.auth.WorkerJob)
 		if err != nil {
 			return nil, err
 		}
-		if failedJob.ProjectScope != job.ProjectScope || len(failedJob.PathScope) == 0 {
+		if failedJob.ProjectScope != state.Candidate.ProjectID || len(failedJob.PathScope) == 0 {
 			return nil, nil
 		}
 		row.editor.Job, row.editor.Paths = *row.auth.WorkerJob, failedJob.PathScope
-		state.Editors = append(state.Editors, row.editor)
+		qualified = append(qualified, row.editor)
 	}
-	return state, nil
+	return qualified, nil
 }
 
 func observeRetainedReview(ctx context.Context, runner GitRunner, proof *workerDispatchProof, sample *retainedReviewState, entry WorktreeEntry) (*retainedReviewProof, error) {

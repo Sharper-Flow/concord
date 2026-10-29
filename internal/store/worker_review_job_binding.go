@@ -134,27 +134,35 @@ func newestAcceptedCandidateAttemptTx(ctx context.Context, q queryer, workID str
 		if !attempt.current {
 			return nil, nil
 		}
-		if result.ObservedDelivery == nil || result.ObservedDelivery.State != "clean" {
-			return nil, nil
-		}
-		switch auth.WorkerCapabilityClass {
-		case "implementation", "review":
-			if auth.WorkerCapabilityClass == "review" && result.Review == nil {
-				return nil, nil
-			}
-		default:
-			lane, err := LookupLane(auth.WorkerLaneID, auth.WorkerLaneDigest)
-			if err != nil || lane.CapabilityClass != auth.WorkerCapabilityClass || workerLaneEdits(lane.ID, lane.Digest) || auth.WorkerSubjectCommit != current.Commit {
-				return nil, nil
-			}
-		}
-		candidate, err := workflowAcceptedResultCandidate(ctx, q, workID, auth, result)
-		if err != nil || candidate == nil || *candidate != current {
+		matches, err := acceptedAttemptMatchesCandidateTx(ctx, q, workID, auth, result, current)
+		if err != nil || !matches {
 			return nil, err
 		}
 		return &acceptedCandidateAttempt{seq: attempt.seq, job: *auth.WorkerJob}, nil
 	}
 	return nil, nil
+}
+
+func acceptedAttemptMatchesCandidateTx(ctx context.Context, q queryer, workID string, auth workflowActionCompletedPayload, result WorkerCompletedPayload, current WorkerReviewCandidate) (bool, error) {
+	if result.ObservedDelivery == nil || result.ObservedDelivery.State != "clean" {
+		return false, nil
+	}
+	switch auth.WorkerCapabilityClass {
+	case "implementation", "review":
+		if auth.WorkerCapabilityClass == "review" && result.Review == nil {
+			return false, nil
+		}
+	default:
+		lane, err := LookupLane(auth.WorkerLaneID, auth.WorkerLaneDigest)
+		if err != nil || lane.CapabilityClass != auth.WorkerCapabilityClass || workerLaneEdits(lane.ID, lane.Digest) || auth.WorkerSubjectCommit != current.Commit {
+			return false, nil
+		}
+	}
+	candidate, err := workflowAcceptedResultCandidate(ctx, q, workID, auth, result)
+	if err != nil || candidate == nil || *candidate != current {
+		return false, err
+	}
+	return true, nil
 }
 
 // requireWorkerReviewJobRevisionStateTx is Review's state-only job admission:

@@ -347,16 +347,26 @@ func prepareWorkerSubjectFreshness(ctx context.Context, s *Store, request Prepar
 		return nil, err
 	}
 	proof.observation = observation
-	if proof.retainedReview, err = observeRetainedReview(ctx, runner, &proof, sample.retainedReview, entry); err != nil {
+	if err := observeDispatchReviewInputs(ctx, runner, request, sample, entry, &proof); err != nil {
 		return nil, err
-	}
-	if proof.nativeReview, err = observeNativeReviewDispatch(ctx, runner, request.reviewPlanner, entry, request.WorkID, &proof, sample.nativeReview); err != nil {
-		return nil, err
-	}
-	if entry.MemberID == "" && observation.State == "clean" && len(sample.memberAncestors) != 0 {
-		proof.memberCandidate = dispatchSubjectIncludesMembers(ctx, runner, probePath, observation.Commit, sample.memberAncestors)
 	}
 	return &WorkerDispatchPreparation{proof: proof}, nil
+}
+
+// Review input proofs share this post-snapshot observation phase. Their
+// state revalidation remains SQL-only in the dispatch transaction.
+func observeDispatchReviewInputs(ctx context.Context, runner GitRunner, request PrepareWorkerDispatchRequest, sample workerDispatchSample, entry WorktreeEntry, proof *workerDispatchProof) error {
+	var err error
+	if proof.retainedReview, err = observeRetainedReview(ctx, runner, proof, sample.retainedReview, entry); err != nil {
+		return err
+	}
+	if proof.nativeReview, err = observeNativeReviewDispatch(ctx, runner, request.reviewPlanner, entry, request.WorkID, proof, sample.nativeReview); err != nil {
+		return err
+	}
+	if entry.MemberID == "" && proof.observation.State == "clean" && len(sample.memberAncestors) != 0 {
+		proof.memberCandidate = dispatchSubjectIncludesMembers(ctx, runner, proof.probePath, proof.observation.Commit, sample.memberAncestors)
+	}
+	return nil
 }
 
 func resolveWorkerDispatchReadings(ctx context.Context, runner GitRunner, readings []dispatchReadingWitness) error {

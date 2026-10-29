@@ -82,6 +82,5 @@ tail regression that the falsifier must detect.
   the PR #341 paced-overshoot signature is inconclusive with a clean control.
 - `internal/store.TestConformanceControlCommitOvershootFires` — paced majority
   and control overshoot fire.
-- `check-cd-allocation.py` confirms CD-0056 has no number collision.
 - The knowledge index and law coverage are regenerated from the per-record
   shards and pass their validators.

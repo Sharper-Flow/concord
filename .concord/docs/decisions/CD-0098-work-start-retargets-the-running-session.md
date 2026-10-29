@@ -87,7 +87,6 @@ dispatch under CD-0102.
   work, which is the stated fail-closed outcome rather than a silent downgrade.
 - A dirty default checkout blocks work start until the operator resolves it.
 - This record claims no replacement readiness.
-- `fc1-session-handoff` requires a live host-started managed-entry witness.
 
 ## Rejected alternatives
 
@@ -113,12 +112,9 @@ records why the outcome holds without a wait the route does not offer.
 - `TestWorkStartRefusesDestinationOtherThanClaimedWorktree` proves D4.
 - A repository check verifies D1's no-process boundary: no `opencode run`
   invocation remains in the adapter.
-- `.concord/docs/floor-readiness.v1.json` carries `fc1-session-handoff` as
-  `unmeasured` pending the live host-started managed-entry witness.
-- `python3 scripts/check-floor-readiness.py` passes.
 - The coverage shard `.concord/docs/knowledge/coverage/CD-0098.json`, composed by
   `scripts/knowledge_index.py`, records CD-0098 as proved once the tests above
   pass.
 - `python3 scripts/check-doc-contract.py`, `python3 scripts/check-json.py`,
-  `python3 scripts/check-doc-links.py`, `python3 scripts/check-knowledge-index.py`,
-  and `python3 scripts/check-cd-allocation.py` pass.
+  `python3 scripts/check-doc-links.py`, and
+  `python3 scripts/check-knowledge-index.py` pass.

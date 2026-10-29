@@ -114,8 +114,6 @@ CD-0165 binds new work to the current release.
   CD-0195 shard and the refreshed CD-0011 hash.
 - `python3 scripts/check-knowledge-closure.py` acknowledges the new record
   path.
-- `python3 scripts/check-cd-allocation.py` holds with CD-0195 as the next
-  free id and the heading naming it.
 - `python3 scripts/check-doc-links.py` resolves the amendment link into
   CD-0011.
 - `python3 scripts/check-public-content.py` passes.

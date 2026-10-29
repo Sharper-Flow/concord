@@ -75,10 +75,6 @@
     {
       "kind": "validator",
       "value": "scripts/check-doc-contract.py"
-    },
-    {
-      "kind": "validator",
-      "value": "scripts/check-cd-allocation.py"
     }
   ],
   "id": "CD-0197",

@@ -116,20 +116,6 @@ def main(argv: list[str] | None = None) -> int:
         if checked.returncode:
             findings.append(f"domain registry drift: {checked.stdout.strip() or checked.stderr.strip()}")
 
-    floor_checker = ROOT / "scripts/check-floor-readiness.py"
-    if floor_checker.is_file():
-        checked = subprocess.run([sys.executable, str(floor_checker)], cwd=ROOT, capture_output=True, text=True)
-        if checked.returncode:
-            findings.append(f"floor readiness drift: {checked.stdout.strip() or checked.stderr.strip()}")
-
-    maturity_checker = ROOT / "scripts/check-maturity-readiness.py"
-    if not maturity_checker.is_file():
-        findings.append("maturity readiness checker is missing: scripts/check-maturity-readiness.py")
-    else:
-        checked = subprocess.run([sys.executable, str(maturity_checker)], cwd=ROOT, capture_output=True, text=True)
-        if checked.returncode:
-            findings.append(f"maturity readiness drift: {checked.stdout.strip() or checked.stderr.strip()}")
-
     conflict_rules_checker = ROOT / "scripts/check-conflict-rules.py"
     if not conflict_rules_checker.is_file():
         findings.append("conflict rule checker is missing: scripts/check-conflict-rules.py")

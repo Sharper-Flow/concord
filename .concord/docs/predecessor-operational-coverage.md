@@ -1,7 +1,6 @@
 # Predecessor operational coverage
 
-> **Status:** Authorizing for floor condition 6 coverage assessment. Validated on
-> every CI run by `scripts/check-predecessor-coverage.py`. Companion to
+> **Status:** Authorizing for floor condition 6 coverage assessment. Companion to
 > [`priorities.md`](./priorities.md) (canonical floor definition) and
 > [`floor-readiness.md`](./floor-readiness.md) (authorizing readiness record).
 > **Issue:** [#78](https://github.com/Sharper-Flow/concord/issues/78).
@@ -33,25 +32,6 @@ It is deliberately not organized by predecessor command shape.
 cloning, and CD-0006 fixes Concord's own workflow model. An enumeration organized
 around predecessor commands would smuggle that shape back in through the gate that
 exists to keep it out.
-
-### How this document holds authority
-
-Authority here comes from mechanical checking rather than assertion. A checklist
-that asserts its own authority drifts silently, which is the failure
-[`floor-readiness.md`](./floor-readiness.md) already avoids for the readiness
-manifest.
-
-`scripts/check-predecessor-coverage.py` parses the section tables on every CI run
-and rejects a covered outcome that names no existing repository path, an excluded
-outcome that carries no reason, a state outside the closed vocabulary, a
-duplicated outcome, a malformed row, and a tally that disagrees with the rows it
-summarises. An outcome cannot claim coverage against a deleted file, and the
-zero-not-covered claim cannot drift from the table beneath it.
-
-The validator does not judge whether the enumeration is *complete* — no mechanism
-can. Completeness remains an auditing obligation, and the audit that produced the
-current row set is recorded in issue
-[#150](https://github.com/Sharper-Flow/concord/issues/150).
 
 ### Coverage states
 

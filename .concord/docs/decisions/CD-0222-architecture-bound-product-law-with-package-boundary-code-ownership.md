@@ -440,8 +440,7 @@ dependency order:
    [CD-0042 D3](CD-0042-pre-go-live-single-path.md#d3-superseded-development-paths-are-deleted).
 
 Each implementation slice requires its own public issue, tests, migration proof,
-and TS8/TS9 evidence for the current manifest. This decision does not mark any runtime
-floor item satisfied.
+and TS8/TS9 evidence for the current manifest.
 
 ### D12. Global Domain navigation is retired
 

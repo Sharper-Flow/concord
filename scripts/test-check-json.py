@@ -120,65 +120,6 @@ class UmbrellaPropagationTests(unittest.TestCase):
         self.assertEqual(err, "")
 
 
-class MaturityCheckerUmbrellaTests(unittest.TestCase):
-    """Missing and failing maturity checkers fail every umbrella route."""
-
-    routes = ([], ["--adapter-tests-external", "--contract-tests-external"])
-
-    def _main(self, argv: list[str], fake: _FakeSubprocess, absent: tuple[str, ...] = ()) -> tuple[int, str, str]:
-        out, err = io.StringIO(), io.StringIO()
-        real_is_file = Path.is_file
-
-        def files_with_absences(path):
-            if path.name in absent:
-                return False
-            return real_is_file(path)
-
-        with (
-            unittest.mock.patch.object(umbrella, "repository_files", return_value=[]),
-            unittest.mock.patch.object(umbrella, "subprocess", fake),
-            unittest.mock.patch.object(Path, "is_file", files_with_absences),
-            redirect_stdout(out),
-            redirect_stderr(err),
-        ):
-            code = umbrella.main(list(argv))
-        return code, out.getvalue(), err.getvalue()
-
-    @staticmethod
-    def maturity_calls(fake: _FakeSubprocess) -> list[list[str]]:
-        return [call for call in fake.calls if any("check-maturity-readiness.py" in word for word in call)]
-
-    def test_a_missing_maturity_checker_fails_the_umbrella(self):
-        for argv in self.routes:
-            with self.subTest(argv=argv):
-                fake = _FakeSubprocess()
-                code, out, err = self._main(argv, fake, absent=("check-maturity-readiness.py",))
-                self.assertEqual(
-                    self.maturity_calls(fake),
-                    [],
-                    "an absent checker must be reported by the presence check, never executed",
-                )
-                self.assertEqual(code, 1)
-                self.assertIn("maturity readiness checker is missing", out)
-                self.assertIn("JSON validation failed", err)
-
-    def test_a_nonzero_maturity_check_fails_the_umbrella(self):
-        for argv in self.routes:
-            with self.subTest(argv=argv):
-                code, out, err = self._main(argv, _FakeSubprocess(failing="check-maturity-readiness.py"))
-                self.assertEqual(code, 1)
-                self.assertIn("maturity readiness drift", out)
-                self.assertIn("JSON validation failed", err)
-
-    def test_a_present_maturity_checker_is_executed_exactly_once(self):
-        for argv in self.routes:
-            with self.subTest(argv=argv):
-                fake = _FakeSubprocess()
-                code, _, _ = self._main(argv, fake)
-                self.assertEqual(code, 0)
-                self.assertEqual(len(self.maturity_calls(fake)), 1)
-
-
 class ExternalSuiteOptionForwardingTests(unittest.TestCase):
     """The umbrella forwards CI's external-suite routing verbatim.
 

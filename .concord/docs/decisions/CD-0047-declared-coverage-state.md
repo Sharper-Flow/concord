@@ -15,7 +15,7 @@
   (structural enforcement), CD-0222 D3 (law-graph pruning),
   [`floor-readiness.md`](../floor-readiness.md),
   [`predecessor-operational-coverage.md`](../predecessor-operational-coverage.md)
-- **Preserves:** the floor-readiness state vocabulary and its state-conditional
+- **Preserves:** the coverage state vocabulary and its state-conditional
   obligations; the knowledge-index sha256 record integrity; CD-0013 D11's
   reserved surface; the closed-registry and digest mechanisms
 
@@ -50,10 +50,10 @@ integrity alone cannot establish the complete subject set.
 The inverse is equally a finding. A declared exception that has become covered
 is stale, and stale exceptions silently widen over time.
 
-### D2. One state vocabulary, reused from the floor manifest
+### D2. One state vocabulary
 
-Both planes use the state vocabulary and state-conditional obligations already
-accepted in `contracts/floor-readiness.schema.json`: `satisfied`,
+Both planes use one state vocabulary and its state-conditional obligations,
+defined once in `scripts/coverage_state.py`: `satisfied`,
 `outstanding`, `unmeasured`, `out_of_scope`, with `evidence` required when
 satisfied and forbidden otherwise, `issue` required when outstanding, and
 `reason` required for `unmeasured` and `out_of_scope`.

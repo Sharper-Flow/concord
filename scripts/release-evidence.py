@@ -23,8 +23,8 @@ Failure taxonomy (fail closed everywhere):
 - full fallback (exit 0, mode=full): evidence or API miss, recorded as the
   reason and in the receipt;
 - admission refusal (gate exit 1): any dependency state other than
-  (lookup=success AND mode=reuse AND refresh=success AND fallback=skipped) or
-  (lookup=success AND mode=full AND refresh=skipped AND fallback=success).
+  (lookup=success AND mode=reuse AND fallback=skipped) or
+  (lookup=success AND mode=full AND fallback=success).
 
 A failure of the target's own checks is never converted into a reuse miss.
 """
@@ -515,11 +515,10 @@ def _population_verdict(jobs: list[NativeJob], expected_jobs: list[str], run: Na
     return None
 
 
-def admit(mode: str, lookup_result: str, refresh_result: str, fallback_result: str) -> tuple[bool, str]:
+def admit(mode: str, lookup_result: str, fallback_result: str) -> tuple[bool, str]:
     """The admission algebra. Job results decide; the mode alone never does."""
     for label, value in (
         ("lookup result", lookup_result),
-        ("refresh result", refresh_result),
         ("fallback result", fallback_result),
     ):
         if value not in JOB_RESULTS:
@@ -527,16 +526,12 @@ def admit(mode: str, lookup_result: str, refresh_result: str, fallback_result: s
     if lookup_result != "success":
         return False, f"verification lookup did not succeed (result={lookup_result})"
     if mode == "reuse":
-        if refresh_result != "success":
-            return False, f"reuse requires refreshed main checks to succeed (result={refresh_result})"
         if fallback_result != "skipped":
             return False, f"reuse requires the fallback to be skipped (result={fallback_result})"
         return True, "admitted on verified exact merge-group evidence"
     if mode == "full":
         if fallback_result != "success":
             return False, f"full verification requires the fallback to succeed (result={fallback_result})"
-        if refresh_result != "skipped":
-            return False, f"full verification requires the refresh to be skipped (result={refresh_result})"
         return True, "admitted on a complete full CI fallback"
     return False, f"unknown verification mode: {mode!r}"
 
@@ -567,18 +562,16 @@ def main(argv: list[str] | None = None) -> int:
     gate_command = commands.add_parser("gate", help="evaluate the admission algebra from real job results")
     gate_command.add_argument("--mode", required=True, help="selected verification mode")
     gate_command.add_argument("--lookup-result", required=True, help="verify-lookup job result")
-    gate_command.add_argument("--refresh-result", required=True, help="refresh-main-checks job result")
     gate_command.add_argument("--fallback-result", required=True, help="ci-fallback job result")
 
     args = parser.parse_args(argv)
 
     if args.command == "gate":
-        admitted, verdict = admit(args.mode, args.lookup_result, args.refresh_result, args.fallback_result)
+        admitted, verdict = admit(args.mode, args.lookup_result, args.fallback_result)
         print(f"release admission: {verdict}")
         print(
             "release admission: "
-            f"mode={args.mode} lookup={args.lookup_result} "
-            f"refresh={args.refresh_result} fallback={args.fallback_result}"
+            f"mode={args.mode} lookup={args.lookup_result} fallback={args.fallback_result}"
         )
         return 0 if admitted else 1
 

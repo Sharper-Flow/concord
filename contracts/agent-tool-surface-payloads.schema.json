@@ -28380,15 +28380,12 @@
       }
     },
     "domain_shape_law": {
+      "description": "A governing law revision in the result's knowledge home at knowledge_commit. Full metadata and law bytes resolve from that pinned manifest; every selected law remains included.",
       "type": "object",
       "additionalProperties": false,
       "required": [
         "law_id",
-        "kind",
-        "title",
-        "path",
-        "content_hash",
-        "scanned_commit_oid"
+        "content_hash"
       ],
       "properties": {
         "law_id": {
@@ -28396,44 +28393,11 @@
           "minLength": 1,
           "maxLength": 256
         },
-        "kind": {
-          "type": "string",
-          "enum": [
-            "constitution",
-            "decision",
-            "spec"
-          ]
-        },
-        "title": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 256
-        },
-        "path": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 512
-        },
         "content_hash": {
           "type": "string",
           "minLength": 71,
           "maxLength": 71,
           "pattern": "^sha256:[0-9a-f]{64}$"
-        },
-        "scanned_commit_oid": {
-          "type": "string",
-          "minLength": 40,
-          "maxLength": 64,
-          "pattern": "^[0-9a-f]{40,64}$"
-        },
-        "applies_to": {
-          "type": "array",
-          "maxItems": 32768,
-          "items": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 256
-          }
         }
       }
     },

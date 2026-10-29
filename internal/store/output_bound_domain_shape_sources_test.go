@@ -86,16 +86,9 @@ func init() {
 	registerOutputBound("/$defs/domain_shape_result/properties/domain_ids/items/maxLength", manifestID)
 	registerOutputBound("/$defs/domain_shape_result/properties/governing_law/maxItems", goConstantBound(manifest, "maxManifestRecords", boundItems))
 
-	// Law identities and strings come from the same admitted manifest records
-	// as domain detail. The shared law record's applicability list is bounded
-	// by maxManifestArray; this query leaves that list empty.
+	// Law revision references come from the admitted manifest records.
 	registerOutputBound("/$defs/domain_shape_law/properties/law_id/maxLength", manifestID)
-	registerOutputBound("/$defs/domain_shape_law/properties/title/maxLength", goConstantBound(manifest, "maxManifestTitle", boundCharacters))
-	registerOutputBound("/$defs/domain_shape_law/properties/path/maxLength", goConstantBound(manifest, "maxManifestPath", boundCharacters))
 	registerOutputBound("/$defs/domain_shape_law/properties/content_hash/maxLength", goInlineBound("internal/store/git_knowledge.go", "validateContentHash", "len(hash)", boundBytes))
-	registerOutputBound("/$defs/domain_shape_law/properties/scanned_commit_oid/maxLength", commitOID)
-	registerOutputBound("/$defs/domain_shape_law/properties/applies_to/items/maxLength", manifestID)
-	registerOutputBound("/$defs/domain_shape_law/properties/applies_to/maxItems", goConstantBound(manifest, "maxManifestArray", boundItems))
 
 	// footprintSelectPathsTx appends exactly one shape per admitted path.
 	registerOutputBound("/$defs/domain_footprint_result/properties/shapes/maxItems", goConstantBound("internal/store/domain_footprint.go", "footprintMaxPaths", boundItems))

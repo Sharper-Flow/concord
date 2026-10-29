@@ -173,7 +173,7 @@ func TestDomainShapeReadingDelegatedProductIsolation(t *testing.T) {
 			if !bytes.Equal(actual, expected) || bytes.Contains(actual, []byte(`"product_id":"`+foreign+`"`)) {
 				t.Fatalf("normal and delegated selected bytes differ: %s", actual)
 			}
-			for _, target := range []string{"archive", projectToolingManifestPath, selected.GoverningLaw[0].Path} {
+			for _, target := range []string{"archive", projectToolingManifestPath, ".concord/docs/decisions/" + law + "-synthetic.md"} {
 				request.Offset = 0
 				request.Runner = &shapeTamperRunner{GitRunner: CommittedReadGitRunner{}, target: target}
 				page, err := f.store.ReadWorkerReading(context.Background(), request)
@@ -331,15 +331,16 @@ func TestDomainShapeReadingRefreshDuringReadKeepsOriginalBytes(t *testing.T) {
 }
 
 func TestDomainShapeReadingRejectsProjectedLawForgery(t *testing.T) {
-	for _, mutation := range []string{"metadata", "membership"} {
+	for _, mutation := range []string{"content_hash", "membership"} {
 		t.Run(mutation, func(t *testing.T) {
 			f, home, product, _, _ := shapeReadingWorkflowFixture(t, "a")
 			defer f.store.Close()
 			ctx := context.Background()
 			if err := f.store.Transact(ctx, func(tx *Transaction) error {
 				mustTxExec(t, tx, `INSERT INTO write_guard(active) VALUES(1)`)
-				if mutation == "metadata" {
-					mustTxExec(t, tx, `UPDATE law_subjects SET title='Forged law title' WHERE home_project_id=? AND law_id='CD-0001'`, home.HomeProjectID)
+				if mutation == "content_hash" {
+					mustTxExec(t, tx, `DELETE FROM law_bodies WHERE home_project_id=? AND law_id='CD-0001'`, home.HomeProjectID)
+					mustTxExec(t, tx, `UPDATE law_subjects SET content_hash=? WHERE home_project_id=? AND law_id='CD-0001'`, "sha256:"+strings.Repeat("f", 64), home.HomeProjectID)
 				} else {
 					mustTxExec(t, tx, `DELETE FROM law_domain_homes WHERE home_project_id=? AND law_id='CD-0001'`, home.HomeProjectID)
 				}

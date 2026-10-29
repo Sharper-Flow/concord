@@ -159,7 +159,7 @@ func TestDomainShapeTypedFactResults(t *testing.T) {
 				KnowledgeCommit: commit, SnapshotContentHash: hash, RegistryContentHash: hash, PackageMapContentHash: hash,
 				ToolingCommit: commit, ToolingContentHash: hash, Roots: []store.DomainShapeRoot{{Path: "source", Role: "domain", OwnerDomainID: "root"}},
 				DomainIDs: []string{"root"}, Facts: []store.DomainShapeFact{{Fact: fact, Path: ".concord/docs/knowledge/facts/fact-1.json", ContentHash: hash}},
-				GoverningLaw:          []store.DomainLawRecord{{LawID: "law", Kind: "decision", Title: "Law", Path: ".concord/docs/law.md", ContentHash: hash, ScannedCommit: commit}},
+				GoverningLaw:          []store.DomainShapeLaw{{LawID: "law", ContentHash: hash}},
 				ReferenceVerification: "unverified", ExtractorVerification: "unverified",
 			}
 			raw, _ := json.Marshal(result)
@@ -168,6 +168,23 @@ func TestDomainShapeTypedFactResults(t *testing.T) {
 			}
 			var object map[string]any
 			_ = json.Unmarshal(raw, &object)
+			law := object["governing_law"].([]any)[0].(map[string]any)
+			for _, mutation := range []string{"missing_hash", "invalid_hash", "unknown_field"} {
+				switch mutation {
+				case "missing_hash":
+					delete(law, "content_hash")
+				case "invalid_hash":
+					law["content_hash"] = "not-a-content-hash"
+				case "unknown_field":
+					law["unknown"] = true
+				}
+				bad, _ := json.Marshal(object)
+				if err := agentcontract.ValidateOperationPayload("concord_domain", "shape", bad, true); err == nil {
+					t.Fatalf("invalid law revision reference accepted: %s", mutation)
+				}
+				law["content_hash"] = hash
+				delete(law, "unknown")
+			}
 			selected := object["facts"].([]any)[0].(map[string]any)["fact"].(map[string]any)
 			body := selected[kind].(map[string]any)
 			body["unknown"] = true

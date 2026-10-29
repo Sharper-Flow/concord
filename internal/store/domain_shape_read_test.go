@@ -76,7 +76,7 @@ func TestDomainShapeReadGoldenQuestionsAndProductIsolation(t *testing.T) {
 				if !reflect.DeepEqual(got.Facts, want) || !reflect.DeepEqual(got.Roots, []DomainShapeRoot{{Path: "src", Role: "domain", OwnerDomainID: "fixture-law"}}) || !reflect.DeepEqual(got.DomainIDs, []string{"fixture-law"}) {
 					t.Fatalf("golden answer differs: %+v", got)
 				}
-				if len(got.GoverningLaw) != 1 || got.GoverningLaw[0].LawID != fixture.law || !domainShapeHash.MatchString(got.GoverningLaw[0].ContentHash) || got.GoverningLaw[0].ScannedCommit != got.KnowledgeCommit {
+				if len(got.GoverningLaw) != 1 || got.GoverningLaw[0].LawID != fixture.law || !domainShapeHash.MatchString(got.GoverningLaw[0].ContentHash) {
 					t.Fatalf("missing or foreign governing law identity: %+v", got.GoverningLaw)
 				}
 				if got.ProductID != fixture.product || got.HomeProjectID != fixture.home.HomeProjectID || got.HomeLocatorID != fixture.home.HomeLocatorID || got.Selector != selector || got.KnowledgeCommit != headCommit(t, fixture.home.RepoPath) {

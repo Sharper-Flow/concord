@@ -387,7 +387,7 @@ class CurrentScenarioCarrierTests(unittest.TestCase):
         corpus_path = ROOT / ".concord/scenarios/workflow-engine.v1.json"
         load = lane_checker._load_json
         corpus = load(corpus_path)
-        corpus["scenarios"] = [item for item in corpus["scenarios"] if item["id"] != "WF26-condition-actions-refused"]
+        corpus["scenarios"] = [item for item in corpus["scenarios"] if item["id"] != "WF48-lane-pipeline-typed-evidence"]
         with unittest.mock.patch.object(lane_checker, "_load_json", side_effect=lambda path: corpus if path == corpus_path else load(path)):
             findings = lane_checker.check_workflow_contracts()
         self.assertTrue(any("scenario" in finding and "got" in finding for finding in findings), findings)
@@ -464,8 +464,9 @@ class CurrentScenarioCarrierTests(unittest.TestCase):
                 elif mutation == "definition":
                     scenario["request"]["definition_ref"] = "workflow.missing"
                 else:
-                    condition = next(item for item in corpus["scenarios"] if item["id"] == "WF26-condition-actions-refused")
-                    condition["cases"][0]["expected"]["assertions"][0]["value"] = "not_a_real_error_kind"
+                    pipeline = next(item for item in corpus["scenarios"] if item["id"] == "WF48-lane-pipeline-typed-evidence")
+                    refused = next(case for case in pipeline["cases"] if case["id"] == "WF48-worker-self-accept-refused")
+                    refused["expected"]["assertions"][0]["value"] = "not_a_real_error_kind"
                 load = lane_checker._load_json
                 with unittest.mock.patch.object(lane_checker, "_load_json", side_effect=lambda path: corpus if path == corpus_path else load(path)):
                     findings = lane_checker.check_workflow_contracts()

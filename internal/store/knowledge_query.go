@@ -944,9 +944,7 @@ func (page *knowledgeHomePage) readHome(ctx context.Context, db *sql.DB, req Q9R
 		if err := validateKnowledgeCoverageCore(ctx, db, source, scanned, kinds); err != nil {
 			return err
 		}
-		for _, omission := range knowledgeCoverageOmissions(ctx, db, source, scanned) {
-			page.omissions = append(page.omissions, omission)
-		}
+		page.omissions = append(page.omissions, knowledgeCoverageOmissions(ctx, db, source, scanned)...)
 	}
 	paged := req
 	paged.Cursor = ""

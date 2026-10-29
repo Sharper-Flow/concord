@@ -65,7 +65,7 @@ func workflowContractRecoveryActionDefinition() WorkflowActionDefinition {
 
 func workflowContractRecoveryPayloadFields() []WorkflowPayloadField {
 	return []WorkflowPayloadField{
-		actionIntegerField("contract_version", true, 2147483647),
+		actionIntegerField("contract_version", true),
 		actionArrayField("predecessor_contract_versions", false, 32, "workflow_contract_version"),
 		actionPremiseField(),
 		actionArrayField("outcome_predicates", false, 8, "workflow_action_outcome_predicates"),

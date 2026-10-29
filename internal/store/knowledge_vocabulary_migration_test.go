@@ -104,7 +104,7 @@ func knowledge140Seed(t *testing.T) (*sql.DB, map[string][]string) {
 		t.Fatal(err)
 	}
 	currentTables := slices.DeleteFunc(slices.Clone(knowledge140Tables), func(table string) bool {
-		return table == "archived_work_components"
+		return table == "archived_work_components" || table == "law_cross_source_relations"
 	})
 	copyFixtureDataToPrefix(t, s, db, append([]string{
 		"products", "projects", "product_projects", "project_locators", "domain_registries", "domains", "domain_architecture_relations",
@@ -155,12 +155,8 @@ func knowledge140AssertFK(t *testing.T, db *sql.DB) {
 func TestKnowledgeVocabularyMigration140PreservesCurrentState(t *testing.T) {
 	t.Parallel()
 	db, preserved := knowledge140Seed(t)
-	if err := Migrate(context.Background(), db); err != nil {
-		t.Fatal(err)
-	}
-	currentTables := slices.DeleteFunc(slices.Clone(knowledge140Tables), func(table string) bool { return table == "archived_work_components" })
-	delete(preserved, "archived_work_components")
-	if got := knowledge140Snapshot(t, db, currentTables); !reflect.DeepEqual(got, preserved) {
+	advanceHistoricalPrefix(t, db, 140)
+	if got := knowledge140Snapshot(t, db, knowledge140Tables); !reflect.DeepEqual(got, preserved) {
 		t.Fatalf("current projection changed:\ngot %v\nwant %v", got, preserved)
 	}
 	// Compare this step's schema changes in isolation; later migrations may
@@ -181,7 +177,7 @@ func TestKnowledgeVocabularyMigration140PreservesCurrentState(t *testing.T) {
 			t.Errorf("lost schema obligation: %s", entry)
 		}
 	}
-	for _, query := range []string{`SELECT count(*) FROM knowledge_index_watermark`, `SELECT count(*) FROM write_guard`, `SELECT count(*) FROM sqlite_temp_schema WHERE name LIKE '%v140%'`} {
+	for _, query := range []string{`SELECT count(*) FROM knowledge_index_watermark`, `SELECT count(*) FROM fold_guard`, `SELECT count(*) FROM sqlite_temp_schema WHERE name LIKE '%v140%'`} {
 		var count int
 		if err := db.QueryRow(query).Scan(&count); err != nil || count != 0 {
 			t.Fatalf("%s = %d: %v", query, count, err)
@@ -192,7 +188,7 @@ func TestKnowledgeVocabularyMigration140PreservesCurrentState(t *testing.T) {
 		t.Fatalf("migration 140 breaking=%d: %v", breaking, err)
 	}
 	knowledge140AssertFK(t, db)
-	knowledge140Exec(t, db, `INSERT INTO write_guard(active) VALUES(1)`)
+	knowledge140Exec(t, db, `INSERT INTO fold_guard(active) VALUES(1)`)
 	for _, query := range []string{
 		`UPDATE law_subjects SET status='superseded' WHERE law_id='CD-0001'`,
 		`UPDATE law_relations SET kind='supersedes' WHERE source_law_id='law-b'`,
@@ -202,10 +198,27 @@ func TestKnowledgeVocabularyMigration140PreservesCurrentState(t *testing.T) {
 			t.Fatalf("retired vocabulary was not rejected by CHECK: %s: %v", query, err)
 		}
 	}
-	knowledge140Exec(t, db, `DELETE FROM write_guard`)
+	knowledge140Exec(t, db, `DELETE FROM fold_guard`)
 	for _, query := range []string{`UPDATE law_subjects SET title=title`, `DELETE FROM law_relations`, `DELETE FROM law_cross_source_relations`} {
+		if _, err := db.Exec(query); err == nil || !strings.Contains(err.Error(), "fold-only") {
+			t.Fatalf("historical fold guard lost: %s: %v", query, err)
+		}
+	}
+	if err := Migrate(context.Background(), db); err != nil {
+		t.Fatalf("upgrade after historical assertions: %v", err)
+	}
+	currentTables := slices.DeleteFunc(slices.Clone(knowledge140Tables), func(table string) bool {
+		return table == "archived_work_components" || table == "law_cross_source_relations"
+	})
+	delete(preserved, "archived_work_components")
+	delete(preserved, "law_cross_source_relations")
+	if got := knowledge140Snapshot(t, db, currentTables); !reflect.DeepEqual(got, preserved) {
+		t.Fatalf("surviving projection changed on upgrade:\ngot %v\nwant %v", got, preserved)
+	}
+	knowledge140AssertFK(t, db)
+	for _, query := range []string{`UPDATE law_subjects SET title=title`, `DELETE FROM law_relations`} {
 		if _, err := db.Exec(query); err == nil || !strings.Contains(err.Error(), "write-seam-only") {
-			t.Fatalf("write guard lost: %s: %v", query, err)
+			t.Fatalf("write guard lost on upgrade: %s: %v", query, err)
 		}
 	}
 }

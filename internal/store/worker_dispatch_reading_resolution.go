@@ -187,7 +187,7 @@ func sampleReadingIdentities(ctx context.Context, q queryer, workID string, read
 				knowledgeSources = resolved
 				sourcesResolved = true
 			}
-			if err := sampleKnowledgeReadingIdentity(ctx, q, productID, knowledgeSources, &witness); err != nil {
+			if err := sampleKnowledgeReadingIdentity(ctx, q, knowledgeSources, &witness); err != nil {
 				return nil, readingResolutionFailure(ordinal, witness.identity, err)
 			}
 		case WorkContextSourceDomainShape:
@@ -238,7 +238,7 @@ func sampleRepositoryReadingIdentity(ctx context.Context, q queryer, productID s
 	return nil
 }
 
-func sampleKnowledgeReadingIdentity(ctx context.Context, q queryer, productID string, knowledgeSources []KnowledgeHome, witness *dispatchReadingWitness) error {
+func sampleKnowledgeReadingIdentity(ctx context.Context, q queryer, knowledgeSources []KnowledgeHome, witness *dispatchReadingWitness) error {
 	witness.sourceSetDigest = knowledgeSourceSetDigest(knowledgeSources)
 	var matches []KnowledgeHome
 	for _, source := range knowledgeSources {

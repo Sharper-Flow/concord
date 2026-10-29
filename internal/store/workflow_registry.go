@@ -1263,8 +1263,8 @@ func actionLawListField(name string, required bool) WorkflowPayloadField {
 	return WorkflowPayloadField{Name: name, ValueType: PayloadStringList, Required: required, MinItems: workflowInt(0), MaxItems: workflowInt(32), ItemRef: "law_id"}
 }
 
-func actionIntegerField(name string, required bool, upper int64) WorkflowPayloadField {
-	return WorkflowPayloadField{Name: name, ValueType: PayloadInteger, Required: required, Minimum: workflowInt(1), Maximum: workflowInt(upper)}
+func actionIntegerField(name string, required bool) WorkflowPayloadField {
+	return WorkflowPayloadField{Name: name, ValueType: PayloadInteger, Required: required, Minimum: workflowInt(1), Maximum: workflowInt(2147483647)}
 }
 
 func actionEnumField(name string, required bool, values ...string) WorkflowPayloadField {
@@ -1345,7 +1345,7 @@ var builtinActionPolicies = map[string]builtinActionPolicy{
 		actionListField("route_conventions", false, 0, 16),
 		actionListField("proposed_route_conventions", false, 0, 16),
 		actionListField("required_route_conventions", false, 0, 16),
-		actionIntegerField("contract_version", false, 2147483647),
+		actionIntegerField("contract_version", false),
 		actionPremiseField(),
 		actionArrayField("outcome_predicates", true, 8, "workflow_action_outcome_predicates"),
 		actionEnumListField("required_evidence", false, 0, 7, "verification", "review", "approval", "commit", "durable_note", "native_run", "artifact"),
@@ -1371,7 +1371,7 @@ var builtinActionPolicies = map[string]builtinActionPolicy{
 	// declare, so its registry validation reads the restated batched
 	// payload the current definitions pin and publication projects.
 	"record_verdict": actionPolicyWithAlternatives(actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionHold, ActionEventTyped,
-		actionIntegerField("contract_version", false, 2147483647), actionRefField("predicate_id", true),
+		actionIntegerField("contract_version", false), actionRefField("predicate_id", true),
 		actionEnumField("verdict_kind", false, "ok", "outcome_mismatch", "insufficient_evidence"),
 		actionStringField("verdict_actor_ref", false, 70), actionListField("evaluation_evidence", false, 1, 32),
 		WorkflowPayloadField{Name: "incomparable_with_approved", ValueType: PayloadBoolean},
@@ -1384,7 +1384,7 @@ var builtinActionPolicies = map[string]builtinActionPolicy{
 		},
 	),
 	"confirm_premise": actionPolicy(ActionInternalSQLite, ActionApprovalRequired, ActionAdvance, ActionEventTyped,
-		actionIntegerField("contract_version", false, 2147483647),
+		actionIntegerField("contract_version", false),
 	),
 	"complete": actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionHold, ActionEventCompletion,
 		actionStringField("evidence_commit", false, 128), actionStringField("current_commit", false, 128),
@@ -1440,7 +1440,7 @@ var builtinActionPolicies = map[string]builtinActionPolicy{
 	"frame_research": actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionHold, ActionEventGeneric),
 	"record_finding": actionPolicy(ActionCrossAuthority, ActionApprovalNone, ActionAdvance, ActionEventGeneric),
 	"revise_candidates": actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance, ActionEventTyped,
-		actionIntegerField("contract_version", false, 2147483647),
+		actionIntegerField("contract_version", false),
 		actionEnumField("candidate_kind", false, "work_item", "product", "project"), actionRefField("candidate_ref", false),
 		actionListField("added", false, 1, 64), actionListField("candidate_ids", false, 1, 64), actionListField("removed", false, 1, 64),
 	),
@@ -1474,13 +1474,13 @@ var builtinActionPolicies = map[string]builtinActionPolicy{
 	"start_action":        actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionFenced, ActionEventGeneric),
 	"checkpoint_action":   actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionCheckpoint, ActionEventCheckpoint),
 	"checkpoint_context": actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionHold, ActionEventTyped,
-		actionRefField("checkpoint_id", false), actionIntegerField("checkpoint_sequence", false, 2147483647),
+		actionRefField("checkpoint_id", false), actionIntegerField("checkpoint_sequence", false),
 		actionStringField("active_unit", true, 256), actionStringField("hypothesis", true, 4096), actionStringField("diagnosis", true, 4096), actionStringField("strategy", true, 4096),
 		actionListField("touched_refs", true, 1, 64), actionListField("evidence_refs", true, 1, 64), actionListField("pending_questions", true, 0, 16), actionListField("pending_decisions", true, 0, 16),
 	),
 	"cross_context_boundary": actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionHold, ActionEventTyped,
 		actionEnumField("boundary_kind", true, "summary", "restart"), actionEnumField("mode", true, "summary", "restart"), actionRefField("checkpoint_id", true),
-		actionIntegerField("boundary_sequence", false, 2147483647), actionIntegerField("checkpoint_sequence", false, 2147483647), actionStringField("summary", true, 16384),
+		actionIntegerField("boundary_sequence", false), actionIntegerField("checkpoint_sequence", false), actionStringField("summary", true, 16384),
 		WorkflowPayloadField{Name: "restart", ValueType: PayloadBoolean},
 	),
 	// CON-887: record_work_context declares the durable working context on
@@ -1498,19 +1498,19 @@ var builtinActionPolicies = map[string]builtinActionPolicy{
 	"record_delivery": actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance, ActionEventGeneric,
 		actionRefField("delivery_artifact", true), actionEnumField("delivery_state", true, "asserted")),
 	"accept_worker_result": actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance, ActionEventTyped,
-		actionRefField("attempt_id", true), actionIntegerField("attempt_epoch", true, 2147483647),
+		actionRefField("attempt_id", true), actionIntegerField("attempt_epoch", true),
 	),
 	// CD-0187: the confirmation-step accept binds a completed worker
 	// attempt's report as evidence and holds the step, so the operator's
 	// own gate stays the step's only advancing exit.
 	"accept_worker_evidence": actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionHold, ActionEventTyped,
-		actionRefField("attempt_id", true), actionIntegerField("attempt_epoch", true, 2147483647),
+		actionRefField("attempt_id", true), actionIntegerField("attempt_epoch", true),
 	),
 	"record_worker_failure": actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionHold, ActionEventGeneric,
-		actionRefField("attempt_id", true), actionIntegerField("attempt_epoch", true, 2147483647),
+		actionRefField("attempt_id", true), actionIntegerField("attempt_epoch", true),
 	),
 	"reject_worker_result": actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionHold, ActionEventGeneric,
-		actionRefField("attempt_id", true), actionIntegerField("attempt_epoch", true, 2147483647), actionStringField("diagnosis", true, 4096), actionStringField("strategy", true, 4096), actionIDListField("predicate_ids", true, 1, 8), actionListField("evidence_refs", true, 1, 32),
+		actionRefField("attempt_id", true), actionIntegerField("attempt_epoch", true), actionStringField("diagnosis", true, 4096), actionStringField("strategy", true, 4096), actionIDListField("predicate_ids", true, 1, 8), actionListField("evidence_refs", true, 1, 32),
 		actionIDListField("open_finding_ids", false, 1, 32),
 		// CD-0198 D5: the optional retry dispatch intent. The member names
 		// only the lane; the store derives the fresh attempt and the packet

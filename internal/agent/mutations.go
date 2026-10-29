@@ -1733,8 +1733,7 @@ func (r runtime) applyReviseIntentTx(ctx context.Context, tx *store.Transaction,
 	}
 	eventIDs := result.EventIDs
 	var revision store.WorkSizeRevisionResult
-	switch {
-	case in.SizeInputs != nil:
+	if in.SizeInputs != nil {
 		revision, err = store.RerunWorkSizeTx(ctx, tx, store.WorkSizeRerunRequest{Plan: sizePlan, WorkID: in.WorkID, EventID: digest + ":sized", Actor: actor, Now: r.Authority.now()})
 	}
 	if err != nil {

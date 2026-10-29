@@ -309,7 +309,7 @@ func checkMandatedLawsQuery(ctx context.Context, q queryer, homeProjectID, homeL
 		}
 		return checkMandatedLawsAcrossSources(ctx, q, sources, mandated, modified, allowAmendment)
 	}
-	return checkMandatedLawsAtSingleHome(ctx, q, homeProjectID, homeLocatorID, sources, mandated, modified, allowAmendment)
+	return checkMandatedLawsAtSingleHome(ctx, q, homeProjectID, homeLocatorID, mandated, modified, allowAmendment)
 }
 
 func qualifiedMandateSources(ctx context.Context, q queryer, homeProjectID, homeLocatorID string, mandated []string) ([]KnowledgeHome, error) {
@@ -338,7 +338,7 @@ func qualifiedMandateSources(ctx context.Context, q queryer, homeProjectID, home
 	return sources, nil
 }
 
-func checkMandatedLawsAtSingleHome(ctx context.Context, q queryer, homeProjectID, homeLocatorID string, sources []KnowledgeHome, mandated, modified []string, allowAmendment bool) error {
+func checkMandatedLawsAtSingleHome(ctx context.Context, q queryer, homeProjectID, homeLocatorID string, mandated, modified []string, allowAmendment bool) error {
 	placeholders := strings.TrimRight(strings.Repeat("?,", len(mandated)), ",")
 	args := []any{homeProjectID, homeLocatorID}
 	for _, id := range mandated {

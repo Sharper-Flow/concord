@@ -315,7 +315,7 @@ type indexedLaw struct {
 	body   []byte
 }
 
-func prepareDomainProjection(ctx context.Context, q queryer, manifest KnowledgeManifest, productID string, designated bool) (domainProjection, error) {
+func prepareDomainProjection(manifest KnowledgeManifest, productID string) (domainProjection, error) {
 	registry := manifest.DomainRegistry
 	result := domainProjection{ProductKey: registry.ProductKey, RegistryHash: domainRegistryContentHash(registry), RootDomainID: registry.RootDomainID}
 	if len(registry.Domains) == 0 {
@@ -576,7 +576,7 @@ func rebuildKnowledgeIndexTx(ctx context.Context, tx *sql.Tx, home KnowledgeHome
 		if productID != preparedProductID || designated != preparedDesignated {
 			return newFailure(KindStaleContext, "rebuild_knowledge_index", "knowledge home designation changed during rebuild preparation", true, "retry the rebuild against the current knowledge home designation")
 		}
-		domainProjectionData, err = prepareDomainProjection(ctx, tx, manifest, productID, designated)
+		domainProjectionData, err = prepareDomainProjection(manifest, productID)
 		if err != nil {
 			return err
 		}

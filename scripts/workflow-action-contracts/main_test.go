@@ -51,10 +51,7 @@ var retiredPublishedActions = []string{
 	"record_worker_failure", "record_discovery",
 }
 
-// liveActionTarget is the approved public action target: 58 prior public
-// IDs − 22 retired-family IDs − 6 ceremony IDs + record_diagnosis
-// (CD-0218 D1/D2).
-const liveActionTarget = 31
+const liveActionTarget = 30
 
 // TestCurrentFieldsetAdditionProjectsVariants holds the variant shape: two
 // current families declare the same action, one with an appended optional
@@ -143,7 +140,7 @@ func TestPublicPayloadDivergenceKeepsThePair(t *testing.T) {
 
 // TestShippedBuiltinsProjectTheLiveSurfaceOnly is the live-surface
 // integration: the shipped heads and the canonical recovery list fold into
-// exactly the approved 31 authorable actions, no retired published action
+// exactly the approved 30 authorable actions, no retired published action
 // is authorable, retained versions add no variant to a live action, the
 // canonical verdict and supersede shapes are the declared ones, and
 // record_diagnosis is present (CD-0218 D1/D2).

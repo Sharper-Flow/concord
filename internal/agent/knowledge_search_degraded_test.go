@@ -152,7 +152,7 @@ func demandContentHash(content string) string {
 // seedDemandHeldNegative teaches the store a work whose history is a held
 // negative: the declared work exists and carries no approved contract. No Git
 // content moves.
-func seedDemandHeldNegative(t *testing.T, s *store.Store, workID string) {
+func seedDemandHeldNegative(t *testing.T, s *store.Store) {
 	t.Helper()
 	db := s.DatabaseForTesting()
 	if _, err := db.Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
@@ -163,7 +163,7 @@ func seedDemandHeldNegative(t *testing.T, s *store.Store, workID string) {
 			t.Errorf("remove fold guard: %v", err)
 		}
 	}()
-	if _, err := db.Exec(`INSERT INTO work_items(id,kind,title,lifecycle,priority,version,created_at,updated_at) VALUES(?,'task','Demand fixture work','completed',1,1,'now','now')`, workID); err != nil {
+	if _, err := db.Exec(`INSERT INTO work_items(id,kind,title,lifecycle,priority,version,created_at,updated_at) VALUES(?,'task','Demand fixture work','completed',1,1,'now','now')`, demandHomeWork); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -183,7 +183,7 @@ func TestKnowledgeSearchHeldNegativeDemandRefusesWithoutDegraded(t *testing.T) {
 	t.Parallel()
 	s, _ := demandSearchHarness(t, store.KnowledgeHome{HomeProjectID: "d-home", HomeLocatorID: "d-loc"})
 	defer s.Close()
-	seedDemandHeldNegative(t, s, demandHomeWork)
+	seedDemandHeldNegative(t, s)
 	response := searchDemand(t, s, false)
 	if response.Outcome != agentcontract.OutcomeError || response.Error == nil {
 		t.Fatalf("a held negative must refuse the strict search, got %+v", response)
@@ -194,7 +194,7 @@ func TestKnowledgeSearchHeldNegativeDemandDegradesWithAllowDegraded(t *testing.T
 	t.Parallel()
 	s, _ := demandSearchHarness(t, store.KnowledgeHome{HomeProjectID: "d-home", HomeLocatorID: "d-loc"})
 	defer s.Close()
-	seedDemandHeldNegative(t, s, demandHomeWork)
+	seedDemandHeldNegative(t, s)
 	response := searchDemand(t, s, true)
 	if response.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("the suppressed demand must degrade, not fail: %+v", response)
@@ -230,7 +230,7 @@ func TestKnowledgeSearchDemandFailureNoticeMarshalsWithRealisticIdentifiers(t *t
 	t.Parallel()
 	s, home := demandSearchHarness(t, store.KnowledgeHome{HomeProjectID: "concord", HomeLocatorID: "canonical-path"})
 	defer s.Close()
-	seedDemandHeldNegative(t, s, demandHomeWork)
+	seedDemandHeldNegative(t, s)
 	response := searchDemand(t, s, true)
 	if response.Outcome != agentcontract.OutcomeOK || response.Authority != agentcontract.AuthorityDegraded {
 		t.Fatalf("suppressed demand must answer degraded: %+v", response)
@@ -247,18 +247,46 @@ func TestKnowledgeSearchDemandNoticeMarshalsWithLongLocator(t *testing.T) {
 	t.Parallel()
 	s, source := demandSearchHarness(t, store.KnowledgeHome{HomeProjectID: "d-home", HomeLocatorID: "canonical-" + strings.Repeat("x", 80)})
 	defer s.Close()
-	// This repository belongs to the temporary synthetic fixture only.
-	if err := os.RemoveAll(source.RepoPath); err != nil {
-		t.Fatal(err)
-	}
+	seedDemandHeldNegative(t, s)
 	response := searchDemand(t, s, true)
 	if response.Outcome != agentcontract.OutcomeOK || response.Authority != agentcontract.AuthorityDegraded {
-		t.Fatalf("unreachable source must answer degraded: %+v", response)
+		t.Fatalf("suppressed demand must answer degraded: %+v", response)
 	}
 	if _, err := json.Marshal(response); err != nil {
 		t.Fatalf("long-locator degraded source does not marshal: %v", err)
 	}
 	assertKnowledgeNotice(t, response.Omissions, "knowledge_source_demand_failed", map[string]any{
-		"project_id": source.HomeProjectID, "locator": source.HomeLocatorID, "cause": "unreachable",
+		"project_id": source.HomeProjectID, "locator": source.HomeLocatorID, "cause": "invalid_note_proof",
 	})
+}
+
+func TestKnowledgeSearchUnreachableHomeKeepsDegradedCachedRows(t *testing.T) {
+	t.Parallel()
+	s, home := demandSearchHarness(t, store.KnowledgeHome{HomeProjectID: "d-home", HomeLocatorID: "canonical-" + strings.Repeat("x", 80)})
+	defer s.Close()
+	if err := os.RemoveAll(home.RepoPath); err != nil {
+		t.Fatal(err)
+	}
+	response := searchDemand(t, s, true)
+	if response.Outcome != agentcontract.OutcomeOK || response.Authority != agentcontract.AuthorityDegraded {
+		t.Fatalf("unreachable home must answer degraded: %+v", response)
+	}
+	if _, err := json.Marshal(response); err != nil {
+		t.Fatalf("unreachable home does not marshal: %v", err)
+	}
+	assertKnowledgeNotice(t, response.Omissions, "knowledge_index_lagging_or_unreachable", nil)
+	for _, notice := range response.Omissions {
+		if notice.Kind == "knowledge_source_demand_failed" {
+			t.Fatalf("unreachable home fabricated a failed demand: %+v", notice)
+		}
+	}
+	var payload struct {
+		Items []map[string]any `json:"items"`
+	}
+	if err := json.Unmarshal(response.Result, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if len(payload.Items) == 0 {
+		t.Fatal("unreachable home lost its cached rows")
+	}
 }

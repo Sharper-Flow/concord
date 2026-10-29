@@ -187,7 +187,7 @@ func TestArchivedFamilyTerminalHistoryStaysReadable(t *testing.T) {
 	}
 }
 
-func TestLiveAuthoringActionUnionTargets31WithRecovery(t *testing.T) {
+func TestLiveAuthoringActionUnionTargets30WithRecovery(t *testing.T) {
 	t.Parallel()
 	declared := map[string]bool{}
 	for _, ref := range []string{"workflow.implementation", "workflow.break_fix", "workflow.research"} {
@@ -202,13 +202,22 @@ func TestLiveAuthoringActionUnionTargets31WithRecovery(t *testing.T) {
 	// The two recovery actions the engine admits off the pinned steps.
 	declared["reject_worker_result"] = true
 	declared["supersede_contract"] = true
-	if len(declared) != 31 {
-		names := make([]string, 0, len(declared))
-		for name := range declared {
-			names = append(names, name)
-		}
-		sort.Strings(names)
-		t.Fatalf("live authoring union holds %d IDs, want the 31 target: %s", len(declared), strings.Join(names, ","))
+	names := make([]string, 0, len(declared))
+	for name := range declared {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	want := []string{
+		"accept_worker_evidence", "accept_worker_result", "approve_contract", "bind_evidence",
+		"checkpoint_context", "checkpoint_execution", "checkpoint_refine", "checkpoint_repair",
+		"complete", "confirm_premise", "cross_context_boundary", "dispatch_worker", "frame_research",
+		"link_successor", "record_alignment", "record_conclusion", "record_delivery", "record_design",
+		"record_diagnosis", "record_finding", "record_proposal", "record_report", "record_verdict",
+		"record_work_context", "record_worker_job", "reject_worker_result", "request_correction",
+		"revise_candidates", "start_execution", "supersede_contract",
+	}
+	if !slices.Equal(names, want) {
+		t.Fatalf("live authoring union = %v, want %v", names, want)
 	}
 	retired := []string{
 		"accept_decision", "approve_operation",

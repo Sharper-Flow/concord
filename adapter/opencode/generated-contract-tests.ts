@@ -73,13 +73,14 @@ export function expandedPublishedRequestSchema(published: unknown): unknown {
     if (Array.isArray(value)) return value.map(expandValue);
     if (value === null || typeof value !== "object") return value;
     const node = resolve(value);
-    if (node !== null && typeof node === "object" && !Array.isArray(node) && Array.isArray(node.oneOf)) {
+    const union = node !== null && typeof node === "object" && !Array.isArray(node) ? ["oneOf", "anyOf"].find((keyword) => Array.isArray(node[keyword])) : undefined;
+    if (union !== undefined) {
       const expanded: Record<string, any> = {};
       for (const [key, entry] of Object.entries(node)) {
-        if (key === "oneOf" || key === "$defs") continue;
+        if (key === union || key === "$defs") continue;
         expanded[key] = expandValue(entry);
       }
-      expanded.oneOf = node.oneOf.map((branch: any) => expandValue(conjunction(node, resolve(branch))));
+      expanded[union] = node[union].map((branch: any) => expandValue(conjunction(node, resolve(branch))));
       return expanded;
     }
     const result: Record<string, any> = {};

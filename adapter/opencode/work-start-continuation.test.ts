@@ -125,7 +125,6 @@ afterEach(async () => {
 
 async function start(ctx = context()) {
   const result = await plugin.tool.concord_work_start.execute(args, ctx)
-  await plugin["tool.execute.after"]({ tool: "concord_work_start", sessionID, callID: "start-call", args }, result)
   return JSON.parse(result.output)
 }
 

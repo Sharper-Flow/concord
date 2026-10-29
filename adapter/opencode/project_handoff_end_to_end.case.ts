@@ -720,15 +720,13 @@ routeDeclaration("boots, consumes, and retires through the real core routes", as
 
     // The retirement read derives READY_TO_CLOSE_OR_REPLACE from the
     // verified facts only: the recorded addressed handoff, the preserved
-    // source worktree, the stopped session-owned execution, and the
-    // verified vacate landing.
+    // source worktree, and the verified vacate landing.
     const retirement = await invoke("concord_work_trace", "project_retirement", { work_id: workID }, contextFor(SOURCE_SESSION, destination))
     expect(retirement.outcome, JSON.stringify(retirement)).toBe("ok")
     const readiness = retirement.result as JSONRecord
     expect(readiness.state).toBe("ready_to_close_or_replace")
     expect(readiness.recorded_handoff).toBe(true)
     expect(readiness.artifacts_preserved).toBe(true)
-    expect(readiness.workers_stopped).toBe(true)
     expect(readiness.vacate_landed).toBe(true)
     expect(readiness.blockers).toEqual([])
 

@@ -35,7 +35,6 @@ function lifecycleCompletionEnvelope() {
           lifecycle: "completed",
           workflow_type: "workflow.break_fix",
           step: "acceptance",
-          attempt: null,
           pending_operator_decision: null,
           watermark: "seq:13513",
           next_valid_intents: [],

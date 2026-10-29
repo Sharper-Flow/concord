@@ -238,7 +238,7 @@ describe("project_retirement preserves the core's derived state", () => {
   const readyAnswer = () =>
     coreEnvelope("concord_work_trace", "project_retirement", "ok", {
       query_id: "CD-0182.R1",
-      result: { work_id: "work-1", project_id: "project-receive", session_ref: "session-receive", state: "ready_to_close_or_replace", recorded_handoff: true, artifacts_preserved: true, workers_stopped: true, vacate_landed: true, blockers: [] },
+      result: { work_id: "work-1", project_id: "project-receive", session_ref: "session-receive", state: "ready_to_close_or_replace", recorded_handoff: true, artifacts_preserved: true, vacate_landed: true, blockers: [] },
     })
 
   async function readRetirement() {

@@ -32,8 +32,7 @@ import (
 // wrong-target conditions stay typed refusals with no state change, so a
 // replay resolves from state and a stale handoff never authorizes execution.
 // Retirement readiness is derived read-only from the recorded handoff,
-// verified artifact preservation, stopped session-owned execution, and the
-// verified vacate landing; it never completes or cancels the shared work and
+// verified artifact preservation, and the verified vacate landing; it never completes or cancels the shared work and
 // never terminates a host process or removes a worktree.
 
 const (

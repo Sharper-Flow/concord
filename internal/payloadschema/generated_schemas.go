@@ -19134,6 +19134,24 @@ const GeneratedPayloadSchemaDocument = `{
                   "type": "string",
                   "x-maxBytes": 71
                 },
+                "law_change_removals": {
+                  "description": "Accepted shape: array of string matching ^\\S(?:[\\s\\S]*\\S)?$; Bounds: 1..64 items inclusive; example: [\"aa\"]",
+                  "examples": [
+                    [
+                      "aa"
+                    ]
+                  ],
+                  "items": {
+                    "$ref": "#/$defs/law_id",
+                    "description": "Accepted shape: string matching ^\\S(?:[\\s\\S]*\\S)?$; Bounds: 2..256 code points inclusive; example: \"aa\"",
+                    "examples": [
+                      "aa"
+                    ]
+                  },
+                  "maxItems": 64,
+                  "minItems": 1,
+                  "type": "array"
+                },
                 "law_change_text_pins": {
                   "description": "Accepted shape: array of object; Bounds: 1..64 items inclusive; example: [{\"content_hash\":\"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"law_id\":\"aa\"}]",
                   "examples": [
@@ -25209,6 +25227,24 @@ const GeneratedPayloadSchemaDocument = `{
                   "pattern": "\\S",
                   "type": "string",
                   "x-maxBytes": 71
+                },
+                "law_change_removals": {
+                  "description": "Accepted shape: array of string matching ^\\S(?:[\\s\\S]*\\S)?$; Bounds: 1..64 items inclusive; example: [\"aa\"]",
+                  "examples": [
+                    [
+                      "aa"
+                    ]
+                  ],
+                  "items": {
+                    "$ref": "#/$defs/law_id",
+                    "description": "Accepted shape: string matching ^\\S(?:[\\s\\S]*\\S)?$; Bounds: 2..256 code points inclusive; example: \"aa\"",
+                    "examples": [
+                      "aa"
+                    ]
+                  },
+                  "maxItems": 64,
+                  "minItems": 1,
+                  "type": "array"
                 },
                 "law_change_text_pins": {
                   "description": "Accepted shape: array of object; Bounds: 1..64 items inclusive; example: [{\"content_hash\":\"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"law_id\":\"aa\"}]",

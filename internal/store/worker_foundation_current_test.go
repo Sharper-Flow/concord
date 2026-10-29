@@ -219,6 +219,18 @@ func TestWorkerEditingFoundationWithoutLog(t *testing.T) {
 	}
 }
 
+// Editors on other worktrees and non-editing lanes never supply a foundation.
+func TestWorkerEditingFoundationAbsentOnThisWorktreeRefuses(t *testing.T) {
+	db := workerFoundationCurrentDB(t)
+	foundationDispatchForTest(t, db, 2, 1, "other-tree", "implement", strings.Repeat("a", 40), "other-claim")
+	foundationDispatchForTest(t, db, 3, 2, "verify", "verify", strings.Repeat("b", 40), "claim")
+	base, err := firstWorkerEditingSubject(t.Context(), db, "work", "claim", 10)
+	var failure *Failure
+	if base != "" || !failureAs(err, &failure) || failure.Kind != KindUnauthorizedDispatch || failure.Detail != "review contract has no first editing authorization on this worktree" {
+		t.Fatalf("absent foundation on this worktree did not refuse: base=%q err=%v", base, err)
+	}
+}
+
 func TestWorkerCallerCorrectionWindowWithoutLog(t *testing.T) {
 	db := workerFoundationCurrentDB(t)
 	for _, row := range []struct {

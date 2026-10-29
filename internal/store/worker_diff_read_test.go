@@ -298,11 +298,11 @@ func TestReadWorkerDiffCorrectionLoopKeepsFirstEditingSubject(t *testing.T) {
 	}
 }
 
-// CD-0242 D5-D7 retires contract-version resets: Review inspects the
-// accumulated solution even when a newer contract dispatches another editor.
+// Review inspects the accumulated solution across contract revisions
+// (CD-0242 D5-D7).
 func TestReadWorkerDiffSupersessionKeepsAccumulatedEditingHistory(t *testing.T) {
 	j, base := descendantReviewFixture(t, "diff-supersession")
-	prior := workerDiffCommit(t, j, "old-contract", "old contract change\n")
+	workerDiffCommit(t, j, "old-contract", "old contract change\n")
 	oldRequest := workerDiffDispatch(t, j, "old-review")
 	workerDiffCompleteRead(t, j, oldRequest.AttemptID)
 	reviewSubjectSupersedeContract(t, j.s, j.workID)
@@ -315,7 +315,7 @@ func TestReadWorkerDiffSupersessionKeepsAccumulatedEditingHistory(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if page.BaseCommit != base || page.BaseCommit == prior || page.SubjectCommit != head || !bytes.Contains(page.Data, []byte("+old contract change\n")) || !bytes.Contains(page.Data, []byte("+new contract change\n")) {
+	if page.BaseCommit != base || page.SubjectCommit != head || !bytes.Contains(page.Data, []byte("+old contract change\n")) || !bytes.Contains(page.Data, []byte("+new contract change\n")) {
 		t.Fatalf("supersession hid part of the accumulated solution: %+v %s", page, page.Data)
 	}
 	oldRequest.Runner = &workerReadingProbeRunner{GitRunner: CommittedReadGitRunner{}}

@@ -9,9 +9,117 @@ import (
 
 // WorkerReviewInput is dispatch-owned context, not a worker candidate claim.
 type WorkerReviewInput struct {
-	InputCandidate WorkerReviewCandidate    `json:"input_candidate"`
-	Dependencies   WorkerReviewDependencies `json:"dependencies"`
-	Size           *WorkSizeSummary         `json:"size,omitempty"`
+	InputCandidate     WorkerReviewCandidate           `json:"input_candidate"`
+	Dependencies       WorkerReviewDependencies        `json:"dependencies"`
+	Size               *WorkSizeSummary                `json:"size,omitempty"`
+	RetainedFailedEdit *WorkerReviewRetainedFailedEdit `json:"retained_failed_edit,omitempty"`
+}
+
+// WorkerReviewRetainedFailedEdit discloses the unaccepted delta being reviewed.
+// It carries no authority independent of the sealed dispatch preparation.
+type WorkerReviewRetainedFailedEdit struct {
+	AcceptedCandidate WorkerReviewCandidate `json:"accepted_candidate"`
+	ChangedPaths      []string              `json:"changed_paths"`
+}
+
+// WorkerReviewRetainedPathsMaxBytes bounds the serialized path array emitted
+// from the native diff's maxGitOutput bytes. Each raw byte needs at most six
+// JSON bytes; each NUL separator covers quotes and a comma, plus two brackets.
+const WorkerReviewRetainedPathsMaxBytes = 6*maxGitOutput + 2
+
+func retainedFailedEditInput(proof *retainedReviewProof) *WorkerReviewRetainedFailedEdit {
+	if proof == nil {
+		return nil
+	}
+	return &WorkerReviewRetainedFailedEdit{AcceptedCandidate: proof.State.Candidate, ChangedPaths: append([]string{}, proof.ChangedPaths...)}
+}
+
+type continuityReviewGitRunner struct{}
+
+func (continuityReviewGitRunner) Run(ctx context.Context, path string, args ...string) ([]byte, error) {
+	// Continuity must not refresh the index or start a configured fsmonitor.
+	return (CommittedReadGitRunner{}).Run(ctx, path, append([]string{"--no-optional-locks", "-c", "core.fsmonitor=false"}, args...)...)
+}
+
+type continuityReviewSubject struct {
+	receipt  *WorktreeVerifyResult
+	size     *WorkSizeSummary
+	retained *retainedReviewState
+	entries  []WorktreeEntry
+}
+
+func sampleContinuityReviewSubjectTx(ctx context.Context, tx *sql.Tx, work string, out *ContinuitySnapshot) (continuityReviewSubject, error) {
+	var subject continuityReviewSubject
+	if out.WorkPin == nil || out.WorkPin.Review == nil || out.WorkPin.Review.Dependencies == nil {
+		return subject, nil
+	}
+	var err error
+	subject.receipt, err = readCurrentOracleSubjectReceipt(ctx, tx, work)
+	if err != nil || subject.receipt == nil {
+		return subject, err
+	}
+	subject.size, err = readWorkSizeSummary(ctx, tx, work)
+	if err != nil || len(out.ReadyWorkerJobs) != 1 {
+		return subject, err
+	}
+	job := out.ReadyWorkerJobs[0]
+	subject.retained, err = sampleRetainedReviewState(ctx, tx, work, WorkerJobBinding{JobID: job.JobID, Revision: job.Revision, Digest: job.Digest}, "")
+	if err != nil || subject.retained == nil {
+		return subject, err
+	}
+	subject.entries, err = worktreeEntriesCore(ctx, tx, work)
+	return subject, err
+}
+
+// Call only after closing the read snapshot: Git observation grants no
+// dispatch authority, and a missing observation stays a typed read warning.
+func observeContinuityReviewSubject(ctx context.Context, out *ContinuitySnapshot, subject continuityReviewSubject) {
+	receipt := subject.receipt
+	if receipt == nil {
+		return
+	}
+	commit := strings.TrimPrefix(receipt.SubjectRef, "commit:")
+	tree, err := readReviewCandidateTree(ctx, CommittedReadGitRunner{}, receipt.Path, commit)
+	if err != nil {
+		out.ReviewInputWarning = err
+		return
+	}
+	out.ReviewInput = &WorkerReviewInput{InputCandidate: WorkerReviewCandidate{ProjectID: receipt.ProjectID, Commit: commit, Tree: tree}, Dependencies: *out.WorkPin.Review.Dependencies, Size: subject.size}
+	out.ReviewInput.RetainedFailedEdit, out.ReviewInputWarning = observeContinuityRetainedReview(ctx, out.ReviewInput, subject.retained, subject.entries, receipt)
+	if out.ReviewInputWarning != nil {
+		out.ReviewInput = nil
+	}
+}
+
+// Continuity observes the same delta owner after closing its SQL snapshot.
+// This descriptor is unsealed: dispatch compares it with its own preparation.
+func observeContinuityRetainedReview(ctx context.Context, input *WorkerReviewInput, sample *retainedReviewState, entries []WorktreeEntry, receipt *WorktreeVerifyResult) (*WorkerReviewRetainedFailedEdit, error) {
+	if sample == nil || input.InputCandidate == sample.Candidate {
+		return nil, nil
+	}
+	missing := func() error {
+		return reviewFailure(KindMissingEvidence, "retained Review input lacks its qualified clean descendant observation", "preserve unjudged work and inspect the current candidate, claim and clean HEAD; qualify and reread continuity only after they identify the same scoped descendant; if no such descendant exists, request maintainer investigation rather than repeating qualification of the unchanged mismatched HEAD")
+	}
+	entry, path, found := selectDispatchClaimEntry(entries, receipt.Path)
+	if !found || entry.ProjectID != input.InputCandidate.ProjectID {
+		return nil, missing()
+	}
+	runner := continuityReviewGitRunner{}
+	observation, err := observeDispatchSubject(ctx, runner, path)
+	if err != nil {
+		return nil, err
+	}
+	if observation.State != "clean" || observation.Commit != input.InputCandidate.Commit || observation.Tree != input.InputCandidate.Tree {
+		return nil, missing()
+	}
+	proof, err := observeRetainedReview(ctx, runner, &workerDispatchProof{probePath: path, observation: observation}, sample, entry)
+	if err != nil {
+		return nil, err
+	}
+	if proof == nil {
+		return nil, missing()
+	}
+	return retainedFailedEditInput(proof), nil
 }
 
 // readReviewCandidateTree uses the same immutable Git tree lookup as terminal
@@ -60,7 +168,7 @@ func currentWorkerReviewInput(ctx context.Context, q queryer, workID string, lan
 		if err != nil {
 			return nil, err
 		}
-		return &WorkerReviewInput{InputCandidate: WorkerReviewCandidate{ProjectID: prepared.proof.projectID, Commit: prepared.proof.observation.Commit, Tree: prepared.proof.observation.Tree}, Dependencies: dependencies, Size: size}, nil
+		return &WorkerReviewInput{InputCandidate: WorkerReviewCandidate{ProjectID: prepared.proof.projectID, Commit: prepared.proof.observation.Commit, Tree: prepared.proof.observation.Tree}, Dependencies: dependencies, Size: size, RetainedFailedEdit: retainedFailedEditInput(prepared.proof.retainedReview)}, nil
 	}
 	return nil, nil
 }

@@ -21,7 +21,7 @@ const maxWorkflowPredicateBytes = 64 * 1024
 // aliases. The widest-shape derivation in internal/agent pins it to one
 // next power of two, so a shape growth fails the derivation instead of the
 // transport.
-const MaxWorkflowActionPayloadBytes = 32 * 1024 * 1024
+const MaxWorkflowActionPayloadBytes = 64 * 1024 * 1024
 
 // maxWorkflowActionPayloadBytes is the package-local alias of the shared
 // action payload ceiling.

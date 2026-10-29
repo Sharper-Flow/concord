@@ -73,8 +73,9 @@ type workerDispatchProof struct {
 	// readings carries one sealed witness per declared required reading:
 	// the SQL-sampled source identities sampled in the same read snapshot,
 	// plus the Git resolution resolved after that snapshot closed.
-	readings     []dispatchReadingWitness
-	nativeReview *nativeReviewDispatchProof
+	readings       []dispatchReadingWitness
+	nativeReview   *nativeReviewDispatchProof
+	retainedReview *retainedReviewProof
 }
 
 // WorkerDispatchPreparation is the opaque prepared proof the authenticated
@@ -155,6 +156,7 @@ type workerDispatchSample struct {
 	pinReceipt      *WorktreeVerifyResult
 	memberAncestors []string
 	nativeReview    *nativeReviewDispatchSample
+	retainedReview  *retainedReviewState
 }
 
 // sampleWorkerDispatchStateInto samples the dispatch state into the
@@ -239,6 +241,10 @@ func sampleWorkerDispatchState(ctx context.Context, q queryer, request PrepareWo
 		if err != nil {
 			return sample, err
 		}
+	}
+	sample.retainedReview, err = sampleRetainedReviewDispatch(ctx, q, request)
+	if err != nil {
+		return sample, err
 	}
 	return sample, nil
 }
@@ -341,13 +347,26 @@ func prepareWorkerSubjectFreshness(ctx context.Context, s *Store, request Prepar
 		return nil, err
 	}
 	proof.observation = observation
-	if proof.nativeReview, err = observeNativeReviewDispatch(ctx, runner, request.reviewPlanner, entry, request.WorkID, &proof, sample.nativeReview); err != nil {
+	if err := observeDispatchReviewInputs(ctx, runner, request, sample, entry, &proof); err != nil {
 		return nil, err
 	}
-	if entry.MemberID == "" && observation.State == "clean" && len(sample.memberAncestors) != 0 {
-		proof.memberCandidate = dispatchSubjectIncludesMembers(ctx, runner, probePath, observation.Commit, sample.memberAncestors)
-	}
 	return &WorkerDispatchPreparation{proof: proof}, nil
+}
+
+// Review input proofs share this post-snapshot observation phase. Their
+// state revalidation remains SQL-only in the dispatch transaction.
+func observeDispatchReviewInputs(ctx context.Context, runner GitRunner, request PrepareWorkerDispatchRequest, sample workerDispatchSample, entry WorktreeEntry, proof *workerDispatchProof) error {
+	var err error
+	if proof.retainedReview, err = observeRetainedReview(ctx, runner, proof, sample.retainedReview, entry); err != nil {
+		return err
+	}
+	if proof.nativeReview, err = observeNativeReviewDispatch(ctx, runner, request.reviewPlanner, entry, request.WorkID, proof, sample.nativeReview); err != nil {
+		return err
+	}
+	if entry.MemberID == "" && proof.observation.State == "clean" && len(sample.memberAncestors) != 0 {
+		proof.memberCandidate = dispatchSubjectIncludesMembers(ctx, runner, proof.probePath, proof.observation.Commit, sample.memberAncestors)
+	}
+	return nil
 }
 
 func resolveWorkerDispatchReadings(ctx context.Context, runner GitRunner, readings []dispatchReadingWitness) error {
@@ -623,7 +642,16 @@ func validateReviewAcceptedDeliveryTx(ctx context.Context, tx *sql.Tx, workID, s
 		return reviewFailure(KindStaleRequiresReview, "Review input has no proven ancestry from every accepted member and the current candidate", workflowReviewRecovery("merge the accepted member commits into Main's integration worktree and qualify that candidate", "covering the integrated candidate"))
 	}
 	if state.Candidate != nil && (state.Candidate.Commit != subject || state.Candidate.ProjectID != receipt.ProjectID) && !workflowPreparedMemberCandidate(ctx, subject) {
-		return reviewFailure(KindStaleRequiresReview, "Review input differs from Main's current integrated candidate", workflowReviewRecovery("qualify Main's accepted current candidate and rebuild the packet for that subject", "covering the accepted current candidate"))
+		if prepared := workerDispatchPreparationFrom(ctx); prepared != nil && prepared.proof.retainedReview != nil && prepared.observationMatches(subject) && prepared.proof.retainedReview.Input.ProjectID == receipt.ProjectID {
+			current, err := retainedReviewCurrent(ctx, tx, workID, prepared.proof.retainedReview, "", worktreeIdentity)
+			if err != nil {
+				return err
+			}
+			if current {
+				return nil
+			}
+		}
+		return reviewFailure(KindStaleRequiresReview, "Review input differs from Main's current integrated candidate", "retain the candidate and failed-attempt evidence; retained-input Review requires a clean qualified descendant, one ready ordinary same-job revision, only terminal failed editors since the accepted candidate, and a delta inside every bound scope; if these conditions cannot be met, no admitted retained-input recovery exists: request maintainer investigation of the candidate/assignment refusal, not an invented revision or repeated unchanged dispatch; restoring a sibling or rejected HEAD must preserve any unjudged work first")
 	}
 	return nil
 }

@@ -224,6 +224,13 @@ authority, host failure, and unknown effects stay distinct. A correction hint
 never authorizes a retry of a possibly effective operation or bypasses a
 denial.
 
+A recovery hint must satisfy the named action's preconditions that the core
+can decide from recorded state. It must not require discarding retained work
+that no recorded result has judged. When no admitted recovery exists, the
+hint says so and names the maintainer follow-up. It must not prescribe an
+unchanged request, invented revision, or qualification of an earlier candidate
+as though that would review the retained descendant.
+
 ### D13. The cutover is one documented migration with a verified snapshot
 
 One migration route inventories what survives and what is discarded, migrates

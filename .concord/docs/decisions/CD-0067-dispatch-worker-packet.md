@@ -96,20 +96,15 @@ The review lane's own `HEAD` and tree check against the packet subject stays
 the backstop for drift after authorization; no adapter probe runs at the
 dispatch boundary.
 
-A review dispatch joins the newest accepted implementation delivery on the
-review's own claimed worktree. The join runs through acceptance, the exact
-completed attempt, and the dispatch identity. That delivery's clean
-`observed_delivery` must equal the shared qualified `subject_commit`. A
-delivery recorded under an earlier contract version of the same work item
-may host the review under the active contract. The judging contract is the
-packet's own binding, which the admission admits only at the active
-contract. The accepted delivery's own contract version stays readable
-through the existing records. Newer rejected, failed, or unaccepted results
-cannot replace the accepted delivery, and they do not let an older one
-through. A delivery from another work item, Project, or worktree cannot host
-the review, and a cancelled or superseded work item cannot review. This join
-opens no approval challenge. A review whose joined delivery carries no clean core observation
-refuses; the approved remedy is a fresh implementation attempt.
+Review's admitted subject and worker-job binding follow
+[CD-0205 D2](CD-0205-worker-jobs-bind-dispatch-and-separate-local-acceptance-from-delivery.md#d2-a-job-capable-dispatch-binds-one-ready-revision-end-to-end).
+The judging contract remains the packet's active contract, and earlier accepted
+records retain their original contract identities. A result from another work
+item, Project or worktree cannot supply the candidate; cancelled or superseded
+work cannot review. Missing historical producer observations remain absent.
+Retained failed-edit input neither replaces an accepted result nor fabricates a
+completed delivery; only acceptance of a fresh Review may advance Main's
+candidate.
 
 The dispatch packet is admitted whole under the shared dispatch context
 bound. The canonical JSON object of the packet's present

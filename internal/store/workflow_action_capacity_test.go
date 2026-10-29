@@ -100,11 +100,12 @@ func workerPacketCapacityOptions(defs map[string]any, packet, jobShape string, f
 	return schemawire.Options{
 		Defs: defs,
 		PathBounds: map[string]int{
+			packet + "/inputs/review_input/worker_packet_review_input/retained_failed_edit/changed_paths":                                                                                 WorkerReviewRetainedPathsMaxBytes,
 			packet + "/inputs/worker_job/" + jobShape + "/direct_caller_allowance/law_bindings/items/worker_oracle_law_binding/source/work_context_reading_source_knowledge/content_hash": 71,
-			packet + "/inputs/worker_job/" + jobShape + "/acceptance_oracle":        OracleCombinedMaxBytes,
-			packet + "/inputs/worker_job/" + jobShape + "/checks_repair":            WorkerJobChecksRepairMaxBytes,
-			packet + "/inputs/design_record/workflow_design_record/recorded_at":     32,
-			packet + "/inputs/proposal_record/workflow_proposal_record/recorded_at": 32,
+			packet + "/inputs/worker_job/" + jobShape + "/acceptance_oracle":                                                                                                              OracleCombinedMaxBytes,
+			packet + "/inputs/worker_job/" + jobShape + "/checks_repair":                                                                                                                  WorkerJobChecksRepairMaxBytes,
+			packet + "/inputs/design_record/workflow_design_record/recorded_at":                                                                                                           32,
+			packet + "/inputs/proposal_record/workflow_proposal_record/recorded_at":                                                                                                       32,
 		},
 		Excludes: map[string]bool{
 			packet + "/inputs/work_context": true,

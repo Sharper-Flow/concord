@@ -173,6 +173,24 @@ test("review packets preserve the recorded size and its provenance only on Revie
   }
 })
 
+test("review packets preserve the producer's retained failed-edit candidate and complete delta paths", async () => {
+  const descriptor = {
+    input_candidate: { project_id: "project-1", commit: "a".repeat(40), tree: "b".repeat(40) },
+    dependencies: { criteria: [{ predicate_id: "predicate:primary", content_digest: "sha256:" + "c".repeat(64) }], architecture_not_applicable: true },
+    retained_failed_edit: {
+      accepted_candidate: { project_id: "project-1", commit: "d".repeat(40), tree: "e".repeat(40) },
+      changed_paths: Array.from({ length: 80 }, (_, index) => `src/${"segment/".repeat(70)}file-${index}.ts`),
+    },
+  }
+  const continuity = continuityEnvelope() as any
+  continuity.result.pinned.review_input = descriptor
+  for (const laneId of ["review", "implement"]) {
+    const built = await build({ ...defaultScript(), "concord_work_trace.continuity": continuity }, { laneId })
+    expect(built.failure).toBeUndefined()
+    expect(built.packet!.inputs.review_input).toEqual(laneId === "review" ? descriptor : undefined)
+  }
+})
+
 test("binding preserves recorded work and contract versions beyond signed int32", async () => {
   const version = 2_147_483_648
   const scope = scopeEnvelope() as any

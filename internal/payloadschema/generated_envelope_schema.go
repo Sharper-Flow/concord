@@ -336,7 +336,7 @@ const GeneratedEnvelopeSchemaDocument = `{
           "type": "string"
         },
         "query_id": {
-          "pattern": "^(PM1\\.Q(1[0-46]|[1-9])|CD-0020\\.R1|CD-0030\\.R1|CD-0040\\.R1|CD-0096\\.R1|CD-0182\\.R1|C15\\.Resources|C19\\.(Continuity|MutationResult)|C22\\.Domain(List|Detail|Attachments|Overlaps|Footprint|Shape))$",
+          "pattern": "^(PM1\\.Q(1[0-46]|[1-9])|CD-0020\\.R1|CD-0030\\.R1|CD-0040\\.R1|CD-0096\\.R1|CD-0182\\.R1|C19\\.(Continuity|MutationResult)|C22\\.Domain(List|Detail|Attachments|Overlaps|Footprint|Shape))$",
           "type": "string"
         },
         "replayed": {
@@ -1088,7 +1088,7 @@ const GeneratedEnvelopeSchemaDocument = `{
           "type": "string"
         },
         "query_id": {
-          "pattern": "^(PM1\\.Q(1[0-46]|[1-9])|CD-0020\\.R1|CD-0030\\.R1|CD-0040\\.R1|CD-0096\\.R1|CD-0182\\.R1|C15\\.Resources|C19\\.(Continuity|MutationResult)|C22\\.Domain(List|Detail|Attachments|Overlaps|Footprint|Shape))$",
+          "pattern": "^(PM1\\.Q(1[0-46]|[1-9])|CD-0020\\.R1|CD-0030\\.R1|CD-0040\\.R1|CD-0096\\.R1|CD-0182\\.R1|C19\\.(Continuity|MutationResult)|C22\\.Domain(List|Detail|Attachments|Overlaps|Footprint|Shape))$",
           "type": "string"
         },
         "reason_code": {
@@ -2247,24 +2247,6 @@ const GeneratedEnvelopeSchemaDocument = `{
             },
             "query_id": {
               "const": "PM1.Q12"
-            },
-            "tool": {
-              "const": "concord_product_view"
-            }
-          },
-          "required": [
-            "tool",
-            "operation",
-            "query_id"
-          ]
-        },
-        {
-          "properties": {
-            "operation": {
-              "const": "resources"
-            },
-            "query_id": {
-              "const": "C15.Resources"
             },
             "tool": {
               "const": "concord_product_view"

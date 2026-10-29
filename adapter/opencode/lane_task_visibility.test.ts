@@ -4,7 +4,6 @@ import { agentLanes, agentUtilities } from "./generated-agent-lanes"
 import { dispatchWindows, TASK_TOOL_ID } from "./dispatch-window"
 import { hostControlPlane } from "./move-session"
 import { configureHostLease } from "./host-lease"
-import { configureCiWatch } from "./ci-watch"
 
 afterEach(() => {
   dispatchWindows().close("session-lane-window")
@@ -15,7 +14,6 @@ afterEach(() => {
 afterAll(() => {
   expect(dispatchWindows().inFlightAttempt("session-lane-window")).toBeNull()
   configureHostLease({ reset: true })
-  configureCiWatch({ reset: true })
 })
 
 // The registry's Task-list rule: utilities are coordinator-native Tasks a

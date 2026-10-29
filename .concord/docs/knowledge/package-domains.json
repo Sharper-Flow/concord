@@ -54,11 +54,6 @@
       "role": "domain"
     },
     {
-      "owner_domain_id": "agent-adapter",
-      "path": "internal/ciwait",
-      "role": "domain"
-    },
-    {
       "path": "internal/gittest",
       "role": "test_support"
     },

@@ -10,7 +10,6 @@ import fs from "node:fs"
 import path from "node:path"
 import { pathToFileURL } from "node:url"
 import ConcordAdapterPlugin from "./concord-plugin"
-import { configureCiWatch } from "./ci-watch"
 import { manifestDigest } from "./generated-contracts"
 import { configureHostLease } from "./host-lease"
 import { hostControlPlane } from "./move-session"
@@ -109,7 +108,6 @@ test("every tool-shaped export of a shipped module autoloads only under a plugin
   for (const key of registered) expect(key.startsWith("concord_")).toBe(true)
   const files = shippedAdapterFiles()
   expect(files).toContain(ENTRY_FILE)
-  expect(files).toContain("ci-watch.ts")
   const foreign: string[] = []
   for (const file of files) {
     // The host derives the autoload namespace from the file's own name, so
@@ -125,20 +123,7 @@ test("every tool-shaped export of a shipped module autoloads only under a plugin
   expect(foreign).toEqual([])
 })
 
-test("the watcher definition leaves ci-watch only through a non-tool shape", async () => {
-  // `concord_ci_watch` is registered by the plugin alone; this module must
-  // publish no tool-shaped binding, because the host would autoload it under
-  // a foreign `ci-watch_*` name. The factory is a function export, which the
-  // host does not treat as a tool.
-  const mod = (await import("./ci-watch")) as Record<string, unknown>
-  expect(Object.keys(mod).filter((name) => isToolShaped(mod[name]))).toEqual([])
-  expect(typeof mod.ciWatchTool).toBe("function")
-  const tool = (mod.ciWatchTool as () => unknown)()
-  expect(isToolShaped(tool)).toBe(true)
-})
-
 afterAll(() => {
   hostControlPlane().bind(undefined)
-  configureCiWatch({ reset: true })
   configureHostLease({ reset: true })
 })

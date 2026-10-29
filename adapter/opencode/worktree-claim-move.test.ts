@@ -7,7 +7,6 @@ import { mkdir, rm, symlink } from "node:fs/promises"
 import { mkdtempSync } from "node:fs"
 import { join, resolve } from "node:path"
 import { configureHostLease } from "./host-lease"
-import { configureCiWatch } from "./ci-watch"
 import ConcordAdapterPlugin from "./concord-plugin"
 import { configureConcordAdapter, moveSessionToClaimedWorktree } from "./concord"
 import { configureCoreBinary } from "./dispatch"
@@ -77,7 +76,6 @@ afterEach(async () => {
   landingCalls = []
   configureConcordAdapter({ reset: true })
   await ConcordAdapterPlugin({})
-  configureCiWatch({ reset: true })
 })
 
 describe("worktree_claim moves the session into the claimed worktree", () => {

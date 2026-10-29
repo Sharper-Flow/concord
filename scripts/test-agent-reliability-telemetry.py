@@ -122,10 +122,10 @@ class AgentReliabilityTelemetryTests(unittest.TestCase):
         # a host failure has no envelope; neither is an invalid_input refusal.
         self.add(*tool_part("concord_work_browse", "completed", json.dumps({"outcome": "ok", "result": {"title": "missing payload field invalid_input"}})))
         self.add(*tool_part("concord_work_define", "error", "undefined is not an object (evaluating 'args.operation')"))
-        self.add(*tool_part("concord_ci_watch", "completed", json.dumps({"status": "started"})))
+        self.add(*tool_part("concord_worker_check", "completed", json.dumps({"status": "started"})))
         self.add(*tool_part("concord_work_define", "completed", "not an envelope: invalid_input"))
         document = self.document()
-        for tool in ("concord_work_browse", "concord_work_define", "concord_ci_watch"):
+        for tool in ("concord_work_browse", "concord_work_define", "concord_worker_check"):
             self.assertEqual(document["measures"]["invalid_input"][tool]["invalid_input"], 0, tool)
 
     def test_serving_model_is_read_from_the_assistant_message(self) -> None:

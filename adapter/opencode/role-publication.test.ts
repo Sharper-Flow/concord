@@ -14,7 +14,6 @@ import fs from "node:fs"
 import path from "node:path"
 import { contractOperations, hostToolSchemas, workflowActionPublicVariants } from "./generated-contracts"
 import { expandedPublishedRequestSchema } from "./generated-contract-tests"
-import { ciWatchTool, publishCiWatchDefinition } from "./ci-watch"
 import { publishWorkerReadDefinition } from "./worker_source"
 import { publishWorkerCheckDefinition } from "./worker_control"
 import { publishWorkerDiffDefinition } from "./worker_diff"
@@ -44,19 +43,6 @@ const workStartOutput = { description: "", parameters: {}, jsonSchema: undefined
 await adapter.publishWorkStartDefinition({ toolID: "concord_work_start" }, workStartOutput)
 expect(workStartOutput.jsonSchema).toBeObject()
 registeredBytes.set("concord_work_start", Buffer.byteLength(JSON.stringify(workStartOutput.jsonSchema), "utf8"))
-const watcher = ciWatchTool()
-const watcherRegistration = {
-  description: watcher.description,
-  parameters: {},
-  jsonSchema: {
-    type: "object",
-    properties: Object.fromEntries(Object.entries(watcher.args as Record<string, unknown>).filter(([, value]) => value !== undefined)),
-    required: Object.keys(watcher.args as Record<string, unknown>),
-  },
-}
-await publishCiWatchDefinition({ toolID: "concord_ci_watch" }, watcherRegistration)
-expect(watcherRegistration.jsonSchema).toBeObject()
-registeredBytes.set("concord_ci_watch", Buffer.byteLength(JSON.stringify(watcherRegistration.jsonSchema), "utf8"))
 const readerOutput = { description: "", parameters: {}, jsonSchema: undefined as unknown }
 await publishWorkerReadDefinition({ toolID: "concord_worker_read" }, readerOutput)
 expect(readerOutput.jsonSchema).toEqual(hostToolSchemas.concord_worker_read)
@@ -95,9 +81,7 @@ test("every registered role's denial set stays inside the complete catalog", () 
       deniedUnion.add(tool)
     }
   }
-  // The union covers the whole catalog. The watcher is denied by no primary
-  // profile, so losing it from the lane/utility projection would leave the
-  // catalog uncovered and fail here.
+  // The union covers the whole catalog.
   expect([...deniedUnion].sort(), "the generated denials no longer cover the registered catalog").toEqual(CATALOG)
 })
 
@@ -136,7 +120,7 @@ test("per-role no-overlay byte budgets match the complete parameter roots", () =
   const READER_BUDGET = { allowed: ["concord_worker_read"], bytes: 601 }
   const CHECKER_BUDGET = { allowed: ["concord_worker_check", "concord_worker_read"], bytes: 1013 }
   const EMPTY_BUDGET = { allowed: [] as string[], bytes: 0 }
-  const PRIMARY_BUDGET = { allowed: CATALOG, bytes: 157_012 }
+  const PRIMARY_BUDGET = { allowed: CATALOG, bytes: 155_792 }
   // Neither full primary profile denies a tool, so each no-overlay budget
   // is the whole registered catalog at the full published total. Planner
   // loses exactly the work-state writers' roots.
@@ -185,8 +169,6 @@ test("publication is role-blind, so a denied role's budget is not an immutable c
     const output = { description: "", parameters: {}, jsonSchema: undefined as unknown }
     if (tool === "concord_work_start") {
       await adapter.publishWorkStartDefinition({ toolID: tool }, output)
-    } else if (tool === "concord_ci_watch") {
-      await publishCiWatchDefinition({ toolID: tool }, output)
     } else if (tool === "concord_worker_read") {
       await publishWorkerReadDefinition({ toolID: tool }, output)
     } else if (tool === "concord_worker_check") {

@@ -7,7 +7,6 @@ import { afterAll, afterEach, describe, expect, test } from "bun:test"
 import { reviewBlockFixture, reviewFindingFixture } from "./review-test-fixture"
 import { createHash } from "node:crypto"
 import { configureHostLease } from "./host-lease"
-import { configureCiWatch } from "./ci-watch"
 import ConcordAdapterPlugin from "./concord-plugin"
 import { computeHostPromptProvenance, type AgentLanePacket, type DispatchRunner, type HostProvenance } from "./dispatch"
 import { DispatchWindows, serializeLanePacket, TASK_TOOL_ID } from "./dispatch-window"
@@ -1262,7 +1261,6 @@ describe("plugin entry registers the completion hook", () => {
 // controls, so this file resets the factory's shared lease and peer state.
 afterAll(() => {
   configureHostLease({ reset: true })
-  configureCiWatch({ reset: true })
 })
 
 describe("structured host failure observations", () => {

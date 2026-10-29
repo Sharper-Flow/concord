@@ -2169,42 +2169,6 @@ def validate_work_start_host_tool(tool: dict) -> None:
         fail("concord_work_start capture must derive Project identity")
 
 
-def validate_ci_watch_host_tool(tool: dict) -> None:
-    args = tool.get("args", {})
-    properties = args.get("properties", {})
-    if args.get("type") != "object" or args.get("additionalProperties") is not False:
-        fail("concord_ci_watch host schema must be a closed object")
-    if list(properties) != ["repo", "selector", "head_sha", "mode", "time_seconds_max"]:
-        fail("concord_ci_watch must publish exactly repo, selector, head_sha, mode, and time_seconds_max")
-    if args.get("required") != ["repo", "selector"]:
-        fail("concord_ci_watch must require only repo and selector")
-    repo = properties.get("repo", {})
-    if (repo.get("type") != "string"
-            or repo.get("pattern") != "^[A-Za-z0-9][A-Za-z0-9.-]*/[A-Za-z0-9][A-Za-z0-9.-]*$"
-            or repo.get("minLength") != 3 or repo.get("maxLength") != 256):
-        fail("concord_ci_watch repo must carry the owner/name pattern bounded 3..256")
-    selector = properties.get("selector", {})
-    selector_properties = selector.get("properties", {})
-    if selector.get("type") != "object" or selector.get("additionalProperties") is not False:
-        fail("concord_ci_watch selector must be a closed object")
-    if selector.get("required") != ["kind", "value"] or list(selector_properties) != ["kind", "value"]:
-        fail("concord_ci_watch selector must carry only the required kind and value")
-    if selector_properties.get("kind", {}).get("enum") != ["pr", "sha", "run"]:
-        fail("concord_ci_watch selector.kind must admit pr, sha, and run only")
-    value = selector_properties.get("value", {})
-    if value.get("type") != "string" or value.get("minLength") != 1 or value.get("maxLength") != 64:
-        fail("concord_ci_watch selector.value must be a string bounded 1..64")
-    head = properties.get("head_sha", {})
-    if head.get("type") != "string" or head.get("pattern") != "^[0-9a-f]{40}$":
-        fail("concord_ci_watch head_sha must be a lowercase 40-character commit SHA")
-    if properties.get("mode", {}).get("enum") != ["checks", "merge"]:
-        fail("concord_ci_watch mode must admit checks and merge only")
-    budget = properties.get("time_seconds_max", {})
-    if (budget.get("type") != "integer" or budget.get("minimum") != 0
-            or budget.get("maximum") != 7200 or "default" in budget):
-        fail("concord_ci_watch time_seconds_max must be an integer bounded 0..7200 without a mode-independent default")
-
-
 def validate_worker_read_host_tool(tool: dict) -> None:
     args = tool.get("args", {})
     properties = args.get("properties", {})
@@ -2252,7 +2216,6 @@ def validate_worker_check_host_tool(tool: dict) -> None:
 # missing, or duplicated tool fails generation instead of widening silently.
 HOST_TOOL_VALIDATORS = {
     "concord_work_start": validate_work_start_host_tool,
-    "concord_ci_watch": validate_ci_watch_host_tool,
     "concord_worker_read": validate_worker_read_host_tool,
     "concord_worker_check": validate_worker_check_host_tool,
     "concord_worker_diff": validate_worker_diff_host_tool,

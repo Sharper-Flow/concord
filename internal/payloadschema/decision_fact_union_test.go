@@ -34,6 +34,7 @@ func TestDecisionFactContractUnion(t *testing.T) {
 					}
 					if test.law {
 						fields["law_change_reason"] = "Revise the bounded law."
+						fields["law_change_removals"] = []string{"law-remove"}
 					}
 					raw, err := json.Marshal(input)
 					if err != nil {

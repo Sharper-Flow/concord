@@ -2999,64 +2999,6 @@ const GeneratedPayloadSchemaDocument = `{
       ],
       "type": "object"
     },
-    "domain_shape_law": {
-      "additionalProperties": false,
-      "properties": {
-        "applies_to": {
-          "items": {
-            "maxLength": 256,
-            "minLength": 1,
-            "type": "string"
-          },
-          "maxItems": 32768,
-          "type": "array"
-        },
-        "content_hash": {
-          "maxLength": 71,
-          "minLength": 71,
-          "pattern": "^sha256:[0-9a-f]{64}$",
-          "type": "string"
-        },
-        "kind": {
-          "enum": [
-            "constitution",
-            "decision",
-            "spec"
-          ],
-          "type": "string"
-        },
-        "law_id": {
-          "maxLength": 256,
-          "minLength": 1,
-          "type": "string"
-        },
-        "path": {
-          "maxLength": 512,
-          "minLength": 1,
-          "type": "string"
-        },
-        "scanned_commit_oid": {
-          "maxLength": 64,
-          "minLength": 40,
-          "pattern": "^[0-9a-f]{40,64}$",
-          "type": "string"
-        },
-        "title": {
-          "maxLength": 256,
-          "minLength": 1,
-          "type": "string"
-        }
-      },
-      "required": [
-        "law_id",
-        "kind",
-        "title",
-        "path",
-        "content_hash",
-        "scanned_commit_oid"
-      ],
-      "type": "object"
-    },
     "domain_shape_result": {
       "additionalProperties": false,
       "description": "Typed selected Domain Shape. The Store refuses the whole serialized result above 32768 bytes, within the 51200-byte tool envelope. Declared facts and anchors are not execution proof.",
@@ -3085,8 +3027,11 @@ const GeneratedPayloadSchemaDocument = `{
           "type": "array"
         },
         "governing_law": {
+          "description": "IDs of every governing law selected at knowledge_commit in the result's knowledge home. Read each law by its ID; its bytes and content hash resolve from that pinned manifest.",
           "items": {
-            "$ref": "#/$defs/domain_shape_law"
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
           },
           "maxItems": 32768,
           "type": "array"
@@ -19189,6 +19134,24 @@ const GeneratedPayloadSchemaDocument = `{
                   "type": "string",
                   "x-maxBytes": 71
                 },
+                "law_change_removals": {
+                  "description": "Accepted shape: array of string matching ^\\S(?:[\\s\\S]*\\S)?$; Bounds: 1..64 items inclusive; example: [\"aa\"]",
+                  "examples": [
+                    [
+                      "aa"
+                    ]
+                  ],
+                  "items": {
+                    "$ref": "#/$defs/law_id",
+                    "description": "Accepted shape: string matching ^\\S(?:[\\s\\S]*\\S)?$; Bounds: 2..256 code points inclusive; example: \"aa\"",
+                    "examples": [
+                      "aa"
+                    ]
+                  },
+                  "maxItems": 64,
+                  "minItems": 1,
+                  "type": "array"
+                },
                 "law_change_text_pins": {
                   "description": "Accepted shape: array of object; Bounds: 1..64 items inclusive; example: [{\"content_hash\":\"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"law_id\":\"aa\"}]",
                   "examples": [
@@ -25264,6 +25227,24 @@ const GeneratedPayloadSchemaDocument = `{
                   "pattern": "\\S",
                   "type": "string",
                   "x-maxBytes": 71
+                },
+                "law_change_removals": {
+                  "description": "Accepted shape: array of string matching ^\\S(?:[\\s\\S]*\\S)?$; Bounds: 1..64 items inclusive; example: [\"aa\"]",
+                  "examples": [
+                    [
+                      "aa"
+                    ]
+                  ],
+                  "items": {
+                    "$ref": "#/$defs/law_id",
+                    "description": "Accepted shape: string matching ^\\S(?:[\\s\\S]*\\S)?$; Bounds: 2..256 code points inclusive; example: \"aa\"",
+                    "examples": [
+                      "aa"
+                    ]
+                  },
+                  "maxItems": 64,
+                  "minItems": 1,
+                  "type": "array"
                 },
                 "law_change_text_pins": {
                   "description": "Accepted shape: array of object; Bounds: 1..64 items inclusive; example: [{\"content_hash\":\"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"law_id\":\"aa\"}]",

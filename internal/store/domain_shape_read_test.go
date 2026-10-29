@@ -76,7 +76,7 @@ func TestDomainShapeReadGoldenQuestionsAndProductIsolation(t *testing.T) {
 				if !reflect.DeepEqual(got.Facts, want) || !reflect.DeepEqual(got.Roots, []DomainShapeRoot{{Path: "src", Role: "domain", OwnerDomainID: "fixture-law"}}) || !reflect.DeepEqual(got.DomainIDs, []string{"fixture-law"}) {
 					t.Fatalf("golden answer differs: %+v", got)
 				}
-				if len(got.GoverningLaw) != 1 || got.GoverningLaw[0].LawID != fixture.law || !domainShapeHash.MatchString(got.GoverningLaw[0].ContentHash) || got.GoverningLaw[0].ScannedCommit != got.KnowledgeCommit {
+				if len(got.GoverningLaw) != 1 || got.GoverningLaw[0] != fixture.law {
 					t.Fatalf("missing or foreign governing law identity: %+v", got.GoverningLaw)
 				}
 				if got.ProductID != fixture.product || got.HomeProjectID != fixture.home.HomeProjectID || got.HomeLocatorID != fixture.home.HomeLocatorID || got.Selector != selector || got.KnowledgeCommit != headCommit(t, fixture.home.RepoPath) {
@@ -198,7 +198,7 @@ func TestDomainShapeReadLongestRootRolesAndScopedLaw(t *testing.T) {
 		if test.role != "" && (len(got.Roots) != 1 || got.Roots[0].Role != test.role) {
 			t.Fatalf("%s role: %+v", test.path, got.Roots)
 		}
-		if len(test.owners) != 0 && (len(got.GoverningLaw) != 1 || got.GoverningLaw[0].LawID != "CD-0001") {
+		if len(test.owners) != 0 && (len(got.GoverningLaw) != 1 || got.GoverningLaw[0] != "CD-0001") {
 			t.Fatal("selected law includes parent placement alone or loses the direct home", got.GoverningLaw)
 		}
 		if test.role == "mixed" && (got.Facts[0].Fact.Standing != "observed" || len(got.Facts[0].Fact.GoverningLawIDs) != 0 || got.Roots[0].OwnerDomainID != "") {
@@ -207,7 +207,7 @@ func TestDomainShapeReadLongestRootRolesAndScopedLaw(t *testing.T) {
 	}
 	root := composeWorkingTreeManifest(t, home.RepoPath).DomainRegistry.RootDomainID
 	got, err := s.QueryDomainShape(ctx, product, DomainShapeSelector{DomainID: root})
-	if err != nil || len(got.GoverningLaw) != 1 || got.GoverningLaw[0].LawID != "CD-0003" {
+	if err != nil || len(got.GoverningLaw) != 1 || got.GoverningLaw[0] != "CD-0003" {
 		t.Fatal("root law is not separately retrievable", got.GoverningLaw, err)
 	}
 }

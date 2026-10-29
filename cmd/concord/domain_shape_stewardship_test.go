@@ -188,7 +188,7 @@ func TestDomainShapeStewardshipAllFourFacts(t *testing.T) {
 			t.Fatalf("observation acquired law authority: %+v", fact)
 		}
 	}
-	if len(kinds) != 4 || len(got.GoverningLaw) != 1 || got.GoverningLaw[0].LawID != "CD-0001" {
+	if len(kinds) != 4 || !reflect.DeepEqual(got.GoverningLaw, []string{"CD-0001"}) {
 		t.Fatalf("missing fact kind or current law: %+v", got)
 	}
 	resources, err := s.Resources(context.Background(), store.ResourcesRequest{ProductID: "alpha", Limit: 10})
@@ -271,7 +271,9 @@ func TestDomainShapeStewardshipMixedToExclusiveMigration(t *testing.T) {
 			t.Fatalf("migration changed identity, standing or an unrelated fact: %+v want %+v", item, want)
 		}
 	}
-	if len(after.GoverningLaw) != 1 || len(before.GoverningLaw) != 1 || after.GoverningLaw[0].LawID != before.GoverningLaw[0].LawID || after.GoverningLaw[0].ContentHash != before.GoverningLaw[0].ContentHash || after.GoverningLaw[0].Path != before.GoverningLaw[0].Path {
+	// The law's manifest record pins its path and content hash at each commit.
+	lawRecord := ".concord/docs/knowledge/records/CD-0001.json"
+	if len(after.GoverningLaw) != 1 || !reflect.DeepEqual(after.GoverningLaw, before.GoverningLaw) || shapeCLIGit(t, repo, "rev-parse", after.KnowledgeCommit+":"+lawRecord) != shapeCLIGit(t, repo, "rev-parse", before.KnowledgeCommit+":"+lawRecord) {
 		t.Fatal("migration changed accepted law identity/content")
 	}
 	byPath := stewardshipRead(t, s, repo, store.DomainShapeSelector{Path: "pkg/b/view.py"})

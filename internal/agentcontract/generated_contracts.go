@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-const ManifestDigest = "sha256:d893f72dba433dd8737ff45959f78e3457bca20f6fa6f706dfe218eb1855b4c2"
+const ManifestDigest = "sha256:05dadd168edb8243f633a8495f620bd1771b46434824851de5203fed816643bf"
 
 type OperationKind string
 
@@ -166,7 +166,6 @@ var GeneratedPayloadRules = map[string]GeneratedPayloadRule{
 	"domain_relation":                                       {Required: []string{"kind", "source_domain_id", "target_domain_id", "state"}, Properties: []string{"kind", "source_domain_id", "target_domain_id", "state", "governing_law_ids"}},
 	"domain_shape_fact":                                     {Required: []string{"fact", "path", "content_hash"}, Properties: []string{"fact", "path", "content_hash"}},
 	"domain_shape_input":                                    {Required: []string{"product_id"}, Properties: []string{"product_id", "path", "domain_id", "subject", "requested_budget_seconds"}},
-	"domain_shape_law":                                      {Required: []string{"law_id", "kind", "title", "path", "content_hash", "scanned_commit_oid"}, Properties: []string{"law_id", "kind", "title", "path", "content_hash", "scanned_commit_oid", "applies_to"}},
 	"domain_shape_result":                                   {Required: []string{"product_id", "home_project_id", "home_locator_id", "selector", "knowledge_commit", "snapshot_content_hash", "registry_content_hash", "package_map_content_hash", "tooling_commit", "tooling_content_hash", "roots", "domain_ids", "facts", "governing_law", "reference_verification", "extractor_verification"}, Properties: []string{"product_id", "home_project_id", "home_locator_id", "selector", "knowledge_commit", "snapshot_content_hash", "registry_content_hash", "package_map_content_hash", "tooling_commit", "tooling_content_hash", "roots", "domain_ids", "facts", "governing_law", "reference_verification", "extractor_verification"}},
 	"domain_shape_root":                                     {Required: []string{"path", "role"}, Properties: []string{"path", "role", "owner_domain_id", "domain_ids"}},
 	"domain_shape_selector":                                 {Required: []string{}, Properties: []string{"path", "domain_id", "subject"}},

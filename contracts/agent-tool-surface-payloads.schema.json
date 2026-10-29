@@ -17746,6 +17746,24 @@
                     "a"
                   ]
                 },
+                "law_change_removals": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/law_id",
+                    "description": "Accepted shape: string matching ^\\S(?:[\\s\\S]*\\S)?$; Bounds: 2..256 code points inclusive; example: \"aa\"",
+                    "examples": [
+                      "aa"
+                    ]
+                  },
+                  "minItems": 1,
+                  "maxItems": 64,
+                  "description": "Accepted shape: array of string matching ^\\S(?:[\\s\\S]*\\S)?$; Bounds: 1..64 items inclusive; example: [\"aa\"]",
+                  "examples": [
+                    [
+                      "aa"
+                    ]
+                  ]
+                },
                 "law_change_text_pins": {
                   "type": "array",
                   "items": {
@@ -23703,6 +23721,24 @@
                     "a"
                   ]
                 },
+                "law_change_removals": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/law_id",
+                    "description": "Accepted shape: string matching ^\\S(?:[\\s\\S]*\\S)?$; Bounds: 2..256 code points inclusive; example: \"aa\"",
+                    "examples": [
+                      "aa"
+                    ]
+                  },
+                  "minItems": 1,
+                  "maxItems": 64,
+                  "description": "Accepted shape: array of string matching ^\\S(?:[\\s\\S]*\\S)?$; Bounds: 1..64 items inclusive; example: [\"aa\"]",
+                  "examples": [
+                    [
+                      "aa"
+                    ]
+                  ]
+                },
                 "law_change_text_pins": {
                   "type": "array",
                   "items": {
@@ -28294,10 +28330,13 @@
           }
         },
         "governing_law": {
+          "description": "IDs of every governing law selected at knowledge_commit in the result's knowledge home. Read each law by its ID; its bytes and content hash resolve from that pinned manifest.",
           "type": "array",
           "maxItems": 32768,
           "items": {
-            "$ref": "#/$defs/domain_shape_law"
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
           }
         },
         "reference_verification": {
@@ -28376,64 +28415,6 @@
           "minLength": 71,
           "maxLength": 71,
           "pattern": "^sha256:[0-9a-f]{64}$"
-        }
-      }
-    },
-    "domain_shape_law": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "law_id",
-        "kind",
-        "title",
-        "path",
-        "content_hash",
-        "scanned_commit_oid"
-      ],
-      "properties": {
-        "law_id": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 256
-        },
-        "kind": {
-          "type": "string",
-          "enum": [
-            "constitution",
-            "decision",
-            "spec"
-          ]
-        },
-        "title": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 256
-        },
-        "path": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 512
-        },
-        "content_hash": {
-          "type": "string",
-          "minLength": 71,
-          "maxLength": 71,
-          "pattern": "^sha256:[0-9a-f]{64}$"
-        },
-        "scanned_commit_oid": {
-          "type": "string",
-          "minLength": 40,
-          "maxLength": 64,
-          "pattern": "^[0-9a-f]{40,64}$"
-        },
-        "applies_to": {
-          "type": "array",
-          "maxItems": 32768,
-          "items": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 256
-          }
         }
       }
     },

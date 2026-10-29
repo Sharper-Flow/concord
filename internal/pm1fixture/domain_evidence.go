@@ -123,7 +123,7 @@ func SeedWorkItem(ctx context.Context, s *store.Store, projectID, workID, title 
 
 // SeedDomainEvidence projects the single-Domain registry for opts.ProductID
 // from a freshly committed manifest, then binds a nonterminal contract per work
-// item to the root Domain and attaches the home Project to it.
+// item to the root Domain.
 func SeedDomainEvidence(ctx context.Context, s *store.Store, opts DomainEvidenceOptions) error {
 	if err := opts.validate(); err != nil {
 		return err
@@ -132,6 +132,10 @@ func SeedDomainEvidence(ctx context.Context, s *store.Store, opts DomainEvidence
 	if err != nil {
 		return err
 	}
+	return seedDomainEvidence(ctx, s, opts, repo, SingleDomainRootID, DomainEvidenceLawID, "domain evidence")
+}
+
+func seedDomainEvidence(ctx context.Context, s *store.Store, opts DomainEvidenceOptions, repo, domainID, lawID, premise string) error {
 	if err := execDomainFold(ctx, s,
 		domainStatement{"knowledge locator", `INSERT INTO project_locators(locator_id,project_id,kind,locator_value,normalized_value,created_at,updated_at) VALUES(?,?,'canonical_path',?,?,'now','now')`, []any{opts.LocatorID, opts.ProjectID, repo, repo}},
 		domainStatement{"knowledge home", `INSERT INTO product_knowledge_homes(product_id,project_id,locator_id) VALUES(?,?,?)`, []any{opts.ProductID, opts.ProjectID, opts.LocatorID}},
@@ -147,14 +151,14 @@ func SeedDomainEvidence(ctx context.Context, s *store.Store, opts DomainEvidence
 	statements := []domainStatement{
 		{"workflow actor", `INSERT INTO workflow_actors(actor_ref,principal_ref,client_ref,agent_ref,session_ref,actor_class,first_seen_at) VALUES(?,'human-1','client-1','agent-1','session-1','operator','now')`, []any{actorRef}},
 	}
-	const contract = `INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class) VALUES(?,1,'domain evidence','internal_sqlite','[]','[]','now',?,'[]','["` + DomainEvidenceLawID + `"]',1,'prototype_internal')`
+	const contract = `INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class) VALUES(?,1,?,'internal_sqlite','[]','[]','now',?,'[]',?,1,'prototype_internal')`
 	const binding = `INSERT INTO workflow_architecture_bindings(work_id,contract_version,product_id,domain_registry_content_hash,home_domain_id,projection_hash) SELECT ?,1,?,content_hash,?,content_hash FROM domain_registries WHERE product_id=?`
 	for _, workID := range opts.WorkIDs {
 		statements = append(statements,
-			domainStatement{"contract " + workID, contract, []any{workID, actorRef}},
-			domainStatement{"architecture binding " + workID, binding, []any{workID, opts.ProductID, SingleDomainRootID, opts.ProductID}},
-			domainStatement{"affected Domain " + workID, `INSERT INTO workflow_contract_affected_domains(work_id,contract_version,domain_id) VALUES(?,1,?)`, []any{workID, SingleDomainRootID}},
-			domainStatement{"law modification " + workID, `INSERT INTO workflow_contract_law_modifications(work_id,contract_version,law_id) VALUES(?,1,?)`, []any{workID, DomainEvidenceLawID}},
+			domainStatement{"contract " + workID, contract, []any{workID, premise, actorRef, `["` + lawID + `"]`}},
+			domainStatement{"architecture binding " + workID, binding, []any{workID, opts.ProductID, domainID, opts.ProductID}},
+			domainStatement{"affected Domain " + workID, `INSERT INTO workflow_contract_affected_domains(work_id,contract_version,domain_id) VALUES(?,1,?)`, []any{workID, domainID}},
+			domainStatement{"law modification " + workID, `INSERT INTO workflow_contract_law_modifications(work_id,contract_version,law_id) VALUES(?,1,?)`, []any{workID, lawID}},
 		)
 	}
 	if err := execDomainFold(ctx, s, statements...); err != nil {

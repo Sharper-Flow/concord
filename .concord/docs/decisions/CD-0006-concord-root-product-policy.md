@@ -8,8 +8,8 @@ knowledge authority, audience policy, release evidence, and Advance migration.
 
 ## Context
 
-PM1–PM10, C14/C15, and TS1–TS9 settled Concord's Product-memory, resource,
-launcher-row, and agent-surface mechanics. Root Product documents still carried older
+PM1–PM10 and TS1–TS9 settled Concord's Product-memory
+and agent-surface mechanics. Root Product documents still carried older
 leans: indefinite Advance coexistence, Product-by-Product usability before full
 readiness, workflow ownership left open, exposure inferred as reachability, a future
 team-server ambition, and production-call evidence before initial release.
@@ -65,7 +65,7 @@ visibility, or observed traffic. Concord never infers it.
 
 Maturity and audience commitment contribute independent evidence obligations; the
 combined work must satisfy both. Concord defines a global minimum policy.
-Product/Domain/resource policy may strengthen that floor but never weaken it.
+Product/Domain policy may strengthen that floor but never weaken it.
 Concrete obligation bands are accepted in §Resolved research R2.
 
 ### D5. Specs are human-enacted laws
@@ -85,7 +85,7 @@ normally proceeds against settled law.
 ### D6. Context-rich navigation, not a control center
 
 Substantive approval, conflict resolution, editing,
-history, resources, and planning happen inside the selected Product/workflow.
+history and planning happen inside the selected Product/workflow.
 
 Every human question must first provide the purpose, relevant context, concrete
 example, and consequence of each option. Concord never asks the operator to choose

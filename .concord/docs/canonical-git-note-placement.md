@@ -12,7 +12,7 @@
 > Git content-addressing/git-notes documentation.
 > **Related accepted boundaries:** PM8 excludes WIP-byte CAS and generic screenshot
 > requirements; PM9 rejects a separate process-exhaust receipt. **Does not decide:** PM10
-> backup/restore, C15 resources, agent tools, or exact implementation.
+> backup/restore, agent tools, or exact implementation.
 
 ## Context
 
@@ -101,8 +101,7 @@ setting W's primary Project through PM5, then retries idempotently.
 
 This rule is rebuild-stable because Product-home, primary-Project, and Project-level
 knowledge-locator designations are typed authoritative configuration—not process cwd,
-current repo, or free-form choice. PM6 defines these placement references; accepted
-C15 owns non-Project resource shape.
+current repo, or free-form choice. PM6 defines these placement references.
 
 ## 4. Canonical note and durable locator
 
@@ -318,7 +317,6 @@ index disposable/rebuildable.
 PM6 does not decide:
 
 - PM10 backup topology, clone inventory, wipe-machine restore, or lost-home repair;
-- C15 managed-resource note placement;
 - tool names, adapters, authorization, or batch behavior;
 - exact git command/API implementation, branch/PR policy, or locator schema syntax.
 

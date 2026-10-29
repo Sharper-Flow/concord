@@ -10,7 +10,7 @@
 > not required generic evidence.
 > **Related accepted boundary:** PM9 rejects a separate process-exhaust receipt.
 > **Does not decide:** PM10 backup/restore/GC,
-> C15, TS1–TS9, artifact encryption, or external-system retention.
+> TS1–TS9, artifact encryption, or external-system retention.
 
 ## Context
 
@@ -188,8 +188,6 @@ them would imply a recovery contract Concord cannot satisfy.
 
 - **PM10:** backs up/restores only accepted Concord authorities; no CAS or blob GC is
   introduced here.
-- **C15:** no presentation, managed-resource, or ownership rule; the Product-field
-  boundary retired with the Product-row glance (CD-0224).
 - **TS1–TS9:** no command, tool, agent schema, permission, or transport surface.
 - external CI/artifact provider retention, encryption, artifact signing, remote blob
   storage, chunking, media processing, and binary provenance.

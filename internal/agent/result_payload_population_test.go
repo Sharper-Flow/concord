@@ -195,9 +195,8 @@ func fullyPopulatedResearchPack(t *testing.T) store.ResearchPack {
 // domainReadPayloads holds one wire payload per Domain read, each projected
 // from what the store actually returned.
 type domainReadPayloads struct {
-	list        store.DomainListPayload
-	detail      store.DomainDetailPayload
-	attachments store.DomainAttachmentsPayload
+	list   store.DomainListPayload
+	detail store.DomainDetailPayload
 }
 
 // fullyPopulatedDomainPayloads runs the Domain reads against a store
@@ -257,22 +256,17 @@ func fullyPopulatedDomainPayloads(t *testing.T) domainReadPayloads {
 	if err != nil {
 		t.Fatal(err)
 	}
-	attachments, err := s.QueryDomainAttachments(ctx, store.DomainAttachmentsRequest{Product: product, Domain: domain})
-	if err != nil {
-		t.Fatal(err)
-	}
-	assertDomainReadsArePopulated(t, detail, attachments)
+	assertDomainReadsArePopulated(t, detail)
 	return domainReadPayloads{
-		list:        store.NewDomainListPayload(list),
-		detail:      store.NewDomainDetailPayload(detail),
-		attachments: store.NewDomainAttachmentsPayload(attachments),
+		list:   store.NewDomainListPayload(list),
+		detail: store.NewDomainDetailPayload(detail),
 	}
 }
 
 // assertDomainReadsArePopulated refuses a vacuous fixture. Every member below is
 // optional in its schema, so a read that left it empty would validate without
 // ever exercising the declaration under test.
-func assertDomainReadsArePopulated(t *testing.T, detail store.DomainDetailResult, attachments store.DomainAttachmentsResult) {
+func assertDomainReadsArePopulated(t *testing.T, detail store.DomainDetailResult) {
 	t.Helper()
 	if detail.Domain.ParentID == "" {
 		t.Fatal("detail Domain has no parent, so parent_domain_id is unexercised")
@@ -282,16 +276,6 @@ func assertDomainReadsArePopulated(t *testing.T, detail store.DomainDetailResult
 	}
 	if len(detail.Relations) == 0 || len(detail.Relations[0].GoverningLaws) == 0 {
 		t.Fatalf("detail governing law is unexercised: %#v", detail.Relations)
-	}
-	if len(attachments.Attachments.ResourceEdges) == 0 {
-		t.Fatalf("attachment edges are unexercised: %#v", attachments.Attachments)
-	}
-	// CD-0222 D4 gives the relation bounded purpose and environment metadata.
-	// A populated edge that carried neither would satisfy the length check
-	// above while proving nothing about the fields the read now declares.
-	resourceEdge := attachments.Attachments.ResourceEdges[0]
-	if resourceEdge.Purpose == "" || len(resourceEdge.Environments) == 0 {
-		t.Fatalf("resource attachment metadata is unexercised: %#v", resourceEdge)
 	}
 }
 
@@ -319,7 +303,6 @@ func TestFullyPopulatedResultPayloadsValidate(t *testing.T) {
 		{name: "work_trace research", tool: "concord_work_trace", operation: "research", payload: fullyPopulatedResearchPack(t)},
 		{name: "domain list", tool: "concord_domain", operation: "list", payload: domain.list},
 		{name: "domain detail", tool: "concord_domain", operation: "detail", payload: domain.detail},
-		{name: "domain attachments", tool: "concord_domain", operation: "attachments", payload: domain.attachments},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			raw, err := json.Marshal(testCase.payload)
@@ -1057,7 +1040,6 @@ func readPopulationInputs(t *testing.T, fx readPopulationFixture) map[string]str
 		"concord_product_view.resolve":             `{"product_id":"prod-alpha"}`,
 		"concord_product_view.snapshot":            `{"product_id":"prod-alpha"}`,
 		"concord_product_view.blocked_sessions":    `{"product_id":"prod-alpha"}`,
-		"concord_product_view.resources":           `{"product_id":"prod-alpha","page":{"cursor":null,"limit":20}}`,
 		"concord_work_browse.list":                 `{"product_id":"prod-alpha","page":{"cursor":null,"limit":20}}`,
 		"concord_work_browse.blocked":              `{"product_id":"prod-alpha","page":{"cursor":null,"limit":20}}`,
 		"concord_work_browse.ready":                `{"product_id":"prod-alpha","page":{"cursor":null,"limit":20}}`,
@@ -1078,7 +1060,6 @@ func readPopulationInputs(t *testing.T, fx readPopulationFixture) map[string]str
 		"concord_knowledge.observe_publication":    `{"product_id":"prod-alpha","source_project_id":"proj-knowledge","source_locator_id":"population-knowledge-locator"}`,
 		"concord_domain.list":                      `{"product_id":"prod-alpha","page":{"cursor":null,"limit":20}}`,
 		"concord_domain.detail":                    `{"product_id":"prod-alpha","domain_id":"` + fx.domainID + `"}`,
-		"concord_domain.attachments":               `{"product_id":"prod-alpha","domain_id":"` + fx.domainID + `"}`,
 		"concord_domain.footprint":                 `{"product_id":"prod-alpha","behavior":"domain","page":{"cursor":null,"limit":20}}`,
 		"concord_domain.shape":                     `{"product_id":"prod-alpha","domain_id":"` + fx.domainID + `"}`,
 	}
@@ -1161,7 +1142,6 @@ var readPopulationRows = map[string][]string{
 	"concord_product_view.resolve":             {"projects"},
 	"concord_product_view.snapshot":            {"previews"},
 	"concord_product_view.blocked_sessions":    {"sessions"},
-	"concord_product_view.resources":           {"resources"},
 	"concord_work_browse.list":                 {"items"},
 	"concord_work_browse.blocked":              {"items"},
 	"concord_work_browse.ready":                {"items"},
@@ -1178,7 +1158,6 @@ var readPopulationRows = map[string][]string{
 	"concord_knowledge.search":                 {"items"},
 	"concord_domain.list":                      {"domains"},
 	"concord_domain.detail":                    {"current_law", "relations", "observations"},
-	"concord_domain.attachments":               {"attachments.resource_attachments"},
 	"concord_domain.footprint":                 {"laws"},
 	"concord_domain.shape":                     {"domain_ids", "governing_law"},
 }

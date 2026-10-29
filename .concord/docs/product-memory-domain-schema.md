@@ -45,20 +45,19 @@ the stable Product-memory core.
 ## 2. Stable conceptual core
 
 PM3 decides the **objects and typed-column/extension boundary**, not final DDL or
-PM4/PM5/C15 semantics (now settled separately).
+PM4/PM5 semantics (now settled separately).
 
 | Object | PM3 commitment | PM1 purpose | Still open |
 |---|---|---|---|
 | `products` | first-class typed projection | Q1/Q2 Product root | none; the Product-row glance retired with its read (CD-0224) |
 | `projects` | first-class typed projection; repositories are one Project kind/locator | Q1/Q3/Q6 scope | repo/deploy packaging, Project kind details |
-| `domains` | Git-derived first-class Product-owned architecture identity with optional acyclic parent, law ownership, and endpoint-specific architecture relations; SQLite owns separate local stage/resource attachments | Q3/Q9 Domain filter; Product → Domain primary navigation | #193 implements Domain/law homes; #197 directly removes component authority from the current read path |
+| `domains` | Git-derived first-class Product-owned architecture identity with optional acyclic parent, law ownership, and endpoint-specific architecture relations; SQLite projects that law | Q3/Q9 Domain filter; Product → Domain primary navigation | #193 implements Domain/law homes; #197 directly removes component authority from the current read path |
 | `work_items` | one canonical typed managed-work projection; extensible `kind`; rare metadata JSON; independent `research` is ordinary work; CD-0213 permits historical `initiative` reads but no new grouping writes | Q2–Q8 | PM4 supplies states/relations; PM5 supplies membership/scope; business grouping belongs to Linear MCP |
 | Product↔Project membership | typed relational edge | Q1 ownership/ambiguity | PM5: many-to-many, role-only, optional singular primary |
 | Work↔Project membership | typed relational edge; no copied status | Q6 both directions | PM5: role-only, optional singular primary, derived Product scope |
 | `relations` | typed edge structure with real foreign key (FK) endpoints | Q4/Q8 | PM4 supplies kinds, inverses, cycle rules, and supersession semantics |
 | `labels` / tagging | typed many-to-many categorical extension | Q3/Q9 tags | exact label governance |
 | `external_refs` | opaque typed locator for PR/commit/upstream/URL | Q8/Q10 links | provider-specific validation |
-| Managed-resource identity | first-class typed canonical identity need for infra/SaaS resources because stage and sharing attach | Q1 ownership and Product context | C15 selects resource-first identity, one owner plus consumers, typed locators and work links; exact subtype/index DDL remains implementation design |
 | store state | current rows and finite verified snapshots; no event log, fold, upcaster, or replay exists (CD-0242 D2) | Q2–Q8 current-state reads | none |
 | active research context | CD-0215 direct SQLite tables for packs/revisions/findings/sources/consumers; never Git knowledge | work context | delete only by explicit retirement; PM8 still excludes blobs |
 | `artifacts` | other small structured/markdown content only | work context | PM8 excludes a v1 blob/evidence store |
@@ -166,7 +165,6 @@ PM3 did **not** decide:
 - lifecycle states, relation kinds/inverses/cycles, blocked/ready, reopen, and
   supersession semantics—now settled by accepted PM4;
 - membership roles/cardinality/scope—now settled by accepted PM5;
-- C15 managed-resource sharing shape—now settled by accepted resource-first registry;
 - C16 evidence/stage mapping;
 - tool names/counts/transport, plugin/MCP, or CLI operations;
 - exact DDL, migration files, or performance indexes (implementation acceptance).

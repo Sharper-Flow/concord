@@ -49,7 +49,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:6625a895b15ef218b99f9b0a61cc1f4f7020fc975b93fd1d54226384fe6e8ed3",
+  "sha256": "sha256:2b569be32e1489d5518917ad2965baaa52d55997b999d7fbfbe9c517bb2e5562",
   "status": "accepted",
   "summary": "Defines the typed call envelope and its re-validation by the Go core on every short-lived invocation.",
   "tags": [

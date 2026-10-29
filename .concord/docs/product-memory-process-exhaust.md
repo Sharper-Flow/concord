@@ -5,7 +5,7 @@
 > **Decision:** PM9; binding CD-0002 amendment.
 > **Binding inputs:** PM1 Q7/Q9/Q10, accepted PM2–PM8, CD-0002 I1–I6,
 > PM6 publish proof, and compaction-retention-policy retention.
-> **Does not decide:** PM10 backup/restore, C15, TS1–TS9, external CI retention,
+> **Does not decide:** PM10 backup/restore, TS1–TS9, external CI retention,
 > or a durable WIP-byte store.
 
 ## Context
@@ -162,7 +162,7 @@ into a storage, backup, and GC obligation.
 
 ## 8. Explicit deferrals and reopen criteria
 
-PM9 does not decide PM10 recovery, external CI retention, C15, or TS surfaces.
+PM9 does not decide PM10 recovery, external CI retention, or TS surfaces.
 
 Reopen PM9 only when a recurring, named reader must determine a fact that the completion
 receipt, approved note, verified locator, ordinary external link, and bounded state cannot

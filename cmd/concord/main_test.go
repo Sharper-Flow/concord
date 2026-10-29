@@ -18,7 +18,6 @@ import (
 	"strconv"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/sharper-flow/concord/internal/agent"
 	"github.com/sharper-flow/concord/internal/agentcontract"
@@ -172,12 +171,6 @@ func TestRunHelpListsExactCommandFormsAndStdinShapes(t *testing.T) {
 		"concord client policy-expand < JSON stdin",
 		"concord product-create < JSON stdin",
 		"concord product create < JSON stdin",
-		"concord resource-create < JSON stdin",
-		"concord resource create < JSON stdin",
-		"concord resource-share < JSON stdin",
-		"concord resource share < JSON stdin",
-		"concord domain-resource-attachments-replace < JSON stdin",
-		"concord domain resource-attachments-replace < JSON stdin",
 		"concord project-locator-add < JSON stdin",
 		"concord project locator-add < JSON stdin",
 		"concord invoke < JSON stdin",
@@ -186,7 +179,6 @@ func TestRunHelpListsExactCommandFormsAndStdinShapes(t *testing.T) {
 		"stage_maturity: prototype | alpha | beta | production | deprecated",
 		"stage_audience_commitment: operator_only | limited | public",
 		"kind: canonical_path | git_remote",
-		"attachments (replaces the full edge set)",
 		"capabilities: product_read | work_define | work_transition | work_relate | work_compact | cross_scope",
 	} {
 		if !strings.Contains(out.String(), want) {
@@ -408,7 +400,7 @@ func TestEveryVerbHasAHelpRoute(t *testing.T) {
 func TestGroupHelp(t *testing.T) {
 	topLevel := topLevelHelp(t)
 	groups := commandGroups()
-	for _, want := range []string{"client", "product", "resource", "domain", "project"} {
+	for _, want := range []string{"client", "product", "domain", "project"} {
 		if !slices.Contains(groups, want) {
 			t.Fatalf("commandGroups() = %v, missing %q", groups, want)
 		}
@@ -577,52 +569,6 @@ func TestProductStageUpdateCLIRecordsPromotion(t *testing.T) {
 	}
 }
 
-func TestResourceCreateCLIRecordsExpectedEvent(t *testing.T) {
-	dbPath := filepath.Join(t.TempDir(), "concord.db")
-	seedCLIProduct(t, dbPath, "resource-create-product", "resource-create-project")
-	runOperatorJSON(t, dbPath, []string{"resource-create"}, map[string]any{
-		"event_id": "resource-create-event", "resource_id": "resource-create-id", "product_id": "resource-create-product",
-		"display_name": "Queue", "class": "infrastructure", "kind": "queue", "purpose": "dispatches work",
-		"stage_maturity": "production", "stage_audience_commitment": "limited", "environments": []string{"production"},
-		"metadata_schema_version": "1", "metadata": map[string]any{}, "expected_product_version": 2,
-	})
-	assertCLIEvent(t, dbPath, "resource-create-event", "managed_resource.created")
-}
-
-func TestResourceShareCLIRecordsExpectedEvent(t *testing.T) {
-	dbPath := filepath.Join(t.TempDir(), "concord.db")
-	seedCLIProduct(t, dbPath, "resource-share-owner", "resource-share-owner-project")
-	seedCLIProduct(t, dbPath, "resource-share-consumer", "resource-share-consumer-project")
-	runOperatorJSON(t, dbPath, []string{"resource-create"}, map[string]any{
-		"event_id": "resource-share-create", "resource_id": "resource-share-id", "product_id": "resource-share-owner",
-		"display_name": "Database", "class": "infrastructure", "kind": "database", "purpose": "stores data",
-		"stage_maturity": "production", "stage_audience_commitment": "limited", "environments": []string{"production"},
-		"metadata_schema_version": "1", "metadata": map[string]any{}, "expected_product_version": 2,
-	})
-	runOperatorJSON(t, dbPath, []string{"resource-share"}, map[string]any{
-		"event_id": "resource-share-event", "resource_id": "resource-share-id", "product_id": "resource-share-consumer",
-		"purpose": "reads data", "environments": []string{"production"}, "expected_resource_version": 1,
-	})
-	assertCLIEvent(t, dbPath, "resource-share-event", "managed_resource.consumer_added")
-}
-
-func TestDomainResourceAttachmentsReplaceCLIRecordsExpectedEvent(t *testing.T) {
-	dbPath := filepath.Join(t.TempDir(), "concord.db")
-	seedCLIProduct(t, dbPath, "domain-resource-product", "domain-resource-project")
-	runOperatorJSON(t, dbPath, []string{"resource-create"}, map[string]any{
-		"event_id": "domain-resource-create", "resource_id": "domain-resource-id", "product_id": "domain-resource-product",
-		"display_name": "Queue", "class": "infrastructure", "kind": "queue", "purpose": "dispatches work",
-		"stage_maturity": "production", "stage_audience_commitment": "limited", "environments": []string{"production"},
-		"metadata_schema_version": "1", "metadata": map[string]any{}, "expected_product_version": 2,
-	})
-	seedCLIDomain(t, dbPath, "domain-resource-product", "domain-resource-id")
-	runOperatorJSON(t, dbPath, []string{"domain-resource-attachments-replace"}, map[string]any{
-		"event_id": "domain-resource-attachments-event", "product_id": "domain-resource-product", "domain_id": "domain-resource-id",
-		"expected_version": 0, "attachments": []map[string]any{{"resource_id": "domain-resource-id", "purpose": "uses queue", "environments": []string{"production"}}},
-	})
-	assertCLIEvent(t, dbPath, "domain-resource-attachments-event", "domain.resource_attachments_replaced")
-}
-
 func runOperatorJSON(t *testing.T, dbPath string, args []string, payload map[string]any) {
 	t.Helper()
 	t.Setenv(dbOverrideEnv, dbPath)
@@ -687,48 +633,6 @@ func seedCLIDomain(t *testing.T, dbPath, productID, domainID string) {
 	}
 	if err := tx.Commit(); err != nil {
 		t.Fatal(err)
-	}
-}
-
-func assertCLIEvent(t *testing.T, dbPath, eventID, kind string) {
-	t.Helper()
-	s, err := store.Open(context.Background(), dbPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer s.Close()
-	var gotKind, actor, subjectID, digest string
-	var seq int64
-	var version int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT kind,actor,subject_id,payload_version,payload_digest,effect_seq FROM effect_receipts WHERE event_id=?`, eventID).Scan(&gotKind, &actor, &subjectID, &version, &digest, &seq); err != nil {
-		t.Fatal(err)
-	}
-	if gotKind != kind || actor != "operator" || version != 1 || seq <= 0 || len(digest) != 71 {
-		t.Fatalf("receipt = kind:%q actor:%q version:%d seq:%d digest:%q, want %q/operator/v1/positive/sha256", gotKind, actor, version, seq, digest, kind)
-	}
-	switch kind {
-	case "managed_resource.created", "managed_resource.consumer_added":
-		var updatedAt string
-		role := "owner"
-		wantVersion := 1
-		if kind == "managed_resource.consumer_added" {
-			role = "consumer"
-			wantVersion = 2
-		}
-		if err := s.DatabaseForTesting().QueryRow(`SELECT r.updated_at FROM managed_resources r JOIN resource_products p ON p.resource_id=r.resource_id WHERE p.product_id=? AND p.role=? AND r.version=?`, subjectID, role, wantVersion).Scan(&updatedAt); err != nil {
-			t.Fatal(err)
-		}
-		if parsed, err := time.Parse(time.RFC3339Nano, updatedAt); err != nil || parsed.Location() != time.UTC {
-			t.Fatalf("resource stored time=%q, want UTC: %v", updatedAt, err)
-		}
-	case "domain.resource_attachments_replaced":
-		table := "domain_resource_attachment_sets"
-		var count int
-		if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM `+table+` WHERE product_id=? AND version=1`, subjectID).Scan(&count); err != nil || count != 1 {
-			t.Fatalf("current attachment set count=%d, want one version-1 set: %v", count, err)
-		}
-	default:
-		t.Fatalf("unhandled CLI current owner %q", kind)
 	}
 }
 
@@ -879,9 +783,6 @@ func TestCommandRouterAcceptsCanonicalAndTwoWordFormsWithoutPanicking(t *testing
 		{"project-locator-remove"}, {"project", "locator-remove"},
 		{"project-resolve"}, {"project", "resolve"},
 		{"product-create"}, {"product", "create"},
-		{"resource-create"}, {"resource", "create"},
-		{"resource-share"}, {"resource", "share"},
-		{"domain-resource-attachments-replace"}, {"domain", "resource-attachments-replace"},
 		{"project-create"}, {"project", "create"},
 		{"product-project-add"}, {"product", "project-add"},
 		{"predecessor-import"}, {"predecessor", "import"},

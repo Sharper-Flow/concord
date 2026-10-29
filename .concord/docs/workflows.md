@@ -172,10 +172,10 @@ surfaces.
 Workflows are reached primarily by **Product → Domain**, not by a flat list of
 changes or external planning groups.
 
-- A Product owns canonical Domains; Projects and resources attach without becoming
-  architecture identity.
+- A Product owns canonical Domains and has Project memberships. Projects do not
+  become architecture identity.
 - Each Domain lists current law, typed dependencies, active workflows, evidence,
-  decisions, resources, and recent changes.
+  decisions, typed facts, and recent changes.
 - A workflow or change is **architecture-bound history** from the Domain view, not the
   top-level browse path.
 - Business grouping lives in Linear under CD-0213 and owns no architecture authority.

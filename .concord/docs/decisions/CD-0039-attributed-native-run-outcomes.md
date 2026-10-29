@@ -52,10 +52,7 @@ agent prose, or an `EvidenceRef.authority` string.
 
 The native provider/resource being discussed is the report subject, not the
 source of Concord authority. It is named by an opaque, non-secret
-`native_subject_ref` and digest in the evidence. This avoids making the first
-replacement floor depend on the accepted but not yet implemented C15 managed
-resource inventory. A later C15 implementation may resolve that subject without
-changing who reported the claim.
+`native_subject_ref` and digest in the evidence.
 
 ### D3. One typed report records the outcome
 
@@ -196,10 +193,6 @@ record shape leaves room to bind a signature later.
 
 **Caller-supplied `native_authority`.** A string in agent input cannot confer
 authority.
-
-**Managed-resource registration as a prerequisite.** C15 has no runtime
-implementation yet. Making attribution depend on it would hide a new floor
-blocker. Provider/resource identity remains evidence subject data.
 
 **Return `ok` and let workflow state explain recovery.** This would hide an
 incomplete logical operation and contradict the accepted TS1 outcome.

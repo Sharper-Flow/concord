@@ -83,9 +83,7 @@ divergence_policy_ref
 
 `reporting_authority_ref` is derived from the authenticated trusted client or a
 core-owned Git probe. It is never accepted from agent prose. Subject references
-are opaque, bounded, and non-secret. They remain evidence subject data until an
-owning registry such as C15 exists; this record does not make C15 a floor
-prerequisite.
+are opaque, bounded, and non-secret. They remain evidence subject data.
 
 Capture provenance never changes. Later checks record additional verification
 rows; they do not edit the original observation or turn an attributed report

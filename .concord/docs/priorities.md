@@ -107,7 +107,7 @@ Product must keep true. Accepted specifications and decisions are law. Code,
 workflows, and evidence serve that law. Agents enact and change law under R3.
 
 - Durable Product knowledge is navigated through **Product → Domain**, with
-  current law, active work, evidence, decisions, and resources together.
+  current law, active work, evidence, decisions, and typed facts together.
 - Every current law record has one canonical Domain home; superseded law remains
   historical but leaves the default current view.
 - A clean Git merge, passing tests, or heuristic similarity score cannot prove
@@ -159,7 +159,7 @@ attributes, not by a fixed gate count.
 
 **What scales proportional rigor.** One input to the decision model is the
 **declared lifecycle stage** of the thing being worked on (`maturity` and
-user-declared `audience_commitment`, at Product, Domain, repo, and resource
+user-declared `audience_commitment`, at Product, Domain, and repo
 level; see [`product-data-model.md`](./product-data-model.md) §8). No stage is
 an evidence exemption. Independent maturity and audience obligations combine;
 Product-local policy may strengthen but never weaken Concord's global floor.

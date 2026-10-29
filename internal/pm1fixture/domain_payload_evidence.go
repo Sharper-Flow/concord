@@ -2,7 +2,6 @@ package pm1fixture
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 
 	"github.com/sharper-flow/concord/internal/store"
@@ -12,9 +11,8 @@ import (
 // single-Domain evidence fixture holds Concord's own registry shape, this one
 // exists so every optional field a Domain read can carry is non-zero at once: a
 // child Domain with a parent, an architecture relation with governing law, a law
-// with applicability beyond its home, and both attachment kinds. A read of this
-// state exercises every declared property of its result schema rather than the
-// subset a minimal Product happens to populate.
+// with applicability beyond its home. A read of this state exercises every
+// declared property rather than the subset a minimal Product populates.
 
 const (
 	// PayloadRootDomainID is the registry root and the child Domain's parent.
@@ -23,13 +21,10 @@ const (
 	PayloadChildDomainID = "sync"
 	// PayloadLawID is the accepted decision homed to the child Domain.
 	PayloadLawID = "CD-0101"
-	// PayloadResourceID is the managed resource attached to the child Domain.
-	PayloadResourceID = "payload-queue"
 
-	payloadProductKey       = "payload"
-	payloadLawPath          = ".concord/docs/decisions/CD-0101.md"
-	payloadLawBody          = "The child Domain owns synchronization law.\n"
-	payloadResourceMetadata = `{}`
+	payloadProductKey = "payload"
+	payloadLawPath    = ".concord/docs/decisions/CD-0101.md"
+	payloadLawBody    = "The child Domain owns synchronization law.\n"
 )
 
 // DomainPayloadEvidenceOptions names the identities the populated registry binds
@@ -37,9 +32,9 @@ const (
 type DomainPayloadEvidenceOptions struct {
 	// Dir is a caller-owned directory that receives the manifest Git repo.
 	Dir string
-	// ProductID owns the projected registry and the managed resource.
+	// ProductID owns the projected registry.
 	ProductID string
-	// ProjectID is the knowledge home Project and the attached Project.
+	// ProjectID is the knowledge home Project.
 	ProjectID string
 	// LocatorID names the canonical-path locator for that home.
 	LocatorID string
@@ -69,10 +64,9 @@ func (o DomainPayloadEvidenceOptions) validate() error {
 }
 
 // SeedDomainPayloadEvidence projects the two-Domain registry for opts.ProductID,
-// binds a nonterminal contract per work item to the child Domain, and attaches
-// both the home Project and a managed resource to it. The Product and Project
-// must already exist; SeedProductAndProject creates them at the version this
-// fixture expects.
+// binds a nonterminal contract per work item to the child Domain.
+// The Product and Project must already exist;
+// SeedProductAndProject creates them at the version this fixture expects.
 func SeedDomainPayloadEvidence(ctx context.Context, s *store.Store, opts DomainPayloadEvidenceOptions) error {
 	if err := opts.validate(); err != nil {
 		return err
@@ -81,50 +75,7 @@ func SeedDomainPayloadEvidence(ctx context.Context, s *store.Store, opts DomainP
 	if err != nil {
 		return err
 	}
-	if err := execDomainFold(ctx, s,
-		domainStatement{"knowledge locator", `INSERT INTO project_locators(locator_id,project_id,kind,locator_value,normalized_value,created_at,updated_at) VALUES(?,?,'canonical_path',?,?,'now','now')`, []any{opts.LocatorID, opts.ProjectID, repo, repo}},
-		domainStatement{"knowledge home", `INSERT INTO product_knowledge_homes(product_id,project_id,locator_id) VALUES(?,?,?)`, []any{opts.ProductID, opts.ProjectID, opts.LocatorID}},
-	); err != nil {
-		return err
-	}
-	home := store.KnowledgeHome{HomeProjectID: opts.ProjectID, HomeLocatorID: opts.LocatorID, RepoPath: repo, HeadRef: "HEAD"}
-	if err := s.RebuildKnowledgeIndex(ctx, home); err != nil {
-		return fmt.Errorf("pm1fixture: rebuild populated knowledge index: %w", err)
-	}
-
-	actorRef := store.DeriveWorkflowActorRef("human-1", "client-1", "agent-1", "session-1")
-	statements := []domainStatement{
-		{"workflow actor", `INSERT INTO workflow_actors(actor_ref,principal_ref,client_ref,agent_ref,session_ref,actor_class,first_seen_at) VALUES(?,'human-1','client-1','agent-1','session-1','operator','now')`, []any{actorRef}},
-	}
-	const contract = `INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class) VALUES(?,1,'populated domain payload','internal_sqlite','[]','[]','now',?,'[]','["` + PayloadLawID + `"]',1,'prototype_internal')`
-	const binding = `INSERT INTO workflow_architecture_bindings(work_id,contract_version,product_id,domain_registry_content_hash,home_domain_id,projection_hash) SELECT ?,1,?,content_hash,?,content_hash FROM domain_registries WHERE product_id=?`
-	for _, workID := range opts.WorkIDs {
-		statements = append(statements,
-			domainStatement{"contract " + workID, contract, []any{workID, actorRef}},
-			domainStatement{"architecture binding " + workID, binding, []any{workID, opts.ProductID, PayloadChildDomainID, opts.ProductID}},
-			domainStatement{"affected Domain " + workID, `INSERT INTO workflow_contract_affected_domains(work_id,contract_version,domain_id) VALUES(?,1,?)`, []any{workID, PayloadChildDomainID}},
-			domainStatement{"law modification " + workID, `INSERT INTO workflow_contract_law_modifications(work_id,contract_version,law_id) VALUES(?,1,?)`, []any{workID, PayloadLawID}},
-		)
-	}
-	if err := execDomainFold(ctx, s, statements...); err != nil {
-		return err
-	}
-
-	resource := store.ManagedResourceCreateRequest{
-		EventID: "payload-resource", ResourceID: PayloadResourceID, ProductID: opts.ProductID,
-		DisplayName: "Queue", Class: "infrastructure", Kind: "queue", Purpose: "dispatches synchronization work",
-		StageMaturity: "production", StageAudienceCommitment: "limited", Environments: []string{"production"},
-		MetadataSchemaVersion: "1", Metadata: json.RawMessage(payloadResourceMetadata),
-		ExpectedProductVersion: 2, Actor: "operator", OccurredAt: DomainEvidenceTime,
-	}
-	if _, err := store.CreateManagedResource(ctx, s, resource); err != nil {
-		return fmt.Errorf("pm1fixture: seed managed resource: %w", err)
-	}
-	resourceEdges := store.DomainResourceAttachmentsRequest{EventID: "payload-resource-edges", ProductID: opts.ProductID, DomainID: PayloadChildDomainID, ExpectedVersion: 0, Attachments: []store.DomainResourceAttachment{{ResourceID: PayloadResourceID, Purpose: "dispatches synchronization work", Environments: []string{"production"}}}, Actor: "operator", OccurredAt: DomainEvidenceTime.Add(1)}
-	if err := store.ReplaceDomainResourceAttachments(ctx, s, resourceEdges); err != nil {
-		return fmt.Errorf("pm1fixture: seed populated resource attachments: %w", err)
-	}
-	return nil
+	return seedDomainEvidence(ctx, s, DomainEvidenceOptions(opts), repo, PayloadChildDomainID, PayloadLawID, "populated domain payload")
 }
 
 // domainPayloadRepo commits a manifest declaring a root Domain and one child

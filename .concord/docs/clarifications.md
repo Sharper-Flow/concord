@@ -23,7 +23,7 @@ Two ordered, build-authorizing backlogs now govern the foundation:
 - **Product-memory contracts:** Product-memory and per-store decisions.
 - **TS1–TS9:** minimal agent tool-surface decisions.
 
-**The product-memory contracts, TS1–TS9, C7, and C15 are accepted.**
+**The product-memory contracts, TS1–TS9, and C7 are accepted.**
 Storage/core and agent-adapter/tool acceptance slices may begin once the implementation
 repo/package is chosen and separately authorized; pre-go-live changes remain subject
 to the deterministic TS9 evidence contract.
@@ -140,8 +140,8 @@ re-litigate them silently.
   completion. A `decision` or `spec` holds accepted law. No new kind, store, or
   global home is added. A procedure that applies to every Product belongs to
   host instructions or a skill.
-- **External systems:** identity lives in `managed_resources`, declared by the
-  operator. Learned usage is a `lesson` tagged `resource:<resource_id>`. A
+- **External systems:** learned usage is a Product-scoped `lesson` tagged
+  `resource:<resource_id>`. A
   record stores a vendor documentation locator, never vendor content.
 - **Effect:** recorded in [`vertical-integration.md`](./vertical-integration.md),
   which covers lgrep and vision only.
@@ -223,22 +223,6 @@ re-litigate them silently.
 - **Decision:** CD-0215 D2 keeps Option A. Independent research is an ordinary
   `work_items.kind = research`; embedded research remains inside its owning change;
   research packs are retained context/output, not another trackable.
-
-### C15. Managed-resource inventory shape ✅ Accepted 2026-08-06
-- **Question:** Does a managed resource (infrastructure, SaaS) remain a **member
-  beneath one owning Product** with an optional `shared_with` list, or become a
-  **first-class registry entity** with its own identity that Products link to
-  many-to-many? (`product-data-model.md` §9)
-- **Why:** sharing is a stated requirement — one database, queue, observability
-  account, or runner pool can serve several Products. Per-resource lifecycle stage
-  (`product-data-model.md` §8.2) makes a consistent shared-resource identity
-  necessary.
-- **Decision:** [`managed-resource-inventory.md`](./managed-resource-inventory.md).
-  Use a resource-first registry: one canonical resource identity, exactly one owning
-  Product, zero or more consuming Products, explicit resource stage, authority/
-  namespace-scoped locators, typed work links, and native execution
-  authority. No copied `shared_with` records, credentials, live status, or automatic
-  agent-surface expansion.
 
 ### C17. What does the Product coordination drill-down render?
 - **Question:** After a Product row is selected, what does the coordination detail
@@ -327,7 +311,7 @@ re-litigate them silently.
 - **Why:** lifecycle stage is only useful once it resolves to a concrete evidence
   bar. Until then, stage is declared but inert.
 - **Decision (CD-0006):** independent maturity and user-declared audience-commitment
-  obligation bands. Concord defines a global floor; Product/Domain/resource
+  obligation bands. Concord defines a global floor; Product/Domain
   policy may only strengthen it. Audience commitment is independent of repository/
   deployment visibility and replaces reachability-style `exposure` semantics.
 - **Decision (CD-0006 R2):** all work carries stated purpose/owner, at least one
@@ -418,7 +402,7 @@ Accepted TS decisions do not by themselves authorize runtime/tool surfaces.
 > **PM3 is accepted and binding.** It keeps explicit typed Product-memory
 > projections over current rows and finite snapshots (CD-0242 D2), replaces
 > CD-0003 D1's generic materialized spine, and bounds JSON to versioned extensions. PM4/PM5 are accepted;
-> C15 and TS1–TS9 are now accepted separately.
+> TS1–TS9 are now accepted separately.
 > **Amended by CD-0222:** component is not a lasting first-class projection.
 > Follow-up implementation migrates stable component identities one-for-one into
 > canonical Domains and adds endpoint-specific Domain relations; historical PM3
@@ -427,13 +411,13 @@ Accepted TS decisions do not by themselves authorize runtime/tool surfaces.
 > **PM4 is accepted and binding.** It fixes lifecycle, derived status, relation
 > direction/inverses, graph validation, reopen, supersession, and external-blocker
 > semantics. PM5 and TS1–TS9 are accepted.
-| **PM5 ✅ Accepted 2026-08-05** Multi-Project work identity + membership. *Binding:* [`product-memory-membership.md`](./product-memory-membership.md). | Many-to-many Product↔Project and work↔Project membership; one canonical work item; Product scope derived through joins; cross-Product work allowed; optional singular primary roles; no required/merge-order/lifecycle/status edge fields. | Local predecessor mapping + official/public Linear/GitLab/GitHub/Changesets/Jira/Bugzilla comparisons. Reopen on bounded-query failure, legitimate per-Project lifecycle need, repeated stored-Product need, PM6 failure from optional primary, unsafe membership moves, new membership attributes required by accepted jobs, or independent per-Product status need. | PM2–PM4 → **PM5 membership + PM6/C15/TS5 input**, operator-approved. |
+| **PM5 ✅ Accepted 2026-08-05** Multi-Project work identity + membership. *Binding:* [`product-memory-membership.md`](./product-memory-membership.md). | Many-to-many Product↔Project and work↔Project membership; one canonical work item; Product scope derived through joins; cross-Product work allowed; optional singular primary roles; no required/merge-order/lifecycle/status edge fields. | Local predecessor mapping + official/public Linear/GitLab/GitHub/Changesets/Jira/Bugzilla comparisons. Reopen on bounded-query failure, legitimate per-Project lifecycle need, repeated stored-Product need, PM6 failure from optional primary, unsafe membership moves, new membership attributes required by accepted jobs, or independent per-Product status need. | PM2–PM4 → **PM5 membership + PM6/TS5 input**, operator-approved. |
 > **PM5 is accepted and binding.** It completes the PM1–PM5 storage build-authorizing
-> sequence. PM6, C15, TS5, and TS1–TS9 are now accepted separately.
+> sequence. PM6, TS5, and TS1–TS9 are now accepted separately.
 | **PM6 ✅ Accepted 2026-08-05** Canonical git-note placement. *Binding:* [`canonical-git-note-placement.md`](./canonical-git-note-placement.md). | Deterministic unique Product-home→primary-Project knowledge-locator selection; otherwise typed `ambiguous`. One in-tree markdown note, stable Project/locator identity, commit OID + content hash, no copies/stubs, git-first publish proof. | Public predecessor lessons + Fowler/Log4brains/cross-cutting ADR patterns + official git docs. Reopen on non-rebuildable selection, excessive primary-less blocking, failed duplicate/orphan detection, accepted need for copied notes, legitimate multiple authorities, broken locator resolution, or PM10 restore failure. | PM2, PM5 → **compaction-retention-policy–PM9 / PM10 input**, operator-approved. |
 > **PM6 is accepted and binding.** It fixes canonical durable-note placement. Accepted
 > compaction-retention-policy supplies the bounded lazy pruning transition; PM8 excludes WIP-byte storage; PM9
-> rejects a separate receipt; PM10 fixes recovery. C15 and TS1–TS9 are now accepted.
+> rejects a separate receipt; PM10 fixes recovery. TS1–TS9 are now accepted.
 | **compaction-retention-policy ✅ Accepted 2026-10-09** Compaction, retention, historical index. *Binding:* [`compaction-retention-policy.md`](./compaction-retention-policy.md) amends PM6. | Terminal compaction plus verified git proof makes a work item eligible; only explicit or measured-pressure bounded lazy maintenance may prune its live projections. Retain current rows and finite verified snapshots ([CD-0242](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2); keep a git-rebuildable historical index with frozen compaction scope. Pruned IDs never reopen; renewed work has a new ID and typed `archived_work_linked` cross-tier link. | Reopen if retained receipts and snapshots are the growth problem, needed history is absent from git, linked successor work repeatedly fails legitimate jobs, combined live/historical Q2/Q3 misses target, historical front matter becomes a dump, maintenance burdens operators, measured pressure needs another trigger, or PM9/PM10 provides a simpler recovery authority. | PM4, PM6 → **PM6 amendment**, operator-approved. |
 > **compaction-retention-policy is accepted and binding.** It rejects a fixed 30-day sweep, keeps current rows and finite verified
 > snapshots as the state authority (CD-0242 D2), makes the prune transition atomic and foreign key (FK) clean, and fixes immutable
@@ -495,9 +479,9 @@ The current AJ5 overlap binding follows CD-0013 D11: routine dependency, blockin
 
 ## Recommended answering order
 
-**The product-memory contracts, TS1–TS9, C15, CD-0006, CD-0007, CD-0008, and CD-0082 are accepted.** Product-memory
+**The product-memory contracts, TS1–TS9, CD-0006, CD-0007, CD-0008, and CD-0082 are accepted.** Product-memory
 decisions authorize the storage/core acceptance slice; CD-0005 consolidates the
-accepted agent surface; C15 fixes resource ownership projections;
+accepted agent surface;
 CD-0006/CD-0007/CD-0008/CD-0082 fix root policy, public authority boundaries,
 evidence binding, unreadable-record isolation, execution mechanics, and
 demand-driven migration/correction. PM1 remains the shared query/read-tool corpus.

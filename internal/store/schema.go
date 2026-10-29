@@ -8148,6 +8148,17 @@ CREATE TRIGGER workflow_instances_guard_delete BEFORE DELETE ON workflow_instanc
 CREATE TRIGGER workflow_law_baselines_completed BEFORE UPDATE ON workflow_law_baselines WHEN NEW.enactment_effect_seq IS NOT NULL BEGIN SELECT RAISE(ABORT, 'workflow_law_baselines enactment requires its completed effect receipt') WHERE NOT EXISTS (SELECT 1 FROM effect_receipts r JOIN workflow_instances i ON i.work_id=r.subject_id JOIN work_items w ON w.id=i.work_id WHERE r.effect_seq=NEW.enactment_effect_seq AND r.kind='workflow.completed' AND r.subject_type='work_item' AND r.subject_id=NEW.work_id AND i.instance_state='completed' AND w.lifecycle='completed'); END;
 `,
 	},
+	{
+		Version:  165,
+		Name:     "managed_resource_catalog_retirement",
+		Breaking: true,
+		SQL: `
+DROP TABLE domain_resource_attachment_edges;
+DROP TABLE domain_resource_attachment_sets;
+DROP TABLE resource_products;
+DROP TABLE managed_resources;
+`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any

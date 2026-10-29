@@ -29,7 +29,6 @@ var readMarshalInputs = map[string]string{
 	"concord_product_view.resolve":          `{"product_id":"prod-alpha"}`,
 	"concord_product_view.snapshot":         `{"product_id":"prod-alpha"}`,
 	"concord_product_view.blocked_sessions": `{"product_id":"prod-alpha"}`,
-	"concord_product_view.resources":        `{"product_id":"prod-alpha"}`,
 
 	"concord_work_browse.list":             `{"product_id":"prod-alpha","page":{"cursor":null,"limit":10}}`,
 	"concord_work_browse.blocked":          `{"product_id":"prod-alpha","page":{"cursor":null,"limit":10}}`,
@@ -52,11 +51,10 @@ var readMarshalInputs = map[string]string{
 	"concord_knowledge.resolve_note":        `{"work_id":"work-done"}`,
 	"concord_knowledge.observe_publication": `{"product_id":"prod-alpha","source_project_id":"proj-web","source_locator_id":"repo-alpha-web"}`,
 
-	"concord_domain.list":        `{"product_id":"prod-alpha","page":{"cursor":null,"limit":10}}`,
-	"concord_domain.detail":      `{"product_id":"prod-alpha","domain_id":"root"}`,
-	"concord_domain.attachments": `{"product_id":"prod-alpha","domain_id":"root"}`,
-	"concord_domain.footprint":   `{"product_id":"prod-alpha","paths":["internal/store/store.go"],"page":{"cursor":null,"limit":10}}`,
-	"concord_domain.shape":       `{"product_id":"prod-alpha","path":"internal/store/store.go"}`,
+	"concord_domain.list":      `{"product_id":"prod-alpha","page":{"cursor":null,"limit":10}}`,
+	"concord_domain.detail":    `{"product_id":"prod-alpha","domain_id":"root"}`,
+	"concord_domain.footprint": `{"product_id":"prod-alpha","paths":["internal/store/store.go"],"page":{"cursor":null,"limit":10}}`,
+	"concord_domain.shape":     `{"product_id":"prod-alpha","path":"internal/store/store.go"}`,
 }
 
 // TestReadMarshalInputsCoverEveryDeclaredRead is the coverage gate. It holds

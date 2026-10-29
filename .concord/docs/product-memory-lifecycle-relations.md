@@ -191,9 +191,7 @@ Reopening B requires an explicit operation that first removes/replaces the activ
 supersession relation and then transitions B to `needed` in the same transaction.
 Directly changing `superseded → needed` is invalid.
 
-This work-item operation is distinct from the managed-resource identity and
-attachment model in `product-data-model.md` §9. PM4 does not extend its
-supersession semantics to resources or other entity types.
+PM4 does not extend its supersession semantics to other entity types.
 
 ## 6. Structural invariants
 

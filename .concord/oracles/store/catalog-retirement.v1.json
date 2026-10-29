@@ -1,0 +1,11 @@
+{
+  "kind": "go_top_level_v1",
+  "package_cwd": "internal/store",
+  "test_files": ["internal/store/catalog_retirement_oracle_test.go"],
+  "fixture_files": ["internal/store/knowledge_authority_defaults.v1.json"],
+  "cases": {
+    "case:catalog-schema-retired": ["TestCatalogRetirementSchema"],
+    "case:catalog-free-fact-sources": ["TestCatalogFreeFactSources"],
+    "case:catalog-snapshot-safety": ["TestCatalogRetirementSnapshotSafety"]
+  }
+}

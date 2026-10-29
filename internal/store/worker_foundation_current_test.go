@@ -162,10 +162,10 @@ func TestWorkerEditingFoundationWithoutLog(t *testing.T) {
 		otherTree bool
 	}{
 		{name: "correction-only contract and repairing review keep foundation"},
-		{name: "new editing contract resets foundation", newEditor: true},
+		{name: "new editing contract preserves accumulated foundation", newEditor: true},
 		{name: "missing first subject refuses", missing: "subject"},
 		{name: "missing first worktree refuses", missing: "tree"},
-		{name: "newest contract on another tree does not reuse predecessor", newEditor: true, otherTree: true},
+		{name: "newest contract on another tree does not replace this tree's foundation", newEditor: true, otherTree: true},
 	} {
 		t.Run(scenario.name, func(t *testing.T) {
 			db := workerFoundationCurrentDB(t)
@@ -199,16 +199,13 @@ func TestWorkerEditingFoundationWithoutLog(t *testing.T) {
 			check := func() {
 				t.Helper()
 				got, err := firstWorkerEditingSubject(t.Context(), db, "work", "claim", reviewSeq)
-				if scenario.missing != "" || scenario.otherTree {
+				if scenario.missing != "" {
 					if got != "" || !hasFailureKind(err, KindUnauthorizedDispatch) {
 						t.Fatalf("missing first %s: base=%q error=%v", scenario.missing, got, err)
 					}
 					return
 				}
 				want := foundation
-				if scenario.newEditor {
-					want = successor
-				}
 				if err != nil || got != want {
 					t.Fatalf("base=%q error=%v, want %q", got, err, want)
 				}
@@ -219,6 +216,18 @@ func TestWorkerEditingFoundationWithoutLog(t *testing.T) {
 			}
 			check()
 		})
+	}
+}
+
+// Editors on other worktrees and non-editing lanes never supply a foundation.
+func TestWorkerEditingFoundationAbsentOnThisWorktreeRefuses(t *testing.T) {
+	db := workerFoundationCurrentDB(t)
+	foundationDispatchForTest(t, db, 2, 1, "other-tree", "implement", strings.Repeat("a", 40), "other-claim")
+	foundationDispatchForTest(t, db, 3, 2, "verify", "verify", strings.Repeat("b", 40), "claim")
+	base, err := firstWorkerEditingSubject(t.Context(), db, "work", "claim", 10)
+	var failure *Failure
+	if base != "" || !failureAs(err, &failure) || failure.Kind != KindUnauthorizedDispatch || failure.Detail != "review contract has no first editing authorization on this worktree" {
+		t.Fatalf("absent foundation on this worktree did not refuse: base=%q err=%v", base, err)
 	}
 }
 

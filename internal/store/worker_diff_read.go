@@ -47,12 +47,10 @@ func workerDiffRefusal(detail string) error {
 	return newFailure(KindUnauthorizedDispatch, "worker_diff", detail, false, "use a live review with its original packet, claimed worktree, scoped job, and complete first-editing subject history")
 }
 
-// firstWorkerEditingSubject never skips an editing authorization with a
-// missing subject. The newest contract with an eligible editing authorization
-// owns the foundation. A correction-only contract and a repairing Review do
-// not reset the accumulated solution's base. Each earlier authorization is
-// classified by the capability class its attempt recorded at dispatch, not by
-// current lane content, and an unclassifiable row refuses.
+// firstWorkerEditingSubject preserves the accumulated solution's foundation
+// across contract revisions (CD-0242 D5-D7). Each earlier authorization is
+// classified by its recorded capability class, not current lane content.
+// Missing first-editing identity or an unclassifiable row refuses.
 func firstWorkerEditingSubject(ctx context.Context, q queryer, workID, identity string, reviewSeq int64) (string, error) {
 	rows, err := q.QueryContext(ctx, `SELECT r.contract_version,a.attempt_id IS NOT NULL,COALESCE(a.capability_class,''),COALESCE(json_extract(r.payload,'$.worker_subject_commit'),''),COALESCE(json_extract(r.payload,'$.worker_worktree_identity'),'') FROM worker_authorizations r LEFT JOIN worker_attempts a ON a.work_id=r.work_id AND a.attempt_id=r.attempt_id WHERE r.work_id=? AND r.seq>0 AND r.seq<? ORDER BY r.seq`, workID, reviewSeq)
 	if err != nil {
@@ -60,17 +58,15 @@ func firstWorkerEditingSubject(ctx context.Context, q queryer, workID, identity 
 	}
 	defer rows.Close()
 	type editingDispatch struct {
-		contract      int64
 		subject, tree string
-		editing       bool
 	}
 	editors := make([]editingDispatch, 0, 8)
-	var newestContract int64
 	for rows.Next() {
 		var d editingDispatch
+		var contract int64
 		var attempted bool
 		var class string
-		if err := rows.Scan(&d.contract, &attempted, &class, &d.subject, &d.tree); err != nil {
+		if err := rows.Scan(&contract, &attempted, &class, &d.subject, &d.tree); err != nil {
 			return "", err
 		}
 		if !attempted {
@@ -80,22 +76,17 @@ func firstWorkerEditingSubject(ctx context.Context, q queryer, workID, identity 
 		if !known {
 			return "", workerDiffRefusal("earlier worker attempt records no known capability class")
 		}
-		d.editing = editing
-		if d.editing {
-			if d.contract < 1 {
+		if editing {
+			if contract < 1 {
 				return "", workerDiffRefusal("review contract has no recorded approval history")
 			}
-			newestContract = max(newestContract, d.contract)
+			editors = append(editors, d)
 		}
-		editors = append(editors, d)
 	}
 	if err := rows.Err(); err != nil {
 		return "", err
 	}
 	for _, d := range editors {
-		if d.contract != newestContract || !d.editing {
-			continue
-		}
 		if d.tree == "" {
 			return "", workerDiffRefusal("editing authorization has no recorded worktree identity")
 		}

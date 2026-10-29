@@ -298,9 +298,11 @@ func TestReadWorkerDiffCorrectionLoopKeepsFirstEditingSubject(t *testing.T) {
 	}
 }
 
-func TestReadWorkerDiffSupersessionStartsNewEditingHistory(t *testing.T) {
-	j, oldBase := descendantReviewFixture(t, "diff-supersession")
-	base := workerDiffCommit(t, j, "old-contract", "old contract change\n")
+// Review inspects the accumulated solution across contract revisions
+// (CD-0242 D5-D7).
+func TestReadWorkerDiffSupersessionKeepsAccumulatedEditingHistory(t *testing.T) {
+	j, base := descendantReviewFixture(t, "diff-supersession")
+	workerDiffCommit(t, j, "old-contract", "old contract change\n")
 	oldRequest := workerDiffDispatch(t, j, "old-review")
 	workerDiffCompleteRead(t, j, oldRequest.AttemptID)
 	reviewSubjectSupersedeContract(t, j.s, j.workID)
@@ -313,8 +315,8 @@ func TestReadWorkerDiffSupersessionStartsNewEditingHistory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if page.BaseCommit != base || page.BaseCommit == oldBase || page.SubjectCommit != head || bytes.Contains(page.Data, []byte("+old contract change\n")) || !bytes.Contains(page.Data, []byte("+new contract change\n")) {
-		t.Fatalf("diff crossed the contract boundary: %+v %s", page, page.Data)
+	if page.BaseCommit != base || page.SubjectCommit != head || !bytes.Contains(page.Data, []byte("+old contract change\n")) || !bytes.Contains(page.Data, []byte("+new contract change\n")) {
+		t.Fatalf("supersession hid part of the accumulated solution: %+v %s", page, page.Data)
 	}
 	oldRequest.Runner = &workerReadingProbeRunner{GitRunner: CommittedReadGitRunner{}}
 	if page, err := j.s.ReadWorkerDiff(context.Background(), oldRequest); err == nil || len(page.Data) != 0 || oldRequest.Runner.(*workerReadingProbeRunner).calls != 0 {

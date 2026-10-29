@@ -34,7 +34,7 @@ Commands read one strict JSON object from stdin:
     accepted values: read-only host capability; original authorized packet only; ordinal and offset nonnegative; length 1-4096 raw bytes; data is base64; no path, ref, command, or workflow mutation
   concord worker-diff < JSON stdin
     required: work_id, attempt_id, worktree_identity, packet, offset, length
-    accepted values: read-only inspect_diff capability; original live review packet and pinned job scope only; first editing subject under the active contract to held review subject; offset nonnegative; length 1-4096 raw bytes; no caller-selected path or ref
+    accepted values: read-only inspect_diff capability; original live review packet and pinned job scope only; first editing subject on the same claimed worktree across contract revisions to held review subject; offset nonnegative; length 1-4096 raw bytes; no caller-selected path or ref
   concord worker-control < JSON stdin
     required: work_id, project_id, attempt_id, worktree_identity, packet, control_id, assertion
     accepted values: private host ingress; signed actual child execution policy and original packet; recorded native control only; no caller-authored argv, cwd, runner, actor, or workflow mutation

@@ -225,7 +225,7 @@ func workflowApproveBoundContractEvents(ctx context.Context, tx *sql.Tx, definit
 	if lawChangeErr != nil {
 		return nil, lawChangeErr
 	}
-	if err := bindWorkflowLawChangeApprovalTx(ctx, tx, request, lawChange); err != nil {
+	if err := bindWorkflowLawChangeApprovalTx(ctx, tx, request, lawChange, decisionDomains); err != nil {
 		return nil, err
 	}
 	if lawChange != nil {
@@ -371,7 +371,7 @@ func workflowSupersedeContractEvents(ctx context.Context, tx *sql.Tx, definition
 	if lawChangeErr != nil {
 		return nil, lawChangeErr
 	}
-	if err := bindWorkflowLawChangeApprovalTx(ctx, tx, request, lawChange); err != nil {
+	if err := bindWorkflowLawChangeApprovalTx(ctx, tx, request, lawChange, decisionDomains); err != nil {
 		return nil, err
 	}
 	if lawChange != nil {

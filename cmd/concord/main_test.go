@@ -355,7 +355,7 @@ func TestEveryVerbHasAHelpRoute(t *testing.T) {
 		verbs = append(verbs, verb)
 		cases = append(cases, verbCase{name: verb, args: []string{verb}, want: topLevelVerbLines(t, topLevel, verb)})
 	}
-	for _, want := range []string{"continuity-block", "repair"} {
+	for _, want := range []string{"continuity-block"} {
 		if !slices.Contains(verbs, want) {
 			t.Fatalf("top-level verbs outside commandSpecs = %v, missing %q", verbs, want)
 		}
@@ -470,19 +470,6 @@ func TestScopedUnsupportedUsage(t *testing.T) {
 				t.Fatalf("%v stderr still prints the full usage", tc.args)
 			}
 		})
-	}
-}
-
-// TestUnsupportedUsageOutsideCommandSpecs keeps a verb that commandSpecs does
-// not document to its one-line diagnostic: the scoped writer has no section
-// for it and must not fall back to the full usage.
-func TestUnsupportedUsageOutsideCommandSpecs(t *testing.T) {
-	var out, errOut bytes.Buffer
-	if code := runWithInput([]string{"repair", "--bogus"}, &countingStdin{}, &out, &errOut); code != 2 {
-		t.Fatalf("repair --bogus exit code = %d, want 2", code)
-	}
-	if got := errOut.String(); got != "concord repair: unsupported arguments: --bogus\n" {
-		t.Fatalf("repair --bogus stderr = %q, want only the one-line diagnostic", got)
 	}
 }
 

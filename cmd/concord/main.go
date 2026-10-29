@@ -79,13 +79,6 @@ func runWithInput(args []string, in io.Reader, out, errOut io.Writer) int {
 	if len(args) > 0 && args[0] == "upgrade" {
 		return runUpgradeCommand(args[1:], in, out, errOut)
 	}
-	// Repair runs from an ordinary shell during an outage (#912): it routes
-	// around the store open so a damaged deployment still reaches the
-	// verified installer, and it opens the store only for the pre-repair
-	// database snapshot.
-	if len(args) > 0 && args[0] == "repair" {
-		return runRepairCommand(args[1:], in, out, errOut)
-	}
 	command, commandArgs, ok := routeCommand(args)
 	if ok {
 		return runJSONCommand(command, commandArgs, in, out, errOut)
@@ -218,7 +211,6 @@ var verbUsages = []struct {
 	{"host-lease", []string{"host-lease < JSON stdin      # record this host session's release lease (adapter-invoked)"}},
 	{"host-leases", []string{"host-leases                  # print live release leases; prunes stale ones"}},
 	{"upgrade", []string{"upgrade < JSON stdin      # apply pending migrations; {\"plan\":true} reports readiness"}},
-	{"repair", []string{"repair < JSON stdin          # verify assets, back up the database, repair the installed release (#912)"}},
 }
 
 // isHelpFlag reports whether an argument asks for help; -h is an alias of

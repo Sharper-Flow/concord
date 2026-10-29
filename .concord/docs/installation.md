@@ -306,26 +306,40 @@ to the prepared candidate; repair and uninstall refuse until it completes.
 
 An incomplete deployment of the installed release — missing runtime modules, a
 stale manifest that records fewer files than the release ships, or a missing
-registration — is repaired from an ordinary shell:
+registration — is repaired with the published installer from an ordinary shell.
+Download `concord-installer.py` from the intended public release. If the installed
+core runs and a work database exists, first create a verified backup at a fresh
+absolute path outside any repository:
 
 ```sh
-concord repair
+printf '{"destination":"%s"}\n' "$HOME/concord-before-repair-$(date -u +%Y%m%dT%H%M%SZ).db" | concord backup &&
+python3 concord-installer.py repair
 ```
 
-The command reads the installed manifest, resolves the installer that the
-installed release published, and verifies that installer against the release's
-published checksums before running it. It then snapshots the work database
-under `${XDG_DATA_HOME:-$HOME/.local/share}/concord/backups/` and hands the
-mutation to the installer's `repair` subcommand. Repair keeps the installed
-release: it never upgrades or downgrades. Pass `{"installer_version": "vX.Y.Z"}`
-on JSON stdin to run another release's verified installer instead, for example
-when the release-matched installer itself is defective. The report names the
-selected release, the installer's release, the backup path, the repaired
-files, and the verification result.
+Stop if the backup fails. The installer does not create a database backup or
+open the work database. Repair keeps the installed release: it never upgrades
+or downgrades. The report names the repaired files and verification result.
+
+Offline repair uses locally published assets:
+
+```sh
+python3 concord-installer.py repair --artifact-dir /path/to/assets
+```
+
+The directory must hold the release archive and its checksum file. Run the
+same separate backup step first when the installed core is usable. If the
+`concord` executable itself is missing, run the published installer directly
+and retain existing verified database backups.
+
+Repair refuses before changing anything when an asset fails its checksum, when
+the release archive is incomplete, or when a managed file was modified so that
+it matches neither the installed manifest nor the release. The refusal names
+the offending artifact or path. The work database, worktrees, credentials, and
+unrelated configuration are outside the managed paths and are never touched.
 
 ### Managed snapshot retention
 
-After a successful upgrade or repair that made a verified snapshot, Concord
+After a successful upgrade that made a verified snapshot, Concord
 keeps at most eight verified managed snapshots no older than 30 days. It ranks
 them by verified manifest creation time, newest first, with descending filename
 as the stable tie-break. The newest verified snapshot and the snapshot the
@@ -350,38 +364,16 @@ their age never proves recovery finished. No new recovery record or per-snapshot
 pin is created. A breaking upgrade that retains its activation fence therefore
 reports deferred cleanup rather than pruning.
 
-Upgrade reports `snapshot_retention` in its JSON result; repair prints the
+Upgrade reports `snapshot_retention` in its JSON result, including the
 deleted count, protected excess, and any exclusion reason. Protected excess
 counts verified snapshots outside the ordinary count or age limit that safety
 rules kept. Recovery can therefore keep more than eight snapshots indefinitely.
-Failed snapshot creation or a failed upgrade or repair never prunes. Restore
+Failed snapshot creation or a failed upgrade never prunes. Restore
 never prunes. A cleanup failure reports that the operation finished but cleanup
-failed, in the upgrade's `snapshot_retention.error` or repair's diagnostic,
+failed, in the upgrade's `snapshot_retention.error`,
 and keeps the operation's success exit status. An interrupted pair removal can
 leave an orphan manifest, which is not treated as a verified snapshot on a
 later pass.
-
-Offline repair uses locally published assets:
-
-```sh
-echo '{"artifact_dir": "/path/to/assets"}' | concord repair
-```
-
-The directory must hold the release archive, its checksum file, and
-`concord-installer.py`.
-
-If the `concord` executable itself is missing, the supported entry is the
-published installer run directly:
-
-```sh
-python3 concord-installer.py repair
-```
-
-Repair refuses before changing anything when an asset fails its checksum, when
-the release archive is incomplete, or when a managed file was modified so that
-it matches neither the installed manifest nor the release. The refusal names
-the offending artifact or path. The work database, worktrees, credentials, and
-unrelated configuration are outside the managed paths and are never touched.
 
 ## Recovery
 

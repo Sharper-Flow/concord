@@ -39,7 +39,6 @@
         "concord_work_browse.ready",
         "concord_work_browse.blocked",
         "concord_work_browse.scope",
-        "concord_work_browse.resource_claims",
         "concord_work_browse.messages",
         "concord_work_browse.worktree_audit",
         "concord_work_browse.worktree_inspect"
@@ -111,8 +110,6 @@
       "description": "Change memberships and typed work relations.",
       "operations": [
         "concord_work_relate.set_memberships",
-        "concord_work_relate.resource_claim",
-        "concord_work_relate.resource_release",
         "concord_work_relate.message_send",
         "concord_work_relate.message_withdraw",
         "concord_work_relate.resolve_overlap",
@@ -300,27 +297,6 @@
       "approval": "none",
       "metadata": {
         "context": "explicit",
-        "idempotency": "request_id",
-        "pagination": "cursor",
-        "output_bytes": 51200,
-        "versions": [
-          "1.0"
-        ]
-      },
-      "supported_budget_seconds": 300
-    },
-    {
-      "id": "concord_work_browse.resource_claims",
-      "tool": "concord_work_browse",
-      "kind": "read",
-      "query_id": "PM1.Q13",
-      "input_schema": "#/schemas/work_browse_resource_claims_input",
-      "result_schema": "#/schemas/resource_claims_page",
-      "capability": "product_read",
-      "consequence": "read",
-      "approval": "none",
-      "metadata": {
-        "context": "ambient",
         "idempotency": "request_id",
         "pagination": "cursor",
         "output_bytes": 51200,
@@ -1151,48 +1127,6 @@
       "supported_budget_seconds": 300
     },
     {
-      "id": "concord_work_relate.resource_claim",
-      "tool": "concord_work_relate",
-      "kind": "mutation",
-      "query_id": null,
-      "input_schema": "#/schemas/work_relate_resource_claim_input",
-      "result_schema": "#/schemas/mutation_result",
-      "capability": "work_relate",
-      "consequence": "claim",
-      "approval": "none",
-      "metadata": {
-        "context": "ambient",
-        "idempotency": "required",
-        "pagination": "none",
-        "output_bytes": 51200,
-        "versions": [
-          "1.0"
-        ]
-      },
-      "supported_budget_seconds": 300
-    },
-    {
-      "id": "concord_work_relate.resource_release",
-      "tool": "concord_work_relate",
-      "kind": "mutation",
-      "query_id": null,
-      "input_schema": "#/schemas/work_relate_resource_release_input",
-      "result_schema": "#/schemas/mutation_result",
-      "capability": "work_relate",
-      "consequence": "claim",
-      "approval": "none",
-      "metadata": {
-        "context": "ambient",
-        "idempotency": "required",
-        "pagination": "none",
-        "output_bytes": 51200,
-        "versions": [
-          "1.0"
-        ]
-      },
-      "supported_budget_seconds": 300
-    },
-    {
       "id": "concord_work_relate.message_send",
       "tool": "concord_work_relate",
       "kind": "mutation",
@@ -1616,10 +1550,6 @@
       "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/research_read_result",
       "closed": true
     },
-    "resource_claims_page": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/resource_claims_page",
-      "closed": true
-    },
     "resource_page": {
       "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/resource_page",
       "closed": true
@@ -1646,10 +1576,6 @@
     },
     "work_browse_ready_input": {
       "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_browse_ready_input",
-      "closed": true
-    },
-    "work_browse_resource_claims_input": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_browse_resource_claims_input",
       "closed": true
     },
     "work_browse_scope_input": {
@@ -1766,14 +1692,6 @@
     },
     "work_relate_resolve_overlap_input": {
       "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_relate_resolve_overlap_input",
-      "closed": true
-    },
-    "work_relate_resource_claim_input": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_relate_resource_claim_input",
-      "closed": true
-    },
-    "work_relate_resource_release_input": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_relate_resource_release_input",
       "closed": true
     },
     "work_relation_graph": {
@@ -1966,6 +1884,6 @@
       "digest"
     ]
   },
-  "payload_digest": "sha256:a8acd860168f18bb9c60905d69539be4b7af6ae7de2b90be2d5f8471f89d87d2",
-  "digest": "sha256:27c3bf34922a120a01cf9ac30f7a5cd6b5317a94d40f9f6a5fefc9a959dbb225"
+  "payload_digest": "sha256:b9fb13a8c7af0db460dbf553754d436dd4c5253abab8ecfbbb52a3afb6f5f84e",
+  "digest": "sha256:44ad3f8b1ab2c2cce1d32609428efbaedbf5a92286d514536c86485c0e7bcabd"
 }

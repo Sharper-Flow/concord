@@ -35,7 +35,6 @@ var readMarshalInputs = map[string]string{
 	"concord_work_browse.blocked":          `{"product_id":"prod-alpha","page":{"cursor":null,"limit":10}}`,
 	"concord_work_browse.ready":            `{"product_id":"prod-alpha","page":{"cursor":null,"limit":10}}`,
 	"concord_work_browse.scope":            `{"product_id":"prod-alpha","project_id":"proj-web"}`,
-	"concord_work_browse.resource_claims":  `{"product_id":"prod-alpha"}`,
 	"concord_work_browse.messages":         `{"product_id":"prod-alpha","work_id":"work-done"}`,
 	"concord_work_browse.worktree_audit":   `{"product_id":"prod-alpha"}`,
 	"concord_work_browse.worktree_inspect": `{"work_id":"work-done","mode":"status"}`,

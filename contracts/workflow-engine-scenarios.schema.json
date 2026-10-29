@@ -21,7 +21,7 @@
     "fixtures": {"$ref": "#/$defs/fixtures"},
     "assertion_contract": {"$ref": "#/$defs/assertionContract"},
     "runner_requirements": {"$ref": "#/$defs/runnerRequirements"},
-    "scenarios": {"type": "array", "minItems": 12, "maxItems": 12, "items": {"$ref": "#/$defs/scenario"}}
+    "scenarios": {"type": "array", "minItems": 10, "maxItems": 10, "items": {"$ref": "#/$defs/scenario"}}
   },
   "$defs": {
     "id": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_.:-]{1,127}$", "minLength": 2, "maxLength": 128},
@@ -29,7 +29,7 @@
     "actorRef": {"type": "string", "pattern": "^actor:[0-9a-f]{64}$", "minLength": 70, "maxLength": 70},
     "actorIdentityRef": {"type": "string", "pattern": "^[^\\x09-\\x0d \\u0085\\u00a0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000]+$", "minLength": 1, "maxLength": 128, "x-minBytes": 2, "x-maxBytes": 128},
     "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$", "minLength": 71, "maxLength": 71},
-    "currentAction": {"type": "string", "enum": ["capture", "add_condition", "resolve_condition", "cancel_condition", "record_proposal", "approve_contract", "record_verdict", "complete", "accept_worker_result"]},
+    "currentAction": {"type": "string", "enum": ["capture", "record_proposal", "approve_contract", "record_verdict", "complete", "accept_worker_result"]},
     "jsonValue": {"oneOf": [
       {"type": "null"}, {"type": "boolean"},
       {"type": "integer", "minimum": -2147483648, "maximum": 2147483647},
@@ -39,14 +39,14 @@
     ]},
     "jsonObject": {
       "type": "object", "minProperties": 0, "maxProperties": 64, "additionalProperties": false,
-      "properties": {"work": {"$ref": "#/$defs/jsonValue"}, "outcome": {"$ref": "#/$defs/jsonValue"}, "condition_id": {"$ref": "#/$defs/jsonValue"}}
+      "properties": {"work": {"$ref": "#/$defs/jsonValue"}, "outcome": {"$ref": "#/$defs/jsonValue"}}
     },
     "workItem": {
       "type": "object", "additionalProperties": false, "required": ["id", "kind", "state", "definition_ref"],
       "properties": {
         "id": {"$ref": "#/$defs/id"},
         "kind": {"type": "string", "enum": ["implementation", "break_fix", "research"]},
-        "state": {"type": "string", "enum": ["planned", "ready", "running", "blocked", "awaiting_condition", "verifying", "completed", "cancelled", "superseded"]},
+        "state": {"type": "string", "enum": ["planned", "ready", "running", "blocked", "verifying", "completed", "cancelled", "superseded"]},
         "definition_ref": {"$ref": "#/$defs/id"}
       }
     },
@@ -93,7 +93,7 @@
           "type": "object", "additionalProperties": false, "required": ["step"],
           "properties": {
             "step": {"$ref": "#/$defs/id"},
-            "proof_case": {"type": "string", "enum": ["planning_without_outcome", "weaker_delivery", "satisfied_delivery", "implement_verdict", "completion_rollback", "impact_notice_identity", "missing_definition", "evidence_commit_mismatch", "lane_pipeline", "one_conjunct_weaker"]}
+            "proof_case": {"type": "string", "enum": ["planning_without_outcome", "weaker_delivery", "satisfied_delivery", "implement_verdict", "completion_rollback", "missing_definition", "evidence_commit_mismatch", "lane_pipeline", "one_conjunct_weaker"]}
           }
         },
         "faults": {"type": "array", "minItems": 0, "maxItems": 0, "items": false}
@@ -145,7 +145,7 @@
     },
     "scenarioRequest": {
       "type": "object", "additionalProperties": false, "required": ["actor_ref", "definition_ref", "action_id", "fields", "idempotency", "grant", "approval", "operation"],
-      "if": {"properties": {"action_id": {"type": "string", "enum": ["capture", "add_condition", "resolve_condition", "cancel_condition"]}}},
+      "if": {"properties": {"action_id": {"type": "string", "enum": ["capture"]}}},
       "then": {"properties": {"fields": {"required": ["payload"]}}},
       "properties": {
         "actor_ref": {"$ref": "#/$defs/actorRef"}, "definition_ref": {"$ref": "#/$defs/id"}, "expected_version": {"type": "integer", "minimum": 1},

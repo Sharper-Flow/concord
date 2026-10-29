@@ -167,7 +167,7 @@ func (p *DomainShapeSetupPlan) prepareSetupManifest(registryBytes []byte) error 
 			}
 		}
 	}
-	_, err := composeKnowledgeManifest(shards, manifestSharedHomeRole)
+	_, err := composeKnowledgeManifest(shards)
 	return err
 }
 
@@ -205,7 +205,7 @@ func (p *DomainShapeSetupPlan) defaultJSON(name string, value any) []byte {
 func validateSetupFactIdentity(name string, data []byte, registry KnowledgeDomainRegistry, packages knowledgePackageMapDocument) error {
 	var fact DomainFact
 	// Prepare already proved strict field shape; this checks the joins owned by
-	// these local shards without pretending to resolve federated law/resources.
+	// these local shards without resolving external law or resources.
 	_ = json.Unmarshal(data, &fact)
 	if fact.SchemaVersion != DomainFactSchemaVersion || !domainFactIDPattern.MatchString(fact.ID) || filepath.Base(name) != fact.ID+".json" {
 		return domainShapeSetupError("fact schema or filename identity is invalid: " + name)

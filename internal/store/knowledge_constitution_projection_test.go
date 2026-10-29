@@ -149,7 +149,7 @@ func TestConstitutionCannotAuthorLawRelations(t *testing.T) {
 	}
 	writeKnowledgeFile(t, repo, knowledgeManifestPath, string(manifestBytes)+"\n")
 	commit := commitKnowledgeRepo(t, repo, "constitution relations")
-	_, _, readErr := readKnowledgeManifest(ctx, repo, commit, manifestSharedHomeRole)
+	_, _, readErr := readKnowledgeManifest(ctx, repo, commit)
 	if readErr == nil {
 		t.Fatal("constitution law_relations parsed without refusal")
 	}

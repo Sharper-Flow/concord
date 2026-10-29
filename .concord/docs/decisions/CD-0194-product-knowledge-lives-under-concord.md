@@ -32,7 +32,9 @@ Repository-authored Product knowledge lives under `.concord/docs`,
 knowledge manifest and its record shards, the decisions, specifications,
 lessons, research, constitution, and reference records, the shipped operator
 conduct, and the acceptance scenarios. Each artifact keeps one canonical
-location. Git-authored Markdown stays the record body, and the manifest
+location in the designated Product knowledge home under
+[CD-0200](CD-0200-product-knowledge-resolves-through-one-designated-git-home.md).
+Git-authored Markdown stays the record body, and the manifest
 shards stay the composed authority under CD-0114.
 
 ### D2. The only escape is a recorded operator override

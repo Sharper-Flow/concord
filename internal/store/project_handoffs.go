@@ -826,13 +826,12 @@ const (
 // EvaluateProjectSessionRetirement derives READY_TO_CLOSE_OR_REPLACE for one
 // Project-selected session from four verified facts: the session recorded an
 // addressed handoff on the work, its changed artifacts are preserved in the
-// claimed source worktree, its own open execution (dispatch-attributed
-// worker attempts and nonterminal workflow actions) stopped, and its
-// verified vacate landing released its occupancy (CD-0190). Unknown worker
-// attribution and liveness block readiness; another session's positively
-// identified worker is not this session's worker. The evaluation writes no
-// event, completes no work, cancels nothing, removes no worktree, and
-// terminates no process.
+// claimed source worktree, its own dispatch-attributed worker attempts
+// stopped, and its verified vacate landing released its occupancy (CD-0190).
+// Unknown worker attribution and liveness block readiness; another session's
+// positively identified worker is not this session's worker. The evaluation
+// writes no event, completes no work, cancels nothing, removes no worktree,
+// and terminates no process.
 //
 // The git/filesystem preservation probe must run outside any SQL
 // transaction, so the derivation reads in two snapshots: the phase-one
@@ -903,7 +902,7 @@ func EvaluateProjectSessionRetirement(ctx context.Context, s *Store, workID, pro
 		out.Blockers = append(out.Blockers, execution.blocker)
 	}
 	if !out.WorkersStopped {
-		out.Blockers = append(out.Blockers, "the session's own open worker attempts or nonterminal workflow actions must stop before readiness")
+		out.Blockers = append(out.Blockers, "the session's own open worker attempts must stop before readiness")
 	}
 	if len(out.Blockers) == 0 && out.RecordedHandoff && out.ArtifactsPreserved && out.WorkersStopped && out.VacateLanded {
 		out.State = RetirementReady
@@ -1105,9 +1104,7 @@ func readSessionClaimedWorktreeTx(ctx context.Context, q queryer, workID, projec
 // An attempt with no dispatch authorization, an authorization that names no
 // actor, or an actor with no recorded session blocks readiness as unknown
 // attribution, and a positively identified attempt of ANOTHER session never
-// blocks this session's readiness. Nonterminal workflow actions the
-// session's actors started (a started action with no later completed or
-// failed event for the same step and attempt epoch) also block.
+// blocks this session's readiness.
 func sessionOwnedExecutionStoppedTx(ctx context.Context, q queryer, workID, sessionRef string) (bool, error) {
 	return workExecutionStoppedTx(ctx, q, workID, sessionRef)
 }
@@ -1163,19 +1160,7 @@ func workExecutionStoppedTx(ctx context.Context, q queryer, workID, sessionRef s
 			return false, nil
 		}
 	}
-	// The session's own nonterminal workflow actions. The started action's
-	// actor_ref is a workflow actor hash, so the session binds through the
-	// workflow_actors record, and a started action whose step and attempt
-	// epoch has no later completed or failed event is still open, whoever
-	// else acted on the work since.
-	var open int
-	err = q.QueryRowContext(ctx, `SELECT count(*) FROM workflow_action_obligations f
-		LEFT JOIN workflow_actors a ON a.actor_ref=f.actor_ref
-		WHERE f.state='started' AND f.work_id=? AND (?='' OR a.session_ref=?)`, workID, sessionRef, sessionRef).Scan(&open)
-	if err != nil {
-		return false, wrapFailure(KindUnavailable, "project_retirement", "cannot read the session's nonterminal workflow actions", true, "retry once the database is readable", err)
-	}
-	return open == 0, nil
+	return true, nil
 }
 
 // sessionVacateLandingStateTx derives the verified vacate landing fact for

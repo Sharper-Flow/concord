@@ -17,7 +17,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:308c2734e57000dd47661a5843febccdeb915e5fbef58ef08a360bd205c548c3",
+  "sha256": "sha256:75b4001006283e278a7ce90411a9a8914fd29fca2b5e1e26af68fa73b2d66ce6",
   "status": "accepted",
   "summary": "Defines the public repository, governance, and release boundary.",
   "tags": [

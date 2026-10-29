@@ -51,7 +51,7 @@ PM4/PM5/C15 semantics (now settled separately).
 |---|---|---|---|
 | `products` | first-class typed projection | Q1/Q2 Product root | none; the Product-row glance retired with its read (CD-0224) |
 | `projects` | first-class typed projection; repositories are one Project kind/locator | Q1/Q3/Q6 scope | repo/deploy packaging, Project kind details |
-| `domains` | Git-derived first-class Product-owned architecture identity with optional acyclic parent, law ownership, and endpoint-specific architecture relations; SQLite owns separate local stage/Project/resource attachments | Q3/Q9 Domain filter; Product → Domain primary navigation | #193 implements Domain/law homes; #197 directly removes component authority from the current read path |
+| `domains` | Git-derived first-class Product-owned architecture identity with optional acyclic parent, law ownership, and endpoint-specific architecture relations; SQLite owns separate local stage/resource attachments | Q3/Q9 Domain filter; Product → Domain primary navigation | #193 implements Domain/law homes; #197 directly removes component authority from the current read path |
 | `work_items` | one canonical typed managed-work projection; extensible `kind`; rare metadata JSON; independent `research` is ordinary work; CD-0213 permits historical `initiative` reads but no new grouping writes | Q2–Q8 | PM4 supplies states/relations; PM5 supplies membership/scope; business grouping belongs to Linear MCP |
 | Product↔Project membership | typed relational edge | Q1 ownership/ambiguity | PM5: many-to-many, role-only, optional singular primary |
 | Work↔Project membership | typed relational edge; no copied status | Q6 both directions | PM5: role-only, optional singular primary, derived Product scope |

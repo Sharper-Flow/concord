@@ -522,31 +522,6 @@ func relationProjectionIDs(t *testing.T, s *Store) string {
 	return fmt.Sprint(ids)
 }
 
-func TestSupersessionReleasesHeldResourceClaims(t *testing.T) {
-	t.Parallel()
-	s := openTemp(t)
-	seedWork(t, s, "claim-holder")
-	seedWork(t, s, "claim-successor")
-	claim := operationEvent("claim-holder-claim", "work.resource_claimed", SubjectWorkItem, "claim-holder", map[string]any{
-		"work_id": "claim-holder", "resource_key": "fence:supersession-release", "reason": "hold while work is active",
-		"holder_agent": "agent:test", "holder_session": "session:test",
-		"expected_version": 2, "resulting_version": 3,
-	})
-	if err := applyWorkEvent(t, s, claim, workVersion("claim-holder", 2)); err != nil {
-		t.Fatal(err)
-	}
-	if err := applyWorkEvent(t, s, workSupersededEvent("claim-holder-superseded", "claim-successor", "claim-holder", 3, 4), workVersion("claim-holder", 3)); err != nil {
-		t.Fatal(err)
-	}
-	var state string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT state FROM resource_claims WHERE resource_key=?`, "fence:supersession-release").Scan(&state); err != nil {
-		t.Fatal(err)
-	}
-	if state != "released" {
-		t.Fatalf("superseded work still holds its claim: state=%q", state)
-	}
-}
-
 func TestCompositeRelationKindsNameTheirOwningOperation(t *testing.T) {
 	t.Parallel()
 	cases := []struct {

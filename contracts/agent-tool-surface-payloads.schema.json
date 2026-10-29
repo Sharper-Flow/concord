@@ -756,8 +756,7 @@
         "work_id",
         "state",
         "evidence",
-        "attempts",
-        "open_waits"
+        "attempts"
       ],
       "properties": {
         "work_id": {
@@ -783,10 +782,6 @@
           }
         },
         "attempts": {
-          "type": "integer",
-          "minimum": 0
-        },
-        "open_waits": {
           "type": "integer",
           "minimum": 0
         },
@@ -2524,12 +2519,6 @@
         "state",
         "current_step",
         "definition",
-        "conditions",
-        "unresolved_conditions",
-        "unreadable_conditions",
-        "ready",
-        "blocking_conditions",
-        "impact_notices",
         "completion_warnings"
       ],
       "properties": {
@@ -2575,110 +2564,9 @@
             "$ref": "#/$defs/id"
           }
         },
-        "conditions": {
-          "type": "array",
-          "maxItems": 100,
-          "items": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": [
-              "id",
-              "await_type",
-              "await_ref",
-              "resolution_authority",
-              "state"
-            ],
-            "properties": {
-              "id": {
-                "$ref": "#/$defs/id"
-              },
-              "await_type": {
-                "$ref": "#/$defs/short"
-              },
-              "await_ref": {
-                "$ref": "#/$defs/id"
-              },
-              "resolution_authority": {
-                "$ref": "#/$defs/id"
-              },
-              "state": {
-                "$ref": "#/$defs/short"
-              }
-            }
-          }
-        },
-        "unresolved_conditions": {
-          "type": "array",
-          "maxItems": 100,
-          "items": {
-            "$ref": "#/$defs/id"
-          }
-        },
-        "unreadable_conditions": {
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/id"
-          }
-        },
-        "ready": {
-          "type": "boolean"
-        },
-        "blocking_conditions": {
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/id"
-          }
-        },
-        "impact_notices": {
-          "type": "array",
-          "maxItems": 100,
-          "items": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": [
-              "notice_id",
-              "source_work_id",
-              "source_contract_version",
-              "entity_kind",
-              "entity_ref",
-              "target_work_id",
-              "edge_owner_work_id",
-              "edge_id",
-              "severity"
-            ],
-            "properties": {
-              "notice_id": {
-                "$ref": "#/$defs/id"
-              },
-              "source_work_id": {
-                "$ref": "#/$defs/id"
-              },
-              "source_contract_version": {
-                "$ref": "#/$defs/version"
-              },
-              "entity_kind": {
-                "$ref": "#/$defs/short"
-              },
-              "entity_ref": {
-                "$ref": "#/$defs/id"
-              },
-              "target_work_id": {
-                "$ref": "#/$defs/id"
-              },
-              "edge_owner_work_id": {
-                "$ref": "#/$defs/id"
-              },
-              "edge_id": {
-                "$ref": "#/$defs/id"
-              },
-              "severity": {
-                "$ref": "#/$defs/short"
-              }
-            }
-          }
-        },
         "completion_warnings": {
           "type": "array",
+          "maxItems": 16,
           "items": {
             "$ref": "#/$defs/short"
           }
@@ -3438,31 +3326,6 @@
         },
         "current_hash": {
           "$ref": "#/$defs/digest"
-        }
-      }
-    },
-    "continuity_failure": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "kind",
-        "recoverable",
-        "step_id",
-        "attempt_epoch"
-      ],
-      "properties": {
-        "kind": {
-          "$ref": "#/$defs/short"
-        },
-        "recoverable": {
-          "type": "boolean"
-        },
-        "step_id": {
-          "$ref": "#/$defs/short"
-        },
-        "attempt_epoch": {
-          "type": "integer",
-          "minimum": 1
         }
       }
     },
@@ -4611,8 +4474,7 @@
             "spec_mandate",
             "pending_operator_decision",
             "latest_checkpoint",
-            "design_record",
-            "unresolved_failure"
+            "design_record"
           ],
           "properties": {
             "product_identity": {
@@ -4692,16 +4554,6 @@
               "oneOf": [
                 {
                   "$ref": "#/$defs/workflow_design_record"
-                },
-                {
-                  "type": "null"
-                }
-              ]
-            },
-            "unresolved_failure": {
-              "oneOf": [
-                {
-                  "$ref": "#/$defs/continuity_failure"
                 },
                 {
                   "type": "null"
@@ -5242,7 +5094,7 @@
       }
     },
     "knowledge_observe_publication_input": {
-      "description": "Explicit cache/provenance exception for readers and writers with product_read. Requires one exact registered Product/source Project/locator tuple, never an arbitrary repository or ref. Performs one noninteractive origin default-branch discovery and one selected-branch fetch within a combined ten seconds, then persists timestamped provenance. Only the selected origin tracking ref, required objects and transfer metadata may change. No checkout synchronization, law mutation, or automatic network on ordinary reads.",
+      "description": "Explicit cache/provenance exception for readers and writers with product_read. Requires the exact Product/designated home Project/locator tuple, never an arbitrary repository or ref. Performs one noninteractive origin default-branch discovery and one selected-branch fetch within a combined ten seconds, then persists timestamped provenance. Only the selected origin tracking ref, required objects and transfer metadata may change. No checkout synchronization, law mutation, or automatic network on ordinary reads.",
       "type": "object",
       "additionalProperties": false,
       "required": [
@@ -5257,11 +5109,11 @@
         },
         "source_project_id": {
           "$ref": "#/$defs/id",
-          "description": "Project in the Product's registered knowledge source tuple. Bounds: 1..128 code points inclusive"
+          "description": "Project of the Product's designated knowledge home. Bounds: 1..128 code points inclusive"
         },
         "source_locator_id": {
           "$ref": "#/$defs/id",
-          "description": "Exact registered locator in that source tuple. Bounds: 1..128 code points inclusive"
+          "description": "Exact locator of that designated home. Bounds: 1..128 code points inclusive"
         },
         "requested_budget_seconds": {
           "$ref": "#/$defs/requested_budget_seconds",
@@ -6474,12 +6326,6 @@
               "successor_id": {
                 "description": "A work-note successor, never a law replacement.",
                 "$ref": "#/$defs/id"
-              },
-              "home_project_id": {
-                "$ref": "#/$defs/id"
-              },
-              "home_locator_id": {
-                "$ref": "#/$defs/id"
               }
             },
             "allOf": [
@@ -6530,7 +6376,7 @@
           "$ref": "#/$defs/cursor_output"
         },
         "publications": {
-          "description": "Cached publication provenance for each queried registered source, never an automatic origin check.",
+          "description": "Cached publication provenance for the queried knowledge home, never an automatic origin check.",
           "type": "array",
           "items": {
             "$ref": "#/$defs/knowledge_publication"
@@ -6539,39 +6385,6 @@
         "watermark": {
           "type": "string",
           "maxLength": 256
-        },
-        "source_watermarks": {
-          "description": "CD-0200: one freshness verdict per registered knowledge source in a Product-wide answer, home first. Absent from a single-source answer.",
-          "type": "array",
-          "items": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": [
-              "project_id",
-              "locator_id",
-              "watermark",
-              "authority"
-            ],
-            "properties": {
-              "project_id": {
-                "$ref": "#/$defs/id"
-              },
-              "locator_id": {
-                "$ref": "#/$defs/id"
-              },
-              "watermark": {
-                "type": "string",
-                "maxLength": 256
-              },
-              "authority": {
-                "type": "string",
-                "enum": [
-                  "authoritative",
-                  "degraded"
-                ]
-              }
-            }
-          }
         }
       }
     },
@@ -6723,9 +6536,6 @@
         "model_size": {
           "$ref": "#/$defs/work_size_class"
         },
-        "operator_size": {
-          "$ref": "#/$defs/work_size_class"
-        },
         "model_version": {
           "type": "integer",
           "minimum": 1
@@ -6850,10 +6660,6 @@
         "idempotency_key"
       ],
       "properties": {
-        "operator_size": {
-          "$ref": "#/$defs/work_size_class",
-          "description": "The operator's size for the work item (CD-0229 D6). It needs a consumed operator approval; reason explains the override. The effective size changes in place on the same work item."
-        },
         "size_inputs": {
           "$ref": "#/$defs/work_size_inputs",
           "description": "Reruns the model on fresh declared inputs; reason explains why. The core re-derives every other input and updates the size in place without a successor."
@@ -7958,9 +7764,6 @@
         },
         {
           "$ref": "#/$defs/work_transition_action_variant_cross_context_boundary"
-        },
-        {
-          "$ref": "#/$defs/work_transition_action_variant_declare_impact"
         },
         {
           "$ref": "#/$defs/work_transition_action_variant_dispatch_worker"
@@ -9991,185 +9794,6 @@
         }
       }
     },
-    "work_relate_resource_claim_input": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "work_id",
-        "resource_key",
-        "reason",
-        "expected_version",
-        "idempotency_key"
-      ],
-      "properties": {
-        "work_id": {
-          "$ref": "#/$defs/id",
-          "description": "Bounds: 1..128 code points inclusive"
-        },
-        "resource_key": {
-          "type": "string",
-          "minLength": 3,
-          "maxLength": 160,
-          "pattern": "^[a-z][a-z0-9_-]{1,31}:[A-Za-z0-9][A-Za-z0-9._/-]{0,127}$",
-          "description": "Bounds: 3..160 code points inclusive"
-        },
-        "reason": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 512,
-          "description": "Bounds: 1..512 code points inclusive"
-        },
-        "expected_version": {
-          "$ref": "#/$defs/version",
-          "description": "Bounds: >=1 value inclusive"
-        },
-        "idempotency_key": {
-          "$ref": "#/$defs/id",
-          "description": "Bounds: 1..128 code points inclusive"
-        },
-        "approval": {
-          "$ref": "#/$defs/approval"
-        },
-        "requested_budget_seconds": {
-          "$ref": "#/$defs/requested_budget_seconds",
-          "description": "Bounds: >=1 value inclusive"
-        }
-      }
-    },
-    "work_relate_resource_release_input": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "work_id",
-        "resource_key",
-        "expected_version",
-        "idempotency_key"
-      ],
-      "properties": {
-        "work_id": {
-          "$ref": "#/$defs/id",
-          "description": "Bounds: 1..128 code points inclusive"
-        },
-        "resource_key": {
-          "type": "string",
-          "minLength": 3,
-          "maxLength": 160,
-          "pattern": "^[a-z][a-z0-9_-]{1,31}:[A-Za-z0-9][A-Za-z0-9._/-]{0,127}$",
-          "description": "Bounds: 3..160 code points inclusive"
-        },
-        "expected_version": {
-          "$ref": "#/$defs/version",
-          "description": "Bounds: >=1 value inclusive"
-        },
-        "idempotency_key": {
-          "$ref": "#/$defs/id",
-          "description": "Bounds: 1..128 code points inclusive"
-        },
-        "approval": {
-          "$ref": "#/$defs/approval"
-        },
-        "requested_budget_seconds": {
-          "$ref": "#/$defs/requested_budget_seconds",
-          "description": "Bounds: >=1 value inclusive"
-        }
-      }
-    },
-    "work_browse_resource_claims_input": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "product_id"
-      ],
-      "properties": {
-        "product_id": {
-          "$ref": "#/$defs/id",
-          "description": "Bounds: 1..128 code points inclusive"
-        },
-        "resource_key": {
-          "type": "string",
-          "minLength": 3,
-          "maxLength": 160,
-          "pattern": "^[a-z][a-z0-9_-]{1,31}:[A-Za-z0-9][A-Za-z0-9._/-]{0,127}$",
-          "description": "Bounds: 3..160 code points inclusive"
-        },
-        "page": {
-          "$ref": "#/$defs/page"
-        },
-        "limit": {
-          "$ref": "#/$defs/limit",
-          "description": "Bounds: 1..100 value inclusive"
-        },
-        "requested_budget_seconds": {
-          "$ref": "#/$defs/requested_budget_seconds",
-          "description": "Bounds: >=1 value inclusive"
-        }
-      }
-    },
-    "resource_claims_page": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "claims"
-      ],
-      "properties": {
-        "claims": {
-          "type": "array",
-          "maxItems": 100,
-          "items": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": [
-              "resource_key",
-              "holder_work_id",
-              "holder_agent",
-              "holder_session",
-              "reason",
-              "state",
-              "claimed_at"
-            ],
-            "properties": {
-              "resource_key": {
-                "type": "string",
-                "minLength": 3,
-                "maxLength": 161,
-                "pattern": "^[a-z][a-z0-9_-]{1,31}:[A-Za-z0-9][A-Za-z0-9._/-]{0,127}$"
-              },
-              "holder_work_id": {
-                "$ref": "#/$defs/id"
-              },
-              "holder_agent": {
-                "$ref": "#/$defs/id"
-              },
-              "holder_session": {
-                "$ref": "#/$defs/id"
-              },
-              "reason": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 512
-              },
-              "state": {
-                "type": "string",
-                "enum": [
-                  "held",
-                  "released"
-                ]
-              },
-              "claimed_at": {
-                "type": "string",
-                "minLength": 10,
-                "maxLength": 58
-              },
-              "released_at": {
-                "type": "string",
-                "minLength": 10,
-                "maxLength": 58
-              }
-            }
-          }
-        }
-      }
-    },
     "work_relate_message_send_input": {
       "type": "object",
       "additionalProperties": false,
@@ -11549,36 +11173,10 @@
           "type": "object",
           "additionalProperties": false,
           "required": [
-            "project_attachments",
             "resource_attachments",
-            "project_set_version",
             "resource_set_version"
           ],
           "properties": {
-            "project_attachments": {
-              "type": "array",
-              "maxItems": 100,
-              "items": {
-                "type": "object",
-                "additionalProperties": false,
-                "required": [
-                  "project_id",
-                  "role"
-                ],
-                "properties": {
-                  "project_id": {
-                    "$ref": "#/$defs/id"
-                  },
-                  "role": {
-                    "type": "string",
-                    "enum": [
-                      "primary",
-                      "supporting"
-                    ]
-                  }
-                }
-              }
-            },
             "resource_attachments": {
               "type": "array",
               "maxItems": 100,
@@ -11617,10 +11215,6 @@
                   }
                 }
               }
-            },
-            "project_set_version": {
-              "type": "integer",
-              "minimum": 0
             },
             "resource_set_version": {
               "type": "integer",
@@ -13494,9 +13088,6 @@
         },
         {
           "$ref": "#/$defs/work_transition_action_variant_cross_context_boundary"
-        },
-        {
-          "$ref": "#/$defs/work_transition_action_variant_declare_impact"
         },
         {
           "$ref": "#/$defs/work_transition_action_public_variant_dispatch_worker"
@@ -18469,168 +18060,6 @@
             "mode",
             "checkpoint_id",
             "summary"
-          ],
-          "description": "Bounds: <=32 properties inclusive"
-        }
-      },
-      "not": {
-        "anyOf": [
-          {
-            "required": [
-              "selected_choice"
-            ]
-          },
-          {
-            "required": [
-              "decision_context_digest"
-            ]
-          }
-        ]
-      }
-    },
-    "work_transition_action_variant_declare_impact": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "work_id",
-        "expected_version",
-        "action_id",
-        "idempotency_key",
-        "fields"
-      ],
-      "properties": {
-        "work_id": {
-          "$ref": "#/$defs/id",
-          "description": "Bounds: 1..128 code points inclusive"
-        },
-        "expected_version": {
-          "$ref": "#/$defs/version",
-          "description": "Bounds: >=1 value inclusive"
-        },
-        "action_id": {
-          "type": "string",
-          "const": "declare_impact"
-        },
-        "idempotency_key": {
-          "$ref": "#/$defs/id",
-          "description": "Bounds: 1..128 code points inclusive"
-        },
-        "evidence": {
-          "type": "array",
-          "maxItems": 32,
-          "items": {
-            "$ref": "#/$defs/evidence"
-          },
-          "description": "Bounds: <=32 items inclusive"
-        },
-        "approval": {
-          "$ref": "#/$defs/approval"
-        },
-        "research_bindings": {
-          "type": "array",
-          "minItems": 1,
-          "maxItems": 16,
-          "items": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": [
-              "pack_id",
-              "revision",
-              "use_role",
-              "required"
-            ],
-            "properties": {
-              "pack_id": {
-                "$ref": "#/$defs/id",
-                "description": "Bounds: 1..128 code points inclusive"
-              },
-              "revision": {
-                "type": "integer",
-                "minimum": 1,
-                "description": "Bounds: >=1 value inclusive"
-              },
-              "use_role": {
-                "type": "string",
-                "enum": [
-                  "context",
-                  "design_input",
-                  "verification_basis",
-                  "decision_basis"
-                ]
-              },
-              "required": {
-                "type": "boolean"
-              }
-            }
-          },
-          "description": "Bounds: 1..16 items inclusive"
-        },
-        "requested_budget_seconds": {
-          "$ref": "#/$defs/requested_budget_seconds",
-          "description": "Bounds: >=1 value inclusive"
-        },
-        "selected_choice": {
-          "type": "string",
-          "enum": [
-            "confirm",
-            "revise",
-            "stop"
-          ]
-        },
-        "decision_context_digest": {
-          "$ref": "#/$defs/digest",
-          "description": "Bounds: 8..128 code points inclusive"
-        },
-        "fields": {
-          "type": "object",
-          "additionalProperties": false,
-          "maxProperties": 32,
-          "properties": {
-            "target_work_id": {
-              "type": "string",
-              "minLength": 1,
-              "maxLength": 128,
-              "x-minBytes": 2,
-              "x-maxBytes": 128,
-              "pattern": "^[^\\x09-\\x0d    -     　]+$",
-              "description": "A workflow reference list item with no Unicode White_Space characters and 2-128 UTF-8 bytes. Slashes are allowed because touched refs name repository paths. Bounds: 1..128 code points inclusive; 2..128 UTF-8 bytes inclusive"
-            },
-            "edge_id": {
-              "type": "string",
-              "minLength": 1,
-              "maxLength": 128,
-              "x-minBytes": 2,
-              "x-maxBytes": 128,
-              "pattern": "^[^\\x09-\\x0d    -     　]+$",
-              "description": "A workflow reference list item with no Unicode White_Space characters and 2-128 UTF-8 bytes. Slashes are allowed because touched refs name repository paths. Bounds: 1..128 code points inclusive; 2..128 UTF-8 bytes inclusive"
-            },
-            "edge_kind": {
-              "type": "string",
-              "enum": [
-                "modifies",
-                "depends_on",
-                "forward_link"
-              ]
-            },
-            "edge_class": {
-              "type": "string",
-              "enum": [
-                "hard",
-                "soft",
-                "none"
-              ]
-            },
-            "severity": {
-              "type": "string",
-              "enum": [
-                "breaking",
-                "non-breaking",
-                "informational"
-              ]
-            }
-          },
-          "required": [
-            "target_work_id"
           ],
           "description": "Bounds: <=32 properties inclusive"
         }

@@ -187,54 +187,6 @@ func TestArchivedFamilyTerminalHistoryStaysReadable(t *testing.T) {
 	}
 }
 
-// TestNoRetainedWorkflowVersionDeclaresAConditionAction holds CD-0234 D1: the
-// engine has no condition resolver, so no version of a family outside the
-// archived set may declare an action that opens, resolves, or cancels a
-// condition. The walk covers every registered version, not only live heads.
-func TestNoRetainedWorkflowVersionDeclaresAConditionAction(t *testing.T) {
-	t.Parallel()
-	if got := retainedConditionActionDeclarations(BuiltinWorkflowDefinitions()); len(got) != 0 {
-		t.Fatalf("retained workflow versions declare condition actions: %s", strings.Join(got, ", "))
-	}
-	// Control: the walk flags a retained version that declares one, so an
-	// empty answer above is a finding rather than a blind walk.
-	probe := WorkflowDefinition{Ref: "workflow.implementation", StepGraph: WorkflowStepGraph{Steps: []WorkflowStep{{ID: "execution", Actions: []string{"add_condition"}}}}}
-	if got := retainedConditionActionDeclarations([]WorkflowDefinition{probe}); len(got) != 1 {
-		t.Fatalf("control declarations = %v, want the one retained step declaration", got)
-	}
-}
-
-func retainedConditionActionDeclarations(definitions []WorkflowDefinition) []string {
-	conditionAction := func(id string) bool {
-		return id == "add_condition" || id == "resolve_condition" || id == "cancel_condition"
-	}
-	var found []string
-	for _, definition := range definitions {
-		if workflowFamilyArchived(definition.Ref) {
-			continue
-		}
-		at := definition.Ref
-		for _, action := range definition.AvailableActions {
-			if conditionAction(action) {
-				found = append(found, at+" available "+action)
-			}
-		}
-		for _, action := range definition.ActionDefinitions {
-			if conditionAction(action.ID) {
-				found = append(found, at+" defines "+action.ID)
-			}
-		}
-		for _, step := range definition.StepGraph.Steps {
-			for _, action := range step.Actions {
-				if conditionAction(action) {
-					found = append(found, at+" step "+step.ID+" "+action)
-				}
-			}
-		}
-	}
-	return found
-}
-
 func TestLiveAuthoringActionUnionTargets31WithRecovery(t *testing.T) {
 	t.Parallel()
 	declared := map[string]bool{}
@@ -259,10 +211,10 @@ func TestLiveAuthoringActionUnionTargets31WithRecovery(t *testing.T) {
 		t.Fatalf("live authoring union holds %d IDs, want the 31 target: %s", len(declared), strings.Join(names, ","))
 	}
 	retired := []string{
-		"accept_decision", "add_condition", "approve_operation", "cancel_condition",
+		"accept_decision", "approve_operation",
 		"checkpoint_action", "checkpoint_analysis", "checkpoint_poc", "checkpoint_run",
 		"cleanup_run", "declare_scope", "discard_poc", "frame_question", "record_decision",
-		"record_health", "record_option", "record_research", "resolve_condition",
+		"record_health", "record_option", "record_research",
 		"rollback_run", "run_analysis", "start_action", "start_poc", "start_run",
 		"record_reproduction", "record_root_cause", "start_repair", "start_refine",
 		"record_worker_failure", "record_discovery",
@@ -1118,17 +1070,6 @@ func TestCutoverDispositionSelectsAndCancelsExactlyBlockedWork(t *testing.T) {
 	}
 	files := map[string]string{}
 	for _, id := range []string{"a-archived", "b-contract-only"} {
-		current, err := cutoverReadWork(ctx, s, id)
-		if err != nil {
-			t.Fatal(err)
-		}
-		claim := operationEvent("claim-"+id, "work.resource_claimed", SubjectWorkItem, id, map[string]any{
-			"work_id": id, "resource_key": "fence:" + id, "reason": "cutover fixture", "holder_agent": "agent:test", "holder_session": "session:test",
-			"expected_version": current.version, "resulting_version": current.version + 1,
-		})
-		if err := applyWorkEvent(t, s, claim, workVersion(id, current.version)); err != nil {
-			t.Fatal(err)
-		}
 		dir := t.TempDir()
 		file := filepath.Join(dir, "retained.txt")
 		if err := os.WriteFile(file, []byte(id), 0o600); err != nil {
@@ -1224,10 +1165,6 @@ func TestCutoverDispositionSelectsAndCancelsExactlyBlockedWork(t *testing.T) {
 	}
 	if countRows(t, s, "active_research_consumers") != 0 {
 		t.Fatal("cancelled consumers still bind research")
-	}
-	var held int
-	if err := s.db.QueryRow(`SELECT count(*) FROM resource_claims WHERE state='held'`).Scan(&held); err != nil || held != 0 {
-		t.Fatalf("held resources = %d, %v", held, err)
 	}
 	for file, want := range files {
 		content, err := os.ReadFile(file)

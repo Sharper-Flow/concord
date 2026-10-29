@@ -74,13 +74,6 @@ type ContextBoundary struct {
 	RecordedAt         string `json:"recorded_at"`
 }
 
-type ContextFailure struct {
-	Kind         string `json:"kind"`
-	Recoverable  bool   `json:"recoverable"`
-	StepID       string `json:"step_id"`
-	AttemptEpoch int64  `json:"attempt_epoch"`
-}
-
 type ContinuitySnapshot struct {
 	// ReviewInputWarning reports optional Git enrichment failure outside the
 	// projection bytes so session recovery does not depend on repository access.
@@ -103,7 +96,6 @@ type ContinuitySnapshot struct {
 	LatestCheckpoint         *ContextCheckpoint                `json:"latest_checkpoint"`
 	DesignRecord             *WorkflowDesignRecord             `json:"design_record"`
 	ProposalRecord           *WorkflowProposalRecord           `json:"proposal_record"`
-	UnresolvedFailure        *ContextFailure                   `json:"unresolved_failure"`
 	Boundaries               []ContextBoundary                 `json:"boundaries"`
 	BoundaryCount            int64                             `json:"boundary_count"`
 	NextCursor               *string                           `json:"next_cursor"`
@@ -322,7 +314,7 @@ func continuityReadManagedHistoryTx(ctx context.Context, tx *sql.Tx, req Continu
 	if err != nil {
 		return err
 	}
-	currentStep, definition, workVersion, instancePresent := instance.step, instance.definition, instance.workVersion, instance.present
+	currentStep, definition, workVersion := instance.step, instance.definition, instance.workVersion
 	activeContractVersion, contractErr := activeWorkflowContractVersion(ctx, tx, req.Work, "C19.Continuity")
 	if contractErr != nil && contractErr != sql.ErrNoRows {
 		return contractErr
@@ -348,9 +340,6 @@ func continuityReadManagedHistoryTx(ctx context.Context, tx *sql.Tx, req Continu
 		return err
 	}
 	if out.ProposalRecord, err = readLatestWorkflowProposal(ctx, tx, req.Work, "C19.Continuity"); err != nil {
-		return err
-	}
-	if err := continuityReadFailureTx(ctx, tx, req.Work, out, instancePresent); err != nil {
 		return err
 	}
 	if err := continuityReadBoundariesTx(ctx, tx, req.Work, out, req.Limit, offset); err != nil {
@@ -621,32 +610,6 @@ func continuityReadReadyWorkerJobsTx(ctx context.Context, tx *sql.Tx, work strin
 	}
 	if i := slices.IndexFunc(views, func(view WorkerJobRevisionView) bool { return view.Binding == *final }); i >= 0 {
 		out.ReviewWorkerJobs = append(out.ReviewWorkerJobs, packetJobFromView(views[i]))
-	}
-	return nil
-}
-
-// continuityReadFailureTx reads the unresolved workflow failure of a blocked
-// instance: the latest failed action for its step and epoch with no later
-// completed action behind it.
-func continuityReadFailureTx(ctx context.Context, tx *sql.Tx, work string, out *ContinuitySnapshot, instancePresent bool) error {
-	if !instancePresent {
-		return nil
-	}
-	var state string
-	if err := tx.QueryRowContext(ctx, `SELECT instance_state FROM workflow_instances WHERE work_id=?`, work).Scan(&state); err != nil {
-		return wrapFailure(KindUnavailable, "C19.Continuity", "cannot read workflow failure state", true, "retry once the database is readable", err)
-	}
-	if state != "blocked" {
-		return nil
-	}
-	var failure ContextFailure
-	if err := tx.QueryRowContext(ctx, `SELECT json_extract(f.payload,'$.failure_kind'),json_extract(f.payload,'$.recoverable'),json_extract(f.payload,'$.step_id'),json_extract(f.payload,'$.attempt_epoch')
-FROM workflow_action_obligations f
-WHERE f.work_id=? AND f.state='failed'
-ORDER BY f.effect_seq DESC LIMIT 1`, work).Scan(&failure.Kind, &failure.Recoverable, &failure.StepID, &failure.AttemptEpoch); err == nil {
-		out.UnresolvedFailure = &failure
-	} else if err != sql.ErrNoRows {
-		return wrapFailure(KindUnavailable, "C19.Continuity", "cannot read latest workflow failure", true, "retry once the database is readable", err)
 	}
 	return nil
 }

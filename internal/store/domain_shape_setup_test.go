@@ -78,7 +78,7 @@ func TestDomainShapeSetupIndependentProductsAndRepeat(t *testing.T) {
 			}
 			// Exercise the normal Git-derived reader without creating a commit.
 			runner := setupShapeGitRunner(t, request.RepoPath)
-			manifest, missing, err := readKnowledgeManifestRunner(context.Background(), runner, request.RepoPath, strings.Repeat("a", 40), manifestSharedHomeRole)
+			manifest, missing, err := readKnowledgeManifestRunner(context.Background(), runner, request.RepoPath, strings.Repeat("a", 40))
 			if err != nil || missing {
 				t.Fatalf("normal read: missing=%v err=%v", missing, err)
 			}

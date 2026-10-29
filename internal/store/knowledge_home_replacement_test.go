@@ -2,9 +2,7 @@ package store
 
 import (
 	"context"
-	"crypto/sha256"
 	"database/sql"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"os"
@@ -52,7 +50,7 @@ func replacementHomeFixture(t *testing.T, productID string) string {
 // seedReplacementHome seeds one Product whose designated home A holds the
 // replacement home fixture, plus home B: a second canonical-path locator on
 // the same member Project checking out the same repository, not yet
-// designated and not registered.
+// designated.
 func seedReplacementHome(t *testing.T) (*Store, KnowledgeHome, KnowledgeHome) {
 	t.Helper()
 	repoA := replacementHomeFixture(t, "repl-product")
@@ -90,32 +88,16 @@ func designateReplacementHome(t *testing.T, s *Store, productID string, homeB Kn
 	}
 }
 
-// writeRegisteredSourceLawFixture writes a registered-source manifest (no
-// Domain registry) whose one accepted law homes on the shared registry's
-// fixture-law Domain and applies to the concord-shared-scope Domain.
-func writeRegisteredSourceLawFixture(t *testing.T, repo, lawID, title string) {
+func writeReplacementOtherHome(t *testing.T, repo, lawID, title string) {
 	t.Helper()
 	path := ".concord/docs/decisions/CD-0900-" + strings.ToLower(lawID) + ".md"
-	body := "durable " + lawID + " blob\n"
-	writeKnowledgeFile(t, repo, path, body)
-	sum := sha256.Sum256([]byte(body))
-	manifest := KnowledgeManifest{
-		SchemaVersion:  "1.2",
-		SupportedKinds: []string{"decision"},
-		IndexedKinds:   []string{"decision"},
-		Records: []KnowledgeRecord{{
-			ID: lawID, Kind: "decision", Path: path, Status: "accepted",
-			Date: "2026-08-12T00:00:00Z", Title: title, Summary: "A source rule", Tags: []string{},
-			Authority: KnowledgeAuthority{Tier: "legislated", LegislatedBy: "work-0f1e2d3c4b5a6978", ContractVersion: 1},
-			Scopes:    homeScope(), HomeDomainID: "fixture-law",
-			AppliesToDomainIDs: []string{"concord-shared-scope"},
-			SHA256:             "sha256:" + hex.EncodeToString(sum[:]),
-		}},
-	}
-	writeSourceManifest(t, repo, manifest)
+	writeManifestFixture(t, repo, manifestFixture{ID: lawID, Kind: "decision", Path: path, Status: "accepted", Date: "2026-08-12T00:00:00Z", Title: title, Summary: "Another Product rule", Scopes: KnowledgeRecordScopes{Mode: "explicit", ProductIDs: []string{}, ProjectIDs: []string{}, DomainIDs: []string{"concord-shared-scope"}, TagIDs: []string{}}})
+	manifest := composeWorkingTreeManifest(t, repo)
+	manifest.Records[0].AppliesToDomainIDs = []string{"concord-shared-scope"}
+	writeManifestShards(t, repo, manifest)
 }
 
-type replacementFederation struct {
+type replacementHomes struct {
 	store      *Store
 	reader     *sql.DB
 	homeA      KnowledgeHome
@@ -123,18 +105,15 @@ type replacementFederation struct {
 	sourceHome KnowledgeHome
 }
 
-// seedReplacementFederation seeds one Product with designated home A holding
-// the replacement home fixture, a registered source whose law references the
-// shared registry Domains, both rebuilt, and home B: a second checkout of
-// home A's repository on the same Project. The reader is a separate
+// The reader is a separate
 // connection on the same database file, so a refused rebuild's failed COMMIT
 // cannot affect the durable-state reads.
-func seedReplacementFederation(t *testing.T) replacementFederation {
+func seedReplacementHomes(t *testing.T) replacementHomes {
 	t.Helper()
 	ctx := context.Background()
 	repoA := replacementHomeFixture(t, "fed-product")
 	sourceRepo := initKnowledgeRepo(t)
-	writeRegisteredSourceLawFixture(t, sourceRepo, "SRC-LAW", "Source law")
+	writeReplacementOtherHome(t, sourceRepo, "SRC-LAW", "Other home law")
 	commitKnowledgeRepo(t, sourceRepo, "source law")
 	dbPath := copyTestDatabase(t)
 	store, err := Open(ctx, dbPath)
@@ -147,26 +126,20 @@ func seedReplacementFederation(t *testing.T) replacementFederation {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = reader.Close() })
-	fed := replacementFederation{
+	fed := replacementHomes{
 		store:      store,
 		reader:     reader,
 		homeA:      KnowledgeHome{HomeProjectID: "fed-proj", HomeLocatorID: "fed-loc-a", RepoPath: repoA, HeadRef: "HEAD"},
 		homeB:      KnowledgeHome{HomeProjectID: "fed-proj", HomeLocatorID: "fed-loc-b", RepoPath: copyFixtureRepo(t, repoA), HeadRef: "HEAD"},
 		sourceHome: KnowledgeHome{HomeProjectID: "fed-src", HomeLocatorID: "fed-loc-s", RepoPath: sourceRepo, HeadRef: "HEAD"},
 	}
-	authorizeKnowledgeProductHome(t, store, "fed-product", fed.homeA, fed.homeA.HomeProjectID, fed.sourceHome.HomeProjectID)
-	authorizeSourceLocator(t, store, fed.sourceHome)
-	if _, err := store.RegisterProductKnowledgeSource(ctx, ProductKnowledgeSourceRegistration{
-		ProductID: "fed-product", ProjectID: fed.sourceHome.HomeProjectID, LocatorID: fed.sourceHome.HomeLocatorID,
-		Reason: "replacement federation fixture", ExpectedVersion: 1,
-	}); err != nil {
-		t.Fatal(err)
-	}
+	authorizeKnowledgeProductHome(t, store, "fed-product", fed.homeA, fed.homeA.HomeProjectID)
+	authorizeKnowledgeProductHome(t, store, "other-product", fed.sourceHome, fed.sourceHome.HomeProjectID)
 	if err := store.RebuildKnowledgeIndex(ctx, fed.homeA); err != nil {
 		t.Fatalf("designated home rebuild: %v", err)
 	}
 	if err := store.RebuildKnowledgeIndex(ctx, fed.sourceHome); err != nil {
-		t.Fatalf("registered source rebuild: %v", err)
+		t.Fatalf("other home rebuild: %v", err)
 	}
 	return fed
 }
@@ -262,14 +235,14 @@ func requireFailureKind(t *testing.T, err error, want FailureKind, label string)
 func TestKnowledgeHomeReplacementDuringRebuildRefusesStaleContext(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	fed := seedReplacementFederation(t)
-	home := fed.sourceHome
+	fed := seedReplacementHomes(t)
+	home := fed.homeA
 	productID, designated, err := resolveKnowledgeSourceRole(ctx, fed.store.DatabaseForTesting(), home)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if productID != "fed-product" || designated {
-		t.Fatalf("fixture is not a registered, non-designated source: %q, %v", productID, designated)
+	if productID != "fed-product" || !designated {
+		t.Fatalf("fixture is not a designated home: %q, %v", productID, designated)
 	}
 	commit, err := resolveKnowledgeHead(ctx, home)
 	if err != nil {
@@ -279,7 +252,7 @@ func TestKnowledgeHomeReplacementDuringRebuildRefusesStaleContext(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	manifest, missing, err := readKnowledgeManifest(ctx, home.RepoPath, commit, manifestRegisteredSourceRole)
+	manifest, missing, err := readKnowledgeManifest(ctx, home.RepoPath, commit)
 	if err != nil || missing {
 		t.Fatalf("read source manifest: missing=%v, err=%v", missing, err)
 	}
@@ -294,7 +267,8 @@ func TestKnowledgeHomeReplacementDuringRebuildRefusesStaleContext(t *testing.T) 
 		laws = append(laws, indexedLaw{record: record, body: body})
 	}
 	// Move the designation after preparation but before the write transaction.
-	designateReplacementHome(t, fed.store, "fed-product", home, 2)
+	addReplacementLocator(t, fed.store, fed.homeB)
+	designateReplacementHome(t, fed.store, "fed-product", fed.homeB, 1)
 	before := knowledgeDerivedSnapshot(t, fed.reader)
 	tx, err := beginOrdinaryTx(ctx, fed.store.DatabaseForTesting())
 	if err != nil {
@@ -305,7 +279,7 @@ func TestKnowledgeHomeReplacementDuringRebuildRefusesStaleContext(t *testing.T) 
 		err = tx.Commit()
 	}
 	_ = tx.Rollback()
-	requireFailureKind(t, err, KindStaleContext, "source became designated during rebuild")
+	requireFailureKind(t, err, KindStaleContext, "home lost its designation during rebuild")
 	var failure *Failure
 	if !errors.As(err, &failure) || !failure.RetrySafe || failure.EffectPossible {
 		t.Fatalf("stale-context refusal must be retry-safe with no possible effect: %v", err)
@@ -318,7 +292,7 @@ func TestKnowledgeHomeReplacementDuringRebuildRefusesStaleContext(t *testing.T) 
 func TestKnowledgeHomeValidationUsesPinnedRoleAcrossDesignationFlipAndBack(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	fed := seedReplacementFederation(t)
+	fed := seedReplacementHomes(t)
 	home := fed.homeA
 	addReplacementLocator(t, fed.store, fed.homeB)
 	productID, designated, err := resolveKnowledgeSourceRole(ctx, fed.store.DatabaseForTesting(), home)
@@ -336,7 +310,7 @@ func TestKnowledgeHomeValidationUsesPinnedRoleAcrossDesignationFlipAndBack(t *te
 	if err != nil {
 		t.Fatal(err)
 	}
-	manifest, missing, err := readKnowledgeManifest(ctx, home.RepoPath, commit, manifestSharedHomeRole)
+	manifest, missing, err := readKnowledgeManifest(ctx, home.RepoPath, commit)
 	if err != nil || missing {
 		t.Fatalf("read home manifest: missing=%v, err=%v", missing, err)
 	}
@@ -353,18 +327,14 @@ func TestKnowledgeHomeValidationUsesPinnedRoleAcrossDesignationFlipAndBack(t *te
 		}
 	}
 	before := knowledgeDerivedSnapshot(t, fed.reader)
-	designateReplacementHome(t, fed.store, productID, fed.homeB, 2)
-	validationErr := validateFederatedSourceManifest(ctx, fed.store.DatabaseForTesting(), home, manifest, productID, designated)
-	designateReplacementHome(t, fed.store, productID, home, 3)
+	designateReplacementHome(t, fed.store, productID, fed.homeB, 1)
+	designateReplacementHome(t, fed.store, productID, home, 2)
 	restoredProductID, restoredDesignated, err := resolveKnowledgeSourceRole(ctx, fed.store.DatabaseForTesting(), home)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if restoredProductID != productID || restoredDesignated != designated {
 		t.Fatalf("designation did not return to the prepared role: (%q, %v), want (%q, %v)", restoredProductID, restoredDesignated, productID, designated)
-	}
-	if validationErr != nil {
-		t.Fatalf("validation discarded the pinned role during a designation flip and return: %v", validationErr)
 	}
 	tx, err := beginOrdinaryTx(ctx, fed.store.DatabaseForTesting())
 	if err != nil {
@@ -385,15 +355,15 @@ func TestKnowledgeHomeValidationUsesPinnedRoleAcrossDesignationFlipAndBack(t *te
 func TestKnowledgeHomeReplacementMissingManifestKeepsPriorRegistry(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	fed := seedReplacementFederation(t)
+	fed := seedReplacementHomes(t)
 	fed.homeB.RepoPath = initKnowledgeRepo(t)
 	writeKnowledgeFile(t, fed.homeB.RepoPath, "README.md", "A repository without a knowledge manifest.\n")
 	commit := commitKnowledgeRepo(t, fed.homeB.RepoPath, "repository without a manifest")
-	if _, missing, err := readKnowledgeManifest(ctx, fed.homeB.RepoPath, commit, manifestSharedHomeRole); err != nil || !missing {
+	if _, missing, err := readKnowledgeManifest(ctx, fed.homeB.RepoPath, commit); err != nil || !missing {
 		t.Fatalf("fixture must have no committed manifest: missing=%v, err=%v", missing, err)
 	}
 	addReplacementLocator(t, fed.store, fed.homeB)
-	designateReplacementHome(t, fed.store, "fed-product", fed.homeB, 2)
+	designateReplacementHome(t, fed.store, "fed-product", fed.homeB, 1)
 	before := knowledgeDerivedSnapshot(t, fed.reader)
 	if err := fed.store.RebuildKnowledgeIndex(ctx, fed.homeB); err != nil {
 		t.Fatalf("missing-manifest replacement rebuild: %v", err)
@@ -486,77 +456,28 @@ func TestKnowledgeHomeReplacementStrictProductSearchReturnsEachLawOnce(t *testin
 	}
 }
 
-// TestKnowledgeHomeReplacementKeepsRegisteredSourceRows proves the
-// replacement rebuild succeeds with a registered source present and leaves
-// the registered source's law Domain rows untouched. Only the registered
-// source's pair is compared: the replacement pair legitimately gains rows.
-func TestKnowledgeHomeReplacementKeepsRegisteredSourceRows(t *testing.T) {
+func TestKnowledgeHomeReplacementKeepsOtherProductRows(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	fed := seedReplacementFederation(t)
+	fed := seedReplacementHomes(t)
 	before := replacementSourceLawRows(t, fed.store.DatabaseForTesting(), fed.sourceHome)
 	if len(before) < 2 {
-		t.Fatalf("fixture premise: the registered source projected no law Domain rows: %v", before)
+		t.Fatalf("fixture premise: the other home projected no law Domain rows: %v", before)
 	}
 	addReplacementLocator(t, fed.store, fed.homeB)
-	designateReplacementHome(t, fed.store, "fed-product", fed.homeB, 2)
+	designateReplacementHome(t, fed.store, "fed-product", fed.homeB, 1)
 	if err := fed.store.RebuildKnowledgeIndex(ctx, fed.homeB); err != nil {
-		t.Fatalf("replacement rebuild with a registered source present: %v", err)
+		t.Fatalf("replacement rebuild: %v", err)
 	}
 	after := replacementSourceLawRows(t, fed.store.DatabaseForTesting(), fed.sourceHome)
 	if strings.Join(after, "\n") != strings.Join(before, "\n") {
-		t.Fatalf("registered source law Domain rows changed across the replacement rebuild:\nbefore=%v\nafter=%v", before, after)
-	}
-}
-
-// TestKnowledgeHomeReplacementRefusalKeepsPriorProjection proves the refused
-// replacement stays atomic: when the new registry drops a Domain that a
-// registered source's law references, the rebuild refuses and every row and
-// column of every git-derived table, including the replaced home's registry,
-// is exactly what it was before the call.
-func TestKnowledgeHomeReplacementRefusalKeepsPriorProjection(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	fed := seedReplacementFederation(t)
-	manifest := composeWorkingTreeManifest(t, fed.homeB.RepoPath)
-	kept := make([]KnowledgeDomain, 0, len(manifest.DomainRegistry.Domains))
-	for _, domain := range manifest.DomainRegistry.Domains {
-		if domain.DomainID == "fixture-law" {
-			continue
-		}
-		relations := make([]KnowledgeArchitectureRelation, 0, len(domain.ArchitectureRelations))
-		for _, relation := range domain.ArchitectureRelations {
-			if relation.TargetDomainID != "fixture-law" {
-				relations = append(relations, relation)
-			}
-		}
-		domain.ArchitectureRelations = relations
-		kept = append(kept, domain)
-	}
-	manifest.DomainRegistry.Domains = kept
-	for i := range manifest.Records {
-		if manifest.Records[i].HomeDomainID == "fixture-law" {
-			manifest.Records[i].HomeDomainID = manifest.DomainRegistry.RootDomainID
-			manifest.Records[i].ProductWideRationale = "Replacement registry homes the shared law on the root."
-		}
-	}
-	writeManifestShards(t, fed.homeB.RepoPath, manifest)
-	commitKnowledgeRepo(t, fed.homeB.RepoPath, "replacement registry drops the shared law Domain")
-	addReplacementLocator(t, fed.store, fed.homeB)
-	designateReplacementHome(t, fed.store, "fed-product", fed.homeB, 2)
-	before := knowledgeDerivedSnapshot(t, fed.reader)
-	if err := fed.store.RebuildKnowledgeIndex(ctx, fed.homeB); err == nil {
-		t.Fatal("a replacement dropping a Domain that a registered source's law references succeeded")
-	}
-	after := knowledgeDerivedSnapshot(t, fed.reader)
-	if after != before {
-		t.Fatalf("the refused replacement disturbed the prior projection:\nbefore=%s\nafter=%s", before, after)
+		t.Fatalf("other Product law Domain rows changed across the replacement rebuild:\nbefore=%v\nafter=%v", before, after)
 	}
 }
 
 // TestKnowledgeHomeReplacementUndesignatedHomeRefusesBeforeWrite pins
 // the existing undesignated-home guard: a member home with no designation and
-// no registration refuses its rebuild with KindKnowledgeAmbiguous before any
+// refuses its rebuild with KindKnowledgeAmbiguous before any
 // write, and the designated home's rows are unchanged.
 func TestKnowledgeHomeReplacementUndesignatedHomeRefusesBeforeWrite(t *testing.T) {
 	t.Parallel()

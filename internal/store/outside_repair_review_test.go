@@ -74,13 +74,6 @@ func TestOutsideRepairHeldSupersedeRefusesWithoutAnyEffects(t *testing.T) {
 	work := "outside-held-supersede"
 	seedOutsideRepairTestWork(t, s, work)
 	seedWork(t, s, "outside-successor")
-	claim := operationEvent("outside-claim", "work.resource_claimed", SubjectWorkItem, work, map[string]any{
-		"work_id": work, "resource_key": "fence:outside-repair", "reason": "retain the repair claim",
-		"holder_agent": "agent:test", "holder_session": "session:test", "expected_version": 3, "resulting_version": 4,
-	})
-	if err := applyWorkEvent(t, s, claim, workVersion(work, 3)); err != nil {
-		t.Fatal(err)
-	}
 	if err := outsideRepairApply(t, s, outsideRepairTestRequest(t, s, work, "hold"), WorkflowOutsideRepairDispositionSet, workflowproof.Evidence{}); err != nil {
 		t.Fatal(err)
 	}
@@ -99,7 +92,7 @@ func TestOutsideRepairHeldSupersedeRefusesWithoutAnyEffects(t *testing.T) {
 	}})
 	assertFailureKind(t, err, KindOutsideRepairActive)
 	if after := outsideRepairDatabaseSnapshot(t, s); after != before {
-		t.Fatal("held supersession changed log, versions, relations, claims or another projection")
+		t.Fatal("held supersession changed log, versions, relations or another projection")
 	}
 }
 
@@ -218,19 +211,12 @@ func TestOutsideRepairUnusedAuthorizationCannotDispatchAfterHold(t *testing.T) {
 	assertWorkerAttemptState(t, s, seed.workID, attempt, "failed")
 }
 
-func TestOutsideRepairHoldWaitsForFailedActionSettlement(t *testing.T) {
+func TestOutsideRepairHoldAcceptsFailedClosedAttempt(t *testing.T) {
 	work := "outside-failed-action"
-	s, owner, _, _ := seedFailedLaneAtExecution(t, work)
-	attempt := "attempt:" + work
+	s, _, _, _ := seedFailedLaneAtExecution(t, work)
 	req := outsideRepairTestRequest(t, s, work, "hold")
-	before := outsideRepairDatabaseSnapshot(t, s)
-	assertFailureKind(t, outsideRepairApply(t, s, req, WorkflowOutsideRepairDispositionSet, workflowproof.Evidence{}), KindNotTerminal)
-	if outsideRepairDatabaseSnapshot(t, s) != before {
-		t.Fatal("open action hold changed the database")
-	}
-	applyRecordWorkerFailureForTest(t, s, work, owner, attempt, latestStepStartEpoch(t, s, work, "execution"), readWorkVersion(t, s, work), "outside-settle-failure")
-	if err := outsideRepairApply(t, s, outsideRepairTestRequest(t, s, work, "settled-hold"), WorkflowOutsideRepairDispositionSet, workflowproof.Evidence{}); err != nil {
-		t.Fatalf("failed closed attempt/action cannot strand outside repair: %v", err)
+	if err := outsideRepairApply(t, s, req, WorkflowOutsideRepairDispositionSet, workflowproof.Evidence{}); err != nil {
+		t.Fatalf("failed closed attempt cannot strand outside repair: %v", err)
 	}
 }
 
@@ -290,14 +276,6 @@ func testOutsideRepairReconcileOutstandingExecution(t *testing.T, state string) 
 			t.Fatal(err)
 		}
 	}
-	version := readWorkVersion(t, s, seed.workID)
-	claim := operationEvent("outside-recheck-claim", "work.resource_claimed", SubjectWorkItem, seed.workID, map[string]any{
-		"work_id": seed.workID, "resource_key": "fence:outside-recheck", "reason": "retain until execution stops",
-		"holder_agent": "agent:test", "holder_session": "session:test", "expected_version": version, "resulting_version": version + 1,
-	})
-	if err := applyWorkEvent(t, s, claim, workVersion(seed.workID, version)); err != nil {
-		t.Fatal(err)
-	}
 	// Reconciliation must protect outstanding execution even when a hold
 	// already exists in the current rows.
 	hold := outsideRepairTestRequest(t, s, seed.workID, "hold")
@@ -321,10 +299,6 @@ func testOutsideRepairReconcileOutstandingExecution(t *testing.T, state string) 
 	}
 	if err := outsideRepairApply(t, s, req, WorkflowOutsideRepairReconciled, outsideRepairSampleEvidence()); err != nil {
 		t.Fatalf("settled execution did not release reconciliation: %v", err)
-	}
-	claims, err := s.ResourceClaims(context.Background(), "fence:outside-recheck", "", 1)
-	if err != nil || len(claims) != 1 || claims[0].State != ResourceClaimReleased {
-		t.Fatalf("settled reconciliation did not release claim: %+v, %v", claims, err)
 	}
 }
 

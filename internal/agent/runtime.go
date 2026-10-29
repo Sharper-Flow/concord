@@ -186,13 +186,6 @@ type messagesInput struct {
 	Limit     int       `json:"limit,omitempty"`
 }
 
-type resourceClaimsInput struct {
-	ProductID   string    `json:"product_id"`
-	ResourceKey string    `json:"resource_key"`
-	Page        pageInput `json:"page"`
-	Limit       int       `json:"limit,omitempty"`
-}
-
 type worktreeAuditInput struct {
 	ProductID string    `json:"product_id"`
 	Page      pageInput `json:"page"`
@@ -1268,8 +1261,6 @@ func (r runtime) readResult(ctx context.Context, base agentcontract.Envelope, in
 		return r.readWorkBlocked(ctx, base, input)
 	case "concord_work_browse.scope":
 		return r.readWorkScope(ctx, base, input)
-	case "concord_work_browse.resource_claims":
-		return r.readResourceClaims(ctx, base, input)
 	case "concord_work_browse.messages":
 		return r.readWorkMessages(ctx, base, input)
 	case "concord_work_browse.worktree_audit":
@@ -1356,25 +1347,7 @@ func (r runtime) freshenProductKnowledge(ctx context.Context, product string) er
 		}
 		return err
 	}
-	if err := r.Store.EnsureKnowledgeIndexFresh(ctx, home); err != nil {
-		return err
-	}
-	// CD-0200: the read demand covers the Product's full registered source
-	// set, so a member Project's source rebuilds on demand too, not only the
-	// designated shared-law home.
-	sources, err := r.Store.ProductKnowledgeSourceRegistrations(ctx, product)
-	if err != nil {
-		return err
-	}
-	for _, source := range sources {
-		if source.HomeProjectID == home.HomeProjectID && source.HomeLocatorID == home.HomeLocatorID {
-			continue
-		}
-		if err := r.Store.EnsureKnowledgeIndexFresh(ctx, source); err != nil {
-			return err
-		}
-	}
-	return nil
+	return r.Store.EnsureKnowledgeIndexFresh(ctx, home)
 }
 
 func (r runtime) knowledgeHome(ctx context.Context) (store.KnowledgeHome, error) {
@@ -1757,7 +1730,7 @@ func ContinuityPayload(snapshot store.ContinuitySnapshot) map[string]any {
 	if stepActions == nil {
 		stepActions = []string{}
 	}
-	pinned := map[string]any{"product_identity": snapshot.ProductIdentity, "workflow_step": snapshot.WorkflowStep, "step_actions": stepActions, "contract": snapshot.Contract, "spec_mandate": snapshot.SpecMandate, "pending_operator_decision": snapshot.PendingOperatorDecision, "withheld_operator_decision": snapshot.WithheldOperatorDecision, "latest_checkpoint": snapshot.LatestCheckpoint, "design_record": snapshot.DesignRecord, "unresolved_failure": snapshot.UnresolvedFailure}
+	pinned := map[string]any{"product_identity": snapshot.ProductIdentity, "workflow_step": snapshot.WorkflowStep, "step_actions": stepActions, "contract": snapshot.Contract, "spec_mandate": snapshot.SpecMandate, "pending_operator_decision": snapshot.PendingOperatorDecision, "withheld_operator_decision": snapshot.WithheldOperatorDecision, "latest_checkpoint": snapshot.LatestCheckpoint, "design_record": snapshot.DesignRecord}
 	if snapshot.WorkPin != nil {
 		pinned["work_pin"] = snapshot.WorkPin
 	}
@@ -2167,18 +2140,8 @@ func (r runtime) q9(base agentcontract.Envelope, q store.Q9Result) (agentcontrac
 		Hash        string `json:"content_hash,omitempty"`
 		Status      string `json:"status,omitempty"`
 		SuccessorID string `json:"successor_id,omitempty"`
-		// CD-0200: the source Project and locator name which registered
-		// repository holds each record's canonical note, beside its revision
-		// proof.
-		HomeProjectID string `json:"home_project_id,omitempty"`
-		HomeLocatorID string `json:"home_locator_id,omitempty"`
 	}
 	items := []item{}
-	// CD-0200: only a federated answer names each item's source Project and
-	// locator. A single-source answer keeps the wire shape it always had:
-	// every record resolves against the one source, so the fields would
-	// carry no information the envelope watermark does not already prove.
-	federated := len(q.SourceWatermarks) > 0
 	for _, v := range q.Items {
 		kind := v.Kind
 		if kind == "work_note" {
@@ -2188,10 +2151,6 @@ func (r runtime) q9(base agentcontract.Envelope, q store.Q9Result) (agentcontrac
 			kind = "specification"
 		}
 		wire := item{ID: v.ID, Kind: kind, Locator: v.NotePath, Commit: v.CommitOID, Hash: v.ContentHash, Status: store.KnowledgeLawStatus(v.Kind, v.OutcomeTag), SuccessorID: v.SuccessorID}
-		if federated {
-			wire.HomeProjectID = v.HomeProjectID
-			wire.HomeLocatorID = v.HomeLocatorID
-		}
 		items = append(items, wire)
 	}
 	publications := q.Publications
@@ -2199,24 +2158,6 @@ func (r runtime) q9(base agentcontract.Envelope, q store.Q9Result) (agentcontrac
 		publications = []store.KnowledgePublication{}
 	}
 	payload := map[string]any{"items": items, "watermark": q.IndexWatermark, "publications": publications}
-	// CD-0200: a federated answer carries its per-source watermarks in the
-	// payload and one envelope watermark entry per registered source, so the
-	// packet proves each source's freshness verdict. A single-source answer
-	// keeps the one-entry envelope shape it always had.
-	if len(q.SourceWatermarks) > 0 {
-		marks := make([]map[string]string, 0, len(q.SourceWatermarks))
-		markEntries := make([]agentcontract.Watermark, 0, len(q.SourceWatermarks))
-		for _, mark := range q.SourceWatermarks {
-			marks = append(marks, map[string]string{"project_id": mark.ProjectID, "locator_id": mark.LocatorID, "watermark": mark.Watermark, "authority": mark.Authority})
-			markEntries = append(markEntries, agentcontract.Watermark{SourceKind: "git_knowledge", SourceID: mark.ProjectID + "/" + mark.LocatorID, Version: mark.Watermark})
-		}
-		payload["source_watermarks"] = marks
-		response, err := r.resultEnvelope(base, q.ResultMeta, r.scope(q.ResultMeta), payload)
-		if err == nil {
-			response.SourceVersionWatermark = markEntries
-		}
-		return response, err
-	}
 	response, err := r.resultEnvelope(base, q.ResultMeta, r.scope(q.ResultMeta), payload)
 	if err == nil {
 		response.SourceVersionWatermark = []agentcontract.Watermark{{SourceKind: "git_knowledge", SourceID: q.IndexWatermark, Version: q.IndexWatermark}}

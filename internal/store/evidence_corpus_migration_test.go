@@ -16,7 +16,6 @@ func evidenceExplicitCorpus(t *testing.T) historicalFactCorpus {
 	c := evidenceCorpusForWork(t, "evidence-corpus")
 	c.events = append(c.events,
 		corpusEvent("removed-evidence", WorkflowEvidenceBound, "removed-work", json.RawMessage(`{}`)),
-		corpusEvent("removed-observation", WorkflowStalenessObserved, "removed-work", json.RawMessage(`{"rule_id":"staleness:removed"}`)),
 		corpusEvent("removed-completion", WorkflowActionCompleted, "removed-work", json.RawMessage(`{"action_id":"confirm_premise","step_id":"verify"}`)),
 	)
 	held := corpusEvent("unbound-held-review", WorkflowActionCompleted, "evidence-corpus", map[string]any{"action_id": "accept_worker_result", "step_id": "verify", "review_advance_held": true})
@@ -73,7 +72,7 @@ func evidenceCorpusForWork(t *testing.T, work string) historicalFactCorpus {
 	c := historicalFactCorpus{}
 	add := func(kind string, p map[string]any, bump bool) Event {
 		p["work_id"] = work
-		if kind == WorkflowStalenessObserved || kind == "compaction_link.published" {
+		if kind == "compaction_link.published" {
 			delete(p, "work_id")
 		}
 		if bump {
@@ -130,9 +129,6 @@ func evidenceCorpusForWork(t *testing.T, work string) historicalFactCorpus {
 	action(WorkflowActionCompleted, "verify", "request_correction", 79, map[string]any{"correction_diagnosis": "The recorded criterion needs another observation", "correction_strategy": "Recheck the exact criterion", "correction_predicate_ids": []string{"predicate:return-route"}, "correction_evidence_refs": []string{"evidence:corpus"}})
 	verdict("ok", false)
 	add(WorkflowEvidenceBound, map[string]any{"evidence_kind": "verification", "immutable_subject_ref": "evidence:corpus", "producer_id": "principal/corpus", "producer_run_ref": "evidence-corpus-producer", "producer_watermark": "request/corpus", "observed_at": "2026-01-01T00:00:00Z"}, true)
-	for _, drifted := range []bool{true, false} {
-		add(WorkflowStalenessObserved, map[string]any{"rule_id": "staleness:corpus", "severity": "warning", "drifted": drifted, "accepted_inputs_digest": testManifestDigest, "observed_at": "2026-01-01T00:00:00Z"}, false)
-	}
 	add("work.observation_recorded", map[string]any{"observation_id": "obs:aaaaaaaaaaaaaaaa", "statement": "The corpus records an explicit observation", "refs": []string{}, "tags": []string{}}, false)
 	add("compaction_link.published", map[string]any{
 		"id": work, "type": "work_note", "title": "Evidence corpus",
@@ -196,8 +192,6 @@ DELETE FROM ` + guard); err != nil {
 			return foldWorkflowVerdictRecorded(ctx, tx, e)
 		case WorkflowEvidenceBound:
 			return foldWorkflowEvidenceBound(ctx, tx, e)
-		case WorkflowStalenessObserved:
-			return foldWorkflowStalenessObserved(ctx, tx, e)
 		case "work.observation_recorded":
 			return foldWorkObservationRecorded(ctx, tx, e)
 		case WorkerDispatched:
@@ -263,7 +257,6 @@ func assertEvidenceCorpus142(t *testing.T) {
 		`SELECT json_array(work_id,step_id,action_id,production_seq) FROM workflow_artifact_actions WHERE step_id='verify' ORDER BY work_id,step_id,action_id`,
 		`SELECT json_array(work_id,contract_version,supersession_seq) FROM workflow_contracts ORDER BY work_id,contract_version`,
 		`SELECT json_array(work_id,binding_seq,binding_id,actor,json_remove(payload,'$.expected_version','$.resulting_version')) FROM workflow_evidence_bindings ORDER BY work_id,binding_seq`,
-		`SELECT json_array(work_id,step_id,attempt_epoch,state,actor_ref,effect_seq,json_remove(payload,'$.expected_version','$.resulting_version')) FROM workflow_action_obligations ORDER BY work_id,effect_seq`,
 		`SELECT json_array(actor_ref,first_dispatch_seq) FROM workflow_worker_actors ORDER BY actor_ref`,
 		`SELECT json_array(observation_id,recorded_seq) FROM work_observations ORDER BY observation_id`,
 	}
@@ -281,7 +274,7 @@ func assertEvidenceCorpus142(t *testing.T) {
 		}
 		t.FailNow()
 	}
-	assertCorpusSelectionRed(t, c, 142, "AND c.seq>e.seq", "AND c.seq<e.seq", queries[5:6], want[5:6])
+	assertCorpusSelectionRed(t, c, 142, "SELECT seq,event_id,payload FROM domain_events e WHERE e.subject_type='work_item' AND e.subject_id=s.work_id AND e.kind='workflow.action_started' AND json_extract(e.payload,'$.step_id')=s.step_id ORDER BY seq DESC LIMIT 1", "SELECT seq,event_id,payload FROM domain_events e WHERE e.subject_type='work_item' AND e.subject_id=s.work_id AND e.kind='workflow.action_started' AND json_extract(e.payload,'$.step_id')=s.step_id ORDER BY seq ASC LIMIT 1", queries[:1], want[:1])
 }
 
 func TestEvidenceExplicitCorpusMigration142(t *testing.T) {

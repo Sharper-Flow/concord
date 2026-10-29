@@ -138,9 +138,7 @@ Executing operational procedures with approval, conditions, and rollback.
 |---|---|---|
 | Execute an operational procedure with an approval step, checkpoints, and a cleanup obligation | Excluded | Accepted [CD-0218](./decisions/CD-0218-the-live-workflow-catalog-retains-three-execution-families.md) D1 retires ops choreography from new execution and adds no provider executor. D4 preserves archived definitions for historical reads, not new capture or dispatch. |
 | Roll back a partially executed operation | Excluded | Accepted [CD-0218](./decisions/CD-0218-the-live-workflow-catalog-retains-three-execution-families.md) D1 removes ops choreography without adding a rollback claim or authority for external effects. The archived `rollback_run` action is not a live rollback route. |
-| Wait on an external signal without polling, and distinguish waiting from never-completable | Excluded | Accepted [CD-0234](./decisions/CD-0234-the-engine-has-no-external-condition-resolver.md) D1-D2: no retained workflow family can open a condition and no resolver or wait authority exists, so no runtime path waits on an external signal. Recorded conditions stay readable and block consequential actions. |
 | Record the health of an operational run | Excluded | Accepted [CD-0218](./decisions/CD-0218-the-live-workflow-catalog-retains-three-execution-families.md) D1 removes ops choreography without adding a health observer. D4 preserves archived `record_health` history, not a live health-recording route. |
-| Claim a shared resource so concurrent agents do not collide outside the repository | Covered | `concord_work_relate.resource_claim` records a durable typed claim held by a work item; contention refuses with coordination, terminal transition releases, and `resource_claims` (PM1.Q13) resolves holder and reason before another agent acts (CD-0028); dispatched in `internal/agent/mutations.go` and exercised by `internal/agent/resource_claims_dispatch_test.go`. |
 | Throttle local test execution, wait on remote CI, keep worktrees fresh, bootstrap a project | Excluded | [`capability-placement.md`](./capability-placement.md) §6 places these as host scripts. They are cross-tool executables that outlive any coordination system, and Concord observes their results rather than owning them. |
 | Install, sync, pin, and roll back the coordination runtime itself | Excluded | Owned by the release and installer path (`scripts/release.py`, `scripts/install.py`), which CI validates. Not coordination territory. |
 | Diagnose a failing local environment interactively | Excluded | [`capability-placement.md`](./capability-placement.md) §6 places host diagnosis with host scripts and on-demand methodology. Concord observes the results a local environment produces; it does not own diagnosing one. |
@@ -183,11 +181,11 @@ Territory that appears across all six and is an outcome in its own right.
 
 | State | Count |
 |---|---|
-| Covered | 49 |
+| Covered | 48 |
 | Not covered | 2 |
-| Excluded with reason | 24 |
+| Excluded with reason | 23 |
 
-**Total enumerated outcomes: 75.**
+**Total enumerated outcomes: 73.**
 
 Two enumerated outcomes are not covered: no current control dispatches the Research
 lane in an end-to-end workflow, and the small-change entry-to-completion journey

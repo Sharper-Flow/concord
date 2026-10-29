@@ -28,7 +28,7 @@
   affects more than one Domain.
 
 [CD-0243 D6](CD-0243-four-roles-and-six-operator-approval-classes.md#d6-existing-approval-requirements-follow-these-classes)
-limits operator consent to its six classes. The operator owns size overrides; agents may request the model to run again.
+limits operator consent to its six classes. Agents may request the model to run again.
 
 ## Context
 
@@ -91,8 +91,8 @@ Derived schemas and compositions are generated from one canonical source ([CD-02
 ### D4. Every sized work item has one size from the decision model
 
 A versioned decision model sets each
-work item's size from goal B's inputs, never from an agent's proposal; the
-operator may move it; agents may only request a rerun or add steps ([goal B](../goals.md) and [CD-0242 D4](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d4-families-compose-shared-stages-and-rules-set-the-minimum)).
+work item's size from goal B's inputs, never from an agent's proposal;
+agents may only request a rerun or add steps ([goal B](../goals.md) and [CD-0242 D4](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d4-families-compose-shared-stages-and-rules-set-the-minimum)).
 
 ### D5. The size selects the composition and its least proof
 
@@ -100,7 +100,7 @@ Change type and risk set each item's
 mandatory stages, and a small change runs define, implement, review, and ship
 with its footprint checks and one review ([CD-0242 D4](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d4-families-compose-shared-stages-and-rules-set-the-minimum) and [goal B](../goals.md)).
 
-### D6. Only the model and the operator change a size
+### D6. The model changes a size
 
 For a task that proves bigger than its size, the decision model runs again,
 adds the newly required steps, and work continues without redoing completed
@@ -117,8 +117,7 @@ target refuses admission until the operator sets one as a gate.
 ## Alternatives considered
 
 - Let the agent choose the size. Goal B rules out the agent's own judgment.
-- Let the operator choose each size. Goal B rules out a case-by-case choice;
-  the operator keeps the override in D4.
+- Let the operator choose each size. Goal B rules out a case-by-case choice.
 - Keep full definitions and add size-specific copies. Each copy would
   redefine shared steps, against goal C's measure.
 - Compose by inheritance between definitions. A child that overrides a parent
@@ -156,9 +155,8 @@ Concord's own development follows
   `internal/store.TestWorkSizeRecordKeepsSizeModelVersionAndInputs`, and
   `internal/agent.TestCaptureSizeRefusalsLeaveNoWork` exercise D4's deterministic
   model, stored inputs, and refusal of an agent-proposed size.
-- `internal/store.TestWorkSizeOverrideRefusesWithoutAConsumedApproval` and
-  `internal/agent.TestReviseIntentSizeRevisionsStayOnTheWork` exercise D6's
-  override approval and same-item size revisions. These tests do not prove
+- `internal/agent.TestReviseIntentSizeRevisionsStayOnTheWork` exercises D6's
+  same-item size revisions. This test does not prove
   that a changed size adds required stages while preserving completed work.
 - `internal/store.TestAcceptedCriteriaPrecedeArchitecture` and
   `internal/store.TestArchitectureReviewGuardsFirstAndContinuingDispatch`

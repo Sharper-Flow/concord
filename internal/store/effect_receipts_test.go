@@ -6,10 +6,8 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"fmt"
-	"os"
 	"path/filepath"
 	"reflect"
-	"strings"
 	"testing"
 	"time"
 )
@@ -28,7 +26,6 @@ func effectReceiptReadFixture(t *testing.T) *Store {
 CREATE TABLE effect_receipts(event_id TEXT PRIMARY KEY,effect_seq INTEGER UNIQUE,kind TEXT,subject_type TEXT,subject_id TEXT,actor TEXT,payload_version INTEGER,payload_digest TEXT);
 CREATE TABLE worker_attempts(work_id TEXT,attempt_id TEXT,dispatch_event_id TEXT,dispatch_payload TEXT,terminal_event_id TEXT,terminal_kind TEXT,terminal_payload TEXT);
 CREATE TABLE worker_job_revisions(work_id TEXT,recorded_payload TEXT);
-CREATE TABLE workflow_staleness_observations(event_id TEXT PRIMARY KEY,work_id TEXT,rule_id TEXT,severity TEXT,drifted INTEGER,accepted_inputs_digest TEXT,observed_at TEXT);
 `)
 	if err != nil {
 		t.Fatal(err)
@@ -120,32 +117,6 @@ func TestEffectReceiptTerminalSampleLogBlind(t *testing.T) {
 	}
 }
 
-func TestEffectReceiptStalenessProbeLogBlind(t *testing.T) {
-	s := effectReceiptReadFixture(t)
-	e, _, err := workflowStalenessObservationEvent("stale", "work", "actor", testManifestDigest, []byte(`{"staleness_rule_id":"rule","observed_drift":{"severity":"warning","drifted":true}}`), time.Unix(1, 0))
-	if err != nil {
-		t.Fatal(err)
-	}
-	seedEffectReceiptRead(t, s, 7, e)
-	if _, err := s.db.Exec(`INSERT INTO workflow_staleness_observations VALUES('stale','work','rule','warning',1,?,'1970-01-01T00:00:01Z')`, testManifestDigest); err != nil {
-		t.Fatal(err)
-	}
-	hideEffectLog(t, s)
-	tx, err := s.db.BeginTx(t.Context(), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer tx.Rollback()
-	e.Payload = []byte(fmt.Sprintf(`{"rule_id":"rule","severity":"warning","drifted":true,"accepted_inputs_digest":%q,"observed_at":"1970-01-01T00:01:01Z"}`, testManifestDigest))
-	found, err := workflowStalenessObservationRecordedTx(t.Context(), tx, e)
-	if err != nil || !found {
-		t.Fatalf("retry = %v, %v", found, err)
-	}
-	e.Payload = []byte(fmt.Sprintf(`{"rule_id":"rule","severity":"warning","drifted":false,"accepted_inputs_digest":%q,"observed_at":"1970-01-01T00:01:01Z"}`, testManifestDigest))
-	_, err = workflowStalenessObservationRecordedTx(t.Context(), tx, e)
-	assertFailureKind(t, err, KindOperationConflict)
-}
-
 func TestCorrectionRecordSourceLogBlind(t *testing.T) {
 	s := effectReceiptReadFixture(t)
 	e := testEvent()
@@ -228,46 +199,19 @@ INSERT INTO work_items(id,kind,title,lifecycle,priority,version,created_at,updat
 DELETE FROM fold_guard`); err != nil {
 		t.Fatal(err)
 	}
-	stale := fmt.Sprintf(`{"rule_id":"rule","severity":"warning","drifted":true,"accepted_inputs_digest":%q,"observed_at":"1970-01-01T00:00:01Z"}`, testManifestDigest)
 	corpus := []histEventRow{
 		{1, "receipt-product", "product.created", "product", "product", "creator", "1970-01-01T00:00:01Z", 1, `{ "display_name": "Product", "extension": {"z":2,"a":1}, "number":9007199254740993 }`},
-		{2, "receipt-stale", "workflow.staleness_observed", "work_item", "work", "staleness", "1970-01-01T00:00:02Z", 1, stale},
-		{3, "receipt-block", "workflow.staleness_observed", "work_item", "work", "staleness", "1970-01-01T00:00:03Z", 2, strings.ReplaceAll(strings.ReplaceAll(stale, "warning", "block"), "true", "false")},
-		{4, "receipt-wrong-subject", "workflow.staleness_observed", "project", "work", "other", "1970-01-01T00:00:04Z", 1, stale},
-		{5, "receipt-removed", "workflow.staleness_observed", "work_item", "removed", "other", "1970-01-01T00:00:05Z", 1, stale},
-		{6, "receipt-wrong-kind", "work.observed", "work_item", "work", "observer", "1970-01-01T00:00:06Z", 3, stale},
+		{2, "receipt-work", "work.observed", "work_item", "work", "observer", "1970-01-01T00:00:06Z", 3, `{"statement":"A recorded observation"}`},
 	}
 	for _, row := range corpus {
 		if _, err := db.Exec(`INSERT INTO domain_events(seq,event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?,?,?,?,?,?,?,?,?)`, row.Seq, row.EventID, row.Kind, row.SubjectType, row.SubjectID, row.Actor, row.OccurredAt, row.Version, row.Payload); err != nil {
 			t.Fatal(err)
 		}
 	}
-	// The negative run changes one selection in a local value, never the
-	// immutable migration or its on-disk manifest/checksum.
-	if os.Getenv("TEST_CONCORD_MIGRATION_SELECTION_RED") == "145" {
-		m := migrations[144]
-		m.SQL = strings.Replace(m.SQL, "AND subject_type='work_item'", "AND subject_type='project'", 1)
-		if err := applyMigration(t.Context(), db, m); err != nil {
-			t.Fatal(err)
-		}
-	} else {
-		advanceHistoricalPrefix(t, db, 145)
-	}
+	advanceHistoricalPrefix(t, db, 145)
 	assertParity := func() {
 		t.Helper()
 		assertHistoricalReceipts(t, db, corpus)
-		var receipts, observations int
-		if err := db.QueryRow(`SELECT (SELECT count(*) FROM effect_receipts),(SELECT count(*) FROM workflow_staleness_observations)`).Scan(&receipts, &observations); err != nil || receipts != len(corpus) || observations != 2 {
-			t.Fatalf("145 selection: receipts=%d observations=%d, err=%v; want %d/2", receipts, observations, err, len(corpus))
-		}
-		for i, row := range corpus[1:3] {
-			var work, rule, severity, digest, observed string
-			var drifted bool
-			wantSeverity := []string{"warning", "block"}[i]
-			if err := db.QueryRow(`SELECT work_id,rule_id,severity,drifted,accepted_inputs_digest,observed_at FROM workflow_staleness_observations WHERE event_id=?`, row.EventID).Scan(&work, &rule, &severity, &drifted, &digest, &observed); err != nil || work != "work" || rule != "rule" || digest != testManifestDigest || observed != "1970-01-01T00:00:01Z" || severity != wantSeverity || drifted != (i == 0) {
-				t.Fatalf("145 staleness %s = %s/%s/%s/%t/%s/%s, %v", row.EventID, work, rule, severity, drifted, digest, observed, err)
-			}
-		}
 	}
 	assertParity()
 	if got := histEventRows(t, &Store{db: db}); !reflect.DeepEqual(got, corpus) {
@@ -300,21 +244,6 @@ DELETE FROM fold_guard`); err != nil {
 	}
 	assertHistoricalReceipts(t, fresh.db, corpus)
 	hideEffectLog(t, fresh)
-	seedWork(t, fresh, "work")
-	if err := AppendWorkflowStalenessObservation(t.Context(), fresh, "live-stale", "work", "staleness", testManifestDigest, []byte(`{"staleness_rule_id":"rule","observed_drift":{"severity":"warning","drifted":true}}`), time.Unix(1, 0)); err != nil {
-		t.Fatal(err)
-	}
-	for _, database := range []*sql.DB{db, fresh.db} {
-		id := "receipt-stale"
-		if database == fresh.db {
-			id = "live-stale"
-		}
-		var work, rule, severity, digest, observed string
-		var drifted bool
-		if err := database.QueryRow(`SELECT work_id,rule_id,severity,drifted,accepted_inputs_digest,observed_at FROM workflow_staleness_observations WHERE event_id=?`, id).Scan(&work, &rule, &severity, &drifted, &digest, &observed); err != nil || work != "work" || rule != "rule" || severity != "warning" || !drifted || digest != testManifestDigest || observed != "1970-01-01T00:00:01Z" {
-			t.Fatalf("live/backfilled staleness %s = %s/%s/%s/%t/%s/%s, %v", id, work, rule, severity, drifted, digest, observed, err)
-		}
-	}
 }
 
 func TestEffectReceiptBackfillRefusesMissingDigest(t *testing.T) {

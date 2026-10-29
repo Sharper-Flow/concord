@@ -5,7 +5,7 @@
 - **Scope:** Built-in workflow definitions, the delivery action, terminal lifecycle transitions, and workflow read surfaces
 - **Approval:** The operator approved the step-gating route over an additive evidence kind, and set the boundary: the coordinating agent owns the delivery assertion, and no session waits on a merge queue.
 - **Related:** CD-0156, CD-0043
-- **Preserves:** Active workflow instances, the ci-wait no-store-write boundary, and the await-health no-prober boundary
+- **Preserves:** Active workflow instances and the ci-wait no-store-write boundary
 
 Operator consent for delivery assertions and corrective returns is limited to the six classes in [CD-0243 D6](CD-0243-four-roles-and-six-operator-approval-classes.md#d6-existing-approval-requirements-follow-these-classes). Delivery evidence, subject binding, and other non-consent checks remain required.
 
@@ -66,7 +66,7 @@ pull request stays visible instead of silently orphaned.
 The workflow read projection reports a `parked_delivery` object, with the
 step, the resume action, a read-time parked duration, and the unreconciled
 flag. This is a read-time derivation over the current
-definition, in the await-health tradition: elapsed time labels, never
+definition: elapsed time labels, never
 resolves, and no timer, poller, or background process exists.
 
 ### D5. No session waits on a merge queue

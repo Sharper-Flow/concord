@@ -3,7 +3,6 @@ package store
 import (
 	"context"
 	"encoding/json"
-	"reflect"
 	"strings"
 	"testing"
 )
@@ -165,84 +164,5 @@ func TestDuplicateActiveContractsRecoverWithExactPredecessorSet(t *testing.T) {
 	}
 	if active != 1 || successor != 1 || superseded != 2 {
 		t.Fatalf("recovery projection active=%d successor=%d superseded=%d", active, successor, superseded)
-	}
-}
-func TestContractImpactNoticesAreInvariantToPredecessorOrder(t *testing.T) {
-	collect := func(t *testing.T, predecessors []int64) []string {
-		t.Helper()
-		const workID = "impact-predecessor-order"
-		s, completion := seedCompletionGateCase(t, workID, completionGateCase{requiredEvidence: []string{"verification", "review"}})
-		dependentID := workID + "-dependent"
-		seedImpactDependent(t, s, dependentID, workID, "hard")
-		db := s.DatabaseForTesting()
-		if _, err := db.Exec(`INSERT INTO write_guard(active) VALUES(1);
-INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class)
-SELECT work_id,2,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class FROM workflow_contracts WHERE work_id=? AND contract_version=1;
-INSERT INTO workflow_contract_predicates(work_id,contract_version,predicate_id,ordinal,outcome_kind,outcome_payload)
-SELECT work_id,2,predicate_id,ordinal,outcome_kind,outcome_payload FROM workflow_contract_predicates WHERE work_id=? AND contract_version=1;
-DELETE FROM write_guard`, dependentID, dependentID); err != nil {
-			t.Fatal(err)
-		}
-		var version int64
-		if err := db.QueryRow(`SELECT version FROM work_items WHERE id=?`, workID).Scan(&version); err != nil {
-			t.Fatal(err)
-		}
-		frontierWriteOnlyLog(t, s)
-		tx, err := db.BeginTx(context.Background(), nil)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err := enterWrite(context.Background(), tx); err != nil {
-			_ = tx.Rollback()
-			t.Fatal(err)
-		}
-		payload := workflowContractSupersededPayload{PreviousContractVersion: 1, NewContractVersion: 3, PredecessorContractVersions: predecessors}
-		event := Event{EventID: "impact-predecessor-order-parent", Kind: WorkflowContractSuperseded, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: completion.Actor, OccurredAt: completion.OccurredAt}
-		scope := newWriteScope(tx)
-		err = appendWorkflowContractImpactNoticesTx(context.Background(), tx, event, payload, version, scope)
-		_ = leaveWrite(context.Background(), tx)
-		if err != nil {
-			_ = tx.Rollback()
-			t.Fatal(err)
-		}
-		if len(scope.eventIDs) != len(predecessors) {
-			t.Fatalf("derived operation IDs = %v; want %d", scope.eventIDs, len(predecessors))
-		}
-		for index, id := range scope.eventIDs {
-			var position int64
-			if err := tx.QueryRow(`SELECT effect_seq-(SELECT min(effect_seq) FROM effect_receipts WHERE kind=? AND subject_id=?) FROM effect_receipts WHERE event_id=?`, WorkflowImpactNoticeRecorded, workID, id).Scan(&position); err != nil || position != int64(index) {
-				t.Fatalf("derived receipt order at %d = %d, %v", index, position, err)
-			}
-		}
-		if err := tx.Commit(); err != nil {
-			t.Fatal(err)
-		}
-		var receipts int
-		if err := db.QueryRow(`SELECT count(*) FROM effect_receipts WHERE kind=? AND subject_id=?`, WorkflowImpactNoticeRecorded, workID).Scan(&receipts); err != nil || receipts != len(predecessors) {
-			t.Fatalf("derived notice receipts = %d, %v; want %d", receipts, err, len(predecessors))
-		}
-		rows, err := db.Query(`SELECT entity_ref,severity FROM workflow_impact_notices WHERE source_work_id=? ORDER BY entity_ref`, workID)
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer rows.Close()
-		var notices []string
-		for rows.Next() {
-			var entityRef, severity string
-			if err := rows.Scan(&entityRef, &severity); err != nil {
-				t.Fatal(err)
-			}
-			notices = append(notices, entityRef+":"+severity)
-		}
-		if err := rows.Err(); err != nil {
-			t.Fatal(err)
-		}
-		return notices
-	}
-
-	first := collect(t, []int64{2, 1})
-	second := collect(t, []int64{1, 2})
-	if !reflect.DeepEqual(first, second) || !reflect.DeepEqual(first, []string{"contract:1:breaking", "contract:2:breaking"}) {
-		t.Fatalf("predecessor-order notices first=%v second=%v", first, second)
 	}
 }

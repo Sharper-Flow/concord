@@ -278,9 +278,6 @@ const GeneratedEnvelopeSchemaDocument = `{
             "resolve_note",
             "observe_publication",
             "resolve_overlap",
-            "resource_claim",
-            "resource_claims",
-            "resource_release",
             "resources",
             "revise_intent",
             "scope",
@@ -1054,9 +1051,6 @@ const GeneratedEnvelopeSchemaDocument = `{
             "resolve_note",
             "observe_publication",
             "resolve_overlap",
-            "resource_claim",
-            "resource_claims",
-            "resource_release",
             "resources",
             "revise_intent",
             "scope",
@@ -1266,8 +1260,6 @@ const GeneratedEnvelopeSchemaDocument = `{
                       "message_send",
                       "message_withdraw",
                       "product_project_add",
-                      "resource_claim",
-                      "resource_release",
                       "resolve_overlap",
                       "set_memberships"
                     ],
@@ -1977,24 +1969,6 @@ const GeneratedEnvelopeSchemaDocument = `{
         {
           "properties": {
             "operation": {
-              "const": "resource_claims"
-            },
-            "query_id": {
-              "const": "PM1.Q13"
-            },
-            "tool": {
-              "const": "concord_work_browse"
-            }
-          },
-          "required": [
-            "tool",
-            "operation",
-            "query_id"
-          ]
-        },
-        {
-          "properties": {
-            "operation": {
               "const": "messages"
             },
             "query_id": {
@@ -2179,8 +2153,6 @@ const GeneratedEnvelopeSchemaDocument = `{
               "enum": [
                 "set_memberships",
                 "resolve_overlap",
-                "resource_claim",
-                "resource_release",
                 "message_send",
                 "message_withdraw",
                 "product_project_add",

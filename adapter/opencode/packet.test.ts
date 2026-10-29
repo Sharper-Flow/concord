@@ -101,7 +101,6 @@ const continuityEnvelope = (contract: unknown = pinnedContract(), designRecord: 
        ...(workPin === null ? {} : { work_pin: workPin }),
       ...(lawContext === null ? {} : { law_context: lawContext }),
       ...(proposalRecord === null ? {} : { proposal_record: proposalRecord }),
-      unresolved_failure: null,
     },
     boundaries: { count: 0, items: [], next_cursor: null, watermark: "seq:1" },
     typed_availability: { restart: "unavailable", reason: RESTART_UNAVAILABLE_REASON },
@@ -159,7 +158,6 @@ test("review packets preserve the recorded size and its provenance only on Revie
     { size: "small", model_size: "small", model_version: 2, recorded_at: "2026-10-28T00:00:00Z" },
     { size: "larger", model_size: "larger", model_version: 2, recorded_at: "2026-10-28T00:00:00Z" },
     { size: "crucial", model_size: "crucial", model_version: 2, recorded_at: "2026-10-28T00:00:00Z" },
-    { size: "crucial", model_size: "small", operator_size: "crucial", model_version: 2, recorded_at: "2026-10-28T00:00:00Z" },
   ] as const) {
     const descriptor = { input_candidate: { project_id: "project-1", commit: "a".repeat(40), tree: "b".repeat(40) }, dependencies: { criteria: [{ predicate_id: "predicate:primary", content_digest: "sha256:" + "c".repeat(64) }], architecture_not_applicable: true }, size }
     const continuity = continuityEnvelope() as any
@@ -1708,7 +1706,6 @@ const pagedPinned = () => ({
   pending_operator_decision: null,
   latest_checkpoint: CHECKPOINT,
   design_record: null,
-  unresolved_failure: null,
   work_pin: { correction: PAGED_CORRECTION, work_context: PAGED_WORK_CONTEXT },
   ready_worker_jobs: [ORACLE_JOB],
   work_context: OVERSIZED_CONTEXT,

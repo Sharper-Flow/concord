@@ -277,9 +277,6 @@
         "model_size": {
           "$ref": "#/$defs/lane_work_size_class"
         },
-        "operator_size": {
-          "$ref": "#/$defs/lane_work_size_class"
-        },
         "model_version": {
           "type": "integer",
           "minimum": 1

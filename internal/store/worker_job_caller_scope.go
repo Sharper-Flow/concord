@@ -676,7 +676,7 @@ func workerDeliveredDeltaMissing(job *WorkerJobBinding) error {
 
 // workerCallerPathForeignOwnerTx names another work item that owns a caller
 // path: a non-terminal item whose recorded worker job in the same Project
-// scopes the path, or an item holding a path claim on it. It returns the
+// scopes the path. It returns the
 // empty string when no other item owns the path.
 func workerCallerPathForeignOwnerTx(ctx context.Context, tx *sql.Tx, workID, projectID, path string) (string, error) {
 	rows, err := tx.QueryContext(ctx, `SELECT r.work_id, r.path_scope FROM worker_job_revisions r JOIN work_items w ON w.id=r.work_id WHERE r.work_id<>? AND r.project_scope=? AND w.lifecycle NOT IN ('completed','cancelled','superseded') ORDER BY r.work_id, r.job_id, r.revision`, workID, projectID)
@@ -702,23 +702,6 @@ func workerCallerPathForeignOwnerTx(ctx context.Context, tx *sql.Tx, workID, pro
 	}
 	if err := rows.Close(); err != nil {
 		return "", wrapFailure(KindUnavailable, "worker_job_caller_scope", "cannot close the other job scopes read", true, "retry once the worker-job projection is readable", err)
-	}
-	claims, err := tx.QueryContext(ctx, `SELECT c.holder_work_id, c.resource_key FROM resource_claims c WHERE c.state='held' AND c.holder_work_id<>? AND substr(c.resource_key,1,5)='path:' AND EXISTS (SELECT 1 FROM work_projects wp WHERE wp.work_id=c.holder_work_id AND wp.project_id=?) ORDER BY c.resource_key`, workID, projectID)
-	if err != nil {
-		return "", wrapFailure(KindUnavailable, "worker_job_caller_scope", "cannot read held path claims", true, "retry once the resource claims are readable", err)
-	}
-	defer claims.Close()
-	for claims.Next() {
-		var holder, key string
-		if err := claims.Scan(&holder, &key); err != nil {
-			return "", wrapFailure(KindUnavailable, "worker_job_caller_scope", "cannot scan held path claims", true, "retry once the resource claims are readable", err)
-		}
-		if workerJobPathsIntersect([]string{key[len("path:"):]}, path) {
-			return "work item " + holder + " holds through claim " + key + " over", nil
-		}
-	}
-	if err := claims.Err(); err != nil {
-		return "", wrapFailure(KindUnavailable, "worker_job_caller_scope", "cannot scan held path claims", true, "retry once the resource claims are readable", err)
 	}
 	return "", nil
 }

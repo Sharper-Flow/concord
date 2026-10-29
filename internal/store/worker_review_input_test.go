@@ -10,7 +10,7 @@ import (
 )
 
 func TestReviewContinuityCarriesRecordedWorkSize(t *testing.T) {
-	for _, kind := range []string{"unsized", "small", "larger", "crucial", "override"} {
+	for _, kind := range []string{"unsized", "small", "larger", "crucial"} {
 		t.Run(kind, func(t *testing.T) {
 			f := seedWorkContextFixture(t, "review-size-"+kind)
 			t.Cleanup(func() { _ = f.store.Close() })
@@ -28,12 +28,6 @@ func TestReviewContinuityCarriesRecordedWorkSize(t *testing.T) {
 				}
 				if err := applyWorkEvent(t, f.store, workSizedEvent("review-size-record", f.workID, WorkSizeModelVersion, size, inputs), nil); err != nil {
 					t.Fatal(err)
-				}
-				if kind == "override" {
-					insertWorkSizeOverrideApproval(t, f.store, f.workID, 1)
-					if err := runWorkSizeOverride(t, f.store, workSizeOverrideRequest(t, f.store, f.workID, "review-size-override", WorkSizeCrucial)); err != nil {
-						t.Fatal(err)
-					}
 				}
 			}
 			reviewSubjectClaim(t, f.store, f.workID)
@@ -56,18 +50,8 @@ func TestReviewContinuityCarriesRecordedWorkSize(t *testing.T) {
 			}
 			if kind != "unsized" {
 				model, effective := WorkSize(kind), WorkSize(kind)
-				if kind == "override" {
-					model, effective = WorkSizeSmall, WorkSizeCrucial
-				}
 				if got.Size == nil || got.Size.Size != effective || got.Size.ModelSize != model || got.Size.ModelVersion != WorkSizeModelVersion || got.Size.RecordedAt == "" {
 					t.Fatalf("%s lost its recorded size/provenance: %+v", kind, got.Size)
-				}
-				if kind == "override" {
-					if got.Size.OperatorSize == nil || *got.Size.OperatorSize != WorkSizeCrucial {
-						t.Fatalf("override lost its operator size: %+v", got.Size)
-					}
-				} else if got.Size.OperatorSize != nil {
-					t.Fatalf("model-only work invented an operator size: %+v", got.Size)
 				}
 			}
 			if kind == "unsized" && strings.Contains(string(mustJSONValue(snapshot.ReviewInput)), `"size"`) {
@@ -78,7 +62,7 @@ func TestReviewContinuityCarriesRecordedWorkSize(t *testing.T) {
 }
 
 func TestReviewDispatchRequiresExactReviewInput(t *testing.T) {
-	for _, field := range []string{"missing", "project", "commit", "tree", "criterion", "architecture", "other lane", "valid", "size valid", "size missing", "size effective", "size model", "size operator", "size version", "size timestamp", "size stale", "unsized size", "retained injected"} {
+	for _, field := range []string{"missing", "project", "commit", "tree", "criterion", "architecture", "other lane", "valid", "size valid", "size missing", "size effective", "size model", "size version", "size timestamp", "size stale", "unsized size", "retained injected"} {
 		t.Run(field, func(t *testing.T) {
 			f := seedWorkContextFixture(t, "review-input-"+strings.ReplaceAll(field, " ", "-"))
 			t.Cleanup(func() { _ = f.store.Close() })
@@ -135,9 +119,6 @@ func TestReviewDispatchRequiresExactReviewInput(t *testing.T) {
 				descriptor.Size.Size = WorkSizeCrucial
 			case "size model":
 				descriptor.Size.ModelSize = WorkSizeCrucial
-			case "size operator":
-				size := WorkSizeCrucial
-				descriptor.Size.OperatorSize = &size
 			case "size version":
 				descriptor.Size.ModelVersion++
 			case "size timestamp":

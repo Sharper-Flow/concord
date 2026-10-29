@@ -854,14 +854,6 @@ func workflowSemanticActionEvents(ctx context.Context, tx *sql.Tx, definition Wo
 		return workflowConfirmPremiseEvents(ctx, tx, definition, request, actor, fields, eventID, expected)
 	case "link_successor":
 		return workflowLinkSuccessorEvents(ctx, tx, definition, request, actor, fields, eventID, expected)
-	case "declare_impact":
-		return workflowDeclareImpactEvents(ctx, tx, request, actor, fields, eventID, expected)
-	case "add_condition":
-		return workflowAddConditionEvents(request, actor, fields, eventID, expected)
-	case "resolve_condition":
-		return workflowResolveConditionEvents(request, actor, fields, eventID, expected)
-	case "cancel_condition":
-		return workflowCancelConditionEvents(request, actor, fields, eventID, expected)
 	default:
 		return nil, nil
 	}

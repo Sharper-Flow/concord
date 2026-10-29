@@ -4,7 +4,7 @@
 - **Date:** 2026-08-17
 - **Scope:** External-state provenance, verification, scope completeness, and consumption; issue #89
 - **Approval:** Operator approved the carrier, probe, freshness, divergence, consumption, absence, decision-vehicle, and writer choices on 2026-08-17
-- **Related:** CD-0008 D2/D3/D5, CD-0014, CD-0022, CD-0028, CD-0030,
+- **Related:** CD-0008 D2/D3/D5, CD-0014, CD-0022, CD-0030,
   CD-0036 D3/D4, CD-0039, issues #87, #88, #174, TS3
   ([`agent-read-tool-contract.md`](../agent-read-tool-contract.md)), TS7
   ([`agent-result-envelope.md`](../agent-result-envelope.md))
@@ -17,7 +17,7 @@ evidence, and historical-pin requirements remain unchanged.
 ## Context
 
 Concord records facts about state it does not own: Git positions, worktrees,
-external conditions, provider/native outcomes, recovery artifacts, and
+provider/native outcomes, recovery artifacts, and
 inventories. A record may be internally valid and wrong about the present. Issue
 #89 was prompted by three versions of that failure: a stale recovery artifact
 would have restored superseded services, the same artifact omitted part of its
@@ -209,7 +209,7 @@ bounded_drift_window
 ```
 
 The declaration names the exact subject fields/paths/scope and, where relevant,
-the bounded window and linked resource claim. A mismatch is
+the bounded window. A mismatch is
 `diverged_expected` only when that earlier declaration covers it. Otherwise it
 is `diverged_unexpected`.
 
@@ -254,8 +254,7 @@ active remains allowed after terminal transition for audit and read-time
 inspection; it cannot change terminal work or reopen authority.
 
 Domain-specific records still write through their owning operations. A native
-run uses workflow actions; Git knowledge uses Git proof; external conditions use
-their condition path. The shared component does not create a second writer for
+run uses workflow actions; Git knowledge uses Git proof. The shared component does not create a second writer for
 those domains.
 
 ### D11. CD-0039 is amended before implementation

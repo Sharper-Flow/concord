@@ -211,10 +211,9 @@ func TestKnowledgeQueryPublicationEmptyAndDegradedSources(t *testing.T) {
 	for _, mode := range []string{"empty", "degraded", "unreachable"} {
 		t.Run(mode, func(t *testing.T) {
 			home := KnowledgeHome{HomeProjectID: "query-home", HomeLocatorID: "query-home-locator", HeadRef: "HEAD"}
-			source := KnowledgeHome{HomeProjectID: "query-source", HomeLocatorID: "query-source-locator", HeadRef: "HEAD"}
-			s, source := seedFederatedProduct(t, "query-federated-product", home, source, "SRC-LAW", ".concord/docs/decisions/CD-0902-source.md", "Source law")
+			s, source := seedKnowledgeHomeProduct(t, "query-home-product", home, "SRC-LAW", ".concord/docs/decisions/CD-0902-source.md", "Home law")
 			t.Cleanup(func() { s.Close() })
-			sources, err := resolveKnowledgeQuerySources(t.Context(), s.db, "query-federated-product", "test")
+			sources, err := resolveKnowledgeQuerySources(t.Context(), s.db, "query-home-product", "test")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -223,7 +222,7 @@ func TestKnowledgeQueryPublicationEmptyAndDegradedSources(t *testing.T) {
 			for _, registered := range sources {
 				origin := queryPublicationSourceOrigin(t, registered.RepoPath)
 				commits[registered.HomeProjectID] = runTestGit(t, registered.RepoPath, "rev-parse", "HEAD")
-				observations[registered.HomeProjectID] = queryPublicationObserve(t, s, "query-federated-product", registered, "match")
+				observations[registered.HomeProjectID] = queryPublicationObserve(t, s, "query-home-product", registered, "match")
 				// Moving the origin, without changing any local source binding,
 				// makes an accidental observation fail instead of being hidden.
 				if err := os.Rename(origin, origin+".offline"); err != nil {
@@ -232,7 +231,7 @@ func TestKnowledgeQueryPublicationEmptyAndDegradedSources(t *testing.T) {
 			}
 			text := "no-matching-law"
 			if mode == "degraded" {
-				seedFederatedSource(t, source.RepoPath, "SRC-LAW", ".concord/docs/decisions/CD-0902-source.md", "Changed source law")
+				writeManifestFixture(t, source.RepoPath, manifestFixture{ID: "SRC-LAW", Kind: "decision", Path: ".concord/docs/decisions/CD-0902-source.md", Status: "accepted", Date: "2026-09-20T00:00:00Z", Title: "Changed home law", Summary: "Changed rule", Scopes: homeScope()})
 				commitKnowledgeRepo(t, source.RepoPath, "changed source without rebuild")
 				text = "law"
 			} else if mode == "unreachable" {
@@ -243,8 +242,8 @@ func TestKnowledgeQueryPublicationEmptyAndDegradedSources(t *testing.T) {
 			}
 			ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 			defer cancel()
-			out, err := s.QueryQ9(ctx, Q9Request{Product: "query-federated-product", Text: text, AllowDegraded: true})
-			if err != nil || len(out.Publications) != 2 {
+			out, err := s.QueryQ9(ctx, Q9Request{Product: "query-home-product", Text: text, AllowDegraded: true})
+			if err != nil || len(out.Publications) != 1 {
 				t.Fatalf("all sources must have provenance, including empty/omitted: %+v, %v", out, err)
 			}
 			for i, got := range out.Publications {
@@ -253,7 +252,7 @@ func TestKnowledgeQueryPublicationEmptyAndDegradedSources(t *testing.T) {
 					t.Fatalf("source identity or cached revision lost: %+v", got)
 				}
 				want := "match"
-				if i == 1 && mode != "empty" {
+				if mode != "empty" {
 					want = "unknown"
 				}
 				if got.Comparison != want {
@@ -264,7 +263,7 @@ func TestKnowledgeQueryPublicationEmptyAndDegradedSources(t *testing.T) {
 				if out.Authority != "authoritative" || len(out.Items) != 0 || len(out.SourceOmissions) != 0 {
 					t.Fatalf("empty authoritative answer changed: %+v", out)
 				}
-			} else if out.Authority != "degraded" || len(out.Items) != 1 || out.Items[0].ID != "HOME-LAW" || len(out.SourceOmissions) != 1 {
+			} else if out.Authority != "degraded" || len(out.Items) != 1 || out.Items[0].ID != "SRC-LAW" || len(out.SourceOmissions) != 0 {
 				t.Fatalf("degraded omissions changed: %+v", out)
 			}
 		})
@@ -373,36 +372,18 @@ func queryPublicationAdvance(t *testing.T, repo, message string) string {
 	return runTestGit(t, seed, "rev-parse", "HEAD")
 }
 
-func queryPublicationConsumerFixture(t *testing.T) (*Store, KnowledgeHome, KnowledgeHome, string) {
+func queryPublicationConsumerFixture(t *testing.T) (*Store, KnowledgeHome, string) {
 	t.Helper()
 	home := KnowledgeHome{HomeProjectID: "qpub-c-home", HomeLocatorID: "qpub-c-home-loc", HeadRef: "HEAD"}
-	source := KnowledgeHome{HomeProjectID: "qpub-c-src", HomeLocatorID: "qpub-c-src-loc", HeadRef: "HEAD"}
-	s, _ := seedFederatedProduct(t, "qpub-consumer-product", home, source,
+	s, home := seedKnowledgeHomeProduct(t, "qpub-consumer-product", home,
 		"SRC-LAW", ".concord/docs/decisions/CD-0921-consumer-law.md", "Consumer law")
-	// The seeded copies carry no RepoPath; resolve the registered source set so
-	// every git call below lands in a real fixture repository, never in the
-	// test process working directory.
-	resolved, err := resolveKnowledgeQuerySources(t.Context(), s.db, "qpub-consumer-product", "test")
-	if err != nil || len(resolved) != 2 {
-		t.Fatalf("resolve source set: %+v, %v", resolved, err)
-	}
-	for _, registered := range resolved {
-		if registered.HomeProjectID == home.HomeProjectID {
-			home = registered
-		} else if registered.HomeProjectID == source.HomeProjectID {
-			source = registered
-		}
-	}
-	for _, registered := range []KnowledgeHome{home, source} {
-		queryPublicationSourceOrigin(t, registered.RepoPath)
-	}
+	queryPublicationSourceOrigin(t, home.RepoPath)
 	queryPublicationObserve(t, s, "qpub-consumer-product", home, "match")
-	queryPublicationObserve(t, s, "qpub-consumer-product", source, "match")
 	seedKnowledgeWork(t, s, "qpub-consumer-work", "Consumer work")
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); UPDATE work_projects SET project_id=? WHERE work_id='qpub-consumer-work' AND role='primary'; DELETE FROM write_guard`, source.HomeProjectID); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); UPDATE work_projects SET project_id=? WHERE work_id='qpub-consumer-work' AND role='primary'; DELETE FROM write_guard`, home.HomeProjectID); err != nil {
 		t.Fatal(err)
 	}
-	return s, home, source, "qpub-consumer-work"
+	return s, home, "qpub-consumer-work"
 }
 
 func queryPublicationConsumerProof(t *testing.T, s *Store, work string, mandated []string) []WorkflowLawRevision {
@@ -458,7 +439,7 @@ func queryPublicationPinState(t *testing.T, s *Store, home KnowledgeHome, work s
 // gains unrelated commits, the served law hash is unchanged, and the cached
 // publication comparison is lagging.
 func TestKnowledgeQueryPublicationConsumerWorkUsableAcrossUnrelatedPublication(t *testing.T) {
-	s, home, source, work := queryPublicationConsumerFixture(t)
+	s, home, work := queryPublicationConsumerFixture(t)
 	revisions := queryPublicationConsumerProof(t, s, work, []string{"SRC-LAW"})
 	if len(revisions) != 1 || revisions[0].LawID != "SRC-LAW" || revisions[0].ContentHash == "" {
 		t.Fatalf("pins = %+v", revisions)
@@ -468,8 +449,8 @@ func TestKnowledgeQueryPublicationConsumerWorkUsableAcrossUnrelatedPublication(t
 	if err := checkMandatedLawsAtHome(t.Context(), s, home.HomeProjectID, home.HomeLocatorID, []string{"SRC-LAW"}, nil, false); err != nil {
 		t.Fatalf("mandated-law boundary refused before any publication movement: %v", err)
 	}
-	published := queryPublicationAdvance(t, source.RepoPath, "unrelated publication commit")
-	queryPublicationObserve(t, s, "qpub-consumer-product", source, "lagging")
+	published := queryPublicationAdvance(t, home.RepoPath, "unrelated publication commit")
+	queryPublicationObserve(t, s, "qpub-consumer-product", home, "lagging")
 	revisions = queryPublicationConsumerProof(t, s, work, []string{"SRC-LAW"})
 	if len(revisions) != 1 || revisions[0].ContentHash != hash {
 		t.Fatalf("unrelated publication changed the governing law hash: %+v", revisions)
@@ -499,7 +480,7 @@ func TestKnowledgeQueryPublicationConsumerWorkUsableAcrossUnrelatedPublication(t
 // makes the pinned contract stale. Publication stays a read: no enforcement
 // behavior is added.
 func TestKnowledgeQueryPublicationChangedGoverningLawStaysScoped(t *testing.T) {
-	s, home, source, work := queryPublicationConsumerFixture(t)
+	s, home, work := queryPublicationConsumerFixture(t)
 	revisions := queryPublicationConsumerProof(t, s, work, []string{"SRC-LAW"})
 	if len(revisions) != 1 || revisions[0].ContentHash == "" {
 		t.Fatalf("pins = %+v", revisions)
@@ -507,7 +488,7 @@ func TestKnowledgeQueryPublicationChangedGoverningLawStaysScoped(t *testing.T) {
 	pinned := revisions[0].ContentHash
 	insertLawRevisionFixture(t, s, work, "SRC-LAW", pinned)
 	body := "amended SRC-LAW blob\n"
-	writeKnowledgeFile(t, source.RepoPath, ".concord/docs/decisions/CD-0921-consumer-law.md", body)
+	writeKnowledgeFile(t, home.RepoPath, ".concord/docs/decisions/CD-0921-consumer-law.md", body)
 	sum := sha256.Sum256([]byte(body))
 	amended := KnowledgeManifest{
 		SchemaVersion: "1.2", SupportedKinds: []string{"decision"}, IndexedKinds: []string{"decision"},
@@ -518,9 +499,10 @@ func TestKnowledgeQueryPublicationChangedGoverningLawStaysScoped(t *testing.T) {
 			Scopes:    homeScope(), HomeDomainID: "fixture-law", SHA256: "sha256:" + hex.EncodeToString(sum[:]),
 		}},
 	}
-	writeSourceManifest(t, source.RepoPath, amended)
-	queryPublicationCommit(t, source.RepoPath, "amend governing law")
-	if err := s.RebuildKnowledgeIndex(t.Context(), source); err != nil {
+	amended.DomainRegistry = composeWorkingTreeManifest(t, home.RepoPath).DomainRegistry
+	writeManifestShards(t, home.RepoPath, amended)
+	queryPublicationCommit(t, home.RepoPath, "amend governing law")
+	if err := s.RebuildKnowledgeIndex(t.Context(), home); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.EstablishKnowledgeSourceSetProof(t.Context(), work); err != nil {
@@ -536,14 +518,15 @@ func TestKnowledgeQueryPublicationChangedGoverningLawStaysScoped(t *testing.T) {
 	if want := []CompatibleLawAmendment{{LawID: "SRC-LAW", PinnedHash: pinned, CurrentHash: amended.Records[0].SHA256}}; !reflect.DeepEqual(amendments, want) {
 		t.Fatalf("amendments = %+v, want %+v", amendments, want)
 	}
-	queryPublicationObserve(t, s, "qpub-consumer-product", source, "unpublished")
+	queryPublicationObserve(t, s, "qpub-consumer-product", home, "unpublished")
 	law, err := s.QueryQ10(t.Context(), Q10Request{Product: "qpub-consumer-product", KnowledgeID: "SRC-LAW"})
 	if err != nil || law.Status != "canonical" || law.Note == nil || law.Note.ContentHash != amended.Records[0].SHA256 || law.Publication == nil || law.Publication.Comparison != "unpublished" || law.Publication.ServedCommit != law.Note.CommitOID {
 		t.Fatalf("amended law read = %+v, %v", law, err)
 	}
-	writeSourceManifest(t, source.RepoPath, KnowledgeManifest{SchemaVersion: "1.2", SupportedKinds: []string{"decision"}, IndexedKinds: []string{"decision"}})
-	queryPublicationCommit(t, source.RepoPath, "delete governing law")
-	if err := s.RebuildKnowledgeIndex(t.Context(), source); err != nil {
+	amended.Records = []KnowledgeRecord{}
+	writeManifestShards(t, home.RepoPath, amended)
+	queryPublicationCommit(t, home.RepoPath, "delete governing law")
+	if err := s.RebuildKnowledgeIndex(t.Context(), home); err != nil {
 		t.Fatal(err)
 	}
 	if err := checkMandatedLawsAtHome(t.Context(), s, home.HomeProjectID, home.HomeLocatorID, []string{"SRC-LAW"}, nil, false); err == nil {

@@ -83,16 +83,7 @@ re-litigate them silently.
   The host owns operator session start and resume; Concord owns
   managed worktree claims, verified landing, and work-start context.
 
-### R2. Cross-workflow impact propagation / freshness
-- **Problem:** one workflow may change shared law, a Domain relation, dependency, or
-  resource assumption used by another workflow. The downstream agent must see and
-  classify that impact before consequential work.
-- **Decision (2026-08-06):** accepted by CD-0006 R3. Work declares `modifies` and
-  hard/soft `depends_on` edges; completion writes breaking/non-breaking notices;
-  consequential boundaries run one bounded check. Only a declared hard edge plus a
-  breaking change blocks. Version stamps are the deterministic fallback.
-- **Constraint:** no polling, timers, automatic downstream rewrites, or heuristic
-  blockers. Heuristics may suggest edges but cannot authorize them.
+### R2. Architecture-bound related work
 - **Architecture boundary under CD-0222:** Product-changing contracts declare one home Domain,
   all affected Domains, exact law revisions, and authorized writes. Intersecting
   affected Domains require an operator-approved resolution pinned to both

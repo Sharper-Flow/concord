@@ -8,7 +8,7 @@
   "evidence": [
     ".concord/docs/concord-knowledge-index.md",
     ".concord/docs/product-memory-query-contract.md",
-    "internal/store/product_knowledge_source.go",
+    "internal/store/knowledge_home_resolution.go",
     "internal/store/knowledge_query.go"
   ],
   "home_domain_id": "product-memory",
@@ -20,7 +20,7 @@
       "target_id": "CD-0020"
     }
   ],
-  "path": ".concord/docs/decisions/CD-0200-knowledge-placement-federates-across-registered-git-sources.md",
+  "path": ".concord/docs/decisions/CD-0200-product-knowledge-resolves-through-one-designated-git-home.md",
   "scopes": {
     "domain_ids": [],
     "mode": "home",
@@ -28,14 +28,13 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:42041840db583210fd7745176c0f9cb7e2fd3076d8a633b3c3beab4601901bad",
+  "sha256": "sha256:cd4ce2008ea68379e8bbd3f618338750c16adcfd0cfd41c5e186e88126ff5048",
   "status": "accepted",
-  "summary": "Federates knowledge placement across one designated shared-law home plus operator-registered member Project canonical-path sources: per-source projection with a single-owner Domain registry, Product-wide Q9 over the verified source set with per-source watermarks and degradation omissions, source-qualified law identity with ambiguous bare-ID refusal, explicit cross-source relations without inferred precedence, and workflow law resolution across the set. Records that CD-0020 reopen condition 1 is met by POKE-711 subcheck C evidence.",
+  "summary": "Product knowledge resolves through one designated Git home. Its manifest owns the Domain registry and local law relations; Q9 verifies its watermark, and workflow law boundaries consume pre-transaction home freshness proof. Returned records keep their revision proof and historical work-note homes.",
   "tags": [
     "product-memory",
     "knowledge-index",
-    "federation",
     "law-relations"
   ],
-  "title": "Knowledge placement federates across registered Git sources"
+  "title": "Product knowledge resolves through one designated Git home"
 }

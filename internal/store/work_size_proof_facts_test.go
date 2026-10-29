@@ -25,7 +25,6 @@ INSERT INTO work_items VALUES('work','task','in_progress'),('other','task','in_p
 CREATE TABLE fold_guard(active INTEGER); INSERT INTO fold_guard VALUES(1);
 CREATE TABLE worker_attempts(work_id TEXT,attempt_id TEXT,capability_class TEXT,lifecycle_state TEXT,terminal_kind TEXT,terminal_seq INTEGER,terminal_payload TEXT,PRIMARY KEY(work_id,attempt_id));
 CREATE TABLE work_size_assessments(event_id TEXT,work_id TEXT,sequence INTEGER,model_version INTEGER,size_class TEXT,inputs_json TEXT,footprint_json TEXT,recorded_at TEXT,effect_seq INTEGER,review_basis TEXT);
-CREATE TABLE work_size_overrides(work_id TEXT PRIMARY KEY,size_class TEXT);
 ` + workSizeProofFactsDDL); err != nil {
 		t.Fatal(err)
 	}
@@ -172,8 +171,7 @@ func TestG11ContractAndAssessmentReset(t *testing.T) {
 			}
 			g11Proofs(t, f, basis...)
 			f.assess(t, basis)
-			// An effective-size override can reopen larger without a new assessment.
-			if _, err := f.db.Exec(`INSERT INTO work_size_overrides VALUES('work','larger')`); err != nil {
+			if _, err := f.db.Exec(`UPDATE work_size_assessments SET size_class='larger' WHERE work_id='work'`); err != nil {
 				t.Fatal(err)
 			}
 			f.action(t, "checkpoint_refine", "")
@@ -207,11 +205,11 @@ func TestG11RepeatedReviewAndNonReview(t *testing.T) {
 	f.action(t, "checkpoint_refine", "")
 	a := f.action(t, "accept_worker_result", "a")
 	g11Proofs(t, f, b.EventID, a.EventID)
-	if _, err := f.db.Exec(`INSERT INTO work_size_overrides VALUES('work','small')`); err != nil {
+	if _, err := f.db.Exec(`UPDATE work_size_assessments SET size_class='small' WHERE work_id='work'`); err != nil {
 		t.Fatal(err)
 	}
 	g11Proofs(t, f)
-	if _, err := f.db.Exec(`UPDATE work_size_overrides SET size_class='larger'`); err != nil {
+	if _, err := f.db.Exec(`UPDATE work_size_assessments SET size_class='larger' WHERE work_id='work'`); err != nil {
 		t.Fatal(err)
 	}
 	g11Proofs(t, f, b.EventID, a.EventID)
@@ -221,7 +219,7 @@ func TestG11NonLargerReportMaintenance(t *testing.T) {
 	for _, size := range []WorkSize{WorkSizeSmall, WorkSizeCrucial} {
 		t.Run(string(size), func(t *testing.T) {
 			f := newG11Fixture(t)
-			if _, err := f.db.Exec(`INSERT INTO work_size_overrides VALUES('work',?)`, size); err != nil {
+			if _, err := f.db.Exec(`UPDATE work_size_assessments SET size_class=? WHERE work_id='work'`, size); err != nil {
 				t.Fatal(err)
 			}
 			f.report(t, "a")
@@ -230,7 +228,7 @@ func TestG11NonLargerReportMaintenance(t *testing.T) {
 			proof := f.action(t, "accept_worker_evidence", "a")
 			g11Proofs(t, f)
 			g11CheckParity(t, f)
-			if _, err := f.db.Exec(`UPDATE work_size_overrides SET size_class='larger'`); err != nil {
+			if _, err := f.db.Exec(`UPDATE work_size_assessments SET size_class='larger' WHERE work_id='work'`); err != nil {
 				t.Fatal(err)
 			}
 			g11Proofs(t, f, proof.EventID)
@@ -240,7 +238,7 @@ func TestG11NonLargerReportMaintenance(t *testing.T) {
 
 func TestG11CorruptNonLargerReportRefusesWithoutReset(t *testing.T) {
 	f := newG11Fixture(t)
-	if _, err := f.db.Exec(`INSERT INTO work_size_overrides VALUES('work','small')`); err != nil {
+	if _, err := f.db.Exec(`UPDATE work_size_assessments SET size_class='small' WHERE work_id='work'`); err != nil {
 		t.Fatal(err)
 	}
 	f.report(t, "a")

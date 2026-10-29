@@ -372,24 +372,6 @@
               "const": "concord_work_browse"
             },
             "operation": {
-              "const": "resource_claims"
-            },
-            "query_id": {
-              "const": "PM1.Q13"
-            }
-          }
-        },
-        {
-          "required": [
-            "tool",
-            "operation",
-            "query_id"
-          ],
-          "properties": {
-            "tool": {
-              "const": "concord_work_browse"
-            },
-            "operation": {
               "const": "messages"
             },
             "query_id": {
@@ -563,8 +545,6 @@
               "enum": [
                 "set_memberships",
                 "resolve_overlap",
-                "resource_claim",
-                "resource_release",
                 "message_send",
                 "message_withdraw",
                 "product_project_add",
@@ -764,9 +744,6 @@
             "resolve_note",
             "observe_publication",
             "resolve_overlap",
-            "resource_claim",
-            "resource_claims",
-            "resource_release",
             "resources",
             "revise_intent",
             "scope",
@@ -1251,9 +1228,6 @@
             "resolve_note",
             "observe_publication",
             "resolve_overlap",
-            "resource_claim",
-            "resource_claims",
-            "resource_release",
             "resources",
             "revise_intent",
             "scope",
@@ -2361,8 +2335,6 @@
                       "message_send",
                       "message_withdraw",
                       "product_project_add",
-                      "resource_claim",
-                      "resource_release",
                       "resolve_overlap",
                       "set_memberships"
                     ],

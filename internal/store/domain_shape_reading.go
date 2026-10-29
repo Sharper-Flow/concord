@@ -193,7 +193,7 @@ func resolveDomainShapeReading(ctx context.Context, runner GitRunner, w *dispatc
 	if err != nil || strings.TrimSpace(string(kind)) != "commit" {
 		return nil, domainShapeReadingProofFailure()
 	}
-	manifest, shards, missing, err := readKnowledgeManifestShardsRunner(ctx, runner, w.sourceRepo, w.commitOID, manifestSharedHomeRole)
+	manifest, shards, missing, err := readKnowledgeManifestShardsRunner(ctx, runner, w.sourceRepo, w.commitOID)
 	if err != nil {
 		return nil, err
 	}
@@ -269,7 +269,7 @@ func proveDomainShapeGoverningLaw(ctx context.Context, runner GitRunner, w *disp
 		if index < 0 {
 			return domainShapeReadingProofFailure()
 		}
-		if _, err := verifyManifestRecordRunner(ctx, runner, w.sourceRepo, w.commitOID, manifest.Records[index], manifestSharedHomeRole); err != nil {
+		if _, err := verifyManifestRecordRunner(ctx, runner, w.sourceRepo, w.commitOID, manifest.Records[index]); err != nil {
 			return err
 		}
 	}

@@ -411,7 +411,7 @@ func TestWorkRemovalRefusesUntilOwnedPacksRetire(t *testing.T) {
 	req.Reason = "shelved"
 	if _, err := s.RemoveWork(ctx, req); err == nil {
 		t.Fatal("removal succeeded while the work still owned a research pack")
-	} else if !hasFailureKind(err, KindResourceClaimHeld) || !strings.Contains(err.Error(), "research pack") {
+	} else if !hasFailureKind(err, KindNotTerminal) || !strings.Contains(err.Error(), "research pack") {
 		t.Fatalf("removal refusal=%v", err)
 	}
 	if countRows(t, s, "active_research_packs") != 1 {

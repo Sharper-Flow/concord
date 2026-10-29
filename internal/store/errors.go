@@ -129,9 +129,6 @@ const (
 	KindResearchConsumerBlocked     FailureKind = "research_consumer_blocked"
 	// KindOutsideRepairActive refuses managed moves on operator-held work.
 	KindOutsideRepairActive FailureKind = "outside_repair_active"
-	// KindResourceClaimHeld marks a claim on a resource another work item
-	// already holds. The refusal names coordination, not authority.
-	KindResourceClaimHeld FailureKind = "resource_claim_held"
 	// KindCrossRepositoryClaim marks a worktree_claim whose target Project
 	// lives in another git repository than the calling session's directory
 	// (CD-0178 D2). The refusal is non-retryable: the host refuses a move

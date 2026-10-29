@@ -80,7 +80,7 @@ func builtinWorkflowParts() []WorkflowPart {
 			LeadActionOptions: []string{"frame_research"},
 			Actions:           []string{"approve_contract", "checkpoint_context", "cross_context_boundary", "dispatch_worker", "accept_worker_evidence", "record_work_context"}},
 		{Ref: "part.execution", Kind: WorkflowStepExternalEffect, StepIDOptions: []string{"execution"},
-			Actions:      []string{"start_execution", "checkpoint_execution", "bind_evidence", "declare_impact", "link_successor", "record_delivery", "request_correction", "checkpoint_context", "cross_context_boundary", "accept_worker_result", "dispatch_worker", "record_worker_job", "record_work_context"},
+			Actions:      []string{"start_execution", "checkpoint_execution", "bind_evidence", "link_successor", "record_delivery", "request_correction", "checkpoint_context", "cross_context_boundary", "accept_worker_result", "dispatch_worker", "record_worker_job", "record_work_context"},
 			Retry:        true,
 			Routes:       unhealthy,
 			Capabilities: jobs},

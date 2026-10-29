@@ -41,11 +41,11 @@ func action(id string, payload store.WorkflowPayloadDefinition) store.WorkflowAc
 // IDs. The projection owner derives their absence from this published set;
 // no compatibility alias or retained publication may revive them.
 var retiredPublishedActions = []string{
-	"accept_decision", "add_condition", "approve_operation", "cancel_condition",
+	"accept_decision", "approve_operation",
 	"checkpoint_action", "checkpoint_analysis", "checkpoint_poc", "checkpoint_run",
 	"cleanup_run", "declare_scope", "discard_poc", "frame_question",
 	"record_decision", "record_health", "record_option", "record_research",
-	"resolve_condition", "rollback_run", "run_analysis", "start_action",
+	"rollback_run", "run_analysis", "start_action",
 	"start_poc", "start_run",
 	"record_reproduction", "record_root_cause", "start_repair", "start_refine",
 	"record_worker_failure", "record_discovery",

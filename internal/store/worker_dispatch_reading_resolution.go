@@ -35,9 +35,8 @@ import (
 //     canonical locators refuse. The declared commit must resolve as a commit
 //     object and the declared path as one ordinary blob at that commit in
 //     that repository — never the dispatch checkout.
-//   - A knowledge reading's source_id names the source Project of one
-//     registered Product knowledge source: the designated shared-law home or
-//     an operator-registered source (CD-0200 D1). The law ID and content hash
+//   - A knowledge reading's source_id names the Project of the Product's
+//     designated knowledge home (CD-0200 D1). The law ID and content hash
 //     must join that source's exact projected law revision, and the
 //     revision's canonical locator must resolve in the git-derived
 //     projection. The committed manifest and blob verify through the
@@ -56,7 +55,7 @@ const workerDispatchReadingResolutionOp = "worker_dispatch_reading_resolution"
 
 // dispatchReadingWitness is one declared reading's sealed resolution
 // witness: the SQL-sampled source identities plus the Git proof outcome. The
-// producers sample registered source rows for dispatch or a bound worker read;
+// producers sample canonical home rows for dispatch or a bound worker read;
 // no caller value constructs one.
 type dispatchReadingWitness struct {
 	ordinal  int
@@ -77,7 +76,6 @@ type dispatchReadingWitness struct {
 	sourceRepo        string
 	lawID             string
 	contentHash       string
-	manifestRole      knowledgeManifestRole
 	watermarkCommit   string
 	watermarkDigest   string
 	watermarkVersion  int64
@@ -94,13 +92,11 @@ type dispatchReadingWitness struct {
 
 	// sampled source authority shared by all arms: the locator row
 	// identity, the owning Project's version, the work's Product version,
-	// the knowledge source's registration instant, and the digest of the
-	// whole registered source set the resolution joined.
+	// and the identity digest of the designated knowledge home.
 	locatorCreatedAt string
 	locatorUpdatedAt string
 	projectVersion   int64
 	productVersion   int64
-	registeredAt     string
 	sourceSetDigest  string
 
 	resolved bool
@@ -113,13 +109,13 @@ func (w dispatchReadingWitness) sampledEqual(other dispatchReadingWitness) bool 
 		w.projectID == other.projectID && w.locatorID == other.locatorID && w.repoPath == other.repoPath &&
 		w.commitOID == other.commitOID && w.path == other.path &&
 		w.sourceProject == other.sourceProject && w.sourceLocator == other.sourceLocator && w.sourceRepo == other.sourceRepo &&
-		w.lawID == other.lawID && w.contentHash == other.contentHash && w.manifestRole == other.manifestRole &&
+		w.lawID == other.lawID && w.contentHash == other.contentHash &&
 		w.watermarkCommit == other.watermarkCommit && w.watermarkDigest == other.watermarkDigest &&
 		w.watermarkVersion == other.watermarkVersion && w.watermarkComplete == other.watermarkComplete &&
 		w.recordPath == other.recordPath && w.recordCommit == other.recordCommit &&
 		w.locatorCreatedAt == other.locatorCreatedAt && w.locatorUpdatedAt == other.locatorUpdatedAt &&
 		w.projectVersion == other.projectVersion && w.productVersion == other.productVersion &&
-		w.registeredAt == other.registeredAt && w.sourceSetDigest == other.sourceSetDigest
+		w.sourceSetDigest == other.sourceSetDigest
 }
 
 // repositoryReadingIdentity renders the declared repository source identity
@@ -252,10 +248,10 @@ func sampleKnowledgeReadingIdentity(ctx context.Context, q queryer, productID st
 	}
 	switch len(matches) {
 	case 0:
-		return newFailure(KindUnknownScope, workerDispatchReadingResolutionOp, "source_id "+witness.sourceProject+" names no registered knowledge source of the work's Product", false, "declare the law reading through the Product's designated home or a registered source Project")
+		return newFailure(KindUnknownScope, workerDispatchReadingResolutionOp, "source_id "+witness.sourceProject+" does not name the work's Product knowledge home", false, "declare the law reading through the Product's designated home")
 	case 1:
 	default:
-		return newAmbiguousScopeFailure(workerDispatchReadingResolutionOp, "source_id "+witness.sourceProject+" matches several registered knowledge sources", "register one canonical locator per source Project", knowledgeHomeCandidateIDs(matches))
+		return newAmbiguousScopeFailure(workerDispatchReadingResolutionOp, "source_id "+witness.sourceProject+" matches several knowledge homes", "designate one canonical knowledge home", knowledgeHomeCandidateIDs(matches))
 	}
 	home := matches[0]
 	witness.sourceLocator = home.HomeLocatorID
@@ -266,23 +262,16 @@ func sampleKnowledgeReadingIdentity(ctx context.Context, q queryer, productID st
 	if err := q.QueryRowContext(ctx, `SELECT version FROM projects WHERE id=?`, home.HomeProjectID).Scan(&witness.projectVersion); err != nil {
 		return wrapFailure(KindUnavailable, workerDispatchReadingResolutionOp, "cannot read the knowledge source Project's version", true, "retry once the Project projection is readable", err)
 	}
-	var registered sql.NullString
-	registeredErr := q.QueryRowContext(ctx, `SELECT registered_at FROM product_knowledge_sources WHERE product_id=? AND project_id=?`, productID, home.HomeProjectID).Scan(&registered)
-	if registeredErr == nil {
-		witness.registeredAt = registered.String
-	} else if registeredErr != sql.ErrNoRows {
-		return wrapFailure(KindUnavailable, workerDispatchReadingResolutionOp, "cannot read the knowledge source registration", true, "retry once the source registration is readable", registeredErr)
-	}
 	return sampleKnowledgeReadingRevision(ctx, q, home, witness)
 }
 
 func sampleKnowledgeReadingRevision(ctx context.Context, q queryer, home KnowledgeHome, witness *dispatchReadingWitness) error {
-	subject, subjectErr := resolveWorkflowLawSubjectTx(ctx, q, []KnowledgeHome{home}, home.HomeProjectID, home.HomeLocatorID, witness.lawID)
+	subject, subjectErr := resolveWorkflowLawSubjectTx(ctx, q, home.HomeProjectID, home.HomeLocatorID, witness.lawID)
 	if subjectErr != nil {
 		return subjectErr
 	}
 	if subject.hash != witness.contentHash {
-		return newFailure(KindProjectionConflict, workerDispatchReadingResolutionOp, "the registered source's projected law revision "+witness.lawID+" does not carry the pinned content hash", false, "declare the reading at the revision the source projects, or refresh the reading through the existing route")
+		return newFailure(KindProjectionConflict, workerDispatchReadingResolutionOp, "the knowledge home's projected law revision "+witness.lawID+" does not carry the pinned content hash", false, "declare the reading at the revision the home projects, or refresh the reading through the existing route")
 	}
 	var row struct {
 		notePath, commitOID, contentHash string
@@ -315,11 +304,10 @@ func sampleKnowledgeReadingRevision(ctx context.Context, q queryer, home Knowled
 	} else if watermarkErr != sql.ErrNoRows {
 		return wrapFailure(KindUnavailable, workerDispatchReadingResolutionOp, "cannot read the knowledge source watermark", true, "retry once the knowledge projection is readable", watermarkErr)
 	}
-	record, role, recordErr := knowledgeProjectedRecordTx(ctx, q, witness.lawID, row.recordType, row.outcomeTag, row.completedAt, row.title, row.summary, row.contentHash, row.scopeMode, row.lessonTags, home.HomeProjectID, home.HomeLocatorID, row.notePath)
+	record, recordErr := knowledgeProjectedRecordTx(ctx, q, witness.lawID, row.recordType, row.outcomeTag, row.completedAt, row.title, row.summary, row.contentHash, row.scopeMode, row.lessonTags, home.HomeProjectID, home.HomeLocatorID, row.notePath)
 	if recordErr != nil {
 		return recordErr
 	}
-	witness.manifestRole = role
 	witness.projectedRecord = &record
 	return nil
 }
@@ -416,7 +404,7 @@ func resolveKnowledgeReading(ctx context.Context, runner GitRunner, witness *dis
 	if witness.projectedRecord == nil {
 		return nil, newFailure(KindInvariantViolation, workerDispatchReadingResolutionOp, "the sampled knowledge witness carries no projected record", false, "prepare the dispatch through the sealed resolution owner")
 	}
-	return verifyManifestRecordRunner(ctx, runner, witness.sourceRepo, witness.recordCommit, *witness.projectedRecord, witness.manifestRole)
+	return verifyManifestRecordRunner(ctx, runner, witness.sourceRepo, witness.recordCommit, *witness.projectedRecord)
 }
 
 func readDispatchReadingContent(ctx context.Context, runner GitRunner, witness dispatchReadingWitness) ([]byte, error) {

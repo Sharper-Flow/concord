@@ -301,9 +301,6 @@ func terminalizeWorkflowOverlapWork(ctx context.Context, tx *sql.Tx, event Event
 	if err := removeTerminalResearchBindings(ctx, tx, workID, event.OccurredAt); err != nil {
 		return err
 	}
-	if err := foldTerminalReleasesResourceClaims(ctx, tx, terminalEvent); err != nil {
-		return wrapFailure(KindUnavailable, "workflow_domain_overlap", "cannot release terminal overlap resource claims", true, "retry once the database is writable", err)
-	}
 	return nil
 }
 

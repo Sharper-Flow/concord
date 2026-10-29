@@ -3,7 +3,7 @@
 - **Status:** Accepted
 - **Date:** 2026-08-14
 - **Scope:** Agent tool surface; workflow verdict reads
-- **Related:** CD-0006 (D8 single operator), CD-0008 (D5 external conditions),
+- **Related:** CD-0006 (D8 single operator),
   CD-0013 (D5 verdict distinctness), CD-0017 (D4 worker boundary), issue #125
 
 ## Context
@@ -40,13 +40,6 @@ returned. Redaction is never silent.
 own the influence boundary. This decision adds no write rule.
 
 ## Rejected alternatives
-
-**Cross-work-item verdict authority.** Amending CD-0008 D5 so an external
-condition could await an authority operation on another work item would let an
-isolated evaluation workflow own the verdict. It widens a deliberately closed
-rule, and without D2 it would not deliver "cannot read" anyway — the
-implementing session could still browse the evaluation work. Nothing in the
-floor requires a separate verdict-producing workflow.
 
 **Cross-process or cross-installation conformance.** Closest to the
 predecessor's externally-isolated conformance, but for a permanently

@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"testing"
-	"time"
 )
 
 func seedDomainReadStore(t *testing.T) *Store {
@@ -135,14 +134,11 @@ func TestDomainAttachmentsReadLocalSets(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	s, _ := seedOverlapProjection(t, "attach-work", "attach-other", false)
-	if err := ReplaceDomainProjectAttachments(ctx, s, DomainProjectAttachmentsRequest{EventID: "attach-projects", ProductID: "product", DomainID: "root", Attachments: []DomainProjectAttachment{{ProjectID: "project", Role: "primary"}}, ExpectedVersion: 0, Actor: "operator", OccurredAt: time.Unix(1, 0).UTC()}); err != nil {
-		t.Fatal(err)
-	}
 	result, err := s.QueryDomainAttachments(ctx, DomainAttachmentsRequest{Product: "product", Domain: "root"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Domain.DomainID != "root" || result.Attachments.ProjectVersion != 1 || len(result.Attachments.ProjectEdges) != 1 || result.Attachments.ProjectEdges[0].ProjectID != "project" {
+	if result.Domain.DomainID != "root" {
 		t.Fatalf("attachment read wrong: %#v", result)
 	}
 	if len(result.Attachments.ResourceEdges) != 0 || result.Attachments.ResourceVersion != 0 {

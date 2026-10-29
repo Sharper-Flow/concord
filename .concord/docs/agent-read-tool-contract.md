@@ -119,7 +119,7 @@ the one canonical locator for a known terminal work/knowledge item.
 |---|---|---|---|
 | `search` | Q9 | Product scope; optional Project/domain; closed knowledge kinds (every manifest kind, with `specification` and `note` as aliases for `spec` and `work_note`); tags; bounded text matched per whitespace token across ID, title, summary, tags, and body; cursor/limit | `knowledge_page`: summaries, canonical locators, commit/content identity, index watermark, and optional per-item law `status` (`accepted`/`superseded`/`published`) with `successor_id` |
 | `resolve_note` | Q10 | exactly one work or knowledge reference | `canonical_note_result`: one locator or typed not-compacted/missing/ambiguous outcome; a canonical answer may add law `status` and `successor_id`, never altering `state` |
-| `observe_publication` | CD-0020.R1 | explicit Product, registered source Project and locator | `knowledge_publication`: timestamped publication comparison, origin/ref/commit identities, cause and recovery, with earlier success labelled historical |
+| `observe_publication` | CD-0020.R1 | explicit Product, designated home Project and locator | `knowledge_publication`: timestamped publication comparison, origin/ref/commit identities, cause and recovery, with earlier success labelled historical |
 
 Search never returns an unbounded artifact body. Bounded text may match a
 projected law body in the index, but that match remains ranked discovery data and

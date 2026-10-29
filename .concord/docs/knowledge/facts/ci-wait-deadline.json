@@ -31,7 +31,7 @@
         "value": "internal/ciwait.TestCiWaitHungCommandCannotPreventDeadline"
       }
     ],
-    "statement": "One agent-surface owner advances deterministic CI waits and reuses a loaded wait's original deadline without extending it. After loading a valid wait, only pending reports retain resumable state; terminal invocation paths remove it. GitHub command execution is bounded. CLI admission and operator diagnostics remain outside the engine."
+    "statement": "The deterministic CI-wait engine reuses a loaded wait's original deadline without extending it. After loading a valid wait, only pending reports retain resumable state; terminal invocation paths remove it. GitHub command execution is bounded. CLI admission and operator diagnostics remain outside the engine."
   },
   "kind": "invariant",
   "owner_domain_id": "agent-adapter",

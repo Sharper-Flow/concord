@@ -36,6 +36,7 @@
         "agent-adapter",
         "agent-call-boundary",
         "agent-contract",
+        "agent-evolution",
         "durable-authority",
         "operator-surface",
         "product-memory",

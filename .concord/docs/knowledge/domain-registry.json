@@ -69,11 +69,6 @@
           "governing_law_ids": ["CD-0002"],
           "kind": "depends_on",
           "target_domain_id": "durable-authority"
-        },
-        {
-          "governing_law_ids": ["TS7", "CD-0132"],
-          "kind": "depends_on",
-          "target_domain_id": "agent-call-boundary"
         }
       ],
       "domain_id": "agent-contract",
@@ -93,6 +88,16 @@
           "governing_law_ids": ["CD-0013", "CD-0023"],
           "kind": "depends_on",
           "target_domain_id": "workflow-engine"
+        },
+        {
+          "governing_law_ids": ["TS5", "CD-0132"],
+          "kind": "depends_on",
+          "target_domain_id": "agent-contract"
+        },
+        {
+          "governing_law_ids": ["TS7", "CD-0132"],
+          "kind": "shares_contract_with",
+          "target_domain_id": "agent-contract"
         }
       ],
       "domain_id": "agent-call-boundary",
@@ -112,6 +117,11 @@
           "governing_law_ids": ["TS8", "CD-0042"],
           "kind": "depends_on",
           "target_domain_id": "agent-evolution"
+        },
+        {
+          "governing_law_ids": ["TS5", "TS7", "CD-0132"],
+          "kind": "depends_on",
+          "target_domain_id": "agent-call-boundary"
         }
       ],
       "domain_id": "agent-adapter",

@@ -27,7 +27,7 @@
     "internal/agent/mutation_dispatch_test.go",
     "internal/agent/runtime_test.go"
   ],
-  "home_domain_id": "agent-surface",
+  "home_domain_id": "agent-contract",
   "id": "TS4",
   "kind": "spec",
   "path": ".concord/docs/agent-mutation-tool-contract.md",

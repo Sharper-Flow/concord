@@ -1,7 +1,10 @@
 {
   "applies_to_domain_ids": [
+    "agent-adapter",
+    "agent-call-boundary",
     "agent-surface",
-    "durable-authority"
+    "durable-authority",
+    "worker-lanes"
   ],
   "authority": {
     "contract_version": 1,

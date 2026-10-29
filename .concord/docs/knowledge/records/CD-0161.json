@@ -12,7 +12,7 @@
     "internal/ciwait/ci_wait_test.go",
     "contracts/agent-lanes.v1.json"
   ],
-  "home_domain_id": "agent-surface",
+  "home_domain_id": "agent-adapter",
   "id": "CD-0161",
   "kind": "decision",
   "law_relations": [

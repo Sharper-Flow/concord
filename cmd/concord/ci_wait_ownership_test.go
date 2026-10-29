@@ -35,8 +35,8 @@ func TestDeterministicCIWaitOwner(t *testing.T) {
 			continue
 		}
 		owners++
-		if entry.Role != "domain" || entry.OwnerDomainID != "agent-surface" || len(entry.DomainIDs) != 0 {
-			t.Fatalf("CI-wait engine lacks exclusive agent-surface ownership: %+v", entry)
+		if entry.Role != "domain" || entry.OwnerDomainID != "agent-adapter" || len(entry.DomainIDs) != 0 {
+			t.Fatalf("CI-wait engine lacks exclusive agent-adapter ownership: %+v", entry)
 		}
 	}
 	if owners != 1 {

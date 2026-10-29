@@ -12,7 +12,7 @@
     "adapter/opencode/host-lease.ts",
     "scripts/install.py"
   ],
-  "home_domain_id": "agent-surface",
+  "home_domain_id": "agent-adapter",
   "id": "CD-0191",
   "kind": "decision",
   "law_relations": [

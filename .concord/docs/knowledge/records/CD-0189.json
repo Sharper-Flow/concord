@@ -4,7 +4,7 @@
   },
   "date": "2026-09-28T00:00:00Z",
   "doc_contract_profile": "current",
-  "home_domain_id": "product-root:concord",
+  "home_domain_id": "agent-adapter",
   "id": "CD-0189",
   "kind": "decision",
   "law_relations": [
@@ -18,7 +18,6 @@
     }
   ],
   "path": ".concord/docs/decisions/CD-0189-the-operator-names-the-host-launch-command.md",
-  "product_wide_rationale": "Governs which program every Go-core host invocation runs and how the registry the session verifies stays the one the command resolves. It binds the operator surface, the agent surface, and the session start path, so no single runtime Domain owns it.",
   "scopes": {
     "domain_ids": [],
     "mode": "home",

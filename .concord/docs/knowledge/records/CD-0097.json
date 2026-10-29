@@ -6,11 +6,10 @@
   },
   "date": "2026-09-02T00:00:00Z",
   "doc_contract_profile": "legacy",
-  "home_domain_id": "product-root:concord",
+  "home_domain_id": "operator-surface",
   "id": "CD-0097",
   "kind": "decision",
   "path": ".concord/docs/decisions/CD-0097-bounded-parallel-predecessor-migration.md",
-  "product_wide_rationale": "Governs cross-system authority, identity, replay, knowledge curation, trusted client policy growth, and cutover for a Product migrating from the predecessor while both systems stay writable. No runtime Domain owns migration authority.",
   "scopes": {
     "domain_ids": [],
     "mode": "home",

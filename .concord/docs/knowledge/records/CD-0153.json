@@ -10,7 +10,7 @@
     ".concord/docs/decisions/CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md",
     ".concord/docs/decisions/CD-0144-record-reality-reconciliation.md"
   ],
-  "home_domain_id": "product-root:concord",
+  "home_domain_id": "workflow-engine",
   "id": "CD-0153",
   "kind": "decision",
   "law_relations": [
@@ -20,7 +20,6 @@
     }
   ],
   "path": ".concord/docs/decisions/CD-0153-contract-content-staleness-for-overlap-resolutions.md",
-  "product_wide_rationale": "Resolution staleness partitions Product-wide concurrent-work authority, so no child Domain can decide which contract changes affect an operator's overlap judgment.",
   "scopes": {
     "domain_ids": [],
     "mode": "home",

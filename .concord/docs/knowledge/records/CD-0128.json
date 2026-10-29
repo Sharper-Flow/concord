@@ -12,7 +12,7 @@
     "internal/store/workflow_design.go",
     "internal/agent/design_contract_correction_test.go"
   ],
-  "home_domain_id": "product-root:concord",
+  "home_domain_id": "workflow-engine",
   "id": "CD-0128",
   "kind": "decision",
   "law_relations": [
@@ -26,7 +26,6 @@
     }
   ],
   "path": ".concord/docs/decisions/CD-0128-design-record-travels-with-implement-packet.md",
-  "product_wide_rationale": "The design record belongs to the implementation change and must travel as durable state, while lane methodology remains host-owned under CD-0043 D1.",
   "scopes": {
     "domain_ids": [],
     "mode": "home",

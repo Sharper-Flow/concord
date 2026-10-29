@@ -15,7 +15,7 @@
     "adapter/opencode/concord.ts",
     "contracts/host-tool-surface.v1.json"
   ],
-  "home_domain_id": "product-root:concord",
+  "home_domain_id": "agent-adapter",
   "id": "CD-0119",
   "kind": "decision",
   "law_relations": [
@@ -29,7 +29,6 @@
     }
   ],
   "path": ".concord/docs/decisions/CD-0119-work-start-resumes-an-existing-item-by-work-identity.md",
-  "product_wide_rationale": "Governs the one session route into an implementation worktree, so its capture and resume shapes bind every Domain rather than one runtime Domain.",
   "scopes": {
     "domain_ids": [],
     "mode": "home",

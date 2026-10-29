@@ -14,7 +14,7 @@
     "adapter/opencode/concord.test.ts",
     "scripts/check-agent-contracts.py"
   ],
-  "home_domain_id": "agent-surface",
+  "home_domain_id": "agent-adapter",
   "id": "CD-0088",
   "kind": "decision",
   "path": ".concord/docs/decisions/CD-0088-host-owned-work-bootstrap-preserves-pre-readiness-authority.md",

@@ -6,11 +6,10 @@
   },
   "date": "2026-09-01T00:00:00Z",
   "doc_contract_profile": "legacy",
-  "home_domain_id": "product-root:concord",
+  "home_domain_id": "agent-call-boundary",
   "id": "CD-0096",
   "kind": "decision",
   "path": ".concord/docs/decisions/CD-0096-in-session-worktree-retargeting.md",
-  "product_wide_rationale": "Governs the session's persistent worktree target and the product-wide authority tiers for cross-worktree access. It amends session-target authority without assigning ownership to a runtime Domain.",
   "scopes": {
     "domain_ids": [],
     "mode": "home",

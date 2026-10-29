@@ -1,6 +1,10 @@
 {
   "applies_to_domain_ids": [
-    "agent-surface"
+    "agent-adapter",
+    "agent-call-boundary",
+    "agent-contract",
+    "agent-surface",
+    "worker-lanes"
   ],
   "authority": {
     "contract_version": 1,

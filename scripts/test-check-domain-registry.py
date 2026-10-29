@@ -71,6 +71,22 @@ class DomainRegistryReferentialTests(unittest.TestCase):
     def test_domains_need_no_relation_for_navigation(self) -> None:
         self.assertEqual(self.check(self.manifest(["root", "child"])), [])
 
+    def test_a_subdomain_can_have_a_non_root_parent(self) -> None:
+        manifest = self.manifest(["root", "parent", "leaf"])
+        manifest["domain_registry"]["domains"][2]["parent_domain_id"] = "parent"
+
+        self.assertEqual(self.check(manifest), [])
+
+    def test_subdomain_cycles_fail(self) -> None:
+        manifest = self.manifest(["root", "parent", "leaf"])
+        manifest["domain_registry"]["domains"][1]["parent_domain_id"] = "leaf"
+        manifest["domain_registry"]["domains"][2]["parent_domain_id"] = "parent"
+
+        findings = self.check(manifest)
+
+        self.assertEqual(len(findings), 2, findings)
+        self.assertTrue(all("parent hierarchy contains a cycle" in finding for finding in findings))
+
     def test_package_guidance_reaches_an_entry_invariant_and_tests(self) -> None:
         instructions = (ROOT / "AGENTS.md").read_text()
         pointer = next(line for line in instructions.splitlines() if "Package and seam ownership" in line)
@@ -162,7 +178,7 @@ class DomainRegistryReferentialTests(unittest.TestCase):
         self.assertEqual(len(findings), 1, findings)
         self.assertIn("governing_law_ids names 'law-retired', which is not a current law record", findings[0])
 
-    def test_the_root_has_no_parent_and_children_parent_the_root(self) -> None:
+    def test_the_root_has_no_parent_and_child_parents_must_resolve(self) -> None:
         manifest = self.manifest(["root", "child"], {"root": ["child"]})
         manifest["domain_registry"]["domains"][0]["parent_domain_id"] = "child"
         manifest["domain_registry"]["domains"][1]["parent_domain_id"] = "ghost"
@@ -171,7 +187,7 @@ class DomainRegistryReferentialTests(unittest.TestCase):
 
         self.assertEqual(len(findings), 2, findings)
         self.assertIn("the root Domain must not declare a parent", findings[0])
-        self.assertIn("parent_domain_id must be the root 'root', found 'ghost'", findings[1])
+        self.assertIn("parent_domain_id 'ghost' is not a declared Domain", findings[1])
 
 
 if __name__ == "__main__":

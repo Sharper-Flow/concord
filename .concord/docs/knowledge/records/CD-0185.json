@@ -6,7 +6,7 @@
   },
   "date": "2026-09-27T00:00:00Z",
   "doc_contract_profile": "current",
-  "home_domain_id": "product-root:concord",
+  "home_domain_id": "agent-call-boundary",
   "id": "CD-0185",
   "kind": "decision",
   "law_relations": [
@@ -16,7 +16,6 @@
     }
   ],
   "path": ".concord/docs/decisions/CD-0185-the-reclaim-report-pages-before-it-exceeds-the-result-envelope.md",
-  "product_wide_rationale": "Governs how one bulk reclaim pass reports its committed effects and its full classification across the agent result envelope and the audit read, so the caller never reconciles an uncertain effect by hand.",
   "scopes": {
     "domain_ids": [],
     "mode": "home",

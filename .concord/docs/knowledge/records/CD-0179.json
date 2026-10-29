@@ -6,7 +6,7 @@
   },
   "date": "2026-09-27T00:00:00Z",
   "doc_contract_profile": "current",
-  "home_domain_id": "product-root:concord",
+  "home_domain_id": "agent-adapter",
   "id": "CD-0179",
   "kind": "decision",
   "law_relations": [
@@ -16,7 +16,6 @@
     }
   ],
   "path": ".concord/docs/decisions/CD-0179-a-worktree-occupancy-row-releases-when-no-live-process-predates-it.md",
-  "product_wide_rationale": "Governs when every worktree occupancy row releases, what a claim records at creation, where a session goes after terminal work, and what the audit reclaim limit bounds, across the agent surface, the durable authority, and the workflow engine, so no single runtime Domain owns it.",
   "scopes": {
     "domain_ids": [],
     "mode": "home",

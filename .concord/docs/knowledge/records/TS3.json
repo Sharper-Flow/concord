@@ -31,7 +31,7 @@
     "internal/agent/runtime_test.go",
     "scripts/check-agent-contracts.py"
   ],
-  "home_domain_id": "agent-surface",
+  "home_domain_id": "agent-contract",
   "id": "TS3",
   "kind": "spec",
   "path": ".concord/docs/agent-read-tool-contract.md",

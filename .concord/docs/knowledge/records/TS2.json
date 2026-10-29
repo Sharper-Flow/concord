@@ -28,7 +28,7 @@
     "internal/agent/dispatch_coverage_test.go",
     "scripts/test-agent-contracts.py"
   ],
-  "home_domain_id": "agent-surface",
+  "home_domain_id": "agent-contract",
   "id": "TS2",
   "kind": "spec",
   "path": ".concord/docs/agent-tool-surface-budget.md",

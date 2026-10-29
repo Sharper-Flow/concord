@@ -1,5 +1,8 @@
 {
   "applies_to_domain_ids": [
+    "agent-call-boundary",
+    "agent-contract",
+    "agent-evolution",
     "agent-surface",
     "durable-authority",
     "work-coordination"

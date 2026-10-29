@@ -23,7 +23,7 @@ The checks:
       owner where CD-0222 D3 allows exactly one
   D5  every relation target resolves, is not the Domain itself, and every
       governing_law_ids entry names a current law record
-  D2  the root Domain has no parent and every child parents to the root
+  D2  the root Domain has no parent and every child has a declared, acyclic parent
 
 The subject set comes from the aggregate manifest rather than the registry
 shard, so a Domain cannot escape the emptiness check by being declared only in
@@ -63,6 +63,7 @@ def validate(root: Path) -> list[str]:
     root_id = registry.get("root_domain_id")
     domains = registry.get("domains", [])
     declared = {domain.get("domain_id") for domain in domains}
+    parents = {domain.get("domain_id"): domain.get("parent_domain_id") for domain in domains}
     records = [record for record in manifest.get("records", []) if isinstance(record, dict)]
     current = {record.get("id") for record in records if record.get("status") == "accepted"}
 
@@ -112,8 +113,16 @@ def validate(root: Path) -> list[str]:
         if domain_id == root_id:
             if parent is not None:
                 findings.append(f"{prefix}: the root Domain must not declare a parent")
-        elif parent != root_id:
-            findings.append(f"{prefix}: parent_domain_id must be the root {root_id!r}, found {parent!r}")
+        elif parent not in declared:
+            findings.append(f"{prefix}: parent_domain_id {parent!r} is not a declared Domain")
+        else:
+            ancestors = {domain_id}
+            while parent != root_id and parent in parents:
+                if parent in ancestors:
+                    findings.append(f"{prefix}: parent hierarchy contains a cycle")
+                    break
+                ancestors.add(parent)
+                parent = parents[parent]
 
         for position, relation in enumerate(domain.get("architecture_relations", [])):
             anchor = f"{prefix} relation {position}"

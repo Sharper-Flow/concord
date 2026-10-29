@@ -11,7 +11,7 @@
     "scripts/generate-agent-lanes.py",
     "adapter/opencode/dispatch.test.ts"
   ],
-  "home_domain_id": "agent-surface",
+  "home_domain_id": "worker-lanes",
   "id": "CD-0064",
   "kind": "decision",
   "path": ".concord/docs/decisions/CD-0064-run-mode-executor-assertion.md",

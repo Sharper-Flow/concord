@@ -1,8 +1,11 @@
 {
   "applies_to_domain_ids": [
+    "agent-adapter",
+    "agent-evolution",
     "agent-surface",
     "durable-authority",
     "work-coordination",
+    "worker-lanes",
     "workflow-engine"
   ],
   "authority": {

@@ -4,7 +4,7 @@
   },
   "date": "2026-09-24T00:00:00Z",
   "doc_contract_profile": "current",
-  "home_domain_id": "product-root:concord",
+  "home_domain_id": "worker-lanes",
   "id": "CD-0178",
   "kind": "decision",
   "law_relations": [
@@ -30,7 +30,6 @@
     }
   ],
   "path": ".concord/docs/decisions/CD-0178-each-repository-gets-its-own-coordinator-session.md",
-  "product_wide_rationale": "Governs where every lane worker runs, how one work item reaches a second repository, and what protects a worktree from removal, across the agent surface, the workflow engine, and work coordination, so no single runtime Domain owns it.",
   "scopes": {
     "domain_ids": [],
     "mode": "home",

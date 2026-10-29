@@ -15,7 +15,7 @@
     "contracts/concord-knowledge-index.v1.schema.json",
     ".github/workflows/release.yml"
   ],
-  "home_domain_id": "product-root:concord",
+  "home_domain_id": "product-memory",
   "id": "CD-0194",
   "kind": "decision",
   "law_relations": [
@@ -25,7 +25,6 @@
     }
   ],
   "path": ".concord/docs/decisions/CD-0194-product-knowledge-lives-under-concord.md",
-  "product_wide_rationale": "Sets the default knowledge home for every Concord Product and the explicit operator-override boundary. It governs the repository container across Domains rather than only the Product-memory reader.",
   "scopes": {
     "domain_ids": [],
     "mode": "home",

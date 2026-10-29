@@ -13,7 +13,7 @@
     "adapter/opencode/concord.ts",
     ".concord/scenarios/workflow-engine.v1.json"
   ],
-  "home_domain_id": "product-root:concord",
+  "home_domain_id": "agent-adapter",
   "id": "CD-0120",
   "kind": "decision",
   "law_relations": [
@@ -23,7 +23,6 @@
     }
   ],
   "path": ".concord/docs/decisions/CD-0120-session-vacate-to-registered-main-checkout.md",
-  "product_wide_rationale": "Governs session movement out of implementation worktrees, which every Domain uses when it reclaims worktree storage.",
   "scopes": {
     "domain_ids": [],
     "mode": "home",

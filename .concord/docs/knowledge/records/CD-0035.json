@@ -14,7 +14,7 @@
     "internal/agent/mutations.go",
     "internal/agentcontract/envelope.go"
   ],
-  "home_domain_id": "agent-surface",
+  "home_domain_id": "agent-contract",
   "id": "CD-0035",
   "kind": "decision",
   "path": ".concord/docs/decisions/CD-0035-governing-requirements-at-capture.md",

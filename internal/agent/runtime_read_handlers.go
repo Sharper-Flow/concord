@@ -934,7 +934,7 @@ func (r runtime) readDomainShape(ctx context.Context, base agentcontract.Envelop
 	meta := store.ResultMeta{QueryID: "C22.DomainShape", ContractVersion: "C22/1.0",
 		ResolvedScope: store.ResolvedScope{ProductID: in.ProductID, DomainID: in.DomainID},
 		Authority:     "authoritative", Freshness: store.Freshness{ObservedAt: r.Authority.now().UTC().Format(time.RFC3339Nano)},
-		OrderingKeys: []string{"roots.path", "facts.fact.id", "governing_law.law_id"}}
+		OrderingKeys: []string{"roots.path", "facts.fact.id", "governing_law"}}
 	return r.resultEnvelope(base, meta, r.scope(meta), result)
 }
 

@@ -126,7 +126,7 @@ func assertCommittedDomainFactFitsBound(t *testing.T, domainID, owningRoot, fact
 		selection.GoverningLaw = domainShapeManifestGoverningLaw(manifest, selection)
 		carried := map[string]bool{}
 		for _, record := range selection.GoverningLaw {
-			carried[record.LawID] = law == nil || law[record.LawID]
+			carried[record] = law == nil || law[record]
 		}
 		law = carried
 		bounded, err := boundDomainShapeResult(selection)

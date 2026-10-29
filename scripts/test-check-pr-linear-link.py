@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Tests for scripts/check-pr-linear-link.py — the guard must require exactly
 one non-closing Related-to line on work/work-* pull requests, refuse closing
-phrases in the title and the body (Linear parses both), and measure every PR
-for merge-size visibility without changing non-PR events."""
+phrases in the title and the body (Linear parses both), and pass other
+branches and non-PR events."""
 import importlib.util
 import json
 import subprocess

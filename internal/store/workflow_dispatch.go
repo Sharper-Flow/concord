@@ -1038,13 +1038,6 @@ func workflowFieldStrings(fields map[string]json.RawMessage, name string) []stri
 	}
 	return values
 }
-func workflowFieldStringsDefault(fields map[string]json.RawMessage, name string, fallback []string) []string {
-	if values := workflowFieldStrings(fields, name); len(values) != 0 {
-		return values
-	}
-	return fallback
-}
-
 func workflowFieldStringDefaultMap(fields map[string]any, name, fallback string) string {
 	if value, ok := fields[name].(string); ok && value != "" {
 		return value

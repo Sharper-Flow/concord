@@ -3912,15 +3912,6 @@ func allClosed(values, allowed []string) bool {
 	return true
 }
 
-// nullableInt stores 0 as NULL so "no declared bound" and "bound of zero"
-// stay distinguishable at the storage boundary.
-func nullableInt(v int64) any {
-	if v == 0 {
-		return nil
-	}
-	return v
-}
-
 // workflowPredicateOrdinalTeaching states the position rule
 // validateWorkflowContractPredicate enforces on every outcome predicate; the
 // teaching projection publishes the same text from this guard site.

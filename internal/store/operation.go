@@ -585,10 +585,6 @@ func absentSubject(subjectType SubjectType, subjectID string) *Failure {
 		"create the subject, or retry without an expected version")
 }
 
-func versionConflict(subjectType SubjectType, subjectID string, expected, got int64, exists bool) *Failure {
-	return versionConflictWithActions(subjectType, subjectID, expected, got, exists, nil)
-}
-
 func versionConflictForQuery(ctx context.Context, q queryer, subjectID string, expected, got int64) (*Failure, error) {
 	actions, err := interveningWorkflowActions(ctx, q, SubjectWorkItem, subjectID, expected, got)
 	if err != nil {

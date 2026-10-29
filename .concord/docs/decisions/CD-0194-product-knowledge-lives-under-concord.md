@@ -77,8 +77,7 @@ that override names.
 The canonical knowledge homes in this repository are under `.concord/`.
 The placement check refuses root docs/, instructions/, or scenarios/
 directories and compatibility symlinks for those paths alike. A new knowledge document lands
-under `.concord/` by default, and the closure check keeps every unprocessed
-document visible.
+under `.concord/` by default.
 
 ### D4. Installed conduct is a projection, not a second authoring home
 

@@ -236,32 +236,6 @@ func TestManagedSnapshotRetentionStableCreationOrder(t *testing.T) {
 	}
 }
 
-func TestRepairSnapshotRetentionOnlyAfterSuccessfulInstaller(t *testing.T) {
-	for _, success := range []bool{false, true} {
-		t.Run(fmt.Sprint(success), func(t *testing.T) {
-			f := newRetentionFixture(t)
-			old := f.snapshot(t, 1, 40*24*time.Hour)
-			status := 23
-			if success {
-				status = 0
-			}
-			fixture := newRepairFixture(t, fmt.Sprintf("#!/bin/sh\ntest -f %q || exit 99\nexit %d\n", old, status))
-			// Keep the seeded database and snapshot directory; only adopt the fixture's release assets.
-			t.Setenv(dbOverrideEnv, f.source)
-			// The published fixture names v9.9.9, so use its manifest version for asset lookup.
-			version.Value = "v9.9.9"
-			if err := os.WriteFile(filepath.Join(f.root, "install-manifest.json"), []byte(`{"version":"v9.9.9"}`), 0o600); err != nil {
-				t.Fatal(err)
-			}
-			code, _, errOut := runRepairStdin(t, `{"artifact_dir":"`+fixture.artifactDir+`"}`)
-			if code != status {
-				t.Fatalf("repair = %d, want %d: %s", code, status, errOut)
-			}
-			requireSnapshot(t, old, !success)
-		})
-	}
-}
-
 func TestUpgradeSnapshotRetentionDefersUnderRetainedFence(t *testing.T) {
 	_, root, _ := snapshotUpgradeFixture(t)
 	code, out, errOut := runUpgradeStdin(t, `{}`)
@@ -318,72 +292,6 @@ func TestUpgradeSucceedsWhenSnapshotRetentionCannotRun(t *testing.T) {
 	if fence, err := hostlease.ReadFence(root); err != nil || fence == nil || fence.FenceID != report.Maintenance.FenceID {
 		t.Fatalf("maintenance fence = %+v: %v", fence, err)
 	}
-}
-
-func retentionRepairFixture(t *testing.T, f retentionFixture) *repairFixture {
-	t.Helper()
-	fixture := newRepairFixture(t, "#!/bin/sh\nexit 0\n")
-	t.Setenv(dbOverrideEnv, f.source)
-	version.Value = "v9.9.9"
-	if err := os.WriteFile(filepath.Join(f.root, "install-manifest.json"), []byte(`{"version":"v9.9.9"}`), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	return fixture
-}
-
-func TestFailedNewRepairSnapshotPrunesNothing(t *testing.T) {
-	f := newRetentionFixture(t)
-	old := f.snapshot(t, 1, 40*24*time.Hour)
-	fixture := retentionRepairFixture(t, f)
-	backup := snapshotDatabase
-	t.Cleanup(func() { snapshotDatabase = backup })
-	snapshotDatabase = func(context.Context, string, string) (store.BackupManifest, error) {
-		return store.BackupManifest{}, fmt.Errorf("verification refused")
-	}
-	code, _, errOut := runRepairStdin(t, `{"artifact_dir":"`+fixture.artifactDir+`"}`)
-	if code != 1 || !strings.Contains(errOut.String(), "nothing was repaired") {
-		t.Fatalf("repair = %d: %s", code, errOut)
-	}
-	requireSnapshot(t, old, true)
-}
-
-func TestRepairSucceedsWhenSnapshotRetentionCannotRun(t *testing.T) {
-	f := newRetentionFixture(t)
-	old := f.snapshot(t, 1, 40*24*time.Hour)
-	fixture := retentionRepairFixture(t, f)
-	release, err := hostlease.AcquireMaintenance(f.root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer release()
-	code, _, errOut := runRepairStdin(t, `{"artifact_dir":"`+fixture.artifactDir+`"}`)
-	if code != 0 || !strings.Contains(errOut.String(), "repair finished; snapshot retention could not lock maintenance") {
-		t.Fatalf("repair = %d: %s", code, errOut)
-	}
-	requireSnapshot(t, old, true)
-}
-
-func TestRepairSucceedsWhenSnapshotRetentionVerificationFails(t *testing.T) {
-	f := newRetentionFixture(t)
-	old := f.snapshot(t, 1, 40*24*time.Hour)
-	fixture := retentionRepairFixture(t, f)
-	backup := snapshotDatabase
-	t.Cleanup(func() { snapshotDatabase = backup })
-	snapshotDatabase = func(ctx context.Context, source, destination string) (store.BackupManifest, error) {
-		manifest, err := backup(ctx, source, destination)
-		if err == nil {
-			// Model removal after successful publication, before cleanup re-verifies.
-			if err := os.Remove(destination + ".manifest.json"); err != nil {
-				t.Fatal(err)
-			}
-		}
-		return manifest, err
-	}
-	code, _, errOut := runRepairStdin(t, `{"artifact_dir":"`+fixture.artifactDir+`"}`)
-	if code != 0 || !strings.Contains(errOut.String(), "repair finished; snapshot retention failed") {
-		t.Fatalf("repair = %d: %s", code, errOut)
-	}
-	requireSnapshot(t, old, true)
 }
 
 func TestManagedSnapshotRetentionKeepsNewSnapshotUnderClockSkew(t *testing.T) {

@@ -145,3 +145,36 @@ func TestDomainOverlapRefusalAboveEnvelopeCapIsRefused(t *testing.T) {
 		t.Fatal("an envelope carrying twenty-one overlaps must be refused, not delivered")
 	}
 }
+
+// A held change's refusal names the waited-on change's shared step, so the
+// coordinator reads the recorded R2 decision from the refusal itself.
+func TestSequencedDomainOverlapRefusalCarriesSharedStep(t *testing.T) {
+	t.Parallel()
+	failure := &store.Failure{
+		Kind: store.KindDomainOverlap, Op: "workflow_domain_overlap",
+		Detail:         "active Product-changing workflows have unresolved Domain overlap",
+		RecoveryAction: "request_approval",
+		DomainOverlap: &store.DomainOverlapFailure{
+			Overlaps: []store.WorkflowDomainOverlap{{
+				ProductID: "concord", FromWorkID: "work-a", ToWorkID: "work-b",
+				FromContractVersion: 1, ToContractVersion: 1,
+				SharedAffectedDomainIDs: []string{"agent-surface"}, SharedAffectedDomainCount: 1,
+				OverlapClasses:  []string{"architecture"},
+				ResolutionState: "sequenced", ResolutionKind: store.ResolutionDependsOn, SharedStep: "execution",
+				RecoveryActions: []string{"wait", "resolve_overlap", "terminal_work"},
+			}},
+			TotalOverlaps: 1, ReturnedOverlaps: 1,
+		},
+	}
+	raw, err := failureEnvelope(agentcontract.NewBase("overlap-step", "concord_work_transition", "workflow_action"), failure).Encode()
+	if err != nil {
+		t.Fatalf("a sequenced overlap refusal must be deliverable, got %v", err)
+	}
+	var decoded agentcontract.Envelope
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if decoded.Error == nil || decoded.Error.DomainOverlap == nil || len(decoded.Error.DomainOverlap.Overlaps) != 1 || decoded.Error.DomainOverlap.Overlaps[0].SharedStep != "execution" {
+		t.Fatalf("sequenced overlap refusal lost its shared step: %s", raw)
+	}
+}

@@ -1050,12 +1050,12 @@ func foldWorkflowOverlapResolved(ctx context.Context, tx *sql.Tx, event Event, s
 	if err := workflowOverlapResolutionBindingAdmission(event, payload); err != nil {
 		return err
 	}
-	if err := workflowOverlapSharedStepAdmission(ctx, tx, scope, event, payload); err != nil {
-		return err
-	}
 	fromExpected, fromResulting := *payload.ExpectedVersion, *payload.ResultingVersion
 	from, to, err := readWorkflowOverlapResolutionWorks(ctx, tx, event, payload)
 	if err != nil {
+		return err
+	}
+	if err := workflowOverlapSharedStepAdmission(ctx, tx, scope, event, payload); err != nil {
 		return err
 	}
 	if err := checkOverlapGoverningScope(ctx, tx, WorkflowDomainOverlapResolutionRequest{FromWorkID: event.SubjectID, ToWorkID: payload.ToWorkID, ResolutionKind: payload.ResolutionKind, ApprovalRef: payload.ApprovalRef, ApprovalOperationDigest: payload.ApprovalOperationDigest, ApprovalScopeJSON: payload.ApprovalScopeJSON, ApprovalVersionsJSON: payload.ApprovalVersionsJSON, ApprovalConsequence: payload.ApprovalConsequence}); err != nil {

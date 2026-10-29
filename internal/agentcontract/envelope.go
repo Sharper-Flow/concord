@@ -145,6 +145,7 @@ type DomainOverlapDetail struct {
 	OverlapClasses                []string                     `json:"overlap_classes"`
 	ResolutionState               string                       `json:"resolution_state"`
 	ResolutionKind                string                       `json:"resolution_kind,omitempty"`
+	SharedStep                    string                       `json:"shared_step,omitempty"`
 	RecoveryActions               []string                     `json:"recovery_actions"`
 	SharedAffectedDomainCount     int                          `json:"shared_affected_domain_count"`
 	SharedLawCount                int                          `json:"shared_law_count"`

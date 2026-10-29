@@ -172,3 +172,54 @@ func TestWorkflowDomainOverlapCoordinatorReleasesAfterStepBeforeTerminal(t *test
 		t.Fatalf("stale sequencing relation count=%d err=%v", relationCount, err)
 	}
 }
+
+// The shared step belongs to the change that is waited on: to_work_id for
+// depends_on, from_work_id for blocks. Two families with disjoint step names
+// make a swapped side refuse.
+func TestWorkflowOverlapSharedStepNamesTheWaitedOnChange(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s := openTemp(t)
+	const fix, feature = "shared-step-fix", "shared-step-feature"
+	seedWork(t, s, fix)
+	seedWork(t, s, feature)
+	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+	if err := enterWrite(ctx, tx); err != nil {
+		t.Fatal(err)
+	}
+	steps := map[string]map[string]bool{}
+	for workID, ref := range map[string]string{fix: "workflow.break_fix", feature: "workflow.implementation"} {
+		registered, err := BuiltinWorkflowDefinitionForRef(ref)
+		if err != nil {
+			t.Fatal(err)
+		}
+		steps[workID] = map[string]bool{}
+		for _, step := range registered.Definition.StepGraph.Steps {
+			steps[workID][step.ID] = true
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO workflow_instances(work_id,definition_ref,definition_digest,current_step,instance_state) VALUES(?,?,?,?,'planned')`, workID, ref, registered.Digest, registered.Definition.StepGraph.Steps[0].ID); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if !steps[fix]["repair"] || steps[fix]["execution"] || !steps[feature]["execution"] || steps[feature]["repair"] {
+		t.Fatalf("fixture families must have disjoint repair and execution steps: %v", steps)
+	}
+	for _, c := range []struct {
+		kind, step string
+		admitted   bool
+	}{
+		{ResolutionDependsOn, "execution", true},
+		{ResolutionDependsOn, "repair", false},
+		{ResolutionBlocks, "repair", true},
+		{ResolutionBlocks, "execution", false},
+	} {
+		err := workflowOverlapSharedStepAdmission(ctx, tx, nil, Event{SubjectID: fix}, workflowOverlapResolvedPayload{ToWorkID: feature, ResolutionKind: c.kind, SharedStep: c.step})
+		if (err == nil) != c.admitted {
+			t.Errorf("%s %s -> %s with shared step %q: err=%v, want admitted=%t", fix, c.kind, feature, c.step, err, c.admitted)
+		}
+	}
+}

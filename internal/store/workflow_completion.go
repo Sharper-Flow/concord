@@ -151,7 +151,7 @@ func completeWorkflowInScopeTx(ctx context.Context, tx *sql.Tx, registry Definit
 	if err != nil {
 		return workflowClauseError(err, 6)
 	}
-	if err := appendWorkflowCompletionTx(ctx, tx, event, scope, payload, contract.Version, warnings); err != nil {
+	if err := appendWorkflowCompletionTx(ctx, tx, event, scope, payload, warnings); err != nil {
 		return err
 	}
 	if contract.LawBoundaryVersion == 1 {
@@ -167,17 +167,6 @@ func verifyWorkflowCompletionEvidenceAndScopeTx(ctx context.Context, tx *sql.Tx,
 	}
 	if err := verifyCompletionEvidence(ctx, tx, workID, contract.RequiredEvidence, definition.RequiredEvidenceKinds, evidenceCutoff); err != nil {
 		return workflowClauseError(err, 1)
-	}
-
-	// Clause 2: every declared condition is terminal.  Resolution authority and
-	// evidence are validated by the condition folds; completion only consumes
-	// that authoritative projection.
-	var openConditions int
-	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM workflow_external_conditions WHERE work_id=? AND condition_state='open'`, workID).Scan(&openConditions); err != nil {
-		return workflowClauseError(wrapFailure(KindUnavailable, "complete_workflow", "cannot inspect workflow conditions", true, "retry once the database is readable", err), 2)
-	}
-	if openConditions != 0 {
-		return workflowClauseFailure(KindNotTerminal, 2, "workflow has unresolved external conditions", "reread_entities")
 	}
 
 	// Clause 3: modifying edges must be covered by the approved candidate scope
@@ -256,37 +245,8 @@ func verifyWorkflowCompletionPremiseTx(ctx context.Context, tx *sql.Tx, workID s
 	return nil
 }
 
-func appendWorkflowCompletionTx(ctx context.Context, tx *sql.Tx, event Event, scope *writeScope, payload workflowCompletedPayload, contractVersion int64, warnings []string) error {
-	// Clause 7: derive and append every required notice and completion event in
-	// this transaction.  Notice conflicts are returned before the completion
-	// append, so the caller's rollback removes all prior writes.
-	notices, err := completionNoticeEvents(ctx, tx, event.SubjectID, contractVersion, payload.ImpactVerdict, event)
-	if err != nil {
-		return workflowClauseError(err, 7)
-	}
+func appendWorkflowCompletionTx(ctx context.Context, tx *sql.Tx, event Event, scope *writeScope, payload workflowCompletedPayload, warnings []string) error {
 	nextVersion := *payload.ExpectedVersion
-	for _, notice := range notices {
-		nextVersion++
-		var noticePayload map[string]any
-		if err := json.Unmarshal(notice.Payload, &noticePayload); err != nil {
-			return workflowClauseFailure(KindOperationConflict, 7, "impact notice payload is malformed", "reconcile_operation")
-		}
-		noticePayload["expected_version"] = nextVersion - 1
-		noticePayload["resulting_version"] = nextVersion
-		notice.Payload, _ = json.Marshal(noticePayload)
-		seq, err := appendEvent(ctx, tx, notice, true)
-		if err != nil {
-			return workflowClauseFailure(KindOperationConflict, 7, "impact notice append conflicted", "reconcile_operation")
-		}
-		notice.Seq = seq
-		scope.eventIDs = append(scope.eventIDs, notice.EventID)
-		if err := applyEffect(ctx, tx, notice, scope); err != nil {
-			return workflowClauseError(err, 7)
-		}
-		if err := advanceWorkEffectSeqTx(ctx, tx, notice); err != nil {
-			return workflowClauseError(err, 7)
-		}
-	}
 
 	completion := event
 	var completionPayload map[string]any
@@ -852,18 +812,8 @@ func workflowActorsDistinctForExecutor(ctx context.Context, tx queryer, workID, 
 }
 
 func verifyBlockingStaleness(ctx context.Context, tx *sql.Tx, workID string, definition WorkflowDefinition, required []string) error {
-	observations, err := workflowStalenessObservationState(ctx, tx, workID)
-	if err != nil {
-		return err
-	}
 	for _, rule := range definition.StalenessRules {
 		if rule.Severity != "block" {
-			continue
-		}
-		if observation, observed := observations[rule.ID]; observed {
-			if observation.Drifted {
-				return newFailure(KindStaleRequiresReview, "complete_workflow", "blocking staleness rule has drifted", false, "refresh_context")
-			}
 			continue
 		}
 		var count int
@@ -878,19 +828,9 @@ func verifyBlockingStaleness(ctx context.Context, tx *sql.Tx, workID string, def
 }
 
 func workflowStalenessWarnings(ctx context.Context, tx *sql.Tx, workID string, definition WorkflowDefinition, required []string) ([]string, error) {
-	observations, err := workflowStalenessObservationState(ctx, tx, workID)
-	if err != nil {
-		return nil, err
-	}
 	var warnings []string
 	for _, rule := range definition.StalenessRules {
 		if rule.Severity != "warning" {
-			continue
-		}
-		if observation, observed := observations[rule.ID]; observed {
-			if observation.Drifted && observation.Severity == "warning" {
-				warnings = append(warnings, rule.ID)
-			}
 			continue
 		}
 		var count int
@@ -903,91 +843,6 @@ func workflowStalenessWarnings(ctx context.Context, tx *sql.Tx, workID string, d
 	}
 	sort.Strings(warnings)
 	return warnings, nil
-}
-
-func workflowRecordedStalenessWarnings(ctx context.Context, q queryer, workID string) ([]string, error) {
-	observations, err := workflowStalenessObservationState(ctx, q, workID)
-	if err != nil {
-		return nil, err
-	}
-	warnings := make([]string, 0, len(observations))
-	for ruleID, observation := range observations {
-		if observation.Drifted {
-			warnings = append(warnings, ruleID)
-		}
-	}
-	sort.Strings(warnings)
-	return warnings, nil
-}
-
-func workflowStalenessObservationState(ctx context.Context, q queryer, workID string) (map[string]workflowStalenessObservedPayload, error) {
-	rows, err := q.QueryContext(ctx, `SELECT o.rule_id,o.severity,o.drifted,o.accepted_inputs_digest,o.observed_at FROM workflow_staleness_observations o JOIN effect_receipts r ON r.event_id=o.event_id WHERE o.work_id=? ORDER BY r.effect_seq DESC`, workID)
-	if err != nil {
-		return nil, wrapFailure(KindUnavailable, "workflow_staleness", "cannot read staleness observation events", true, "retry once the database is readable", err)
-	}
-	defer rows.Close()
-	observations := map[string]workflowStalenessObservedPayload{}
-	for rows.Next() {
-		var observation workflowStalenessObservedPayload
-		if err := rows.Scan(&observation.RuleID, &observation.Severity, &observation.Drifted, &observation.AcceptedInputsDigest, &observation.ObservedAt); err != nil {
-			return nil, wrapFailure(KindUnavailable, "workflow_staleness", "cannot scan staleness observation event", true, "retry once the database is readable", err)
-		}
-		if _, exists := observations[observation.RuleID]; !exists {
-			observations[observation.RuleID] = observation
-		}
-	}
-	if err := rows.Err(); err != nil {
-		return nil, wrapFailure(KindUnavailable, "workflow_staleness", "cannot scan staleness observation events", true, "retry once the database is readable", err)
-	}
-	return observations, nil
-}
-
-func completionNoticeEvents(ctx context.Context, tx *sql.Tx, workID string, contractVersion int64, impactVerdict string, completion Event) ([]Event, error) {
-	rows, err := tx.QueryContext(ctx, `SELECT work_id,edge_id,edge_class FROM workflow_impact_edges WHERE target_work_id=? AND edge_kind='depends_on' AND edge_class IN ('hard','soft') ORDER BY work_id,edge_id`, workID)
-	if err != nil {
-		return nil, wrapFailure(KindUnavailable, "complete_workflow", "cannot inspect workflow impact edges", true, "retry once the database is readable", err)
-	}
-	defer rows.Close()
-	type edge struct{ owner, id, class string }
-	var edges []edge
-	for rows.Next() {
-		var e edge
-		if err := rows.Scan(&e.owner, &e.id, &e.class); err != nil {
-			return nil, wrapFailure(KindUnavailable, "complete_workflow", "cannot read workflow impact edge", true, "retry once the database is readable", err)
-		}
-		edges = append(edges, e)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	selected := make(map[string]edge, len(edges))
-	for _, candidate := range edges {
-		current, exists := selected[candidate.owner]
-		if !exists || candidate.class == "hard" && current.class != "hard" || candidate.class == current.class && candidate.id < current.id {
-			selected[candidate.owner] = candidate
-		}
-	}
-	owners := make([]string, 0, len(selected))
-	for owner := range selected {
-		owners = append(owners, owner)
-	}
-	sort.Strings(owners)
-	var events []Event
-	for _, owner := range owners {
-		e := selected[owner]
-		noticeID := WorkflowNoticeID(workID, contractVersion, "work_item", workID, e.owner, impactVerdict)
-		var existing int
-		if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM workflow_impact_notices WHERE notice_id=?`, noticeID).Scan(&existing); err != nil {
-			return nil, wrapFailure(KindUnavailable, "complete_workflow", "cannot inspect impact notice identity", true, "retry once the database is readable", err)
-		}
-		if existing != 0 {
-			continue
-		}
-		payload := map[string]any{"work_id": workID, "expected_version": int64(0), "resulting_version": int64(0), "notice_id": noticeID, "source_contract_version": contractVersion, "entity_kind": "work_item", "entity_ref": workID, "target_work_id": e.owner, "edge_owner_work_id": e.owner, "edge_id": e.id, "old_hash": nil, "new_hash": nil, "severity": impactVerdict}
-		raw, _ := json.Marshal(payload)
-		events = append(events, Event{EventID: "notice-event:" + noticeID, Kind: WorkflowImpactNoticeRecorded, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: completion.Actor, OccurredAt: completion.OccurredAt, PayloadVersion: 2, Payload: raw})
-	}
-	return events, nil
 }
 
 // workflowEvidenceKindBound reports a durable evidence binding of the kind

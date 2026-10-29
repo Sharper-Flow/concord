@@ -27,7 +27,7 @@ import (
 // The lookup change exceeds the retired fixture's 400-line production cap;
 // CD-0242 D6 keeps this coherent assignment intact without a split ritual.
 func TestWorkerJobCallerRepairAcceptanceThroughAgent(t *testing.T) {
-	for _, scenario := range []string{"contained", "missing repair", "wrong owner", "foreign owner"} {
+	for _, scenario := range []string{"contained", "missing repair", "wrong owner"} {
 		t.Run(scenario, func(t *testing.T) {
 			s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_transition", "worker_dispatch"})
 			// Caller repair needs the allowance member absent from legacy
@@ -107,18 +107,6 @@ func TestWorkerJobCallerRepairAcceptanceThroughAgent(t *testing.T) {
 			}
 			// The architecture Review binds the job it permits (CD-0205 D3).
 			oAgentReview(t, oAgentFixture(t, s, service, env, "work-1"), "continue", false)
-			if scenario == "foreign owner" {
-				// Another work item in the same Project holds a path claim
-				// over the caller path the repair changes.
-				const holder = "work-holder"
-				if err := store.ApplyOperation(context.Background(), s, store.Operation{Events: []store.Event{
-					{EventID: holder + "-create", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: holder, Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: store.CurrentEventPayloadVersion("work.created"), Payload: json.RawMessage(`{"work_kind":"task","title":"Holder","priority":1}`)},
-					{EventID: holder + "-membership", Kind: "work.memberships_replaced", SubjectType: store.SubjectWorkItem, SubjectID: holder, Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"memberships":[{"project_id":"project-1","role":"primary"}],"expected_version":1,"resulting_version":2}`)},
-					{EventID: holder + "-claim", Kind: "work.resource_claimed", SubjectType: store.SubjectWorkItem, SubjectID: holder, Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"work_id":"` + holder + `","expected_version":2,"resulting_version":3,"resource_key":"path:caller/use.go","reason":"another item's held path claim","holder_agent":"agent/other","holder_session":"session/other"}`)},
-				}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, holder): 0}}); err != nil {
-					t.Fatalf("seed the foreign holder's path claim: %v", err)
-				}
-			}
 			const attempt = "attempt:caller"
 			if out := invoke("dispatch_worker", "caller-dispatch", map[string]any{"attempt_id": attempt, "worker_packet": deliveryRecoveryPacket(t, s, "execution", attempt, "implementation")}, env); out.Outcome != agentcontract.OutcomeOK {
 				t.Fatalf("dispatch_worker: %+v", out.Error)
@@ -213,7 +201,6 @@ func TestWorkerJobCallerRepairAcceptanceThroughAgent(t *testing.T) {
 				want := map[string]string{
 					"missing repair": "changed path caller/use.go outside its path_scope without an evidenced direct-caller repair",
 					"wrong owner":    "which is not a mechanism of its direct-caller allowance",
-					"foreign owner":  "which work item work-holder holds through claim path:caller/use.go over",
 				}[scenario]
 				if out.Outcome == agentcontract.OutcomeOK || out.Error == nil || out.Error.Kind != "invalid_input" || !strings.Contains(out.Error.Message, want) || workVersion(t, s, "work-1") != before {
 					t.Fatalf("invalid repair acceptance = %+v, want invalid_input %q without effects", out, want)

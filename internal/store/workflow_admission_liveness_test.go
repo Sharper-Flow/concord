@@ -16,7 +16,7 @@ package store
 //
 // No state is skipped on either side. The model folds Review, attempts,
 // contracts, staleness, design, verdicts, artifacts, delivery, mandates, and
-// jobs. Breaking notices and external conditions stay zero.
+// jobs.
 
 import (
 	"fmt"

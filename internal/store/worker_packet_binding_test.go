@@ -181,8 +181,7 @@ func dispatchStartedCount(t *testing.T, s *Store, workID string) int {
 	var count int
 	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts r WHERE r.subject_type='work_item' AND r.subject_id=? AND r.kind=? AND (
 		EXISTS(SELECT 1 FROM worker_authorizations a WHERE a.work_id=r.subject_id AND a.start_seq=r.effect_seq) OR
-		EXISTS(SELECT 1 FROM workflow_step_epochs e WHERE e.work_id=r.subject_id AND e.latest_dispatch_start_seq=r.effect_seq) OR
-		EXISTS(SELECT 1 FROM workflow_action_obligations o WHERE o.work_id=r.subject_id AND o.effect_seq=r.effect_seq AND json_extract(o.payload,'$.action_id')='dispatch_worker'))`,
+		EXISTS(SELECT 1 FROM workflow_step_epochs e WHERE e.work_id=r.subject_id AND e.latest_dispatch_start_seq=r.effect_seq))`,
 		workID, WorkflowActionStarted).Scan(&count); err != nil {
 		t.Fatal(err)
 	}

@@ -464,17 +464,10 @@ def validate(data: object, *, check_hashes: bool = True) -> list[str]:
         fail(findings, "manifest: records must be a bounded array")
         records = []
 
-    # CD-0200: the registry's presence decides the manifest's federated role.
-    # A manifest with a domain_registry is a shared-law home corpus and the
-    # registry validates deeply; a manifest without one is a registered-source
-    # corpus, whose Domain references validate against the shared home's
-    # registry at rebuild.
     registry = data.get("domain_registry")
-    if registry is None:
-        domain_ids: set[str] = set()
-    elif not isinstance(registry, dict):
+    if not isinstance(registry, dict):
         fail(findings, "manifest: domain_registry must be an object")
-        domain_ids = set()
+        domain_ids: set[str] = set()
     else:
         domain_ids = validate_domain_registry(registry, findings)
 
@@ -508,18 +501,13 @@ def validate(data: object, *, check_hashes: bool = True) -> list[str]:
                 fail(findings, f"{prefix}: law_relations are only allowed on decision/spec records")
         else:
             for relation in relations:
-                # CD-0200: a cross-source relation keeps target_id a bare law
-                # ID and names its source Project through the structured
-                # source_project_id field.
                 if (
                     not isinstance(relation, dict)
-                    or not set(relation) <= {"kind", "target_id", "source_project_id"}
+                    or set(relation) != {"kind", "target_id"}
                     or {"kind", "target_id"} - set(relation)
                     or relation.get("kind") not in LAW_KINDS
                     or not valid_id(relation.get("target_id"))
                     or "/" in str(relation.get("target_id"))
-                    or ("source_project_id" in relation and not isinstance(relation.get("source_project_id"), str))
-                    or ("source_project_id" in relation and not re.fullmatch(r"[a-z][a-z0-9-]{1,63}", relation.get("source_project_id") or ""))
                 ):
                     fail(findings, f"{prefix}: invalid law relation")
 
@@ -626,9 +614,7 @@ def validate(data: object, *, check_hashes: bool = True) -> list[str]:
             fail(findings, f"{prefix}: non-law records cannot author law-home fields")
         # The root is the only home reachable by deciding nothing, so it
         # carries a stated claim. A child home has already decided and a
-        # rationale there would assert a reach the home contradicts. A
-        # registered-source corpus declares no root, so the root-rationale
-        # rule defers to the shared home's registry at rebuild (CD-0200).
+        # rationale there would assert a reach the home contradicts.
         root_homed = isinstance(registry, dict) and record.get("home_domain_id") == registry.get("root_domain_id")
         rationale = record.get("product_wide_rationale")
         if root_homed and not bounded_text(rationale, 512):
@@ -725,18 +711,6 @@ def validate(data: object, *, check_hashes: bool = True) -> list[str]:
         prefix = f"manifest.records[{number}]"
         for relation in record.get("law_relations", []) if isinstance(record.get("law_relations", []), list) else []:
             if not isinstance(relation, dict) or relation.get("kind") not in LAW_KINDS:
-                continue
-            if isinstance(relation.get("source_project_id"), str):
-                # CD-0200: a cross-source relation names a law another
-                # registered source holds, by source plus bare target ID. The
-                # named source owns the endpoint, so a local record holding
-                # the same bare ID does not capture it, and a bare ID both
-                # sources hold is not a self-edge — endpoints compare as
-                # source-qualified nodes. The relation stays outside this
-                # manifest's relation graph, and the rebuild validates its
-                # endpoint over the verified source set, including the
-                # refusal of a qualified target naming the declaring
-                # source's own Project.
                 continue
             target = by_id.get(relation.get("target_id"))
             if target is None or target.get("kind") not in LAW_RELATION_SUBJECTS:

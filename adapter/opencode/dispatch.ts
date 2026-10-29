@@ -97,7 +97,6 @@ export interface AgentLanePacketReviewInput {
   size?: {
     size: WorkSizeClass
     model_size?: WorkSizeClass
-    operator_size?: WorkSizeClass
     model_version: number
     recorded_at: string
   }

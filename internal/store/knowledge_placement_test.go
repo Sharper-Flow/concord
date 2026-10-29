@@ -89,7 +89,7 @@ func TestOverrideAdmitsExternalRecordThroughComposition(t *testing.T) {
 		},
 		recordPathPrefix: manifestRecordPathPrefix,
 	}
-	manifest, err := composeKnowledgeManifest(shards, manifestSharedHomeRole)
+	manifest, err := composeKnowledgeManifest(shards)
 	if err != nil {
 		t.Fatalf("an approved external record refused to compose and parse: %v", err)
 	}

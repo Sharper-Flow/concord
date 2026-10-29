@@ -161,10 +161,6 @@ func SeedDomainEvidence(ctx context.Context, s *store.Store, opts DomainEvidence
 		return err
 	}
 
-	attachments := store.DomainProjectAttachmentsRequest{EventID: "domain-evidence-project-edges", ProductID: opts.ProductID, DomainID: SingleDomainRootID, ExpectedVersion: 0, Attachments: []store.DomainProjectAttachment{{ProjectID: opts.ProjectID, Role: "primary"}}, Actor: "operator", OccurredAt: DomainEvidenceTime}
-	if err := store.ReplaceDomainProjectAttachments(ctx, s, attachments); err != nil {
-		return fmt.Errorf("pm1fixture: seed Project attachments: %w", err)
-	}
 	return nil
 }
 

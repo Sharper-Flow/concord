@@ -147,31 +147,8 @@ func TestQueryQ9TokenSearchStaleWatermarkOmitsAuthority(t *testing.T) {
 	}
 	req.Text = "law revision"
 	result, err = s.QueryQ9(context.Background(), req)
-	if err != nil || len(result.Items) != 1 || result.Authority != "degraded" || result.SourceWatermarks != nil || !slices.Equal(result.Omissions, []string{"knowledge_index_lagging_or_unreachable"}) {
+	if err != nil || len(result.Items) != 1 || result.Authority != "degraded" || !slices.Equal(result.Omissions, []string{"knowledge_index_lagging_or_unreachable"}) {
 		t.Fatalf("single-source stale rows = %+v, err %v", result, err)
-	}
-}
-
-func TestQueryQ9TokenSearchFederatedPaging(t *testing.T) {
-	t.Parallel()
-	home := KnowledgeHome{HomeProjectID: "token-home", HomeLocatorID: "token-home-loc", HeadRef: "HEAD"}
-	source := KnowledgeHome{HomeProjectID: "token-source", HomeLocatorID: "token-source-loc", HeadRef: "HEAD"}
-	s, _ := seedFederatedProduct(t, "token-federated", home, source,
-		"HOME-LAW", ".concord/docs/decisions/CD-0902-source-law.md", "Law bounded home")
-	req := Q9Request{Product: "token-federated", Text: "law home", Kinds: []string{"decision"}, Limit: 1}
-	for _, project := range []string{home.HomeProjectID, source.HomeProjectID} {
-		page, err := s.QueryQ9(context.Background(), req)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if page.Authority != "authoritative" || len(page.Items) != 1 || page.Items[0].ID != "HOME-LAW" || page.Items[0].HomeProjectID != project || page.Items[0].MatchClass != 1 || page.NextCursor == nil {
-			t.Fatalf("page for %s = %+v", project, page)
-		}
-		req.Cursor = *page.NextCursor
-	}
-	last, err := s.QueryQ9(context.Background(), req)
-	if err != nil || len(last.Items) != 0 || last.NextCursor != nil || last.Authority != "authoritative" {
-		t.Fatalf("final page = %+v, err %v", last, err)
 	}
 }
 

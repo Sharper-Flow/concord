@@ -123,7 +123,7 @@ Neither publication lag nor an unknown comparison changes read authority or law
 status. Explicit historical reads remain local and labelled historical.
 
 Both knowledge readers and writers may explicitly call
-`concord_knowledge.observe_publication` for one registered Product source.
+`concord_knowledge.observe_publication` for the designated Product knowledge home.
 This operation alone performs the bounded network observation and cache effects
 defined by CD-0020 D3. Q9/Q10 and workflow boundaries do not invoke it. A failed
 latest observation supersedes the current comparison; earlier success remains
@@ -307,14 +307,11 @@ plus the recorded stage exits and evidence receipts that justify them; no event 
   proves completeness against the projected content at every applicable canonical
   git authority head; otherwise it is `degraded`. Accepted PM6 supplies canonical
   home/locator semantics.
-- **Federated scope:** over a Product with a
-  registered source set, Q9 iterates every registered source, verifies each
-  source's watermark, merges items under the ordering above, returns per-source
-  watermarks, and binds the cursor to a source-set digest. A source that is
-  unreachable or stale refuses the answer unless the request allows degradation;
-  a degraded answer carries one omission per missing source and never reads as
-  an authoritative negative. Every source set uses one query path. A one-element
-  set retains single-source output and uses a v3 cursor.
+- **Product scope:** Q9 resolves the designated Product knowledge home and
+  verifies its watermark. An unreachable or stale home refuses unless the
+  request allows degradation. A degraded answer names the limitation and
+  never reads as an authoritative negative. The cursor binds the query and
+  home identity.
 
 ### Q10. Resolve canonical durable note
 
@@ -331,9 +328,8 @@ plus the recorded stage exits and evidence receipts that justify them; no event 
   `missing`, or `ambiguous`; authority remains `authoritative|degraded|unreachable`.
 - **Source-qualified identity:** a knowledge
   reference may take the qualified form `<project_id>/<law_id>` and resolves only
-  through that Project's canonical knowledge locator. A bare ID resolves across
-  the Product's registered source set and refuses as `ambiguous` when more than
-  one source holds it. Every returned locator names its source Project,
+  through that Project's canonical knowledge locator. A Product-scoped bare
+  ID resolves through its designated knowledge home. Every returned locator names its source Project,
   repository-relative path, commit OID, and content hash.
 
 ## 5. Decision and implementation evaluation

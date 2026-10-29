@@ -375,8 +375,6 @@ These are named rather than silently decided by implication.
    the operator rather than defaulting to pass.
 4. **Cross-item outcome attribution.** When one item's end-state is delivered by another
    item's work, whether that is PM4 supersession, a typed relation, or neither.
-5. **Downstream notice class.** Whether an end-state revision emits a `breaking` notice
-   under CD-0006 R3 to work that declared a dependency on the original outcome.
 
 ## Supersession and amendments
 

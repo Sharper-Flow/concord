@@ -366,7 +366,7 @@ func validateWorkflowLawChangePins(change *WorkflowLawChange, op string, needsAp
 
 // readWorkflowLawDomainsTx reads the Domains one resolved law is homed in or
 // applies to, sorted and unique, the root included.
-func readWorkflowLawDomainsTx(ctx context.Context, q queryer, resolution federatedLawResolution) ([]string, error) {
+func readWorkflowLawDomainsTx(ctx context.Context, q queryer, resolution lawReferenceResolution) ([]string, error) {
 	rows, err := q.QueryContext(ctx, `SELECT domain_id FROM law_domain_homes WHERE home_project_id=? AND home_locator_id=? AND law_id=?
 UNION SELECT domain_id FROM law_domain_applicability WHERE home_project_id=? AND home_locator_id=? AND law_id=? ORDER BY domain_id`,
 		resolution.source.HomeProjectID, resolution.source.HomeLocatorID, resolution.lawID,
@@ -390,21 +390,15 @@ UNION SELECT domain_id FROM law_domain_applicability WHERE home_project_id=? AND
 }
 
 // resolveWorkflowChangedLawsTx resolves changed law references through the
-// same federated identity as the mandated-law boundary. A law the projection
+// same Project-qualified identity as the mandated-law boundary. A law the projection
 // no longer holds, such as one the change removed, resolves to nothing; the
 // approval path has already refused an unknown modified law.
-func resolveWorkflowChangedLawsTx(ctx context.Context, q queryer, homeProjectID, homeLocatorID string, laws []string) (map[string]federatedLawResolution, error) {
+func resolveWorkflowChangedLawsTx(ctx context.Context, q queryer, homeProjectID, homeLocatorID string, laws []string) (map[string]lawReferenceResolution, error) {
 	if len(laws) == 0 {
 		return nil, nil
 	}
-	sources, err := workflowLawSourceSetForHomeTx(ctx, q, homeProjectID, homeLocatorID)
-	if err != nil {
-		return nil, err
-	}
-	if sources == nil {
-		sources = []KnowledgeHome{{HomeProjectID: homeProjectID, HomeLocatorID: homeLocatorID}}
-	}
-	resolutions, _, err := resolveFederatedLawReferences(ctx, q, "workflow_law_change", sources, laws)
+	sources := []KnowledgeHome{{HomeProjectID: homeProjectID, HomeLocatorID: homeLocatorID}}
+	resolutions, _, err := resolveLawReferences(ctx, q, "workflow_law_change", sources, laws)
 	return resolutions, err
 }
 
@@ -586,12 +580,8 @@ func checkWorkflowLawChangePinsEnactedTx(ctx context.Context, tx *sql.Tx, workID
 		return err
 	}
 	if len(change.TextPins) != 0 {
-		sources, err := workflowLawSourceSetForHomeTx(ctx, tx, homeProjectID, homeLocatorID)
-		if err != nil {
-			return err
-		}
 		for _, pin := range change.TextPins {
-			subject, err := resolveWorkflowLawSubjectTx(ctx, tx, sources, homeProjectID, homeLocatorID, pin.LawID)
+			subject, err := resolveWorkflowLawSubjectTx(ctx, tx, homeProjectID, homeLocatorID, pin.LawID)
 			if err != nil {
 				var failure *Failure
 				if failureAs(err, &failure) && failure.Kind == KindProjectionNotFound {

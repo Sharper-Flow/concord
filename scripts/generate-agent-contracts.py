@@ -162,25 +162,18 @@ export function actionFieldsBranches(actionInput: unknown): any[] {
 '''
 
 
-ADD_CONDITION_VARIANTS = ("work_transition_action_variant_add_condition", "work_transition_action_public_variant_add_condition")
-
 def require_delivery_rule_teaching(defs: dict) -> None:
     """CD-0184: the projected authoring schema must teach that acceptance is
     decidable at delivery, so generation fails before any artifact lands when
     a projection drops the rule.
 
-    The rule's live owner is the outcome_predicates array shared by
-    approve_contract and supersede_contract. The wait-rule teaching retired
-    with add_condition (CD-0218 D1), so a projected def for its variants is
-    a stale copy the projection must refuse, never a silently skipped check.
+    The rule's owner is the outcome_predicates array shared by
+    approve_contract and supersede_contract.
     """
     items = defs.get("workflow_action_outcome_predicates")
     text = items.get("description") if isinstance(items, dict) else None
     if text != DELIVERY_RULE_PREDICATE_DESCRIPTION:
         fail("workflow_action_outcome_predicates does not teach the CD-0184 delivery-decidable rule")
-    stale = sorted(name for name in ADD_CONDITION_VARIANTS if name in defs)
-    if stale:
-        fail(f"retired published action add_condition remains projected: {', '.join(stale)} (CD-0218 D1)")
 
 SCHEMA_KEYWORDS = {"$schema", "$id", "$defs", "$ref", "title", "description", "examples", "type", "properties", "patternProperties", "propertyNames", "required", "additionalProperties", "unevaluatedProperties", "items", "contains", "minItems", "maxItems", "uniqueItems", "minLength", "maxLength", "pattern", "format", "minimum", "maximum", "enum", "const", "oneOf", "anyOf", "allOf", "not", "if", "then", "else", "default", "minProperties", "maxProperties", "x-maxBytes", "x-minBytes", "x-maxArrayBytes"}
 
@@ -2030,7 +2023,7 @@ def validate(manifest: dict) -> str:
     # The operation surface is closed: the manifest must enumerate the full
     # published set exactly, and the count changes only with an accepted
     # surface change.
-    expected_operations = 64
+    expected_operations = 61
     if len(operations) != expected_operations or len({o.get("id") for o in operations}) != expected_operations:
         fail(f"manifest must contain exactly {expected_operations} unique operations")
     tool_ids = {t["id"] for t in tools}
@@ -2487,10 +2480,6 @@ export function advertisedAdmissionTeachingGaps(published: unknown): string[] {{
     gaps.push(`outcome_predicates description does not teach the delivery-decidable rule (CD-0184) on action ${{carrier.actionId}}`);
   }}
   }}
-  // The CD-0184 wait-rule teaching retired with add_condition (CD-0218 D1):
-  // no live action declares expected_within_seconds, so no wait carrier
-  // check exists. require_delivery_rule_teaching refuses a stale projection
-  // that revives the retired variant.
   return gaps;
 }}
 function pass(evaluated: Iterable<string> = []): Validation {{ return {{ valid: true, evaluated: new Set(evaluated), path: null }}; }}

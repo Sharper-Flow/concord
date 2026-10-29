@@ -66,13 +66,6 @@ MESSAGE_WITHDRAW_ENTRY = ('{ID: "concord_work_relate.message_withdraw", Tool: "c
 MESSAGE_INPUTS = ('"work_relate_message_send_input":             {Required: []string{"work_id", "body", "expected_version", "idempotency_key"}, Properties: []string{"work_id", "recipient_work_id", "broadcast", "body", "expected_version", "idempotency_key"}},\n'
                   '"work_relate_message_withdraw_input":         {Required: []string{"work_id", "message_id", "expected_version", "idempotency_key"}, Properties: []string{"work_id", "message_id", "expected_version", "idempotency_key"}},\n')
 MESSAGE_CONTRACTS = MESSAGE_SEND_ENTRY + MESSAGE_WITHDRAW_ENTRY + MESSAGE_INPUTS
-RESOURCE_CLAIM_ENTRY = ('{ID: "concord_work_relate.resource_claim", Tool: "concord_work_relate", Operation: "resource_claim", '
-                        'Kind: OperationKind("mutation"), QueryID: "", Capability: Capability("work_relate"), Approval: ApprovalClass("none"), Availability: Availability("always"), InputSchema: "work_relate_resource_claim_input", ResultSchema: "mutation_result"},\n')
-RESOURCE_RELEASE_ENTRY = ('{ID: "concord_work_relate.resource_release", Tool: "concord_work_relate", Operation: "resource_release", '
-                          'Kind: OperationKind("mutation"), QueryID: "", Capability: Capability("work_relate"), Approval: ApprovalClass("none"), Availability: Availability("always"), InputSchema: "work_relate_resource_release_input", ResultSchema: "mutation_result"},\n')
-RESOURCE_INPUTS = ('"work_relate_resource_claim_input":            {Required: []string{"work_id", "resource_key", "reason", "expected_version", "idempotency_key"}, Properties: []string{"work_id", "resource_key", "reason", "expected_version", "idempotency_key"}},\n'
-                   '"work_relate_resource_release_input":          {Required: []string{"work_id", "resource_key", "expected_version", "idempotency_key"}, Properties: []string{"work_id", "resource_key", "expected_version", "idempotency_key"}},\n')
-RESOURCE_CONTRACTS = RESOURCE_CLAIM_ENTRY + RESOURCE_RELEASE_ENTRY + RESOURCE_INPUTS
 OBSERVATION_ENTRY = ('{ID: "concord_work_define.observation_record", Tool: "concord_work_define", Operation: "observation_record", '
                      'Kind: OperationKind("mutation"), QueryID: "", Capability: Capability("work_define"), Approval: ApprovalClass("none"), Availability: Availability("always"), InputSchema: "work_define_observation_record_input", ResultSchema: "mutation_result"},\n')
 OBSERVATION_INPUTS = ('"work_define_observation_record_input":         {Required: []string{"work_id", "statement", "idempotency_key"}, Properties: []string{"work_id", "observation_id", "statement", "idempotency_key", "refs", "tags"}},\n')
@@ -203,7 +196,7 @@ def fixture_repository(root: Path) -> Path:
                   "internal/store/project_locator.go": LOCATOR_PAIRS}, "v0.26.1")
     commit(repo, {"cmd/concord/main.go": MAIN_GRANT.format(token="grant_ref", agent=""),
                   "internal/agent/authority.go": FORM_A_AUTHORITY,
-                  "internal/agent/generated_contracts.go": contracts("sha256:" + "d" * 64, messages=False) + RESOURCE_CONTRACTS + OBSERVATION_CONTRACTS}, "v0.31.0")
+                  "internal/agent/generated_contracts.go": contracts("sha256:" + "d" * 64, messages=False) + OBSERVATION_CONTRACTS}, "v0.31.0")
     commit(repo, {"cmd/concord/main.go": MAIN_GRANT.format(token="grant_ref", agent=""),
                   "internal/agent/authority.go": FORM_A_AUTHORITY,
                   "internal/agent/generated_contracts.go": contracts("sha256:" + "a" * 64, messages=True)}, "v0.37.2")
@@ -249,12 +242,10 @@ class InvokeUnitTest(unittest.TestCase):
             oldest = invoke.tag_facts(repo, "v0.26.1")
             self.assertTrue(oldest["has_grant"])
             self.assertFalse(oldest["has_messages"])
-            self.assertFalse(oldest["has_resources"])
             self.assertFalse(oldest["has_observation"])
             early = invoke.tag_facts(repo, "v0.37.2")
             self.assertTrue(early["has_grant"])
             self.assertTrue(early["has_messages"])
-            self.assertFalse(early["has_resources"])
             self.assertFalse(early["has_observation"])
             self.assertIn("client_version", early["names"])
             self.assertEqual(early["surface"], "4.0.0")
@@ -264,7 +255,6 @@ class InvokeUnitTest(unittest.TestCase):
             middle = invoke.tag_facts(repo, "v0.40.0")
             self.assertTrue(middle["has_grant"])
             self.assertTrue(middle["has_messages"])
-            self.assertFalse(middle["has_resources"])
             self.assertFalse(middle["has_observation"])
             self.assertNotIn("client_version", middle["names"])
             self.assertNotIn("surface", middle)
@@ -272,7 +262,6 @@ class InvokeUnitTest(unittest.TestCase):
             modern = invoke.tag_facts(repo, "v4.6.0")
             self.assertFalse(modern["has_grant"])
             self.assertTrue(modern["has_messages"])
-            self.assertFalse(modern["has_resources"])
             self.assertFalse(modern["has_observation"])
             self.assertTrue(modern["agent_scope"])
             self.assertEqual(modern["scope_formula"], "triples")
@@ -287,13 +276,13 @@ class InvokeUnitTest(unittest.TestCase):
             source.unlink()
             moved = "internal/agentcontract/generated_contracts.go"
             commit(repo, {moved: contracts.replace("sha256:" + "c" * 64, "sha256:" + "e" * 64)
-                          + RESOURCE_CONTRACTS + OBSERVATION_CONTRACTS}, "moved-contracts")
+                          + OBSERVATION_CONTRACTS}, "moved-contracts")
             # Neither an uncommitted old owner nor changed checkout bytes select tag facts.
             source.write_text(CONTRACTS.format(digest="sha256:" + "f" * 64), encoding="utf-8")
             (repo / moved).write_text("uncommitted unreadable contracts", encoding="utf-8")
             self.assertEqual(invoke.tag_facts(repo, "moved-contracts"),
                              historical | {"manifest_digest": "sha256:" + "e" * 64,
-                                           "has_resources": True, "has_observation": True})
+                                           "has_observation": True})
             self.assertEqual(invoke.tag_facts(repo, "v4.6.0"), historical)
 
     def test_tag_facts_hold_when_both_generated_owners_are_tagged(self) -> None:
@@ -329,7 +318,6 @@ class InvokeUnitTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as name:
             facts = invoke.tag_facts(fixture_repository(Path(name)), "v0.31.0")
             self.assertFalse(facts["has_messages"])
-            self.assertTrue(facts["has_resources"])
             self.assertTrue(facts["has_observation"])
 
     def mutate_contracts(self, repo: Path, base: str, tag: str, replacement: str, search: str | None = None) -> None:
@@ -504,22 +492,10 @@ class InvokeUnitTest(unittest.TestCase):
             self.assertTrue(invoke.operation_family_support(
                 self.LEGACY_MESSAGE_ROWS + MESSAGE_INPUTS, "v0.37.3-family", tool, self.MESSAGE_SPECS, self.LEGACY_BINDINGS))
 
-    LEGACY_RESOURCE_ROWS = (
-        '{ID: "concord_work_relate.resource_claim", Tool: "concord_work_relate", Operation: "resource_claim", '
-        'Kind: OperationKind("mutation"), QueryID: "", Capability: Capability("work_relate"), Approval: ApprovalClass("none"), Availability: Availability("always")},\n'
-        '{ID: "concord_work_relate.resource_release", Tool: "concord_work_relate", Operation: "resource_release", '
-        'Kind: OperationKind("mutation"), QueryID: "", Capability: Capability("work_relate"), Approval: ApprovalClass("none"), Availability: Availability("always")},\n')
-    LEGACY_RESOURCE_BINDINGS = ('var operationInputSchemas = map[string]string{\n'
-                                '\t"concord_work_relate.resource_claim": "work_relate_resource_claim_input",\n'
-                                '\t"concord_work_relate.resource_release": "work_relate_resource_release_input",\n'
-                                '}\n')
-
-    def test_resource_and_observation_support_verdicts(self) -> None:
+    def test_observation_support_verdicts(self) -> None:
         with self.subTest(case="readable absence reports false"):
-            self.assertFalse(invoke.resource_support(BASE_CONTRACTS, "v0.31.0-family"))
             self.assertFalse(invoke.observation_support(BASE_CONTRACTS, "v0.31.0-family"))
-        with self.subTest(case="full pair and observation pass"):
-            self.assertTrue(invoke.resource_support(BASE_CONTRACTS + RESOURCE_CONTRACTS, "v0.31.0-family"))
+        with self.subTest(case="observation passes"):
             self.assertTrue(invoke.observation_support(BASE_CONTRACTS + OBSERVATION_CONTRACTS, "v0.31.0-family"))
         with self.subTest(case="later observation required set passes"):
             later = OBSERVATION_INPUTS.replace('{Required: []string{"work_id", "statement", "idempotency_key"}',
@@ -540,12 +516,6 @@ class InvokeUnitTest(unittest.TestCase):
             stripped = OBSERVATION_INPUTS.replace(', "refs", "tags"', '')
             with self.assertRaises(invoke.InvokeError):
                 invoke.observation_support(BASE_CONTRACTS + OBSERVATION_ENTRY + stripped, "v0.31.0-family")
-        with self.subTest(case="legacy resource rows bind through the raw map"):
-            self.assertTrue(invoke.resource_support(
-                BASE_CONTRACTS + self.LEGACY_RESOURCE_ROWS + RESOURCE_INPUTS, "v0.31.0-family", self.LEGACY_RESOURCE_BINDINGS))
-        with self.subTest(case="legacy rows without the raw map hold"):
-            with self.assertRaises(invoke.InvokeError):
-                invoke.resource_support(BASE_CONTRACTS + self.LEGACY_RESOURCE_ROWS + RESOURCE_INPUTS, "v0.31.0-family")
 
     def test_the_plan_lists_only_the_steps_the_source_prescribes(self) -> None:
         capture_only = invoke.invoke_plan({"has_grant": True, "has_messages": False})
@@ -1100,15 +1070,13 @@ class LegacyProofTest(unittest.TestCase):
         drifted = [path for path in legacy.LEGACY_OWNERS if corrected["owners"][path] != predecessor["owners"][path]]
         self.assertEqual(drifted, ["internal/agent/mutations.go"])
 
-    def test_the_real_nonbootstrap_controls_include_supported_resource_steps(self) -> None:
+    def test_the_real_nonbootstrap_controls_include_supported_message_steps(self) -> None:
         self.assertIsNone(legacy.select_variant(REPO, "v0.26.1", git_bytes(REPO, "rev-parse", "v0.26.1^{commit}").decode().strip()))
         self.assertEqual(invoke.invoke_plan(invoke.tag_facts(REPO, "v0.26.1")),
-                         ("client-register", "grant", "invoke:concord_work_define.capture",
-                          "invoke:concord_work_relate.resource_claim", "invoke:concord_work_relate.resource_release"))
+                         ("client-register", "grant", "invoke:concord_work_define.capture"))
         self.assertEqual(invoke.invoke_plan(invoke.tag_facts(REPO, "v0.27.0")),
                          ("client-register", "grant", "invoke:concord_work_define.capture", "invoke:concord_work_define.capture",
-                           "invoke:concord_work_relate.message_send", "invoke:concord_work_relate.message_withdraw",
-                           "invoke:concord_work_relate.resource_claim", "invoke:concord_work_relate.resource_release"))
+                           "invoke:concord_work_relate.message_send", "invoke:concord_work_relate.message_withdraw"))
 
     def test_a_bootstrap_plan_is_empty_and_runs_nothing(self) -> None:
         facts = {"has_grant": True, "has_messages": True, "bootstrap_only": True}
@@ -1128,17 +1096,14 @@ class LegacyProofTest(unittest.TestCase):
 
 
 SENDER = "gate-work-1"
-FENCE = "fence:gate-release-restore"
 OBS_ID = "obs:0000000000000001"
 RECORD = {
     "outcome": "ok",
     "plan": ("invoke:concord_work_define.capture", "invoke:concord_work_relate.message_send",
-             "invoke:concord_work_relate.message_withdraw", "invoke:concord_work_relate.resource_claim",
-             "invoke:concord_work_relate.resource_release", "invoke:concord_work_define.observation_record"),
+             "invoke:concord_work_relate.message_withdraw", "invoke:concord_work_define.observation_record"),
     "works": [{"id": SENDER, "title": invoke.INVOKE_TITLE, "version": 6},
               {"id": "gate-work-2", "title": "Invoke Recipient Work", "version": 2}],
     "message": {"id": "msg:fixture", "sender": SENDER, "recipient": "gate-work-2"},
-    "resource": {"sender": SENDER, "key": FENCE, "input_version": 4, "claim_version": 5, "release_version": 6},
     "observation": {"sender": SENDER, "id": OBS_ID, "statement": "gate release-restore observation"},
 }
 
@@ -1146,16 +1111,14 @@ RECORD = {
 class R1ProtocolTest(unittest.TestCase):
     """Non-unit receipt jumps prove forwarding only, never current-effect proof."""
 
-    ORDER = ("capture", "capture", "message_send", "message_withdraw",
-             "resource_claim", "resource_release", "observation_record")
+    ORDER = ("capture", "capture", "message_send", "message_withdraw", "observation_record")
 
     def facts(self, messages: bool) -> dict:
         return {"has_grant": False, "agent_scope": False, "names": [], "has_messages": messages,
-                "has_resources": True, "has_observation": True}
+                "has_observation": True}
 
-    def stub(self, claim_kind: str, override: tuple | None = None):
+    def stub(self, override: tuple | None = None):
         calls = []
-        claim_id = FENCE if claim_kind == "resource_claim" else SENDER
 
         def ok(kind, ident, version):
             return 0, json.dumps({"outcome": "ok", "changed_refs": [{"entity_kind": kind, "id": ident, "version": version}]}), ""
@@ -1171,8 +1134,6 @@ class R1ProtocolTest(unittest.TestCase):
                 "capture": ok("work_item", SENDER if captures == 1 else "gate-work-2", "11"),
                 "message_send": ok("work_item", SENDER, "17"),
                 "message_withdraw": ok("work_item", SENDER, "31"),
-                "resource_claim": ok(claim_kind, claim_id, "53"),
-                "resource_release": ok(claim_kind, claim_id, "79"),
                 "observation_record": ok("observation", OBS_ID, "1"),
             }[request["operation"]]
 
@@ -1187,44 +1148,39 @@ class R1ProtocolTest(unittest.TestCase):
 
     def test_the_chain_forwards_each_receipt_version(self):
         for messages in (True, False):
-            for kind in ("resource_claim", "work_item"):
-                with self.subTest(messages=messages, kind=kind):
-                    run, calls = self.stub(kind)
-                    record = self.drive(run, messages)
-                    self.assertEqual(record["plan"], list(invoke.invoke_plan(self.facts(messages))))
-                    order = self.ORDER if messages else (self.ORDER[0], *self.ORDER[4:])
-                    self.assertEqual([call["operation"] for call in calls], list(order))
-                    inputs = {call["operation"]: call["input"] for call in calls}
-                    if messages:
-                        self.assertEqual(inputs["message_send"]["expected_version"], 11)
-                        self.assertEqual(inputs["message_withdraw"]["expected_version"], 17)
-                    self.assertEqual(inputs["resource_claim"]["expected_version"], 31 if messages else 11)
-                    self.assertEqual(inputs["resource_release"]["expected_version"], 53)
-                    self.assertNotIn("expected_version", inputs["observation_record"])
-                    # The historical fold serializes omitted lists to JSON null against
-                    # array CHECKs, so the recipe must carry explicit empty lists.
-                    self.assertEqual(inputs["observation_record"]["refs"], [])
-                    self.assertEqual(inputs["observation_record"]["tags"], [])
-                    self.assertEqual(record["resource"]["claim_version"], 53)
-                    self.assertEqual(record["resource"]["release_version"], 79)
-                    self.assertEqual(len({call["input"]["idempotency_key"] for call in calls}), len(calls))
-                    self.assertEqual(len({call["call_envelope"]["request_id"] for call in calls}), len(calls))
+            with self.subTest(messages=messages):
+                run, calls = self.stub()
+                record = self.drive(run, messages)
+                self.assertEqual(record["plan"], list(invoke.invoke_plan(self.facts(messages))))
+                order = self.ORDER if messages else (self.ORDER[0], *self.ORDER[4:])
+                self.assertEqual([call["operation"] for call in calls], list(order))
+                inputs = {call["operation"]: call["input"] for call in calls}
+                if messages:
+                    self.assertEqual(inputs["message_send"]["expected_version"], 11)
+                    self.assertEqual(inputs["message_withdraw"]["expected_version"], 17)
+                self.assertNotIn("expected_version", inputs["observation_record"])
+                # The historical fold serializes omitted lists to JSON null against
+                # array CHECKs, so the recipe must carry explicit empty lists.
+                self.assertEqual(inputs["observation_record"]["refs"], [])
+                self.assertEqual(inputs["observation_record"]["tags"], [])
+                self.assertEqual(record["works"][0]["version"], 31 if messages else 11)
+                self.assertEqual(len({call["input"]["idempotency_key"] for call in calls}), len(calls))
+                self.assertEqual(len({call["call_envelope"]["request_id"] for call in calls}), len(calls))
 
     def test_malformed_receipts_and_refusals_stop_the_chain(self):
-        self.drive(self.stub("resource_claim")[0], True)
-        normal = {"entity_kind": "resource_claim", "id": FENCE, "version": "53"}
-        malformed = [dict(normal, version=value) for value in (53, True, "053", "0", "-1", " 53")]
-        malformed += [dict(normal, id=FENCE + "-other"), dict(normal, entity_kind="other")]
-        cases = [("resource_claim", (0, json.dumps({"outcome": "ok", "changed_refs": [ref]}), "")) for ref in malformed]
-        cases.append(("resource_claim", (0, json.dumps({"outcome": "ok", "changed_refs": [normal, normal]}), "")))
-        cases += [("resource_claim", (0, body, "")) for body in ("{", "[]", "null")]
-        cases.append(("resource_release", (0, json.dumps({"outcome": "ok", "changed_refs": [dict(normal, entity_kind="work_item", id=SENDER)]}), "")))
+        self.drive(self.stub()[0], True)
+        normal = {"entity_kind": "observation", "id": OBS_ID, "version": "1"}
+        malformed = [dict(normal, version=value) for value in (1, True, "01", "0", "-1", " 1")]
+        malformed += [dict(normal, id=OBS_ID + "-other"), dict(normal, entity_kind="other")]
+        cases = [("observation_record", (0, json.dumps({"outcome": "ok", "changed_refs": [ref]}), "")) for ref in malformed]
+        cases.append(("observation_record", (0, json.dumps({"outcome": "ok", "changed_refs": [normal, normal]}), "")))
+        cases += [("observation_record", (0, body, "")) for body in ("{", "[]", "null")]
         cases.append(("observation_record", (0, json.dumps({"outcome": "ok", "changed_refs": [{"entity_kind": "observation", "id": OBS_ID, "version": "2"}]}), "")))
         for operation in self.ORDER[4:]:
             cases += [(operation, (1, "", "refused")), (operation, (0, '{"outcome":"refused"}', ""))]
         for operation, response in cases:
             with self.subTest(operation=operation, response=response):
-                run, calls = self.stub("resource_claim", (operation, response))
+                run, calls = self.stub((operation, response))
                 with self.assertRaises(invoke.InvokeError):
                     self.drive(run, True)
                 self.assertEqual(calls[-1]["operation"], operation)
@@ -1238,14 +1194,10 @@ class SnapshotTest(unittest.TestCase):
         db.executescript(
             "CREATE TABLE domain_events (seq INTEGER PRIMARY KEY, payload TEXT);"
             "INSERT INTO domain_events VALUES (1, 'opaque retained bytes');"
-            "CREATE TABLE resource_claims (resource_key TEXT PRIMARY KEY, holder_work_id TEXT, holder_agent TEXT,"
-            " holder_session TEXT, reason TEXT, state TEXT);"
             "CREATE TABLE work_items (id TEXT PRIMARY KEY, title TEXT, lifecycle TEXT, version INTEGER);"
             "CREATE TABLE work_messages (message_id TEXT PRIMARY KEY, sender_work_id TEXT, recipient_work_id TEXT, body TEXT, state TEXT);"
             "CREATE TABLE work_observations (observation_id TEXT PRIMARY KEY, work_id TEXT, statement TEXT);"
         )
-        db.execute("INSERT INTO resource_claims VALUES (?,?,?,?,?,?)",
-                   (FENCE, SENDER, invoke.INVOKE_AGENT, invoke.INVOKE_SESSION, "gate release-restore claim", "released"))
         db.executemany("INSERT INTO work_items VALUES (?,?,'needed',?)",
                        [(work["id"], work["title"], work["version"]) for work in RECORD["works"]])
         db.execute("INSERT INTO work_messages VALUES (?,?,?,?,'withdrawn')",
@@ -1287,12 +1239,6 @@ class SnapshotTest(unittest.TestCase):
             ("message state", "UPDATE work_messages SET state='sent'", ()),
             ("message recipient", "UPDATE work_messages SET recipient_work_id='foreign'", ()),
             ("message body", "UPDATE work_messages SET body='tampered'", ()),
-            ("claim missing", "DELETE FROM resource_claims", ()),
-            ("held state", "UPDATE resource_claims SET state='held'", ()),
-            ("wrong holder", "UPDATE resource_claims SET holder_work_id='foreign'", ()),
-            ("wrong agent", "UPDATE resource_claims SET holder_agent='foreign'", ()),
-            ("wrong session", "UPDATE resource_claims SET holder_session='foreign'", ()),
-            ("wrong reason", "UPDATE resource_claims SET reason='tampered'", ()),
             ("work version", "UPDATE work_items SET version=7", ()),
             ("observation statement", "UPDATE work_observations SET statement='tampered'", ()),
             ("observation work", "UPDATE work_observations SET work_id='foreign'", ()),
@@ -1303,15 +1249,9 @@ class SnapshotTest(unittest.TestCase):
                 self.refused(sql, params)
 
     def test_planned_proof_cannot_be_omitted(self) -> None:
-        for omitted in ("works", "message", "resource", "observation"):
+        for omitted in ("works", "message", "observation"):
             record = {key: value for key, value in RECORD.items() if key != omitted}
             with self.subTest(omitted=omitted), self.assertRaises(invoke.InvokeError):
-                invoke.verify_invoke_snapshot(self.fixture(), record)
-
-    def test_receipt_continuity_does_not_depend_on_events(self) -> None:
-        for key, value in (("input_version", "4"), ("claim_version", 4), ("release_version", 8)):
-            record = RECORD | {"resource": RECORD["resource"] | {key: value}}
-            with self.subTest(key=key), self.assertRaises(invoke.InvokeError):
                 invoke.verify_invoke_snapshot(self.fixture(), record)
 
 

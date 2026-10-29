@@ -104,7 +104,7 @@ func TestIdempotentResponseKeepsCommittedSubjectWithoutHistory(t *testing.T) {
 }
 
 func TestIdempotentResponseMissingFactsKeepPossibleEffects(t *testing.T) {
-	r := runtime{Tool: "concord_work_relate", Operation: "resource_release"}
+	r := runtime{Tool: "concord_work_relate", Operation: "message_withdraw"}
 	base := agentcontract.NewBase("incomplete", r.Tool, r.Operation)
 	complete := agentcontract.NewOKMutation(base, mutationPayload(nil, nil), nil, nil)
 	scopeJSON, _ := json.Marshal(mutationResponseScope(nil, complete, nil, false))

@@ -450,7 +450,7 @@ func (r *shapeTamperRunner) Run(ctx context.Context, repo string, args ...string
 }
 
 func TestDomainShapeReadingDispatchAndWorkerRaceRefusals(t *testing.T) {
-	for _, drift := range []string{"locator", "source set", "watermark", "projection", "Product version", "home designation"} {
+	for _, drift := range []string{"locator", "watermark", "projection", "Product version", "home designation"} {
 		t.Run(drift, func(t *testing.T) {
 			f, home, product, _, _ := shapeReadingWorkflowFixture(t, "a")
 			defer f.store.Close()
@@ -470,8 +470,6 @@ func TestDomainShapeReadingDispatchAndWorkerRaceRefusals(t *testing.T) {
 				switch drift {
 				case "locator":
 					mustTxExec(t, tx, `UPDATE project_locators SET updated_at='drifted' WHERE project_id=?`, home.HomeProjectID)
-				case "source set":
-					mustTxExec(t, tx, `INSERT INTO product_knowledge_sources(product_id,project_id,locator_id,registered_at) SELECT ?,'project','workflow-law-locator','drifted'`, product)
 				case "watermark":
 					mustTxExec(t, tx, `UPDATE knowledge_index_watermark SET scanned_content_digest='drifted' WHERE home_project_id=?`, home.HomeProjectID)
 				case "projection":

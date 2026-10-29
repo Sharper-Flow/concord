@@ -61,7 +61,6 @@
                 "start_execution",
                 "checkpoint_execution",
                 "bind_evidence",
-                "declare_impact",
                 "link_successor",
                 "checkpoint_context",
                 "cross_context_boundary",
@@ -135,7 +134,6 @@
           "start_execution",
           "checkpoint_execution",
           "bind_evidence",
-          "declare_impact",
           "link_successor",
           "record_verdict",
           "confirm_premise",
@@ -202,15 +200,6 @@
           },
           {
             "id": "bind_evidence",
-            "consequence": "internal_sqlite",
-            "approval": "none",
-            "execution_mode": "hold",
-            "payload": {
-              "fields": []
-            }
-          },
-          {
-            "id": "declare_impact",
             "consequence": "internal_sqlite",
             "approval": "none",
             "execution_mode": "hold",
@@ -468,7 +457,7 @@
             "target": "execution"
           }
         ],
-        "digest": "sha256:acbf930ac7ac11c5f3adccd761f6ad870af787c425704fec25b3abf640eaff2f"
+        "digest": "sha256:b2547151981c2c9962f8cfb7c65e85e5970a0eddc6e8b03da2ff684e26d21282"
       }
     },
     {"id": "outcome-exists-valid", "schema": "workflow-outcome.schema.json", "valid": true, "instance": {"kind": "exists", "surface": "git:tree", "subjects": ["path:cmd/concord"]}},

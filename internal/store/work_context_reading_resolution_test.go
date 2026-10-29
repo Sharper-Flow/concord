@@ -282,16 +282,16 @@ func TestDispatchRequiredReadingResolution(t *testing.T) {
 		checkZeroDispatchEffects(t, fixture.store, fixture.workID, "attempt-reading-unreachable")
 	})
 
-	t.Run("a Product member Project that is not a registered knowledge source refuses", func(t *testing.T) {
-		fixture := readingResolutionFixture(t, "work-reading-unregistered-source", func(f workContextFixture) []map[string]any {
+	t.Run("a Product member Project that is not the designated knowledge home refuses", func(t *testing.T) {
+		fixture := readingResolutionFixture(t, "work-reading-non-home", func(f workContextFixture) []map[string]any {
 			return knowledgeReadingShape(f.sources.otherProject, f.sources.lawID, f.sources.lawHash)
 		})
 		defer fixture.store.Close()
-		err := readingDispatchWithView(t, fixture, "attempt-reading-unregistered-source", currentFixtureView(t, fixture))
+		err := readingDispatchWithView(t, fixture, "attempt-reading-non-home", currentFixtureView(t, fixture))
 		if !hasFailureKind(err, KindUnknownScope) || !strings.Contains(err.Error(), "reading 0") {
 			t.Fatalf("unregistered-member dispatch error = %v, want %s naming reading 0", err, KindUnknownScope)
 		}
-		checkZeroDispatchEffects(t, fixture.store, fixture.workID, "attempt-reading-unregistered-source")
+		checkZeroDispatchEffects(t, fixture.store, fixture.workID, "attempt-reading-non-home")
 	})
 
 	t.Run("a foreign knowledge source refuses", func(t *testing.T) {
@@ -485,7 +485,7 @@ func TestDispatchRequiredReadingResolution(t *testing.T) {
 					t.Fatal(err)
 				}
 			}},
-			{"the knowledge source registration is removed", func(t *testing.T, f workContextFixture) {
+			{"the knowledge home designation is removed", func(t *testing.T, f workContextFixture) {
 				if _, err := f.store.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); DELETE FROM product_knowledge_homes WHERE product_id='product' AND project_id='project' AND locator_id='workflow-law-locator'; DELETE FROM write_guard`); err != nil {
 					t.Fatal(err)
 				}
@@ -511,29 +511,6 @@ func TestDispatchRequiredReadingResolution(t *testing.T) {
 				})
 				if err != nil {
 					t.Fatalf("law projection hash drift transaction failed: %v", err)
-				}
-			}},
-			{"the registered source's registration instant moves", func(t *testing.T, f workContextFixture) {
-				err := f.store.Transact(context.Background(), func(tx *Transaction) error {
-					mustTxExec(t, tx, `INSERT INTO write_guard(active) VALUES(1)`)
-					mustTxExec(t, tx, `UPDATE product_knowledge_sources SET registered_at='drifted' WHERE product_id='product' AND project_id=?`, f.sources.lawProject)
-					mustTxExec(t, tx, `DELETE FROM write_guard`)
-					return nil
-				})
-				if err != nil {
-					t.Fatalf("source registration instant drift transaction failed: %v", err)
-				}
-			}},
-			{"the registered source is removed and re-added", func(t *testing.T, f workContextFixture) {
-				err := f.store.Transact(context.Background(), func(tx *Transaction) error {
-					mustTxExec(t, tx, `INSERT INTO write_guard(active) VALUES(1)`)
-					mustTxExec(t, tx, `DELETE FROM product_knowledge_sources WHERE product_id='product' AND project_id=?`, f.sources.lawProject)
-					mustTxExec(t, tx, `INSERT INTO product_knowledge_sources(product_id,project_id,locator_id,registered_at) VALUES('product',?,?,'drifted')`, f.sources.lawProject, f.sources.lawLocator)
-					mustTxExec(t, tx, `DELETE FROM write_guard`)
-					return nil
-				})
-				if err != nil {
-					t.Fatalf("source re-registration drift transaction failed: %v", err)
 				}
 			}},
 			{"the knowledge watermark digest moves", func(t *testing.T, f workContextFixture) {

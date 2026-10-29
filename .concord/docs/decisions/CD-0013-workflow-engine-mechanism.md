@@ -7,19 +7,17 @@
 **Accepted by operator:** 2026-08-08
 **Reviewer:** Independent review; five rounds, approved.
 **Scope:** Workflow engine authority, definition registry, instance lifecycle, progression,
-evidence binding, outcome verification, impact propagation, and the durable shapes a
+evidence binding, outcome verification, workflow composition, and the durable shapes a
 workflow engine must add to the existing storage spine.
 **Amends:** CD-0006 D3 (engine authority), D4 (rigor), D5 (spec-law), D10 (spec mandate);
-CD-0008 D2 (evidence), D4 (checkpoints), D5 (external conditions), D6 (schema evolution);
+CD-0008 D2 (evidence), D4 (checkpoints), D6 (schema evolution);
 CD-0215 D2/D6 (research ownership); CD-0012 D1–D11 (outcome contract).
 **Amended:** 2026-10-18. These 2026-10-17 records amend this one:
 [CD-0229](CD-0229-workflows-are-composed-from-shared-parts-and-a-decision-model-sets-each-work-items-size.md)
 amends this record's D1 (workflows composed from shared parts);
 [CD-0230](CD-0230-the-conflict-rules-are-one-checked-table-and-an-agent-changes-law-that-is-not-serious.md)
 amends D9 (law-change approval follows CD-0243 D2);
-[CD-0234](CD-0234-the-engine-has-no-external-condition-resolver.md) amends D6's
-external conditions bullet and acceptance criterion 26 (no external-condition
-resolver); [CD-0235](CD-0235-the-independent-verdict-is-the-outcome-strength-evaluation.md)
+[CD-0235](CD-0235-the-independent-verdict-is-the-outcome-strength-evaluation.md)
 amends D4's strength comparison paragraph (the independent verdict is the outcome
 strength evaluation); [CD-0236](CD-0236-vacuity-is-judged-at-review.md) amends
 outcome-contract acceptance criterion 3 (vacuity is judged at review).
@@ -30,7 +28,7 @@ outcome-contract acceptance criterion 3 (vacuity is judged at review).
 
 CD-0006 D3 commits Concord to a full workflow coordination engine with native-effect
 preservation. CD-0008 commits to checkpoint-and-resume, attempt fencing, immutable
-evidence binding, typed external conditions, and schema evolution. CD-0215 commits
+evidence binding and schema evolution. CD-0215 commits
 research ownership semantics. CD-0012 commits a three-part outcome contract
 and a strengthening-only delivery comparison; Review reports one disposition and Main records its acceptance ([CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d5-execution-is-a-loop-that-main-controls)).
 
@@ -42,8 +40,6 @@ The accepted law already defines:
 - attempt-epoch fencing for cross-authority and external-effect steps;
 - an outcome contract with distinct operator and executing-agent revision authorities;
 - typed evidence bound to immutable subjects;
-- cross-workflow impact propagation through declared `modifies` and `depends_on` edges
-  with breaking/non-breaking notices at consequential boundaries.
 
 The accepted law does **not** yet:
 
@@ -52,8 +48,7 @@ The accepted law does **not** yet:
 - name the durable shape a workflow instance, definition, contract, evidence, and
   checkpoint occupy in SQLite;
 - name how each workflow mutation persists; the store keeps current rows ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history))
-- name the typed edges (`modifies`, hard/soft `depends_on`, `forward_link`) and how
-  they surface as impact notices.
+- name the typed edges (`modifies`, hard/soft `depends_on`, `forward_link`).
 
 [CD-0218 D1](CD-0218-the-live-workflow-catalog-retains-three-execution-families.md#d1-three-families-own-new-execution)
 fixes the live workflow catalog at implementation, break-fix/RCA, and
@@ -124,7 +119,7 @@ The registry is closed. Adding a new predicate kind requires an accepted CD-NNNN
 
 Actor identity stays the existing authenticated tuple.
 
-### D6. Evidence, approvals, and external conditions reuse existing machinery
+### D6. Evidence and approvals reuse existing machinery
 
 - Evidence uses the immutable-subject binding from CD-0008 D2 with the closed kinds
   the envelope schema already enumerates — `verification`, `review`, `approval`,
@@ -137,51 +132,16 @@ Actor identity stays the existing authenticated tuple.
 - Approvals use the existing `ApprovalCheck{OperationDigest, Scope, Versions,
   Consequence}` chain with `Consequence=workflow_action` already reserved in the
   schema.
-- External conditions use current condition rows (D2). No retained family
-  declares a condition action, and the engine has no resolver or wait authority
-  ([CD-0234 D1–D2](CD-0234-the-engine-has-no-external-condition-resolver.md)).
-  An open condition refuses consequential actions before any write and stays
-  readable. A later accepted decision adding a condition action must also add a
-  resolver bound to the closed `await_type` set — `pr_merge`, `ci_result`,
-  `timer`, `human_approval`, `remote_work_state`. It evaluates only on explicit
-  request and at consequential boundaries, and resolves only with the owning
-  authority's evidence.
 - `durable_operations` and the attempt-epoch fence remain the only step-claim
   authority; the store records each step result as a current row, not duplicated state.
 
-### D7. Impact propagation uses typed edges and notices
+### D7. Workflow composition uses typed edges
 
-The `modifies`, `depends_on` (hard/soft), and `forward_link` relations become typed
-edges backed by `workflow_impact_edges`; relation writes are current rows in one transaction ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)). PM4's acyclic-governing-graph invariant applies to
-`forward_link` and hard `depends_on`, using the same in-transaction recursive cycle
-check the existing relation writes already perform; `modifies` is not a governing
-graph and is not cycle-checked.
-
-At completion, the engine computes the reverse-edge set and records one
-impact-notice row per notice identity. CD-0006 R3 keys notices
-by entity; a notice must additionally identify the dependent it informs and the
-source contract state that produced it, so the identity is:
-
-```text
-(source_work_id, source_contract_version, entity_kind, entity_ref,
- target_work_id, severity)
-```
-
-Every component of that identity, plus `edge_id`, `old_hash`, and `new_hash`, is
-carried on the notice row, so its unique constraint matches the identity exactly.
-Recomputing the same completion produces
-the same identity and therefore no duplicate row. `edge_owner_work_id` records the
-dependent that declared the inbound edge. Completion notices use
-`entity_kind=work_item` and `entity_ref=<completed source work>`; they do not depend
-on a spec mandate. The completion record owns the `breaking|non-breaking` verdict.
-The edge's `hard|soft` class controls blocking; its stored severity remains legacy
-declaration metadata and does not classify the delivered change.
-
-Hard `depends_on` + `breaking` blocks downstream execution at the consequential
-boundary; hard `depends_on` + `non-breaking` and all soft edges warn only. End-state
-revision through contract supersession reuses the same machinery and records a
-`breaking` notice when an active `hard depends_on` was on the prior contract and a
-`non-breaking` notice for every other inbound dependent.
+`workflow_impact_edges` holds the typed edges used by successor composition.
+Relation writes commit as current rows in one transaction
+([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
+PM4's acyclic governing graph combines `forward_link` and hard `depends_on`
+edges. The in-transaction recursive check refuses a link that creates a cycle.
 
 ### D8. Composition is forward-link only
 
@@ -208,7 +168,6 @@ modifications to the outcome fail authorship fencing under CD-0012 D7.
 A workflow reaches `terminal` only when:
 
 1. All required evidence is bound and verified.
-2. All declared external conditions are resolved or canceled.
 3. All `modifies` edges match their declared scope and the spec mandate is satisfied.
 4. Verdicts are recorded through the loop's review acceptance, with no distinct-actor requirement beyond it ([CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d5-execution-is-a-loop-that-main-controls)).
 5. The premise is confirmed by an operator-typed actor.
@@ -315,7 +274,7 @@ discriminants, including `outcome_mismatch`, governed before go-live by
 
 ### D12. Staleness is structurally evaluated at consequential boundaries
 
-A record is stale exactly when a revision, candidate, or input digest it depended on has changed, checked at the stage's admission ([CD-0242 D7](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d7-a-revision-invalidates-only-what-depended-on-it)). No polling, no timer daemon, no heuristic authority (CD-0008 D5).
+A record is stale exactly when a revision, candidate, or input digest it depended on has changed, checked at the stage's admission ([CD-0242 D7](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d7-a-revision-invalidates-only-what-depended-on-it)).
 
 ### D13. Recovery restores a verified snapshot
 
@@ -372,30 +331,6 @@ The implementation acceptance suite must exercise:
 24. A step completed by a stale attempt_epoch is refused.
 25. Operator takeover of a stuck attempt succeeds only with a valid approval_ref.
 
-### External conditions
-
-26. No retained family declares a condition action and no resolver exists. An
-    open condition refuses consequential actions before any write and stays
-    readable. A condition action requires an accepted decision adding a resolver
-    bound to the closed `await_type` set, evaluating only on explicit request and
-    at consequential boundaries, with owning-authority resolution evidence
-    (CD-0234 D1–D2).
-27. Conditions participate in ordinary `blocks` relations and inherit CD-0008 D3
-    unreadable-record semantics.
-28. No polling, no timer daemon, no automatic downstream rewrite.
-
-### Impact propagation
-
-29. Each inbound hard or soft `depends_on` edge produces exactly one notice per
-    declared identity — `(source_work_id, source_contract_version, entity_kind,
-    entity_ref, target_work_id, severity)` — at completion. The notice records
-    the dependent as `edge_owner_work_id`, and recomputing the same completion
-    produces no duplicate row.
-30. Hard `depends_on` + `breaking` blocks downstream execution at the consequential
-    boundary; everything else warns.
-31. End-state revision emits a breaking notice when an active hard dependent
-    consumed the superseded contract; otherwise warns.
-
 ### Composition
 
 32. A workflow creates a forward-linked successor and finishes; both retain
@@ -426,7 +361,7 @@ The implementation acceptance suite must exercise:
     or input digest it depended on has changed; a record whose depended-on
     digests are unchanged is not stale.
 41. Staleness is evaluated only at the consequential boundary's admission; no
-    polling, timer daemon, or heuristic re-scan exists (CD-0008 D5).
+    polling, timer daemon, or heuristic re-scan exists.
 
 ### Retained CD-0008 obligations
 
@@ -513,7 +448,7 @@ This decision extends:
 
 - CD-0006 D3 by fixing the engine's mechanical shape and definition authority;
 - CD-0008 D2, D4, D5, D6 by fixing workflow checkpoint and state recording,
-  evidence binding, external conditions, and recovery;
+  evidence binding and recovery;
 - CD-0012 by collapsing deferred items 1–4 into concrete predicate, actor, and
   state-recording choices;
 - CD-0005 by keeping `workflow_action` reserved until the engine ships.

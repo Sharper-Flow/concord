@@ -69,9 +69,6 @@ type reviseMutationInput struct {
 	IdempotencyKey  string                      `json:"idempotency_key"`
 	Evidence        []agentcontract.EvidenceRef `json:"evidence"`
 	Approval        *approvalInput              `json:"approval"`
-	// OperatorSize is the operator's size for the work item; it needs a
-	// consumed operator approval, and Reason is the override's reason.
-	OperatorSize *store.WorkSize `json:"operator_size"`
 	// SizeInputs reruns the size model on fresh declared inputs.
 	SizeInputs *store.WorkSizeCaptureInput `json:"size_inputs"`
 }
@@ -201,21 +198,6 @@ type researchSourceInput struct {
 	PublisherOrAuthor string `json:"publisher_or_author"`
 	PublishedAt       string `json:"published_at"`
 	AccessedAt        string `json:"accessed_at"`
-}
-type resourceClaimInput struct {
-	WorkID          string         `json:"work_id"`
-	ResourceKey     string         `json:"resource_key"`
-	Reason          string         `json:"reason"`
-	ExpectedVersion int64          `json:"expected_version"`
-	IdempotencyKey  string         `json:"idempotency_key"`
-	Approval        *approvalInput `json:"approval"`
-}
-type resourceReleaseInput struct {
-	WorkID          string         `json:"work_id"`
-	ResourceKey     string         `json:"resource_key"`
-	ExpectedVersion int64          `json:"expected_version"`
-	IdempotencyKey  string         `json:"idempotency_key"`
-	Approval        *approvalInput `json:"approval"`
 }
 type messageSendInput struct {
 	WorkID          string         `json:"work_id"`
@@ -1008,7 +990,7 @@ func workflowApprovalBoundaryChanged(before, after store.WorkflowApprovalBoundar
 	return false
 }
 
-// knowledgeSourceProofForAction prepares the federated law source set the
+// knowledgeSourceProofForAction prepares the knowledge home proof the
 // approval, supersession, and completion gates verify inside their
 // transaction (CD-0200), and for completion the Git proof of which changed
 // laws the reviewed candidate never edited. It runs after replay and approval
@@ -1213,13 +1195,6 @@ func (m *workflowActionMutation) execute(ctx context.Context, action store.Workf
 		spec := ApprovalChallengeSpec{OperationDigest: digest, Scope: boundedApprovalScope(scope), Versions: versions, Consequence: approvalConsequence, HostAssertionDigest: inv.HostAssertionDigest, ExpiresAt: r.Authority.now().Add(10 * time.Minute)}
 		return r.workflowActionChallenge(ctx, base, host, inv, spec, in, contractVersion)
 	}
-	if in.ActionID == "complete" {
-		actorRef := store.DeriveWorkflowActorRef(grant.PrincipalRef, grant.ClientRef, grant.AgentRef, grant.SessionRef)
-		if err := store.AppendWorkflowStalenessObservation(ctx, r.Store, operationID+":staleness", in.WorkID, actorRef, digest, payload, r.Authority.now()); err != nil {
-			return failureEnvelope(base, err), nil
-		}
-	}
-
 	scopeJSON, _ := json.Marshal(scope)
 	versionsJSON, _ := json.Marshal(versions)
 	actionRequest := store.WorkflowActionExecutionRequest{WorkID: in.WorkID, ExpectedVersion: in.ExpectedVersion, ActionID: in.ActionID, SelectedChoice: in.SelectedChoice, DecisionContextDigest: in.DecisionContextDigest, Payload: payload, EvidenceRefs: evidenceLocators(in.Evidence), EvidenceKinds: evidenceKinds(in.Evidence), Actor: store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}, SessionWorktree: r.Envelope.Worktree, ApprovedTakeover: takeover, ResearchBindings: researchBindingDeclarations(in.ResearchBindings), AcceptedInputsDigest: digest, IdempotencyIdentity: in.IdempotencyKey, OperationID: operationID, PrincipalRef: grant.PrincipalRef, Tool: r.Tool, IdempotencyKey: in.IdempotencyKey, RequestID: r.Envelope.RequestID, AcceptedScope: string(scopeJSON), ContractDigest: agentcontract.ManifestDigest, Now: r.Authority.now()}
@@ -1687,12 +1662,6 @@ func (r runtime) planReviseIntent(ctx context.Context, base agentcontract.Envelo
 			return failureEnvelope(base, definitionErr), nil, true
 		}
 	}
-	if in.OperatorSize != nil && in.SizeInputs != nil {
-		return coreError(base, "invalid_input", "operator_size and size_inputs are separate size revisions", "reread_entities", false), nil, true
-	}
-	if in.OperatorSize != nil {
-		plan.requiresApproval = true
-	}
 	var sizePlan *store.WorkSizePlan
 	if in.SizeInputs != nil {
 		productID, sizeErr := r.workProductForSize(ctx, in.WorkID)
@@ -1764,20 +1733,8 @@ func (r runtime) applyReviseIntentTx(ctx context.Context, tx *store.Transaction,
 	}
 	eventIDs := result.EventIDs
 	var revision store.WorkSizeRevisionResult
-	switch {
-	case in.SizeInputs != nil:
+	if in.SizeInputs != nil {
 		revision, err = store.RerunWorkSizeTx(ctx, tx, store.WorkSizeRerunRequest{Plan: sizePlan, WorkID: in.WorkID, EventID: digest + ":sized", Actor: actor, Now: r.Authority.now()})
-	case in.OperatorSize != nil:
-		consumedApprovalRef, _ := plan.scope["approval_ref"].(string)
-		approvalScopeJSON, _ := json.Marshal(boundedApprovalScope(plan.scope))
-		approvalVersionsJSON, _ := json.Marshal(plan.versions)
-		revision, err = store.OverrideWorkSizeTx(ctx, tx, store.WorkSizeOverrideRequest{
-			WorkID: in.WorkID, ExpectedVersion: changedVersion, Size: *in.OperatorSize, Reason: in.Reason,
-			EventID: digest + ":size-override", OccurredAt: r.Authority.now(),
-			ApprovalRef: consumedApprovalRef, ApprovalOperationDigest: digest,
-			ApprovalScopeJSON: string(approvalScopeJSON), ApprovalVersionsJSON: string(approvalVersionsJSON),
-			ApprovalConsequence: plan.consequence,
-		})
 	}
 	if err != nil {
 		return nil, nil, nil, err
@@ -2245,46 +2202,6 @@ func (r runtime) planSingleWorkEvent(plan *mutationPlan, workID string, expected
 		changed := []agentcontract.ChangedRef{{EntityKind: "work_item", ID: workID, Version: strconv.FormatInt(expectedVersion+1, 10)}}
 		return mutationPayload(changed, plan.intents), []string{resultRef}, changed, nil
 	}
-}
-
-// planResourceClaim plans concord_work_relate.resource_claim.
-func (r runtime) planResourceClaim(_ context.Context, base agentcontract.Envelope, raw []byte, digest string, _ Authority, _ agentcontract.ContractOperation, plan *mutationPlan) (agentcontract.Envelope, error, bool) {
-	var in resourceClaimInput
-	if err := decodeOperationInput(raw, &in); err != nil {
-		return base, err, true
-	}
-	if in.Approval != nil {
-		plan.approval = in.Approval.ApprovalRef
-	}
-	payload := map[string]any{"work_id": in.WorkID, "expected_version": in.ExpectedVersion, "resulting_version": in.ExpectedVersion + 1, "resource_key": in.ResourceKey, "reason": in.Reason}
-	r.planSingleWorkEvent(plan, in.WorkID, in.ExpectedVersion,
-		[]agentcontract.NextIntent{{Tool: "concord_work_browse", Operation: "resource_claims", QueryID: "PM1.Q13", ReasonCode: "verify_claim", RequiredFields: []string{"product_id"}}},
-		digest+":claim", "work.resource_claimed", payload, in.ResourceKey)
-	// The claim payload names the holding agent, so the grant completes it.
-	inner := plan.effect
-	plan.effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []agentcontract.ChangedRef, error) {
-		payload["holder_agent"] = grant.AgentRef
-		payload["holder_session"] = grant.SessionRef
-		return inner(ctx, tx, grant)
-	}
-	return agentcontract.Envelope{}, nil, false
-}
-
-// planResourceRelease plans concord_work_relate.resource_release.
-func (r runtime) planResourceRelease(_ context.Context, base agentcontract.Envelope, raw []byte, digest string, _ Authority, _ agentcontract.ContractOperation, plan *mutationPlan) (agentcontract.Envelope, error, bool) {
-	var in resourceReleaseInput
-	if err := decodeOperationInput(raw, &in); err != nil {
-		return base, err, true
-	}
-	if in.Approval != nil {
-		plan.approval = in.Approval.ApprovalRef
-	}
-	r.planSingleWorkEvent(plan, in.WorkID, in.ExpectedVersion,
-		[]agentcontract.NextIntent{{Tool: "concord_work_browse", Operation: "resource_claims", QueryID: "PM1.Q13", ReasonCode: "verify_release", RequiredFields: []string{"product_id"}}},
-		digest+":release", "work.resource_claim_released",
-		map[string]any{"work_id": in.WorkID, "expected_version": in.ExpectedVersion, "resulting_version": in.ExpectedVersion + 1, "resource_key": in.ResourceKey},
-		in.ResourceKey)
-	return agentcontract.Envelope{}, nil, false
 }
 
 // planMessageSend plans concord_work_relate.message_send.
@@ -4340,10 +4257,6 @@ func (r runtime) mutate(ctx context.Context, base agentcontract.Envelope, raw []
 		answer, err, handled = r.planResearchSourceRecord(ctx, base, raw, digest, grant, op, plan)
 	case "concord_work_define.research_freshness_set":
 		answer, err, handled = r.planResearchFreshnessSet(ctx, base, raw, digest, grant, op, plan)
-	case "concord_work_relate.resource_claim":
-		answer, err, handled = r.planResourceClaim(ctx, base, raw, digest, grant, op, plan)
-	case "concord_work_relate.resource_release":
-		answer, err, handled = r.planResourceRelease(ctx, base, raw, digest, grant, op, plan)
 	case "concord_work_relate.message_send":
 		answer, err, handled = r.planMessageSend(ctx, base, raw, digest, grant, op, plan)
 	case "concord_work_relate.message_withdraw":

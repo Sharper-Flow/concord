@@ -139,7 +139,7 @@ become law because it was written down.
 
 1. Inspect first. For an unregistered Product, report what registration and home
    designation are needed through the existing operator route. For an existing
-   corpus, reconcile its home and registered sources without replacing valid IDs.
+   corpus, reconcile its designated home without replacing valid IDs.
 2. Identify stable behavior owners from entry points and state boundaries. Propose
    only warranted Domains, their governing law, and allowed dependency relations.
    A rule spanning Domains is an invariant, not a new cross-cutting Domain.

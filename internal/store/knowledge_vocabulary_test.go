@@ -494,7 +494,7 @@ func TestLiveKnowledgeManifestHeadKeysSurviveComposition(t *testing.T) {
 	if err := json.Unmarshal(shards.head, &head); err != nil {
 		t.Fatalf("decode manifest head: %v", err)
 	}
-	manifest, err := composeKnowledgeManifest(shards, manifestSharedHomeRole)
+	manifest, err := composeKnowledgeManifest(shards)
 	if err != nil {
 		t.Fatalf("compose live knowledge manifest: %v", err)
 	}

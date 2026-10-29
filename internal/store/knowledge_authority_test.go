@@ -586,7 +586,7 @@ func TestKnowledgeAuthorityCorpusResolvesThroughSyntheticContracts(t *testing.T)
 	// Committed manifest metadata selects the whole population. Synthetic
 	// contracts prove the resolver rule, not the corpus's real approval history.
 	root := repositoryRootForTest(t)
-	manifest, missing, err := readKnowledgeManifest(context.Background(), root, "HEAD", manifestSharedHomeRole)
+	manifest, missing, err := readKnowledgeManifest(context.Background(), root, "HEAD")
 	if err != nil || missing {
 		t.Fatalf("cannot read the committed delivery manifest: missing=%v err=%v", missing, err)
 	}

@@ -81,7 +81,6 @@ def repository(name: str) -> dict:
 PRODUCT_VERSION, PROJECT_VERSION = version("products", "gate-product"), version("projects", "gate-project")
 MIRROR = {"project_id": "gate-project", "locator_id": "gate-mirror", "kind": "git_remote"}
 HOME = {"product_id": "gate-product", "project_id": "gate-project", "locator_id": "gate-home", "reason": "release restore gate"}
-SOURCE = HOME | {"locator_id": "gate-source"}
 ENVIRONMENTS = ["development"]
 # Each step runs on writers at or after its tag. The domain steps start at the
 # first inventoried release; earlier releases run the bootstrap pair only.
@@ -101,10 +100,6 @@ RECIPE = (
     ("v4.3.0", "project-locator-add", {"project_id": "gate-project", "locator_id": "gate-home", "kind": "canonical_path",
                                        "value": repository("home"), "expected_version": PROJECT_VERSION}),
     ("v4.3.0", "product-knowledge-home-designate", HOME | {"expected_version": PRODUCT_VERSION}),
-    ("v11.59.0", "project-locator-add", {"project_id": "gate-project", "locator_id": "gate-source", "kind": "canonical_path",
-                                         "value": repository("source"), "expected_version": PROJECT_VERSION}),
-    ("v11.59.0", "product-knowledge-source-register", SOURCE | {"expected_version": PRODUCT_VERSION}),
-    ("v11.59.0", "product-knowledge-source-remove", SOURCE | {"expected_version": PRODUCT_VERSION}),
     ("v4.3.0", "product-knowledge-home-clear", {"product_id": "gate-product", "reason": "release restore gate", "expected_version": PRODUCT_VERSION}),
     ("v5.3.0", "product-stage-update", {"product_id": "gate-product", "stage_maturity": "alpha", "stage_audience_commitment": "limited",
                                         "reason": "release restore gate", "expected_version": PRODUCT_VERSION}),

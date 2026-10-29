@@ -195,7 +195,7 @@ follow-up completion is a stranded step and the liveness check names
 it. A `dispatch_worker` completion alone, with no `accept_worker_result`
 at the target, is a dispatch; it is not production. A verdict, an
 evidence binding, a refinement review acceptance, a candidate revision,
-an impact declaration, a successor link, a checkpoint, or a verdict
+a successor link, a checkpoint, or a verdict
 recording is never production, whatever its mode. The closed
 positive-production classification is the only production rule, and a
 family that gains a new producing mechanism declares it here; nothing
@@ -492,8 +492,8 @@ witness.
 
 A start alone is never production. A `dispatch_worker` completion
 alone is never production. A verdict, a refinement review
-acceptance, a candidate revision, an impact declaration, a
-successor link, a checkpoint, or an evidence binding is never
+acceptance, a candidate revision, a successor link, a checkpoint,
+or an evidence binding is never
 production. The closed positive production classification is the
 only production rule, and a family that gains a new producing
 mechanism declares it here.

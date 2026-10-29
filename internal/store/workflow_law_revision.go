@@ -65,7 +65,7 @@ func workflowContractRecoveryActionDefinition() WorkflowActionDefinition {
 
 func workflowContractRecoveryPayloadFields() []WorkflowPayloadField {
 	return []WorkflowPayloadField{
-		actionIntegerField("contract_version", true, 2147483647),
+		actionIntegerField("contract_version", true),
 		actionArrayField("predecessor_contract_versions", false, 32, "workflow_contract_version"),
 		actionPremiseField(),
 		actionArrayField("outcome_predicates", false, 8, "workflow_action_outcome_predicates"),
@@ -130,25 +130,6 @@ func validateWorkflowLawRevisions(mandated []string, revisions []WorkflowLawRevi
 	return nil
 }
 
-// workflowLawSourceSetForHome resolves the registered source set a law home
-// belongs to over whichever queryer the caller already holds. A nil result is
-// a one-element world: the home resolves alone and callers keep the
-// single-home query.
-func workflowLawSourceSetForHomeTx(ctx context.Context, q queryer, homeProjectID, homeLocatorID string) ([]KnowledgeHome, error) {
-	productID, _, err := resolveKnowledgeSourceRole(ctx, q, KnowledgeHome{HomeProjectID: homeProjectID, HomeLocatorID: homeLocatorID})
-	if err != nil || productID == "" {
-		return nil, err
-	}
-	sources, err := resolveKnowledgeQuerySources(ctx, q, productID, "check_workflow_law_revision")
-	if err != nil {
-		return nil, err
-	}
-	if len(sources) <= 1 {
-		return nil, nil
-	}
-	return sources, nil
-}
-
 // workflowLawSubject is one mandated reference's resolved projection row.
 type workflowLawSubject struct {
 	status string
@@ -157,59 +138,28 @@ type workflowLawSubject struct {
 
 // resolveWorkflowLawSubjectTx resolves one mandate reference — a bare law ID,
 // or the qualified project_id/law_id form (CD-0200) — to exactly one current
-// law_subjects row. A nil source set resolves through the named home alone; a
-// non-nil set resolves a bare reference Product-wide and refuses one held by
-// more than one source, and resolves a qualified reference only through its
-// named source.
-func resolveWorkflowLawSubjectTx(ctx context.Context, q queryer, sources []KnowledgeHome, homeProjectID, homeLocatorID, reference string) (workflowLawSubject, error) {
+// law_subjects row within the workflow's knowledge home.
+func resolveWorkflowLawSubjectTx(ctx context.Context, q queryer, homeProjectID, homeLocatorID, reference string) (workflowLawSubject, error) {
 	projectID, lawID, qualified, err := parseQualifiedKnowledgeID("check_workflow_law_revision", reference)
 	if err != nil {
 		return workflowLawSubject{}, err
 	}
-	if sources == nil {
-		if qualified && projectID != homeProjectID {
-			failure := newFailure(KindProjectionNotFound, "check_workflow_law_revision", "qualified mandated law names a Project outside the Git law projection: "+reference, false, "mandate the law through its registered source")
-			failure.CandidateIDs = []string{reference}
-			return workflowLawSubject{}, failure
-		}
-		var subject workflowLawSubject
-		scanErr := q.QueryRowContext(ctx, `SELECT status,content_hash FROM law_subjects WHERE home_project_id=? AND home_locator_id=? AND law_id=?`, homeProjectID, homeLocatorID, lawID).Scan(&subject.status, &subject.hash)
-		if scanErr == sql.ErrNoRows {
-			failure := newFailure(KindProjectionNotFound, "check_workflow_law_revision", "mandated law is missing from the current Git-derived projection", false, "rebuild the accepted Git law projection")
-			failure.CandidateIDs = []string{reference}
-			return workflowLawSubject{}, failure
-		}
-		if scanErr != nil {
-			return workflowLawSubject{}, wrapFailure(KindUnavailable, "check_workflow_law_revision", "cannot read current law revision", true, "retry once the law projection is readable", scanErr)
-		}
-		return subject, nil
+	if qualified && projectID != homeProjectID {
+		failure := newFailure(KindProjectionNotFound, "check_workflow_law_revision", "qualified mandated law names a Project outside the Git law projection: "+reference, false, "mandate law from the workflow's knowledge home")
+		failure.CandidateIDs = []string{reference}
+		return workflowLawSubject{}, failure
 	}
-	var found *workflowLawSubject
-	for _, source := range sources {
-		if qualified && source.HomeProjectID != projectID {
-			continue
-		}
-		var status, hash string
-		scanErr := q.QueryRowContext(ctx, `SELECT status,content_hash FROM law_subjects WHERE home_project_id=? AND home_locator_id=? AND law_id=?`, source.HomeProjectID, source.HomeLocatorID, lawID).Scan(&status, &hash)
-		if scanErr == sql.ErrNoRows {
-			continue
-		}
-		if scanErr != nil {
-			return workflowLawSubject{}, wrapFailure(KindUnavailable, "check_workflow_law_revision", "cannot read current law revision", true, "retry once the law projection is readable", scanErr)
-		}
-		if found != nil {
-			failure := newFailure(KindKnowledgeAmbiguous, "check_workflow_law_revision", "mandated law is held by more than one registered source: "+lawID, false, "qualify the reference as project_id/law_id or remove the duplicate law")
-			failure.CandidateIDs = []string{source.HomeProjectID + "/" + lawID}
-			return workflowLawSubject{}, failure
-		}
-		found = &workflowLawSubject{status: status, hash: hash}
-	}
-	if found == nil {
+	var subject workflowLawSubject
+	scanErr := q.QueryRowContext(ctx, `SELECT status,content_hash FROM law_subjects WHERE home_project_id=? AND home_locator_id=? AND law_id=?`, homeProjectID, homeLocatorID, lawID).Scan(&subject.status, &subject.hash)
+	if scanErr == sql.ErrNoRows {
 		failure := newFailure(KindProjectionNotFound, "check_workflow_law_revision", "mandated law is missing from the current Git-derived projection", false, "rebuild the accepted Git law projection")
 		failure.CandidateIDs = []string{reference}
 		return workflowLawSubject{}, failure
 	}
-	return *found, nil
+	if scanErr != nil {
+		return workflowLawSubject{}, wrapFailure(KindUnavailable, "check_workflow_law_revision", "cannot read current law revision", true, "retry once the law projection is readable", scanErr)
+	}
+	return subject, nil
 }
 
 func deriveWorkflowLawRevisionsTx(ctx context.Context, tx *sql.Tx, workID string, mandated, modified []string) ([]WorkflowLawRevision, error) {
@@ -226,15 +176,9 @@ func deriveWorkflowLawRevisionsTx(ctx context.Context, tx *sql.Tx, workID string
 	if err := checkMandatedLawsTxAtHome(ctx, tx, homeProjectID, homeLocatorID, mandated, modified, true); err != nil {
 		return nil, err
 	}
-	// CD-0200: each pin's hash reads from the source whose projection holds
-	// the law, not from the designated home alone.
-	sources, err := workflowLawSourceSetForHomeTx(ctx, tx, homeProjectID, homeLocatorID)
-	if err != nil {
-		return nil, err
-	}
 	revisions := make([]WorkflowLawRevision, 0, len(mandated))
 	for _, lawID := range mandated {
-		subject, err := resolveWorkflowLawSubjectTx(ctx, tx, sources, homeProjectID, homeLocatorID, lawID)
+		subject, err := resolveWorkflowLawSubjectTx(ctx, tx, homeProjectID, homeLocatorID, lawID)
 		if err != nil {
 			var failure *Failure
 			if failureAs(err, &failure) && failure.Kind == KindProjectionNotFound {
@@ -314,17 +258,13 @@ func validateClonedWorkflowContractLawRevisionsTx(ctx context.Context, tx *sql.T
 // findStaleWorkflowLawRevision is read-only and accepts either *sql.DB or
 // *sql.Tx. It consults only the current Git-derived law projection and the
 // contract pins; it never changes either authority. Each mandated reference
-// resolves across the Product's registered source set (CD-0200). Only a deleted
+// resolves within the workflow's knowledge home. Only a deleted
 // pinned law is stale; an accepted same-ID amendment stays compatible.
 func findStaleWorkflowLawRevision(ctx context.Context, q queryer, homeProjectID, homeLocatorID, workID string, contractVersion int64, mandated []string) (*StaleLawRevision, error) {
 	if len(mandated) == 0 {
 		return nil, nil
 	}
 	if err := validateWorkflowLawMandate(mandated); err != nil {
-		return nil, err
-	}
-	sources, err := workflowLawSourceSetForHomeTx(ctx, q, homeProjectID, homeLocatorID)
-	if err != nil {
 		return nil, err
 	}
 	for _, reference := range mandated {
@@ -334,7 +274,7 @@ func findStaleWorkflowLawRevision(ctx context.Context, q queryer, homeProjectID,
 		if err != nil && err != sql.ErrNoRows {
 			return nil, wrapFailure(KindUnavailable, "check_workflow_law_revision", "cannot read workflow law revision pins", true, "retry once the workflow projection is readable", err)
 		}
-		subject, err := resolveWorkflowLawSubjectTx(ctx, q, sources, homeProjectID, homeLocatorID, reference)
+		subject, err := resolveWorkflowLawSubjectTx(ctx, q, homeProjectID, homeLocatorID, reference)
 		if err != nil {
 			var failure *Failure
 			if pinned && failureAs(err, &failure) && failure.Kind == KindProjectionNotFound {
@@ -350,10 +290,6 @@ func findStaleWorkflowLawRevision(ctx context.Context, q queryer, homeProjectID,
 }
 
 func findCompatibleWorkflowLawAmendments(ctx context.Context, q queryer, homeProjectID, homeLocatorID, workID string, contractVersion int64, mandated []string) ([]CompatibleLawAmendment, error) {
-	sources, err := workflowLawSourceSetForHomeTx(ctx, q, homeProjectID, homeLocatorID)
-	if err != nil {
-		return nil, err
-	}
 	amendments := []CompatibleLawAmendment{}
 	for _, lawID := range mandated {
 		var pinnedHash string
@@ -364,7 +300,7 @@ func findCompatibleWorkflowLawAmendments(ctx context.Context, q queryer, homePro
 		if err != nil {
 			return nil, wrapFailure(KindUnavailable, "check_workflow_law_revision", "cannot read workflow law revision pins", true, "retry once the workflow projection is readable", err)
 		}
-		subject, err := resolveWorkflowLawSubjectTx(ctx, q, sources, homeProjectID, homeLocatorID, lawID)
+		subject, err := resolveWorkflowLawSubjectTx(ctx, q, homeProjectID, homeLocatorID, lawID)
 		if err != nil {
 			return nil, err
 		}
@@ -491,7 +427,7 @@ func CheckWorkflowConsequentialBoundaryTx(ctx context.Context, transaction *Tran
 // contract-bound law ID and home or affected Domain ID into its projection
 // state at continuity read time, so a dispatched packet carries the title of
 // each binding law and a file locator that opens inside the Product's
-// registered knowledge home, not inside whatever repository the lane was
+// designated knowledge home, not inside whatever repository the lane was
 // dispatched into.
 type WorkflowLawContext struct {
 	Laws    []WorkflowLawContextLaw    `json:"laws"`
@@ -633,43 +569,15 @@ func readWorkflowLawContext(ctx context.Context, tx *sql.Tx, workID string, cont
 }
 
 func resolveWorkflowLawContextLaws(ctx context.Context, tx *sql.Tx, workID string, roleSet, obligationSet map[string]map[string]bool, lawIDs []string) ([]WorkflowLawContextLaw, error) {
-	var laws []WorkflowLawContextLaw
 	homeProjectID, homeLocatorID, err := workflowLawHome(ctx, tx, workID)
 	if err != nil {
 		return nil, err
 	}
-	// CD-0200: a bound law resolves across the Product's registered
-	// source set; the designated home stays the first resolution target
-	// and a bare ID held by more than one source refuses as ambiguous.
-	productID, _, roleErr := resolveKnowledgeSourceRole(ctx, tx, KnowledgeHome{HomeProjectID: homeProjectID, HomeLocatorID: homeLocatorID})
-	if roleErr != nil {
-		return nil, roleErr
+	homeRepo, err := workflowLawHomeRepo(ctx, tx, homeProjectID, homeLocatorID)
+	if err != nil {
+		return nil, err
 	}
-	federated := false
-	if productID != "" {
-		sources, srcErr := resolveKnowledgeQuerySources(ctx, tx, productID, "read_workflow_law_context")
-		if srcErr != nil {
-			return nil, srcErr
-		}
-		if len(sources) > 1 {
-			federated = true
-			laws, err = resolveLawContextSubjectsAcrossSources(ctx, tx, sources, workID, lawContextLaws(roleSet, obligationSet, lawIDs))
-			if err != nil {
-				return nil, err
-			}
-		}
-	}
-	if !federated {
-		homeRepo, err := workflowLawHomeRepo(ctx, tx, homeProjectID, homeLocatorID)
-		if err != nil {
-			return nil, err
-		}
-		laws, err = resolveLawContextSubjects(ctx, tx, homeProjectID, homeLocatorID, homeRepo, workID, lawContextLaws(roleSet, obligationSet, lawIDs))
-		if err != nil {
-			return nil, err
-		}
-	}
-	return laws, nil
+	return resolveLawContextSubjects(ctx, tx, homeProjectID, homeLocatorID, homeRepo, workID, lawContextLaws(roleSet, obligationSet, lawIDs))
 }
 
 // domainRegistryHomeRepo reads the checkout of the knowledge home the
@@ -902,12 +810,12 @@ func resolveLawContextSubjects(ctx context.Context, tx *sql.Tx, homeProjectID, h
 		return nil, wrapFailure(KindUnavailable, "read_workflow_law_context", "cannot enumerate the bound law subjects", true, "retry once the law projection is readable", err)
 	}
 	for index := range laws {
-		_, bareID, _, parseErr := parseQualifiedKnowledgeID("read_workflow_law_context", laws[index].LawID)
+		projectID, bareID, qualified, parseErr := parseQualifiedKnowledgeID("read_workflow_law_context", laws[index].LawID)
 		if parseErr != nil {
 			return nil, parseErr
 		}
 		row, exists := subjects[bareID]
-		if !exists {
+		if !exists || qualified && projectID != homeProjectID {
 			if listedAsAddition(laws[index].Roles) {
 				continue
 			}
@@ -924,122 +832,6 @@ func resolveLawContextSubjects(ctx context.Context, tx *sql.Tx, homeProjectID, h
 		laws[index].Criteria = lawContextCriteria(row.bindings, workID)
 	}
 	return laws, nil
-}
-
-type federatedLawContextSubject struct {
-	subject  WorkflowLawContextLaw
-	bindings []KnowledgeCriterionBinding
-	home     KnowledgeHome
-}
-
-// resolveLawContextSubjectsAcrossSources resolves each bound law across the
-// Product's registered source set (CD-0200). A bare law ID must resolve to
-// exactly one source's projection; the resolved source's own repository
-// qualifies the law's file locator, so a lane dispatched into any member
-// Project opens the checkout that holds the law. A law may also carry the
-// qualified project_id/law_id reference form, which resolves only through its
-// named source.
-func resolveLawContextSubjectsAcrossSources(ctx context.Context, tx *sql.Tx, sources []KnowledgeHome, workID string, laws []WorkflowLawContextLaw) ([]WorkflowLawContextLaw, error) {
-	if len(laws) > 128 {
-		return nil, newFailure(KindLimitExceeded, "read_workflow_law_context", "workflow contract binds more laws than the law context carries", false, "reduce_limit")
-	}
-	subjects := map[string]federatedLawContextSubject{}
-	repos := make(map[string]string, len(sources))
-	for _, source := range sources {
-		repo, err := workflowLawHomeRepo(ctx, tx, source.HomeProjectID, source.HomeLocatorID)
-		if err != nil {
-			return nil, err
-		}
-		repos[source.HomeProjectID+"/"+source.HomeLocatorID] = repo
-		if err := readLawContextSourceSubjects(ctx, tx, source, laws, subjects); err != nil {
-			return nil, err
-		}
-	}
-	for index := range laws {
-		row, exists := subjects[laws[index].LawID]
-		if !exists {
-			if listedAsAddition(laws[index].Roles) {
-				continue
-			}
-			failure := newFailure(KindProjectionNotFound, "read_workflow_law_context", "bound law is missing from the current Git-derived projection", false, "rebuild the accepted Git law projection")
-			failure.CandidateIDs = []string{laws[index].LawID}
-			return nil, failure
-		}
-		laws[index].Kind, laws[index].Status, laws[index].Title = row.subject.Kind, row.subject.Status, row.subject.Title
-		repo := repos[row.home.HomeProjectID+"/"+row.home.HomeLocatorID]
-		path, err := knowledgeLawLocator(repo, laws[index].LawID, row.subject.Path)
-		if err != nil {
-			return nil, err
-		}
-		laws[index].Path = path
-		laws[index].Criteria = lawContextCriteria(row.bindings, workID)
-	}
-	return laws, nil
-}
-
-func readLawContextSourceSubjects(ctx context.Context, tx *sql.Tx, source KnowledgeHome, laws []WorkflowLawContextLaw, subjects map[string]federatedLawContextSubject) error {
-	// This source can hold only the bare IDs the bound references name
-	// for it: a bare reference names every source, a qualified reference
-	// names its own Project alone (CD-0200).
-	bareByReference := map[string][]string{}
-	claimed := map[string]bool{}
-	bare := make([]string, 0, len(laws))
-	for _, law := range laws {
-		projectID, lawID, qualified, parseErr := parseQualifiedKnowledgeID("read_workflow_law_context", law.LawID)
-		if parseErr != nil {
-			return parseErr
-		}
-		if qualified && projectID != source.HomeProjectID {
-			continue
-		}
-		bareByReference[lawID] = append(bareByReference[lawID], law.LawID)
-		if !claimed[lawID] {
-			claimed[lawID] = true
-			bare = append(bare, lawID)
-		}
-	}
-	if len(bare) == 0 {
-		return nil
-	}
-	placeholders := strings.TrimRight(strings.Repeat("?,", len(bare)), ",")
-	args := []any{source.HomeProjectID, source.HomeLocatorID}
-	for _, lawID := range bare {
-		args = append(args, lawID)
-	}
-	rows, err := tx.QueryContext(ctx, `SELECT law_id,kind,status,title,path,criterion_bindings FROM law_subjects WHERE home_project_id=? AND home_locator_id=? AND law_id IN (`+placeholders+`)`, args...) //nolint:gosec // the fragment contains only generated question-mark placeholders and every law ID stays parameter-bound.
-	if err != nil {
-		return wrapFailure(KindUnavailable, "read_workflow_law_context", "cannot read the law subjects for the bound laws", true, "retry once the law projection is readable", err)
-	}
-	for rows.Next() {
-		var row federatedLawContextSubject
-		var bindingsJSON string
-		if err := rows.Scan(&row.subject.LawID, &row.subject.Kind, &row.subject.Status, &row.subject.Title, &row.subject.Path, &bindingsJSON); err != nil {
-			rows.Close()
-			return wrapFailure(KindUnavailable, "read_workflow_law_context", "cannot decode a bound law subject", true, "retry once the law projection is readable", err)
-		}
-		if err := json.Unmarshal([]byte(bindingsJSON), &row.bindings); err != nil {
-			rows.Close()
-			return newFailure(KindInvariantViolation, "read_workflow_law_context", "a bound law carries criterion bindings the projection cannot decode", false, "rebuild the accepted Git law projection")
-		}
-		for _, reference := range bareByReference[row.subject.LawID] {
-			if _, clash := subjects[reference]; clash {
-				rows.Close()
-				failure := newFailure(KindKnowledgeAmbiguous, "read_workflow_law_context", "bound law is held by more than one registered source: "+row.subject.LawID, false, "qualify the reference as project_id/law_id or remove the duplicate law")
-				failure.CandidateIDs = []string{source.HomeProjectID + "/" + row.subject.LawID}
-				return failure
-			}
-			row.home = source
-			subjects[reference] = row
-		}
-	}
-	if err := rows.Err(); err != nil {
-		rows.Close()
-		return wrapFailure(KindUnavailable, "read_workflow_law_context", "cannot enumerate the bound law subjects", true, "retry once the law projection is readable", err)
-	}
-	if err := rows.Close(); err != nil {
-		return wrapFailure(KindUnavailable, "read_workflow_law_context", "cannot enumerate the bound law subjects", true, "retry once the law projection is readable", err)
-	}
-	return nil
 }
 
 // lawContextCriteria keeps the law's predicate bindings that name the reading

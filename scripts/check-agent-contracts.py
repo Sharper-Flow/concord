@@ -94,7 +94,6 @@ CURRENT_SCENARIO_IDS = [
     "WF01-capture-late-outcome", "WF02-planning-requires-outcome",
     "WF04-weaker-delivery", "WF05-stronger-delivery",
     "WF13-verdict-actor-distinctness", "WF19-completion-one-transaction",
-    "WF26-condition-actions-refused", "WF29-impact-notice-identity",
     "WF37-action-availability-before-register", "WF47-evidence-commit-binding",
     "WF48-lane-pipeline-typed-evidence", "WF50-one-conjunct-weaker",
 ]
@@ -326,9 +325,6 @@ def _structured_scenario_check(corpus: dict) -> list[str]:
     relation_ids = {item["id"] for item in fixture["relations"]}
     required = {
         "capture": {"payload", "title", "value_statement", "project_ids"},
-        "add_condition": {"payload"},
-        "resolve_condition": {"payload"},
-        "cancel_condition": {"payload"},
         "record_proposal": {"problem", "affected", "stakes", "user_outcomes"},
         "approve_contract": {"premise", "decision_domains"},
         "record_verdict": {"verdicts"},
@@ -549,7 +545,6 @@ def check_workflow_contracts() -> list[str]:
             findings.append(f".concord/scenarios/workflow-engine.v1.json: expected scenarios {expected_ids}, got {[item.get('id') for item in corpus['scenarios']]}")
             return findings
         for scenario_id, expected_cases in (
-            ("WF26-condition-actions-refused", ["WF26-add-condition-refused", "WF26-resolve-condition-refused", "WF26-cancel-condition-refused"]),
             ("WF48-lane-pipeline-typed-evidence", ["WF48-owner-accepts-typed-result", "WF48-worker-self-accept-refused"]),
         ):
             scenario = next(item for item in corpus["scenarios"] if item["id"] == scenario_id)
@@ -613,8 +608,8 @@ def check_workflow_contracts() -> list[str]:
             elif case["mutation"] == "invalid_float":
                 mutated["scenarios"][0]["initial_state"]["invalid_float"] = 1.5
             elif case["mutation"] == "unknown_error_kind":
-                condition = next(item for item in mutated["scenarios"] if item["id"] == "WF26-condition-actions-refused")
-                condition["cases"][0]["expected"]["assertions"][0]["value"] = "not_a_real_error_kind"
+                planning = next(item for item in mutated["scenarios"] if item["id"] == "WF02-planning-requires-outcome")
+                planning["expected"]["assertions"][0]["value"] = "not_a_real_error_kind"
             elif case["mutation"] == "removed_surface_version_rejection":
                 # Rejection test: removed agent-surface metadata must remain unknown.
                 mutated["surface_version"] = "5.0.0"
@@ -650,7 +645,7 @@ def check_workflow_contracts() -> list[str]:
             elif case["mutation"] == "setup_actor":
                 scenario["setup"]["fixture_refs"]["actors"] = [mutated["fixtures"]["actors"][1]["actor_ref"]]
             elif case["mutation"] == "request_action":
-                scenario["request"]["action_id"] = "resolve_condition"
+                scenario["request"]["action_id"] = "approve_contract"
             elif case["mutation"] == "request_scope":
                 scenario["request"]["grant"]["scope"] = "project:other"
             schema_error = _validate_instance(scenario_schema, mutated)

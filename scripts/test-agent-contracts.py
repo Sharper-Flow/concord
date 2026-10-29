@@ -19,10 +19,10 @@ payload_schema = json.loads((ROOT / "contracts/agent-tool-surface-payloads.schem
 
 # CD-0218 D1/D2 absence witnesses, not a production action catalog.
 RETIRED_PUBLISHED_ACTIONS = {
-    "accept_decision", "add_condition", "approve_operation", "cancel_condition",
+    "accept_decision", "approve_operation",
     "checkpoint_action", "checkpoint_analysis", "checkpoint_poc", "checkpoint_run",
     "cleanup_run", "declare_scope", "discard_poc", "frame_question", "record_decision",
-    "record_health", "record_option", "record_research", "resolve_condition", "rollback_run",
+    "record_health", "record_option", "record_research", "rollback_run",
     "run_analysis", "start_action", "start_poc", "start_run", "record_reproduction",
     "record_root_cause", "start_repair", "start_refine", "record_worker_failure", "record_discovery",
 }
@@ -387,7 +387,7 @@ class CurrentScenarioCarrierTests(unittest.TestCase):
         corpus_path = ROOT / ".concord/scenarios/workflow-engine.v1.json"
         load = lane_checker._load_json
         corpus = load(corpus_path)
-        corpus["scenarios"] = [item for item in corpus["scenarios"] if item["id"] != "WF26-condition-actions-refused"]
+        corpus["scenarios"] = [item for item in corpus["scenarios"] if item["id"] != "WF48-lane-pipeline-typed-evidence"]
         with unittest.mock.patch.object(lane_checker, "_load_json", side_effect=lambda path: corpus if path == corpus_path else load(path)):
             findings = lane_checker.check_workflow_contracts()
         self.assertTrue(any("scenario" in finding and "got" in finding for finding in findings), findings)
@@ -464,8 +464,9 @@ class CurrentScenarioCarrierTests(unittest.TestCase):
                 elif mutation == "definition":
                     scenario["request"]["definition_ref"] = "workflow.missing"
                 else:
-                    condition = next(item for item in corpus["scenarios"] if item["id"] == "WF26-condition-actions-refused")
-                    condition["cases"][0]["expected"]["assertions"][0]["value"] = "not_a_real_error_kind"
+                    pipeline = next(item for item in corpus["scenarios"] if item["id"] == "WF48-lane-pipeline-typed-evidence")
+                    refused = next(case for case in pipeline["cases"] if case["id"] == "WF48-worker-self-accept-refused")
+                    refused["expected"]["assertions"][0]["value"] = "not_a_real_error_kind"
                 load = lane_checker._load_json
                 with unittest.mock.patch.object(lane_checker, "_load_json", side_effect=lambda path: corpus if path == corpus_path else load(path)):
                     findings = lane_checker.check_workflow_contracts()
@@ -1839,10 +1840,7 @@ class DeliveryDecidableTeachingTests(unittest.TestCase):
     """CD-0184: the authoring schema teaches that acceptance is decidable at
     delivery. The outcome_predicates array shared by approve_contract and
     supersede_contract carries the rule, and the generator refuses a
-    projection that drops it. The CD-0184 wait-rule teaching retired with
-    add_condition (CD-0218 D1): its absence is derived from the retired
-    published actions, so a projected wait variant is a stale copy the
-    generator refuses, never a silently skipped check.
+    projection that drops it.
     """
 
     def test_shipped_predicate_array_teaches_the_rule(self):
@@ -1855,35 +1853,11 @@ class DeliveryDecidableTeachingTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             generator.require_delivery_rule_teaching(defs)
 
-    def test_generator_refuses_a_stale_projected_wait_variant(self):
-        defs = copy.deepcopy(payload_schema["$defs"])
-        defs["work_transition_action_variant_add_condition"] = {"type": "object"}
-        with self.assertRaises(ValueError):
-            generator.require_delivery_rule_teaching(defs)
-
-    def test_generator_refuses_a_stale_projected_public_wait_variant(self):
-        defs = copy.deepcopy(payload_schema["$defs"])
-        defs["work_transition_action_public_variant_add_condition"] = {"type": "object"}
-        with self.assertRaises(ValueError):
-            generator.require_delivery_rule_teaching(defs)
-
     def test_generator_refuses_a_predicate_description_reduced_to_markers(self):
         defs = copy.deepcopy(payload_schema["$defs"])
         defs["workflow_action_outcome_predicates"]["description"] = "decidable at delivery; raised_from"
         with self.assertRaises(ValueError):
             generator.require_delivery_rule_teaching(defs)
-
-    def test_no_shipped_wait_teaching_remains(self):
-        # The wait rule's only carrier retired: no live action declares the
-        # wait field, and the projected surface carries no add_condition
-        # variant for a stale teaching to hide behind.
-        self.assertNotIn("work_transition_action_variant_add_condition", payload_schema["$defs"])
-        self.assertNotIn("work_transition_action_public_variant_add_condition", payload_schema["$defs"])
-        for name, schema in payload_schema["$defs"].items():
-            self.assertNotIn(
-                "expected_within_seconds", schema.get("properties", {}),
-                f"{name} carries a wait field with no live owner",
-            )
 
 
 def _schema_sample(node, root, path="$"):

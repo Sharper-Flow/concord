@@ -114,7 +114,7 @@ It observes the claimed worktree's clean `HEAD` against the admitted
 `HEAD` and tree check against the packet subject stays the backstop for
 drift after authorization. Every declared required reading resolves before
 the lane spawns. Repository sources resolve at their pinned commits in their own
-Project repositories. Law readings resolve through their registered source's
+Project repositories. Law readings resolve through the designated knowledge home's
 exact projected revision and canonical locator. No resolution falls back to
 changed checkout bytes, rescans Git history, or repins a moved revision. The
 packet's present `inputs.work_context`, `inputs.checkpoint`, and

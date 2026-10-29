@@ -92,9 +92,9 @@ func TestCurrentActionPayloadContractsRefuseCrossActionAndInvalidFields(t *testi
 		},
 		{
 			name:    "wrong registered type",
-			action:  "declare_impact",
-			payload: `{"target_work_id":"work-target","edge_id":42}`,
-			field:   "edge_id",
+			action:  "link_successor",
+			payload: `{"successor_work_id":42}`,
+			field:   "successor_work_id",
 			rule:    "ref",
 		},
 		{

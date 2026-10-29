@@ -53,15 +53,14 @@ cites the control that proves its own text.
 
 ### D5. Current scenarios keep their IDs
 
-The corpus holds twelve scenarios. Ten run one case each, and two carry nested
-cases: three for `WF26-condition-actions-refused` and two for
-`WF48-lane-pipeline-typed-evidence`. Each keeps its stable ID.
+The corpus runs each scenario and its nested cases through the same production
+action boundary. Each keeps its stable ID.
 
 ## Consequences
 
 - Product-truth enforcement on the implementation workflow carries conformance
   coverage: outcome contracts, verdict-actor distinctness, completion rollback,
-  impact notices, evidence-commit binding, and owner acceptance of a lane result.
+  evidence-commit binding, and owner acceptance of a lane result.
 - Domain overlap refusal is proved by store tests, not by the corpus.
 - Each Product-changing proof case seeds a Domain registry and approves an
   explicit architecture binding. This setup cost follows from D1 and is accepted.

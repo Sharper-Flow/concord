@@ -482,8 +482,7 @@ func foldWorkTransitioned(ctx context.Context, tx *sql.Tx, event Event, scope *w
 		if err := removeTerminalResearchBindings(ctx, tx, event.SubjectID, event.OccurredAt); err != nil {
 			return err
 		}
-		// CD-0028: a terminal work item holds nothing.
-		return foldTerminalReleasesResourceClaims(ctx, tx, event)
+		return nil
 	}
 	return nil
 }
@@ -675,9 +674,7 @@ func foldWorkSuperseded(ctx context.Context, tx *sql.Tx, event Event) error {
 	if err := removeTerminalResearchBindings(ctx, tx, event.SubjectID, event.OccurredAt); err != nil {
 		return err
 	}
-	// CD-0028: a terminal work item holds nothing — supersession cannot
-	// deadlock a resource.
-	return foldTerminalReleasesResourceClaims(ctx, tx, event)
+	return nil
 }
 
 func foldWorkReopenedFromSuperseded(ctx context.Context, tx *sql.Tx, event Event) error {

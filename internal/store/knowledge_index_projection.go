@@ -292,16 +292,6 @@ type domainProjection struct {
 	Relations        []domainProjectionRelation
 	LawHomes         map[string]string
 	LawApplicability map[string][]string
-	// SourceRole marks a registered source's projection (CD-0200): the
-	// registry rows belong to the shared home, so the write path records
-	// only this source's law Domain homes and applicability.
-	SourceRole bool
-	// DomainRowsOmitted marks a source projection that omitted its law
-	// Domain rows because the shared home had projected no registry yet
-	// (CD-0200 reconstruction). The rebuild stamps that watermark
-	// incomplete, so it never reads fresh, and the demand-freshness rebuild
-	// backfills the omitted rows once the registry exists.
-	DomainRowsOmitted bool
 }
 
 type domainProjectionDomain struct {
@@ -325,14 +315,7 @@ type indexedLaw struct {
 	body   []byte
 }
 
-func prepareDomainProjection(ctx context.Context, q queryer, manifest KnowledgeManifest, productID string, designated bool) (domainProjection, error) {
-	// CD-0200: a registered source projects its law Domain references from
-	// the shared home's registry instead of carrying its own. A standalone
-	// home outside every source set keeps the registry-required path it
-	// always had.
-	if productID != "" && !designated {
-		return prepareFederatedSourceDomainProjection(ctx, q, productID, manifest)
-	}
+func prepareDomainProjection(manifest KnowledgeManifest, productID string) (domainProjection, error) {
 	registry := manifest.DomainRegistry
 	result := domainProjection{ProductKey: registry.ProductKey, RegistryHash: domainRegistryContentHash(registry), RootDomainID: registry.RootDomainID}
 	if len(registry.Domains) == 0 {
@@ -487,11 +470,7 @@ func (s *Store) RebuildKnowledgeIndex(ctx context.Context, home KnowledgeHome) e
 	if err != nil {
 		return err
 	}
-	role := manifestSharedHomeRole
-	if productID != "" && !designated {
-		role = manifestRegisteredSourceRole
-	}
-	manifest, shards, manifestMissing, err := readKnowledgeManifestShardsRunner(ctx, runGitRunner{}, home.RepoPath, commit, role)
+	manifest, shards, manifestMissing, err := readKnowledgeManifestShardsRunner(ctx, runGitRunner{}, home.RepoPath, commit)
 	if err != nil {
 		return err
 	}
@@ -506,12 +485,6 @@ func (s *Store) RebuildKnowledgeIndex(ctx context.Context, home KnowledgeHome) e
 	digest, err = domainShapeKnowledgeDigest(ctx, home, commit, digest, architecture.Shape)
 	if err != nil {
 		return err
-	}
-	// Both federated roles validate relations before the projection transaction.
-	if !manifestMissing && productID != "" {
-		if err := validateFederatedSourceManifest(ctx, s.db, home, manifest, productID, designated); err != nil {
-			return err
-		}
 	}
 	if !manifestMissing {
 		if err := collectManifestKnowledgeNotes(ctx, home, commit, manifest, &notes, &laws, seen, seenPaths); err != nil {
@@ -581,7 +554,6 @@ var derivedKnowledgeClearOrder = []string{
 	"law_evidence_paths",
 	"law_bodies",
 	"law_relations",
-	"law_cross_source_relations",
 	"domain_relation_governing_laws",
 	"law_domain_applicability",
 	"law_domain_homes",
@@ -602,9 +574,9 @@ func rebuildKnowledgeIndexTx(ctx context.Context, tx *sql.Tx, home KnowledgeHome
 			return err
 		}
 		if productID != preparedProductID || designated != preparedDesignated {
-			return newFailure(KindStaleContext, "rebuild_knowledge_index", "knowledge home designation or source registration changed during rebuild preparation", true, "retry the rebuild against the current knowledge home designation and source registration")
+			return newFailure(KindStaleContext, "rebuild_knowledge_index", "knowledge home designation changed during rebuild preparation", true, "retry the rebuild against the current knowledge home designation")
 		}
-		domainProjectionData, err = prepareDomainProjection(ctx, tx, manifest, productID, designated)
+		domainProjectionData, err = prepareDomainProjection(manifest, productID)
 		if err != nil {
 			return err
 		}
@@ -653,12 +625,7 @@ func rebuildKnowledgeIndexTx(ctx context.Context, tx *sql.Tx, home KnowledgeHome
 	if err := writeKnowledgeKindCoverage(ctx, tx, home, commit, manifestMissing, manifest); err != nil {
 		return err
 	}
-	// Content identity controls freshness; omitted Domain rows keep the watermark incomplete.
-	complete := 1
-	if domainProjectionData.DomainRowsOmitted {
-		complete = 0
-	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO knowledge_index_watermark (home_project_id,home_locator_id,head_ref,scanned_commit_oid,scanned_content_digest,scanned_at,complete,projection_version) VALUES (?,?,?,?,?,?,?,?)`, home.HomeProjectID, home.HomeLocatorID, home.HeadRef, commit, digest, commit, complete, knowledgeProjectionVersion); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO knowledge_index_watermark (home_project_id,home_locator_id,head_ref,scanned_commit_oid,scanned_content_digest,scanned_at,complete,projection_version) VALUES (?,?,?,?,?,?,?,?)`, home.HomeProjectID, home.HomeLocatorID, home.HeadRef, commit, digest, commit, 1, knowledgeProjectionVersion); err != nil {
 		return wrapFailure(KindUnavailable, "rebuild_knowledge_index", "cannot write the knowledge watermark", true, "retry once the database is writable", err)
 	}
 	if err := recordRuntimeStateWriter(ctx, tx, knowledgeStateWriter(knowledgeProjectionVersion)); err != nil {
@@ -672,10 +639,8 @@ func rebuildKnowledgeIndexTx(ctx context.Context, tx *sql.Tx, home KnowledgeHome
 
 func clearKnowledgeIndexRowsTx(ctx context.Context, tx *sql.Tx, home KnowledgeHome, productID string, designated bool) error {
 	for _, table := range []string{"archived_work_products", "archived_work_projects", "archived_work_domains", "archived_work_tags", "archived_work"} {
-		// Every scope row carries its own home pair: the same work id can
-		// project in more than one registered source, so the clear deletes
-		// only this home's rows. An unqualified work_id match erased another
-		// source's scopes whenever this source rebuilt.
+		// Scope rows are home-qualified so rebuilding one Product cannot
+		// erase another Product's records with the same stable ID.
 		var deleteSQL string
 		var args []any
 		if table == "archived_work" {
@@ -737,15 +702,10 @@ func insertKnowledgeIndexNotes(ctx context.Context, tx *sql.Tx, home KnowledgeHo
 }
 
 // insertKnowledgeIndexDomains writes the Domain projection and each law's
-// Domain home and applicability rows the projection resolves. A registered
-// source (CD-0200) writes only its law Domain homes and applicability: the
-// registry rows belong to the shared home, and the source's references
-// validated against that registry at prepare time.
+// Domain home and applicability rows.
 func insertKnowledgeIndexDomains(ctx context.Context, tx *sql.Tx, home KnowledgeHome, commit string, laws []indexedLaw, domainProjectionData domainProjection) error {
-	if !domainProjectionData.SourceRole {
-		if err := insertDomainProjection(ctx, tx, home, commit, domainProjectionData); err != nil {
-			return err
-		}
+	if err := insertDomainProjection(ctx, tx, home, commit, domainProjectionData); err != nil {
+		return err
 	}
 	for _, law := range laws {
 		homeDomain, hasHome := domainProjectionData.LawHomes[law.record.ID]
@@ -767,22 +727,9 @@ func insertKnowledgeIndexDomains(ctx context.Context, tx *sql.Tx, home Knowledge
 // insertKnowledgeLawRelations writes each law's derived relations, ordering
 // a conflicts_with pair canonically and recording the declaring record beside
 // it, since only that record can withdraw the conflict (CD-0015, CD-0159 D4).
-// A cross-source relation (CD-0200) names another home's law, which the
-// same-home foreign keys of law_relations cannot reference: it projects into
-// law_cross_source_relations with the target's source identity. Rebuild-time
-// validation refuses invalid and conflicting edges, and every consequential law
-// boundary revalidates the persisted endpoints over the Product's verified current source set, so a
-// later source removal or reindex cannot leave an orphaned edge behind a
-// passing check.
 func insertKnowledgeLawRelations(ctx context.Context, tx *sql.Tx, home KnowledgeHome, commit string, laws []indexedLaw) error {
 	for _, law := range laws {
 		for _, relation := range law.record.LawRelations {
-			if relation.SourceProjectID != "" {
-				if _, err := tx.ExecContext(ctx, `INSERT INTO law_cross_source_relations(home_project_id,home_locator_id,source_law_id,kind,target_project_id,target_law_id,scanned_commit_oid) VALUES(?,?,?,?,?,?,?)`, home.HomeProjectID, home.HomeLocatorID, law.record.ID, relation.Kind, relation.SourceProjectID, relation.TargetID, commit); err != nil {
-					return wrapFailure(KindUnavailable, "rebuild_knowledge_index", "cannot insert a derived cross-source law relation", true, "retry once the database is writable", err)
-				}
-				continue
-			}
 			source, target := law.record.ID, relation.TargetID
 			if relation.Kind == "conflicts_with" && source > target {
 				source, target = target, source
@@ -1056,11 +1003,7 @@ func knowledgeConflictDeclarerMissing(ctx context.Context, q queryer, home Knowl
 // carries nothing to admit; a manifest read failure is a real error, exactly
 // as the rebuild refuses it.
 func (s *Store) verifyFreshKnowledgeAuthority(ctx context.Context, home KnowledgeHome, commit string) error {
-	role, err := resolveKnowledgeManifestRole(ctx, s.db, home)
-	if err != nil {
-		return err
-	}
-	manifest, missing, err := readKnowledgeManifest(ctx, home.RepoPath, commit, role)
+	manifest, missing, err := readKnowledgeManifest(ctx, home.RepoPath, commit)
 	if err != nil || missing {
 		return err
 	}

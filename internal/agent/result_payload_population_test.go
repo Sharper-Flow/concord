@@ -90,7 +90,6 @@ func fullyPopulatedContinuitySnapshot() store.ContinuitySnapshot {
 			PendingQuestions: []string{"question-1"},
 			PendingDecisions: []string{"decision-1"},
 		},
-		UnresolvedFailure: &store.ContextFailure{Kind: "verification_failed", Recoverable: true, StepID: "implement", AttemptEpoch: 1},
 		Boundaries: []store.ContextBoundary{{
 			BoundaryID:         "boundary-1",
 			Sequence:           1,
@@ -284,7 +283,7 @@ func assertDomainReadsArePopulated(t *testing.T, detail store.DomainDetailResult
 	if len(detail.Relations) == 0 || len(detail.Relations[0].GoverningLaws) == 0 {
 		t.Fatalf("detail governing law is unexercised: %#v", detail.Relations)
 	}
-	if len(attachments.Attachments.ProjectEdges) == 0 || len(attachments.Attachments.ResourceEdges) == 0 {
+	if len(attachments.Attachments.ResourceEdges) == 0 {
 		t.Fatalf("attachment edges are unexercised: %#v", attachments.Attachments)
 	}
 	// CD-0222 D4 gives the relation bounded purpose and environment metadata.
@@ -365,14 +364,6 @@ func fullyPopulatedWorkflowReadProjection() store.WorkflowReadProjection {
 		WithheldOperatorQuestion: &store.WorkflowOperatorQuestionWithheld{ActionID: "confirm_premise", Reason: "the checkpoint is not open", Remedy: "advance the workflow"},
 		CandidateIDs:             []string{"work-2", "work-3"},
 		BacklogAlignment:         &store.WorkflowReadBacklogAlignment{Searched: "Searched open work for duplicate objectives.", Outcome: "related_found", RelatedIDs: []string{"work-2", "work-3"}},
-		Conditions:               []store.WorkflowReadCondition{},
-		UnresolvedConditions:     []string{},
-		OverdueAwaits:            []string{"cond-1"},
-		AwaitHealth:              []store.WorkflowReadCondition{{ID: "cond-1", AwaitType: "pr_merge", AwaitRef: "pr:1", ResolutionAuthority: "operator", State: "open"}},
-		UnreadableConditions:     []string{},
-		Ready:                    true,
-		BlockingConditions:       []string{},
-		ImpactNotices:            []store.WorkflowReadNotice{},
 		CompletionWarnings:       []string{"a warning"},
 		StaleLawRevision: &store.StaleLawRevision{
 			OldLawID: "spec-1", OldContentHash: "sha256:" + repeatHex(),
@@ -431,7 +422,7 @@ func TestPublishedWorkflowReadMatchesDerivedContractSet(t *testing.T) {
 
 // TestPublishedReadsQualifiedContractLaw proves the published read refs filled
 // from contract law IDs admit the source-qualified <home project>/<law> form
-// that approve_contract accepts and a registered source set produces. Each case
+// that approve_contract accepts and a designated home produces. Each case
 // qualifies one published field, so each output ref fails on its own.
 func TestPublishedReadsQualifiedContractLaw(t *testing.T) {
 	t.Parallel()
@@ -1071,7 +1062,6 @@ func readPopulationInputs(t *testing.T, fx readPopulationFixture) map[string]str
 		"concord_work_browse.blocked":              `{"product_id":"prod-alpha","page":{"cursor":null,"limit":20}}`,
 		"concord_work_browse.ready":                `{"product_id":"prod-alpha","page":{"cursor":null,"limit":20}}`,
 		"concord_work_browse.scope":                `{"product_id":"prod-alpha","work_id":"` + fx.workID + `"}`,
-		"concord_work_browse.resource_claims":      `{"product_id":"prod-alpha"}`,
 		"concord_work_browse.messages":             `{"product_id":"prod-alpha","work_id":"` + fx.workID + `","page":{"cursor":null,"limit":20}}`,
 		"concord_work_browse.worktree_audit":       `{"product_id":"prod-alpha"}`,
 		"concord_work_browse.worktree_inspect":     `{"work_id":"` + fx.workID + `","mode":"status"}`,
@@ -1176,7 +1166,6 @@ var readPopulationRows = map[string][]string{
 	"concord_work_browse.blocked":              {"items"},
 	"concord_work_browse.ready":                {"items"},
 	"concord_work_browse.scope":                {"memberships"},
-	"concord_work_browse.resource_claims":      {"claims"},
 	"concord_work_browse.messages":             {"messages"},
 	"concord_work_browse.worktree_audit":       {"drift"},
 	"concord_work_trace.history":               {"entries"},
@@ -1189,7 +1178,7 @@ var readPopulationRows = map[string][]string{
 	"concord_knowledge.search":                 {"items"},
 	"concord_domain.list":                      {"domains"},
 	"concord_domain.detail":                    {"current_law", "relations", "observations"},
-	"concord_domain.attachments":               {"attachments.project_attachments", "attachments.resource_attachments"},
+	"concord_domain.attachments":               {"attachments.resource_attachments"},
 	"concord_domain.footprint":                 {"laws"},
 	"concord_domain.shape":                     {"domain_ids", "governing_law"},
 }
@@ -1202,7 +1191,7 @@ var readPopulationRowExemptions = map[string]string{
 	"concord_work_trace.mutation_result":    "one exact retained document answers a scalar JSON fragment; its content and digest are checked by the witness",
 	"concord_work_browse.worktree_inspect":  "the probed status mode answers a scalar status summary and carries no row collection",
 	"concord_knowledge.resolve_note":        "an unambiguous resolution answers one located note; candidates populate only when resolution is ambiguous",
-	"concord_knowledge.observe_publication": "one registered source answers a scalar provenance record, not a row collection",
+	"concord_knowledge.observe_publication": "one designated home answers a scalar provenance record, not a row collection",
 }
 
 // populationRowPathLength decodes one dotted JSON path against a dispatched

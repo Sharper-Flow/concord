@@ -161,19 +161,13 @@ medium-confidence pending calibration against real work.
 
 Research: [`research/R2-obligation-bands.md`](https://github.com/Sharper-Flow/concord/blob/a98dfe5db3fa2af53bd2d82829aec840e94e64c4/.concord/docs/research/R2-obligation-bands.md).
 
-### R3. Cross-workflow impact propagation — declared edges + breaking verdict + boundary checks
+### R3. Workflow composition and boundary freshness
 
-Each workflow declares `modifies` and `depends_on` (hard/soft) edges. At
-completion, compute reverse-edge set and write breaking/non-breaking notices
-keyed by entity. Downstream checks notices only at consequential boundaries
-(plan→exec, merge, ship) via one bounded query. Block only on declared hard edge
-+ breaking change; everything else warns. Version-stamp freshness at boundaries
-as deterministic fallback. Heuristics may suggest overlap but never author
-blocking edges. The completion verdict classifies the delivered change; the edge
-class records whether each dependent treats that change as hard or soft. No
-polling, timers, or automatic downstream rewrites.
-
-Research: [`research/R3-impact-propagation.md`](https://github.com/Sharper-Flow/concord/blob/a98dfe5db3fa2af53bd2d82829aec840e94e64c4/.concord/docs/research/R3-impact-propagation.md).
+Typed `modifies`, hard/soft `depends_on`, and `forward_link` edges govern
+workflow composition. Boundary checks validate pinned revisions. Heuristics may
+suggest overlap but never author blocking edges. The completion verdict
+classifies the delivered change. No polling, timers, or automatic downstream
+rewrites.
 
 ## Consequences
 

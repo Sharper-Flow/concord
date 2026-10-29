@@ -269,14 +269,7 @@ func TestAgentDomainAttachmentsReturnTypedLocalEdgesWithCoverage(t *testing.T) {
 	if payload.Domain.DomainID != singleDomainRootID {
 		t.Fatalf("attachments were reported for %q", payload.Domain.DomainID)
 	}
-	if len(payload.Attachments.ProjectEdges) != 1 {
-		t.Fatalf("Project attachments = %d edges, want the one seeded edge: %#v", len(payload.Attachments.ProjectEdges), payload.Attachments.ProjectEdges)
-	}
-	edge := payload.Attachments.ProjectEdges[0]
-	if edge.ProjectID != "project-1" || edge.Role != "primary" {
-		t.Fatalf("Project attachment edge is not the seeded one: %#v", edge)
-	}
-	if payload.Attachments.ProjectVersion != 1 {
-		t.Fatalf("Project attachment set version = %d, want the version the seeding replace produced", payload.Attachments.ProjectVersion)
+	if payload.Attachments.ResourceVersion != 0 || len(payload.Attachments.ResourceEdges) != 0 {
+		t.Fatalf("unattached resource set = %#v", payload.Attachments)
 	}
 }

@@ -36,7 +36,7 @@ The worker may use the allowance without another coordinator turn when all its c
 Another job of the same work item that names the caller path in its scope or reserved work is not a reason to defer the necessary caller repair.
 At dispatch, the packet binds the recorded paths of other unresolved cumulative corrections as exclusions from the allowance, without changing the recorded job digest.
 A discovered conflict returns to coordinator integration before edits.
-A caller path under another work item's scope, resource claim, or architecture overlap requires coordinator reconciliation before edits.
+A caller path under another work item's scope or architecture overlap requires coordinator reconciliation before edits.
 The coordinator owns integration order and prevents overlapping job assignments in the shared worktree.
 
 ### D2. Evidence must establish a direct break and a minimal repair

@@ -97,11 +97,16 @@ shard with exactly one `owner_domain_id` and no body document. The four kinds
 are `invariant`, `data_object`, `state_authority`, and `config_coupling`.
 The Markdown-path requirement above applies to document records, not facts.
 
-Schema `1.3` and its document readers do not yet implement these fact kinds.
-Their schema, validation, Product-declared checks, bounded retrieval, and setup
-remain outstanding in [CD-0244's coverage shard](knowledge/coverage/CD-0244.json).
-Publication of CD-0244 neither inserts facts into the existing document-record
-schema nor claims implementation or real Product migration.
+Fact shards use their own
+[`domain-fact.v1.schema.json`](../../contracts/domain-fact.v1.schema.json)
+contract, not the schema `1.3` document-record vocabulary. The store validates,
+projects, and serves them through the bounded Domain Shape read, and
+knowledge-home setup establishes their directory. Products declare shape checks
+in [`.concord/tooling.v1.json`](../tooling.v1.json); a declaration is not proof
+that a check ran. Without an extractor, data-object and configuration facts
+remain unverified under CD-0244 D5. Concord declares no boundary checker or
+extractors, and [CD-0244's coverage shard](knowledge/coverage/CD-0244.json)
+keeps the remaining obligations outstanding.
 
 ## Authoring
 

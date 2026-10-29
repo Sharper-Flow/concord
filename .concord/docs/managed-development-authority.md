@@ -40,17 +40,17 @@ participation remain host-owned. This contract does not change host roles.
 
 ### Authority by fact type
 
-| Fact or action | Authority | Evidence |
-|---|---|---|
-| Planned work, defects, backlog, and grouping | Linear, through the Linear MCP server | The Linear issue or Project identity |
-| Work found for another Product | That Product's Linear team, through the Linear MCP server | The Linear issue identity; no serving-Product Concord work unit |
-| Managed work unit and its Linear issue link | Concord | Durable work identity and the recorded issue key, UUID, and URL |
-| Workflow transitions, verdicts, and completion | Concord | Session identity and typed operation records |
-| Main-branch review and merge | Repository pull requests and required checks | Review decisions, check results, merge record, and changed files |
-| Eligible phase-local integration under CD-0241 | Coordinating agent under the declared phase | Rapid-branch merge commit and recorded local gate evidence digests |
-| Implementation isolation | Git branches and worktrees | Branch ancestry, worktree boundaries, and commits |
-| Product law | Accepted decisions, specifications, and constitutional documents | Canonical knowledge records, approved versions, and law relations |
-| Predecessor lessons | Public predecessor records | Reachable citations in [advance-predecessor-lessons.md](advance-predecessor-lessons.md) |
+| Fact or action | Authority | Evidence | Applicability |
+|---|---|---|---|
+| Planned work, defects, backlog, and grouping | Linear, through the Linear MCP server | The Linear issue or Project identity | Planning across Products |
+| Work found for another Product | That Product's Linear team, through the Linear MCP server | The Linear issue identity; no serving-Product Concord work unit | Work owned by another Product |
+| Managed work unit and its Linear issue link | Concord | Durable work identity and the recorded issue key, UUID, and URL | Explicitly managed participation |
+| Workflow transitions, verdicts, and completion | Concord | Session identity and typed operation records | Explicitly managed participation |
+| Main-branch review and merge | Repository pull requests and required checks | Review decisions, check results, merge record, and changed files | Main-branch delivery under this contract |
+| Eligible phase-local integration under CD-0241 | Coordinating agent under the declared phase | Rapid-branch merge commit and recorded local gate evidence digests | An operator-declared CD-0241 phase, not main-branch delivery |
+| Implementation isolation | Git branches and worktrees | Branch ancestry, worktree boundaries, and commits | Implementation, including outside-workflow repair |
+| Product law | Accepted decisions, specifications, and constitutional documents | Canonical knowledge records, approved versions, and law relations | Each Product's own accepted law |
+| Concord predecessor lessons | Public predecessor records | Reachable citations in [advance-predecessor-lessons.md](advance-predecessor-lessons.md) | Concord's predecessor evidence, not an adopting Product's law |
 
 ### Preserved boundaries
 

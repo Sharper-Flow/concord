@@ -4,7 +4,7 @@
       "architecture_relations": [],
       "domain_id": "product-root:concord",
       "name": "Concord",
-      "purpose": "Product-wide Concord law and architecture: cross-cutting constitutional constraints, development authority, and decisions that bind every child Domain rather than any single one.",
+      "purpose": "Product-wide Concord law and architecture: constitutional constraints, development authority, and decisions that bind every child Domain rather than any single one.",
       "status": "current"
     },
     {

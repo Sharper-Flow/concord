@@ -93,8 +93,8 @@ func TestReclaimRevalidatesDefaultOwnershipAtNativeDeletion(t *testing.T) {
 // TestReclaimFailsClosedWhenNoDefaultIsEstablished pins review finding 2: an
 // empty protected set that no observation established is unknown, not
 // established-empty. With no caller default, a detached primary HEAD, and a
-// missing origin/HEAD, deletion permission fails closed — even under a
-// consumed operator approval — while the approved directory removal proceeds
+// missing origin/HEAD, deletion permission fails closed — even during
+// destructive removal — while the directory removal proceeds
 // and the retained ref stays visible to the audit.
 func TestReclaimFailsClosedWhenNoDefaultIsEstablished(t *testing.T) {
 	f := con829FixtureNew(t)
@@ -109,16 +109,15 @@ func TestReclaimFailsClosedWhenNoDefaultIsEstablished(t *testing.T) {
 	req.DefaultRef = ""
 	req.RequireTerminal = true
 	req.Destructive = true
-	req.OperatorApprovalRef = "concord_approval:synthetic-boundary-no-default"
 	entry, err := f.s.ReclaimWorktree(context.Background(), req)
 	if err != nil {
-		t.Fatalf("the approved directory removal must not be blocked by the unknown default: %v", err)
+		t.Fatalf("the destructive directory removal must not be blocked by the unknown default: %v", err)
 	}
 	if entry.State != worktreeEntryReclaimed {
 		t.Fatalf("the reclamation must commit, got state %q", entry.State)
 	}
 	if !f.worktreeGone(path) {
-		t.Fatal("the approved directory removal must proceed")
+		t.Fatal("the destructive directory removal must proceed")
 	}
 	if !f.refExists("main") {
 		t.Fatal("main was deleted although no protected default could be established")

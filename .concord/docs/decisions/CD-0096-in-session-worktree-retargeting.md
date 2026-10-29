@@ -94,14 +94,10 @@ there is no stored holder to transfer from. A session that needs to edit
 another work item's worktree starts that work item. Two sessions in one
 worktree are refused only at the command level, by the Verify lease.
 
-**Destroy.** Removing a worktree reclaims merged terminal work under the
+**Destroy.** Normal reclaim removes merged terminal work under the
 CD-0095 store gates. A dirty tree refuses, and an unmerged branch refuses.
-Removal of non-terminal work, and any destructive removal, requires operator
-approval, except unstarted work, which CD-0118 admits under its own gate: a
-work item at `needed` whose worktree tree is clean and whose branch holds no
-commit beyond the Project's default ref. The trigger for merged terminal
-work is the audit pass (CD-0105), which CD-0118 extends to unstarted work;
-this tier defines the gates, not the trigger.
+The trigger for merged terminal work is the audit pass (CD-0105), which
+CD-0118 extends to unstarted work; this tier defines the gates, not the trigger.
 
 ### D4. Possession grants no Product authority
 
@@ -164,9 +160,8 @@ retargeted tree is an identity no one verified.
 - Inspection of any active same-Project worktree succeeds read-only.
 - Verification under an exclusive lease refuses completion when tracked files
   changed.
-- Destroy obeys the CD-0095 store gates for terminal work, and operator
-  approval gates every other removal except the unstarted gate CD-0118
-  defines.
+- Reclaim obeys the CD-0095 store gates for terminal work and the unstarted
+  gate CD-0118 defines.
 - The continuity projection re-pins the active lease each turn.
 - `python3 scripts/check-doc-contract.py`, `python3 scripts/check-json.py`,
   `python3 scripts/check-doc-links.py`, `python3 scripts/check-knowledge-closure.py`,

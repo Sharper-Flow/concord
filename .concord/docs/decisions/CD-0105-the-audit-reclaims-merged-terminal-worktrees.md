@@ -10,9 +10,9 @@
   contract for `work-cc3853268a41489a1ee347dd` under CD-0092 pinning.
 - **Related:** CD-0082, CD-0092, CD-0095, CD-0096, CD-0104, issues #635, #674,
   #722
-- **Preserves:** Every CD-0095 and CD-0096 D3 gate on removal: the clean
+- **Preserves:** Every CD-0095 and CD-0096 D3 gate on reclaim: the clean
   tree, the merged head by tree identity, the observed-session stranding
-  refusal, and operator approval for non-terminal or destructive removal
+  refusal
 
 **Approval amendment:** [CD-0243 D7](CD-0243-four-roles-and-six-operator-approval-classes.md#d7-the-remaining-owners-use-the-same-approval-boundary)
 qualifies every operator-consent clause in this record, including tables and

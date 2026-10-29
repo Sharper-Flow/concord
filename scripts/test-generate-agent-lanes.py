@@ -414,7 +414,6 @@ class SubagentMethodProjectionTests(unittest.TestCase):
         for phrase in (
             "S, P10 and A2-9",
             "general task or contract approval is not informed approval of that loss",
-            "a worktree destructive waiver is not customer-data consent",
             "source identity and ordering evidence",
             "the explanation preceded any required approval, and both preceded execution",
             "the built behavior follows that decision",

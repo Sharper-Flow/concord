@@ -177,14 +177,12 @@ hash.
 
 ## Verification
 
-The table and its census are implemented; complete rule enforcement is not.
+The table is implemented; complete rule enforcement is not.
 `python3 scripts/test-conflict-rules.py` exercises D1 and D2's structural
 checks, including `recorded_review` with resolving evidence anchors and refusal
 of missing or prose-only evidence. These checks do not prove that a review
-applied a rule. `internal/store.TestOperatorApprovalInventoryTableCoversCensus` and
-`internal/store.TestOperatorApprovalInventoryRegistryExpansionIsCovered`
-check D5's declared approval-point inventory, not six-class consent behavior.
-`python3 scripts/check-conflict-rules.py` reports both rule and approval-point
+applied a rule.
+`python3 scripts/check-conflict-rules.py` reports rule
 gaps. Passing that validator does not satisfy an outstanding entry.
 
 R3, P12 and A2 row 3 reuse the managed-workflow law-change checks.
@@ -324,7 +322,7 @@ pointer, not the remaining enforcement and proof assigned below:
 |---|---|
 | D3's letter-versus-intent conflict | [CON-1097](https://linear.app/sharper-flow/issue/CON-1097). The law-side review cases exercise raised and silently applied conflicts. They do not prove that agents raise a conflict they never report. |
 | R2, A2 rows 2 and 4 | [CON-1098](https://linear.app/sharper-flow/issue/CON-1098). `internal/agent.TestResolveOverlapDependsOnRecordsDirectedSequencingWithoutConsent` proves directed work-item sequencing, not selection of the shared-Domain step or release when the other change completes it. Shared stages do not by themselves prove A2 row 4's boundary-change handling. |
-| D4 and D5; CD-0243 runtime alignment | [CON-1100](https://linear.app/sharper-flow/issue/CON-1100). Recorded review does not establish prevention of external data loss, automatic six-class inference, or enforcement on the ad-hoc route. Contract-time consent and worktree waivers do not establish informed approval of a specific loss. Classifications, carrier tests and the selected synthetic reviews do not prove whole-record runtime alignment. |
+| D4 and D5; CD-0243 runtime alignment | [CON-1100](https://linear.app/sharper-flow/issue/CON-1100). Recorded review does not establish prevention of external data loss, automatic six-class inference, or enforcement on the ad-hoc route. Contract-time consent does not establish informed approval of a specific loss. Classifications, carrier tests and the selected synthetic reviews do not prove whole-record runtime alignment. |
 | U, A2 row 7 | [CON-1343](https://linear.app/sharper-flow/issue/CON-1343). Contract-time `ui_ux` consent does not prove approval of a development preview of the final candidate, or renewed approval of a changed experience, as CD-0242 D9 requires. |
 | A2 row 6; D6 | [CON-1101](https://linear.app/sharper-flow/issue/CON-1101). Naming follow-up labels in the table does not enforce labels, raising-change links, the Linear view, or closure tracking. Nothing records or checks that the coordinator schedules a shipping-blocking unrelated bug first. |
 | A2 row 8 | [CON-1344](https://linear.app/sharper-flow/issue/CON-1344). Same-item resizing does not prove adding required stages while retaining completed work. CD-0229's Verification also retains the separate small-work proof and timing owners. |

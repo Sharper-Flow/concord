@@ -54,24 +54,11 @@ DUTY_ID = re.compile(r"^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$")
 # CD-0230 D6: the label duty is listed until a check enforces the label.
 REQUIRED_DUTIES = frozenset({"follow-up-label"})
 
-ALLOWED_ROOT = {"schema_version", "source", "rules", "a1", "a2", "duties", "catalog_generation", "approval_points"}
+ALLOWED_ROOT = {"schema_version", "source", "rules", "a1", "a2", "duties", "catalog_generation"}
 MECHANISM_FIELDS = {"state", "mechanism", "evidence", "issue"}
 ALLOWED_RULE = {"id", "actors", "follow_up_label"} | MECHANISM_FIELDS
 ALLOWED_ROW = {"row", "sizes", "actors", "follow_up_label"} | MECHANISM_FIELDS
 ALLOWED_DUTY = {"id"} | MECHANISM_FIELDS
-
-# CD-0230 D5: the approval-point inventory labels decisions,
-# it never computes consent. A row carries exactly one owner triple, a
-# non-empty reachability over distinct retained contexts, and exactly one of
-# a D2 class, a structural disposition, or a named implementation gap.
-ALLOWED_APPROVAL = {"id", "owner", "holding_law", "reachability", "classification", "evidence"}
-APPROVAL_CLASSES = frozenset({"product", "ui_ux", "production_data", "security", "increased_spending", "legal"})
-PRESERVED_GATES = frozenset({
-    "unrelinquished_attempt_takeover", "separately_required_dispatch_approval",
-    "operator_size_override", "worktree_content_waiver", "worktree_occupancy_waiver",
-    "unstarted_reclaim_override",
-})
-APPROVAL_REACHABILITY = frozenset({"live", "legacy_pinned", "retired", "caller_registered"})
 
 
 def section(text: str, heading: str, level: str) -> str:
@@ -183,142 +170,6 @@ def check_label(entry: dict, prefix: str, label: str, files_follow_ups: bool, fi
         findings.append(f"{prefix}: files follow-up items, so follow_up_label must be {label!r}, got {present!r}")
     if not files_follow_ups and present is not None:
         findings.append(f"{prefix}: files no follow-up items, so it carries no follow_up_label")
-
-
-def check_classification_shape(classification: object, prefix: str, findings: list[str]) -> str | None:
-    """Validate a closed disposition, never infer an instance's approval class."""
-    if not isinstance(classification, dict):
-        findings.append(f"{prefix}: classification must be a D2 class, structural disposition, or named gap")
-        return None
-    if "class" in classification and "gap_issue" in classification:
-        findings.append(f"{prefix}: classification carries both a class and a gap_issue")
-        return None
-    if "class" in classification:
-        class_value = classification["class"]
-        if (
-            set(classification) != {"class"}
-            or not isinstance(class_value, str)
-            or class_value not in APPROVAL_CLASSES
-        ):
-            findings.append(
-                f"{prefix}: class must be exactly one of {sorted(APPROVAL_CLASSES)}, got {class_value!r}"
-            )
-        return None
-    if "gap_issue" in classification:
-        gap_issue = classification.get("gap_issue")
-        if (
-            set(classification) != {"gap_issue", "reason"}
-            or not isinstance(gap_issue, str)
-            or not re.fullmatch(r"CON-[1-9][0-9]*", gap_issue)
-        ):
-            findings.append(f"{prefix}: a gap names gap_issue CON-n and a non-blank reason, got {classification!r}")
-            return None
-        if not isinstance(classification.get("reason"), str) or not classification["reason"].strip():
-            findings.append(f"{prefix}: a gap carries a non-blank reason")
-        return gap_issue
-    if "classes" in classification:
-        classes = classification["classes"]
-        if (set(classification) != {"classes"} or not isinstance(classes, list) or not classes
-                or any(not isinstance(item, str) or item not in APPROVAL_CLASSES for item in classes)
-                or len(set(classes)) != len(classes)):
-            findings.append(f"{prefix}: classes must be a non-empty distinct list of the six D2 classes")
-        return None
-    for disposition in ("agent_owned", "preserved_gate", "legacy"):
-        if disposition not in classification:
-            continue
-        value = classification[disposition]
-        valid = (isinstance(value, str) and value in PRESERVED_GATES) if disposition == "preserved_gate" else value is True
-        if (set(classification) != {disposition, "reason"} or not valid
-                or not isinstance(classification.get("reason"), str) or not classification["reason"].strip()):
-            findings.append(f"{prefix}: {disposition} must carry its exact disposition and a non-blank reason")
-        return None
-    findings.append(f"{prefix}: classification is neither a D2 class, structural disposition, nor a named gap")
-    return None
-
-
-def check_approval_points(
-    value: dict,
-    issue_states: dict[str, str] | None,
-    findings: list[str],
-    gaps: list[str],
-) -> None:
-    """The operator approval inventory: one row per owning source site."""
-    points = value.get("approval_points")
-    if not isinstance(points, list) or not points:
-        findings.append("approval_points must be a non-empty list of inventory rows")
-        return
-    seen: set[str] = set()
-    for index, point in enumerate(points):
-        prefix = f"approval-point {point.get('id', index) if isinstance(point, dict) else index}"
-        if not check_entry_shape(point, ALLOWED_APPROVAL, prefix, findings):
-            continue
-        identifier = point.get("id")
-        if not isinstance(identifier, str) or not identifier.strip():
-            findings.append(f"{prefix}: id must be a non-blank string")
-            continue
-        if identifier in seen:
-            findings.append(f"{prefix}: duplicate approval point")
-        seen.add(identifier)
-        owner = point.get("owner")
-        if not isinstance(owner, dict) or set(owner) != {"path", "symbol", "branch"}:
-            findings.append(f"{prefix}: owner must carry exactly path, symbol, and branch")
-        else:
-            for field in ("path", "symbol", "branch"):
-                text = owner.get(field)
-                if not isinstance(text, str) or not text.strip() or "*" in text:
-                    findings.append(f"{prefix}: owner {field} must be a non-blank exact name, got {text!r}")
-            owner_path = owner.get("path")
-            resolved = ROOT / str(owner_path) if isinstance(owner_path, str) and owner_path.strip() else None
-            if resolved is None or not resolved.is_file():
-                findings.append(f"{prefix}: owner path {owner_path!r} does not exist in the repository")
-        gap_issue = check_classification_shape(point.get("classification"), prefix, findings)
-        holding = point.get("holding_law")
-        if holding is None:
-            # A null holding record is honest only on an explicit gap whose
-            # reason names the unresolved holder and whose evidence links the
-            # actual source consent declaration (table-only shape refinement).
-            classification = point.get("classification")
-            if not isinstance(classification, dict) or not isinstance(classification.get("gap_issue"), str):
-                findings.append(f"{prefix}: holding_law may be null only on an explicit gap row")
-            classification = point.get("classification")
-            reason = classification.get("reason") if isinstance(classification, dict) else None
-            if not isinstance(reason, str) or "unresolved holder" not in reason:
-                findings.append(f"{prefix}: a null holding_law gap must name the unresolved holder in its reason")
-            if not isinstance(point.get("evidence"), list) or not point.get("evidence"):
-                findings.append(
-                    f"{prefix}: a null holding_law gap carries evidence linking the actual source consent declaration"
-                )
-        elif isinstance(holding, str) and holding.strip():
-            match = re.fullmatch(r"(CD-[0-9]{4})(?: D[0-9]+)?", holding.strip())
-            decision_file = ROOT / ".concord/docs/decisions"
-            resolved = [path for path in decision_file.glob(match.group(1) + "-*.md")] if match else []
-            if not resolved:
-                findings.append(
-                    f"{prefix}: holding_law {holding!r} resolves to no decision record under .concord/docs/decisions/"
-                )
-        else:
-            findings.append(f"{prefix}: holding_law must name the law or decision that holds the consent")
-        reachability = point.get("reachability")
-        if (
-            not isinstance(reachability, list)
-            or not reachability
-            or any(not isinstance(item, str) or item not in APPROVAL_REACHABILITY for item in reachability)
-            or len(set(reachability)) != len(reachability)
-        ):
-            findings.append(
-                f"{prefix}: reachability must be a non-empty list of distinct values from {sorted(APPROVAL_REACHABILITY)}"
-            )
-        evidence = point.get("evidence")
-        if evidence is not None:
-            if (
-                not isinstance(evidence, list)
-                or not 1 <= len(evidence) <= 8
-                or any(not isinstance(item, str) or not item.strip() or "*" in item for item in evidence)
-            ):
-                findings.append(f"{prefix}: evidence must be 1-8 non-blank citations without wildcards")
-        if gap_issue is not None:
-            check_outstanding_pointer({"issue": gap_issue}, prefix, issue_states, findings)
-            gaps.append(f"approval-point {identifier} -> {gap_issue}")
 
 
 def entries(value: dict, key: str, findings: list[str]) -> list:
@@ -437,7 +288,6 @@ def validate(
         if check_mechanism(duty, prefix, issue_states, findings):
             gaps.append(f"duty {identifier} -> {duty.get('issue')}")
     findings.extend(f"duty {identifier}: required but absent from the table" for identifier in sorted(REQUIRED_DUTIES - seen_duties))
-    check_approval_points(value, issue_states, findings, gaps)
     return findings, gaps
 
 

@@ -17,7 +17,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:ea6e955cfc74f414e98311aa0a2da0d5012ec2c6c65d107684a4e55744117133",
+  "sha256": "sha256:fed670f52dd1ad99b16a28557ed24d57f5f2920e492ff355a78824b4e431f3d6",
   "status": "accepted",
   "summary": "Amends CD-0093 D2 so a running session may create or claim its current work item's canonical worktree and persistently retarget later Concord operations to it while the host process directory stays unchanged. Same-Project cross-worktree access is tiered: read-only Inspect, exclusive-lease Verify with unchanged tracked files, typed-transfer Take over, and Destroy under its subject and occupancy gates. Operator consent and permanent-loss decisions follow CD-0243, not a blanket destructive-action approval. Targets derive from registered Project and work identity, possession grants no Product authority, and continuity re-pins the target and lease each turn with stale versions failing closed.",
   "tags": [

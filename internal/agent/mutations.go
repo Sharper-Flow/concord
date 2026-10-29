@@ -165,8 +165,7 @@ type worktreeDestroyInput struct {
 	// of origin resolves when empty.
 	DefaultRef string `json:"default_ref"`
 	// Destructive declares intent to remove without the clean-tree and
-	// merged-branch gates. It requires operator approval (CD-0096 D3
-	// Destroy).
+	// merged-branch gates.
 	Destructive    bool           `json:"destructive"`
 	Approval       *approvalInput `json:"approval"`
 	IdempotencyKey string         `json:"idempotency_key"`
@@ -3025,11 +3024,8 @@ func (r runtime) applySessionVacateTx(ctx context.Context, tx *store.Transaction
 }
 
 // planWorktreeDestroy plans concord_work_transition.worktree_destroy
-// (CD-0096 D3 Destroy): merged terminal work reclaims under the unchanged
-// CD-0095 git gates. Non-terminal work and any destructive removal require
-// the operator approval this planner routes through the standard challenge
-// flow. The worktree resolves through the session's Project anchor; no path
-// input exists (CD-0096 D2).
+// (CD-0096 D3 Destroy). The worktree resolves through the session's Project
+// anchor; no path input exists (CD-0096 D2).
 func (r runtime) planWorktreeDestroy(ctx context.Context, base agentcontract.Envelope, raw []byte, _ string, grant Authority, _ agentcontract.ContractOperation, plan *mutationPlan) (agentcontract.Envelope, error, bool) {
 	var in worktreeDestroyInput
 	if err := decodeOperationInput(raw, &in); err != nil {
@@ -3042,13 +3038,7 @@ func (r runtime) planWorktreeDestroy(ctx context.Context, base agentcontract.Env
 	if project == "" {
 		return coreError(base, "unknown_scope", "worktree tiers resolve through the session's Project; this session holds none", "refresh_context", false), nil, true
 	}
-	// CD-0243 D7 removes nonterminal consent, but an explicit destructive
-	// or occupancy waiver still consumes its exact operator approval.
 	plan.requiresApproval = false
-	if in.Destructive || in.Approval != nil {
-		plan.requiresApproval = true
-		plan.declareInitialDurability(true)
-	}
 	plan.versions["work"] = in.ExpectedVersion
 	plan.scope["work_ids"] = []string{in.WorkID}
 	plan.intents = []agentcontract.NextIntent{{Tool: "concord_work_browse", Operation: "scope", QueryID: "PM1.Q6", ReasonCode: "refresh_work_version", RequiredFields: []string{"work_id"}}}
@@ -3061,39 +3051,15 @@ func (r runtime) planWorktreeDestroy(ctx context.Context, base agentcontract.Env
 		PrincipalRef: grant.PrincipalRef, RequestID: in.IdempotencyKey,
 		ExpectedVersion: in.ExpectedVersion, Now: r.Authority.now(),
 		RequireTerminal: true, Destructive: in.Destructive,
-		// The consumed operator approval is the declared route that
-		// releases a recorded occupancy that no longer holds; the store
-		// refuses the release without the approval pairing.
-		ReleaseOccupancy: in.Destructive || in.Approval != nil,
-		HostLeases:       r.Store.ReadHostLeases(),
+		HostLeases: r.Store.ReadHostLeases(),
 	}
 	probe, err := r.Store.PrepareWorktreeReclaim(ctx, reclaimReq)
 	if err != nil {
 		return failureEnvelope(base, err), nil, true
 	}
-	occupancyWaiver, err := r.Store.WorktreeReclaimOccupancyWaiverRequired(ctx, reclaimReq, probe)
-	if err != nil {
-		return failureEnvelope(base, err), nil, true
-	}
-	if occupancyWaiver {
-		plan.requiresApproval = true
-		plan.declareInitialDurability(true)
-		reclaimReq.ReleaseOccupancy = true
-	}
 	var removal *store.WorktreeNativeRemoval
 	plan.effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []agentcontract.ChangedRef, error) {
-		// Same hand-off as the takeover planner: the mutation tail records
-		// the consumed approval reference before the effect runs.
-		approvalRef := ""
-		if ref, ok := plan.scope["approval_ref"].(string); ok {
-			approvalRef = ref
-		}
-		req := reclaimReq
-		req.OperatorApprovalRef = approvalRef
-		// The store composes the forced facts from this approval reference,
-		// together with the live-head observation and the tip-pinned removal
-		// plan its probe recorded (CD-0212 D4).
-		result, err := store.DestroyWorktreeTx(ctx, tx, req, probe)
+		result, err := store.DestroyWorktreeTx(ctx, tx, reclaimReq, probe)
 		if err != nil {
 			return nil, nil, nil, err
 		}

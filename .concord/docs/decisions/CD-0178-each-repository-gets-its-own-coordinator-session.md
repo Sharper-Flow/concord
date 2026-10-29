@@ -140,13 +140,10 @@ process. The kernel proves whether a process is alive, for every host process
 on the machine. The caller-supplied session observation is not an input to
 release or to removal.
 
-A worktree with a live occupancy row is not removed by a reclaim or by an
-audit pass. A destructive removal with operator approval under CD-0096 D3
-stays available, and its approval consequence names each live occupant.
+A worktree with a live occupancy row is not removed.
 
 A row written before this rule has no process identity. It stays until
-`session_vacate` or an operator-approved removal releases it. Liveness never
-releases it.
+`session_vacate` or the lease-set proof of CD-0179 D3 releases it.
 
 ### D4. Content gates stay as they are
 

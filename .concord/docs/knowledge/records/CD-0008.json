@@ -1,5 +1,7 @@
 {
   "applies_to_domain_ids": [
+    "agent-adapter",
+    "agent-call-boundary",
     "agent-surface",
     "work-coordination",
     "workflow-engine"

@@ -12,7 +12,7 @@
     ".concord/docs/durable-tier-budget.v1.json",
     "contracts/durable-tier-budget.schema.json"
   ],
-  "home_domain_id": "agent-surface",
+  "home_domain_id": "agent-contract",
   "id": "CD-0069",
   "kind": "decision",
   "path": ".concord/docs/decisions/CD-0069-durable-tier-enforcement.md",

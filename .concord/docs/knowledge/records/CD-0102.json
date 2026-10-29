@@ -6,7 +6,7 @@
   },
   "date": "2026-09-02T00:00:00Z",
   "doc_contract_profile": "legacy",
-  "home_domain_id": "agent-surface",
+  "home_domain_id": "worker-lanes",
   "id": "CD-0102",
   "kind": "decision",
   "path": ".concord/docs/decisions/CD-0102-lane-dispatch-runs-as-a-native-task.md",

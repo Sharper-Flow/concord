@@ -1,5 +1,8 @@
 {
   "applies_to_domain_ids": [
+    "agent-adapter",
+    "agent-contract",
+    "agent-evolution",
     "agent-surface",
     "operator-surface"
   ],

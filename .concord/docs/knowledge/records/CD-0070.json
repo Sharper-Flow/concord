@@ -6,7 +6,7 @@
   },
   "date": "2026-08-24T00:00:00Z",
   "doc_contract_profile": "legacy",
-  "home_domain_id": "agent-surface",
+  "home_domain_id": "worker-lanes",
   "id": "CD-0070",
   "kind": "decision",
   "path": ".concord/docs/decisions/CD-0070-lane-definitions-are-not-operator-selectable.md",

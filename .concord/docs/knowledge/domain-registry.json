@@ -60,7 +60,102 @@
       "domain_id": "agent-surface",
       "name": "Agent surface",
       "parent_domain_id": "product-root:concord",
-      "purpose": "Owns the typed agent plane: the read and mutation tool surface, its budget and evolution constraints, call context, lanes and worker dispatch, the adapter transport contract, and the agent result envelope.",
+      "purpose": "Owns the composition and concordance of the agent contract, call authority, adapter, worker-lane, and evolution boundaries. It keeps cross-surface architecture together without owning its children's behavior.",
+      "status": "current"
+    },
+    {
+      "architecture_relations": [
+        {
+          "governing_law_ids": ["CD-0002"],
+          "kind": "depends_on",
+          "target_domain_id": "durable-authority"
+        },
+        {
+          "governing_law_ids": ["TS7", "CD-0132"],
+          "kind": "depends_on",
+          "target_domain_id": "agent-call-boundary"
+        }
+      ],
+      "domain_id": "agent-contract",
+      "name": "Agent contract",
+      "parent_domain_id": "agent-surface",
+      "purpose": "Owns agent jobs, tool granularity, read and mutation intents, operation declarations, and schema-driven payload admission. It defines the callable contract without owning call authority or host transport.",
+      "status": "current"
+    },
+    {
+      "architecture_relations": [
+        {
+          "governing_law_ids": ["CD-0002"],
+          "kind": "depends_on",
+          "target_domain_id": "durable-authority"
+        },
+        {
+          "governing_law_ids": ["CD-0013", "CD-0023"],
+          "kind": "depends_on",
+          "target_domain_id": "workflow-engine"
+        }
+      ],
+      "domain_id": "agent-call-boundary",
+      "name": "Agent call boundary",
+      "parent_domain_id": "agent-surface",
+      "purpose": "Owns call scope, authorization, idempotency, result and error semantics, evidence references, and pagination. It admits calls and reports their effects without owning the operation inventory or host session movement.",
+      "status": "current"
+    },
+    {
+      "architecture_relations": [
+        {
+          "governing_law_ids": ["TS1", "TS2", "TS6"],
+          "kind": "depends_on",
+          "target_domain_id": "agent-contract"
+        },
+        {
+          "governing_law_ids": ["TS8", "CD-0042"],
+          "kind": "depends_on",
+          "target_domain_id": "agent-evolution"
+        }
+      ],
+      "domain_id": "agent-adapter",
+      "name": "Agent adapter",
+      "parent_domain_id": "agent-surface",
+      "purpose": "Owns OpenCode registration, host context and session placement, the permission bridge, CLI transport, and host-owned wait delivery. It carries the canonical surface without acquiring core call or workflow authority.",
+      "status": "current"
+    },
+    {
+      "architecture_relations": [
+        {
+          "governing_law_ids": ["TS7", "CD-0080"],
+          "kind": "depends_on",
+          "target_domain_id": "agent-call-boundary"
+        },
+        {
+          "governing_law_ids": ["TS4", "CD-0117"],
+          "kind": "depends_on",
+          "target_domain_id": "agent-contract"
+        },
+        {
+          "governing_law_ids": ["CD-0013", "CD-0117"],
+          "kind": "depends_on",
+          "target_domain_id": "workflow-engine"
+        }
+      ],
+      "domain_id": "worker-lanes",
+      "name": "Worker lanes",
+      "parent_domain_id": "agent-surface",
+      "purpose": "Owns typed lane contracts, dispatch identity, worker evidence and visibility, portable lane methods, and the boundary around host-owned worker execution. It does not own workflow state or host-specific procedure.",
+      "status": "current"
+    },
+    {
+      "architecture_relations": [
+        {
+          "governing_law_ids": ["TS8", "CD-0042"],
+          "kind": "depends_on",
+          "target_domain_id": "agent-contract"
+        }
+      ],
+      "domain_id": "agent-evolution",
+      "name": "Agent evolution",
+      "parent_domain_id": "agent-surface",
+      "purpose": "Owns generated manifest identity, pre-go-live agent-surface changes, and deterministic change evidence. It binds core and adapter artifacts to one contract without creating a separate callable surface.",
       "status": "current"
     },
     {

@@ -6,7 +6,7 @@
   },
   "date": "2026-09-01T00:00:00Z",
   "doc_contract_profile": "legacy",
-  "home_domain_id": "agent-surface",
+  "home_domain_id": "agent-call-boundary",
   "id": "CD-0094",
   "kind": "decision",
   "path": ".concord/docs/decisions/CD-0094-operation-scoped-main-checkout-authority.md",

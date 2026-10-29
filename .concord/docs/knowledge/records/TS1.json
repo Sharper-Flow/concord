@@ -30,7 +30,7 @@
     "internal/agent/agent_jobs_corpus_test.go",
     "internal/agent/mutation_dispatch_test.go"
   ],
-  "home_domain_id": "agent-surface",
+  "home_domain_id": "agent-contract",
   "id": "TS1",
   "kind": "spec",
   "path": ".concord/docs/agent-tool-surface-jobs.md",

@@ -15,7 +15,7 @@
     "adapter/opencode/concord.ts",
     "contracts/host-tool-surface.v1.json"
   ],
-  "home_domain_id": "agent-surface",
+  "home_domain_id": "agent-adapter",
   "id": "CD-0119",
   "kind": "decision",
   "law_relations": [

@@ -11,7 +11,7 @@
     "cmd/concord/worker_evidence_test.go",
     "adapter/opencode/credentials.ts"
   ],
-  "home_domain_id": "agent-surface",
+  "home_domain_id": "worker-lanes",
   "id": "CD-0044",
   "kind": "decision",
   "path": ".concord/docs/decisions/CD-0044-worker-evidence-caller-authentication.md",

@@ -11,7 +11,7 @@
     "scripts/test-installer.py",
     ".concord/docs/decisions/CD-0087-provider-specific-provisioning-may-initialize-os-custody.md"
   ],
-  "home_domain_id": "agent-surface",
+  "home_domain_id": "agent-adapter",
   "id": "CD-0087",
   "kind": "decision",
   "path": ".concord/docs/decisions/CD-0087-provider-specific-provisioning-may-initialize-os-custody.md",

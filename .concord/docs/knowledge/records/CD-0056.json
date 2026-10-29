@@ -16,7 +16,7 @@
     "internal/store/worker_lanes.go",
     "adapter/opencode/dispatch.ts"
   ],
-  "home_domain_id": "agent-surface",
+  "home_domain_id": "worker-lanes",
   "id": "CD-0056",
   "kind": "decision",
   "path": ".concord/docs/decisions/CD-0056-lane-evidence-obligations-bind.md",

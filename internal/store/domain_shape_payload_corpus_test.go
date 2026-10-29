@@ -10,7 +10,7 @@ import (
 
 func TestCommittedUniqueJSONFactFitsBound(t *testing.T) {
 	t.Parallel()
-	assertCommittedDomainFactFitsBound(t, "agent-surface", "internal/payloadschema", "agent-unique-json",
+	assertCommittedDomainFactFitsBound(t, "agent-contract", "internal/payloadschema", "agent-unique-json", []string{"agent-call-boundary", "agent-contract", "workflow-engine"},
 		DomainShapeSelector{Path: "internal/payloadschema/unique_json.go"},
 		DomainShapeSelector{Subject: "agent-unique-json"},
 	)
@@ -18,7 +18,7 @@ func TestCommittedUniqueJSONFactFitsBound(t *testing.T) {
 
 func TestCommittedEnvelopeSchemaFactFitsBound(t *testing.T) {
 	t.Parallel()
-	assertCommittedDomainFactFitsBound(t, "agent-surface", "internal/payloadschema", "agent-envelope-schema",
+	assertCommittedDomainFactFitsBound(t, "agent-contract", "internal/payloadschema", "agent-envelope-schema", []string{"agent-call-boundary", "agent-contract"},
 		DomainShapeSelector{Path: "internal/payloadschema/envelope.go"},
 		DomainShapeSelector{Path: "internal/payloadschema/generated_envelope_schema.go"},
 		DomainShapeSelector{Subject: "agent-envelope-schema"},
@@ -27,7 +27,7 @@ func TestCommittedEnvelopeSchemaFactFitsBound(t *testing.T) {
 
 func TestCommittedAgentContractFactFitsBound(t *testing.T) {
 	t.Parallel()
-	assertCommittedDomainFactFitsBound(t, "agent-surface", "internal/agentcontract", "agent-operation-admission",
+	assertCommittedDomainFactFitsBound(t, "agent-contract", "internal/agentcontract", "agent-operation-admission", []string{"agent-contract"},
 		DomainShapeSelector{Path: "internal/agentcontract/generated_contracts.go"},
 		DomainShapeSelector{Path: "internal/agentcontract/payload_validation.go"},
 		DomainShapeSelector{Subject: "agent-operation-admission"},
@@ -36,7 +36,7 @@ func TestCommittedAgentContractFactFitsBound(t *testing.T) {
 
 func TestCommittedTypedErrorVocabularyFactFitsBound(t *testing.T) {
 	t.Parallel()
-	assertCommittedDomainFactFitsBound(t, "agent-surface", "internal/payloadschema", "agent-typed-error-vocabulary",
+	assertCommittedDomainFactFitsBound(t, "agent-contract", "internal/payloadschema", "agent-typed-error-vocabulary", []string{"agent-call-boundary", "agent-contract"},
 		DomainShapeSelector{Path: "internal/payloadschema/generated_typed_error_kinds.go"},
 		DomainShapeSelector{Subject: "agent-typed-error-vocabulary"},
 	)
@@ -44,7 +44,7 @@ func TestCommittedTypedErrorVocabularyFactFitsBound(t *testing.T) {
 
 func TestCommittedEnvelopeModelFactFitsBound(t *testing.T) {
 	t.Parallel()
-	assertCommittedDomainFactFitsBound(t, "agent-surface", "internal/agentcontract", "agent-envelope-model",
+	assertCommittedDomainFactFitsBound(t, "agent-contract", "internal/agentcontract", "agent-envelope-model", []string{"agent-call-boundary", "agent-contract"},
 		DomainShapeSelector{Path: "internal/agentcontract/envelope.go"},
 		DomainShapeSelector{Subject: "agent-envelope-model"},
 	)
@@ -52,7 +52,7 @@ func TestCommittedEnvelopeModelFactFitsBound(t *testing.T) {
 
 func TestCommittedWorkflowCompletionProofFactFitsBound(t *testing.T) {
 	t.Parallel()
-	assertCommittedDomainFactFitsBound(t, "workflow-engine", "internal/workflowproof", "workflow-completion-proof",
+	assertCommittedDomainFactFitsBound(t, "workflow-engine", "internal/workflowproof", "workflow-completion-proof", []string{"workflow-engine"},
 		DomainShapeSelector{Path: "internal/workflowproof/collector.go"},
 		DomainShapeSelector{Path: "internal/workflowproof/types.go"},
 		DomainShapeSelector{Subject: "workflow-completion-proof"},
@@ -61,13 +61,13 @@ func TestCommittedWorkflowCompletionProofFactFitsBound(t *testing.T) {
 
 func TestCommittedCIWaitFactFitsBound(t *testing.T) {
 	t.Parallel()
-	assertCommittedDomainFactFitsBound(t, "agent-surface", "internal/ciwait", "ci-wait-deadline",
+	assertCommittedDomainFactFitsBound(t, "agent-adapter", "internal/ciwait", "ci-wait-deadline", []string{"agent-adapter"},
 		DomainShapeSelector{Path: "internal/ciwait/ci_wait.go"},
 		DomainShapeSelector{Subject: "ci-wait-deadline"},
 	)
 }
 
-func assertCommittedDomainFactFitsBound(t *testing.T, domainID, owningRoot, factID string, selectors ...DomainShapeSelector) {
+func assertCommittedDomainFactFitsBound(t *testing.T, domainID, owningRoot, factID string, applicability []string, selectors ...DomainShapeSelector) {
 	t.Helper()
 	ctx := context.Background()
 	root := repositoryRootForTest(t)
@@ -100,7 +100,7 @@ func assertCommittedDomainFactFitsBound(t *testing.T, domainID, owningRoot, fact
 				continue
 			}
 			fact := item.Fact
-			if fact.Kind != DomainFactInvariant || fact.Standing != "observed" || fact.OwnerDomainID != domainID || fact.OwningRoot != owningRoot || fact.Invariant == nil || !slices.Equal(fact.Invariant.AppliesToDomainIDs, []string{domainID}) {
+			if fact.Kind != DomainFactInvariant || fact.Standing != "observed" || fact.OwnerDomainID != domainID || fact.OwningRoot != owningRoot || fact.Invariant == nil || !slices.Equal(fact.Invariant.AppliesToDomainIDs, applicability) {
 				t.Fatalf("wrong domain fact: %+v", fact)
 			}
 			found = true

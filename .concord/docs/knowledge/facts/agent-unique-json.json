@@ -2,7 +2,9 @@
   "id": "agent-unique-json",
   "invariant": {
     "applies_to_domain_ids": [
-      "agent-surface"
+      "agent-call-boundary",
+      "agent-contract",
+      "workflow-engine"
     ],
     "enforced_by": [
       {
@@ -19,7 +21,7 @@
     "statement": "Agent invoke decoding, operation-payload validation and workflow-action field normalization reject duplicate JSON object members recursively and reject trailing data before downstream decoding or selection. The shared validator in payloadschema compares decoded member names, keeps each object's names separate and reads numbers without float conversion. This lexical admission does not select a schema, normalize workflow fields or authorize a request."
   },
   "kind": "invariant",
-  "owner_domain_id": "agent-surface",
+  "owner_domain_id": "agent-contract",
   "owning_root": "internal/payloadschema",
   "schema_version": "1.0",
   "standing": "observed"

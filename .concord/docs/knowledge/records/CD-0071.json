@@ -13,7 +13,7 @@
     ".concord/docs/agent-call-context-contract.md",
     ".concord/docs/reachability-exceptions.v1.json"
   ],
-  "home_domain_id": "agent-surface",
+  "home_domain_id": "agent-call-boundary",
   "id": "CD-0071",
   "kind": "decision",
   "path": ".concord/docs/decisions/CD-0071-authority-boundary-is-model-output.md",

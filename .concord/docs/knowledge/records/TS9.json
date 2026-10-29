@@ -27,7 +27,7 @@
     "scripts/check-public-content.py",
     "scripts/check-agent-contracts.py"
   ],
-  "home_domain_id": "agent-surface",
+  "home_domain_id": "agent-evolution",
   "id": "TS9",
   "kind": "spec",
   "path": ".concord/docs/agent-tool-surface-measurement.md",

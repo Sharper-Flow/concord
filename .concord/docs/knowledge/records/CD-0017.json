@@ -10,7 +10,7 @@
     "contracts/agent-lanes.v1.json",
     "internal/store/worker_authority_boundary_test.go"
   ],
-  "home_domain_id": "agent-surface",
+  "home_domain_id": "worker-lanes",
   "id": "CD-0017",
   "kind": "decision",
   "path": ".concord/docs/decisions/CD-0017-typed-workers-and-model-routing.md",

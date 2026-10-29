@@ -12,7 +12,7 @@
     "internal/store/schema.go",
     "internal/store/worktrees_test.go"
   ],
-  "home_domain_id": "agent-surface",
+  "home_domain_id": "agent-call-boundary",
   "id": "CD-0151",
   "kind": "decision",
   "law_relations": [],

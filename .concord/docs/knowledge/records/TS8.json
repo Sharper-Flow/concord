@@ -28,7 +28,7 @@
     ".concord/scenarios/agent-jobs.v1.json",
     "internal/agent/agent_jobs_corpus_test.go"
   ],
-  "home_domain_id": "agent-surface",
+  "home_domain_id": "agent-evolution",
   "id": "TS8",
   "kind": "spec",
   "path": ".concord/docs/agent-tool-surface-evolution.md",

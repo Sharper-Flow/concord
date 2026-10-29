@@ -12,7 +12,7 @@
     ".concord/docs/adapter-host-pin.v1.json",
     "scripts/probe-adapter-host-result.py"
   ],
-  "home_domain_id": "agent-surface",
+  "home_domain_id": "agent-adapter",
   "id": "CD-0084",
   "kind": "decision",
   "path": ".concord/docs/decisions/CD-0084-tool-results-are-host-tool-results.md",

@@ -11,7 +11,7 @@
     "cmd/concord/ci_wait.go",
     "internal/ciwait/ci_wait.go"
   ],
-  "home_domain_id": "agent-surface",
+  "home_domain_id": "agent-adapter",
   "id": "CD-0199",
   "kind": "decision",
   "law_relations": [

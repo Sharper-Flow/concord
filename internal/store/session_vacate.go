@@ -355,7 +355,7 @@ func PendingSessionVacateSourceRequestTx(ctx context.Context, transaction *Trans
 	}
 	p := request.Payload
 	if p.DestinationDirectory == "" {
-		return target, newFailure(KindInvalidPayload, "session_vacate", "the committed vacate request names no registered main checkout", false, "restore a verified backup into a new path with concord restore, then swap")
+		return target, newFailure(KindInvariantViolation, "session_vacate", "the committed vacate request names no registered main checkout", false, "restore a verified backup into a new path with concord restore, then swap")
 	}
 	if request.Landed {
 		return target, newFailure(KindProjectionNotFound, "session_vacate", "no pending session vacate names this directory as its source worktree", false, "run the operation from a linked worktree")

@@ -320,7 +320,7 @@ func TestApprovalPolicyLiveness(t *testing.T) {
 		}
 		err := runApprovalActionTx(t, s, registry, workID, "confirm_premise", owner, nil, "confirm", "", `{"selected_choice":"confirm"}`)
 		var absentFailure *Failure
-		if err == nil || !failureAs(err, &absentFailure) || absentFailure.Kind != KindInvalidInput || !strings.Contains(absentFailure.Detail, "absence is a legacy shape") {
+		if err == nil || !failureAs(err, &absentFailure) || absentFailure.Kind != KindInvariantViolation || !strings.Contains(absentFailure.Detail, "absence is a legacy shape") {
 			t.Fatalf("the absent decision fact folded %v, want the typed absence refusal", err)
 		}
 		if events := int64(approvalEventCount(t, s, workID)); events != baselineEvents {
@@ -373,7 +373,7 @@ func TestApprovalPolicyLiveness(t *testing.T) {
 			t.Fatalf("the absent fact fabricated question %+v withheld %+v on a step without a confirmation action", noActionQuestion, noActionWithheld)
 		}
 		// The classification boundary holds the same limit: no fact, a
-		// non-canonical order, and a duplicate domain refuse as typed input
+		// non-canonical order, and a duplicate stored domain refuse as invariant
 		// failures instead of folding to engineering.
 		for name, domains := range map[string][]string{
 			"absent":            nil,
@@ -383,7 +383,7 @@ func TestApprovalPolicyLiveness(t *testing.T) {
 		} {
 			_, classifyErr := ClassifyWorkflowApproval(definition, "confirm_premise", WorkflowApprovalFacts{ActiveDecisionDomains: domains})
 			var classifyFailure *Failure
-			if classifyErr == nil || !failureAs(classifyErr, &classifyFailure) || classifyFailure.Kind != KindInvalidInput {
+			if classifyErr == nil || !failureAs(classifyErr, &classifyFailure) || classifyFailure.Kind != KindInvariantViolation {
 				t.Fatalf("the classifier accepted the %s decision fact set %v: %v", name, domains, classifyErr)
 			}
 		}

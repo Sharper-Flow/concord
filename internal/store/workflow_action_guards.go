@@ -567,7 +567,7 @@ func guardSupersedeContractRecovery(g *workflowActionGuardContext) error {
 	if atCompleteStep && !declaresRoute {
 		// The payload satisfies its own declaration; what refuses is the step
 		// state, so the refusal is an operation refusal, not a payload one.
-		return newFailure(KindInvalidOperation, "workflow_action", "complete-step correction requires the reserved route convention complete_step_correction", false, "declare complete_step_correction in the successor route conventions")
+		return newFailure(KindInvalidPayload, "workflow_action", "complete-step correction requires complete_step_correction in fields.route_conventions", false, "declare complete_step_correction in the successor route conventions")
 	}
 	g.staleRecovery = g.admissionDecision != nil && g.admissionDecision.RecoveryRoute
 	return nil
@@ -1028,8 +1028,8 @@ func guardAcceptWorkerResultDeliveryRoute(g *workflowActionGuardContext) error {
 		return guardDeliveryAdmission(g)
 	}
 	if artifact != "" || state != "" {
-		return newFailure(KindInvalidOperation, "workflow_action",
-			"accept_worker_result carries delivery fields only at the delivery-admitting refinement step",
+		return newFailure(KindInvalidPayload, "workflow_action",
+			"accept_worker_result carries fields.delivery_artifact and fields.delivery_state only at the delivery-admitting refinement step",
 			false, "drop the delivery fields here, or assert the delivery through record_delivery")
 	}
 	return nil

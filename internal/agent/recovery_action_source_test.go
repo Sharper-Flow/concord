@@ -10,6 +10,8 @@ import (
 	"sort"
 	"strconv"
 	"testing"
+
+	"github.com/sharper-flow/concord/internal/agentcontract"
 )
 
 // A recovery action is a plain string at every construction site, and the
@@ -76,8 +78,8 @@ var refusalConstructors = map[string]int{
 }
 
 // TestEveryCoreErrorRecoveryActionIsContractual parses this package and holds
-// every refusal construction site to the contract's enum. A literal outside
-// the enum builds a refusal that cannot marshal.
+// every refusal construction site to the contract's enum. An empty proposal
+// exercises the constructor's shared default rather than bypassing the check.
 func TestEveryCoreErrorRecoveryActionIsContractual(t *testing.T) {
 	kinds := contractRecoveryKinds(t)
 	fset := token.NewFileSet()
@@ -124,6 +126,19 @@ func TestEveryCoreErrorRecoveryActionIsContractual(t *testing.T) {
 				return true
 			}
 			checked++
+			if value == "" {
+				kind, literal := stringLiteralValue(call.Args[position-2])
+				if !literal {
+					t.Errorf("%s: default recovery requires a literal error kind for this source check", fset.Position(lit.Pos()))
+					return true
+				}
+				if name.Name == "coreError" {
+					base := agentcontract.NewBase("source-recovery", "concord_work_transition", "workflow_action")
+					value = coreError(base, kind, "malformed request", "", false).Error.RecoveryAction.Kind
+				} else {
+					value = newRuntimeFailure(kind, "malformed request", "", false).recovery
+				}
+			}
 			if !kinds[value] {
 				t.Errorf("%s: %s builds recovery action %q, which the envelope contract does not declare; the refusal cannot marshal", fset.Position(lit.Pos()), name.Name, value)
 			}

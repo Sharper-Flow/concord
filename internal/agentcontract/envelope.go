@@ -745,7 +745,9 @@ func PublicRecovery(kind, proposed string) string {
 		return "contact_operator"
 	case "approval_required", "approval_invalid":
 		return "request_approval"
-	case "invalid_transition", "invalid_relation", "invariant_violation", "invalid_input":
+	case "invalid_input":
+		return "correct_request"
+	case "invalid_transition", "invalid_relation", "invariant_violation":
 		return "reread_entities"
 	case "not_terminal", "stale_requires_review", "stale_law_revision", "idempotency_conflict", "degraded_not_allowed":
 		// The caller acts on state it can reread: a lifecycle, a review

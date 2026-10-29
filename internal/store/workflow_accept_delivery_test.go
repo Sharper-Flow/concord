@@ -522,7 +522,7 @@ func TestRefineExitAdmitsOnlyADeliveryAssertion(t *testing.T) {
 			acceptDeliveryBindFresh(t, work, "work")
 			err := runDeliveryAdmissionAction(t, work.f.store, workIDWork, "accept_worker_result", acceptDeliveryCombinedPayload(work, "artifact:misplaced"), nil, reviewGateAcceptor(workIDWork))
 			var misplaced *Failure
-			if err == nil || !failureAs(err, &misplaced) || misplaced.Kind != KindInvalidOperation || !strings.Contains(misplaced.Detail, "carries delivery fields only at the delivery-admitting refinement step") {
+			if err == nil || !failureAs(err, &misplaced) || misplaced.Kind != KindInvalidPayload || !strings.Contains(misplaced.Detail, "carries fields.delivery_artifact and fields.delivery_state only at the delivery-admitting refinement step") {
 				t.Fatalf("accept with delivery fields at %s = %v, want the misplaced-fields refusal", family.workStep, err)
 			}
 			reviewGateRequireStep(t, work.f.store, workIDWork, family.workStep)

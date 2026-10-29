@@ -32,6 +32,12 @@ UI corrections, and security repairs restoring existing protections do not
 independently require approval. Another class may still apply. Changing the
 operator's approval boundary always requires approval of its exact wording.
 
+Within assigned work on Concord itself, apply CD-0243 D3's deletion exemption: retiring
+Concord's own law, unwanted mechanisms and systems, and tests of retired behavior
+needs no per-deletion product-direction, UI/UX or governed-scope-cut approval.
+Its delivery duties, exclusions, operator-only waivers and current tool refusals
+remain binding. This exemption does not apply to other Products.
+
 For preview or early visual-design approval, show the inspectable material and the
 version being approved. Ask an ordinary question and record the answer in the
 existing work record.

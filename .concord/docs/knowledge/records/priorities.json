@@ -17,7 +17,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:f646153d789b42b07038b3f1c5df6b3c08f62861b2cb8df9163bf8d7ab67889c",
+  "sha256": "sha256:6d496d53ce619a6131d9950de359681ebeee20073862c81c33d6d08b59211c17",
   "status": "accepted",
   "summary": "Ranked-first constitution and sole canonical source for the one-operator operating envelope, the constraints, the conflict rules (Appendix A), the open conflicts with current Concord text (Appendix B), the route for Concord's own development, and the standing law that serves the operator's goals in goals.md, which is guidance, not law. A cited decision record stays the authority for what it decides. Where a companion document contradicts this file, this file wins.",
   "tags": [

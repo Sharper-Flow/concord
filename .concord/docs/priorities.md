@@ -275,6 +275,7 @@ From the operator's earlier answers:
 - S: establish data-loss risk and recovery before acting; apply P10 and CD-0243 D5.
 - U: a new or changed UI/UX design or interaction waits for operator review and acceptance.
   Minor corrections that introduce no new design or interaction need no fresh approval (CD-0243 D2).
+  Deletion within assigned work on Concord follows CD-0243 D3's exemption and its retained exclusions.
 
 Approved proposals (situation, then rule):
 - P1 Law vs Arch. A law's home domain no longer owns the behavior the law governs. The law states what must be
@@ -311,6 +312,9 @@ Approved proposals (situation, then rule):
 - P12 Approval test for law changes under R3. Apply CD-0243 D2's six approval classes. Seriousness,
   Domain count, and crucial size do not independently require approval. Adding, removing, or reclassifying
   an operator approval always requires the operator's approval of its exact wording.
+  CD-0243 D3 exempts deletion of Concord's own law, unwanted mechanisms and systems, and tests of retired
+  behavior within assigned work on Concord from per-deletion product-direction, UI/UX and governed-scope-cut
+  approval. Its recording, law-retirement, independent-review and required-CI duties, exclusions and gates remain.
 
 ### A2. Conflict situations by change size
 Columns are the sizes the decision model gives a change. "Same" means the rule does not change with size.

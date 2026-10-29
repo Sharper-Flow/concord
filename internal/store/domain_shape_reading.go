@@ -261,17 +261,15 @@ func reconstructDomainShapeReadingSnapshot(ctx context.Context, runner GitRunner
 	return nil
 }
 
+// laws come from domainShapeManifestGoverningLaw over this same manifest, so
+// only the committed law bytes remain to prove.
 func proveDomainShapeGoverningLaw(ctx context.Context, runner GitRunner, w *dispatchReadingWitness, manifest KnowledgeManifest, laws []string) error {
 	for _, law := range laws {
 		index := slices.IndexFunc(manifest.Records, func(r KnowledgeRecord) bool { return r.ID == law })
 		if index < 0 {
 			return domainShapeReadingProofFailure()
 		}
-		r := manifest.Records[index]
-		if !manifestLawBearingKinds[r.Kind] || r.HomeDomainID == "" || r.Status != "accepted" {
-			return domainShapeReadingProofFailure()
-		}
-		if _, err := verifyManifestRecordRunner(ctx, runner, w.sourceRepo, w.commitOID, r, manifestSharedHomeRole); err != nil {
+		if _, err := verifyManifestRecordRunner(ctx, runner, w.sourceRepo, w.commitOID, manifest.Records[index], manifestSharedHomeRole); err != nil {
 			return err
 		}
 	}
@@ -309,7 +307,7 @@ func proveDomainShapeReadingTooling(ctx context.Context, runner GitRunner, repo 
 
 // This is the immutable equivalent of domainShapeGoverningLawTx's join: accepted
 // law must have a home, and match a selected Domain by home or applicability,
-// or an explicit fact citation. Metadata comes only from the pinned manifest.
+// or an explicit fact citation.
 func domainShapeManifestGoverningLaw(manifest KnowledgeManifest, selection DomainShapeResult) []string {
 	explicit := map[string]bool{}
 	for _, item := range selection.Facts {

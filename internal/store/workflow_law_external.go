@@ -23,13 +23,14 @@ var workflowLawExternalGit GitRunner = ExecGitRunner{}
 // onto it. A candidate that main already contains has no fork point that
 // separates the two, so it proves nothing.
 //
-// A law's text lives in its document; its presence, tier, and Domains live in
-// its knowledge record shard. A text-only delta needs its document untouched;
-// any other delta needs its record shard, and every document a record names,
-// untouched. The Domain registry is one shard. Anything unproved stays
-// charged, including an edit the item made and then reverted, and a delta in
-// another Project's source. History cannot see an item edit whose commit a
-// rebase dropped because main already held the same change.
+// A law's presence, tier, Domains, and text all live in its knowledge record
+// shard, which names the document and pins its hash. Every delta needs each
+// record shard that holds the law at the merge base, the candidate, or the
+// scanned commit, and every document those records name, untouched. The
+// Domain registry is one shard. Anything unproved stays charged, including an
+// edit the item made and then reverted, and a delta in another Project's
+// source. History cannot see an item edit whose commit a rebase dropped
+// because main already held the same change.
 
 type workflowLawCandidateProof struct {
 	candidate WorkerReviewCandidate
@@ -105,63 +106,37 @@ func (s *Store) lawCandidateProof(ctx context.Context, workID string) *workflowL
 		return err == nil && strings.TrimSpace(string(touched)) == ""
 	}
 	var shards []*workflowLawShardIndex
-	shardsRead, shardsFailed := false, false
-	readShards := func() bool {
-		if !shardsRead {
-			shardsRead = true
-			for _, commit := range []string{fork, candidate.Commit, scanned} {
-				index, err := readWorkflowLawShardIndex(gitCtx, repo, commit)
-				if err != nil {
-					shardsFailed = true
-					break
-				}
-				shards = append(shards, index)
-			}
+	for _, commit := range []string{fork, candidate.Commit, scanned} {
+		index, err := readWorkflowLawShardIndex(gitCtx, repo, commit)
+		if err != nil {
+			return nil
 		}
-		return !shardsFailed
+		shards = append(shards, index)
 	}
 	proof := &workflowLawCandidateProof{candidate: *candidate, source: source, scanned: scanned, laws: map[string]bool{}}
-	old, now := workflowLawInventoryMap(before), workflowLawInventoryMap(after)
+	now := workflowLawInventoryMap(after)
 	for _, id := range ids {
 		lawID := strings.TrimPrefix(id, candidate.ProjectID+"/")
-		start, existed := old[id]
-		current, exists := now[id]
-		var paths []string
-		if exists {
-			var path string
-			err := s.db.QueryRowContext(ctx, `SELECT path FROM law_subjects WHERE home_project_id=? AND home_locator_id=? AND law_id=?`, source.ProjectID, source.LocatorID, lawID).Scan(&path)
-			if err != nil || path == "" {
-				continue
-			}
-			paths = append(paths, path)
+		var records, paths []string
+		for _, index := range shards {
+			records = append(records, index.records[lawID]...)
+			paths = append(paths, index.documents[lawID]...)
 		}
-		if !existed || !exists || start.Tier != current.Tier || !slices.Equal(start.DomainIDs, current.DomainIDs) {
-			if !readShards() {
-				continue
-			}
-			var records []string
-			for _, index := range shards {
-				records = append(records, index.records[lawID]...)
-				paths = append(paths, index.documents[lawID]...)
-			}
-			if len(records) == 0 && !exists && shards[1].recordTree != "" {
-				// No read commit holds the removed law's record, so the
-				// whole record tree must be untouched.
-				records = append(records, shards[1].recordTree)
-			}
-			if len(records) == 0 {
-				continue
-			}
-			paths = append(paths, records...)
+		if _, exists := now[id]; len(records) == 0 && !exists && shards[1].recordTree != "" {
+			// No read commit holds the removed law's record, so the
+			// whole record tree must be untouched.
+			records = append(records, shards[1].recordTree)
 		}
-		if untouched(uniqueSorted(paths)) {
+		if len(records) != 0 && untouched(uniqueSorted(append(paths, records...))) {
 			proof.laws[id] = true
 		}
 	}
-	if registryMoved && workflowLawRegistryHomedAt(ctx, s.db, source, scanned) && readShards() {
-		if registry := shards[len(shards)-1].registry; registry != "" {
-			proof.registry = untouched([]string{registry})
+	if registryMoved && workflowLawRegistryHomedAt(ctx, s.db, source, scanned) {
+		var registries []string
+		for _, index := range shards {
+			registries = append(registries, index.registry)
 		}
+		proof.registry = untouched(uniqueSorted(registries))
 	}
 	if len(proof.laws) == 0 && !proof.registry {
 		return nil

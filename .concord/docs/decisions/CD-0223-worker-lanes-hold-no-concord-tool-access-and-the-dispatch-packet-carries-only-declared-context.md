@@ -78,8 +78,10 @@ No caller-supplied path, ref, packet replacement, or mutable-checkout fallback
 is admitted. A source read creates no workflow or evidence record.
 
 An `inspect_diff` capability reads only the committed delta from the recorded
-dispatch subject of the first editing attempt under the review's contract
-version to the review attempt's pinned subject, on the same claimed worktree. The host verifies exact review HEAD
+dispatch subject of the first editing attempt on the same claimed worktree
+to the review attempt's pinned subject. Contract revisions do not reset this
+foundation: Review inspects the accumulated solution under CD-0242 D5–D7.
+The host verifies exact review HEAD
 and a clean tree before access. The diff is restricted to the recorded
 approved job's path scope. Missing base identity or scope refuses; the host
 never guesses another base or widens to the whole repository.

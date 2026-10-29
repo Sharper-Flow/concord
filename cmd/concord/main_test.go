@@ -18,7 +18,6 @@ import (
 	"strconv"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/sharper-flow/concord/internal/agent"
 	"github.com/sharper-flow/concord/internal/agentcontract"
@@ -172,14 +171,8 @@ func TestRunHelpListsExactCommandFormsAndStdinShapes(t *testing.T) {
 		"concord client policy-expand < JSON stdin",
 		"concord product-create < JSON stdin",
 		"concord product create < JSON stdin",
-		"concord resource-create < JSON stdin",
-		"concord resource create < JSON stdin",
-		"concord resource-share < JSON stdin",
-		"concord resource share < JSON stdin",
 		"concord domain-project-attachments-replace < JSON stdin",
 		"concord domain project-attachments-replace < JSON stdin",
-		"concord domain-resource-attachments-replace < JSON stdin",
-		"concord domain resource-attachments-replace < JSON stdin",
 		"concord project-locator-add < JSON stdin",
 		"concord project locator-add < JSON stdin",
 		"concord invoke < JSON stdin",
@@ -581,35 +574,6 @@ func TestProductStageUpdateCLIRecordsPromotion(t *testing.T) {
 	}
 }
 
-func TestResourceCreateCLIRecordsExpectedEvent(t *testing.T) {
-	dbPath := filepath.Join(t.TempDir(), "concord.db")
-	seedCLIProduct(t, dbPath, "resource-create-product", "resource-create-project")
-	runOperatorJSON(t, dbPath, []string{"resource-create"}, map[string]any{
-		"event_id": "resource-create-event", "resource_id": "resource-create-id", "product_id": "resource-create-product",
-		"display_name": "Queue", "class": "infrastructure", "kind": "queue", "purpose": "dispatches work",
-		"stage_maturity": "production", "stage_audience_commitment": "limited", "environments": []string{"production"},
-		"metadata_schema_version": "1", "metadata": map[string]any{}, "expected_product_version": 2,
-	})
-	assertCLIEvent(t, dbPath, "resource-create-event", "managed_resource.created")
-}
-
-func TestResourceShareCLIRecordsExpectedEvent(t *testing.T) {
-	dbPath := filepath.Join(t.TempDir(), "concord.db")
-	seedCLIProduct(t, dbPath, "resource-share-owner", "resource-share-owner-project")
-	seedCLIProduct(t, dbPath, "resource-share-consumer", "resource-share-consumer-project")
-	runOperatorJSON(t, dbPath, []string{"resource-create"}, map[string]any{
-		"event_id": "resource-share-create", "resource_id": "resource-share-id", "product_id": "resource-share-owner",
-		"display_name": "Database", "class": "infrastructure", "kind": "database", "purpose": "stores data",
-		"stage_maturity": "production", "stage_audience_commitment": "limited", "environments": []string{"production"},
-		"metadata_schema_version": "1", "metadata": map[string]any{}, "expected_product_version": 2,
-	})
-	runOperatorJSON(t, dbPath, []string{"resource-share"}, map[string]any{
-		"event_id": "resource-share-event", "resource_id": "resource-share-id", "product_id": "resource-share-consumer",
-		"purpose": "reads data", "environments": []string{"production"}, "expected_resource_version": 1,
-	})
-	assertCLIEvent(t, dbPath, "resource-share-event", "managed_resource.consumer_added")
-}
-
 func TestDomainProjectAttachmentsReplaceCLIRecordsExpectedEvent(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "concord.db")
 	seedCLIProduct(t, dbPath, "domain-project-product", "domain-project-project")
@@ -619,23 +583,6 @@ func TestDomainProjectAttachmentsReplaceCLIRecordsExpectedEvent(t *testing.T) {
 		"expected_version": 0, "attachments": []map[string]string{{"project_id": "domain-project-project", "role": "primary"}},
 	})
 	assertCLIEvent(t, dbPath, "domain-project-attachments-event", "domain.project_attachments_replaced")
-}
-
-func TestDomainResourceAttachmentsReplaceCLIRecordsExpectedEvent(t *testing.T) {
-	dbPath := filepath.Join(t.TempDir(), "concord.db")
-	seedCLIProduct(t, dbPath, "domain-resource-product", "domain-resource-project")
-	runOperatorJSON(t, dbPath, []string{"resource-create"}, map[string]any{
-		"event_id": "domain-resource-create", "resource_id": "domain-resource-id", "product_id": "domain-resource-product",
-		"display_name": "Queue", "class": "infrastructure", "kind": "queue", "purpose": "dispatches work",
-		"stage_maturity": "production", "stage_audience_commitment": "limited", "environments": []string{"production"},
-		"metadata_schema_version": "1", "metadata": map[string]any{}, "expected_product_version": 2,
-	})
-	seedCLIDomain(t, dbPath, "domain-resource-product", "domain-resource-id")
-	runOperatorJSON(t, dbPath, []string{"domain-resource-attachments-replace"}, map[string]any{
-		"event_id": "domain-resource-attachments-event", "product_id": "domain-resource-product", "domain_id": "domain-resource-id",
-		"expected_version": 0, "attachments": []map[string]any{{"resource_id": "domain-resource-id", "purpose": "uses queue", "environments": []string{"production"}}},
-	})
-	assertCLIEvent(t, dbPath, "domain-resource-attachments-event", "domain.resource_attachments_replaced")
 }
 
 func runOperatorJSON(t *testing.T, dbPath string, args []string, payload map[string]any) {
@@ -722,27 +669,9 @@ func assertCLIEvent(t *testing.T, dbPath, eventID, kind string) {
 		t.Fatalf("receipt = kind:%q actor:%q version:%d seq:%d digest:%q, want %q/operator/v1/positive/sha256", gotKind, actor, version, seq, digest, kind)
 	}
 	switch kind {
-	case "managed_resource.created", "managed_resource.consumer_added":
-		var updatedAt string
-		role := "owner"
-		wantVersion := 1
-		if kind == "managed_resource.consumer_added" {
-			role = "consumer"
-			wantVersion = 2
-		}
-		if err := s.DatabaseForTesting().QueryRow(`SELECT r.updated_at FROM managed_resources r JOIN resource_products p ON p.resource_id=r.resource_id WHERE p.product_id=? AND p.role=? AND r.version=?`, subjectID, role, wantVersion).Scan(&updatedAt); err != nil {
-			t.Fatal(err)
-		}
-		if parsed, err := time.Parse(time.RFC3339Nano, updatedAt); err != nil || parsed.Location() != time.UTC {
-			t.Fatalf("resource stored time=%q, want UTC: %v", updatedAt, err)
-		}
-	case "domain.project_attachments_replaced", "domain.resource_attachments_replaced":
-		table := "domain_project_attachment_sets"
-		if kind == "domain.resource_attachments_replaced" {
-			table = "domain_resource_attachment_sets"
-		}
+	case "domain.project_attachments_replaced":
 		var count int
-		if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM `+table+` WHERE product_id=? AND version=1`, subjectID).Scan(&count); err != nil || count != 1 {
+		if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_project_attachment_sets WHERE product_id=? AND version=1`, subjectID).Scan(&count); err != nil || count != 1 {
 			t.Fatalf("current attachment set count=%d, want one version-1 set: %v", count, err)
 		}
 	default:

@@ -8080,6 +8080,27 @@ CREATE TRIGGER work_conflict_applications_guard_update BEFORE UPDATE ON work_con
 CREATE TRIGGER work_conflict_applications_guard_delete BEFORE DELETE ON work_conflict_applications BEGIN SELECT RAISE(ABORT, 'work_conflict_applications is write-seam-only') WHERE NOT EXISTS (SELECT 1 FROM write_guard WHERE active=1); END;
 `,
 	},
+	{
+		// The managed-resource inventory and the Domain-resource attachment
+		// surface retire with no replacement catalogue.
+		// Their four event kinds refuse appends by name, and the fact
+		// scalars keep bounded fact-local source identifier strings, so the
+		// persisted catalog tables and their fold-only triggers have no
+		// remaining reader or writer. The drops run in foreign-key order —
+		// attachment edges, attachment sets, Product links, then the
+		// canonical rows — and each drop takes the table's indexes and
+		// fold-only triggers with it. resource_claims, the Domain-Project
+		// attachment pair, and every other current-state table stay.
+		Version:  163,
+		Name:     "managed_resource_catalog_retirement",
+		Breaking: true,
+		SQL: `
+DROP TABLE domain_resource_attachment_edges;
+DROP TABLE domain_resource_attachment_sets;
+DROP TABLE resource_products;
+DROP TABLE managed_resources;
+`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any

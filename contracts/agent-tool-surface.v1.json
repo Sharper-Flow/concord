@@ -27,8 +27,7 @@
       "operations": [
         "concord_product_view.resolve",
         "concord_product_view.snapshot",
-        "concord_product_view.blocked_sessions",
-        "concord_product_view.resources"
+        "concord_product_view.blocked_sessions"
       ]
     },
     {
@@ -191,27 +190,6 @@
       "query_id": "PM1.Q12",
       "input_schema": "#/schemas/product_view_blocked_sessions_input",
       "result_schema": "#/schemas/blocked_sessions_page",
-      "capability": "product_read",
-      "consequence": "read",
-      "approval": "none",
-      "metadata": {
-        "context": "ambient",
-        "idempotency": "request_id",
-        "pagination": "cursor",
-        "output_bytes": 51200,
-        "versions": [
-          "1.0"
-        ]
-      },
-      "supported_budget_seconds": 300
-    },
-    {
-      "id": "concord_product_view.resources",
-      "tool": "concord_product_view",
-      "kind": "read",
-      "query_id": "C15.Resources",
-      "input_schema": "#/schemas/product_view_resources_input",
-      "result_schema": "#/schemas/resource_page",
       "capability": "product_read",
       "consequence": "read",
       "approval": "none",
@@ -1630,10 +1608,6 @@
       "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/product_view_resolve_input",
       "closed": true
     },
-    "product_view_resources_input": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/product_view_resources_input",
-      "closed": true
-    },
     "product_view_snapshot_input": {
       "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/product_view_snapshot_input",
       "closed": true
@@ -1648,10 +1622,6 @@
     },
     "resource_claims_page": {
       "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/resource_claims_page",
-      "closed": true
-    },
-    "resource_page": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/resource_page",
       "closed": true
     },
     "session_boot_packet": {
@@ -1996,6 +1966,6 @@
       "digest"
     ]
   },
-  "payload_digest": "sha256:d9209e078ea24d4a8b969f3e8df8e1bdcb3ed465010fe6251660b7d87bd3524a",
-  "digest": "sha256:05dadd168edb8243f633a8495f620bd1771b46434824851de5203fed816643bf"
+  "payload_digest": "sha256:4c4e9cb91f93436e5e943c096112e38a2397d6f62055392251b37ef30d5d51b2",
+  "digest": "sha256:987bd5563860e3cdbd8bc01c98b258832ebe981e9bf35f4235fdedd85f6552a6"
 }

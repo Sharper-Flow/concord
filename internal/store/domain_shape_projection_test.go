@@ -512,35 +512,30 @@ func TestDomainShapeProjectionFactsRequireManifest(t *testing.T) {
 	}
 }
 
-func TestDomainShapeSnapshotUsesCurrentModelOwnership(t *testing.T) {
-	for _, scope := range []string{"resource", "project"} {
-		t.Run(scope, func(t *testing.T) {
-			ctx := context.Background()
-			s := openTemp(t)
-			home, product := domainShapeProjectionFixture(t, s, "a")
-			_, _ = domainShapeProjectionFixture(t, s, "b")
-			if err := s.RebuildKnowledgeIndex(ctx, home); err != nil {
-				t.Fatal(err)
-			}
-			if _, err := s.ReadDomainShapeSnapshot(ctx, home, product); err != nil {
-				t.Fatal(err)
-			}
-			if _, err := s.db.Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
-				t.Fatal(err)
-			}
-			query := `UPDATE resource_products SET product_id='product-b' WHERE resource_id='database-a' AND product_id='product-a'`
-			if scope == "project" {
-				query = `DELETE FROM product_projects WHERE product_id='product-a' AND project_id='project-a'`
-			}
-			if _, err := s.db.Exec(query); err != nil {
-				t.Fatal(err)
-			}
-			if _, err := s.db.Exec(`DELETE FROM write_guard`); err != nil {
-				t.Fatal(err)
-			}
-			if _, err := s.ReadDomainShapeSnapshot(ctx, home, product); err == nil || !strings.Contains(err.Error(), "current Product-owned resources or member Projects") {
-				t.Fatalf("stale model scope admitted: %v", err)
-			}
-		})
+// The managed-resource inventory retired, so the only model-owned join a
+// stored snapshot fact can name is Project membership; resource
+// sources are bounded fact-local strings with no registry to drift.
+func TestDomainShapeSnapshotUsesCurrentProjectMembership(t *testing.T) {
+	ctx := context.Background()
+	s := openTemp(t)
+	home, product := domainShapeProjectionFixture(t, s, "a")
+	_, _ = domainShapeProjectionFixture(t, s, "b")
+	if err := s.RebuildKnowledgeIndex(ctx, home); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.ReadDomainShapeSnapshot(ctx, home, product); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.Exec(`DELETE FROM product_projects WHERE product_id='product-a' AND project_id='project-a'`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.Exec(`DELETE FROM write_guard`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.ReadDomainShapeSnapshot(ctx, home, product); err == nil || !strings.Contains(err.Error(), "current member Projects") {
+		t.Fatalf("stale model scope admitted: %v", err)
 	}
 }

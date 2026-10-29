@@ -12,7 +12,8 @@ ROOT = Path(__file__).resolve().parents[1]
 SCHEMA_PATH = ROOT / "contracts/agent-jobs-scenarios.schema.json"
 CORPUS_PATH = ROOT / ".concord/scenarios/agent-jobs.v1.json"
 ENVELOPE_PATH = ROOT / "contracts/agent-tool-envelope.schema.json"
-EXPECTED_SCENARIO_COUNT = 22
+# AJ9 retired with the resource-inventory read it bound.
+EXPECTED_SCENARIO_COUNT = 21
 EXPECTED_CONTRACT = "TS1"
 EXPECTED_CONTRACT_STATUS = "accepted"
 ERROR_KIND_PATH = "error.kind"

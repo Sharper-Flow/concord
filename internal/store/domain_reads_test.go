@@ -183,7 +183,4 @@ func TestDomainAttachmentsReadLocalSets(t *testing.T) {
 	if result.Domain.DomainID != "root" || result.Attachments.ProjectVersion != 1 || len(result.Attachments.ProjectEdges) != 1 || result.Attachments.ProjectEdges[0].ProjectID != "project" {
 		t.Fatalf("attachment read wrong: %#v", result)
 	}
-	if len(result.Attachments.ResourceEdges) != 0 || result.Attachments.ResourceVersion != 0 {
-		t.Fatalf("unset resource set must read as zero-version empty: %#v", result.Attachments)
-	}
 }

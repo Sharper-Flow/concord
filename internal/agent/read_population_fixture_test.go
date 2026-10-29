@@ -36,7 +36,6 @@ const (
 	readPopulationDecision      = "CD-0201"
 	readPopulationSpec          = "SPEC-0201"
 	readPopulationLesson        = "knowledge-lesson-population"
-	readPopulationResource      = "population-queue"
 
 	readPopulationProducts       = 100
 	readPopulationWorkPerProduct = 7
@@ -472,34 +471,18 @@ func (fx readPopulationFixture) seedPopulationPeerWork(t *testing.T) {
 	execPopulationStatement(t, fx.store, `INSERT INTO workflow_instances(work_id,definition_ref,definition_digest,current_step,instance_state,execution_started_at) VALUES(?,'workflow.break_fix',?,'repair','running','2026-08-19T00:00:00Z')`, readPopulationPeer, breakFixFixtureDigest(t))
 }
 
-// seedPopulationDomainRows attaches the home Project and one managed resource
-// to the child Domain and records a Domain observation, so the Domain
-// attachment and observation reads answer rows instead of empty collections.
+// seedPopulationDomainRows attaches the home Project to the child Domain and
+// records a Domain observation, so the Domain attachment and observation reads
+// answer rows instead of empty collections.
 func (fx readPopulationFixture) seedPopulationDomainRows(t *testing.T) {
 	t.Helper()
 	ctx := context.Background()
-	if _, err := store.CreateManagedResource(ctx, fx.store, store.ManagedResourceCreateRequest{
-		EventID: "population-resource", ResourceID: readPopulationResource, ProductID: readPopulationProduct,
-		DisplayName: "Population queue", Class: "infrastructure", Kind: "queue", Purpose: "dispatches population work",
-		StageMaturity: "production", StageAudienceCommitment: "limited", Environments: []string{"production"},
-		MetadataSchemaVersion: "1", Metadata: json.RawMessage(`{}`), ExpectedProductVersion: 0,
-		Actor: "operator", OccurredAt: fixedTime(),
-	}); err != nil {
-		t.Fatalf("create population managed resource: %v", err)
-	}
 	if err := store.ReplaceDomainProjectAttachments(ctx, fx.store, store.DomainProjectAttachmentsRequest{
 		EventID: "population-project-edges", ProductID: readPopulationProduct, DomainID: readPopulationChildDomain,
 		ExpectedVersion: 0, Attachments: []store.DomainProjectAttachment{{ProjectID: readPopulationProject, Role: "primary"}},
 		Actor: "operator", OccurredAt: fixedTime(),
 	}); err != nil {
 		t.Fatalf("seed population Project attachments: %v", err)
-	}
-	if err := store.ReplaceDomainResourceAttachments(ctx, fx.store, store.DomainResourceAttachmentsRequest{
-		EventID: "population-resource-edges", ProductID: readPopulationProduct, DomainID: readPopulationChildDomain,
-		ExpectedVersion: 0, Attachments: []store.DomainResourceAttachment{{ResourceID: readPopulationResource, Purpose: "dispatches population work", Environments: []string{"production"}}},
-		Actor: "operator", OccurredAt: fixedTime().Add(1),
-	}); err != nil {
-		t.Fatalf("seed population resource attachments: %v", err)
 	}
 	if err := store.ApplyOperation(ctx, fx.store, store.Operation{Events: []store.Event{{
 		EventID: "population-domain-observation", Kind: "domain.observation_recorded",

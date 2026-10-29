@@ -106,26 +106,6 @@
           "unknown": true
         }
       ],
-      "input_schema": "product_view_resources_input",
-      "input_valid": {},
-      "operation": "concord_product_view.resources",
-      "result_invalid_cases": [
-        {
-          "resources": [],
-          "unknown": true
-        }
-      ],
-      "result_schema": "resource_page",
-      "result_valid": {
-        "resources": []
-      }
-    },
-    {
-      "input_invalid_cases": [
-        {
-          "unknown": true
-        }
-      ],
       "input_schema": "work_browse_list_input",
       "input_valid": {},
       "operation": "concord_work_browse.list",
@@ -2922,9 +2902,7 @@
         {
           "attachments": {
             "project_attachments": [],
-            "project_set_version": 0,
-            "resource_attachments": [],
-            "resource_set_version": 0
+            "project_set_version": 0
           },
           "domain": {
             "domain_id": "id-1",
@@ -2945,9 +2923,7 @@
         {
           "attachments": {
             "project_attachments": [],
-            "project_set_version": 0,
-            "resource_attachments": [],
-            "resource_set_version": 0
+            "project_set_version": 0
           },
           "domain": {
             "domain_id": "id-1",
@@ -2968,9 +2944,7 @@
         {
           "attachments": {
             "project_attachments": [],
-            "project_set_version": 0,
-            "resource_attachments": [],
-            "resource_set_version": 0
+            "project_set_version": 0
           },
           "domain": {
             "domain_id": "id-1",
@@ -2992,9 +2966,7 @@
       "result_valid": {
         "attachments": {
           "project_attachments": [],
-          "project_set_version": 0,
-          "resource_attachments": [],
-          "resource_set_version": 0
+          "project_set_version": 0
         },
         "domain": {
           "domain_id": "id-1",
@@ -3491,5 +3463,5 @@
       }
     }
   ],
-  "manifest_digest": "sha256:05dadd168edb8243f633a8495f620bd1771b46434824851de5203fed816643bf"
+  "manifest_digest": "sha256:987bd5563860e3cdbd8bc01c98b258832ebe981e9bf35f4235fdedd85f6552a6"
 }

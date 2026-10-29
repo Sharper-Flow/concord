@@ -109,7 +109,6 @@ type DomainFactReferences struct {
 	Registry             KnowledgeDomainRegistry
 	Roots                map[string]DomainFactRoot
 	AcceptedLawIDs       map[string]bool
-	ResourceIDs          map[string]bool
 	Facts                map[string]DomainFactKind
 	RepositoryAnchors    map[DomainFactRepositoryAnchor]bool
 	RequiredCheckAnchors map[DomainFactEnforcementAnchor]bool
@@ -208,18 +207,18 @@ func validateDomainFactPayload(fact DomainFact, refs DomainFactReferences, domai
 		for id, kind := range refs.Facts {
 			invariants[id] = kind == DomainFactInvariant && domainFactIDPattern.MatchString(id)
 		}
-		if !domainFactText(value.Name, 256) || !domainFactResource(value.ResourceID, refs) || !domainFactIDs(value.WriterDomainIDs, domains, true) || !domainFactIDs(value.ReaderDomainIDs, domains, true) || !domainFactIDs(value.InvariantIDs, invariants, true) {
-			return "data_object requires a bounded name and resolved resource, writer/reader Domains and invariant IDs"
+		if !domainFactText(value.Name, 256) || !domainFactResource(value.ResourceID) || !domainFactIDs(value.WriterDomainIDs, domains, true) || !domainFactIDs(value.ReaderDomainIDs, domains, true) || !domainFactIDs(value.InvariantIDs, invariants, true) {
+			return "data_object requires a bounded name, bounded fact-local resource source, writer/reader Domains and invariant IDs"
 		}
 	case DomainFactStateAuthority:
 		value := fact.StateAuthority
-		if !domainFactText(value.State, DomainFactMaxTextBytes) || !domainFactResource(value.AuthoritativeResourceID, refs) || !domainFactText(value.DisagreementBehavior, DomainFactMaxTextBytes) || len(value.DerivedCopies) > DomainFactMaxItems {
-			return "state_authority requires bounded state/disagreement behavior and a resolved authoritative resource"
+		if !domainFactText(value.State, DomainFactMaxTextBytes) || !domainFactResource(value.AuthoritativeResourceID) || !domainFactText(value.DisagreementBehavior, DomainFactMaxTextBytes) || len(value.DerivedCopies) > DomainFactMaxItems {
+			return "state_authority requires bounded state/disagreement behavior and a bounded fact-local authoritative resource source"
 		}
 		seen := map[string]bool{value.AuthoritativeResourceID: true}
 		for _, copy := range value.DerivedCopies {
-			if !domainFactResource(copy.ResourceID, refs) || seen[copy.ResourceID] || !domainFactRepositoryAnchor(copy.RebuildRoute, refs) {
-				return "derived_copies require distinct resolved resources and repository rebuild routes"
+			if !domainFactResource(copy.ResourceID) || seen[copy.ResourceID] || !domainFactRepositoryAnchor(copy.RebuildRoute, refs) {
+				return "derived_copies require distinct bounded resource sources and repository rebuild routes"
 			}
 			seen[copy.ResourceID] = true
 		}
@@ -266,9 +265,12 @@ func domainFactRepositoryAnchor(anchor DomainFactRepositoryAnchor, refs DomainFa
 		!strings.Contains(anchor.Path, "\\") && domainFactText(anchor.Symbol, 256) && known
 }
 
-func domainFactResource(id string, refs DomainFactReferences) bool {
-	// Preserve the existing managed-resource identity contract.
-	return id != "" && len(id) <= 256 && refs.ResourceIDs[id]
+// domainFactResource admits a bounded fact-local source identifier string.
+// The managed-resource inventory retired, so no registration lookup stands
+// between a fact and its declared source; the scalar bound and the
+// Domain/source authority checks keep their force.
+func domainFactResource(id string) bool {
+	return id != "" && len(id) <= 256
 }
 
 func domainFactText(value string, maxBytes int) bool {

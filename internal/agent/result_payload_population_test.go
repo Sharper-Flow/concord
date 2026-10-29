@@ -298,15 +298,8 @@ func assertDomainReadsArePopulated(t *testing.T, detail store.DomainDetailResult
 	if len(detail.Relations) == 0 || len(detail.Relations[0].GoverningLaws) == 0 {
 		t.Fatalf("detail governing law is unexercised: %#v", detail.Relations)
 	}
-	if len(attachments.Attachments.ProjectEdges) == 0 || len(attachments.Attachments.ResourceEdges) == 0 {
+	if len(attachments.Attachments.ProjectEdges) == 0 {
 		t.Fatalf("attachment edges are unexercised: %#v", attachments.Attachments)
-	}
-	// CD-0222 D4 gives the relation bounded purpose and environment metadata.
-	// A populated edge that carried neither would satisfy the length check
-	// above while proving nothing about the fields the read now declares.
-	resourceEdge := attachments.Attachments.ResourceEdges[0]
-	if resourceEdge.Purpose == "" || len(resourceEdge.Environments) == 0 {
-		t.Fatalf("resource attachment metadata is unexercised: %#v", resourceEdge)
 	}
 	if len(overlaps.Pairs) == 0 || len(overlaps.Pairs[0].SharedLawIDs) == 0 {
 		t.Fatalf("overlap shared law is unexercised: %#v", overlaps.Pairs)
@@ -1215,7 +1208,7 @@ var readPopulationRows = map[string][]string{
 	"concord_knowledge.search":                 {"items"},
 	"concord_domain.list":                      {"domains"},
 	"concord_domain.detail":                    {"current_law", "relations", "observations"},
-	"concord_domain.attachments":               {"attachments.project_attachments", "attachments.resource_attachments"},
+	"concord_domain.attachments":               {"attachments.project_attachments"},
 	"concord_domain.overlaps":                  {"pairs"},
 	"concord_domain.footprint":                 {"laws"},
 	"concord_domain.shape":                     {"domain_ids", "governing_law"},

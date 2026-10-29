@@ -126,15 +126,6 @@ type productSnapshotInput struct {
 	Page         pageInput `json:"page"`
 	Limit        int       `json:"limit,omitempty"`
 }
-type resourcesInput struct {
-	ProductID   string    `json:"product_id"`
-	ResourceID  string    `json:"resource_id"`
-	Class       string    `json:"class"`
-	Kind        string    `json:"kind"`
-	Environment string    `json:"environment"`
-	Page        pageInput `json:"page"`
-	Limit       int       `json:"limit,omitempty"`
-}
 type blockedSessionsInput struct {
 	ProductID string    `json:"product_id"`
 	Page      pageInput `json:"page"`
@@ -1274,8 +1265,6 @@ func (r runtime) readResult(ctx context.Context, base agentcontract.Envelope, in
 		return r.readProductSnapshot(ctx, base, input)
 	case "concord_product_view.blocked_sessions":
 		return r.readProductBlockedSessions(ctx, base, input)
-	case "concord_product_view.resources":
-		return r.readProductResources(ctx, base, input)
 	case "concord_work_browse.list":
 		return r.readWorkList(ctx, base, input)
 	case "concord_work_browse.ready":

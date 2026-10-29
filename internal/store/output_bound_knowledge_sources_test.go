@@ -97,22 +97,6 @@ func init() {
 	registerOutputBound("/$defs/domain_attachments_result/properties/attachments/properties/project_attachments/maxItems",
 		goInlineBound("internal/store/domain_attachments.go", "validateDomainProjectAttachments", "len(links)", boundItems))
 
-	// Environments are bounded by the closed six-value C15 vocabulary and the
-	// duplicate refusal in validateResourceEnvironments, so any admitted list
-	// holds at most six distinct members.
-	registerOutputBound("/$defs/domain_attachments_result/properties/attachments/properties/resource_attachments/items/properties/environments/maxItems",
-		pkVocabularyItemsBound("internal/store/managed_resources.go", "validateResourceEnvironments", "environment"))
-
-	// Purpose is stored under CHECK(length(purpose) BETWEEN 1 AND 512) over
-	// a TEXT column; SQLite length() over TEXT counts characters, matching
-	// the consumer's code-point bound. The Go byte guard on the same write
-	// is stricter or equal.
-	registerOutputBound("/$defs/domain_attachments_result/properties/attachments/properties/resource_attachments/items/properties/purpose/maxLength", goInlineBound("internal/store/domain_attachments.go", "validateDomainResourceAttachments", "len(link.Purpose)", boundBytes))
-
-	// Resource attachment edges: the same inline 64 refusal and 1:1 join.
-	registerOutputBound("/$defs/domain_attachments_result/properties/attachments/properties/resource_attachments/maxItems",
-		goInlineBound("internal/store/domain_attachments.go", "validateDomainResourceAttachments", "len(links)", boundItems))
-
 	// ------------------------------------------------------------------
 	// domain detail result (C22.DomainDetail)
 	// ------------------------------------------------------------------

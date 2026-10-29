@@ -89,10 +89,8 @@ type DomainDetailResult struct {
 }
 
 type DomainAttachmentView struct {
-	ProjectEdges    []DomainProjectAttachment  `json:"project_attachments"`
-	ResourceEdges   []DomainResourceAttachment `json:"resource_attachments"`
-	ProjectVersion  int64                      `json:"project_set_version"`
-	ResourceVersion int64                      `json:"resource_set_version"`
+	ProjectEdges   []DomainProjectAttachment `json:"project_attachments"`
+	ProjectVersion int64                     `json:"project_set_version"`
 }
 
 type DomainAttachmentsRequest struct {
@@ -141,7 +139,7 @@ type DomainOverlapsResult struct {
 //
 // The payload types reuse a result type's element structs wherever the two
 // shapes are identical. DomainAttachmentView is the one place they are not:
-// DomainResourceAttachment is the attachment write request's element type, and
+// DomainProjectAttachment is the attachment write request's element type, and
 // the read keeps its own element type carrying the same fields so either
 // surface can change without moving the other.
 
@@ -166,22 +164,9 @@ func NewDomainDetailPayload(result DomainDetailResult) DomainDetailPayload {
 	return DomainDetailPayload{Registry: result.Registry, Domain: result.Domain, CurrentLaw: sliceOrEmpty(result.CurrentLaw), Relations: sliceOrEmpty(result.Relations), Observations: sliceOrEmpty(result.Observations)}
 }
 
-// DomainResourceAttachmentPayload is the read projection of a resource
-// attachment edge. CD-0222 D4 gives the Domain-to-resource relation bounded
-// purpose and environment metadata, so the read declares all three fields. It
-// stays a distinct type from the write element so the two surfaces can diverge
-// without one silently redefining the other.
-type DomainResourceAttachmentPayload struct {
-	ResourceID   string   `json:"resource_id"`
-	Purpose      string   `json:"purpose"`
-	Environments []string `json:"environments"`
-}
-
 type DomainAttachmentViewPayload struct {
-	ProjectEdges    []DomainProjectAttachment         `json:"project_attachments"`
-	ResourceEdges   []DomainResourceAttachmentPayload `json:"resource_attachments"`
-	ProjectVersion  int64                             `json:"project_set_version"`
-	ResourceVersion int64                             `json:"resource_set_version"`
+	ProjectEdges   []DomainProjectAttachment `json:"project_attachments"`
+	ProjectVersion int64                     `json:"project_set_version"`
 }
 
 type DomainAttachmentsPayload struct {
@@ -191,18 +176,12 @@ type DomainAttachmentsPayload struct {
 }
 
 func NewDomainAttachmentsPayload(result DomainAttachmentsResult) DomainAttachmentsPayload {
-	resources := make([]DomainResourceAttachmentPayload, 0, len(result.Attachments.ResourceEdges))
-	for _, edge := range result.Attachments.ResourceEdges {
-		resources = append(resources, DomainResourceAttachmentPayload{ResourceID: edge.ResourceID, Purpose: edge.Purpose, Environments: sliceOrEmpty(edge.Environments)})
-	}
 	return DomainAttachmentsPayload{
 		Registry: result.Registry,
 		Domain:   result.Domain,
 		Attachments: DomainAttachmentViewPayload{
-			ProjectEdges:    sliceOrEmpty(result.Attachments.ProjectEdges),
-			ResourceEdges:   resources,
-			ProjectVersion:  result.Attachments.ProjectVersion,
-			ResourceVersion: result.Attachments.ResourceVersion,
+			ProjectEdges:   sliceOrEmpty(result.Attachments.ProjectEdges),
+			ProjectVersion: result.Attachments.ProjectVersion,
 		},
 	}
 }
@@ -452,15 +431,11 @@ func queryDomainAttachments(ctx context.Context, q queryer, req DomainAttachment
 	summary.HomeDomain = summary.DomainID == registry.RootDomainID
 	out.Domain = summary
 	out.Registry = registry
-	// An unattached Domain is an authoritative empty edge set, so both edge
-	// collections serialize as arrays rather than null.
+	// An unattached Domain is an authoritative empty edge set, so the edge
+	// collection serializes as an array rather than null.
 	out.Attachments.ProjectEdges = []DomainProjectAttachment{}
-	out.Attachments.ResourceEdges = []DomainResourceAttachment{}
 	if err := q.QueryRowContext(ctx, `SELECT version FROM domain_project_attachment_sets WHERE product_id=? AND domain_id=?`, req.Product, req.Domain).Scan(&out.Attachments.ProjectVersion); err != nil && err != sql.ErrNoRows {
 		return out, wrapFailure(KindUnavailable, "C22.DomainAttachments", "cannot read Project attachments", true, "retry once the database is readable", err)
-	}
-	if err := q.QueryRowContext(ctx, `SELECT version FROM domain_resource_attachment_sets WHERE product_id=? AND domain_id=?`, req.Product, req.Domain).Scan(&out.Attachments.ResourceVersion); err != nil && err != sql.ErrNoRows {
-		return out, wrapFailure(KindUnavailable, "C22.DomainAttachments", "cannot read resource attachments", true, "retry once the database is readable", err)
 	}
 	prows, err := q.QueryContext(ctx, `SELECT project_id,role FROM domain_project_attachment_edges WHERE product_id=? AND domain_id=? ORDER BY role DESC,project_id`, req.Product, req.Domain)
 	if err != nil {
@@ -478,26 +453,7 @@ func queryDomainAttachments(ctx context.Context, q queryer, req DomainAttachment
 		return out, wrapFailure(KindUnavailable, "C22.DomainAttachments", "cannot enumerate Project attachments", true, "retry once the database is readable", err)
 	}
 	prows.Close()
-	rrows, err := q.QueryContext(ctx, `SELECT resource_id,purpose,environments FROM domain_resource_attachment_edges WHERE product_id=? AND domain_id=? ORDER BY resource_id`, req.Product, req.Domain)
-	if err != nil {
-		return out, wrapFailure(KindUnavailable, "C22.DomainAttachments", "cannot read resource attachments", true, "retry once the database is readable", err)
-	}
-	defer rrows.Close()
-	for rrows.Next() {
-		var edge DomainResourceAttachment
-		var environments string
-		if err := rrows.Scan(&edge.ResourceID, &edge.Purpose, &environments); err != nil {
-			return out, wrapFailure(KindUnavailable, "C22.DomainAttachments", "cannot decode resource attachments", true, "retry once the database is readable", err)
-		}
-		if err := json.Unmarshal([]byte(environments), &edge.Environments); err != nil {
-			return out, wrapFailure(KindUnavailable, "C22.DomainAttachments", "cannot decode resource attachment environments", true, "restore the current rows from a verified snapshot", err)
-		}
-		out.Attachments.ResourceEdges = append(out.Attachments.ResourceEdges, edge)
-	}
-	if err := rrows.Err(); err != nil {
-		return out, wrapFailure(KindUnavailable, "C22.DomainAttachments", "cannot enumerate resource attachments", true, "retry once the database is readable", err)
-	}
-	out.ResultMeta = ResultMeta{QueryID: "C22.DomainAttachments", ContractVersion: "C22/1.0", ResolvedScope: ResolvedScope{ProductID: req.Product, DomainID: req.Domain}, Authority: "authoritative", OrderingKeys: []string{"role", "project_id", "resource_id"}}
+	out.ResultMeta = ResultMeta{QueryID: "C22.DomainAttachments", ContractVersion: "C22/1.0", ResolvedScope: ResolvedScope{ProductID: req.Product, DomainID: req.Domain}, Authority: "authoritative", OrderingKeys: []string{"role", "project_id"}}
 	return out, nil
 }
 

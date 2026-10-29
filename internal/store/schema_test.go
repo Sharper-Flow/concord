@@ -1771,8 +1771,7 @@ func TestMigration40AddsDomainOverlapProjectionTables(t *testing.T) {
 	for _, table := range []string{
 		"domain_registries", "domains", "domain_architecture_relations", "law_domain_homes",
 		"law_domain_applicability", "archived_work_domains", "domain_project_attachment_sets",
-		"domain_project_attachment_edges", "domain_resource_attachment_sets",
-		"domain_resource_attachment_edges", "managed_resources", "resource_products",
+		"domain_project_attachment_edges",
 		"workflow_architecture_bindings", "workflow_contract_affected_domains", "workflow_contract_domain_modifications",
 		"workflow_contract_domain_relation_modifications", "workflow_law_addition_reservations", "workflow_contract_law_additions", "workflow_contract_verification_obligations",
 		"workflow_contract_law_modifications", "workflow_overlap_resolutions",
@@ -1790,13 +1789,13 @@ func TestMigration40AddsDomainOverlapProjectionTables(t *testing.T) {
 	if err := db.QueryRowContext(ctx, `SELECT count(*) FROM sqlite_master WHERE type='table' AND name='workflow_native_runs'`).Scan(&nativeRuns); err != nil || nativeRuns != 1 {
 		t.Fatalf("workflow_native_runs count=%d err=%v", nativeRuns, err)
 	}
-	for _, table := range []string{"domains", "domain_project_attachment_edges", "domain_resource_attachment_edges", "managed_resources", "resource_products"} {
+	for _, table := range []string{"domains", "domain_project_attachment_edges"} {
 		var err error
 		if _, err = db.ExecContext(ctx, "INSERT INTO "+table+" DEFAULT VALUES"); err == nil {
 			t.Fatalf("direct write to %s bypassed write guard", table)
 		}
 	}
-	for _, table := range []string{"domain_registries", "domains", "domain_architecture_relations", "law_domain_homes", "law_domain_applicability", "domain_project_attachment_sets", "domain_resource_attachment_sets"} {
+	for _, table := range []string{"domain_registries", "domains", "domain_architecture_relations", "law_domain_homes", "law_domain_applicability", "domain_project_attachment_sets"} {
 		var count int
 		if err := db.QueryRowContext(ctx, `SELECT count(*) FROM sqlite_master WHERE type='trigger' AND name=?`, table+"_guard_insert").Scan(&count); err != nil || count != 1 {
 			t.Fatalf("write guard for %s count=%d err=%v", table, count, err)

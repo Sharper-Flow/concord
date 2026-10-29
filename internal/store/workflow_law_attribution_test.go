@@ -56,6 +56,11 @@ func attributionCompletion(t *testing.T, s *Store, id string, closureHashes ...s
 // its HEAD becomes the reviewed candidate.
 func attributionCompletionWith(t *testing.T, s *Store, id string, candidate func(repo string), closureHashes ...string) Event {
 	t.Helper()
+	return attributionCompletionWithConfirmation(t, s, id, candidate, nil, closureHashes...)
+}
+
+func attributionCompletionWithConfirmation(t *testing.T, s *Store, id string, candidate func(repo string), confirm func(acceptanceRecoveryFixture) error, closureHashes ...string) Event {
+	t.Helper()
 	fixture := workContextFixture{store: s, workID: id, owner: lawChangeConstructorActor}
 	repo, _ := reviewSubjectClaim(t, s, id)
 	var branch string
@@ -94,7 +99,12 @@ func attributionCompletionWith(t *testing.T, s *Store, id string, candidate func
 	}
 	observation := fmt.Sprintf("obs:%x", sha256.Sum256([]byte(id)))[:20]
 	insertInvestigationGateObservation(t, s, id, observation, []string{"agent-surface", "inventory-seed"})
-	if err := f.run(t.Context(), "confirm_premise", "confirm", readWorkVersion(t, s, id), nil, nil); err != nil {
+	if confirm == nil {
+		confirm = func(f acceptanceRecoveryFixture) error {
+			return f.run(t.Context(), "confirm_premise", "confirm", readWorkVersion(t, s, id), nil, nil)
+		}
+	}
+	if err := confirm(f); err != nil {
 		t.Fatal(err)
 	}
 	if err := advanceWorkflowTestInstanceToStep(t.Context(), s, id, "release", owner); err != nil {

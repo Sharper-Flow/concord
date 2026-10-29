@@ -20,6 +20,7 @@ type WorkflowLawChange struct {
 	RemovesUserVisibleBehavior bool                         `json:"removes_user_visible_behavior,omitempty"`
 	TouchesSecurityOrDataSafe  bool                         `json:"touches_security_or_data_safety,omitempty"`
 	LawIDs                     []string                     `json:"law_ids"`
+	Removals                   []string                     `json:"removals,omitempty"`
 	DomainIDs                  []string                     `json:"domain_ids,omitempty"`
 	Crucial                    bool                         `json:"crucial,omitempty"`
 	PredecessorSerious         bool                         `json:"predecessor_serious,omitempty"`
@@ -55,8 +56,15 @@ type workflowLawChangeApproval struct {
 	Operator WorkflowActor `json:"operator"`
 }
 
-func bindWorkflowLawChangeApprovalTx(ctx context.Context, tx *sql.Tx, request WorkflowActionExecutionRequest, change *WorkflowLawChange) error {
-	if change == nil || len(change.TextPins) == 0 && change.RegistryContentHash == "" {
+func bindWorkflowLawChangeApprovalTx(ctx context.Context, tx *sql.Tx, request WorkflowActionExecutionRequest, change *WorkflowLawChange, decisionDomains []string) error {
+	if change == nil {
+		return nil
+	}
+	consent, err := classifyConsequenceV1Decision(WorkflowDefinition{}, "approve_contract", "proposed", decisionDomains)
+	if err != nil {
+		return err
+	}
+	if consent.Consent != WorkflowConsentRequired {
 		return nil
 	}
 	binding := workflowApprovalBinding{
@@ -71,8 +79,8 @@ func bindWorkflowLawChangeApprovalTx(ctx context.Context, tx *sql.Tx, request Wo
 	return nil
 }
 
-func validateWorkflowLawChangeApproval(change *WorkflowLawChange) error {
-	if change.Approval == nil && len(change.TextPins) == 0 && change.RegistryContentHash == "" {
+func validateWorkflowLawChangeApproval(change *WorkflowLawChange, needsApproval bool) error {
+	if !needsApproval && change.Approval == nil && len(change.TextPins) == 0 && change.RegistryContentHash == "" {
 		return nil
 	}
 	proof := change.Approval
@@ -87,6 +95,7 @@ func validateWorkflowLawChangeApproval(change *WorkflowLawChange) error {
 
 const (
 	workflowLawChangeReasonField       = "law_change_reason"
+	workflowLawChangeRemovalsField     = "law_change_removals"
 	workflowLawChangeTextPinsField     = "law_change_text_pins"
 	workflowLawChangeRegistryHashField = "law_change_registry_content_hash"
 	workflowLawChangeReasonMaxBytes    = 1024
@@ -97,6 +106,7 @@ const (
 func workflowLawChangeFields() []WorkflowPayloadField {
 	return []WorkflowPayloadField{
 		actionStringField(workflowLawChangeReasonField, false, workflowLawChangeReasonMaxBytes),
+		actionArrayField(workflowLawChangeRemovalsField, false, workflowLawChangeTextPinsMax, "law_id"),
 		actionItemArrayField(workflowLawChangeTextPinsField, false, 1, workflowLawChangeTextPinsMax, workflowLawChangeTextPinSchema),
 		actionStringField(workflowLawChangeRegistryHashField, false, 71),
 	}
@@ -164,6 +174,12 @@ func deriveWorkflowLawChangeTx(ctx context.Context, q queryer, definition Workfl
 		return nil, newFailure(KindInvalidPayload, "workflow_law_change", "every contract of a work item that changes law must record why (CD-0230 D4)", false, "supply law_change_reason")
 	}
 	change.Reason = reason
+	if raw, present := fields[workflowLawChangeRemovalsField]; present {
+		if err := decodeWorkflowActionPayloadStrict(raw, &change.Removals); err != nil || change.Removals == nil {
+			return nil, newFailure(KindInvalidPayload, "workflow_law_change", "law_change_removals must be a list of law IDs", false, "declare the scoped laws whose end state is absent")
+		}
+		slices.Sort(change.Removals)
+	}
 	consent, err := classifyConsequenceV1Decision(definition, "approve_contract", "proposed", decisionDomains)
 	if err != nil {
 		return nil, err
@@ -312,6 +328,14 @@ func workflowLawChangeSubmittedPins(fields map[string]json.RawMessage) ([]Workfl
 // Classified changes pin exactly their law and registry text. Agent-owned
 // changes carry no approval pins and must enact the derived tier instead.
 func validateWorkflowLawChangePins(change *WorkflowLawChange, op string, needsApproval bool) error {
+	if len(change.Removals) > workflowLawChangeTextPinsMax || !slices.IsSorted(change.Removals) || len(slices.Compact(slices.Clone(change.Removals))) != len(change.Removals) {
+		return newFailure(KindInvalidPayload, op, "law_change removals must be a sorted unique list", false, "declare each removed law once")
+	}
+	for _, id := range change.Removals {
+		if !slices.Contains(change.LawIDs, id) || !slices.ContainsFunc(change.LawBefore, func(state workflowLawState) bool { return state.LawID == id && !state.Absent }) {
+			return newFailure(KindInvalidPayload, op, "law_change removal must name a scoped law present at the owning start: "+id, false, "declare the existing law through law_modifies before removing it")
+		}
+	}
 	if !needsApproval {
 		if change.TextPins != nil || change.RegistryContentHash != "" {
 			return newFailure(KindInvalidPayload, op, "law_change text pins require an applicable operator decision class; an agent-owned change carries the derived tier instead", false, "omit law_change_text_pins and law_change_registry_content_hash")
@@ -325,8 +349,9 @@ func validateWorkflowLawChangePins(change *WorkflowLawChange, op string, needsAp
 		}
 		pinned = append(pinned, pin.LawID)
 	}
-	if !slices.Equal(pinned, change.LawIDs) {
-		return newFailure(KindInvalidPayload, op, fmt.Sprintf("a classified law change must pin the approved text of exactly each changed law: changed [%s], pinned [%s] (CD-0230 D4)", strings.Join(change.LawIDs, ", "), strings.Join(pinned, ", ")), false, "draft the law text first, then pin each changed law's content hash once")
+	retained := slices.DeleteFunc(slices.Clone(change.LawIDs), func(id string) bool { return slices.Contains(change.Removals, id) })
+	if !slices.Equal(pinned, retained) {
+		return newFailure(KindInvalidPayload, op, fmt.Sprintf("a classified law change must pin the approved text of exactly each retained changed law: changed [%s], removals [%s], pinned [%s] (CD-0230 D4)", strings.Join(change.LawIDs, ", "), strings.Join(change.Removals, ", "), strings.Join(pinned, ", ")), false, "pin each retained changed law once and declare removed laws separately")
 	}
 	if change.EditsRegistry != (change.RegistryContentHash != "") {
 		return newFailure(KindInvalidPayload, op, "a classified law change pins the Domain registry content hash exactly when it edits the registry (CD-0230 D4)", false, "pin the drafted registry's content hash only for a registry edit")
@@ -434,7 +459,7 @@ func validateWorkflowLawChangeShape(change *WorkflowLawChange, decisionDomains, 
 	if err := validateWorkflowLawChangePins(change, "fold_event", needsApproval); err != nil {
 		return err
 	}
-	return validateWorkflowLawChangeApproval(change)
+	return validateWorkflowLawChangeApproval(change, needsApproval)
 }
 
 func validateWorkflowLawBeforeStates(before []workflowLawState) error {
@@ -516,6 +541,16 @@ func checkWorkflowLawChangeEnactmentTx(ctx context.Context, tx *sql.Tx, workID s
 	if change == nil {
 		return nil
 	}
+	current := workflowLawInventoryMap(after)
+	for _, reference := range change.Removals {
+		canonical, err := workflowLawInventoryReference(reference, before, after)
+		if err != nil {
+			return err
+		}
+		if _, present := current[canonical]; present {
+			return newFailure(KindOutcomeMismatch, "complete_workflow", "law declared for removal is still present in the Git projection: "+reference, false, "publish and rebuild the declared law removal")
+		}
+	}
 	if change.Approval != nil {
 		return checkWorkflowLawChangePinsEnactedTx(ctx, tx, workID, change)
 	}
@@ -528,6 +563,9 @@ func checkWorkflowLawChangeEnactmentTx(ctx context.Context, tx *sql.Tx, workID s
 		return err
 	}
 	for _, reference := range change.LawIDs {
+		if slices.Contains(change.Removals, reference) {
+			continue
+		}
 		resolution, ok := resolutions[reference]
 		if !ok {
 			return newFailure(KindMissingEvidence, "complete_workflow", "the enacted law revision is missing from the Git projection: "+reference, false, "publish and rebuild the enacted law revision")

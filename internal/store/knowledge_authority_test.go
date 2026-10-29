@@ -603,8 +603,8 @@ func TestKnowledgeAuthorityCorpusResolvesThroughSyntheticContracts(t *testing.T)
 	if len(corpus) == 0 {
 		t.Fatal("the committed corpus must contain work-backed legislative claims")
 	}
-	// CD-0159 D7 corrected the derived set; CD-0230 D4 assigns derived to
-	// agent-enacted law revisions. Any tier change must update these sets.
+	// CD-0159 D7 corrected the derived set; CD-0230 D4 assigns derived to law
+	// revisions enacted without operator approval. Any tier change updates these sets.
 	derivedInRange := map[string]bool{
 		"CD-0192": true, "CD-0195": true, "CD-0197": true, "CD-0198": true,
 		"CD-0199": true, "CD-0203": true, "CD-0204": true, "CD-0205": true, "CD-0207": true, "CD-0209": true,

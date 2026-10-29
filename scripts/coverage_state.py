@@ -74,7 +74,6 @@ ISSUE_STATE_MANIFESTS = (
     (ROOT / ".concord/docs/knowledge/coverage", "records"),
     (ROOT / ".concord/docs/reachability-exceptions.v1.json", "exceptions"),
     *((path, "items") for path in maturity_manifest_paths(ROOT)),
-    *((ROOT / "contracts/conflict-rules.v1.json", key) for key in ("rules", "a2", "duties")),
 )
 
 LINEAR_ISSUE = re.compile(r"^[A-Z][A-Z0-9]*-[1-9][0-9]*$")

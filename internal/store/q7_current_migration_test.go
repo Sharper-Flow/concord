@@ -47,12 +47,6 @@ func seedQ7CurrentRows(t *testing.T) (*Store, string) {
 func TestQ7CurrentRowsWithoutLog(t *testing.T) {
 	t.Parallel()
 	s, work := seedQ7CurrentRows(t)
-	if err := applyWorkEvent(t, s, workSizedEvent("q7-current-size", work, WorkSizeModelVersion, WorkSizeSmall, workSizeInputsFixture()), nil); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := recordConflictApplication(t, s, conflictApplicationRequest(work, "q7-current-settlement", nil)); err != nil {
-		t.Fatal(err)
-	}
 	before, err := s.QueryQ7(t.Context(), Q7Request{Work: work, Limit: 100})
 	if err != nil {
 		t.Fatal(err)

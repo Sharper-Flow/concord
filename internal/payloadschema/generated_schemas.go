@@ -14155,11 +14155,6 @@ const GeneratedPayloadSchemaDocument = `{
                 "required": [
                   "external"
                 ]
-              },
-              {
-                "required": [
-                  "conflict"
-                ]
               }
             ]
           },
@@ -14174,63 +14169,17 @@ const GeneratedPayloadSchemaDocument = `{
                 "required": [
                   "statement"
                 ]
-              },
-              {
-                "required": [
-                  "conflict"
-                ]
               }
             ]
           },
           "required": [
             "external"
           ]
-        },
-        {
-          "not": {
-            "anyOf": [
-              {
-                "required": [
-                  "statement"
-                ]
-              },
-              {
-                "required": [
-                  "external"
-                ]
-              }
-            ]
-          },
-          "required": [
-            "conflict"
-          ]
         }
       ],
       "properties": {
         "approval": {
           "$ref": "#/$defs/approval"
-        },
-        "conflict": {
-          "additionalProperties": false,
-          "properties": {
-            "outcome": {
-              "description": "Bounds: 1..4096 code points inclusive; <=4096 UTF-8 bytes inclusive",
-              "maxLength": 4096,
-              "minLength": 1,
-              "pattern": "\\S",
-              "type": "string",
-              "x-maxBytes": 4096
-            },
-            "rule_id": {
-              "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$",
-              "type": "string"
-            }
-          },
-          "required": [
-            "rule_id",
-            "outcome"
-          ],
-          "type": "object"
         },
         "external": {
           "additionalProperties": false,
@@ -14790,11 +14739,6 @@ const GeneratedPayloadSchemaDocument = `{
                   "anyOf": [
                     {
                       "required": [
-                        "conflict_application"
-                      ]
-                    },
-                    {
-                      "required": [
                         "work_id_from"
                       ]
                     },
@@ -14884,11 +14828,6 @@ const GeneratedPayloadSchemaDocument = `{
                   "anyOf": [
                     {
                       "required": [
-                        "conflict_application"
-                      ]
-                    },
-                    {
-                      "required": [
                         "lifecycle"
                       ]
                     },
@@ -14964,11 +14903,6 @@ const GeneratedPayloadSchemaDocument = `{
               {
                 "not": {
                   "anyOf": [
-                    {
-                      "required": [
-                        "conflict_application"
-                      ]
-                    },
                     {
                       "required": [
                         "lifecycle"
@@ -15056,11 +14990,6 @@ const GeneratedPayloadSchemaDocument = `{
                   "anyOf": [
                     {
                       "required": [
-                        "conflict_application"
-                      ]
-                    },
-                    {
-                      "required": [
                         "lifecycle"
                       ]
                     },
@@ -15125,105 +15054,6 @@ const GeneratedPayloadSchemaDocument = `{
                   "producer_watermark",
                   "observed_at"
                 ]
-              },
-              {
-                "not": {
-                  "anyOf": [
-                    {
-                      "required": [
-                        "lifecycle"
-                      ]
-                    },
-                    {
-                      "required": [
-                        "from"
-                      ]
-                    },
-                    {
-                      "required": [
-                        "work_id_from"
-                      ]
-                    },
-                    {
-                      "required": [
-                        "work_id_to"
-                      ]
-                    },
-                    {
-                      "required": [
-                        "relation_kind"
-                      ]
-                    },
-                    {
-                      "required": [
-                        "created_at"
-                      ]
-                    },
-                    {
-                      "required": [
-                        "resolution_id"
-                      ]
-                    },
-                    {
-                      "required": [
-                        "action_id"
-                      ]
-                    },
-                    {
-                      "required": [
-                        "step_id"
-                      ]
-                    },
-                    {
-                      "required": [
-                        "contract_version"
-                      ]
-                    },
-                    {
-                      "required": [
-                        "binding_id"
-                      ]
-                    },
-                    {
-                      "required": [
-                        "evidence_kind"
-                      ]
-                    },
-                    {
-                      "required": [
-                        "immutable_subject_ref"
-                      ]
-                    },
-                    {
-                      "required": [
-                        "producer_id"
-                      ]
-                    },
-                    {
-                      "required": [
-                        "producer_run_ref"
-                      ]
-                    },
-                    {
-                      "required": [
-                        "producer_watermark"
-                      ]
-                    },
-                    {
-                      "required": [
-                        "observed_at"
-                      ]
-                    }
-                  ]
-                },
-                "properties": {
-                  "entry_kind": {
-                    "const": "conflict_application"
-                  }
-                },
-                "required": [
-                  "conflict_application"
-                ]
               }
             ],
             "properties": {
@@ -15235,55 +15065,6 @@ const GeneratedPayloadSchemaDocument = `{
               },
               "binding_id": {
                 "$ref": "#/$defs/id"
-              },
-              "conflict_application": {
-                "additionalProperties": false,
-                "properties": {
-                  "catalog_generation": {
-                    "minimum": 1,
-                    "type": "integer"
-                  },
-                  "model_version": {
-                    "minimum": 1,
-                    "type": "integer"
-                  },
-                  "outcome": {
-                    "maxLength": 4096,
-                    "minLength": 1,
-                    "type": "string"
-                  },
-                  "rule_id": {
-                    "minLength": 1,
-                    "type": "string"
-                  },
-                  "rule_source_hash": {
-                    "pattern": "^sha256:[0-9a-f]{64}$",
-                    "type": "string"
-                  },
-                  "settlement_ref": {
-                    "maxLength": 256,
-                    "minLength": 1,
-                    "type": "string"
-                  },
-                  "size": {
-                    "$ref": "#/$defs/work_size_class"
-                  },
-                  "size_assessment_sequence": {
-                    "minimum": 1,
-                    "type": "integer"
-                  }
-                },
-                "required": [
-                  "rule_id",
-                  "rule_source_hash",
-                  "catalog_generation",
-                  "size_assessment_sequence",
-                  "model_version",
-                  "size",
-                  "outcome",
-                  "settlement_ref"
-                ],
-                "type": "object"
               },
               "contract_version": {
                 "$ref": "#/$defs/version"
@@ -15301,8 +15082,7 @@ const GeneratedPayloadSchemaDocument = `{
                   "lifecycle",
                   "relation",
                   "phase_exit",
-                  "evidence_binding",
-                  "conflict_application"
+                  "evidence_binding"
                 ],
                 "type": "string"
               },
@@ -17207,18 +16987,17 @@ const GeneratedPayloadSchemaDocument = `{
           "$ref": "#/$defs/page"
         },
         "record_kinds": {
-          "description": "Select current retained record categories, not historical event kinds. Bounds: <=5 items inclusive",
+          "description": "Select current retained record categories, not historical event kinds. Bounds: <=4 items inclusive",
           "items": {
             "enum": [
               "lifecycle",
               "relation",
               "phase_exit",
-              "evidence_binding",
-              "conflict_application"
+              "evidence_binding"
             ],
             "type": "string"
           },
-          "maxItems": 5,
+          "maxItems": 4,
           "type": "array",
           "uniqueItems": true
         },

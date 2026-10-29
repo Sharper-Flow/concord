@@ -84,12 +84,10 @@ def check_payload_schema(root: Path, declared: list[str], findings: list[str]) -
     if size_class.get("enum") != declared:
         findings.append(f"schema-closure: work_size_class expected {declared}, got {size_class.get('enum')}")
     revise = defs.get("work_define_revise_input", {}).get("properties", {})
-    history = defs.get("work_event_page", {}).get("properties", {}).get("entries", {}).get("items", {}).get("properties", {})
     references = {
         "work_size_summary.model_size": defs.get("work_size_summary", {}).get("properties", {}).get("model_size"),
         "work_size_summary.operator_size": defs.get("work_size_summary", {}).get("properties", {}).get("operator_size"),
         "work_define_revise_input.operator_size": revise.get("operator_size"),
-        "work_event_page.conflict_application.size": history.get("conflict_application", {}).get("properties", {}).get("size"),
     }
     for where, node in references.items():
         if not isinstance(node, dict) or node.get("$ref") != "#/$defs/work_size_class":

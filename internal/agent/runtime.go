@@ -1751,7 +1751,7 @@ func ContinuityPayload(snapshot store.ContinuitySnapshot) map[string]any {
 	}
 	if snapshot.ProposalRecord != nil {
 		proposal := snapshot.ProposalRecord
-		pinned["proposal_record"] = map[string]any{"problem": proposal.Problem, "affected": proposal.Affected, "stakes": proposal.Stakes, "user_outcomes": proposal.UserOutcomes, "constraints": proposal.Constraints, "open_questions": proposal.OpenQuestions}
+		pinned["proposal_record"] = map[string]any{"problem": proposal.Problem, "user_outcomes": nonNilStrings(proposal.UserOutcomes), "constraints": nonNilStrings(proposal.Constraints)}
 	}
 	// The work's newest unconsumed Project-session handoff rides the pinned
 	// projection when present, so a Project-selected boot names the bounded

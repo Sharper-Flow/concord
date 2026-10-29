@@ -54,7 +54,7 @@ import { recordingTool } from "../recording-tool.ts";
 import { appendFileSync } from "node:fs";
 import { isDeepStrictEqual } from "node:util";
 import { work_start as productionStart, work_transition as productionTransition } from SOURCE;
-import { validateAgainstSchema } from RUNTIME_SOURCE;
+import { validateAgainstSchema } from CORERUNTIME;
 import { hostToolSchemas } from GENSCONTRACTS;
 const responses = RESPONSES;
 const startConfig = STARTCONFIG;
@@ -344,7 +344,7 @@ def double_sources(root, case, *, sdk_tool, production_concord):
     replacements = {
         "SDK": json.dumps(str(sdk_tool.resolve() if hasattr(sdk_tool, "resolve") else sdk_tool)),
         "SOURCE": json.dumps(str(production_concord)),
-        "RUNTIME_SOURCE": json.dumps(str(production_concord.with_name("core-runtime.ts"))),
+        "CORERUNTIME": json.dumps(str(production_concord.with_name("core-runtime.ts"))),
         "GENSCONTRACTS": json.dumps(str(production_concord.with_name("generated-contracts.ts"))),
         "RESPONSES": json.dumps(case.get("responses", {})),
         "STARTCONFIG": json.dumps(case.get("start") if not case.get("capture") else None),

@@ -89,22 +89,7 @@ func applyMigration(ctx context.Context, q migrationRunner, m migration) error {
 		return retireEventLog(ctx, q, m.SQL)
 	}
 	if m.Name == "native_task_cutover" {
-		switch runner := q.(type) {
-		case *sql.Tx:
-			return applyNativeTaskCutover(ctx, runner, m.SQL)
-		case *sql.DB:
-			tx, err := runner.BeginTx(ctx, nil)
-			if err != nil {
-				return err
-			}
-			defer tx.Rollback()
-			if err := applyNativeTaskCutover(ctx, tx, m.SQL); err != nil {
-				return err
-			}
-			return tx.Commit()
-		default:
-			return newFailure(KindInvariantViolation, "migrate", "native Task cutover requires a database transaction", false, "apply the migration through its transaction owner")
-		}
+		return applyNativeTaskCutover(ctx, q, m.SQL)
 	}
 	if _, err := q.ExecContext(ctx, m.SQL); err != nil {
 		return wrapFailure(KindUnavailable, "migrate",

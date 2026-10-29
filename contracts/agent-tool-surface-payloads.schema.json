@@ -1084,16 +1084,12 @@
               "type": "object",
               "additionalProperties": false,
               "required": [
-                "attempt_id",
                 "report_ref",
                 "report_digest",
                 "actor_ref",
                 "report"
               ],
               "properties": {
-                "attempt_id": {
-                  "$ref": "#/$defs/id"
-                },
                 "report_ref": {
                   "type": "string",
                   "minLength": 1
@@ -3316,7 +3312,7 @@
       }
     },
     "workflow_proposal_record": {
-      "description": "The recorded proposal fields the dispatched lane packet renders. Absent when no proposal is recorded.",
+      "description": "The recorded proposal's problem, user outcomes, and constraints the pinned continuity projection carries. Absent when no proposal is recorded.",
       "type": "object",
       "additionalProperties": false,
       "required": [

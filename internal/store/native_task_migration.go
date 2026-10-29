@@ -2,13 +2,12 @@ package store
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 )
 
 // The upgrade owner supplies its verified-snapshot transaction and rolls it
 // back on any error, including a failure after destructive DDL has begun.
-func applyNativeTaskCutover(ctx context.Context, tx *sql.Tx, retirementSQL string) error {
+func applyNativeTaskCutover(ctx context.Context, tx migrationRunner, retirementSQL string) error {
 	if err := validateNativeTaskCutover(ctx, tx); err != nil {
 		return err
 	}
@@ -34,7 +33,7 @@ func applyNativeTaskCutover(ctx context.Context, tx *sql.Tx, retirementSQL strin
 	return nil
 }
 
-func normalizeNativeTaskCorrections(ctx context.Context, tx *sql.Tx) error {
+func normalizeNativeTaskCorrections(ctx context.Context, tx migrationRunner) error {
 	// Authorization consumes an unbound direction only after that same attempt
 	// materialized. Its authorization sequence, not its later dispatch sequence,
 	// bounds the directions it could have received.

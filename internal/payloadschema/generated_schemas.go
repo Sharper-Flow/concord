@@ -25860,7 +25860,7 @@ const GeneratedPayloadSchemaDocument = `{
     },
     "workflow_proposal_record": {
       "additionalProperties": false,
-      "description": "The recorded proposal fields the dispatched lane packet renders. Absent when no proposal is recorded.",
+      "description": "The recorded proposal's problem, user outcomes, and constraints the pinned continuity projection carries. Absent when no proposal is recorded.",
       "properties": {
         "constraints": {
           "items": {
@@ -26269,9 +26269,6 @@ const GeneratedPayloadSchemaDocument = `{
                   "minLength": 1,
                   "type": "string"
                 },
-                "attempt_id": {
-                  "$ref": "#/$defs/id"
-                },
                 "report": {
                   "$ref": "#/$defs/workflow_review_report"
                 },
@@ -26285,7 +26282,6 @@ const GeneratedPayloadSchemaDocument = `{
                 }
               },
               "required": [
-                "attempt_id",
                 "report_ref",
                 "report_digest",
                 "actor_ref",

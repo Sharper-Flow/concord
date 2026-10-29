@@ -1,11 +1,13 @@
 package store
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -263,5 +265,25 @@ func TestRetainedReviewAcceptanceDrift(t *testing.T) {
 				t.Fatalf("stale proof accepted: %s", raw)
 			}
 		})
+	}
+}
+
+type retainedOversizeDiffRunner struct{}
+
+func (retainedOversizeDiffRunner) Run(_ context.Context, _ string, args ...string) ([]byte, error) {
+	if slices.Contains(args, "--name-only") {
+		return bytes.Repeat([]byte("p\x00"), maxGitOutput/2+1), nil
+	}
+	return nil, nil
+}
+
+// The dispatch producer and continuity share one disclosure bound; an
+// oversized delta refuses instead of sealing paths the packet cannot carry.
+func TestRetainedReviewChangedPathsShareDisclosureBound(t *testing.T) {
+	sample := &retainedReviewState{Candidate: WorkerReviewCandidate{ProjectID: "project", Commit: strings.Repeat("a", 40), Tree: strings.Repeat("c", 40)}}
+	proof := &workerDispatchProof{probePath: t.TempDir(), observation: &WorkerObservedDelivery{State: "clean", Commit: strings.Repeat("b", 40), Tree: strings.Repeat("d", 40)}}
+	retained, err := observeRetainedReview(t.Context(), retainedOversizeDiffRunner{}, proof, sample, WorktreeEntry{ProjectID: "project"})
+	if retained != nil || failureKind(err) != KindLimitExceeded {
+		t.Fatalf("oversized retained delta sealed=%t, err=%v; want limit refusal", retained != nil, err)
 	}
 }

@@ -48,7 +48,7 @@ func observeContinuityRetainedReview(ctx context.Context, input *WorkerReviewInp
 		return nil, nil
 	}
 	missing := func() error {
-		return reviewFailure(KindMissingEvidence, "retained Review input lacks its qualified clean descendant observation", "qualify the retained clean scoped descendant and reread continuity before dispatching Review")
+		return reviewFailure(KindMissingEvidence, "retained Review input lacks its qualified clean descendant observation", "preserve unjudged work and inspect the current candidate, claim and clean HEAD; qualify and reread continuity only after they identify the same scoped descendant; if no such descendant exists, request maintainer investigation rather than repeating qualification of the unchanged mismatched HEAD")
 	}
 	entry, path, found := selectDispatchClaimEntry(entries, receipt.Path)
 	if !found || entry.ProjectID != input.InputCandidate.ProjectID {

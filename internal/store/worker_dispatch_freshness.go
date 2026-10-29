@@ -641,7 +641,7 @@ func validateReviewAcceptedDeliveryTx(ctx context.Context, tx *sql.Tx, workID, s
 				return nil
 			}
 		}
-		return reviewFailure(KindStaleRequiresReview, "Review input differs from Main's current integrated candidate", "retain the candidate and failed-attempt evidence; retained-input Review requires a clean qualified descendant, one ready ordinary same-job revision, only terminal failed editors since the accepted candidate, and a delta inside every bound scope; if these conditions cannot be met, no admitted retained-input recovery exists: request maintainer investigation of the candidate/assignment refusal, not a reset, invented revision, or repeated unchanged dispatch")
+		return reviewFailure(KindStaleRequiresReview, "Review input differs from Main's current integrated candidate", "retain the candidate and failed-attempt evidence; retained-input Review requires a clean qualified descendant, one ready ordinary same-job revision, only terminal failed editors since the accepted candidate, and a delta inside every bound scope; if these conditions cannot be met, no admitted retained-input recovery exists: request maintainer investigation of the candidate/assignment refusal, not an invented revision or repeated unchanged dispatch; restoring a sibling or rejected HEAD must preserve any unjudged work first")
 	}
 	return nil
 }

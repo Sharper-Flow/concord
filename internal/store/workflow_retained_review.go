@@ -194,6 +194,11 @@ func observeRetainedReview(ctx context.Context, runner GitRunner, proof *workerD
 	if err != nil {
 		return nil, dispatchSubjectProbeFailure("retained recovery changed paths", probeCtx, err)
 	}
+	// Dispatch's runner bounds time, not bytes; continuity's committed-read
+	// runner refuses past maxGitOutput, and the packet capacity derives from it.
+	if len(raw) > maxGitOutput {
+		return nil, newFailure(KindLimitExceeded, workerDispatchFreshnessOp, "the retained delta's changed-path list exceeds the Review disclosure bound", false, "retain the candidate and failed-attempt evidence; no admitted retained-input recovery exists for this delta: request maintainer investigation, not a reset or truncated disclosure")
+	}
 	retained := &retainedReviewProof{State: *sample, Input: WorkerReviewCandidate{ProjectID: entry.ProjectID, Commit: proof.observation.Commit, Tree: proof.observation.Tree}, ChangedPaths: []string{}, ClaimOp: entry.ClaimOpID, ClaimBranch: entry.Branch}
 	for _, path := range strings.Split(string(raw), "\x00") {
 		if path != "" {

@@ -341,14 +341,14 @@ func validateArchitectureBindingTx(ctx context.Context, tx *sql.Tx, workID strin
 		affected[domainID] = struct{}{}
 	}
 	if _, ok := affected[binding.HomeDomainID]; !ok {
-		return newFailure(KindUnknownScope, "workflow_architecture_binding", "home Domain is not in affected_domain_ids", false, "include the home Domain in the affected set")
+		return newFailure(KindInvalidPayload, "workflow_architecture_binding", "home Domain is not in affected_domain_ids", false, "include the home Domain in the affected set")
 	}
 	if err := validateLawModificationSubset(specMandate, lawModifies); err != nil {
 		return err
 	}
 	for _, domainID := range binding.DomainModifies {
 		if _, ok := affected[domainID]; !ok {
-			return newFailure(KindUnknownScope, "workflow_architecture_binding", "domain_modifies contains a Domain outside affected_domain_ids", false, "modify only affected Domains")
+			return newFailure(KindInvalidPayload, "workflow_architecture_binding", "domain_modifies contains a Domain outside affected_domain_ids", false, "modify only affected Domains")
 		}
 	}
 	productID, err := architectureBindingProductIDTx(ctx, tx, workID)
@@ -447,7 +447,7 @@ func validateArchitectureBindingDomainsTx(ctx context.Context, tx *sql.Tx, produ
 		var status, hash string
 		if err := tx.QueryRowContext(ctx, `SELECT status,registry_content_hash FROM domains WHERE product_id=? AND domain_id=?`, productID, domainID).Scan(&status, &hash); err != nil {
 			if err == sql.ErrNoRows {
-				return newFailure(KindUnknownScope, "workflow_architecture_binding", "architecture binding names an unknown Domain: "+domainID, false, "name a current Domain in the Product registry")
+				return newFailure(KindInvalidPayload, "workflow_architecture_binding", "architecture_binding.affected_domain_ids names an unknown Domain: "+domainID, false, "name a current Domain in the Product registry")
 			}
 			return wrapFailure(KindUnavailable, "workflow_architecture_binding", "cannot read named Domain", true, "retry once the Domain projection is readable", err)
 		}
@@ -463,17 +463,17 @@ func validateArchitectureBindingDomainsTx(ctx context.Context, tx *sql.Tx, produ
 func validateArchitectureBindingRelationsTx(ctx context.Context, tx *sql.Tx, productID, registryHash string, affected map[string]struct{}, relations []WorkflowDomainRelationModification) error {
 	for _, relation := range relations {
 		if _, ok := affected[relation.SourceDomainID]; !ok {
-			return newFailure(KindUnknownScope, "workflow_architecture_binding", "relation source is outside affected Domains", false, "include relation endpoints in affected_domain_ids")
+			return newFailure(KindInvalidPayload, "workflow_architecture_binding", "relation source is outside affected_domain_ids", false, "include relation endpoints in affected_domain_ids")
 		}
 		if _, ok := affected[relation.TargetDomainID]; !ok {
-			return newFailure(KindUnknownScope, "workflow_architecture_binding", "relation target is outside affected Domains", false, "include relation endpoints in affected_domain_ids")
+			return newFailure(KindInvalidPayload, "workflow_architecture_binding", "relation target is outside affected_domain_ids", false, "include relation endpoints in affected_domain_ids")
 		}
 		var exists bool
 		if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM domain_architecture_relations WHERE product_id=? AND registry_content_hash=? AND source_domain_id=? AND kind=? AND target_domain_id=?)`, productID, registryHash, relation.SourceDomainID, relation.Kind, relation.TargetDomainID).Scan(&exists); err != nil {
 			return wrapFailure(KindUnavailable, "workflow_architecture_binding", "cannot read named Domain relation", true, "retry once the Domain relation projection is readable", err)
 		}
 		if !exists {
-			return newFailure(KindUnknownScope, "workflow_architecture_binding", "architecture binding names an unknown Domain relation: "+relation.SourceDomainID+"/"+relation.Kind+"/"+relation.TargetDomainID, false, "name a current canonical relation in the Product's pinned Domain registry")
+			return newFailure(KindInvalidPayload, "workflow_architecture_binding", "architecture_binding.domain_relation_modifies names an unknown Domain relation: "+relation.SourceDomainID+"/"+relation.Kind+"/"+relation.TargetDomainID, false, "name a current canonical relation in the Product's pinned Domain registry")
 		}
 	}
 	return nil
@@ -492,7 +492,7 @@ func validateArchitectureBindingLawModifiesTx(ctx context.Context, tx *sql.Tx, p
 			return newFailure(KindProjectionNotFound, "workflow_architecture_binding", "law_modifies names a non-current law", false, "modify only current accepted law")
 		}
 		if _, ok := affected[homeDomain]; !ok {
-			return newFailure(KindUnknownScope, "workflow_architecture_binding", "modified law home Domain is outside affected Domains", false, "include each modified law home Domain")
+			return newFailure(KindInvalidPayload, "workflow_architecture_binding", "modified law home Domain is outside architecture_binding.affected_domain_ids", false, "include each modified law home Domain")
 		}
 	}
 	return nil
@@ -516,7 +516,7 @@ func validateArchitectureBindingLawAdditionsTx(ctx context.Context, tx *sql.Tx, 
 			}
 		}
 		if _, ok := affected[addition.HomeDomainID]; !ok {
-			return newFailure(KindUnknownScope, "workflow_architecture_binding", "law addition home Domain is outside affected Domains", false, "include each added law home Domain")
+			return newFailure(KindInvalidPayload, "workflow_architecture_binding", "law addition home Domain is outside affected_domain_ids", false, "include each added law home Domain")
 		}
 		var existing int
 		if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM law_subjects WHERE home_project_id=? AND home_locator_id=? AND law_id=?`, homeProjectID, homeLocatorID, addition.LawID).Scan(&existing); err != nil {

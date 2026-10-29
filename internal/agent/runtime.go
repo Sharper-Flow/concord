@@ -849,6 +849,9 @@ type runtimeFailure struct {
 
 func (f *runtimeFailure) Error() string { return f.message }
 func newRuntimeFailure(kind, message, recovery string, retry bool) *runtimeFailure {
+	if kind == "invalid_input" && !retry {
+		recovery = agentcontract.PublicRecovery(kind, recovery)
+	}
 	return &runtimeFailure{kind: kind, message: message, recovery: recovery, retry: retry}
 }
 
@@ -893,7 +896,10 @@ func storeFailureEnvelope(base agentcontract.Envelope, sf *store.Failure) agentc
 	kind := mapFailureKind(sf.Kind)
 	recovery := agentcontract.PublicRecovery(kind, sf.RecoveryAction)
 	if recovery == "correct_request" && (kind != "invalid_input" || sf.RetrySafe || sf.EffectPossible || len(sf.CommittedRefs) > 0) {
-		recovery = agentcontract.PublicRecovery(kind, "")
+		recovery = "reread_entities"
+		if kind != "invalid_input" {
+			recovery = agentcontract.PublicRecovery(kind, "")
+		}
 		if sf.EffectPossible || len(sf.CommittedRefs) > 0 {
 			recovery = "reconcile_operation"
 		}
@@ -980,6 +986,9 @@ func nonNilStrings(values []string) []string {
 }
 
 func coreError(base agentcontract.Envelope, kind, message, recovery string, retry bool) agentcontract.Envelope {
+	if kind == "invalid_input" && !retry {
+		recovery = agentcontract.PublicRecovery(kind, recovery)
+	}
 	return coreErrorAction(base, kind, message, agentcontract.RecoveryAction{Kind: recovery}, retry, nil)
 }
 
@@ -1104,7 +1113,7 @@ func mapFailureKind(kind store.FailureKind) string {
 	case store.KindInvalidFilter, store.KindInvalidPayload:
 		return "invalid_input"
 	case store.KindInvalidOperation:
-		return "invalid_input"
+		return "invalid_transition"
 	case store.KindLimitExceeded:
 		return "limit_exceeded"
 	case store.KindStaleRequiresReview:

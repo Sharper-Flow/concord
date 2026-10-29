@@ -187,13 +187,13 @@ func readWorkflowContinuityForRegistry(ctx context.Context, s *Store, req Contin
 		return out, newFailure(KindUnavailable, "C19.Continuity", "store is not open", false, "open the authority database")
 	}
 	if len(req.Work) < 2 || len(req.Work) > 128 {
-		return out, newFailure(KindInvalidOperation, "C19.Continuity", "work ID is out of bounds", false, "supply one bounded work ID")
+		return out, newFailure(KindInvalidPayload, "C19.Continuity", "work ID is out of bounds", false, "supply one bounded work ID")
 	}
 	if req.Limit <= 0 {
 		req.Limit = 20
 	}
 	if req.Limit > 20 {
-		return out, newFailure(KindInvalidOperation, "C19.Continuity", "continuity limit/page.limit exceeds maximum 20", false, "correct_request")
+		return out, newFailure(KindInvalidPayload, "C19.Continuity", "continuity limit/page.limit exceeds maximum 20", false, "supply a limit of at most 20")
 	}
 	offset, err := continuityOffset(req.Cursor, req.Work)
 	if err != nil {
@@ -666,7 +666,7 @@ func (snapshot ContinuitySnapshot) LimitWindow(req ContinuityRequest, observatio
 	// A boundary page that keeps no boundary cannot advance its cursor, so a
 	// non-empty page keeps at least one.
 	if observations < 0 || boundaries < 1 {
-		return snapshot, newFailure(KindInvalidOperation, "C19.Continuity", "continuity window bounds are out of range", false, "keep at least one boundary and no negative observation window")
+		return snapshot, newFailure(KindInvalidPayload, "C19.Continuity", "continuity window bounds are out of range", false, "keep at least one boundary and no negative observation window")
 	}
 	if observations < len(snapshot.Observations) {
 		snapshot.Observations = append([]WorkObservation{}, snapshot.Observations[:observations]...)

@@ -731,6 +731,11 @@ var enforcedRecoveryCouplings = map[string][]string{
 // coupled kind takes an admitted action or its default; otherwise a proposal that names
 // a contractual action survives, and anything else takes the kind's default.
 func PublicRecovery(kind, proposed string) string {
+	// Input is repaired in the request, not by rereading unchanged state or
+	// asking the operator. Producers may still supply field-specific remedy prose.
+	if kind == "invalid_input" {
+		return "correct_request"
+	}
 	if coupled, ok := enforcedRecoveryCouplings[kind]; ok {
 		if slices.Contains(coupled, proposed) {
 			return proposed
@@ -745,7 +750,7 @@ func PublicRecovery(kind, proposed string) string {
 		return "contact_operator"
 	case "approval_required", "approval_invalid":
 		return "request_approval"
-	case "invalid_transition", "invalid_relation", "invariant_violation", "invalid_input":
+	case "invalid_transition", "invalid_relation", "invariant_violation":
 		return "reread_entities"
 	case "not_terminal", "stale_requires_review", "stale_law_revision", "idempotency_conflict", "degraded_not_allowed":
 		// The caller acts on state it can reread: a lifecycle, a review

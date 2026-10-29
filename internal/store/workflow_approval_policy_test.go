@@ -148,7 +148,7 @@ func TestWorkflowApprovalPolicy(t *testing.T) {
 	t.Run("new policy fails closed on missing unknown and noncanonical facts", func(t *testing.T) {
 		t.Parallel()
 		definition := approvalPolicyDefinition(WorkflowApprovalPolicyConsequenceV1, "approve_contract", "confirm_premise")
-		refuseInvalidInput := func(name string, err error) {
+		refuse := func(name string, err error, kind FailureKind) {
 			t.Helper()
 			if err == nil {
 				t.Fatalf("new-policy %s classification accepted the fact, want refusal", name)
@@ -157,14 +157,14 @@ func TestWorkflowApprovalPolicy(t *testing.T) {
 			if !failureAs(err, &failure) {
 				t.Fatalf("new-policy %s refusal is not a typed failure: %v", name, err)
 			}
-			if failure.Kind != KindInvalidInput {
-				t.Fatalf("new-policy %s refusal kind = %q, want invalid_input at the classifier input boundary", name, failure.Kind)
+			if failure.Kind != kind {
+				t.Fatalf("new-policy %s refusal kind = %q, want %q", name, failure.Kind, kind)
 			}
 		}
 		_, err := ClassifyWorkflowApproval(definition, "approve_contract", WorkflowApprovalFacts{})
-		refuseInvalidInput("approve_contract with absent proposed domains", err)
+		refuse("approve_contract with absent proposed domains", err, KindInvalidInput)
 		_, err = ClassifyWorkflowApproval(definition, "confirm_premise", WorkflowApprovalFacts{})
-		refuseInvalidInput("confirm_premise with absent active domains", err)
+		refuse("confirm_premise with absent active domains", err, KindInvariantViolation)
 		for name, domains := range map[string][]string{
 			"unknown":   {"preference", "economics"},
 			"duplicate": {"product", "product"},
@@ -172,7 +172,7 @@ func TestWorkflowApprovalPolicy(t *testing.T) {
 			"oversized": {"preference", "product", "ui_ux", "preference"},
 		} {
 			_, err := ClassifyWorkflowApproval(definition, "approve_contract", WorkflowApprovalFacts{ProposedDecisionDomains: domains})
-			refuseInvalidInput("approve_contract with the "+name+" domain set", err)
+			refuse("approve_contract with the "+name+" domain set", err, KindInvalidInput)
 		}
 	})
 

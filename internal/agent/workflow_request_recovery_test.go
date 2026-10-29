@@ -1,0 +1,200 @@
+package agent
+
+import (
+	"encoding/json"
+	"reflect"
+	"strings"
+	"testing"
+
+	"github.com/sharper-flow/concord/internal/agentcontract"
+	"github.com/sharper-flow/concord/internal/store"
+)
+
+func TestInvokeContractRequestCorrection(t *testing.T) {
+	for _, name := range []string{"missing_modified_law_home_domain", "omitted_spec_mandate"} {
+		t.Run(name, func(t *testing.T) {
+			ctx := t.Context()
+			s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_define", "work_transition"})
+			seedCurrentWorkflowDomainFixture(t, s)
+			env := mutationEnvelope(grant, scopeVersionForProject(t, s, "project-1"))
+			workID := captureCompositionWork(t, ctx, s, service, env, "Correct a bounded contract request", "task", "workflow.implementation", "correction-capture")
+			version := advanceCapturedWorkToContract(t, s, service, env, workID, "correction")
+			fields := workflowContractFieldsForSeededRegistry(t, s)
+			binding := fields["architecture_binding"].(map[string]any)
+			root := binding["home_domain_id"].(string)
+			fields["law_change_reason"] = "Correct the bounded engineering law without changing an operator decision."
+
+			var field, diagnostic string
+			var correct func()
+			if name == "missing_modified_law_home_domain" {
+				// Keep the source-backed law and its owning-start baseline, but
+				// place its canonical home outside this request's affected set.
+				if _, err := s.DatabaseForTesting().ExecContext(ctx, `INSERT INTO write_guard(active) VALUES(1);
+INSERT INTO domains(home_project_id,home_locator_id,product_id,domain_id,name,purpose,parent_domain_id,status,registry_content_hash,scanned_commit_oid)
+SELECT home_project_id,home_locator_id,product_id,'law-home','Law home','Modified law ownership',root_domain_id,'current',content_hash,scanned_commit_oid FROM domain_registries WHERE product_id='product-1';
+UPDATE law_domain_homes SET domain_id='law-home' WHERE product_id='product-1' AND law_id='CD-0001';
+DELETE FROM write_guard`); err != nil {
+					t.Fatal(err)
+				}
+				fields["spec_mandate"] = []string{"CD-0001"}
+				fields["law_modifies"] = []string{"CD-0001"}
+				field = "affected_domain_ids"
+				diagnostic = "modified law home Domain is outside architecture_binding.affected_domain_ids"
+				correct = func() { binding["affected_domain_ids"] = []string{root, "law-home"} }
+			} else {
+				binding["law_additions"] = []map[string]any{{"law_id": "law:request-correction", "home_domain_id": root}}
+				delete(fields, "spec_mandate")
+				field = "spec_mandate"
+				diagnostic = "law addition is outside spec_mandate"
+				correct = func() { fields["spec_mandate"] = []string{"law:request-correction"} }
+			}
+
+			// The key, expected version, caller, grant, and envelope remain
+			// identical across the refused and corrected calls. No consent is added.
+			env.RequestID = "request:contract-correction"
+			input := map[string]any{"work_id": workID, "expected_version": version, "action_id": "approve_contract", "fields": fields, "idempotency_key": "contract-correction"}
+			invoke := func() agentcontract.Envelope {
+				t.Helper()
+				raw, err := json.Marshal(input)
+				if err != nil {
+					t.Fatal(err)
+				}
+				response, err := Invoke(ctx, s, service, mustMarshalInvoke(t, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: raw}, env))
+				if err != nil {
+					t.Fatal(err)
+				}
+				return response
+			}
+			before := contractRequestCorrectionState(t, s, workID)
+			refused := invoke()
+			if after := contractRequestCorrectionState(t, s, workID); !reflect.DeepEqual(after, before) {
+				t.Fatalf("pre-effect refusal changed durable state: before=%v after=%v", before, after)
+			}
+			if refused.Outcome != agentcontract.OutcomeError || refused.Error == nil {
+				t.Fatalf("malformed contract was not refused: %+v", refused)
+			}
+			if refused.Error.EffectState != agentcontract.EffectNone || refused.Error.RetrySafe {
+				t.Errorf("refusal must have effect none and not permit an unchanged retry: %+v", refused.Error)
+			}
+			if refused.Error.Kind != "invalid_input" || refused.Error.RecoveryAction.Kind != "correct_request" {
+				t.Errorf("request-only defect must be invalid_input/correct_request: %+v", refused.Error)
+			}
+			if !strings.Contains(refused.Error.Message, diagnostic) {
+				t.Errorf("refusal did not reach the intended guard %q: %+v", diagnostic, refused.Error)
+			}
+			if !strings.Contains(refused.Error.Message, field) {
+				t.Errorf("refusal does not name the field to correct %q: %+v", field, refused.Error)
+			}
+			if refused.RequestID != env.RequestID || refused.Tool != "concord_work_transition" || refused.Operation != "workflow_action" {
+				t.Errorf("refusal lost request identity: %+v", refused)
+			}
+			if _, err := refused.Encode(); err != nil {
+				t.Errorf("refusal cannot serialize: %v", err)
+			}
+
+			correct()
+			corrected := invoke()
+			if corrected.Outcome != agentcontract.OutcomeOK {
+				t.Fatalf("corrected identical-key request under unchanged authority was not admitted: %+v", corrected.Error)
+			}
+			if workVersion(t, s, workID) <= version || usedCount(t, s.DatabaseForTesting(), `SELECT count(*) FROM workflow_contracts WHERE work_id=?`, workID) != 1 {
+				t.Fatal("correction did not commit exactly one contract and advance the work")
+			}
+			var actor, mandate, modifies, domains string
+			if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT actor FROM effect_receipts WHERE subject_id=? AND kind=?`, workID, store.WorkflowContractApproved).Scan(&actor); err != nil {
+				t.Fatal(err)
+			}
+			if actor != store.DeriveWorkflowActorRef(grant.PrincipalRef, grant.ClientRef, grant.AgentRef, grant.SessionRef) {
+				t.Fatalf("corrected contract changed author authority: %s", actor)
+			}
+			if countWorkflowApprovalChallenges(t, s) != 0 || countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM agent_approvals`) != 0 {
+				t.Fatal("request correction acquired operator consent state")
+			}
+			if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT spec_mandate,law_modifies,decision_domains FROM workflow_contracts WHERE work_id=?`, workID).Scan(&mandate, &modifies, &domains); err != nil {
+				t.Fatal(err)
+			}
+			for key, raw := range map[string]string{"spec_mandate": mandate, "law_modifies": modifies, "decision_domains": domains} {
+				var got []string
+				if err := json.Unmarshal([]byte(raw), &got); err != nil {
+					t.Fatal(err)
+				}
+				if !reflect.DeepEqual(got, fields[key]) {
+					t.Errorf("correction changed %s: got %v want %v", key, got, fields[key])
+				}
+			}
+			if name == "missing_modified_law_home_domain" {
+				if usedCount(t, s.DatabaseForTesting(), `SELECT count(*) FROM workflow_contract_affected_domains WHERE work_id=? AND domain_id='law-home'`, workID) != 1 {
+					t.Fatal("corrected contract did not bind the modified law home")
+				}
+			} else if usedCount(t, s.DatabaseForTesting(), `SELECT count(*) FROM workflow_contract_law_additions WHERE work_id=? AND law_id='law:request-correction'`, workID) != 1 {
+				t.Fatal("corrected contract did not bind the mandated law addition")
+			}
+			t.Log("corrected identical-key request admitted with unchanged authority")
+		})
+	}
+}
+
+func contractRequestCorrectionState(t *testing.T, s *store.Store, workID string) map[string]any {
+	t.Helper()
+	state := map[string]any{"work_version": workVersion(t, s, workID)}
+	var step string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT current_step FROM workflow_instances WHERE work_id=?`, workID).Scan(&step); err != nil {
+		t.Fatal(err)
+	}
+	state["step"] = step
+	var sequence int64
+	if err := s.DatabaseForTesting().QueryRow(`SELECT last FROM store_sequences WHERE name='effect'`).Scan(&sequence); err != nil {
+		t.Fatal(err)
+	}
+	state["effect_sequence"] = sequence
+	for _, table := range []string{
+		"effect_receipts", "idempotency_records", "agent_approval_challenges", "agent_approvals",
+		"workflow_contracts", "workflow_contract_predicates", "workflow_architecture_bindings",
+		"workflow_contract_affected_domains", "workflow_contract_domain_modifications",
+		"workflow_contract_domain_relation_modifications", "workflow_contract_law_modifications",
+		"workflow_contract_law_revisions", "workflow_contract_law_additions",
+		"workflow_law_addition_reservations", "workflow_contract_verification_obligations",
+	} {
+		state[table] = countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM `+table)
+	}
+	return state
+}
+
+func TestWorkflowRequestRecoveryClassification(t *testing.T) {
+	for _, test := range []struct {
+		name           string
+		failure        store.Failure
+		kind, recovery string
+	}{
+		{"payload", store.Failure{Kind: store.KindInvalidPayload}, "invalid_input", "correct_request"},
+		{"filter", store.Failure{Kind: store.KindInvalidFilter}, "invalid_input", "correct_request"},
+		{"input", store.Failure{Kind: store.KindInvalidInput}, "invalid_input", "correct_request"},
+		{"state", store.Failure{Kind: store.KindInvalidOperation}, "invalid_transition", "reread_entities"},
+		{"scope", store.Failure{Kind: store.KindUnknownScope}, "unknown_scope", "contact_operator"},
+		{"authorization", store.Failure{Kind: store.KindUnauthorized}, "unauthorized", "contact_operator"},
+		{"approval", store.Failure{Kind: store.FailureKind("approval_required")}, "approval_required", "request_approval"},
+		{"stale context", store.Failure{Kind: store.KindStaleContext}, "stale_context", "refresh_context"},
+		{"retryable input", store.Failure{Kind: store.KindInvalidPayload, RetrySafe: true}, "invalid_input", "reread_entities"},
+		{"possible effect", store.Failure{Kind: store.KindInvalidPayload, EffectPossible: true}, "invalid_input", "reconcile_operation"},
+		{"committed effect", store.Failure{Kind: store.KindInvalidPayload, CommittedRefs: []store.SubjectCurrentVersion{{SubjectType: "work", SubjectID: "work-1", Version: 2}}}, "invalid_input", "reconcile_operation"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			for _, proposed := range []string{"", "fix fields.premise", "reread_entities", "contact_operator", "correct_request"} {
+				failure := test.failure
+				// State, scope, and authority keep their own recovery proposals.
+				// Only request-input failures discard producer overrides.
+				if test.kind != "invalid_input" && proposed != "" && proposed != "fix fields.premise" && proposed != "correct_request" {
+					continue
+				}
+				failure.RecoveryAction = proposed
+				out := failureEnvelope(agentcontract.NewBase("request-classification", "concord_work_transition", "workflow_action"), &failure)
+				if out.Error.Kind != test.kind || out.Error.RecoveryAction.Kind != test.recovery {
+					t.Errorf("proposal %q: got %+v, want %s/%s", proposed, out.Error, test.kind, test.recovery)
+				}
+				if _, err := out.Encode(); err != nil {
+					t.Fatalf("proposal %q cannot serialize: %v", proposed, err)
+				}
+			}
+		})
+	}
+}

@@ -468,7 +468,7 @@ func workflowApprovalBoundaryCore(ctx context.Context, q queryer, registry Defin
 		}
 		domains, present, decodeErr := workflowStoredDecisionDomains(stored)
 		if decodeErr != nil {
-			return state, newFailure(KindInvalidInput, "workflow_approval_boundary", "the stored decision-domain fact is malformed", false, "restore a verified backup into a new path with concord restore, then swap")
+			return state, newFailure(KindInvariantViolation, "workflow_approval_boundary", "the stored decision-domain fact is malformed", false, "restore a verified backup into a new path with concord restore, then swap")
 		}
 		state.DecisionDomainsPresent, state.DecisionDomains = present, domains
 	}

@@ -207,8 +207,8 @@ func TestArchitectureBindingRelationTupleMembership(t *testing.T) {
 			err = validateArchitectureBindingTx(ctx, tx, workID, definition, &binding, mandate, []string{}, revisions)
 			if testCase.refused {
 				var failure *Failure
-				if !failureAs(err, &failure) || failure.Kind != KindUnknownScope || failure.Op != "workflow_architecture_binding" {
-					t.Fatalf("relation refusal=%+v err=%v, want typed unknown scope", failure, err)
+				if !failureAs(err, &failure) || failure.Kind != KindInvalidPayload || failure.Op != "workflow_architecture_binding" {
+					t.Fatalf("relation refusal=%+v err=%v, want typed invalid payload", failure, err)
 				}
 			} else if err != nil {
 				t.Fatalf("canonical relation rejected: %v", err)

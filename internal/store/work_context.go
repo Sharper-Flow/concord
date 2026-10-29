@@ -148,10 +148,10 @@ type WorkContextView struct {
 // never carries its own sequence.
 type workflowWorkContextRecordedPayload struct {
 	WorkflowVersionFields
-	StepID          string                 `json:"step_id"`
-	AttemptEpoch    int64                  `json:"attempt_epoch"`
-	RequiredReading []WorkContextReading   `json:"required_reading"`
-	FindingRefs     []string               `json:"finding_refs"`
+	StepID          string               `json:"step_id"`
+	AttemptEpoch    int64                `json:"attempt_epoch"`
+	RequiredReading []WorkContextReading `json:"required_reading"`
+	FindingRefs     []string             `json:"finding_refs"`
 	ContextFindings []WorkContextFinding `json:"context_findings"`
 	// ResearchSelections stores references only: the optional member is
 	// absent and empty for the same meaning, and a new full declaration

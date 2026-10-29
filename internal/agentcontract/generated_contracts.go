@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-const ManifestDigest = "sha256:510ac545e0120ffc645ab96a9e1445900340a436d4addfacda0c8b089ca2458c"
+const ManifestDigest = "sha256:bc915f177102f10392c088800043b55b80cc94af2eadcbe61158b12ac55d6a1e"
 
 type OperationKind string
 
@@ -369,7 +369,7 @@ var GeneratedPayloadRules = map[string]GeneratedPayloadRule{
 	"workflow_retained_outcome":                             {Required: []string{"kind", "allowed"}, Properties: []string{"kind", "allowed", "decision_record"}},
 	"workflow_review_candidate_view":                        {Required: []string{"commit"}, Properties: []string{"project_id", "commit", "tree"}},
 	"workflow_review_report":                                {Required: []string{"disposition", "input_candidate", "output_candidate", "dependencies", "assessments", "findings", "remaining_obligations"}, Properties: []string{"disposition", "input_candidate", "output_candidate", "dependencies", "assessments", "remaining_obligations", "findings", "resolved_findings"}},
-	"workflow_review_state":                                 {Required: []string{"candidate", "accepted_review", "findings", "continue_consumed", "dependencies_current", "publication_outstanding"}, Properties: []string{"candidate", "accepted_review", "findings", "continue_consumed", "group_id", "dependencies_current", "dependencies", "publication_outstanding"}},
+	"workflow_review_state":                                 {Required: []string{"candidate", "accepted_review", "findings", "dependencies_current", "publication_outstanding"}, Properties: []string{"candidate", "accepted_review", "findings", "dependencies_current", "dependencies", "publication_outstanding"}},
 	"workflow_review_unidentified_finding":                  {Required: []string{"severity", "confidence", "detail"}, Properties: []string{"severity", "confidence", "detail", "oracle"}},
 	"workflow_verdict_batch_entry":                          {Required: []string{"predicate_id", "receipt_refs"}, Properties: []string{"predicate_id", "receipt_refs"}},
 	"worktree_audit_page":                                   {Required: []string{"root", "drift"}, Properties: []string{"root", "drift"}},

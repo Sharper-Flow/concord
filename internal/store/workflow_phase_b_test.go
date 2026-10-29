@@ -34,9 +34,9 @@ func TestBuiltinWorkflowRegistryHasTheThreeLiveContractFamilies(t *testing.T) {
 	// A composed head lists each action once, in first appearance over its
 	// compiled steps.
 	wantActions := map[string][]string{
-		"workflow.implementation": {"record_proposal", "checkpoint_context", "cross_context_boundary", "accept_worker_result", "dispatch_worker", "record_work_context", "record_alignment", "approve_contract", "accept_worker_evidence", "record_design", "start_execution", "checkpoint_execution", "bind_evidence", "link_successor", "record_delivery", "request_correction", "record_worker_job", "checkpoint_refine", "record_verdict", "confirm_premise", "complete"},
-		"workflow.break_fix":      {"record_diagnosis", "checkpoint_context", "cross_context_boundary", "record_work_context", "approve_contract", "dispatch_worker", "accept_worker_evidence", "checkpoint_repair", "bind_evidence", "link_successor", "record_delivery", "request_correction", "accept_worker_result", "record_worker_job", "checkpoint_refine", "record_verdict", "confirm_premise", "complete"},
-		"workflow.research":       {"frame_research", "approve_contract", "checkpoint_context", "cross_context_boundary", "dispatch_worker", "accept_worker_evidence", "record_work_context", "record_finding", "revise_candidates", "bind_evidence", "accept_worker_result", "record_report", "link_successor", "record_conclusion", "record_verdict", "confirm_premise", "record_worker_job", "complete"},
+		"workflow.implementation": {"record_proposal", "checkpoint_context", "cross_context_boundary", "record_work_context", "record_alignment", "approve_contract", "record_design", "start_execution", "checkpoint_execution", "bind_evidence", "link_successor", "record_delivery", "request_correction", "record_review", "checkpoint_refine", "record_verdict", "confirm_premise", "complete"},
+		"workflow.break_fix":      {"record_diagnosis", "checkpoint_context", "cross_context_boundary", "record_work_context", "approve_contract", "checkpoint_repair", "bind_evidence", "link_successor", "record_delivery", "request_correction", "record_review", "checkpoint_refine", "record_verdict", "confirm_premise", "complete"},
+		"workflow.research":       {"frame_research", "approve_contract", "checkpoint_context", "cross_context_boundary", "record_work_context", "record_finding", "revise_candidates", "bind_evidence", "record_report", "link_successor", "record_conclusion", "record_verdict", "confirm_premise", "complete"},
 	}
 	wantTerminals := map[string]string{
 		"workflow.implementation": "release", "workflow.break_fix": "complete", "workflow.research": "complete",
@@ -211,36 +211,6 @@ func TestBuiltinWorkflowResolverReturnsTheShippedDefinition(t *testing.T) {
 		}
 		if resolved.Definition.Ref != registered.Definition.Ref || resolved.Digest != registered.Digest {
 			t.Fatalf("resolver for %s = %s, want %s", latest.Ref, resolved.Digest, registered.Digest)
-		}
-		// TestCurrentJoinComposesTheWorkerFailureRecordWithTheDispatchPair
-		// owns which steps compose the worker pair (CD-0242 D5).
-		for _, action := range latest.ActionDefinitions {
-			if action.ID != "accept_worker_result" {
-				continue
-			}
-			// CD-0198 D4: the delivery-accept versions add the optional
-			// delivery pair after the required attempt identity. Size-capable
-			// heads also admit supplemental path classifications.
-			fields := action.Payload.Fields
-			want := []WorkflowPayloadField{
-				{Name: "attempt_id", ValueType: PayloadRef, Required: true},
-				{Name: "attempt_epoch", ValueType: PayloadInteger, Required: true},
-			}
-			if len(fields) >= 4 {
-				want = append(want,
-					WorkflowPayloadField{Name: "delivery_artifact", ValueType: PayloadRef},
-					WorkflowPayloadField{Name: "delivery_state", ValueType: PayloadString, Enum: []string{"asserted"}},
-				)
-			}
-			if len(fields) != len(want) {
-				t.Fatalf("%s acceptance payload has %d fields, want %d", latest.Ref, len(fields), len(want))
-			}
-			for index, field := range want {
-				got := fields[index]
-				if got.Name != field.Name || got.ValueType != field.ValueType || got.Required != field.Required || got.ItemRef != field.ItemRef || strings.Join(got.Enum, ",") != strings.Join(field.Enum, ",") {
-					t.Fatalf("%s acceptance payload field %d = %+v, want %+v", latest.Ref, index, got, field)
-				}
-			}
 		}
 	}
 }

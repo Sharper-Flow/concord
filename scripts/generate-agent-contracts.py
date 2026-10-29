@@ -1398,26 +1398,6 @@ def project_workflow_action_schema(document: dict, actions: list[dict], workflow
     projected = copy.deepcopy(document)
     remove_generated_guidance(projected)
     defs = projected["$defs"]
-    for name in ("mutation_result", "projectable_mutation_result"):
-        for field in ("retry_attempt_id", "retry_worker_packet", "worker_packet_digest", "worker_recovery", "worker_worktree"):
-            defs[name]["properties"].pop(field, None)
-    pinned = defs["continuity_snapshot"]["properties"]["pinned"]
-    for field in ("ready_worker_jobs", "checks_repair_review_jobs", "review_worker_jobs", "review_input"):
-        pinned["properties"].pop(field, None)
-        if field in pinned.get("required", []):
-            pinned["required"].remove(field)
-    defs["work_pin"]["properties"].pop("attempt", None)
-    if "attempt" in defs["work_pin"].get("required", []):
-        defs["work_pin"]["required"].remove("attempt")
-    for name in ("workflow_correction_context", "retained_workflow_correction_context"):
-        for field in ("failed_attempt_id", "failed_attempt_epoch"):
-            defs[name]["properties"].pop(field, None)
-    for name in ("work_context_view", "retained_work_context_view"):
-        context = defs[name]["properties"]
-        context.pop("oracle_receipts", None)
-        context["oracle_preparations"]["description"] = "Captured native preparation records, with their exact subject, environment and control bundle. No raw output or alternative readiness authority."
-        context["source_event_frontier"]["description"] = "The work item's context frontier at read time."
-    defs["work_context_unavailable"]["description"] = "The shared work-context view exceeded its bound. The work pin and continuity remain readable; no complete context can be inferred from this marker."
     project_native_oracle_requests(defs)
     project_native_oracle_metadata(defs)
     # The action-discriminated variants replaced the shared conditional input.

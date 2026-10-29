@@ -90,11 +90,15 @@ func workContextSourceHoldsFindings(kind string) bool {
 func workContextTerminalFindingsAtEvent(event Event) ([]WorkContextFinding, []ReviewFinding, bool) {
 	var payload struct {
 		ContextFindings []WorkContextFinding `json:"context_findings"`
-		Review *ReviewBlock `json:"review"`
+		Review          *ReviewBlock         `json:"review"`
 	}
-	if err := json.Unmarshal(event.Payload, &payload); err != nil { return nil, nil, false }
+	if err := json.Unmarshal(event.Payload, &payload); err != nil {
+		return nil, nil, false
+	}
 	var ranked []ReviewFinding
-	if payload.Review != nil { ranked = payload.Review.Findings }
+	if payload.Review != nil {
+		ranked = payload.Review.Findings
+	}
 	return payload.ContextFindings, ranked, true
 }
 

@@ -26305,9 +26305,6 @@ const GeneratedPayloadSchemaDocument = `{
             }
           ]
         },
-        "continue_consumed": {
-          "type": "boolean"
-        },
         "dependencies": {
           "$ref": "#/$defs/lane_report_review_dependencies"
         },
@@ -26327,9 +26324,6 @@ const GeneratedPayloadSchemaDocument = `{
           },
           "type": "array"
         },
-        "group_id": {
-          "$ref": "#/$defs/id"
-        },
         "publication_outstanding": {
           "type": "boolean"
         }
@@ -26338,7 +26332,6 @@ const GeneratedPayloadSchemaDocument = `{
         "candidate",
         "accepted_review",
         "findings",
-        "continue_consumed",
         "dependencies_current",
         "publication_outstanding"
       ],

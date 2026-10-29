@@ -26,6 +26,53 @@ type WorkflowReviewState struct {
 	findingSources         map[string]reviewFindingSource
 }
 
+type workflowReviewCandidateView struct {
+	ProjectID string `json:"project_id,omitempty"`
+	Commit    string `json:"commit"`
+	Tree      string `json:"tree,omitempty"`
+}
+
+type workflowReviewFindingsView []ReviewFinding
+
+func (findings workflowReviewFindingsView) MarshalJSON() ([]byte, error) {
+	var projected []any
+	if findings != nil {
+		projected = make([]any, len(findings))
+	}
+	for i, finding := range findings {
+		projected[i] = finding
+		// Only the wholly unrecorded identity/state tuple admits a content-only
+		// view. A partially identified finding must still satisfy the strict shape.
+		if finding.FindingID == "" && finding.Status == "" && !finding.InScope && !finding.Blocking && finding.EvidenceRefs == nil && finding.ClosureRefs == nil {
+			projected[i] = struct {
+				Severity   string               `json:"severity"`
+				Confidence string               `json:"confidence"`
+				Detail     string               `json:"detail"`
+				Oracle     *ReviewOracleFinding `json:"oracle,omitempty"`
+			}{finding.Severity, finding.Confidence, finding.Detail, finding.Oracle}
+		}
+	}
+	return json.Marshal(projected)
+}
+
+// MarshalJSON exposes only recorded identities and finding fields. Retained
+// facts keep tree-less candidates and unidentified findings; storage and
+// report admission stay strict.
+func (state WorkflowReviewState) MarshalJSON() ([]byte, error) {
+	return json.Marshal(struct {
+		Dependencies           *ReviewDependencies          `json:"dependencies,omitempty"`
+		Candidate              *workflowReviewCandidateView `json:"candidate"`
+		Accepted               *WorkflowAcceptedReview      `json:"accepted_review"`
+		Findings               workflowReviewFindingsView   `json:"findings"`
+		DependenciesCurrent    bool                         `json:"dependencies_current"`
+		PublicationOutstanding bool                         `json:"publication_outstanding"`
+	}{
+		Dependencies: state.Dependencies, Candidate: (*workflowReviewCandidateView)(state.Candidate),
+		Accepted: state.Accepted, Findings: workflowReviewFindingsView(state.Findings),
+		DependenciesCurrent: state.DependenciesCurrent, PublicationOutstanding: state.PublicationOutstanding,
+	})
+}
+
 type reviewFindingSource struct {
 	CanonicalID string            `json:"canonical_id"`
 	DomainID    string            `json:"domain_id"`

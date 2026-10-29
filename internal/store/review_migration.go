@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 )
 
-// Migration 147 reads the historical log before migration 151 removes it.
+// Migration 148 reads the historical log before migration 151 removes it.
 // Only the fields needed to retain accepted subjects and findings are decoded.
 func backfillWorkflowReviewFacts(ctx context.Context, q migrationRunner) error {
 	rows, err := q.QueryContext(ctx, `SELECT e.subject_id,e.kind,e.actor,e.event_id,e.payload FROM domain_events e JOIN work_items w ON w.id=e.subject_id WHERE e.subject_type='work_item' AND e.kind IN ('workflow.action_completed','worker.completed') ORDER BY e.subject_id,e.seq`)
@@ -30,9 +30,20 @@ func backfillWorkflowReviewFacts(ctx context.Context, q migrationRunner) error {
 	if err != nil {
 		return err
 	}
+	type legacyJob struct {
+		JobID    string `json:"job_id"`
+		Revision int64  `json:"revision"`
+		Digest   string `json:"digest"`
+	}
 	type legacyAuthorization struct {
-		Capability string `json:"worker_capability_class"`
-		Subject    string `json:"worker_subject_commit"`
+		Capability string     `json:"worker_capability_class"`
+		Job        *legacyJob `json:"worker_job"`
+		Retained   *struct {
+			State struct {
+				Candidate ReviewCandidate `json:"candidate"`
+			} `json:"state"`
+			Input ReviewCandidate `json:"input"`
+		} `json:"worker_retained_review"`
 	}
 	type legacyResult struct {
 		Attempt  string       `json:"attempt_id"`
@@ -57,21 +68,10 @@ func backfillWorkflowReviewFacts(ctx context.Context, q migrationRunner) error {
 			}
 			key := keyPrefix + result.Attempt
 			results[key] = result
-			refs[key] = r.ref
-			if result.Review != nil && auths[key].Capability == "review" {
-				findings := workflowReviewFindingMap(state)
-				for _, finding := range result.Review.Findings {
-					if old, exists := findings[finding.FindingID]; exists {
-						finding.InScope = finding.InScope || old.InScope
-						finding.Blocking = finding.Blocking || old.Blocking
-						if old.Oracle != nil {
-							finding.Oracle = old.Oracle
-						}
-					}
-					finding.Status = "open"
-					findings[finding.FindingID] = finding
-				}
-				setWorkflowReviewFindings(&state, findings)
+			auth := auths[key]
+			if result.Review != nil && auth.Capability == "review" {
+				refs[key] = r.ref
+				observeLegacyReviewReport(&state, result.Review, auth.Retained != nil && state.Candidate != nil && *state.Candidate == auth.Retained.State.Candidate && result.Review.InputCandidate == auth.Retained.Input)
 			}
 		} else {
 			var action struct {
@@ -86,10 +86,25 @@ func backfillWorkflowReviewFacts(ctx context.Context, q migrationRunner) error {
 			if action.ID == "dispatch_worker" {
 				auths[key] = action.legacyAuthorization
 			}
-			if action.ID == "accept_worker_result" {
-				result, found := results[key]
+			if result, found := results[key]; found && action.ID == "accept_worker_result" {
 				auth := auths[key]
-				if found && result.Review != nil && auth.Capability == "review" && result.Observed != nil && result.Observed.State == "clean" && result.Review.InputCandidate.Commit == auth.Subject && result.Review.OutputCandidate.Commit == result.Observed.Commit && result.Review.OutputCandidate.Tree == result.Observed.Tree {
+				var candidate *ReviewCandidate
+				if result.Review != nil && auth.Capability == "review" {
+					output := result.Review.OutputCandidate
+					candidate = &output
+				} else if result.Observed != nil && result.Observed.State == "clean" {
+					project := ""
+					if auth.Job != nil {
+						if err := q.QueryRowContext(ctx, `SELECT COALESCE(json_extract(recorded_payload,'$.project_scope'),'') FROM worker_job_revisions WHERE work_id=? AND job_id=? AND revision=? AND digest=? AND recorded_payload IS NOT NULL`, r.work, auth.Job.JobID, auth.Job.Revision, auth.Job.Digest).Scan(&project); err != nil {
+							return err
+						}
+					}
+					candidate = &ReviewCandidate{ProjectID: project, Commit: result.Observed.Commit, Tree: result.Observed.Tree}
+				}
+				if candidate != nil {
+					state.Candidate = candidate
+				}
+				if result.Review != nil && auth.Capability == "review" {
 					applyWorkflowAcceptedReview(&state, WorkflowAcceptedReview{ReportRef: refs[key], ReportDigest: reviewDigest(result.Review), ActorRef: r.actor, Report: *result.Review}, workflowReviewFindingMap(state))
 				}
 			}
@@ -102,4 +117,28 @@ func backfillWorkflowReviewFacts(ctx context.Context, q migrationRunner) error {
 		}
 	}
 	return nil
+}
+
+// observeLegacyReviewReport keeps the historical terminal walk: a report on a
+// different input accumulates findings only through its retained base, a
+// terminal never closes a finding, and only acceptance installs a candidate.
+func observeLegacyReviewReport(state *WorkflowReviewState, report *ReviewBlock, retainedBase bool) {
+	if state.Candidate != nil && *state.Candidate != report.InputCandidate && !retainedBase {
+		return
+	}
+	findings := workflowReviewFindingMap(*state)
+	for _, finding := range report.Findings {
+		if previous, found := findings[finding.FindingID]; found {
+			if previous.Oracle != nil {
+				finding.Oracle = previous.Oracle
+			}
+			if previous.Status == "open" {
+				finding.InScope = finding.InScope || previous.InScope
+				finding.Blocking = finding.Blocking || previous.Blocking
+			}
+		}
+		finding.Status = "open"
+		findings[finding.FindingID] = finding
+	}
+	setWorkflowReviewFindings(state, findings)
 }

@@ -1061,7 +1061,6 @@
         "candidate",
         "accepted_review",
         "findings",
-        "continue_consumed",
         "dependencies_current",
         "publication_outstanding"
       ],
@@ -1127,12 +1126,6 @@
               }
             ]
           }
-        },
-        "continue_consumed": {
-          "type": "boolean"
-        },
-        "group_id": {
-          "$ref": "#/$defs/id"
         },
         "dependencies_current": {
           "type": "boolean"

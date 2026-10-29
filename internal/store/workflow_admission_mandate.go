@@ -52,7 +52,11 @@ func loadWorkflowMandateAdmission(ctx context.Context, q queryer, workID string,
 		if result.LawID == "" {
 			result.LawID, result.AddedByContract = lawID, added
 			if added {
-				if state.ContractCorrectionAvailable { result.CorrectionAction = "supersede_contract" } else if state.CorrectionRequestRecovery { result.CorrectionAction = "request_correction" }
+				if state.ContractCorrectionAvailable {
+					result.CorrectionAction = "supersede_contract"
+				} else if state.CorrectionRequestRecovery {
+					result.CorrectionAction = "request_correction"
+				}
 			}
 		}
 		if !added {

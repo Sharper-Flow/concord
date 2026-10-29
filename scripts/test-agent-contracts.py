@@ -226,13 +226,18 @@ class DomainFactProjectionTests(unittest.TestCase):
             self.assertIn("domain_fact_" + name, projected["$defs"])
 
 
+def without_guidance(properties):
+    """Generated bound guidance annotates request inputs only; constraints must match."""
+    return {key: {k: v for k, v in value.items() if k != "description"} for key, value in properties.items()}
+
+
 class ReviewCandidateReadbackProjectionTests(unittest.TestCase):
     def test_readback_preserves_unknown_fields_without_relaxing_reports(self):
         payload = copy.deepcopy(payload_schema)
         view = payload["$defs"]["workflow_review_candidate_view"]
         strict = payload["$defs"]["lane_report_review_candidate"]
         self.assertEqual(view["required"], ["commit"])
-        self.assertEqual(view["properties"], strict["properties"])
+        self.assertEqual(without_guidance(view["properties"]), without_guidance(strict["properties"]))
         self.assertEqual(set(strict["required"]), {"project_id", "commit", "tree"})
         self.assertEqual(payload["$defs"]["workflow_review_state"]["properties"]["candidate"]["anyOf"][1],
                          {"$ref": "#/$defs/workflow_review_candidate_view"})
@@ -256,7 +261,8 @@ class UnidentifiedFindingReadbackProjectionTests(unittest.TestCase):
         self.assertEqual(set(view["required"]), {"severity", "confidence", "detail"})
         self.assertEqual(set(view["properties"]), {"severity", "confidence", "detail", "oracle"})
         self.assertFalse(view["additionalProperties"])
-        self.assertEqual(view["properties"], {key: strict["properties"][key] for key in view["properties"]})
+        self.assertEqual(without_guidance(view["properties"]),
+                         without_guidance({key: strict["properties"][key] for key in view["properties"]}))
         finding = {"severity": "P2", "confidence": "high", "detail": "The recorded proof is incomplete."}
         generator.schema_validate(finding, view, payload)
         with self.assertRaises(ValueError):
@@ -1448,11 +1454,11 @@ class WorkflowDefinitionContentIdentityTests(unittest.TestCase):
             generator.schema_validate(self.definition | {"version": 1}, self.schema, self.schema)
 
     def test_capabilities_require_known_unique_sorted_names(self):
-        for capabilities in (["unknown"], ["accept_delivery", "accept_delivery"]):
+        for capabilities in (["unknown"], ["refine_proof", "refine_proof"]):
             with self.subTest(capabilities=capabilities), self.assertRaises(ValueError):
                 generator.schema_validate(self.definition | {"capabilities": capabilities}, self.schema, self.schema)
         self.assertEqual(lane_checker._validate_definition_semantics(
-            self.definition | {"capabilities": ["refine_proof", "accept_delivery"]}),
+            self.definition | {"capabilities": ["refine_proof", "produces_delivery"]}),
             "definition capabilities must be sorted and unique")
 
 

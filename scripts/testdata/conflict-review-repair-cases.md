@@ -41,8 +41,8 @@ material holds no such run.
 
 Size `larger`. Review fixes and verifies every in-scope finding. It reports an
 out-of-scope `P2` defect in a shared helper the change calls but does not edit.
-The supplied work context holds no follow-up item for it, and the report records
-none as missing.
+The change completes. The supplied work context holds no follow-up item for the
+defect, and no record states that one was filed.
 
 ## crucial-medium-repaired
 
@@ -50,14 +50,15 @@ Size `crucial`. The first Review reports an in-scope `P2` finding, marks it
 non-blocking, and returns ready for final proof. The coordinator's attempt to
 leave execution is refused because the finding is open. The coordinator
 dispatches a correction, and a second Review on the corrected candidate closes
-the finding citing a passing run of the declared check. Execution then ends.
+the finding citing a passing run of the declared check and reports no other
+high or medium finding. Execution then ends.
 
 ## crucial-medium-waived
 
 Size `crucial`. Review reports an in-scope `P1` finding and marks it
-non-blocking. The coordinator's notes say the finding is minor, and the change
-is described as delivered while the finding remains open in the latest accepted
-Review.
+non-blocking. The coordinator's notes call the finding minor. The coordinator
+dispatches no further Review and records delivery while the finding remains open
+in the latest accepted Review.
 
 ## follow-up-claimed
 

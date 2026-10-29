@@ -79,8 +79,8 @@ intercept external tools it does not mediate.
 
 For A2 row 5:
 
-Review repairs and verifies findings inside the change's scope and reports the
-rest for follow-up items, as CD-0242 D5 describes. A high or medium problem is a
+Review repairs in-scope findings in its own pass and verifies the repairs
+(CD-0242 D5); the rest become D6 follow-up items. A high or medium problem is a
 Review finding of severity `P0`, `P1` (high) or `P2` (medium); `P3` is low. A
 crucial change cannot leave execution or complete while the current Review state
 holds an open in-scope high or medium finding, whatever the reporter's blocking

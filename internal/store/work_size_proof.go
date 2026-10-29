@@ -14,8 +14,7 @@ import (
 // review and a later checkpoint_refine under the same contract version, and
 // whose report still carries a qualifying finding.
 //
-// Severity reads high as P0/P1 and medium as P2 (CD-0230 D2). A finding
-// qualifies when its oracle tie blocks delivery (it is not a follow-up), it
+// A finding qualifies when its oracle tie blocks delivery (it is not a follow-up), it
 // is P0-P2, and the same report does not resolve it; an oracle-free finding
 // has no scope classification and qualifies at P0-P2 in a correction_required
 // or revision_required report.

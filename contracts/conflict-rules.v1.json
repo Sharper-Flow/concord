@@ -510,7 +510,9 @@
         {"kind": "go_test", "value": "internal/store.TestCrucialReviewExitRefusesHighOrMediumFinding"},
         {"kind": "go_test", "value": "internal/store.TestReviewStateReadsCrucialFromEffectiveSize"},
         {"kind": "go_test", "value": "internal/store.TestReviewCurrentAdmissionNegativeCases"},
-        {"kind": "go_test", "value": "internal/store.TestReviewCompletionRetainsAppliedRuleContextClaims"}
+        {"kind": "go_test", "value": "internal/store.TestReviewCompletionRetainsAppliedRuleContextClaims"},
+        {"kind": "go_test", "value": "internal/store.TestDispatchRefusesStaleWorkContextPacket"},
+        {"kind": "go_test", "value": "internal/store.TestDispatchRefusesTamperedWorkContextPacket"}
       ]
     },
     {

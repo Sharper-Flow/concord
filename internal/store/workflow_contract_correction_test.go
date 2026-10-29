@@ -42,11 +42,11 @@ func TestIssue933OperatorActionSupersedesAsCurrentCoordinator(t *testing.T) {
 	const workID = "issue933-current-coordinator"
 	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", "repair")
 	defer fixture.store.Close()
-	successor := registryRepinSuccessorPayload(2, registryFixtureHash(), workID, 1)
+	successor := returnRouteSuccessorPayload(2, workID, 1)
 	if err := runIssue933OperatorAction(t, fixture.store, workID, "supersede_contract", successor, fixture.owner, fixture.operator); err != nil {
 		t.Fatalf("current-policy coordinator supersession: %v", err)
 	}
-	if version, active := activeStaleRegistryContract(t, fixture.store, workID); version != 2 || active != 1 {
+	if version, active := activeContractState(t, fixture.store, workID); version != 2 || active != 1 {
 		t.Fatalf("active contract version=%d count=%d, want 2/1", version, active)
 	}
 }

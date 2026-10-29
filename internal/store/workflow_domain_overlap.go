@@ -255,6 +255,35 @@ func invalidateWorkflowOverlapResolutionPairTx(ctx context.Context, tx *sql.Tx, 
 	return nil
 }
 
+// invalidateWorkflowOverlapResolutionsForWorkTx retires every current
+// resolution an endpoint holds when that endpoint reopens, with the relation
+// each one derived, so a reopened item carries no stale merger, supersession,
+// or sequencing edge.
+func invalidateWorkflowOverlapResolutionsForWorkTx(ctx context.Context, tx *sql.Tx, eventID string, workIDs ...string) error {
+	if len(workIDs) == 0 {
+		return nil
+	}
+	seq, err := eventSequenceTx(ctx, tx, eventID)
+	if err != nil {
+		return err
+	}
+	for _, workID := range workIDs {
+		if workID == "" {
+			continue
+		}
+		if _, err := tx.ExecContext(ctx, `DELETE FROM relations WHERE resolution_id IN (
+			SELECT resolution_id FROM workflow_overlap_resolutions
+			WHERE (from_work_id=? OR to_work_id=?) AND invalidated_seq IS NULL
+		)`, workID, workID); err != nil {
+			return workflowOverlapResolutionProjectionError(err)
+		}
+		if _, err := tx.ExecContext(ctx, `UPDATE workflow_overlap_resolutions SET invalidated_seq=? WHERE (from_work_id=? OR to_work_id=?) AND invalidated_seq IS NULL`, seq, workID, workID); err != nil {
+			return workflowOverlapResolutionProjectionError(err)
+		}
+	}
+	return nil
+}
+
 func eventSequenceTx(ctx context.Context, tx *sql.Tx, eventID string) (int64, error) {
 	var seq int64
 	if err := tx.QueryRowContext(ctx, `SELECT effect_seq FROM effect_receipts WHERE event_id=?`, eventID).Scan(&seq); err != nil {

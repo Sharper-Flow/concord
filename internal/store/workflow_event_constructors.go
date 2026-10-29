@@ -333,14 +333,6 @@ func workflowSupersedeContractEvents(ctx context.Context, tx *sql.Tx, definition
 	if bindingErr != nil {
 		return nil, bindingErr
 	}
-	selfRepairRaw, selfRepairPresent := fields["self_repair"]
-	selfRepair, selfRepairErr := parseWorkflowSelfRepair(selfRepairRaw)
-	if selfRepairErr != nil {
-		return nil, selfRepairErr
-	}
-	if selfRepairPresent && selfRepair != nil && !productChanging {
-		return nil, newFailure(KindInvalidPayload, "workflow_action", "non-Product-changing successor cannot carry self_repair", false, "classify only Product-changing Concord defect repair")
-	}
 	revisionMandate := specMandate
 	var revisionErr error
 	if productChanging {
@@ -381,9 +373,6 @@ func workflowSupersedeContractEvents(ctx context.Context, tx *sql.Tx, definition
 		successor["architecture_binding"] = binding
 	} else if len(lawModifies) == 0 {
 		delete(successor, "law_modifies")
-	}
-	if selfRepairPresent && selfRepair != nil {
-		successor["self_repair"] = selfRepair
 	}
 	events := []Event{workflowTypedEvent(eventID, WorkflowContractSuperseded, request.WorkID, actor, request.Now, expected, map[string]any{"previous_contract_version": previous, "predecessor_contract_versions": predecessors, "new_contract_version": next, "supersede_reason": workflowFieldStringDefault(fields, "supersede_reason", "contract revision"), "audit_evidence": audit, "approval_ref": request.OperatorApprovalRef, "approval_operation_digest": request.ApprovalOperationDigest, "approval_scope_json": request.ApprovalScopeJSON, "approval_versions_json": request.ApprovalVersionsJSON, "approval_consequence": request.ApprovalConsequence, "successor_contract": successor})}
 	return appendWorkflowDesignCorrection(ctx, tx, definition, request, actor, fields["design_record"], eventID, expected, events)

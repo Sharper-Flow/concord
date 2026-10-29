@@ -47,7 +47,7 @@ func approveWithGroundTruthLabel(t *testing.T, s *Store, definition RegisteredDe
 		"premise":          "change the subject path",
 		"decision_domains": []string{},
 		"architecture_binding": WorkflowArchitectureBinding{
-			DomainRegistryContentHash: "sha256:" + strings.Repeat("b", 64), HomeDomainID: "root", AffectedDomainIDs: []string{"root"},
+			HomeDomainID: "root", AffectedDomainIDs: []string{"root"},
 			DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{},
 			VerificationObligations: []WorkflowVerificationObligation{},
 		},

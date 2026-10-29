@@ -51,13 +51,12 @@ func fullyPopulatedContinuitySnapshot() store.ContinuitySnapshot {
 			RigorClass:          "prototype_internal",
 			ChangesProductTruth: new(true),
 			ArchitectureBinding: &store.WorkflowArchitectureBinding{
-				DomainRegistryContentHash: "sha256:" + repeatHex(),
-				HomeDomainID:              "child",
-				AffectedDomainIDs:         []string{"root", "child"},
-				DomainModifies:            []string{"child"},
-				DomainRelationModifies:    []store.WorkflowDomainRelationModification{{SourceDomainID: "child", Kind: "depends_on", TargetDomainID: "root"}},
-				LawAdditions:              []store.WorkflowLawAddition{{LawID: "spec-2", HomeDomainID: "child"}},
-				VerificationObligations:   []store.WorkflowVerificationObligation{{LawID: "spec-1", ObligationID: "verification"}},
+				HomeDomainID:            "child",
+				AffectedDomainIDs:       []string{"root", "child"},
+				DomainModifies:          []string{"child"},
+				DomainRelationModifies:  []store.WorkflowDomainRelationModification{{SourceDomainID: "child", Kind: "depends_on", TargetDomainID: "root"}},
+				LawAdditions:            []store.WorkflowLawAddition{{LawID: "spec-2", HomeDomainID: "child"}},
+				VerificationObligations: []store.WorkflowVerificationObligation{{LawID: "spec-1", ObligationID: "verification"}},
 			},
 		},
 		SpecMandate: []string{"spec-1"},
@@ -358,13 +357,12 @@ func TestFullyPopulatedResultPayloadsValidate(t *testing.T) {
 // slices a shaping that dropped only a copied list would have to name.
 func fullyPopulatedWorkflowReadProjection() store.WorkflowReadProjection {
 	binding := &store.WorkflowArchitectureBinding{
-		DomainRegistryContentHash: "sha256:" + repeatHex(),
-		HomeDomainID:              "child",
-		AffectedDomainIDs:         []string{"root", "child"},
-		DomainModifies:            []string{"child"},
-		DomainRelationModifies:    []store.WorkflowDomainRelationModification{{SourceDomainID: "child", Kind: "depends_on", TargetDomainID: "root"}},
-		LawAdditions:              []store.WorkflowLawAddition{{LawID: "spec-2", HomeDomainID: "child"}},
-		VerificationObligations:   []store.WorkflowVerificationObligation{{LawID: "spec-1", ObligationID: "verification"}},
+		HomeDomainID:            "child",
+		AffectedDomainIDs:       []string{"root", "child"},
+		DomainModifies:          []string{"child"},
+		DomainRelationModifies:  []store.WorkflowDomainRelationModification{{SourceDomainID: "child", Kind: "depends_on", TargetDomainID: "root"}},
+		LawAdditions:            []store.WorkflowLawAddition{{LawID: "spec-2", HomeDomainID: "child"}},
+		VerificationObligations: []store.WorkflowVerificationObligation{{LawID: "spec-1", ObligationID: "verification"}},
 	}
 	return store.WorkflowReadProjection{
 		WorkID: "work-1", State: "completed", CurrentStep: "acceptance",

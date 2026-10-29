@@ -42,7 +42,6 @@ type WorkflowReadContract struct {
 	RigorClass          string                       `json:"rigor_class"`
 	ChangesProductTruth *bool                        `json:"changes_product_truth,omitempty"`
 	ArchitectureBinding *WorkflowArchitectureBinding `json:"architecture_binding,omitempty"`
-	SelfRepair          *WorkflowSelfRepair          `json:"self_repair,omitempty"`
 	ApprovedAt          string                       `json:"approved_at,omitempty"`
 	ApprovedBy          string                       `json:"approved_by,omitempty"`
 	SupersededBy        *int64                       `json:"superseded_by,omitempty"`
@@ -124,9 +123,6 @@ func readWorkflowContractVersion(ctx context.Context, q queryer, workID string, 
 		return contract, err
 	}
 	if contract.ArchitectureBinding, err = readWorkflowArchitectureBinding(ctx, q, workID, contract.Version); err != nil {
-		return contract, err
-	}
-	if contract.SelfRepair, err = readWorkflowSelfRepair(ctx, q, workID, contract.Version); err != nil {
 		return contract, err
 	}
 	return contract, nil

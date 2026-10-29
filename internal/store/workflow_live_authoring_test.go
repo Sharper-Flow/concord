@@ -435,7 +435,7 @@ func TestCanonicalHeadsApproveRecordsExplicitPredicatesWithoutInventedOutcome(t 
 			"outcome_payload": map[string]any{"kind": "check", "check_ref": "check:canonical", "immutable_subject_ref": "commit:" + workID, "expected_result": "pass"},
 		}},
 		"architecture_binding": WorkflowArchitectureBinding{
-			DomainRegistryContentHash: "sha256:" + strings.Repeat("b", 64), HomeDomainID: "root", AffectedDomainIDs: []string{"root"},
+			HomeDomainID: "root", AffectedDomainIDs: []string{"root"},
 			DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{},
 			VerificationObligations: []WorkflowVerificationObligation{},
 		},
@@ -634,7 +634,7 @@ func seedCutoverPin(t *testing.T, path, workID, ref string) string {
 
 func repinCutoverInstance(t *testing.T, s *Store, workID, ref string) {
 	t.Helper()
-	execStaleRegistryInFold(t, s, fmt.Sprintf(`UPDATE workflow_instances SET definition_ref='%s' WHERE work_id='%s'`, ref, workID))
+	execInFold(t, s, fmt.Sprintf(`UPDATE workflow_instances SET definition_ref='%s' WHERE work_id='%s'`, ref, workID))
 }
 
 func storedCounts(t *testing.T, path string) (events int64, migrations int64) {
@@ -695,7 +695,7 @@ func TestCutoverAllowsTerminalHistoricalPinsAtReadiness(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	execStaleRegistryInFold(t, s, `UPDATE work_items SET lifecycle='cancelled' WHERE id='`+workID+`'`)
+	execInFold(t, s, `UPDATE work_items SET lifecycle='cancelled' WHERE id='`+workID+`'`)
 	if err := s.Close(); err != nil {
 		t.Fatal(err)
 	}
@@ -747,7 +747,7 @@ func TestCutoverBlocksOutsideRepairArchivedPin(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	execStaleRegistryInFold(t, s, `UPDATE workflow_instances SET instance_state='outside_repair' WHERE work_id='`+workID+`'`)
+	execInFold(t, s, `UPDATE workflow_instances SET instance_state='outside_repair' WHERE work_id='`+workID+`'`)
 	if err := s.Close(); err != nil {
 		t.Fatal(err)
 	}
@@ -883,7 +883,7 @@ func TestResearchDerivedFailureRetriesAndRebuilds(t *testing.T) {
 // write guard the write-seam-only contract table requires.
 func insertCutoverContract(t *testing.T, s *Store, workID string) {
 	t.Helper()
-	execStaleRegistryInFold(t, s, `INSERT INTO workflow_contracts
+	execInFold(t, s, `INSERT INTO workflow_contracts
 		(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,definition_ref,definition_digest)
 		SELECT i.work_id,1,'cutover contract pin','internal_sqlite','[]','[]','2026-10-11T00:00:00Z',
 		(SELECT actor_ref FROM workflow_actors LIMIT 1),'[]',i.definition_ref,i.definition_digest
@@ -894,7 +894,7 @@ func insertCutoverContract(t *testing.T, s *Store, workID string) {
 // given definition, the slot supersession points the old row at.
 func insertCutoverSuccessorContract(t *testing.T, s *Store, workID string, contractVersion int64, ref, digest string) {
 	t.Helper()
-	execStaleRegistryInFold(t, s, `INSERT INTO workflow_contracts
+	execInFold(t, s, `INSERT INTO workflow_contracts
 		(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,definition_ref,definition_digest)
 		VALUES('`+workID+`',`+fmt.Sprintf("%d", contractVersion)+`,'cutover successor pin','internal_sqlite','[]','[]','2026-10-11T00:00:00Z',
 		(SELECT actor_ref FROM workflow_actors LIMIT 1),'[]','`+ref+`','`+digest+`')`)
@@ -904,7 +904,7 @@ func insertCutoverSuccessorContract(t *testing.T, s *Store, workID string, contr
 // projection does: the old row points at the successor's version.
 func supersedeCutoverContract(t *testing.T, s *Store, workID string) {
 	t.Helper()
-	execStaleRegistryInFold(t, s, `UPDATE workflow_contracts SET superseded_by=2 WHERE work_id='`+workID+`' AND contract_version=1`)
+	execInFold(t, s, `UPDATE workflow_contracts SET superseded_by=2 WHERE work_id='`+workID+`' AND contract_version=1`)
 }
 
 // TestCutoverRefusesActiveArchivedContractBesideCanonicalInstance proves the
@@ -1014,7 +1014,7 @@ func TestCutoverRefusesActiveArchivedContractWithoutInstance(t *testing.T) {
 		t.Fatal(err)
 	}
 	insertCutoverContract(t, s, workID)
-	execStaleRegistryInFold(t, s, `DELETE FROM workflow_instances WHERE work_id='`+workID+`'`)
+	execInFold(t, s, `DELETE FROM workflow_instances WHERE work_id='`+workID+`'`)
 	if err := s.Close(); err != nil {
 		t.Fatal(err)
 	}
@@ -1054,7 +1054,7 @@ func seedCutoverDispositionFixture(t *testing.T) *Store {
 	repinCutoverInstance(t, s, "d-terminal", "workflow.generic_one_off")
 	insertCutoverContract(t, s, "a-archived") // Two blocking surfaces still select one work.
 	insertCutoverContract(t, s, "b-contract-only")
-	execStaleRegistryInFold(t, s, `DELETE FROM workflow_instances WHERE work_id='b-contract-only'`)
+	execInFold(t, s, `DELETE FROM workflow_instances WHERE work_id='b-contract-only'`)
 	insertCutoverSuccessorContract(t, s, "e-superseded-contract", 1, "workflow.ops_runbook", canonical.Digest)
 	insertCutoverSuccessorContract(t, s, "e-superseded-contract", 2, canonical.Definition.Ref, canonical.Digest)
 	supersedeCutoverContract(t, s, "e-superseded-contract")
@@ -1139,11 +1139,11 @@ func TestCutoverDispositionSelectsAndCancelsExactlyBlockedWork(t *testing.T) {
 			VALUES(?,?,'project',?,'synthetic-repository',? ,?,?,'verified','operator',?,'now','now')`, "wt-"+id, id, WorktreeSetID(id), "work/"+id, strings.Repeat("a", 40), dir, "req-"+id); err != nil {
 			t.Fatal(err)
 		}
-		execStaleRegistryInFold(t, s, fmt.Sprintf(`INSERT INTO worktree_entries(set_id,project_id,claim_op_id,branch,base_sha,path,repository_id,state,verified_at,git_facts)
+		execInFold(t, s, fmt.Sprintf(`INSERT INTO worktree_entries(set_id,project_id,claim_op_id,branch,base_sha,path,repository_id,state,verified_at,git_facts)
 			VALUES('%s','project','wt-%s','work/%s','%s','%s','synthetic-repository','active','now','{}')`, WorktreeSetID(id), id, id, strings.Repeat("a", 40), dir))
 	}
 	// Research content stays; only the cancelled work's active bindings drop.
-	execStaleRegistryInFold(t, s, `UPDATE work_items SET kind='research' WHERE id='c-canonical'`)
+	execInFold(t, s, `UPDATE work_items SET kind='research' WHERE id='c-canonical'`)
 	pack, err := createResearchPack(ctx, s, CreateResearchPackRequest{OwnerWorkID: "c-canonical", Revision: ResearchRevisionInput{Question: "cutover fixture", ScopeIn: json.RawMessage(`{}`), ScopeOut: json.RawMessage(`{}`), DoneWhen: json.RawMessage(`{}`), Method: "source"}})
 	if err != nil {
 		t.Fatal(err)
@@ -1244,7 +1244,7 @@ func TestCutoverDispositionOutsideRepairRefusalRollsBackEveryCancellation(t *tes
 	ctx := context.Background()
 	s := seedCutoverDispositionFixture(t)
 	// The held item sorts second, so the first cancellation must roll back.
-	execStaleRegistryInFold(t, s, `INSERT INTO outside_repair_dispositions(work_id,approval_ref,state,reason,evidence_json,recorded_at)
+	execInFold(t, s, `INSERT INTO outside_repair_dispositions(work_id,approval_ref,state,reason,evidence_json,recorded_at)
 		VALUES('b-contract-only','approval:hold','active','synthetic outside repair','{}','now')`)
 	before := cutoverTableSnapshot(t, s, "work_items")
 	eventsBefore := countRows(t, s, "effect_receipts")

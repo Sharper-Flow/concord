@@ -121,7 +121,7 @@ func seedWorkflowReturnRouteFixtureWithSource(t *testing.T, workID string, regis
 	}
 	if registered.Definition.ChangesProductTruth != nil && *registered.Definition.ChangesProductTruth {
 		contractPayload["architecture_binding"] = WorkflowArchitectureBinding{
-			DomainRegistryContentHash: "sha256:" + strings.Repeat("b", 64), HomeDomainID: "root", AffectedDomainIDs: []string{"root"},
+			HomeDomainID: "root", AffectedDomainIDs: []string{"root"},
 			DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{},
 			VerificationObligations: []WorkflowVerificationObligation{},
 		}

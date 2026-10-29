@@ -419,11 +419,6 @@ func continuityReadContractTx(ctx context.Context, tx *sql.Tx, work string, out 
 			return bindingErr
 		}
 		contract.ArchitectureBinding = binding
-		selfRepair, repairErr := readWorkflowSelfRepair(ctx, tx, work, contract.Version)
-		if repairErr != nil {
-			return repairErr
-		}
-		contract.SelfRepair = selfRepair
 		out.ArchitectureBinding = contract.ArchitectureBinding
 		out.Contract = &contract
 		revisions, revisionErr := readWorkflowLawRevisions(ctx, tx, work, contract.Version)

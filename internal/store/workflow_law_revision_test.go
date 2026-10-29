@@ -303,7 +303,7 @@ func TestWorkflowLawRevisionDeletedLawRecoveryAtExecution(t *testing.T) {
 	if err := runVerdictActionAs(t, s, workID, "supersede_contract", mustJSONValue(successor), 0, actor); err != nil {
 		t.Fatalf("deleted-law recovery at execution: %v", err)
 	}
-	if version, active := activeStaleRegistryContract(t, s, workID); version != 2 || active != 1 {
+	if version, active := activeContractState(t, s, workID); version != 2 || active != 1 {
 		t.Fatalf("recovery active contract=%d count=%d, want 2/1", version, active)
 	}
 	pins, err := readWorkflowLawRevisions(t.Context(), s.db, workID, 2)

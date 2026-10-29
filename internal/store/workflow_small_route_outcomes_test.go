@@ -77,7 +77,7 @@ func TestSmallImplementationCompletionRetainsMandatoryOutcomes(t *testing.T) {
 			// Remove one current prerequisite after successful confirmation.
 			// Completion must recheck it rather than trust an earlier advance.
 			if tc.damage != "" {
-				execStaleRegistryInFold(t, c.f.store, tc.damage)
+				execInFold(t, c.f.store, tc.damage)
 			}
 			before := c.j.effects(t)
 			err := c.j.action(t, "complete", map[string]any{"impact_verdict": "non-breaking"}, c.f.owner)

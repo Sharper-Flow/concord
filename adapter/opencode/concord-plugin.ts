@@ -36,7 +36,6 @@ import type { PluginInput, PluginOptions } from "@opencode-ai/plugin"
 import { createContinuityTransform } from "./continuity-hook"
 import { createAgentSwitchNotice } from "./agent-switch-hook"
 import { dispatchWindows, DispatchWindowError, TASK_TOOL_ID } from "./dispatch-window"
-import { bindCiWatchClient, ciWatchTool, drainQueuedCiReportsForMessage, isCiWatchNoticeMessage, publishCiWatchDefinition, redeliverQueuedCiReports, registerCiWatchPeer } from "./ci-watch"
 import { completeDispatchedWorker, failDispatchedWorker } from "./lane_completion"
 import { hostControlPlane, SessionScopeUnavailable } from "./move-session"
 import { claimHostLease } from "./host-lease"
@@ -76,11 +75,6 @@ async function pushSessionGoalTitle(input: unknown, output: { context: string[] 
 
 export default async function ConcordAdapterPlugin(input?: Partial<PluginInput>, _options?: PluginOptions) {
   hostControlPlane().bind(input)
-  // The CI watcher delivers through the same client, so the plugin factory is
-  // the one place the watcher transport is bound.
-  bindCiWatchClient(input)
-  // Bind before publication so a failed peer registration can log.
-  const ciPeer = registerCiWatchPeer(input)
   // CD-0111 D1/D2: claim the session's release lease before any tool can
   // run. The claim fails closed: a session that cannot claim a lease keeps
   // the release it runs visible to the installer, so the tools refuse rather
@@ -107,7 +101,6 @@ export default async function ConcordAdapterPlugin(input?: Partial<PluginInput>,
     concord_work_relate: work_relate,
     concord_work_compact: work_compact,
     concord_work_start: work_start,
-    concord_ci_watch: ciWatchTool(ciPeer.id),
     concord_worker_read: workerReadTool(workerCapabilities, readBoundWorkerSource),
     concord_worker_check: workerCheckTool(workerCapabilities, executeBoundWorkerControl),
     concord_worker_diff: workerDiffTool(workerCapabilities, readBoundWorkerDiff),
@@ -118,26 +111,10 @@ export default async function ConcordAdapterPlugin(input?: Partial<PluginInput>,
       input: { sessionID: string; messageID?: string; agent?: string },
       output?: { message?: { id?: unknown }; parts?: unknown[] },
     ) => {
-      // The ci-watch start notice is a noReply user message, and the host
-      // still reports it through this hook. It must not consume the wake
-      // protocol: a drained report would land in a message that never wakes
-      // the model, and the boundary clear and agent-switch read below would
-      // treat the notice as an operator turn. Skip those when every part
-      // carries the notice marker.
-      if (isCiWatchNoticeMessage(output?.parts)) return
       observeWorkStartMessage(input.sessionID, output?.parts)
       await workerCapabilities.observe(input.sessionID, input.agent)
       clearTurnMoveBoundary(input.sessionID)
       await agentSwitch.chatMessage(input)
-      // The CI watcher queues a terminal report it could not confirm and
-      // injects it here, so a lost wake reaches the model on the next turn.
-      // The host validates drained parts against the stored part schema, so
-      // the drain needs the message the parts will belong to: the input
-      // messageID when the host supplies one, else the host-generated id on
-      // the output message record.
-      if (output !== undefined && Array.isArray(output.parts)) {
-        drainQueuedCiReportsForMessage(input.sessionID, input.messageID, output)
-      }
     },
     "tool.definition": async (
       definitionInput: { toolID: string },
@@ -145,14 +122,12 @@ export default async function ConcordAdapterPlugin(input?: Partial<PluginInput>,
     ) => {
       await publishRequestDefinition(definitionInput, output)
       await publishWorkStartDefinition(definitionInput, output)
-      await publishCiWatchDefinition(definitionInput, output)
       await publishWorkerReadDefinition(definitionInput, output)
       await publishWorkerCheckDefinition(definitionInput, output)
       await publishWorkerDiffDefinition(definitionInput, output)
     },
     event: async ({ event }: { event: unknown }) => {
       workerCapabilities.event(event)
-      redeliverQueuedCiReports(event)
       continueWorkStartOnEvent(event, message => {
         if (input?.client?.app?.log) void input.client.app.log({ body: { service: "concord", level: "warn", message } }).catch(() => { console.warn(message) })
         else console.warn(message)
@@ -239,6 +214,5 @@ export default async function ConcordAdapterPlugin(input?: Partial<PluginInput>,
       await agentSwitch.transform(input, output)
     },
     "experimental.session.compacting": pushSessionGoalTitle,
-    dispose: async () => ciPeer.dispose(),
   }
 }

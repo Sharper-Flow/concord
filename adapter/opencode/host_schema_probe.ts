@@ -3,14 +3,11 @@ import os from "node:os"
 import path from "node:path"
 import { contractOperations, hostToolSchemas, workflowActionPublicVariants } from "./generated-contracts"
 import { expandedPublishedRequestSchema } from "./generated-contract-tests"
-import { ciWatchTool, publishCiWatchDefinition } from "./ci-watch"
 import { workerReadTool, publishWorkerReadDefinition } from "./worker_source"
 import { workerCheckTool, publishWorkerCheckDefinition } from "./worker_control"
 import { workerDiffTool, publishWorkerDiffDefinition } from "./worker_diff"
 import { roleDeniedConcordTools } from "./generated-primary-profiles"
 import { domain, knowledge, product_view, publishRequestDefinition, publishWorkStartDefinition, work_browse, work_compact, work_define, work_relate, work_start, work_trace, work_transition } from "./concord"
-
-const concord_ci_watch = ciWatchTool()
 
 const tools: Record<string, any> = {
   concord_product_view: product_view,
@@ -270,31 +267,6 @@ for (const branch of transitionBranches) {
   }
 }
 
-// The watcher is a direct tool: its args are the published argument fields
-// themselves, not a root schema. The host publishes each key of args as one
-// property of the tool's object schema, so repo and selector must appear as
-// fields and never as schema keywords. The host requires every field before
-// tool.definition runs, so the probe applies the production hook to that view.
-const ciWatchDefinition = {
-  description: concord_ci_watch.description,
-  parameters: {},
-  jsonSchema: publishedArgsSchema(concord_ci_watch.args as Record<string, unknown>, "ci watch schema"),
-}
-await publishCiWatchDefinition({ toolID: "concord_ci_watch" }, ciWatchDefinition)
-const ciWatchRoot = object(ciWatchDefinition.jsonSchema, "published ci watch schema")
-registrationBytes.concord_ci_watch = Buffer.byteLength(JSON.stringify(ciWatchRoot), "utf8")
-inspect(ciWatchRoot)
-const ciWatchProperties = object(ciWatchRoot.properties, "ci watch properties")
-if (
-  JSON.stringify(Object.keys(ciWatchProperties).sort()) !==
-  JSON.stringify(["head_sha", "mode", "repo", "selector", "time_seconds_max"])
-) {
-  fail("concord_ci_watch does not publish repo, selector, head_sha, mode, and time_seconds_max as argument fields")
-}
-if (JSON.stringify(ciWatchRoot.required) !== JSON.stringify(["repo", "selector"])) fail("concord_ci_watch does not require repo and selector")
-const ciWatchSelector = object(ciWatchProperties.selector, "ci watch selector")
-if (JSON.stringify(ciWatchSelector.required) !== JSON.stringify(["kind", "value"])) fail("concord_ci_watch selector does not require kind and value")
-
 const reader = workerReadTool({ authorize: async () => null }, async () => { throw new Error("the schema probe must not read worker sources") })
 const readerDefinition = {
   description: reader.description,
@@ -449,31 +421,31 @@ if (mergeArgIndex !== -1) {
       const allowed = catalog.filter((tool) => !roleDeniedConcordTools[role].tools.includes(tool))
       noOverlay[role] = { resolved, projected_bytes: allowed.reduce((sum, tool) => sum + registrationBytes[tool], 0), allowed_tools: allowed }
     }
-    // Deny overlay, agent level: the operator's frontmatter gains a watcher
+    // Deny overlay, agent level: the operator's frontmatter gains a reader
     // deny, so the host merge must drop a tool its no-overlay profile allowed.
     const denyFixture = path.join(isolation, "deny-fixture")
     fs.cpSync(fixture, denyFixture, { recursive: true })
     const operatorPath = path.join(denyFixture, ".opencode/agents/Concord.md")
     const operatorText = fs.readFileSync(operatorPath, "utf8")
     if (!operatorText.includes("\npermission:\n")) fail("generated operator frontmatter lost its permission block")
-    fs.writeFileSync(operatorPath, operatorText.replace("\npermission:\n", "\npermission:\n  concord_ci_watch: deny\n"))
+    fs.writeFileSync(operatorPath, operatorText.replace("\npermission:\n", "\npermission:\n  concord_worker_read: deny\n"))
     const denyResolved = await runAgent("Concord", denyFixture, home)
-    if (denyResolved.concord_ci_watch !== "deny") fail(`deny overlay: the host still resolves concord_ci_watch as ${denyResolved.concord_ci_watch}`)
+    if (denyResolved.concord_worker_read !== "deny") fail(`deny overlay: the host still resolves concord_worker_read as ${denyResolved.concord_worker_read}`)
     // Allow override, agent level over a global-config deny: a lane whose
-    // frontmatter allows the watcher regains it from the later agent rule.
+    // frontmatter allows the reader regains it from the later agent rule.
     // This is the growth counterexample: the lane's projected bytes grow by
-    // the watcher root, so no-overlay zero is visibility, not a ceiling.
+    // the reader root, so no-overlay zero is visibility, not a ceiling.
     const allowFixture = path.join(isolation, "allow-fixture")
     fs.cpSync(fixture, allowFixture, { recursive: true })
     const allowHome = path.join(isolation, "allow-home")
     fs.mkdirSync(path.join(allowHome, ".config/opencode"), { recursive: true })
-    fs.writeFileSync(path.join(allowHome, ".config/opencode/opencode.json"), JSON.stringify({ permission: { concord_ci_watch: "deny" } }))
+    fs.writeFileSync(path.join(allowHome, ".config/opencode/opencode.json"), JSON.stringify({ permission: { concord_worker_read: "deny" } }))
     const researchPath = path.join(allowFixture, ".opencode/agents/concord-research.md")
     const researchText = fs.readFileSync(researchPath, "utf8")
-    if (!researchText.includes("  concord_ci_watch: false\n")) fail("generated research frontmatter lost its watcher tools entry")
-    fs.writeFileSync(researchPath, researchText.replaceAll("  concord_ci_watch: false\n", "  concord_ci_watch: true\n"))
+    if (!researchText.includes("  concord_worker_read: false\n")) fail("generated research frontmatter lost its reader tools entry")
+    fs.writeFileSync(researchPath, researchText.replaceAll("  concord_worker_read: false\n", "  concord_worker_read: true\n"))
     const allowResolved = await runAgent("concord-research", allowFixture, allowHome)
-    if (allowResolved.concord_ci_watch !== "allow") fail(`allow override: the host still resolves concord_ci_watch as ${allowResolved.concord_ci_watch}`)
+    if (allowResolved.concord_worker_read !== "allow") fail(`allow override: the host still resolves concord_worker_read as ${allowResolved.concord_worker_read}`)
     const summary = {
       probe: "concord-role-publication-host-merge-v1",
       binary: path.basename(binary),
@@ -481,8 +453,8 @@ if (mergeArgIndex !== -1) {
       evidence_kind: "resolved profile permissions from the host debug agent route; not a captured provider request and not a live session ruleset",
       registration: { tools: registrationBytes, total_bytes: Object.values(registrationBytes).reduce((sum, size) => sum + size, 0) },
       roles: noOverlay,
-      deny_overlay_agent_level: { role: "Concord", change: "frontmatter permission gains concord_ci_watch: deny", resolved_watcher: denyResolved.concord_ci_watch },
-      allow_override_agent_level: { role: "concord-research", change: "frontmatter tools entry allows the watcher over a global-config deny", resolved_watcher: allowResolved.concord_ci_watch, publication_growth_bytes: registrationBytes.concord_ci_watch },
+      deny_overlay_agent_level: { role: "Concord", change: "frontmatter permission gains concord_worker_read: deny", resolved_reader: denyResolved.concord_worker_read },
+      allow_override_agent_level: { role: "concord-research", change: "frontmatter tools entry allows the reader over a global-config deny", resolved_reader: allowResolved.concord_worker_read, publication_growth_bytes: registrationBytes.concord_worker_read },
       bounds: { session_overlays: "not exercised; the no-overlay projection is the accepted acceptance boundary, not an immutable ceiling" },
     }
     fs.mkdirSync(path.dirname(path.resolve(summaryPath)), { recursive: true })

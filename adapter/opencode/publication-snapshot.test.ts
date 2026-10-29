@@ -3,7 +3,6 @@ import fs from "node:fs"
 import path from "node:path"
 import { contractOperations, hostToolDescriptions, hostToolSchemas, workflowActionPublicVariants } from "./generated-contracts"
 import { expandedPublishedRequestSchema, PINNED_PUBLISHED_TOTAL_BYTES } from "./generated-contract-tests"
-import { ciWatchTool, publishCiWatchDefinition } from "./ci-watch"
 import { publishWorkerReadDefinition } from "./worker_source"
 import { publishWorkerCheckDefinition } from "./worker_control"
 import { publishWorkerDiffDefinition } from "./worker_diff"
@@ -126,19 +125,6 @@ test("all registered parameter schemas stay below the serving budget", async () 
   await adapter.publishWorkStartDefinition({ toolID: "concord_work_start" }, workStartOutput)
   expect(workStartOutput.jsonSchema).toBeObject()
   registered.set("concord_work_start", Buffer.byteLength(JSON.stringify(workStartOutput.jsonSchema), "utf8"))
-  const watcher = ciWatchTool()
-  const registration = {
-    description: watcher.description,
-    parameters: {},
-    jsonSchema: {
-      type: "object",
-      properties: Object.fromEntries(Object.entries(watcher.args as Record<string, unknown>).filter(([, value]) => value !== undefined)),
-      required: Object.keys(watcher.args as Record<string, unknown>),
-    },
-  }
-  await publishCiWatchDefinition({ toolID: "concord_ci_watch" }, registration)
-  expect(registration.jsonSchema).toBeObject()
-  registered.set("concord_ci_watch", Buffer.byteLength(JSON.stringify(registration.jsonSchema), "utf8"))
   const readerOutput = { description: "", parameters: {}, jsonSchema: undefined as unknown }
   await publishWorkerReadDefinition({ toolID: "concord_worker_read" }, readerOutput)
   expect(readerOutput.jsonSchema).toEqual(hostToolSchemas.concord_worker_read)
@@ -160,20 +146,6 @@ test("all registered parameter schemas stay below the serving budget", async () 
   const total = [...registered.values()].reduce((sum, size) => sum + size, 0)
   expect(total).toBeGreaterThan(0)
   expect(total).toBeLessThan(SCHEMA_REGRESSION_BUDGET)
-})
-
-// The authored watcher contract is the published document: registration and
-// definition each keep the pinned byte size.
-test("the watcher publishes the authored contract byte for byte", async () => {
-  expect(hostToolSchemas.concord_ci_watch).toBeObject()
-  const output = { description: "", parameters: {}, jsonSchema: undefined as unknown }
-  await publishCiWatchDefinition({ toolID: "concord_ci_watch" }, output)
-  expect(output.jsonSchema).toEqual(hostToolSchemas.concord_ci_watch)
-  expect(Buffer.byteLength(JSON.stringify(output.jsonSchema), "utf8")).toBe(1220)
-  expect(Buffer.byteLength(JSON.stringify(hostToolSchemas.concord_ci_watch), "utf8")).toBe(1220)
-  const watcher = ciWatchTool()
-  expect(watcher.description).toEqual(hostToolDescriptions.concord_ci_watch)
-  expect(watcher.args).toEqual(hostToolSchemas.concord_ci_watch.properties)
 })
 
 // The generated host schemas are the authored contract documents: the

@@ -62,14 +62,6 @@ func TestCommittedWorkflowCompletionProofFactFitsBound(t *testing.T) {
 	)
 }
 
-func TestCommittedCIWaitFactFitsBound(t *testing.T) {
-	t.Parallel()
-	assertCommittedDomainFactFitsBound(t, "agent-adapter", "internal/ciwait", "ci-wait-deadline", []string{"agent-adapter"},
-		DomainShapeSelector{Path: "internal/ciwait/ci_wait.go"},
-		DomainShapeSelector{Subject: "ci-wait-deadline"},
-	)
-}
-
 func requireCommittedGoverningLaw(t *testing.T, law map[string]bool, ids ...string) {
 	t.Helper()
 	for _, id := range ids {

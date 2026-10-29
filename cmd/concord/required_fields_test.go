@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"io"
 	"strings"
 	"testing"
 )
@@ -18,12 +17,6 @@ func TestCLIInputRefusalExitIsPreEffect(t *testing.T) {
 				t.Fatalf("input refusal stdout = %q, stderr = %q", &out, &errOut)
 			}
 		})
-	}
-	var out, errOut bytes.Buffer
-	called := false
-	code := runStoreFreeJSONCommand("invoke", nil, strings.NewReader(`{}`), &out, &errOut, func([]byte, io.Writer, io.Writer) int { called = true; return 0 })
-	if code != 64 || called {
-		t.Fatalf("store-free input refusal exit = %d, handler called = %t", code, called)
 	}
 }
 

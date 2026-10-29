@@ -122,7 +122,6 @@ def derive_adapter_files(adapter_dir: Path) -> tuple[str, ...]:
 ADAPTER_FILES = (
     "adapter-contract-defect.ts",
     "agent-switch-hook.ts",
-    "ci-watch.ts",
     "claimed-worktree.ts",
     "concord-plugin.ts",
     "concord.ts",

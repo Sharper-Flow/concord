@@ -545,9 +545,6 @@ class AgentProjectionTests(unittest.TestCase):
         ids = generator.concord_tool_ids()
         self.assertIn("concord_work_start", ids)
         self.assertIn("concord_work_transition", ids)
-        # The host catalog carries the CI watcher, so the denials must cover
-        # every registered tool.
-        self.assertIn("concord_ci_watch", ids)
         projection = lane_projection(self.LANE, REPORT_SCHEMA)
         for tool_id in ids:
             self.assertIn(f"\n  {tool_id}: false\n", projection)

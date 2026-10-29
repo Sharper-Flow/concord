@@ -35,7 +35,7 @@ authority_defaults = load_module("knowledge_authority_defaults_under_test", SCRI
 
 VEHICLE = authority_defaults.load().vehicle_work_id
 VEHICLE_VERSION = authority_defaults.load().vehicle_contract_version
-MEMBER_ID, MEMBER_KIND = "CD-0160", "decision"  # a frozen cohort member
+MEMBER_ID, MEMBER_KIND = "CD-0162", "decision"  # a frozen cohort member
 NONMEMBER_ID, NONMEMBER_KIND = "lesson-1", "lesson"
 ORDINARY_WORK = "work-abcdef1234567890"  # well-shaped, not the vehicle
 
@@ -182,7 +182,7 @@ def test_loader_parses_the_committed_asset() -> None:
     defaults = authority_defaults.load()
     assert defaults.vehicle_work_id == VEHICLE
     assert isinstance(VEHICLE_VERSION, int) and VEHICLE_VERSION >= 1
-    assert len(defaults.members) == 135
+    assert len(defaults.members) == 133
     assert (MEMBER_ID, MEMBER_KIND) in defaults.members
     assert (NONMEMBER_ID, NONMEMBER_KIND) not in defaults.members
 

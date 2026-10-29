@@ -111,6 +111,18 @@
     {
       "kind": "validator",
       "value": "scripts/test-check-package-domains.py"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestLawAttributionExternalEditDoesNotBlock"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestLawAttributionExternalInventoryChangeDoesNotBlock"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestLawAttributionOwnInventoryChangeStillRefuses"
     }
   ],
   "id": "CD-0222",

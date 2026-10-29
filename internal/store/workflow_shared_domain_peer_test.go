@@ -21,7 +21,7 @@ const (
 // named definition step and gives a second active work item an identical
 // architecture footprint: both modify the same Domain and the same law, and no
 // resolution relates them.
-func seedD7BoundaryOverlap(t *testing.T, workID, otherID, step string) (*Store, WorkflowActor, int64) {
+func seedD7BoundaryOverlap(t *testing.T, workID, otherID, step string) *Store {
 	t.Helper()
 	ctx := context.Background()
 	s := openTemp(t)
@@ -125,7 +125,7 @@ func seedD7BoundaryOverlap(t *testing.T, workID, otherID, step string) (*Store, 
 		t.Fatalf("fixture step=%q, want %q", got, step)
 	}
 	assertD7ConflictEstablished(t, s, workID, otherID)
-	return s, actor, readWorkVersion(t, s, workID)
+	return s
 }
 
 // assertD7ConflictEstablished proves the fixture actually created the
@@ -239,7 +239,7 @@ func TestConsequentialBoundariesAdmitASharedDomainPeer(t *testing.T) {
 		t.Run(step, func(t *testing.T) {
 			ctx := context.Background()
 			workID, otherID := "shared-peer-"+step, "shared-peer-other-"+step
-			s, _, _ := seedD7BoundaryOverlap(t, workID, otherID, step)
+			s := seedD7BoundaryOverlap(t, workID, otherID, step)
 			for _, id := range []string{workID, otherID} {
 				if err := s.Transact(ctx, func(tx *Transaction) error {
 					return CheckWorkflowConsequentialBoundaryTx(ctx, tx, id)
@@ -258,7 +258,7 @@ func TestExecutionClaimAdmitsASharedDomainPeer(t *testing.T) {
 	ctx := context.Background()
 	const workID = "shared-peer-claim"
 	const otherID = "shared-peer-claim-other"
-	s, _, _ := seedD7BoundaryOverlap(t, workID, otherID, "execution")
+	s := seedD7BoundaryOverlap(t, workID, otherID, "execution")
 	var definitionRef, definitionDigest string
 	if err := s.DatabaseForTesting().QueryRow(`SELECT definition_ref,definition_digest FROM workflow_instances WHERE work_id=?`, workID).Scan(&definitionRef, &definitionDigest); err != nil {
 		t.Fatal(err)

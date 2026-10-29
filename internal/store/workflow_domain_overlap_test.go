@@ -124,7 +124,7 @@ INSERT INTO agent_approvals(approval_ref,operation_digest,scope_json,version_jso
 	})
 }
 
-func seedProductChangingContract(t *testing.T, s *Store, workID string, binding WorkflowArchitectureBinding) (WorkflowActor, int64) {
+func seedProductChangingContract(t *testing.T, s *Store, workID string, binding WorkflowArchitectureBinding) WorkflowActor {
 	t.Helper()
 	ctx := context.Background()
 	registered, ok := BuiltinWorkflowRegistry().Current("workflow.break_fix")
@@ -183,7 +183,7 @@ func seedProductChangingContract(t *testing.T, s *Store, workID string, binding 
 	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{contract}, ExpectedVersions: workVersion(workID, version)}); err != nil {
 		t.Fatal(err)
 	}
-	return actor, readWorkVersion(t, s, workID)
+	return actor
 }
 
 // setWorkLifecycleForTesting places a work item in a lifecycle without moving

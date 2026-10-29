@@ -107,4 +107,3 @@ An identical committed removal replays through its retained authorized scope bef
 - `TestMainCheckoutRefusesImplementationOperations` proves the typed CD-0092 refusal for `worktree_claim`, nonterminal `worktree_reclaim`, and `workflow_action`. D5 authority tests prove eligible default-checkout shelving removal and refusal outside its conditions, preserving all existing removal gates.
 - `TestMainCheckoutAllowlistDeclaresBothSides` proves the two declarations and
   their closed entries.
-- The document contract and knowledge-closure validators pass.

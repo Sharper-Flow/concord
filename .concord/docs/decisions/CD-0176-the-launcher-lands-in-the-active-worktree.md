@@ -79,7 +79,5 @@ migration, event, or operator setting changes.
 - `bun test adapter/opencode/concord.test.ts -t "work start verifies the
   session directory after the move"` proves the verified move and read-back
   that establish the directory (CD-0098).
-- `python3 scripts/check-doc-contract.py`,
-  `python3 scripts/check-knowledge-index.py`,
-  `python3 scripts/generate-knowledge-index.py --check`, and
-  `python3 scripts/check-knowledge-closure.py` pass.
+- `python3 scripts/check-knowledge-index.py` and
+  `python3 scripts/generate-knowledge-index.py --check` pass.

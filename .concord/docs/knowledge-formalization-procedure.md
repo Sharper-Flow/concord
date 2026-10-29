@@ -17,15 +17,14 @@ would drift with no check to catch it.
 ## The four states
 
 Every Markdown document under the manifest's declared knowledge roots is in
-exactly one of four states.
+exactly one of three states.
 
 **Unprocessed.** The manifest holds no record for the file. The document is
 not law for this Product, however much it reads like a specification. An
 agent must never treat an unprocessed document as authority. The negative is
 authoritative only through `concord_knowledge.resolve_note` returning
 `knowledge_missing` for the record the document would need; text search is not
-a substitute for it. The enumeration of unprocessed documents is
-[`scripts/check-knowledge-closure.py`](../../scripts/check-knowledge-closure.py).
+a substitute for it.
 
 **Law.** A record exists, its kind is law-bearing, and its status is
 `accepted`. Only `constitution`, `decision`, and `spec` can reach this state.
@@ -34,18 +33,8 @@ a substitute for it. The enumeration of unprocessed documents is
 matches the file. The record and the artifact disagree, so neither can be
 trusted until the hash is repaired.
 
-**Out of spec.** A record exists and its hash matches, but the body violates
-the contract for its kind. The record and the artifact agree with each other
-and disagree with the rules the kind is required to satisfy.
-
-The state split is recorded on
-[issue #295](https://github.com/Sharper-Flow/concord/issues/295).
-Unprocessed documents are enumerated by
-[`scripts/check-knowledge-closure.py`](../../scripts/check-knowledge-closure.py).
 Out-of-date records are detected by
 [`scripts/check-knowledge-index.py`](../../scripts/check-knowledge-index.py).
-Out-of-spec bodies are detected by
-[`scripts/check-doc-contract.py`](../../scripts/check-doc-contract.py).
 
 ## Three destinations for an unprocessed document
 
@@ -159,8 +148,7 @@ It is not the date its body last changed.
 Two path constraints bind authorship directly.
 
 A `research` record cannot live in the `research` directory under `.concord/docs/`.
-The manifest excludes that directory from the closure walk, and it is ineligible as
-a record path. A research
+The manifest excludes that directory, and it is ineligible as a record path. A research
 document that must hold a record has to live elsewhere under `.concord/docs/`.
 
 A `decision` record's path is bound to the decisions directory and the
@@ -193,29 +181,7 @@ stored copy can age. CD-0106 D4 decides this split.
 
 The identity of an external system is not a record. It lives in the managed
 resource inventory, declared by the operator. A record that carries learned
-usage of a resource is tagged `resource:<resource_id>`, and a resource-tagged
-record may not open a fenced block in a data or schema language.
-[`scripts/check-doc-contract.py`](../../scripts/check-doc-contract.py) owns the
-language list and refuses such a block as `vendor-content`.
-
-## Enforcement activation
-
-`doc_contract.enforced` starts false and flips only on a numerical criterion
-recorded in the manifest before any activation: the `doc_contract.activation`
-object in [`knowledge/manifest.json`](./knowledge/manifest.json)
-names three zero-valued conditions — zero report-mode findings over registered
-records, zero unresolved acceptance criteria, and zero known false positives
-(the checker's test corpus green, plus an individual review of every
-then-current finding recorded on the flipping change). The schema requires
-the object whenever `enforced` is true, so an activation without a recorded
-criterion cannot be represented.
-
-The flip is a two-step sequence, and the checker enforces the order: the
-commit that introduces `"enforced": true` must have a parent whose manifest
-already carried the identical activation object. Recording the criterion and
-flipping enforcement in one change is a finding, not a shortcut. The check
-reads committed history; where history is unavailable (a shallow checkout)
-it is skipped, and the sequence rule rests on review.
+usage of a resource is tagged `resource:<resource_id>`.
 
 ## Coverage state
 
@@ -258,9 +224,7 @@ because a document that carries the section when its kind forbids it is
 exactly the defect the rule detects.
 
 A Gherkin acceptance-criteria section therefore implies `spec`. Any other
-kind implies that no such section exists. Both directions are checked by
-[`scripts/check-doc-contract.py`](../../scripts/check-doc-contract.py), which
-also owns the criterion grammar.
+kind implies that no such section exists.
 
 ### Graduation to executable scenarios
 
@@ -271,9 +235,7 @@ discharge it (CD-0180). A criterion that resolves to none of these is a claim
 with no way to fail.
 
 The manifest record carries `criterion_bindings`. The document body does not
-carry binding syntax. The doc-contract checker resolves scenario names and
-predicate references and rejects unbound or invalid criteria. An exemption is
-a recorded reason, not silence.
+carry binding syntax. An exemption is a recorded reason, not silence.
 
 ## Atomicity of the edit and its record
 
@@ -311,19 +273,10 @@ ineligible for a record? Does its kind still match the selection path above,
 now that its authority has changed? Does it now require a home domain that it
 did not require as a candidate?
 
-## Dispositions are counted, never hidden
+## Dispositions carry a reason
 
-[`scripts/check-knowledge-closure.py`](../../scripts/check-knowledge-closure.py)
-reports the disposition count on its own line, separate from the unprocessed
-count, and prints it even when it is zero.
-
-The separation is the point. A disposition removes a file from the
-unprocessed list, so folding the two counts together would let a growing pile
-of refusals look like a shrinking backlog. A disposition must not quietly
-absorb work that formalization should have done, and a reviewer can only see
-that if the number is visible on its own.
-
-Every disposition carries a required reason. A disposition without a stated
+A disposition must not quietly absorb work that formalization should have
+done. Every disposition carries a required reason. A disposition without a stated
 reason is a deletion of the question, not an answer to it.
 
 ## Approval evidence
@@ -343,17 +296,3 @@ Three pieces of evidence are required together.
 No other route confers acceptance. A document is not accepted because it says
 it is accepted in its own body, and a record is not valid because someone
 intended to add it.
-
-## Activation of enforcement
-
-The doc contract currently runs in report-only mode. Findings are printed and
-the build does not fail. The switch is the `doc_contract.enforced` flag in the
-manifest.
-
-The flag flips to `true` only against a numerical criterion recorded before
-activation. That criterion must include zero known false positives in the
-accepted validator fixture corpus.
-
-The number itself is not set here, and this document does not invent one.
-Recording the criterion is a prerequisite of activation, so activating first
-and choosing a threshold afterwards is not permitted.

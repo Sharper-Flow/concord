@@ -5,15 +5,12 @@
     "tier": "legislated"
   },
   "date": "2026-09-09T00:00:00Z",
-  "doc_contract_profile": "legacy",
   "evidence": [
     ".concord/docs/managed-development-authority.md",
     "AGENTS.md",
     "scripts/check-agents-md.py",
-    "scripts/check-doc-contract.py",
     "scripts/check-doc-links.py",
     "scripts/check-knowledge-index.py",
-    "scripts/check-knowledge-closure.py",
     "scripts/check-public-content.py"
   ],
   "home_domain_id": "product-root:concord",

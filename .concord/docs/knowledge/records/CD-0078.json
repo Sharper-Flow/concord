@@ -5,7 +5,6 @@
     "tier": "legislated"
   },
   "date": "2026-08-26T00:00:00Z",
-  "doc_contract_profile": "legacy",
   "evidence": [
     "cmd/concord/session.go",
     "cmd/concord/session_test.go"
@@ -21,7 +20,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:d0d67698dac5c9d89ee32e2dd9f9d6e3d2ce257c091b2f028c4ef4ec7062aefa",
+  "sha256": "sha256:f162120ca6318a976630858604f0875670b7b10410b694afcf9e70382d00c39b",
   "status": "accepted",
   "summary": "Terminal placement and operator session start and resume belong to the host. No Concord component creates, names, or focuses a multiplexer tab or pane, and Concord starts and resumes no operator session; a host-started session enters managed work through concord_work_start. Continuity comes from the canonical projection (CD-0031), never from a terminal session identifier.",
   "tags": [

@@ -246,8 +246,7 @@ requirement itself, not only its wording or location, and that no merged state
 removes code a current law still requires; a law retirement in the same change
 complies, as
 [CD-0042 D3](CD-0042-pre-go-live-single-path.md#d3-superseded-development-paths-are-deleted)
-and [CD-0221 D4](CD-0221-accepted-law-cites-the-checked-revision.md#d4-keep-amendments-and-proof-together)
-expect. P3 permits adequate guidance for an ordinary law; D2's ban
+expects. P3 permits adequate guidance for an ordinary law; D2's ban
 on prose-only mechanisms governs the conflict-rule table. The cases' source
 labels and recorded sizes are fictional inputs, not real operation receipts or
 an assessment of the delivery's size. Carrier tests do not prove those judgments.
@@ -341,9 +340,6 @@ CD-0243 replaces seriousness, Domain count, crucial size, and unclassified
 approval points as independent consent triggers. Neither replacement makes
 an unproved retained rule satisfied or permits bypassing a current gate.
 
-- `python3 scripts/check-doc-contract.py` and
-  `python3 scripts/check-knowledge-closure.py` pass when the record is
-  registered.
 - `python3 scripts/run-script-tests.py` must prove that the rule-table
   validator refuses a missing A1 cell or A2 row, a rule with no mechanism
   kind, and a stale `priorities.md` hash, that it reports each gap, and that each

@@ -5,7 +5,6 @@
     "tier": "legislated"
   },
   "date": "2026-09-28T00:00:00Z",
-  "doc_contract_profile": "current",
   "evidence": [
     "adapter/opencode/concord.ts",
     "adapter/opencode/dispatch-window.ts",
@@ -29,7 +28,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:7386936426bf5cbfd8322b0168efbcb3822e336b9c6d57b73514864de54beab8",
+  "sha256": "sha256:7c51caedc775130fc6e5d385347c248d5b2bef4f884f95167168d833ab314a86",
   "status": "accepted",
   "summary": "The adapter compares its stamped release root with the host's current symlink at every tool call, and any difference is stale. Every result from a stale session carries one bounded notice naming both versions and the restart remedy, the dispatch_worker action refuses before any core call with the stale_context refusal kind so no worker attempt opens on replaced lane text, and the installer's retention output names the holder sessions per retained release. Reads and every other mutation keep working, and CD-0111 D1 and D2 stay in force.",
   "tags": [

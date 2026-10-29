@@ -8,7 +8,6 @@
     "tier": "derived"
   },
   "date": "2026-10-15T00:00:00Z",
-  "doc_contract_profile": "current",
   "home_domain_id": "workflow-engine",
   "id": "CD-0227",
   "kind": "decision",
@@ -30,7 +29,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:9e8041311e3e41a088555d0cdc24cc3da1ab76d4961211f19159e134fc2153b8",
+  "sha256": "sha256:79a2bf295817dad8d09cfcfac45ff8e1f4ebf619e02c35228cdf5d8fa0a045da",
   "status": "accepted",
   "summary": "An editing job can include the minimal evidenced repair of an existing direct caller through a recorded conditional allowance. Parent authority, real authentication, and coordinator integration boundaries remain binding.",
   "tags": [

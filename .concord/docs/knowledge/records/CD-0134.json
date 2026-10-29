@@ -12,7 +12,6 @@
     "tier": "legislated"
   },
   "date": "2026-09-12T00:00:00Z",
-  "doc_contract_profile": "legacy",
   "evidence": [
     ".concord/docs/knowledge/domain-registry.json",
     ".concord/docs/decisions/CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md",
@@ -58,7 +57,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:f6b7dc2024b2f24408725fe68861123ba8c07b3eb9aedb2f58ae6b04a8212862",
+  "sha256": "sha256:eb26e3f9cfcdfa8634f8e2c8a47b76eb2ee6dc1ccdefa04fe4dc1ea597afe402",
   "status": "accepted",
   "summary": "Splits the agent-surface Domain into five child boundaries earned by stable ownership and material authority or recovery distinctions, while preserving one generated callable surface and requiring a later registry and law-home migration.",
   "tags": [

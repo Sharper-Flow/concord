@@ -13,7 +13,6 @@
     "tier": "legislated"
   },
   "date": "2026-08-17T00:00:00Z",
-  "doc_contract_profile": "legacy",
   "evidence": [
     ".concord/docs/decisions/CD-0008-concord-mechanism-hardening.md",
     "internal/store/work_observations.go",

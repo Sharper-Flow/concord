@@ -30,15 +30,6 @@ schema and the Python sets disagree in either direction;
 record kind or field is therefore a schema edit plus two failing checks that
 name exactly what to update.
 
-`check-knowledge-closure.py` reports three separate numbers, and the split is
-the point. Unprocessed documents are source material still awaiting a decision.
-Exclusions are paths that are not knowledge at all, either a whole directory or
-one generated file. Dispositions are documents the operator has decided will
-never be formalized, and they are counted and listed on their own line even when
-the count is zero. Folding a disposition into the unprocessed count would hide a
-growing pile of refusals behind a shrinking backlog; folding it into an exclusion
-would hide it entirely.
-
 `install.py` is the standard-library-only Concord release installer. It verifies
 published checksums before changing managed data, adapter, launcher, or
 OpenCode skill-path files. It journals phase boundaries and recovers interrupted

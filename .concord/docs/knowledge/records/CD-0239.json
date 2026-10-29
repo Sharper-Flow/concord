@@ -3,7 +3,6 @@
     "tier": "derived"
   },
   "date": "2026-10-19T00:00:00Z",
-  "doc_contract_profile": "current",
   "home_domain_id": "workflow-engine",
   "id": "CD-0239",
   "kind": "decision",
@@ -33,7 +32,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:da23f9cde3c8e137562ffafbadaf90255bde39b741ff626480f88ff5c0f6f794",
+  "sha256": "sha256:34af0e408f29cf3fe422d0e4b6a1d823c65a1f6cccf7c2e4906ede8dcf20acf7",
   "status": "accepted",
   "summary": "A same-session landing from a different host process refreshes the recorded occupancy identity, and the caller reads the host lease set before the dispatch transaction opens. Under CD-0242 D6 no host_changed or other convergence basis, escalation wall, or attempt count exists; a recorded process claim or failure attribution authorizes no launch.",
   "tags": [

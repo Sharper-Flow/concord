@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
 """Placement of Product knowledge under .concord/ (CD-0194).
 
-check-knowledge-index.py proves that each record describes a real file and
-check-knowledge-closure.py proves that each file under a knowledge root is
-recorded. Neither proves where the knowledge lives. CD-0194 sets the default
+check-knowledge-index.py proves that each record describes a real file. It
+does not prove where the knowledge lives. CD-0194 sets the default
 Product law: all repository-authored Product knowledge lives under
 `.concord/`, and a location outside it is valid only through an explicit
 operator override recorded in the manifest head — never an inferred

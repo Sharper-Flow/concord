@@ -369,5 +369,4 @@ Scenario: the operator confirms an unfenceable tree is idle
   advances the store, and the released tree reads honestly as unfenceable.
 - The surface-evolution acceptance criterion names `contact_operator` as the
   mismatch recovery.
-- `python3 scripts/check-doc-contract.py` and
-  `python3 scripts/check-knowledge-index.py` pass.
+- `python3 scripts/check-knowledge-index.py` passes.

@@ -36,7 +36,6 @@
     }
   ],
   "date": "2026-10-09T00:00:00Z",
-  "doc_contract_profile": "current",
   "evidence": [
     ".concord/scenarios/product-memory-query.v1.json",
     "internal/store/knowledge_index_test.go",
@@ -55,7 +54,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:6ac5d8c9df7bc89c63e58db8dbccbf8700b593e4a23bbe3f8b130cab7ad04f49",
+  "sha256": "sha256:448115a0501518806a060aedad6fe8c84c49a1f99636f055fb6d778f47d64488",
   "status": "accepted",
   "summary": "Gates terminal execution cleanup on verified closure, settled publication and released consumers; keeps research retirement separate and historical indexes Git-derived.",
   "tags": [

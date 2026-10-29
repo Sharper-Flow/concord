@@ -75,4 +75,3 @@ before. The terminality condition applies only to main-checkout grants.
   linked-worktree path for a non-terminal work item.
 - `TestMainCheckoutAllowlistDeclaresBothSides` proves the closed conditional
   set and its single entry.
-- The document contract and knowledge-closure validators pass.

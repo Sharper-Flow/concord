@@ -3,7 +3,6 @@
     "tier": "derived"
   },
   "date": "2026-10-23T00:00:00Z",
-  "doc_contract_profile": "current",
   "home_domain_id": "worker-lanes",
   "id": "CD-0245",
   "kind": "decision",
@@ -25,7 +24,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:2dc7653fe7ebdea9a0f04196836f9cd1abc12d8c962b105bd2da08cbf6692661",
+  "sha256": "sha256:d1d69cf3c28b3d2d2bf5083c65bf7f01e6271ceaf67c190f7a0e1dc5264cc9f4",
   "status": "accepted",
   "summary": "Concord may ship skills that operate structures defined by accepted law and verified by Concord checks, starting with Domain-shape stewardship. Skills reuse the versioned release and central installation route, name only Concord operations and Product-declared tooling, and hold no independent evidence, approval, or law authority. Host-specific lane procedure stays host-owned; CD-0246 amends D1 to admit portable method skills. Domain-shape stewardship is shipped with admission, portability, install/upgrade and release-inventory checks.",
   "tags": [

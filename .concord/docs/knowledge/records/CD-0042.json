@@ -5,7 +5,6 @@
     "tier": "legislated"
   },
   "date": "2026-08-19T00:00:00Z",
-  "doc_contract_profile": "legacy",
   "evidence": [
     ".concord/docs/agent-tool-surface-evolution.md",
     ".concord/docs/agent-tool-surface-measurement.md",

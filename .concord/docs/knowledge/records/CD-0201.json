@@ -5,7 +5,6 @@
     "tier": "legislated"
   },
   "date": "2026-10-01T00:00:00Z",
-  "doc_contract_profile": "current",
   "evidence": [
     "internal/store/workflow_admission.go",
     "internal/store/workflow_admission_test.go",
@@ -46,7 +45,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:bd99fe87e90c0551a73e91ddb97eaa300bcca4ab3bc471bd4eafedafa696874b",
+  "sha256": "sha256:0f50a76f7325d7462681b40340c31062a4dbdf614506a6a4486ad76e61e539e8",
   "status": "accepted",
   "summary": "One tx-scoped loader and pure workflowAdmit function own admission across all sites, derived from current rows; payload and identity checks stay at existing boundaries. Oracle work consumes one ranked-finding lineage, counts its open findings, and exposes canonical IDs and retained receipts through shared correction/context readers. Dispatch refuses above 32 blockers without truncation. Readiness, oracle defects, and uncovered cases retain declared preparation, correction, supersession, or stop recovery without erasing open blockers. The registered definitions keep the liveness law and conformance checks over modeled dimensions.",
   "tags": [

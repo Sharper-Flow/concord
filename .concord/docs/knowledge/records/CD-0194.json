@@ -5,12 +5,10 @@
     "tier": "legislated"
   },
   "date": "2026-09-29T00:00:00Z",
-  "doc_contract_profile": "current",
   "evidence": [
     "scripts/check-knowledge-placement.py",
     "scripts/test-knowledge-placement.py",
     "scripts/check-knowledge-index.py",
-    "scripts/check-knowledge-closure.py",
     "contracts/concord-knowledge-index.v1.schema.json",
     ".github/workflows/release.yml"
   ],
@@ -31,7 +29,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:5b35b4d1189cde2ad5f54fe821df3978e48e53512a3c7773eb5784d183a12e42",
+  "sha256": "sha256:fd641a9b0c2a7c97ab8f0d23ce02a2d13c319e8255555ccb422f003c5efb17d0",
   "status": "accepted",
   "summary": "All repository-authored Product knowledge lives under .concord/docs, .concord/instructions, and .concord/scenarios, with one canonical copy per artifact and the manifest shards still the composed authority. A knowledge location outside .concord/ is valid only through an explicit operator override recorded in the manifest head, tied to one Product, and validated by the knowledge placement check. This repository carries no root docs, instructions, or scenarios directory and no compatibility symlink. Installed conduct stays a derived projection of .concord/instructions, and history reads in the layout each revision carries.",
   "tags": [

@@ -96,7 +96,6 @@ The registry and projection migration require a separate implementation change w
 
 ## Verification
 
-- `scripts/check-doc-contract.py` validates the decision outline, sentence bounds, and banned-phrase rules.
 - `scripts/check-knowledge-index.py` validates the record shard, law home, and relation shape.
 - `scripts/check-law-coverage.py` validates that the decision has a coverage shard.
 - `scripts/check-json.py` runs the repository JSON and generated-contract validators.

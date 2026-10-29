@@ -112,8 +112,6 @@ Runtime implementation requires separate authority and verification.
 
 ## Verification
 
-- `python3 scripts/check-doc-contract.py` checks the registered outline and prose.
-- `python3 scripts/check-knowledge-closure.py` checks strict registration closure for the approved revision without asserting implementation coverage.
 - `go test ./internal/store` must cover allowance containment, immutable digests, exact report bindings, missing allowances, non-editing lanes, transitive callers, and historical absence.
 - `go test ./internal/agent ./internal/store` must prove baseline success, owner-only caller failure, and combined success with real authority. Negative cases must reject synthesized actors, approvals, and weakened owner validation.
 - `go test ./internal/store` must preserve allowance accounting, integration evidence, Domain/law boundaries, and refusal of caller paths owned by another work item (CD-0242 D6).

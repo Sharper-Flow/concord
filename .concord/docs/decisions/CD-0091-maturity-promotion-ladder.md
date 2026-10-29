@@ -111,6 +111,5 @@ the rung bars in D3 and D4 already state what each claim must prove.
   without restating the ladder.
 - Concord's `maturity` remains `prototype` and its `audience_commitment` remains
   `operator_only`.
-- `python3 scripts/check-json.py`, `check-doc-links.py`, `check-doc-contract.py`,
-  `check-knowledge-index.py`, `check-knowledge-closure.py`, and
-  `check-public-content.py` pass.
+- `python3 scripts/check-json.py`, `check-doc-links.py`,
+  `check-knowledge-index.py`, and `check-public-content.py` pass.

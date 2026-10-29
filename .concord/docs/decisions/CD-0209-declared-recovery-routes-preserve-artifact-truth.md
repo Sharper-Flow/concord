@@ -603,10 +603,5 @@ verification supplies this evidence, not a fabricated workflow record.
 - `internal/agent.TestSpineCompleteStepContractRecovery` proves both current
   complete-step returns, no-effect refusals and replay, and successor
   completion on unchanged applicable proof without fixture step switches.
-- `python3 scripts/check-doc-contract.py` proves this record
-  carries the current decision outline and passes the writing
-  rules.
-- `python3 scripts/check-knowledge-index.py` and
-  `python3 scripts/check-knowledge-closure.py` prove this record
-  registers with a current content hash and no unprocessed document
-  remains.
+- `python3 scripts/check-knowledge-index.py` proves this record
+  registers with a current content hash.

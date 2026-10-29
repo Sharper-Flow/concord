@@ -110,5 +110,3 @@ question directly: which sessions hold which release, and which to restart.
   the full-warnings fallback, and the dispatch refusal before any core call.
 - `python3 scripts/test-installer.py` proves the retention output names the
   holder sessions per retained release.
-- `python3 scripts/check-doc-contract.py` proves this record's outline and
-  prose against the decision contract.

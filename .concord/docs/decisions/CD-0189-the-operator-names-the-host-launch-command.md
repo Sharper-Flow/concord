@@ -84,7 +84,5 @@ registry than the one the session asserted against.
   proves D2: one bare probe on the session-prepare side.
 - `go test ./cmd/concord/ -run TestDeterministicHostRegistryRefusalsExit2`
   proves D3: probe and registry refusals are typed and deterministic.
-- `python3 scripts/check-doc-contract.py`,
-  `python3 scripts/check-knowledge-index.py`,
-  `python3 scripts/generate-knowledge-index.py --check`, and
-  `python3 scripts/check-knowledge-closure.py` pass.
+- `python3 scripts/check-knowledge-index.py` and
+  `python3 scripts/generate-knowledge-index.py --check` pass.

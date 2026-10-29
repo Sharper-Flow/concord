@@ -13,7 +13,14 @@ import (
 // A merge wait reads the queue's own record instead: the newest merge-queue
 // event on the pull request timeline (CD-0232). The query document is
 // constant; owner, name, and number travel as GraphQL variables.
-const ciWaitMergeQueueQuery = `query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){pullRequest(number:$number){state headRefOid timelineItems(itemTypes:[ADDED_TO_MERGE_QUEUE_EVENT,REMOVED_FROM_MERGE_QUEUE_EVENT],last:1){nodes{__typename ... on Node{id} ... on RemovedFromMergeQueueEvent{reason beforeCommit{oid}}}}}}}`
+const ciWaitMergeQueueQuery = `query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){pullRequest(number:$number){state headRefOid mergeQueueEntry{state position} timelineItems(itemTypes:[ADDED_TO_MERGE_QUEUE_EVENT,REMOVED_FROM_MERGE_QUEUE_EVENT],last:1){nodes{__typename ... on Node{id} ... on RemovedFromMergeQueueEvent{reason beforeCommit{oid}}}}}}}`
+
+// Nil means no qualified queue read; Present=false records an observed absence.
+type ciWaitQueue struct {
+	Present  bool   `json:"present"`
+	State    string `json:"state,omitempty"`
+	Position int    `json:"position,omitempty"`
+}
 
 type ghMergeQueueAnswer struct {
 	Data struct {
@@ -24,8 +31,12 @@ type ghMergeQueueAnswer struct {
 }
 
 type ghMergeQueuePR struct {
-	State         string `json:"state"`
-	HeadRefOid    string `json:"headRefOid"`
+	State           string `json:"state"`
+	HeadRefOid      string `json:"headRefOid"`
+	MergeQueueEntry *struct {
+		State    string `json:"state"`
+		Position int    `json:"position"`
+	} `json:"mergeQueueEntry"`
 	TimelineItems struct {
 		Nodes []ghMergeQueueEvent `json:"nodes"`
 	} `json:"timelineItems"`
@@ -59,6 +70,13 @@ func ciWaitMergeQueueRemoval(ctx context.Context, state *ciWaitState) (*ghMergeQ
 		return nil, fmt.Errorf("gh api graphql returned no pull request")
 	}
 	pr := answer.Data.Repository.PullRequest
+	if pr.HeadRefOid == state.HeadSHA && strings.EqualFold(pr.State, "OPEN") {
+		queue := &ciWaitQueue{}
+		if pr.MergeQueueEntry != nil {
+			queue.Present, queue.State, queue.Position = true, pr.MergeQueueEntry.State, pr.MergeQueueEntry.Position
+		}
+		state.LastMergeQueue = queue
+	}
 	var newest *ghMergeQueueEvent
 	if nodes := pr.TimelineItems.Nodes; len(nodes) > 0 {
 		newest = &nodes[len(nodes)-1]

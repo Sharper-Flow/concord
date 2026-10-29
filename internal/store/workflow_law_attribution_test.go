@@ -49,6 +49,13 @@ func attributionItem(t *testing.T, s *Store, id string, laws, domains []string, 
 
 func attributionCompletion(t *testing.T, s *Store, id string, closureHashes ...string) Event {
 	t.Helper()
+	return attributionCompletionWith(t, s, id, nil, closureHashes...)
+}
+
+// attributionCompletionWith lets candidate edit the claimed repository before
+// its HEAD becomes the reviewed candidate.
+func attributionCompletionWith(t *testing.T, s *Store, id string, candidate func(repo string), closureHashes ...string) Event {
+	t.Helper()
 	fixture := workContextFixture{store: s, workID: id, owner: lawChangeConstructorActor}
 	repo, _ := reviewSubjectClaim(t, s, id)
 	var branch string
@@ -56,6 +63,9 @@ func attributionCompletion(t *testing.T, s *Store, id string, closureHashes ...s
 		t.Fatal(err)
 	}
 	gitRunStore(t, repo, "branch", "-m", branch)
+	if candidate != nil {
+		candidate(repo)
+	}
 	j := &candidateJourney{fixture: fixture, s: s, workID: id, repo: repo, acceptor: lawChangeConstructorActor}
 	// qAssociateCurrentProof uses a single-item lease ID. These peers share a
 	// store, so capture each real native run under its own lease instead.

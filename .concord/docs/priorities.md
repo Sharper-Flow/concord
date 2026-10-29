@@ -225,14 +225,15 @@ Families compose shared stages, and the decision model sets each execution's man
 See [`workflows.md`](./workflows.md).
 
 ### How Concord's own development runs during the rebuild
-- Agents that build Concord work outside Concord's workflow until the sized workflow exists.
-- Switch point: the sized workflow takes a small change from start to merge queue in one hour or less. Then
-  Concord's own work moves onto it.
-- Until then, quality rests on pull requests, required checks, and an independent review. Law and domain
-  changes are still made in Git, through those pull requests.
-- Reasoning: small changes take days under today's workflow, and building its replacement through it pays that
-  cost on every change. Current law already permits outside work:
-  `.concord/docs/decisions/CD-0122-concord-workflow-scope-and-defect-repair.md`.
+
+- New assignments to develop Concord use Concord agents and Concord's workflow.
+- Work already underway outside the workflow finishes through its existing
+  authorized route. It acquires no Concord workflow authority or evidence
+  retroactively.
+- An authorized repair of a Concord defect that blocks safe workflow recording
+  or execution may proceed outside the workflow under
+  [CD-0122 D2](./decisions/CD-0122-concord-workflow-scope-and-defect-repair.md#d2-defect-repair-has-an-outside-work-application).
+- Delivery timings remain diagnostic; they do not gate workflow adoption.
 
 ---
 

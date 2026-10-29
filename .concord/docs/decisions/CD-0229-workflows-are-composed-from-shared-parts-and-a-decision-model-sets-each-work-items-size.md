@@ -143,8 +143,8 @@ The decision model's first version is a calibration. Its inputs are recorded
 with each size, so a later model version can be judged against the sizes it
 would have given.
 
-Concord's own development stays outside the workflow until the switch point
-`priorities.md` names. This record does not move that point.
+Concord's own development follows
+[the route in priorities.md](../priorities.md#how-concords-own-development-runs-during-the-rebuild).
 
 ## Verification
 

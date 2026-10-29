@@ -249,9 +249,13 @@ func TestSemanticJudgedRepeatedExactAcceptance(t *testing.T) {
 	if err := d.f.store.db.QueryRow(`SELECT first_acceptance_seq,first_acceptance_payload FROM worker_attempt_dispositions WHERE work_id=? AND attempt_id='attempt:judgment' AND action_id='accept_worker_result'`, d.workID).Scan(&firstSeq, &firstPayload); err != nil {
 		t.Fatal(err)
 	}
+	snapshot := outsideRepairDatabaseSnapshot(t, d.f.store)
 	for range 2 {
-		if err := d.journey().acceptEvidence(t, "attempt:judgment"); err != nil {
-			t.Fatalf("repeated exact acceptance: %v", err)
+		if err := d.journey().acceptEvidence(t, "attempt:judgment"); failureKind(err) != KindIllegalLifecycleTransition {
+			t.Fatalf("repeated exact acceptance: %v; want illegal lifecycle transition", err)
+		}
+		if after := outsideRepairDatabaseSnapshot(t, d.f.store); after != snapshot {
+			t.Fatal("refused repeated acceptance changed durable state")
 		}
 		d.assertClosed(t, true)
 		before.requireRetained(t, d)
@@ -261,8 +265,8 @@ func TestSemanticJudgedRepeatedExactAcceptance(t *testing.T) {
 	if err := d.f.store.db.QueryRow(`SELECT satisfied_result_ref FROM worker_job_revisions WHERE work_id=? AND job_id=? AND revision=?`, d.workID, d.job.JobID, d.job.Revision).Scan(&ref); err != nil || ref != firstRef {
 		t.Fatalf("satisfaction watermark changed: before=%s after=%s err=%v", firstRef, ref, err)
 	}
-	if err := d.f.store.db.QueryRow(`SELECT first_acceptance_seq,first_acceptance_payload,seq FROM worker_attempt_dispositions WHERE work_id=? AND attempt_id='attempt:judgment' AND action_id='accept_worker_result'`, d.workID).Scan(&seq, &payload, &latest); err != nil || seq != firstSeq || payload != firstPayload || latest <= seq {
-		t.Fatalf("first acceptance changed or repeat not recorded: first=%d current=%d latest=%d err=%v", firstSeq, seq, latest, err)
+	if err := d.f.store.db.QueryRow(`SELECT first_acceptance_seq,first_acceptance_payload,seq FROM worker_attempt_dispositions WHERE work_id=? AND attempt_id='attempt:judgment' AND action_id='accept_worker_result'`, d.workID).Scan(&seq, &payload, &latest); err != nil || seq != firstSeq || payload != firstPayload || latest != seq {
+		t.Fatalf("first acceptance changed: first=%d current=%d latest=%d err=%v", firstSeq, seq, latest, err)
 	}
 	original.requireRetained(t, d)
 }

@@ -302,6 +302,22 @@ medium-finding cases for independent application of the existing review method,
 which judges in-scope repair and follow-up filing that the check does not decide.
 The follow-up item's rule label, link and saved view remain D6's open duty.
 
+R2 and A2 row 2 use a recorded coordinator decision. A `depends_on` or `blocks`
+overlap resolution must name the waited-on change's step that writes the shared
+Domain, and the store refuses a missing step, a step outside that change's
+pinned workflow, or a step on any other resolution kind.
+`internal/store.TestWorkflowDomainOverlapCoordinatorReleasesAfterStepBeforeTerminal`
+proves those refusals, that the overlap read and the held change's diagnosis
+show the recorded step, that the waiting change stays held after the other
+change leaves that step, and that the coordinator's explicit resolution
+releases it before either change finishes.
+`internal/agent.TestResolveOverlapDependsOnRecordsDirectedSequencingWithoutConsent`
+proves the tool records which change waits and the step, without consent.
+`internal/store.TestOverlapBlocksRemovesWorkFromReady` proves the held change
+leaves the ready queue. The store does not decide that the named step is the
+one that actually writes the shared Domain; that judgment stays the
+coordinator's, and the record makes it checkable.
+
 D3's live recorder retains readable current settlement evidence.
 `internal/agent.TestConflictObservationHistoryRoundTrip` records then reads
 the full rule, effective size and outcome through the existing history read,
@@ -323,7 +339,7 @@ pointer, not the remaining enforcement and proof assigned below:
 | Clauses | Open owner and limit of delivered proof |
 |---|---|
 | D3's letter-versus-intent conflict | [CON-1097](https://linear.app/sharper-flow/issue/CON-1097). The law-side review cases exercise raised and silently applied conflicts. They do not prove that agents raise a conflict they never report. |
-| R2, A2 rows 2 and 4 | [CON-1098](https://linear.app/sharper-flow/issue/CON-1098). `internal/agent.TestResolveOverlapDependsOnRecordsDirectedSequencingWithoutConsent` proves directed work-item sequencing, not selection of the shared-Domain step or release when the other change completes it. Shared stages do not by themselves prove A2 row 4's boundary-change handling. |
+| A2 row 4 | [CON-1098](https://linear.app/sharper-flow/issue/CON-1098). `internal/store.TestArchitectureBindingCurrentValidationFailures` proves undeclared Domains and modifications refuse at contract approval. That and shared stages do not prove A2 row 4's boundary-change handling. |
 | D4 and D5; CD-0243 runtime alignment | [CON-1100](https://linear.app/sharper-flow/issue/CON-1100). Recorded review does not establish prevention of external data loss, automatic six-class inference, or enforcement on the ad-hoc route. Contract-time consent and worktree waivers do not establish informed approval of a specific loss. Classifications, carrier tests and the selected synthetic reviews do not prove whole-record runtime alignment. |
 | U, A2 row 7 | [CON-1343](https://linear.app/sharper-flow/issue/CON-1343). Contract-time `ui_ux` consent does not prove approval of a development preview of the final candidate, or renewed approval of a changed experience, as CD-0242 D9 requires. |
 | A2 row 6; D6 | [CON-1101](https://linear.app/sharper-flow/issue/CON-1101). Naming follow-up labels in the table does not enforce labels, raising-change links, the Linear view, or closure tracking. Nothing records or checks that the coordinator schedules a shipping-blocking unrelated bug first. |

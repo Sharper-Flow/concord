@@ -3040,6 +3040,10 @@ const GeneratedEnvelopeSchemaDocument = `{
                     "maxItems": 20,
                     "type": "array"
                   },
+                  "shared_step": {
+                    "description": "The waited-on change's step that writes the shared Domain, present on a sequenced resolution.",
+                    "type": "string"
+                  },
                   "to_contract_version": {
                     "minimum": 1,
                     "type": "integer"

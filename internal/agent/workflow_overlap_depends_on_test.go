@@ -19,7 +19,11 @@ func TestResolveOverlapDependsOnRecordsDirectedSequencingWithoutConsent(t *testi
 	t.Parallel()
 	ctx := context.Background()
 	s, service, _, _, env, input := seedAgentOverlapFixture(t)
-	dependsOn := []byte(strings.Replace(string(input), `"resolution_kind":"compatible_with"`, `"resolution_kind":"depends_on"`, 1))
+	unnamed := []byte(strings.Replace(string(input), `"resolution_kind":"compatible_with"`, `"resolution_kind":"depends_on"`, 1))
+	if response, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_relate", Operation: "resolve_overlap", Input: unnamed}, env); err != nil || response.Error == nil || response.Error.Kind != "invalid_input" || !strings.Contains(response.Error.Message, "shared_step") {
+		t.Fatalf("depends_on without a shared step = %+v err=%v, want invalid_input naming shared_step", response.Error, err)
+	}
+	dependsOn := []byte(strings.Replace(string(input), `"resolution_kind":"compatible_with"`, `"resolution_kind":"depends_on","shared_step":"delivery"`, 1))
 	response, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_relate", Operation: "resolve_overlap", Input: dependsOn}, env)
 	if err != nil {
 		t.Fatal(err)
@@ -27,8 +31,8 @@ func TestResolveOverlapDependsOnRecordsDirectedSequencingWithoutConsent(t *testi
 	if response.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("depends_on sequencing resolution must not need approval: %+v", response.Error)
 	}
-	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM workflow_overlap_resolutions WHERE resolution_kind='depends_on' AND approval_ref=''`); got != 1 {
-		t.Fatalf("depends_on resolutions=%d, want the recorded unsigned sequencing resolution", got)
+	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM workflow_overlap_resolutions WHERE resolution_kind='depends_on' AND approval_ref='' AND shared_step='delivery'`); got != 1 {
+		t.Fatalf("depends_on resolutions=%d, want the recorded unsigned sequencing resolution naming the shared step", got)
 	}
 	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM relations WHERE kind='depends_on' AND work_id_from='work-1' AND work_id_to='work-2' AND resolution_id IS NOT NULL`); got != 1 {
 		t.Fatalf("depends_on relation rows=%d, want the directed declarer-to-peer edge", got)
@@ -49,7 +53,7 @@ func TestResolveOverlapDependsOnRecordsDirectedSequencingWithoutConsent(t *testi
 		t.Fatalf("declarer must be sequenced behind the peer: %v", sequenced)
 	}
 	overlap := failure.DomainOverlap.Overlaps[0]
-	if overlap.ResolutionKind != store.ResolutionDependsOn || overlap.ResolutionState != "sequenced" || overlap.FromWorkID != "work-1" || overlap.ToWorkID != "work-2" {
+	if overlap.ResolutionKind != store.ResolutionDependsOn || overlap.ResolutionState != "sequenced" || overlap.SharedStep != "delivery" || overlap.FromWorkID != "work-1" || overlap.ToWorkID != "work-2" {
 		t.Fatalf("declarer sequencing judgment=%+v, want the depends_on sequenced pair declared by work-1", overlap)
 	}
 	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM agent_approval_challenges`); got != 0 {
@@ -62,7 +66,7 @@ func TestResolveOverlapDependsOnRecordsDirectedSequencingWithoutConsent(t *testi
 	// A fresh pair for the blocks side, because the depends_on resolution
 	// above settled its pair's overlap.
 	s2, service2, _, _, env2, input2 := seedAgentOverlapFixture(t)
-	blocks := []byte(strings.Replace(string(input2), `"resolution_kind":"compatible_with"`, `"resolution_kind":"blocks"`, 1))
+	blocks := []byte(strings.Replace(string(input2), `"resolution_kind":"compatible_with"`, `"resolution_kind":"blocks","shared_step":"delivery"`, 1))
 	blocksResponse, err := Dispatch(ctx, s2, service2, InvokeRequest{Tool: "concord_work_relate", Operation: "resolve_overlap", Input: blocks}, env2)
 	if err != nil {
 		t.Fatal(err)

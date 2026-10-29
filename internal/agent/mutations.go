@@ -351,6 +351,7 @@ type resolveOverlapMutationInput struct {
 	FromContractVersion int64          `json:"from_contract_version"`
 	ToContractVersion   int64          `json:"to_contract_version"`
 	ResolutionKind      string         `json:"resolution_kind"`
+	SharedStep          string         `json:"shared_step"`
 	Reason              string         `json:"reason"`
 	IdempotencyKey      string         `json:"idempotency_key"`
 	Approval            *approvalInput `json:"approval"`
@@ -4283,7 +4284,7 @@ func (r runtime) planResolveOverlap(ctx context.Context, base agentcontract.Enve
 		if in.Approval != nil && consumedRef == "" {
 			return nil, nil, nil, newRuntimeFailure("invalid_input", routineOverlapClaimRefusal, "reread_entities", false)
 		}
-		request := store.WorkflowDomainOverlapResolutionRequest{EventID: digest + ":overlap", FromWorkID: in.FromWorkID, ToWorkID: in.ToWorkID, FromExpectedVersion: in.FromExpectedVersion, ToExpectedVersion: in.ToExpectedVersion, FromContractVersion: in.FromContractVersion, ToContractVersion: in.ToContractVersion, ResolutionKind: in.ResolutionKind, Reason: in.Reason, Actor: grant.PrincipalRef, OccurredAt: r.Authority.now()}
+		request := store.WorkflowDomainOverlapResolutionRequest{EventID: digest + ":overlap", FromWorkID: in.FromWorkID, ToWorkID: in.ToWorkID, FromExpectedVersion: in.FromExpectedVersion, ToExpectedVersion: in.ToExpectedVersion, FromContractVersion: in.FromContractVersion, ToContractVersion: in.ToContractVersion, ResolutionKind: in.ResolutionKind, SharedStep: in.SharedStep, Reason: in.Reason, Actor: grant.PrincipalRef, OccurredAt: r.Authority.now()}
 		if consumedRef != "" {
 			approvalScopeJSON, _ := json.Marshal(boundedApprovalScope(plan.scope))
 			approvalVersionsJSON, _ := json.Marshal(plan.versions)

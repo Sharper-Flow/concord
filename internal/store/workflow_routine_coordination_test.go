@@ -37,7 +37,7 @@ func routineResolve(t *testing.T, s *Store, from, to, kind, approval, actor, eve
 		_, err := ResolveWorkflowDomainOverlapTx(context.Background(), tx, WorkflowDomainOverlapResolutionRequest{
 			EventID: eventID, FromWorkID: from, ToWorkID: to,
 			FromExpectedVersion: fromVersion, ToExpectedVersion: toVersion,
-			FromContractVersion: 1, ToContractVersion: 1, ResolutionKind: kind,
+			FromContractVersion: 1, ToContractVersion: 1, ResolutionKind: kind, SharedStep: sequencingSharedStep(kind),
 			Reason: "routine coordination settlement", ApprovalRef: approval,
 			Actor: actor,
 		})
@@ -271,7 +271,7 @@ func TestRoutineCoordination(t *testing.T) {
 				_, err := ResolveWorkflowDomainOverlapTx(context.Background(), tx, WorkflowDomainOverlapResolutionRequest{
 					EventID: "routine-race-from", FromWorkID: "content-left", ToWorkID: "content-right",
 					FromExpectedVersion: fromVersion - 1, ToExpectedVersion: toVersion,
-					FromContractVersion: 1, ToContractVersion: 1, ResolutionKind: ResolutionCompatibleWith,
+					FromContractVersion: 1, ToContractVersion: 1, ResolutionKind: ResolutionCompatibleWith, SharedStep: sequencingSharedStep(ResolutionCompatibleWith),
 					Reason: "stale declarer pin", Actor: actor,
 				})
 				return err
@@ -289,7 +289,7 @@ func TestRoutineCoordination(t *testing.T) {
 				_, err := ResolveWorkflowDomainOverlapTx(context.Background(), tx, WorkflowDomainOverlapResolutionRequest{
 					EventID: "routine-race-to", FromWorkID: "content-left", ToWorkID: "content-right",
 					FromExpectedVersion: fromVersion, ToExpectedVersion: toVersion - 1,
-					FromContractVersion: 1, ToContractVersion: 1, ResolutionKind: ResolutionCompatibleWith,
+					FromContractVersion: 1, ToContractVersion: 1, ResolutionKind: ResolutionCompatibleWith, SharedStep: sequencingSharedStep(ResolutionCompatibleWith),
 					Reason: "stale peer pin", Actor: actor,
 				})
 				return err
@@ -308,7 +308,7 @@ func TestRoutineCoordination(t *testing.T) {
 				_, err := ResolveWorkflowDomainOverlapTx(context.Background(), tx, WorkflowDomainOverlapResolutionRequest{
 					EventID: "routine-race-content", FromWorkID: "content-left", ToWorkID: "content-right",
 					FromExpectedVersion: fromVersion, ToExpectedVersion: toVersion,
-					FromContractVersion: 1, ToContractVersion: 1, ResolutionKind: ResolutionCompatibleWith,
+					FromContractVersion: 1, ToContractVersion: 1, ResolutionKind: ResolutionCompatibleWith, SharedStep: sequencingSharedStep(ResolutionCompatibleWith),
 					Reason: "resolution pinned to the superseded contract", Actor: actor,
 				})
 				return err

@@ -349,7 +349,7 @@ func TestRegressionDefect5_CycleRefusalCarriesTypedViolations(t *testing.T) {
 	}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, "work-1"): 2, store.VersionRef(store.SubjectWorkItem, "work-2"): 2}}); err != nil {
 		t.Fatal(err)
 	}
-	input := []byte(`{"from_work_id":"work-2","to_work_id":"work-1","from_expected_version":3,"to_expected_version":3,"from_contract_version":1,"to_contract_version":1,"resolution_kind":"blocks","reason":"cycle","idempotency_key":"d5-cycle"}`)
+	input := []byte(`{"from_work_id":"work-2","to_work_id":"work-1","from_expected_version":3,"to_expected_version":3,"from_contract_version":1,"to_contract_version":1,"resolution_kind":"blocks","shared_step":"delivery","reason":"cycle","idempotency_key":"d5-cycle"}`)
 	beforeEvents := agentCurrentEffects(t, s)
 	resp := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_relate", Operation: "resolve_overlap", Input: input}, env)
 	if resp.Outcome != agentcontract.OutcomeError || resp.Error == nil {

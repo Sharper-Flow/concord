@@ -220,6 +220,26 @@ func manifestDump(t *testing.T, db *sql.DB) []string {
 	return dump
 }
 
+// withoutEmptySharedStep removes the shared_step column a later migration adds
+// to a resolution dump, after requiring the column to be empty for every
+// historical row.
+func withoutEmptySharedStep(t *testing.T, dump []string) []string {
+	t.Helper()
+	column := slices.Index(strings.Split(dump[0], "\x1f"), "shared_step")
+	if column < 0 {
+		t.Fatal("the resolution dump has no shared_step column")
+	}
+	out := make([]string, 0, len(dump))
+	for i, row := range dump {
+		fields := strings.Split(row, "\x1f")
+		if i > 0 && fields[column] != "" {
+			t.Fatalf("historical resolution row gained shared step %q", fields[column])
+		}
+		out = append(out, strings.Join(slices.Delete(fields, column, column+1), "\x1f"))
+	}
+	return out
+}
+
 func assertUnchangedDump(t *testing.T, label string, before, after []string) {
 	t.Helper()
 	if !slices.Equal(before, after) {
@@ -531,7 +551,7 @@ func TestRoutineOverlapAuthorityMigration(t *testing.T) {
 	if err := Migrate(ctx, db); err != nil {
 		t.Fatal(err)
 	}
-	assertUnchangedDump(t, "resolution rows through current head", beforeRows, resolutionRowDump(t, db))
+	assertUnchangedDump(t, "resolution rows through current head", beforeRows, withoutEmptySharedStep(t, resolutionRowDump(t, db)))
 	assertHistoricalReceipts(t, db, beforeReceipts)
 	if _, err := db.Exec(`UPDATE workflow_overlap_resolutions SET reason=reason`); err == nil || !strings.Contains(err.Error(), "write-seam-only") {
 		t.Fatalf("current guard lost: %v", err)

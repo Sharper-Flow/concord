@@ -808,6 +808,10 @@ const GeneratedPayloadSchemaDocument = `{
           "maxItems": 20,
           "type": "array"
         },
+        "shared_step": {
+          "description": "The waited-on change's step that writes the shared Domain, present on a sequenced resolution.",
+          "type": "string"
+        },
         "to_contract_version": {
           "minimum": 1,
           "type": "integer"
@@ -2779,6 +2783,10 @@ const GeneratedPayloadSchemaDocument = `{
           },
           "maxItems": 64,
           "type": "array"
+        },
+        "shared_step": {
+          "description": "The waited-on change's step that writes the shared Domain, present on a sequenced resolution.",
+          "type": "string"
         },
         "to_work_id": {
           "$ref": "#/$defs/id"
@@ -16644,6 +16652,39 @@ const GeneratedPayloadSchemaDocument = `{
     },
     "work_relate_resolve_overlap_input": {
       "additionalProperties": false,
+      "oneOf": [
+        {
+          "not": {
+            "required": [
+              "shared_step"
+            ]
+          },
+          "properties": {
+            "resolution_kind": {
+              "enum": [
+                "compatible_with",
+                "merged_into",
+                "supersedes"
+              ],
+              "type": "string"
+            }
+          }
+        },
+        {
+          "properties": {
+            "resolution_kind": {
+              "enum": [
+                "depends_on",
+                "blocks"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "shared_step"
+          ]
+        }
+      ],
       "properties": {
         "approval": {
           "$ref": "#/$defs/approval"
@@ -16681,6 +16722,10 @@ const GeneratedPayloadSchemaDocument = `{
             "supersedes"
           ],
           "type": "string"
+        },
+        "shared_step": {
+          "$ref": "#/$defs/id",
+          "description": "The waited-on change's workflow step that writes the shared Domain: to_work_id's step for depends_on, from_work_id's step for blocks. Required for depends_on and blocks, refused otherwise. The coordinator still releases the hold explicitly. Bounds: 1..128 code points inclusive"
         },
         "to_contract_version": {
           "$ref": "#/$defs/version",

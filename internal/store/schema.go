@@ -8080,6 +8080,16 @@ CREATE TRIGGER work_conflict_applications_guard_update BEFORE UPDATE ON work_con
 CREATE TRIGGER work_conflict_applications_guard_delete BEFORE DELETE ON work_conflict_applications BEGIN SELECT RAISE(ABORT, 'work_conflict_applications is write-seam-only') WHERE NOT EXISTS (SELECT 1 FROM write_guard WHERE active=1); END;
 `,
 	},
+	{
+		Version:        163,
+		Name:           "workflow_overlap_resolution_shared_step",
+		FoldMaintained: "origin",
+		SQL: `
+-- Appendix A R2: a sequencing resolution records the waited-on change's step
+-- that writes the shared Domain. Earlier resolutions keep an empty step.
+ALTER TABLE workflow_overlap_resolutions ADD COLUMN shared_step TEXT NOT NULL DEFAULT '' CHECK(length(shared_step) <= 128 AND (shared_step = '' OR resolution_kind IN ('depends_on','blocks')));
+`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any

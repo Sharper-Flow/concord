@@ -116,7 +116,7 @@ func TestStaleRegistryRescanStrandsCurrentPinDispatchBesideStalePeer(t *testing.
 		_, txErr := ResolveWorkflowDomainOverlapTx(ctx, transaction, WorkflowDomainOverlapResolutionRequest{
 			EventID: "stale-peer-resolution-" + workID, FromWorkID: workID, ToWorkID: peerID,
 			FromExpectedVersion: subjectVersion, ToExpectedVersion: peerVersion,
-			FromContractVersion: 2, ToContractVersion: 1, ResolutionKind: ResolutionCompatibleWith,
+			FromContractVersion: 2, ToContractVersion: 1, ResolutionKind: ResolutionCompatibleWith, SharedStep: sequencingSharedStep(ResolutionCompatibleWith),
 			Reason: "the delivered repair is independent of the peer's stranded claim",
 			Actor:  owner.PrincipalRef, OccurredAt: time.Unix(40, 0).UTC(),
 		})

@@ -142,7 +142,7 @@ func TestWorkflowDomainOverlapDerivesTypedIntersectionsAndCompatibleResolution(t
 		t.Fatalf("overlap recovery action = %q, want %q", failure.RecoveryAction, workflowOverlapRecoveryAction)
 	}
 	if err := s.Transact(ctx, func(tx *Transaction) error {
-		_, err := ResolveWorkflowDomainOverlapTx(ctx, tx, WorkflowDomainOverlapResolutionRequest{EventID: "overlap-compatible", FromWorkID: "overlap-left", ToWorkID: "overlap-right", FromExpectedVersion: 2, ToExpectedVersion: 2, FromContractVersion: 1, ToContractVersion: 1, ResolutionKind: ResolutionCompatibleWith, Reason: "operator approved compatible change", Actor: actor, OccurredAt: time.Date(2026, 8, 19, 1, 0, 0, 0, time.UTC)})
+		_, err := ResolveWorkflowDomainOverlapTx(ctx, tx, WorkflowDomainOverlapResolutionRequest{EventID: "overlap-compatible", FromWorkID: "overlap-left", ToWorkID: "overlap-right", FromExpectedVersion: 2, ToExpectedVersion: 2, FromContractVersion: 1, ToContractVersion: 1, ResolutionKind: ResolutionCompatibleWith, SharedStep: sequencingSharedStep(ResolutionCompatibleWith), Reason: "operator approved compatible change", Actor: actor, OccurredAt: time.Date(2026, 8, 19, 1, 0, 0, 0, time.UTC)})
 		return err
 	}); err != nil {
 		t.Fatalf("compatible resolution rejected: %v", err)
@@ -170,7 +170,7 @@ func TestWorkflowDomainOverlapCompatibleResolutionUsesCanonicalPair(t *testing.T
 		_, err := ResolveWorkflowDomainOverlapTx(ctx, tx, WorkflowDomainOverlapResolutionRequest{
 			EventID: "canonical-compatible", FromWorkID: "canonical-right", ToWorkID: "canonical-left",
 			FromExpectedVersion: 2, ToExpectedVersion: 2, FromContractVersion: 1, ToContractVersion: 1,
-			ResolutionKind: ResolutionCompatibleWith, Reason: "operator approved compatible change", Actor: actor,
+			ResolutionKind: ResolutionCompatibleWith, SharedStep: sequencingSharedStep(ResolutionCompatibleWith), Reason: "operator approved compatible change", Actor: actor,
 		})
 		return err
 	}); err != nil {
@@ -198,7 +198,7 @@ func TestWorkflowDomainOverlapSequencingUsesExplicitStateAndEventOrder(t *testin
 			_, err := ResolveWorkflowDomainOverlapTx(ctx, tx, WorkflowDomainOverlapResolutionRequest{
 				EventID: eventID, FromWorkID: "sequence-left", ToWorkID: "sequence-right",
 				FromExpectedVersion: fromVersion, ToExpectedVersion: toVersion,
-				FromContractVersion: 1, ToContractVersion: 1, ResolutionKind: kind,
+				FromContractVersion: 1, ToContractVersion: 1, ResolutionKind: kind, SharedStep: sequencingSharedStep(kind),
 				Reason: "operator sequence", Actor: actor, OccurredAt: now,
 			})
 			return err
@@ -238,7 +238,7 @@ func TestWorkflowDomainOverlapReopenInvalidatesSameVersionResolution(t *testing.
 	if err := s.Transact(ctx, func(tx *Transaction) error {
 		_, err := ResolveWorkflowDomainOverlapTx(ctx, tx, WorkflowDomainOverlapResolutionRequest{
 			EventID: "reopen-resolution", FromWorkID: "reopen-left", ToWorkID: "reopen-right", FromExpectedVersion: 2, ToExpectedVersion: 2,
-			FromContractVersion: 1, ToContractVersion: 1, ResolutionKind: ResolutionCompatibleWith, Reason: "operator approved", Actor: actor,
+			FromContractVersion: 1, ToContractVersion: 1, ResolutionKind: ResolutionCompatibleWith, SharedStep: sequencingSharedStep(ResolutionCompatibleWith), Reason: "operator approved", Actor: actor,
 		})
 		return err
 	}); err != nil {
@@ -345,7 +345,7 @@ func TestWorkflowDomainOverlapSequenceTerminalUnblocksFollower(t *testing.T) {
 		_, err := ResolveWorkflowDomainOverlapTx(ctx, tx, WorkflowDomainOverlapResolutionRequest{
 			EventID: "terminal-sequence", FromWorkID: "terminal-left", ToWorkID: "terminal-right",
 			FromExpectedVersion: 2, ToExpectedVersion: 2, FromContractVersion: 1, ToContractVersion: 1,
-			ResolutionKind: ResolutionDependsOn, Reason: "right leads", Actor: actor,
+			ResolutionKind: ResolutionDependsOn, SharedStep: sequencingSharedStep(ResolutionDependsOn), Reason: "right leads", Actor: actor,
 		})
 		return err
 	}); err != nil {
@@ -379,7 +379,7 @@ func TestWorkflowDomainOverlapGuardsLifecycleExecutionEntry(t *testing.T) {
 		_, err := ResolveWorkflowDomainOverlapTx(ctx, tx, WorkflowDomainOverlapResolutionRequest{
 			EventID: "lifecycle-compatible", FromWorkID: "lifecycle-left", ToWorkID: "lifecycle-right",
 			FromExpectedVersion: 2, ToExpectedVersion: 2, FromContractVersion: 1, ToContractVersion: 1,
-			ResolutionKind: ResolutionCompatibleWith, Reason: "operator approved lifecycle concurrency", Actor: actor,
+			ResolutionKind: ResolutionCompatibleWith, SharedStep: sequencingSharedStep(ResolutionCompatibleWith), Reason: "operator approved lifecycle concurrency", Actor: actor,
 		})
 		return err
 	}); err != nil {
@@ -415,7 +415,7 @@ INSERT INTO agent_approvals(approval_ref,operation_digest,scope_json,version_jso
 		_, err := ResolveWorkflowDomainOverlapTx(context.Background(), tx, WorkflowDomainOverlapResolutionRequest{
 			EventID: eventID, FromWorkID: fromWorkID, ToWorkID: toWorkID,
 			FromExpectedVersion: fromExpected, ToExpectedVersion: toExpected,
-			FromContractVersion: 1, ToContractVersion: 1, ResolutionKind: kind, Reason: reason, Actor: actor,
+			FromContractVersion: 1, ToContractVersion: 1, ResolutionKind: kind, SharedStep: sequencingSharedStep(kind), Reason: reason, Actor: actor,
 			ApprovalRef: ref, ApprovalOperationDigest: digest, ApprovalScopeJSON: scope,
 			ApprovalVersionsJSON: versions, ApprovalConsequence: "recovery", OccurredAt: time.Unix(41, 0).UTC(),
 		})
@@ -649,7 +649,7 @@ func TestWorkflowDomainOverlapContractRevisionStalesResolution(t *testing.T) {
 		_, err := ResolveWorkflowDomainOverlapTx(ctx, tx, WorkflowDomainOverlapResolutionRequest{
 			EventID: "revision-compatible", FromWorkID: "revision-left", ToWorkID: "revision-right",
 			FromExpectedVersion: leftVersion, ToExpectedVersion: rightVersion, FromContractVersion: 1, ToContractVersion: 1,
-			ResolutionKind: ResolutionCompatibleWith, Reason: "operator approved v1 pair", Actor: leftActorRef,
+			ResolutionKind: ResolutionCompatibleWith, SharedStep: sequencingSharedStep(ResolutionCompatibleWith), Reason: "operator approved v1 pair", Actor: leftActorRef,
 		})
 		return err
 	}); err != nil {
@@ -867,7 +867,7 @@ func TestWorkflowDomainOverlapCrossProcessWorker(t *testing.T) {
 		_, err = ResolveWorkflowDomainOverlapTx(context.Background(), transaction, WorkflowDomainOverlapResolutionRequest{
 			EventID: "overlap-race-resolution", FromWorkID: workID, ToWorkID: os.Getenv("TEST_CONCORD_OVERLAP_RACE_OTHER"),
 			FromExpectedVersion: version, ToExpectedVersion: 2, FromContractVersion: 1, ToContractVersion: 1,
-			ResolutionKind: ResolutionCompatibleWith, Reason: "operator race resolution", Actor: "operator",
+			ResolutionKind: ResolutionCompatibleWith, SharedStep: sequencingSharedStep(ResolutionCompatibleWith), Reason: "operator race resolution", Actor: "operator",
 		})
 		if err != nil {
 			raw.Rollback()

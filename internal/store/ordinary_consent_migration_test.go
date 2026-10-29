@@ -3,9 +3,11 @@ package store
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -90,9 +92,13 @@ func TestOrdinaryConsentMigrationPreservesRowsAndConstraints(t *testing.T) {
 	if err := Migrate(context.Background(), db); err != nil {
 		t.Fatal(err)
 	}
-	if got := sixClassSnapshot(t, db, tables...); !reflect.DeepEqual(got, before) {
+	got := sixClassSnapshot(t, db, tables...)
+	got["workflow_overlap_resolutions"] = withoutEmptySharedStepRows(t, got["workflow_overlap_resolutions"])
+	if !reflect.DeepEqual(got, before) {
 		t.Fatal("migration changed historical rows or references")
 	}
+	// A later migration adds the empty shared_step column to every resolution.
+	metadata["workflow_overlap_resolutions columns"] = append(metadata["workflow_overlap_resolutions columns"], "shared_step")
 	if got := ordinaryConsentSchemaMetadata(t, db); !reflect.DeepEqual(got, metadata) {
 		t.Fatalf("migration changed column/FK/index/guard declarations: got %v, want %v", got, metadata)
 	}
@@ -180,4 +186,24 @@ func TestOrdinaryConsentMigrationRollsBackAtomically(t *testing.T) {
 	if got := sixClassSnapshot(t, db, tables...); !reflect.DeepEqual(got, before) {
 		t.Fatal("second migration pass changed state")
 	}
+}
+
+// withoutEmptySharedStepRows removes the shared_step column a later migration
+// adds to snapshot rows, after requiring it to be empty.
+func withoutEmptySharedStepRows(t *testing.T, rows []string) []string {
+	t.Helper()
+	out := make([]string, 0, len(rows))
+	for _, raw := range rows {
+		var row map[string]any
+		if err := json.Unmarshal([]byte(raw), &row); err != nil {
+			t.Fatal(err)
+		}
+		if step, ok := row["shared_step"]; !ok || step != "" {
+			t.Fatalf("historical resolution row shared_step = %v, present %t; want empty", step, ok)
+		}
+		delete(row, "shared_step")
+		out = append(out, workflowJSON(row))
+	}
+	slices.Sort(out)
+	return out
 }

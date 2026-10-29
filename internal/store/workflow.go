@@ -185,12 +185,15 @@ type workflowContractPredicatePayload struct {
 
 type workflowOverlapResolvedPayload struct {
 	WorkflowVersionFields
-	ToWorkID                string `json:"to_work_id"`
-	ToExpectedVersion       int64  `json:"to_expected_version"`
-	ToResultingVersion      int64  `json:"to_resulting_version"`
-	FromContractVersion     int64  `json:"from_contract_version"`
-	ToContractVersion       int64  `json:"to_contract_version"`
-	ResolutionKind          string `json:"resolution_kind"`
+	ToWorkID            string `json:"to_work_id"`
+	ToExpectedVersion   int64  `json:"to_expected_version"`
+	ToResultingVersion  int64  `json:"to_resulting_version"`
+	FromContractVersion int64  `json:"from_contract_version"`
+	ToContractVersion   int64  `json:"to_contract_version"`
+	ResolutionKind      string `json:"resolution_kind"`
+	// SharedStep names the waited-on change's workflow step that writes the
+	// shared Domain. A sequencing resolution records it (Appendix A R2).
+	SharedStep              string `json:"shared_step,omitempty"`
 	Reason                  string `json:"reason"`
 	ApprovalRef             string `json:"approval_ref"`
 	ApprovalOperationDigest string `json:"approval_operation_digest"`

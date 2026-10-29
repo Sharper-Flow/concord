@@ -1808,6 +1808,10 @@
                       "supersedes"
                     ]
                   },
+                  "shared_step": {
+                    "type": "string",
+                    "description": "The waited-on change's step that writes the shared Domain, present on a sequenced resolution."
+                  },
                   "recovery_actions": {
                     "type": "array",
                     "minItems": 1,

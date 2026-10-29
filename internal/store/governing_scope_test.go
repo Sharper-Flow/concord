@@ -46,7 +46,7 @@ func TestGoverningOverlapCoreRequiresPreservedScope(t *testing.T) {
 					err = applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "governed-left"): fromVersion, VersionRef(SubjectWorkItem, "governed-right"): toVersion}})
 				} else {
 					err = s.Transact(ctx, func(tx *Transaction) error {
-						_, err := ResolveWorkflowDomainOverlapTx(ctx, tx, WorkflowDomainOverlapResolutionRequest{EventID: "governed-entry", FromWorkID: "governed-left", ToWorkID: "governed-right", FromExpectedVersion: fromVersion, ToExpectedVersion: toVersion, FromContractVersion: 1, ToContractVersion: 1, ResolutionKind: kind, Reason: "settle overlap", Actor: actor})
+						_, err := ResolveWorkflowDomainOverlapTx(ctx, tx, WorkflowDomainOverlapResolutionRequest{EventID: "governed-entry", FromWorkID: "governed-left", ToWorkID: "governed-right", FromExpectedVersion: fromVersion, ToExpectedVersion: toVersion, FromContractVersion: 1, ToContractVersion: 1, ResolutionKind: kind, SharedStep: sequencingSharedStep(kind), Reason: "settle overlap", Actor: actor})
 						return err
 					})
 				}

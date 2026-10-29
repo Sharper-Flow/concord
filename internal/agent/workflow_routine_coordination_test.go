@@ -223,13 +223,17 @@ func routineOverlapApprovalBindings(t *testing.T, s *store.Store, env CallEnvelo
 // routineOverlapResolveInput builds one resolve_overlap request body.
 func routineOverlapResolveInput(t *testing.T, binding routineOverlapBinding, key string) []byte {
 	t.Helper()
-	raw, err := json.Marshal(map[string]any{
+	input := map[string]any{
 		"from_work_id": binding.fromWorkID, "to_work_id": binding.toWorkID,
 		"from_expected_version": binding.fromVersion, "to_expected_version": binding.toVersion,
 		"from_contract_version": binding.fromContractVersion, "to_contract_version": binding.toContractVersion,
 		"resolution_kind": binding.kind, "reason": "settle the exact overlap",
 		"idempotency_key": key,
-	})
+	}
+	if binding.kind == store.ResolutionDependsOn || binding.kind == store.ResolutionBlocks {
+		input["shared_step"] = "delivery"
+	}
+	raw, err := json.Marshal(input)
 	if err != nil {
 		t.Fatal(err)
 	}

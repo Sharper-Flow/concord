@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 )
 
@@ -55,19 +56,34 @@ func TestWorkflowDomainOverlapCoordinatorReleasesAfterStepBeforeTerminal(t *test
 	if err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM workflow_instances WHERE work_id IN (?,?) AND execution_started_at IS NOT NULL`, leader, follower).Scan(&started); err != nil || started != 0 {
 		t.Fatalf("pre-execution start facts = %d err=%v, want 0", started, err)
 	}
-	resolve := func(eventID, kind, reason string) {
-		t.Helper()
+	record := func(eventID, kind, step, reason string) error {
 		fromVersion, toVersion := readWorkVersion(t, s, follower), readWorkVersion(t, s, leader)
-		if err := s.Transact(ctx, func(tx *Transaction) error {
+		return s.Transact(ctx, func(tx *Transaction) error {
 			_, err := ResolveWorkflowDomainOverlapTx(ctx, tx, WorkflowDomainOverlapResolutionRequest{
 				EventID: eventID, FromWorkID: follower, ToWorkID: leader,
 				FromExpectedVersion: fromVersion, ToExpectedVersion: toVersion,
 				FromContractVersion: 1, ToContractVersion: 1,
-				ResolutionKind: kind, Reason: reason, Actor: actorRef,
+				ResolutionKind: kind, SharedStep: step, Reason: reason, Actor: actorRef,
 			})
 			return err
-		}); err != nil {
+		})
+	}
+	resolve := func(eventID, kind, step, reason string) {
+		t.Helper()
+		if err := record(eventID, kind, step, reason); err != nil {
 			t.Fatalf("resolve %s: %v", kind, err)
+		}
+	}
+	refuse := func(eventID, kind, step, want string) {
+		t.Helper()
+		version := readWorkVersion(t, s, follower)
+		err := record(eventID, kind, step, "The coordinator names the shared Domain write step")
+		var failure *Failure
+		if !errors.As(err, &failure) || failure.Kind != KindInvalidPayload || !strings.Contains(failure.Error(), want) {
+			t.Fatalf("%s with shared step %q = %v, want invalid_payload naming %q", kind, step, err, want)
+		}
+		if readWorkVersion(t, s, follower) != version {
+			t.Fatalf("refused %s resolution changed the follower version", kind)
 		}
 	}
 	assertStep := func(workID, step string) {
@@ -93,13 +109,16 @@ func TestWorkflowDomainOverlapCoordinatorReleasesAfterStepBeforeTerminal(t *test
 		if !errors.As(err, &failure) || failure.Kind != KindDomainOverlap {
 			t.Fatalf("held follower action = %v, want domain_overlap", err)
 		}
+		if overlap := failure.DomainOverlap; overlap == nil || len(overlap.Overlaps) != 1 || overlap.Overlaps[0].ResolutionState != "sequenced" || overlap.Overlaps[0].SharedStep != "execution" {
+			t.Fatalf("held follower diagnosis = %+v, want the sequenced pair naming the leader's execution step", overlap)
+		}
 		if readWorkVersion(t, s, follower) != version || sequenceWitnessEventCount(t, s, follower) != receipts {
 			t.Fatal("refused follower action changed its version or effect receipts")
 		}
 		assertStep(follower, "execution")
 	}
 
-	resolve("step-release-initial", ResolutionCompatibleWith, "Independent preparation can proceed before the shared Domain write")
+	resolve("step-release-initial", ResolutionCompatibleWith, "", "Independent preparation can proceed before the shared Domain write")
 	for _, workID := range []string{leader, follower} {
 		if err := action(workID, "start_execution", json.RawMessage(`{}`)); err != nil {
 			t.Fatalf("start shared write for %s: %v", workID, err)
@@ -111,7 +130,17 @@ func TestWorkflowDomainOverlapCoordinatorReleasesAfterStepBeforeTerminal(t *test
 			t.Fatalf("independent preparation for %s: %v", workID, err)
 		}
 	}
-	resolve("step-release-hold", ResolutionDependsOn, "The follower waits until the leader completes the shared Domain write step")
+	refuse("step-release-unnamed", ResolutionDependsOn, "", "must name the shared step of "+leader)
+	refuse("step-release-unknown", ResolutionDependsOn, "diagnosis", "shared step diagnosis is not a step of "+leader)
+	refuse("step-release-compatible-step", ResolutionCompatibleWith, "execution", "only a depends_on or blocks resolution names a shared step")
+	resolve("step-release-hold", ResolutionDependsOn, "execution", "The follower waits until the leader completes the shared Domain write step")
+	read, err := s.QueryDomainOverlaps(ctx, DomainOverlapsRequest{Product: "product"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(read.Pairs) != 1 || read.Pairs[0].ResolutionState != "sequenced" || read.Pairs[0].SharedStep != "execution" {
+		t.Fatalf("overlap read = %+v, want the sequenced pair naming the leader's execution step", read.Pairs)
+	}
 	assertHeld()
 	if err := action(leader, "record_delivery", delivery); err != nil {
 		t.Fatalf("leader completes shared write: %v", err)
@@ -122,7 +151,7 @@ func TestWorkflowDomainOverlapCoordinatorReleasesAfterStepBeforeTerminal(t *test
 		t.Fatalf("leader's next step must remain usable while the follower waits: %v", err)
 	}
 
-	resolve("step-release-resume", ResolutionCompatibleWith, "The leader completed the shared write; the remaining steps can proceed independently")
+	resolve("step-release-resume", ResolutionCompatibleWith, "", "The leader completed the shared write; the remaining steps can proceed independently")
 	if err := action(follower, "record_delivery", delivery); err != nil {
 		t.Fatalf("released follower completes shared write: %v", err)
 	}

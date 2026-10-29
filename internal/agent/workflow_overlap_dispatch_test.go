@@ -176,7 +176,7 @@ func TestResolveOverlapBlocksRemovesWorkFromReady(t *testing.T) {
 	if len(before.Items) != 1 || before.Items[0].ID != "work-2" || deriveWorkBlocked(t, s, "work-2") {
 		t.Fatalf("peer was not ready before resolution: %+v", before.Items)
 	}
-	input = []byte(strings.Replace(string(input), `"resolution_kind":"compatible_with"`, `"resolution_kind":"blocks"`, 1))
+	input = []byte(strings.Replace(string(input), `"resolution_kind":"compatible_with"`, `"resolution_kind":"blocks","shared_step":"delivery"`, 1))
 	request := InvokeRequest{Tool: "concord_work_relate", Operation: "resolve_overlap", Input: input}
 	resolved := dispatchMutation(t, s, service, request, env)
 	if resolved.Outcome != agentcontract.OutcomeOK {

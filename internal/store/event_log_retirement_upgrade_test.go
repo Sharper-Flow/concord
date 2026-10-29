@@ -176,10 +176,13 @@ func TestEventLogRetirementUpgradePreservesCurrentRows(t *testing.T) {
 	db, path := retirementUpgradeFixture(t)
 	tables := []string{"external_observations", "workflow_overlap_resolutions", "work_size_overrides"}
 	before := make(map[string][][]any)
+	// Later migrations may add columns; the upgrade must keep the existing ones.
+	columns := make(map[string]string)
 	indexes := make(map[string][][]any)
 	indexColumns := make(map[string][][]any)
 	for _, table := range tables {
-		before[table] = retirementUpgradeRows(t, db, `SELECT * FROM `+table+` ORDER BY rowid`)
+		columns[table] = strings.Join(tableColumnInventory(t, db, table), ",")
+		before[table] = retirementUpgradeRows(t, db, `SELECT `+columns[table]+` FROM `+table+` ORDER BY rowid`)
 		indexes[table] = retirementUpgradeRows(t, db, `SELECT name,"unique",origin,partial FROM pragma_index_list(?) ORDER BY name`, table)
 		for _, index := range indexes[table] {
 			name := index[0].(string)
@@ -200,7 +203,7 @@ func TestEventLogRetirementUpgradePreservesCurrentRows(t *testing.T) {
 	}
 	retirementUpgradeMigrate(t, db)
 	for _, table := range tables {
-		if got := retirementUpgradeRows(t, db, `SELECT * FROM `+table+` ORDER BY rowid`); !reflect.DeepEqual(got, before[table]) {
+		if got := retirementUpgradeRows(t, db, `SELECT `+columns[table]+` FROM `+table+` ORDER BY rowid`); !reflect.DeepEqual(got, before[table]) {
 			t.Errorf("%s changed bytes/types: before=%#v after=%#v", table, before[table], got)
 		}
 		if got := retirementUpgradeRows(t, db, `SELECT name,"unique",origin,partial FROM pragma_index_list(?) ORDER BY name`, table); !reflect.DeepEqual(got, indexes[table]) {

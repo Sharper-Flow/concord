@@ -39,6 +39,7 @@ type WorkflowDomainOverlap struct {
 	OverlapClasses                []string                      `json:"overlap_classes"`
 	ResolutionState               string                        `json:"resolution_state"`
 	ResolutionKind                string                        `json:"resolution_kind,omitempty"`
+	SharedStep                    string                        `json:"shared_step,omitempty"`
 	RecoveryActions               []string                      `json:"recovery_actions"`
 	SharedAffectedDomainCount     int                           `json:"shared_affected_domain_count"`
 	SharedLawCount                int                           `json:"shared_law_count"`
@@ -271,10 +272,11 @@ func readWorkflowUnresolvedDomainOverlapsTx(ctx context.Context, tx *sql.Tx, wor
 		if !ok {
 			continue
 		}
-		overlap.ResolutionState, overlap.ResolutionKind, err = currentWorkflowOverlapResolutionTx(ctx, tx, overlap)
+		view, err := currentWorkflowOverlapResolutionTx(ctx, tx, overlap)
 		if err != nil {
 			return nil, err
 		}
+		overlap.applyResolution(view)
 		if overlap.ResolutionState != "current" && overlap.ResolutionState != "sequenced" {
 			overlaps = append(overlaps, overlap)
 		}
@@ -303,31 +305,43 @@ func readOverlapStringListTx(ctx context.Context, q queryer, query string, targe
 	return nil
 }
 
-func currentWorkflowOverlapResolutionTx(ctx context.Context, q queryer, overlap WorkflowDomainOverlap) (string, string, error) {
-	var state, kind string
+func currentWorkflowOverlapResolutionTx(ctx context.Context, q queryer, overlap WorkflowDomainOverlap) (workflowOverlapResolutionView, error) {
+	var state, kind, step string
 	var from string
 	// The fold invalidates judgments when their content changes or their claim
 	// reopens. Recorded versions remain the original approval's audit inputs.
-	err := q.QueryRowContext(ctx, `SELECT CASE WHEN resolution_kind IN ('depends_on','blocks') THEN 'sequenced' ELSE 'current' END,resolution_kind,from_work_id FROM workflow_overlap_resolutions WHERE product_id=? AND ((from_work_id=? AND to_work_id=?) OR (from_work_id=? AND to_work_id=?)) AND invalidated_seq IS NULL ORDER BY event_seq DESC LIMIT 1`, overlap.ProductID, overlap.FromWorkID, overlap.ToWorkID, overlap.ToWorkID, overlap.FromWorkID).Scan(&state, &kind, &from)
+	err := q.QueryRowContext(ctx, `SELECT CASE WHEN resolution_kind IN ('depends_on','blocks') THEN 'sequenced' ELSE 'current' END,resolution_kind,shared_step,from_work_id FROM workflow_overlap_resolutions WHERE product_id=? AND ((from_work_id=? AND to_work_id=?) OR (from_work_id=? AND to_work_id=?)) AND invalidated_seq IS NULL ORDER BY event_seq DESC LIMIT 1`, overlap.ProductID, overlap.FromWorkID, overlap.ToWorkID, overlap.ToWorkID, overlap.FromWorkID).Scan(&state, &kind, &step, &from)
 	if err == nil {
 		if from != overlap.FromWorkID && kind == ResolutionDependsOn {
 			kind = ResolutionBlocks
 		} else if from != overlap.FromWorkID && kind == ResolutionBlocks {
 			kind = ResolutionDependsOn
 		}
-		return state, kind, nil
+		return workflowOverlapResolutionView{State: state, Kind: kind, SharedStep: step}, nil
 	}
 	if err != sql.ErrNoRows {
-		return "", "", wrapFailure(KindUnavailable, "workflow_domain_overlap", "cannot read overlap resolution", true, "retry once the overlap projection is readable", err)
+		return workflowOverlapResolutionView{}, wrapFailure(KindUnavailable, "workflow_domain_overlap", "cannot read overlap resolution", true, "retry once the overlap projection is readable", err)
 	}
 	var stale int
 	if err := q.QueryRowContext(ctx, `SELECT count(*) FROM workflow_overlap_resolutions WHERE product_id=? AND ((from_work_id=? AND to_work_id=?) OR (from_work_id=? AND to_work_id=?))`, overlap.ProductID, overlap.FromWorkID, overlap.ToWorkID, overlap.ToWorkID, overlap.FromWorkID).Scan(&stale); err != nil {
-		return "", "", wrapFailure(KindUnavailable, "workflow_domain_overlap", "cannot inspect overlap resolution history", true, "retry once the overlap projection is readable", err)
+		return workflowOverlapResolutionView{}, wrapFailure(KindUnavailable, "workflow_domain_overlap", "cannot inspect overlap resolution history", true, "retry once the overlap projection is readable", err)
 	}
 	if stale > 0 {
-		return "stale", "", nil
+		return workflowOverlapResolutionView{State: "stale"}, nil
 	}
-	return "unresolved", "", nil
+	return workflowOverlapResolutionView{State: "unresolved"}, nil
+}
+
+// workflowOverlapResolutionView is a pair's current resolution as seen from
+// the pair's canonical from side.
+type workflowOverlapResolutionView struct {
+	State      string
+	Kind       string
+	SharedStep string
+}
+
+func (overlap *WorkflowDomainOverlap) applyResolution(view workflowOverlapResolutionView) {
+	overlap.ResolutionState, overlap.ResolutionKind, overlap.SharedStep = view.State, view.Kind, view.SharedStep
 }
 
 type workflowOverlapJudgedContent struct {
@@ -569,10 +583,11 @@ func checkWorkflowDomainOverlapTxAdmitting(ctx context.Context, q queryer, workI
 		// A recorded resolution is evaluated before the peer pin check, so a
 		// resolved overlap never vetoes the subject's admission, whatever
 		// hash the peer's own contract still pins.
-		overlap.ResolutionState, overlap.ResolutionKind, err = currentWorkflowOverlapResolutionTx(ctx, q, overlap)
+		view, err := currentWorkflowOverlapResolutionTx(ctx, q, overlap)
 		if err != nil {
 			return err
 		}
+		overlap.applyResolution(view)
 		if allowed := (overlap.ResolutionState == "current" || overlap.ResolutionState == "sequenced") && overlapAllowsWork(overlap, workID); allowed {
 			continue
 		}
@@ -701,14 +716,16 @@ func overlapAllowsWork(overlap WorkflowDomainOverlap, workID string) bool {
 // A supplied terminal-resolution approval keeps its exact consumed binding;
 // CD-0243 D3/D7 retire merger and supersession as independent consent classes.
 type WorkflowDomainOverlapResolutionRequest struct {
-	EventID                 string
-	FromWorkID              string
-	ToWorkID                string
-	FromExpectedVersion     int64
-	ToExpectedVersion       int64
-	FromContractVersion     int64
-	ToContractVersion       int64
-	ResolutionKind          string
+	EventID             string
+	FromWorkID          string
+	ToWorkID            string
+	FromExpectedVersion int64
+	ToExpectedVersion   int64
+	FromContractVersion int64
+	ToContractVersion   int64
+	ResolutionKind      string
+	// SharedStep is required for depends_on and blocks and refused otherwise.
+	SharedStep              string
 	Reason                  string
 	ApprovalRef             string
 	ApprovalOperationDigest string
@@ -753,7 +770,7 @@ func ResolveWorkflowDomainOverlapTx(ctx context.Context, tx *Transaction, reques
 	if err := checkOverlapGoverningScope(ctx, sqlTx, request); err != nil {
 		return ApplyOperationResult{}, err
 	}
-	payload, err := json.Marshal(map[string]any{
+	fields := map[string]any{
 		"work_id": request.FromWorkID, "expected_version": request.FromExpectedVersion, "resulting_version": request.FromExpectedVersion + 1,
 		"to_work_id": request.ToWorkID, "to_expected_version": request.ToExpectedVersion, "to_resulting_version": request.ToExpectedVersion + 1,
 		"from_contract_version": request.FromContractVersion, "to_contract_version": request.ToContractVersion,
@@ -762,7 +779,11 @@ func ResolveWorkflowDomainOverlapTx(ctx context.Context, tx *Transaction, reques
 		"approval_scope_json":       request.ApprovalScopeJSON,
 		"approval_versions_json":    request.ApprovalVersionsJSON,
 		"approval_consequence":      request.ApprovalConsequence,
-	})
+	}
+	if request.SharedStep != "" {
+		fields["shared_step"] = request.SharedStep
+	}
+	payload, err := json.Marshal(fields)
 	if err != nil {
 		return ApplyOperationResult{}, err
 	}
@@ -901,6 +922,38 @@ func workflowOverlapResolutionBindingAdmission(event Event, payload workflowOver
 	return nil
 }
 
+// workflowOverlapSharedStepAdmission requires a sequencing resolution to name
+// the step of the waited-on change that writes the shared Domain, as a step of
+// that change's pinned workflow definition (Appendix A R2). The coordinator
+// still releases the hold explicitly; step completion releases nothing.
+func workflowOverlapSharedStepAdmission(ctx context.Context, tx *sql.Tx, scope *writeScope, event Event, payload workflowOverlapResolvedPayload) error {
+	var waitedOn string
+	switch payload.ResolutionKind {
+	case ResolutionDependsOn:
+		waitedOn = payload.ToWorkID
+	case ResolutionBlocks:
+		waitedOn = event.SubjectID
+	default:
+		if payload.SharedStep != "" {
+			return overlapResolutionFailure("only a depends_on or blocks resolution names a shared step")
+		}
+		return nil
+	}
+	if payload.SharedStep == "" {
+		return newFailure(KindInvalidPayload, "workflow_domain_overlap", "a "+payload.ResolutionKind+" resolution must name the shared step of "+waitedOn+" that writes the shared Domain", false, "supply shared_step with a step of the waited-on change's workflow")
+	}
+	registered, err := VerifyWorkflowInstanceDefinitionTx(ctx, tx, scopeDefinitionRegistry(scope), waitedOn)
+	if err != nil {
+		return err
+	}
+	for _, step := range registered.Definition.StepGraph.Steps {
+		if step.ID == payload.SharedStep {
+			return nil
+		}
+	}
+	return newFailure(KindInvalidPayload, "workflow_domain_overlap", "shared step "+payload.SharedStep+" is not a step of "+waitedOn+"'s workflow "+registered.Definition.Ref, false, "name a step of the waited-on change's workflow")
+}
+
 func overlapResolutionFailure(detail string) error {
 	return newFailure(KindInvalidPayload, "workflow_domain_overlap", detail, false, "supply a current operator-approved overlap resolution")
 }
@@ -983,7 +1036,7 @@ func terminalizeWorkflowOverlapWork(ctx context.Context, tx *sql.Tx, event Event
 	return nil
 }
 
-func foldWorkflowOverlapResolved(ctx context.Context, tx *sql.Tx, event Event) error {
+func foldWorkflowOverlapResolved(ctx context.Context, tx *sql.Tx, event Event, scope *writeScope) error {
 	var payload workflowOverlapResolvedPayload
 	if err := decodeWorkflowPayload(event, &payload); err != nil {
 		return err
@@ -995,6 +1048,9 @@ func foldWorkflowOverlapResolved(ctx context.Context, tx *sql.Tx, event Event) e
 		return overlapResolutionFailure("overlap resolution has invalid endpoint, version, kind, or reason")
 	}
 	if err := workflowOverlapResolutionBindingAdmission(event, payload); err != nil {
+		return err
+	}
+	if err := workflowOverlapSharedStepAdmission(ctx, tx, scope, event, payload); err != nil {
 		return err
 	}
 	fromExpected, fromResulting := *payload.ExpectedVersion, *payload.ResultingVersion
@@ -1115,7 +1171,7 @@ func recordWorkflowOverlapResolutionTx(ctx context.Context, tx *sql.Tx, event Ev
 	if err != nil {
 		return err
 	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO workflow_overlap_resolutions(resolution_id,event_seq,product_id,from_work_id,to_work_id,from_contract_version,to_contract_version,resolution_kind,reason,approval_ref,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)`, event.EventID, seq, productID, resolutionFromWorkID, resolutionToWorkID, resolutionFromContractVersion, resolutionToContractVersion, payload.ResolutionKind, payload.Reason, payload.ApprovalRef, event.OccurredAt.UTC().Format(time.RFC3339Nano)); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO workflow_overlap_resolutions(resolution_id,event_seq,product_id,from_work_id,to_work_id,from_contract_version,to_contract_version,resolution_kind,shared_step,reason,approval_ref,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`, event.EventID, seq, productID, resolutionFromWorkID, resolutionToWorkID, resolutionFromContractVersion, resolutionToContractVersion, payload.ResolutionKind, payload.SharedStep, payload.Reason, payload.ApprovalRef, event.OccurredAt.UTC().Format(time.RFC3339Nano)); err != nil {
 		return workflowOverlapResolutionProjectionError(err)
 	}
 	if relationKind := workflowOverlapResolutionRelationKind(payload.ResolutionKind); relationKind != "" {

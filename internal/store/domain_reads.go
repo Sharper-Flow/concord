@@ -114,6 +114,7 @@ type DomainOverlapPair struct {
 	SharedLawIDs    []string `json:"shared_law_ids,omitempty"`
 	ResolutionState string   `json:"resolution_state"`
 	ResolutionKind  string   `json:"resolution_kind,omitempty"`
+	SharedStep      string   `json:"shared_step,omitempty"`
 }
 
 type DomainOverlapsRequest struct {
@@ -550,14 +551,14 @@ func queryDomainOverlaps(ctx context.Context, q queryer, req DomainOverlapsReque
 				continue
 			}
 			seen[key] = true
-			state, kind, err := currentWorkflowOverlapResolutionTx(ctx, q, overlap)
+			view, err := currentWorkflowOverlapResolutionTx(ctx, q, overlap)
 			if err != nil {
 				return out, err
 			}
-			if state == "unresolved" {
-				state = "absent"
+			if view.State == "unresolved" {
+				view.State = "absent"
 			}
-			out.Pairs = append(out.Pairs, DomainOverlapPair{FromWorkID: overlap.FromWorkID, ToWorkID: overlap.ToWorkID, SharedDomainIDs: overlap.SharedAffectedDomainIDs, SharedLawIDs: overlap.SharedLawIDs, ResolutionState: state, ResolutionKind: kind})
+			out.Pairs = append(out.Pairs, DomainOverlapPair{FromWorkID: overlap.FromWorkID, ToWorkID: overlap.ToWorkID, SharedDomainIDs: overlap.SharedAffectedDomainIDs, SharedLawIDs: overlap.SharedLawIDs, ResolutionState: view.State, ResolutionKind: view.Kind, SharedStep: view.SharedStep})
 			// A prospective subject can discover an earlier started peer after
 			// later-sorting pairs. Keep the smallest bounded canonical set.
 			boundDomainOverlapPairs(&out, seen)

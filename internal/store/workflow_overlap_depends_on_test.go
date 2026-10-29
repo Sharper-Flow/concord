@@ -21,7 +21,7 @@ func TestWorkflowDomainOverlapDependsOnCarriesOwnAuthority(t *testing.T) {
 			_, err := ResolveWorkflowDomainOverlapTx(ctx, tx, WorkflowDomainOverlapResolutionRequest{
 				EventID: eventID, FromWorkID: fromWorkID, ToWorkID: toWorkID,
 				FromExpectedVersion: fromVersion, ToExpectedVersion: toVersion,
-				FromContractVersion: 1, ToContractVersion: 1, ResolutionKind: kind,
+				FromContractVersion: 1, ToContractVersion: 1, ResolutionKind: kind, SharedStep: sequencingSharedStep(kind),
 				Reason: reason, Actor: actor, OccurredAt: now,
 			})
 			return err
@@ -104,4 +104,14 @@ func TestWorkflowDomainOverlapDependsOnCarriesOwnAuthority(t *testing.T) {
 			}
 		})
 	}
+}
+
+// sequencingSharedStep names the shared step a sequencing resolution must
+// record in tests. Both the break-fix and implementation workflows declare
+// the delivery step.
+func sequencingSharedStep(kind string) string {
+	if kind == ResolutionDependsOn || kind == ResolutionBlocks {
+		return "delivery"
+	}
+	return ""
 }

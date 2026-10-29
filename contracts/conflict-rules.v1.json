@@ -1,6 +1,6 @@
 {
   "schema_version": "1.1",
-  "catalog_generation": 18,
+  "catalog_generation": 19,
   "source": {
     "path": ".concord/docs/priorities.md",
     "sha256": "sha256:f646153d789b42b07038b3f1c5df6b3c08f62861b2cb8df9163bf8d7ab67889c"
@@ -25,8 +25,13 @@
       "actors": [
         "coordinator"
       ],
-      "state": "outstanding",
-      "issue": "CON-1098"
+      "state": "satisfied",
+      "mechanism": "recorded_decision",
+      "evidence": [
+        {"kind": "go_test", "value": "internal/store.TestWorkflowDomainOverlapCoordinatorReleasesAfterStepBeforeTerminal"},
+        {"kind": "go_test", "value": "internal/agent.TestResolveOverlapDependsOnRecordsDirectedSequencingWithoutConsent"},
+        {"kind": "go_test", "value": "internal/store.TestOverlapBlocksRemovesWorkFromReady"}
+      ]
     },
     {
       "id": "R3",
@@ -425,8 +430,13 @@
       "actors": [
         "coordinator"
       ],
-      "state": "outstanding",
-      "issue": "CON-1098"
+      "state": "satisfied",
+      "mechanism": "recorded_decision",
+      "evidence": [
+        {"kind": "go_test", "value": "internal/store.TestWorkflowDomainOverlapCoordinatorReleasesAfterStepBeforeTerminal"},
+        {"kind": "go_test", "value": "internal/agent.TestResolveOverlapDependsOnRecordsDirectedSequencingWithoutConsent"},
+        {"kind": "go_test", "value": "internal/store.TestOverlapBlocksRemovesWorkFromReady"}
+      ]
     },
     {
       "row": 3,

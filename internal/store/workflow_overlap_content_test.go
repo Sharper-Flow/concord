@@ -36,7 +36,7 @@ func resolveContentPair(t *testing.T, s *Store, from, to, kind string) {
 		_, err := ResolveWorkflowDomainOverlapTx(context.Background(), tx, WorkflowDomainOverlapResolutionRequest{
 			EventID: "content-resolution-" + from + "-" + to + "-" + kind, FromWorkID: from, ToWorkID: to,
 			FromExpectedVersion: fromVersion, ToExpectedVersion: toVersion,
-			FromContractVersion: 1, ToContractVersion: 1, ResolutionKind: kind,
+			FromContractVersion: 1, ToContractVersion: 1, ResolutionKind: kind, SharedStep: sequencingSharedStep(kind),
 			Reason: "synthetic coordination", Actor: "operator",
 		})
 		return err

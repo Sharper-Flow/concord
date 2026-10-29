@@ -141,7 +141,7 @@ func TestOverlapBlocksRemovesWorkFromReady(t *testing.T) {
 		_, err := ResolveWorkflowDomainOverlapTx(ctx, tx, WorkflowDomainOverlapResolutionRequest{
 			EventID: "ready-blocks", FromWorkID: "ready-blocker", ToWorkID: "ready-blocked",
 			FromExpectedVersion: 2, ToExpectedVersion: 2, FromContractVersion: 1, ToContractVersion: 1,
-			ResolutionKind: ResolutionBlocks, Reason: "operator sequenced the pair",
+			ResolutionKind: ResolutionBlocks, SharedStep: sequencingSharedStep(ResolutionBlocks), Reason: "operator sequenced the pair",
 			Actor: actor,
 		})
 		return err

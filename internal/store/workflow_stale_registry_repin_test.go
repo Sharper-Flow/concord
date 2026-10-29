@@ -690,7 +690,7 @@ func TestStaleRegistryRescanSequencesAroundAPeerStalePin(t *testing.T) {
 		return WorkflowDomainOverlapResolutionRequest{
 			EventID: "stale-overlap-resolution-" + workID, FromWorkID: workID, ToWorkID: peerID,
 			FromExpectedVersion: fromVersion, ToExpectedVersion: toVersion,
-			FromContractVersion: 1, ToContractVersion: 1, ResolutionKind: ResolutionCompatibleWith,
+			FromContractVersion: 1, ToContractVersion: 1, ResolutionKind: ResolutionCompatibleWith, SharedStep: sequencingSharedStep(ResolutionCompatibleWith),
 			Reason: "the delivered repair is independent of the peer's stranded claim",
 			Actor:  owner.PrincipalRef, OccurredAt: time.Unix(40, 0).UTC(),
 		}

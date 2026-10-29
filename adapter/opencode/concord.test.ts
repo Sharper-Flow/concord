@@ -1966,7 +1966,7 @@ test("overlap approval asks with exact direction and resolution consequence", as
     from_work_id: "work-1", to_work_id: "work-2",
     from_expected_version: 2, to_expected_version: 3,
     from_contract_version: 1, to_contract_version: 1,
-    resolution_kind: "depends_on", reason: "Work 2 must establish the shared law first.",
+    resolution_kind: "depends_on", shared_step: "delivery", reason: "Work 2 must establish the shared law first.",
     idempotency_key: "resolve-overlap-approval-1",
   }), contextFor(async (request: any) => { askMetadata = request.metadata })))
   expect(result.outcome).toBe("ok")

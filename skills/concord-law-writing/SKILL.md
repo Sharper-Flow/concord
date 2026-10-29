@@ -21,8 +21,8 @@ Concord development, not automatically to another Product.
 - [Knowledge identity and publication](https://github.com/Sharper-Flow/concord/tree/2ad87865e640ce2ebcf8bf0582d003955566b701/.concord/docs/concord-knowledge-index.md).
 - [Domain ownership](https://github.com/Sharper-Flow/concord/tree/2ad87865e640ce2ebcf8bf0582d003955566b701/.concord/docs/decisions/CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md).
 - [Compatible amendment and breaking replacement](https://github.com/Sharper-Flow/concord/tree/2ad87865e640ce2ebcf8bf0582d003955566b701/.concord/docs/decisions/CD-0036-breaking-law-cutovers.md).
-- [Law-change authority and conflict rules](https://github.com/Sharper-Flow/concord/tree/2ad87865e640ce2ebcf8bf0582d003955566b701/.concord/docs/decisions/CD-0230-the-conflict-rules-are-one-checked-table-and-an-agent-changes-law-that-is-not-serious.md).
-- [Operator approval boundary](https://github.com/Sharper-Flow/concord/tree/2ad87865e640ce2ebcf8bf0582d003955566b701/.concord/docs/decisions/CD-0243-four-roles-and-six-operator-approval-classes.md).
+- [Law-change authority and conflict rules](https://github.com/Sharper-Flow/concord/tree/15339763a7e645178abfe848786a34995d39aff1/.concord/docs/decisions/CD-0230-the-conflict-rules-are-one-checked-table-and-an-agent-changes-law-that-is-not-serious.md).
+- [Operator approval boundary](https://github.com/Sharper-Flow/concord/tree/15339763a7e645178abfe848786a34995d39aff1/.concord/docs/decisions/CD-0243-four-roles-and-six-operator-approval-classes.md).
 
 ## Find the owner
 

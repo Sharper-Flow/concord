@@ -150,56 +150,82 @@ func (g semanticJudgedRepairGit) Run(ctx context.Context, dir string, args ...st
 }
 
 func TestSemanticJudgedRepairingReviewAcceptance(t *testing.T) {
-	d := newSemanticReviewFixture(t, "judged-repairing-review", false)
-	original := snapshotSemanticJudged(t, d)
-	input := d.dispatch(t, "attempt:repair", "review")
-	output := WorkerReviewCandidate{ProjectID: input.ProjectID, Commit: strings.Repeat("3", 40), Tree: strings.Repeat("3", 40)}
-	d.f.git.branches["fixture-review-input"] = input.Commit
-	d.f.git.branches[d.f.entry.Branch] = output.Commit
-	e := d.completion(t, "attempt:repair", "review", input, true)
-	var p WorkerCompletedPayload
-	if err := json.Unmarshal(e.Payload, &p); err != nil {
-		t.Fatal(err)
+	for _, mixed := range []bool{false, true} {
+		name := "pure"
+		if mixed {
+			name = "case-bound-native"
+		}
+		t.Run(name, func(t *testing.T) {
+			d := newSemanticReviewFixture(t, "judged-repairing-"+name, false, func(d *semanticReviewFixture) {
+				if mixed {
+					d.tie.CaseIDs = []string{"case:path-a"}
+				}
+			})
+			original := snapshotSemanticJudged(t, d)
+			input := d.dispatch(t, "attempt:repair", "review")
+			e := d.completion(t, "attempt:repair", "review", input, true)
+			var p WorkerCompletedPayload
+			if err := json.Unmarshal(e.Payload, &p); err != nil {
+				t.Fatal(err)
+			}
+			if mixed {
+				run := oracleVerifyControl(t, d.f, d.workID, "input-pass", "2", oracleGoArgv("path-a"), 0)
+				zero := 0
+				withReceipt(&p, &WorkerOracleReceipt{ControlIDs: []string{"control:check-a"}, CaseIDs: []string{"case:path-a"}, SubjectCommit: input.Commit, RecipeSource: WorkerOracleRecipeSource{Kind: WorkContextSourceRepositoryFile, ProjectID: "project", Path: "scripts/oracle_check.sh", CommitOID: testOracleCommit()}, Result: "pass", ExitCode: &zero, RunRef: run.OperationRef, EvidenceRefs: []string{}})
+				p.Review.ResolvedFindings[0].EvidenceRefs = []string{run.OperationRef}
+			}
+			output := WorkerReviewCandidate{ProjectID: input.ProjectID, Commit: strings.Repeat("3", 40), Tree: strings.Repeat("3", 40)}
+			d.f.git.branches["fixture-review-input"] = input.Commit
+			d.f.git.branches[d.f.entry.Branch] = output.Commit
+			p.Review.OutputCandidate = output
+			e.Payload = mustJSONValue(p)
+			prepared, err := PrepareWorkerTerminalDelivery(t.Context(), d.f.store, PrepareWorkerTerminalDeliveryRequest{
+				WorkID: d.workID, AttemptID: "attempt:repair", EventID: e.EventID,
+				Runner: semanticJudgedRepairGit{d.f.git, input.Commit, output.Commit},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			ctx := WithWorkerTerminalPreparation(t.Context(), prepared)
+			if err := d.f.store.TransactDurable(ctx, func(tx *Transaction) error {
+				_, err := ApplyWorkerEvidenceOperationTx(ctx, tx, e)
+				return err
+			}); err != nil {
+				t.Fatal(err)
+			}
+			d.assertClosed(t, false)
+			before := snapshotSemanticJudged(t, d)
+			var retained WorkerCompletedPayload
+			if err := json.Unmarshal([]byte(before.records["terminal:attempt:repair"]), &retained); err != nil {
+				t.Fatal(err)
+			}
+			o := retained.ObservedDelivery
+			if o == nil || o.State != "clean" || o.Commit != output.Commit || o.Tree != output.Tree || o.Base != input.Commit || o.BaseTree != input.Tree || !reflect.DeepEqual(o.ChangedPaths, []string{"internal/store/citation.go"}) {
+				t.Fatalf("repair output lacks exact host observation: %+v", o)
+			}
+			if retained.Review.InputCandidate != input || retained.Review.OutputCandidate != output || input == output {
+				t.Fatalf("repair input/output=%+v", retained.Review)
+			}
+			err = d.journey().acceptEvidence(t, "attempt:repair")
+			if mixed {
+				if err == nil || !strings.Contains(err.Error(), "does not qualify") {
+					t.Fatalf("input-only native proof accepted for repairing output: %v", err)
+				}
+				d.assertClosed(t, false)
+			} else {
+				if err != nil {
+					t.Fatal(err)
+				}
+				d.assertClosed(t, true)
+				state, err := readWorkflowReviewFacts(t.Context(), d.f.store.db, d.workID)
+				if err != nil || state.Candidate == nil || *state.Candidate != output || state.Accepted == nil || state.Accepted.AttemptID != "attempt:repair" {
+					t.Fatalf("accepted repair candidate=%+v err=%v", state, err)
+				}
+			}
+			original.requireRetained(t, d)
+			before.requireRetained(t, d)
+		})
 	}
-	p.Review.OutputCandidate = output
-	e.Payload = mustJSONValue(p)
-	prepared, err := PrepareWorkerTerminalDelivery(t.Context(), d.f.store, PrepareWorkerTerminalDeliveryRequest{
-		WorkID: d.workID, AttemptID: "attempt:repair", EventID: e.EventID,
-		Runner: semanticJudgedRepairGit{d.f.git, input.Commit, output.Commit},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	ctx := WithWorkerTerminalPreparation(t.Context(), prepared)
-	if err := d.f.store.TransactDurable(ctx, func(tx *Transaction) error {
-		_, err := ApplyWorkerEvidenceOperationTx(ctx, tx, e)
-		return err
-	}); err != nil {
-		t.Fatal(err)
-	}
-	d.assertClosed(t, false)
-	before := snapshotSemanticJudged(t, d)
-	var retained WorkerCompletedPayload
-	if err := json.Unmarshal([]byte(before.records["terminal:attempt:repair"]), &retained); err != nil {
-		t.Fatal(err)
-	}
-	o := retained.ObservedDelivery
-	if o == nil || o.State != "clean" || o.Commit != output.Commit || o.Tree != output.Tree || o.Base != input.Commit || o.BaseTree != input.Tree || !reflect.DeepEqual(o.ChangedPaths, []string{"internal/store/citation.go"}) {
-		t.Fatalf("repair output lacks exact host observation: %+v", o)
-	}
-	if retained.Review.InputCandidate != input || retained.Review.OutputCandidate != output || input == output {
-		t.Fatalf("repair input/output=%+v", retained.Review)
-	}
-	if err := d.journey().acceptEvidence(t, "attempt:repair"); err != nil {
-		t.Fatal(err)
-	}
-	d.assertClosed(t, true)
-	state, err := readWorkflowReviewFacts(t.Context(), d.f.store.db, d.workID)
-	if err != nil || state.Candidate == nil || *state.Candidate != output || state.Accepted == nil || state.Accepted.AttemptID != "attempt:repair" {
-		t.Fatalf("accepted repair candidate=%+v err=%v", state, err)
-	}
-	original.requireRetained(t, d)
-	before.requireRetained(t, d)
 }
 
 func TestSemanticJudgedRepeatedExactAcceptance(t *testing.T) {
@@ -239,6 +265,55 @@ func TestSemanticJudgedRepeatedExactAcceptance(t *testing.T) {
 		t.Fatalf("first acceptance changed or repeat not recorded: first=%d current=%d latest=%d err=%v", firstSeq, seq, latest, err)
 	}
 	original.requireRetained(t, d)
+}
+
+func TestSemanticJudgedRelistedClosedFinding(t *testing.T) {
+	d := newSemanticReviewFixture(t, "judged-relisted-closed", false)
+	candidate := d.dispatch(t, "attempt:judgment", "review")
+	if err := d.terminal(t, d.completion(t, "attempt:judgment", "review", candidate, true)); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.journey().acceptEvidence(t, "attempt:judgment"); err != nil {
+		t.Fatal(err)
+	}
+	d.assertClosed(t, true)
+	before := snapshotSemanticJudged(t, d)
+	d.job = recordOracleJobRevision(t, d.f.store, d.workID, d.f.owner, d.job.JobID, d.fields)
+	candidate = d.dispatch(t, "attempt:relist", "review")
+	if err := d.terminal(t, d.completion(t, "attempt:relist", "review", candidate, true)); err != nil {
+		t.Fatalf("relisted accepted finding: %v", err)
+	}
+	if err := d.journey().acceptEvidence(t, "attempt:relist"); err != nil {
+		t.Fatal(err)
+	}
+	d.assertClosed(t, true)
+	before.requireRetained(t, d)
+}
+
+func TestSemanticJudgedSiblingRequiresOwnControls(t *testing.T) {
+	d := newSemanticReviewFixture(t, "judged-sibling-controls", false)
+	candidate := d.dispatch(t, "attempt:judgment", "review")
+	e := d.completion(t, "attempt:judgment", "review", candidate, true)
+	var p WorkerCompletedPayload
+	if err := json.Unmarshal(e.Payload, &p); err != nil {
+		t.Fatal(err)
+	}
+	sibling := p.Review.Findings[0]
+	tie := *sibling.Oracle
+	tie.ControlIDs = []string{"control:check-a"}
+	sibling.FindingID, sibling.Oracle = "finding:sibling:0", &tie
+	p.Review.Findings = append(p.Review.Findings, sibling)
+	e.Payload = mustJSONValue(p)
+	if err := d.terminal(t, e); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.journey().acceptEvidence(t, "attempt:judgment"); err == nil || !strings.Contains(err.Error(), "has no closure receipt for control control:check-a") {
+		t.Fatalf("sibling control bypass: %v", err)
+	}
+	lineage, err := readWorkerOracleFindingLineageTx(t.Context(), d.f.store.db, d.workID)
+	if err != nil || lineage.findings[d.canonicalID].Closed {
+		t.Fatalf("refused sibling acceptance closed canonical finding: %v", err)
+	}
 }
 
 func TestSemanticJudgedInvalidReportThenAuthorizedReview(t *testing.T) {

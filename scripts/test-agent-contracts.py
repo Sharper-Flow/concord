@@ -1918,8 +1918,11 @@ def _schema_sample(node, root, path="$"):
         kind = "object"
     if kind == "object":
         value = {}
-        for name in node.get("required", []):
+        alternatives = node.get("oneOf", node.get("anyOf", [{}]))
+        required = dict.fromkeys(node.get("required", []) + alternatives[0].get("required", []))
+        for name in required:
             value[name] = _schema_sample(node["properties"][name], root, f"{path}.{name}")
+        generator.schema_validate(value, node, root)
         return value
     if kind == "array":
         minimum = node.get("minItems", 0)

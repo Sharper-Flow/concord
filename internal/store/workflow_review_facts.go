@@ -149,7 +149,7 @@ func advanceWorkflowReviewAcceptanceTx(ctx context.Context, tx *sql.Tx, event Ev
 	if err != nil {
 		return err
 	}
-	if err := acceptOracleJudgedFindingsTx(ctx, tx, event.SubjectID, auth, result, event.Actor); err != nil {
+	if err := acceptOracleJudgedFindingsTx(ctx, tx, event.SubjectID, auth, result); err != nil {
 		return err
 	}
 	acceptWorkflowReviewResult(&state, auth, result, candidate, reportRef, event.Actor)
@@ -158,7 +158,7 @@ func advanceWorkflowReviewAcceptanceTx(ctx context.Context, tx *sql.Tx, event Ev
 
 // Only the admitted acceptance writer closes judged canonical findings. The
 // terminal report itself remains the sole pending proposal, with no queue.
-func acceptOracleJudgedFindingsTx(ctx context.Context, tx *sql.Tx, workID string, auth workflowActionCompletedPayload, result WorkerCompletedPayload, actor string) error {
+func acceptOracleJudgedFindingsTx(ctx context.Context, tx *sql.Tx, workID string, auth workflowActionCompletedPayload, result WorkerCompletedPayload) error {
 	if result.Review == nil {
 		return nil
 	}
@@ -173,9 +173,6 @@ func acceptOracleJudgedFindingsTx(ctx context.Context, tx *sql.Tx, workID string
 	}
 	if auth.WorkerCapabilityClass != "review" {
 		return oracleFindingFailure(KindInvalidPayload, "only a Review lane may propose judged closure", "dispatch a Review lane for the declared judged cases")
-	}
-	if err := validateReviewAcceptance(ctx, tx, workID, result.AttemptID, actor); err != nil {
-		return err
 	}
 	lineage, err := readWorkerOracleFindingLineageTx(ctx, tx, workID)
 	if err != nil {

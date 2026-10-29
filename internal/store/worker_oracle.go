@@ -319,6 +319,9 @@ func validateOracleLawBindings(ownerID string, bindings []OracleLawBinding) erro
 // validateOracleCases proves every case entry's closed shape and returns the
 // identity index, with each case mapped to a declared owner.
 func validateOracleCases(entries []OracleCase, owners map[string]OracleOwner) (map[string]OracleCase, error) {
+	if !oracleJudgedHistorySafe(&AcceptanceOracle{Cases: entries}, &AcceptanceOracle{Cases: entries}) {
+		return nil, oracleFailure(KindInvalidPayload, "acceptance oracle declares executable and Review-judged cases on the same owner and entry point", "keep executable obligations executable; judgment cannot replace them")
+	}
 	cases := map[string]OracleCase{}
 	for _, entry := range entries {
 		if !oracleCaseIDPattern.MatchString(entry.CaseID) {

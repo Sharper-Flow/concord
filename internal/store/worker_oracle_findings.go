@@ -739,6 +739,9 @@ func validateWorkerOracleCompletedReportTx(ctx context.Context, tx *sql.Tx, work
 				continue
 			}
 			finding := lineage.findings[continuation.Oracle.ContinuesFindingID]
+			if finding.Closed {
+				continue
+			}
 			if !slices.ContainsFunc(oracle.Cases, func(entry OracleCase) bool {
 				return entry.Judge == OracleJudgeReview
 			}) {
@@ -764,7 +767,7 @@ func validateWorkerOracleCompletedReportTx(ctx context.Context, tx *sql.Tx, work
 			if !exists {
 				return oracleFindingFailure(KindInvalidPayload, "resolved_findings names "+resolution.FindingID+", no ranked finding of this work", "close an existing ranked finding by its canonical id")
 			}
-			if finding.Closed {
+			if finding.Closed && len(resolution.JudgedCaseIDs) == 0 {
 				return oracleFindingFailure(KindInvalidPayload, "resolved_findings closes "+resolution.FindingID+", a finding an earlier closure already ended", "close each open finding once")
 			}
 			if err := validateWorkerOracleResolutionEvidenceTx(ctx, tx, workID, finding, resolution, currentSubject, lineage, oracle, &payload); err != nil {
@@ -1355,17 +1358,11 @@ func validateOracleJudgedAcceptance(ctx context.Context, q queryer, workID strin
 	if err != nil {
 		return err
 	}
-	subject, err := readCurrentOracleSubject(ctx, q, workID)
-	if err != nil {
-		return err
-	}
+	subject := result.Review.OutputCandidate.Commit
 	for _, resolution := range judged {
 		finding := lineage.findings[resolution.FindingID]
 		if finding == nil {
 			return oracleFindingFailure(KindInvariantViolation, "accepted judged finding is absent", "restore verified finding facts")
-		}
-		if finding.Closed {
-			continue
 		}
 		if err := validateWorkerOracleResolutionEvidenceTx(ctx, q, workID, finding, resolution, subject, lineage, oracle, &result); err != nil {
 			return err

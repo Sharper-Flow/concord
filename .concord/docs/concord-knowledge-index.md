@@ -110,8 +110,8 @@ keeps the remaining obligations outstanding.
 
 ## Authoring
 
-Before pushing a new CD, run `python3 scripts/check-cd-allocation.py` locally;
-CI repeats this preflight against the fetched default branch of origin.
+A new CD takes the next number above every record under
+`.concord/docs/knowledge/records/` and every id `concord cd-reservations` lists.
 
 Coverage records for indexed law are authored as shards under `.concord/docs/knowledge/coverage/<id>.json`. After adding or editing a shard, run `python3 scripts/generate-law-coverage.py --update` to normalise it; `--check` proves every shard composes and is canonical.
 

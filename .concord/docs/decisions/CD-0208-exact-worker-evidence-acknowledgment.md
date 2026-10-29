@@ -176,6 +176,6 @@ uncertainty. It does not inject a physical filesystem or fsync fault.
   worker evidence, with host Product selection unset.
 - `python3 scripts/check-knowledge-index.py` and
   `python3 scripts/check-knowledge-closure.py` check current hashes and complete registration.
-- `python3 scripts/check-doc-contract.py`, `python3 scripts/check-cd-allocation.py`,
-  and `python3 scripts/check-law-coverage.py` check declared structure.
-  These checks do not replace behavioral evidence.
+- `python3 scripts/check-doc-contract.py` and
+  `python3 scripts/check-law-coverage.py` check declared structure. These checks do
+  not replace behavioral evidence.

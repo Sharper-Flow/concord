@@ -145,5 +145,4 @@ because it produces a durable grant record as a side effect of asking.
   verb's registration and both invocation forms.
 - `python3 scripts/check-doc-contract.py`, `python3 scripts/check-json.py`,
   `python3 scripts/check-doc-links.py`, `python3 scripts/check-knowledge-index.py`,
-  `python3 scripts/check-law-coverage.py`, and
-  `python3 scripts/check-cd-allocation.py` pass.
+  and `python3 scripts/check-law-coverage.py` pass.

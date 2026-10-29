@@ -29,9 +29,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:1f5cd1123acc13edbe22a83fe18f8c78177256defb1f6ecfcf9ca4a9a2a2315c",
+  "sha256": "sha256:b77d2ba438e5373d220041e2e84814029a0f30c30fcc045cb2b9ddbd2c588dde",
   "status": "accepted",
-  "summary": "Every indexed law record carries a coverage state and a satisfied record cites typed anchors that resolve and execute in a required check; product reachability is computed by a pinned callgraph analysis and only its exceptions are declared; both planes reuse the floor-readiness state vocabulary and fail on an undeclared gap in either direction. Dead and superseded code, instructions, generated agents, and documentation are removed in the change that replaces them, and required checks refuse stale citations and unprojected agent definitions.",
+  "summary": "Every indexed law record carries a coverage state and a satisfied record cites typed anchors that resolve and execute in a required check; product reachability is computed by a pinned callgraph analysis and only its exceptions are declared; both planes share one state vocabulary and fail on an undeclared gap in either direction. Dead and superseded code, instructions, generated agents, and documentation are removed in the change that replaces them, and required checks refuse stale citations and unprojected agent definitions.",
   "tags": [
     "coverage",
     "drift",

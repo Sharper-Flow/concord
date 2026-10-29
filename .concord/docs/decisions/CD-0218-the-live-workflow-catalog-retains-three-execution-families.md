@@ -213,8 +213,6 @@ set at the D5 boundary.
   evidence anchors.
 - `python3 scripts/check-doc-links.py` and `python3 scripts/check-knowledge-placement.py`
   prove document links and knowledge placement hold.
-- `python3 scripts/check-cd-allocation.py --no-fetch` proves the CD-0218
-  identifier allocates once across the fetched peer refs.
 - Criterion 1 is covered by
   `internal/agent.TestCaptureLiveAuthoringSelectorRefusesRetiredFamiliesAndUnnamedDecisionKinds`.
   Authenticated capture of each retired family refuses with unchanged work,

@@ -24,7 +24,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:a0565bd752cfc2e5aa6424e3627f30247b948ea23483a636ae4c39385b3eb39f",
+  "sha256": "sha256:b37ab2f54c319421f61760a7b5f41475681e8f2f5206a372474942e93c860cc7",
   "status": "accepted",
   "summary": "Retains three execution families and distinguishes unchanged retained-state readback from typed absence for execution state collected under CD-0242 D2.",
   "tags": [

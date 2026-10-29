@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://raw.githubusercontent.com/Sharper-Flow/concord/main/contracts/reachability-exceptions.schema.json",
   "title": "Concord product-reachability exception manifest",
-  "description": "Closed contract for unreachable functions and internal packages the repository deliberately keeps. The checker derives both the callgraph findings and packages outside the entrypoints' dependency set; undeclared or stale subjects fail. Declared packages must also have a test importer rooted in that dependency set, directly or through another declared package. States reuse contracts/floor-readiness.schema.json, less 'satisfied'.",
+  "description": "Closed contract for unreachable functions and internal packages the repository deliberately keeps. The checker derives both the callgraph findings and packages outside the entrypoints' dependency set; undeclared or stale subjects fail. Declared packages must also have a test importer rooted in that dependency set, directly or through another declared package. States use the coverage-state vocabulary (CD-0047 D2), less 'satisfied'.",
   "type": "object",
   "additionalProperties": false,
   "required": [

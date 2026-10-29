@@ -75,10 +75,6 @@ need; no such need is demonstrated.
 
 ## Consequences
 
-- `fc1-operator-work-capture` is satisfied in the readiness manifest.
-  `fc1-full-product-scope` is out of scope, and `fc1-session-handoff`
-  is unmeasured pending the live
-  host-started managed-entry witness.
 - Reach and cross-Product result sets are distinct under D2.
 - The session authoring route is the single authorization path under CD-0010.
 - If an operator authoring surface is later wanted, it arrives as its own
@@ -88,7 +84,3 @@ need; no such need is demonstrated.
 
 - [`priorities.md`](../priorities.md) condition 1 states the reach-versus-result-set
   distinction.
-- [`floor-readiness.v1.json`](../floor-readiness.v1.json) records
-  `fc1-operator-work-capture` satisfied and `fc1-full-product-scope` out of
-  scope, and `scripts/check-floor-readiness.py`
-  passes.

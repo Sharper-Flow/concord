@@ -1,10 +1,6 @@
 {
   "evidence": [
     {
-      "kind": "validator",
-      "value": "scripts/check-predecessor-coverage.py"
-    },
-    {
       "kind": "go_test",
       "value": "internal/agent.TestAuthorizeRefusesMutationOnMainWorktree"
     },

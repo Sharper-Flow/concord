@@ -76,5 +76,5 @@ observable outcome is already the one Concord needs.
 - The adapter contains no wait, sleep, or poll on the retarget path, which the
   CD-0098 retarget tests exercise unchanged.
 - `python3 scripts/check-doc-contract.py`, `python3 scripts/check-json.py`,
-  `python3 scripts/check-doc-links.py`, `python3 scripts/check-knowledge-index.py`,
-  and `python3 scripts/check-cd-allocation.py` pass.
+  `python3 scripts/check-doc-links.py`, and
+  `python3 scripts/check-knowledge-index.py` pass.

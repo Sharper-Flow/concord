@@ -219,7 +219,7 @@ func TestGoverningOverlapExactApprovalAndChangedBindings(t *testing.T) {
 				}
 				// Reuse the genuinely consumed receipt through the SQL-only entry.
 				// A changed requirement set must refuse before any endpoint write.
-				request := store.WorkflowDomainOverlapResolutionRequest{EventID: "changed-core-scope", FromWorkID: "work-1", ToWorkID: "work-2", FromExpectedVersion: 2, ToExpectedVersion: 2, FromContractVersion: 1, ToContractVersion: 1, ResolutionKind: kind, Reason: "operator confirms compatible work", Actor: "human-1"}
+				request := store.WorkflowDomainOverlapResolutionRequest{EventID: "changed-core-scope", FromWorkID: "work-1", ToWorkID: "work-2", FromExpectedVersion: 2, ToExpectedVersion: 2, FromContractVersion: 1, ToContractVersion: 1, ResolutionKind: kind, Reason: "operator sequences the pair", Actor: "human-1"}
 				if err := s.DatabaseForTesting().QueryRow(`SELECT approval_ref,operation_digest,scope_json,version_json,consequence FROM agent_approvals`).Scan(&request.ApprovalRef, &request.ApprovalOperationDigest, &request.ApprovalScopeJSON, &request.ApprovalVersionsJSON, &request.ApprovalConsequence); err != nil {
 					t.Fatal(err)
 				}

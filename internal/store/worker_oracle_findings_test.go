@@ -1607,28 +1607,11 @@ func TestOwnerOracleReceiptViewRecoversAfterContractSupersession(t *testing.T) {
 	if _, err := readWorkContextView(ctx, s.db, workID); err == nil || !strings.Contains(err.Error(), "above the 64 view bound") {
 		t.Fatalf("over-bound receipt view = %v, want an explicit refusal", err)
 	}
-	// A committed registry rescan makes the parent contract stale and opens
+	// A deleted pinned law makes the parent contract stale (CD-0036) and opens
 	// its production supersession route without changing any receipt.
-	var homePath string
-	if err := s.db.QueryRow(`SELECT locator_value FROM project_locators WHERE project_id='project' AND locator_id='workflow-law-locator'`).Scan(&homePath); err != nil {
-		t.Fatal(err)
-	}
-	registry := KnowledgeDomainRegistry{SchemaVersion: "1.0", ProductKey: "product", RootDomainID: "product-root:product", Domains: []KnowledgeDomain{
-		{DomainID: "product-root:product", Name: "Product", Purpose: "Product law", Status: "current", ArchitectureRelations: []KnowledgeArchitectureRelation{}},
-		{DomainID: "root", Name: "Fixture", Purpose: "Rescanned fixture law", Status: "current", ParentDomainID: "product-root:product", ArchitectureRelations: []KnowledgeArchitectureRelation{}},
-	}}
-	manifest := KnowledgeManifest{SchemaVersion: "1.2", SupportedKinds: []string{"decision"}, IndexedKinds: []string{"decision"}, DomainRegistry: registry, Records: []KnowledgeRecord{}}
-	writeAggregateAsShards(t, homePath, mustJSONValue(manifest))
-	gitRunStore(t, homePath, "init", "-b", "main")
-	gitRunStore(t, homePath, "add", ".")
-	gitRunStore(t, homePath, "-c", "user.email=oracle@example.invalid", "-c", "user.name=Oracle", "commit", "-m", "rescan registry")
-	if err := s.RebuildKnowledgeIndex(ctx, KnowledgeHome{HomeProjectID: "project", HomeLocatorID: "workflow-law-locator", RepoPath: homePath, HeadRef: "HEAD"}); err != nil {
-		t.Fatal(err)
-	}
-	var registryHash string
-	if err := s.db.QueryRow(`SELECT content_hash FROM domain_registries WHERE product_id='product'`).Scan(&registryHash); err != nil {
-		t.Fatal(err)
-	}
+	attachWorkflowLawPin(t, s, workID, "sha256:"+strings.Repeat("a", 64))
+	execInFold(t, s, `UPDATE workflow_contracts SET spec_mandate='["spec:one"]' WHERE work_id='`+workID+`' AND contract_version=1`)
+	cutoverLawProjection(t, s)
 	successor := map[string]any{
 		"contract_version": 2, "premise": "deliver the checked successor", "supersede_reason": "replace the bounded receipt view",
 		"decision_domains": []string{},

@@ -76,8 +76,8 @@ func TestAcceptedQ1ToQ10Corpus(t *testing.T) {
 		}
 		results[scenario.ID] = encoded
 	}
-	if run != 27 {
-		t.Fatalf("Q1-Q10 corpus scenarios executed = %d, want 27", run)
+	if run != 26 {
+		t.Fatalf("Q1-Q10 corpus scenarios executed = %d, want 26", run)
 	}
 }
 

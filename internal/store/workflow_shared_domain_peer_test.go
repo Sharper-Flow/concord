@@ -259,8 +259,12 @@ func TestExecutionClaimAdmitsASharedDomainPeer(t *testing.T) {
 	const workID = "shared-peer-claim"
 	const otherID = "shared-peer-claim-other"
 	s, _, _ := seedD7BoundaryOverlap(t, workID, otherID, "execution")
+	var definitionRef, definitionDigest string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT definition_ref,definition_digest FROM workflow_instances WHERE work_id=?`, workID).Scan(&definitionRef, &definitionDigest); err != nil {
+		t.Fatal(err)
+	}
 	request := ClaimRequest{
-		OpID: "op:shared-peer-claim", WorkID: workID, WorkflowTypeRef: workflowFixtureRef, WorkflowTypeDigest: mustBuiltinDefinition(t, workflowFixtureRef).Digest,
+		OpID: "op:shared-peer-claim", WorkID: workID, WorkflowTypeRef: definitionRef, WorkflowTypeDigest: definitionDigest,
 		StepID: "execution", StepKind: StepExternalEffect, AcceptedInputsDigest: "sha256:" + strings.Repeat("a", 64),
 		AcceptedScopeSnapshot: `{"work_id":"` + workID + `"}`, PrincipalRef: "principal/operator", Tool: "concord_work_transition",
 		IdempotencyKey: "shared-peer-claim", RequestID: "request:shared-peer-claim", ObservedAt: time.Unix(1, 0).UTC(), ContractDigest: testManifestDigest,

@@ -2,15 +2,27 @@
   "evidence": [
     {
       "kind": "go_test",
+      "value": "internal/agent.TestFailedEditingCandidateRecoveryPublicRoute"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestRetainedFailedEditingReviewBounds"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestRetainedReviewAcceptanceDrift"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestRetainedReviewPacketRequiresExactDisclosure"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestFinalReviewBindsCurrentRevisionSatisfiedByVerifyAfterRepairingReview"
+    },
+    {
+      "kind": "go_test",
       "value": "internal/store.TestFinalReviewBindsDeliveryAnchorJob"
-    },
-    {
-      "kind": "go_test",
-      "value": "internal/store.TestFinalReviewRefusesSupersededAnchorRevision"
-    },
-    {
-      "kind": "go_test",
-      "value": "internal/store.TestFinalReviewBindsNewestDeliveryAnchor"
     },
     {
       "kind": "go_test",
@@ -23,18 +35,6 @@
     {
       "kind": "go_test",
       "value": "internal/store.TestContinueReviewJobMigration158RestoresOnlySatisfaction"
-    },
-    {
-      "kind": "go_test",
-      "value": "internal/store.TestContinueReviewJobMigration158RefusesUnprovedRestoration"
-    },
-    {
-      "kind": "go_test",
-      "value": "internal/store.TestContinueReviewJobMigration158RestoresProducedFacts"
-    },
-    {
-      "kind": "go_test",
-      "value": "internal/store.TestContinueReviewJobMigration158PreservesChecksRepairState"
     },
     {
       "kind": "go_test",

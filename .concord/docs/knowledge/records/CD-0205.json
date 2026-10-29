@@ -24,6 +24,11 @@
     "adapter/opencode/packet.test.ts",
     "internal/store/worker_review_job_binding.go",
     "internal/store/worker_review_job_binding_test.go",
+    "internal/store/worker_review_job_binding_journey_test.go",
+    "internal/store/workflow_retained_review.go",
+    "internal/store/workflow_retained_review_test.go",
+    "internal/store/worker_review_retained_input_test.go",
+    "internal/agent/worker_failed_edit_candidate_test.go",
     "internal/store/worker_review_preparation.go",
     "internal/store/worktree_verify_isolation_binding.go",
     "internal/store/worktree_verify_isolation_export.go",
@@ -50,7 +55,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:5db8237ad547134862deb2d93f326199a0a5eb52323607b10e08ade66379c44d",
+  "sha256": "sha256:f81049b6b61eeec898ee24533eced737344d2e35c032756ab09ba91924a33810",
   "status": "accepted",
   "summary": "Immutable worker-job revisions bind every admitted lane end to end. Implementation v27 and break-fix v24 require a typed owner/case/control acceptance oracle, with closed source and authority joins and retained readiness evidence. Every predicate retains executable coverage. Main may add Review-judged cases without native controls; recorded executable obligations cannot become judged cases. Definitions have one canonical source and no historical pins. Local acceptance holds the step without delivery; whole-work delivery keeps parent admission and integration evidence. Superseded-contract revisions are not ready. Each launch carries its own scope and subject bindings without attempt-count or convergence walls.",
   "tags": [

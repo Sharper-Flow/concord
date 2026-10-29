@@ -937,8 +937,9 @@ type WorkerJobRevisionView struct {
 // references are empty, and every exact prerequisite revision is recorded and
 // satisfied — pinned, when the prerequisite names a result reference, to the
 // exact recorded acceptance that satisfied it.
-const workerJobReadyPredicate = `j.state='recorded'
-  AND j.revision=(SELECT MAX(latest.revision) FROM worker_job_revisions latest WHERE latest.work_id=j.work_id AND latest.job_id=j.job_id)
+const workerJobReadyPredicate = `j.state='recorded' AND (` + workerJobReadyInputsPredicate + `)`
+
+const workerJobReadyInputsPredicate = `j.revision=(SELECT MAX(latest.revision) FROM worker_job_revisions latest WHERE latest.work_id=j.work_id AND latest.job_id=j.job_id)
   AND (` + workerJobDependenciesCurrentPredicate + `)
   AND j.readiness IS NOT NULL AND json_extract(j.readiness,'$.ready')=1 AND COALESCE(json_array_length(j.readiness,'$.evidence'),0)>0
   AND json_array_length(j.unresolved_refs)=0

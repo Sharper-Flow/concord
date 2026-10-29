@@ -119,6 +119,11 @@ func init() {
 	registerOutputBound(packetCandidate+"project_id/maxLength", reference)
 	registerOutputBound(packetCandidate+"commit/maxLength", sha)
 	registerOutputBound(packetCandidate+"tree/maxLength", sha)
+	// The NUL-delimited native diff is bounded by maxGitOutput. Neither a
+	// path's code-point count nor the nonempty path count can exceed its bytes.
+	const retainedPaths = "/$defs/worker_packet_review_input/properties/retained_failed_edit/properties/changed_paths/"
+	registerOutputBound(retainedPaths+"maxItems", goConstantBound("internal/store/git_knowledge.go", "maxGitOutput", boundItems))
+	registerOutputBound(retainedPaths+"items/maxLength", goConstantBound("internal/store/git_knowledge.go", "maxGitOutput", boundBytes))
 	registerOutputBound(packetDependencies+"criteria/maxItems",
 		goInlineBound("internal/store/workflow.go", "normalizeWorkflowContractApproval", "len(p.OutcomePredicates)", boundItems))
 	registerOutputBound(packetDependencies+"criteria/items/properties/predicate_id/maxLength",

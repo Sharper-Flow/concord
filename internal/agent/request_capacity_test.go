@@ -99,8 +99,9 @@ func derivedPacketFigure(t *testing.T, defs map[string]any, findingRefMax int) i
 	jobPath := name + "/inputs/worker_job/"
 	jobRef := "worker_packet_worker_job"
 	bounds := map[string]int{
-		name + "/inputs/design_record/workflow_design_record/recorded_at":     32,
-		name + "/inputs/proposal_record/workflow_proposal_record/recorded_at": 32,
+		name + "/inputs/review_input/worker_packet_review_input/retained_failed_edit/changed_paths": store.WorkerReviewRetainedPathsMaxBytes,
+		name + "/inputs/design_record/workflow_design_record/recorded_at":                           32,
+		name + "/inputs/proposal_record/workflow_proposal_record/recorded_at":                       32,
 	}
 	bounds[jobPath+jobRef+"/checks_repair"] = store.WorkerJobChecksRepairMaxBytes
 	bounds[jobPath+jobRef+"/direct_caller_allowance/law_bindings/items/worker_oracle_law_binding/source/work_context_reading_source_knowledge/content_hash"] = 71

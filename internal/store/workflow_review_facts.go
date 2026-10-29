@@ -65,9 +65,14 @@ func setWorkflowReviewFindings(state *WorkflowReviewState, findings map[string]W
 	}
 }
 
-func observeWorkflowReviewReport(state *WorkflowReviewState, report *WorkerReviewBlock) {
+func observeWorkflowReviewReport(state *WorkflowReviewState, auth workflowActionCompletedPayload, report *WorkerReviewBlock) {
 	if state.Candidate != nil && *state.Candidate != report.InputCandidate {
-		return
+		// A retained input is still unaccepted. Its authenticated base, not
+		// its input, must match Main's candidate while findings accumulate.
+		retained := auth.WorkerRetainedReview
+		if retained == nil || *state.Candidate != retained.State.Candidate || report.InputCandidate != retained.Input {
+			return
+		}
 	}
 	findings := workflowReviewFindingMap(*state)
 	for _, finding := range report.Findings {
@@ -122,7 +127,7 @@ func advanceWorkflowReviewCompletedTx(ctx context.Context, tx *sql.Tx, event Eve
 	if err != nil {
 		return err
 	}
-	observeWorkflowReviewReport(&state, result.Review)
+	observeWorkflowReviewReport(&state, auth, result.Review)
 	return writeWorkflowReviewFacts(ctx, tx, event.SubjectID, state)
 }
 
@@ -251,7 +256,7 @@ func backfillWorkflowReviewWork(ctx context.Context, q migrationRunner, workID s
 			completions[result.AttemptID] = result
 			if result.Review != nil && dispatches[result.AttemptID].WorkerCapabilityClass == "review" {
 				reports[result.AttemptID] = row.ref
-				observeWorkflowReviewReport(&state, result.Review)
+				observeWorkflowReviewReport(&state, dispatches[result.AttemptID], result.Review)
 			}
 			continue
 		}

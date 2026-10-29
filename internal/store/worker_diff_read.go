@@ -240,7 +240,7 @@ func checkWorkerDiffSubject(ctx context.Context, runner GitRunner, before worker
 // observation appends --name-only -z and the two commits. No second reader
 // copies these flags.
 func workerDiffSharedDiffArgs() []string {
-	return []string{"--literal-pathspecs", "diff", "--no-ext-diff", "--no-textconv", "--no-color", "--no-renames", "--diff-algorithm=myers", "--no-indent-heuristic"}
+	return []string{"--literal-pathspecs", "diff", "--no-ext-diff", "--no-textconv", "--no-color", "--no-renames", "--ignore-submodules=none", "--diff-algorithm=myers", "--no-indent-heuristic"}
 }
 
 // ReadWorkerDiff reads immutable objects only, creates no evidence, and samples

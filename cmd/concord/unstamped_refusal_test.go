@@ -113,11 +113,6 @@ func TestReleaseManagedStoreRefusesABinaryTheInstallerDidNotPlace(t *testing.T) 
 			var out, errOut bytes.Buffer
 			return runWithInput([]string{"host-leases"}, strings.NewReader(`{}`), &out, &errOut), errOut.String()
 		}},
-		{"repair snapshot", func(t *testing.T, root, _ string) (int, string) {
-			var out, errOut bytes.Buffer
-			_, code := backupBeforeRepair(&out, &errOut, root, "v-test")
-			return code, errOut.String()
-		}},
 	}
 	for _, stamp := range []string{version.Development, "v9.9.9"} {
 		for _, tc := range routes {

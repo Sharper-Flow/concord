@@ -8,7 +8,7 @@
       "symbol": "pruneManagedSnapshots"
     },
     "setting": "managedSnapshotCount / managedSnapshotAge",
-    "source": "Compile-time cmd/concord constants managedSnapshotCount = 8 and managedSnapshotAge = 30 * 24 hours; upgrade and repair call the pruner after making a verified managed snapshot."
+    "source": "Compile-time cmd/concord constants managedSnapshotCount = 8 and managedSnapshotAge = 30 * 24 hours; upgrade calls the pruner after making a verified managed snapshot."
   },
   "id": "snapshot-retention-limits",
   "kind": "config_coupling",

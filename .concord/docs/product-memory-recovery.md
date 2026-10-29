@@ -43,7 +43,7 @@ or WAL is forbidden.
 Each candidate snapshot passes `integrity_check`, `foreign_key_check`, and `quick_check`
 before promotion. A disposable restore copy also passes supported forward migrations
 and restore verification before promotion of the snapshot and its manifest.
-This rule includes pre-upgrade and pre-repair snapshots. A failure prevents the guarded
+This rule includes pre-upgrade snapshots. A failure prevents the guarded
 mutation. Verification never changes the source database or the retained snapshot.
 Git restores pass `git fsck --full`. A backup manifest records schema
 version, snapshot ID, creation time, DB checksum, and git repository commit IDs. It is
@@ -189,9 +189,7 @@ typed exemption naming the backup test that proves the guarantee.
   `TestInterruptedBackupVerificationDiscardsSnapshotAndStaging`
   (`internal/store/backup_test.go`),
   `TestUpgradeSnapshotFailureCommitsNothingAndClosesOwnedFence`
-  (`cmd/concord/upgrade_snapshot_cli_test.go`), and
-  `TestRepairSnapshotRefusesInvalidSourceBeforeInstaller`
-  (`cmd/concord/repair_test.go`).
+  (`cmd/concord/upgrade_snapshot_cli_test.go`).
 - Criterion 5 is proved by
   `TestRestoreBackupUsesCleanOnlineRestoreAndPromotesVerifiedDatabase`,
   `TestRestoreBackupRefusesExistingDestinationUntouched`, and

@@ -437,6 +437,7 @@ func CompleteWorkflowWithRegistry(ctx context.Context, s *Store, registry Defini
 	if err != nil {
 		return err
 	}
+	ctx = s.EstablishLawCandidateProof(ctx, event.SubjectID)
 	tx, err := s.beginDurableTx(ctx)
 	if err != nil {
 		return wrapFailure(KindUnavailable, "complete_workflow", "cannot begin workflow completion", true, "retry once the database is writable", err)

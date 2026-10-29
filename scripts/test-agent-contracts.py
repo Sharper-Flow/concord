@@ -2519,15 +2519,16 @@ class NativeOracleRequestProjectionTests(unittest.TestCase):
 
     def test_native_metadata_is_closed_bounded_and_phase_specific(self):
         defs = self.projected["$defs"]
-        preparation = _schema_sample(defs["native_oracle_preparation"], self.projected)
+        schema = defs["native_oracle_preparation"]
+        preparation = {name: _schema_sample(schema["properties"][name], self.projected)
+                       for name in schema["required"] if name not in ("stdout", "stderr")}
         preparation["case_to_test_map"] = {"case:one": ["TestOne"]}
         preparation["selected_test_names"] = ["TestOne"]
         preparation["selected_distinct_count"] = 1
         preparation["streams_complete"] = True
         for stream in ("stdout", "stderr"):
-            preparation[stream]["stream"] = stream
-            preparation[stream]["complete"] = True
-            preparation[stream]["ref"] = "oracle_output:" + stream
+            preparation[stream] = {"stream": stream, "length": 0, "sha256": "sha256:" + "a" * 64,
+                                   "complete": True, "ref": "oracle_output:" + stream}
         self.validate(preparation, "native_oracle_preparation")
         self.validate(preparation | {"case_to_test_map": {"case:" + "a" * 123: ["TestOne"]}}, "native_oracle_preparation")
         for cases in ({}, {"not-a-case": ["TestOne"]}, {"case:" + "a" * 124: ["TestOne"]},

@@ -54,6 +54,10 @@ const (
 	historyOwn     = "own"     // the item's own edit, squash-merged to main
 	historyMerged  = "merged"  // the item's own edit, true-merged into main
 	historySynced  = "synced"  // the item's own edit, squash-merged, then main merged back
+	// the item synced main by a merge commit, its own branch first
+	historyMergeSynced = "merge-synced"
+	// the item's own edit, squash-merged, then synced by a merge whose first parent is main
+	historyMainFirst = "main-first"
 )
 
 // lawHistory builds main and the item's candidate in the claimed repository
@@ -72,8 +76,10 @@ func lawHistory(t *testing.T, s *Store, lawID, shape string) func(string) {
 			gitRunStore(t, repo, "add", "-A")
 			gitRunStore(t, repo, "commit", "-q", "--allow-empty", "-m", message)
 		}
+		edits := 0
 		unrelated := func() {
-			if err := os.WriteFile(filepath.Join(repo, "unrelated.txt"), []byte(shape+"\n"), 0o644); err != nil {
+			edits++
+			if err := os.WriteFile(filepath.Join(repo, "unrelated.txt"), []byte(strings.Repeat(shape+"\n", edits)), 0o644); err != nil {
 				t.Fatal(err)
 			}
 			gitRunStore(t, repo, "add", "-A")
@@ -82,12 +88,18 @@ func lawHistory(t *testing.T, s *Store, lawID, shape string) func(string) {
 		write(externalLawStartText, "law start text")
 		gitRunStore(t, repo, "branch", "main-line")
 		switch shape {
-		case historyKept, historyRebased:
+		case historyKept, historyRebased, historyMergeSynced:
+			if shape == historyMergeSynced {
+				unrelated()
+			}
 			gitRunStore(t, repo, "checkout", "-q", "main-line")
 			write(externalLawMainText, "outside law edit")
 			gitRunStore(t, repo, "checkout", "-q", "-")
-			if shape == historyRebased {
+			switch shape {
+			case historyRebased:
 				gitRunStore(t, repo, "merge", "-q", "--ff-only", "main-line")
+			case historyMergeSynced:
+				gitRunStore(t, repo, "merge", "-q", "--no-ff", "-m", "sync main", "main-line")
 			}
 			unrelated()
 		case historyOwn:
@@ -101,6 +113,18 @@ func lawHistory(t *testing.T, s *Store, lawID, shape string) func(string) {
 			write(externalLawOwnText, "squash of the item")
 			gitRunStore(t, repo, "checkout", "-q", "-")
 			gitRunStore(t, repo, "merge", "-q", "--no-ff", "-m", "sync main", "main-line")
+			unrelated()
+		case historyMainFirst:
+			write(externalLawOwnText, "item law edit")
+			item := strings.TrimSpace(string(mustGit(t, repo, "rev-parse", "HEAD")))
+			branch := strings.TrimSpace(string(mustGit(t, repo, "rev-parse", "--abbrev-ref", "HEAD")))
+			gitRunStore(t, repo, "checkout", "-q", "main-line")
+			write(externalLawOwnText, "squash of the item")
+			gitRunStore(t, repo, "checkout", "-q", "--detach")
+			gitRunStore(t, repo, "merge", "-q", "--no-ff", "-m", "sync main", item)
+			sync := strings.TrimSpace(string(mustGit(t, repo, "rev-parse", "HEAD")))
+			gitRunStore(t, repo, "checkout", "-q", branch)
+			gitRunStore(t, repo, "reset", "-q", "--hard", sync)
 			unrelated()
 		case historyMerged:
 			write(externalLawOwnText, "item law edit")
@@ -146,10 +170,11 @@ func TestLawAttributionExternalEditDoesNotBlock(t *testing.T) {
 	seedExternalLaw(t, s, "law-outside")
 	attributionItem(t, s, "outside-z-kept", []string{}, []string{})
 	attributionItem(t, s, "outside-y-rebased", []string{}, []string{})
+	attributionItem(t, s, "outside-x-merge-synced", []string{}, []string{})
 	attributionItem(t, s, "outside-peer", []string{}, []string{})
 	reviseExternalLaw(t, s, "law-outside", externalLawHash(externalLawMainText))
 	requireFailureKind(t, enactLawChange(t, s, "outside-z-kept", nil, nil), KindOutcomeMismatch, "no reviewed candidate proves the edit external")
-	for _, item := range []struct{ id, shape string }{{"outside-z-kept", historyKept}, {"outside-y-rebased", historyRebased}} {
+	for _, item := range []struct{ id, shape string }{{"outside-z-kept", historyKept}, {"outside-y-rebased", historyRebased}, {"outside-x-merge-synced", historyMergeSynced}} {
 		if err := CompleteWorkflow(t.Context(), s, attributionCompletionWith(t, s, item.id, lawHistory(t, s, "law-outside", item.shape))); err != nil {
 			t.Fatalf("%s: an edit the item never made blocked completion: %v", item.shape, err)
 		}
@@ -161,20 +186,22 @@ func TestLawAttributionExternalEditDoesNotBlock(t *testing.T) {
 }
 
 // The item's own undeclared law edit is still refused after it reaches main:
-// by squash, by squash and a later sync of main into the item, or by a true
-// merge that leaves no separating fork point. So is
+// by squash, by squash and a later sync of main into the item from either
+// side, or by a true merge that leaves no separating fork point. So is
 // an outside edit the text proof cannot cover: a tier change.
 func TestLawAttributionOwnEditStillRefuses(t *testing.T) {
 	s := seedLawChangeFixture(t, "inventory-seed")
 	seedExternalLaw(t, s, "law-own")
 	seedExternalLaw(t, s, "law-synced")
+	seedExternalLaw(t, s, "law-main-first")
 	seedExternalLaw(t, s, "law-merged")
 	seedExternalLaw(t, s, "law-tier")
 	attributionItem(t, s, "own-d-squash", []string{}, []string{})
+	attributionItem(t, s, "own-c2-main-first", []string{}, []string{})
 	attributionItem(t, s, "own-c-synced", []string{}, []string{})
 	attributionItem(t, s, "own-b-merged", []string{}, []string{})
 	attributionItem(t, s, "own-a-tier", []string{}, []string{})
-	for _, item := range []struct{ id, law, shape string }{{"own-d-squash", "law-own", historyOwn}, {"own-c-synced", "law-synced", historySynced}, {"own-b-merged", "law-merged", historyMerged}} {
+	for _, item := range []struct{ id, law, shape string }{{"own-d-squash", "law-own", historyOwn}, {"own-c2-main-first", "law-main-first", historyMainFirst}, {"own-c-synced", "law-synced", historySynced}, {"own-b-merged", "law-merged", historyMerged}} {
 		reviseExternalLaw(t, s, item.law, externalLawHash(externalLawOwnText))
 		err := CompleteWorkflow(t.Context(), s, attributionCompletionWith(t, s, item.id, lawHistory(t, s, item.law, item.shape)))
 		requireFailureKind(t, err, KindOutcomeMismatch, item.shape+" own undeclared edit")

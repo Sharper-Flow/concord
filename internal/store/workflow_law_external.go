@@ -15,9 +15,10 @@ var workflowLawExternalGit GitRunner = ExecGitRunner{}
 // it. The accepted Review's output candidate is that delivery, and the law's
 // projection is scanned from a main commit. The delta is proved external when
 // the candidate's law file is byte-identical to the file at its merge base
-// with that main commit and no commit between the two touched the file: the
-// edit reached main through another change, whether or not the candidate
-// later merged or rebased onto it. A candidate that main already contains has
+// with that main commit, and no commit between the two changed the file on
+// either side of a merge. A merge that keeps one parent's file is not a
+// change. The edit then reached main through another change, whether or not
+// the candidate later merged or rebased onto it. A candidate that main already contains has
 // no fork point that separates the two, so it proves nothing. Only a text
 // change with the law's tier and Domains unchanged can be proved external.
 // Anything unproved stays charged, including an edit the item made and then
@@ -95,7 +96,7 @@ func (s *Store) lawCandidateProof(ctx context.Context, workID string) *workflowL
 		if own == "" || own != start {
 			continue
 		}
-		touched, err := workflowLawExternalGit.Run(gitCtx, repo, "rev-list", "-1", "--full-history", "--end-of-options", fork+".."+candidate.Commit, "--", location.path)
+		touched, err := workflowLawExternalGit.Run(gitCtx, repo, "rev-list", "-1", "--full-history", "--simplify-merges", "--end-of-options", fork+".."+candidate.Commit, "--", location.path)
 		if err == nil && strings.TrimSpace(string(touched)) == "" {
 			proof.untouched[id] = location
 		}

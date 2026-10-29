@@ -1872,7 +1872,7 @@ func decodeRecordedRemovalPlan(facts json.RawMessage, op string) (recordedRemova
 		return plan, nil
 	}
 	if err := json.Unmarshal(facts, &plan); err != nil {
-		return recordedRemovalPlan{}, newFailure(KindInvalidPayload, op, "recorded reclaim facts are unparsable", false, "repair the recorded reclamation facts")
+		return recordedRemovalPlan{}, newFailure(KindInvariantViolation, op, "recorded reclaim facts are unparsable", false, "repair the recorded reclamation facts")
 	}
 	return plan, nil
 }
@@ -3399,7 +3399,7 @@ func transferSessionClaimOccupancyTx(ctx context.Context, tx *sql.Tx, event Even
 	// A named claim op must match the landed path's current generation.
 	// An unbound landing can transfer occupancy but proves no placement.
 	if payloadClaimOpID != "" && payloadClaimOpID != claimOpID {
-		return newFailure(KindInvalidPayload, "fold_event", "session claim landed payload names a claim generation the landed path no longer carries", false, "restore a verified backup into a new path with concord restore, then swap")
+		return newFailure(KindInvariantViolation, "fold_event", "session claim landed payload names a claim generation the landed path no longer carries", false, "restore a verified backup into a new path with concord restore, then swap")
 	}
 	// Record the verified host identity on the destination occupancy row.
 	destinationID := worktreeOccupancyID(WorktreeSetID(event.SubjectID), projectID, claimOpID)

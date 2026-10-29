@@ -398,24 +398,24 @@ if (mergeArgIndex !== -1) {
     const operatorPath = path.join(denyFixture, ".opencode/agents/Concord.md")
     const operatorText = fs.readFileSync(operatorPath, "utf8")
     if (!operatorText.includes("\npermission:\n")) fail("generated operator frontmatter lost its permission block")
-    fs.writeFileSync(operatorPath, operatorText.replace("\npermission:\n", "\npermission:\n  concord_worker_read: deny\n"))
+    fs.writeFileSync(operatorPath, operatorText.replace("\npermission:\n", "\npermission:\n  concord_domain: deny\n"))
     const denyResolved = await runAgent("Concord", denyFixture, home)
-    if (denyResolved.concord_worker_read !== "deny") fail(`deny overlay: the host still resolves concord_worker_read as ${denyResolved.concord_worker_read}`)
-    // Allow override, agent level over a global-config deny: a lane whose
+    if (denyResolved.concord_domain !== "deny") fail(`deny overlay: the host still resolves concord_domain as ${denyResolved.concord_domain}`)
+    // Allow override, agent level over a global-config deny: a utility whose
     // frontmatter allows the reader regains it from the later agent rule.
-    // This is the growth counterexample: the lane's projected bytes grow by
+    // This is the growth counterexample: the utility's projected bytes grow by
     // the reader root, so no-overlay zero is visibility, not a ceiling.
     const allowFixture = path.join(isolation, "allow-fixture")
     fs.cpSync(fixture, allowFixture, { recursive: true })
     const allowHome = path.join(isolation, "allow-home")
     fs.mkdirSync(path.join(allowHome, ".config/opencode"), { recursive: true })
-    fs.writeFileSync(path.join(allowHome, ".config/opencode/opencode.json"), JSON.stringify({ permission: { concord_worker_read: "deny" } }))
-    const researchPath = path.join(allowFixture, ".opencode/agents/concord-research.md")
-    const researchText = fs.readFileSync(researchPath, "utf8")
-    if (!researchText.includes("  concord_worker_read: false\n")) fail("generated research frontmatter lost its reader tools entry")
-    fs.writeFileSync(researchPath, researchText.replaceAll("  concord_worker_read: false\n", "  concord_worker_read: true\n"))
-    const allowResolved = await runAgent("concord-research", allowFixture, allowHome)
-    if (allowResolved.concord_worker_read !== "allow") fail(`allow override: the host still resolves concord_worker_read as ${allowResolved.concord_worker_read}`)
+    fs.writeFileSync(path.join(allowHome, ".config/opencode/opencode.json"), JSON.stringify({ permission: { concord_domain: "deny" } }))
+    const explorePath = path.join(allowFixture, ".opencode/agents/concord-explore.md")
+    const exploreText = fs.readFileSync(explorePath, "utf8")
+    if (!exploreText.includes("  concord_domain: false\n")) fail("generated explore frontmatter lost its reader tools entry")
+    fs.writeFileSync(explorePath, exploreText.replaceAll("  concord_domain: false\n", "  concord_domain: true\n"))
+    const allowResolved = await runAgent("concord-explore", allowFixture, allowHome)
+    if (allowResolved.concord_domain !== "allow") fail(`allow override: the host still resolves concord_domain as ${allowResolved.concord_domain}`)
     const summary = {
       probe: "concord-role-publication-host-merge-v1",
       binary: path.basename(binary),
@@ -423,8 +423,8 @@ if (mergeArgIndex !== -1) {
       evidence_kind: "resolved profile permissions from the host debug agent route; not a captured provider request and not a live session ruleset",
       registration: { tools: registrationBytes, total_bytes: Object.values(registrationBytes).reduce((sum, size) => sum + size, 0) },
       roles: noOverlay,
-      deny_overlay_agent_level: { role: "Concord", change: "frontmatter permission gains concord_worker_read: deny", resolved_reader: denyResolved.concord_worker_read },
-      allow_override_agent_level: { role: "concord-research", change: "frontmatter tools entry allows the reader over a global-config deny", resolved_reader: allowResolved.concord_worker_read, publication_growth_bytes: registrationBytes.concord_worker_read },
+      deny_overlay_agent_level: { role: "Concord", change: "frontmatter permission gains concord_domain: deny", resolved_reader: denyResolved.concord_domain },
+      allow_override_agent_level: { role: "concord-explore", change: "frontmatter tools entry allows the reader over a global-config deny", resolved_reader: allowResolved.concord_domain, publication_growth_bytes: registrationBytes.concord_domain },
       bounds: { session_overlays: "not exercised; the no-overlay projection is the accepted acceptance boundary, not an immutable ceiling" },
     }
     fs.mkdirSync(path.dirname(path.resolve(summaryPath)), { recursive: true })

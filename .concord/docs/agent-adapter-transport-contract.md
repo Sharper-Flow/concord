@@ -7,8 +7,7 @@
 > contracts; capability-placement native-authority rule; current official OpenCode
 > custom-tool, plugin, permission, and MCP documentation reviewed 2026-08-06.
 > **Does not decide:** TS7 result/error field layout, TS8 digest identity/change
-> evidence, TS9 pre-go-live measurements, adapter package/repository name, UI styling,
-> or C15.
+> evidence, TS9 pre-go-live measurements, adapter package/repository name, or UI styling.
 
 ## Context
 

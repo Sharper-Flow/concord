@@ -140,6 +140,9 @@ CONCORD_REQUIRED_PHRASES = (
     "Obtain operator consent only under the shared asking instructions; otherwise decide within scope and record why",
     "When the core requests consent outside that boundary, report the implementation mismatch and follow its admitted recovery",
     "A law revision you enact without operator approval is `derived` under CD-0230 D4, even when the prior revision was operator-approved",
+    "You are the only participant that advances workflow state",
+    "it never records a transition, a verdict, or completion",
+    "Record Review outcomes through the admitted workflow action against the current subject and dependencies",
 )
 PLANNER_REQUIRED_PHRASES = (
     "Before triaging a request or refining a ticket, load `concord-work-shaping`",
@@ -215,13 +218,12 @@ LOOKUP_OBLIGATION_MARKERS = (
     "blocked, unavailable, or inconclusive",
 )
 DELEGATION_ANCHOR_MARKERS = (
-    "`dispatch_worker` among the next valid intents",
-    "Size is not an exemption",
-    "steps the core does not admit for dispatch",
+    "Use native Task to delegate implementation and design under host permissions",
+    "Obtain independent review through native Task against the exact current subject",
+    "Keep qualifying captured native verification receipts",
+    "a Task answer alone is not verification proof",
 )
-# The generated agent ids under contracts/agent-lanes.v1.json. A portable
-# example that names one routes per agent in prose; the registry descriptions
-# own that routing.
+# Portable profiles route by need; agent descriptions own routing by id.
 GENERATED_AGENT_ID = re.compile(r"concord-(?:explore|lookup|advisor|research|implement|design|review|verify)\b")
 
 

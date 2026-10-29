@@ -108,11 +108,9 @@ home establishes the owning Product, so every installation that reads the same
 Git authority sees the same Domain IDs without embedding installation-local IDs
 in shared law.
 
-SQLite separately owns local attachments: a Domain stage override plus typed
-Domain→managed-resource links. Those links map one shared
-architecture to the installation's Product census; they do not create or rename
-a Domain, author law, or define architecture dependencies. A Project or resource
-never becomes Domain identity. Domains never cross a Product boundary.
+SQLite separately owns a Domain stage override. It does not create or rename
+a Domain, author law, or define architecture dependencies. A Project never
+becomes Domain identity. Domains never cross a Product boundary.
 
 A cross-cutting rule belongs to the Domain that enforces it under
 [CD-0244 D6](CD-0244-domains-own-code-exclusively-and-hold-typed-facts.md#d6-a-cross-cutting-rule-belongs-to-the-domain-that-enforces-it).
@@ -130,7 +128,7 @@ as an ordinary description, but it cannot identify a second grouping entity or
 own links. The canonical browse path is:
 
 ```text
-Product -> active work, then Domain -> current law, evidence, decisions, resources
+Product -> active work, then Domain -> current law, evidence, decisions, typed facts
 ```
 
 Selecting a Product lands on its Product-scoped, non-terminal work list. That
@@ -210,7 +208,6 @@ family has its own owner, endpoint constraints, metadata, and graph rules.
 | Domain | `depends_on` | Domain | Git-authored; same Product; directional; cites at least one current governing law ID |
 | Domain | `shares_contract_with` | Domain | Git-authored; same Product; canonical symmetric pair; cites at least one current governing law ID |
 | Domain | `replaces` | Domain | Git-authored; same Product; stateful `declared -> building -> coexisting -> cutover -> retired` relation |
-| Domain | `uses` | Managed resource | SQLite-local attachment; Product must own or consume the C15 resource; bounded purpose/environment metadata |
 | Law | `home` | Domain | Exactly one owner, authored in the Git manifest |
 | Law | `applies_to` | Domain | Zero or more explicit applicability targets |
 | Law | `supersedes`, `refines`, `subordinate_to`, `conflicts_with` | Law | CD-0015/CD-0036 rules remain authoritative |
@@ -378,7 +375,7 @@ it preserves two vocabularies and invites future authority drift.
 
 CD-0002 and CD-0011 remain unchanged. The architecture graph is represented by
 Git-authoritative Domain/law records plus typed SQLite projections, local
-attachments, workflow contracts, and work relations inside the existing
+stage overrides, workflow contracts, and work relations inside the existing
 single-host authority. The single committed SQLite write order supports the
 transactional operational checks in D7 without becoming a second architecture
 writer.

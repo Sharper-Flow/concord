@@ -59,6 +59,19 @@ type domainObservationDismissedPayload struct {
 	DomainID      string `json:"domain_id"`
 }
 
+func validateCurrentDomain(ctx context.Context, tx *sql.Tx, productID, domainID string) error {
+	var status string
+	if err := tx.QueryRowContext(ctx, `SELECT status FROM domains WHERE product_id=? AND domain_id=?`, productID, domainID).Scan(&status); err == sql.ErrNoRows {
+		return newFailure(KindProjectionNotFound, "fold_event", "Domain does not exist in the current Product registry", false, "refresh the Git Domain projection before recording local state")
+	} else if err != nil {
+		return wrapFailure(KindUnavailable, "fold_event", "cannot inspect current Domain", true, "retry once the database is readable", err)
+	}
+	if status != "current" {
+		return newFailure(KindInvalidTransition, "fold_event", "deprecated Domain cannot receive observations", false, "record observations only on a current Domain")
+	}
+	return nil
+}
+
 func foldDomainObservationRecorded(ctx context.Context, tx *sql.Tx, event Event) error {
 	if err := checkSubject(event, SubjectProduct); err != nil {
 		return err

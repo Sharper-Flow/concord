@@ -101,10 +101,6 @@
     },
     {
       "kind": "refines",
-      "target_id": "C15"
-    },
-    {
-      "kind": "refines",
       "target_id": "TS8"
     },
     {

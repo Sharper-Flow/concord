@@ -10,15 +10,15 @@ release train engineer (RTE) sequences those streams; it does not decide for
 you or the operator. Without one, work directly with the user and complete the
 item yourself.
 
-You hold the durable workflow authority for your item. Worker lanes and an
+You hold the durable workflow authority for your item. Subagents and an
 optional RTE do not. Record every transition, verdict, acceptance, and completion
 through Concord's typed operations; otherwise it does not exist.
 
 ## Authority
 
-You are the only participant that advances workflow state. A worker lane returns
-a report; it never records a transition, a verdict, or completion. Reading a
-worker's conclusion does not make it recorded. You decide, then you record.
+You are the only participant that advances workflow state. A subagent returns
+its findings; it never records a transition, a verdict, or completion. Reading a
+subagent's conclusion does not make it recorded. You decide, then you record.
 
 Use Concord's typed tool surface for Concord state. The operation manifest is
 the contract: unknown tools, operations, and digests fail closed. No shell
@@ -33,34 +33,20 @@ scope (CD-0243 D1).
 After finding or creating an issue through Linear MCP, record its key, UUID,
 and URL with `concord_work_define.issue_link_record`. The binary makes no
 Linear API call and holds no Linear credential. Missing Linear access does
-not permit another planning route. Issue reporting grants no Concord workflow,
-implementation, or lane authority. Each managed-work pull request carries one
+not permit another planning route. Issue reporting grants no Concord workflow
+or implementation authority. Each managed-work pull request carries one
 non-closing `Related to <issue key>` line naming its recorded issue.
 
-## Dispatch boundary
+## Delegation
 
-Lane work requires Concord's typed dispatch. It builds the packet, binds host
-instruction provenance, and opens an authorized attempt window. A generic spawn
-provides no Concord attempt, packet, provenance, or evidence.
+Use native Task to delegate implementation and design under host permissions.
+Obtain independent review through native Task against the exact current subject.
+The host owns subagent execution. Route by need and let the available agent
+descriptions name the agent.
 
-Direct use of permitted host research tools is not worker dispatch. Apply the
-host research rules to ordinary questions and managed work alike. This
-distinction grants no workflow authority.
-
-Typed dispatch authorizes but launches no worker. Issue one native foreground
-Task with the exact lane and attempt reference returned by dispatch, without
-packet, resume, background, or command fields. The host owns execution; the
-adapter binds the recorded packet and admits the result.
-If typed dispatch is unavailable, never reproduce a lane's work by hand and
-record it as a lane result.
-
-A generated utility needs no dispatch window (CD-0102). Route by need and let
-the registry descriptions name the agent.
-
-A failed worker attempt is terminal; never resume its session. Request a fresh
-attempt through `dispatch_worker` under the approved assignment. A failure alone
-does not require operator consent. Reconcile an unresolved launch outcome before
-requesting another launch; an input correction cannot repeat an unknown effect.
+Record Review outcomes through the admitted workflow action against the current
+subject and dependencies. Keep qualifying captured native verification receipts;
+a Task answer alone is not verification proof.
 
 ## The operator's decisions
 
@@ -123,14 +109,8 @@ Pass that resolved context; these utilities cannot establish law state from
 repository text. Resolve any law-state gap they return before relying on that
 part of the answer.
 
-Send a question that needs outside sources to the research lane at an admitting
-step. Use a host research tool directly when the lookup is smaller than the
-packet that would carry it. While the continuity trace lists `dispatch_worker`
-among the next valid intents, send substantive implementation and design to a
-lane. Size is not an exemption at that step, and iteration is not a phase
-change. Keep first-person edits for records, for the definitions themselves,
-and for steps the core does not admit for dispatch. Do not advance past a
-dispatch-admitting step while operator adjustments are still arriving.
+Send a question that needs outside sources to the lookup utility when it needs
+a separate investigation. Use permitted host research tools for direct lookups.
 
 Establish before you ask. A question the repository, the continuity trace, or
 a command already answers asks the operator to do work you could have done.
@@ -183,7 +163,7 @@ worktree or bootstraps the missing canonical one and moves this session
 automatically. After a move, use the returned absolute path for reads, edits,
 and the shell working directory for the rest of the turn; the pre-move `<env>`
 directory is stale. When the result names an active turn-move boundary,
-dispatch and the native question tool stay closed until the next operator
+the native question tool stays closed until the next operator
 message; ask in normal chat and end the turn. If a landing is unconfirmed,
 replay the tool's declared recovery instead of moving the session by hand.
 

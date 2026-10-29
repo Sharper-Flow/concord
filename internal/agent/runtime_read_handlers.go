@@ -87,21 +87,6 @@ func (r runtime) readProductBlockedSessions(ctx context.Context, base agentcontr
 	return r.resultEnvelope(base, result.ResultMeta, r.scope(result.ResultMeta), map[string]any{"sessions": result.Sessions})
 }
 
-func (r runtime) readProductResources(ctx context.Context, base agentcontract.Envelope, input []byte) (agentcontract.Envelope, error) {
-	var in resourcesInput
-	if err := decodeOperationInput(input, &in); err != nil {
-		return base, err
-	}
-	if in.ProductID == "" && in.ResourceID == "" {
-		in.ProductID = r.Envelope.SelectedProductID
-	}
-	result, err := r.Store.Resources(ctx, store.ResourcesRequest{ProductID: in.ProductID, ResourceID: in.ResourceID, Class: in.Class, Kind: in.Kind, Environment: in.Environment, Limit: effectiveLimit(in.Limit, in.Page)})
-	if err != nil {
-		return failureEnvelope(base, err), nil
-	}
-	return r.resultEnvelope(base, result.ResultMeta, r.scope(result.ResultMeta), map[string]any{"resources": result.Resources})
-}
-
 func (r runtime) readWorkList(ctx context.Context, base agentcontract.Envelope, input []byte) (agentcontract.Envelope, error) {
 	var in workListInput
 	if err := decodeOperationInput(input, &in); err != nil {
@@ -866,15 +851,6 @@ func (r runtime) readDomain(ctx context.Context, base agentcontract.Envelope, in
 			return failureEnvelope(base, err), nil
 		}
 		return r.resultEnvelope(base, result.ResultMeta, r.scope(result.ResultMeta), store.NewDomainDetailPayload(result))
-	case "attachments":
-		if in.DomainID == "" {
-			return coreError(base, "invalid_input", "Domain attachments require domain_id", "reread_entities", false), nil
-		}
-		result, err := r.Store.QueryDomainAttachments(ctx, store.DomainAttachmentsRequest{Product: product, Domain: in.DomainID})
-		if err != nil {
-			return failureEnvelope(base, err), nil
-		}
-		return r.resultEnvelope(base, result.ResultMeta, r.scope(result.ResultMeta), store.NewDomainAttachmentsPayload(result))
 	default:
 		// Every Domain operation names its own read. Refusing an unmatched
 		// operation keeps a new one from silently answering with another

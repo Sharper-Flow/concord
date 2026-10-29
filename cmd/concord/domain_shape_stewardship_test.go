@@ -43,14 +43,6 @@ func stewardshipCLIHome(t *testing.T, mixed bool) (string, *store.Store) {
 		t.Fatal(err)
 	}
 	shapeCLIWrite(t, repo, ".concord/docs/knowledge/records/CD-0001.json", string(lawRaw))
-	for _, resource := range []struct{ id, kind string }{{"balance-db", "database"}, {"balance-view", "storage"}} {
-		runCLIJSON(t, []string{"resource-create"}, map[string]any{
-			"event_id": resource.id + "-created", "resource_id": resource.id, "product_id": "alpha",
-			"display_name": resource.id, "class": "infrastructure", "kind": resource.kind, "purpose": "Synthetic balance state",
-			"stage_maturity": "prototype", "stage_audience_commitment": "operator_only", "environments": []string{"test"},
-			"metadata_schema_version": "1", "metadata": map[string]any{}, "expected_product_version": 3,
-		})
-	}
 	viewPath := "pkg/b/view.py"
 	if mixed {
 		viewPath = "pkg/a/view.py"
@@ -191,17 +183,7 @@ func TestDomainShapeStewardshipAllFourFacts(t *testing.T) {
 	if len(kinds) != 4 || !reflect.DeepEqual(got.GoverningLaw, []string{"CD-0001"}) {
 		t.Fatalf("missing fact kind or current law: %+v", got)
 	}
-	resources, err := s.Resources(context.Background(), store.ResourcesRequest{ProductID: "alpha", Limit: 10})
-	if err != nil || len(resources.Resources) != 2 {
-		t.Fatalf("resources: %+v %v", resources, err)
-	}
-	for i, id := range []string{"balance-db", "balance-view"} {
-		resource := resources.Resources[i]
-		if resource.ResourceID != id || resource.Owner.ProductID != "alpha" || resource.Owner.Role != "owner" {
-			t.Fatalf("resource is not Product-owned: %+v", resource)
-		}
-	}
-	t.Log("four fact kinds retain IDs, law/observed standing, spanning enforcement, Product-owned resources, rebuild and config anchors")
+	t.Log("four fact kinds retain IDs, law/observed standing, spanning enforcement, fact-local resource sources, rebuild and config anchors")
 }
 
 func TestDomainShapeStewardshipMixedToExclusiveMigration(t *testing.T) {
@@ -212,10 +194,6 @@ func TestDomainShapeStewardshipMixedToExclusiveMigration(t *testing.T) {
 	before := stewardshipRead(t, s, repo, store.DomainShapeSelector{DomainID: "domain-a"})
 	if len(before.Facts) != 4 || !reflect.DeepEqual(before.Roots, []store.DomainShapeRoot{{Path: "pkg/a", Role: "mixed", DomainIDs: []string{"domain-a", "domain-b"}}}) {
 		t.Fatalf("fixture is not a genuinely mixed four-fact root: %+v", before)
-	}
-	resourcesBefore, err := s.Resources(context.Background(), store.ResourcesRequest{ProductID: "alpha", Limit: 10})
-	if err != nil {
-		t.Fatal(err)
 	}
 	// Lowering metadata alone must not satisfy the migration's positive check.
 	shapeCLIWrite(t, repo, stewardshipRatchetPath, `{"schema_version":"1.0","mixed_roots":[],"imports":[]}`)
@@ -291,9 +269,5 @@ func TestDomainShapeStewardshipMixedToExclusiveMigration(t *testing.T) {
 	if len(bySubject.Facts) != 1 || !reflect.DeepEqual(bySubject.Facts[0].Fact, after.Facts[0].Fact) {
 		t.Fatalf("derived-copy subject lost its authority/rebuild relationship: %+v", bySubject)
 	}
-	resourcesAfter, err := s.Resources(context.Background(), store.ResourcesRequest{ProductID: "alpha", Limit: 10})
-	if err != nil || !reflect.DeepEqual(resourcesAfter.Resources, resourcesBefore.Resources) {
-		t.Fatalf("migration changed resource identities/ownership: %+v %v", resourcesAfter, err)
-	}
-	t.Log("migration: pkg/a mixed [domain-a,domain-b] -> domain-a; view moved byte-for-byte to domain-b pkg/b; ratchet [pkg/a] -> []; law/resources/standing/dependency/required-check authority preserved")
+	t.Log("migration: pkg/a mixed [domain-a,domain-b] -> domain-a; view moved byte-for-byte to domain-b pkg/b; ratchet [pkg/a] -> []; law/fact-local-sources/standing/dependency/required-check authority preserved")
 }

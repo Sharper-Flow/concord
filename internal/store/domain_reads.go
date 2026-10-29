@@ -8,10 +8,9 @@ import (
 	"strings"
 )
 
-// Bounded Product → Domain reads. These are the primary navigation path for
-// current Domains, their current law, typed architecture relations, and local
-// attachments. The Git-derived registry is the only authority; a Product without a projected registry refuses with a typed
-// failure rather than an empty page.
+// Bounded Product → Domain reads navigate current Domains, their current law,
+// and typed architecture relations. A Product without a Git-derived registry
+// refuses rather than returning an empty page.
 
 const (
 	domainListDefaultLimit = 20
@@ -23,12 +22,11 @@ const (
 // authoritative-empty (registry present, no matching rows) from absent
 // (no registry at all, a typed refusal).
 type DomainRegistryView struct {
-	ProductID       string `json:"product_id"`
-	ProductKey      string `json:"product_key"`
-	RootDomainID    string `json:"root_domain_id"`
-	ContentHash     string `json:"content_hash"`
-	ScannedCommit   string `json:"scanned_commit_oid"`
-	AttachmentWater string `json:"-"`
+	ProductID     string `json:"product_id"`
+	ProductKey    string `json:"product_key"`
+	RootDomainID  string `json:"root_domain_id"`
+	ContentHash   string `json:"content_hash"`
+	ScannedCommit string `json:"scanned_commit_oid"`
 }
 
 type DomainSummary struct {
@@ -84,40 +82,7 @@ type DomainDetailResult struct {
 	Observations []DomainObservation  `json:"observations"`
 }
 
-type DomainAttachmentView struct {
-	ResourceEdges   []DomainResourceAttachment `json:"resource_attachments"`
-	ResourceVersion int64                      `json:"resource_set_version"`
-}
-
-type DomainAttachmentsRequest struct {
-	Product string
-	Domain  string
-}
-
-type DomainAttachmentsResult struct {
-	ResultMeta
-	Registry    *DomainRegistryView  `json:"registry"`
-	Domain      DomainSummary        `json:"domain"`
-	Attachments DomainAttachmentView `json:"attachments"`
-}
-
-// Every Domain result type embeds ResultMeta, and Go promotes an embedded
-// struct's fields into a whole-struct marshal. Those meta fields belong to the
-// envelope, and each Domain result schema closes its object shape without
-// declaring any of them, so a Domain result value is not itself a wire payload.
-//
-// The payload types below are that wire projection. Each one names every field
-// the agent surface carries and nothing else, so reaching an agent requires an
-// explicit entry here: a field added to a result type — promoted or declared —
-// stays off the wire until it is named, and a field named here has nowhere to
-// hide from the schema.
-//
-// The payload types reuse a result type's element structs wherever the two
-// shapes are identical. DomainAttachmentView is the one place they are not:
-// DomainResourceAttachment is the attachment write request's element type, and
-// the read keeps its own element type carrying the same fields so either
-// surface can change without moving the other.
-
+// DomainListPayload excludes ResultMeta's envelope fields from the closed payload.
 type DomainListPayload struct {
 	Registry *DomainRegistryView `json:"registry"`
 	Domains  []DomainSummary     `json:"domains"`
@@ -137,43 +102,6 @@ type DomainDetailPayload struct {
 
 func NewDomainDetailPayload(result DomainDetailResult) DomainDetailPayload {
 	return DomainDetailPayload{Registry: result.Registry, Domain: result.Domain, CurrentLaw: sliceOrEmpty(result.CurrentLaw), Relations: sliceOrEmpty(result.Relations), Observations: sliceOrEmpty(result.Observations)}
-}
-
-// DomainResourceAttachmentPayload is the read projection of a resource
-// attachment edge. CD-0222 D4 gives the Domain-to-resource relation bounded
-// purpose and environment metadata, so the read declares all three fields. It
-// stays a distinct type from the write element so the two surfaces can diverge
-// without one silently redefining the other.
-type DomainResourceAttachmentPayload struct {
-	ResourceID   string   `json:"resource_id"`
-	Purpose      string   `json:"purpose"`
-	Environments []string `json:"environments"`
-}
-
-type DomainAttachmentViewPayload struct {
-	ResourceEdges   []DomainResourceAttachmentPayload `json:"resource_attachments"`
-	ResourceVersion int64                             `json:"resource_set_version"`
-}
-
-type DomainAttachmentsPayload struct {
-	Registry    *DomainRegistryView         `json:"registry"`
-	Domain      DomainSummary               `json:"domain"`
-	Attachments DomainAttachmentViewPayload `json:"attachments"`
-}
-
-func NewDomainAttachmentsPayload(result DomainAttachmentsResult) DomainAttachmentsPayload {
-	resources := make([]DomainResourceAttachmentPayload, 0, len(result.Attachments.ResourceEdges))
-	for _, edge := range result.Attachments.ResourceEdges {
-		resources = append(resources, DomainResourceAttachmentPayload{ResourceID: edge.ResourceID, Purpose: edge.Purpose, Environments: sliceOrEmpty(edge.Environments)})
-	}
-	return DomainAttachmentsPayload{
-		Registry: result.Registry,
-		Domain:   result.Domain,
-		Attachments: DomainAttachmentViewPayload{
-			ResourceEdges:   resources,
-			ResourceVersion: result.Attachments.ResourceVersion,
-		},
-	}
 }
 
 // sliceOrEmpty renders an absent collection as an empty JSON array. Every
@@ -385,57 +313,6 @@ func queryDomainDetail(ctx context.Context, q queryer, req DomainDetailRequest) 
 	out.Observations = observations
 
 	out.ResultMeta = ResultMeta{QueryID: "C22.DomainDetail", ContractVersion: "C22/1.0", ResolvedScope: ResolvedScope{ProductID: req.Product, DomainID: req.Domain}, Authority: "authoritative", OrderingKeys: []string{"kind", "source_domain_id", "target_domain_id"}}
-	return out, nil
-}
-
-// QueryDomainAttachments returns the local resource attachment set for one
-// current Domain, with its set version.
-func (s *Store) QueryDomainAttachments(ctx context.Context, req DomainAttachmentsRequest) (DomainAttachmentsResult, error) {
-	var out DomainAttachmentsResult
-	if s == nil || s.db == nil {
-		return out, newFailure(KindUnavailable, "C22.DomainAttachments", "store is not open", false, "open a store before reading Domains")
-	}
-	return queryDomainAttachments(ctx, s.db, req)
-}
-
-func queryDomainAttachments(ctx context.Context, q queryer, req DomainAttachmentsRequest) (DomainAttachmentsResult, error) {
-	var out DomainAttachmentsResult
-	registry, err := readDomainRegistry(ctx, q, req.Product)
-	if err != nil {
-		return out, err
-	}
-	summary, err := domainExistsCurrent(ctx, q, req.Product, req.Domain)
-	if err != nil {
-		return out, err
-	}
-	summary.HomeDomain = summary.DomainID == registry.RootDomainID
-	out.Domain = summary
-	out.Registry = registry
-	// An unattached Domain is an authoritative empty edge set.
-	out.Attachments.ResourceEdges = []DomainResourceAttachment{}
-	if err := q.QueryRowContext(ctx, `SELECT version FROM domain_resource_attachment_sets WHERE product_id=? AND domain_id=?`, req.Product, req.Domain).Scan(&out.Attachments.ResourceVersion); err != nil && err != sql.ErrNoRows {
-		return out, wrapFailure(KindUnavailable, "C22.DomainAttachments", "cannot read resource attachments", true, "retry once the database is readable", err)
-	}
-	rrows, err := q.QueryContext(ctx, `SELECT resource_id,purpose,environments FROM domain_resource_attachment_edges WHERE product_id=? AND domain_id=? ORDER BY resource_id`, req.Product, req.Domain)
-	if err != nil {
-		return out, wrapFailure(KindUnavailable, "C22.DomainAttachments", "cannot read resource attachments", true, "retry once the database is readable", err)
-	}
-	defer rrows.Close()
-	for rrows.Next() {
-		var edge DomainResourceAttachment
-		var environments string
-		if err := rrows.Scan(&edge.ResourceID, &edge.Purpose, &environments); err != nil {
-			return out, wrapFailure(KindUnavailable, "C22.DomainAttachments", "cannot decode resource attachments", true, "retry once the database is readable", err)
-		}
-		if err := json.Unmarshal([]byte(environments), &edge.Environments); err != nil {
-			return out, wrapFailure(KindUnavailable, "C22.DomainAttachments", "cannot decode resource attachment environments", true, "restore the current rows from a verified snapshot", err)
-		}
-		out.Attachments.ResourceEdges = append(out.Attachments.ResourceEdges, edge)
-	}
-	if err := rrows.Err(); err != nil {
-		return out, wrapFailure(KindUnavailable, "C22.DomainAttachments", "cannot enumerate resource attachments", true, "retry once the database is readable", err)
-	}
-	out.ResultMeta = ResultMeta{QueryID: "C22.DomainAttachments", ContractVersion: "C22/1.0", ResolvedScope: ResolvedScope{ProductID: req.Product, DomainID: req.Domain}, Authority: "authoritative", OrderingKeys: []string{"resource_id"}}
 	return out, nil
 }
 

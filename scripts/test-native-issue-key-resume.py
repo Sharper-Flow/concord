@@ -21,8 +21,11 @@ class FixtureTests(unittest.TestCase):
             (root / "config/opencode").mkdir(parents=True)
             (root / "home").mkdir()
             fixture.stage_agents(root)
-            for lane in ("research", "implement", "design", "review", "verify"):
-                name = f"concord-{lane}.md"
+            names = {"Concord.md", "Concord-RTE.md", "Concord-Planner.md",
+                     "concord-explore.md", "concord-lookup.md", "concord-advisor.md"}
+            self.assertEqual({p.name for p in (root / "config/opencode/agents").iterdir()},
+                             names | {"fixture.md"})
+            for name in names:
                 self.assertEqual((root / "home/.config/opencode/agents" / name).read_bytes(),
                                  (fixture.REPO / ".opencode/agents" / name).read_bytes())
             self.assertEqual((root / "home/.config/opencode/agents/fixture.md").read_bytes(),

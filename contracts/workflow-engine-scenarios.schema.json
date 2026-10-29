@@ -21,7 +21,7 @@
     "fixtures": {"$ref": "#/$defs/fixtures"},
     "assertion_contract": {"$ref": "#/$defs/assertionContract"},
     "runner_requirements": {"$ref": "#/$defs/runnerRequirements"},
-    "scenarios": {"type": "array", "minItems": 10, "maxItems": 10, "items": {"$ref": "#/$defs/scenario"}}
+    "scenarios": {"type": "array", "minItems": 8, "maxItems": 8, "items": {"$ref": "#/$defs/scenario"}}
   },
   "$defs": {
     "id": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_.:-]{1,127}$", "minLength": 2, "maxLength": 128},
@@ -29,7 +29,7 @@
     "actorRef": {"type": "string", "pattern": "^actor:[0-9a-f]{64}$", "minLength": 70, "maxLength": 70},
     "actorIdentityRef": {"type": "string", "pattern": "^[^\\x09-\\x0d \\u0085\\u00a0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000]+$", "minLength": 1, "maxLength": 128, "x-minBytes": 2, "x-maxBytes": 128},
     "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$", "minLength": 71, "maxLength": 71},
-    "currentAction": {"type": "string", "enum": ["capture", "record_proposal", "approve_contract", "record_verdict", "complete", "accept_worker_result"]},
+    "currentAction": {"type": "string", "enum": ["capture", "record_proposal", "approve_contract", "record_verdict", "complete"]},
     "jsonValue": {"oneOf": [
       {"type": "null"}, {"type": "boolean"},
       {"type": "integer", "minimum": -2147483648, "maximum": 2147483647},
@@ -93,7 +93,7 @@
           "type": "object", "additionalProperties": false, "required": ["step"],
           "properties": {
             "step": {"$ref": "#/$defs/id"},
-            "proof_case": {"type": "string", "enum": ["planning_without_outcome", "weaker_delivery", "satisfied_delivery", "implement_verdict", "completion_rollback", "missing_definition", "evidence_commit_mismatch", "lane_pipeline", "one_conjunct_weaker"]}
+            "proof_case": {"type": "string", "enum": ["planning_without_outcome", "weaker_delivery", "satisfied_delivery", "completion_rollback", "missing_definition", "evidence_commit_mismatch", "one_conjunct_weaker"]}
           }
         },
         "faults": {"type": "array", "minItems": 0, "maxItems": 0, "items": false}
@@ -138,9 +138,7 @@
             "predicate_id": {"$ref": "#/$defs/id"},
             "receipt_refs": {"type": "array", "minItems": 1, "maxItems": 32, "items": {"$ref": "#/$defs/short"}}
           }
-        }},
-        "attempt_id": {"$ref": "#/$defs/id"},
-        "attempt_epoch": {"type": "integer", "minimum": 1, "maximum": 2147483647}
+        }}
       }
     },
     "scenarioRequest": {

@@ -1205,19 +1205,6 @@ func init() {
 	registerOutputBound("/$defs/project_retirement_result/properties/blockers/items/maxLength", unboundedOutput("internal/store/project_handoffs.go:preservationBlocker embeds failure.Detail verbatim and the typed refusal pipeline never clamps detail text, so a preservation refusal naming a long source path can exceed the cap", "internal/agent/runtime.go:readSizeRefusal"))
 	registerOutputBound("/$defs/project_retirement_result/properties/blockers/maxItems", pkAppendSitesItemsBound("internal/store/project_handoffs.go", "EvaluateProjectSessionRetirement", "out.Blockers"))
 
-	registerOutputBound("/$defs/resource_page/properties/resources/items/properties/consumers/maxItems", unboundedOutput("internal/store/managed_resources_read.go:resourceLinksTx appends every non-owner resource_products row with no LIMIT and the consumer fold enforces only the unique (resource, product) edge, never a per-resource count", "internal/agent/runtime.go:readSizeRefusal"))
-	registerOutputBound("/$defs/resource_page/properties/resources/items/properties/display_name/maxLength", goInlineBound("internal/store/managed_resources.go", "validateManagedResourceInput", "len(resource.DisplayName)", boundBytes))
-	registerOutputBound("/$defs/resource_page/properties/resources/items/properties/environments/items/maxLength", pkVocabularyLongestBound("internal/store/managed_resources.go", "validateResourceEnvironments", "environment"))
-	registerOutputBound("/$defs/resource_page/properties/resources/items/properties/environments/maxItems", goInlineBound("internal/store/managed_resources.go", "validateResourceEnvironments", "len(values)", boundItems))
-	registerOutputBound("/$defs/resource_page/properties/resources/items/properties/metadata_json/maxLength", goInlineBound("internal/store/managed_resources.go", "validateManagedResourceInput", "len(resource.Metadata)", boundBytes))
-	registerOutputBound("/$defs/resource_page/properties/resources/items/properties/metadata_schema_version/maxLength", goInlineBound("internal/store/managed_resources.go", "validateManagedResourceInput", "len(resource.MetadataSchemaVersion)", boundBytes))
-	registerOutputBound("/$defs/resource_page/properties/resources/items/properties/purpose/maxLength", goInlineBound("internal/store/managed_resources.go", "validateManagedResourceInput", "len(resource.Purpose)", boundBytes))
-	registerOutputBound("/$defs/resource_page/properties/resources/maxItems", goConstantBound("internal/store/query.go", "queryMaxLimit", boundItems))
-
-	registerOutputBound("/$defs/resource_product_link/properties/environments/items/maxLength", pkVocabularyLongestBound("internal/store/managed_resources.go", "validateResourceEnvironments", "environment"))
-	registerOutputBound("/$defs/resource_product_link/properties/environments/maxItems", goInlineBound("internal/store/managed_resources.go", "validateResourceEnvironments", "len(values)", boundItems))
-	registerOutputBound("/$defs/resource_product_link/properties/purpose/maxLength", goInlineBound("internal/store/managed_resources.go", "foldManagedResourceConsumerAdded", "len(p.Purpose)", boundBytes))
-
 	registerOutputBound("/$defs/session_vacate_result/properties/changed_refs/maxItems", pkCallEmptyLiteralItemsBound("internal/agent/mutations.go", "applySessionVacateTx", "mutationResultChangedRefs"))
 	registerOutputBound("/$defs/session_vacate_result/properties/next_valid_intents/maxItems", sumBound(
 		schemaBound("contracts/workflow-definition.schema.json", "/$defs/step/properties/actions/maxItems"),

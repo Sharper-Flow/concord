@@ -126,7 +126,7 @@ func readWorkflowScenarioCorpus(t *testing.T) workflowScenarioCorpus {
 	if err := json.Unmarshal(raw, &corpus); err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"WF01-capture-late-outcome", "WF02-planning-requires-outcome", "WF04-weaker-delivery", "WF05-stronger-delivery", "WF13-verdict-actor-distinctness", "WF19-completion-one-transaction", "WF37-action-availability-before-register", "WF47-evidence-commit-binding", "WF48-lane-pipeline-typed-evidence", "WF50-one-conjunct-weaker"}
+	want := []string{"WF01-capture-late-outcome", "WF02-planning-requires-outcome", "WF04-weaker-delivery", "WF05-stronger-delivery", "WF19-completion-one-transaction", "WF37-action-availability-before-register", "WF47-evidence-commit-binding", "WF50-one-conjunct-weaker"}
 	if len(corpus.Scenarios) != len(want) {
 		t.Fatalf("scenario count=%d, want %d", len(corpus.Scenarios), len(want))
 	}
@@ -172,7 +172,7 @@ func runWorkflowScenarioCase(t *testing.T, scenario workflowScenario) {
 func executeWorkflowScenario(t *testing.T, action string, setup workflowCorpusSetup, request workflowCorpusRequest) (workflowObservation, error) {
 	t.Helper()
 	switch action {
-	case "capture", "record_proposal", "approve_contract", "record_verdict", "complete", "accept_worker_result":
+	case "capture", "record_proposal", "approve_contract", "record_verdict", "complete":
 	default:
 		return workflowObservation{}, fmt.Errorf("action %q is not in the current corpus action union", action)
 	}
@@ -394,8 +394,6 @@ func TestCorpusCurrentProofPreparationProfiles(t *testing.T) {
 				fields = map[string]any{"premise": "The bounded engineering result.", "decision_domains": []string{}}
 			case "record_proposal":
 				fields = map[string]any{"problem": "The bounded problem.", "affected": []string{"The fixture."}, "stakes": "The bounded stakes.", "user_outcomes": []string{"The checked result."}}
-			case "record_verdict":
-				fields = map[string]any{"verdicts": []map[string]any{{"predicate_id": "predicate:return-route", "receipt_refs": []string{"worktree_verify:candidate-observe-corpus-proof"}}}}
 			}
 			if tc.proof == "evidence_commit_mismatch" {
 				fields["evidence_commit"], fields["current_commit"] = strings.Repeat("a", 40), strings.Repeat("b", 40)
@@ -438,7 +436,7 @@ func TestCorpusCurrentProofPreparationProfiles(t *testing.T) {
 					t.Fatalf("%v; communication=%+v", err, observation.Communication)
 				}
 			}
-			t.Logf("communication=%v work=%v result=%v workers=%v", observation.Communication, observation.State["work"], observation.Result, observation.State["workers"])
+			t.Logf("communication=%v work=%v result=%v", observation.Communication, observation.State["work"], observation.Result)
 		})
 	}
 }
@@ -520,33 +518,16 @@ func TestCorpusCurrentRequestRejectsActorScopeAndActionMutations(t *testing.T) {
 
 func TestCorpusCurrentProofInputBindingsRejectMutations(t *testing.T) {
 	t.Parallel()
-	for _, mutation := range []string{"receipt", "attempt", "epoch"} {
-		t.Run(mutation, func(t *testing.T) {
-			corpus := readWorkflowScenarioCorpus(t)
-			var scenario workflowScenario
-			for _, candidate := range corpus.Scenarios {
-				if mutation == "receipt" && candidate.Setup.CurrentState.ProofCase == "implement_verdict" {
-					scenario = candidate
-				} else if mutation != "receipt" && candidate.Setup.CurrentState.ProofCase == "lane_pipeline" {
-					scenario = candidate.Cases[len(candidate.Cases)-1]
-				}
-			}
-			if scenario.ID == "" {
-				t.Fatal("current proof binding control has no carrier")
-			}
-			switch mutation {
-			case "receipt":
-				scenario.Request.Fields["verdicts"].([]any)[0].(map[string]any)["receipt_refs"] = []string{"worktree_verify:unrelated"}
-			case "attempt":
-				scenario.Request.Fields["attempt_id"] = "attempt:unrelated"
-			case "epoch":
-				scenario.Request.Fields["attempt_epoch"] = float64(999)
-			}
-			if _, err := executeWorkflowScenario(t, scenario.Action, scenario.Setup, scenario.Request); err == nil || !strings.Contains(err.Error(), "current fixture") {
-				t.Fatalf("%s mutation did not refuse the fixture identity: %v", mutation, err)
-			}
+	t.Run("receipt", func(t *testing.T) {
+		const workID = "corpus-receipt-binding"
+		f := qBuildAcceptance(t, workID, "", false)
+		assertRecoveryRefusalWithoutEffect(t, f.store, workID, KindMissingEvidence, func() error {
+			return runVerdictActionAs(t, f.store, workID, "record_verdict", criterionAssociationPayload("worktree_verify:unrelated", "predicate:return-route"), 0, f.owner)
 		})
-	}
+		if err := runVerdictActionAs(t, f.store, workID, "record_verdict", qAssociationPayload(t, f), 0, f.owner); err != nil {
+			t.Fatalf("captured receipt refused after unrelated receipt control: %v", err)
+		}
+	})
 }
 
 func TestCorpusCurrentSetupRefusesHistoricalInputs(t *testing.T) {
@@ -860,51 +841,20 @@ func observeWorkflowStore(ctx context.Context, s *Store, workID string, beforeSe
 	if terminal != nil || terminalTime.Valid || completedAt.Valid {
 		work["terminal_metadata"] = map[string]any{"record": terminal, "terminal_time": terminalTime.String, "completed_at": completedAt.String}
 	}
-	workers := map[string]any{}
-	rows, err := s.db.QueryContext(ctx, `SELECT attempt_id,lane_id,lifecycle_state,COALESCE(json_extract(terminal_payload,'$.evidence'),'[]') FROM worker_attempts WHERE work_id=? ORDER BY attempt_id`, workID)
-	if err != nil {
-		return observation, err
-	}
-	for rows.Next() {
-		var attempt, lane, state, raw string
-		if err := rows.Scan(&attempt, &lane, &state, &raw); err != nil {
-			_ = rows.Close()
-			return observation, err
-		}
-		var evidence []any
-		if err := json.Unmarshal([]byte(raw), &evidence); err != nil {
-			_ = rows.Close()
-			return observation, err
-		}
-		workers[attempt] = map[string]any{"lane_id": lane, "state": state, "evidence": evidence}
-	}
-	if err := rows.Err(); err != nil {
-		_ = rows.Close()
-		return observation, err
-	}
-	if err := rows.Close(); err != nil {
-		return observation, err
-	}
-	observation.State["workers"] = workers
-	rows, err = s.DatabaseForTesting().QueryContext(ctx, `SELECT r.kind,COALESCE(d.action_id,''),COALESCE(d.attempt_id,''),r.actor FROM effect_receipts r LEFT JOIN worker_attempt_dispositions d ON d.work_id=r.subject_id AND d.event_id=r.event_id WHERE r.subject_type=? AND r.subject_id=? AND r.effect_seq>? ORDER BY r.effect_seq`, SubjectWorkItem, workID, beforeSeq)
+	rows, err := s.DatabaseForTesting().QueryContext(ctx, `SELECT kind FROM effect_receipts WHERE subject_type=? AND subject_id=? AND effect_seq>? ORDER BY effect_seq`, SubjectWorkItem, workID, beforeSeq)
 	if err != nil {
 		return observation, err
 	}
 	defer rows.Close()
 	order := []any{}
 	for rows.Next() {
-		var kind, action, attempt, actor string
-		if err := rows.Scan(&kind, &action, &attempt, &actor); err != nil {
+		var kind string
+		if err := rows.Scan(&kind); err != nil {
 			return observation, err
 		}
 		observation.Effects[kind] = true
 		if kind == "work.created" {
 			observation.Effects["work.created_event"] = true
-		}
-		if kind == WorkflowActionCompleted && action == "accept_worker_result" {
-			if worker, ok := workers[attempt].(map[string]any); ok {
-				worker["accepted_by"] = actor
-			}
 		}
 		order = append(order, kind)
 	}

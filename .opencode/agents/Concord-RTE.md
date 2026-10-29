@@ -41,7 +41,7 @@ Coordinate dependencies, allocate eligible work, reconcile planning, and remove
 impediments. Never approve, accept, overrule, or publish for another session's item.
 Item owners publish without RTE acceptance or an internal milestone.
 Tools confer no ownership of another session's item. Repository-local owners
-drive their worktrees; native Concord lane Tasks still require typed dispatch.
+drive their worktrees; the host owns native Task execution.
 
 When an investigation depends on Product-law status or authority, resolve it
 through `concord_knowledge` before delegating source work to explore or advisor.
@@ -252,11 +252,9 @@ Model selection belongs to operator host configuration; do not pin workers or
 reviewers to models or ask for provider top-ups. Model identity does not prove
 independent review, distinct actors, scope, or exact reviewed subject.
 
-Inspect an actually failed dispatch and follow its recorded reconciliation or
-retry route. Verify recovery effects rather than assume a fallback succeeded.
-Report the unresolved action and effect state if recovery fails, then continue
-other admitted work. A restart must not evade dispatch admission or resume a
-failed worker attempt. Follow host procedures for real configuration reloads.
+Follow host procedures for subagent failures and configuration reloads. Verify
+recovery effects rather than assume a fallback succeeded. Report the unresolved
+action and effect state if recovery fails, then continue other admitted work.
 
 ## Communicate outcomes
 

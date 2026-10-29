@@ -51,7 +51,15 @@ var retiredPublishedActions = []string{
 	"record_worker_failure", "record_discovery",
 }
 
-const liveActionTarget = 30
+var liveActionIDs = []string{
+	"approve_contract", "bind_evidence", "checkpoint_context", "checkpoint_execution",
+	"checkpoint_refine", "checkpoint_repair", "complete", "confirm_premise",
+	"cross_context_boundary", "frame_research", "link_successor", "record_alignment",
+	"record_conclusion", "record_delivery", "record_design", "record_diagnosis",
+	"record_finding", "record_proposal", "record_report", "record_review",
+	"record_verdict", "record_work_context", "request_correction", "revise_candidates",
+	"start_execution", "supersede_contract",
+}
 
 // TestCurrentFieldsetAdditionProjectsVariants holds the variant shape: two
 // current families declare the same action, one with an appended optional
@@ -106,20 +114,20 @@ func TestCurrentSameFieldConflictStillRefuses(t *testing.T) {
 	}
 }
 
-// TestPublicPayloadDivergenceKeepsThePair keeps dispatch_worker's override
-// truthful: one variant whose payload and public payload differ stays one
+// TestPublicPayloadDivergenceKeepsThePair proves that one variant whose
+// payload and public payload differ stays one
 // variant carrying both halves, and a second family repeating the same pair
 // dedupes rather than adding a variant.
 func TestPublicPayloadDivergenceKeepsThePair(t *testing.T) {
-	secret := closedPayload(field("attempt_id", true, 128), field("worker_packet", true, 64))
-	public := closedPayload(field("lane_id", true, 128))
-	repeat := action("dispatch_worker", secret)
+	secret := closedPayload(field("internal_ref", true, 128))
+	public := closedPayload(field("public_ref", true, 128))
+	repeat := action("projection_probe", secret)
 	repeat.PublicPayload = &public
 	contracts, err := collectActionContracts(
 		[]store.WorkflowDefinition{
 			definition("workflow.implementation", repeat),
 			definition("workflow.break_fix", func() store.WorkflowActionDefinition {
-				again := action("dispatch_worker", secret)
+				again := action("projection_probe", secret)
 				again.PublicPayload = &public
 				return again
 			}()),
@@ -129,7 +137,7 @@ func TestPublicPayloadDivergenceKeepsThePair(t *testing.T) {
 	if err != nil {
 		t.Fatalf("repeated pair refused: %v", err)
 	}
-	contract := contracts["dispatch_worker"]
+	contract := contracts["projection_probe"]
 	if len(contract.Variants) != 1 {
 		t.Fatalf("variants = %d, want the one deduped pair", len(contract.Variants))
 	}
@@ -140,7 +148,7 @@ func TestPublicPayloadDivergenceKeepsThePair(t *testing.T) {
 
 // TestShippedBuiltinsProjectTheLiveSurfaceOnly is the live-surface
 // integration: the shipped heads and the canonical recovery list fold into
-// exactly the approved 30 authorable actions, no retired published action
+// exactly the current authorable actions, no retired published action
 // is authorable, retained versions add no variant to a live action, the
 // canonical verdict and supersede shapes are the declared ones, and
 // record_diagnosis is present (CD-0218 D1/D2).
@@ -161,9 +169,9 @@ func TestShippedBuiltinsProjectTheLiveSurfaceOnly(t *testing.T) {
 			}
 		}
 	}
-	if len(ids) != liveActionTarget {
-		sort.Strings(ids)
-		t.Fatalf("live action projection = %d IDs %v, want the approved target %d", len(ids), ids, liveActionTarget)
+	sort.Strings(ids)
+	if !reflect.DeepEqual(ids, liveActionIDs) {
+		t.Fatalf("live action projection = %d IDs %v, want %d IDs %v", len(ids), ids, len(liveActionIDs), liveActionIDs)
 	}
 	live := map[string]bool{}
 	for _, id := range ids {
@@ -172,6 +180,11 @@ func TestShippedBuiltinsProjectTheLiveSurfaceOnly(t *testing.T) {
 	for _, retired := range retiredPublishedActions {
 		if live[retired] {
 			t.Fatalf("retired published action %s remains authorable (CD-0218 D1/D2)", retired)
+		}
+	}
+	for _, retired := range []string{"dispatch_worker", "record_worker_job", "accept_worker_evidence", "accept_worker_result", "reject_worker_result"} {
+		if live[retired] {
+			t.Fatalf("retired worker action %s remains authorable (CD-0242 D6)", retired)
 		}
 	}
 	if !live["record_diagnosis"] {
@@ -213,26 +226,17 @@ func TestShippedBuiltinsProjectTheLiveSurfaceOnly(t *testing.T) {
 	if len(supersede.CrossField.Alternatives) != 1 || len(supersede.CrossField.KindMatches) != 0 {
 		t.Fatalf("supersede_contract cross-field = %#v, want the predicates group without the paired kind match", supersede.CrossField)
 	}
-	// Retained versions keep declaring older shapes (the oracle-free
-	// record_worker_job chain among them); none of them may widen a live
-	// action's authoring variants — the frozen historical decoder owns
-	// their replay side (CD-0218 D4).
-	job := contracts["record_worker_job"]
-	if len(job.Variants) != 1 {
-		t.Fatalf("record_worker_job variants = %d, want only the current oracle shape", len(job.Variants))
+	review := contracts["record_review"]
+	if len(review.Variants) != 1 {
+		t.Fatalf("record_review variants = %d, want one current review shape", len(review.Variants))
 	}
-	oracleDeclared := false
-	for _, f := range job.Variants[0].Payload.Fields {
-		if f.Name == "acceptance_oracle" && f.Required && f.SchemaRef == "worker_acceptance_oracle" {
-			oracleDeclared = true
-		}
-	}
-	if !oracleDeclared {
-		t.Fatalf("record_worker_job current variant does not require acceptance_oracle via worker_acceptance_oracle")
+	reviewFields := review.Variants[0].Payload.Fields
+	if len(reviewFields) != 1 || reviewFields[0].Name != "review" || !reviewFields[0].Required || reviewFields[0].SchemaRef != "workflow_review_report" {
+		t.Fatalf("record_review does not require the current review report schema: %#v", reviewFields)
 	}
 	correction := contracts["request_correction"]
 	if len(correction.Variants) != 2 {
-		t.Fatalf("request_correction variants = %d, want the oracle shape and the recovery shape", len(correction.Variants))
+		t.Fatalf("request_correction variants = %d, want the current and recovery shapes", len(correction.Variants))
 	}
 	hasOpenFindings := false
 	for _, variant := range correction.Variants {
@@ -322,7 +326,7 @@ func TestSchemaRefsComeFromCurrentDeclarations(t *testing.T) {
 	currentRef := "current_only_ref"
 	projection := collectSchemaRefs(
 		[]store.WorkflowDefinition{definition("workflow.implementation",
-			action("record_worker_job", closedPayload(field("objective", true, 4096)))),
+			action("record_proposal", closedPayload(field("objective", true, 4096)))),
 		},
 		[]store.WorkflowActionDefinition{{ID: "record_verdict", Payload: store.WorkflowPayloadDefinition{
 			Closed: true,

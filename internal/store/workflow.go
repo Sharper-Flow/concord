@@ -3024,7 +3024,7 @@ func workflowPremiseConfirmedAuthorityTx(ctx context.Context, tx *sql.Tx, defini
 		return newFailure(KindInvalidPayload, "fold_event", fmt.Sprintf("premise confirmation names contract version %d, which supersession invalidated; the active version is %d", contractVersion, active), false, "confirm the active contract version")
 	}
 	if !stored.Valid {
-		return newFailure(KindInvalidPayload, "fold_event", "consequence_v1 confirmation requires the contract's stored decision-domain fact; absence is a legacy shape", false, "record the contract's decision domains")
+		return newFailure(KindInvariantViolation, "fold_event", "consequence_v1 confirmation requires the contract's stored decision-domain fact; absence is a legacy shape", false, "record the contract's decision domains")
 	}
 	var domains []string
 	if json.Unmarshal([]byte(stored.String), &domains) != nil {

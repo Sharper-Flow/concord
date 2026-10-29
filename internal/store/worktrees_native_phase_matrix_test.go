@@ -710,7 +710,7 @@ func TestReclaimRefusalReasonMatrix(t *testing.T) {
 					return err
 				}
 			},
-			wantKind:   KindInvalidPayload,
+			wantKind:   KindInvariantViolation,
 			wantDetail: []string{"unparsable"},
 		},
 	}

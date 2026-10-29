@@ -63,9 +63,7 @@
                 "bind_evidence",
                 "link_successor",
                 "checkpoint_context",
-                "cross_context_boundary",
-                "accept_worker_result",
-                "dispatch_worker"
+                "cross_context_boundary"
               ]
             },
             {
@@ -139,9 +137,7 @@
           "confirm_premise",
           "complete",
           "checkpoint_context",
-          "cross_context_boundary",
-          "accept_worker_result",
-          "dispatch_worker"
+          "cross_context_boundary"
         ],
         "action_definitions": [
           {
@@ -363,49 +359,6 @@
                 }
               ]
             }
-          },
-          {
-            "id": "accept_worker_result",
-            "consequence": "internal_sqlite",
-            "approval": "none",
-            "execution_mode": "advance",
-            "required_capability": "work_transition",
-            "payload": {
-              "fields": [
-                {
-                  "name": "attempt_id",
-                  "value_type": "ref",
-                  "required": true,
-                  "min_length": 2,
-                  "max_length": 128
-                },
-                {
-                  "name": "attempt_epoch",
-                  "value_type": "integer",
-                  "required": true,
-                  "minimum": 1,
-                  "maximum": 2147483647
-                }
-              ]
-            }
-          },
-          {
-            "id": "dispatch_worker",
-            "consequence": "external_effect",
-            "approval": "none",
-            "execution_mode": "fenced",
-            "required_capability": "worker_dispatch",
-            "payload": {
-              "fields": [
-                {
-                  "name": "attempt_id",
-                  "value_type": "ref",
-                  "required": true,
-                  "min_length": 2,
-                  "max_length": 128
-                }
-              ]
-            }
           }
         ],
         "required_evidence_kinds": [
@@ -457,7 +410,7 @@
             "target": "execution"
           }
         ],
-        "digest": "sha256:b2547151981c2c9962f8cfb7c65e85e5970a0eddc6e8b03da2ff684e26d21282"
+        "digest": "sha256:2d9b06014aa5161d891f8fc6a2f4241523d6d0fd90d99381b25668dc23aea88b"
       }
     },
     {"id": "outcome-exists-valid", "schema": "workflow-outcome.schema.json", "valid": true, "instance": {"kind": "exists", "surface": "git:tree", "subjects": ["path:cmd/concord"]}},

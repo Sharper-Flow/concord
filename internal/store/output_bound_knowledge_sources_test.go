@@ -2,8 +2,7 @@ package store
 
 // Output-bound ledger rows for the knowledge family: the durable
 // knowledge surface (domain registry, law, footprint, git notes, research
-// packs, architecture bindings of contract scope, domain observations and
-// attachments as they appear in domain reads).
+// packs, architecture bindings of contract scope, and domain observations).
 //
 // Every finite row cites a live source: a published schema node, a Go
 // constant, a full-string Go guard or construction, the shared derivation
@@ -86,26 +85,6 @@ func init() {
 	// locator unbounded; only the envelope byte ceiling applies.
 	registerOutputBound("/$defs/canonical_note_result/properties/locator/maxLength",
 		unboundedOutput("the note path accumulator admits any clean relative .md path length: validateNotePath (internal/store/git_knowledge.go:validateNotePath) checks shape only and archived_work.note_path has no length CHECK in the final DDL, so scanKnowledgeTree can project a locator of any length", "internal/agent/runtime.go:readSizeRefusal"))
-
-	// ------------------------------------------------------------------
-	// domain attachments result (C22.DomainAttachments)
-	// ------------------------------------------------------------------
-
-	// Environments are bounded by the closed six-value C15 vocabulary and the
-	// duplicate refusal in validateResourceEnvironments, so any admitted list
-	// holds at most six distinct members.
-	registerOutputBound("/$defs/domain_attachments_result/properties/attachments/properties/resource_attachments/items/properties/environments/maxItems",
-		pkVocabularyItemsBound("internal/store/managed_resources.go", "validateResourceEnvironments", "environment"))
-
-	// Purpose is stored under CHECK(length(purpose) BETWEEN 1 AND 512) over
-	// a TEXT column; SQLite length() over TEXT counts characters, matching
-	// the consumer's code-point bound. The Go byte guard on the same write
-	// is stricter or equal.
-	registerOutputBound("/$defs/domain_attachments_result/properties/attachments/properties/resource_attachments/items/properties/purpose/maxLength", goInlineBound("internal/store/domain_attachments.go", "validateDomainResourceAttachments", "len(link.Purpose)", boundBytes))
-
-	// Resource attachment edges: the same inline 64 refusal and 1:1 join.
-	registerOutputBound("/$defs/domain_attachments_result/properties/attachments/properties/resource_attachments/maxItems",
-		goInlineBound("internal/store/domain_attachments.go", "validateDomainResourceAttachments", "len(links)", boundItems))
 
 	// ------------------------------------------------------------------
 	// domain detail result (C22.DomainDetail)

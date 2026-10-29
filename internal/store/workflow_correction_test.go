@@ -1266,7 +1266,7 @@ func TestCompleteStepCorrectionReadOnlyPreflightRequiresReservedRoute(t *testing
 	}
 	err := issue1013Preflight(t, s, workID, "supersede_contract", withoutRoute, fixture.owner)
 	var failure *Failure
-	if !errors.As(err, &failure) || failure.Kind != KindInvalidOperation || failure.Detail != "complete-step correction requires the reserved route convention complete_step_correction" {
+	if !errors.As(err, &failure) || failure.Kind != KindInvalidPayload || failure.Detail != "complete-step correction requires complete_step_correction in fields.route_conventions" {
 		t.Fatalf("read-only preflight without the reserved route = %v, want the reserved-route refusal", err)
 	}
 	if err := runIssue933OperatorAction(t, s, workID, "supersede_contract", withoutRoute, fixture.owner, fixture.operator); err == nil {

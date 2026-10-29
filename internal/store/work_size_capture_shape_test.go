@@ -2,8 +2,11 @@ package store
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 )
@@ -75,15 +78,29 @@ func TestWorkSizeCaptureIgnoresOversizedFactSelection(t *testing.T) {
 	}
 }
 
-func TestWorkSizeCaptureIgnoresUnconsumedFactResourceDrift(t *testing.T) {
+func TestWorkSizeCaptureIgnoresUnconsumedFactMembershipDrift(t *testing.T) {
 	ctx := context.Background()
 	s := openTemp(t)
 	home, product := domainShapeProjectionFixture(t, s, "a")
+	// The facts name a second member Project, so removing that membership
+	// drifts only fact references and leaves the sized home intact.
+	setupProductWithProject(t, s, "fact-other-product", "project-fact")
+	mutateSizeProjection(t, s,
+		`INSERT INTO product_projects(product_id,project_id,role) VALUES('product-a','project-fact','secondary')`)
+	for _, id := range []string{"state_authority-a", "config_coupling-a"} {
+		path := knowledgeFactTreeDir + id + ".json"
+		raw, err := os.ReadFile(filepath.Join(home.RepoPath, path))
+		if err != nil {
+			t.Fatal(err)
+		}
+		writeKnowledgeFile(t, home.RepoPath, path, strings.ReplaceAll(string(raw), `"project_id":"project-a"`, `"project_id":"project-fact"`))
+	}
+	commitKnowledgeRepo(t, home.RepoPath, "facts name a second member Project")
 	if err := s.EnsureKnowledgeIndexFresh(ctx, home); err != nil {
 		t.Fatal(err)
 	}
 	before := recordShapeWorkSize(t, s, home, product, []string{"src/file.go"})
-	mutateSizeProjection(t, s, `UPDATE resource_products SET product_id='anchor-product-project-a' WHERE resource_id='database-a'`)
+	mutateSizeProjection(t, s, `DELETE FROM product_projects WHERE product_id='product-a' AND project_id='project-fact'`)
 	public, err := s.QueryDomainFootprint(ctx, DomainFootprintRequest{Product: product, Paths: []string{"src/file.go"}})
 	assertFailureKind(t, err, KindInvalidNoteProof)
 	if !reflect.DeepEqual(public, DomainFootprintResult{}) {
@@ -91,7 +108,7 @@ func TestWorkSizeCaptureIgnoresUnconsumedFactResourceDrift(t *testing.T) {
 	}
 	after := recordShapeWorkSize(t, s, home, product, []string{"src/file.go"})
 	if before.Inputs != after.Inputs || before.Size != after.Size || !reflect.DeepEqual(before.Footprint, after.Footprint) {
-		t.Fatalf("unconsumed resource drift changed sizing: before=%+v after=%+v", before, after)
+		t.Fatalf("unconsumed fact membership drift changed sizing: before=%+v after=%+v", before, after)
 	}
 }
 

@@ -508,7 +508,7 @@ class CurrentScenarioCarrierTests(unittest.TestCase):
         corpus_path = ROOT / ".concord/scenarios/workflow-engine.v1.json"
         load = lane_checker._load_json
         corpus = load(corpus_path)
-        corpus["scenarios"] = [item for item in corpus["scenarios"] if item["id"] != "WF48-lane-pipeline-typed-evidence"]
+        corpus["scenarios"] = [item for item in corpus["scenarios"] if item["id"] != "WF50-one-conjunct-weaker"]
         with unittest.mock.patch.object(lane_checker, "_load_json", side_effect=lambda path: corpus if path == corpus_path else load(path)):
             findings = lane_checker.check_workflow_contracts()
         self.assertTrue(any("scenario" in finding and "got" in finding for finding in findings), findings)
@@ -543,22 +543,14 @@ class CurrentScenarioCarrierTests(unittest.TestCase):
     def test_workflow_contract_checker_accepts_current_inventory(self):
         self.assertEqual(lane_checker.check_workflow_contracts(), [])
 
-    def test_pipeline_inventory_requires_owner_and_worker_cases(self):
-        corpus_path = ROOT / ".concord/scenarios/workflow-engine.v1.json"
-        original = lane_checker._load_json(corpus_path)
-        load = lane_checker._load_json
-        for missing in ("WF48-owner-accepts-typed-result", "WF48-worker-self-accept-refused"):
-            with self.subTest(missing=missing):
-                corpus = copy.deepcopy(original)
-                pipeline = next(item for item in corpus["scenarios"] if item["scenario_number"] == 48)
-                pipeline["cases"] = [case for case in pipeline["cases"] if case["id"] != missing]
-                with unittest.mock.patch.object(lane_checker, "_load_json", side_effect=lambda path: corpus if path == corpus_path else load(path)):
-                    findings = lane_checker.check_workflow_contracts()
-                self.assertTrue(any("expected current cases" in finding and missing in finding for finding in findings), findings)
-
     def test_native_requests_keep_their_required_fields(self):
         original = lane_checker._load_json(ROOT / ".concord/scenarios/workflow-engine.v1.json")
-        for action, field in (("approve_contract", "premise"), ("record_proposal", "problem"), ("record_verdict", "verdicts"), ("complete", "impact_verdict"), ("accept_worker_result", "attempt_id")):
+        association = copy.deepcopy(original["scenarios"][0])
+        association["action"] = association["request"]["action_id"] = "record_verdict"
+        association["request"]["fields"] = {"verdicts": [{"predicate_id": "predicate:return-route", "receipt_refs": ["worktree_verify:captured"]}]}
+        original["scenarios"].append(association)
+        self.assertEqual(lane_checker._structured_scenario_check(original), [])
+        for action, field in (("approve_contract", "premise"), ("record_proposal", "problem"), ("record_verdict", "verdicts"), ("complete", "impact_verdict")):
             with self.subTest(action=action, field=field):
                 corpus = copy.deepcopy(original)
                 scenario = next(item for item in corpus["scenarios"] if item["action"] == action)
@@ -585,8 +577,7 @@ class CurrentScenarioCarrierTests(unittest.TestCase):
                 elif mutation == "definition":
                     scenario["request"]["definition_ref"] = "workflow.missing"
                 else:
-                    pipeline = next(item for item in corpus["scenarios"] if item["id"] == "WF48-lane-pipeline-typed-evidence")
-                    refused = next(case for case in pipeline["cases"] if case["id"] == "WF48-worker-self-accept-refused")
+                    refused = next(item for item in corpus["scenarios"] if item["id"] == "WF02-planning-requires-outcome")
                     refused["expected"]["assertions"][0]["value"] = "not_a_real_error_kind"
                 load = lane_checker._load_json
                 with unittest.mock.patch.object(lane_checker, "_load_json", side_effect=lambda path: corpus if path == corpus_path else load(path)):
@@ -841,12 +832,12 @@ class ToolDescriptionTests(unittest.TestCase):
         tool = next(tool for tool in manifest["tools"] if tool["id"] == "concord_domain")
         self.assertEqual(tool["operations"], [
             "concord_domain.list", "concord_domain.detail",
-            "concord_domain.attachments", "concord_domain.footprint",
+            "concord_domain.footprint",
             "concord_domain.shape",
         ])
         self.assertEqual(tool["description"],
                           "Navigate Product architecture: current Domains, current law, "
-                          "attachments, the footprint of a change, and typed Domain Shape selected by one path, Domain or subject. Shape results are bounded to 32768 bytes and never execute Product checks.")
+                          "the footprint of a change, and typed Domain Shape selected by one path, Domain or subject. Shape results are bounded to 32768 bytes and never execute Product checks.")
 
     def test_tool_descriptions_do_not_name_retired_operations(self):
         retired = [
@@ -1054,7 +1045,7 @@ class ShippedSkillTests(unittest.TestCase):
     COMMANDS = {"product-knowledge-home-designate", "domain-shape-check"}
     OPERATIONS = {
         "concord_domain.shape", "concord_domain.footprint", "concord_domain.list",
-        "concord_product_view.resolve", "concord_product_view.resources",
+        "concord_product_view.resolve",
         "concord_knowledge.search", "concord_knowledge.resolve_note",
     }
 

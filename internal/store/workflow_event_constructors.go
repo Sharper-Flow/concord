@@ -41,7 +41,7 @@ func workflowContractProductGuard(ctx context.Context, tx *sql.Tx, workID string
 		return binding, nil
 	}
 	if bindingPresent && string(bindingRaw) != "null" {
-		return nil, newFailure(KindInvalidPayload, "workflow_action", "non-Product-changing "+role+" cannot carry architecture_binding", false, "correct_request")
+		return nil, newFailure(KindInvalidPayload, "workflow_action", "non-Product-changing "+role+" cannot carry architecture_binding", false, "omit architecture_binding")
 	}
 	if err := validateDerivedLawModification(ctx, tx, workID, lawModifies); err != nil {
 		return nil, err
@@ -77,7 +77,7 @@ func workflowContextBoundaryEvents(ctx context.Context, tx *sql.Tx, request Work
 		return nil, newFailure(KindUnavailable, "workflow_action", "restart dispatch is not implemented and fails closed pending Concord issue #120", false, "contact_operator")
 	}
 	if boundaryKind != "summary" || mode != "summary" || workflowFieldStringDefault(fields, "summary", "") == "" {
-		return nil, newFailure(KindInvalidOperation, "workflow_action", "context boundary currently accepts summary only", false, "use boundary_kind=summary with a completed durable checkpoint")
+		return nil, newFailure(KindInvalidPayload, "workflow_action", "context boundary currently accepts boundary_kind=summary only", false, "use boundary_kind=summary with a completed durable checkpoint")
 	}
 	var workflowRef, workflowDigestValue string
 	var attemptEpoch int64
@@ -89,7 +89,7 @@ func workflowContextBoundaryEvents(ctx context.Context, tx *sql.Tx, request Work
 	}
 	checkpointID := workflowFieldStringDefault(fields, "checkpoint_id", "")
 	if checkpointID == "" {
-		return nil, newFailure(KindInvalidOperation, "workflow_action", "summary boundary requires checkpoint_id", false, "reference the latest durable context checkpoint")
+		return nil, newFailure(KindInvalidPayload, "workflow_action", "summary boundary requires checkpoint_id", false, "reference the latest durable context checkpoint")
 	}
 	return []Event{workflowTypedEvent(eventID, WorkflowContextBoundaryCrossed, request.WorkID, actor, request.Now, expected, map[string]any{
 		"boundary_id": request.OperationID + ":context-boundary", "boundary_sequence": workflowFieldInt(fields, "boundary_sequence", 0), "boundary_kind": "summary", "checkpoint_id": checkpointID, "checkpoint_sequence": workflowFieldInt(fields, "checkpoint_sequence", 0), "summary": workflowFieldStringDefault(fields, "summary", ""), "workflow_ref": workflowRef, "workflow_definition_digest": workflowDigestValue, "attempt_epoch": attemptEpoch, "actor_ref": actor, "request_id": request.RequestID,
@@ -713,10 +713,10 @@ func workflowPremiseEngineeringContractTx(ctx context.Context, tx *sql.Tx, defin
 	}
 	domains, domainsPresent, domainsErr := workflowStoredDecisionDomains(stored)
 	if domainsErr != nil {
-		return false, newFailure(KindInvalidInput, "workflow_action", "the stored decision-domain fact is malformed", false, "restore a verified backup into a new path with concord restore, then swap")
+		return false, newFailure(KindInvariantViolation, "workflow_action", "the stored decision-domain fact is malformed", false, "restore a verified backup into a new path with concord restore, then swap")
 	}
 	if !domainsPresent {
-		return false, newFailure(KindInvalidInput, "workflow_action", "consequence_v1 confirmation requires the contract's stored decision-domain fact; absence is a legacy shape", false, "record the contract's decision domains")
+		return false, newFailure(KindInvariantViolation, "workflow_action", "consequence_v1 confirmation requires the contract's stored decision-domain fact; absence is a legacy shape", false, "record the contract's decision domains")
 	}
 	decision, decisionErr := ClassifyWorkflowApproval(definition, "confirm_premise", WorkflowApprovalFacts{ActiveDecisionDomains: domains})
 	if decisionErr != nil {

@@ -7,8 +7,7 @@
 > **Binding inputs:** PM1 universal query envelope/corpus and accepted TS1–TS6
 > job/tool/context/transport contracts.
 > **Does not decide:** operation-specific payload fields already owned by TS3/TS4,
-> surface identity/change evidence (TS8), measurement evidence (TS9), UI rendering,
-> or C15.
+> surface identity/change evidence (TS8), measurement evidence (TS9), or UI rendering.
 
 ## Context
 

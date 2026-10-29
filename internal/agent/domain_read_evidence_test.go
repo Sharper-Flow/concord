@@ -18,8 +18,8 @@ const singleDomainRootID = pm1fixture.SingleDomainRootID
 
 // domainEvidenceFixture seeds a store carrying the real single-Domain registry
 // shape: one root Domain projected from a committed knowledge manifest, one
-// accepted decision homed to it, two nonterminal
-// contracts bound to it, and typed local attachments. The registry, Domains and
+// accepted decision homed to it, and two nonterminal
+// contracts bound to it. The registry, Domains and
 // law rows come from the live knowledge projection rather than direct inserts,
 // so the reads under test observe the same rows a real index rebuild produces.
 func domainEvidenceFixture(t *testing.T) (*store.Store, *Service, CallEnvelope) {
@@ -249,27 +249,5 @@ func TestAgentDomainRelationsAreAuthoritativeEmptyNotUnavailable(t *testing.T) {
 	}
 	if len(absentList.Result) != 0 {
 		t.Fatalf("unprojected registry returned a Domain list body: %s", absentList.Result)
-	}
-}
-
-// Element 7: typed local attachments with their optimistic set version.
-func TestAgentDomainAttachmentsReturnTypedLocalEdgesWithCoverage(t *testing.T) {
-	t.Parallel()
-	s, service, env := domainEvidenceFixture(t)
-	response := domainRead(t, s, service, env, "attachments", `{"product_id":"product-1","domain_id":"`+singleDomainRootID+`"}`)
-	assertAuthoritativeCoverage(t, response, "attachments")
-
-	var payload struct {
-		Domain      store.DomainSummary        `json:"domain"`
-		Attachments store.DomainAttachmentView `json:"attachments"`
-	}
-	if err := json.Unmarshal(response.Result, &payload); err != nil {
-		t.Fatal(err)
-	}
-	if payload.Domain.DomainID != singleDomainRootID {
-		t.Fatalf("attachments were reported for %q", payload.Domain.DomainID)
-	}
-	if payload.Attachments.ResourceVersion != 0 || len(payload.Attachments.ResourceEdges) != 0 {
-		t.Fatalf("unattached resource set = %#v", payload.Attachments)
 	}
 }

@@ -10,7 +10,7 @@
 > **Research basis:** public predecessor lessons plus official/public models from
 > Linear, GitLab, GitHub Projects, Changesets, Jira, and Bugzilla. No benchmark or
 > proof of concept (PoC) is part of this decision.
-> **Does not decide:** PM6 canonical note placement, C15 managed-resource identity,
+> **Does not decide:** PM6 canonical note placement,
 > TS5 authorization/context mechanics, exact DDL/indexes, or agent tools.
 
 ## Context
@@ -135,8 +135,6 @@ attributes of a Project; they are not membership keys.
 - Moving or renaming a repository updates locators without changing Project ID.
 - One Project may have multiple locators or no repository locator.
 - Membership never keys on a filesystem path or remote URL.
-- Accepted C15 uses first-class non-Project resource identity with owner/consumer
-  links; PM5 does not silently enroll resources as Projects.
 
 ## 5. Atomic membership operations
 
@@ -274,7 +272,6 @@ PM5 does not decide:
 
 - canonical note resolution when no primary Project exists—now settled by accepted
   PM6's Product-home→primary→typed-`ambiguous` rule;
-- managed-resource ownership/sharing shape—now settled separately by accepted C15;
 - TS5's ambient scope, explicit cross-Product authorization, idempotency, or
   mutation envelope;
 - exact table/index/trigger syntax or impact-result pagination;

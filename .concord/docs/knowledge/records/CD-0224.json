@@ -60,9 +60,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:deb5eb1251e0afc208d6b62ab874d13c50b7adb81afbb1c196d1b0f599b06c61",
+  "sha256": "sha256:99a22a63e26004bc906117e982faa8af05ce78ee2fe9fa08f750138de8a5d0b9",
   "status": "accepted",
-  "summary": "Ten planning and browsing operations retire from the agent surface: domain active_work, observation record and dismiss, relate link, unlink, supersede, and restore_superseded, product_view portfolio, work_compact lesson_publish, and knowledge unprocessed. Relation writing keeps three scoped writers: resolve_overlap with its five kinds and per-kind approval, capture raised_from with the work item's creation, and the workflow link_successor forward_link. Lessons publish through a reviewed pull request, the unprocessed negative is resolve_note knowledge_missing, the Domain list, detail, attachments, and overlaps reads remain with observation rows readable, and relation kinds stay closed and relation changes write current rows. CD-0068 is superseded; the Product-row glance contract C14 retires by deletion with its read, and no C14 statement governs a live surface.",
+  "summary": "Ten planning and browsing operations retire from the agent surface: domain active_work, observation record and dismiss, relate link, unlink, supersede, and restore_superseded, product_view portfolio, work_compact lesson_publish, and knowledge unprocessed. Relation writing keeps three scoped writers: resolve_overlap with its five kinds and per-kind approval, capture raised_from with the work item's creation, and the workflow link_successor forward_link. Lessons publish through a reviewed pull request, the unprocessed negative is resolve_note knowledge_missing, the Domain list, detail, and overlaps reads remain with observation rows readable, and relation kinds stay closed and relation changes write current rows. CD-0068 is superseded; the Product-row glance contract C14 retires by deletion with its read, and no C14 statement governs a live surface.",
   "tags": [
     "agent-surface",
     "planning-retirement",

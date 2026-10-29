@@ -107,7 +107,7 @@ func TestNativeTargetNodeCheckSlot(t *testing.T) {
 }
 
 func TestNativeTargetVitestSchemaParity(t *testing.T) {
-	data, err := os.ReadFile("../../contracts/agent-lane-packet.schema.json")
+	data, err := os.ReadFile("../../contracts/agent-tool-surface-payloads.schema.json")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -118,9 +118,9 @@ func TestNativeTargetVitestSchemaParity(t *testing.T) {
 	for _, schema := range []struct {
 		document map[string]any
 		name     string
-	}{{authored, "lane_native_oracle_preparation"}, {payloadschema.Document(), "native_oracle_preparation"}} {
+	}{{authored, "authored"}, {payloadschema.Document(), "embedded"}} {
 		defs := schema.document["$defs"].(map[string]any)
-		preparation := defs[schema.name].(map[string]any)
+		preparation := defs["native_oracle_preparation"].(map[string]any)
 		target := preparation["oneOf"].([]any)[1].(map[string]any)
 		branches := target["oneOf"].([]any)
 		if len(branches) != len(nativeTargetAdmittedPairs) {

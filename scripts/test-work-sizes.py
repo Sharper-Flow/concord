@@ -34,7 +34,6 @@ class WorkSizesFixture(unittest.TestCase):
             "scripts/generate-work-sizes.py",
             "scripts/vocabulary_utils.py",
             "contracts/agent-tool-surface-payloads.schema.json",
-            "contracts/agent-lane-packet.schema.json",
             "contracts/host-tool-surface.v1.json",
         ):
             destination = self.root / relative
@@ -127,23 +126,23 @@ class WorkSizesFixture(unittest.TestCase):
         self.edit_json("contracts/agent-tool-surface-payloads.schema.json", drop)
         self.assertTrue(any(item.startswith("schema-closure: work_size_class") for item in self.findings()))
 
-    def test_review_input_size_must_reference_the_summary(self) -> None:
+    def test_work_summary_size_must_reference_the_summary(self) -> None:
         def drift(document) -> None:
-            document["$defs"]["lane_review_input"]["properties"]["size"] = {"type": "string"}
-        self.edit_json("contracts/agent-lane-packet.schema.json", drift)
-        self.assertTrue(any("lane_review_input.size" in item for item in self.findings()))
+            document["$defs"]["work_summary"]["properties"]["size"] = {"type": "string"}
+        self.edit_json("contracts/agent-tool-surface-payloads.schema.json", drift)
+        self.assertTrue(any("work_summary.size" in item for item in self.findings()))
 
-    def test_review_size_summary_drift_is_reported(self) -> None:
+    def test_model_size_must_reference_the_size_class(self) -> None:
         def drift(document) -> None:
-            document["$defs"]["lane_work_size_summary"]["properties"]["recorded_at"]["maxLength"] = 65
-        self.edit_json("contracts/agent-lane-packet.schema.json", drift)
-        self.assertTrue(any("lane_work_size_summary" in item for item in self.findings()))
+            document["$defs"]["work_size_summary"]["properties"]["model_size"] = {"type": "string"}
+        self.edit_json("contracts/agent-tool-surface-payloads.schema.json", drift)
+        self.assertTrue(any("work_size_summary.model_size" in item for item in self.findings()))
 
-    def test_review_size_vocabulary_drift_is_reported(self) -> None:
-        def drift(document) -> None:
-            document["$defs"]["lane_work_size_class"]["enum"] = ["small", "medium", "larger"]
-        self.edit_json("contracts/agent-lane-packet.schema.json", drift)
-        self.assertTrue(any("lane_work_size_class" in item for item in self.findings()))
+    def test_capture_size_inputs_off_the_closed_object_is_reported(self) -> None:
+        def inline(document) -> None:
+            document["$defs"]["work_define_capture_input"]["properties"]["size_inputs"] = {"type": "object"}
+        self.edit_json("contracts/agent-tool-surface-payloads.schema.json", inline)
+        self.assertTrue(any("work_define_capture_input.size_inputs" in item for item in self.findings()))
 
     def test_revise_size_inputs_off_the_closed_object_is_reported(self) -> None:
         def inline(document) -> None:

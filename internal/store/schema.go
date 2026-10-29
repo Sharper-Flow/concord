@@ -8165,6 +8165,17 @@ CREATE TRIGGER workflow_law_baselines_completed BEFORE UPDATE ON workflow_law_ba
 	},
 	{
 		Version:  165,
+		Name:     "managed_resource_catalog_retirement",
+		Breaking: true,
+		SQL: `
+DROP TABLE domain_resource_attachment_edges;
+DROP TABLE domain_resource_attachment_sets;
+DROP TABLE resource_products;
+DROP TABLE managed_resources;
+`,
+	},
+	{
+		Version:  166,
 		Name:     "native_task_cutover",
 		Breaking: true,
 		SQL: `

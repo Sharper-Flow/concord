@@ -8,7 +8,7 @@
   2026-08-29.
 - **Approval:** 2026-10-17. Coordinator approval under the operator's delegation
   for [Concord (CON) issue 1063](https://linear.app/sharper-flow/issue/CON-1063).
-- **Related:** CD-0006 D1-D2, CD-0053 D4, CD-0222, PM4, C15, and issue #571
+- **Related:** CD-0006 D1-D2, CD-0053 D4, CD-0222, PM4, and issue #571
 - **Preserves:** CD-0053's three accepted predecessor-strength answers; CD-0222's
   Domain-overlap execution block and Domain `replaces` relation; PM4 work-item
   supersession; immutable schema migrations and the other data-integrity
@@ -69,8 +69,6 @@ inform a concrete migration demand. They create no global cutover obligation.
 
 - Current documents describe migration and correction as local, demand-driven
   operations.
-- Existing managed-resource and Domain-attachment operator surfaces remain in
-  scope, with no generic resource-replacement model added.
 
 ## Rejected alternatives
 

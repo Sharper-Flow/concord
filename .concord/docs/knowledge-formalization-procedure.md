@@ -177,11 +177,10 @@ A record about an external system describes how this Product uses it. It
 stores a locator to the vendor's documentation, such as a URL or a context7
 library id, and never the vendor's schema or documentation content. Agents
 fetch the vendor side live, so freshness is never a stored property and no
-stored copy can age. CD-0106 D4 decides this split.
+stored copy can age. CD-0106 D4 owns this rule.
 
-The identity of an external system is not a record. It lives in the managed
-resource inventory, declared by the operator. A record that carries learned
-usage of a resource is tagged `resource:<resource_id>`.
+A record that carries learned usage of a resource is tagged
+`resource:<resource_id>`.
 
 ## Coverage state
 

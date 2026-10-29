@@ -7,8 +7,7 @@
 > and TS2 budget/granularity rules.
 > **Does not decide:** mutation tools (TS4), ambient context or authorization
 > envelope (TS5), transport (TS6), shared success/error envelope (TS7), schema
-> evolution (TS8), or managed-resource shape
-> (C15).
+> evolution (TS8).
 > **Amended direction:** CD-0222 retires component as an authority identity, and
 > CD-0042 requires #197 to replace component filters/context directly with Domain
 > on the pre-go-live primary path. Component inputs are not a compatibility
@@ -64,19 +63,10 @@ scope, or what is happening across that Product now.
 |---|---|---|---|
 | `resolve` | Q1 | optional `product_id` or `project_id`; optional cursor/limit when listing Products | `product_context`: Product identity/stage, ordered Project summaries, resolved scope or ambiguity candidates |
 | `snapshot` | Q2 | resolved/ambient Product; optional `project_ids`; optional `preview_limit` | `product_snapshot`: lifecycle counts, derived counts, unique bounded preview items, authority/freshness watermark |
-| `resources` | C15 | exactly one of resolved/ambient Product or `resource_id`; optional `class`, `kind`, `environment`; cursor/limit | `resource_page`: canonical resources once each, singular owner, bounded consumers, stage, versioned metadata as bounded JSON text; no live provider inference |
 
 `resolve` may use ambient context under TS5, but never guesses when a Project maps
 to multiple Products. `snapshot` is an aggregate orientation view—not an unbounded
 work listing and not a launcher-row contract.
-
-`resources` is the read half of the managed-resource inventory (C15 §5
-directions 1 and 2) and the identity half of external-system knowledge under
-CD-0106 D4. Identity stays operator-declared; no agent operation creates or
-revises a resource. A consumer Product reads the owner Product from the
-resource, then searches that Product's knowledge with the `resource:<id>` tag
-for learned usage. The `metadata_json` field carries the vendor documentation
-locator; it never carries vendor content.
 
 ### 2.2 `concord_work_browse`
 
@@ -205,8 +195,6 @@ selection-rate comparison follows TS2's declared evaluation method.
 - Unbounded `include_all`, artifact-body, or recursive graph options.
 - Tool-local authority/freshness conventions that diverge from TS7.
 - A separate discovery/catalog/status tool in v1.
-- Provisional C15 resource types smuggled into
-  this contract before their owning decision.
 
 ## 7. Falsifiers and amendment rule
 

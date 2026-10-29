@@ -336,7 +336,7 @@ func validateWorkflowCompleteCorrectionRoute(definition WorkflowDefinition, curr
 		// The payload satisfies its own declaration; what refuses is the
 		// step state, so the refusal is an operation refusal, not a
 		// payload one.
-		return newFailure(KindInvalidOperation, "workflow_action_preflight", "complete-step correction requires the reserved route convention complete_step_correction", false, "declare complete_step_correction in the successor route conventions")
+		return newFailure(KindInvalidPayload, "workflow_action_preflight", "complete-step correction requires complete_step_correction in fields.route_conventions", false, "declare complete_step_correction in the successor route conventions")
 	}
 	return nil
 }

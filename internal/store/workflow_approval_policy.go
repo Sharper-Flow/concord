@@ -106,7 +106,7 @@ func ClassifyWorkflowApproval(definition WorkflowDefinition, actionID string, fa
 	case WorkflowApprovalPolicyConsequenceV1:
 		return classifyConsequenceV1WorkflowApproval(definition, actionID, facts)
 	default:
-		return WorkflowApprovalPolicyResult{}, newFailure(KindInvalidInput, "workflow_approval_policy", fmt.Sprintf("definition %s declares unknown approval policy %q", definition.Ref, definition.ApprovalPolicy), false, "declare approval_policy absence or consequence_v1")
+		return WorkflowApprovalPolicyResult{}, newFailure(KindInvalidDefinition, "workflow_approval_policy", fmt.Sprintf("definition %s declares unknown approval policy %q", definition.Ref, definition.ApprovalPolicy), false, "declare approval_policy absence or consequence_v1")
 	}
 }
 
@@ -118,7 +118,7 @@ func classifyLegacyWorkflowApproval(definition WorkflowDefinition, declared *Wor
 	switch consent {
 	case WorkflowConsentNone, WorkflowConsentConditional, WorkflowConsentRequired:
 	default:
-		return WorkflowApprovalPolicyResult{}, newFailure(KindInvalidInput, "workflow_approval_policy", fmt.Sprintf("definition %s action %s declares unknown approval %q", definition.Ref, actionID, string(declared.Approval)), false, "declare none, conditional, or required")
+		return WorkflowApprovalPolicyResult{}, newFailure(KindInvalidDefinition, "workflow_approval_policy", fmt.Sprintf("definition %s action %s declares unknown approval %q", definition.Ref, actionID, string(declared.Approval)), false, "declare none, conditional, or required")
 	}
 	reason := fmt.Sprintf("legacy policy: %s declares approval %s for %s", definition.Ref, consent, actionID)
 	if facts.OperatorRequired && workflowOperatorVerdictActions[actionID] {
@@ -157,19 +157,20 @@ func classifyConsequenceV1WorkflowApproval(definition WorkflowDefinition, action
 // canonical set records decision-bearing work.
 func classifyConsequenceV1Decision(definition WorkflowDefinition, actionID, role string, domains []string) (WorkflowApprovalPolicyResult, error) {
 	pin := definition.Ref
+	kind := KindInvalidInput
+	if actionID == "confirm_premise" {
+		kind = KindInvariantViolation
+	}
 	if domains == nil {
-		return WorkflowApprovalPolicyResult{}, newFailure(KindInvalidInput, "workflow_approval_policy", fmt.Sprintf("consequence_v1 %s on %s requires the %s decision-domain fact; absence is a legacy shape", actionID, pin, role), false, "declare the contract's decision domains explicitly")
+		return WorkflowApprovalPolicyResult{}, newFailure(kind, "workflow_approval_policy", fmt.Sprintf("consequence_v1 %s on %s requires the %s decision-domain fact; absence is a legacy shape", actionID, pin, role), false, "declare the contract's decision domains explicitly")
 	}
 	if err := validateWorkflowDecisionDomains(domains); err != nil {
-		// The fold validator owns invalid_payload for event folding; at the
-		// classifier's pure input boundary the same cause refuses as
-		// invalid_input with its detail preserved.
 		var cause *Failure
 		detail := err.Error()
 		if failureAs(err, &cause) && cause.Detail != "" {
 			detail = cause.Detail
 		}
-		return WorkflowApprovalPolicyResult{}, newFailure(KindInvalidInput, "workflow_approval_policy", fmt.Sprintf("consequence_v1 %s on %s declares a malformed %s decision-domain set: %s", actionID, pin, role, detail), false, "declare the six approval classes canonically sorted and unique")
+		return WorkflowApprovalPolicyResult{}, newFailure(kind, "workflow_approval_policy", fmt.Sprintf("consequence_v1 %s on %s declares a malformed %s decision-domain set: %s", actionID, pin, role, detail), false, "declare the six approval classes canonically sorted and unique")
 	}
 	if !workflowDecisionDomainsRequireConsent(domains) {
 		return WorkflowApprovalPolicyResult{Policy: WorkflowApprovalPolicyConsequenceV1, Class: WorkflowApprovalClassDecision, Consent: WorkflowConsentNone,

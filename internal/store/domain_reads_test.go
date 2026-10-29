@@ -129,19 +129,3 @@ func TestDomainDetailShowsCurrentLawRelationsAndRefusesUnknown(t *testing.T) {
 	}
 	assertFailureKind(t, err, KindUnknownDomain)
 }
-
-func TestDomainAttachmentsReadLocalSets(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	s, _ := seedOverlapProjection(t, "attach-work", "attach-other", false)
-	result, err := s.QueryDomainAttachments(ctx, DomainAttachmentsRequest{Product: "product", Domain: "root"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if result.Domain.DomainID != "root" {
-		t.Fatalf("attachment read wrong: %#v", result)
-	}
-	if len(result.Attachments.ResourceEdges) != 0 || result.Attachments.ResourceVersion != 0 {
-		t.Fatalf("unset resource set must read as zero-version empty: %#v", result.Attachments)
-	}
-}

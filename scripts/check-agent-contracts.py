@@ -93,9 +93,9 @@ HOST_PIN_SCHEMA = ROOT / "contracts/adapter-host-pin.schema.json"
 CURRENT_SCENARIO_IDS = [
     "WF01-capture-late-outcome", "WF02-planning-requires-outcome",
     "WF04-weaker-delivery", "WF05-stronger-delivery",
-    "WF13-verdict-actor-distinctness", "WF19-completion-one-transaction",
+    "WF19-completion-one-transaction",
     "WF37-action-availability-before-register", "WF47-evidence-commit-binding",
-    "WF48-lane-pipeline-typed-evidence", "WF50-one-conjunct-weaker",
+    "WF50-one-conjunct-weaker",
 ]
 DIAGNOSTIC = re.compile(r"^(?P<path>[^(\n]+)\((?P<line>\d+),(?P<column>\d+)\): error (?P<code>TS\d+):")
 
@@ -329,7 +329,6 @@ def _structured_scenario_check(corpus: dict) -> list[str]:
         "approve_contract": {"premise", "decision_domains"},
         "record_verdict": {"verdicts"},
         "complete": {"impact_verdict"},
-        "accept_worker_result": {"attempt_id", "attempt_epoch"},
     }
     def walk(item: dict) -> None:
         action = item.get("action")
@@ -544,13 +543,6 @@ def check_workflow_contracts() -> list[str]:
         if [item.get("id") for item in corpus["scenarios"]] != expected_ids:
             findings.append(f".concord/scenarios/workflow-engine.v1.json: expected scenarios {expected_ids}, got {[item.get('id') for item in corpus['scenarios']]}")
             return findings
-        for scenario_id, expected_cases in (
-            ("WF48-lane-pipeline-typed-evidence", ["WF48-owner-accepts-typed-result", "WF48-worker-self-accept-refused"]),
-        ):
-            scenario = next(item for item in corpus["scenarios"] if item["id"] == scenario_id)
-            if [case.get("id") for case in scenario.get("cases", [])] != expected_cases:
-                findings.append(f".concord/scenarios/workflow-engine.v1.json: expected current cases {expected_cases} in {scenario_id}")
-                return findings
         fixtures = _load_json(fixture_path)
         fixture_by_id = {case["id"]: case for case in fixtures["cases"]}
         for case in fixtures["cases"]:

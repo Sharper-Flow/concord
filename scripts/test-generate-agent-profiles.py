@@ -112,6 +112,25 @@ class ProfileTests(unittest.TestCase):
             for tool in profile["denied_concord_tools"]:
                 self.assertIn(f"  {tool}: deny\n", text)
 
+    def test_authored_primary_uses_native_task_and_retains_outcome_authority(self):
+        profile = next(profile for profile in self.profiles["profiles"] if profile["id"] == "Concord")
+        source = (ROOT / profile["role_source"]).read_text()
+        text = " ".join(generator.primary_projection(profile, source).split())
+        for clause in ("Use native Task to delegate implementation and design under host permissions",
+                       "Obtain independent review through native Task against the exact current subject",
+                       "You are the only participant that advances workflow state",
+                       "Keep qualifying captured native verification receipts",
+                       "a Task answer alone is not verification proof"):
+            self.assertIn(clause, text)
+
+    def test_authored_roles_do_not_require_retired_launcher(self):
+        for profile in self.profiles["profiles"]:
+            text = " ".join((ROOT / profile["role_source"]).read_text().split())
+            for clause in ("typed dispatch", "`dispatch_worker`", "authorized attempt window",
+                           "failed worker attempt", "lane result"):
+                with self.subTest(profile=profile["id"], clause=clause):
+                    self.assertNotIn(clause, text)
+
     def test_primary_role_map_has_exact_population(self):
         text = generator.primary_ts_projection(self.profiles, self.manifest)
         data = json.loads(text.split(" = ", 1)[1])

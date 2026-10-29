@@ -17,8 +17,8 @@ func domainFactFixture(kind DomainFactKind) (DomainFact, DomainFactReferences) {
 		Registry: KnowledgeDomainRegistry{Domains: []KnowledgeDomain{
 			{DomainID: "domain-a", Status: "current"}, {DomainID: "domain-b", Status: "current"}, {DomainID: "retired", Status: "deprecated"},
 		}},
-		Roots:          map[string]DomainFactRoot{"src": {Role: "domain", OwnerDomainIDs: []string{"domain-a"}}},
-		AcceptedLawIDs: map[string]bool{"law-a": true}, ResourceIDs: map[string]bool{"database-a": true, "cache-a": true},
+		Roots:             map[string]DomainFactRoot{"src": {Role: "domain", OwnerDomainIDs: []string{"domain-a"}}},
+		AcceptedLawIDs:    map[string]bool{"law-a": true},
 		Facts:             map[string]DomainFactKind{"invariant-a": DomainFactInvariant, "data-a": DomainFactDataObject},
 		RepositoryAnchors: map[DomainFactRepositoryAnchor]bool{anchor: true}, RequiredCheckAnchors: map[DomainFactEnforcementAnchor]bool{enforcement: true},
 	}
@@ -178,13 +178,20 @@ func TestDomainFactRejectsInvalidReferencesAndPayloads(t *testing.T) {
 		{"duplicate anchor", DomainFactInvariant, func(f *DomainFact, _ *DomainFactReferences) {
 			f.Invariant.EnforcedBy = append(f.Invariant.EnforcedBy, f.Invariant.EnforcedBy[0])
 		}},
-		{"unknown data resource", DomainFactDataObject, func(f *DomainFact, _ *DomainFactReferences) { f.DataObject.ResourceID = "unknown" }},
+		{"empty data resource", DomainFactDataObject, func(f *DomainFact, _ *DomainFactReferences) { f.DataObject.ResourceID = "" }},
+		{"oversized data resource", DomainFactDataObject, func(f *DomainFact, _ *DomainFactReferences) { f.DataObject.ResourceID = strings.Repeat("r", 257) }},
 		{"unknown writer", DomainFactDataObject, func(f *DomainFact, _ *DomainFactReferences) { f.DataObject.WriterDomainIDs = []string{"unknown"} }},
 		{"unknown reader", DomainFactDataObject, func(f *DomainFact, _ *DomainFactReferences) { f.DataObject.ReaderDomainIDs = []string{"unknown"} }},
 		{"dangling invariant", DomainFactDataObject, func(f *DomainFact, _ *DomainFactReferences) { f.DataObject.InvariantIDs = []string{"missing"} }},
 		{"wrong fact kind", DomainFactDataObject, func(f *DomainFact, _ *DomainFactReferences) { f.DataObject.InvariantIDs = []string{"data-a"} }},
-		{"unknown authoritative resource", DomainFactStateAuthority, func(f *DomainFact, _ *DomainFactReferences) { f.StateAuthority.AuthoritativeResourceID = "unknown" }},
-		{"unknown derived resource", DomainFactStateAuthority, func(f *DomainFact, _ *DomainFactReferences) { f.StateAuthority.DerivedCopies[0].ResourceID = "unknown" }},
+		{"empty authoritative resource", DomainFactStateAuthority, func(f *DomainFact, _ *DomainFactReferences) { f.StateAuthority.AuthoritativeResourceID = "" }},
+		{"oversized authoritative resource", DomainFactStateAuthority, func(f *DomainFact, _ *DomainFactReferences) {
+			f.StateAuthority.AuthoritativeResourceID = strings.Repeat("r", 257)
+		}},
+		{"empty derived resource", DomainFactStateAuthority, func(f *DomainFact, _ *DomainFactReferences) { f.StateAuthority.DerivedCopies[0].ResourceID = "" }},
+		{"oversized derived resource", DomainFactStateAuthority, func(f *DomainFact, _ *DomainFactReferences) {
+			f.StateAuthority.DerivedCopies[0].ResourceID = strings.Repeat("r", 257)
+		}},
 		{"derived is authoritative", DomainFactStateAuthority, func(f *DomainFact, _ *DomainFactReferences) {
 			f.StateAuthority.DerivedCopies[0].ResourceID = "database-a"
 		}},
@@ -416,7 +423,6 @@ func TestDomainFactRelationshipCountBounds(t *testing.T) {
 					if n == 0 {
 						fact.StateAuthority.DerivedCopies = nil
 					}
-					refs.ResourceIDs[id] = true
 					anchor := DomainFactRepositoryAnchor{ProjectID: "project-a", Path: "src/state.go", Symbol: id}
 					refs.RepositoryAnchors[anchor] = true
 					fact.StateAuthority.DerivedCopies = append(fact.StateAuthority.DerivedCopies, DomainFactDerivedCopy{ResourceID: id, RebuildRoute: anchor})
@@ -438,7 +444,6 @@ func TestDomainFactPreservesExistingReferenceIdentities(t *testing.T) {
 	fact.OwnerDomainID = domainID
 	fact.DataObject.WriterDomainIDs = []string{domainID}
 	resourceID := strings.Repeat("r", 250) + "/store"
-	refs.ResourceIDs[resourceID] = true
 	fact.DataObject.ResourceID = resourceID
 	fact.Standing = "law"
 	fact.GoverningLawIDs = []string{"spec/domain behavior"}
@@ -447,7 +452,6 @@ func TestDomainFactPreservesExistingReferenceIdentities(t *testing.T) {
 		t.Fatalf("rejected identities admitted by existing owners: %v", err)
 	}
 	fact.DataObject.ResourceID += "r"
-	refs.ResourceIDs[fact.DataObject.ResourceID] = true
 	if _, err := ParseDomainFact("fact-a.json", marshalDomainFact(t, fact), refs); err == nil {
 		t.Fatal("accepted resource identity beyond its existing 256-byte bound")
 	}

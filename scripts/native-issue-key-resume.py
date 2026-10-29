@@ -120,8 +120,9 @@ def stamp_adapter(adapter, release):
 def stage_agents(root):
     agents = root / "config/opencode/agents"
     agents.mkdir()
-    for lane in ("research", "implement", "design", "review", "verify"):
-        shutil.copy2(REPO / f".opencode/agents/concord-{lane}.md", agents)
+    for name in ("Concord", "Concord-RTE", "Concord-Planner",
+                 "concord-explore", "concord-lookup", "concord-advisor"):
+        shutil.copy2(REPO / f".opencode/agents/{name}.md", agents)
     shutil.copy2(SOURCES / "fixture.md", agents)
     # session-prepare and the real host must resolve the same candidate bytes.
     (root / "home/.config").mkdir()

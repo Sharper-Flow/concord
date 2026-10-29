@@ -24,7 +24,7 @@ func TestNativeIsolationSchemaParity(t *testing.T) {
 		"recipe_kind": nativeTargetKind, "target_materializer": "bun", "target_runner": "vitest", "selected_witness_ids": []string{witness}, "case_to_witness_map": map[string][]string{"case:fixture": {witness}},
 		"isolation_policy": nativeIsolationLoopback, "isolation_fingerprint": digest, "isolation_enforcement": "established",
 	}
-	raw, err := os.ReadFile("../../contracts/agent-lane-packet.schema.json")
+	raw, err := os.ReadFile("../../contracts/agent-tool-surface-payloads.schema.json")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -35,14 +35,14 @@ func TestNativeIsolationSchemaParity(t *testing.T) {
 	for _, schema := range []struct {
 		root map[string]any
 		name string
-	}{{authored, "lane_native_oracle_preparation"}, {payloadschema.Document(), "native_oracle_preparation"}} {
+	}{{authored, "authored"}, {payloadschema.Document(), "embedded"}} {
 		t.Run(schema.name, func(t *testing.T) {
 			validate := func(value map[string]any) error {
 				raw, err := json.Marshal(value)
 				if err != nil {
 					t.Fatal(err)
 				}
-				return payloadschema.ValidateInDocument(schema.root, schema.name, raw)
+				return payloadschema.ValidateInDocument(schema.root, "native_oracle_preparation", raw)
 			}
 			if err := validate(value); err != nil {
 				t.Fatal(err)

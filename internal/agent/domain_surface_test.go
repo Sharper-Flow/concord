@@ -57,7 +57,6 @@ func TestDomainReadInputsValidate(t *testing.T) {
 	}{
 		{"concord_domain", "list", `{"product_id":"product-1","page":{"cursor":null,"limit":20}}`},
 		{"concord_domain", "detail", `{"product_id":"product-1","domain_id":"root"}`},
-		{"concord_domain", "attachments", `{"product_id":"product-1","domain_id":"root"}`},
 		{"concord_knowledge", "search", `{"product_id":"product-1","domain_id":"root","page":{"cursor":null,"limit":20}}`},
 	}
 	for _, probe := range valid {

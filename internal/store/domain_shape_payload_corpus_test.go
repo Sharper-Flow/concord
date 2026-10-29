@@ -28,11 +28,12 @@ func TestCommittedEnvelopeSchemaFactFitsBound(t *testing.T) {
 
 func TestCommittedAgentContractFactFitsBound(t *testing.T) {
 	t.Parallel()
-	assertCommittedDomainFactFitsBound(t, "agent-contract", "internal/agentcontract", "agent-operation-admission", []string{"agent-contract"},
+	law := assertCommittedDomainFactFitsBound(t, "agent-contract", "internal/agentcontract", "agent-operation-admission", []string{"agent-contract"},
 		DomainShapeSelector{Path: "internal/agentcontract/generated_contracts.go"},
 		DomainShapeSelector{Path: "internal/agentcontract/payload_validation.go"},
 		DomainShapeSelector{Subject: "agent-operation-admission"},
 	)
+	requireCommittedGoverningLaw(t, law, "TS5", "TS6", "TS8")
 }
 
 func TestCommittedTypedErrorVocabularyFactFitsBound(t *testing.T) {
@@ -49,7 +50,7 @@ func TestCommittedEnvelopeModelFactFitsBound(t *testing.T) {
 		DomainShapeSelector{Path: "internal/agentcontract/envelope.go"},
 		DomainShapeSelector{Subject: "agent-envelope-model"},
 	)
-	requireCommittedGoverningLaw(t, law, "TS7", "CD-0132")
+	requireCommittedGoverningLaw(t, law, "TS7", "TS8", "CD-0132")
 }
 
 func TestCommittedWorkflowCompletionProofFactFitsBound(t *testing.T) {

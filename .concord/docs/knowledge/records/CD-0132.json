@@ -1,4 +1,8 @@
 {
+  "applies_to_domain_ids": [
+    "agent-adapter",
+    "agent-contract"
+  ],
   "authority": {
     "contract_version": 1,
     "legislated_by": "work-8d7bd788b2890355460bb5b7",

@@ -33,6 +33,7 @@
     },
     {
       "domain_ids": [
+        "agent-adapter",
         "agent-call-boundary",
         "agent-contract",
         "durable-authority",
@@ -91,6 +92,7 @@
     },
     {
       "domain_ids": [
+        "agent-adapter",
         "agent-call-boundary",
         "agent-contract",
         "durable-authority",
@@ -148,6 +150,7 @@
         "product-memory",
         "repository-verification",
         "work-coordination",
+        "worker-lanes",
         "workflow-engine"
       ],
       "path": "scripts",

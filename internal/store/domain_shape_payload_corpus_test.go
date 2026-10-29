@@ -18,11 +18,12 @@ func TestCommittedUniqueJSONFactFitsBound(t *testing.T) {
 
 func TestCommittedEnvelopeSchemaFactFitsBound(t *testing.T) {
 	t.Parallel()
-	assertCommittedDomainFactFitsBound(t, "agent-contract", "internal/payloadschema", "agent-envelope-schema", []string{"agent-call-boundary", "agent-contract"},
+	law := assertCommittedDomainFactFitsBound(t, "agent-contract", "internal/payloadschema", "agent-envelope-schema", []string{"agent-call-boundary", "agent-contract"},
 		DomainShapeSelector{Path: "internal/payloadschema/envelope.go"},
 		DomainShapeSelector{Path: "internal/payloadschema/generated_envelope_schema.go"},
 		DomainShapeSelector{Subject: "agent-envelope-schema"},
 	)
+	requireCommittedGoverningLaw(t, law, "TS7", "CD-0132")
 }
 
 func TestCommittedAgentContractFactFitsBound(t *testing.T) {
@@ -44,10 +45,11 @@ func TestCommittedTypedErrorVocabularyFactFitsBound(t *testing.T) {
 
 func TestCommittedEnvelopeModelFactFitsBound(t *testing.T) {
 	t.Parallel()
-	assertCommittedDomainFactFitsBound(t, "agent-contract", "internal/agentcontract", "agent-envelope-model", []string{"agent-call-boundary", "agent-contract"},
+	law := assertCommittedDomainFactFitsBound(t, "agent-contract", "internal/agentcontract", "agent-envelope-model", []string{"agent-call-boundary", "agent-contract"},
 		DomainShapeSelector{Path: "internal/agentcontract/envelope.go"},
 		DomainShapeSelector{Subject: "agent-envelope-model"},
 	)
+	requireCommittedGoverningLaw(t, law, "TS7", "CD-0132")
 }
 
 func TestCommittedWorkflowCompletionProofFactFitsBound(t *testing.T) {
@@ -67,8 +69,20 @@ func TestCommittedCIWaitFactFitsBound(t *testing.T) {
 	)
 }
 
-func assertCommittedDomainFactFitsBound(t *testing.T, domainID, owningRoot, factID string, applicability []string, selectors ...DomainShapeSelector) {
+func requireCommittedGoverningLaw(t *testing.T, law map[string]bool, ids ...string) {
 	t.Helper()
+	for _, id := range ids {
+		if !law[id] {
+			t.Fatalf("a selector result omitted governing law %s", id)
+		}
+	}
+}
+
+// assertCommittedDomainFactFitsBound returns the governing law every selector
+// result carried.
+func assertCommittedDomainFactFitsBound(t *testing.T, domainID, owningRoot, factID string, applicability []string, selectors ...DomainShapeSelector) map[string]bool {
+	t.Helper()
+	var law map[string]bool
 	ctx := context.Background()
 	root := repositoryRootForTest(t)
 	runner := CommittedReadGitRunner{}
@@ -109,6 +123,11 @@ func assertCommittedDomainFactFitsBound(t *testing.T, domainID, owningRoot, fact
 			t.Fatalf("selector %+v omitted %s", selector, factID)
 		}
 		selection.GoverningLaw = domainShapeManifestGoverningLaw(manifest, selection)
+		carried := map[string]bool{}
+		for _, record := range selection.GoverningLaw {
+			carried[record.LawID] = law == nil || law[record.LawID]
+		}
+		law = carried
 		bounded, err := boundDomainShapeResult(selection)
 		if err != nil {
 			t.Fatal(err)
@@ -119,4 +138,5 @@ func assertCommittedDomainFactFitsBound(t *testing.T, domainID, owningRoot, fact
 		}
 		t.Logf("selector=%+v result_bytes=%d", selector, len(raw))
 	}
+	return law
 }

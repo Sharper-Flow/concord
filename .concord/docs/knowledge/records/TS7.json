@@ -1,4 +1,8 @@
 {
+  "applies_to_domain_ids": [
+    "agent-adapter",
+    "agent-contract"
+  ],
   "authority": {
     "tier": "derived"
   },

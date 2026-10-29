@@ -253,22 +253,7 @@ type observationRecordInput struct {
 	// and satisfy no evidence or gate; the external variant is also
 	// non-authoritative and can only supply or withhold a precondition.
 	External *observationExternalInput `json:"external"`
-	// Conflict is the settlement variant: it records one applied conflict
-	// rule itself instead of transcribing an observation. It is exclusive
-	// with Statement and External; every recorded field except rule_id and
-	// outcome is computed by the core.
-	Conflict *observationConflictInput `json:"conflict"`
 	Approval *approvalInput            `json:"approval"`
-}
-
-// observationConflictInput is the closed caller-owned part of one conflict
-// settlement. The rule vocabulary is the live checked table plus the A2
-// safety rules, so the schema admits a bounded identifier shape and the core
-// refuses an unknown rule as a typed input failure; every other recorded
-// field is computed inside the settlement transaction.
-type observationConflictInput struct {
-	RuleID  string `json:"rule_id"`
-	Outcome string `json:"outcome"`
 }
 
 type observationExternalInput struct {
@@ -2411,19 +2396,6 @@ func (r runtime) planObservationRecord(_ context.Context, base agentcontract.Env
 	}
 	plan.scope["work_ids"] = []string{in.WorkID}
 	switch {
-	case in.Conflict != nil:
-		// The settlement reference comes from the authenticated principal and
-		// idempotency key, never an asserted actor; the recorder derives the
-		// event identity and returns the one recorded ID.
-		plan.intents = []agentcontract.NextIntent{{Tool: "concord_work_trace", Operation: "history", QueryID: "PM1.Q7", ReasonCode: "verify_settlement_recorded", RequiredFields: []string{"work_id"}}}
-		plan.effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []agentcontract.ChangedRef, error) {
-			id, err := store.RecordConflictApplicationTx(ctx, tx, store.ConflictApplicationRequest{WorkID: in.WorkID, Actor: grant.PrincipalRef, OccurredAt: r.Authority.now(), RuleID: in.Conflict.RuleID, Outcome: in.Conflict.Outcome, SettlementRef: conflictSettlementRef(grant.PrincipalRef, r.Tool, r.Operation, idempotencyKey(raw))})
-			if err != nil {
-				return nil, nil, nil, err
-			}
-			changed := []agentcontract.ChangedRef{{EntityKind: "conflict_application", ID: id, Version: "1"}}
-			return mutationPayload(changed, plan.intents), []string{id}, changed, nil
-		}
 	case in.External != nil:
 		// CD-0040 D2/D3: the reporting or verifying authority is derived
 		// from the validated grant's trusted client. A caller-supplied
@@ -4901,20 +4873,6 @@ type storeMembership struct {
 
 func mutationDigest(tool, operation string, env CallEnvelope, raw []byte) string {
 	return store.AgentMutationDigest(tool, operation, env.SelectedProductID, env.AmbientProjectID, raw)
-}
-
-// conflictSettlementRef derives the bounded settlement reference for one
-// agent-surface settlement from the authenticated principal, the called
-// surface, and the caller's idempotency key. mutationDigest omits the key and
-// the principal, so it cannot distinguish the same declared intent under a
-// fresh key or another principal. The reference is settlement identity input;
-// the recorder derives the final event identity from it and never lets a
-// caller assert the actor. The inputs are JSON-encoded as a primitive field
-// array, so field boundaries survive.
-func conflictSettlementRef(principal, tool, operation, key string) string {
-	canonical, _ := json.Marshal([]string{"conflict-settlement", principal, tool, operation, key})
-	sum := sha256.Sum256(canonical)
-	return "settlement-" + hex.EncodeToString(sum[:16])
 }
 
 func mutationPayload(changed []agentcontract.ChangedRef, intents []agentcontract.NextIntent) json.RawMessage {

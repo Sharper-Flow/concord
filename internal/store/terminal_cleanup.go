@@ -197,7 +197,6 @@ func deleteTerminalExecutionTx(ctx context.Context, tx *sql.Tx, workID string) e
 		`DELETE FROM workflow_overlap_resolutions WHERE from_work_id=?1 OR to_work_id=?1`,
 		`DELETE FROM external_observations WHERE work_id=?1`,
 		`DELETE FROM work_size_overrides WHERE work_id=?1`,
-		`DELETE FROM work_conflict_applications WHERE work_id=?1`,
 		`DELETE FROM workflow_backlog_alignment WHERE work_id=?1 OR related_work_id=?1`,
 		`DELETE FROM workflow_impact_notices WHERE source_work_id=?1 OR target_work_id=?1 OR edge_owner_work_id=?1`,
 		`DELETE FROM workflow_impact_edges WHERE work_id=?1 OR target_work_id=?1`,

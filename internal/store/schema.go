@@ -8080,6 +8080,14 @@ CREATE TRIGGER work_conflict_applications_guard_update BEFORE UPDATE ON work_con
 CREATE TRIGGER work_conflict_applications_guard_delete BEFORE DELETE ON work_conflict_applications BEGIN SELECT RAISE(ABORT, 'work_conflict_applications is write-seam-only') WHERE NOT EXISTS (SELECT 1 FROM write_guard WHERE active=1); END;
 `,
 	},
+	{
+		Version:  163,
+		Name:     "retire_work_conflict_applications",
+		Breaking: true,
+		SQL: `
+DROP TABLE work_conflict_applications;
+`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any

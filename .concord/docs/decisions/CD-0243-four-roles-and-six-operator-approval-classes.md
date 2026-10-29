@@ -219,7 +219,6 @@ this law; this record does not claim those mechanisms are implemented.
 ## Verification
 
 - `python3 scripts/check-knowledge-index.py` checks the law record and relations.
-- `python3 scripts/check-conflict-rules.py` checks the table against `priorities.md`.
 - `python3 scripts/check-primary-prompts.py` checks the generated role sources.
 - `python3 scripts/test-generate-agent-lanes.py` checks their projection.
 - `bun test adapter/opencode/` checks the shipped asking instructions.

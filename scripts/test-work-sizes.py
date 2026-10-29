@@ -144,20 +144,6 @@ class WorkSizesFixture(unittest.TestCase):
         self.edit_json("contracts/agent-tool-surface-payloads.schema.json", inline)
         self.assertTrue(any("work_define_revise_input.operator_size" in item for item in self.findings()))
 
-    def test_history_settlement_size_off_the_vocabulary_is_reported(self) -> None:
-        def drift(document) -> None:
-            fields = document["$defs"]["work_event_page"]["properties"]["entries"]["items"]["properties"]["conflict_application"]["properties"]
-            fields["size"] = {"type": "string", "enum": ["small", "medium", "larger"]}
-        self.edit_json("contracts/agent-tool-surface-payloads.schema.json", drift)
-        self.assertTrue(any("work_event_page.conflict_application.size" in item for item in self.findings()))
-
-    def test_history_settlement_size_missing_is_reported(self) -> None:
-        def drop(document) -> None:
-            fields = document["$defs"]["work_event_page"]["properties"]["entries"]["items"]["properties"]["conflict_application"]["properties"]
-            del fields["size"]
-        self.edit_json("contracts/agent-tool-surface-payloads.schema.json", drop)
-        self.assertTrue(any("work_event_page.conflict_application.size" in item for item in self.findings()))
-
     def test_review_input_size_must_reference_the_summary(self) -> None:
         def drift(document) -> None:
             document["$defs"]["lane_review_input"]["properties"]["size"] = {"type": "string"}

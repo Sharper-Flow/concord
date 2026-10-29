@@ -2,6 +2,22 @@
   "evidence": [
     {
       "kind": "go_test",
+      "value": "internal/store.TestSemanticJudgedReviewAcceptance"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestSemanticJudgedReviewDisposition"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestSemanticJudgedAcceptanceAtomic"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestSemanticJudgedMixedRequiresNative"
+    },
+    {
+      "kind": "go_test",
       "value": "internal/store.TestOwnerOracleReceipt"
     },
     {

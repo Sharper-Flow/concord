@@ -58,7 +58,13 @@ readiness and binds its evidence.
 An oracle-capable revision carries `acceptance_oracle` as immutable job
 content in the same digest. Its closed graph names behavioral owners and
 obligations, finite cases, and executable controls. Each job predicate has
-an owner and a control; case/control references are reciprocal and resolve.
+an owner and an executable control. Main may additionally declare a
+Review-judged case with no controls; other case/control references are
+reciprocal and resolve. The immutable job declares the judge, not the worker's
+report. A judged case never enters a native preparation or execution bundle.
+A case identity or owner/entry-point obligation that was executable in any
+recorded revision of the source or dispatched job cannot become Review-judged.
+Existing executable obligations remain required alongside judged obligations.
 Owners name member Projects, contained source paths, entry points, approved
 affected Domains, and any governing law at the contract's pinned hash.
 Controls pin repository-file recipes, exact argument vectors, contained

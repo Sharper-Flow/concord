@@ -436,6 +436,9 @@ func validateReviewAcceptance(ctx context.Context, q queryer, workID, attempt, a
 	if err := validateReviewObservedCandidates(auth, result); err != nil {
 		return err
 	}
+	if err := validateOracleJudgedAcceptance(ctx, q, workID, result); err != nil {
+		return err
+	}
 	return validateReviewAssignmentAcceptance(ctx, q, workID, auth, report)
 }
 
@@ -528,19 +531,30 @@ func validateReviewFindingClosures(ctx context.Context, q queryer, workID string
 		if finding.Status != "closed" {
 			continue
 		}
-		if err := validateReviewFindingClosure(ctx, q, workID, report.OutputCandidate, finding); err != nil {
+		// Judged closure citations are Review rationale, never native receipts;
+		// every declared control still needs an output-subject receipt.
+		judged := false
+		if finding.Oracle != nil && finding.Oracle.ContinuesFindingID != "" {
+			for _, resolution := range report.ResolvedFindings {
+				judged = judged || (resolution.FindingID == finding.Oracle.ContinuesFindingID && len(resolution.JudgedCaseIDs) != 0)
+			}
+		}
+		if err := validateReviewFindingClosure(ctx, q, workID, report.OutputCandidate, finding, judged); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func validateReviewFindingClosure(ctx context.Context, q queryer, workID string, output WorkerReviewCandidate, finding WorkerReviewFinding) error {
+func validateReviewFindingClosure(ctx context.Context, q queryer, workID string, output WorkerReviewCandidate, finding WorkerReviewFinding, judged bool) error {
 	coveredControls := map[string]bool{}
 	for _, ref := range finding.ClosureRefs {
 		producer, err := readOracleVerifySubjectReceipt(ctx, q, workID, ref)
 		if err != nil {
 			return err
+		}
+		if producer == nil && judged {
+			continue
 		}
 		if producer == nil || producer.SubjectRef != "commit:"+output.Commit || producer.ExitCode != 0 || producer.Oracle == nil || producer.Oracle.Phase != "execute" || producer.ProjectID != output.ProjectID {
 			return reviewFailure(KindMissingEvidence, "finding "+finding.FindingID+" has no passing output-subject closure receipt", "verify the corrected candidate and cite the producer's receipt in the finding closure")

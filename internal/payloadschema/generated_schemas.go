@@ -4169,7 +4169,19 @@ const GeneratedPayloadSchemaDocument = `{
     },
     "lane_report_resolved_finding": {
       "additionalProperties": false,
-      "description": "One evidenced closure claim of a previously open ranked finding. A finding closes only through supported closure; omission, relabeling, or a confidence change never closes it.",
+      "anyOf": [
+        {
+          "required": [
+            "evidence_refs"
+          ]
+        },
+        {
+          "required": [
+            "judged_case_ids"
+          ]
+        }
+      ],
+      "description": "One closure claim of a previously open ranked finding. Supply native evidence refs, exact judged-case IDs, or both as required by the finding. Judged closure requires Main acceptance of the fresh candidate-bound completed Review report; the report alone grants no closure authority. Omission, relabeling, or a confidence change never closes a finding.",
       "properties": {
         "evidence_refs": {
           "description": "The producer-captured current-subject evidence the closure names, as the control requires.",
@@ -4189,11 +4201,23 @@ const GeneratedPayloadSchemaDocument = `{
           "minLength": 11,
           "pattern": "^finding:[0-9]+:[0-9]+$",
           "type": "string"
+        },
+        "judged_case_ids": {
+          "description": "The exact complete set of required Main-declared judge=review cases. Source citations are rationale, never native execution receipts.",
+          "items": {
+            "maxLength": 128,
+            "minLength": 6,
+            "pattern": "^case:[A-Za-z0-9][A-Za-z0-9._:-]{0,126}$",
+            "type": "string"
+          },
+          "maxItems": 8,
+          "minItems": 1,
+          "type": "array",
+          "uniqueItems": true
         }
       },
       "required": [
-        "finding_id",
-        "evidence_refs"
+        "finding_id"
       ],
       "type": "object"
     },
@@ -4963,7 +4987,7 @@ const GeneratedPayloadSchemaDocument = `{
         "cases": {
           "description": "Bounds: 1..64 items inclusive",
           "items": {
-            "$ref": "#/$defs/worker_oracle_case"
+            "$ref": "#/$defs/native_oracle_executable_case"
           },
           "maxItems": 64,
           "minItems": 1,
@@ -4989,6 +5013,67 @@ const GeneratedPayloadSchemaDocument = `{
       "minLength": 71,
       "pattern": "^sha256:[0-9a-f]{64}$",
       "type": "string"
+    },
+    "native_oracle_executable_case": {
+      "additionalProperties": false,
+      "description": "Executable cases only: native preparation never admits judge=review cases.",
+      "properties": {
+        "case_id": {
+          "description": "Bounds: 6..128 code points inclusive",
+          "maxLength": 128,
+          "minLength": 6,
+          "pattern": "^case:[A-Za-z0-9][A-Za-z0-9._:-]{0,126}$",
+          "type": "string"
+        },
+        "control_ids": {
+          "description": "Bounds: 1..8 items inclusive",
+          "items": {
+            "description": "Bounds: 9..128 code points inclusive",
+            "maxLength": 128,
+            "minLength": 9,
+            "pattern": "^control:[A-Za-z0-9][A-Za-z0-9._:-]{0,126}$",
+            "type": "string"
+          },
+          "maxItems": 8,
+          "minItems": 1,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "entry_point": {
+          "description": "Bounds: 1..512 code points inclusive",
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "expected_state": {
+          "description": "Bounds: 1..512 code points inclusive",
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "input_class": {
+          "description": "Bounds: 1..512 code points inclusive",
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "owner_id": {
+          "description": "Bounds: 7..128 code points inclusive",
+          "maxLength": 128,
+          "minLength": 7,
+          "pattern": "^owner:[A-Za-z0-9][A-Za-z0-9._:-]{0,126}$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "case_id",
+        "owner_id",
+        "entry_point",
+        "input_class",
+        "expected_state",
+        "control_ids"
+      ],
+      "type": "object"
     },
     "native_oracle_execute_request": {
       "additionalProperties": false,
@@ -27624,9 +27709,32 @@ const GeneratedPayloadSchemaDocument = `{
     },
     "worker_oracle_case": {
       "additionalProperties": false,
+      "description": "Main-declared immutable case. Omitted judge requires executable controls; judge=review forbids control_ids. A judged case cannot replace an executable obligation or enter a native preparation bundle.",
+      "oneOf": [
+        {
+          "not": {
+            "required": [
+              "judge"
+            ]
+          },
+          "required": [
+            "control_ids"
+          ]
+        },
+        {
+          "not": {
+            "required": [
+              "control_ids"
+            ]
+          },
+          "required": [
+            "judge"
+          ]
+        }
+      ],
       "properties": {
         "case_id": {
-          "description": "A stable case: identity, unique within this work item. Bounds: 6..128 code points inclusive",
+          "description": "Bounds: 6..128 code points inclusive",
           "maxLength": 128,
           "minLength": 6,
           "pattern": "^case:[A-Za-z0-9][A-Za-z0-9._:-]{0,126}$",
@@ -27647,13 +27755,13 @@ const GeneratedPayloadSchemaDocument = `{
           "uniqueItems": true
         },
         "entry_point": {
-          "description": "The named entry path or transition this case exercises. Bounds: 1..512 code points inclusive",
+          "description": "Bounds: 1..512 code points inclusive",
           "maxLength": 512,
           "minLength": 1,
           "type": "string"
         },
         "expected_state": {
-          "description": "A bounded description of the expected state, never a new predicate DSL. Bounds: 1..512 code points inclusive",
+          "description": "Bounds: 1..512 code points inclusive",
           "maxLength": 512,
           "minLength": 1,
           "type": "string"
@@ -27662,6 +27770,12 @@ const GeneratedPayloadSchemaDocument = `{
           "description": "Bounds: 1..512 code points inclusive",
           "maxLength": 512,
           "minLength": 1,
+          "type": "string"
+        },
+        "judge": {
+          "enum": [
+            "review"
+          ],
           "type": "string"
         },
         "owner_id": {
@@ -27677,8 +27791,7 @@ const GeneratedPayloadSchemaDocument = `{
         "owner_id",
         "entry_point",
         "input_class",
-        "expected_state",
-        "control_ids"
+        "expected_state"
       ],
       "type": "object"
     },

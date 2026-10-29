@@ -447,21 +447,66 @@ func mergeRefSiblingsValue(defs map[string]any, value any) any {
 	}
 }
 
+func TestCrossFieldSampleObjectUnion(t *testing.T) {
+	defs := firstCallPublishedDefs(t)
+	for _, keyword := range []string{"oneOf", "anyOf"} {
+		for _, entry := range []string{"object", "value"} {
+			t.Run(keyword+"/"+entry, func(t *testing.T) {
+				node := mergeRefSiblings(defs, defs["worker_oracle_case"].(map[string]any))
+				branches := node["oneOf"]
+				delete(node, "oneOf")
+				node[keyword] = branches
+				var sample any
+				if entry == "object" {
+					sample = crossFieldSampleObject(defs, node)
+				} else {
+					sample = crossFieldSampleValue(defs, node)
+				}
+				encoded, err := json.Marshal(sample)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := payloadschema.Validate("worker_oracle_case", encoded); err != nil {
+					t.Fatalf("sample lost enclosing or branch requirements: %v: %s", err, encoded)
+				}
+				for _, field := range []string{"case_id", "control_ids"} {
+					var mutant map[string]any
+					if err := json.Unmarshal(encoded, &mutant); err != nil {
+						t.Fatal(err)
+					}
+					delete(mutant, field)
+					data, err := json.Marshal(mutant)
+					if err != nil {
+						t.Fatal(err)
+					}
+					if err := payloadschema.Validate("worker_oracle_case", data); err == nil {
+						t.Fatalf("sample without required %s was accepted: %s", field, data)
+					}
+				}
+			})
+		}
+	}
+}
+
 // crossFieldSampleObject samples one admitted object for a schema node whose
 // branches the cross-field declarations split, following oneOf/anyOf into
-// their first branch and filling the enclosing node's own requireds.
+// their first branch and filling both required sets from their property declarations.
 func crossFieldSampleObject(defs map[string]any, node map[string]any) map[string]any {
 	node = mergeRefSiblings(defs, node)
 	object := map[string]any{}
-	if branches, ok := node["oneOf"].([]any); ok && len(branches) > 0 {
-		if branch, ok := branches[0].(map[string]any); ok {
-			for name, value := range crossFieldSampleObject(defs, branch) {
-				object[name] = value
+	required := requiredNames(node)
+	for _, keyword := range []string{"oneOf", "anyOf"} {
+		if branches, ok := node[keyword].([]any); ok && len(branches) > 0 {
+			if branch, ok := branches[0].(map[string]any); ok {
+				for name, value := range crossFieldSampleObject(defs, branch) {
+					object[name] = value
+				}
+				required = append(required, requiredNames(branch)...)
 			}
 		}
 	}
 	properties, _ := node["properties"].(map[string]any)
-	for _, name := range requiredNames(node) {
+	for _, name := range required {
 		if _, present := object[name]; present {
 			continue
 		}
@@ -496,6 +541,9 @@ func crossFieldSampleValue(defs map[string]any, node map[string]any) any {
 	if enum, ok := node["enum"].([]any); ok && len(enum) > 0 {
 		return enum[0]
 	}
+	if _, object := node["properties"]; object || node["type"] == "object" {
+		return crossFieldSampleObject(defs, node)
+	}
 	for _, keyword := range []string{"oneOf", "anyOf"} {
 		if branches, ok := node[keyword].([]any); ok && len(branches) > 0 {
 			if branch, ok := branches[0].(map[string]any); ok {
@@ -528,8 +576,6 @@ func crossFieldSampleValue(defs map[string]any, node map[string]any) any {
 			return list
 		}
 		return []any{}
-	case "object":
-		return crossFieldSampleObject(defs, node)
 	case "string":
 		pattern, _ := node["pattern"].(string)
 		switch {
@@ -549,9 +595,6 @@ func crossFieldSampleValue(defs map[string]any, node map[string]any) any {
 		// The default sample clears the two-byte floor every fold holds
 		// workflow strings to, which minLength alone does not encode.
 		return "cross-field-sample"
-	}
-	if _, carries := node["properties"]; carries {
-		return crossFieldSampleObject(defs, node)
 	}
 	return "cross-field-sample"
 }

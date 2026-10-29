@@ -1308,13 +1308,35 @@
     "lane_worker_oracle_case": {
       "type": "object",
       "additionalProperties": false,
+      "description": "Main-declared immutable case. Omitted judge requires executable controls; judge=review forbids control_ids. A judged case cannot replace an executable obligation or enter a native preparation bundle.",
       "required": [
         "case_id",
         "owner_id",
         "entry_point",
         "input_class",
-        "expected_state",
-        "control_ids"
+        "expected_state"
+      ],
+      "oneOf": [
+        {
+          "required": [
+            "control_ids"
+          ],
+          "not": {
+            "required": [
+              "judge"
+            ]
+          }
+        },
+        {
+          "required": [
+            "judge"
+          ],
+          "not": {
+            "required": [
+              "control_ids"
+            ]
+          }
+        }
       ],
       "properties": {
         "case_id": {
@@ -1343,6 +1365,12 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 512
+        },
+        "judge": {
+          "type": "string",
+          "enum": [
+            "review"
+          ]
         },
         "control_ids": {
           "type": "array",

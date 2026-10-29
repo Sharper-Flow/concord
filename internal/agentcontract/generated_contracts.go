@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-const ManifestDigest = "sha256:acb88188f0e06b7c0fe21fd1c2c0d318ad25799e0ac281a5a92564bc2177d486"
+const ManifestDigest = "sha256:553717c149bf63084953f0875a32bf53dc7eef5799f387349577c20ed4319455"
 
 type OperationKind string
 
@@ -184,7 +184,7 @@ var GeneratedPayloadRules = map[string]GeneratedPayloadRule{
 	"knowledge_search_input":                                {Required: []string{}, Properties: []string{"product_id", "project_id", "kinds", "tags", "text", "allow_degraded", "page", "limit", "domain_id", "requested_budget_seconds"}},
 	"lane_report_oracle_finding":                            {Required: []string{"classification"}, Properties: []string{"classification", "owner_id", "failure_family", "predicate_ids", "law_bindings", "case_ids", "control_ids", "evidence_refs", "entry_point", "continues_finding_id", "variant_of"}},
 	"lane_report_oracle_law_binding":                        {Required: []string{"source", "clause"}, Properties: []string{"source", "clause"}},
-	"lane_report_resolved_finding":                          {Required: []string{"finding_id", "evidence_refs"}, Properties: []string{"finding_id", "evidence_refs"}},
+	"lane_report_resolved_finding":                          {Required: []string{"finding_id"}, Properties: []string{"finding_id", "evidence_refs", "judged_case_ids"}},
 	"lane_report_review_assessment":                         {Required: []string{"predicate_id", "assessment", "receipt_refs"}, Properties: []string{"predicate_id", "assessment", "receipt_refs"}},
 	"lane_report_review_block":                              {Required: []string{"disposition", "input_candidate", "output_candidate", "dependencies", "assessments", "findings", "remaining_obligations"}, Properties: []string{"disposition", "input_candidate", "output_candidate", "dependencies", "assessments", "remaining_obligations", "findings", "resolved_findings"}},
 	"lane_report_review_candidate":                          {Required: []string{"project_id", "commit", "tree"}, Properties: []string{"project_id", "commit", "tree"}},
@@ -198,6 +198,7 @@ var GeneratedPayloadRules = map[string]GeneratedPayloadRule{
 	"native_git_tag":                                        {Required: []string{"ref", "object", "peeled"}, Properties: []string{"ref", "object", "peeled"}},
 	"native_git_view":                                       {Required: []string{"object_format", "commit", "tree", "tags"}, Properties: []string{"object_format", "commit", "tree", "tags"}},
 	"native_oracle_control_bundle":                          {Required: []string{"owner", "control", "cases"}, Properties: []string{"owner", "control", "cases"}},
+	"native_oracle_executable_case":                         {Required: []string{"case_id", "owner_id", "entry_point", "input_class", "expected_state", "control_ids"}, Properties: []string{"case_id", "owner_id", "entry_point", "input_class", "expected_state", "control_ids"}},
 	"native_oracle_execute_request":                         {Required: []string{"phase", "attempt_id", "attempt_epoch", "worker_packet_digest", "worker_job_binding", "control_id", "preparation_run_ref"}, Properties: []string{"phase", "attempt_id", "attempt_epoch", "worker_packet_digest", "worker_job_binding", "control_id", "preparation_run_ref"}},
 	"native_oracle_file":                                    {Required: []string{"path", "blob_oid", "sha256"}, Properties: []string{"path", "blob_oid", "sha256"}},
 	"native_oracle_job_binding":                             {Required: []string{"job_id", "revision", "digest"}, Properties: []string{"job_id", "revision", "digest"}},
@@ -387,7 +388,7 @@ var GeneratedPayloadRules = map[string]GeneratedPayloadRule{
 	"worker_failure_subject":                                {Required: []string{"kind", "locator"}, Properties: []string{"kind", "locator", "digest"}},
 	"worker_job_direct_caller_allowance":                    {Required: []string{"project_id", "mechanisms", "domain_ids", "law_bindings"}, Properties: []string{"project_id", "mechanisms", "domain_ids", "law_bindings"}},
 	"worker_job_prerequisite":                               {Required: []string{"job_id", "revision"}, Properties: []string{"job_id", "revision", "result_ref"}},
-	"worker_oracle_case":                                    {Required: []string{"case_id", "owner_id", "entry_point", "input_class", "expected_state", "control_ids"}, Properties: []string{"case_id", "owner_id", "entry_point", "input_class", "expected_state", "control_ids"}},
+	"worker_oracle_case":                                    {Required: []string{"case_id", "owner_id", "entry_point", "input_class", "expected_state"}, Properties: []string{"case_id", "owner_id", "entry_point", "input_class", "expected_state", "judge", "control_ids"}},
 	"worker_oracle_control":                                 {Required: []string{"control_id", "owner_id", "predicate_ids", "case_ids", "recipe_source", "argv", "cwd", "expected_result", "required_evidence_role", "readiness_evidence_refs"}, Properties: []string{"control_id", "owner_id", "predicate_ids", "case_ids", "recipe_source", "argv", "cwd", "expected_result", "required_evidence_role", "readiness_evidence_refs"}},
 	"worker_oracle_finding":                                 {Required: []string{"classification"}, Properties: []string{"classification", "owner_id", "failure_family", "predicate_ids", "law_bindings", "case_ids", "control_ids", "evidence_refs", "entry_point", "continues_finding_id", "variant_of"}},
 	"worker_oracle_law_binding":                             {Required: []string{"source", "clause"}, Properties: []string{"source", "clause"}},

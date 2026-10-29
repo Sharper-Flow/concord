@@ -157,12 +157,13 @@ type WorkerOracleFinding struct {
 
 // WorkerOracleResolution is one evidenced closure claim of a previously open
 // ranked finding. A claim is a claim: the fold checks each identity against
-// this work's earlier ranked findings and the evidence each control
-// requires. Omission, relabeling, or a confidence change never closes a
-// finding.
+// this work's earlier ranked findings, the evidence each control requires,
+// and the exact judged case set. Judged claims wait for Main acceptance.
+// Omission, relabeling, or a confidence change never closes a finding.
 type WorkerOracleResolution struct {
-	FindingID    string   `json:"finding_id"`
-	EvidenceRefs []string `json:"evidence_refs"`
+	FindingID     string   `json:"finding_id"`
+	EvidenceRefs  []string `json:"evidence_refs,omitempty"`
+	JudgedCaseIDs []string `json:"judged_case_ids,omitempty"`
 }
 
 // oracleFindingFailure bounds this surface's refusals.
@@ -358,8 +359,8 @@ func validateWorkerOracleFindingReferences(finding *WorkerOracleFinding) error {
 
 // validateWorkerOracleResolutionsShape is the closed shape of the review
 // block's resolved_findings array: at most 32 unique closure claims, each
-// naming one finding identity and 1 to 8 unique evidence references, with
-// the whole array inside the 8 KiB aggregate bound.
+// naming one finding identity and bounded unique native evidence references,
+// judged case identities, or both, inside the 8 KiB aggregate bound.
 func validateWorkerOracleResolutionsShape(resolutions []WorkerOracleResolution) error {
 	if len(resolutions) > oracleResolutionsMax {
 		return oracleFindingFailure(KindInvalidPayload, "review resolved_findings must carry at most 32 closure claims", "close at most 32 findings per report")
@@ -373,8 +374,15 @@ func validateWorkerOracleResolutionsShape(resolutions []WorkerOracleResolution) 
 			return oracleFindingFailure(KindInvalidPayload, "review resolved_findings closes one finding twice", "close each finding once")
 		}
 		seen[resolution.FindingID] = true
-		if len(resolution.EvidenceRefs) < 1 || len(resolution.EvidenceRefs) > oracleFindingEvidenceRefsMax {
-			return oracleFindingFailure(KindInvalidPayload, "review resolved_findings must carry 1 to 8 evidence refs", "name the evidence the closure claims")
+		if len(resolution.EvidenceRefs) > oracleFindingEvidenceRefsMax || (resolution.EvidenceRefs != nil && len(resolution.EvidenceRefs) == 0) || (len(resolution.EvidenceRefs) == 0 && len(resolution.JudgedCaseIDs) == 0) {
+			return oracleFindingFailure(KindInvalidPayload, "review resolved_findings must carry evidence refs or judged case ids", "name the executable evidence or declared judged cases the closure claims")
+		}
+		if len(resolution.JudgedCaseIDs) > oracleFindingCaseMax || (resolution.JudgedCaseIDs != nil && len(resolution.JudgedCaseIDs) == 0) {
+			return oracleFindingFailure(KindInvalidPayload, "review resolved_findings judged case ids must be absent or carry 1 to 8 ids", "bound the judged closure claim")
+		}
+		if err := validateUniqueOracleReferences(resolution.JudgedCaseIDs, func(value string) bool { return len(value) <= 128 && oracleCaseIDPattern.MatchString(value) },
+			"review resolved_findings names judged case ", " outside the case grammar", "review resolved_findings names judged case ", "name each judged case once"); err != nil {
+			return err
 		}
 		seenRefs := map[string]bool{}
 		for _, ref := range resolution.EvidenceRefs {
@@ -657,6 +665,11 @@ func reduceOracleCompletedFindings(lineage *workerOracleFindingLineage, event Ev
 		lineage.openOrder = append(lineage.openOrder, id)
 	}
 	for _, resolution := range report.Review.ResolvedFindings {
+		// Judgments remain proposals in the immutable terminal report until
+		// Main accepts this exact Review result.
+		if len(resolution.JudgedCaseIDs) != 0 {
+			continue
+		}
 		finding, exists := lineage.findings[resolution.FindingID]
 		if !exists || finding.Closed {
 			continue
@@ -717,21 +730,51 @@ func validateWorkerOracleCompletedReportTx(ctx context.Context, tx *sql.Tx, work
 			return err
 		}
 	}
-	if payload.Review != nil {
-		if err := validateWorkerOracleReviewFindings(payload.Review.Findings, oracle, owners, lineage); err != nil {
+	if payload.Review == nil {
+		return nil
+	}
+	if err := validateWorkerOracleReviewFindings(payload.Review.Findings, oracle, owners, lineage); err != nil {
+		return err
+	}
+	if err := validateOracleJudgedContinuations(payload.Review, oracle, lineage); err != nil {
+		return err
+	}
+	for _, resolution := range payload.Review.ResolvedFindings {
+		finding, exists := lineage.findings[resolution.FindingID]
+		if !exists {
+			return oracleFindingFailure(KindInvalidPayload, "resolved_findings names "+resolution.FindingID+", no ranked finding of this work", "close an existing ranked finding by its canonical id")
+		}
+		if finding.Closed && len(resolution.JudgedCaseIDs) == 0 {
+			return oracleFindingFailure(KindInvalidPayload, "resolved_findings closes "+resolution.FindingID+", a finding an earlier closure already ended", "close each open finding once")
+		}
+		if err := validateWorkerOracleResolutionEvidenceTx(ctx, tx, workID, finding, resolution, currentSubject, lineage, oracle, &payload); err != nil {
 			return err
 		}
-		for _, resolution := range payload.Review.ResolvedFindings {
-			finding, exists := lineage.findings[resolution.FindingID]
-			if !exists {
-				return oracleFindingFailure(KindInvalidPayload, "resolved_findings names "+resolution.FindingID+", no ranked finding of this work", "close an existing ranked finding by its canonical id")
-			}
-			if finding.Closed {
-				return oracleFindingFailure(KindInvalidPayload, "resolved_findings closes "+resolution.FindingID+", a finding an earlier closure already ended", "close each open finding once")
-			}
-			if err := validateWorkerOracleResolutionEvidenceTx(ctx, tx, workID, finding, resolution, currentSubject, lineage, oracle, &payload); err != nil {
-				return err
-			}
+	}
+	return nil
+}
+
+func validateOracleJudgedContinuations(review *WorkerReviewBlock, oracle *AcceptanceOracle, lineage *workerOracleFindingLineage) error {
+	if !slices.ContainsFunc(oracle.Cases, func(entry OracleCase) bool { return entry.Judge == OracleJudgeReview }) {
+		return nil
+	}
+	for _, continuation := range review.Findings {
+		if continuation.Status != "closed" || continuation.Oracle == nil || continuation.Oracle.ContinuesFindingID == "" {
+			continue
+		}
+		finding := lineage.findings[continuation.Oracle.ContinuesFindingID]
+		if finding.Closed {
+			continue
+		}
+		_, judged, err := oracleFindingClosureRequirements(finding, oracle)
+		if err != nil {
+			return err
+		}
+		if len(judged) == 0 {
+			continue
+		}
+		if !slices.ContainsFunc(review.ResolvedFindings, func(resolution WorkerOracleResolution) bool { return resolution.FindingID == finding.FindingID }) {
+			return oracleFindingFailure(KindInvalidPayload, "judged closed continuation lacks its explicit canonical resolution", "include the exact resolved_findings claim with the closed continuation")
 		}
 	}
 	return nil
@@ -1073,11 +1116,29 @@ func projectWorkerOracleOpenFindings(lineage *workerOracleFindingLineage, add fu
 // Every required control must have a matched current-subject pass. Binding
 // an unrelated reference cannot supply a control execution. Independent roles
 // also require a binding to that producer and a different producing actor.
-func validateWorkerOracleResolutionEvidenceTx(ctx context.Context, tx *sql.Tx, workID string, finding *WorkerOpenOracleFinding, resolution WorkerOracleResolution, currentSubject string, lineage *workerOracleFindingLineage, oracle *AcceptanceOracle, inFlight *WorkerCompletedPayload) error {
+func validateWorkerOracleResolutionEvidenceTx(ctx context.Context, tx queryer, workID string, finding *WorkerOpenOracleFinding, resolution WorkerOracleResolution, currentSubject string, lineage *workerOracleFindingLineage, oracle *AcceptanceOracle, inFlight *WorkerCompletedPayload) error {
 	controls := oracleControlIndex(oracle)
-	required, err := oracleFindingClosureControls(finding, oracle)
+	required, judged, err := oracleFindingClosureRequirements(finding, oracle)
 	if err != nil {
 		return err
+	}
+	if len(judged) != len(resolution.JudgedCaseIDs) {
+		return oracleFindingFailure(KindInvalidPayload, "resolved_findings judged_case_ids differs from the exact required judged set", "claim every required judged case exactly once")
+	}
+	claimed := map[string]bool{}
+	for _, id := range resolution.JudgedCaseIDs {
+		if !judged[id] || claimed[id] {
+			return oracleFindingFailure(KindInvalidPayload, "resolved_findings names an unrelated or repeated judged case "+id, "claim only the exact required judged cases")
+		}
+		claimed[id] = true
+	}
+	if len(judged) != 0 {
+		if err := validateOracleJudgedProposalTx(ctx, tx, workID, finding, inFlight, oracle); err != nil {
+			return err
+		}
+	}
+	if (len(required) == 0) != (len(resolution.EvidenceRefs) == 0) {
+		return oracleFindingFailure(KindInvalidPayload, "resolved_findings evidence_refs must be present exactly when executable controls are required", "cite native evidence only for executable requirements")
 	}
 	receipts := append(append([]WorkerOracleReceipt(nil), lineage.retainedReceipts...), inFlightOracleReceipts(inFlight)...)
 	covered := map[string]bool{}
@@ -1102,7 +1163,7 @@ func validateWorkerOracleResolutionEvidenceTx(ctx context.Context, tx *sql.Tx, w
 	return nil
 }
 
-func qualifyOracleClosureReceiptTx(ctx context.Context, tx *sql.Tx, workID, ref, subject string, receipt WorkerOracleReceipt, oracle *AcceptanceOracle, controls map[string]OracleControl, required, covered map[string]bool, inFlight *WorkerCompletedPayload, sourceActor string) (bool, error) {
+func qualifyOracleClosureReceiptTx(ctx context.Context, tx queryer, workID, ref, subject string, receipt WorkerOracleReceipt, oracle *AcceptanceOracle, controls map[string]OracleControl, required, covered map[string]bool, inFlight *WorkerCompletedPayload, sourceActor string) (bool, error) {
 	if receipt.Result != OracleReceiptResultPass || subject == "" || receipt.SubjectCommit != subject {
 		return false, nil
 	}
@@ -1136,7 +1197,7 @@ func qualifyOracleClosureReceiptTx(ctx context.Context, tx *sql.Tx, workID, ref,
 	return qualified, nil
 }
 
-func qualifyOracleClosureControlTx(ctx context.Context, tx *sql.Tx, workID, subject string, control OracleControl, producer *WorktreeVerifyResult, bound bool, inFlight *WorkerCompletedPayload, sourceActor string) (bool, error) {
+func qualifyOracleClosureControlTx(ctx context.Context, tx queryer, workID, subject string, control OracleControl, producer *WorktreeVerifyResult, bound bool, inFlight *WorkerCompletedPayload, sourceActor string) (bool, error) {
 	fresh, err := oracleControlProducerFreshTx(ctx, tx, workID, subject, control, producer)
 	if err != nil || !fresh {
 		return false, err
@@ -1151,54 +1212,169 @@ func qualifyOracleClosureControlTx(ctx context.Context, tx *sql.Tx, workID, subj
 	return bound && independent, nil
 }
 
-func oracleFindingClosureControls(finding *WorkerOpenOracleFinding, oracle *AcceptanceOracle) (map[string]bool, error) {
-	if finding.SourceOracle != nil && !oracleControlsRetained(finding.SourceOracle, oracle) {
-		return nil, oracleFindingFailure(KindInvalidPayload, "closure rewrites the finding's source owner, cases, or controls", "retain the source obligation or supersede the contract")
+func oracleFindingClosureRequirements(finding *WorkerOpenOracleFinding, oracle *AcceptanceOracle) (map[string]bool, map[string]bool, error) {
+	if err := validateOracleFindingClosureInventory(finding, oracle); err != nil {
+		return nil, nil, err
 	}
-	required := map[string]bool{}
+	required, judged := map[string]bool{}, map[string]bool{}
 	for _, id := range finding.ControlIDs {
 		required[id] = true
 	}
 	for _, entry := range oracle.Cases {
-		if slices.Contains(finding.CaseIDs, entry.CaseID) {
-			for _, id := range entry.ControlIDs {
-				required[id] = true
+		if !oracleCaseMatchesFinding(entry, finding) {
+			continue
+		}
+		if entry.Judge == OracleJudgeReview {
+			judged[entry.CaseID] = true
+			continue
+		}
+		for _, id := range entry.ControlIDs {
+			required[id] = true
+		}
+	}
+	if len(required) == 0 && len(judged) == 0 {
+		for _, entry := range oracle.Cases {
+			if entry.OwnerID == finding.OwnerID && entry.Judge == OracleJudgeReview {
+				judged[entry.CaseID] = true
 			}
 		}
-	}
-	if finding.Classification == OracleClassificationUncoveredCase {
-		if err := addUncoveredOracleClosureControls(finding, oracle, required); err != nil {
-			return nil, err
-		}
-	}
-	if len(required) == 0 {
 		for _, control := range oracle.Controls {
 			if control.OwnerID == finding.OwnerID {
 				required[control.ControlID] = true
 			}
 		}
 	}
-	if len(required) == 0 {
-		return nil, oracleFindingFailure(KindInvalidPayload, "closure names no executable obligation", "prove the finding's owner controls")
+	if len(required) == 0 && len(judged) == 0 {
+		return nil, nil, oracleFindingFailure(KindInvalidPayload, "closure names no executable obligation", "prove the finding's owner controls")
 	}
-	return required, nil
+	return required, judged, nil
 }
 
-func addUncoveredOracleClosureControls(finding *WorkerOpenOracleFinding, oracle *AcceptanceOracle, required map[string]bool) error {
+func validateOracleFindingClosureInventory(finding *WorkerOpenOracleFinding, oracle *AcceptanceOracle) error {
+	if finding.SourceOracle != nil && !oracleControlsRetained(finding.SourceOracle, oracle) {
+		return oracleFindingFailure(KindInvalidPayload, "closure rewrites the finding's source owner, cases, or controls", "retain the source obligation or supersede the contract")
+	}
+	if finding.Classification != OracleClassificationUncoveredCase {
+		return nil
+	}
 	if finding.Tie == nil {
 		return oracleFindingFailure(KindInvalidPayload, "uncovered_case has no retained reproduction path", "retain the uncovered path")
 	}
-	found := false
-	for _, entry := range oracle.Cases {
-		if entry.OwnerID == finding.OwnerID && entry.EntryPoint == finding.Tie.EntryPoint {
-			found = true
-			for _, id := range entry.ControlIDs {
-				required[id] = true
+	if !slices.ContainsFunc(oracle.Cases, func(entry OracleCase) bool {
+		return entry.OwnerID == finding.OwnerID && entry.EntryPoint == finding.Tie.EntryPoint
+	}) {
+		return oracleFindingFailure(KindInvalidPayload, "uncovered_case entry path is still absent from the controlled inventory", "add the reproduced entry path and prove its controls")
+	}
+	return nil
+}
+
+func oracleCaseMatchesFinding(entry OracleCase, finding *WorkerOpenOracleFinding) bool {
+	return slices.Contains(finding.CaseIDs, entry.CaseID) || (finding.Classification == OracleClassificationUncoveredCase && finding.Tie != nil && entry.OwnerID == finding.OwnerID && entry.EntryPoint == finding.Tie.EntryPoint)
+}
+
+// The stored dispatch, not a review block carried by another lane, grants the
+// right to propose judgment. Both closure representations must be explicit.
+func validateOracleJudgedProposalTx(ctx context.Context, tx queryer, workID string, finding *WorkerOpenOracleFinding, report *WorkerCompletedPayload, oracle *AcceptanceOracle) error {
+	if report == nil || report.Review == nil || report.WorkerJob == nil {
+		return oracleFindingFailure(KindInvalidPayload, "judged closure requires a completed Review report", "return the exact Review result")
+	}
+	isReview, err := workflowAttemptIsReview(ctx, tx, workID, report.AttemptID)
+	if err != nil {
+		return err
+	}
+	if !isReview {
+		return oracleFindingFailure(KindInvalidPayload, "only a Review lane may propose judged closure", "dispatch a Review lane for the declared judged cases")
+	}
+	var source WorkerCompletedPayload
+	var raw []byte
+	if err := tx.QueryRowContext(ctx, `SELECT terminal_payload FROM worker_attempts WHERE terminal_event_id=? AND work_id=? AND terminal_kind=?`, finding.SourceEventID, workID, WorkerCompleted).Scan(&raw); err != nil {
+		return err
+	}
+	if err := json.Unmarshal(raw, &source); err != nil {
+		return err
+	}
+	index := finding.SourceOrdinal - len(source.ContextFindings)
+	if source.Review == nil || index < 0 || index >= len(source.Review.Findings) {
+		return oracleFindingFailure(KindInvariantViolation, "judged closure source finding is absent", "restore verified finding facts")
+	}
+	continued := false
+	for _, entry := range report.Review.Findings {
+		if entry.Oracle != nil && finding.Tie != nil && entry.Oracle.ContinuesFindingID == finding.FindingID && entry.Status == "closed" &&
+			entry.FindingID == source.Review.Findings[index].FindingID && sameOracleTie(finding, entry.Oracle) && entry.Oracle.Classification == finding.Classification &&
+			sameStringSet(entry.Oracle.ControlIDs, finding.ControlIDs) && sameStringSet(entry.Oracle.CaseIDs, finding.CaseIDs) && entry.Oracle.EntryPoint == finding.Tie.EntryPoint {
+			continued = true
+		}
+	}
+	if !continued {
+		return oracleFindingFailure(KindInvalidPayload, "judged closure requires the original report-local closed continuation", "continue the canonical finding and close its original report-local finding id")
+	}
+	oracles, err := readWorkerJobOraclesTx(ctx, tx, workID)
+	if err != nil {
+		return err
+	}
+	for binding, previous := range oracles {
+		if binding.JobID != report.WorkerJob.JobID && (finding.sourceJob == nil || binding.JobID != finding.sourceJob.JobID) {
+			continue
+		}
+		if !oracleControlsRetained(previous, oracle) || !oracleJudgedHistorySafe(previous, oracle) {
+			return oracleFindingFailure(KindInvalidPayload, "judged closure downgrades a recorded source or dispatched job obligation", "retain every recorded executable obligation; judgment cannot replace it")
+		}
+	}
+	return nil
+}
+
+func oracleJudgedHistorySafe(previous, latest *AcceptanceOracle) bool {
+	if previous == nil {
+		return true
+	}
+	for _, judged := range latest.Cases {
+		if judged.Judge != OracleJudgeReview {
+			continue
+		}
+		for _, entry := range previous.Cases {
+			if entry.Judge == "" && (entry.CaseID == judged.CaseID || (entry.OwnerID == judged.OwnerID && entry.EntryPoint == judged.EntryPoint)) {
+				return false
 			}
 		}
 	}
-	if !found {
-		return oracleFindingFailure(KindInvalidPayload, "uncovered_case entry path is still absent from the controlled inventory", "add the reproduced entry path and prove its controls")
+	return true
+}
+
+// Admission reads the immutable terminal report again. It never applies a
+// disposition: the acceptance fact writer owns the atomic canonical closure.
+func validateOracleJudgedAcceptance(ctx context.Context, q queryer, workID string, result WorkerCompletedPayload) error {
+	if result.Review == nil {
+		return nil
+	}
+	var judged []WorkerOracleResolution
+	for _, resolution := range result.Review.ResolvedFindings {
+		if len(resolution.JudgedCaseIDs) != 0 {
+			judged = append(judged, resolution)
+		}
+	}
+	if len(judged) == 0 {
+		return nil
+	}
+	lineage, err := readWorkerOracleFindingLineageTx(ctx, q, workID)
+	if err != nil {
+		return err
+	}
+	if result.WorkerJob == nil {
+		return oracleFindingFailure(KindInvariantViolation, "judged Review lacks a dispatched job", "restore the exact dispatched result")
+	}
+	oracle, err := readWorkerJobOracle(ctx, q, workID, *result.WorkerJob)
+	if err != nil {
+		return err
+	}
+	subject := result.Review.OutputCandidate.Commit
+	for _, resolution := range judged {
+		finding := lineage.findings[resolution.FindingID]
+		if finding == nil {
+			return oracleFindingFailure(KindInvariantViolation, "accepted judged finding is absent", "restore verified finding facts")
+		}
+		if err := validateWorkerOracleResolutionEvidenceTx(ctx, q, workID, finding, resolution, subject, lineage, oracle, &result); err != nil {
+			return err
+		}
 	}
 	return nil
 }

@@ -398,7 +398,10 @@ function expectStructureLossless(authored: any, actual: any, label: string, fiel
       expect(Array.isArray(actualBranches), `${label} carries ${keyword}`).toBe(true)
       expect(actualBranches ?? [], `${label} ${keyword} branch count`).toHaveLength(branches.length)
       for (const [index, branch] of branches.entries()) {
-        expectStructureLossless(branch, (actualBranches as unknown[])[index], `${label} ${keyword}[${index}]`, false)
+        const expectedBranch = inlined.required?.length
+          ? { ...(branch as any), required: [...new Set([...inlined.required, ...((branch as any).required ?? [])])] }
+          : branch
+        expectStructureLossless(expectedBranch, (actualBranches as unknown[])[index], `${label} ${keyword}[${index}]`, false)
       }
       continue
     }
@@ -425,19 +428,10 @@ function expectStructureLossless(authored: any, actual: any, label: string, fiel
 function sample(schemaNode: any): unknown {
   const schema = inlinedProperty(schemaNode)
   if ("const" in schema) return schema.const
-  if (schema.oneOf) {
-    const branch = schema.oneOf[0]
-    const result = sample(branch)
-    const base: Record<string, unknown> = {}
-    for (const key of schema.required ?? []) base[key] = sample(schema.properties?.[key] ?? {})
-    if (result !== null && typeof result === "object" && !Array.isArray(result)) return { ...base, ...result }
-    if (branch !== null && typeof branch === "object" && !Array.isArray(branch)) {
-      const inlined = inlinedProperty(branch)
-      for (const key of inlined.required ?? []) base[key] = sample(inlined.properties?.[key] ?? {})
-    }
-    return base
+  if (schema.oneOf || schema.anyOf) {
+    const { oneOf, anyOf, ...base } = schema
+    return sample(mergeRefSiblings(base, inlinedProperty((oneOf ?? anyOf)[0])))
   }
-  if (schema.anyOf) return sample(schema.anyOf[0])
   if (schema.allOf) {
     const { allOf, ...rest } = schema
     let result = sample(rest) ?? {}
@@ -475,6 +469,31 @@ function sample(schemaNode: any): unknown {
   if (kind === "boolean") return false
   return null
 }
+
+test("union helpers preserve both parent and branch required fields", () => {
+  for (const keyword of ["oneOf", "anyOf"]) {
+    const authored: any = {
+      type: "object",
+      properties: {
+        case_id: { type: "string" },
+        control_ids: { type: "array", minItems: 1, items: { type: "string" } },
+      },
+      required: ["case_id"],
+      [keyword]: [{ required: ["control_ids"] }],
+    }
+    const value = sample(authored)
+    expect(value).toEqual({ case_id: "id-1", control_ids: ["id-1"] })
+    expect(validateAgainstSchema(authored, value, [])).toBe(true)
+    const expanded = structuredClone(authored)
+    expanded[keyword][0].required = ["case_id", "control_ids"]
+    expectStructureLossless(authored, expanded, keyword)
+    for (const missing of authored[keyword][0].required.concat(authored.required)) {
+      const broken = structuredClone(expanded)
+      broken[keyword][0].required = broken[keyword][0].required.filter((key: string) => key !== missing)
+      expect(() => expectStructureLossless(authored, broken, `${keyword} missing ${missing}`)).toThrow()
+    }
+  }
+})
 
 // wrongValues names values of a genuinely different type than the declared
 // one, so a nullable or multi-typed field never reports a false wrong-type

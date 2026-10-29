@@ -51,6 +51,7 @@ var (
 // an existing verdict owner supports it.
 const (
 	OracleExpectedResultPass                = "pass"
+	OracleJudgeReview                       = "review"
 	OracleEvidenceRoleReported              = "reported"
 	OracleEvidenceRoleIndependentlyExecuted = "independently_executed"
 )
@@ -87,15 +88,17 @@ type OracleOwner struct {
 }
 
 // OracleCase is one finite inventory entry: a named entry path or
-// transition, its input class, the expected state, and the exact controls
-// that exercise it. Descriptions are bounded prose, never a predicate DSL.
+// transition, its input class, the expected state, and either the exact controls
+// that exercise it or a Main-declared Review judge. Descriptions are bounded
+// prose, never a predicate DSL.
 type OracleCase struct {
 	CaseID        string   `json:"case_id"`
 	OwnerID       string   `json:"owner_id"`
 	EntryPoint    string   `json:"entry_point"`
 	InputClass    string   `json:"input_class"`
 	ExpectedState string   `json:"expected_state"`
-	ControlIDs    []string `json:"control_ids"`
+	ControlIDs    []string `json:"control_ids,omitempty"`
+	Judge         string   `json:"judge,omitempty"`
 }
 
 // OracleControl is one executable control: the pinned harness source, the
@@ -316,6 +319,9 @@ func validateOracleLawBindings(ownerID string, bindings []OracleLawBinding) erro
 // validateOracleCases proves every case entry's closed shape and returns the
 // identity index, with each case mapped to a declared owner.
 func validateOracleCases(entries []OracleCase, owners map[string]OracleOwner) (map[string]OracleCase, error) {
+	if !oracleJudgedHistorySafe(&AcceptanceOracle{Cases: entries}, &AcceptanceOracle{Cases: entries}) {
+		return nil, oracleFailure(KindInvalidPayload, "acceptance oracle declares executable and Review-judged cases on the same owner and entry point", "keep executable obligations executable; judgment cannot replace them")
+	}
 	cases := map[string]OracleCase{}
 	for _, entry := range entries {
 		if !oracleCaseIDPattern.MatchString(entry.CaseID) {
@@ -335,7 +341,11 @@ func validateOracleCases(entries []OracleCase, owners map[string]OracleOwner) (m
 				return nil, err
 			}
 		}
-		if len(entry.ControlIDs) < 1 || len(entry.ControlIDs) > OracleCaseControlsMax {
+		if entry.Judge != "" {
+			if entry.Judge != OracleJudgeReview || entry.ControlIDs != nil {
+				return nil, oracleFailure(KindInvalidPayload, "acceptance oracle judged case "+entry.CaseID+" must name judge review and no controls", "declare either executable controls or Review judgment")
+			}
+		} else if len(entry.ControlIDs) < 1 || len(entry.ControlIDs) > OracleCaseControlsMax {
 			return nil, oracleFailure(KindInvalidPayload, "acceptance oracle case "+entry.CaseID+" must name 1 to 8 controls", "map every case to at least one executable control")
 		}
 		if err := validateUniqueOracleReferences(entry.ControlIDs, func(value string) bool { return oracleControlIDPattern.MatchString(value) },
@@ -488,6 +498,9 @@ func validateOracleReciprocity(oracle *AcceptanceOracle, cases map[string]Oracle
 			named, exists := cases[caseID]
 			if !exists {
 				return oracleFailure(KindInvalidPayload, "acceptance oracle control "+control.ControlID+" names undeclared case "+caseID, "map every control to a declared case")
+			}
+			if named.Judge != "" {
+				return oracleFailure(KindInvalidPayload, "acceptance oracle control "+control.ControlID+" names judged case "+caseID, "exercise only executable cases with native controls")
 			}
 			if !slices.Contains(named.ControlIDs, control.ControlID) {
 				return oracleFailure(KindInvalidPayload, "acceptance oracle case "+caseID+" does not name back control "+control.ControlID, "keep the case/control mapping reciprocal")

@@ -98,6 +98,35 @@ class InvestigationGuidanceTests(unittest.TestCase):
                 self.assertTrue(fragment in normalized, fragment)
 
 
+class JudgedResolutionGuidanceTests(unittest.TestCase):
+    def test_proof_array_bounds_come_from_the_report_schema(self):
+        manifest, _ = generator.load_manifest()
+        review = next(lane for lane in manifest["lanes"] if lane["id"] == "review")
+        report = copy.deepcopy(REPORT_SCHEMA)
+        proof = report["$defs"]["resolved_finding"]["properties"]
+        proof["evidence_refs"]["maxItems"] = 6
+        proof["judged_case_ids"]["maxItems"] = 7
+        text = " ".join(lane_projection(review, report).split())
+        self.assertIn("evidence_refs maxItems=6, judged_case_ids maxItems=7", text)
+
+    def test_review_claims_preserve_native_proof_and_main_acceptance(self):
+        manifest, _ = generator.load_manifest()
+        review = next(lane for lane in manifest["lanes"] if lane["id"] == "review")
+        text = " ".join(lane_projection(review).split())
+        for fragment in (
+            "at least one proof kind",
+            "exact complete `judged_case_ids`",
+            "both for mixed obligations",
+            "Pure judged claims omit native refs",
+            "source citations remain rationale, never execution receipts",
+            "`status: closed` with `continues_finding_id`",
+            "Main's acceptance closes both representations atomically",
+            "Pending, rejected, failed, stale, or non-Review reports do not",
+            "Never replace an executable obligation with judgment, including by renaming the case",
+        ):
+            self.assertIn(fragment, text)
+
+
 class EngineeringMethodProjectionTests(unittest.TestCase):
     """CD-0246 D2: each lane's definition carries the method its purpose uses."""
 

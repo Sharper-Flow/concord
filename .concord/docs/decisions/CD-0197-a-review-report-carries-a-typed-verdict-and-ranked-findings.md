@@ -62,7 +62,14 @@ retains the earlier owner, predicate/law binding, failure family, and canonical
 open identity. A `variant_of` names an earlier finding of the same owner but
 mints a new identity. Prose similarity never owns identity or shrink credit.
 `resolved_findings` carries at most 32 closed claims within 8 KiB, each naming
-one canonical finding and 1 to 8 unique evidence references (CD-0056).
+one canonical finding. Executable requirements carry 1 to 8 unique evidence
+references (CD-0056). Review-judged requirements carry exactly the derived
+`judged_case_ids`, at most 8, and no fabricated native reference. Mixed claims
+carry both. Only a completed Review-lane report may propose judged closure.
+It continues the original report-local finding as closed, retains its canonical
+identity through `continues_finding_id`, and names the explicit resolution.
+The proposal stays in the exact report until Main accepts its current
+candidate and dependencies; it grants no worker verdict authority.
 
 ### D2. The lane manifest declares the requirement per lane, and the digest pins it
 

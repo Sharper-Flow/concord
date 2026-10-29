@@ -603,15 +603,15 @@ func TestKnowledgeAuthorityCorpusResolvesThroughSyntheticContracts(t *testing.T)
 	if len(corpus) == 0 {
 		t.Fatal("the committed corpus must contain work-backed legislative claims")
 	}
-	// CD-0159 D7 corrected the derived set; any tier change in the range
-	// must update these sets.
+	// CD-0159 D7 corrected the derived set; CD-0230 D4 assigns derived to law
+	// revisions enacted without operator approval. Any tier change updates these sets.
 	derivedInRange := map[string]bool{
 		"CD-0192": true, "CD-0195": true, "CD-0197": true, "CD-0198": true,
-		"CD-0199": true, "CD-0203": true, "CD-0204": true, "CD-0207": true, "CD-0209": true,
+		"CD-0199": true, "CD-0203": true, "CD-0204": true, "CD-0205": true, "CD-0207": true, "CD-0209": true,
 	}
 	legislatedInRange := map[string]bool{
 		"CD-0190": true, "CD-0191": true, "CD-0193": true, "CD-0194": true, "CD-0200": true,
-		"CD-0201": true, "CD-0202": true, "CD-0205": true, "CD-0208": true,
+		"CD-0201": true, "CD-0202": true, "CD-0208": true,
 	}
 	byID := make(map[string]KnowledgeRecord, len(manifest.Records))
 	for _, record := range manifest.Records {
@@ -631,7 +631,7 @@ func TestKnowledgeAuthorityCorpusResolvesThroughSyntheticContracts(t *testing.T)
 		}
 		if derivedInRange[id] {
 			if record.Authority.Tier != "derived" || record.Authority.LegislatedBy != "" || record.Authority.ContractVersion != 0 {
-				t.Fatalf("CD-0159 D7 corrected %s to derived with no legislative fields; observed tier %q legislated_by %q contract_version %d", id, record.Authority.Tier, record.Authority.LegislatedBy, record.Authority.ContractVersion)
+				t.Fatalf("%s must be derived with no legislative fields; observed tier %q legislated_by %q contract_version %d", id, record.Authority.Tier, record.Authority.LegislatedBy, record.Authority.ContractVersion)
 			}
 			continue
 		}

@@ -1094,10 +1094,16 @@ def project_native_oracle_requests(defs: dict) -> None:
     control["properties"].pop("readiness_evidence_refs")
     control["description"] = "Native prepare input only: readiness references are omitted, never invented. Recorded ready jobs still require them."
     defs["native_oracle_prepare_control"] = control
+    case = copy.deepcopy(defs["worker_oracle_case"])
+    case.pop("oneOf")
+    case["properties"].pop("judge")
+    case["required"].append("control_ids")
+    case["description"] = "Executable cases only: native preparation never admits judge=review cases."
+    defs["native_oracle_executable_case"] = case
     defs["native_oracle_control_bundle"] = obj({
         "owner": {"$ref": "#/$defs/worker_oracle_owner"},
         "control": {"$ref": "#/$defs/native_oracle_prepare_control"},
-        "cases": {"type": "array", "minItems": 1, "maxItems": 64, "items": {"$ref": "#/$defs/worker_oracle_case"}},
+        "cases": {"type": "array", "minItems": 1, "maxItems": 64, "items": {"$ref": "#/$defs/native_oracle_executable_case"}},
     })
     defs["native_oracle_job_binding"] = obj({
         "job_id": {"$ref": "#/$defs/id"}, "revision": {"type": "integer", "minimum": 1, "maximum": 2147483647},
@@ -1491,6 +1497,7 @@ def project_workflow_action_schema(document: dict, actions: list[dict], workflow
     # Continuity and work pins expose the same card references as dispatch.
     # The authored packet schema owns the source shape, not a second union.
     packet_defs = json.loads((ROOT / "contracts/agent-lane-packet.schema.json").read_text())["$defs"]
+    defs["worker_oracle_case"] = copy.deepcopy(packet_defs["lane_worker_oracle_case"])
     for name in ("recipe_source", "readiness_evidence_refs"):
         defs["worker_oracle_control"]["properties"][name]["description"] = packet_defs["lane_worker_oracle_control"]["properties"][name]["description"]
     project_native_oracle_requests(defs)

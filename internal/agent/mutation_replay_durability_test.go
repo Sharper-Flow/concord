@@ -285,6 +285,10 @@ func TestOrdinaryMutationReplayDoesNotRequireDurability(t *testing.T) {
 	if err != nil || first.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("ordinary mutation: outcome=%s error=%+v err=%v", first.Outcome, first.Error, err)
 	}
+	if first.ChangedRefs == nil || len(*first.ChangedRefs) != 1 {
+		t.Fatalf("capture did not report its work item: %+v", first.ChangedRefs)
+	}
+	driftWorkPinVersion(t, s, (*first.ChangedRefs)[0].ID)
 	beforeEvents := countWorkflowEvents(t, s)
 	before := s.DurableCommits()
 	metadataBefore := replayMetadataCount(t, s, "ordinary-replay")

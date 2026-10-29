@@ -10,6 +10,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"testing/synctest"
 	"time"
 )
 
@@ -1345,32 +1346,36 @@ EOC
 // replaces is pending, whatever its checks and merge state say, and the wait
 // latches the pushed commit once the pull request reaches it.
 func TestCiWaitPRExpectedHeadJudgesOnlyThePushedCommit(t *testing.T) {
-	const replaced = "79dfa01fdc5852f7bdbe9510c91dc75a1a4712f9"
-	const pushed = "6459f13778fcad4b42f771ac4988f55897f635f5"
-	ciWaitServeHead(t, ciWaitMergeHeadFixture(t, "DIRTY", "OPEN", "", replaced,
-		[]ghPRRollup{ciWaitRollupFail("verify-tests", "https://github.com/o/r/actions/runs/11/job/1")}))
-	statePath := filepath.Join(t.TempDir(), "state.json")
-	request := `{"selector":{"kind":"pr","value":"5"},"repo":"o/r","mode":"merge","time_seconds_max":8,"head_sha":"` + pushed + `","state_file":"` + statePath + `"}`
-	code, report := runCiWaitStdin(t, request)
-	if code != 0 || report.Status != "pending" || report.SHA != pushed || report.HeadSHA != replaced || report.Checks != nil || len(report.Failures) != 0 {
-		t.Fatalf("the replaced head's failure must stay pending for the pushed commit, got code=%d report=%+v", code, report)
-	}
-	if !strings.Contains(report.Reason, "not the expected head") {
-		t.Fatalf("the pending reason must say the pull request has not reached the expected head, got %q", report.Reason)
-	}
+	// Keep fixture setup and gh process scheduling off the wait's clock while
+	// exercising the production deadline and persisted head latch across invocations.
+	synctest.Test(t, func(t *testing.T) {
+		const replaced = "79dfa01fdc5852f7bdbe9510c91dc75a1a4712f9"
+		const pushed = "6459f13778fcad4b42f771ac4988f55897f635f5"
+		ciWaitServeHead(t, ciWaitMergeHeadFixture(t, "DIRTY", "OPEN", "", replaced,
+			[]ghPRRollup{ciWaitRollupFail("verify-tests", "https://github.com/o/r/actions/runs/11/job/1")}))
+		statePath := filepath.Join(t.TempDir(), "state.json")
+		request := `{"selector":{"kind":"pr","value":"5"},"repo":"o/r","mode":"merge","time_seconds_max":8,"head_sha":"` + pushed + `","state_file":"` + statePath + `"}`
+		code, report := runCiWaitStdin(t, request)
+		if code != 0 || report.Status != "pending" || report.SHA != pushed || report.HeadSHA != replaced || report.Checks != nil || len(report.Failures) != 0 {
+			t.Fatalf("the replaced head's failure must stay pending for the pushed commit, got code=%d report=%+v", code, report)
+		}
+		if !strings.Contains(report.Reason, "not the expected head") {
+			t.Fatalf("the pending reason must say the pull request has not reached the expected head, got %q", report.Reason)
+		}
 
-	ciWaitServeHead(t, ciWaitMergeHeadFixture(t, "CLEAN", "OPEN", "", pushed, []ghPRRollup{ciWaitRollupPass("verify-tests")}))
-	_, report = runCiWaitStdin(t, request)
-	if report.Status != "pending" || report.SHA != pushed || report.HeadSHA != pushed || !strings.Contains(report.Reason, "can merge") {
-		t.Fatalf("the pushed commit must be judged once the pull request reaches it, got %+v", report)
-	}
+		ciWaitServeHead(t, ciWaitMergeHeadFixture(t, "CLEAN", "OPEN", "", pushed, []ghPRRollup{ciWaitRollupPass("verify-tests")}))
+		_, report = runCiWaitStdin(t, request)
+		if report.Status != "pending" || report.SHA != pushed || report.HeadSHA != pushed || !strings.Contains(report.Reason, "can merge") {
+			t.Fatalf("the pushed commit must be judged once the pull request reaches it, got %+v", report)
+		}
 
-	const later = "0123456789abcdef0123456789abcdef01234567"
-	ciWaitServeHead(t, ciWaitMergeHeadFixture(t, "CLEAN", "OPEN", "", later, []ghPRRollup{ciWaitRollupPass("verify-tests")}))
-	_, report = runCiWaitStdin(t, request)
-	if report.Status != "superseded" || report.SHA != pushed || report.HeadSHA != later {
-		t.Fatalf("a head change after the pushed commit is latched must supersede the wait, got %+v", report)
-	}
+		const later = "0123456789abcdef0123456789abcdef01234567"
+		ciWaitServeHead(t, ciWaitMergeHeadFixture(t, "CLEAN", "OPEN", "", later, []ghPRRollup{ciWaitRollupPass("verify-tests")}))
+		_, report = runCiWaitStdin(t, request)
+		if report.Status != "superseded" || report.SHA != pushed || report.HeadSHA != later {
+			t.Fatalf("a head change after the pushed commit is latched must supersede the wait, got %+v", report)
+		}
+	})
 }
 
 // A pull request merged or closed at another head never reaches the expected

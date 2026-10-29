@@ -650,9 +650,6 @@ func workflowActionReplayResult(base agentcontract.Envelope, step store.FenceRes
 	switch step.ResultKind {
 	case store.ResultCompleted:
 		payload := json.RawMessage(step.ResultPayload)
-		if step.ContractDigest != agentcontract.ManifestDigest {
-			return coreError(base, "malformed_response", "durable workflow result manifest digest does not match the current contract", "contact_operator", false)
-		}
 		if err := agentcontract.ValidateOperationPayload(base.Tool, base.Operation, payload, true); err != nil {
 			return coreError(base, "malformed_response", fmt.Sprintf("durable workflow result is not a valid current result: %v", err), "contact_operator", false)
 		}

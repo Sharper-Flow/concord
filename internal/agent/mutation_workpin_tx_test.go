@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"reflect"
 	"strconv"
 	"strings"
 	"testing"
@@ -188,16 +189,27 @@ func TestWorktreeAuditReclaimMissingWorkflowPinIsExplicit(t *testing.T) {
 	s, _, _, service, grant, _ := tiersFixture(t)
 	completeWork(t, s, "work-2")
 	vacateLinkedWorktree(t, s, service, grant, filepath.Join(filepath.Dir(s.Path()), "worktrees", "project-1", "work-2"), "missing-pin-vacate")
-	response := authorityInvoke(t, s, service, grant, "concord_work_transition", "worktree_audit_reclaim", map[string]any{"product_id": "product-1", "default_ref": "main", "idempotency_key": "missing-pin-audit"})
+	input := map[string]any{"product_id": "product-1", "default_ref": "main", "idempotency_key": "missing-pin-audit"}
+	response := authorityInvoke(t, s, service, grant, "concord_work_transition", "worktree_audit_reclaim", input)
 	if response.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("audit=%+v", response.Error)
 	}
+	found := false
 	for _, notice := range response.Omissions {
 		if notice.Kind == "work_pin_unavailable" && notice.Count == 1 && notice.SourceID == "" && len(notice.Details) == 0 {
-			return
+			found = true
 		}
 	}
-	t.Fatalf("missing workflow pin was not explicit: omissions=%+v", response.Omissions)
+	if !found {
+		t.Fatalf("missing workflow pin was not explicit: omissions=%+v", response.Omissions)
+	}
+	initializeMutationPinWorkflow(t, s, "work-2", store.BuiltinWorkflowDefinitions()[0])
+	commits := s.DurableCommits()
+	replay := authorityInvoke(t, s, service, grant, "concord_work_transition", "worktree_audit_reclaim", input)
+	if replay.Outcome != agentcontract.OutcomeOK || !replay.Replayed || string(replay.Result) != string(response.Result) || !reflect.DeepEqual(replay.Omissions, response.Omissions) || !reflect.DeepEqual(replay.ChangedRefs, response.ChangedRefs) {
+		t.Fatalf("audit replay replaced its retained omission after a workflow was created: first=%+v replay=%+v", response, replay)
+	}
+	requireReplayCommit(t, s, "missing-pin-audit", commits, 0, false)
 }
 
 func TestWorktreeAuditReclaimReplayKeepsRowPin(t *testing.T) {

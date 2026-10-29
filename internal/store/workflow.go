@@ -1454,9 +1454,6 @@ func finishWorkflowContractSupersessionTx(ctx context.Context, tx *sql.Tx, event
 			return newFailure(KindProjectionNotFound, "fold_event", "predecessor workflow contract does not exist or is already superseded", false, "reload the exact active contract versions")
 		}
 	}
-	if err := invalidateWorkflowOverlapForContractRevisionTx(ctx, tx, event, p.PredecessorContractVersions, p.NewContractVersion); err != nil {
-		return err
-	}
 	// A contract supersession before the confirming Review is accepted voids an
 	// unconfirmed checks repair (CD-0205 D4): the named revisions lose their
 	// provisional readiness at the strict prefix of this supersession, and a

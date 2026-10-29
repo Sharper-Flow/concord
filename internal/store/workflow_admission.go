@@ -32,17 +32,12 @@ type WorkflowAdmissionState struct {
 	// LateCriterionAssociation admits missing applicable proof at a terminal
 	// or premise-question step without moving it back to a producer.
 	LateCriterionAssociation bool
-	// LawPinStale reports a staleness the contract recovery admits: a stale
-	// law revision, an unresolved Domain overlap, or the subject's own stale
-	// registry pin.
+	// LawPinStale reports a staleness the contract recovery admits: a
+	// deleted-law pin.
 	LawPinStale bool
 	// LawPinStaleError is the staleness boundary's refusal under the plain
 	// admission, nil when the pinned law is current.
 	LawPinStaleError error
-	// LawPinSelfError is the staleness boundary's refusal when the subject's
-	// own stale pin admits, nil when the boundary passes under that
-	// admission.
-	LawPinSelfError error
 	// BreakingNotices is the count of breaking hard-edge impact notices
 	// targeting the work.
 	BreakingNotices int64
@@ -335,20 +330,9 @@ type workflowAdmissionLoad struct {
 // staleness folds the law-pin staleness, breaking notices, open conditions,
 // design staleness, and artifact staleness.
 func (l workflowAdmissionLoad) staleness(state *WorkflowAdmissionState) error {
-	lawErr := checkWorkflowLawRevisionStalenessAdmittingTx(l.ctx, l.q, l.workID, workflowStalePinAdmitNone)
-	// The staleness boundary's overlap half resolves the one active contract,
-	// so under a duplicated projection it raises the duplicate invariant the
-	// supersede recovery owns. The count itself classifies the recovery, so
-	// the boundary's duplicate refusal degrades and the state folds on.
-	if lawErr != nil && l.duplicated && workflowDuplicateContractProjection(lawErr) {
-		lawErr = nil
-	}
+	lawErr := checkWorkflowLawRevisionStalenessTx(l.ctx, l.q, l.workID)
 	state.LawPinStaleError = lawErr
-	state.LawPinStale = lawErr != nil && workflowContractRecoveryStaleness(lawErr, l.workID)
-	state.LawPinSelfError = checkWorkflowLawRevisionStalenessAdmittingTx(l.ctx, l.q, l.workID, workflowStalePinAdmitOwnMarker)
-	if state.LawPinSelfError != nil && l.duplicated && workflowDuplicateContractProjection(state.LawPinSelfError) {
-		state.LawPinSelfError = nil
-	}
+	state.LawPinStale = lawErr != nil && workflowContractRecoveryStaleness(lawErr)
 	if err := l.q.QueryRowContext(l.ctx, `SELECT count(*) FROM workflow_impact_notices n JOIN workflow_impact_edges e ON e.work_id=n.edge_owner_work_id AND e.edge_id=n.edge_id WHERE n.target_work_id=? AND n.severity='breaking' AND e.edge_class='hard'`, l.workID).Scan(&state.BreakingNotices); err != nil {
 		return wrapFailure(KindUnavailable, l.subject, "cannot inspect workflow impact notices", true, "retry once the database is readable", err)
 	}
@@ -660,7 +644,7 @@ func workflowAdmit(definition WorkflowDefinition, state WorkflowAdmissionState, 
 	if actionID == "supersede_contract" {
 		return workflowAdmitSupersede(definition, state, decision)
 	}
-	if err := state.stalenessRefusal(actionID); err != nil {
+	if err := state.stalenessRefusal(); err != nil {
 		decision.Failure = workflowFailureOf(err)
 		return decision
 	}
@@ -959,13 +943,9 @@ func workflowAdmitSupersede(definition WorkflowDefinition, state WorkflowAdmissi
 	return decision
 }
 
-// stalenessRefusal returns the staleness boundary's refusal for one action's
-// stale-pin admission class, or nil when the action's class admits. The
-// attempt-disposition actions admit the subject's own stale pin (CD-0222 D7).
-func (s WorkflowAdmissionState) stalenessRefusal(actionID string) error {
-	if workflowActionStalePinAdmission(actionID) != workflowStalePinAdmitNone {
-		return s.LawPinSelfError
-	}
+// stalenessRefusal returns the staleness boundary's refusal, or nil when the
+// contract's law pins are current.
+func (s WorkflowAdmissionState) stalenessRefusal() error {
 	return s.LawPinStaleError
 }
 

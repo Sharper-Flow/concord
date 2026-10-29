@@ -729,7 +729,7 @@ func footprintChecks(ctx context.Context, q queryer, pair []any, lawID string) (
 
 func footprintStrings(ctx context.Context, q queryer, query string, args ...any) ([]string, error) {
 	var out []string
-	err := readOverlapString(ctx, q, query, &out, args...)
+	err := readDomainStringList(ctx, q, query, &out, args...)
 	return out, err
 }
 

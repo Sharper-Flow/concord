@@ -594,9 +594,6 @@ func foldWorkReopened(ctx context.Context, tx *sql.Tx, event Event) error {
 	if err := validateWorkVersion(event.SubjectID, current.version, payload.ExpectedVersion, payload.ResultingVersion); err != nil {
 		return err
 	}
-	if err := invalidateWorkflowOverlapResolutionsForWorkTx(ctx, tx, event.EventID, event.SubjectID); err != nil {
-		return err
-	}
 	return updateWorkLifecycle(ctx, tx, event, "needed", current.version, payload.ResultingVersion, nil)
 }
 
@@ -748,9 +745,6 @@ func foldWorkReopenedFromSuperseded(ctx context.Context, tx *sql.Tx, event Event
 		if err := replaceSupersessionTx(ctx, tx, event, payload); err != nil {
 			return err
 		}
-	}
-	if err := invalidateWorkflowOverlapResolutionsForWorkTx(ctx, tx, event.EventID, event.SubjectID, successor, payload.Replacement); err != nil {
-		return err
 	}
 	return updateWorkLifecycle(ctx, tx, event, "needed", current.version, payload.ResultingVersion, nil)
 }

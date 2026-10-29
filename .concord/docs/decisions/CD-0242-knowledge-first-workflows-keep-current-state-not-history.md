@@ -278,16 +278,15 @@ active code progress, coordination, or fresh-session resumption is accepted.
 
 ## Verification
 
-- The implementing runtime change binds the executable anchors for the runtime
-  obligations in D2 to D13.
+- The implementing runtime change binds the executable anchors for D2 to D13,
+  except D9's preview and early visual-design approvals. Those use the agent's
+  ordinary question and existing work record, not an executable preview gate.
+  Classified contract consent does not prove approval of the shown experience.
   Planned anchors include the stage admission refusal tests, the
   resume-without-history and reviewer-repair-to-delivery acceptance fixtures,
   the administrative-recovery fixture, and the cutover interruption and
   snapshot-restore tests. Until that change lands, `python3 scripts/check-knowledge-index.py` is the executable
   anchor for this record's law registration.
-  D9's preview and early visual-design approvals use the agent's ordinary
-  question and existing work record, not an executable preview gate.
-  Classified contract consent does not prove approval of the shown experience.
 - `python3 scripts/check-knowledge-index.py` composes the record shards and
   checks each shard's recorded document sha256 against the document bytes.
 - `python3 scripts/check-knowledge-closure.py --strict` proves this document

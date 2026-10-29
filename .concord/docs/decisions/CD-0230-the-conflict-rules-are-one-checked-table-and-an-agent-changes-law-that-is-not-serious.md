@@ -216,7 +216,6 @@ records the answer in the existing work record. `internal/store.TestSixClassAppr
 and `internal/store.TestSixClassDecisionDomainsAuthoring` prove the classified
 UI/UX consent boundary. They do not prove approval of a final preview or mockup,
 renewed approval of a changed experience, or interception of a Git push or merge.
-These ordinary questions are not machine-enforced stage exits.
 
 S, P10, A2 row 9 and P8 use D2's recorded-review method.
 `internal/store.TestReviewCompletionRetainsAppliedRuleContextClaims` follows a

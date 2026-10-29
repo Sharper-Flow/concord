@@ -777,18 +777,6 @@ class ToolDescriptionTests(unittest.TestCase):
                                             re.compile(r"\b" + re.escape(name) + r"\b", re.I))
 
 
-class CiWatchHostContractTests(unittest.TestCase):
-    def test_mode_budget_contract_and_drift(self):
-        host = json.loads((ROOT / "contracts/host-tool-surface.v1.json").read_text())
-        tool = next(tool for tool in host["tools"] if tool["name"] == "concord_ci_watch")
-        generator.validate_ci_watch_host_tool(tool)
-        for key, value in (("minimum", -1), ("maximum", 1800), ("default", 1800), ("default", 7200)):
-            with self.subTest(key=key), self.assertRaises(ValueError):
-                edited = copy.deepcopy(tool)
-                edited["args"]["properties"]["time_seconds_max"][key] = value
-                generator.validate_ci_watch_host_tool(edited)
-
-
 class WorkStartHostContractTests(unittest.TestCase):
     def setUp(self):
         host = json.loads((ROOT / "contracts/host-tool-surface.v1.json").read_text())

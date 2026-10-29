@@ -209,9 +209,7 @@ retry returns a prior result, resumes a durable operation, or executes.
 decisions. [CD-0090](./decisions/CD-0090-per-turn-continuity-re-pin-hook.md)
 owns the continuity re-pin hook;
 [CD-0102 D2/D5](./decisions/CD-0102-lane-dispatch-runs-as-a-native-task.md#d2-the-plugin-binds-the-packet-to-the-next-matching-call)
-defines the native Task dispatch and completion bridge;
-[CD-0199](./decisions/CD-0199-the-plugin-owned-watcher-replaces-the-ci-wait-utility.md)
-owns the plugin CI watcher and its delivery hooks. `concord.ts` stays transport-only.
+defines the native Task dispatch and completion bridge. `concord.ts` stays transport-only.
 
 ## 7. Why not MCP
 

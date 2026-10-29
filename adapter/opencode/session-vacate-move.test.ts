@@ -1,7 +1,6 @@
 import { afterAll, afterEach, describe, expect, test } from "bun:test"
 import ConcordAdapterPlugin from "./concord-plugin"
 import { configureHostLease } from "./host-lease"
-import { configureCiWatch } from "./ci-watch"
 import { moveSessionToRegisteredMainCheckout, work_transition, configureConcordAdapter } from "./concord"
 import { armedClaimedWorktree, armClaimedWorktree, clearClaimedWorktree, pendingVacateDestination, recordPendingVacateDestination, resetClaimedWorktrees } from "./claimed-worktree"
 import { dispatchRequiresNextTurn, resetTurnMoveBoundaries } from "./turn-move-boundary"
@@ -70,7 +69,6 @@ afterEach(async () => {
   resetTurnMoveBoundaries()
   configureConcordAdapter({ reset: true })
   await ConcordAdapterPlugin({})
-  configureCiWatch({ reset: true })
 })
 
 describe("session_vacate moves only to the core-derived checkout", () => {

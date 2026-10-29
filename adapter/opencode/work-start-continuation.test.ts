@@ -1,12 +1,8 @@
 import { afterEach, beforeEach, expect, test } from "bun:test"
-import { mkdtempSync, rmSync } from "node:fs"
-import { tmpdir } from "node:os"
-import { join } from "node:path"
 import ConcordAdapterPlugin from "./concord-plugin"
 import { configureConcordAdapter } from "./concord"
 import { configureCoreBinary } from "./dispatch"
 import { configureHostLease } from "./host-lease"
-import { configureCiWatch } from "./ci-watch"
 import { manifestDigest } from "./generated-contracts"
 import { armedClaimedWorktree, resetClaimedWorktrees, unlandedClaimedWorktree } from "./claimed-worktree"
 import { hostControlPlane, MOVE_SESSION_ROUTE } from "./move-session"
@@ -22,7 +18,6 @@ const context = (directory = origin, messageID = "message-original") => ({
 }) as any
 
 let plugin: any
-let stateDirectory: string
 let metadata: Record<string, unknown>
 let directory: string
 let status: string
@@ -34,7 +29,6 @@ let promptStatus: number
 let logs: string[]
 
 beforeEach(async () => {
-  stateDirectory = mkdtempSync(join(tmpdir(), "concord-start-continuation-"))
   metadata = {}
   directory = origin
   status = "busy"
@@ -51,7 +45,6 @@ beforeEach(async () => {
   resetTurnMoveBoundaries()
   resetWorkStartContinuations()
   configureCoreBinary("concord")
-  configureCiWatch({ reset: true, stateDir: stateDirectory })
   configureHostLease({ reset: true })
   const client = {
     async get({ url }: any) {
@@ -123,13 +116,11 @@ afterEach(async () => {
   await plugin?.dispose?.()
   await workStartContinuationSettled(sessionID)
   resetWorkStartContinuations()
-  configureCiWatch({ reset: true })
   configureConcordAdapter({ reset: true })
   configureHostLease({ reset: true })
   hostControlPlane().bind(undefined)
   resetClaimedWorktrees()
   resetTurnMoveBoundaries()
-  rmSync(stateDirectory, { recursive: true, force: true })
 })
 
 async function start(ctx = context()) {

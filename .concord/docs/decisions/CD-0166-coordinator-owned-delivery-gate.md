@@ -5,7 +5,7 @@
 - **Scope:** Built-in workflow definitions, the delivery action, terminal lifecycle transitions, and workflow read surfaces
 - **Approval:** The operator approved the step-gating route over an additive evidence kind, and set the boundary: the coordinating agent owns the delivery assertion, and no session waits on a merge queue.
 - **Related:** CD-0156, CD-0043
-- **Preserves:** Active workflow instances and the ci-wait no-store-write boundary
+- **Preserves:** Active workflow instances
 
 Operator consent for delivery assertions and corrective returns is limited to the six classes in [CD-0243 D6](CD-0243-four-roles-and-six-operator-approval-classes.md#d6-existing-approval-requirements-follow-these-classes). Delivery evidence, subject binding, and other non-consent checks remain required.
 

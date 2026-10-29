@@ -6,7 +6,6 @@ Usage:
   concord host-leases                  # print live release leases; prunes stale ones
   concord upgrade < JSON stdin      # apply pending migrations; {"plan":true} reports readiness
   concord repair < JSON stdin          # verify assets, back up the database, repair the installed release (#912)
-  concord ci-wait < JSON stdin         # one bounded slice of a GitHub CI wait (CD-0160)
 
 Required-field refusals exit 64 before dispatch.
 Commands read one strict JSON object from stdin:
@@ -139,10 +138,6 @@ Commands read one strict JSON object from stdin:
     required: operation_id, idempotency_key, work_id, expected_version, handoff
     optional: product_id, linear, actor, safety evidence
     accepted values: reason is fixed to cancelled; removal is not archival
-  concord ci-wait < JSON stdin
-    required: selector, repo
-    optional: mode (pr checks|merge), head_sha (pr), time_seconds_max, state_file
-    accepted values: selector.kind: pr|sha|run; mode: checks|merge
   concord session-prepare < JSON stdin
     required: product_id, work_id, agent
     optional: task (max 8192 bytes; none on resume); agent is the active agent; handler refusals exit 2; required-field refusals exit 64

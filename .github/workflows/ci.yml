@@ -344,8 +344,6 @@ jobs:
         run: python3 scripts/test-predecessor-harvest.py
       - name: Validate script test coverage
         run: python3 scripts/check-script-tests.py
-      - name: Test the ci-wait wait contract (CD-0160)
-        run: python3 scripts/test-ci-wait-contract.py
       # Strict Bun and registry failures remain required. Only suite
       # subprocesses move to other owners, whose results verify also requires.
       - name: Validate JSON

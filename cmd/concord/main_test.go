@@ -456,7 +456,6 @@ func TestScopedUnsupportedUsage(t *testing.T) {
 	}{
 		{"canonical", []string{"backup", "--bogus"}, "backup"},
 		{"two-word", []string{"client", "register", "extra"}, "client-register"},
-		{"store-free", []string{"ci-wait", "--bogus"}, "ci-wait"},
 		{"release-verb", []string{"host-lease", "--bogus"}, "host-lease"},
 	}
 	for _, tc := range cases {

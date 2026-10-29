@@ -122,7 +122,6 @@ def derive_adapter_files(adapter_dir: Path) -> tuple[str, ...]:
 ADAPTER_FILES = (
     "adapter-contract-defect.ts",
     "agent-switch-hook.ts",
-    "ci-watch.ts",
     "claimed-worktree.ts",
     "concord-plugin.ts",
     "concord.ts",
@@ -166,7 +165,7 @@ ADAPTER_FILES = (
 # them here keeps every other recorded name refused, so an unknown or
 # traversing key still cannot reach a delete. Append on retirement; never
 # remove an entry while an installation that records it may still exist.
-RETIRED_ADAPTER_FILES = ("native-subtask-refusal.ts",)
+RETIRED_ADAPTER_FILES = ("native-subtask-refusal.ts", "ci-watch.ts")
 INSTRUCTION_FILES = (
     "asking.md",
     "change.md",

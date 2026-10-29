@@ -4,7 +4,6 @@ import { configureCoreBinary, type AgentLanePacket, type DispatchRunner } from "
 import { dispatchWindows, TASK_TOOL_ID } from "./dispatch-window"
 import { manifestDigest } from "./generated-contracts"
 import { configureHostLease } from "./host-lease"
-import { configureCiWatch } from "./ci-watch"
 import { configureConcordAdapter, consumeAddressedProjectHandoff, projectHandoffConsumeKey, work_trace } from "./concord"
 
 // The consume resolves the core binary path before the runner seam
@@ -124,7 +123,6 @@ afterEach(async () => {
   // process hands the next file an unfaulted lease module.
   await ConcordAdapterPlugin({})
   configureHostLease({ reset: true })
-  configureCiWatch({ reset: true })
 })
 
 // The verified landing supplies the transport facts: the session directory

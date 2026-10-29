@@ -545,9 +545,6 @@ class AgentProjectionTests(unittest.TestCase):
         ids = generator.concord_tool_ids()
         self.assertIn("concord_work_start", ids)
         self.assertIn("concord_work_transition", ids)
-        # The host catalog carries the CI watcher, so the denials must cover
-        # every registered tool.
-        self.assertIn("concord_ci_watch", ids)
         projection = lane_projection(self.LANE, REPORT_SCHEMA)
         for tool_id in ids:
             self.assertIn(f"\n  {tool_id}: false\n", projection)
@@ -1643,7 +1640,6 @@ class PrimaryProfileProjectionTests(unittest.TestCase):
         # editor trio and broad task access, and names no host editor.
         self.assertNotIn("morph_edit", frontmatter)
         self.assertNotIn("concord_work_", frontmatter)
-        self.assertNotIn("concord_ci_watch", frontmatter)
         self.assertEqual(self.profile("Concord-RTE")["denied_concord_tools"], [])
 
     def test_rte_keeps_shell_safety_denials_and_unrestricted_tasks(self):
@@ -1663,7 +1659,6 @@ class PrimaryProfileProjectionTests(unittest.TestCase):
             self.assertIn(f"\n  {tool}: allow", frontmatter)
         self.assertNotIn("morph_edit", frontmatter)
         self.assertNotIn("concord_work_", frontmatter)
-        self.assertNotIn("concord_ci_watch", frontmatter)
         self.assertEqual(self.profile("Concord")["denied_concord_tools"], [])
 
     def test_concord_keeps_shell_safety_denials_and_unrestricted_tasks(self):

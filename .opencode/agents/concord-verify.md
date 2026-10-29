@@ -10,7 +10,6 @@ tools:
   patch: false
   apply_patch: false
   morph_edit: false
-  concord_ci_watch: false
   concord_domain: false
   concord_knowledge: false
   concord_product_view: false

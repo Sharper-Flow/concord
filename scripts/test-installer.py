@@ -1993,25 +1993,24 @@ esac''',
 
     RETIRED_ADAPTER = "native-subtask-refusal.ts"
 
-    def _install_recording_retired_adapter(self) -> Path:
+    def _install_recording_retired_adapter(self, name: str = RETIRED_ADAPTER) -> Path:
         """Install v1.0.0 as an installer that still shipped the retired file
         leaves it: the file sits in the tools directory and the version tree,
         and the manifest records it in adapter_files and version_files."""
-        self.assertIn(self.RETIRED_ADAPTER, installer.RETIRED_ADAPTER_FILES)
-        self.assertNotIn(self.RETIRED_ADAPTER, installer.ADAPTER_FILES)
+        self.assertNotIn(name, installer.ADAPTER_FILES)
         self.make_release("v1.0.0", "old")
         self.make_release("v1.1.0", "new")
         first = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
         self.assertEqual(first.returncode, 0, first.stderr)
-        content = f"{self.RETIRED_ADAPTER}:old\n".encode()
+        content = f"{name}:old\n".encode()
         digest = hashlib.sha256(content).hexdigest()
-        (self.root / "data" / "concord" / "v1.0.0" / "adapter" / "opencode" / self.RETIRED_ADAPTER).write_bytes(content)
-        retired = self.root / "config" / "opencode" / "tools" / self.RETIRED_ADAPTER
+        (self.root / "data" / "concord" / "v1.0.0" / "adapter" / "opencode" / name).write_bytes(content)
+        retired = self.root / "config" / "opencode" / "tools" / name
         retired.write_bytes(content)
         manifest_path = self.root / "data" / "concord" / installer.MANIFEST_NAME
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-        manifest["adapter_files"][self.RETIRED_ADAPTER] = digest
-        manifest["version_files"][f"adapter/opencode/{self.RETIRED_ADAPTER}"] = digest
+        manifest["adapter_files"][name] = digest
+        manifest["version_files"][f"adapter/opencode/{name}"] = digest
         manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
         return retired
 
@@ -2031,6 +2030,26 @@ esac''',
             self.assertTrue((self.root / "config" / "opencode" / "tools" / name).is_file(), f"{name} was not placed")
         status = self.run_installer("status")
         self.assertEqual(status.returncode, 0, status.stderr)
+
+    def test_upgrade_removes_the_retired_ci_watch_adapter_file(self) -> None:
+        retired = self._install_recording_retired_adapter("ci-watch.ts")
+
+        second = self.run_installer("install", "--version", "v1.1.0", "--artifact-dir", str(self.artifacts))
+
+        self.assertEqual(second.returncode, 0, second.stderr)
+        self.assertFalse(retired.exists(), "the upgrade left the retired watcher in the tools directory")
+        manifest = json.loads((self.root / "data" / "concord" / installer.MANIFEST_NAME).read_text(encoding="utf-8"))
+        self.assertNotIn("ci-watch.ts", manifest["adapter_files"])
+        self.assertNotIn("adapter/opencode/ci-watch.ts", manifest["version_files"])
+
+    def test_status_and_uninstall_accept_the_retired_ci_watch_manifest(self) -> None:
+        retired = self._install_recording_retired_adapter("ci-watch.ts")
+
+        status = self.run_installer("status")
+        self.assertEqual(status.returncode, 0, status.stderr)
+        result = self.run_installer("uninstall")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse(retired.exists())
 
     def test_uninstall_removes_a_retired_adapter_file_the_manifest_records(self) -> None:
         retired = self._install_recording_retired_adapter()
@@ -4854,21 +4873,6 @@ class DeriveAdapterFilesTest(unittest.TestCase):
         derived = installer.derive_adapter_files(repo_adapter)
         self.assertIn(installer.PLUGIN_ENTRY_FILE, derived)
         self.assertEqual(derived, installer.ADAPTER_FILES)
-
-    def test_shipped_watcher_module_carries_no_autoloadable_tool_export(self) -> None:
-        # The release ships ADAPTER_FILES flat into the host custom tools
-        # directory, where the host autoloads every tool-shaped named export
-        # as `<file>_<export>` beside the plugin registration. The watcher is
-        # a plugin-registered tool only (CD-0199 D1): the shipped module
-        # carries no autoloadable tool export, and the plugin entry keeps the
-        # canonical registration. The adapter suite proves the export shape
-        # at runtime; this pins the shipped bytes at the installer boundary.
-        repo_adapter = SCRIPT.parent.parent / "adapter" / "opencode"
-        watcher = repo_adapter / "ci-watch.ts"
-        self.assertIn("ci-watch.ts", installer.ADAPTER_FILES)
-        self.assertNotIn("export const concord_ci_watch", watcher.read_text(encoding="utf-8"))
-        plugin = (repo_adapter / installer.PLUGIN_ENTRY_FILE).read_text(encoding="utf-8")
-        self.assertIn("concord_ci_watch:", plugin)
 
 
 class StandaloneInstallerTest(unittest.TestCase):

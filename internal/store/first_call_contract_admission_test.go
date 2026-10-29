@@ -636,7 +636,7 @@ func TestFirstCallSupersedeContractAdmitsFromPublishedVariant(t *testing.T) {
 		binding["affected_domain_ids"] = []string{"root", "ghost"}
 	})
 	err = runVerdictActionAs(t, s, workID, "supersede_contract", fieldsOf(unknownDomain), 0, owner)
-	firstCallRequireRefusal(t, err, "architecture binding names an unknown Domain: ghost")
+	firstCallRequireRefusal(t, err, "architecture_binding.affected_domain_ids names an unknown Domain: ghost")
 
 	// Version mutant: the successor version does not immediately follow the
 	// active contract.

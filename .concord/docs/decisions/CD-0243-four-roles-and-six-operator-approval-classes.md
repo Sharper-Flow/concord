@@ -131,9 +131,7 @@ required-review checks.
 | CD-0154 D2 | Four roles, optional RTE and Planner, direct operator routing |
 | TS1, TS4, TS9 contracts; TS5 §5; clarifications TS1–TS9 binding; PM9 contract; CD-0028; CD-0029 | Retained approval gaps for overlap, cancellation, removal, repair, reconciliation, and research deletion apply only under D2 |
 
-An approval-table gap is not an approval class. Each approval point must be
-classified under D2 or as agent-owned, rather than retaining operator approval
-solely because its classification is missing. An operation that grants access
+An operation that grants access
 still requires security approval; routine work management does not acquire
 that class merely because it changes a record.
 
@@ -184,7 +182,7 @@ capability, source and actor identity, exact versions, scope, execution
 relinquishment, occupancy, normal reclaim's clean-tree and merged-head gates, retention
 eligibility, publication proof, workflow recovery admission, checkpoints,
 evidence, and required independent review keep their existing conditions and
-bounded exceptions.
+bounded exceptions. No agent gains a bypass.
 Operator-only size overrides, CD-0218 D5's release activation and cutover,
 CD-0142 D3's choice of a non-Linear planning destination, and CD-0040 D9's
 exact exception for an unverifiable source also remain unchanged.

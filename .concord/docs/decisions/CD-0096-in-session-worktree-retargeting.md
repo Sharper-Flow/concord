@@ -98,6 +98,9 @@ worktree are refused only at the command level, by the Verify lease.
 CD-0095 store gates. A dirty tree refuses, and an unmerged branch refuses.
 The trigger for merged terminal work is the audit pass (CD-0105), which
 CD-0118 extends to unstarted work; this tier defines the gates, not the trigger.
+Destructive destroy discards local development content without the clean-tree
+and merged-branch checks. Repository identity, protected-default, changed-tip,
+foreign-checkout, and occupancy checks still apply.
 
 ### D4. Possession grants no Product authority
 

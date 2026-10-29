@@ -3031,14 +3031,10 @@ func (r runtime) planWorktreeDestroy(ctx context.Context, base agentcontract.Env
 	if err := decodeOperationInput(raw, &in); err != nil {
 		return base, err, true
 	}
-	if in.Approval != nil {
-		plan.approval = in.Approval.ApprovalRef
-	}
 	project := r.Envelope.AmbientProjectID
 	if project == "" {
 		return coreError(base, "unknown_scope", "worktree tiers resolve through the session's Project; this session holds none", "refresh_context", false), nil, true
 	}
-	plan.requiresApproval = false
 	plan.versions["work"] = in.ExpectedVersion
 	plan.scope["work_ids"] = []string{in.WorkID}
 	plan.intents = []agentcontract.NextIntent{{Tool: "concord_work_browse", Operation: "scope", QueryID: "PM1.Q6", ReasonCode: "refresh_work_version", RequiredFields: []string{"work_id"}}}

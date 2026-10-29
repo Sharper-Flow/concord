@@ -366,11 +366,8 @@ func TestMutationDurabilityConditionalPlans(t *testing.T) {
 	}
 }
 
-// TestMutationDurabilityStoreBoundPlannerFacts proves the capture
-// governing-conflict and worktree_destroy planner facts reach the
-// executor: each minted challenge commits through the durable
-// transaction. Governing scope cuts and named worktree waivers retain
-// their durable boundary independently of ordinary consent.
+// TestMutationDurabilityStoreBoundPlannerFacts checks that governing scope
+// cuts persist their challenges, while worktree removal adds no consent write.
 func TestMutationDurabilityStoreBoundPlannerFacts(t *testing.T) {
 	t.Parallel()
 	t.Run("capture governing conflict", func(t *testing.T) {
@@ -395,16 +392,19 @@ func TestMutationDurabilityStoreBoundPlannerFacts(t *testing.T) {
 		s, service, grant, _, _, _ := tiersFixture(t)
 		// CD-0243 D7 retains occupancy admission, not nonterminal consent.
 		before := s.DurableCommits()
-		occupied := authorityInvoke(t, s, service, grant, "concord_work_transition", "worktree_destroy", map[string]any{"work_id": "work-1", "expected_version": 3, "default_ref": "main", "idempotency_key": "durability-destroy-occupied"})
-		if occupied.Error == nil || occupied.Error.Kind != "approval_required" || occupied.Error.ConsequenceSummary == nil {
-			t.Fatalf("recorded occupancy destroy = %+v, want exact waiver challenge", occupied.Error)
-		}
-		if after := s.DurableCommits(); after != before+1 {
-			t.Fatalf("occupancy-waiver challenge moved durable counter %d -> %d, want +1", before, after)
-		}
 		challenges := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM agent_approval_challenges`)
+		occupied := authorityInvoke(t, s, service, grant, "concord_work_transition", "worktree_destroy", map[string]any{"work_id": "work-1", "expected_version": 3, "default_ref": "main", "idempotency_key": "durability-destroy-occupied"})
+		if occupied.Error == nil || occupied.Error.Kind != "unauthorized" {
+			t.Fatalf("recorded occupancy destroy = %+v, want occupancy refusal", occupied.Error)
+		}
+		if after := s.DurableCommits(); after != before {
+			t.Fatalf("occupancy refusal moved durable counter %d -> %d", before, after)
+		}
+		if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM agent_approval_challenges`); got != challenges {
+			t.Fatalf("occupancy refusal minted %d challenges", got-challenges)
+		}
 		if lifecycle, version := readWorkFromStore(t, s, "work-1"); lifecycle != "needed" || version != 3 {
-			t.Fatalf("waiver challenge changed work to %s v%d", lifecycle, version)
+			t.Fatalf("occupancy refusal changed work to %s v%d", lifecycle, version)
 		}
 		vacateLinkedWorktree(t, s, service, grant, filepath.Join(filepath.Dir(s.Path()), "worktrees", "project-1", "work-1"), "durability-nonterminal-vacate")
 		removed := authorityInvoke(t, s, service, grant, "concord_work_transition", "worktree_destroy", map[string]any{"work_id": "work-1", "expected_version": 3, "default_ref": "main", "idempotency_key": "durability-destroy-1"})
@@ -424,12 +424,16 @@ func TestMutationDurabilityStoreBoundPlannerFacts(t *testing.T) {
 		completeWork(t, s, "work-1")
 		vacateLinkedWorktree(t, s, service, grant, filepath.Join(filepath.Dir(s.Path()), "worktrees", "project-1", "work-1"), "durability-destructive-vacate")
 		before := s.DurableCommits()
-		refused := authorityInvoke(t, s, service, grant, "concord_work_transition", "worktree_destroy", map[string]any{"work_id": "work-1", "expected_version": 4, "default_ref": "main", "destructive": true, "idempotency_key": "durability-destructive-1"})
-		if refused.Error == nil || refused.Error.Kind != "approval_required" {
-			t.Fatalf("destructive destroy minted no challenge: outcome=%s err=%+v", refused.Outcome, refused.Error)
+		challenges := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM agent_approval_challenges`)
+		removed := authorityInvoke(t, s, service, grant, "concord_work_transition", "worktree_destroy", map[string]any{"work_id": "work-1", "expected_version": 4, "default_ref": "main", "destructive": true, "idempotency_key": "durability-destructive-1"})
+		if removed.Outcome != agentcontract.OutcomeOK || removed.Error != nil {
+			t.Fatalf("destructive destroy outcome=%s err=%+v, want removal", removed.Outcome, removed.Error)
 		}
-		if after := s.DurableCommits(); after != before+1 {
-			t.Fatalf("destructive destroy challenge moved the durable counter %d -> %d, want +1", before, after)
+		if after := s.DurableCommits(); after != before {
+			t.Fatalf("destructive destroy added a consent durability write: %d -> %d", before, after)
+		}
+		if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM agent_approval_challenges`); got != challenges {
+			t.Fatalf("destructive destroy minted %d challenges", got-challenges)
 		}
 	})
 }

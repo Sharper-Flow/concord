@@ -124,9 +124,7 @@ An agent corrects a factual documentation error inside its work item without an 
 The six classes and their boundaries are defined by CD-0243 D2: product
 direction, UI/UX, production application data, security, increased spending,
 and legal obligations. Every applicable class counts. Decisions outside them
-belong to agents under CD-0243 D3. A gap in the table's classification is not
-an independent approval requirement; each point must be classified under a
-class or as agent-owned.
+belong to agents under CD-0243 D3.
 
 The UI/UX class includes approval of a development preview of the final candidate before it is pushed to a shared remote or merged ([CD-0242 D9](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d9-completion-needs-proof-approvals-delivery-and-publication)).
 
@@ -168,8 +166,7 @@ its reason and review checks the applicable approval classes.
 A record the operator legislated becomes `derived` when an agent revises it
 without operator approval, so its standing shows who last enacted it.
 
-Missing classifications are implementation gaps, not approval classes. Current
-tool refusals still follow their admitted recovery routes until aligned.
+Current tool refusals still follow their admitted recovery routes until aligned.
 
 Every change to `priorities.md` moves its content hash, so the change that
 edits `priorities.md` also checks the table against it and records the new

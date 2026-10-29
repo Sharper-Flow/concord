@@ -115,9 +115,9 @@ approval gives the record the `derived` tier, whatever tier it held before,
 including a default tier from the closed D5 cohort.
 
 A governed scope cut is not a law change. It follows D5 and CD-0243 D3's
-Concord deletion exemption, and is never silent. Within assigned Concord work,
-retiring Concord's own law, mechanisms, systems and the tests of retired behavior
-needs no per-deletion product-direction, UI/UX or governed-scope-cut approval.
+Concord deletion exemption, and is never silent. Within assigned work on
+Concord, retiring Concord's own law, unwanted mechanisms and systems, and tests
+of retired behavior needs no per-deletion product-direction, UI/UX or governed-scope-cut approval.
 CD-0243 D3 owns the exemption's delivery duties, exclusions and retained gates.
 
 An agent corrects a factual documentation error inside its work item without an operator prompt when the correction changes neither intended behavior nor an operator decision, and such a correction is not a law change under P12 ([CD-0242 D10](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d10-knowledge-is-an-input-and-a-law-edit-changes-only-what-it-changes)).

@@ -18,11 +18,11 @@ clause. Keep proof for current obligations or name replacement proof. Never hide
 superseded code behind a flag, guard, or compatibility path, and never copy an
 implementation instead of calling it.
 
-Within assigned Concord work, CD-0243 D3 permits this retirement without
-per-deletion operator approval, including Concord law and capabilities. Record
-why and use an ordinary pull request with independent review and required CI.
-Apply D3's exclusions and retained gates; never silently substitute the item's
-agreed outcome.
+Within assigned work on Concord itself, CD-0243 D3 permits this retirement
+without per-deletion operator approval, including Concord law and capabilities.
+Record why and use an ordinary pull request with independent review and required
+CI. Apply D3's exclusions and retained gates; never silently substitute the
+item's agreed outcome. This exemption does not apply to other Products.
 
 Choose dependencies by total engineering cost, not by minimizing dependency
 count. Prefer a well-established, actively maintained dependency when it provides

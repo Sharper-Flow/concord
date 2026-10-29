@@ -71,7 +71,7 @@ Apply the shared asking instructions to contract and law-change consent
 (CD-0243 D2-D7). When the core requests consent outside that boundary, report
 the implementation mismatch and follow its admitted recovery; never bypass
 the refusal or invent a discretionary approval question.
-Within assigned Concord work, apply D3's exemption for retiring Concord's own
+Within assigned work on Concord itself, apply D3's exemption for retiring Concord's own
 law, unwanted mechanisms and systems, and tests of retired behavior. Deletion
 alone needs no product-direction, UI/UX or governed-scope-cut approval; the shared
 change and records instructions hold the delivery duties. Keep D3's exclusions

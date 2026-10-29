@@ -94,9 +94,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:15b0e27322ef82a66d11c772f00ba75611ea39cfb7745a18efceffb34bb22d37",
+  "sha256": "sha256:8aa4eb3221e6630279826597601dcba57ad9646a8513bf4bd21817d268b9bdee",
   "status": "accepted",
-  "summary": "Four roles separate operator approval, self-sufficient item delivery, optional RTE coordination, and optional Planner assistance as Product Owner. Six approval classes cover product direction, UI/UX, production application data and irreversible customer-data loss, security decisions, increased spending, and legal obligations. Routine engineering and work management remain agent-owned. Approval-boundary changes require exact-text operator approval; seriousness, Domain count, crucial size, and lack of recovery alone do not create an approval requirement. Runtime consent alignment remains unproved.",
+  "summary": "Four roles separate operator approval, self-sufficient item delivery, optional RTE coordination, and optional Planner assistance as Product Owner. Six approval classes retain consequential operator decisions. Within assigned Concord work, agents may retire Concord law, unwanted mechanisms and systems, and tests of retired behavior without per-deletion product-direction, UI/UX or governed-scope-cut approval. Recorded reasons, law retirement, test-clause citations, independent PR review, required CI, exclusions and current gates remain. Approval-boundary changes require exact-text approval. Runtime consent alignment remains unproved.",
   "tags": [
     "roles",
     "approval",

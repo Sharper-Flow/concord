@@ -11,7 +11,7 @@
     "scripts/install.py",
     ".concord/docs/decisions/CD-0085-client-signing-keys-live-behind-a-single-os-custody-adapter.md"
   ],
-  "home_domain_id": "agent-surface",
+  "home_domain_id": "agent-adapter",
   "id": "CD-0085",
   "kind": "decision",
   "path": ".concord/docs/decisions/CD-0085-client-signing-keys-live-behind-a-single-os-custody-adapter.md",

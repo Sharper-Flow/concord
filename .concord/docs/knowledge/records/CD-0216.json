@@ -12,7 +12,7 @@
     "internal/agent/research_surface_test.go",
     ".concord/docs/knowledge/coverage/CD-0216.json"
   ],
-  "home_domain_id": "agent-surface",
+  "home_domain_id": "agent-contract",
   "id": "CD-0216",
   "kind": "decision",
   "path": ".concord/docs/decisions/CD-0216-research-surface-and-explicit-retirement.md",

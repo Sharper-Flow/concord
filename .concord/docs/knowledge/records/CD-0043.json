@@ -11,7 +11,7 @@
     ".concord/docs/predecessor-operational-coverage.md",
     "skills/README.md"
   ],
-  "home_domain_id": "agent-surface",
+  "home_domain_id": "worker-lanes",
   "id": "CD-0043",
   "kind": "decision",
   "path": ".concord/docs/decisions/CD-0043-host-owned-lane-methodology.md",

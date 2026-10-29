@@ -10,7 +10,7 @@ import (
 
 func TestCommittedUniqueJSONFactFitsBound(t *testing.T) {
 	t.Parallel()
-	assertCommittedDomainFactFitsBound(t, "agent-surface", "internal/payloadschema", "agent-unique-json",
+	assertCommittedDomainFactFitsBound(t, "agent-contract", "internal/payloadschema", "agent-unique-json", []string{"agent-call-boundary", "agent-contract", "workflow-engine"},
 		DomainShapeSelector{Path: "internal/payloadschema/unique_json.go"},
 		DomainShapeSelector{Subject: "agent-unique-json"},
 	)
@@ -18,25 +18,27 @@ func TestCommittedUniqueJSONFactFitsBound(t *testing.T) {
 
 func TestCommittedEnvelopeSchemaFactFitsBound(t *testing.T) {
 	t.Parallel()
-	assertCommittedDomainFactFitsBound(t, "agent-surface", "internal/payloadschema", "agent-envelope-schema",
+	law := assertCommittedDomainFactFitsBound(t, "agent-contract", "internal/payloadschema", "agent-envelope-schema", []string{"agent-call-boundary", "agent-contract"},
 		DomainShapeSelector{Path: "internal/payloadschema/envelope.go"},
 		DomainShapeSelector{Path: "internal/payloadschema/generated_envelope_schema.go"},
 		DomainShapeSelector{Subject: "agent-envelope-schema"},
 	)
+	requireCommittedGoverningLaw(t, law, "TS7", "CD-0132")
 }
 
 func TestCommittedAgentContractFactFitsBound(t *testing.T) {
 	t.Parallel()
-	assertCommittedDomainFactFitsBound(t, "agent-surface", "internal/agentcontract", "agent-operation-admission",
+	law := assertCommittedDomainFactFitsBound(t, "agent-contract", "internal/agentcontract", "agent-operation-admission", []string{"agent-contract"},
 		DomainShapeSelector{Path: "internal/agentcontract/generated_contracts.go"},
 		DomainShapeSelector{Path: "internal/agentcontract/payload_validation.go"},
 		DomainShapeSelector{Subject: "agent-operation-admission"},
 	)
+	requireCommittedGoverningLaw(t, law, "TS5", "TS6", "TS8")
 }
 
 func TestCommittedTypedErrorVocabularyFactFitsBound(t *testing.T) {
 	t.Parallel()
-	assertCommittedDomainFactFitsBound(t, "agent-surface", "internal/payloadschema", "agent-typed-error-vocabulary",
+	assertCommittedDomainFactFitsBound(t, "agent-contract", "internal/payloadschema", "agent-typed-error-vocabulary", []string{"agent-call-boundary", "agent-contract"},
 		DomainShapeSelector{Path: "internal/payloadschema/generated_typed_error_kinds.go"},
 		DomainShapeSelector{Subject: "agent-typed-error-vocabulary"},
 	)
@@ -44,15 +46,16 @@ func TestCommittedTypedErrorVocabularyFactFitsBound(t *testing.T) {
 
 func TestCommittedEnvelopeModelFactFitsBound(t *testing.T) {
 	t.Parallel()
-	assertCommittedDomainFactFitsBound(t, "agent-surface", "internal/agentcontract", "agent-envelope-model",
+	law := assertCommittedDomainFactFitsBound(t, "agent-contract", "internal/agentcontract", "agent-envelope-model", []string{"agent-call-boundary", "agent-contract"},
 		DomainShapeSelector{Path: "internal/agentcontract/envelope.go"},
 		DomainShapeSelector{Subject: "agent-envelope-model"},
 	)
+	requireCommittedGoverningLaw(t, law, "TS7", "TS8", "CD-0132")
 }
 
 func TestCommittedWorkflowCompletionProofFactFitsBound(t *testing.T) {
 	t.Parallel()
-	assertCommittedDomainFactFitsBound(t, "workflow-engine", "internal/workflowproof", "workflow-completion-proof",
+	assertCommittedDomainFactFitsBound(t, "workflow-engine", "internal/workflowproof", "workflow-completion-proof", []string{"workflow-engine"},
 		DomainShapeSelector{Path: "internal/workflowproof/collector.go"},
 		DomainShapeSelector{Path: "internal/workflowproof/types.go"},
 		DomainShapeSelector{Subject: "workflow-completion-proof"},
@@ -61,14 +64,26 @@ func TestCommittedWorkflowCompletionProofFactFitsBound(t *testing.T) {
 
 func TestCommittedCIWaitFactFitsBound(t *testing.T) {
 	t.Parallel()
-	assertCommittedDomainFactFitsBound(t, "agent-surface", "internal/ciwait", "ci-wait-deadline",
+	assertCommittedDomainFactFitsBound(t, "agent-adapter", "internal/ciwait", "ci-wait-deadline", []string{"agent-adapter"},
 		DomainShapeSelector{Path: "internal/ciwait/ci_wait.go"},
 		DomainShapeSelector{Subject: "ci-wait-deadline"},
 	)
 }
 
-func assertCommittedDomainFactFitsBound(t *testing.T, domainID, owningRoot, factID string, selectors ...DomainShapeSelector) {
+func requireCommittedGoverningLaw(t *testing.T, law map[string]bool, ids ...string) {
 	t.Helper()
+	for _, id := range ids {
+		if !law[id] {
+			t.Fatalf("a selector result omitted governing law %s", id)
+		}
+	}
+}
+
+// assertCommittedDomainFactFitsBound returns the governing law every selector
+// result carried.
+func assertCommittedDomainFactFitsBound(t *testing.T, domainID, owningRoot, factID string, applicability []string, selectors ...DomainShapeSelector) map[string]bool {
+	t.Helper()
+	var law map[string]bool
 	ctx := context.Background()
 	root := repositoryRootForTest(t)
 	runner := CommittedReadGitRunner{}
@@ -100,7 +115,7 @@ func assertCommittedDomainFactFitsBound(t *testing.T, domainID, owningRoot, fact
 				continue
 			}
 			fact := item.Fact
-			if fact.Kind != DomainFactInvariant || fact.Standing != "observed" || fact.OwnerDomainID != domainID || fact.OwningRoot != owningRoot || fact.Invariant == nil || !slices.Equal(fact.Invariant.AppliesToDomainIDs, []string{domainID}) {
+			if fact.Kind != DomainFactInvariant || fact.Standing != "observed" || fact.OwnerDomainID != domainID || fact.OwningRoot != owningRoot || fact.Invariant == nil || !slices.Equal(fact.Invariant.AppliesToDomainIDs, applicability) {
 				t.Fatalf("wrong domain fact: %+v", fact)
 			}
 			found = true
@@ -109,6 +124,11 @@ func assertCommittedDomainFactFitsBound(t *testing.T, domainID, owningRoot, fact
 			t.Fatalf("selector %+v omitted %s", selector, factID)
 		}
 		selection.GoverningLaw = domainShapeManifestGoverningLaw(manifest, selection)
+		carried := map[string]bool{}
+		for _, record := range selection.GoverningLaw {
+			carried[record.LawID] = law == nil || law[record.LawID]
+		}
+		law = carried
 		bounded, err := boundDomainShapeResult(selection)
 		if err != nil {
 			t.Fatal(err)
@@ -119,4 +139,5 @@ func assertCommittedDomainFactFitsBound(t *testing.T, domainID, owningRoot, fact
 		}
 		t.Logf("selector=%+v result_bytes=%d", selector, len(raw))
 	}
+	return law
 }

@@ -12,7 +12,7 @@
     "scripts/generate-agent-lanes.py",
     "scripts/install.py"
   ],
-  "home_domain_id": "agent-surface",
+  "home_domain_id": "agent-contract",
   "id": "CD-0157",
   "kind": "decision",
   "law_relations": [

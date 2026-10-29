@@ -12,7 +12,7 @@
     "internal/store/workflow_continuity.go",
     "internal/store/workflow.go"
   ],
-  "home_domain_id": "agent-surface",
+  "home_domain_id": "agent-contract",
   "id": "CD-0113",
   "kind": "decision",
   "path": ".concord/docs/decisions/CD-0113-mutation-results-carry-a-workpin.md",

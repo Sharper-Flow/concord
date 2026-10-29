@@ -11,11 +11,10 @@
     "internal/store/bootstrap.go",
     "adapter/opencode/concord.ts"
   ],
-  "home_domain_id": "product-root:concord",
+  "home_domain_id": "agent-adapter",
   "id": "CD-0110",
   "kind": "decision",
   "path": ".concord/docs/decisions/CD-0110-work-start-chains-from-a-terminal-worktree.md",
-  "product_wide_rationale": "Governs the one session route that acquires an implementation worktree, so the origin boundary binds every Domain rather than one runtime Domain.",
   "scopes": {
     "domain_ids": [],
     "mode": "home",

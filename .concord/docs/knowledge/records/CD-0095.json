@@ -6,11 +6,10 @@
   },
   "date": "2026-09-01T00:00:00Z",
   "doc_contract_profile": "legacy",
-  "home_domain_id": "product-root:concord",
+  "home_domain_id": "agent-call-boundary",
   "id": "CD-0095",
   "kind": "decision",
   "path": ".concord/docs/decisions/CD-0095-terminal-work-main-checkout-reclaim.md",
-  "product_wide_rationale": "Amends the product-wide main-checkout authority boundary for one operation without assigning ownership to a runtime Domain.",
   "scopes": {
     "domain_ids": [],
     "mode": "home",

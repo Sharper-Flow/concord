@@ -6,11 +6,10 @@
   },
   "date": "2026-09-06T00:00:00Z",
   "doc_contract_profile": "legacy",
-  "home_domain_id": "product-root:concord",
+  "home_domain_id": "workflow-engine",
   "id": "CD-0118",
   "kind": "decision",
   "path": ".concord/docs/decisions/CD-0118-the-audit-reclaims-unstarted-worktrees.md",
-  "product_wide_rationale": "Names when a claimed worktree that holds no work may be removed, which every Domain that claims a worktree relies on, so it binds Product-wide rather than owning a runtime Domain.",
   "scopes": {
     "domain_ids": [],
     "mode": "home",

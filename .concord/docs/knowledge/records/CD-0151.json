@@ -12,12 +12,11 @@
     "internal/store/schema.go",
     "internal/store/worktrees_test.go"
   ],
-  "home_domain_id": "product-root:concord",
+  "home_domain_id": "agent-call-boundary",
   "id": "CD-0151",
   "kind": "decision",
   "law_relations": [],
   "path": ".concord/docs/decisions/CD-0151-worktree-claims-derive-native-identity.md",
-  "product_wide_rationale": "The claim identity invariant spans the store, agent surface, native Git boundary, and every Project locator. No child Domain owns the complete invariant.",
   "scopes": {
     "domain_ids": [],
     "mode": "home",

@@ -9,7 +9,7 @@
     "internal/store/worker_packet_binding.go",
     "scripts/generate-agent-lanes.py"
   ],
-  "home_domain_id": "agent-surface",
+  "home_domain_id": "worker-lanes",
   "id": "CD-0223",
   "kind": "decision",
   "law_relations": [

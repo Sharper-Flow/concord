@@ -1,6 +1,8 @@
 {
   "applies_to_domain_ids": [
-    "agent-surface"
+    "agent-adapter",
+    "agent-surface",
+    "worker-lanes"
   ],
   "authority": {
     "tier": "derived"

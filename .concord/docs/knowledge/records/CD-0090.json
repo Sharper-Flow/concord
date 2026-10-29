@@ -15,7 +15,7 @@
     ".concord/docs/decisions/CD-0090-per-turn-continuity-re-pin-hook.md",
     ".concord/scenarios/adapter-continuity.v1.json"
   ],
-  "home_domain_id": "agent-surface",
+  "home_domain_id": "agent-adapter",
   "id": "CD-0090",
   "kind": "decision",
   "path": ".concord/docs/decisions/CD-0090-per-turn-continuity-re-pin-hook.md",

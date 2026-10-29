@@ -6,11 +6,10 @@
   },
   "date": "2026-09-14T00:00:00Z",
   "doc_contract_profile": "legacy",
-  "home_domain_id": "product-root:concord",
+  "home_domain_id": "agent-call-boundary",
   "id": "CD-0152",
   "kind": "decision",
   "path": ".concord/docs/decisions/CD-0152-product-membership-grants-project-authority.md",
-  "product_wide_rationale": "Agent authority derives from Product and Project membership across the Product surface. No child Domain owns this cross-Domain authority boundary.",
   "scopes": {
     "domain_ids": [],
     "mode": "home",

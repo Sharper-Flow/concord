@@ -1,4 +1,8 @@
 {
+  "applies_to_domain_ids": [
+    "agent-adapter",
+    "agent-contract"
+  ],
   "authority": {
     "contract_version": 1,
     "legislated_by": "work-8d7bd788b2890355460bb5b7",
@@ -11,7 +15,7 @@
     ".concord/docs/agent-call-context-contract.md",
     ".concord/scenarios/agent-jobs.v1.json"
   ],
-  "home_domain_id": "agent-surface",
+  "home_domain_id": "agent-call-boundary",
   "id": "CD-0037",
   "kind": "decision",
   "path": ".concord/docs/decisions/CD-0037-core-derived-approval-consequence-summaries.md",

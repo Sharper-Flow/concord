@@ -12,7 +12,7 @@
     "scripts/generate-agent-lanes.py",
     "scripts/check-agent-contracts.py"
   ],
-  "home_domain_id": "agent-surface",
+  "home_domain_id": "worker-lanes",
   "id": "CD-0054",
   "kind": "decision",
   "path": ".concord/docs/decisions/CD-0054-routing-policy-host-authority.md",

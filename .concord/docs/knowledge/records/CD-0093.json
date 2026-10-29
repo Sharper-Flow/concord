@@ -6,11 +6,10 @@
   },
   "date": "2026-09-01T00:00:00Z",
   "doc_contract_profile": "legacy",
-  "home_domain_id": "product-root:concord",
+  "home_domain_id": "agent-adapter",
   "id": "CD-0093",
   "kind": "decision",
   "path": ".concord/docs/decisions/CD-0093-session-start-resolves-the-project-directory.md",
-  "product_wide_rationale": "Governs what session start resolves before it runs the host. It binds the launcher, the session command, and Project identity together, so no single runtime Domain owns it.",
   "scopes": {
     "domain_ids": [],
     "mode": "home",

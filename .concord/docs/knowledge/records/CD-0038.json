@@ -11,7 +11,7 @@
     "contracts/agent-tool-surface.v1.json",
     ".concord/scenarios/agent-jobs.v1.json"
   ],
-  "home_domain_id": "agent-surface",
+  "home_domain_id": "agent-contract",
   "id": "CD-0038",
   "kind": "decision",
   "path": ".concord/docs/decisions/CD-0038-per-operation-seconds-budgets.md",

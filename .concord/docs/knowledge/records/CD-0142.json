@@ -16,7 +16,7 @@
     "cmd/concord/main.go",
     "contracts/agent-tool-surface-payloads.schema.json"
   ],
-  "home_domain_id": "product-root:concord",
+  "home_domain_id": "workflow-engine",
   "id": "CD-0142",
   "kind": "decision",
   "law_relations": [
@@ -30,7 +30,6 @@
     }
   ],
   "path": ".concord/docs/decisions/CD-0142-operator-directed-execution-removal.md",
-  "product_wide_rationale": "Defines the Product-wide boundary that removes an execution identity only after preservation and reconciliation, so no Domain can retain an actionable shelved or cancelled execution.",
   "scopes": {
     "domain_ids": [],
     "mode": "home",

@@ -11,7 +11,7 @@
     "internal/ciwait/ci_wait_test.go",
     "scripts/generate-agent-lanes.py"
   ],
-  "home_domain_id": "agent-surface",
+  "home_domain_id": "agent-adapter",
   "id": "CD-0160",
   "kind": "decision",
   "law_relations": [

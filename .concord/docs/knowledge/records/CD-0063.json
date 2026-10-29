@@ -9,7 +9,7 @@
     "adapter/opencode/dispatch.ts",
     "skills/README.md"
   ],
-  "home_domain_id": "agent-surface",
+  "home_domain_id": "worker-lanes",
   "id": "CD-0063",
   "kind": "decision",
   "path": ".concord/docs/decisions/CD-0063-shipped-operator-conduct-rules.md",

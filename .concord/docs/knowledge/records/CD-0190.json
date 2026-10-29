@@ -6,7 +6,7 @@
   },
   "date": "2026-09-28T00:00:00Z",
   "doc_contract_profile": "current",
-  "home_domain_id": "product-root:concord",
+  "home_domain_id": "agent-adapter",
   "id": "CD-0190",
   "kind": "decision",
   "law_relations": [
@@ -16,7 +16,6 @@
     }
   ],
   "path": ".concord/docs/decisions/CD-0190-cd-0179-d1-and-d4-release-at-the-verified-vacate-landing.md",
-  "product_wide_rationale": "Governs when a session's worktree occupancy rows release across the durable store, the agent transport surface, and the main-checkout authority boundary, so no single runtime Domain owns it.",
   "scopes": {
     "domain_ids": [],
     "mode": "home",

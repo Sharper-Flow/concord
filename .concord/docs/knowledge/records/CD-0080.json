@@ -13,7 +13,7 @@
     "internal/store/blocked_sessions.go",
     ".concord/docs/reachability-exceptions.v1.json"
   ],
-  "home_domain_id": "agent-surface",
+  "home_domain_id": "agent-call-boundary",
   "id": "CD-0080",
   "kind": "decision",
   "path": ".concord/docs/decisions/CD-0080-capability-scoping-replaces-the-grant-token.md",

@@ -1,5 +1,8 @@
 {
   "applies_to_domain_ids": [
+    "agent-adapter",
+    "agent-call-boundary",
+    "agent-contract",
     "agent-surface"
   ],
   "authority": {

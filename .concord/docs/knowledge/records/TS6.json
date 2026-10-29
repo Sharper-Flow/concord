@@ -1,4 +1,7 @@
 {
+  "applies_to_domain_ids": [
+    "agent-contract"
+  ],
   "authority": {
     "tier": "derived"
   },
@@ -33,7 +36,7 @@
     "internal/agent/mutation_dispatch_test.go",
     "adapter/opencode/generated-contract-tests.ts"
   ],
-  "home_domain_id": "agent-surface",
+  "home_domain_id": "agent-adapter",
   "id": "TS6",
   "kind": "spec",
   "path": ".concord/docs/agent-adapter-transport-contract.md",

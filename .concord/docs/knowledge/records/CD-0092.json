@@ -6,11 +6,10 @@
   },
   "date": "2026-09-01T00:00:00Z",
   "doc_contract_profile": "legacy",
-  "home_domain_id": "product-root:concord",
+  "home_domain_id": "agent-call-boundary",
   "id": "CD-0092",
   "kind": "decision",
   "path": ".concord/docs/decisions/CD-0092-main-checkout-capability-scope.md",
-  "product_wide_rationale": "Governs which agent capabilities the main checkout refuses. It is authority law spanning every Domain, so no runtime Domain owns it.",
   "scopes": {
     "domain_ids": [],
     "mode": "home",

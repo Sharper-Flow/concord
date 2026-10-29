@@ -1,4 +1,8 @@
 {
+  "applies_to_domain_ids": [
+    "agent-adapter",
+    "agent-contract"
+  ],
   "authority": {
     "tier": "derived"
   },
@@ -34,7 +38,7 @@
     "internal/agent/workflow_dispatch_test.go",
     "internal/store/agent_mutation_boundary_test.go"
   ],
-  "home_domain_id": "agent-surface",
+  "home_domain_id": "agent-call-boundary",
   "id": "TS5",
   "kind": "spec",
   "path": ".concord/docs/agent-call-context-contract.md",

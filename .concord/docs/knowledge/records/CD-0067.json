@@ -16,7 +16,7 @@
     "internal/store/worker_dispatch_window_test.go",
     "scripts/generate-agent-contracts.py"
   ],
-  "home_domain_id": "agent-surface",
+  "home_domain_id": "worker-lanes",
   "id": "CD-0067",
   "kind": "decision",
   "path": ".concord/docs/decisions/CD-0067-dispatch-worker-packet.md",

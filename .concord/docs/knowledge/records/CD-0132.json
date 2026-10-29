@@ -1,4 +1,8 @@
 {
+  "applies_to_domain_ids": [
+    "agent-adapter",
+    "agent-contract"
+  ],
   "authority": {
     "contract_version": 1,
     "legislated_by": "work-8d7bd788b2890355460bb5b7",
@@ -12,7 +16,7 @@
     "internal/agent/envelope_contract_test.go",
     "adapter/opencode/concord.test.ts"
   ],
-  "home_domain_id": "agent-surface",
+  "home_domain_id": "agent-call-boundary",
   "id": "CD-0132",
   "kind": "decision",
   "law_relations": [],

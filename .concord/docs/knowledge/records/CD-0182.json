@@ -6,7 +6,7 @@
   },
   "date": "2026-09-27T00:00:00Z",
   "doc_contract_profile": "current",
-  "home_domain_id": "product-root:concord",
+  "home_domain_id": "agent-adapter",
   "id": "CD-0182",
   "kind": "decision",
   "law_relations": [
@@ -28,7 +28,6 @@
     }
   ],
   "path": ".concord/docs/decisions/CD-0182-session-opener.md",
-  "product_wide_rationale": "Governs how one work item reaches a second repository's coordinator session across the store remedy, the installer, and the coordinator instructions, so no single runtime Domain owns host placement.",
   "scopes": {
     "domain_ids": [],
     "mode": "home",

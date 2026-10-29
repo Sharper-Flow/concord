@@ -4,7 +4,7 @@
   },
   "date": "2026-09-24T00:00:00Z",
   "doc_contract_profile": "current",
-  "home_domain_id": "product-root:concord",
+  "home_domain_id": "agent-adapter",
   "id": "CD-0176",
   "kind": "decision",
   "law_relations": [
@@ -14,7 +14,6 @@
     }
   ],
   "path": ".concord/docs/decisions/CD-0176-the-launcher-lands-in-the-active-worktree.md",
-  "product_wide_rationale": "Governs the session landing directory across the session entry route, the session command, and the worktree workflow, so no single runtime Domain owns it.",
   "scopes": {
     "domain_ids": [],
     "mode": "home",

@@ -1028,8 +1028,8 @@ func guardAcceptWorkerResultDeliveryRoute(g *workflowActionGuardContext) error {
 		return guardDeliveryAdmission(g)
 	}
 	if artifact != "" || state != "" {
-		return newFailure(KindInvalidOperation, "workflow_action",
-			"accept_worker_result carries delivery fields only at the delivery-admitting refinement step",
+		return newFailure(KindInvalidPayload, "workflow_action",
+			"accept_worker_result carries fields.delivery_artifact and fields.delivery_state only at the delivery-admitting refinement step",
 			false, "drop the delivery fields here, or assert the delivery through record_delivery")
 	}
 	return nil

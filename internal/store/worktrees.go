@@ -1934,7 +1934,7 @@ func decodeRecordedRemovalPlan(facts json.RawMessage, op string) (recordedRemova
 		return plan, nil
 	}
 	if err := json.Unmarshal(facts, &plan); err != nil {
-		return recordedRemovalPlan{}, newFailure(KindInvalidPayload, op, "recorded reclaim facts are unparsable", false, "repair the recorded reclamation facts")
+		return recordedRemovalPlan{}, newFailure(KindInvariantViolation, op, "recorded reclaim facts are unparsable", false, "repair the recorded reclamation facts")
 	}
 	return plan, nil
 }

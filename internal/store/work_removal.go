@@ -702,12 +702,12 @@ func readWorkRemovalAuditQ(ctx context.Context, q queryer, operationID string) (
 		return WorkRemovalReceipt{}, wrapFailure(KindUnavailable, "work_removal_audit", "cannot read removal receipt", true, "retry once the receipt is readable", err)
 	}
 	if err := json.Unmarshal([]byte(handoff), &receipt.Handoff); err != nil {
-		return WorkRemovalReceipt{}, newFailure(KindInvalidPayload, "work_removal_audit", "removal receipt handoff is malformed", false, "repair the durable receipt")
+		return WorkRemovalReceipt{}, newFailure(KindInvariantViolation, "work_removal_audit", "removal receipt handoff is malformed", false, "repair the durable receipt")
 	}
 	if linearRaw != "{}" {
 		receipt.Linear = &LinearHandoffConfirmation{}
 		if err := json.Unmarshal([]byte(linearRaw), receipt.Linear); err != nil {
-			return WorkRemovalReceipt{}, newFailure(KindInvalidPayload, "work_removal_audit", "removal receipt Linear confirmation is malformed", false, "repair the durable receipt")
+			return WorkRemovalReceipt{}, newFailure(KindInvariantViolation, "work_removal_audit", "removal receipt Linear confirmation is malformed", false, "repair the durable receipt")
 		}
 	}
 	return receipt, nil

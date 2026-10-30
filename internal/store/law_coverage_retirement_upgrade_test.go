@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"path/filepath"
-	"reflect"
 	"strings"
 	"testing"
 )
@@ -66,30 +65,6 @@ func seedV165LawCoverageDatabase(t *testing.T, path string) *sql.DB {
 	return db
 }
 
-func assertLawCoverageRetired(t *testing.T, db *sql.DB, before map[string][]string) {
-	t.Helper()
-	for _, object := range lawCoverageRetiredObjects {
-		var count int
-		if err := db.QueryRow(`SELECT count(*) FROM sqlite_schema WHERE name=?`, object).Scan(&count); err != nil {
-			t.Fatal(err)
-		}
-		if count != 0 {
-			t.Errorf("retired law coverage object survived: %s", object)
-		}
-	}
-	if after := catalogUpgradeRows(t, db, lawCoveragePreservedTables...); !reflect.DeepEqual(before, after) {
-		t.Fatalf("non-coverage rows changed:\nbefore: %v\nafter: %v", before, after)
-	}
-	var version int
-	var breaking bool
-	if err := db.QueryRow(`SELECT version,breaking FROM schema_migrations ORDER BY version DESC LIMIT 1`).Scan(&version, &breaking); err != nil {
-		t.Fatal(err)
-	}
-	if version != 166 || version != CurrentSchemaVersion() || !breaking {
-		t.Fatalf("schema head=(%d, breaking=%v), want breaking 166", version, breaking)
-	}
-}
-
 func TestMigrateV165ToV166RetiresLawCoverageStorageAndPreservesCurrentState(t *testing.T) {
 	t.Parallel()
 	db := seedV165LawCoverageDatabase(t, filepath.Join(t.TempDir(), "concord-v165.db"))
@@ -97,7 +72,7 @@ func TestMigrateV165ToV166RetiresLawCoverageStorageAndPreservesCurrentState(t *t
 	if err := Migrate(context.Background(), db); err != nil {
 		t.Fatalf("upgrade to v166: %v", err)
 	}
-	assertLawCoverageRetired(t, db, before)
+	assertRetirementUpgrade(t, db, lawCoverageRetiredObjects, lawCoveragePreservedTables, before)
 }
 
 func TestMigrateV165ToV166FailedStepRollsBack(t *testing.T) {
@@ -117,7 +92,7 @@ INSERT INTO coverage_drop_blocker VALUES('coverage-project','coverage-locator','
 	if err := Migrate(context.Background(), db); err != nil {
 		t.Fatalf("clean upgrade after failed Migrate: %v", err)
 	}
-	assertLawCoverageRetired(t, db, current)
+	assertRetirementUpgrade(t, db, lawCoverageRetiredObjects, lawCoveragePreservedTables, current)
 }
 
 // A knowledge home whose head still carries coverage shards from before the

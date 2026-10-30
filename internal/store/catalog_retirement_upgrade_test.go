@@ -94,18 +94,18 @@ func catalogUpgradeRows(t *testing.T, db *sql.DB, tables ...string) map[string][
 	return result
 }
 
-func assertCatalogUpgrade(t *testing.T, db *sql.DB, before map[string][]string) {
+func assertRetirementUpgrade(t *testing.T, db *sql.DB, retired, preserved []string, before map[string][]string) {
 	t.Helper()
-	for _, table := range catalogRetiredTables {
+	for _, table := range retired {
 		var count int
 		if err := db.QueryRow(`SELECT count(*) FROM sqlite_schema WHERE name=?`, table).Scan(&count); err != nil {
 			t.Fatal(err)
 		}
 		if count != 0 {
-			t.Errorf("retired catalog object survived: %s", table)
+			t.Errorf("retired object survived: %s", table)
 		}
 	}
-	if after := catalogUpgradeRows(t, db, catalogCurrentTables...); !reflect.DeepEqual(before, after) {
+	if after := catalogUpgradeRows(t, db, preserved...); !reflect.DeepEqual(before, after) {
 		t.Fatalf("current rows changed:\nbefore: %v\nafter: %v", before, after)
 	}
 	var version int
@@ -125,7 +125,7 @@ func TestMigrateV162ToV165RetiresCatalogAndPreservesCurrentState(t *testing.T) {
 	if err := Migrate(context.Background(), db); err != nil {
 		t.Fatalf("upgrade to v165: %v", err)
 	}
-	assertCatalogUpgrade(t, db, before)
+	assertRetirementUpgrade(t, db, catalogRetiredTables, catalogCurrentTables, before)
 }
 
 func TestMigrateV162ToV165FailedStepRollsBack(t *testing.T) {
@@ -145,7 +145,7 @@ INSERT INTO catalog_drop_blocker(resource_id) VALUES('upgrade-queue')`); err != 
 	if err := Migrate(context.Background(), db); err != nil {
 		t.Fatalf("clean upgrade after failed Migrate: %v", err)
 	}
-	assertCatalogUpgrade(t, db, current)
+	assertRetirementUpgrade(t, db, catalogRetiredTables, catalogCurrentTables, current)
 }
 
 func assertMigrationForeignKeyRollback(t *testing.T, db *sql.DB, tables []string, failure string) {

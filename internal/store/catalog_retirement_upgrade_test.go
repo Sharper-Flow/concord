@@ -137,15 +137,8 @@ INSERT INTO catalog_drop_blocker(resource_id) VALUES('upgrade-queue')`); err != 
 	}
 	tables := append([]string{"sqlite_schema", "schema_migrations", "catalog_drop_blocker"}, catalogRetiredTables...)
 	tables = append(tables, catalogCurrentTables...)
-	before := catalogUpgradeRows(t, db, tables...)
 	current := catalogUpgradeRows(t, db, catalogCurrentTables...)
-	err := Migrate(context.Background(), db)
-	if err == nil || !strings.Contains(err.Error(), "migration 165 (managed_resource_catalog_retirement) failed") || !strings.Contains(strings.ToLower(err.Error()), "foreign key") {
-		t.Fatalf("Migrate must fail on the induced catalog foreign key: %v", err)
-	}
-	if after := catalogUpgradeRows(t, db, tables...); !reflect.DeepEqual(before, after) {
-		t.Fatalf("failed Migrate changed pre-upgrade schema, manifest or rows:\nbefore: %v\nafter: %v", before, after)
-	}
+	assertMigrationForeignKeyRollback(t, db, tables, "migration 165 (managed_resource_catalog_retirement) failed")
 	if _, err := db.Exec(`DROP TABLE catalog_drop_blocker`); err != nil {
 		t.Fatal(err)
 	}
@@ -153,6 +146,18 @@ INSERT INTO catalog_drop_blocker(resource_id) VALUES('upgrade-queue')`); err != 
 		t.Fatalf("clean upgrade after failed Migrate: %v", err)
 	}
 	assertCatalogUpgrade(t, db, current)
+}
+
+func assertMigrationForeignKeyRollback(t *testing.T, db *sql.DB, tables []string, failure string) {
+	t.Helper()
+	before := catalogUpgradeRows(t, db, tables...)
+	err := Migrate(context.Background(), db)
+	if err == nil || !strings.Contains(err.Error(), failure) || !strings.Contains(strings.ToLower(err.Error()), "foreign key") {
+		t.Fatalf("Migrate must fail on the induced foreign key (%s): %v", failure, err)
+	}
+	if after := catalogUpgradeRows(t, db, tables...); !reflect.DeepEqual(before, after) {
+		t.Fatalf("failed Migrate changed pre-upgrade schema, manifest or rows:\nbefore: %v\nafter: %v", before, after)
+	}
 }
 
 func TestDomainFactResolvedSourceModes(t *testing.T) {

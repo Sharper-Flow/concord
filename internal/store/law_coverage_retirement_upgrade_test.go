@@ -109,15 +109,8 @@ INSERT INTO coverage_drop_blocker VALUES('coverage-project','coverage-locator','
 	}
 	tables := append([]string{"sqlite_schema", "schema_migrations", "coverage_drop_blocker"}, lawCoverageRetiredTables...)
 	tables = append(tables, lawCoveragePreservedTables...)
-	before := catalogUpgradeRows(t, db, tables...)
 	current := catalogUpgradeRows(t, db, lawCoveragePreservedTables...)
-	err := Migrate(context.Background(), db)
-	if err == nil || !strings.Contains(err.Error(), "migration 166 (law_coverage_retirement) failed") || !strings.Contains(strings.ToLower(err.Error()), "foreign key") {
-		t.Fatalf("Migrate must fail on the induced law coverage foreign key: %v", err)
-	}
-	if after := catalogUpgradeRows(t, db, tables...); !reflect.DeepEqual(before, after) {
-		t.Fatalf("failed Migrate changed pre-upgrade schema, manifest or rows:\nbefore: %v\nafter: %v", before, after)
-	}
+	assertMigrationForeignKeyRollback(t, db, tables, "migration 166 (law_coverage_retirement) failed")
 	if _, err := db.Exec(`DROP TABLE coverage_drop_blocker`); err != nil {
 		t.Fatal(err)
 	}

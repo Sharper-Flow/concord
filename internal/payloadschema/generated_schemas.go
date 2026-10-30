@@ -8851,7 +8851,6 @@ const GeneratedPayloadSchemaDocument = `{
         }
       ],
       "properties": {
-        "assignment_group": {},
         "changed_refs": {},
         "delivery": {},
         "next_valid_intents": {},

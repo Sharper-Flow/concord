@@ -393,7 +393,15 @@ func workflowContractCorrectionCheckpoint(definition WorkflowDefinition, current
 	if step.Kind == WorkflowStepHumanCheckpoint {
 		return slices.Contains(step.Actions, "confirm_premise")
 	}
-	return slices.Contains(step.Actions, "record_review")
+	// Contract revision follows the step's authored outcome or producing
+	// start, independently of Review intake or execution delegation.
+	for _, action := range step.Actions {
+		switch action {
+		case "record_proposal", "record_design", "record_finding", "record_report", "start_execution", "checkpoint_repair", "checkpoint_refine":
+			return true
+		}
+	}
+	return false
 }
 
 // workflowCompleteStepCorrectionAvailable reports whether the pinned complete

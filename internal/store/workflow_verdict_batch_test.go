@@ -67,6 +67,9 @@ func pReceiptFixture(t *testing.T, workID string, criteria, receiptsPerCriterion
 	if err := runVerdictActionAs(t, f.store, workID, "bind_evidence", mustJSONValue(map[string]any{"evidence_kind": "verification", "immutable_subject_ref": refs[0][0], "producer_id": f.owner.PrincipalRef, "producer_run_ref": refs[0][0], "producer_watermark": "request:p:0:0"}), 0, f.owner); err != nil {
 		t.Fatal(err)
 	}
+	if err := runVerdictActionAs(t, f.store, workID, "bind_evidence", mustJSONValue(map[string]any{"evidence_kind": "artifact", "immutable_subject_ref": "commit:" + runTestGit(t, repo, "rev-parse", "HEAD")}), 0, f.owner); err != nil {
+		t.Fatalf("bind the checked candidate artifact: %v", err)
+	}
 	owner, _ := WorkflowActorRef(f.owner)
 	if err := advanceWorkflowTestInstanceToStep(t.Context(), f.store, workID, "acceptance", owner); err != nil {
 		t.Fatal(err)

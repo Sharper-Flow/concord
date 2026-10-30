@@ -84,7 +84,7 @@ func TestCommittedSQLiteMechanismShapeFitsBound(t *testing.T) {
 		t.Fatal(err)
 	}
 	snapshot := &newDomainShapeProjection(commit, manifest, architecture).Snapshot
-	if err := reconstructDomainShapeReadingSnapshot(ctx, runner, &domainShapeReadingWitness{sourceRepo: root}, shards, snapshot); err != nil {
+	if err := populateDomainShapeCorpusSnapshot(ctx, root, shards, snapshot); err != nil {
 		t.Fatal(err)
 	}
 	selector := DomainShapeSelector{Path: "internal/store/internal/sqlitedb/snapshot.go"}
@@ -92,7 +92,7 @@ func TestCommittedSQLiteMechanismShapeFitsBound(t *testing.T) {
 	if !slices.Equal(selection.DomainIDs, []string{"durable-authority"}) || len(selection.Facts) == 0 {
 		t.Fatalf("mechanism path selects Domains %v with %d facts", selection.DomainIDs, len(selection.Facts))
 	}
-	selection.GoverningLaw = domainShapeManifestGoverningLaw(manifest, selection)
+	selection.GoverningLaw = domainShapeCorpusGoverningLaw(manifest, selection)
 	if _, err := boundDomainShapeResult(selection); err != nil {
 		t.Fatal(err)
 	}

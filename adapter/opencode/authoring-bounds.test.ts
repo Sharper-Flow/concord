@@ -126,7 +126,7 @@ function clauseTextSet(node: Schema): Set<string> {
 
 type BoundUse = { chain: string; at: string; node: Schema }
 
-// conjoinUnion folds a oneOf parent's object constraints into each branch —
+// conjoinUnion folds a union parent's object constraints into each branch —
 // the effective view: shared properties overlay, closure, type, and the
 // required union apply to every branch. Mirrors the expanded published
 // view's per-branch conjunction; merging twice is content-idempotent.
@@ -157,7 +157,7 @@ function conjoinUnion(parent: Schema, branch: Schema): Schema {
 // patterns (~pat), items ([]), additionalProperties (<>), names()/has(),
 // conditional frame tokens (if:/then:/else:/not:), and indexed branch
 // tokens (oneOf[i] and siblings): sibling branches keep distinct identity,
-// and a oneOf folds into its conjoined branches, so a factored union's
+// and a union folds into its conjoined branches, so a factored union's
 // expanded view walks to the same chains as the authored per-branch form.
 // Returns the "chain#keyword=value(unit)" signature set, the bound
 // positions, the described nodes per chain, and unresolvable references.
@@ -188,7 +188,7 @@ function boundInventory(roots: { at: string; schema: unknown }[], table: SchemaT
       if (!stack.includes(name)) walk(target, chain, [...stack, name])
     }
     for (const key of ["if", "then", "else", "not"]) walk(schema[key], `${chain}.${key}:`, stack)
-    for (const key of ["allOf", "anyOf", "prefixItems"]) {
+    for (const key of ["allOf", "prefixItems"]) {
       (schema[key] as unknown[] | undefined)?.forEach((branch, index) => walk(branch, `${chain}.${key}[${index}]`, stack))
     }
     for (const [pattern, child] of Object.entries(schema.patternProperties ?? {})) walk(child, `${chain}~${pattern}`, stack)
@@ -197,8 +197,8 @@ function boundInventory(roots: { at: string; schema: unknown }[], table: SchemaT
     const items = schema.items
     if (Array.isArray(items)) items.forEach(item => walk(item, `${chain}[]`, stack))
     else walk(items, `${chain}[]`, stack)
-    const unions = schema.oneOf as unknown[] | undefined
-    if (unions === undefined) {
+    const unionKinds = ["oneOf", "anyOf"].filter(key => Array.isArray(schema[key]))
+    if (unionKinds.length === 0) {
       for (const [name, child] of Object.entries(schema.properties ?? {})) {
         const declaresConst = child !== null && typeof child === "object" && !Array.isArray(child) && (child as Schema).const !== undefined
         walk(child, `${chain}.${declaresConst ? `${name}=${JSON.stringify((child as Schema).const)}` : name}`, stack)
@@ -208,14 +208,16 @@ function boundInventory(roots: { at: string; schema: unknown }[], table: SchemaT
       }
       return
     }
-    // A oneOf applies its own object constraints to every branch, so the
+    // A union applies its own object constraints to every branch, so the
     // effective positions are the conjoined branches; a factored union's
     // lifted parent properties reach the same chains instead of separate
     // parent-only ones.
-    unions.forEach((branch, index) => {
-      const effective = branch !== null && typeof branch === "object" && !Array.isArray(branch) ? conjoinUnion(schema, branch as Schema) : branch
-      walk(effective, `${chain}.oneOf[${index}]`, stack)
-    })
+    for (const kind of unionKinds) {
+      (schema[kind] as unknown[]).forEach((branch, index) => {
+        const effective = branch !== null && typeof branch === "object" && !Array.isArray(branch) ? conjoinUnion(schema, branch as Schema) : branch
+        walk(effective, `${chain}.${kind}[${index}]`, stack)
+      })
+    }
   }
   for (const root of roots) walk(root.schema, root.at, [])
   return { uses, bounded: [...bounded.values()], described, unresolved }
@@ -416,6 +418,32 @@ test("bounds checker: the inventory follows references, keeps branch identity, a
   const dropped = JSON.parse(JSON.stringify(enforced))
   delete dropped.properties.name.maxLength
   expect([...usesOf(enforced)].filter(use => !usesOf(dropped).has(use))).toEqual(["@w.name#maxLength=64(code points)"])
+})
+
+test("bounds checker: anyOf factoring preserves inherited bounds and branch losses remain visible", () => {
+  const usesOf = (schema: Schema) => boundInventory([{ at: "@w", schema }], {}).uses
+  const inherited = { shared: { maxLength: 6 } }
+  const canonical = {
+    properties: inherited,
+    anyOf: [{ properties: { alpha: { minLength: 3 } } }, { properties: { beta: { maxItems: 4 } } }],
+  }
+  const expanded = {
+    properties: inherited,
+    anyOf: [
+      { properties: { ...inherited, alpha: { minLength: 3 } } },
+      { properties: { ...inherited, beta: { maxItems: 4 } } },
+    ],
+  }
+  expect(usesOf(canonical)).toEqual(usesOf(expanded))
+  expect([...usesOf(canonical)].sort()).toEqual([
+    "@w.anyOf[0].alpha#minLength=3(code points)",
+    "@w.anyOf[0].shared#maxLength=6(code points)",
+    "@w.anyOf[1].beta#maxItems=4(items)",
+    "@w.anyOf[1].shared#maxLength=6(code points)",
+  ])
+  const dropped = JSON.parse(JSON.stringify(expanded))
+  delete dropped.anyOf[1].properties.beta.maxItems
+  expect([...usesOf(canonical)].filter(use => !usesOf(dropped).has(use))).toEqual(["@w.anyOf[1].beta#maxItems=4(items)"])
 })
 
 test("capture keeps its closed surface and source-free research inputs validate", () => {

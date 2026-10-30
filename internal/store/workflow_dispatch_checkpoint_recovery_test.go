@@ -20,14 +20,7 @@ func TestReviewCheckpointCorrectionAcrossKinds(t *testing.T) {
 				continue // Complete-step admission has its own contradiction gate.
 			}
 			terminal := slices.Contains(definition.StepGraph.TerminalSteps, step.ID)
-			expected := !terminal && workflowUnhealthyVerdictRouteTarget(definition, step.ID) != ""
-			if !terminal {
-				if step.Kind == WorkflowStepHumanCheckpoint {
-					expected = expected || slices.Contains(step.Actions, "confirm_premise")
-				} else {
-					expected = expected || slices.Contains(step.Actions, "record_review")
-				}
-			}
+			expected := !terminal && slices.Contains([]string{"proposal", "design", "investigate", "findings", "execution", "repair", "refine", "acceptance", "verify", "conclude"}, step.ID)
 			if got := workflowContractCorrectionCheckpoint(definition, step.ID); got != expected {
 				t.Fatalf("%s step %s (%s): correction checkpoint=%v, want %v", definition.Ref, step.ID, step.Kind, got, expected)
 			}
@@ -44,26 +37,29 @@ func TestReviewCheckpointCorrectionAcrossKinds(t *testing.T) {
 	}
 	for _, kind := range []WorkflowStepKind{WorkflowStepCrossAuthority, WorkflowStepInternalSQLite, WorkflowStepExternalEffect, WorkflowStepHumanCheckpoint} {
 		t.Run(string(kind), func(t *testing.T) {
-			actions := []string{"record_review"}
-			if kind == WorkflowStepHumanCheckpoint {
-				actions = append(actions, "confirm_premise")
-			}
-			definition := WorkflowDefinition{Ref: "workflow.correction_probe", StepGraph: WorkflowStepGraph{
-				StartStep: "producing", TerminalSteps: []string{"sealed"}, Steps: []WorkflowStep{
-					{ID: "producing", Kind: kind, Actions: actions},
-					{ID: "quiet", Kind: WorkflowStepHumanCheckpoint, Actions: []string{"record_review"}},
-					{ID: "plain", Kind: WorkflowStepInternalSQLite, Actions: []string{"record_note"}},
-					{ID: "sealed", Kind: kind, Actions: actions},
-				},
-			}}
-			for _, step := range []string{"producing", "quiet", "plain", "sealed", "no-such-step"} {
-				want := step == "producing"
-				if got := workflowContractCorrectionCheckpoint(definition, step); got != want {
-					t.Fatalf("%s: correction checkpoint=%v, want %v", step, got, want)
-				}
-				if got := admissionContractCorrection(definition, admissionModelState{step: step, contracts: 1}); got != want {
-					t.Fatalf("%s: model correction checkpoint=%v, want %v", step, got, want)
-				}
+			for _, action := range []string{"record_proposal", "record_design", "record_finding", "record_report", "start_execution", "checkpoint_repair", "checkpoint_refine"} {
+				t.Run(action, func(t *testing.T) {
+					definition := WorkflowDefinition{Ref: "workflow.correction_probe", StepGraph: WorkflowStepGraph{
+						StartStep: "producing", TerminalSteps: []string{"sealed", "complete"}, Steps: []WorkflowStep{
+							{ID: "producing", Kind: kind, Actions: []string{action}},
+							{ID: "quiet", Kind: WorkflowStepHumanCheckpoint, Actions: []string{action, "record_review"}},
+							{ID: "confirm", Kind: WorkflowStepHumanCheckpoint, Actions: []string{"confirm_premise"}},
+							{ID: "review_only", Kind: kind, Actions: []string{"record_review"}},
+							{ID: "plain", Kind: WorkflowStepInternalSQLite, Actions: []string{"record_note"}},
+							{ID: "sealed", Kind: kind, Actions: []string{action}},
+							{ID: "complete", Kind: WorkflowStepInternalSQLite, Actions: []string{"complete"}},
+						},
+					}}
+					for _, step := range []string{"producing", "quiet", "confirm", "review_only", "plain", "sealed", "complete", "no-such-step"} {
+						want := step == "producing" && kind != WorkflowStepHumanCheckpoint || step == "confirm" || step == "complete"
+						if got := workflowContractCorrectionCheckpoint(definition, step); got != want {
+							t.Fatalf("%s: correction checkpoint=%v, want %v", step, got, want)
+						}
+						if got := admissionContractCorrection(definition, admissionModelState{step: step, contracts: 1}); got != (want && step != "complete") {
+							t.Fatalf("%s: model correction checkpoint=%v, want %v", step, got, want && step != "complete")
+						}
+					}
+				})
 			}
 		})
 	}

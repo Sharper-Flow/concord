@@ -317,17 +317,19 @@ func TestCoordinatorReviewResolutionShapeAndAggregateBound(t *testing.T) {
 }
 
 func TestCoordinatorReviewOnlyReadyDispositionAdvances(t *testing.T) {
-	definition := WorkflowDefinition{ActionDefinitions: []WorkflowActionDefinition{{ID: "record_review", ExecutionMode: ActionAdvance}}}
-	if workflowCompletedActionAdvances(definition, workflowActionCompletedPayload{ActionID: "record_review"}) {
+	definition := WorkflowDefinition{ActionDefinitions: []WorkflowActionDefinition{{ID: "record_review", ExecutionMode: ActionAdvance}},
+		StepGraph: WorkflowStepGraph{Steps: []WorkflowStep{{ID: "execution", Kind: WorkflowStepExternalEffect, Actions: []string{"record_review"}}}}}
+	if workflowCompletedActionAdvances(definition, workflowActionCompletedPayload{StepID: "execution", ActionID: "record_review"}) {
 		t.Fatal("missing Review advanced the step")
 	}
 	for _, disposition := range []string{"continue", "correction_required", "revision_required", "ready_for_final_proof"} {
 		t.Run(disposition, func(t *testing.T) {
-			completion := workflowActionCompletedPayload{ActionID: "record_review", Review: &ReviewBlock{Disposition: disposition}}
+			completion := workflowActionCompletedPayload{StepID: "execution", ActionID: "record_review", Review: &ReviewBlock{Disposition: disposition}}
 			if advances := workflowCompletedActionAdvances(definition, completion); advances != (disposition == "ready_for_final_proof") {
 				t.Fatalf("disposition %s advances=%v", disposition, advances)
 			}
-			holding := WorkflowDefinition{ActionDefinitions: []WorkflowActionDefinition{{ID: "record_review", ExecutionMode: ActionHold}}}
+			holding := cloneWorkflowDefinition(definition)
+			holding.ActionDefinitions[0].ExecutionMode = ActionHold
 			if workflowCompletedActionAdvances(holding, completion) {
 				t.Fatal("a holding action advanced the step")
 			}

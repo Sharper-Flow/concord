@@ -8166,13 +8166,13 @@ DROP TABLE managed_resources;
 		SQL: `
 UPDATE workflow_review_state AS review SET state=json_set(state,'$.finding_sources',json(COALESCE((
  SELECT json_group_object(json_extract(notebook.finding,'$.finding_id'),json_object(
-  'canonical_id',COALESCE(json_extract(fact.value,'$.FindingID'),'finding:'||notebook.source_seq||':'||notebook.ordinal),
-  'domain_id',COALESCE(json_extract(fact.value,'$.DomainID'),'unresolved'),
+  'canonical_id',COALESCE(json_extract(fact.value,'$.FindingID'),json_extract(preserved.value,'$.canonical_id'),'finding:'||notebook.source_seq||':'||notebook.ordinal),
+  'domain_id',COALESCE(NULLIF(json_extract(fact.value,'$.DomainID'),''),NULLIF(json_extract(preserved.value,'$.domain_id'),''),'unresolved'),
   'event_id',receipt.event_id,
   'kind',receipt.kind,
   'seq',notebook.source_seq,
   'ordinal',notebook.ordinal,
-  'oracle',json(COALESCE(json_extract(fact.value,'$.SourceOracle'),json_extract(job.recorded_payload,'$.acceptance_oracle'),'null'))))
+  'oracle',json(COALESCE(json_extract(fact.value,'$.SourceOracle'),json_extract(job.recorded_payload,'$.acceptance_oracle'),json_extract(preserved.value,'$.oracle'),'null'))))
  FROM work_context_findings AS notebook
  JOIN effect_receipts AS receipt ON receipt.effect_seq=notebook.source_seq AND receipt.subject_type='work_item' AND receipt.subject_id=notebook.work_id
  LEFT JOIN worker_oracle_finding_facts AS legacy ON legacy.work_id=notebook.work_id
@@ -8182,6 +8182,10 @@ UPDATE workflow_review_state AS review SET state=json_set(state,'$.finding_sourc
    AND job.job_id=json_extract(fact.value,'$.source_job.job_id')
    AND job.revision=json_extract(fact.value,'$.source_job.revision')
    AND job.digest=json_extract(fact.value,'$.source_job.digest')
+  LEFT JOIN json_each(review.state,'$.finding_sources') AS preserved
+   ON preserved.key=json_extract(notebook.finding,'$.finding_id')
+   AND json_extract(preserved.value,'$.seq')=notebook.source_seq
+   AND json_extract(preserved.value,'$.ordinal')=notebook.ordinal
  WHERE notebook.work_id=review.work_id AND notebook.finding_class='ranked'
  AND notebook.source_seq=(SELECT MIN(original.source_seq) FROM work_context_findings AS original
   WHERE original.work_id=notebook.work_id AND original.finding_class='ranked'

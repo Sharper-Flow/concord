@@ -265,7 +265,7 @@ The cited decisions govern implementation conformance.
 5. **Recovery-path taxonomy** (§19). [CD-0242 D2](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)
    owns current-row reconciliation and finite verified snapshots.
    [D6](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-native-task-belongs-to-the-host)
-   owns launch authority and uncertain-effect reconciliation;
+   leaves subagent lifecycle ownership with the host, not Concord;
    [D11–D12](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d11-a-fresh-session-resumes-from-current-state)
    own resumption and admitted recovery actions. PM10 owns backup/restore, and
    CD-0008 D3 owns dependency-aware unreadable isolation.

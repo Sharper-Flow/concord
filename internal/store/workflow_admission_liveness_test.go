@@ -172,10 +172,17 @@ func admissionContractCorrection(definition WorkflowDefinition, state admissionM
 	if step == nil {
 		return false
 	}
+	producing := slices.ContainsFunc(step.Actions, func(action string) bool {
+		switch action {
+		case "record_proposal", "record_design", "record_finding", "record_report", "start_execution", "checkpoint_repair", "checkpoint_refine":
+			return true
+		}
+		return false
+	})
 	checkpoint := slices.Contains(step.Actions, "complete") ||
 		(workflowUnhealthyVerdictRouteTarget(definition, state.step) != "" && !admissionTerminalStep(definition, state.step)) ||
 		(step.Kind == WorkflowStepHumanCheckpoint && slices.Contains(step.Actions, "confirm_premise") && !admissionTerminalStep(definition, state.step)) ||
-		(step.Kind != WorkflowStepHumanCheckpoint && slices.Contains(step.Actions, "record_review") && !admissionTerminalStep(definition, state.step))
+		(step.Kind != WorkflowStepHumanCheckpoint && producing && !admissionTerminalStep(definition, state.step))
 	switch {
 	case !checkpoint:
 		return false
@@ -394,6 +401,11 @@ func admissionSuccessors(definition WorkflowDefinition, state admissionModelStat
 			recorded.review.candidate, recorded.review.current, recorded.review.changed = true, true, false
 			if disposition == "ready_for_final_proof" {
 				recorded.review.blocked = false
+				step := workflowStep(definition, state.step)
+				mode, declared := workflowActionExecutionMode(definition, actionID)
+				if declared && mode == ActionAdvance && step != nil && step.Kind != WorkflowStepHumanCheckpoint {
+					recorded = admissionEnterStep(definition, recorded, workflowNextStep(definition, state.step))
+				}
 			}
 			successors = append(successors, recorded)
 		}

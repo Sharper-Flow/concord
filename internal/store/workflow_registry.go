@@ -1121,11 +1121,6 @@ func actionPolicy(consequence ActionConsequence, approval ActionApproval, mode A
 	return builtinActionPolicy{Consequence: consequence, Approval: approval, ExecutionMode: mode, EventShape: shape, Payload: WorkflowPayloadDefinition{Closed: true, Fields: fields}}
 }
 
-func publicActionPolicy(policy builtinActionPolicy, fields ...WorkflowPayloadField) builtinActionPolicy {
-	policy.PublicPayload = &WorkflowPayloadDefinition{Closed: true, Fields: fields}
-	return policy
-}
-
 // actionPolicyWithCombinations attaches the action's cross-field legal input
 // combinations to its engine policy declaration: the one typed declaration
 // core validation enforces and the published variants generate their closed

@@ -27,7 +27,7 @@ func TestCommittedAgentSurfaceAndMixedRootShapeFitBound(t *testing.T) {
 		t.Fatal(err)
 	}
 	snapshot := &newDomainShapeProjection(commit, manifest, architecture).Snapshot
-	if err := reconstructDomainShapeReadingSnapshot(ctx, runner, &domainShapeReadingWitness{sourceRepo: root}, shards, snapshot); err != nil {
+	if err := populateDomainShapeCorpusSnapshot(ctx, root, shards, snapshot); err != nil {
 		t.Fatal(err)
 	}
 	selectors := []DomainShapeSelector{
@@ -42,7 +42,7 @@ func TestCommittedAgentSurfaceAndMixedRootShapeFitBound(t *testing.T) {
 	for _, selector := range selectors {
 		t.Run(selector.DomainID+selector.Path, func(t *testing.T) {
 			selection := selectDomainShape(*snapshot, KnowledgeHome{HomeProjectID: "concord", HomeLocatorID: "main"}, "concord", selector)
-			selection.GoverningLaw = domainShapeManifestGoverningLaw(manifest, selection)
+			selection.GoverningLaw = domainShapeCorpusGoverningLaw(manifest, selection)
 			raw, _ := json.Marshal(selection)
 			facts, _ := json.Marshal(selection.Facts)
 			laws, _ := json.Marshal(selection.GoverningLaw)

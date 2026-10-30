@@ -32,15 +32,6 @@ func withAppendedPayloadField(field func() WorkflowPayloadField) workflowActionR
 	}
 }
 
-// withAppendedPayloadFields appends several optional members to one action's
-// payload, the multi-member form of withAppendedPayloadField.
-func withAppendedPayloadFields(fields func() []WorkflowPayloadField) workflowActionRevision {
-	return func(action WorkflowActionDefinition) WorkflowActionDefinition {
-		action.Payload.Fields = append(slices.Clone(action.Payload.Fields), fields()...)
-		return action
-	}
-}
-
 // withPayloadFieldRevision rewrites each payload field with the given name.
 func withPayloadFieldRevision(name string, revise func(WorkflowPayloadField) WorkflowPayloadField) workflowActionRevision {
 	return func(action WorkflowActionDefinition) WorkflowActionDefinition {

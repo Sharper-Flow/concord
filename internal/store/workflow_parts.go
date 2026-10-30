@@ -95,7 +95,7 @@ func builtinWorkflowParts() []WorkflowPart {
 			Capabilities: []WorkflowCapability{WorkflowCapabilityProducesDelivery}},
 		{Ref: "part.verdict", Kind: WorkflowStepHumanCheckpoint, StepIDOptions: []string{"acceptance", "verify", "conclude"},
 			LeadActionOptions: []string{"bind_evidence", "record_conclusion"},
-			Actions:           []string{"record_verdict", "confirm_premise", "checkpoint_context", "cross_context_boundary", "record_work_context"},
+			Actions:           []string{"record_verdict", "confirm_premise", "checkpoint_context", "cross_context_boundary", "record_review", "record_work_context"},
 			FailureEdge:       true,
 			Routes:            unhealthy},
 		{Ref: "part.close", Kind: WorkflowStepInternalSQLite, StepIDOptions: []string{"release", "complete"},

@@ -1,6 +1,7 @@
 package store
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
@@ -9,6 +10,8 @@ import (
 )
 
 func TestReviewOracleOwnerIDBound(t *testing.T) {
+	f := newNativeOracleFixture(t)
+	raw := mustJSONValue(f.bundle)
 	for _, length := range []int{6, 7, 128, 129, 133} {
 		t.Run(fmt.Sprint(length), func(t *testing.T) {
 			ownerID := "owner:" + strings.Repeat("a", length-len("owner:"))
@@ -25,21 +28,21 @@ func TestReviewOracleOwnerIDBound(t *testing.T) {
 				t.Errorf("output schema accepted=%v, want %v: %v", err == nil, want, err)
 			}
 
-			oracle := testOracleGraph()
-			original := oracle.Owners[0].OwnerID
-			oracle.Owners[0].OwnerID = ownerID
-			for i := range oracle.Cases {
-				if oracle.Cases[i].OwnerID == original {
-					oracle.Cases[i].OwnerID = ownerID
-				}
+			var bundle NativeOracleControlBundle
+			if err := json.Unmarshal(raw, &bundle); err != nil {
+				t.Fatal(err)
 			}
-			for i := range oracle.Controls {
-				if oracle.Controls[i].OwnerID == original {
-					oracle.Controls[i].OwnerID = ownerID
-				}
+			bundle.Owner.OwnerID, bundle.Control.OwnerID = ownerID, ownerID
+			for i := range bundle.Cases {
+				bundle.Cases[i].OwnerID = ownerID
 			}
-			if err := validateAcceptanceOracle(oracle, []string{"predicate:one", "predicate:two"}); (err == nil) != want {
-				t.Errorf("oracle graph accepted=%v, want %v: %v", err == nil, want, err)
+			tx, err := f.s.db.BeginTx(t.Context(), nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer tx.Rollback()
+			if err := validateNativeBundleAuthorityTx(t.Context(), tx, f.work, 1, bundle); (err == nil) != want {
+				t.Errorf("native preparation accepted=%v, want %v: %v", err == nil, want, err)
 			}
 		})
 	}

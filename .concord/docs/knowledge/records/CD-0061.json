@@ -23,7 +23,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:959645f348268b3986c0ea31763f1ef4cff924bffbc7c323dc6482dc65e3adce",
+  "sha256": "sha256:af6143582cdffba75aeb58bcc1eea3067350e9c988931fe4bb18b69db2f0b270",
   "status": "accepted",
   "summary": "CD-0027 excludes typed-lane restart. Session preparation records asserted orchestrator identity as a current session row, not a continuity boundary. Removed typed-agent columns and restart boundary kinds stay absent. The ruleset digest records only host artifacts actually resolved; it supplies neither workflow authority nor native Task producer attestation.",
   "tags": [

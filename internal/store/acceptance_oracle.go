@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
-	"slices"
 	"strings"
 )
 
@@ -192,71 +191,6 @@ func validateOracleRecipeSource(source WorkContextReadingSource) error {
 	return nil
 }
 
-// validateAcceptanceOracle enforces the closed oracle graph against the
-// job's declared predicates: counts and bounds, unique identities, the
-// closed source arms, reciprocal case/control mapping, owner resolution for
-// every case and control, and coverage of every job predicate by both an
-// owner and a control. It reads no registry, so replay re-proves a recorded
-// oracle from the retained historical input alone. The per-part validators
-// below own one cohesive surface each; this function only composes them.
-func validateAcceptanceOracle(oracle *AcceptanceOracle, jobPredicates []string) error {
-	if oracle == nil {
-		return oracleFailure(KindInvalidPayload, "acceptance oracle is absent", "author the closed owner/case/control oracle for the job")
-	}
-	for _, part := range []struct {
-		count int
-		bound int
-		label string
-	}{{len(oracle.Owners), OracleOwnersMax, "owners"}, {len(oracle.Cases), OracleCasesMax, "cases"}, {len(oracle.Controls), OracleControlsMax, "controls"}} {
-		if part.count < 1 || part.count > part.bound {
-			return oracleFailure(KindInvalidPayload, fmt.Sprintf("acceptance oracle carries %d %s; 1 to %d are declared", part.count, part.label, part.bound), "declare at most "+fmt.Sprint(part.bound)+" "+part.label)
-		}
-	}
-	owners, ownerPredicates, err := validateOracleOwners(oracle.Owners)
-	if err != nil {
-		return err
-	}
-	cases, err := validateOracleCases(oracle.Cases, owners)
-	if err != nil {
-		return err
-	}
-	controlIndex, controlPredicates, err := validateOracleControls(oracle.Controls, owners)
-	if err != nil {
-		return err
-	}
-	if err := validateOracleReciprocity(oracle, cases, controlIndex); err != nil {
-		return err
-	}
-	if err := validateOraclePredicateCoverage(jobPredicates, ownerPredicates, controlPredicates); err != nil {
-		return err
-	}
-	return validateOracleCombinedBound(oracle)
-}
-
-// validateOracleOwners proves every owner entry's closed shape and returns
-// the identity index plus the union of covered predicates. A duplicate
-// identity refuses before any index use, so the index is exact.
-func validateOracleOwners(entries []OracleOwner) (map[string]OracleOwner, map[string]bool, error) {
-	owners := map[string]OracleOwner{}
-	ownerPredicates := map[string]bool{}
-	for _, owner := range entries {
-		if !oracleOwnerIDPattern.MatchString(owner.OwnerID) {
-			return nil, nil, oracleFailure(KindInvalidPayload, "acceptance oracle owner_id "+owner.OwnerID+" must match owner:<reference>", "name each owner with a stable owner: identity")
-		}
-		if _, exists := owners[owner.OwnerID]; exists {
-			return nil, nil, oracleFailure(KindInvalidPayload, "acceptance oracle owner "+owner.OwnerID+" is declared twice", "declare each owner once")
-		}
-		if err := validateOracleOwnerEntry(owner); err != nil {
-			return nil, nil, err
-		}
-		for _, predicate := range owner.PredicateIDs {
-			ownerPredicates[predicate] = true
-		}
-		owners[owner.OwnerID] = owner
-	}
-	return owners, ownerPredicates, nil
-}
-
 // validateOracleOwnerEntry enforces one owner's closed shape: the Domain,
 // the mechanism's contained repository identity, the bounded obligation,
 // the covered predicates, and the pinned law bindings.
@@ -366,50 +300,7 @@ func oracleJudgedHistorySafe(previous, latest *AcceptanceOracle) bool {
 	return true
 }
 
-// validateOracleControls proves every control entry's closed shape and
-// returns the identity index plus the union of exercised predicates, with
-// each control mapped to a declared owner.
-func validateOracleControls(entries []OracleControl, owners map[string]OracleOwner) (map[string]OracleControl, map[string]bool, error) {
-	controlIndex := map[string]OracleControl{}
-	controlPredicates := map[string]bool{}
-	for _, control := range entries {
-		if !oracleControlIDPattern.MatchString(control.ControlID) {
-			return nil, nil, oracleFailure(KindInvalidPayload, "acceptance oracle control_id "+control.ControlID+" must match control:<reference>", "name each control with a stable control: identity")
-		}
-		if _, exists := controlIndex[control.ControlID]; exists {
-			return nil, nil, oracleFailure(KindInvalidPayload, "acceptance oracle control "+control.ControlID+" is declared twice", "declare each control once")
-		}
-		if _, exists := owners[control.OwnerID]; !exists {
-			return nil, nil, oracleFailure(KindInvalidPayload, "acceptance oracle control "+control.ControlID+" names undeclared owner "+control.OwnerID, "map every control to a declared owner")
-		}
-		if err := validateOracleControlEntry(control); err != nil {
-			return nil, nil, err
-		}
-		for _, predicate := range control.PredicateIDs {
-			controlPredicates[predicate] = true
-		}
-		controlIndex[control.ControlID] = control
-	}
-	return controlIndex, controlPredicates, nil
-}
-
-// validateOracleControlEntry enforces one control's closed shape: the
-// exercised predicates, the named cases, the pinned recipe source, the exact
-// argument vector, the contained working directory, the closed result and
-// evidence-role vocabulary, and the readiness evidence references.
-func validateOracleControlEntry(control OracleControl) error {
-	if err := validateOracleControlDefinition(control); err != nil {
-		return err
-	}
-	if len(control.ReadinessEvidenceRefs) < 1 || len(control.ReadinessEvidenceRefs) > OracleReadinessRefsMax {
-		return oracleFailure(KindInvalidPayload, "acceptance oracle control "+control.ControlID+" must carry 1 to 8 readiness evidence references", "bind the evidence that proves the harness resolves and the selector is nonempty")
-	}
-	return validateUniqueOracleReferences(control.ReadinessEvidenceRefs, workflowEvidenceRef,
-		"acceptance oracle control "+control.ControlID+" readiness evidence reference ", " is not a bounded evidence reference", "acceptance oracle control "+control.ControlID+" readiness evidence reference ", "bind each retained readiness evidence reference once")
-}
-
-// Preparation validates executable content before readiness exists. Recorded
-// job controls also require the separate readiness-reference validator.
+// Preparation validates executable content before readiness exists.
 func validateOracleControlDefinition(control OracleControl) error {
 	if len(control.PredicateIDs) < 1 || len(control.PredicateIDs) > OracleControlPredicatesMax {
 		return oracleFailure(KindInvalidPayload, "acceptance oracle control "+control.ControlID+" must exercise 1 to 8 predicates", "name the predicates this control exercises")
@@ -487,53 +378,6 @@ func validateUniqueOracleReferences(values []string, grammar func(string) bool, 
 	return nil
 }
 
-// validateOracleReciprocity proves the case/control mapping total: a case
-// names exactly the controls that name it, and a control names exactly the
-// cases that name it. A one-sided reference is an unresolved mapping.
-func validateOracleReciprocity(oracle *AcceptanceOracle, cases map[string]OracleCase, controlIndex map[string]OracleControl) error {
-	for _, entry := range oracle.Cases {
-		for _, controlID := range entry.ControlIDs {
-			named, exists := controlIndex[controlID]
-			if !exists {
-				return oracleFailure(KindInvalidPayload, "acceptance oracle case "+entry.CaseID+" names undeclared control "+controlID, "map every case to a declared control")
-			}
-			if !slices.Contains(named.CaseIDs, entry.CaseID) {
-				return oracleFailure(KindInvalidPayload, "acceptance oracle control "+controlID+" does not name back case "+entry.CaseID, "keep the case/control mapping reciprocal")
-			}
-		}
-	}
-	for _, control := range oracle.Controls {
-		for _, caseID := range control.CaseIDs {
-			named, exists := cases[caseID]
-			if !exists {
-				return oracleFailure(KindInvalidPayload, "acceptance oracle control "+control.ControlID+" names undeclared case "+caseID, "map every control to a declared case")
-			}
-			if named.Judge != "" {
-				return oracleFailure(KindInvalidPayload, "acceptance oracle control "+control.ControlID+" names judged case "+caseID, "exercise only executable cases with native controls")
-			}
-			if !slices.Contains(named.ControlIDs, control.ControlID) {
-				return oracleFailure(KindInvalidPayload, "acceptance oracle case "+caseID+" does not name back control "+control.ControlID, "keep the case/control mapping reciprocal")
-			}
-		}
-	}
-	return nil
-}
-
-// validateOraclePredicateCoverage proves the oracle covers the job's
-// declared predicates: every job predicate is covered by an owner and
-// exercised by a control.
-func validateOraclePredicateCoverage(jobPredicates []string, ownerPredicates, controlPredicates map[string]bool) error {
-	for _, predicate := range jobPredicates {
-		if !ownerPredicates[predicate] {
-			return oracleFailure(KindInvalidPayload, "acceptance oracle leaves job predicate "+predicate+" without an owning owner", "map every job predicate to an owner")
-		}
-		if !controlPredicates[predicate] {
-			return oracleFailure(KindInvalidPayload, "acceptance oracle leaves job predicate "+predicate+" without an exercising control", "map every job predicate to a control")
-		}
-	}
-	return nil
-}
-
 // validateOracleCombinedBound measures the oracle's serialized content. An
 // over-bound oracle refuses whole; content is never truncated.
 func validateOracleCombinedBound(oracle *AcceptanceOracle) error {
@@ -545,75 +389,6 @@ func validateOracleCombinedBound(oracle *AcceptanceOracle) error {
 		return oracleFailure(KindLimitExceeded, fmt.Sprintf("acceptance oracle content is %d bytes and exceeds the %d byte bound; it is refused, never truncated", len(raw), OracleCombinedMaxBytes), "reduce the oracle's repeated descriptions and select only necessary controls")
 	}
 	return nil
-}
-
-// oracleControlIndex indexes one oracle's controls by identity for the
-// retention walk. Callers admit the oracle through
-// validateAcceptanceOracle first, so duplicate identities cannot survive
-// into an index.
-func oracleControlIndex(oracle *AcceptanceOracle) map[string]OracleControl {
-	index := make(map[string]OracleControl, len(oracle.Controls))
-	for _, control := range oracle.Controls {
-		index[control.ControlID] = control
-	}
-	return index
-}
-
-// oracleControlsRetained reports whether the latest oracle retains every
-// previous owner, case, and control's obligation: the pinned recipe identity,
-// the argument vector, the expected result, and the evidence role. Readiness
-// evidence references are normalized out: they are candidate-specific
-// pointers to that revision's native preparations, excluded from the protocol
-// bundle digest and re-proven against the current candidate by the exact
-// native-readiness gate at record time, so refreshing them is not a rewrite
-// of the obligation. A newer revision may add cases and controls — a
-// strengthened inventory — but a deleted or changed required control does not
-// discharge the earlier obligation, and a re-pinned recipe never compares as
-// retained.
-func oracleControlsRetained(previous, latest *AcceptanceOracle) bool {
-	if previous == nil {
-		return true
-	}
-	if latest == nil {
-		return false
-	}
-	owners := make(map[string]OracleOwner, len(latest.Owners))
-	for _, owner := range latest.Owners {
-		owners[owner.OwnerID] = owner
-	}
-	for _, owner := range previous.Owners {
-		retained, exists := owners[owner.OwnerID]
-		if !exists || !oracleEntryIdentical(owner, retained) {
-			return false
-		}
-	}
-	cases := make(map[string]OracleCase, len(latest.Cases))
-	for _, entry := range latest.Cases {
-		cases[entry.CaseID] = entry
-	}
-	for _, entry := range previous.Cases {
-		retained, exists := cases[entry.CaseID]
-		if !exists || !oracleEntryIdentical(entry, retained) {
-			return false
-		}
-	}
-	latestControls := oracleControlIndex(latest)
-	for _, control := range previous.Controls {
-		retained, exists := latestControls[control.ControlID]
-		if !exists || !oracleControlObligationEqual(control, retained) {
-			return false
-		}
-	}
-	return true
-}
-
-// oracleControlObligationEqual compares two controls on every semantic
-// obligation field, with the candidate-specific readiness references
-// normalized out of both sides.
-func oracleControlObligationEqual(previous, latest OracleControl) bool {
-	previous.ReadinessEvidenceRefs = nil
-	latest.ReadinessEvidenceRefs = nil
-	return oracleEntryIdentical(previous, latest)
 }
 
 func oracleEntryIdentical[T any](previous, latest T) bool {

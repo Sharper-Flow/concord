@@ -7,10 +7,13 @@ import (
 )
 
 func TestCorrectionOpenFindingIDsAreValidated(t *testing.T) {
+	if !validWorkflowOpenFindings([]string{"finding:a", "finding:b"}) {
+		t.Fatal("valid open finding set refused")
+	}
 	for _, raw := range []string{`null`, `[]`, `["finding:a","finding:a"]`, `["finding/a"]`, `[1]`} {
-		fields := map[string]json.RawMessage{"open_finding_ids": json.RawMessage(raw)}
-		if err := validateWorkflowOpenFindingsPayload(fields); !hasFailureKind(err, KindInvalidPayload) {
-			t.Fatalf("%s validation=%v", raw, err)
+		var ids []string
+		if err := json.Unmarshal([]byte(raw), &ids); err == nil && validWorkflowOpenFindings(ids) {
+			t.Fatalf("invalid open finding set accepted: %s", raw)
 		}
 	}
 }

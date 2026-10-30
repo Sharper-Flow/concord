@@ -2141,7 +2141,14 @@ func admitWorkflowRecoveryEvidenceCompletionTx(ctx context.Context, tx *sql.Tx, 
 // workflowCompletedActionAdvances reports whether a recorded action completion advances the pinned step.
 func workflowCompletedActionAdvances(definition WorkflowDefinition, p workflowActionCompletedPayload) bool {
 	mode, ok := workflowActionExecutionMode(definition, p.ActionID)
-	return ok && mode == ActionAdvance && (p.ActionID != "record_review" || p.Review != nil && p.Review.Disposition == "ready_for_final_proof")
+	if !ok || mode != ActionAdvance {
+		return false
+	}
+	if p.ActionID != "record_review" {
+		return true
+	}
+	step := workflowStep(definition, p.StepID)
+	return step != nil && step.Kind != WorkflowStepHumanCheckpoint && slices.Contains(step.Actions, "record_review") && p.Review != nil && p.Review.Disposition == "ready_for_final_proof"
 }
 
 func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event, scope *writeScope) error {

@@ -116,7 +116,7 @@ The orchestrator ruleset digest is a SHA-256 over the manifest of host-supplied
 artifacts the assertion resolved: the orchestrator definition file and the
 instruction chain it loads, each contributing kind, path, and content hash.
 
-CD-0049 D1 places orchestrator authorship host-side. The digest records bytes
+CD-0049 D3 places orchestrator authorship host-side. The digest records bytes
 the host assertion observed, not a Concord-authored contract or proof of which
 native Task subagent executed.
 

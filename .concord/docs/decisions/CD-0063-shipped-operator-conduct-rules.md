@@ -10,8 +10,8 @@
   [issue #410 comment](https://github.com/Sharper-Flow/concord/issues/410#issuecomment-5387585623)
 - **Related:** CD-0043 (D1, D3),
   [`../managed-development-authority.md`](../managed-development-authority.md)
-- **Preserves:** CD-0043 D1 as amended by CD-0246, and D2; the skill admission boundary under
-  CD-0043 D3
+- **Preserves:** CD-0043 D1 as amended by CD-0246; the skill admission boundary
+  under CD-0043 D3
 
 ## Context
 

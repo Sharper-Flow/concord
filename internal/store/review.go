@@ -123,30 +123,10 @@ func validateReviewBlock(review *ReviewBlock) error {
 			return bad("Review requires exact Project, commit and tree identities")
 		}
 	}
-	deps := review.Dependencies
-	if len(deps.Criteria) < 1 || len(deps.Criteria) > 8 || deps.ArchitectureNotApplicable == (deps.ArchitectureDigest != "") || deps.ArchitectureDigest != "" && !validDigest(deps.ArchitectureDigest) {
-		return bad("Review requires criteria and exactly one architecture digest or not-applicable status")
-	}
-	criteria := map[string]bool{}
-	for _, criterion := range deps.Criteria {
-		if !reviewPredicatePattern.MatchString(criterion.PredicateID) || !validDigest(criterion.ContentDigest) || criteria[criterion.PredicateID] {
-			return bad("Review criteria require unique identities and exact content digests")
-		}
-		criteria[criterion.PredicateID] = true
+	if err := validateReviewAssessments(review.Dependencies, review.Assessments); err != nil {
+		return err
 	}
 	seen := map[string]bool{}
-	for _, assessment := range review.Assessments {
-		if !criteria[assessment.PredicateID] || seen[assessment.PredicateID] || assessment.Assessment != "supported" && assessment.Assessment != "unproved" && assessment.Assessment != "mismatch" || assessment.ReceiptRefs == nil || len(assessment.ReceiptRefs) > 32 {
-			return bad("Review assessments must uniquely name judged criteria and bounded receipt references")
-		}
-		seen[assessment.PredicateID] = true
-		for _, ref := range assessment.ReceiptRefs {
-			if !ValidReference(ref) {
-				return bad("Review receipt reference is invalid")
-			}
-		}
-	}
-	seen = map[string]bool{}
 	for _, finding := range review.Findings {
 		if err := validateReviewFinding(finding); err != nil {
 			return err
@@ -164,6 +144,35 @@ func validateReviewBlock(review *ReviewBlock) error {
 		seen[obligation.ObligationID] = true
 	}
 	return validateReviewResolutions(review.ResolvedFindings)
+}
+
+func validateReviewAssessments(deps ReviewDependencies, assessments []ReviewAssessment) error {
+	bad := func(detail string) error {
+		return reviewFailure(KindInvalidPayload, detail, "record a bounded Review with exact candidate and dependency identities")
+	}
+	if len(deps.Criteria) < 1 || len(deps.Criteria) > 8 || deps.ArchitectureNotApplicable == (deps.ArchitectureDigest != "") || deps.ArchitectureDigest != "" && !validDigest(deps.ArchitectureDigest) {
+		return bad("Review requires criteria and exactly one architecture digest or not-applicable status")
+	}
+	criteria := map[string]bool{}
+	for _, criterion := range deps.Criteria {
+		if !reviewPredicatePattern.MatchString(criterion.PredicateID) || !validDigest(criterion.ContentDigest) || criteria[criterion.PredicateID] {
+			return bad("Review criteria require unique identities and exact content digests")
+		}
+		criteria[criterion.PredicateID] = true
+	}
+	seen := map[string]bool{}
+	for _, assessment := range assessments {
+		if !criteria[assessment.PredicateID] || seen[assessment.PredicateID] || assessment.Assessment != "supported" && assessment.Assessment != "unproved" && assessment.Assessment != "mismatch" || assessment.ReceiptRefs == nil || len(assessment.ReceiptRefs) > 32 {
+			return bad("Review assessments must uniquely name judged criteria and bounded receipt references")
+		}
+		seen[assessment.PredicateID] = true
+		for _, ref := range assessment.ReceiptRefs {
+			if !ValidReference(ref) {
+				return bad("Review receipt reference is invalid")
+			}
+		}
+	}
+	return nil
 }
 
 func validateReviewFinding(finding ReviewFinding) error {

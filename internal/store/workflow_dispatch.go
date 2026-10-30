@@ -824,13 +824,6 @@ func workflowFieldInt(fields map[string]json.RawMessage, name string, fallback i
 	}
 	return fallback
 }
-func workflowFieldIntOK(fields map[string]json.RawMessage, name string) (int64, bool) {
-	var value int64
-	if fields[name] != nil && json.Unmarshal(fields[name], &value) == nil && value > 0 {
-		return value, true
-	}
-	return 0, false
-}
 func workflowFieldBool(fields map[string]json.RawMessage, name string) bool {
 	var value bool
 	_ = json.Unmarshal(fields[name], &value)

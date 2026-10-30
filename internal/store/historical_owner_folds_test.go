@@ -1,16 +1,11 @@
 package store
 
 import (
-	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"os"
-	"strings"
 	"testing"
 	"time"
-
-	"github.com/sharper-flow/concord/internal/hostlease"
 )
 
 // Migration fixtures retain source bytes without running a historical fold.
@@ -62,99 +57,4 @@ func jsonMember(value any) string {
 		panic(err)
 	}
 	return string(encoded)
-}
-
-func TestCurrentShapeClaimLandingGenerationCheckPreserved(t *testing.T) {
-	t.Parallel()
-	s, git, _ := worktreeFixture(t)
-	claim := baseClaim(git)
-	claim.SessionRef = "ses-current"
-	claimed, err := s.ClaimWorktree(context.Background(), claim)
-	if err != nil {
-		t.Fatal(err)
-	}
-	event := Event{EventID: "stale-generation-landing", Kind: "work.session_claim_landed", SubjectType: SubjectWorkItem, SubjectID: "work-w", Actor: "ses-current", OccurredAt: time.Unix(41, 0).UTC(), PayloadVersion: eventKindRegistry["work.session_claim_landed"].CurrentVersion,
-		Payload: mustJSONValue(sessionClaimLandedPayload{WorkID: "work-w", ProjectID: "project-w", ClaimOpID: "wt-op-stale", SessionRef: "ses-current", SourceDirectories: []string{}, LandedDirectory: claimed.Entry.Path, HostPID: 7, HostPIDStart: 999})}
-	before := currentEffectRows(t, s)
-	err = ApplyOperation(context.Background(), s, Operation{Events: []Event{event}})
-	var failure *Failure
-	if !failureAs(err, &failure) || failure.Kind != KindInvariantViolation || !strings.Contains(failure.Detail, "claim generation the landed path no longer carries") {
-		t.Fatalf("stale-generation landing = %v", err)
-	}
-	if len(currentEffectRows(t, s)) != len(before) {
-		t.Fatal("refused generation wrote an event")
-	}
-}
-
-func TestLiveClaimLandingMissingHostPIDStillRefused(t *testing.T) {
-	t.Parallel()
-	s, git, _ := worktreeFixture(t)
-	claim := baseClaim(git)
-	claim.SessionRef = "ses-current"
-	claimed, err := s.ClaimWorktree(context.Background(), claim)
-	if err != nil {
-		t.Fatal(err)
-	}
-	event := Event{Kind: "work.session_claim_landed", SubjectType: SubjectWorkItem, SubjectID: "work-w", Payload: mustJSONValue(sessionClaimLandedPayload{WorkID: "work-w", ProjectID: "project-w", ClaimOpID: claimed.Entry.ClaimOpID, SessionRef: "ses-current", SourceDirectories: []string{}, LandedDirectory: claimed.Entry.Path})}
-	err = foldSessionClaimLanded(context.Background(), nil, event)
-	var failure *Failure
-	if !failureAs(err, &failure) || failure.Kind != KindInvalidPayload || !strings.Contains(failure.Detail, "missing host_pid") {
-		t.Fatalf("missing-pid fold = %v", err)
-	}
-	_, err = s.RecordWorktreeClaimLanding(context.Background(), WorktreeClaimLandingRequest{WorkID: "work-w", SessionRef: "ses-current", LandedDirectory: claimed.Entry.Path, Now: time.Unix(42, 0).UTC()})
-	failure = nil
-	if !failureAs(err, &failure) || !strings.Contains(failure.Detail, "landing requires the host process pid") {
-		t.Fatalf("missing-pid live landing = %v", err)
-	}
-}
-
-func TestLiveOccupancyReleaseEmitsVersionTwo(t *testing.T) {
-	t.Parallel()
-	s, git, _ := worktreeFixture(t)
-	claim := baseClaim(git)
-	claim.SessionRef = "ses-claim"
-	if _, err := s.ClaimWorktree(context.Background(), claim); err != nil {
-		t.Fatal(err)
-	}
-	pid := os.Getpid()
-	start, err := hostlease.ProcessStart(pid)
-	if err != nil {
-		t.Fatal(err)
-	}
-	insertWorktreeOccupantWithIdentity(t, s, "work-w", "ses-ended", pid, start-1)
-	seedWorktreeLifecycle(t, s)
-	if _, err := s.db.Exec(`INSERT INTO write_guard(active) VALUES(1); DELETE FROM worktree_occupancy WHERE session_ref='ses-claim'; DELETE FROM write_guard`); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.ReclaimWorktree(context.Background(), WorktreeReclaimRequest{WorkID: "work-w", ProjectID: "project-w", DefaultRef: "origin/main", PrincipalRef: "principal-1", RequestID: "req-release-version", ExpectedVersion: 4, Now: time.Unix(25, 0).UTC(), Runner: git}); err != nil {
-		t.Fatal(err)
-	}
-	var version int
-	if err := s.db.QueryRow(`SELECT payload_version FROM effect_receipts WHERE kind='work.worktree_occupancy_released' AND event_id=?`, occupancyReleasedEventID("work-w", "project-w", claim.OpID, "ses-ended", 0)).Scan(&version); err != nil {
-		t.Fatal(err)
-	}
-	if version != 2 {
-		t.Fatalf("occupancy release version=%d, want 2", version)
-	}
-}
-
-func TestLiveClaimLandingEmitsVersionTwo(t *testing.T) {
-	t.Parallel()
-	s, git, _ := worktreeFixture(t)
-	claim := baseClaim(git)
-	claim.SessionRef = "ses-live"
-	claimed, err := s.ClaimWorktree(context.Background(), claim)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.RecordWorktreeClaimLanding(context.Background(), WorktreeClaimLandingRequest{WorkID: "work-w", SessionRef: "ses-live", LandedDirectory: claimed.Entry.Path, Now: time.Unix(30, 0).UTC(), HostPID: os.Getpid()}); err != nil {
-		t.Fatal(err)
-	}
-	var version int
-	if err := s.db.QueryRow(`SELECT payload_version FROM effect_receipts WHERE kind='work.session_claim_landed' AND subject_id='work-w'`).Scan(&version); err != nil {
-		t.Fatal(err)
-	}
-	if version != 2 {
-		t.Fatalf("claim landing version=%d, want 2", version)
-	}
 }

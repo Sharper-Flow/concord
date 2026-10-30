@@ -943,51 +943,6 @@
    }
   },
   {
-   "id": "AJ8-ground-truth-reclamation",
-   "job_id": "AJ8",
-   "instruction": "Reclaim the worktree for completed work-done.",
-   "initial_state": {
-    "fixture": "PM1",
-    "git": {
-     "merged": true,
-     "clean": true
-    },
-    "projection": {
-     "status": "active"
-    }
-   },
-   "expected": {
-    "assertions": [
-     {
-      "target": "state",
-      "path": "worktree.exists",
-      "op": "eq",
-      "value": false
-     },
-     {
-      "target": "state",
-      "path": "work.work-done.history_retained",
-      "op": "eq",
-      "value": true
-     },
-     {
-      "target": "communication",
-      "path": "ground_truth_evidence",
-      "op": "nonempty"
-     },
-     {
-      "target": "effects",
-      "path": "blocked_by_stale_projection",
-      "op": "absent"
-     }
-    ],
-    "invariants": [
-     "ground_truth_cleanup",
-     "canonical_authority"
-    ]
-   }
-  },
-  {
    "id": "AJ8-budget-refused",
    "job_id": "AJ8",
    "instruction": "Run the approved audit with a 60-second budget.",

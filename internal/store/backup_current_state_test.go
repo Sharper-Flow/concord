@@ -103,10 +103,8 @@ func TestBackupOccupancyPreservesCurrentRowsAndRefusesLoss(t *testing.T) {
 	ctx := context.Background()
 	s, git, _ := worktreeFixture(t)
 	defer s.Close()
-	if _, err := s.ClaimWorktree(ctx, baseClaim(git)); err != nil {
-		t.Fatal(err)
-	}
-	worktreeID := worktreeOccupancyID(WorktreeSetID("work-w"), "project-w", "wt-op-1")
+	recordHostWorktree(t, s, git, "work-w", "project-w", "wt-op-1")
+	worktreeID := WorktreeSetID("work-w") + ":project-w:wt-op-1"
 	// Current occupancy is authority even without an event that recreates it.
 	if _, err := s.db.Exec(`INSERT INTO write_guard(active) VALUES(1);
 INSERT INTO worktree_occupancy(worktree_id,session_ref,recorded_at,has_process_identity) VALUES(?,'session:current-occupant','2026-10-22T00:00:00Z',0);

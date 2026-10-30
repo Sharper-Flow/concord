@@ -86,14 +86,6 @@ func assertPublishedExecutionAbsenceReaders(t *testing.T, s *Store, home Knowled
 			_, err := s.InspectWorktree(ctx, WorktreeInspectRequest{WorkID: "work-published", ProjectID: "proj-web", Mode: "oracle_output", RunRef: "native:old", Stream: "stdout", Length: 20})
 			return err
 		},
-		"resume": func() error {
-			_, err := s.ResumeWorktreeLocation(ctx, "prod-alpha", "proj-web", "work-published")
-			return err
-		},
-		"bootstrap existing": func() error {
-			_, err := s.BootstrapExistingWorktree(ctx, ExistingBootstrapRequest{ProductID: "prod-alpha", ProjectID: "proj-web", WorkID: "work-published"}, nil)
-			return err
-		},
 		"summary":   func() error { _, err := s.ReadWorkItemSummary(ctx, "work-published"); return err },
 		"history":   func() error { _, err := s.QueryQ7(ctx, Q7Request{Work: "work-published"}); return err },
 		"relations": func() error { _, err := s.QueryQ8(ctx, Q8Request{Work: "work-published"}); return err },
@@ -110,14 +102,6 @@ func TestPublishedExecutionAbsenceProjectGuards(t *testing.T) {
 	s, _, _, _ := publishedAbsenceFixture(t)
 	ctx := t.Context()
 	for name, read := range map[string]func() error{
-		"resume Project": func() error {
-			_, err := s.ResumeWorktreeLocation(ctx, "prod-alpha", "proj-other", "work-published")
-			return err
-		},
-		"resume Product": func() error {
-			_, err := s.ResumeWorktreeLocation(ctx, "prod-other", "proj-web", "work-published")
-			return err
-		},
 		"inspect": func() error {
 			_, err := s.InspectWorktree(ctx, WorktreeInspectRequest{WorkID: "work-published", ProjectID: "proj-other", Mode: "status"})
 			return err
@@ -172,7 +156,7 @@ func TestPublishedIssueLinksSurviveIndexRebuildAndMissingNotes(t *testing.T) {
 	if err != nil || link.WorkID != "work-published" {
 		t.Fatalf("published link = %+v, %v", link, err)
 	}
-	_, err = s.ResumeWorktreeLocation(ctx, "prod-alpha", "proj-web", link.WorkID)
+	_, err = ReadWorkPin(ctx, s, link.WorkID)
 	assertPublishedAbsence(t, err, home, commit, hash)
 	if _, err := s.ReadLinearLinkByIssueKey(ctx, "EX-4"); err != nil {
 		t.Fatalf("live link pruned: %v", err)
@@ -181,7 +165,7 @@ func TestPublishedIssueLinksSurviveIndexRebuildAndMissingNotes(t *testing.T) {
 	if err != nil || orphan.WorkID != "work-orphan-link" {
 		t.Fatalf("unindexed work lost its issue identity: %+v %v", orphan, err)
 	}
-	_, err = s.ResumeWorktreeLocation(ctx, "prod-alpha", "proj-web", orphan.WorkID)
+	_, err = ReadWorkPin(ctx, s, orphan.WorkID)
 	assertFailureKind(t, err, KindProjectionNotFound)
 	if !strings.Contains(err.Error(), orphan.WorkID) || !strings.Contains(err.Error(), "execution state is not retained") {
 		t.Fatalf("unindexed issue identity lost typed absence: %v", err)
@@ -199,7 +183,7 @@ func TestPublishedIssueLinksSurviveIndexRebuildAndMissingNotes(t *testing.T) {
 	if err != nil || link.WorkID != "work-published" {
 		t.Fatalf("missing note lost its issue identity: %+v %v", link, err)
 	}
-	_, err = s.ResumeWorktreeLocation(ctx, "prod-alpha", "proj-web", link.WorkID)
+	_, err = ReadWorkPin(ctx, s, link.WorkID)
 	assertFailureKind(t, err, KindProjectionNotFound)
 	if !strings.Contains(err.Error(), link.WorkID) {
 		t.Fatalf("missing note absence lost the work identity: %v", err)

@@ -1091,7 +1091,7 @@ func init() {
 
 	registerOutputBound("/$defs/defect_classification/properties/failure_shape/maxLength", goConstantBound("internal/store/defect_intake.go", "MaxDefectFailureShapeLength", boundBytes))
 	registerOutputBound("/$defs/defect_classification/properties/reproduction/maxLength", goConstantBound("internal/store/defect_intake.go", "MaxDefectTextLength", boundBytes))
-	registerOutputBound("/$defs/defect_classification/properties/root_cause_work_id/maxLength", goPatternBound("internal/store/bootstrap.go", "bootstrapIDPattern"))
+	registerOutputBound("/$defs/defect_classification/properties/root_cause_work_id/maxLength", goPatternBound("internal/store/defect_intake.go", "defectWorkIDPattern"))
 	registerOutputBound("/$defs/defect_classification/properties/searched/maxLength", goConstantBound("internal/store/defect_intake.go", "MaxDefectTextLength", boundBytes))
 
 	// The folds store the caller text that parseRFC3339 admitted: the Go
@@ -1195,14 +1195,6 @@ func init() {
 	registerOutputBound("/$defs/project_retirement_result/properties/blockers/items/maxLength", unboundedOutput("internal/store/project_handoffs.go:preservationBlocker embeds failure.Detail verbatim and the typed refusal pipeline never clamps detail text, so a preservation refusal naming a long source path can exceed the cap", "internal/agent/runtime.go:readSizeRefusal"))
 	registerOutputBound("/$defs/project_retirement_result/properties/blockers/maxItems", pkAppendSitesItemsBound("internal/store/project_handoffs.go", "EvaluateProjectSessionRetirement", "out.Blockers"))
 
-	registerOutputBound("/$defs/session_vacate_result/properties/changed_refs/maxItems", pkCallEmptyLiteralItemsBound("internal/agent/mutations.go", "applySessionVacateTx", "mutationResultChangedRefs"))
-	registerOutputBound("/$defs/session_vacate_result/properties/next_valid_intents/maxItems", sumBound(
-		schemaBound("contracts/workflow-definition.schema.json", "/$defs/step/properties/actions/maxItems"),
-		pkAppendSitesItemsBound("internal/store/workpin.go", "workPinStepIntentsTx", "pin.NextValidIntents"),
-		pkAppendSitesItemsBound("internal/store/workpin.go", "workPinRecoveryIntentsTx", "pin.NextValidIntents"),
-	))
-	registerOutputBound("/$defs/session_vacate_result/properties/work_pins/maxItems", pkEffectReturnsEmptySliceItemsBound("internal/agent/mutations.go", "planSessionVacate", "applySessionVacateTx"))
-
 	// Current transition refs and proof observations keep their producer's bounds.
 	registerOutputBound("/$defs/work_event_page/properties/entries/items/properties/evidence_refs/maxItems", unboundedOutput("internal/store/lifecycle.go:updateWorkLifecycle preserves transition evidence_refs without a count guard", "internal/agent/runtime.go:readSizeRefusal"))
 	registerOutputBound("/$defs/work_event_page/properties/entries/items/properties/entry_id/maxLength", unboundedOutput("internal/store/q7_current.go:currentQ7EntriesSQL composes current row identities without a global length guard", "internal/agent/runtime.go:readSizeRefusal"))
@@ -1253,64 +1245,6 @@ func init() {
 	))
 	registerOutputBound("/$defs/work_summary/properties/terminal_at/maxLength", pkTimeLayoutWidthBound("internal/store/lifecycle.go", "updateWorkLifecycle", "time.RFC3339Nano"))
 
-	registerOutputBound("/$defs/worktree_audit_page/properties/drift/items/properties/path/maxLength", unboundedOutput("drift rows carry the stored claim path, which the claim fold derives by joining the unguarded store directory (internal/store/worktrees.go), and worktreeAudit applies no length bound, so a classified path is byte-ceiling only", "internal/agent/runtime.go:readSizeRefusal"))
-	registerOutputBound("/$defs/worktree_audit_page/properties/drift/items/properties/retained_tip/maxLength", unboundedOutput("internal/store/worktrees.go:observeWorktreeLiveHead sets Tip from the trimmed stdout of git rev-parse with no length guard; the writer chain carries no code bound for the tip text", "internal/agent/runtime.go:readSizeRefusal"))
-	registerOutputBound("/$defs/worktree_audit_page/properties/drift/items/properties/risk/maxLength", unboundedOutput("classifyUnpublishedLessonWorktrees renders the unpublished-lesson risk through fmt.Sprintf with the resolved default ref, and worktreeRetainedRefDrift copies the stored ref-outcome reason; neither text carries a length guard, so the drift risk is byte-ceiling only", "internal/agent/runtime.go:readSizeRefusal"))
-	registerOutputBound("/$defs/worktree_audit_page/properties/drift/maxItems", goInlineBound("internal/store/worktrees.go", "WorktreeAudit", "limit", boundItems))
-	registerOutputBound("/$defs/worktree_audit_page/properties/root/maxLength", unboundedOutput("the audit root is filepath.Join(filepath.Dir(s.Path()), \"worktrees\") (internal/store/worktrees.go:WorktreeAudit); the store path is operator filesystem text with no length guard, so the root is byte-ceiling only", "internal/agent/runtime.go:readSizeRefusal"))
-
-	// The audit-reclaim changed list is bounded by its own pass admission, not
-	// by the shared truncation helper: the pass admission owns a 32-row bound
-	// with a fitting success envelope, and that admission source does not
-	// exist in the current source (the input limit maximum is 100 and the
-	// planner still truncates post-commit), so the row stays unproved until
-	// the admission bound lands. It must not cite the truncation helper.
-	registerOutputBound("/$defs/worktree_audit_reclaim_result/properties/changed_refs/maxItems", goConstantBound("internal/agentcontract/envelope.go", "MaxChangedRefs", boundItems))
-	// The result build truncates the committed change list through
-	// boundResultChangedRefs (internal/agent/mutations.go:3124) before the
-	// payload embeds mutationResultChangedRefs(changed), so the constant
-	// bounds today's emitted changed_refs.
-	registerOutputBound("/$defs/worktree_audit_reclaim_result/properties/next_valid_intents/items/properties/required_fields/maxItems", schemaBound("contracts/workflow-definition.schema.json", "/$defs/payloadDefinition/properties/fields/maxItems"))
-	registerOutputBound("/$defs/worktree_audit_reclaim_result/properties/next_valid_intents/maxItems", sumBound(
-		schemaBound("contracts/workflow-definition.schema.json", "/$defs/step/properties/actions/maxItems"),
-		pkAppendSitesItemsBound("internal/store/workpin.go", "workPinStepIntentsTx", "pin.NextValidIntents"),
-		pkAppendSitesItemsBound("internal/store/workpin.go", "workPinRecoveryIntentsTx", "pin.NextValidIntents"),
-	))
-	// Reclaim rows are the pass's attempts: WorktreeAuditReclaim clamps the
-	// pass limit at 100 inline before any attempt runs, so the rows array
-	// carries at most the clamped limit.
-	registerOutputBound("/$defs/worktree_audit_reclaim_result/properties/rows/maxItems", goInlineBound("internal/store/worktrees.go", "WorktreeAuditReclaim", "limit", boundItems))
-	registerOutputBound("/$defs/worktree_audit_reclaim_result/properties/report_only/items/properties/path/maxLength", unboundedOutput("report-only rows carry the same stored claim paths derived from the unguarded store directory as the drift rows, and the reclaim pass applies no length bound", "internal/agent/mutations.go:mutationResult"))
-	registerOutputBound("/$defs/worktree_audit_reclaim_result/properties/report_only/items/properties/retained_tip/maxLength", unboundedOutput("report-only tips come from observeWorktreeLiveHead's trimmed git rev-parse output with no length guard; the writer chain carries no code bound", "internal/agent/mutations.go:mutationResult"))
-	registerOutputBound("/$defs/worktree_audit_reclaim_result/properties/report_only/items/properties/risk/maxLength", unboundedOutput("report-only rows reuse the drift classification, whose unpublished-lesson risk embeds the resolved default ref and whose retained-ref risk copies the stored reason; neither text carries a length guard", "internal/agent/mutations.go:mutationResult"))
-	registerOutputBound("/$defs/worktree_audit_reclaim_result/properties/report_only/maxItems", goConstantBound("internal/agent/mutations.go", "MaxAuditReclaimInlineRows", boundItems))
-	registerOutputBound("/$defs/worktree_audit_reclaim_result/properties/root/maxLength", unboundedOutput("the reclaim result root copies the audit pass root, filepath.Join(filepath.Dir(s.Path()), \"worktrees\") (internal/store/worktrees.go:WorktreeAuditReclaim); the store path is operator filesystem text with no length guard", "internal/agent/mutations.go:mutationResult"))
-	registerOutputBound("/$defs/worktree_audit_reclaim_result/properties/rows/items/properties/detail/maxLength", unboundedOutput("internal/store/worktrees.go:WorktreeAuditReclaim stores failure.Detail verbatim in row.Detail and the report compactor drops detail only wholesale under envelope byte pressure, never at the field cap", "internal/agent/mutations.go:mutationResult"))
-	registerOutputBound("/$defs/worktree_audit_reclaim_result/properties/rows/items/properties/path/maxLength", unboundedOutput("reclaim rows copy the drift row path, the stored claim path derived from the unguarded store directory; no writer bounds its length", "internal/agent/mutations.go:mutationResult"))
-	registerOutputBound("/$defs/worktree_audit_reclaim_result/properties/rows/items/properties/refusal_kind/maxLength", pkTypedConstVocabularyLongestBound("FailureKind", "internal/store/errors.go", "internal/store/readiness.go"))
-	registerOutputBound("/$defs/worktree_audit_reclaim_result/properties/rows/items/properties/retained_refs/items/properties/reason/maxLength", pkFieldTextBound("internal/store/worktrees.go", "planStoredRefDeletion", "WorktreeRetainedRef"))
-	registerOutputBound("/$defs/worktree_audit_reclaim_result/properties/rows/items/properties/retained_refs/items/properties/tip/maxLength", unboundedOutput("retained tips are observeWorktreeLiveHead or resolveBranchRef git output stored verbatim with no length guard; the writer chain carries no code bound", "internal/agent/mutations.go:mutationResult"))
-	registerOutputBound("/$defs/worktree_audit_reclaim_result/properties/rows/items/properties/retained_refs/maxItems", pkAppendSitesItemsBound("internal/store/worktrees.go", "planStoredRefDeletion", "retained"))
-	// planStoredRefDeletion appends one retained ref per single-fire site
-	// outside any loop (six sites across its branch returns), and the result
-	// re-reads exactly the recorded plan output; six is the sound site-count
-	// ceiling against the 16 the consumer admits.	registerOutputBound("/$defs/worktree_audit_reclaim_result/properties/rows/maxItems", goInlineBound("internal/store/worktrees.go", "WorktreeAuditReclaim", "limit", boundItems))
-	// The pins ride the changed list after its current post-commit bound, so
-	// the shared constant is today's producer-side capacity; re-point this row
-	// when the pass admission bound replaces that truncation.
-	registerOutputBound("/$defs/worktree_audit_reclaim_result/properties/work_pins/maxItems", goConstantBound("internal/agentcontract/envelope.go", "MaxChangedRefs", boundItems))
-
-	registerOutputBound("/$defs/worktree_claim_result/properties/changed_refs/maxItems", pkLiteralSliceItemsBound("internal/agent/mutations.go", "planWorktreeClaim"))
-	registerOutputBound("/$defs/worktree_claim_result/properties/next_valid_intents/maxItems", sumBound(
-		schemaBound("contracts/workflow-definition.schema.json", "/$defs/step/properties/actions/maxItems"),
-		pkAppendSitesItemsBound("internal/store/workpin.go", "workPinStepIntentsTx", "pin.NextValidIntents"),
-		pkAppendSitesItemsBound("internal/store/workpin.go", "workPinRecoveryIntentsTx", "pin.NextValidIntents"),
-	))
-	registerOutputBound("/$defs/worktree_claim_result/properties/work_pins/maxItems", pkSubsetChainItemsBound(
-		pkLiteralSliceItemsBound("internal/agent/mutations.go", "planWorktreeClaim"),
-		pkSubsetLink{file: "internal/agent/mutations.go", function: "workItemRefs", source: "changed", target: "refs"},
-		pkSubsetLink{file: "internal/agent/mutations.go", function: "enrichMutationPayloadTx", source: "refs", target: "pins"},
-	))
 }
 
 // ---------------------------------------------------------------------------
@@ -2687,11 +2621,8 @@ func TestPkDerivations(t *testing.T) {
 		"git sha":       pkLengthSetBound("internal/store/outside_repair.go", "outsideRepairGitSHA", "len(value)"),
 		"stop collect":  pkCollectStopBound("internal/store/membership.go", "membershipImpact", "len(impact.AffectedWorkIDs)"),
 		"intent sites":  pkAppendSitesItemsBound("internal/store/workpin.go", "workPinRecoveryIntentsTx", "pin.NextValidIntents"),
-		"pin subset":    pkSubsetChainItemsBound(pkLiteralSliceItemsBound("internal/agent/mutations.go", "planWorktreeClaim"), pkSubsetLink{file: "internal/agent/mutations.go", function: "workItemRefs", source: "changed", target: "refs"}, pkSubsetLink{file: "internal/agent/mutations.go", function: "enrichMutationPayloadTx", source: "refs", target: "pins"}),
-		"vacate effect": pkEffectReturnsEmptySliceItemsBound("internal/agent/mutations.go", "planSessionVacate", "applySessionVacateTx"),
 		"record effect": pkEffectReturnsEmptySliceItemsBound("internal/agent/mutations.go", "planProjectHandoffRecord"), "pin aggregate": pkSubsetChainItemsBound(pkPlanEffectWorkPinsBound("internal/agent/mutations.go"), pkSubsetLink{file: "internal/agent/mutations.go", function: "workItemRefs", source: "changed", target: "refs"}, pkSubsetLink{file: "internal/agent/mutations.go", function: "enrichMutationPayloadTx", source: "refs", target: "pins"}),
 		"consume effect": pkEffectReturnsEmptySliceItemsBound("internal/agent/mutations.go", "planProjectHandoffConsume"),
-		"retained refs":  pkAppendSitesItemsBound("internal/store/worktrees.go", "planStoredRefDeletion", "retained"),
 		"registry hash":  pkHexDigestConstructionBound("internal/store/knowledge_manifest.go", "domainRegistryContentHash"),
 		"map hash":       pkHexDigestConstructionBound("internal/store/knowledge_architecture.go", "knowledgePackageMapContentHash"),
 		"body guard":     goInlineBound("internal/store/work_messages.go", "foldMessageSent", "len(p.Body)", boundBytes),
@@ -2699,12 +2630,9 @@ func TestPkDerivations(t *testing.T) {
 		"manifest id":    goInlineBound("internal/store/knowledge_manifest.go", "validManifestID", "utf8.RuneCountInString(value)", boundCharacters),
 		"blockers":       pkAppendSitesItemsBound("internal/store/project_handoffs.go", "EvaluateProjectSessionRetirement", "out.Blockers"),
 		"refusal kinds":  pkTypedConstVocabularyLongestBound("FailureKind", "internal/store/errors.go", "internal/store/readiness.go"),
-		"reasons":        pkFieldTextBound("internal/store/worktrees.go", "planStoredRefDeletion", "WorktreeRetainedRef"),
 		"delivery":       pkFieldNeverWrittenBound("delivery", boundCharacters, "internal/agent/mutations.go"),
 		"readiness":      pkFieldNeverWrittenBound("readiness_evidence", boundItems, "internal/agent/runtime.go", "internal/agent/runtime_read_handlers.go"),
 		"retire struct":  pkStructWithoutFieldBound("internal/store/research_retirement.go", "RetireResearchPacksResult", "work_pins"),
-		"empty refs":     pkCallEmptyLiteralItemsBound("internal/agent/mutations.go", "applySessionVacateTx", "mutationResultChangedRefs"),
-		"claim changed":  pkLiteralSliceItemsBound("internal/agent/mutations.go", "planWorktreeClaim"),
 		"task guard":     pkEmptyGuardedLenBound("internal/store/lifecycle.go", "foldWorkCreated", "len(payload.Task)"),
 		"q10 empty":      pkEmptyLiteralItemsBound("internal/agent/runtime.go", "q10", "candidates"),
 		"last progress":  pkTimeLayoutWidthBound("internal/store/work_effect_seq.go", "advanceWorkEffectSeqTx", "time.RFC3339Nano"),

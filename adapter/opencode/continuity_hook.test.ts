@@ -199,9 +199,9 @@ test("adapter-continuity-lane-leak-absent", async () => {
   })
 })
 
-test("adapter-continuity-work-start-retarget", async () => {
+test("host directory changes invalidate continuity inside the TTL window", async () => {
   let now = 1_000
-  const sessions = fakeSessions("/worktrees/project-1/work-launch")
+  const sessions = fakeSessions("/checkouts/project-1/first")
   const directories: string[] = []
   const transform = createContinuityTransform({
     now: () => now,
@@ -213,25 +213,16 @@ test("adapter-continuity-work-start-retarget", async () => {
   }) as Transform
   const transformed = output("system prefix")
   await transform({ sessionID: "ses-1" }, transformed)
-  expect(transformed.system[0]).toContain("packet for /worktrees/project-1/work-launch")
+  expect(transformed.system[0]).toContain("packet for /checkouts/project-1/first")
 
-  // work_start moves the session to the claimed worktree of another item;
-  // the next turn renders that item's block, even inside the TTL window.
-  sessions.sessionDirectory = async () => "/worktrees/project-1/work-landed"
+  sessions.sessionDirectory = async () => "/checkouts/project-1/second"
   now += 1
   await transform({ sessionID: "ses-1" }, transformed)
 
-  expect(directories).toEqual(["/worktrees/project-1/work-launch", "/worktrees/project-1/work-landed"])
-  expect(transformed.system[0]).toContain(`packet for /worktrees/project-1/work-landed`)
-  expect(transformed.system[0].indexOf(START)).toBe(transformed.system[0].lastIndexOf(START))
-  await assertScenario("adapter-continuity-work-start-retarget", {
-    work_start_retarget_renders_landed_item_block: () => expect(transformed.system[0]).toContain("packet for /worktrees/project-1/work-landed"),
-    sentinel_block_replaced_in_place: () => expect(transformed.system[0]).toBe(`system prefix${START}\npacket for /worktrees/project-1/work-landed\n${END}`),
-    no_duplicate_sentinel: () => {
-      expect(transformed.system[0].split(START).length).toBe(2)
-      expect(transformed.system[0].split(END).length).toBe(2)
-    },
-  })
+  expect(directories).toEqual(["/checkouts/project-1/first", "/checkouts/project-1/second"])
+  expect(transformed.system[0]).toBe(`system prefix${START}\npacket for /checkouts/project-1/second\n${END}`)
+  expect(transformed.system[0].split(START).length).toBe(2)
+  expect(transformed.system[0].split(END).length).toBe(2)
 })
 
 test("continuity transform ignores the launcher identity environment", async () => {

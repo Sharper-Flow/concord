@@ -19,48 +19,13 @@ const fs = { ...nodeFs, mkdtempSync }
 
 syntheticHostVersionFixture()
 
-test("work start publishes the closed capture and resume contract through the host definition hook", async () => {
-  const plugin = await ConcordAdapterPlugin()
-  // The host's legacy JSON-schema conversion drops undefined entries and
-  // requires every remaining property before it invokes tool.definition.
-  const properties = Object.fromEntries(Object.entries(plugin.tool.concord_work_start.args)
-    .filter(([, value]) => value !== null && typeof value === "object" && !Array.isArray(value)))
-  const parameters = {}
-  const output = {
-    description: plugin.tool.concord_work_start.description,
-    parameters,
-    jsonSchema: { type: "object", properties, required: Object.keys(properties) },
-  }
-  const hook = Reflect.get(plugin, "tool.definition")
-  if (typeof hook !== "function") throw new Error("plugin registers no tool.definition hook")
-  await hook({ toolID: "concord_work_start" }, output)
-  const published = JSON.parse(JSON.stringify(output.jsonSchema))
-  // The generated closed modes survive in conditional branches; the root
-  // remains an object accepted by Anthropic's tool-schema validator.
-  expect(published.type).toBe("object")
-  expect(published.oneOf).toBeUndefined()
-  expect(published.if).toEqual({ required: ["work_id"] })
-  // Publication interns repeated field schemas into the root's local
-  // definitions table, so the branch comparison reads the resolved view
-  // against the unchanged generated contracts.
-  const resolved = expandedPublishedRequestSchema(published) as any
-  expect(resolved.else.if).toEqual({ required: ["issue_key"] })
-  expect(resolved.else.else).toEqual(hostToolSchemas.concord_work_start.oneOf[0])
-  expect(resolved.then).toEqual(expandedPublishedRequestSchema(hostToolSchemas.concord_work_start.oneOf[1]))
-  expect(resolved.else.then).toEqual(expandedPublishedRequestSchema(hostToolSchemas.concord_work_start.oneOf[1]))
-  expect(resolved.else.else.properties.work_id).toBeUndefined()
-  expect(resolved.then.properties.title).toBeUndefined()
-  expect(output.parameters).toBe(parameters)
-  expect(output.description).toBe(plugin.tool.concord_work_start.description)
-})
-
 test("the plugin registration set equals the complete host tool catalog", async () => {
   // Every registered tool must be a catalog member, so the generated
   // utility denials derived from the catalog can never miss a new
   // registration.
   const plugin = await ConcordAdapterPlugin()
   const catalog = [...new Set([...Object.keys(hostToolSchemas), ...contractOperations.map((operation: any) => operation.tool)])].sort()
-  expect(catalog.length).toBe(10)
+  expect(catalog.length).toBe(9)
   expect(Object.keys(plugin.tool).sort()).toEqual(catalog)
 })
 
@@ -79,13 +44,13 @@ describe("plugin entry registers the text-completion hook", () => {
 
   test("appends the queued notice blocks to the assistant text and clears the queue", async () => {
     const hook = await completeHook()
-    enqueueWorkNotice("session-text", "Concord released the worktree for work-1.")
+    enqueueWorkNotice("session-text", "The bounded work result is ready.")
     enqueueWorkNotice("session-text", "| 🛫 CON-42 Complete (work-1) |\n| :-- |\n| ✅ Delegate passes the verb bytes |\n| ✓ check check:repo:verify · pass |")
     const output = { text: "assistant text" }
     await hook({ sessionID: "session-text", messageID: "message-1", partID: "part-1" }, output)
     expect(output.text).toBe([
       "assistant text",
-      "Concord released the worktree for work-1.",
+      "The bounded work result is ready.",
       "| 🛫 CON-42 Complete (work-1) |\n| :-- |\n| ✅ Delegate passes the verb bytes |\n| ✓ check check:repo:verify · pass |",
     ].join("\n\n"))
     // The queue drained, so a later completion in the same session carries
@@ -168,8 +133,7 @@ test("the definition hook leaves tools no hook owns unchanged", async () => {
   const schema = output.jsonSchema
   const hook = Reflect.get(plugin, "tool.definition")
   expect(typeof hook).toBe("function")
-  // "bash" is no Concord tool: neither the request hook, the work start
-  // hook, nor the ci watch hook may touch its definition.
+  // "bash" is no Concord tool: no Concord definition hook may change it.
   await hook({ toolID: "bash" }, output)
   expect(output.jsonSchema).toBe(schema)
   expect(output.description).toBe("another tool")
@@ -206,25 +170,25 @@ test("a request tool publishes the hoisted argument root through the host defini
   expect(output.description).toBe(plugin.tool.concord_work_trace.description)
 })
 
-test("published work start schemas cannot mutate runtime validation", async () => {
+test("published request schemas cannot mutate the registered arguments or generated operations", async () => {
   const plugin = await ConcordAdapterPlugin()
   const output: { description: string; parameters: Record<string, unknown>; jsonSchema: Record<string, any> } = {
-    description: "work start", parameters: {}, jsonSchema: { properties: plugin.tool.concord_work_start.args },
+    description: "work define", parameters: {}, jsonSchema: { properties: plugin.tool.concord_work_define.args },
   }
-  await plugin["tool.definition"]({ toolID: "concord_work_start" }, output)
-  const argsTitle = plugin.tool.concord_work_start.args.title
-  const publishedTitle = output.jsonSchema.else.else.properties.title
-  const expectedTitle = hostToolSchemas.concord_work_start.oneOf[0].properties.title
-  const maximum = expectedTitle.maxLength
+  await plugin["tool.definition"]({ toolID: "concord_work_define" }, output)
+  const argsOperations = (plugin.tool.concord_work_define.args.request as any).properties.operation.enum as string[]
+  const publishedOperations = output.jsonSchema.properties.request.properties.operation.enum as string[]
+  const expected = contractOperations.filter((operation) => operation.tool === "concord_work_define").map((operation) => operation.id.slice("concord_work_define.".length))
+  const original = [...argsOperations]
   try {
-    argsTitle.maxLength = 1
-    publishedTitle.maxLength = 2
-    expect(expectedTitle.maxLength).toBe(maximum)
-    expect(argsTitle.maxLength).toBe(1)
-    expect(publishedTitle.maxLength).toBe(2)
+    argsOperations.push("registration-only")
+    expect(publishedOperations).toEqual(expected)
+    publishedOperations.push("publication-only")
+    expect(argsOperations).toEqual([...expected, "registration-only"])
+    expect((publishedRequestSchema("concord_work_define") as any).properties.operation.enum).toEqual(expected)
+    expect(contractOperations.filter((operation) => operation.tool === "concord_work_define").map((operation) => operation.id.slice("concord_work_define.".length))).toEqual(expected)
   } finally {
-    argsTitle.maxLength = maximum
-    publishedTitle.maxLength = maximum
+    argsOperations.splice(0, argsOperations.length, ...original)
   }
 })
 

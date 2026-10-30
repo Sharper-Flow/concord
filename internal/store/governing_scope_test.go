@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"testing"
-	"time"
 )
 
 func TestGoverningOverlapCoreRequiresPreservedScope(t *testing.T) {
@@ -114,38 +113,4 @@ func TestGoverningCaptureRevalidatesProjectRequirements(t *testing.T) {
 		return ValidateCaptureGoverningRequirementsTx(ctx, tx, []string{"proj"}, planned)
 	})
 	assertFailureKind(t, err, KindVersionConflict)
-}
-
-func TestGoverningBootstrapCreationRecordsGenuineDeclaration(t *testing.T) {
-	for _, declared := range [][]string{{}, {"audit_required"}} {
-		raw, _ := json.Marshal(declared)
-		t.Run(string(raw), func(t *testing.T) {
-			ctx := context.Background()
-			s := openTemp(t)
-			seedGovernedProject(t, s, "prod", "proj")
-			if len(declared) > 0 {
-				if err := ApplyOperation(ctx, s, Operation{Events: []Event{declareAuditRequirementEvent("bootstrap-requirement")}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectProject, "proj"): 1}}); err != nil {
-					t.Fatal(err)
-				}
-			}
-			req := bootstrapStoreRequest()
-			req.ProductID, req.ProjectID, req.GoverningRequirements = "prod", "proj", declared
-			err := s.Transact(ctx, func(tx *Transaction) error {
-				if err := validateBootstrapScopeTx(ctx, tx.tx, req.ProductID, req.ProjectID, req.GoverningRequirements); err != nil {
-					return err
-				}
-				return createBootstrapWorkTx(ctx, tx, req, "governed-bootstrap", "governed-bootstrap-work", nil, time.Unix(5, 0).UTC())
-			})
-			if err != nil {
-				t.Fatal(err)
-			}
-			var got string
-			if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(intent_json,'$.governing_requirements') FROM work_items WHERE id='governed-bootstrap-work'`).Scan(&got); err != nil {
-				t.Fatal(err)
-			}
-			if got != string(raw) {
-				t.Fatalf("bootstrap declared=%s want=%s", got, raw)
-			}
-		})
-	}
 }

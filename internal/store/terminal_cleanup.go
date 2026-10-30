@@ -143,14 +143,9 @@ func terminalCleanupBlockersQ(ctx context.Context, q queryer, workID string) err
 		{KindOperationConflict, `SELECT EXISTS(SELECT 1 FROM workflow_backlog_alignment WHERE related_work_id=?1 AND work_id<>?1 AND work_id IN ` + terminalCleanupConsumers + `)`, "another execution retains backlog alignment"},
 		{KindOperationConflict, `SELECT EXISTS(SELECT 1 FROM workflow_contract_law_additions WHERE reservation_owner_work_id=?1 AND work_id<>?1)`, "another contract consumes a law reservation"},
 		{KindResearchConsumerBlocked, `SELECT EXISTS(SELECT 1 FROM active_research_packs WHERE owner_work_id=?1)`, "owned research packs must be retired through research_retire"},
-		{KindResourceBusy, `SELECT EXISTS(SELECT 1 FROM worktree_claims WHERE work_id=?1 AND state IN ('pending','verified')) OR EXISTS(SELECT 1 FROM worktree_entries WHERE set_id=?2 AND state='active')`, "worktree claim or native tree remains active"},
-		{KindResourceBusy, `SELECT EXISTS(SELECT 1 FROM worktree_occupancy o JOIN worktree_entries e ON o.worktree_id=e.set_id||':'||e.project_id||':'||e.claim_op_id WHERE e.set_id=?2)`, "native worktree occupancy has not been released"},
 		{KindResourceBusy, `SELECT EXISTS(SELECT 1 FROM worktree_verify_leases WHERE work_id=?1 AND (state='held' OR outcome='running'))`, "native verification is held or unsettled"},
-		{KindOperationConflict, `SELECT EXISTS(SELECT 1 FROM session_vacate_requests WHERE work_id=?1 AND landed=0)`, "session vacate has not landed"},
 		{KindOperationConflict, `SELECT EXISTS(SELECT 1 FROM project_handoffs WHERE work_id=?1 AND state='recorded')`, "Project handoff has not been consumed"},
-		{KindOperationConflict, `SELECT EXISTS(SELECT 1 FROM worktree_ref_outcomes WHERE set_id=?2 AND phase NOT IN ('deleted','settled'))`, "native reference preservation or deletion remains unsettled"},
 		{KindOutsideRepairActive, `SELECT EXISTS(SELECT 1 FROM outside_repair_dispositions WHERE work_id=?1 AND state='active')`, "outside repair has not reconciled"},
-		{KindOperationConflict, `SELECT EXISTS(SELECT 1 FROM bootstrap_operations WHERE work_id=?1 AND state NOT IN ('completed','rolled_back'))`, "bootstrap effect has not settled"},
 		{KindOperationConflict, `SELECT EXISTS(SELECT 1 FROM durable_operations WHERE work_id=?1 AND (result_kind IS NULL OR result_kind IN ('pending','partial')))`, "durable effect has not reconciled"},
 		{KindOperationConflict, `SELECT EXISTS(SELECT 1 FROM work_removal_operations WHERE work_id=?1)`, "removal operation retains its separate identity fence"},
 		{KindOperationConflict, `SELECT EXISTS(SELECT 1 FROM workflow_step_epochs s LEFT JOIN workflow_step_completions c ON c.work_id=s.work_id AND c.step_id=s.step_id WHERE s.work_id=?1 AND s.latest_start_seq>COALESCE(c.completion_seq,0))`, "workflow action has no recorded settlement"},
@@ -162,9 +157,6 @@ func terminalCleanupBlockersQ(ctx context.Context, q queryer, workID string) err
 	}
 	for _, check := range checks {
 		args := []any{workID}
-		if strings.Contains(check.query, "?2") {
-			args = append(args, WorktreeSetID(workID))
-		}
 		var blocked bool
 		if err := q.QueryRowContext(ctx, check.query, args...).Scan(&blocked); err != nil {
 			return wrapFailure(KindUnavailable, "terminal_cleanup", "cannot evaluate cleanup blocker: "+check.detail, true, "retry reconciliation when the owning projection is readable", err)

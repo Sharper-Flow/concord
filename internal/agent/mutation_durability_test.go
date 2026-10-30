@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"path/filepath"
 	"sort"
 	"strings"
 	"testing"
@@ -50,7 +49,7 @@ func TestMutationDurabilityUsesDeclaredBaseline(t *testing.T) {
 	}
 	before := s.DurableCommits()
 	r := runtime{Store: s, Authority: service, Envelope: env, Tool: "concord_work_transition", Operation: "correct_delivery", Reader: grant}
-	response, err := r.executeMutation(ctx, agentcontract.NewBase("durability-baseline", "concord_work_transition", "correct_delivery"), raw, digest, scope, nil, nil, effect, nil, nil)
+	response, err := r.executeMutation(ctx, agentcontract.NewBase("durability-baseline", "concord_work_transition", "correct_delivery"), raw, digest, scope, nil, nil, effect)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -85,7 +84,6 @@ func TestMutationDurabilityDeclarations(t *testing.T) {
 
 	durableInitial := map[string]bool{
 		"concord_work_transition.remove":                   true,
-		"concord_work_transition.worktree_claim":           true,
 		"concord_work_relate.resolve_overlap":              true,
 		"concord_work_compact.publish":                     true,
 		"concord_work_transition.correct_delivery":         true,
@@ -281,46 +279,6 @@ func TestMutationDurabilityStoreBoundPlannerFacts(t *testing.T) {
 		}
 		if after := s.DurableCommits(); after != before {
 			t.Fatalf("governing-scope refusal moved the durable counter %d -> %d", before, after)
-		}
-	})
-	t.Run("worktree_destroy non-terminal", func(t *testing.T) {
-		t.Parallel()
-		s, service, grant, _, _, _ := tiersFixture(t)
-		before := s.DurableCommits()
-		occupied := authorityInvoke(t, s, service, grant, "concord_work_transition", "worktree_destroy", map[string]any{"work_id": "work-1", "expected_version": 3, "default_ref": "main", "idempotency_key": "durability-destroy-occupied"})
-		if occupied.Error == nil || occupied.Error.Kind != "unauthorized" {
-			t.Fatalf("recorded occupancy destroy = %+v, want occupancy refusal", occupied.Error)
-		}
-		if after := s.DurableCommits(); after != before {
-			t.Fatalf("occupancy refusal moved durable counter %d -> %d", before, after)
-		}
-		if lifecycle, version := readWorkFromStore(t, s, "work-1"); lifecycle != "needed" || version != 3 {
-			t.Fatalf("occupancy refusal changed work to %s v%d", lifecycle, version)
-		}
-		vacateLinkedWorktree(t, s, service, grant, filepath.Join(filepath.Dir(s.Path()), "worktrees", "project-1", "work-1"), "durability-nonterminal-vacate")
-		removed := authorityInvoke(t, s, service, grant, "concord_work_transition", "worktree_destroy", map[string]any{"work_id": "work-1", "expected_version": 3, "default_ref": "main", "idempotency_key": "durability-destroy-1"})
-		if removed.Outcome != agentcontract.OutcomeOK {
-			t.Fatalf("clean unoccupied non-terminal destroy = %+v", removed.Error)
-		}
-		if lifecycle, version := readWorkFromStore(t, s, "work-1"); lifecycle != "needed" || version != 4 {
-			t.Fatalf("nonterminal removal changed disposition or lost version: %s v%d", lifecycle, version)
-		}
-		if after := s.DurableCommits(); after != before {
-			t.Fatalf("non-terminal destroy moved durable counter %d -> %d", before, after)
-		}
-	})
-	t.Run("worktree_destroy destructive", func(t *testing.T) {
-		t.Parallel()
-		s, service, grant, _, _, _ := tiersFixture(t)
-		completeWork(t, s, "work-1")
-		vacateLinkedWorktree(t, s, service, grant, filepath.Join(filepath.Dir(s.Path()), "worktrees", "project-1", "work-1"), "durability-destructive-vacate")
-		before := s.DurableCommits()
-		removed := authorityInvoke(t, s, service, grant, "concord_work_transition", "worktree_destroy", map[string]any{"work_id": "work-1", "expected_version": 4, "default_ref": "main", "destructive": true, "idempotency_key": "durability-destructive-1"})
-		if removed.Outcome != agentcontract.OutcomeOK || removed.Error != nil {
-			t.Fatalf("destructive destroy outcome=%s err=%+v, want removal", removed.Outcome, removed.Error)
-		}
-		if after := s.DurableCommits(); after != before {
-			t.Fatalf("destructive destroy moved durable counter %d -> %d", before, after)
 		}
 	})
 }

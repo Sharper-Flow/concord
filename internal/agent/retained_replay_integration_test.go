@@ -174,7 +174,7 @@ func TestRetainedReplayKeepsCommittedEmptyChangedRefs(t *testing.T) {
 		response, err := r.executeMutation(ctx, agentcontract.NewBase(request, r.Tool, r.Operation), raw, digest, scope, nil, nil, func(context.Context, *store.Transaction, Authority) (json.RawMessage, []string, []agentcontract.ChangedRef, error) {
 			effects++
 			return json.RawMessage(`{"changed_refs":[],"next_valid_intents":[]}`), nil, nil, nil
-		}, nil, nil)
+		})
 		if err != nil {
 			t.Fatalf("%s: %v", request, err)
 		}

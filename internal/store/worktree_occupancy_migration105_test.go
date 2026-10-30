@@ -6,11 +6,9 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 )
 
 // shippedV11290Migration104SQL is the migration 104 text release v11.29.0
@@ -195,7 +193,7 @@ func TestShipped104StoreMigratesToWidened105(t *testing.T) {
 	}
 }
 
-func TestRuntimeOccupancyInsertLongKey(t *testing.T) {
+func TestOccupancyLongKeySurvivesOpen(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "concord-runtime.db")
@@ -215,32 +213,12 @@ func TestRuntimeOccupancyInsertLongKey(t *testing.T) {
 		t.Fatalf("open the migrated store: %v", err)
 	}
 	t.Cleanup(func() { _ = s.Close() })
-	if err := ApplyOperation(ctx, s, Operation{Events: []Event{locatorProductEvent("product-live"), locatorProjectEvent(liveShapeProjectID), locatorMembershipEvent("product-live", liveShapeProjectID)}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectProduct, "product-live"): 0, VersionRef(SubjectProject, liveShapeProjectID): 0}}); err != nil {
-		t.Fatal(err)
-	}
-	if err := ApplyOperation(ctx, s, Operation{Events: []Event{
-		{EventID: liveShapeWorkID + "-create", Kind: "work.created", SubjectType: SubjectWorkItem, SubjectID: liveShapeWorkID, Actor: "operator", OccurredAt: time.Unix(1, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion("work.created"), Payload: jsonRaw(`{"work_kind":"task","title":"Live shape","priority":1}`)},
-		{EventID: liveShapeWorkID + "-membership", Kind: "work.memberships_replaced", SubjectType: SubjectWorkItem, SubjectID: liveShapeWorkID, Actor: "operator", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: 1, Payload: jsonRaw(`{"memberships":[{"project_id":"` + liveShapeProjectID + `","role":"primary"}],"expected_version":1,"resulting_version":2}`)},
-	}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, liveShapeWorkID): 0}}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.RecordWorktreeClaimLanding(ctx, WorktreeClaimLandingRequest{
-		WorkID: liveShapeWorkID,
-		// A session other than the backfilled legacy occupant, so the
-		// landing records a fresh transfer instead of replaying.
-		SessionRef:      "ses-second",
-		LandedDirectory: liveShapePath,
-		HostPID:         os.Getpid(),
-		Now:             time.Unix(10, 0).UTC(),
-	}); err != nil {
-		t.Fatalf("landing for a 170-char worktree key: %v", err)
-	}
 	var hasIdentity int
 	var hostPID int64
-	if err := s.DatabaseForTesting().QueryRow(`SELECT has_process_identity, COALESCE(host_pid,0) FROM worktree_occupancy WHERE worktree_id=? AND session_ref='ses-second'`, liveShapeWorktreeID()).Scan(&hasIdentity, &hostPID); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT has_process_identity, COALESCE(host_pid,0) FROM worktree_occupancy WHERE worktree_id=? AND session_ref='ses-live'`, liveShapeWorktreeID()).Scan(&hasIdentity, &hostPID); err != nil {
 		t.Fatalf("occupancy row for the long key: %v", err)
 	}
-	if hasIdentity != 1 || hostPID != int64(os.Getpid()) {
-		t.Fatalf("occupancy row identity=%d pid=%d, want the landing's process identity", hasIdentity, hostPID)
+	if hasIdentity != 0 || hostPID != 0 {
+		t.Fatalf("occupancy row identity=%d pid=%d, want the retained legacy shape", hasIdentity, hostPID)
 	}
 }

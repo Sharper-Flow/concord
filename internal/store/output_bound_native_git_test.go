@@ -5,7 +5,7 @@ func init() {
 	// view validates every published identity with nativeGitOID, which also
 	// applies the shared commit grammar. Tags are a subset of the bounded
 	// source ref inventory, never a truncated list.
-	sha := goPatternBound("internal/store/worktrees.go", "worktreeSHAPattern")
+	sha := goPatternBound("internal/store/worktree_reads.go", "worktreeSHAPattern")
 	for _, field := range []string{"commit", "tree"} {
 		registerOutputBound("/$defs/native_git_view/properties/"+field+"/maxLength", sha)
 	}

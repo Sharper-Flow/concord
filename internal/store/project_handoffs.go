@@ -32,8 +32,9 @@ import (
 // wrong-target conditions stay typed refusals with no state change, so a
 // replay resolves from state and a stale handoff never authorizes execution.
 // Retirement readiness is derived read-only from the recorded handoff,
-// verified artifact preservation, and the verified vacate landing; it never completes or cancels the shared work and
-// never terminates a host process or removes a worktree.
+// verified artifact preservation, and stopped session-owned execution. It
+// never completes or cancels the shared work, terminates a host process, or
+// removes a worktree.
 
 const (
 	ProjectHandoffRecorded = "recorded"
@@ -803,8 +804,7 @@ func RefuseUnconsumedProjectHandoffTx(ctx context.Context, tx *sql.Tx, workID, s
 
 // ProjectSessionRetirement is the derived, read-only readiness result. State
 // is retirementReady or retirementPending; retirementReady is emitted only
-// from verified facts, never from an opener result, a vacate-request commit,
-// or global work completion.
+// from verified facts, never from host placement or global work completion.
 type ProjectSessionRetirement struct {
 	WorkID             string   `json:"work_id"`
 	ProjectID          string   `json:"project_id"`
@@ -812,7 +812,7 @@ type ProjectSessionRetirement struct {
 	State              string   `json:"state"`
 	RecordedHandoff    bool     `json:"recorded_handoff"`
 	ArtifactsPreserved bool     `json:"artifacts_preserved"`
-	VacateLanded       bool     `json:"vacate_landed"`
+	ActionsStopped     bool     `json:"actions_stopped"`
 	Blockers           []string `json:"blockers"`
 }
 
@@ -824,8 +824,9 @@ const (
 // EvaluateProjectSessionRetirement derives READY_TO_CLOSE_OR_REPLACE for one
 // Project-selected session from three verified facts: the session recorded an
 // addressed handoff on the work, its changed artifacts are preserved in the
-// claimed source worktree, and its verified vacate landing released its
-// occupancy (CD-0190). The evaluation
+// source worktree, and its unfinished workflow actions have settled. Host
+// tools own physical departure (CD-0182 D5, CD-0088 D1). Unknown action
+// attribution blocks readiness. The evaluation
 // writes no event, completes no work, cancels nothing, removes no worktree,
 // and terminates no process.
 //
@@ -892,14 +893,11 @@ func EvaluateProjectSessionRetirement(ctx context.Context, s *Store, workID, pro
 	if drift := retirementHandoffSnapshotDrift(handoffFacts, recheck); drift != "" {
 		out.Blockers = append(out.Blockers, drift+"; re-run the retirement read")
 	}
-	out.VacateLanded = execution.vacateLanded
-	if execution.blocker != "" {
-		out.Blockers = append(out.Blockers, execution.blocker)
-	}
+	out.ActionsStopped = execution.actionsStopped
 	if !execution.actionsStopped {
 		out.Blockers = append(out.Blockers, "the session's unfinished workflow actions must settle before readiness")
 	}
-	if len(out.Blockers) == 0 && out.RecordedHandoff && out.ArtifactsPreserved && execution.actionsStopped && out.VacateLanded {
+	if len(out.Blockers) == 0 && out.RecordedHandoff && out.ArtifactsPreserved && execution.actionsStopped {
 		out.State = RetirementReady
 	}
 	return out, nil
@@ -1019,7 +1017,7 @@ func readRetirementHandoffFactsTx(ctx context.Context, q queryer, workID, projec
 // readRetirementFinalFactsTx is the queryer-taking read the transaction scope
 // rule owns the phase-three read through: the execution facts and the
 // phase-one snapshot revalidation read in one transaction, so the drift
-// comparison observes the same committed state the landing facts derive from.
+// comparison observes the same committed state the action facts derive from.
 func readRetirementFinalFactsTx(ctx context.Context, q queryer, workID, projectID, sessionRef string, execution *projectRetirementExecutionFacts, recheck *projectRetirementHandoffFacts) error {
 	if err := readRetirementExecutionFactsTx(ctx, q, workID, sessionRef, execution); err != nil {
 		return err
@@ -1027,11 +1025,9 @@ func readRetirementFinalFactsTx(ctx context.Context, q queryer, workID, projectI
 	return readRetirementHandoffFactsTx(ctx, q, workID, projectID, sessionRef, recheck)
 }
 
-// projectRetirementExecutionFacts carries action settlement and vacate landing.
+// projectRetirementExecutionFacts carries action settlement.
 type projectRetirementExecutionFacts struct {
 	actionsStopped bool
-	vacateLanded   bool
-	blocker        string
 }
 
 // readRetirementExecutionFactsTx is the queryer-taking read the transaction
@@ -1041,7 +1037,6 @@ func readRetirementExecutionFactsTx(ctx context.Context, q queryer, workID, sess
 	if facts.actionsStopped, err = workExecutionStoppedTx(ctx, q, workID, sessionRef); err != nil {
 		return err
 	}
-	facts.vacateLanded, facts.blocker, err = sessionVacateLandingStateTx(ctx, q, workID, sessionRef)
 	return err
 }
 
@@ -1097,39 +1092,6 @@ func workExecutionStoppedTx(ctx context.Context, q queryer, workID, sessionRef s
 		return false, wrapFailure(KindUnavailable, "project_retirement", "cannot read unfinished workflow actions", true, "retry once the workflow projection is readable", err)
 	}
 	return !open, nil
-}
-
-// sessionVacateLandingStateTx derives the verified vacate landing fact for
-// one work and session: landed true only when the latest committed
-// relocation request stands completed by a recorded landing (CD-0190 D2)
-// AND the session holds no occupancy rows on this work now. A recorded
-// landing released the rows its request's claim held, so rows that stand
-// after it belong to a later claim, and the old landing proves nothing about
-// this retirement. A pending request, no request at all, or renewed
-// occupancy reports the blocker text instead.
-func sessionVacateLandingStateTx(ctx context.Context, q queryer, workID, sessionRef string) (bool, string, error) {
-	latest, err := latestSessionVacateRequestTx(ctx, q, workID, sessionRef)
-	if err != nil {
-		var failure *Failure
-		if failureAs(err, &failure) && failure.Kind == KindProjectionNotFound {
-			return false, "session_vacate has not recorded a relocation request for this session on this work", nil
-		}
-		return false, "", err
-	}
-	if !latest.Landed {
-		return false, "the committed session vacate still waits for its verified landing", nil
-	}
-	var occupied int
-	if err := q.QueryRowContext(ctx, `SELECT count(*) FROM worktree_occupancy o
-		JOIN worktree_entries e ON e.set_id || ':' || e.project_id || ':' || e.claim_op_id = o.worktree_id AND e.state='active'
-		JOIN worktree_claims c ON c.op_id=e.claim_op_id
-		WHERE o.session_ref=? AND c.work_id=?`, sessionRef, workID).Scan(&occupied); err != nil {
-		return false, "", wrapFailure(KindUnavailable, "project_retirement", "cannot read the session's current occupancy", true, "retry once the database is readable", err)
-	}
-	if occupied != 0 {
-		return false, "the session holds occupancy rows on this work after its recorded landing; the rows belong to a later claim, whose own verified landing or vacate releases them", nil
-	}
-	return true, "", nil
 }
 
 // PendingProjectHandoffTx reads the newest unconsumed handoff on the work

@@ -6,8 +6,8 @@
 
 ## Decision
 
-CD-0031 supplies core-derived continuity to operator sessions through work-start
-preparation. CD-0090 requires a bounded per-turn host plugin hook that re-asserts
+CD-0031 supplies core-derived continuity to operator sessions through
+`session-prepare`. CD-0090 requires a bounded per-turn host plugin hook that re-asserts
 the pinned projection after context boundaries. This surface holds no authority.
 The store keeps current rows; no event log, fold, or replay exists
 ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
@@ -139,6 +139,6 @@ read never trims a finding into a different claim.
 ## Consequences
 
 Context continuity is held in current rows ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)) and does not add a
-mutable daemon or a second agent identity authority. Work-start
+mutable daemon or a second agent identity authority. Session
 preparation and the bounded per-turn hook supply continuity to operator sessions;
 no generic host hook or `agent_definitions` table exists.

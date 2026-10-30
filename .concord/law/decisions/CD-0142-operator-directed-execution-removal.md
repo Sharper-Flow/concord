@@ -87,7 +87,7 @@ or waiting evidence reports
 
 ### D6. Complete shelving from the registered default checkout
 
-Transition the item's lifecycle to `cancelled` under its existing gates, then request exact-item terminal reclamation under CD-0162, not an audit sweep. This is the caller's preparation sequence. D5 admission checks the item's resulting retirement state and native proof, not unrecorded direct-versus-audit provenance. Remove through CD-0094 D5 and this decision's existing per-item preparation, handoff confirmation, approval and atomic removal machinery.
+Transition the item's lifecycle to `cancelled` under its existing gates. Remove through CD-0094 D5 and this decision's existing per-item preparation, handoff confirmation, approval and atomic removal machinery. Worktree ownership and native retirement proof do not gate store-only removal (CD-0088 D2); this route removes no host checkout.
 
 Shelving completes only after committed removal and verified execution-identity absence. The planning issue and exact handoff survive. D2's safety, D3's destination checks and D4's absence and new-identity renewal rules remain required.
 

@@ -36,12 +36,6 @@ adapter refuses is refused at the producer before it reaches the wire.
 Effect truth on a partially-applied mutation is exactly what
 `changed_refs` states; refusing it forced the truth into salvage.
 
-### D3. A failure path validates its output
-
-`auditReclaimPostCommitFailure` validates its envelope before returning
-it. An invalid shape degrades to `malformed_response` while still
-carrying the committed refs with `effect_state: possible`.
-
 ## Verification
 
 ```text

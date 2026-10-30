@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"context"
 	"path/filepath"
 	"testing"
 )
@@ -12,10 +11,7 @@ func TestConcurrentSessionPreparationsDoNotWriteIdentity(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "concord.db")
 	s := mustOpenStore(t, dbPath)
 	seedLocatorAuthority(t, s, repo)
-	work, err := s.BootstrapWorktree(context.Background(), bootstrapRequest(), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
+	work := seedCLISessionWorktree(t, s, repo)
 	t.Setenv(dbOverrideEnv, dbPath)
 	t.Setenv("HOME", t.TempDir())
 	t.Chdir(work.Entry.Path)

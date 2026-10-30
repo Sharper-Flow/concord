@@ -156,8 +156,7 @@ class BunNativeTests(unittest.TestCase):
 
     def test_current_continuity_exact_names_actually_pass(self):
         document = json.loads((ROOT / ".concord/scenarios/adapter-continuity.v1.json").read_text())
-        expected = [scenario["id"] for scenario in document["scenarios"]
-                    if scenario["id"] != "adapter-continuity-session-vacate-then-reclaim-passes-occupancy-gate"]
+        expected = [scenario["id"] for scenario in document["scenarios"]]
         arguments = [argument for identity in expected for argument in ("--expect", identity)]
         run = subprocess.run(["python3", str(SOURCE), "continuity_hook.test.ts", *arguments],
                              cwd=ROOT, capture_output=True, text=True, timeout=60)

@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"path/filepath"
 	"strings"
@@ -51,11 +50,7 @@ func TestReceiptPrintsNothingForAWorkItemOutsideTheCompletedLifecycle(t *testing
 	t.Setenv(dbOverrideEnv, dbPath)
 	s := mustOpenStore(t, dbPath)
 	seedLocatorAuthority(t, s, repo)
-	origin, err := s.BootstrapWorktree(context.Background(), bootstrapRequest(), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	body, err := json.Marshal(map[string]string{"work_id": origin.WorkID})
+	body, err := json.Marshal(map[string]string{"work_id": "work-wl"})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -21,46 +21,6 @@ import (
 	"github.com/sharper-flow/concord/internal/store/storetest"
 )
 
-func TestAuditReclaimReportsCommittedEffectWithThePhysicalTree(t *testing.T) {
-	t.Parallel()
-	s, _, _, service, grant, _ := tiersFixture(t)
-	completeWork(t, s, "work-2")
-	vacateLinkedWorktree(t, s, service, grant, filepath.Join(filepath.Dir(s.Path()), "worktrees", "project-1", "work-2"), "post-commit-vacate-2")
-	livePath := filepath.Join(filepath.Dir(s.Path()), "worktrees", "project-1", "work-1")
-	if err := os.WriteFile(filepath.Join(livePath, "in-flight.md"), []byte("# in flight\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	gitRun(t, livePath, "add", "in-flight.md")
-	gitRun(t, livePath, "-c", "user.email=fixture@example.com", "-c", "user.name=fixture", "commit", "-m", "in-flight work")
-
-	scopeVersion, _, err := s.ScopeVersion(context.Background(), "project-1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	op, ok := agentcontract.ValidateContractOperation("concord_work_transition", "worktree_audit_reclaim")
-	if !ok {
-		t.Fatal("worktree_audit_reclaim is not registered")
-	}
-	raw, _ := json.Marshal(map[string]any{"product_id": "product-1", "default_ref": "main", "idempotency_key": "post-commit-budget"})
-	r := runtime{Store: s, Authority: service, Envelope: mutationEnvelope(grant, scopeVersion), Tool: "concord_work_transition", Operation: "worktree_audit_reclaim", Reader: grant}
-	response, err := r.mutateWorktreeAuditReclaim(context.Background(), agentcontract.NewBase("post-commit", r.Tool, r.Operation), raw, grant, op)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if response.Outcome != agentcontract.OutcomeOK {
-		t.Fatalf("response=%+v", response)
-	}
-	if response.ChangedRefs == nil || len(*response.ChangedRefs) != 1 || (*response.ChangedRefs)[0].ID != "work-2" {
-		t.Fatalf("changed refs=%+v", response.ChangedRefs)
-	}
-	if _, err := os.Stat(filepath.Join(filepath.Dir(s.Path()), "worktrees", "project-1", "work-2")); !os.IsNotExist(err) {
-		t.Fatalf("reclaim effect was not committed: %v", err)
-	}
-	if err := response.Validate(); err != nil {
-		t.Fatalf("response is not contract-valid: %v", err)
-	}
-}
-
 func TestSupersedeContractPayloadIsRepresentableAtAgentBoundary(t *testing.T) {
 	t.Parallel()
 	payload, err := json.Marshal(map[string]any{

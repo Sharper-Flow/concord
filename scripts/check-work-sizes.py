@@ -17,7 +17,6 @@ SCHEMA_SOURCE = Path("internal/store/schema.go")
 STORE_SOURCE = Path("internal/store")
 GENERATED = "generated_work_sizes.go"
 PAYLOAD_SCHEMA = Path("contracts/agent-tool-surface-payloads.schema.json")
-HOST_SURFACE = Path("contracts/host-tool-surface.v1.json")
 # A capture declares what the change touches; the model decides the size, so
 # no size_inputs object may carry a size an agent could propose.
 PROPOSED_SIZE_FIELDS = {"size", "size_class", "model_size"}
@@ -96,18 +95,6 @@ def check_payload_schema(root: Path, declared: list[str], findings: list[str]) -
     check_no_proposed_size(defs.get("work_size_inputs"), f"{PAYLOAD_SCHEMA}#/$defs/work_size_inputs", findings)
 
 
-def check_host_surface(root: Path, findings: list[str]) -> None:
-    host = load_json_finding(root, HOST_SURFACE, findings)
-    if not isinstance(host, dict):
-        return
-    tools = [tool for tool in host.get("tools", []) if isinstance(tool, dict) and tool.get("name") == "concord_work_start"]
-    branches = tools[0].get("args", {}).get("oneOf", []) if tools else []
-    if not branches or not isinstance(branches[0], dict):
-        findings.append("host-coverage: concord_work_start has no capture branch")
-        return
-    check_no_proposed_size(branches[0].get("properties", {}).get("size_inputs"), f"{HOST_SURFACE} concord_work_start size_inputs", findings)
-
-
 def check_no_proposed_size(node: object, where: str, findings: list[str]) -> None:
     if not isinstance(node, dict) or not isinstance(node.get("properties"), dict):
         findings.append(f"schema-coverage: {where} is not declared")
@@ -130,7 +117,6 @@ def check(root: Path) -> list[str]:
     check_stored_sizes(root, declared, findings)
     check_hand_written_constants(root, findings)
     check_payload_schema(root, declared, findings)
-    check_host_surface(root, findings)
     return findings
 
 

@@ -22,22 +22,20 @@ func TestWorkSizeMigrationPreservesAssessments(t *testing.T) {
 func TestWorkSizeRevisionsChangeEffectiveSizeInPlace(t *testing.T) {
 	ctx := context.Background()
 	s := sizedBootstrapStore(t, true)
-	req := bootstrapStoreRequest()
-	req.SizeInputs = workSizeCaptureFixture()
-	created, err := s.BootstrapWorktree(ctx, req, nil)
-	if err != nil {
+	inputs := workSizeCaptureFixture()
+	const workID = "sized-revision"
+	if err := sizedCaptureFixture(t, s, workID, inputs); err != nil {
 		t.Fatal(err)
 	}
-	workID := created.WorkID
 	before := readWorkVersion(t, s, workID)
 	var lifecycle string
 	if err := s.db.QueryRow(`SELECT lifecycle FROM work_items WHERE id=?`, workID).Scan(&lifecycle); err != nil {
 		t.Fatal(err)
 	}
 	security := true
-	in := *req.SizeInputs
+	in := *inputs
 	in.Security = &security
-	plan, err := s.PlanWorkSize(ctx, req.ProductID, in)
+	plan, err := s.PlanWorkSize(ctx, "product-bootstrap", in)
 	if err != nil {
 		t.Fatal(err)
 	}

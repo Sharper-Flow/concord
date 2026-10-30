@@ -34,7 +34,6 @@ class WorkSizesFixture(unittest.TestCase):
             "scripts/generate-work-sizes.py",
             "scripts/vocabulary_utils.py",
             "contracts/agent-tool-surface-payloads.schema.json",
-            "contracts/host-tool-surface.v1.json",
         ):
             destination = self.root / relative
             destination.parent.mkdir(parents=True, exist_ok=True)
@@ -106,13 +105,6 @@ class WorkSizesFixture(unittest.TestCase):
             document["$defs"]["work_size_inputs"]["properties"]["size"] = {"type": "string"}
         self.edit_json("contracts/agent-tool-surface-payloads.schema.json", propose)
         self.assertTrue(any("declares a proposed size field" in item for item in self.findings()))
-
-    def test_host_size_inputs_proposed_size_is_reported(self) -> None:
-        def propose(document) -> None:
-            tool = next(tool for tool in document["tools"] if tool["name"] == "concord_work_start")
-            tool["args"]["oneOf"][0]["properties"]["size_inputs"]["properties"]["model_size"] = {"type": "string"}
-        self.edit_json("contracts/host-tool-surface.v1.json", propose)
-        self.assertTrue(any("host-tool-surface" in item and "proposed size field" in item for item in self.findings()))
 
     def test_open_size_inputs_is_reported(self) -> None:
         def open_object(document) -> None:

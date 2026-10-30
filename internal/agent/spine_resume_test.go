@@ -207,18 +207,8 @@ func newSpineExecutionFixtureForFamily(t *testing.T, family string) *spineFixtur
 		t.Fatal("capture omitted its work identity")
 	}
 	f.work = (*captured.ChangedRefs)[0].ID
-	claimed := spineOK(t, f.call(t, "concord_work_transition", "worktree_claim", map[string]any{
-		"work_id": f.work, "project_id": "project-1", "host_pid": os.Getpid(), "base_sha": base,
-		"expected_version": f.read(t).Pinned.Pin.Version, "idempotency_key": "spine-claim",
-	}))
-	var claim struct {
-		Path string `json:"path"`
-	}
-	if err := json.Unmarshal(claimed.Result, &claim); err != nil {
-		t.Fatal(err)
-	}
-	f.path = claim.Path
-	f.env.Directory, f.env.Worktree = claim.Path, claim.Path
+	f.path = seedHostWorktree(t, s, repo, f.work, "project-1", base)
+	f.env.Directory, f.env.Worktree = f.path, f.path
 	f.env.ScopeVersion, _, err = s.ScopeVersion(context.Background(), "project-1")
 	if err != nil {
 		t.Fatal(err)

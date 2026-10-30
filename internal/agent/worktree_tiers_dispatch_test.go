@@ -73,25 +73,16 @@ func tiersInvoke(t *testing.T, s *store.Store, service *Service, grant Authority
 	return response
 }
 
-// tiersFixture claims work-1's canonical worktree under session-1 and
-// work-2's under session-2, both inside project-1, so session-1 exercises
-// cross-worktree tiers against work-2's tree.
+// Both host-created checkouts belong to the same Project, so inspection and
+// verification exercise another work item's checkout without creating it.
 func tiersFixture(t *testing.T) (*store.Store, *Service, Authority, *Service, Authority, string) {
 	t.Helper()
 	s, service, grant, repoRoot := tiersRepoFixture(t)
 	baseSHA := gitRun(t, repoRoot, "rev-parse", "HEAD")
-	if response := tiersInvoke(t, s, service, grant, "concord_work_transition", "worktree_claim", map[string]any{"host_pid": os.Getpid(),
-		"work_id": "work-1", "project_id": "project-1", "base_sha": baseSHA, "expected_version": 2, "idempotency_key": "tiers-claim-1",
-	}); response.Outcome != agentcontract.OutcomeOK {
-		t.Fatalf("claim work-1 response=%+v err=%+v", response, response.Error)
-	}
+	seedHostWorktree(t, s, repoRoot, "work-1", "project-1", baseSHA)
 	second, _, secondGrant := newAuthorizedService(t, s, "client-2", "human-2", []agentcontract.Capability{"work_transition", "product_read"}, []string{"product-1"}, []string{"project-1"}, store.ProjectResolution{ProjectID: "project-1"})
 	secondGrant.SessionRef = "session-2"
-	if response := tiersInvoke(t, s, second, secondGrant, "concord_work_transition", "worktree_claim", map[string]any{"host_pid": os.Getpid(),
-		"work_id": "work-2", "project_id": "project-1", "base_sha": baseSHA, "expected_version": 2, "idempotency_key": "tiers-claim-2",
-	}); response.Outcome != agentcontract.OutcomeOK {
-		t.Fatalf("claim work-2 response=%+v err=%+v", response, response.Error)
-	}
+	seedHostWorktree(t, s, repoRoot, "work-2", "project-1", baseSHA)
 	return s, service, grant, second, secondGrant, repoRoot
 }
 

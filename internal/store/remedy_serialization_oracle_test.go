@@ -83,28 +83,3 @@ func serializedRemedyDetail(t *testing.T, encoded []byte) string {
 	}
 	return remedy
 }
-
-func TestBootstrapOriginRemedyVisible(t *testing.T) {
-	failure := store.BootstrapOriginRefusalFixture(t)
-	if failure.Kind != store.KindInvalidOperation {
-		t.Fatalf("bootstrap origin refusal kind changed: %+v", failure)
-	}
-	encoded := serializeRemedyRefusal(t, failure, "invalid_input")
-	var wire struct {
-		Error struct {
-			Message string `json:"message"`
-		} `json:"error"`
-	}
-	if err := json.Unmarshal(encoded, &wire); err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(wire.Error.Message, "linked bootstrap origin is not an active Concord worktree") {
-		t.Fatalf("refusal lost its cause: %s", encoded)
-	}
-	remedy := serializedRemedyDetail(t, encoded)
-	for _, want := range []string{"capture", "default checkout", "resume", "active worktree"} {
-		if !strings.Contains(remedy, want) {
-			t.Fatalf("serialized bootstrap remedy lost %q: %s", want, encoded)
-		}
-	}
-}

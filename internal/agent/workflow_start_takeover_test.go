@@ -103,10 +103,7 @@ func TestStartExecutionTakeoverFencesHeldAttemptChangeInsideTransaction(t *testi
 		// the action transaction. A vacate injected earlier or later lets the
 		// start succeed, so a changed probe order fails this test.
 		if probes == 3 {
-			payload, _ := json.Marshal(map[string]any{"work_id": "work-1", "project_id": "project-1", "session_ref": f.ownerGrant.SessionRef, "source_directory": "/repo-wt", "destination_directory": "/repo"})
-			if err := store.ApplyOperation(ctx, f.s, store.Operation{Events: []store.Event{{EventID: "owner-vacated-mid-flight", Kind: "work.session_vacated", SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: f.ownerGrant.PrincipalRef, OccurredAt: fixedTime(), PayloadVersion: 2, Payload: payload}}}); err != nil {
-				t.Fatal(err)
-			}
+			seedRecordedHolderDeparture(t, f.s, f.ownerGrant.SessionRef, "/repo-wt")
 		}
 		return originalProbe(ctx, directory, worktree)
 	}
@@ -137,19 +134,14 @@ func TestStartExecutionHolderRestartNeedsNoApproval(t *testing.T) {
 	}
 }
 
-// session_vacate records work.session_vacated naming the leaving session
-// (internal/agent/mutations.go planSessionVacate). The fixture appends that
-// recorded shape directly; the vacate route itself has its own coverage.
+// A retained departure fact releases the old holder without new takeover consent.
 func TestStartExecutionAfterHolderVacatesNeedsNoApproval(t *testing.T) {
 	t.Parallel()
 	f := newTakeoverFixture(t)
 	if first := f.action(t, f.owner, "start_execution", "owner-start"); first.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("owner start_execution: %+v", first.Error)
 	}
-	payload, _ := json.Marshal(map[string]any{"work_id": "work-1", "project_id": "project-1", "session_ref": f.ownerGrant.SessionRef, "source_directory": "/repo-wt", "destination_directory": "/repo"})
-	if err := store.ApplyOperation(context.Background(), f.s, store.Operation{Events: []store.Event{{EventID: "owner-vacated", Kind: "work.session_vacated", SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: f.ownerGrant.PrincipalRef, OccurredAt: fixedTime(), PayloadVersion: 2, Payload: payload}}}); err != nil {
-		t.Fatal(err)
-	}
+	seedRecordedHolderDeparture(t, f.s, f.ownerGrant.SessionRef, "/repo-wt")
 	if handoff := f.action(t, f.other, "start_execution", "other-start"); handoff.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("start after the holder vacated = %+v, want ok without approval", handoff.Error)
 	}

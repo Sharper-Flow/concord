@@ -21,7 +21,7 @@ remains under the workflow engine contract and CD-0242 D8; CD-0192 is unchanged.
 3. Applicable checks are selected from approved scope and the final change. Native producer receipts, local verification and required CI supply execution evidence. Every execution claim names its actual candidate and results. An unrelated green run, preparation or declaration does not prove execution. A selected test result is not a whole-package result.
 4. Accepted Review records this rule, the applicable checks, the evidence inspected and any remaining obligation. Review must not declare the change ready while required checks lack adequate evidence. A Project without required CI supplies the applicable local execution evidence; the absence of CI waives no check.
 5. Outcome-contract, criterion-proof, native-provenance, current-candidate, exact-declared-command refinement and accepted-Review gates retain their owners. This adds no automatic footprint refusal at delivery or completion, no new receipt system and no package-complete native recipe kind. No worker-job binding supplies proof under CD-0242 D8.
-6. All eight continuity obligations remain required. Coverage becomes satisfied only after checked bindings, observed passing execution and independent Review establish their assertions. A local delivery record is not evidence of passing required CI, merge or release.
+6. All listed continuity obligations remain required. Coverage becomes satisfied only after checked bindings, observed passing execution and independent Review establish their assertions. A local delivery record is not evidence of passing required CI, merge or release.
 
 ## Alternatives considered
 
@@ -44,10 +44,8 @@ The required continuity population in
 - `adapter-continuity-state-change-replaces-block`
 - `adapter-continuity-failure-is-absence`
 - `adapter-continuity-ttl-gates-spawn`
-- `adapter-continuity-work-start-retarget`
 - `adapter-continuity-lane-leak-absent`
 - `adapter-continuity-post-boundary-re-pin`
-- `adapter-continuity-session-vacate-then-reclaim-passes-occupancy-gate`
 
 ## Verification
 

@@ -20,11 +20,7 @@ import (
 
 func claimFixtureWorktree(t *testing.T, s *Store, git *fakeWorktreeGit) WorktreeEntry {
 	t.Helper()
-	result, err := s.ClaimWorktree(context.Background(), baseClaim(git))
-	if err != nil {
-		t.Fatal(err)
-	}
-	return result.Entry
+	return recordHostWorktree(t, s, git, "work-w", "project-w", "wt-op-1")
 }
 
 func inspectRequest(git *fakeWorktreeGit, mode, path string) WorktreeInspectRequest {
@@ -292,7 +288,7 @@ func TestVerifyWorktreeValidatesCommand(t *testing.T) {
 }
 
 // realGitTiersFixture seeds one Project and work item against a real git
-// repository, claims the canonical worktree through the real runner, and
+// repository, creates a host worktree and seeds its retained locator, and
 // returns the store plus the worktree path.
 func realGitTiersFixture(t *testing.T) (*Store, string) {
 	t.Helper()
@@ -325,16 +321,10 @@ func realGitTiersFixture(t *testing.T) (*Store, string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	result, err := s.ClaimWorktree(ctx, WorktreeClaimRequest{
-		OpID: "tiers-op-1", WorkID: "work-w", ProjectID: "project-w",
-		BaseSHA:      strings.TrimSpace(string(baseOut)),
-		PrincipalRef: "principal-1", RequestID: "req-tiers-1",
-		ExpectedVersion: 2, Now: time.Unix(10, 0).UTC(),
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	return s, result.Entry.Path
+	path := filepath.Join(t.TempDir(), "host-worktree")
+	gitRunStore(t, repoRoot, "worktree", "add", "-b", "work/work-w", path, strings.TrimSpace(string(baseOut)))
+	insertHostWorktreeRows(t, s, "work-w", WorktreeEntry{ProjectID: "project-w", ClaimOpID: "tiers-op-1", Branch: "work/work-w", BaseSHA: strings.TrimSpace(string(baseOut)), Path: path, RepositoryID: repoRoot})
+	return s, path
 }
 
 func gitRunStore(t *testing.T, dir string, args ...string) {

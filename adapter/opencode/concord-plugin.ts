@@ -24,8 +24,6 @@ import {
   work_transition,
   work_relate,
   work_compact,
-  work_start,
-  publishWorkStartDefinition,
   publishRequestDefinition,
   takeWorkNotices,
 } from "./concord"
@@ -38,9 +36,8 @@ import { guardPrimaryRoles } from "./primary-role"
 import { clearTurnMoveBoundary, questionRequiresNormalChat, TURN_MOVE_QUESTION_REFUSAL } from "./turn-move-boundary"
 import { continueWorkStartOnEvent, observeWorkStartMessage } from "./work-start-continuation"
 
-// The plugin factory is the only place the host hands over its own client, and
-// CD-0098 D2 makes the move-session route a requirement of work start. Binding
-// the client here is what lets the tool path reach the route. The host type is
+// The plugin factory is the only place the host hands over its own client.
+// Binding the client here lets tools reach the host session routes. The host type is
 // imported rather than restated, so a member the adapter needs cannot go
 // missing from a local description of it. The import is type-only and erases,
 // which keeps the adapter free of a runtime dependency on a host package.
@@ -48,8 +45,7 @@ import { continueWorkStartOnEvent, observeWorkStartMessage } from "./work-start-
 // never reads it: the summary runs over conversation history alone. The host
 // joins the strings this hook pushes onto the context into the compaction
 // prompt, so a title that names the goal anchors the summary. A session
-// started by work_start carries no exported Product and work selection, so
-// the continuity block alone cannot carry the goal there.
+// with no exported Product and work selection needs the title to carry its goal.
 const GOAL_TITLE_PREFIX = "Goal: "
 
 async function pushSessionGoalTitle(input: unknown, output: { context: string[] }): Promise<void> {
@@ -84,7 +80,6 @@ export default async function ConcordAdapterPlugin(input?: Partial<PluginInput>,
     concord_work_transition: work_transition,
     concord_work_relate: work_relate,
     concord_work_compact: work_compact,
-    concord_work_start: work_start,
   })
   return {
     tool: tools,
@@ -101,7 +96,6 @@ export default async function ConcordAdapterPlugin(input?: Partial<PluginInput>,
       output: { description: string; parameters: unknown; jsonSchema?: unknown },
     ) => {
       await publishRequestDefinition(definitionInput, output)
-      await publishWorkStartDefinition(definitionInput, output)
     },
     event: async ({ event }: { event: unknown }) => {
       continueWorkStartOnEvent(event, message => {

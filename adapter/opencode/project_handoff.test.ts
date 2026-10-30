@@ -22,7 +22,7 @@ const context = () =>
   }) as Parameters<typeof consumeAddressedProjectHandoff>[2]
 
 // fakeHost wires the plugin's control-plane client so the session route
-// answers the worktree the verified landing read back, and swaps the runner
+// answers the host-placed checkout, and swaps the runner
 // seam the owning invoke route uses. The plugin factory claims the host
 // lease at load, so the file stamps the release identity and answers the
 // claim leg the way an installed release would, or every operation would
@@ -124,11 +124,10 @@ afterEach(async () => {
   configureHostLease({ reset: true })
 })
 
-// The verified landing supplies the transport facts: the session directory
-// the host readback proved and the ambient context the boot flow resolved.
+// The host directory and resolved Project supply the transport facts.
 const landingTransport = () => ({ sessionDirectory: "/worktree", ambient: { projectID: "project-receive", productIDs: ["product-1"], scopeVersion: "sv-1", mainWorktree: false } })
 
-// The bounded job the work-resume rendered for this Project: the consume
+// The bounded job continuity rendered for this Project: the consume
 // carries its durable id, never an adapter-invented identity.
 const renderedHandoffID = "work-1:project-handoff:project-source:project-receive:abcd1234abcd"
 
@@ -170,10 +169,10 @@ describe("projectHandoffConsumeKey", () => {
 })
 
 describe("consumeAddressedProjectHandoff", () => {
-  // The consume's success path is proven on the real boundary in
+  // The consume's success path is exercised on the real boundary in
   // project_handoff_end_to_end.test.ts: a real core binary against a real
-  // store, the real boot route's bounded job, and the real claim-landing
-  // placement. The tests here pin the adapter's own refusal handling on
+  // store, the continuity-rendered bounded job, and host-created Git checkouts.
+  // The tests here pin the adapter's own refusal handling on
   // typed core refusals and transport faults.
 
   test("a typed stale-contract refusal never binds and carries the typed refusal message", async () => {
@@ -238,7 +237,7 @@ describe("project_retirement preserves the core's derived state", () => {
   const readyAnswer = () =>
     coreEnvelope("concord_work_trace", "project_retirement", "ok", {
       query_id: "CD-0182.R1",
-      result: { work_id: "work-1", project_id: "project-receive", session_ref: "session-receive", state: "ready_to_close_or_replace", recorded_handoff: true, artifacts_preserved: true, vacate_landed: true, blockers: [] },
+      result: { work_id: "work-1", project_id: "project-receive", session_ref: "session-receive", state: "ready_to_close_or_replace", recorded_handoff: true, artifacts_preserved: true, blockers: [] },
     })
 
   async function readRetirement() {

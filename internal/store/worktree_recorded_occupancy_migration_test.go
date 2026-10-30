@@ -64,7 +64,18 @@ func TestRecordedOccupancyMigration89BackfillAndReleasedRow(t *testing.T) {
 			}
 			continue
 		}
-		var p worktreeCreatedPayload
+		var p struct {
+			SetID            string          `json:"set_id"`
+			ProjectID        string          `json:"project_id"`
+			ClaimOpID        string          `json:"claim_op_id"`
+			Branch           string          `json:"branch"`
+			BaseSHA          string          `json:"base_sha"`
+			Path             string          `json:"path"`
+			RepositoryID     string          `json:"repository_id"`
+			GitFacts         json.RawMessage `json:"git_facts"`
+			ExpectedVersion  int64           `json:"expected_version"`
+			ResultingVersion int64           `json:"resulting_version"`
+		}
 		if err := json.Unmarshal(event.Payload, &p); err != nil {
 			t.Fatal(err)
 		}

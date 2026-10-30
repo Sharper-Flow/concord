@@ -5,7 +5,6 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-	"time"
 )
 
 // resolveContinuityClaim claims one worktree through the standard worktree
@@ -13,11 +12,8 @@ import (
 func resolveContinuityClaim(t *testing.T) (*Store, *fakeWorktreeGit, string) {
 	t.Helper()
 	s, git, _ := worktreeFixture(t)
-	result, err := s.ClaimWorktree(context.Background(), baseClaim(git))
-	if err != nil {
-		t.Fatalf("ClaimWorktree() error = %v", err)
-	}
-	return s, git, result.Entry.Path
+	entry := recordHostWorktree(t, s, git, "work-w", "project-w", "wt-op-1")
+	return s, git, entry.Path
 }
 
 func TestResolveContinuityWorkByDirectoryResolvesActiveClaim(t *testing.T) {
@@ -59,14 +55,8 @@ func TestResolveContinuityWorkByDirectoryNormalizesDirectoryForms(t *testing.T) 
 
 func TestResolveContinuityWorkByDirectoryReclaimedClaimIsAbsence(t *testing.T) {
 	t.Parallel()
-	s, git, path := resolveContinuityClaim(t)
-	if _, err := s.ReclaimWorktree(context.Background(), WorktreeReclaimRequest{
-		WorkID: "work-w", ProjectID: "project-w", DefaultRef: "origin/main",
-		PrincipalRef: "principal-1", RequestID: "req-reclaim", ExpectedVersion: 3,
-		Now: time.Unix(20, 0).UTC(), Runner: git,
-	}); err != nil {
-		t.Fatalf("ReclaimWorktree() error = %v", err)
-	}
+	s, _, path := resolveContinuityClaim(t)
+	terminalCleanupSQL(t, s, `UPDATE worktree_entries SET state='reclaimed' WHERE set_id='wts:work-w'`, `UPDATE worktree_claims SET state='reclaimed' WHERE work_id='work-w'`)
 	resolution, err := s.ResolveContinuityWorkByDirectory(context.Background(), path)
 	if err != nil {
 		t.Fatalf("ResolveContinuityWorkByDirectory() error = %v", err)

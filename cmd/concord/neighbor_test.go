@@ -78,10 +78,7 @@ func prepareSessionPrepareNeighborRow(ctx context.Context) func(t *testing.T) cl
 		dbPath := filepath.Join(t.TempDir(), "concord.db")
 		s := mustOpenStore(t, dbPath)
 		seedLocatorAuthority(t, s, repo)
-		result, err := s.BootstrapWorktree(ctx, bootstrapRequest(), nil)
-		if err != nil {
-			t.Fatal(err)
-		}
+		result := seedCLISessionWorktree(t, s, repo)
 		t.Setenv(dbOverrideEnv, dbPath)
 		t.Chdir(result.Entry.Path)
 		var before int

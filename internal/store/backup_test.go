@@ -389,25 +389,12 @@ func TestBackupRestorePreservesLivingEvidence(t *testing.T) {
 		t.Fatal(err)
 	}
 	git := newFakeWorktreeGit(repoRoot)
-	if _, err := s.ClaimWorktree(ctx, WorktreeClaimRequest{
-		OpID: "wt-op-evidence", WorkID: workID, ProjectID: "project",
-		BaseSHA:      git.branches["main"],
-		PrincipalRef: "principal-1", RequestID: "req-evidence",
-		ExpectedVersion: readWorkVersion(t, s, workID), Now: time.Unix(40, 0).UTC(), Runner: git,
-	}); err != nil {
-		t.Fatal(err)
-	}
+	recordHostWorktree(t, s, git, workID, "project", "wt-op-evidence")
 	landedDirectory := filepath.Join(filepath.Dir(s.Path()), "worktrees", "project", workID)
 	if err := os.MkdirAll(landedDirectory, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	landing, err := s.RecordWorktreeClaimLanding(ctx, WorktreeClaimLandingRequest{WorkID: workID, SessionRef: "ses-evidence", LandedDirectory: landedDirectory, Now: time.Unix(41, 0).UTC(), HostPID: 1})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if landing.AlreadyRecorded || landing.ProjectID != "project" {
-		t.Fatalf("landing=%+v, want the evidence session freshly recorded in project", landing)
-	}
+	bindSessionToProjectWorktree(t, s, landedDirectory, "ses-evidence")
 	// This trusted state fixture tests byte preservation, not native execution.
 	report := reviewBlockFixture()
 	report.InputCandidate.ProjectID, report.OutputCandidate.ProjectID = "project", "project"

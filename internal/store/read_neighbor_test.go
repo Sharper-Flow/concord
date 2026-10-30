@@ -273,10 +273,6 @@ func TestReadEntryPointsWithNeighbor(t *testing.T) {
 			}
 			return nil
 		}},
-		{name: "ResumeWorktreeLocation", absent: KindProjectionNotFound, run: func() error {
-			_, err := s.ResumeWorktreeLocation(ctx, "prod", "proj", "blocker")
-			return err
-		}},
 		{name: "LawAdditionReservations", run: func() error {
 			reservations, err := s.LawAdditionReservations(ctx, "prod")
 			if err != nil {
@@ -294,16 +290,6 @@ func TestReadEntryPointsWithNeighbor(t *testing.T) {
 			}
 			if workID != "" {
 				return fmt.Errorf("owner=%q, want empty", workID)
-			}
-			return nil
-		}},
-		{name: "WorktreeAudit", run: func() error {
-			audit, err := s.WorktreeAudit(ctx, WorktreeAuditRequest{ProductID: "prod", Limit: 20})
-			if err != nil {
-				return err
-			}
-			if len(audit.Drift) != 0 {
-				return fmt.Errorf("drift=%+v, want none", audit.Drift)
 			}
 			return nil
 		}},
@@ -710,22 +696,15 @@ func TestReadEntryPointsWithNeighbor(t *testing.T) {
 			}
 		})
 	}
-	// The bootstrap-origin validation owns a worktree fixture and its fake
-	// git, so it prepares its own store per mode beside the same neighbors.
+	// Inspection prepares its own store per mode beside the same neighbors.
 	for _, mode := range []neighbor.Mode{neighbor.Reader, neighbor.Writer} {
-		t.Run(string(mode)+"/ValidateBootstrapOrigin", func(t *testing.T) {
+		t.Run(string(mode)+"/InspectWorktree", func(t *testing.T) {
 			s, git, _ := worktreeFixture(t)
-			claim, err := s.ClaimWorktree(ctx, baseClaim(git))
-			if err != nil {
-				t.Fatal(err)
-			}
+			claim := recordHostWorktree(t, s, git, "work-w", "project-w", "wt-op-1")
 			if _, err := s.db.Exec("PRAGMA busy_timeout=50"); err != nil {
 				t.Fatal(err)
 			}
 			neighbor.Start(t, s.Path(), mode)
-			if _, err := s.ValidateBootstrapOrigin(ctx, "project-w", claim.Entry.Path, git); err != nil {
-				t.Fatal(err)
-			}
 			// The claimed worktree backs the worktree-tier read surface: the
 			// inspection is a read over the claim's entry plus the fake git's
 			// porcelain answer, never a lease.
@@ -733,7 +712,7 @@ func TestReadEntryPointsWithNeighbor(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if status.Path != claim.Entry.Path {
+			if status.Path != claim.Path {
 				t.Fatalf("status=%+v", status)
 			}
 		})

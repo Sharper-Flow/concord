@@ -1328,7 +1328,6 @@ func init() {
 	// Mutation bindings live in agent_jobs_mutations_bindings_test.go.
 	jobBindings["AJ3-capture-work"] = bindAJ3CaptureWork
 	jobBindings["AJ3-spec-conflict"] = bindAJ3SpecConflict
-	jobBindings["AJ8-ground-truth-reclamation"] = bindAJ8GroundTruthReclamation
 	// AJ7 knowledge bindings (#160). The handlers live in
 	// agent_jobs_knowledge_bindings_test.go.
 	// AJ6 compaction bindings (#161). The handlers live in

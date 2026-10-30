@@ -234,41 +234,6 @@ func (r runtime) readWorkMessages(ctx context.Context, base agentcontract.Envelo
 	return r.resultEnvelope(base, meta, r.scope(meta), map[string]any{"messages": messages})
 }
 
-func (r runtime) readWorktreeAudit(ctx context.Context, base agentcontract.Envelope, input []byte) (agentcontract.Envelope, error) {
-	var in worktreeAuditInput
-	if err := decodeOperationInput(input, &in); err != nil {
-		return base, err
-	}
-	if in.ProductID == "" {
-		in.ProductID = r.Envelope.SelectedProductID
-	}
-	bindingInput := in
-	bindingInput.Page.Cursor = nil
-	binding, _ := json.Marshal(bindingInput)
-	inner, err := r.unwrapCursor(ctx, cursorValue(in.Page), string(binding), "summary")
-	if err != nil {
-		return failureEnvelope(base, err), nil
-	}
-	watermark, err := r.Store.Revision(ctx)
-	if err != nil {
-		return failureEnvelope(base, err), nil
-	}
-	audit, err := r.Store.WorktreeAudit(ctx, store.WorktreeAuditRequest{ProductID: in.ProductID, Limit: effectiveLimit(in.Limit, in.Page), Cursor: inner})
-	if err != nil {
-		return failureEnvelope(base, err), nil
-	}
-	meta := store.ResultMeta{QueryID: "PM1.Q16", ContractVersion: "PM1/1.0", ResolvedScope: store.ResolvedScope{ProductID: in.ProductID}, Authority: "authoritative", Freshness: store.Freshness{ObservedAt: time.Now().UTC().Format(time.RFC3339Nano)}, OrderingKeys: []string{"class", "path"}, SourceVersionWatermark: watermark}
-	if audit.NextCursor != "" {
-		next := audit.NextCursor
-		meta.NextCursor = &next
-	}
-	response, err := r.resultEnvelope(base, meta, r.scope(meta), map[string]any{"root": audit.Root, "drift": audit.Drift})
-	if err != nil {
-		return failureEnvelope(base, err), nil
-	}
-	return r.wrapCursor(ctx, response, string(binding), "summary")
-}
-
 func (r runtime) readWorktreeInspect(ctx context.Context, base agentcontract.Envelope, input []byte) (agentcontract.Envelope, error) {
 	var in worktreeInspectInput
 	if err := decodeOperationInput(input, &in); err != nil {

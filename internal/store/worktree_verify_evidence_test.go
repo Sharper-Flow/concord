@@ -64,14 +64,8 @@ func verifyEvidenceFixture(t *testing.T, workID string) (*Store, *fakeWorktreeGi
 	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: setup, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 2}}); err != nil {
 		t.Fatal(err)
 	}
-	claim, err := s.ClaimWorktree(ctx, WorktreeClaimRequest{OpID: "wt-op-" + workID, WorkID: workID, ProjectID: "project-w", BaseSHA: git.branches["main"], PrincipalRef: "principal-1", RequestID: "req-claim-" + workID, ExpectedVersion: readWorkVersion(t, s, workID), Now: time.Unix(10, 0).UTC(), Runner: git})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if claim.Entry.State != worktreeEntryActive {
-		t.Fatalf("worktree claim state=%q, want active", claim.Entry.State)
-	}
-	if err := os.MkdirAll(claim.Entry.Path, 0o700); err != nil {
+	entry := recordHostWorktree(t, s, git, workID, "project-w", "wt-op-"+workID)
+	if err := os.MkdirAll(entry.Path, 0o700); err != nil {
 		t.Fatal(err)
 	}
 	return s, git

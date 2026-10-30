@@ -14,8 +14,8 @@
 
 ## Context
 
-An operator can run the host through a wrapper program. A host-started session enters
-managed work through `concord_work_start`, which launches nothing (CD-0098).
+An operator can run the host through a wrapper program. Host tools place the
+session under CD-0088 D1.
 session-prepare must verify the registry that the calling host resolves. It probes the
 calling host once, under the calling host's inherited environment, in the
 claimed worktree.
@@ -42,9 +42,7 @@ managed action.
 
 ### D4. Retired: the launch surfaces
 
-session-prepare launches nothing:
-`concord_work_start` moves the calling session, which keeps running in the
-host process that called it. The move-session version diagnostic stays on
+session-prepare launches nothing. The move-session version diagnostic stays on
 the bare host. Native Task execution is not a Concord session launcher.
 
 ### D5. The law moves with the code

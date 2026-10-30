@@ -51,9 +51,8 @@ what the session must know.
 ### D2. Concord starts and resumes no operator session
 
 The host starts and resumes operator sessions. Concord neither forks an
-operator session nor keeps an entry route beside that start. A host-started
-session enters managed work through `concord_work_start`, which moves the
-calling session and starts no process (CD-0098).
+operator session nor keeps an entry route beside that start. Host tools also
+own worktree placement (CD-0088 D1).
 
 Concord does not background a session, and it does not open a second terminal
 surface to hold one. Both would require the placement authority D1 declines.
@@ -64,7 +63,7 @@ terminal session identifier.
 
 Resumption of workflow position is not a terminal fact. Under CD-0031 the
 core derives the bounded context packet from the canonical CD-0016 continuity
-projection; work-start preparation renders and validates it, and the CD-0090
+projection; session preparation renders and validates it, and the CD-0090
 per-turn hook re-asserts it after context boundaries. Managed position comes
 from that projection, never from a terminal identifier.
 
@@ -120,8 +119,5 @@ evidence that the implication was not enough.
 - `go test ./cmd/concord/ -run TestLauncherAndCommandCarryNoMultiplexerKnowledge`
   proves D1 structurally by scanning the command package for multiplexer
   identifiers.
-- `bun test adapter/opencode/concord.test.ts -t "a successful work start
-  forks no terminal command"` proves the work-start path forks no terminal
-  command.
 - `python3 scripts/check-json.py`, `python3 scripts/check-doc-links.py`, and
   `python3 scripts/check-knowledge-index.py` pass.

@@ -34,14 +34,7 @@ func TestWorkContextCloseGit(t *testing.T) {
 	gitRunStore(t, repository, "fetch", "origin")
 	gitRunStore(t, repository, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main")
 	base := strings.TrimSpace(closeGitOutput(t, repository, "rev-parse", "HEAD"))
-	claimed, err := s.ClaimWorktree(ctx, WorktreeClaimRequest{
-		OpID: "close-git-claim", WorkID: workID, ProjectID: "project", BaseSHA: base,
-		PrincipalRef: "principal/operator", RequestID: "request:close-git-claim",
-		ExpectedVersion: readWorkVersion(t, s, workID), Now: time.Unix(10, 0).UTC(),
-	})
-	if err != nil {
-		t.Fatalf("claim real context worktree: %v", err)
-	}
+	claimed := createHostWorktreeFixture(t, s, workID, "project", "close-git-claim", base)
 	seedIssue31DomainRegistry(t, s)
 	execInFold(t, s, `INSERT INTO domains(home_project_id,home_locator_id,product_id,domain_id,name,purpose,parent_domain_id,status,registry_content_hash,scanned_commit_oid) VALUES('project','workflow-law-locator','product','child-alpha','Context','Implementation context','root','current','sha256:`+strings.Repeat("b", 64)+`','test')`)
 
@@ -159,7 +152,7 @@ func TestWorkContextCloseGit(t *testing.T) {
 	})
 	completion.PayloadVersion = 2
 	beforeHome := snapshotCloseGit(t, repository)
-	beforeWorktree := snapshotCloseGit(t, claimed.Entry.Path)
+	beforeWorktree := snapshotCloseGit(t, claimed.Path)
 	if beforeHome.Status != "" || beforeWorktree.Status != "" {
 		t.Fatal("close witness must start with clean repositories")
 	}
@@ -169,7 +162,7 @@ func TestWorkContextCloseGit(t *testing.T) {
 	for _, probe := range []struct {
 		name, path string
 		before     closeGitSnapshot
-	}{{"law home", repository, beforeHome}, {"claimed worktree", claimed.Entry.Path, beforeWorktree}} {
+	}{{"law home", repository, beforeHome}, {"claimed worktree", claimed.Path, beforeWorktree}} {
 		if after := snapshotCloseGit(t, probe.path); !reflect.DeepEqual(probe.before, after) {
 			t.Errorf("completion changed %s Git/content state: before=%+v after=%+v", probe.name, probe.before, after)
 		}

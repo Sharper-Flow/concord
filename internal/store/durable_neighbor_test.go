@@ -2,7 +2,6 @@ package store
 
 import (
 	"context"
-	"fmt"
 	"testing"
 	"time"
 
@@ -176,60 +175,6 @@ func durableNeighborOperations() []neighborOperation {
 				}
 				if name == "CompleteStep" && result.ResultKind != ResultCompleted {
 					t.Fatalf("result=%s", result.ResultKind)
-				}
-			}
-		}})
-	}
-	rows = append(rows, neighborOperation{"ClaimWorktree", func(t *testing.T) (*Store, func() error, func()) {
-		s, git, _ := worktreeFixture(t)
-		return s, func() error { _, err := s.ClaimWorktree(ctx, baseClaim(git)); return err }, func() {
-			if got := countRows(t, s, "worktree_entries"); got != 1 {
-				t.Fatalf("entries=%d", got)
-			}
-		}
-	}})
-	for _, name := range []string{"bootstrap_journal", "bootstrap_rollback", "cross_project_bootstrap"} {
-		rows = append(rows, neighborOperation{name, func(t *testing.T) (*Store, func() error, func()) {
-			s := openTemp(t)
-			repo := initBootstrapStoreRepo(t)
-			seedBootstrapStoreAuthority(t, s, repo)
-			var result BootstrapResult
-			if name == "cross_project_bootstrap" {
-				var err error
-				result, err = s.BootstrapWorktree(ctx, bootstrapStoreRequest(), nil)
-				if err != nil {
-					t.Fatal(err)
-				}
-				seedBootstrapProject(t, s, "project-neighbor", initBootstrapStoreRepo(t))
-				replaceBootstrapMemberships(t, s, result.WorkID, readWorkVersion(t, s, result.WorkID), "project-neighbor")
-			}
-			run := func() error {
-				if name == "cross_project_bootstrap" {
-					_, err := s.BootstrapExistingWorktree(ctx, ExistingBootstrapRequest{ProductID: "product-bootstrap", ProjectID: "project-neighbor", WorkID: result.WorkID}, nil)
-					return err
-				}
-				var err error
-				result, err = s.BootstrapWorktree(ctx, bootstrapStoreRequest(), nil)
-				if err != nil {
-					return err
-				}
-				if name == "bootstrap_rollback" {
-					location := WorktreeLocation{Repo: repo, Branch: result.Entry.Branch, BaseSHA: result.Entry.BaseSHA, Path: result.Entry.Path}
-					return s.rollbackBootstrap(ctx, result.OperationID, result.WorkID, location, ExecGitRunner{}, fmt.Errorf("synthetic rollback"))
-				}
-				return nil
-			}
-			return s, run, func() {
-				var state string
-				if err := s.db.QueryRow(`SELECT state FROM bootstrap_operations LIMIT 1`).Scan(&state); err != nil {
-					t.Fatal(err)
-				}
-				want := "completed"
-				if name == "bootstrap_rollback" {
-					want = "rolled_back"
-				}
-				if state != want {
-					t.Fatalf("journal=%s want %s", state, want)
 				}
 			}
 		}})

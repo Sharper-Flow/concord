@@ -118,10 +118,6 @@ test("all registered parameter schemas stay below the serving budget", async () 
     expect(output.jsonSchema, tool).toBeObject()
     registered.set(tool, Buffer.byteLength(JSON.stringify(output.jsonSchema), "utf8"))
   }
-  const workStartOutput = { description: "", parameters: {}, jsonSchema: undefined as unknown }
-  await adapter.publishWorkStartDefinition({ toolID: "concord_work_start" }, workStartOutput)
-  expect(workStartOutput.jsonSchema).toBeObject()
-  registered.set("concord_work_start", Buffer.byteLength(JSON.stringify(workStartOutput.jsonSchema), "utf8"))
   // The registered set is exactly the catalog the two tool-surface
   // contracts declare, so a new registration cannot escape the generated
   // denial derivation.

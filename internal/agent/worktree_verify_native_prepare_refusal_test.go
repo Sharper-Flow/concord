@@ -49,23 +49,10 @@ func TestValue(t *testing.T) {
 	}
 	gitRun(t, repoRoot, "add", ".")
 	gitRun(t, repoRoot, "-c", "user.email=concord@example.invalid", "-c", "user.name=Concord Native Fixture", "commit", "-m", "fixture oracle module")
-	// The claim resolves its base through the Project's origin, so the module
-	// commit must land there before the claim.
 	gitRun(t, repoRoot, "push", "-q", "origin", "main")
 	base := gitRun(t, repoRoot, "rev-parse", "HEAD")
 
-	claim := tiersInvoke(t, s, service, grant, "concord_work_transition", "worktree_claim", map[string]any{
-		"host_pid": os.Getpid(), "work_id": "work-1", "project_id": "project-1",
-		"base_sha": base, "expected_version": 2, "idempotency_key": "native-prepare-claim",
-	})
-	if claim.Outcome != agentcontract.OutcomeOK {
-		t.Fatalf("claim response=%+v err=%+v", claim, claim.Error)
-	}
-	// The active workflow contract the prepare admission reads: the claiming
-	// actor approved it, so the authority join is the fixture's own actor.
-	// The current Domain registry seeds after the claim: its knowledge-home
-	// locator sorts ahead of the repository locator, and the claim's base
-	// resolution must read the repository.
+	seedHostWorktree(t, s, repoRoot, "work-1", "project-1", base)
 	seedCurrentWorkflowDomainFixture(t, s)
 	ownerRef, err := store.WorkflowActorRef(store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent})
 	if err != nil {

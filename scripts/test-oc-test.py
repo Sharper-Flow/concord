@@ -361,8 +361,7 @@ class TierRoutingTest(unittest.TestCase):
         self.assertEqual(json.loads(result.stdout)["admission"], "targeted")
 
     def test_supported_documentation_examples_remain_targeted(self):
-        for path in ("README.md", ".concord/docs/installation.md",
-                     "adapter/opencode/evals/native-issue-key-resume/README.md", "TESTING.md"):
+        for path in ("README.md", ".concord/docs/installation.md", "TESTING.md"):
             text = (REPOSITORY / path).read_text().replace("\\\n", "")
             for line in text.splitlines():
                 if not line.startswith("bin/oc-test targeted -- "):

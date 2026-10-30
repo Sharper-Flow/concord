@@ -161,14 +161,14 @@ details; this table does not duplicate them.
 
 | Responsibility | Start here | Invariant and test owner |
 |---|---|---|
-| CLI routing and host bootstrap | `cmd/concord/main.go`, `cmd/concord/work_bootstrap.go`, `cmd/concord/session.go` | Command admission, session identity; same-package tests |
+| CLI routing and session preparation | `cmd/concord/main.go`, `cmd/concord/session_prepare.go`, `cmd/concord/session.go` | Command admission, session identity; same-package tests |
 | Agent authorization and mutation | `internal/agent/runtime.go`, `internal/agent/mutations.go` | `internal/agent/authority.go`; approval, replay, and budget tests |
 | Adapter transport and host context | `adapter/opencode/concord.ts`, `adapter/opencode/concord-plugin.ts` | Adjacent adapter tests |
 | SQLite connection and admission mechanism | `internal/store/internal/sqlitedb/connection.go`, `internal/store/internal/sqlitedb/read.go`, `internal/store/internal/sqlitedb/write.go` | One pooled connection and durable commit; adjacent tests, `internal/store/txbegin_guard_test.go` |
 | SQLite current-state and effect-receipt authority | `internal/store/doc.go`, `internal/store/store.go`, `internal/store/transaction.go`, `internal/store/events.go` | Transaction-scoped access; `txscope_test.go`, `tx_subprocess_guard_test.go` |
 | Work context and evidence | `internal/store/work_context.go`, `internal/store/workflow_review.go`, `internal/store/worktree_verify_oracle.go` | Declared sources, exact subject, Review outcomes and producer receipts; adjacent tests |
 | Workflow action and protected writes | `internal/store/workflow_dispatch.go`, `internal/store/workflow_preflight.go`, `internal/store/workflow_domain_overlap.go` | Approved scope, law revision, and work-relation resolution |
-| Sessions, worktrees, handoff | `internal/store/worktrees.go`, `internal/store/project_handoffs.go`, `internal/store/session_vacate.go` | Occupancy, same-Project incarnation, per-repository provenance; adjacent tests |
+| Worktree reads, verification, handoff | `internal/store/worktree_reads.go`, `internal/store/worktree_verify.go`, `internal/store/project_handoffs.go` | Retained same-Project metadata, exclusive verification, per-repository handoff provenance; host tools own worktree lifecycle |
 | Research and knowledge law | `internal/store/research_types.go`, `internal/store/research_reads.go`, `internal/store/research_mutations.go`, `internal/store/law_boundary.go` | Version and source identity, consumer pins, staleness, accepted-law lookup |
 | Repository verification | `.github/workflows/ci.yml`, `scripts/check-json.py`, `bin/oc-test` | Required checks and targeted verification routing |
 

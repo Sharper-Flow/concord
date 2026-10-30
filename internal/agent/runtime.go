@@ -170,12 +170,6 @@ type messagesInput struct {
 	Limit     int       `json:"limit,omitempty"`
 }
 
-type worktreeAuditInput struct {
-	ProductID string    `json:"product_id"`
-	Page      pageInput `json:"page"`
-	Limit     int       `json:"limit,omitempty"`
-}
-
 type worktreeInspectInput struct {
 	WorkID string `json:"work_id"`
 	Mode   string `json:"mode"`
@@ -276,7 +270,6 @@ type knowledgeResolveInput struct {
 }
 
 type runtime struct {
-	removalProof           *store.DefaultCheckoutRemovalProof
 	Store                  *store.Store
 	Authority              *Service
 	Registry               store.DefinitionRegistry
@@ -1220,8 +1213,6 @@ func (r runtime) readResult(ctx context.Context, base agentcontract.Envelope, in
 		return r.readWorkScope(ctx, base, input)
 	case "concord_work_browse.messages":
 		return r.readWorkMessages(ctx, base, input)
-	case "concord_work_browse.worktree_audit":
-		return r.readWorktreeAudit(ctx, base, input)
 	case "concord_work_browse.worktree_inspect":
 		return r.readWorktreeInspect(ctx, base, input)
 	case "concord_work_trace.history":

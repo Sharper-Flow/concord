@@ -223,12 +223,11 @@ changes, completed exits, remaining obligations, unresolved findings, evidence
 locations, and the next admitted actions. It needs neither the predecessor
 conversation nor any historical record.
 
-Ownership passes only through the liveness-checked occupancy route. A resume
-never takes work from a live session. A session whose authority was replaced
-cannot record a result. Claims, dependencies, and
-cross-Project handoffs stay atomic in the shared store. A missing worktree is
-rebuilt from surviving Git references; uncommitted bytes are recoverable only
-from a backup.
+Host tools own worktree placement and recovery under CD-0088 D1, not a
+Concord occupancy or restore operation. A session whose workflow authority was
+replaced cannot record a result. Workflow authority, overlap detection,
+dependencies, and cross-Project handoffs stay atomic in the shared store.
+Uncommitted bytes are recoverable only from a backup.
 
 ### D12. Every refusal states an action the caller may take
 

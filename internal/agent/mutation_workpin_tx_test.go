@@ -6,8 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"path/filepath"
-	"reflect"
 	"strconv"
 	"strings"
 	"testing"
@@ -185,65 +183,6 @@ func TestMutationPinMissingWorkRefuses(t *testing.T) {
 	}
 }
 
-func TestWorktreeAuditReclaimMissingWorkflowPinIsExplicit(t *testing.T) {
-	s, _, _, service, grant, _ := tiersFixture(t)
-	completeWork(t, s, "work-2")
-	vacateLinkedWorktree(t, s, service, grant, filepath.Join(filepath.Dir(s.Path()), "worktrees", "project-1", "work-2"), "missing-pin-vacate")
-	input := map[string]any{"product_id": "product-1", "default_ref": "main", "idempotency_key": "missing-pin-audit"}
-	response := authorityInvoke(t, s, service, grant, "concord_work_transition", "worktree_audit_reclaim", input)
-	if response.Outcome != agentcontract.OutcomeOK {
-		t.Fatalf("audit=%+v", response.Error)
-	}
-	found := false
-	for _, notice := range response.Omissions {
-		if notice.Kind == "work_pin_unavailable" && notice.Count == 1 && notice.SourceID == "" && len(notice.Details) == 0 {
-			found = true
-		}
-	}
-	if !found {
-		t.Fatalf("missing workflow pin was not explicit: omissions=%+v", response.Omissions)
-	}
-	initializeMutationPinWorkflow(t, s, "work-2", store.BuiltinWorkflowDefinitions()[0])
-	commits := s.DurableCommits()
-	replay := authorityInvoke(t, s, service, grant, "concord_work_transition", "worktree_audit_reclaim", input)
-	if replay.Outcome != agentcontract.OutcomeOK || !replay.Replayed || string(replay.Result) != string(response.Result) || !reflect.DeepEqual(replay.Omissions, response.Omissions) || !reflect.DeepEqual(replay.ChangedRefs, response.ChangedRefs) {
-		t.Fatalf("audit replay replaced its retained omission after a workflow was created: first=%+v replay=%+v", response, replay)
-	}
-	requireReplayCommit(t, s, "missing-pin-audit", commits, 0, false)
-}
-
-func TestWorktreeAuditReclaimReplayKeepsRowPin(t *testing.T) {
-	s, _, _, service, grant, _ := tiersFixture(t)
-	completeWork(t, s, "work-2")
-	vacateLinkedWorktree(t, s, service, grant, filepath.Join(filepath.Dir(s.Path()), "worktrees", "project-1", "work-2"), "replay-pin-vacate")
-	initializeMutationPinWorkflow(t, s, "work-2", store.BuiltinWorkflowDefinitions()[0])
-	input := map[string]any{"product_id": "product-1", "default_ref": "main", "idempotency_key": "replay-pin-audit"}
-	first := authorityInvoke(t, s, service, grant, "concord_work_transition", "worktree_audit_reclaim", input)
-	_, version := readWorkFromStore(t, s, "work-2")
-	requireMutationPinVersion(t, first, "work-2", version)
-	driftWorkPinVersion(t, s, "work-2")
-	replay := authorityInvoke(t, s, service, grant, "concord_work_transition", "worktree_audit_reclaim", input)
-	requireMutationPinVersion(t, replay, "work-2", version)
-	if !replay.Replayed {
-		t.Fatal("audit replay must answer from its recorded row pin")
-	}
-}
-
-func TestAuditReclaimEnvelopeSizingIncludesPinNotice(t *testing.T) {
-	base := agentcontract.NewBase("audit-pin-size", "concord_work_transition", "worktree_audit_reclaim")
-	base.Omissions = []agentcontract.Notice{{Kind: "work_pin_unavailable", Count: 1}}
-	payload := json.RawMessage(`{"root":"fixture-root","rows":[],"report_only":[],"changed_refs":[],"next_valid_intents":[]}`)
-	changed := []agentcontract.ChangedRef{{EntityKind: "work_item", ID: "work-pinless", Version: "1"}}
-	type wire agentcontract.Envelope
-	encoded, err := json.Marshal(wire(agentcontract.NewOKMutation(base, payload, changed, nil)))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := auditReclaimEnvelopeBytes(base, payload, changed, nil, nil); got != len(encoded) {
-		t.Fatalf("audit envelope estimate=%d, actual including the pin notice=%d", got, len(encoded))
-	}
-}
-
 func TestEveryMutationResultGuardsWorkPins(t *testing.T) {
 	_, workID, pin := enrichmentPinFixture(t)
 	defs := payloadSchemaDefs(t)
@@ -307,47 +246,6 @@ func TestEveryMutationResultGuardsWorkPins(t *testing.T) {
 				t.Fatal("the omission count must equal the allowed set size")
 			}
 		})
-	}
-}
-
-func TestWorktreeAuditReclaimThirtyTwoPinlessItems(t *testing.T) {
-	ctx := context.Background()
-	s, service, grant, repo := tiersRepoFixture(t)
-	baseSHA := gitRun(t, repo, "rev-parse", "HEAD")
-	for i := range agentcontract.MaxChangedRefs {
-		workID := fmt.Sprintf("pinless-%d", i)
-		events := []store.Event{
-			{EventID: workID + ":created", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: workID, Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: store.CurrentEventPayloadVersion("work.created"), Payload: json.RawMessage(`{"work_kind":"task","title":"Pinless work","priority":1}`)},
-			{EventID: workID + ":member", Kind: "work.memberships_replaced", SubjectType: store.SubjectWorkItem, SubjectID: workID, Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"memberships":[{"project_id":"project-1","role":"primary"}],"expected_version":1,"resulting_version":2}`)},
-		}
-		if err := store.ApplyOperation(ctx, s, store.Operation{Events: events, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, workID): 0}}); err != nil {
-			t.Fatal(err)
-		}
-		if _, err := s.ClaimWorktree(ctx, store.WorktreeClaimRequest{OpID: workID + ":claim", WorkID: workID, ProjectID: "project-1", BaseSHA: baseSHA, PrincipalRef: grant.PrincipalRef, RequestID: workID + ":claim", ExpectedVersion: 2, Now: fixedTime()}); err != nil {
-			t.Fatal(err)
-		}
-	}
-	response := authorityInvoke(t, s, service, grant, "concord_work_transition", "worktree_audit_reclaim", map[string]any{"product_id": "product-1", "default_ref": "main", "limit": agentcontract.MaxChangedRefs, "idempotency_key": "thirty-two-pinless"})
-	if response.Outcome != agentcontract.OutcomeOK || response.ChangedRefs == nil || len(*response.ChangedRefs) != agentcontract.MaxChangedRefs {
-		t.Fatalf("32 pinless rows must succeed: error=%+v refs=%+v", response.Error, response.ChangedRefs)
-	}
-	count := 0
-	for _, notice := range response.Omissions {
-		if notice.Kind == "work_pin_unavailable" {
-			count++
-			if notice.Count != agentcontract.MaxChangedRefs || notice.SourceID != "" || len(notice.Details) != 0 {
-				t.Fatalf("pinless notice must carry only the count: %+v", notice)
-			}
-		}
-	}
-	if count != 1 {
-		t.Fatalf("pinless notice count=%d, want one", count)
-	}
-	if _, err := response.Encode(); err != nil {
-		t.Fatalf("32-item audit envelope: %v", err)
-	}
-	if countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM work_items WHERE id LIKE 'pinless-%' AND version=4`) != agentcontract.MaxChangedRefs {
-		t.Fatal("the 32 rows did not reclaim")
 	}
 }
 

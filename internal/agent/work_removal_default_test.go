@@ -4,7 +4,6 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -13,59 +12,21 @@ import (
 	"github.com/sharper-flow/concord/internal/store"
 )
 
-func defaultRemovalFixture(t *testing.T) (*store.Store, *Service, CallEnvelope, map[string]any, string) {
+func defaultRemovalFixture(t *testing.T) (*store.Store, *Service, CallEnvelope, map[string]any) {
 	t.Helper()
-	return defaultRemovalGenerationsFixture(t, 1, false)
-}
-
-func defaultRemovalGenerationsFixture(t *testing.T, generations int, retain bool) (*store.Store, *Service, CallEnvelope, map[string]any, string) {
-	t.Helper()
-	ctx := t.Context()
-	s, service, grant, root, base := worktreeDispatchFixture(t)
-	claim, err := s.ClaimWorktree(ctx, store.WorktreeClaimRequest{OpID: "shelving-claim", WorkID: "work-1", ProjectID: "project-1", BaseSHA: base, PrincipalRef: "human-1", RequestID: "shelving-claim", ExpectedVersion: 2, Now: fixedTime()})
-	if err != nil {
-		t.Fatal(err)
-	}
-	for generation := 1; generation < generations; generation++ {
-		if _, err := s.ReclaimWorktree(ctx, store.WorktreeReclaimRequest{WorkID: "work-1", ProjectID: "project-1", ExpectedVersion: workVersion(t, s, "work-1"), PrincipalRef: "human-1", RequestID: fmt.Sprintf("early-reclaim-%d", generation), Now: fixedTime(), DefaultRef: "main"}); err != nil {
-			t.Fatal(err)
-		}
-		id := fmt.Sprintf("shelving-claim-%d", generation+1)
-		claim, err = s.ClaimWorktree(ctx, store.WorktreeClaimRequest{OpID: id, WorkID: "work-1", ProjectID: "project-1", BaseSHA: base, PrincipalRef: "human-1", RequestID: id, ExpectedVersion: workVersion(t, s, "work-1"), Now: fixedTime()})
-		if err != nil {
-			t.Fatal(err)
-		}
-	}
-	if retain {
-		gitRun(t, claim.Entry.Path, "checkout", "--detach", base)
-		gitRun(t, root, "symbolic-ref", "refs/heads/"+claim.Entry.Branch, "refs/heads/main")
-	}
-	version := workVersion(t, s, "work-1")
-	payload, _ := json.Marshal(map[string]any{"from": "needed", "to": "cancelled", "reason": "preserve planning goal", "expected_version": version, "resulting_version": version + 1})
-	if err := store.ApplyOperation(ctx, s, store.Operation{Events: []store.Event{{EventID: "shelving-cancel", Kind: "work.transitioned", SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: store.CurrentEventPayloadVersion("work.transitioned"), Payload: payload}}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, "work-1"): version}}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.ReclaimWorktree(ctx, store.WorktreeReclaimRequest{WorkID: "work-1", ProjectID: "project-1", ExpectedVersion: version + 1, PrincipalRef: "human-1", RequestID: "shelving-reclaim", Now: fixedTime(), DefaultRef: "main"}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := os.Lstat(claim.Entry.Path); !os.IsNotExist(err) {
-		t.Fatalf("retired checkout remains: %v", err)
-	}
+	s, service, grant, root, _ := worktreeDispatchFixture(t)
+	seedWorkTransition(t, s, "work-1", "needed", "cancelled", 2)
 	resolveProjectAuthority(service, store.ProjectResolution{ProjectID: "project-1", MainWorktree: true})
-	scope, _, err := s.ScopeVersion(ctx, "project-1")
+	scope, _, err := s.ScopeVersion(t.Context(), "project-1")
 	if err != nil {
 		t.Fatal(err)
 	}
 	env := mutationEnvelope(grant, scope)
 	env.Directory, env.Worktree = root, root
 	env.HostAssertionDigest = "sha256:shelving-host"
-	var retirement string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT json_group_array(json_object('claim_op_id',claim_op_id,'incarnation',claim_incarnation,'branch',branch,'phase',phase,'tip',tip,'reason',reason)) FROM worktree_ref_outcomes WHERE set_id='wts:work-1'`).Scan(&retirement); err != nil {
-		t.Fatal(err)
-	}
-	input := map[string]any{"operation_id": "shelving-removal", "idempotency_key": "shelving-key", "work_id": "work-1", "expected_version": workVersion(t, s, "work-1"), "reason": "shelved", "actor": "human-1", "product_id": "product-1", "execution_relinquished": true, "writes_reconciled": true, "effects_reconciled": true, "dependencies_resolved": true, "artifacts_verified": true,
-		"handoff": store.WorkRemovalHandoff{Findings: []string{fmt.Sprintf("Cancellation shelving-cancel by operator: preserve planning goal; version %d to %d.", version, version+1)}, RemainingScope: []string{"Resume only with new work identity."}, Blockers: []string{"No outside execution approved."}, Artifacts: []string{"Retirement shelving-reclaim; native outcome and recovery identities: " + retirement}, RenewalConditions: []string{"New identity and runtime approval."}}}
-	return s, service, env, input, claim.Entry.Path
+	in := map[string]any{"operation_id": "shelving-removal", "idempotency_key": "shelving-key", "work_id": "work-1", "expected_version": workVersion(t, s, "work-1"), "reason": "shelved", "actor": "human-1", "product_id": "product-1", "execution_relinquished": true, "writes_reconciled": true, "effects_reconciled": true, "dependencies_resolved": true, "artifacts_verified": true,
+		"handoff": store.WorkRemovalHandoff{Findings: []string{"The work was cancelled to preserve its planning goal."}, RemainingScope: []string{"Resume only with new work identity."}, Blockers: []string{"No outside execution approved."}, Artifacts: []string{"The cancellation remains in the preservation record."}, RenewalConditions: []string{"New identity and runtime approval."}}}
+	return s, service, env, in
 }
 
 func removalDispatch(t *testing.T, s *store.Store, service *Service, env CallEnvelope, input map[string]any) agentcontract.Envelope {
@@ -82,8 +43,8 @@ func removalDispatch(t *testing.T, s *store.Store, service *Service, env CallEnv
 }
 
 func TestDefaultCheckoutShelvingRemoval(t *testing.T) {
-	s, service, env, input, _ := defaultRemovalFixture(t)
-	out := removalDispatch(t, s, service, env, input)
+	s, service, env, in := defaultRemovalFixture(t)
+	out := removalDispatch(t, s, service, env, in)
 	if out.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("consent-free shelving: %+v", out.Error)
 	}
@@ -93,9 +54,9 @@ func TestDefaultCheckoutShelvingRemoval(t *testing.T) {
 	if countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM work_removal_operations WHERE operation_id='shelving-removal' AND state='committed'`) != 1 {
 		t.Fatal("missing committed receipt")
 	}
-	replay := removalDispatch(t, s, service, env, input)
-	if replay.Outcome != agentcontract.OutcomeOK || !replay.Replayed {
-		t.Fatalf("committed replay: %+v", replay.Error)
+	out = removalDispatch(t, s, service, env, in)
+	if out.Outcome != agentcontract.OutcomeOK || !out.Replayed {
+		t.Fatalf("committed replay: %+v", out.Error)
 	}
 	path := s.Path()
 	if err := s.Close(); err != nil {
@@ -109,98 +70,42 @@ func TestDefaultCheckoutShelvingRemoval(t *testing.T) {
 	restarted := NewService(reopened)
 	restarted.Now = fixedTime
 	resolveProjectAuthority(restarted, store.ProjectResolution{ProjectID: "project-1", MainWorktree: true})
-	replay = removalDispatch(t, reopened, restarted, env, input)
-	if replay.Outcome != agentcontract.OutcomeOK || !replay.Replayed {
-		t.Fatalf("reopened removal replay: %+v", replay.Error)
+	out = removalDispatch(t, reopened, restarted, env, in)
+	if out.Outcome != agentcontract.OutcomeOK || !out.Replayed {
+		t.Fatalf("reopened removal replay: %+v", out.Error)
 	}
 	snapshot, err := Dispatch(t.Context(), reopened, restarted, InvokeRequest{Tool: "concord_product_view", Operation: "snapshot", Input: json.RawMessage(`{"product_id":"product-1"}`)}, env)
 	if err != nil || snapshot.Outcome != agentcontract.OutcomeOK || strings.Contains(string(snapshot.Result), `"work-1"`) {
 		t.Fatalf("removed identity appears in restarted snapshot: %+v %v", snapshot, err)
 	}
-	if _, err := reopened.ClaimWorktree(t.Context(), store.WorktreeClaimRequest{OpID: "renew-removed", WorkID: "work-1", ProjectID: "project-1", BaseSHA: gitRun(t, env.Directory, "rev-parse", "HEAD"), ExpectedVersion: 1, PrincipalRef: "human-1", RequestID: "renew-removed", Now: fixedTime()}); err == nil {
-		t.Fatal("removed execution identity renewed")
-	}
 }
 
 func removalFixtureSQL(t *testing.T, s *store.Store, statement string, args ...any) {
 	t.Helper()
-	tx, err := s.DatabaseForTesting().BeginTx(t.Context(), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer tx.Rollback()
-	if _, err := tx.Exec(`INSERT OR IGNORE INTO write_guard(active) VALUES(1)`); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := tx.Exec(statement, args...); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := tx.Exec(`DELETE FROM write_guard`); err != nil {
-		t.Fatal(err)
-	}
-	if err := tx.Commit(); err != nil {
-		t.Fatal(err)
-	}
+	execProjection(t, s, []string{statement}, [][]any{args})
 }
 
 func TestDefaultCheckoutShelvingRefusals(t *testing.T) {
-	cases := []struct {
+	for _, tc := range []struct {
 		name, message string
-		change        func(*testing.T, *store.Store, map[string]any, string)
+		change        func(*testing.T, *store.Store, map[string]any)
 	}{
-		{"lifecycle", "cancelled lifecycle", func(t *testing.T, s *store.Store, _ map[string]any, _ string) {
+		{"lifecycle", "cancelled lifecycle", func(t *testing.T, s *store.Store, _ map[string]any) {
 			removalFixtureSQL(t, s, `UPDATE work_items SET lifecycle='needed' WHERE id='work-1'`)
 		}},
-		{"reason", "requires shelving", func(_ *testing.T, _ *store.Store, in map[string]any, _ string) { in["reason"] = "cancelled" }},
-		{"missing claims", "recorded retired claims", func(t *testing.T, s *store.Store, _ map[string]any, _ string) {
-			removalFixtureSQL(t, s, `DELETE FROM worktree_claims`)
-		}},
-		{"pending claim", "active worktree claim", func(t *testing.T, s *store.Store, _ map[string]any, _ string) {
-			removalFixtureSQL(t, s, `UPDATE worktree_claims SET state='pending'`)
-		}},
-		{"stale claim", "retirement receipt", func(t *testing.T, s *store.Store, _ map[string]any, _ string) {
-			removalFixtureSQL(t, s, `UPDATE worktree_claims SET incarnation=incarnation+1`)
-		}},
-		{"mismatched retirement outcome", "native retirement outcomes do not match recorded claim identities", func(t *testing.T, s *store.Store, _ map[string]any, path string) {
-			removalFixtureSQL(t, s, `UPDATE worktree_ref_outcomes SET path=?`, path+"-other")
-		}},
-		{"mismatched worktree entry", "worktree entry does not match its retired claim", func(t *testing.T, s *store.Store, _ map[string]any, path string) {
-			removalFixtureSQL(t, s, `UPDATE worktree_entries SET path=?`, path+"-other")
-		}},
-		{"surviving directory", "path survives", func(t *testing.T, _ *store.Store, _ map[string]any, path string) {
-			if err := os.MkdirAll(path, 0700); err != nil {
-				t.Fatal(err)
-			}
-		}},
-		{"dangling symlink", "path survives", func(t *testing.T, _ *store.Store, _ map[string]any, path string) {
-			if err := os.Symlink(path+"-missing", path); err != nil {
-				t.Fatal(err)
-			}
-		}},
-		{"unknown occupant", "unknown recorded occupant", func(t *testing.T, s *store.Store, _ map[string]any, _ string) {
-			removalFixtureSQL(t, s, `INSERT INTO worktree_occupancy(worktree_id,session_ref,recorded_at,has_process_identity) VALUES('wts:work-1:project-1:shelving-claim','unknown-session','2026-01-01T00:00:00Z',0)`)
-		}},
-		{"orphaned occupant", "unknown recorded occupant", func(t *testing.T, s *store.Store, _ map[string]any, _ string) {
-			removalFixtureSQL(t, s, `INSERT INTO worktree_occupancy(worktree_id,session_ref,recorded_at,has_process_identity) VALUES('wts:work-1:project-1:unknown-claim','unknown-session','2026-01-01T00:00:00Z',0)`)
-		}},
-		{"safety", "safety evidence is incomplete", func(_ *testing.T, _ *store.Store, in map[string]any, _ string) { in["effects_reconciled"] = false }},
-		{"version", "version", func(_ *testing.T, _ *store.Store, in map[string]any, _ string) { in["expected_version"] = int64(1) }},
-		{"Linear identity", "no recorded Linear issue", func(_ *testing.T, _ *store.Store, in map[string]any, _ string) {
+		{"reason", "requires shelving", func(_ *testing.T, _ *store.Store, in map[string]any) { in["reason"] = "cancelled" }},
+		{"safety", "safety evidence is incomplete", func(_ *testing.T, _ *store.Store, in map[string]any) { in["effects_reconciled"] = false }},
+		{"version", "version", func(_ *testing.T, _ *store.Store, in map[string]any) { in["expected_version"] = int64(1) }},
+		{"Linear identity", "no recorded Linear issue", func(_ *testing.T, _ *store.Store, in map[string]any) {
 			in["linear"] = &store.LinearHandoffConfirmation{ProductID: "product-1", RemoteIssueUUID: "wrong-issue", Destination: "linear", HandoffDigest: "sha256:aaaaaaaa"}
 		}},
-	}
-	for _, phase := range []string{store.WorktreeRefPhasePlanned, store.WorktreeRefPhaseCheckoutProvenAbsent, store.WorktreeRefPhaseDeleted, store.WorktreeRefPhaseRestorationOwed, store.WorktreeRefPhaseRestored} {
-		cases = append(cases, struct {
-			name, message string
-			change        func(*testing.T, *store.Store, map[string]any, string)
-		}{phase, "still owes cleanup", func(t *testing.T, s *store.Store, _ map[string]any, _ string) {
-			removalFixtureSQL(t, s, `UPDATE worktree_ref_outcomes SET phase=?`, phase)
-		}})
-	}
-	for _, tc := range cases {
+		{"completed lifecycle", "completed and superseded work", func(t *testing.T, s *store.Store, _ map[string]any) {
+			removalFixtureSQL(t, s, `UPDATE work_items SET lifecycle='completed' WHERE id='work-1'`)
+		}},
+	} {
 		t.Run(tc.name, func(t *testing.T) {
-			s, service, env, in, path := defaultRemovalFixture(t)
-			tc.change(t, s, in, path)
+			s, service, env, in := defaultRemovalFixture(t)
+			tc.change(t, s, in)
 			out := removalDispatch(t, s, service, env, in)
 			if out.Error == nil || !strings.Contains(out.Error.Message, tc.message) {
 				t.Fatalf("want %q refusal: %+v", tc.message, out.Error)
@@ -216,14 +121,10 @@ func TestDefaultCheckoutShelvingTransactionRaces(t *testing.T) {
 	for _, tc := range []struct{ name, sql string }{
 		{"version", `UPDATE work_items SET version=version+1 WHERE id='work-1'`},
 		{"lifecycle", `UPDATE work_items SET lifecycle='needed' WHERE id='work-1'`},
-		{"claim identity", `UPDATE worktree_claims SET pinned_base_sha='aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'`},
-		{"claim incarnation", `UPDATE worktree_claims SET incarnation=incarnation+1`},
-		{"settlement", `UPDATE worktree_ref_outcomes SET settlement_count=settlement_count+1`},
-		{"debt", `UPDATE worktree_ref_outcomes SET phase='restoration_owed'`},
-		{"occupancy", `INSERT INTO worktree_occupancy(worktree_id,session_ref,recorded_at,has_process_identity) VALUES('wts:work-1:project-1:shelving-claim','unknown-session','2026-01-01T00:00:00Z',0)`},
+		{"completed lifecycle", `UPDATE work_items SET lifecycle='completed' WHERE id='work-1'`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			s, service, env, in, _ := defaultRemovalFixture(t)
+			s, service, env, in := defaultRemovalFixture(t)
 			raw, _ := json.Marshal(in)
 			grant, err := service.Authorize(t.Context(), Invocation{ClientRef: env.ClientRef, PrincipalRef: env.PrincipalRef, SessionRef: env.SessionRef, AgentRef: env.AgentRef, Directory: env.Directory, Worktree: env.Worktree, ManifestDigest: env.ManifestDigest, RequiredCapability: "work_transition", RequiredOperation: "remove"})
 			if err != nil {
@@ -237,12 +138,8 @@ func TestDefaultCheckoutShelvingTransactionRaces(t *testing.T) {
 			if out, err, handled := r.planWorkRemoval(t.Context(), base, raw, digest, grant, op, plan); err != nil || handled {
 				t.Fatalf("plan: %+v %v", out, err)
 			}
-			if plan.removalProof == nil {
-				t.Fatal("ordinary shelving must retain its proof without requiring consent")
-			}
-			r.removalProof = plan.removalProof
 			removalFixtureSQL(t, s, tc.sql)
-			out, err := r.executeMutation(t.Context(), base, raw, digest, plan.scope, nil, plan.intents, plan.effect, nil, nil)
+			out, err := r.executeMutation(t.Context(), base, raw, digest, plan.scope, nil, plan.intents, plan.effect)
 			if err != nil || out.Error == nil {
 				t.Fatalf("race must refuse: %+v %v", out, err)
 			}
@@ -253,10 +150,8 @@ func TestDefaultCheckoutShelvingTransactionRaces(t *testing.T) {
 	}
 }
 
-// CD-0243 D3 and D7's per-item removal clause retire ordinary consent and
-// its challenge bindings, not transaction rollback or current replay authority.
 func TestDefaultCheckoutShelvingRollbackAndReplay(t *testing.T) {
-	s, service, env, in, _ := defaultRemovalFixture(t)
+	s, service, env, in := defaultRemovalFixture(t)
 	if _, err := s.DatabaseForTesting().Exec(`CREATE TRIGGER removal_test_rollback BEFORE UPDATE ON work_removal_operations BEGIN SELECT RAISE(ABORT,'removal rollback test'); END`); err != nil {
 		t.Fatal(err)
 	}
@@ -296,8 +191,6 @@ func TestDefaultCheckoutShelvingRollbackAndReplay(t *testing.T) {
 			}
 		})
 	}
-	// A fresh service simulates a lost response and process restart. Neither
-	// live rows nor the old in-memory plan supply the replay authority.
 	restarted := NewService(s)
 	restarted.Now = fixedTime
 	resolveProjectAuthority(restarted, store.ProjectResolution{ProjectID: "project-1", MainWorktree: true})
@@ -310,44 +203,6 @@ func TestDefaultCheckoutShelvingRollbackAndReplay(t *testing.T) {
 	if countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM work_removal_operations`) != 1 || countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM work_items WHERE id='work-1'`) != 0 {
 		t.Fatal("new-session replay recreated execution, receipt, or consent")
 	}
-}
-
-func TestDefaultCheckoutShelvingHistoricalRetirement(t *testing.T) {
-	t.Run("earlier generation debt", func(t *testing.T) {
-		s, service, env, in, _ := defaultRemovalGenerationsFixture(t, 2, false)
-		if countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM worktree_claims WHERE state='reclaimed'`) != 2 {
-			t.Fatal("fixture lacks two retired generations")
-		}
-		removalFixtureSQL(t, s, `UPDATE worktree_ref_outcomes SET phase='restoration_owed' WHERE claim_op_id='shelving-claim'`)
-		out := removalDispatch(t, s, service, env, in)
-		if out.Error == nil || !strings.Contains(out.Error.Message, "still owes cleanup") {
-			t.Fatalf("earlier-generation debt: %+v", out.Error)
-		}
-	})
-	t.Run("retained symbolic ref", func(t *testing.T) {
-		s, service, env, in, _ := defaultRemovalGenerationsFixture(t, 1, true)
-		if countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM worktree_ref_outcomes WHERE phase='retained_unproven'`) != 1 {
-			t.Fatal("fixture lacks native retained-ref proof")
-		}
-		out := removalDispatch(t, s, service, env, in)
-		if out.Outcome != agentcontract.OutcomeOK {
-			t.Fatalf("retained candidate: %+v", out.Error)
-		}
-		if got := gitRun(t, env.Directory, "symbolic-ref", "refs/heads/work/work-1"); got != "refs/heads/main" {
-			t.Fatalf("protected symbolic ref changed: %s", got)
-		}
-		var handoff store.WorkRemovalHandoff
-		var raw string
-		if err := s.DatabaseForTesting().QueryRow(`SELECT handoff_json FROM work_removal_operations WHERE operation_id='shelving-removal'`).Scan(&raw); err != nil {
-			t.Fatal(err)
-		}
-		if err := json.Unmarshal([]byte(raw), &handoff); err != nil {
-			t.Fatal(err)
-		}
-		if !strings.Contains(strings.Join(handoff.Findings, " "), "Cancellation shelving-cancel by operator") || !strings.Contains(strings.Join(handoff.Artifacts, " "), "retained_unproven") || !strings.Contains(strings.Join(handoff.Artifacts, " "), "work/work-1") {
-			t.Fatalf("receipt lost cancellation or retained recovery facts: %+v", handoff)
-		}
-	})
 }
 
 func TestDefaultCheckoutShelvingScopeAndWorkflow(t *testing.T) {
@@ -372,7 +227,7 @@ func TestDefaultCheckoutShelvingScopeAndWorkflow(t *testing.T) {
 		{"uncancelled workflow", func(t *testing.T, s *store.Store) { seedContinuityWorkflow(t, s, "work-1") }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			s, service, env, in, _ := defaultRemovalFixture(t)
+			s, service, env, in := defaultRemovalFixture(t)
 			tc.change(t, s)
 			scope, _, err := s.ScopeVersion(t.Context(), "project-1")
 			if err != nil {
@@ -397,26 +252,6 @@ func TestDefaultCheckoutShelvingManagedRestore(t *testing.T) {
 	if countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM workflow_law_baselines WHERE work_id='work-1'`) != 1 {
 		t.Fatal("fixture lacks its owning-start law baseline")
 	}
-	first, err := s.BootstrapExistingWorktree(ctx, store.ExistingBootstrapRequest{ProductID: "product-1", ProjectID: "project-1", WorkID: "work-1"}, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.ReclaimWorktree(ctx, store.WorktreeReclaimRequest{WorkID: "work-1", ProjectID: "project-1", ExpectedVersion: first.WorkVersion, PrincipalRef: "human-1", RequestID: "managed-first-retirement", DefaultRef: "main"}); err != nil {
-		t.Fatal(err)
-	}
-	var originalReceipt string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT json_group_array(json_array(event_id,payload_digest)) FROM effect_receipts WHERE kind='work.worktree_reclaimed' AND subject_id='work-1'`).Scan(&originalReceipt); err != nil {
-		t.Fatal(err)
-	}
-	second, err := s.BootstrapExistingWorktree(ctx, store.ExistingBootstrapRequest{ProductID: "product-1", ProjectID: "project-1", WorkID: "work-1"}, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if second.OperationID != first.OperationID || countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM worktree_claims WHERE work_id='work-1' AND incarnation=1 AND state='verified'`) != 1 {
-		t.Fatal("bootstrap did not reopen the same claim as a second incarnation")
-	}
-	// The approved contract predates cancellation. Cancellation must retain
-	// its definition and law pins rather than synthesize replacement evidence.
 	const lawHash = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	execProjection(t, s, []string{
 		`INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('project-1','path-1','spec:shelving-fixture','spec','accepted','.concord/docs/shelving-fixture.md','Synthetic shelving law',?,'fixture')`,
@@ -435,14 +270,10 @@ func TestDefaultCheckoutShelvingManagedRestore(t *testing.T) {
 	env := mutationEnvelope(grant, scope)
 	env.Directory, env.Worktree = root, root
 	env.HostAssertionDigest = "sha256:managed-shelving-host"
-	version := workVersion(t, s, "work-1")
-	cancel := map[string]any{"work_id": "work-1", "expected_version": version, "target": "cancelled", "reason": "Preserve planning while retiring execution", "idempotency_key": "managed-cancellation",
+	cancel := map[string]any{"work_id": "work-1", "expected_version": workVersion(t, s, "work-1"), "target": "cancelled", "reason": "Preserve planning while retiring execution", "idempotency_key": "managed-cancellation",
 		"evidence": []agentcontract.EvidenceRef{{Kind: "verification", Authority: "fixture-verifier", LocatorKind: "artifact", Locator: "evidence:managed-cancellation"}}}
 	raw, _ := json.Marshal(cancel)
-	req := InvokeRequest{Tool: "concord_work_transition", Operation: "lifecycle", Input: raw}
-	// CD-0243 D3 and D7's terminal-transition clause remove cancellation
-	// consent, while its evidence and pinned workflow/law facts remain required.
-	cancelled, err := Dispatch(ctx, s, service, req, env)
+	cancelled, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "lifecycle", Input: raw}, env)
 	if err != nil || cancelled.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("managed cancellation: %+v %v", cancelled.Error, err)
 	}
@@ -453,32 +284,13 @@ func TestDefaultCheckoutShelvingManagedRestore(t *testing.T) {
 	if !strings.Contains(cancellation, "evidence:managed-cancellation") || !strings.Contains(cancellation, "Preserve planning while retiring execution") {
 		t.Fatalf("missing cancellation reason/evidence: %s", cancellation)
 	}
-	if _, err := s.ReclaimWorktree(ctx, store.WorktreeReclaimRequest{WorkID: "work-1", ProjectID: "project-1", ExpectedVersion: workVersion(t, s, "work-1"), PrincipalRef: "human-1", RequestID: "managed-final-retirement", DefaultRef: "main"}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := os.Lstat(second.Entry.Path); !os.IsNotExist(err) {
-		t.Fatalf("second incarnation survives retirement: %v", err)
-	}
-	if countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM effect_receipts WHERE kind='work.worktree_reclaimed' AND subject_id='work-1'`) != 2 || countRows(t, s.DatabaseForTesting(), `SELECT count(DISTINCT claim_incarnation) FROM worktree_ref_outcomes WHERE set_id='wts:work-1'`) != 2 {
-		t.Fatal("missing separate retirement receipts/outcomes for both incarnations")
-	}
-	var preservedReceipt, retirement string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT json_group_array(json_array(event_id,payload_digest)) FROM effect_receipts WHERE kind='work.worktree_reclaimed' AND subject_id='work-1' AND event_id=?`, "work-1:project-1:"+first.OperationID+":worktree-reclaimed").Scan(&preservedReceipt); err != nil {
-		t.Fatal(err)
-	}
-	if preservedReceipt != originalReceipt {
-		t.Fatalf("first incarnation receipt changed: %s -> %s", originalReceipt, preservedReceipt)
-	}
-	if err := s.DatabaseForTesting().QueryRow(`SELECT json_group_array(json_object('claim',claim_op_id,'incarnation',claim_incarnation,'phase',phase,'reason',reason)) FROM worktree_ref_outcomes WHERE set_id='wts:work-1'`).Scan(&retirement); err != nil {
-		t.Fatal(err)
-	}
 	if err := s.Transact(ctx, func(tx *store.Transaction) error {
 		_, err := store.RecordLinearIssueLinkTx(ctx, tx, store.LinearIssueLink{WorkID: "work-1", RemoteIssueUUID: "remote-managed-shelving", HumanKey: "CON-1", URL: "https://linear.app/example/issue/CON-1"})
 		return err
 	}); err != nil {
 		t.Fatal(err)
 	}
-	handoff := store.WorkRemovalHandoff{Findings: []string{cancellation}, RemainingScope: []string{"Planning goal remains in the recorded issue."}, Blockers: []string{"New execution needs a new identity."}, Artifacts: []string{retirement}, RenewalConditions: []string{"Capture a new work identity."}}
+	handoff := store.WorkRemovalHandoff{Findings: []string{cancellation}, RemainingScope: []string{"Planning goal remains in the recorded issue."}, Blockers: []string{"New execution needs a new identity."}, Artifacts: []string{"The verified cancellation evidence remains in this handoff."}, RenewalConditions: []string{"Capture a new work identity."}}
 	handoffJSON, _ := json.Marshal(handoff)
 	handoffHash := sha256.Sum256(handoffJSON)
 	in := map[string]any{"operation_id": "managed-removal", "idempotency_key": "managed-removal-key", "work_id": "work-1", "expected_version": workVersion(t, s, "work-1"), "reason": "shelved", "actor": "human-1", "product_id": "product-1", "execution_relinquished": true, "writes_reconciled": true, "effects_reconciled": true, "dependencies_resolved": true, "artifacts_verified": true, "handoff": handoff,
@@ -487,18 +299,6 @@ func TestDefaultCheckoutShelvingManagedRestore(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Run("earlier incarnation debt", func(t *testing.T) {
-		var phase string
-		if err := s.DatabaseForTesting().QueryRow(`SELECT phase FROM worktree_ref_outcomes WHERE claim_incarnation=0`).Scan(&phase); err != nil {
-			t.Fatal(err)
-		}
-		removalFixtureSQL(t, s, `UPDATE worktree_ref_outcomes SET phase='restoration_owed' WHERE claim_incarnation=0`)
-		defer removalFixtureSQL(t, s, `UPDATE worktree_ref_outcomes SET phase=? WHERE claim_incarnation=0`, phase)
-		out := removalDispatch(t, s, service, env, in)
-		if out.Error == nil || !strings.Contains(out.Error.Message, "still owes cleanup") {
-			t.Fatalf("earlier incarnation debt: %+v", out.Error)
-		}
-	})
 	out := removalDispatch(t, s, service, env, in)
 	if out.Outcome != agentcontract.OutcomeOK {
 		if countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM work_items WHERE id='work-1'`) != 1 || countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM work_removal_operations`) != 0 || countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM workflow_law_baselines WHERE work_id='work-1'`) != 1 {
@@ -540,7 +340,7 @@ func TestDefaultCheckoutShelvingManagedRestore(t *testing.T) {
 		t.Fatal(err)
 	}
 	if restoredHandoff != retainedHandoff || restoredLinear != retainedLinear {
-		t.Fatal("restore changed the cancellation, pin, retirement, or handoff evidence")
+		t.Fatal("restore changed the cancellation, pin, or handoff evidence")
 	}
 	restarted := NewService(restored)
 	restarted.Now = fixedTime

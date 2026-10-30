@@ -163,14 +163,6 @@ func validateRemovalRequest(req WorkRemovalRequest) error {
 	if err := validateRemovalHandoff(req.Handoff); err != nil {
 		return err
 	}
-	for _, session := range req.Sessions {
-		if session.SessionRef == "" || (session.State != "vacated" && session.State != "active" && session.State != "unknown") {
-			return newFailure(KindInvalidOperation, "work_removal", "session evidence is malformed", false, "supply a bounded session state")
-		}
-		if session.State != "vacated" {
-			return newFailure(KindNotTerminal, "work_removal", "a live or unknown host session still names the work", false, "vacate and verify every host session before removal")
-		}
-	}
 	return nil
 }
 
@@ -501,10 +493,7 @@ func validateRemovalGatesQ(ctx context.Context, q queryer, req WorkRemovalReques
 		{`SELECT count(*) FROM relations WHERE work_id_from=? OR work_id_to=?`, "work has unresolved relation dependencies"},
 		{`SELECT count(*) FROM workflow_impact_edges WHERE work_id=? OR target_work_id=?`, "work has unresolved workflow impact dependencies"},
 		{`SELECT count(*) FROM work_messages WHERE (sender_work_id=? OR recipient_work_id=?) AND state='sent'`, "work has an undelivered message"},
-		{`SELECT count(*) FROM worktree_claims WHERE work_id=? AND state IN ('pending','verified')`, "work has an active worktree claim"},
-		{`SELECT count(*) FROM worktree_entries WHERE set_id=? AND state='active'`, "work has an active worktree"},
 		{`SELECT count(*) FROM worktree_verify_leases WHERE work_id=? AND state='held'`, "work has a held worktree verification lease"},
-		{`SELECT count(*) FROM bootstrap_operations WHERE work_id=? AND state IN ('pending','creating','native_ready','rolling_back')`, "work has an incomplete bootstrap effect"},
 		{`SELECT count(*) FROM active_research_consumers WHERE consumer_work_id=? AND required=1`, "work has a required research consumer"},
 		{`SELECT count(*) FROM active_research_consumers c JOIN active_research_packs p ON p.pack_id=c.pack_id WHERE p.owner_work_id=? AND c.required=1 AND c.consumer_work_id<>?`, "work has a required research consumer that depends on its findings"},
 		{`SELECT count(*) FROM active_research_packs WHERE owner_work_id=?`, "work still owns research packs; retire them through research_retire before removal"},
@@ -514,9 +503,6 @@ func validateRemovalGatesQ(ctx context.Context, q queryer, req WorkRemovalReques
 		args := []any{req.WorkID}
 		if strings.Count(check.query, "?") > 1 {
 			args = []any{req.WorkID, req.WorkID}
-		}
-		if strings.Contains(check.query, "set_id=?") {
-			args = []any{WorktreeSetID(req.WorkID)}
 		}
 		var count int
 		if err := q.QueryRowContext(ctx, check.query, args...).Scan(&count); err != nil {

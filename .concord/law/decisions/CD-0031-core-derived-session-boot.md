@@ -8,11 +8,11 @@
 ## Decision
 
 A host-started operator session receives a bounded, versioned session-boot
-packet through work-start preparation. Concord derives the packet from the
+packet through `session-prepare`. Concord derives the packet from the
 canonical CD-0016 continuity projection. The host hands Product/work identity
 only; it does not read workflow state or decide what happens next.
 
-Work-start preparation reads one boundary record, renders the
+Session preparation reads one boundary record, renders the
 same `ContinuityPayload` returned by `concord_work_trace.continuity` through
 the retained packet renderer, and validates the packet before the session
 takes a managed action. A derivation or validation failure stops before
@@ -56,7 +56,7 @@ operator use shows that observation visibility is insufficient.
 C18 remains unchanged in substance:
 
 - the host start carries identity only;
-- work-start preparation adds no durable write, workflow action, or second
+- session preparation adds no durable write, workflow action, or second
   state derivation;
 - preparation and the per-turn hook use the same typed projection and
   watermark as the agent read;

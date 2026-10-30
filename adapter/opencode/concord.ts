@@ -1,21 +1,16 @@
 import { createHash } from "node:crypto"
 import { clientRef } from "./credentials"
-import { contractOperations, hostToolDescriptions, hostToolSchemas, maxEnvelopeBytes, payloadSchemas, workflowActionPublicVariants } from "./generated-contracts"
+import { contractOperations, maxEnvelopeBytes, payloadSchemas, workflowActionPublicVariants } from "./generated-contracts"
 import { activeManifestDigest, adoptManifestDigest, resolveDiskManifestDigest } from "./manifest-pin"
 import { validateGeneratedEnvelope, validateGeneratedPayload, envelopeFailurePath, payloadFailurePath } from "./generated-contract-tests"
 import { AdapterContractDefect } from "./adapter-contract-defect"
 // The typed fail-closed error re-exports so callers of this module can catch
 // it by class without importing the shared owner.
 export { AdapterContractDefect }
-import { hostControlPlane, MoveSessionUnavailable } from "./move-session"
+import { hostControlPlane } from "./move-session"
 import { concordBinaryPath, CoreBinaryUnavailable, validateAgainstSchema } from "./core-runtime"
 import { createWorkStateReporter } from "./workflow-status"
 import { hostLeaseFault, releaseStaleness, type ReleaseStaleness } from "./host-lease"
-import { armTurnMoveBoundary, questionRequiresNormalChat } from "./turn-move-boundary"
-import { armedClaimedWorktree, armClaimedWorktree, clearClaimedWorktree, pendingVacateDestination, recordPendingVacateDestination, recordUnlandedClaimedWorktree, samePath, unlandedClaimedWorktree } from "./claimed-worktree"
-import { ensureConductLink } from "./project-link"
-import { queueWorkStartContinuation, clearWorkStartContinuation, resetWorkStartContinuations } from "./work-start-continuation"
-import { moveNoticeText, recordMoveNotice, takeMoveNotice } from "./move-notice"
 import { reconstructMutationResult } from "./mutation-result"
 
 type ToolContext = {
@@ -58,9 +53,8 @@ type HostToolCall = { request: HostToolArgs | { request: HostToolArgs } }
 
 // opencode 1.18.30's Code Mode bridge delivers the published arguments to
 // plugin tool execute wrapped one extra time under the schema's own
-// `request` property: {request: {request: {operation, input}}}. The flat
-// work_start schema is unaffected, and no legitimate HostToolArgs carries a
-// `request` property, so that key is the discriminator. Both host shapes
+// `request` property: {request: {request: {operation, input}}}. No legitimate
+// HostToolArgs carries a `request` property, so that key is the discriminator. Both host shapes
 // normalize here, at the single boundary between host delivery and the
 // shared transport.
 //
@@ -152,7 +146,7 @@ const defaultRunner: ChildRunner = {
 
 let runner: ChildRunner = defaultRunner
 export function configureConcordAdapter(overrides: { runner?: ChildRunner; reset?: boolean } = {}) {
-  if (overrides.reset) { runner = defaultRunner; resetWorkStartContinuations() }
+  if (overrides.reset) runner = defaultRunner
   if (overrides.runner) runner = overrides.runner
 }
 
@@ -415,38 +409,6 @@ function argsSchema(toolName: string): any {
   return args
 }
 
-// The registration map exposes every declared field. The definition hook
-// publishes an object with conditional capture/resume branches, so providers
-// that reject root combinators still receive each mode's closed constraints.
-function workStartArgsSchema() {
-  const properties = Object.assign({}, ...hostToolSchemas.concord_work_start.oneOf.map((branch) => branch.properties))
-  // Host hooks can mutate published schemas, but never the runtime contract.
-  return JSON.parse(JSON.stringify(properties))
-}
-
-export async function publishWorkStartDefinition(
-  input: { toolID: string },
-  output: { description: string; parameters: unknown; jsonSchema?: unknown },
-): Promise<void> {
-  if (input.toolID !== "concord_work_start") return
-  const [capture, resume] = hostToolSchemas.concord_work_start.oneOf
-  // Anthropic rejects root oneOf/anyOf/allOf, and host publication admits no
-  // bare anyOf. Presence of either selector chooses the same closed resume
-  // branch as validateWorkStartArgs through nested conditionals.
-  // Parameters remain unchanged: publication cannot alter runtime admission.
-  // The merged root properties repeat each branch's field constraints, so the
-  // published document interns like the request tools instead of carrying
-  // every field schema twice.
-  output.jsonSchema = internPublication(JSON.parse(JSON.stringify({
-    type: "object",
-    properties: { ...capture.properties, ...resume.properties },
-    additionalProperties: false,
-    if: { required: ["work_id"] },
-    then: resume,
-    else: { if: { required: ["issue_key"] }, then: resume, else: capture },
-  })))
-}
-
 function baseEnvelope(toolName: string, operation: string, requestID: string) {
   const queryID = (contractOperations.find((candidate: any) => candidate.tool === toolName && candidate.id === `${toolName}.${operation}`) as any)?.query_id
   return { schema_version: "1.0", manifest_digest: activeManifestDigest(), request_id: requestID, origin: "adapter", tool: toolName, operation, ...(queryID ? { query_id: queryID } : {}), outcome: "error", resolved_scope: null, authority: "unreachable", freshness: null, source_version_watermark: [], ordering_keys: [], next_cursor: null, omissions: [], warnings: [], evidence_refs: [], replayed: false }
@@ -471,13 +433,10 @@ export const adapterErrorTuples = {
   invalid_cli_input: { kind: "invalid_input", adapter_reason: "invalid_cli_input", effect_state: "none", recovery: "correct_request" },
   invalid_request_wrapper: { kind: "invalid_input", adapter_reason: "invalid_request_wrapper", effect_state: "none", recovery: "correct_request" },
   invalid_tool_input: { kind: "invalid_input", adapter_reason: "invalid_tool_input", effect_state: "none", recovery: "correct_request" },
-  vacate_replay: { kind: "operation_conflict", adapter_reason: "unknown_effect", effect_state: "possible", recovery: "retry_same_request" },
-  vacate_unavailable: { kind: "operation_conflict", adapter_reason: "unknown_effect", effect_state: "possible", recovery: "contact_operator" },
 } as const
 
 export type AdapterErrorKey = keyof typeof adapterErrorTuples
-export type GenericAdapterErrorKey = Exclude<AdapterErrorKey, "vacate_replay" | "vacate_unavailable">
-export type VacateAdapterErrorKey = Extract<AdapterErrorKey, "vacate_replay" | "vacate_unavailable">
+export type GenericAdapterErrorKey = AdapterErrorKey
 
 type AdapterErrorTuple = (typeof adapterErrorTuples)[AdapterErrorKey]
 
@@ -514,11 +473,6 @@ export type AdapterErrorEnvelope = {
   }
 }
 
-// The vacate entries are reachable only through vacateError (CD-0190 D3):
-// the generic factory refuses them under every pair, and vacateError refuses
-// every generic key.
-const VACATE_TABLE_KEYS: readonly string[] = ["vacate_replay", "vacate_unavailable"]
-
 // R1.2: retry_safe is derived in this one place — false for the input
 // entries and for possible effects, true for the other no-effect entries.
 function adapterRetrySafe(tuple: AdapterErrorTuple): boolean {
@@ -540,7 +494,7 @@ function adapterContractDefect(toolName: string, operation: string, requestID: s
 
 function tupleForKey(key: AdapterErrorKey, toolName: string, operation: string, requestID: string): AdapterErrorTuple {
   const tuple = (adapterErrorTuples as Record<string, AdapterErrorTuple | undefined>)[key]
-  if (!Object.hasOwn(adapterErrorTuples, key) || !tuple || VACATE_TABLE_KEYS.includes(key)) {
+  if (!Object.hasOwn(adapterErrorTuples, key) || !tuple) {
     throw adapterContractDefect(toolName, operation, requestID, `unknown adapter error key ${JSON.stringify(String(key))}: the admitted tuples are the adapterErrorTuples keys`)
   }
   return tuple
@@ -553,22 +507,6 @@ function tupleForKey(key: AdapterErrorKey, toolName: string, operation: string, 
 // envelope the generated contract refuses.
 export function adapterError(toolName: string, operation: string, requestID: string, key: GenericAdapterErrorKey, message: string, details?: Record<string, unknown>): AdapterErrorEnvelope {
   const tuple = tupleForKey(key, toolName, operation, requestID)
-  const envelope = { ...baseEnvelope(toolName, operation, requestID), error: { kind: tuple.kind, retry_safe: adapterRetrySafe(tuple), recovery_action: { kind: tuple.recovery }, effect_state: tuple.effect_state, adapter_reason: tuple.adapter_reason, message: boundedUTF8(message, ADAPTER_ERROR_MESSAGE_MAX_BYTES), ...(details ? { details } : {}) } }
-  return validateAdapterEnvelope(envelope as AdapterErrorEnvelope)
-}
-
-// vacateError is the sole constructor for the two vacate tuples: it fixes
-// tool concord_work_transition and operation session_vacate, whose
-// post-effect refusals carry the CD-0190 D3 state-driven replay (or operator
-// contact when the replay is unreachable) instead of a reconciliation no
-// work id can drive.
-export function vacateError(requestID: string, key: VacateAdapterErrorKey, message: string, details?: Record<string, unknown>): AdapterErrorEnvelope {
-  const toolName = "concord_work_transition"
-  const operation = "session_vacate"
-  const tuple = (adapterErrorTuples as Record<string, AdapterErrorTuple | undefined>)[key]
-  if (!Object.hasOwn(adapterErrorTuples, key) || !tuple || !VACATE_TABLE_KEYS.includes(key)) {
-    throw adapterContractDefect(toolName, operation, requestID, `unknown vacate error key ${JSON.stringify(String(key))}: the vacate constructor admits only the vacate_replay and vacate_unavailable tuples`)
-  }
   const envelope = { ...baseEnvelope(toolName, operation, requestID), error: { kind: tuple.kind, retry_safe: adapterRetrySafe(tuple), recovery_action: { kind: tuple.recovery }, effect_state: tuple.effect_state, adapter_reason: tuple.adapter_reason, message: boundedUTF8(message, ADAPTER_ERROR_MESSAGE_MAX_BYTES), ...(details ? { details } : {}) } }
   return validateAdapterEnvelope(envelope as AdapterErrorEnvelope)
 }
@@ -604,16 +542,6 @@ export class AdapterFailure extends Error {
     this.recovery = tuple.recovery
     this.details = details
   }
-}
-
-// WorkStartFailure is the work_start refusal family:
-// the WorkStartEnvelope result is a separate closed host shape with its own
-// kind/reason vocabulary, so its failures keep free kind and reason fields
-// instead of joining the TS7 table. Shared TS7 helpers
-// (resolveAmbientContext, runnerFailure) still throw AdapterFailure, and
-// workStartFailure maps both classes by their kind and recovery.
-class WorkStartFailure extends Error {
-  constructor(readonly kind: string, readonly reason: string, message: string, readonly effect: "none" | "possible" | "partial" = "none", readonly recovery = effect === "none" ? "contact_operator" : "reconcile_operation") { super(message) }
 }
 
 function failureEnvelope(toolName: string, operation: string, requestID: string, error: unknown, fallbackKey: GenericAdapterErrorKey): CoreConcordEnvelope {
@@ -716,24 +644,13 @@ function operationIsMutation(toolName: string, operation: string): boolean {
 // A failed invocation is classified by what its operation kind can have
 // done, through the closed table: every mutation takes the
 // operation-conflict unknown-effect tuple regardless of whether the event
-// was transport or malformed JSON — the transport/malformed kinds cannot
-// carry a possible effect — and the session_vacate branch routes through the
-// vacate constructor, whose state-driven replay resolves the committed
-// relocation request from wherever the session sits (CD-0190 D3). A read
-// cannot have written, so it keeps the transport event the failure names.
+// was transport or malformed JSON. A read cannot have written, so it keeps
+// the transport event the failure names.
 function unknownOutcomeEnvelope(toolName: string, operation: string, requestID: string, transportFailure: boolean, message: string, details?: Record<string, unknown>): CoreConcordEnvelope {
   if (operationIsMutation(toolName, operation)) {
-    if (toolName === "concord_work_transition" && operation === "session_vacate") return vacateError(requestID, "vacate_replay", message, details)
     return adapterError(toolName, operation, requestID, "unknown_effect", message, details)
   }
   return adapterError(toolName, operation, requestID, transportFailure ? "io_failure_retry" : "malformed_core_response_retry", message, details)
-}
-
-// The vacate-specific answer for an unreadable post-commit response: the
-// core may have committed the relocation request, and the state-driven
-// replay resolves it from wherever the session sits.
-function vacateReplayRecovery(message: string): string {
-  return `${message}; the core commits the relocation request before it answers, so replay session_vacate — the state-driven replay resolves the committed request from wherever the session sits and the verified landing releases the rows`
 }
 
 // One classifier for a thrown runner error at any invoke stage: the first
@@ -744,16 +661,13 @@ function vacateReplayRecovery(message: string): string {
 // have written, so it keeps the transport event the error names. A mutation
 // whose child started may have committed before the abort, the timeout, or
 // the crash killed it, so the refusal takes the operation's unknown-outcome
-// classification: a possible effect with the reconcile recovery, or the
-// session_vacate state-driven replay where no work id can drive a
-// reconciliation (CD-0190 D3).
+// classification: a possible effect with the reconcile recovery.
 function invokeRunnerFailureEnvelope(toolName: string, operation: string, requestID: string, error: unknown, signal: AbortSignal, invokeRan: boolean) {
   const failure = runnerFailure(error, signal)
   if ((failure.key === "missing_binary" && !invokeRan) || !operationIsMutation(toolName, operation)) {
     return failureEnvelope(toolName, operation, requestID, failure, "spawn_failure")
   }
-  const replay = toolName === "concord_work_transition" && operation === "session_vacate"
-  return unknownOutcomeEnvelope(toolName, operation, requestID, true, replay ? vacateReplayRecovery(failure.message) : failure.message)
+  return unknownOutcomeEnvelope(toolName, operation, requestID, true, failure.message)
 }
 
 function selectedProductID() {
@@ -812,20 +726,15 @@ async function invokeConcordOperationRaw(toolName: string, args: HostToolArgs, c
   const selectedProduct = selectedProductID() || (ambient.productIDs.length === 1 ? ambient.productIDs[0] : "")
   const envelope: any = concordCallEnvelope(context, sessionDirectory, ambient, selectedProduct)
   const run = async (input: any) => runner.run([concordBinaryPath(), "invoke"], JSON.stringify({ call_envelope: envelope, tool: toolName, operation, input }), context.abort)
-  // An unreadable session_vacate answer leaves the committed relocation
-  // request's state to the replay, so the refusal names that recovery
-  // instead of a reconciliation the operation cannot drive.
-  const vacateOperation = toolName === "concord_work_transition" && operation === "session_vacate"
-  const outcomeMessage = (message: string) => (vacateOperation ? vacateReplayRecovery(message) : message)
   let result: any
   try { result = await run(args.input) } catch (error) { return invokeRunnerFailureEnvelope(toolName, operation, requestID, error, context.abort, false) }
   if (result.exitCode !== 0 && !result.stdout.trim()) {
     if (result.exitCode === CLI_INPUT_REFUSAL_EXIT && result.stdout === "") return cliInputRefusal(toolName, operation, requestID, result.stderr)
-    return unknownOutcomeEnvelope(toolName, operation, requestID, true, outcomeMessage(result.stderr.slice(0, MAX_STDERR)))
+    return unknownOutcomeEnvelope(toolName, operation, requestID, true, result.stderr.slice(0, MAX_STDERR))
   }
   let response: any
   try { response = singleJSON(result.stdout) } catch (error) {
-    return unknownOutcomeEnvelope(toolName, operation, requestID, false, outcomeMessage(String(error)), salvageDetails(result.stdout))
+    return unknownOutcomeEnvelope(toolName, operation, requestID, false, String(error), salvageDetails(result.stdout))
   }
   const skewRefusal = () => {
     const disk = resolveDiskManifestDigest()
@@ -835,11 +744,6 @@ async function invokeConcordOperationRaw(toolName: string, args: HostToolArgs, c
     // is a defect; the operator gets both digests.
     const skewDetail = `core contract digest ${response.manifest_digest} does not match this adapter's ${activeManifestDigest()}; ${diskDetail}; under the pinned release pair this mismatch is a defect, so contact the operator with both digests`
     if (!operationIsMutation(toolName, operation)) return adapterError(toolName, operation, requestID, "manifest_mismatch", skewDetail)
-    // CD-0190 D3: session_vacate names no work id, so a reconcile_operation
-    // recovery cannot drive a reconciliation. The committed relocation
-    // request's recovery is the state-driven replay, which keeps the skew
-    // detail and both digests in the refusal message.
-    if (vacateOperation) return vacateError(requestID, "vacate_replay", vacateReplayRecovery(skewDetail))
     return adapterError(toolName, operation, requestID, "unknown_effect", `${skewDetail}, then reconcile this operation`)
   }
   const contractFailure = coreResponseFailure(response, toolName, operation)
@@ -858,11 +762,11 @@ async function invokeConcordOperationRaw(toolName: string, args: HostToolArgs, c
       try { retryResult = await run(args.input) } catch (error) { return invokeRunnerFailureEnvelope(toolName, operation, requestID, error, context.abort, true) }
       if (retryResult.exitCode !== 0 && !retryResult.stdout.trim()) {
         if (retryResult.exitCode === CLI_INPUT_REFUSAL_EXIT && retryResult.stdout === "" && !operationIsMutation(toolName, operation)) return cliInputRefusal(toolName, operation, requestID, retryResult.stderr)
-        return unknownOutcomeEnvelope(toolName, operation, requestID, true, outcomeMessage(retryResult.stderr.slice(0, MAX_STDERR)))
+        return unknownOutcomeEnvelope(toolName, operation, requestID, true, retryResult.stderr.slice(0, MAX_STDERR))
       }
       let retryResponse: any
       try { retryResponse = singleJSON(retryResult.stdout) } catch (error) {
-        return unknownOutcomeEnvelope(toolName, operation, requestID, false, outcomeMessage(String(error)), salvageDetails(retryResult.stdout))
+        return unknownOutcomeEnvelope(toolName, operation, requestID, false, String(error), salvageDetails(retryResult.stdout))
       }
       if (!coreResponseFailure(retryResponse, toolName, operation)) {
         response = retryResponse
@@ -874,7 +778,7 @@ async function invokeConcordOperationRaw(toolName: string, args: HostToolArgs, c
       return skewRefusal()
     }
   } else if (contractFailure) {
-    return unknownOutcomeEnvelope(toolName, operation, requestID, false, outcomeMessage(`core response failed the generated TS7 contract: ${contractFailure}`), salvageDetails(result.stdout))
+    return unknownOutcomeEnvelope(toolName, operation, requestID, false, `core response failed the generated TS7 contract: ${contractFailure}`, salvageDetails(result.stdout))
   }
   return response as CoreConcordEnvelope;
 }
@@ -886,15 +790,6 @@ function cliInputRefusal(toolName: string, operation: string, requestID: string,
 function requestWorkID(args: HostToolArgs): string | undefined {
   const input = args.input
   return record(input) && saneWorkID(input.work_id) ? input.work_id : undefined
-}
-
-// claimIdentity keeps the durable claim's known work identity on a post-claim
-// refusal, so the reconcile-then-replay diagnostic names what the replay
-// adopts. A request without a sane work id supplies nothing: the missing
-// identity is the reconciliation blocker, never a value to invent.
-function claimIdentity(args: HostToolArgs): Record<string, unknown> | undefined {
-  const workID = requestWorkID(args)
-  return workID === undefined ? undefined : { work_id: workID }
 }
 
 function addErrorDetails(response: CoreConcordEnvelope, details: Record<string, unknown>): CoreConcordEnvelope {
@@ -947,7 +842,7 @@ const workStateReporter = createWorkStateReporter(
 
 // The text-part queue's public face. The plugin's experimental.text.complete
 // hook drains it into the assistant's own message; the tests seed it the same
-// way the gate brief and the worktree-removal notice enqueue.
+// way the gate brief enqueues.
 export function enqueueWorkNotice(sessionID: string, block: string): void {
   workStateReporter.enqueueNotice(sessionID, block)
 }
@@ -965,19 +860,6 @@ function appendWarnings(result: ToolResult, warnings: string[]): ToolResult {
   const suffix = `\n${warnings.join("\n")}`
   if (typeof result === "string") return `${result}${suffix}`
   return { ...result, output: `${result.output}${suffix}` }
-}
-
-// appendMoveNotice drains the notice a confirmed session move recorded during
-// this call and appends it after the envelope line, where the agent reads it.
-// The envelope itself stays schema-clean: the published envelope contract is
-// closed, so the notice rides the same output layer the warnings use. The
-// tool result is the owning surface — it reaches every agent in every
-// repository at the moment of the move, while a repository AGENTS.md line
-// reaches only that repository's agents.
-function appendMoveNotice(result: ToolResult, context: ToolContext): ToolResult {
-  const notice = takeMoveNotice(context.sessionID)
-  if (!notice) return result
-  return appendWarnings(result, [notice])
 }
 
 // CD-0191: release staleness rides the result a stale session already gets.
@@ -1053,415 +935,14 @@ async function executeHostTool(toolName: string, args: HostToolArgs, context: To
   return appendWarnings(await encodeHostToolResult(toolName, args, context, settled), [...warnings, ...extraWarnings])
 }
 
-async function executeHostTransition(args: HostToolArgs, context: ToolContext): Promise<ToolResult> {
-  const staleness = releaseStaleness()
-  const envelope = await executeWorkTransition(args, context, staleness)
-  const { envelope: settled, extraWarnings } = withReleaseStaleness(envelope, staleness)
-  const warnings = await workStateReporter.report(settled, context)
-  return appendMoveNotice(appendWarnings(await encodeHostToolResult("concord_work_transition", args, context, settled), [...warnings, ...extraWarnings]), context)
-}
-
-type WorkStartCaptureArgs = {
-  title: string
-  value_statement: string
-  kind: string
-  task: string
-  idempotency_key: string
-  priority?: number
-  urgency?: string
-  tags?: string[]
-  workflow_type_ref?: string
-  external_ref?: string
-  defect_intake?: {
-    failure_shape: string
-    reproduction: string
-    searched: string
-    related_defect_ids: string[]
-    root_cause_work_id?: string
-  }
-  governing_requirements?: string[]
-  ref?: string
-  // What the change will touch, for the work-size model; it carries no size.
-  size_inputs?: {
-    paths?: string[]
-    behavior?: string
-    security: boolean
-    user_visible: boolean
-    blast_radius: string
-    estimated_production_lines: number
-  }
-}
-
-// Resume carries exactly one selector and no capture fields or Project override.
-// The CLI alone resolves recorded issue keys to canonical work identities.
-type WorkStartResumeArgs = { work_id: string; issue_key?: never } | { issue_key: string; work_id?: never }
-type WorkStartArgs = WorkStartCaptureArgs | WorkStartResumeArgs
-
-// RecordedLinearIssueSection carries only the identity held by the local store.
-type RecordedLinearIssueSection = { human_key: string; remote_issue_uuid: string; url: string }
-
-// ProjectHandoffSection is the bounded addressed handoff a Project-selected
-// work-resume renders (CD-0182 amendment): the durable handoff identity, the
-// bounded repository job, and the exact next action the receiving session
-// must consume through project_handoff_consume before managed execution.
-// The section is visibility only: rendering it consumes nothing and
-// authorizes nothing.
-type ProjectHandoffSection = {
-  handoff_id: string
-  source_project_id: string
-  bounded_job: string
-  changes: string[] | null
-  verification: string[] | null
-  artifact_refs: string[] | null
-  blockers: string[] | null
-  next_action: string
-  recorded_at: string
-}
-
-type WorkStartResume = {
-  schema_version: "1.0"
-  product_id: string
-  project_id: string
-  work_id: string
-  worktree: { set_id: string; path: string; branch: string; base_sha: string; state: "active"; restored?: true; restored_tip?: string; restoration_warning?: string }
-  branch_freshness: BranchFreshness
-  linear_issue?: RecordedLinearIssueSection
-  project_handoff?: ProjectHandoffSection
-}
-
-type WorkStartBootstrap = {
-  schema_version: "1.0"
-  operation_id: string
-  replayed: boolean
-  product_id: string
-  project_id: string
-  work_id: string
-  work_version: number
-  worktree: { set_id: string; path: string; branch: string; base_sha: string; state: "active" }
-}
-
-type WorkStartPrepared = { schema_version: "1.0"; agent: string; directory: string; product_id: string; work_id: string; title: string; prompt: string }
-
-// BranchFreshness is the typed freshness the work-resume child samples for
-// the worktree the session enters: how far its checked-out branch sits
-// behind the origin default branch after one bounded refresh. The unknown
-// status carries only its typed reason and never an authoritative count.
-type BranchFreshness =
-  | { status: "ok"; head_sha: string; default_ref: string; default_sha: string; behind_count: number }
-  | { status: "unknown"; reason: string }
-
-// A refused start can retain a durable capture and claim. Replay adopts them;
-// retry safety does not mean that no effect occurred.
-type WorkStartEffect = "none" | "possible" | "partial"
-type WorkStartEnvelope = {
-  schema_version: "1.0"
-  outcome: "ok" | "error"
-  product_id?: string
-  project_id?: string
-  work_id?: string
-  worktree_path?: string
-  agent?: string
-  session_id?: string | null
-  output?: string
-  linear_issue?: RecordedLinearIssueSection
-  project_handoff?: ProjectHandoffSection
-  branch_freshness?: BranchFreshness
-  error?: { kind: string; retry_safe: boolean; recovery_action: { kind: string }; effect_state: WorkStartEffect; message: string }
-}
-
 function record(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value)
-}
-
-function exactKeys(value: Record<string, unknown>, required: string[]): boolean {
-  return Object.keys(value).length === required.length && required.every((key) => key in value)
-}
-
-function nonEmptyString(value: unknown): value is string {
-  return typeof value === "string" && value.length > 0
-}
-
-const [workStartCaptureBranch, workStartResumeBranch] = hostToolSchemas.concord_work_start.oneOf
-const workStartUsage = `Capture requires ${workStartCaptureBranch.required.join(", ")}. Resume requires exactly one of work_id or issue_key, and names no Project: the resume claims in the Project the calling session resolves. Another Project of this repository is selected through concord_work_transition worktree_claim instead, and another repository needs a host-started session there that resumes by work_id or issue_key. Do not combine capture and resume fields.`
-
-function isWorkStartResumeArgs(value: Record<string, unknown>): value is WorkStartResumeArgs {
-  return "work_id" in value || "issue_key" in value
-}
-
-// The published per-field view cannot enforce the closed capture/resume modes.
-// Select one generated branch so its diagnostics name the applicable fields.
-function validateWorkStartArgs(value: unknown, failures: string[]): value is WorkStartArgs {
-  if (!record(value)) {
-    failures.push("arguments: is not of type object")
-    return false
-  }
-  const branch = isWorkStartResumeArgs(value) ? workStartResumeBranch : workStartCaptureBranch
-  return validateAgainstSchema(branch, value, failures)
-}
-
-function deriveWorkStartProduct(context: AmbientContext): string {
-  const selected = process.env.CONCORD_SELECTED_PRODUCT_ID
-  if (selected !== undefined && selected !== "") {
-    if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(selected) || !context.productIDs.includes(selected)) throw new WorkStartFailure("invalid_input", "product_selection_not_in_project", "selected Product is not a member of the resolved Project")
-    return selected
-  }
-  if (context.productIDs.length !== 1) throw new WorkStartFailure("invalid_input", "ambiguous_product_selection", "the resolved Project does not have one unambiguous Product")
-  return context.productIDs[0]
-}
-
-function validateWorkStartBootstrap(value: unknown): value is WorkStartBootstrap {
-  if (!record(value) || !exactKeys(value, ["schema_version", "operation_id", "replayed", "product_id", "project_id", "work_id", "work_version", "worktree"])) return false
-  if (value.schema_version !== "1.0" || !nonEmptyString(value.operation_id) || typeof value.replayed !== "boolean" || !nonEmptyString(value.product_id) || !nonEmptyString(value.project_id) || !nonEmptyString(value.work_id) || typeof value.work_version !== "number" || !Number.isInteger(value.work_version) || value.work_version < 1 || !record(value.worktree)) return false
-  const worktree = value.worktree
-  return exactKeys(worktree, ["set_id", "path", "branch", "base_sha", "state"])
-    && nonEmptyString(worktree.set_id)
-    && typeof worktree.path === "string" && worktree.path.startsWith("/")
-    && nonEmptyString(worktree.branch) && typeof worktree.base_sha === "string" && /^[0-9a-f]{40}$/.test(worktree.base_sha) && worktree.state === "active"
-}
-
-type WorkStartBootstrapFailure = {
-  schema_version: "1.0"; outcome: "error"; effect_state: WorkStartEffect
-  operation_id?: string; product_id?: string; project_id?: string; work_id?: string; worktree_path?: string
-}
-
-function validateWorkStartBootstrapFailure(value: unknown, productID: string, projectID: string): value is WorkStartBootstrapFailure {
-  if (!record(value) || value.schema_version !== "1.0" || value.outcome !== "error") return false
-  const required = ["schema_version", "outcome", "effect_state"]
-  const identity = ["operation_id", "product_id", "project_id", "work_id", "worktree_path"]
-  if (!required.every(key => key in value) || Object.keys(value).some(key => !required.includes(key) && !identity.includes(key))) return false
-  if (value.effect_state !== "none" && value.effect_state !== "possible" && value.effect_state !== "partial") return false
-  if (value.effect_state !== "partial") return exactKeys(value, required)
-  if (value.product_id !== productID || value.project_id !== projectID || !nonEmptyString(value.operation_id)) return false
-  if ("work_id" in value && !saneWorkID(value.work_id)) return false
-  return !("worktree_path" in value) || (typeof value.worktree_path === "string" && value.worktree_path.startsWith("/"))
-}
-
-function validateWorkStartPrepared(value: unknown, bootstrap: { product_id: string; work_id: string; worktree: { path: string } }, agent: string): value is WorkStartPrepared {
-  if (!record(value) || !exactKeys(value, ["schema_version", "agent", "directory", "product_id", "work_id", "title", "prompt"])) return false
-  return value.schema_version === "1.0"
-    && value.directory === bootstrap.worktree.path
-    && value.product_id === bootstrap.product_id
-    && value.work_id === bootstrap.work_id
-    && value.agent === agent
-    && nonEmptyString(value.agent) && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(value.agent)
-    && nonEmptyString(value.title) && Buffer.byteLength(value.title) <= 256
-    && typeof value.prompt === "string" && value.prompt.length > 0 && Buffer.byteLength(value.prompt) <= 65_536
-}
-
-// validateWorkStartResume is the strict read-back contract for the work-resume
-// child. It mirrors validateWorkStartBootstrap minus the capture-only fields
-// (operation id, replay flag, work version): the active-entry read records
-// nothing, while missing-entry bootstrap keeps those fields outside this
-// shared resume response.
-// linear_issue is the optional locally recorded issue identity.
-// branch_freshness is the typed behind-the-default sample the resume always
-// carries; a fetch or probe failure degrades it to the typed unknown.
-// project_handoff is the optional bounded addressed handoff the core renders
-// for a Project-selected resume (CD-0182 amendment): absent exactly when no
-// handoff addresses the resuming Project under the active contract and the
-// resume carries no standing bind of the resuming session — a consume whose
-// response was lost re-renders the receiver's own bind so its replay
-// recovers the bounded job — and never consumable from this rendering alone.
-function validateWorkStartResume(value: unknown): value is WorkStartResume {
-  if (!record(value)) return false
-  const baseKeys = ["schema_version", "product_id", "project_id", "work_id", "worktree", "branch_freshness"]
-  const optionalKeys = ["linear_issue", "project_handoff"]
-  if (!baseKeys.every((key) => key in value)) return false
-  const extraKeys = Object.keys(value).filter((key) => !baseKeys.includes(key))
-  if (extraKeys.some((key) => !optionalKeys.includes(key))) return false
-  if (value.schema_version !== "1.0" || !nonEmptyString(value.product_id) || !nonEmptyString(value.project_id) || !saneWorkID(value.work_id) || !record(value.worktree)) return false
-  const worktree = value.worktree
-  const restoredKeys = ["restored", "restored_tip", "restoration_warning"]
-  const restorationPresent = restoredKeys.some((key) => key in worktree)
-  const worktreeKeys = ["set_id", "path", "branch", "base_sha", "state", ...(restorationPresent ? restoredKeys : [])]
-  const worktreeOk = exactKeys(worktree, worktreeKeys)
-    && nonEmptyString(worktree.set_id)
-    && typeof worktree.path === "string" && worktree.path.startsWith("/")
-    && nonEmptyString(worktree.branch) && typeof worktree.base_sha === "string" && /^[0-9a-f]{40}$/.test(worktree.base_sha) && worktree.state === "active"
-  if (!worktreeOk) return false
-  if (restorationPresent && (worktree.restored !== true || typeof worktree.restored_tip !== "string" || !/^[0-9a-f]{40}$/.test(worktree.restored_tip) || !nonEmptyString(worktree.restoration_warning) || Buffer.byteLength(worktree.restoration_warning) > 1000)) return false
-  if (!validateBranchFreshness(value.branch_freshness)) return false
-  if ("linear_issue" in value && !validateRecordedLinearIssueSection(value.linear_issue)) return false
-  return !("project_handoff" in value) || validateProjectHandoffSection(value.project_handoff)
-}
-
-function validateRecordedLinearIssueSection(value: unknown): value is RecordedLinearIssueSection {
-  if (!record(value) || !exactKeys(value, ["human_key", "remote_issue_uuid", "url"])) return false
-  const fields = payloadSchemas.work_define_issue_link_record_input.properties
-  return validateAgainstSchema(fields.human_key, value.human_key)
-    && validateAgainstSchema(fields.remote_issue_uuid, value.remote_issue_uuid)
-    && validateAgainstSchema(fields.url, value.url)
-}
-
-// validateProjectHandoffSection is the strict shape for the rendered bounded
-// handoff. Exact keys keep the section closed on both sides; the four list
-// fields accept null because the core marshals an absent list as null, and
-// otherwise carry only bounded non-empty entries.
-function validateProjectHandoffSection(value: unknown): value is ProjectHandoffSection {
-  if (!record(value) || !exactKeys(value, ["handoff_id", "source_project_id", "bounded_job", "changes", "verification", "artifact_refs", "blockers", "next_action", "recorded_at"])) return false
-  const boundedStrings = (values: unknown): values is string[] | null =>
-    values === null || (Array.isArray(values) && values.length <= 16 && values.every(nonEmptyString))
-  return nonEmptyString(value.handoff_id) && value.handoff_id.length <= 256
-    && nonEmptyString(value.source_project_id)
-    && nonEmptyString(value.bounded_job) && Buffer.byteLength(String(value.bounded_job)) <= 4000
-    && boundedStrings(value.changes) && boundedStrings(value.verification) && boundedStrings(value.artifact_refs) && boundedStrings(value.blockers)
-    && nonEmptyString(value.next_action) && Buffer.byteLength(String(value.next_action)) <= 1000
-    && nonEmptyString(value.recorded_at)
-}
-
-const branchFreshnessReasons = new Set(["timeout", "fetch_failed", "probe_failed"])
-
-// isValidOriginDefaultRef mirrors the owning Git-ref contract
-// (git-check-ref-format) for the origin default ref the core reports: the
-// origin prefix plus a branch name git itself accepts, so nested names like
-// origin/release/stable validate. The rules are the negative set git
-// imposes: no control character, space, ~ ^ : ? * [ or backslash anywhere,
-// no "..", no "@{", no leading or trailing slash or double slash, no
-// trailing dot, and no slash-separated component that starts with a dot or
-// ends with ".lock".
-function isValidOriginDefaultRef(value: unknown): value is string {
-  if (typeof value !== "string" || !value.startsWith("origin/")) return false
-  const ref = `refs/remotes/${value}`
-  if (/[\u0000-\u001f\u007f ~^:?*[\\]/.test(ref)) return false
-  if (ref.includes("..") || ref.includes("@{")) return false
-  if (ref.startsWith("/") || ref.endsWith("/") || ref.includes("//")) return false
-  if (ref.endsWith(".")) return false
-  return !ref.split("/").some((component) => component.startsWith(".") || component.endsWith(".lock"))
-}
-
-// validateBranchFreshness is the strict shape for the freshness sample. The
-// ok status carries the sampled SHAs, the default ref, and a nonnegative
-// count; the unknown status carries only its typed reason. The sampled SHAs
-// are string fields: an array or object wrapping the hex fails the contract
-// instead of coercing through String(). The owning contract is
-// contracts/branch-freshness.v1.json, whose generated fixtures this
-// validator is held to in branch_freshness_contract.test.ts.
-export function validateBranchFreshness(value: unknown): value is BranchFreshness {
-  if (!record(value)) return false
-  if (value.status === "ok") {
-    return exactKeys(value, ["status", "head_sha", "default_ref", "default_sha", "behind_count"])
-      && typeof value.head_sha === "string" && /^[0-9a-f]{40}$/.test(value.head_sha)
-      && isValidOriginDefaultRef(value.default_ref)
-      && typeof value.default_sha === "string" && /^[0-9a-f]{40}$/.test(value.default_sha)
-      && typeof value.behind_count === "number" && Number.isInteger(value.behind_count) && value.behind_count >= 0
-  }
-  if (value.status === "unknown") {
-    return exactKeys(value, ["status", "reason"]) && typeof value.reason === "string" && branchFreshnessReasons.has(value.reason)
-  }
-  return false
 }
 
 function boundedUTF8(value: string, maxBytes: number): string {
   if (Buffer.byteLength(value) <= maxBytes) return value
   return new TextDecoder().decode(Buffer.from(value).subarray(0, maxBytes))
 }
-
-function workStartError(kind: string, message: string, identity: Partial<WorkStartEnvelope> = {}, recovery = "retry_same_request", retrySafe = true, extra: Partial<WorkStartEnvelope> = {}, effectState: WorkStartEffect = "none"): WorkStartEnvelope {
-  return {
-    schema_version: "1.0",
-    outcome: "error",
-    ...identity,
-    ...extra,
-    error: {
-      kind,
-      retry_safe: retrySafe,
-      recovery_action: { kind: recovery },
-      effect_state: effectState,
-      message: boundedUTF8(message, MAX_STDERR),
-    },
-  }
-}
-
-// Identity and effect describe retained state, independently of placement or
-// retry safety. A lost child response cannot prove that capture rolled back.
-function workStartFailure(error: unknown, identity: Partial<WorkStartEnvelope>, effectState: WorkStartEffect, fallbackKind: string): WorkStartEnvelope {
-  // A contract defect is never relabeled: executeWorkStart's runner-backed
-  // child calls cross the shared transport helpers, which rethrow the defect
-  // unchanged, so it propagates instead of becoming a work-start refusal.
-  if (error instanceof AdapterContractDefect) throw error
-  const failure = error instanceof WorkStartFailure || error instanceof AdapterFailure ? error : new WorkStartFailure("transport_failure", fallbackKind, String(error))
-  const retrySafe = failure.recovery === "retry_same_request"
-  const continuation = effectState === "partial" && retrySafe ? " The recorded capture or claim remains; after satisfying the recovery conditions above, replay this same work_start request to continue that identity. Do not submit a new capture key." : ""
-  return workStartError(failure.kind, failure.message + continuation, identity, failure.recovery, retrySafe, {}, effectState)
-}
-
-async function runWorkStartChild(argv: string[], input: string, signal: AbortSignal, options?: ChildRunnerOptions) {
-  try { return await runner.run(argv, input, signal, options) } catch (error) { throw runnerFailure(error, signal) }
-}
-
-// The core reports a deterministic session-prepare refusal — invalid input,
-// or a state or identity check that fails the same way until state changes —
-// with this typed exit status, declared in the core's session-prepare help.
-// Classification uses the status alone, never stderr text: replaying the same
-// request cannot clear a refusal, so it maps to contact_operator, while any
-// other session-prepare failure stays retryable.
-export const sessionPrepareRefusalExit = 2
-
-// The core reports a deterministic work-bootstrap refusal — invalid input,
-// an idempotency key bound to different input, or an origin or Project check
-// that fails the same way until state changes — with this typed exit status,
-// declared in the core's work-bootstrap help. Classification uses the status
-// alone, never stderr text: replaying the same request cannot clear a
-// refusal, so it maps to contact_operator, while any other work-bootstrap
-// failure stays retryable.
-export const workBootstrapRefusalExit = 2
-
-// The core reports a deterministic work-resume refusal — invalid input, a
-// Project the invocation does not resolve to, an origin or default-branch
-// check that fails the same way until state changes, or a typed store
-// failure the store marks unsafe to repeat — with this typed exit status,
-// declared in the core's work-resume help. Classification uses the status
-// alone, never stderr text: replaying the same request cannot clear a
-// refusal, so it maps to contact_operator, while any other work-resume
-// failure keeps the retry route. The classification holds at both resume
-// call sites: the initial resume read and the post-landing handoff re-read.
-export const workResumeRefusalExit = 2
-
-// writeSessionGoalTitle names the host session "Goal: <title>" with the title
-// session-prepare derived, so the session list states the objective and the
-// plugin's compaction hook can restate it. The write is best effort: an
-// absent route, an empty title, or a failed call returns a warning message
-// that never changes the completed start.
-async function writeSessionGoalTitle(sessionID: string, title: string, context: ToolContext): Promise<string | null> {
-  if (await hostControlPlane().setSessionTitle(sessionID, `Goal: ${title}`, context.abort)) return null
-  return "Concord could not write the session goal title: the session title route is absent or refused the write."
-}
-
-// executeWorkStart replays to convergence. Each step is idempotent on the
-// request's derived identity, so a replay under the same idempotency_key
-// adopts whatever an earlier attempt left and runs only what is missing:
-//
-  //   1. work-bootstrap derives new work, while work-resume reuses an active
-  //      entry or durably bootstraps a missing entry under the existing work
-  //      identity (issue #891).
-//   2. session-prepare verifies that worktree and derives the boot packet. It
-//      records nothing.
-//   3. moveSession moves the calling session, and is a no-op when the session
-//      already runs there.
-//   4. The host reports the directory the session runs in, and the host tool
-//      context this call runs in must resolve there too. Success is refused
-//      unless both name the claimed worktree (issue #1322): a metadata-only
-//      move — the host accepted the retarget but the tool context has not
-//      landed — refuses and leaves the claimed worktree unarmed, so a replay
-//      after the context lands may succeed.
-//   5. A resume records the verified landing through the core's claim-landing
-//      verb. Its resume read records nothing (CD-0104 D1), so the store holds
-//      no occupancy for the session until the record lands, and the removal
-//      gates (worktree_audit_reclaim, worktree_reclaim) hold the worktree for
-//      the session that runs in it.
-//
-// Capture and claim may already be durable when a later step refuses. Only
-// the host's verified landing proves placement (CD-0098 D3).
-// The receiving side of the v1 Project-session handoff (CD-0182 amendment).
-// After the host readback proves this session landed in its claimed worktree,
-// the adapter binds the addressed handoff to this session through the same
-// invokeConcordOperationRaw transport every adapter surface uses, so the core
-// consume resolves the addressed handoff against the session's authenticated
-// Project and call context and the strict call-envelope validation stays in
-// force. The adapter names no receiver identity, and the core refuses
-// missing, wrong-target, or stale binds closed. A failed consume is a
-// warning, never a bypass: the core's managed-execution admission gate stays
-// closed until the bind stands.
 
 // projectHandoffConsumeKey derives the automatic consume idempotency key from
 // the complete consume identity — work and handoff — through a JSON encoding
@@ -1504,246 +985,13 @@ export async function consumeAddressedProjectHandoff(workID: string, handoffID: 
   return { consumed: false, handoffID: "", message: `the addressed handoff consume refused (${error?.kind ?? "unknown"}): ${refusal}` }
 }
 
-async function executeWorkStart(args: WorkStartArgs, context: ToolContext, warnings: string[]): Promise<WorkStartEnvelope> {
-  let target: { product_id: string; project_id: string; work_id: string; worktree: { path: string } } | null = null
-  let effectState: WorkStartEffect = "none"
-  let retainedIdentity: Partial<WorkStartEnvelope> = {}
-  const resume = record(args) && isWorkStartResumeArgs(args)
-  try {
-    // Input refusals have no effect; correction belongs to the caller.
-    const failures: string[] = []
-    if (!validateWorkStartArgs(args, failures)) throw new WorkStartFailure("invalid_input", "invalid_work_start_input", `work_start arguments failed the host-tool contract: ${failures.join("; ")}. ${workStartUsage} Submit a corrected request; resubmitting unchanged arguments will fail again.`, "none", "correct_request")
-    if (context.abort.aborted) throw new WorkStartFailure("cancelled", "cancelled_no_effect", `work_start was cancelled before ${resume ? "the resume read" : "bootstrap"}`)
-    const ambient = await resolveAmbientContext(context, context.directory)
-    const productID = deriveWorkStartProduct(ambient)
-    // CD-0098 D2 makes the move the only route into the claimed worktree, so
-    // a session that cannot reach its host cannot start work at all. Asking
-    // first keeps that discovery in front of every effect.
-    try {
-      await hostControlPlane().probe(context.sessionID, context.abort)
-    } catch (error) {
-      const detail = error instanceof Error ? error.message : String(error)
-      throw new WorkStartFailure(
-        "unreachable",
-        "control_plane_unreachable",
-        // CD-0098 D2 reaches the host through the client the plugin factory
-        // hands the adapter, never through a URL it rebuilds, so a separate
-        // server supplies nothing this probe needs. The remedy names what the
-        // operator can actually change: the build this session runs on.
-        `${detail}; nothing was captured or claimed. Concord reaches the host through the client the plugin factory hands it, so running a separate server does not supply one: restart this session on an OpenCode build that hands plugins a client and serves the session routes`,
-        "none",
-        "contact_operator",
-      )
-    }
-    try {
-      await hostControlPlane().manageSession(context.sessionID, context.abort)
-    } catch (error) {
-      throw new WorkStartFailure("unreachable", "managed_scope_unavailable", error instanceof Error ? error.message : String(error), "none", "contact_operator")
-    }
-    let prepareTask: string
-    let recordedIssue: RecordedLinearIssueSection | undefined
-    let renderedHandoff: ProjectHandoffSection | undefined
-    let resumeFreshness: BranchFreshness | undefined
-    if (resume) {
-      const selector = args as WorkStartResumeArgs
-      // The CLI resolves the selector within the calling session's scope.
-      effectState = "possible"
-      const resumed = await runWorkStartChild([concordBinaryPath(), "work-resume"], JSON.stringify({ product_id: productID, project_id: ambient.projectID, ...selector, session_ref: context.sessionID, call_envelope: concordCallEnvelope(context, context.directory, ambient, productID) }), context.abort, { cwd: context.directory })
-      if (resumed.exitCode === workResumeRefusalExit) throw new WorkStartFailure("resume_failure", "resume_refused", resumed.stderr.slice(0, MAX_STDERR), "none", "contact_operator")
-      if (resumed.exitCode !== 0) throw new WorkStartFailure("resume_failure", "resume_refused", resumed.stderr.slice(0, MAX_STDERR), "none", "retry_same_request")
-      let resumedValue: unknown
-      try { resumedValue = singleJSON(resumed.stdout) } catch (error) { throw new WorkStartFailure("malformed_response", "malformed_resume_response", String(error), "none", "retry_same_request") }
-      if (!validateWorkStartResume(resumedValue) || resumedValue.product_id !== productID || resumedValue.project_id !== ambient.projectID || (selector.work_id !== undefined ? resumedValue.work_id !== selector.work_id : resumedValue.linear_issue?.human_key !== selector.issue_key)) throw new WorkStartFailure("malformed_response", "malformed_resume_response", "work-resume response failed the strict resume contract", "none", "retry_same_request")
-      target = resumedValue
-      effectState = "partial"
-      recordedIssue = resumedValue.linear_issue
-      renderedHandoff = resumedValue.project_handoff
-      resumeFreshness = resumedValue.branch_freshness
-      if (resumedValue.worktree.restored) warnings.push(`${resumedValue.worktree.restoration_warning} Restored tip: ${resumedValue.worktree.restored_tip}`)
-      prepareTask = ""
-    } else {
-      const capture = args as WorkStartCaptureArgs
-      // host_pid gives the bootstrap claim's occupancy row its process
-      // identity from creation (CD-0179); the landing re-records it.
-      const bootstrapInput = { product_id: productID, project_id: ambient.projectID, ...capture, session_ref: context.sessionID, host_pid: process.pid }
-      effectState = "possible"
-      const boot = await runWorkStartChild([concordBinaryPath(), "work-bootstrap"], JSON.stringify(bootstrapInput), context.abort, { cwd: context.directory })
-      if (boot.exitCode !== 0 && boot.stdout.trim() !== "") {
-        let failureValue: unknown
-        try { failureValue = singleJSON(boot.stdout) } catch { /* Unknown output cannot prove no effect. */ }
-        if (validateWorkStartBootstrapFailure(failureValue, productID, ambient.projectID)) {
-          effectState = failureValue.effect_state
-          if (effectState === "partial") retainedIdentity = {
-            product_id: failureValue.product_id, project_id: failureValue.project_id,
-            work_id: failureValue.work_id, worktree_path: failureValue.worktree_path,
-          }
-        }
-      }
-      if (boot.exitCode === workBootstrapRefusalExit) throw new WorkStartFailure("bootstrap_failure", "bootstrap_refused", boot.stderr.slice(0, MAX_STDERR), "none", "contact_operator")
-      if (boot.exitCode !== 0) throw new WorkStartFailure("bootstrap_failure", "bootstrap_failed", boot.stderr.slice(0, MAX_STDERR), "none", "retry_same_request")
-      let bootValue: unknown
-      try { bootValue = singleJSON(boot.stdout) } catch (error) { throw new WorkStartFailure("malformed_response", "malformed_bootstrap_response", String(error), "none", "retry_same_request") }
-      if (!validateWorkStartBootstrap(bootValue) || bootValue.product_id !== productID || bootValue.project_id !== ambient.projectID) throw new WorkStartFailure("malformed_response", "malformed_bootstrap_response", "work-bootstrap response failed the strict bootstrap contract", "none", "retry_same_request")
-      target = bootValue
-      effectState = "partial"
-      prepareTask = capture.task
-    }
-
-    if (context.abort.aborted) throw new WorkStartFailure("cancelled", "cancelled_after_bootstrap", `work_start was cancelled after ${resume ? "the resume read" : "bootstrap"}; replay the same idempotency_key to resume`, "none", "retry_same_request")
-    try {
-      await ensureConductLink(target.worktree.path, context.abort)
-    } catch (error) {
-      throw new WorkStartFailure("transport_failure", "conduct_link_failed", error instanceof Error ? error.message : String(error), "none", "contact_operator")
-    }
-    // session-prepare verifies the ACTIVE host agent: the request carries the
-    // agent this session runs as (context.agent), the core resolves that
-    // agent's definition and registry entry, and the read-back must name the
-    // same agent. A core that answers with any other agent fails the strict
-    // contract below.
-    const prepared = await runWorkStartChild([concordBinaryPath(), "session-prepare"], JSON.stringify({ product_id: target.product_id, work_id: target.work_id, task: prepareTask, agent: context.agent }), context.abort, { cwd: target.worktree.path })
-    if (prepared.exitCode === sessionPrepareRefusalExit) throw new WorkStartFailure("session_prepare_failure", "session_prepare_refused", prepared.stderr.slice(0, MAX_STDERR), "none", "contact_operator")
-    if (prepared.exitCode !== 0) throw new WorkStartFailure("session_prepare_failure", "session_prepare_failed", prepared.stderr.slice(0, MAX_STDERR), "none", "retry_same_request")
-    let preparedValue: unknown
-    try { preparedValue = singleJSON(prepared.stdout) } catch (error) { throw new WorkStartFailure("malformed_response", "malformed_prepare_response", String(error), "none", "retry_same_request") }
-    if (!validateWorkStartPrepared(preparedValue, target, context.agent)) throw new WorkStartFailure("malformed_response", "malformed_prepare_response", "session-prepare response failed the strict prepare contract", "none", "retry_same_request")
-    const agent = preparedValue.agent
-
-    if (context.abort.aborted) throw new WorkStartFailure("cancelled", "cancelled_before_move", "work_start was cancelled before the move; replay the same idempotency_key to resume", "none", "retry_same_request")
-    // CD-0098 D2. The move is the only route to the worktree. An absent route
-    // refuses here; what the capture recorded (or the resume read) stays
-    // adoptable rather than being rolled back for a host-capability gap the
-    // operator can repair.
-    try {
-      await hostControlPlane().moveSession(context.sessionID, target.worktree.path, context.abort)
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error)
-      if (error instanceof MoveSessionUnavailable) {
-        throw new WorkStartFailure("unreachable", "move_session_route_unavailable", message, "none", "contact_operator")
-      }
-      throw new WorkStartFailure("transport_failure", "move_session_refused", message, "none", "retry_same_request")
-    }
-    // Read the destination back from the host. An accepted but unconfirmed
-    // move retains its pending target so placement recovery can finish it.
-    let landed: string
-    try {
-      landed = await hostControlPlane().sessionDirectory(context.sessionID, context.abort)
-    } catch (error) {
-      recordUnlandedClaimedWorktree(context.sessionID, target.worktree.path)
-      throw new WorkStartFailure("malformed_response", "session_directory_unreadable", error instanceof Error ? error.message : String(error), "none", "retry_same_request")
-    }
-    if (!samePath(landed, target.worktree.path)) {
-      recordUnlandedClaimedWorktree(context.sessionID, target.worktree.path)
-      throw new WorkStartFailure("session_directory_mismatch", "move_destination_mismatch", `the session moved to ${JSON.stringify(landed)} rather than the claimed worktree ${JSON.stringify(target.worktree.path)}`, "none", "retry_same_request")
-    }
-    // Metadata readback does not change this call's executing context. A native
-    // continuation can open a fresh turn, but cannot stand in for its proof.
-    if (!samePath(context.directory, target.worktree.path)) {
-      recordUnlandedClaimedWorktree(context.sessionID, target.worktree.path)
-      const scheduled = queueWorkStartContinuation(args, context, target.worktree.path, target.work_id)
-      const recovery = scheduled ? "Concord scheduled one automatic continuation after this run ends; end this turn without requesting another operator message." : "The automatic continuation for this move is unavailable or already spent; no automatic retry cycle will run."
-      throw new WorkStartFailure("session_directory_mismatch", "move_context_not_landed", `the host reports the session in the claimed worktree ${JSON.stringify(target.worktree.path)}, but this session's tool context still resolves in ${JSON.stringify(context.directory)}, so the move has not landed: Concord reports no success, arms no claimed worktree, and this refusal arms no turn-move boundary. ${recovery} A continuation or new message is not placement proof: confirm from the new turn's actual tool context, for example the shell working directory, that it actually resolves in ${JSON.stringify(target.worktree.path)}; only then replay this same work_start request.`, "none", "retry_same_request")
-    }
-    // A resumed session claims no worktree: the read that derives its active
-    // worktree records nothing (CD-0104 D1), so the store holds no occupancy
-    // for it. Once both readbacks name the worktree, the landing records
-    // itself through the same claim-landing owner the verified claim route
-    // uses, so worktree_audit_reclaim and worktree_reclaim hold the worktree
-    // for the session that runs in it. The record replays idempotently.
-    // Occupancy never refuses the move (CD-0104 D5, CD-0119): the session has
-    // landed, so a refused record is a warning and the start still succeeds.
-    // A worktree another live session occupies is already held by that
-    // recorded occupant.
-    let landingRecorded = false
-    if (resume) {
-      try {
-        await recordClaimLanding(target.work_id, context.sessionID, target.worktree.path, context.abort)
-        landingRecorded = true
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error)
-        if (renderedHandoff) {
-          // Fail closed on a handoff-bearing boot: without the recorded
-          // occupancy the core admission gate cannot resolve this session's
-          // Project, so managed execution would refuse. Reporting success
-          // here would boot the session into a state where every
-          // consequential action refuses.
-          throw new WorkStartFailure("resume_failure", "claim_landing_unrecorded", `Concord did not record this session as the occupant of ${target.worktree.path}: ${message}. The addressed Project handoff requires verified placement before managed execution; replay work_start to retry the record.`, "none", "retry_same_request")
-        }
-        warnings.push(`Concord did not record this session as the occupant of ${target.worktree.path}: ${message}. The worktree removal gates may not hold it for this session; replay work_start to retry the record.`)
-      }
-    }
-    // A consumed handoff renders only after verified placement. Re-read once
-    // after landing so a receiving coordinator sees its bounded assignment.
-    if (resume && !renderedHandoff && landingRecorded) {
-      const refreshed = await runWorkStartChild([concordBinaryPath(), "work-resume"], JSON.stringify({ product_id: target.product_id, project_id: target.project_id, work_id: target.work_id, session_ref: context.sessionID, call_envelope: concordCallEnvelope(context, context.directory, ambient, target.product_id) }), context.abort, { cwd: context.directory })
-      if (refreshed.exitCode === workResumeRefusalExit) throw new WorkStartFailure("resume_failure", "resume_refused", `the post-landing handoff re-read refused: ${refreshed.stderr.slice(0, MAX_STDERR)}`, "none", "contact_operator")
-      if (refreshed.exitCode !== 0) throw new WorkStartFailure("resume_failure", "resume_refused", `the post-landing handoff re-read refused: ${refreshed.stderr.slice(0, MAX_STDERR)}`, "none", "retry_same_request")
-      let refreshedValue: unknown
-      try { refreshedValue = singleJSON(refreshed.stdout) } catch (error) { throw new WorkStartFailure("malformed_response", "malformed_resume_response", `the post-landing handoff re-read failed the strict resume contract: ${String(error)}`, "none", "retry_same_request") }
-      if (!validateWorkStartResume(refreshedValue) || refreshedValue.product_id !== target.product_id || refreshedValue.project_id !== target.project_id || refreshedValue.work_id !== target.work_id) throw new WorkStartFailure("malformed_response", "malformed_resume_response", "the post-landing handoff re-read failed the strict resume contract", "none", "retry_same_request")
-      renderedHandoff = refreshedValue.project_handoff
-      if (refreshedValue.worktree.restored) warnings.push(`${refreshedValue.worktree.restoration_warning} Restored tip: ${refreshedValue.worktree.restored_tip}`)
-    }
-    // The verified placement arms the receiving side of the Project-session
-    // handoff (CD-0182 amendment): the addressed handoff binds to this
-    // session before any managed execution it issues. The boot consumes
-    // exactly the handoff the resume rendered, by its own id, through the
-    // authenticated boundary; a boot whose rendered handoff does not bind
-    // refuses and arms no claimed worktree, because the core admission gate
-    // stays closed until a typed consume succeeds.
-    if (renderedHandoff) {
-      const handoff = await consumeAddressedProjectHandoff(target.work_id, renderedHandoff.handoff_id, context, { sessionDirectory: target.worktree.path, ambient })
-      if (!handoff.consumed) {
-        throw new WorkStartFailure("resume_failure", "project_handoff_unconsumed", `Concord did not consume the addressed Project handoff for ${target.work_id}: ${handoff.message ?? "the consume refused"}. Managed execution stays gated until a typed consume succeeds.`, "none", "retry_same_request")
-      }
-    }
-    // Remember the active claim only after landing and handoff consumption,
-    // so later relocation cannot act on an unconfirmed destination.
-    armClaimedWorktree(context.sessionID, target.worktree.path)
-    clearWorkStartContinuation(context.sessionID)
-    // The session title names the goal the session-prepare contract derived.
-    // Like the closure receipt it sits after every refusal point and never
-    // changes the outcome the envelope reports.
-    const titleWarning = await writeSessionGoalTitle(context.sessionID, preparedValue.title, context)
-    if (titleWarning) warnings.push(titleWarning)
-    return {
-      schema_version: "1.0",
-      outcome: "ok",
-      product_id: target.product_id,
-      project_id: target.project_id,
-      work_id: target.work_id,
-      worktree_path: target.worktree.path,
-      agent,
-      session_id: context.sessionID,
-      // The move notice replaces the bare runs-in line: the agent needs the
-      // new path, the paths-under-it rule, and the stale surfaces, not only
-      // the fact of the move. A rendered handoff appends the bounded job and
-      // next action so the receiving session holds both without the envelope.
-      output: renderedHandoff
-        ? `${moveNoticeText(target.worktree.path, questionRequiresNormalChat(context.sessionID))} Bounded job: ${renderedHandoff.bounded_job} Next action: ${renderedHandoff.next_action}`
-        : moveNoticeText(target.worktree.path, questionRequiresNormalChat(context.sessionID)),
-      ...(recordedIssue ? { linear_issue: recordedIssue } : {}),
-      // The consumed handoff's bounded job rides the result so the receiving
-      // session holds its repository job and exact next action without the
-      // operator copying context (CD-0182 amendment).
-      ...(renderedHandoff ? { project_handoff: renderedHandoff } : {}),
-      // The branch freshness sample rides the resume result into the
-      // envelope so the resuming session sees how far its branch sits
-      // behind the origin default branch before it builds on it.
-      ...(resumeFreshness ? { branch_freshness: resumeFreshness } : {}),
-    }
-  } catch (error) {
-    const identity = target ? { product_id: target.product_id, project_id: target.project_id, work_id: target.work_id, worktree_path: target.worktree.path } : retainedIdentity
-    return workStartFailure(error, identity, effectState, "work_start_failed")
-  }
-}
-
 export const product_view = tool({ description: "Concord product view", args: argsSchema("concord_product_view"), execute: (args: HostToolCall, context: ToolContext): Promise<ToolResult> => executeHostTool("concord_product_view", hostRequest(args), context) })
 export const work_browse = tool({ description: "Concord work browse", args: argsSchema("concord_work_browse"), execute: (args: HostToolCall, context: ToolContext): Promise<ToolResult> => executeHostTool("concord_work_browse", hostRequest(args), context) })
 export const work_trace = tool({ description: "Concord work trace", args: argsSchema("concord_work_trace"), execute: (args: HostToolCall, context: ToolContext): Promise<ToolResult> => executeHostTool("concord_work_trace", hostRequest(args), context) })
 export const knowledge = tool({ description: "Concord knowledge", args: argsSchema("concord_knowledge"), execute: (args: HostToolCall, context: ToolContext): Promise<ToolResult> => executeHostTool("concord_knowledge", hostRequest(args), context) })
 export const work_define = tool({ description: "Concord work define", args: argsSchema("concord_work_define"), execute: (args: HostToolCall, context: ToolContext): Promise<ToolResult> => executeHostTool("concord_work_define", hostRequest(args), context) })
 export const domain = tool({ description: "Concord domain", args: argsSchema("concord_domain"), execute: (args: HostToolCall, context: ToolContext): Promise<ToolResult> => executeHostTool("concord_domain", hostRequest(args), context) })
-export const work_transition = tool({ description: "Concord work transition. Use operation workflow_action for declared workflow actions, including record_review and record_verdict. Route discovery does not prove admission at the current workflow step.", args: argsSchema("concord_work_transition"), execute: (args: HostToolCall, context: ToolContext): Promise<ToolResult> => executeHostTransition(hostRequest(args), context) })
+export const work_transition = tool({ description: "Concord work transition. Use operation workflow_action for declared workflow actions, including record_review and record_verdict. Route discovery does not prove admission at the current workflow step.", args: argsSchema("concord_work_transition"), execute: (args: HostToolCall, context: ToolContext): Promise<ToolResult> => executeHostTool("concord_work_transition", hostRequest(args), context) })
 export const work_relate = tool({
   description: "Concord work relate",
   args: argsSchema("concord_work_relate"),
@@ -1753,368 +1001,7 @@ export const work_relate = tool({
     const envelope = await invokeConcordOperation("concord_work_relate", request, context)
     const { envelope: settled, extraWarnings } = withReleaseStaleness(envelope, staleness)
     const warnings = operationIsMutation("concord_work_relate", request.operation) ? await workStateReporter.report(settled, context) : []
-    return appendMoveNotice(appendWarnings(await encodeHostToolResult("concord_work_relate", request, context, settled), [...warnings, ...extraWarnings]), context)
+    return appendWarnings(await encodeHostToolResult("concord_work_relate", request, context, settled), [...warnings, ...extraWarnings])
   },
 })
 export const work_compact = tool({ description: "Concord work compact", args: argsSchema("concord_work_compact"), execute: (args: HostToolCall, context: ToolContext): Promise<ToolResult> => executeHostTool("concord_work_compact", hostRequest(args), context) })
-export const work_start = tool({ description: `${hostToolDescriptions.concord_work_start} ${workStartUsage}`, args: workStartArgsSchema(), execute: async (args: any, context: ToolContext): Promise<ToolResult> => {
-  const staleness = releaseStaleness()
-  // The work_start result envelope is the adapter's own closed shape with no
-  // warnings member, so the staleness notice rides the output layer the
-  // start already uses for best-effort warnings (CD-0191).
-  const warnings: string[] = staleness ? [stalenessSummary(staleness)] : []
-  const envelope = await executeWorkStart(args as WorkStartArgs, context, warnings)
-  let output = JSON.stringify(envelope)
-  if (Buffer.byteLength(output) > maxEnvelopeBytes) output = JSON.stringify(workStartError("output_exceeded", `work_start result exceeds ${maxEnvelopeBytes} bytes`, { product_id: envelope.product_id, project_id: envelope.project_id, work_id: envelope.work_id, worktree_path: envelope.worktree_path }))
-  return appendWarnings({ title: "concord_work_start", output, metadata: {} }, warnings)
-} })
-
-// reportWorktreeRemoval puts the completed removal in front of the operator.
-// The agent that made the call may end its turn without relaying anything, and
-// the session that was running in a neighbouring worktree has no other way to
-// learn the directory is gone. The notice rides the text-part channel: the
-// plugin's experimental.text.complete hook appends it to the assistant's own
-// message, so delivery needs no host route at all.
-async function reportWorktreeRemoval(args: HostToolArgs, context: ToolContext, envelope: HostConcordEnvelope): Promise<void> {
-  if (!record(envelope) || envelope.outcome !== "ok") return
-  const workID = typeof args.input?.work_id === "string" ? args.input.work_id : "unknown work"
-  workStateReporter.enqueueNotice(context.sessionID, `Concord removed the worktree of ${workID}.`)
-}
-
-// A durable claim does not prove host placement. Read back the landing and
-// name replay on a miss; the idempotent claim lets replay retry only placement.
-export async function moveSessionToClaimedWorktree(args: HostToolArgs, context: ToolContext, envelope: HostConcordEnvelope): Promise<HostConcordEnvelope> {
-  if (args?.operation !== "worktree_claim") return envelope
-  if (!record(envelope) || envelope.outcome !== "ok") return envelope
-  const requestID = `${context.sessionID}-${context.messageID}`
-  const result = envelope.result
-  const path = record(result) ? result.path : undefined
-  if (typeof path !== "string" || !path.startsWith("/")) {
-    return adapterError("concord_work_transition", "worktree_claim", requestID, "unknown_effect", "core worktree_claim response did not carry an absolute derived destination; the claim is durable: reconcile the recorded claim, then replay the same worktree_claim request to finish host placement", claimIdentity(args))
-  }
-  try {
-    await ensureConductLink(path, context.abort)
-    await hostControlPlane().moveSession(context.sessionID, path, context.abort)
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error)
-    return adapterError("concord_work_transition", "worktree_claim", requestID, "unknown_effect", `${message}; the claim is durable: reconcile the recorded claim, then replay the same worktree_claim request to finish host placement`, claimIdentity(args))
-  }
-  // Retain an accepted but unconfirmed destination for placement recovery.
-  let landed: string
-  try {
-    landed = await hostControlPlane().sessionDirectory(context.sessionID, context.abort)
-  } catch (error) {
-    recordUnlandedClaimedWorktree(context.sessionID, path)
-    const message = error instanceof Error ? error.message : String(error)
-    return adapterError("concord_work_transition", "worktree_claim", requestID, "unknown_effect", `${message}; the claim is durable: reconcile the recorded claim, then replay the same worktree_claim request to finish placement and landing`, claimIdentity(args))
-  }
-  if (!samePath(landed, path)) {
-    recordUnlandedClaimedWorktree(context.sessionID, path)
-    return adapterError("concord_work_transition", "worktree_claim", requestID, "unknown_effect", `the claim recorded ${JSON.stringify(path)} but the session runs in ${JSON.stringify(landed)}; the claim is durable: reconcile the recorded claim, then replay the same worktree_claim request to finish host placement`, claimIdentity(args))
-  }
-  // The verified landing is recorded in the core: one transaction confirms
-  // the destination row is active and occupied by this session, clears this
-  // session's occupancy on its other active rows of the same work item, and
-  // appends one durable event. A landing the core refuses records nothing, so
-  // every source row stays occupied — the conservative direction for the
-  // removal gate — and replaying worktree_claim adopts the durable claim and
-  // retries the move and the landing record.
-  const input = args.input
-  const workID = record(input) ? input.work_id : undefined
-  if (typeof workID !== "string" || workID === "") {
-    return adapterError("concord_work_transition", "worktree_claim", requestID, "unknown_effect", "the claim's landing verified by readback carries no work id to record it under; the original work identity needs repair before the landing can be reconciled: reconcile the recorded claim, then replay the same worktree_claim request with the corrected identity")
-  }
-  try {
-    await recordClaimLanding(workID, context.sessionID, path, context.abort)
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error)
-    // The landing verb commits before it answers, so a refused call leaves
-    // the landing record unsettled rather than absent: the diagnostic reports
-    // the possible effect and the replay that confirms or completes it, and
-    // never asserts that nothing was recorded.
-    return adapterError("concord_work_transition", "worktree_claim", requestID, "unknown_effect", `${message}; the landing record is unsettled because the verb commits before it answers and the source occupancy stands: reconcile the recorded claim, then replay the same worktree_claim request to confirm or complete the landing record`, claimIdentity(args))
-  }
-  // Remember only the confirmed active claim for later relocation.
-  armClaimedWorktree(context.sessionID, path)
-  clearWorkStartContinuation(context.sessionID)
-  if (!samePath(context.directory, path)) armTurnMoveBoundary(context.sessionID)
-  // The confirmed move is a fact the agent must act on, so the result this
-  // call encodes carries the notice: the new path, the paths-under-it rule,
-  // and the surfaces the move made stale.
-  recordMoveNotice(context.sessionID, moveNoticeText(path, questionRequiresNormalChat(context.sessionID)))
-  return envelope
-}
-
-// recordClaimLanding runs the adapter-only claim-landing verb. The
-// verb is not an agent tool operation, like host-lease: the agent names
-// nothing, and the core refuses any landing its projection does not already
-// hold true. host_pid names this OpenCode process, which holds the session;
-// the core reads its start time from /proc and ends the occupancy when the
-// process ends.
-async function recordClaimLanding(workID: string, sessionRef: string, landedDirectory: string, signal: AbortSignal): Promise<void> {
-  const result = await runner.run([concordBinaryPath(), "claim-landing"], JSON.stringify({ work_id: workID, session_ref: sessionRef, landed_directory: landedDirectory, host_pid: process.pid }), signal)
-  if (result.exitCode !== 0) {
-    throw new Error(`claim-landing failed with exit ${result.exitCode}: ${result.stderr.slice(0, 400)}`)
-  }
-}
-
-// recordVacateLanding runs the adapter-only vacate-landing verb, mirroring
-// claim-landing. The agent names nothing, and the core verifies the landed
-// path against the committed relocation request before it releases the
-// session's occupancy rows. The adapter calls it only after the host readback
-// names the registered main checkout, so the landing the core records is
-// evidence, and every refusal leaves occupancy standing for the CD-0096 D3
-// removal gate.
-async function recordVacateLanding(workID: string, sessionRef: string, landedDirectory: string, signal: AbortSignal): Promise<void> {
-  const result = await runner.run([concordBinaryPath(), "vacate-landing"], JSON.stringify({ work_id: workID, session_ref: sessionRef, landed_directory: landedDirectory, host_pid: process.pid }), signal)
-  if (result.exitCode !== 0) {
-    throw new Error(`vacate-landing failed with exit ${result.exitCode}: ${result.stderr.slice(0, 400)}`)
-  }
-}
-
-// moveSessionToRegisteredMainCheckout applies the core-derived vacate target.
-// The agent can request the operation but cannot name or replace its destination.
-// premoved reports that the caller already moved the host session to the
-// remembered destination in this turn, so the verified landing arms the turn
-// move boundary before the notice is rendered from it.
-export async function moveSessionToRegisteredMainCheckout(args: HostToolArgs, context: ToolContext, envelope: HostConcordEnvelope, premoved = false): Promise<HostConcordEnvelope> {
-  if (args?.operation !== "session_vacate") return envelope
-  const requestID = `${context.sessionID}-${context.messageID}`
-  const input = args.input
-  if (!record(input) || Object.keys(input).some((key) => key === "destination" || key === "destination_directory" || key === "path")) {
-    // The composed routes strip a destination before the core call, so this
-    // refusal is pre-commit. A caller that reaches it on an ok envelope
-    // reports the recorded relocation request truthfully instead: the
-    // request stands, so the state-driven replay is the recovery.
-    const committed = record(envelope) && envelope.outcome === "ok"
-    if (committed) return vacateError(requestID, "vacate_replay", "session_vacate derives the registered main checkout and refuses an agent-named destination; the relocation request stands, replay session_vacate from wherever the session sits to resolve it")
-    return adapterError("concord_work_transition", "session_vacate", requestID, "invalid_tool_input", "session_vacate derives the registered main checkout and refuses an agent-named destination")
-  }
-  if (!record(envelope) || envelope.outcome !== "ok") return envelope
-  const result = envelope.result
-  const destination = record(result) ? result.destination_directory : undefined
-  if (typeof destination !== "string" || !destination.startsWith("/")) {
-    return vacateError(requestID, "vacate_replay", "core session_vacate response did not carry an absolute derived destination")
-  }
-  // The core committed the relocation request (a fresh request or a replay
-  // resolution), so the adapter keeps its registered main checkout for this
-  // session: a later session_vacate first moves the host session there and
-  // resolves the core call from it, so the pending-request replay and the
-  // readback-verified landing run from wherever the host session sits
-  // (CD-0190 D3). The verified landing clears it with the claimed worktree.
-  recordPendingVacateDestination(context.sessionID, destination)
-  // The host readback, not the tool context, decides whether the move runs.
-  // A stale tool context can name the registered main checkout while the
-  // host session still sits in the source worktree, and a move skipped on
-  // that name strands the standing request behind a mismatch no retry can
-  // clear (CD-0190 D3). A readback that fails moves. A replay that resolves
-  // a pending landing arrives with the readback already naming the
-  // registered main checkout, so its move is skipped and the readback below
-  // still verifies the landing before the vacate-landing verb records it.
-  // The core vacate committed the relocation request, so every refusal from
-  // here on reports a possible effect: the request stands and the occupancy
-  // rows wait for the landing.
-  let hostDirectory: string | null = null
-  try { hostDirectory = await hostControlPlane().sessionDirectory(context.sessionID, context.abort) } catch { hostDirectory = null }
-  let moved = false
-  if (hostDirectory === null || !samePath(hostDirectory, destination)) {
-    try {
-      await hostControlPlane().moveSession(context.sessionID, destination, context.abort)
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error)
-      // A move route the host cannot serve makes the replay unreachable, so
-      // the operator is the recovery; any other refusal keeps the replay,
-      // and both keep the committed request's destination named.
-      if (error instanceof MoveSessionUnavailable) return vacateError(requestID, "vacate_unavailable", `${message}; the committed relocation request stands and names ${JSON.stringify(destination)} as its registered main checkout`)
-      return vacateError(requestID, "vacate_replay", `${message}; the committed relocation request stands and names ${JSON.stringify(destination)} as its registered main checkout`)
-    }
-    moved = true
-  }
-  let landed: string
-  try {
-    landed = await hostControlPlane().sessionDirectory(context.sessionID, context.abort)
-  } catch (error) {
-    return vacateError(requestID, "vacate_replay", error instanceof Error ? error.message : String(error))
-  }
-  if (!samePath(landed, destination)) {
-    // The relocation request stands, so the effect is possible. When the
-    // adapter remembers this request's destination, a retry is reachable
-    // from wherever the host session sits: it first moves the session to
-    // the remembered destination and resolves the core call from there. A
-    // retry without that memory (an adapter restart) resolves its Project
-    // from the landed directory and refuses before the pending-request
-    // replay can run, so only the remembered request offers the retry and
-    // every other state reports contact_operator (CD-0190 D3).
-    const reachable = pendingVacateDestination(context.sessionID) === destination
-    return vacateError(requestID, reachable ? "vacate_replay" : "vacate_unavailable", `the session landed in ${JSON.stringify(landed)} rather than the registered main checkout ${JSON.stringify(destination)}`)
-  }
-  // The host readback names the registered main checkout, so the verified
-  // landing records itself through the same adapter-only landing owner the
-  // claim route uses. The core vacate committed only the relocation request
-  // and left every occupancy row standing; the landing releases the
-  // session's rows in one transaction. The landing verb commits before it
-  // answers, so a failed call reports the possible effect and the replay
-  // confirms or completes the record; a landing the core refuses records
-  // nothing, so the source occupancy stands and the removal gate never sees
-  // a live session's worktree as empty.
-  const workID = record(result) ? result.work_id : undefined
-  if (typeof workID !== "string" || workID === "") {
-    return vacateError(requestID, "vacate_replay", "the vacate's landing verified by readback carries no work id to record it under; replay session_vacate to re-read the committed request instead of naming a work id")
-  }
-  try {
-    await recordVacateLanding(workID, context.sessionID, destination, context.abort)
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error)
-    // The vacate-landing verb commits before it answers, so a failed call
-    // may have recorded the landing and released the rows. The refusal
-    // never asserts the landing is not recorded: it reports the possible
-    // effect and the replay that confirms or completes the record
-    // (CD-0190 D3).
-    return vacateError(requestID, "vacate_replay", `${message}; the landing may be recorded because the verb commits before it answers, so replay session_vacate from the verified destination to confirm or complete the landing record`)
-  }
-  // The verified landing released the occupancy rows, so no claimed worktree
-  // is armed for this session any more.
-  clearClaimedWorktree(context.sessionID)
-  clearWorkStartContinuation(context.sessionID)
-  // A move the host readback decided completed in this turn even when a
-  // stale tool context already names the destination, so the move fact, not
-  // the tool context, arms the boundary. A caller's pre-move counts as the
-  // same move fact.
-  if (premoved || moved || !samePath(context.directory, destination)) armTurnMoveBoundary(context.sessionID)
-  // The verified landing moved the session to the registered main checkout,
-  // so the result this call encodes carries the move notice.
-  recordMoveNotice(context.sessionID, moveNoticeText(destination, questionRequiresNormalChat(context.sessionID)))
-  return envelope
-}
-
-// The removal verbs share the worktree-removal report path: an ok removal
-// queues the notice that tells a neighbouring session the directory is gone.
-export const WORKTREE_REMOVAL_OPERATIONS = new Set(["worktree_reclaim", "worktree_destroy", "worktree_audit_reclaim"])
-
-async function executeWorkTransition(args: HostToolArgs, context: ToolContext, _staleness: ReleaseStaleness | null): Promise<HostConcordEnvelope> {
-  if (WORKTREE_REMOVAL_OPERATIONS.has(args?.operation)) {
-    const envelope = await invokeConcordOperation("concord_work_transition", args, context)
-    await reportWorktreeRemoval(args, context, envelope)
-    return envelope
-  }
-  if (args?.operation === "session_vacate") {
-    const input = args.input
-    if (!record(input) || Object.keys(input).some((key) => key === "destination" || key === "destination_directory" || key === "path")) {
-      return adapterError("concord_work_transition", "session_vacate", `${context.sessionID}-${context.messageID}`, "invalid_tool_input", "session_vacate derives the registered main checkout and refuses an agent-named destination")
-    }
-    const requestID = `${context.sessionID}-${context.messageID}`
-    const remembered = pendingVacateDestination(context.sessionID)
-    // The host's own readback names where the session sits now. When that
-    // directory is the claimed worktree a confirmed or refused move armed,
-    // the session genuinely occupies claimed work: the state-driven replay
-    // must hear the call from there and refuse with the later-claim
-    // recovery, so the host never leaves claimed work for a request that
-    // cannot complete (CD-0190 D3). Every other state — a stale tool
-    // context, a post-commit refusal that left the session outside its
-    // claimed worktree — keeps the remembered-destination pre-move.
-    let hostDirectory: string | null = null
-    try { hostDirectory = await hostControlPlane().sessionDirectory(context.sessionID, context.abort) } catch { hostDirectory = null }
-    const claimed = armedClaimedWorktree(context.sessionID) ?? unlandedClaimedWorktree(context.sessionID)
-    const occupiesClaimedWork = claimed !== null && hostDirectory !== null && samePath(claimed, hostDirectory)
-    // The host readback, not the tool context, decides the pre-move — the
-    // same authority the in-route move applies. A stale tool context can
-    // name the remembered destination while the host session still sits in
-    // a directory that resolves to no Project, and a move skipped on that
-    // name strands the standing request behind the context-resolution
-    // refusal every retry repeats (CD-0190 D3). A failed readback moves.
-    const atRemembered = typeof remembered === "string" && hostDirectory !== null && samePath(hostDirectory, remembered)
-    const movedToRemembered = typeof remembered === "string" && !occupiesClaimedWork && !atRemembered
-    if (movedToRemembered && typeof remembered === "string") {
-      // A post-commit refusal left this session's relocation request
-      // standing and this adapter remembers its registered main checkout.
-      // The retry moves the host session there first and resolves the core
-      // call from it, so the pending-request replay runs from wherever the
-      // host session sits; from a directory that resolves to no Project the
-      // core call would refuse before the replay could run (CD-0190 D3).
-      try {
-        await hostControlPlane().moveSession(context.sessionID, remembered, context.abort)
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error)
-        // A move route the host cannot serve makes the replay unreachable;
-        // any other refusal keeps it. Both keep the committed request and its
-        // remembered destination named for the retry.
-        if (error instanceof MoveSessionUnavailable) return vacateError(requestID, "vacate_unavailable", `${message}; the committed relocation request stands and names ${JSON.stringify(remembered)} as its registered main checkout, so the occupancy rows wait for the verified landing there`)
-        return vacateError(requestID, "vacate_replay", `${message}; the committed relocation request stands and names ${JSON.stringify(remembered)} as its registered main checkout, so the occupancy rows wait for the verified landing there`)
-      }
-    }
-    if ((movedToRemembered || atRemembered) && typeof remembered === "string") {
-      // The host session sits at the remembered destination, so the stale
-      // tool context must not name anything else.
-      context.directory = remembered
-    }
-    const envelope = await invokeConcordOperation("concord_work_transition", args, context)
-    // The pre-move relocated the session during this turn, so the verified
-    // landing arms the turn-move boundary exactly as the in-route move does.
-    return await moveSessionToRegisteredMainCheckout(args, context, envelope, movedToRemembered)
-  }
-  if (args?.operation === "worktree_claim") {
-    // The claimed worktree's occupancy row records the recording host's
-    // process identity from creation (CD-0179). The pid belongs to this
-    // process, not to the agent, so the adapter injects it and overwrites
-    // anything an agent named.
-    args = { ...args, input: { ...(record(args.input) ? args.input : {}), host_pid: process.pid } }
-  }
-  const envelope = await invokeConcordOperation("concord_work_transition", args, context)
-  const settled = await vacateTerminalWorktree(args, context, envelope)
-  const landed = await moveSessionToClaimedWorktree(args, context, settled)
-  return landed
-}
-
-// vacateTerminalWorktree moves a session out of a work item's worktree after
-// the work reached a terminal state (complete, cancel). The core attaches
-// vacate_target to the transition result only when the calling session's
-// linked worktree is that work item's active worktree, so the hook
-// never releases another work item's occupancy. The vacate runs first — it
-// records the relocation request and resolves the registered main checkout —
-// the move follows it, and the verified landing the move readback earns
-// releases the session's occupancy rows. A failed vacate or move queues a
-// notice and keeps the transition result: the transition is durable, the
-// occupancy rows stand, and the release is replayable by an explicit
-// session_vacate. A vacate that committed the relocation request before the
-// failure reports an effect_state possible in its notice and names the
-// verified-destination replay as the recovery, because the session may
-// already sit at the registered main checkout where a worktree retry cannot
-// reach it; a vacate refused before the commit keeps the worktree retry.
-export async function vacateTerminalWorktree(args: HostToolArgs, context: ToolContext, envelope: HostConcordEnvelope): Promise<HostConcordEnvelope> {
-  const transitioned = args?.operation === "lifecycle" && record(args.input) && ["completed", "cancelled"].includes(String(args.input.target))
-  if (!transitioned) return envelope
-  if (!record(envelope) || envelope.outcome !== "ok") return envelope
-  const target = record(envelope.result) ? envelope.result.vacate_target : undefined
-  if (!record(target) || typeof target.work_id !== "string" || typeof target.destination_directory !== "string") return envelope
-  const requestID = `${context.sessionID}-${context.messageID}`
-  const vacateArgs: HostToolArgs = { operation: "session_vacate", input: { idempotency_key: `${requestID}-terminal-vacate` } }
-  let committed = false
-  try {
-    const vacated = await invokeConcordOperation("concord_work_transition", vacateArgs, context)
-    committed = Boolean(record(vacated) && vacated.outcome === "ok")
-    const moved = await moveSessionToRegisteredMainCheckout(vacateArgs, context, vacated)
-    const failure = record(moved) && record(moved.error) ? moved.error : undefined
-    const reason = failure && typeof failure.kind === "string" && typeof failure.message === "string"
-      ? `${failure.kind}: ${failure.message}`
-      : "the vacate move did not confirm a landing"
-    if (!record(moved) || moved.outcome !== "ok") throw new Error(reason)
-  } catch (error) {
-    if (error instanceof AdapterContractDefect) throw error
-    const message = error instanceof Error ? error.message : String(error)
-    if (committed) {
-      // The relocation request stands recorded (CD-0190 D3), so the effect
-      // is possible and the session may already sit at the registered main
-      // checkout: the move landed but the landing record failed, or the
-      // move itself was refused. The recovery is plain session_vacate
-      // again: the adapter remembers the committed destination, so the
-      // retry first moves the host session there and replays the pending
-      // request wherever the session sits; without the remembered
-      // destination a retry from the worktree commits a new request and
-      // retries the move.
-      enqueueWorkNotice(context.sessionID, `Concord finished ${target.work_id}, and its relocation request stands recorded with the occupancy rows waiting on the verified landing (effect_state possible): ${message} Run session_vacate again — from the verified destination ${target.destination_directory} when the session sits there, otherwise from the worktree — to confirm or complete the verified landing and release the rows.`)
-      return envelope
-    }
-    enqueueWorkNotice(context.sessionID, `Concord finished ${target.work_id}, but the session could not return to the registered main checkout: ${message} Run session_vacate from the worktree to retry the move.`)
-  }
-  return envelope
-}

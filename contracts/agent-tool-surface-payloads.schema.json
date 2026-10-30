@@ -11378,7 +11378,6 @@
         "state",
         "recorded_handoff",
         "artifacts_preserved",
-        "vacate_landed",
         "blockers"
       ],
       "properties": {
@@ -11397,15 +11396,12 @@
             "ready_to_close_or_replace",
             "pending"
           ],
-          "description": "ready_to_close_or_replace derives only from the three verified facts and no unfinished workflow action of the session; pending names the open blockers."
+          "description": "ready_to_close_or_replace requires the recorded handoff, preserved artifacts, and no unfinished workflow action of the session; pending names the open blockers."
         },
         "recorded_handoff": {
           "type": "boolean"
         },
         "artifacts_preserved": {
-          "type": "boolean"
-        },
-        "vacate_landed": {
           "type": "boolean"
         },
         "blockers": {

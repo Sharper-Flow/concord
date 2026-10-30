@@ -31,7 +31,7 @@ func TestCLIHelpDeclaresInputRefusalExit(t *testing.T) {
 	if got := topLevelHelp(t); !strings.Contains(got, "Required-field refusals exit 64 before dispatch.") {
 		t.Fatal("top-level help omits the pre-dispatch required-field exit")
 	}
-	for _, command := range []string{"invoke", "work-bootstrap", "work-resume", "session-prepare"} {
+	for _, command := range []string{"invoke", "session-prepare"} {
 		t.Run(command, func(t *testing.T) {
 			var out, errOut bytes.Buffer
 			if code := runWithInput([]string{command, "--help"}, &countingStdin{}, &out, &errOut); code != 0 {

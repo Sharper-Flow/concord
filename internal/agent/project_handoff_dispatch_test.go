@@ -166,44 +166,8 @@ func handoffDispatchFixture(t *testing.T) (*store.Store, *Service, *Service, Cal
 		t.Fatalf("approve_contract failed: %+v", approved.Error)
 	}
 	recordApprovedWorkDesign(t, s, sourceService, sourceEnv, "work-1", "handoff-design")
-	// The source Project's claimed worktree: the real claim the preservation
-	// bind resolves, and the worktree the source session runs in once the
-	// boot route places it there.
-	sourceVersion, err := workVersionForWorkflow(t, s)
-	if err != nil {
-		t.Fatal(err)
-	}
-	sourceBase, err := exec.Command("git", "-C", repoSource, "rev-parse", "HEAD").Output()
-	if err != nil {
-		t.Fatal(err)
-	}
-	claimSource, err := s.ClaimWorktree(ctx, store.WorktreeClaimRequest{
-		OpID: "handoff-claim-w", WorkID: "work-1", ProjectID: "project-1",
-		BaseSHA: strings.TrimSpace(string(sourceBase)), PrincipalRef: "human-1", RequestID: "handoff-req-w",
-		ExpectedVersion: sourceVersion, Now: fixedTime(),
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	// The receiving Project's claimed worktree: the real claim the boot
-	// route enters, ready for the verified landing that records the
-	// receiving session's placement.
-	receiveVersion, err := workVersionForWorkflow(t, s)
-	if err != nil {
-		t.Fatal(err)
-	}
-	receiveBase, err := exec.Command("git", "-C", repoReceive, "rev-parse", "HEAD").Output()
-	if err != nil {
-		t.Fatal(err)
-	}
-	claimReceive, err := s.ClaimWorktree(ctx, store.WorktreeClaimRequest{
-		OpID: "handoff-claim-e", WorkID: "work-1", ProjectID: "project-2",
-		BaseSHA: strings.TrimSpace(string(receiveBase)), PrincipalRef: "human-1", RequestID: "handoff-req-e",
-		ExpectedVersion: receiveVersion, Now: fixedTime(),
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	sourcePath := seedHostWorktree(t, s, repoSource, "work-1", "project-1", gitRun(t, repoSource, "rev-parse", "HEAD"))
+	receivePath := seedHostWorktree(t, s, repoReceive, "work-1", "project-2", gitRun(t, repoReceive, "rev-parse", "HEAD"))
 	// The source session re-authorizes inside its claimed worktree: the
 	// authenticated grant names the work's claimed source worktree, the
 	// same placement the real boot route gives a Project-selected session.
@@ -211,9 +175,9 @@ func handoffDispatchFixture(t *testing.T) (*store.Store, *Service, *Service, Cal
 	if err != nil {
 		t.Fatal(err)
 	}
-	sourceGrant = handoffSessionReauthorized(t, sourceService, "client-source", "project-1", claimSource.Entry.Path)
+	sourceGrant = handoffSessionReauthorized(t, sourceService, "client-source", "project-1", sourcePath)
 	sourceEnv = handoffEnvelope(sourceGrant, "project-1", scopeVersion)
-	return s, sourceService, receiveService, sourceEnv, receiveEnv, repoSource, claimReceive.Entry.Path
+	return s, sourceService, receiveService, sourceEnv, receiveEnv, repoSource, receivePath
 }
 
 // handoffSessionReauthorized re-authorizes a registered handoff client
@@ -347,22 +311,14 @@ func TestProjectHandoffToolsRecordConsumeAndGateAtTheToolBoundary(t *testing.T) 
 	if wrongTarget.Outcome == agentcontract.OutcomeOK || wrongTarget.Error == nil || !strings.Contains(wrongTarget.Error.Message, "addresses Project") {
 		t.Fatalf("wrong-target consume=%+v, want the addressed-Project refusal", wrongTarget.Error)
 	}
-	// The receiving session's consume requires the verified placement the
-	// real claim landing records: without the occupancy row the core
-	// refuses inside its own transaction and records nothing.
+	// Consumption requires retained placement evidence inside its own transaction.
 	unplaced := handoffInvoke(t, s, receiveService, receiveEnv, "project_handoff_consume", map[string]any{
 		"idempotency_key": "consume-unplaced", "work_id": "work-1", "handoff_id": handoffID,
 	})
 	if unplaced.Outcome == agentcontract.OutcomeOK || unplaced.Error == nil || !strings.Contains(unplaced.Error.Message, "no verified placement") {
 		t.Fatalf("unplaced consume=%+v, want the unplaced-receiver refusal", unplaced.Error)
 	}
-	// The verified claim landing records the receiving session's occupancy
-	// on its claimed worktree: the real placement evidence (CD-0178 D3).
-	if _, err := s.RecordWorktreeClaimLanding(context.Background(), store.WorktreeClaimLandingRequest{
-		WorkID: "work-1", SessionRef: receiveEnv.SessionRef, LandedDirectory: receiveWorktree, HostPID: os.Getpid(),
-	}); err != nil {
-		t.Fatal(err)
-	}
+	seedHostSessionPlacement(t, s, "work-1", receiveEnv.SessionRef, receiveWorktree)
 	// The receiving session consumes before managed execution.
 	consumed := handoffInvoke(t, s, receiveService, receiveEnv, "project_handoff_consume", map[string]any{
 		"idempotency_key": "consume-1", "work_id": "work-1", "handoff_id": handoffID,
@@ -388,95 +344,6 @@ func TestProjectHandoffToolsRecordConsumeAndGateAtTheToolBoundary(t *testing.T) 
 	}
 }
 
-// TestSessionVacateRouteAndVerifiedLandingCompleteRetirementReadiness runs
-// the retirement owning routes end to end at the agent boundary: the real
-// session_vacate mutation records the relocation request from the
-// authenticated grant toward the registered main checkout, the adapter-only
-// landing verb's store owner releases the session's occupancy at the
-// verified landing, and the retirement read derives
-// READY_TO_CLOSE_OR_REPLACE from those verified facts while the shared work
-// lifecycle stays untouched.
-func TestSessionVacateRouteAndVerifiedLandingCompleteRetirementReadiness(t *testing.T) {
-	t.Parallel()
-	s, _, _, _, _, _, receiveWorktree := handoffDispatchFixture(t)
-	ctx := context.Background()
-	// The retiring session authorizes from the receiving Project's claimed
-	// worktree, whose Project's canonical locator names the registered main
-	// checkout the vacate destination resolves to.
-	vacateService, vacateGrant := authorizedHandoffService(t, s, "client-receive-vacate", []string{"project-2"}, receiveWorktree)
-	scopeVersion, _, err := s.ScopeVersion(ctx, "project-2")
-	if err != nil {
-		t.Fatal(err)
-	}
-	vacateEnv := handoffEnvelope(vacateGrant, "project-2", scopeVersion)
-	// The retiring session records its addressed handoff from its own
-	// authenticated identities; the claimed worktree is clean, so the
-	// preservation probe passes before the transaction.
-	record := handoffInvoke(t, s, vacateService, vacateEnv, "project_handoff_record", map[string]any{
-		"idempotency_key": "retire-record",
-		"work_id":         "work-1", "target_project_id": "project-1",
-		"bounded_job": "verify the receiving repository's adapter surface",
-		"next_action": "consume the handoff and run the bounded job",
-		"changes":     []string{"adapter/opencode: opener route"},
-	})
-	if record.Outcome != agentcontract.OutcomeOK {
-		t.Fatalf("record failed: %+v", record.Error)
-	}
-	// The real session_vacate mutation records the relocation request; the
-	// destination is the registered main checkout the project locator names.
-	vacated := handoffInvoke(t, s, vacateService, vacateEnv, "session_vacate", map[string]any{"idempotency_key": "retire-vacate"})
-	if vacated.Outcome != agentcontract.OutcomeOK {
-		t.Fatalf("session_vacate failed: %+v", vacated.Error)
-	}
-	var target struct {
-		WorkID               string `json:"work_id"`
-		ProjectID            string `json:"project_id"`
-		SourceDirectory      string `json:"source_directory"`
-		DestinationDirectory string `json:"destination_directory"`
-	}
-	if json.Unmarshal(vacated.Result, &target) != nil {
-		t.Fatalf("session_vacate result is not an object: %s", vacated.Result)
-	}
-	if target.WorkID != "work-1" || target.ProjectID != "project-2" || target.SourceDirectory != receiveWorktree {
-		t.Fatalf("target=%+v, want the claimed source directory on the shared work", target)
-	}
-	if target.DestinationDirectory == "" || target.DestinationDirectory == receiveWorktree {
-		t.Fatalf("target=%+v, want the registered main checkout destination", target)
-	}
-	// The adapter-only landing verb's store owner records the verified
-	// landing and releases the session's occupancy rows in one transaction.
-	landing, err := s.RecordSessionVacateLanding(ctx, store.SessionVacateLandingRequest{
-		WorkID: "work-1", SessionRef: vacateEnv.SessionRef, LandedDirectory: filepath.Clean(target.DestinationDirectory), HostPID: os.Getpid(), Now: fixedTime(),
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if landing.AlreadyRecorded {
-		t.Fatalf("landing replayed: %+v", landing)
-	}
-	// The retirement read derives readiness from the verified facts while
-	// the shared work lifecycle stays untouched.
-	retirement := retirementInvoke(t, s, vacateService, vacateEnv, "work-1")
-	if retirement["state"] != "ready_to_close_or_replace" {
-		t.Fatalf("retirement=%+v, want READY_TO_CLOSE_OR_REPLACE from the verified facts", retirement)
-	}
-	for _, fact := range []string{"recorded_handoff", "artifacts_preserved", "vacate_landed"} {
-		if retirement[fact] != true {
-			t.Fatalf("retirement=%+v, want %s verified", retirement, fact)
-		}
-	}
-	if blockers, _ := retirement["blockers"].([]any); len(blockers) != 0 {
-		t.Fatalf("retirement=%+v, want no blockers", retirement)
-	}
-	var lifecycle string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT lifecycle FROM work_items WHERE id='work-1'`).Scan(&lifecycle); err != nil {
-		t.Fatal(err)
-	}
-	if lifecycle != "in_progress" {
-		t.Fatalf("lifecycle=%q, want retirement to leave the shared work alone", lifecycle)
-	}
-}
-
 // The consume's idempotent replay rechecks the recorded state instead of
 // returning the cached success: the owning session's same-key replay
 // resolves the standing bind with no second consumed event, a foreign
@@ -493,9 +360,7 @@ func TestProjectHandoffConsumeReplayRechecksBindAndContract(t *testing.T) {
 		t.Fatalf("record failed: %+v", record.Error)
 	}
 	handoffID := resultField(t, record, "handoff_id")
-	if _, err := s.RecordWorktreeClaimLanding(context.Background(), store.WorktreeClaimLandingRequest{WorkID: "work-1", SessionRef: receiveEnv.SessionRef, LandedDirectory: tree, HostPID: os.Getpid()}); err != nil {
-		t.Fatal(err)
-	}
+	seedHostSessionPlacement(t, s, "work-1", receiveEnv.SessionRef, tree)
 	input := map[string]any{"work_id": "work-1", "handoff_id": handoffID, "idempotency_key": "replay-consume"}
 	first := handoffInvoke(t, s, receiveService, receiveEnv, "project_handoff_consume", input)
 	if first.Outcome != agentcontract.OutcomeOK {
@@ -514,9 +379,7 @@ func TestProjectHandoffConsumeReplayRechecksBindAndContract(t *testing.T) {
 	// lands first exactly as the first one did.
 	foreign := receiveEnv
 	foreign.SessionRef = "session-foreign-receiver"
-	if _, err := s.RecordWorktreeClaimLanding(context.Background(), store.WorktreeClaimLandingRequest{WorkID: "work-1", SessionRef: foreign.SessionRef, LandedDirectory: tree, HostPID: os.Getpid()}); err != nil {
-		t.Fatal(err)
-	}
+	seedHostSessionPlacement(t, s, "work-1", foreign.SessionRef, tree)
 	foreignReplay := handoffInvoke(t, s, receiveService, foreign, "project_handoff_consume", input)
 	if foreignReplay.Outcome != agentcontract.OutcomeOK || !resultBool(t, foreignReplay, "already_consumed") {
 		t.Fatalf("foreign replay=%+v result=%s, want the shared bind resolved for the second receiver", foreignReplay.Error, foreignReplay.Result)

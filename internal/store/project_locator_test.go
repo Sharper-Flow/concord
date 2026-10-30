@@ -21,27 +21,6 @@ type locatorGitStub struct {
 	args         [][]string
 }
 
-type locateWorktreeGitStub struct {
-	defaultRef  string
-	sha         string
-	args        [][]string
-	failResolve bool
-}
-
-func (g *locateWorktreeGitStub) Run(_ context.Context, dir string, args ...string) ([]byte, error) {
-	g.args = append(g.args, append([]string{dir}, args...))
-	if len(args) >= 3 && args[0] == "symbolic-ref" && args[2] == "refs/remotes/origin/HEAD" {
-		return []byte(g.defaultRef + "\n"), nil
-	}
-	if len(args) >= 3 && args[0] == "rev-parse" && args[1] == "--verify" {
-		if g.failResolve {
-			return nil, errors.New("tracking ref does not resolve")
-		}
-		return []byte(g.sha + "\n"), nil
-	}
-	return nil, errors.New("unexpected git verb")
-}
-
 func (g *locatorGitStub) Run(_ context.Context, dir string, args ...string) ([]byte, error) {
 	g.args = append(g.args, append([]string{dir}, args...))
 	if args[0] == "rev-parse" {
@@ -401,89 +380,6 @@ func TestResolveProjectMatchesLocalLinkedWorktreeToMainCanonicalPath(t *testing.
 	}
 	if resolved.ProjectID != "project-local" || resolved.Repository.CanonicalPath != mainRoot || resolved.Repository.WorktreePath != linked || resolved.MainWorktree || resolved.Repository.GitRemote != "" {
 		t.Fatalf("linked local resolution=%+v", resolved)
-	}
-}
-
-func TestLocateWorktreeDefaultUsesRemoteTrackingRefWithoutNetwork(t *testing.T) {
-	s := openTemp(t)
-	ctx := context.Background()
-	createProductProject(t, s, "product-locate", "project-locate")
-	repo := t.TempDir()
-	if err := s.AddProjectLocator(ctx, "project-locate", ProjectLocator{ID: "path-locate", Kind: LocatorCanonicalPath, Value: repo}, 1); err != nil {
-		t.Fatal(err)
-	}
-	sha := strings.Repeat("a", 40)
-	runner := &locateWorktreeGitStub{defaultRef: "refs/remotes/origin/main", sha: sha}
-
-	// An omitted ref is default-based: the base resolves through the local
-	// remote-tracking ref alone, with no network call, and the location
-	// records HEAD as the selected provenance.
-	location, err := s.locateWorktreeWithRunner(ctx, "project-locate", "work-locate", "", runner)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if location.BaseSHA != sha {
-		t.Fatalf("base SHA=%q want %q", location.BaseSHA, sha)
-	}
-	if location.Ref != "HEAD" {
-		t.Fatalf("recorded ref=%q want HEAD", location.Ref)
-	}
-	if len(runner.args) != 2 || strings.Join(runner.args[1][1:], " ") != "rev-parse --verify refs/remotes/origin/main^{commit}" {
-		t.Fatalf("git calls=%q", runner.args)
-	}
-}
-
-func TestLocateWorktreeRefusalDoesNotFallBackToHEAD(t *testing.T) {
-	s := openTemp(t)
-	ctx := context.Background()
-	createProductProject(t, s, "product-refusal", "project-refusal")
-	repo := t.TempDir()
-	if err := s.AddProjectLocator(ctx, "project-refusal", ProjectLocator{ID: "path-refusal", Kind: LocatorCanonicalPath, Value: repo}, 1); err != nil {
-		t.Fatal(err)
-	}
-	runner := &locateWorktreeGitStub{defaultRef: "refs/remotes/origin/main", failResolve: true}
-
-	// The default-based read refuses when its tracking ref does not resolve:
-	// it never falls back to the repository's local HEAD.
-	if _, err := s.locateWorktreeWithRunner(ctx, "project-refusal", "work-refusal", "", runner); err == nil {
-		t.Fatal("unresolvable tracking ref unexpectedly fell back to HEAD")
-	} else {
-		assertFailureKind(t, err, KindGitUnreachable)
-	}
-	if len(runner.args) != 2 {
-		t.Fatalf("git calls=%q", runner.args)
-	}
-}
-
-func TestLocateWorktreeReturnedBaseCreatesNativeWorktree(t *testing.T) {
-	s := openTemp(t)
-	ctx := context.Background()
-	createProductProject(t, s, "product-native", "project-native")
-	repo := initBootstrapStoreRepo(t)
-	if err := s.AddProjectLocator(ctx, "project-native", ProjectLocator{ID: "path-native", Kind: LocatorCanonicalPath, Value: repo}, 1); err != nil {
-		t.Fatal(err)
-	}
-	base := strings.TrimSpace(runTestGit(t, repo, "rev-parse", "HEAD"))
-	if err := os.WriteFile(filepath.Join(repo, "local-only.txt"), []byte("local\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	runTestGit(t, repo, "add", "local-only.txt")
-	runTestGit(t, repo, "commit", "-q", "-m", "local-only")
-	worktreePath := filepath.Join(t.TempDir(), "native-worktree")
-	// The default-based selection pins the remote-tracking ref, so a
-	// local-only commit on the default branch never leaks into the base a
-	// fresh creation builds on.
-	location, err := s.LocateWorktree(ctx, "project-native", "work-native", "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if location.BaseSHA != base {
-		t.Fatalf("base SHA=%q want tracking SHA %q", location.BaseSHA, base)
-	}
-	runTestGit(t, repo, "worktree", "add", "--detach", worktreePath, location.BaseSHA)
-	checkedOut := strings.TrimSpace(runTestGit(t, worktreePath, "rev-parse", "HEAD"))
-	if checkedOut != location.BaseSHA {
-		t.Fatalf("native worktree HEAD=%q want %q", checkedOut, location.BaseSHA)
 	}
 }
 

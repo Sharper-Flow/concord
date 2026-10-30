@@ -55,7 +55,6 @@ PLANNER_WRITERS = (
     "concord_work_compact",
     "concord_work_define",
     "concord_work_relate",
-    "concord_work_start",
     "concord_work_transition",
 )
 # Probes evaluated against Planner's generated rules. Each names an input and

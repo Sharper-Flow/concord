@@ -3,26 +3,11 @@ package agent
 import (
 	"context"
 	"encoding/json"
-	"os"
-	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/payloadschema"
-	"github.com/sharper-flow/concord/internal/store"
 )
-
-// Issue #701 regression coverage. Committed mutation envelopes must satisfy
-// the generated TS7 envelope contract — the same
-// contracts/agent-tool-envelope.schema.json projection the adapter validates
-// against. The core emitted derived product identifiers inside
-// resolved_scope, a member the envelope law does not name, so committed
-// lifecycle and worktree_reclaim mutations reached agents as
-// operation_conflict/unknown_effect after the effect had already landed.
-// Envelope.Validate now fails closed on that drift; these tests hold the
-// line at both ends: a committed effect must return a contract-valid
-// envelope, and the contract must keep refusing undeclared scope members.
 
 func TestCommittedLifecycleEnvelopeSatisfiesGeneratedContract(t *testing.T) {
 	t.Parallel()
@@ -59,71 +44,6 @@ func TestCommittedLifecycleEnvelopeSatisfiesGeneratedContract(t *testing.T) {
 	if _, present := scope["product_ids"]; present {
 		t.Fatalf("resolved_scope carries derived product identifiers the envelope law does not declare: %s", encoded)
 	}
-}
-
-func TestCommittedReclaimEnvelopeSatisfiesGeneratedContract(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	s, service, grant, repoRoot, baseSHA := worktreeDispatchFixture(t)
-	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	worktreePath := filepath.Join(filepath.Dir(s.Path()), "worktrees", "project-1", "work-1")
-	claimInput, _ := json.Marshal(map[string]any{"host_pid": os.Getpid(),
-		"work_id": "work-1", "project_id": "project-1",
-		"base_sha":         baseSHA,
-		"expected_version": 2, "idempotency_key": "701-claim",
-	})
-	claim, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "worktree_claim", Input: claimInput}, mutationEnvelope(grant, scopeVersion))
-	if err != nil || claim.Outcome != agentcontract.OutcomeOK {
-		t.Fatalf("claim response=%+v err=%v", claim, err)
-	}
-	// The claim recorded this session as the worktree occupant, and the
-	// removal gate refuses while a recorded occupant remains. Vacate, then
-	// record the verified landing at the registered main checkout through
-	// the adapter-only verb, which releases the session's rows.
-	vacateEnv := mutationEnvelope(grant, scopeVersion)
-	vacateEnv.Worktree = worktreePath
-	vacate, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "session_vacate", Input: json.RawMessage(`{"idempotency_key":"701-vacate"}`)}, vacateEnv)
-	if err != nil || vacate.Outcome != agentcontract.OutcomeOK {
-		t.Fatalf("vacate response=%+v err=%v", vacate, err)
-	}
-	if _, err := s.RecordSessionVacateLanding(ctx, store.SessionVacateLandingRequest{
-		WorkID: "work-1", SessionRef: grant.SessionRef, LandedDirectory: repoRoot, HostPID: os.Getpid(),
-	}); err != nil {
-		t.Fatalf("vacate landing: %v", err)
-	}
-	reclaimInput, _ := json.Marshal(map[string]any{
-		"work_id": "work-1", "project_id": "project-1",
-		"default_ref": "main", "expected_version": 3, "idempotency_key": "701-reclaim",
-	})
-	reclaim := InvokeRequest{Tool: "concord_work_transition", Operation: "worktree_reclaim", Input: reclaimInput}
-	committed, err := Dispatch(ctx, s, service, reclaim, mutationEnvelope(grant, scopeVersion))
-	if err != nil || committed.Outcome != agentcontract.OutcomeOK {
-		t.Fatalf("reclaim response=%+v err=%v", committed, err)
-	}
-	encoded, err := committed.Encode()
-	if err != nil {
-		t.Fatalf("committed reclaim envelope failed its own producer validation: %v", err)
-	}
-	if err := payloadschema.ValidateEnvelope(encoded); err != nil {
-		t.Fatalf("committed reclaim envelope failed the generated TS7 contract: %v; envelope=%s", err, encoded)
-	}
-	// The claimed worktree was clean and merged, so the contract-valid
-	// envelope describes a real reclamation: the native worktree is gone.
-	if listing := gitRun(t, repoRoot, "worktree", "list"); containsWorktreePath(listing, worktreePath) {
-		t.Fatalf("native worktree still present after a committed reclaim:\n%s", listing)
-	}
-}
-
-func containsWorktreePath(listing, path string) bool {
-	for _, line := range strings.Split(listing, "\n") {
-		if strings.TrimSpace(line) == "worktree "+path {
-			return true
-		}
-	}
-	return false
 }
 
 func TestGeneratedContractRejectsUndeclaredScopeMembers(t *testing.T) {
@@ -194,7 +114,7 @@ func TestGeneratedContractRejectsUndeclaredAllOfMembers(t *testing.T) {
 }
 
 func TestErrorOutcomeContractAdmitsChangedRefs(t *testing.T) {
-	base := agentcontract.NewBase("error-changed-refs", "concord_work_transition", "worktree_audit_reclaim")
+	base := agentcontract.NewBase("error-changed-refs", "concord_work_transition", "workflow_action")
 	errorEnvelope := agentcontract.NewCoreError(base, agentcontract.TypedError{Kind: "budget_refused", RetrySafe: false, RecoveryAction: agentcontract.RecoveryAction{Kind: "adjust_budget"}, EffectState: agentcontract.EffectPossible, SupportedBudgetSeconds: 300})
 	refs := []agentcontract.ChangedRef{{EntityKind: "work_item", ID: "work-2", Version: "5"}}
 	errorEnvelope.ChangedRefs = &refs

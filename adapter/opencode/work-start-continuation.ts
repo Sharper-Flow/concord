@@ -1,6 +1,5 @@
 import { randomUUID } from "node:crypto"
 import { hostControlPlane } from "./move-session"
-import { samePath, unlandedClaimedWorktree } from "./claimed-worktree"
 import type { SessionMessage } from "./host-prompt"
 
 const MARKER = "concord.work_start_continuation"
@@ -41,7 +40,7 @@ export function observeWorkStartMessage(sessionID: string, parts: unknown): void
 }
 
 function current(entry: Entry): boolean {
-  return entries.get(entry.sessionID) === entry && entry.phase === "posting" && unlandedClaimedWorktree(entry.sessionID) === entry.directory
+  return entries.get(entry.sessionID) === entry && entry.phase === "posting"
 }
 
 async function eligible(entry: Entry): Promise<boolean> {
@@ -52,7 +51,7 @@ async function eligible(entry: Entry): Promise<boolean> {
   if (!reader) return false
   const session = await reader.get(entry.sessionID, AbortSignal.timeout(5_000))
   const identity = session.data as { id?: unknown; directory?: unknown } | undefined
-  if (!session.response.ok || identity?.id !== entry.sessionID || typeof identity.directory !== "string" || !samePath(identity.directory, entry.directory)) return false
+  if (!session.response.ok || identity?.id !== entry.sessionID || identity.directory !== entry.directory) return false
   const result = await reader.messages(entry.sessionID, 20, undefined, AbortSignal.timeout(5_000))
   if (!result.response.ok || !Array.isArray(result.data)) return false
   const messages = result.data as SessionMessage[]

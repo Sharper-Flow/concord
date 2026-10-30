@@ -29,13 +29,7 @@
       "invocation": "bin/oc-test broad -- go test -race -timeout=20m ./...",
       "tier": "slow",
       "cost_hint": "The command timeout is 20 minutes.",
-      "automation_path": ".github/workflows/ci.yml",
-      "coverage": [
-        {
-          "anchor": {"kind": "scenario", "value": "adapter-continuity-session-vacate-then-reclaim-passes-occupancy-gate"},
-          "owner": {"kind": "go_test", "value": "internal/store.TestSessionVacateReclaimOccupancyGateCorpus"}
-        }
-      ]
+      "automation_path": ".github/workflows/ci.yml"
     },
     {
       "id": "go-vet",
@@ -94,10 +88,6 @@
         {
           "anchor": {"kind": "scenario", "value": "adapter-continuity-ttl-gates-spawn"},
           "owner": {"kind": "adapter_test", "value": "adapter/opencode/continuity_hook.test.ts#adapter-continuity-ttl-gates-spawn"}
-        },
-        {
-          "anchor": {"kind": "scenario", "value": "adapter-continuity-work-start-retarget"},
-          "owner": {"kind": "adapter_test", "value": "adapter/opencode/continuity_hook.test.ts#adapter-continuity-work-start-retarget"}
         },
         {
           "anchor": {"kind": "scenario", "value": "adapter-continuity-lane-leak-absent"},

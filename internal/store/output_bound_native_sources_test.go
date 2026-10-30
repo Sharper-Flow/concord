@@ -50,16 +50,16 @@ import (
 
 func init() {
 	// The named Go constants every verify-command guard compares against
-	// (internal/store/worktrees.go:validateWorktreeVerifyCommand; the target
+	// (internal/store/worktree_verify.go:validateWorktreeVerifyCommand; the target
 	// plan stages and check argv reach the same guard through
 	// worktree_verify_oracle_host_plan.go:stages and
 	// worktree_verify_oracle_host.go:validateNativeTargetCheckArgv).
-	commandArgs := goConstantBound("internal/store/worktrees.go", "maxWorktreeVerifyCommandArgs", boundItems)
-	commandPart := goConstantBound("internal/store/worktrees.go", "maxWorktreeVerifyCommandPart", boundBytes)
+	commandArgs := goConstantBound("internal/store/worktree_verify.go", "maxWorktreeVerifyCommandArgs", boundItems)
+	commandPart := goConstantBound("internal/store/worktree_verify.go", "maxWorktreeVerifyCommandPart", boundBytes)
 	// The operative output preview cap: no caller sets MaxOutputBytes, so
 	// VerifyWorktree always falls back to this constant, and the native
 	// capture writer clamps the preview with the same constant.
-	verifyOutputBytes := goConstantBound("internal/store/worktrees.go", "defaultWorktreeVerifyBytes", boundBytes)
+	verifyOutputBytes := goConstantBound("internal/store/worktree_verify.go", "defaultWorktreeVerifyBytes", boundBytes)
 	// Repository-path admission: validateWorkContextRepoPath compares
 	// len(path) against this constant; it runs on every pinned oracle file
 	// path (worktree_verify_oracle_go.go:nativeGitFile, and
@@ -81,14 +81,14 @@ func init() {
 	isolationFingerprint := nativeDigestDerived("internal/store/worktree_verify_isolation_environment.go", "nativeIsolationEnvironmentDigest")
 	// Anchored grammar admissions. deriveWorktreeLocation validates every
 	// derived branch through worktreeBranchPattern
-	// (internal/store/worktrees.go:ValidateWorktreeClaimIntent), and
+	// (internal/store/project_locator.go:validateWorktreeLocation), and
 	// nativePreparationJoinsValid re-checks subject_commit and manifest_blob
 	// through worktreeSHAPattern
 	// (internal/store/worktree_verify_oracle.go:nativePreparationJoinsValid),
 	// so every published value of each grammar carries its largest accepted
 	// width.
-	branchBound := goPatternBound("internal/store/worktrees.go", "worktreeBranchPattern")
-	shaBound := goPatternBound("internal/store/worktrees.go", "worktreeSHAPattern")
+	branchBound := goPatternBound("internal/store/worktree_reads.go", "worktreeBranchPattern")
+	shaBound := goPatternBound("internal/store/worktree_reads.go", "worktreeSHAPattern")
 	// Per-case selector widths: nativeOracleCaseTests refuses len(name) > 64
 	// per test name (the ASCII-only name pattern makes bytes equal
 	// characters) and len(names) > 8 per case;
@@ -356,7 +356,8 @@ const (
 	nativeMutationResultRefusal = "internal/agent/mutations.go:mutationResult"
 
 	nativeDigestFile     = "internal/store/worktree_verify_output.go"
-	nativeWorktreesFile  = "internal/store/worktrees.go"
+	nativeWorktreesFile  = "internal/store/worktree_verify.go"
+	nativeWorktreeReads  = "internal/store/worktree_reads.go"
 	nativeOracleFile     = "internal/store/worktree_verify_oracle.go"
 	nativeOracleGoFile   = "internal/store/worktree_verify_oracle_go.go"
 	nativeOracleHostFile = "internal/store/worktree_verify_oracle_host.go"
@@ -372,7 +373,7 @@ const (
 
 const projectIDGap = "the ambient Project identity has no admission guard: internal/store/operator.go:CreateProjectForProduct checks non-empty only and projects.id carries no length CHECK, and every native writer (nativeOracleInitialResult and the read views) copies the session's ambient Project id verbatim, so host Project IDs are genuinely unbounded and are not made finite by today's short ids"
 
-const nativeLeasePathGap = "the continuity view projects the retained worktree_verify_leases.path straight from SQL (internal/store/worktrees.go:heldWorktreeVerifyLeasesByOwnerTx scans held rows and copies the path verbatim) with no existence check, no os.Stat, and no git probe; the column carries no length CHECK in the final DDL, and the only write-side guard is the claim's filepath.IsAbs check over filepath.Join(dataDir, \"worktrees\", projectID, workID) with the unbounded operator dataDir and the unguarded ambient Project id, so retained paths project without any admission, store, or readback bound"
+const nativeLeasePathGap = "the continuity view projects retained worktree_verify_leases.path verbatim through internal/store/worktree_verify.go:heldWorktreeVerifyLeasesByOwnerTx, with no existence check or length guard; the column carries no length CHECK in the final DDL, so retained paths have no readback bound"
 
 const toolchainGap = "no per-field producer guard exists on either family: worktree_verify_oracle_host.go:nativeTargetEnvironment composes RuntimeIdentity from recipe version pins admitted only through the unbounded nativeTargetVersionPin dotted-numeric pattern, and the Go family composes the go.mod toolchain directive validated only by worktree_verify_oracle_go.go:nativePinnedGoToolchain through nativeGoToolchainName, whose digit runs are also unbounded; no truncation or length guard exists anywhere in the writer chain, so the value is byte-ceiling only"
 
@@ -628,7 +629,7 @@ func nativeSelectorName(e ast.Expr) (string, bool) {
 // enters through the payload id admission. No worker assertion writer remains
 // under CD-0242 D6.
 //
-// internal/store/worktrees.go:worktreeVerifyOperationRef then renders
+// internal/store/worktree_verify.go:worktreeVerifyOperationRef then renders
 // "worktree_verify:" + the Cut prefix, or the whole lease id when the
 // separator is absent. The full lease width bounds either arm.
 func nativeLeaseIdentity(rt *ledgerRuntime, census *boundCensus) (leaseIDChars, runRefChars int64, err error) {
@@ -1346,14 +1347,14 @@ func nativePathSuccessfulSyscallWidth(rt *ledgerRuntime) (int64, error) {
 	if err := nativeExecGitChdirProof(execRun); err != nil {
 		return 0, err
 	}
-	probe, err := nativeFuncDecl(rt, nativeWorktreesFile, "probeWorktreeReachable")
+	probe, err := nativeFuncDecl(rt, nativeWorktreeReads, "probeWorktreeReachable")
 	if err != nil {
 		return 0, err
 	}
 	if err := nativeProbeFirstCommandProof(probe); err != nil {
 		return 0, err
 	}
-	inspect, err := nativeFuncDecl(rt, nativeWorktreesFile, "InspectWorktree")
+	inspect, err := nativeFuncDecl(rt, nativeWorktreeReads, "InspectWorktree")
 	if err != nil {
 		return 0, err
 	}
@@ -1868,7 +1869,7 @@ func nativeFixedShapeDerived(what string) outputBoundSource {
 // caller omits MaxBytes, so the effective cap is defaultWorktreeInspectBytes.
 func nativeInspectContentDerived() outputBoundSource {
 	return outputBoundSource{kind: "derived", derive: func(rt *ledgerRuntime, census *boundCensus) (evaluatedBound, error) {
-		inspect, err := nativeFuncDecl(rt, nativeWorktreesFile, "InspectWorktree")
+		inspect, err := nativeFuncDecl(rt, nativeWorktreeReads, "InspectWorktree")
 		if err != nil {
 			return evaluatedBound{}, err
 		}
@@ -1917,7 +1918,7 @@ func nativeInspectContentDerived() outputBoundSource {
 		if !fallbackFound || bounded == 0 || unbounded != 0 {
 			return evaluatedBound{}, fmt.Errorf("native bound: InspectWorktree must fall back to defaultWorktreeInspectBytes and assign result.Content only from boundText(..., maxBytes); found %d bounded and %d other assignments", bounded, unbounded)
 		}
-		reader, err := nativeFuncDecl(rt, nativeWorktreesFile, "boundText")
+		reader, err := nativeFuncDecl(rt, nativeWorktreeReads, "boundText")
 		if err != nil {
 			return evaluatedBound{}, err
 		}
@@ -1983,7 +1984,7 @@ func nativeInspectContentDerived() outputBoundSource {
 		if callerSites != 1 {
 			return evaluatedBound{}, fmt.Errorf("native bound: %d production InspectWorktree call sites found; the sole-caller derivation requires exactly one", callerSites)
 		}
-		capValue, err := nativeConstValue(rt, nativeWorktreesFile, "defaultWorktreeInspectBytes")
+		capValue, err := nativeConstValue(rt, nativeWorktreeReads, "defaultWorktreeInspectBytes")
 		if err != nil {
 			return evaluatedBound{}, err
 		}

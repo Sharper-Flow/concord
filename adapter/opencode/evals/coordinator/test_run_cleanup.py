@@ -68,7 +68,7 @@ class RunCleanupTests(unittest.TestCase):
                 during(root)
             return exit_code
         with mock.patch.object(run, "command_to_files", side_effect=stub):
-            return run.run_case(self.args(), "default-checkout-resume", "coordinator body", {"rules.md": b"rule"})
+            return run.run_case(self.args(), "native-route-discovery", "coordinator body", {"rules.md": b"rule"})
 
     def assert_evidence_retained(self, result):
         root = Path(result["artifact_dir"])

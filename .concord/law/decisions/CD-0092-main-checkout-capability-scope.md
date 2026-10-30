@@ -30,7 +30,7 @@ decision accepts them.
 ### D1. The refusal follows the capability's write surface
 
 A capability is refused on the main checkout when its operations can write into
-the repository checkout or claim implementation worktrees. A capability whose
+the repository checkout. A capability whose
 operations write only Product state — the store outside all repositories — is
 allowed from a registered Project's default checkout.
 
@@ -41,8 +41,7 @@ authoring operations) write work items, memberships, and research packs in the
 store. None writes a checkout path. The capability is therefore allowed from
 the default checkout.
 
-All other mutating capabilities — including `work_transition`, whose
-`worktree_claim` claims an implementation worktree, and dispatch — remain
+All other mutating capabilities — including `work_transition` and dispatch — remain
 refused there with the existing typed refusal.
 
 ### D3. The boundary is declared once
@@ -60,7 +59,7 @@ capability and operation declarations govern authorization.
 ## Consequences
 
 - The operator and agents can record work from the default checkout without
-  first claiming a worktree, closing the #611 bootstrap loop at the authority
+  first creating a worktree, closing the #611 bootstrap loop at the authority
   layer.
 - Implementation work still cannot run from the default checkout; the
   trunk-stays-clean invariant is unchanged for everything that touches files.

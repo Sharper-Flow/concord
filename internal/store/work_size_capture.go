@@ -9,9 +9,8 @@ import (
 	"time"
 )
 
-// Both capture writers size the work they create through this core
-// (CD-0229 D4): concord_work_define capture and the concord_work_start
-// bootstrap. PlanWorkSize runs before the capture transaction, because the
+// Capture sizes work through this core (CD-0229 D4).
+// PlanWorkSize runs before the capture transaction, because the
 // behavior match probes git; RecordWorkSizeTx runs inside it, after the work
 // item and its memberships fold, and reads only through the transaction.
 

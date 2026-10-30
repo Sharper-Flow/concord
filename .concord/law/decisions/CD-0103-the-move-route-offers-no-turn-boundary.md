@@ -2,12 +2,10 @@
 
 - **Status:** Accepted
 - **Date:** 2026-09-02
-- **Scope:** The turn-end clause of CD-0098 D3; issue #710
+- **Scope:** Observable host move timing; issue #710
 - **Approval:** The operator approved this amendment in-session on 2026-09-02
   and directed that it land with the move-session transport repair.
-- **Related:** CD-0096, CD-0098, issues #710, #714, #724
-- **Preserves:** Every other CD-0098 clause, including the clean-checkout
-  precondition, the no-carry rule, and the read-back assertion
+- **Related:** CD-0088, CD-0096, issues #710, #714, #724
 - **Approval:** 2026-10-17. Coordinator approval under the operator's delegation
   for [Concord (CON) issue 966](https://linear.app/sharper-flow/issue/CON-966).
 
@@ -47,11 +45,9 @@ The adapter does not wait for a turn boundary before the move, and does not
 poll for one. The route exposes no boundary to wait on, so any wait Concord
 added would be a mechanism it invented and then described as the host's.
 
-After an accepted move, a refusal whose executing tool context has not landed may schedule one host-owned continuation of the original work-start request in the same session after its current run ends. The continuation uses the native host prompt route and needs no operator message. It neither reports work-start success nor proves placement. The ordinary placement check must verify the new tool context before success. It adds no relaunch, polling for placement, alternative executor or automatic retry cycle.
-
 ## Consequences
 
-- CD-0098 D3's preconditions and read-back assertion govern the move.
+- Host tools own worktree placement under CD-0088 D1.
 - The stated behavior now carries the host version it was verified against, so
   a future host change has something to contradict.
 - Concord depends on an unstated host property. That dependency is now visible
@@ -73,7 +69,6 @@ observable outcome is already the one Concord needs.
 
 ## Verification
 
-- The adapter contains no wait, sleep, or poll on the retarget path, which the
-  CD-0098 retarget tests exercise unchanged.
+- The adapter contains no wait, sleep, or poll on its host move transport.
 - `python3 scripts/check-json.py`, `python3 scripts/check-doc-links.py`, and
   `python3 scripts/check-knowledge-index.py` pass.

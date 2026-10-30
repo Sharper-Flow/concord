@@ -8,7 +8,7 @@
   `addOrchestratorContinuityHook|change:researcher:orchestrator-continuity|adv-researcher|1`).
 - **Scope:** Orchestrator prompt continuity; adapter plugin surface;
   `ContinuitySnapshot` payload; agent-tool surface version.
-- **Related:** CD-0016, CD-0031, CD-0043, CD-0072, CD-0084, CD-0098,
+- **Related:** CD-0016, CD-0031, CD-0043, CD-0072, CD-0084,
   CD-0104, CD-0242.
 - **Approval:** Directory-based work resolution: Concord (CON) issue CON-910
   (2026-10-13), under the Snowball coordinator's operator-delegated approval;
@@ -21,7 +21,7 @@ by summary. Three moments matter:
 
 | Moment | Mechanism | State before this decision |
 |---|---|---|
-| Managed entry | CD-0031 session-boot packet through work-start preparation | Covered |
+| Managed entry | CD-0031 session-boot packet through session preparation | Covered |
 | Any `concord_*` call | CD-0016 pinned projection, re-derived per call | Covered |
 | Mid-session with no Concord call | none | Uncovered |
 
@@ -63,10 +63,10 @@ The adapter plugin entry (`concord-plugin.ts`) registers
    in place on later state changes; it never duplicates the block;
 4. emits nothing and never throws on failure, empty work, or absent identity.
 
-The hook never resolves work from the launcher identity environment.
-`work_start` moves the session directory and leaves that environment
-unchanged, so the environment names the launch item after a move. Native
-subagent prompts remain host-owned; the hook creates no subagent packet.
+The hook never resolves work from the launcher identity environment. Host
+placement can change the session directory without changing that environment,
+so the hook reads the host-reported directory each turn. Native subagent prompts
+remain host-owned; the hook creates no subagent packet.
 
 The render path is pinned to `sessionboot.Build`. The envelope render stamps
 wall-clock `ObservedAt` and is nondeterministic; using it would break
@@ -123,7 +123,7 @@ set, or evidence. It changes no reading obligation.
 - Step join: `StepActions` equals the current step's `actions[]` for a fixture
   definition; empty when no workflow is in flight (`internal/store` tests).
 - Hook: determinism, sentinel-replacement-not-append, failure no-op, spawn-window gate,
-  re-resolution after a `work_start` move, no block for a managed-parent
+  re-resolution after a host directory change, no block for a managed-parent
   session, and no fallback to the launcher identity environment (adapter tests).
 - Cache safety mechanism: adapter tests prove byte-stability for unchanged
   state and sentinel replacement for changed state. Live cache-meter

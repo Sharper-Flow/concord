@@ -105,27 +105,13 @@ func setupProjectHandoffFixture(t *testing.T) projectHandoffFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	claimW, err := s.ClaimWorktree(ctx, WorktreeClaimRequest{
-		OpID: "ph-op-w", WorkID: workID, ProjectID: "project-w",
-		BaseSHA: strings.TrimSpace(string(baseOutW)), PrincipalRef: "principal-1", RequestID: "ph-req-w",
-		ExpectedVersion: 7, Now: time.Unix(10, 0).UTC(),
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	claimE, err := s.ClaimWorktree(ctx, WorktreeClaimRequest{
-		OpID: "ph-op-e", WorkID: workID, ProjectID: "project-e",
-		BaseSHA: strings.TrimSpace(string(baseOutE)), PrincipalRef: "principal-2", RequestID: "ph-req-e",
-		ExpectedVersion: 8, Now: time.Unix(10, 0).UTC(),
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	claimW := createHostWorktreeFixture(t, s, workID, "project-w", "ph-op-w", strings.TrimSpace(string(baseOutW)))
+	claimE := createHostWorktreeFixture(t, s, workID, "project-e", "ph-op-e", strings.TrimSpace(string(baseOutE)))
 	return projectHandoffFixture{
 		store: s, workID: workID,
 		sourceProject: "project-w", targetProject: "project-e",
 		sourceSession: "session/source", targetSession: "session/target",
-		sourceTree: claimW.Entry.Path, targetTree: claimE.Entry.Path,
+		sourceTree: claimW.Path, targetTree: claimE.Path,
 		finalWorkVersion: 9,
 	}
 }
@@ -528,20 +514,28 @@ func TestProjectHandoffConsumeRefusesStaleContractVersion(t *testing.T) {
 	}
 }
 
-// bindSessionToProjectWorktree drives the real verified claim landing
-// (CD-0178 D3): the landing reads the host process start from /proc,
-// records the session's occupancy row on the claimed worktree, and clears
-// the session's other rows. The gate and the consume resolve the acting
-// session's Project from this row and never from a caller-supplied
-// identity. The same landing replays idempotently.
+// Seed retained placement facts for the handoff's read-side consumer.
 func bindSessionToProjectWorktree(t *testing.T, s *Store, tree, sessionRef string) {
 	t.Helper()
 	var workID string
 	if err := s.DatabaseForTesting().QueryRow(`SELECT c.work_id FROM worktree_entries e JOIN worktree_claims c ON c.op_id=e.claim_op_id WHERE e.path=? AND e.state='active' LIMIT 1`, tree).Scan(&workID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.RecordWorktreeClaimLanding(context.Background(), WorktreeClaimLandingRequest{
-		WorkID: workID, SessionRef: sessionRef, LandedDirectory: filepath.Clean(tree), HostPID: os.Getpid(),
+	if err := s.Transact(t.Context(), func(tr *Transaction) error {
+		scope, err := beginWrite(t.Context(), tr.tx)
+		if err != nil {
+			return err
+		}
+		if _, err := tr.tx.ExecContext(t.Context(), `DELETE FROM worktree_occupancy WHERE session_ref=?`, sessionRef); err != nil {
+			return err
+		}
+		if _, err := tr.tx.ExecContext(t.Context(), `INSERT INTO worktree_occupancy(worktree_id,session_ref,recorded_at,has_process_identity) SELECT e.set_id||':'||e.project_id||':'||e.claim_op_id,?,'2026-10-01T00:00:00Z',0 FROM worktree_entries e WHERE e.path=? AND e.state='active'`, sessionRef, tree); err != nil {
+			return err
+		}
+		if _, err := tr.tx.ExecContext(t.Context(), `INSERT OR IGNORE INTO session_claim_landings(work_id,session_ref,project_id,claim_op_id) SELECT ?,?,project_id,claim_op_id FROM worktree_entries WHERE path=? AND state='active'`, workID, sessionRef, tree); err != nil {
+			return err
+		}
+		return scope.close(t.Context())
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -763,46 +757,6 @@ func mustReadPendingHandoffForProject(t *testing.T, f projectHandoffFixture, pro
 	return handoff
 }
 
-// A recorded landing released the rows its request's claim held; occupancy
-// rows that stand afterwards belong to a later claim, and the old landing
-// proves nothing about this retirement (CD-0190 D2).
-func TestRetirementReadinessRefusesRenewedOccupancyAfterLanding(t *testing.T) {
-	t.Parallel()
-	f := setupProjectHandoffFixture(t)
-	recordHandoff(t, f, f.sourceTree)
-	destination := projectMainCheckout(t, f.sourceTree)
-	// The source session holds the occupancy row the verified landing
-	// releases, so the landing is the real release fact.
-	bindSessionToProjectWorktree(t, f.store, f.sourceTree, f.sourceSession)
-	vacateAndLandSession(t, f, f.sourceSession, f.sourceTree, destination)
-	retirement, err := EvaluateProjectSessionRetirement(context.Background(), f.store, f.workID, f.sourceProject, f.sourceSession)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if retirement.State != RetirementReady {
-		t.Fatalf("retirement=%+v, want readiness from the verified facts", retirement)
-	}
-	// A later claim's occupancy rows stand: the landing of the old request
-	// no longer proves this session released, so readiness is pending.
-	bindSessionToProjectWorktree(t, f.store, f.sourceTree, f.sourceSession)
-	retirement, err = EvaluateProjectSessionRetirement(context.Background(), f.store, f.workID, f.sourceProject, f.sourceSession)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if retirement.State != RetirementPending || retirement.VacateLanded {
-		t.Fatalf("retirement=%+v, want renewed occupancy to hold readiness", retirement)
-	}
-	found := false
-	for _, blocker := range retirement.Blockers {
-		if strings.Contains(blocker, "occupancy rows on this work after its recorded landing") {
-			found = true
-		}
-	}
-	if !found {
-		t.Fatalf("blockers=%v, want the renewed-occupancy blocker", retirement.Blockers)
-	}
-}
-
 // An ignored, uncommitted artifact survives neither `git status --porcelain`
 // nor the session's worktree, so hash equality alone is not preservation:
 // the probe requires the referenced bytes to be committed at HEAD.
@@ -854,61 +808,11 @@ func TestProjectHandoffRefusesSymlinkEscapingArtifact(t *testing.T) {
 	}
 }
 
-// projectMainCheckout resolves the registered main checkout a worktree's
-// repository answers with: the canonical checkout the vacate destination
-// names.
-func projectMainCheckout(t *testing.T, worktree string) string {
-	t.Helper()
-	out, err := ExecGitRunner{}.Run(context.Background(), worktree, "rev-parse", "--path-format=absolute", "--git-common-dir")
-	if err != nil {
-		t.Fatal(err)
-	}
-	return filepath.Dir(strings.TrimSpace(string(out)))
-}
-
-// recordSessionVacateRequest commits the version 2 relocation request the
-// way the session_vacate mutation writes it: the canonical payload shape,
-// validated and folded by the core's own append authority, with no landing
-// recorded by the requester.
-func recordSessionVacateRequest(t *testing.T, f projectHandoffFixture, sessionRef, sourceTree, destination string) {
-	t.Helper()
-	request, err := json.Marshal(sessionVacatedPayload{WorkID: f.workID, ProjectID: f.sourceProject, SessionRef: sessionRef, SourceDirectory: filepath.Clean(sourceTree), DestinationDirectory: filepath.Clean(destination)})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := ApplyOperation(context.Background(), f.store, Operation{Events: []Event{{
-		EventID: "ph-vacate-" + sessionRef, Kind: "work.session_vacated", SubjectType: SubjectWorkItem, SubjectID: f.workID, Actor: sessionRef, OccurredAt: time.Unix(50, 0).UTC(), PayloadVersion: 2, Payload: request,
-	}}}); err != nil {
-		t.Fatal(err)
-	}
-}
-
-// vacateAndLandSession commits the relocation request and drives the real
-// verified landing the CD-0190 release facts bind to: the landing reads the
-// host process start from /proc, verifies the committed request's
-// registered main checkout, and releases the session's occupancy rows in
-// the landing's own transaction.
-func vacateAndLandSession(t *testing.T, f projectHandoffFixture, sessionRef, sourceTree, destination string) {
-	t.Helper()
-	recordSessionVacateRequest(t, f, sessionRef, sourceTree, destination)
-	landing, err := f.store.RecordSessionVacateLanding(context.Background(), SessionVacateLandingRequest{
-		WorkID: f.workID, SessionRef: sessionRef, LandedDirectory: filepath.Clean(destination), HostPID: os.Getpid(), Now: time.Unix(51, 0).UTC(),
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if landing.AlreadyRecorded {
-		t.Fatalf("landing replayed: %+v", landing)
-	}
-	if len(landing.ReleasedSources) == 0 {
-		t.Fatalf("landing released nothing: %+v, want the session's occupied source rows", landing)
-	}
-}
-
 func TestRetirementReadinessRequiresEveryVerifiedFact(t *testing.T) {
 	t.Parallel()
 	f := setupProjectHandoffFixture(t)
 	ctx := context.Background()
+	bindSessionToProjectWorktree(t, f.store, f.sourceTree, f.sourceSession)
 	// Nothing recorded yet: pending with the handoff blocker first.
 	retirement, err := EvaluateProjectSessionRetirement(ctx, f.store, f.workID, f.sourceProject, f.sourceSession)
 	if err != nil {
@@ -922,17 +826,39 @@ func TestRetirementReadinessRequiresEveryVerifiedFact(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if retirement.State != RetirementPending || !retirement.RecordedHandoff || !retirement.ArtifactsPreserved {
-		t.Fatalf("retirement=%+v, want preserved artifacts and the open blockers", retirement)
+	if retirement.State != RetirementReady || !retirement.RecordedHandoff || !retirement.ArtifactsPreserved || !retirement.ActionsStopped || len(retirement.Blockers) != 0 {
+		t.Fatalf("retirement=%+v, want readiness without a Concord vacate request", retirement)
 	}
-	if len(retirement.Blockers) != 1 || !strings.Contains(retirement.Blockers[0], "session_vacate has not recorded") {
-		t.Fatalf("blockers=%v, want the vacate blocker", retirement.Blockers)
+	var requests, occupied int
+	if err := f.store.db.QueryRow(`SELECT count(*) FROM session_vacate_requests WHERE work_id=? AND session_ref=?`, f.workID, f.sourceSession).Scan(&requests); err != nil {
+		t.Fatal(err)
 	}
-	// The real verified vacate landing completes the last gate: the request
-	// and its /proc-readback landing release the session's occupancy rows.
-	destination := projectMainCheckout(t, f.sourceTree)
-	bindSessionToProjectWorktree(t, f.store, f.sourceTree, f.sourceSession)
-	vacateAndLandSession(t, f, f.sourceSession, f.sourceTree, destination)
+	if err := f.store.db.QueryRow(`SELECT count(*) FROM worktree_occupancy WHERE session_ref=?`, f.sourceSession).Scan(&occupied); err != nil {
+		t.Fatal(err)
+	}
+	if requests != 0 || occupied != 1 {
+		t.Fatalf("requests=%d occupied=%d, want readiness to leave retained occupancy untouched with no vacate request", requests, occupied)
+	}
+	raw, err := json.Marshal(retirement)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), "vacate_landed") {
+		t.Fatalf("retirement=%s, want no vacate landing projection", raw)
+	}
+	if err := os.WriteFile(filepath.Join(f.sourceTree, "tracked.txt"), []byte("unpreserved\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	retirement, err = EvaluateProjectSessionRetirement(ctx, f.store, f.workID, f.sourceProject, f.sourceSession)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if retirement.State != RetirementPending || retirement.ArtifactsPreserved || !strings.Contains(strings.Join(retirement.Blockers, "; "), "unpreserved changes") {
+		t.Fatalf("retirement=%+v, want unpreserved artifacts to block readiness", retirement)
+	}
+	if err := os.WriteFile(filepath.Join(f.sourceTree, "tracked.txt"), []byte("base\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	retirement, err = EvaluateProjectSessionRetirement(ctx, f.store, f.workID, f.sourceProject, f.sourceSession)
 	if err != nil {
 		t.Fatal(err)
@@ -940,7 +866,7 @@ func TestRetirementReadinessRequiresEveryVerifiedFact(t *testing.T) {
 	if retirement.State != RetirementReady {
 		t.Fatalf("retirement=%+v, want READY_TO_CLOSE_OR_REPLACE from the verified facts", retirement)
 	}
-	if !retirement.RecordedHandoff || !retirement.ArtifactsPreserved || !retirement.VacateLanded {
+	if !retirement.RecordedHandoff || !retirement.ArtifactsPreserved || !retirement.ActionsStopped {
 		t.Fatalf("retirement=%+v, want every fact verified", retirement)
 	}
 	// Retirement derives from facts; it never writes.
@@ -966,9 +892,6 @@ func TestRetirementDoesNotCompleteOrCancelTheWork(t *testing.T) {
 	f := setupProjectHandoffFixture(t)
 	recorded := recordHandoff(t, f, f.sourceTree)
 	consumeHandoff(t, f, recorded.HandoffID)
-	destination := projectMainCheckout(t, f.sourceTree)
-	bindSessionToProjectWorktree(t, f.store, f.sourceTree, f.sourceSession)
-	vacateAndLandSession(t, f, f.sourceSession, f.sourceTree, destination)
 	retirement, err := EvaluateProjectSessionRetirement(context.Background(), f.store, f.workID, f.sourceProject, f.sourceSession)
 	if err != nil {
 		t.Fatal(err)
@@ -996,29 +919,52 @@ func TestRetirementDoesNotCompleteOrCancelTheWork(t *testing.T) {
 	}
 }
 
-func TestRetirementPendingVacateAndMissingHandoffBlockReadiness(t *testing.T) {
+func TestRetirementUnfinishedActionBlocksReadiness(t *testing.T) {
 	t.Parallel()
 	f := setupProjectHandoffFixture(t)
 	recorded := recordHandoff(t, f, f.sourceTree)
 	consumeHandoff(t, f, recorded.HandoffID)
-	// A committed vacate request whose verified landing never recorded
-	// (the failed-move state) blocks readiness.
-	recordSessionVacateRequest(t, f, f.sourceSession, f.sourceTree, "/nowhere/main")
+	// An unmatched action start with no known actor must block retirement.
+	execInFold(t, f.store, `INSERT INTO workflow_step_epochs(work_id,step_id,attempt_epoch,latest_start_seq,latest_start_event_id,latest_start_payload)
+		VALUES('work-h','retirement-test',1,900000000,'retirement-test-start','{}')`)
 	retirement, err := EvaluateProjectSessionRetirement(context.Background(), f.store, f.workID, f.sourceProject, f.sourceSession)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if retirement.State != RetirementPending || retirement.VacateLanded {
-		t.Fatalf("retirement=%+v, want the pending landing to block readiness", retirement)
+	if retirement.State != RetirementPending || retirement.ActionsStopped {
+		t.Fatalf("retirement=%+v, want unknown action attribution to block readiness", retirement)
 	}
-	found := false
-	for _, blocker := range retirement.Blockers {
-		if strings.Contains(blocker, "waits for its verified landing") {
-			found = true
-		}
+	actor := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/coordinator", SessionRef: f.sourceSession, ActorClass: ActorAgent}
+	actorRef, err := WorkflowActorRef(actor)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if !found {
-		t.Fatalf("blockers=%v, want the pending-landing blocker", retirement.Blockers)
+	execInFold(t, f.store, fmt.Sprintf(`UPDATE workflow_step_epochs SET latest_start_payload=json_object('actor_ref','%s') WHERE work_id='work-h' AND step_id='retirement-test'`, actorRef))
+	retirement, err = EvaluateProjectSessionRetirement(context.Background(), f.store, f.workID, f.sourceProject, f.sourceSession)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if retirement.State != RetirementPending || retirement.ActionsStopped {
+		t.Fatalf("retirement=%+v, want this session's unfinished action to block readiness", retirement)
+	}
+	foreign := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/coordinator", SessionRef: "session/foreign", ActorClass: ActorAgent}
+	foreignRef, err := WorkflowActorRef(foreign)
+	if err != nil {
+		t.Fatal(err)
+	}
+	execInFold(t, f.store,
+		fmt.Sprintf(`INSERT INTO workflow_actors(actor_ref,principal_ref,client_ref,agent_ref,session_ref,actor_class,first_seen_at) VALUES('%s','principal/operator','client/concord-1','agent/coordinator','session/foreign','agent','2026-09-30T00:00:00Z')`, foreignRef),
+		fmt.Sprintf(`UPDATE workflow_step_epochs SET latest_start_payload=json_object('actor_ref','%s') WHERE work_id='work-h' AND step_id='retirement-test'`, foreignRef))
+	retirement, err = EvaluateProjectSessionRetirement(context.Background(), f.store, f.workID, f.sourceProject, f.sourceSession)
+	if err != nil || retirement.State != RetirementReady || !retirement.ActionsStopped {
+		t.Fatalf("retirement=%+v err=%v, want another session's action to leave readiness intact", retirement, err)
+	}
+	execInFold(t, f.store,
+		fmt.Sprintf(`UPDATE workflow_step_epochs SET latest_start_payload=json_object('actor_ref','%s') WHERE work_id='work-h' AND step_id='retirement-test'`, actorRef),
+		`INSERT INTO workflow_step_completions(work_id,step_id,completion_seq) VALUES('work-h','retirement-test',900000001)`)
+	retirement, err = EvaluateProjectSessionRetirement(context.Background(), f.store, f.workID, f.sourceProject, f.sourceSession)
+	if err != nil || retirement.State != RetirementReady || !retirement.ActionsStopped {
+		t.Fatalf("retirement=%+v err=%v, want readiness after the action settles", retirement, err)
 	}
 }
 
@@ -1195,20 +1141,13 @@ func TestProjectHandoffLostResponseRecoveryRedeliversTheReceiverBind(t *testing.
 	}
 }
 
-// TestRetirementReadinessRefusesStaleContractHandoffAfterVerifiedVacate pins
-// the retirement contract boundary: readiness derives only from a handoff
-// the work's active contract binds. After the real verified vacate landing
-// completes, a contract replacement leaves the recorded handoff one the
-// receiving session can never consume, so readiness drops back to pending
-// with the stale contract named instead of reporting
-// READY_TO_CLOSE_OR_REPLACE from it.
-func TestRetirementReadinessRefusesStaleContractHandoffAfterVerifiedVacate(t *testing.T) {
+// Readiness derives only from a handoff the work's active contract binds.
+// A contract replacement makes the recorded handoff unconsumable, so
+// readiness drops back to pending with the stale contract named.
+func TestRetirementReadinessRefusesStaleContractHandoff(t *testing.T) {
 	t.Parallel()
 	f := setupProjectHandoffFixture(t)
 	recordHandoff(t, f, f.sourceTree)
-	destination := projectMainCheckout(t, f.sourceTree)
-	bindSessionToProjectWorktree(t, f.store, f.sourceTree, f.sourceSession)
-	vacateAndLandSession(t, f, f.sourceSession, f.sourceTree, destination)
 	ready, err := EvaluateProjectSessionRetirement(context.Background(), f.store, f.workID, f.sourceProject, f.sourceSession)
 	if err != nil {
 		t.Fatal(err)
@@ -1233,8 +1172,8 @@ func TestRetirementReadinessRefusesStaleContractHandoffAfterVerifiedVacate(t *te
 	if !found {
 		t.Fatalf("blockers=%v, want the stale-contract blocker", stale.Blockers)
 	}
-	if !stale.ArtifactsPreserved || !stale.VacateLanded {
-		t.Fatalf("retirement=%+v, want the preserved, stopped, and landed facts to stand", stale)
+	if !stale.ArtifactsPreserved || !stale.ActionsStopped {
+		t.Fatalf("retirement=%+v, want the preserved and stopped facts to stand", stale)
 	}
 }
 
@@ -1267,9 +1206,6 @@ func TestRetirementDriftRefusesReadinessOnContractReplacementBetweenProbeAndFina
 	t.Parallel()
 	f := setupProjectHandoffFixture(t)
 	recordHandoff(t, f, f.sourceTree)
-	destination := projectMainCheckout(t, f.sourceTree)
-	bindSessionToProjectWorktree(t, f.store, f.sourceTree, f.sourceSession)
-	vacateAndLandSession(t, f, f.sourceSession, f.sourceTree, destination)
 	ready, err := EvaluateProjectSessionRetirement(context.Background(), f.store, f.workID, f.sourceProject, f.sourceSession)
 	if err != nil {
 		t.Fatal(err)
@@ -1299,9 +1235,6 @@ func TestRetirementDriftRefusesReadinessOnNewerHandoffBetweenProbeAndFinalRead(t
 	t.Parallel()
 	f := setupProjectHandoffFixture(t)
 	first := recordHandoff(t, f, f.sourceTree)
-	destination := projectMainCheckout(t, f.sourceTree)
-	bindSessionToProjectWorktree(t, f.store, f.sourceTree, f.sourceSession)
-	vacateAndLandSession(t, f, f.sourceSession, f.sourceTree, destination)
 	ready, err := EvaluateProjectSessionRetirement(context.Background(), f.store, f.workID, f.sourceProject, f.sourceSession)
 	if err != nil {
 		t.Fatal(err)
@@ -1343,9 +1276,6 @@ func TestRetirementDriftRefusesReadinessOnSourceClaimChangeBetweenProbeAndFinalR
 	t.Parallel()
 	f := setupProjectHandoffFixture(t)
 	recordHandoff(t, f, f.sourceTree)
-	destination := projectMainCheckout(t, f.sourceTree)
-	bindSessionToProjectWorktree(t, f.store, f.sourceTree, f.sourceSession)
-	vacateAndLandSession(t, f, f.sourceSession, f.sourceTree, destination)
 	ready, err := EvaluateProjectSessionRetirement(context.Background(), f.store, f.workID, f.sourceProject, f.sourceSession)
 	if err != nil {
 		t.Fatal(err)
@@ -1353,16 +1283,10 @@ func TestRetirementDriftRefusesReadinessOnSourceClaimChangeBetweenProbeAndFinalR
 	if ready.State != RetirementReady {
 		t.Fatalf("retirement=%+v, want readiness before any interleaved change", ready)
 	}
-	version := readWorkVersion(t, f.store, f.workID)
 	drifted := retireWithProbeInterleave(t, f, func() {
-		if _, err := f.store.ReclaimWorktree(context.Background(), WorktreeReclaimRequest{
-			WorkID: f.workID, ProjectID: f.sourceProject, DefaultRef: "origin/main", PrincipalRef: "principal-1",
-			RequestID: "ph-reclaim-drift", ExpectedVersion: version, Now: time.Unix(62, 0).UTC(), Runner: ExecGitRunner{},
-		}); err != nil {
-			t.Fatal(err)
-		}
+		terminalCleanupSQL(t, f.store, `UPDATE worktree_entries SET state='reclaimed' WHERE project_id='`+f.sourceProject+`'`)
 	})
-	if drifted.State != RetirementPending || !drifted.VacateLanded {
+	if drifted.State != RetirementPending || !drifted.ActionsStopped {
 		t.Fatalf("retirement=%+v, want the interleaved source-claim change to refuse readiness with the other facts standing", drifted)
 	}
 	found := false
@@ -1456,26 +1380,20 @@ func TestConsumeRefusesClaimOccupancyWithoutTheVerifiedLanding(t *testing.T) {
 	// The source Project claims its own worktree on THIS work: the record
 	// binds artifact preservation to the named work's claimed source, so a
 	// claim on a different work cannot stand in for it.
-	reviewSourceVersion := readWorkVersion(t, f.store, work)
 	reviewSourceBase, err := (ExecGitRunner{}).Run(ctx, f.sourceTree, "rev-parse", "HEAD")
 	if err != nil {
 		t.Fatal(err)
 	}
-	reviewSourceClaim, err := f.store.ClaimWorktree(ctx, WorktreeClaimRequest{OpID: "review-source-claim", WorkID: work, ProjectID: f.sourceProject, BaseSHA: strings.TrimSpace(string(reviewSourceBase)), PrincipalRef: "principal-1", RequestID: "review-source-claim", ExpectedVersion: reviewSourceVersion, Now: time.Unix(49, 0).UTC()})
-	if err != nil {
-		t.Fatal(err)
-	}
-	reviewSourceTree := reviewSourceClaim.Entry.Path
+	reviewSourceClaim := createHostWorktreeFixture(t, f.store, work, f.sourceProject, "review-source-claim", strings.TrimSpace(string(reviewSourceBase)))
+	reviewSourceTree := reviewSourceClaim.Path
 	base, err := (ExecGitRunner{}).Run(ctx, f.targetTree, "rev-parse", "HEAD")
 	if err != nil {
 		t.Fatal(err)
 	}
-	claim, err := f.store.ClaimWorktree(ctx, WorktreeClaimRequest{OpID: "review-claim", WorkID: work, ProjectID: f.targetProject, BaseSHA: strings.TrimSpace(string(base)), PrincipalRef: "principal-2", RequestID: "review-claim", SessionRef: f.targetSession, HostPID: os.Getpid(), ExpectedVersion: readWorkVersion(t, f.store, work), Now: time.Unix(50, 0).UTC()})
-	if err != nil {
-		t.Fatal(err)
-	}
+	claim := createHostWorktreeFixture(t, f.store, work, f.targetProject, "review-claim", strings.TrimSpace(string(base)))
+	setWorktreeOccupant(t, f.store, work, f.targetSession)
 	var landings int
-	if err := f.store.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE kind='work.session_claim_landed' AND subject_id=?`, work).Scan(&landings); err != nil {
+	if err := f.store.DatabaseForTesting().QueryRow(`SELECT count(*) FROM session_claim_landings WHERE work_id=?`, work).Scan(&landings); err != nil {
 		t.Fatal(err)
 	}
 	if landings != 0 {
@@ -1496,7 +1414,7 @@ func TestConsumeRefusesClaimOccupancyWithoutTheVerifiedLanding(t *testing.T) {
 	}
 	// The real verified claim landing records this session's occupancy on
 	// the claimed worktree, and the bind then lands.
-	bindSessionToProjectWorktree(t, f.store, claim.Entry.Path, f.targetSession)
+	bindSessionToProjectWorktree(t, f.store, claim.Path, f.targetSession)
 	if _, err := runConsumeProjectHandoffTx(f, ConsumeProjectHandoffRequest{WorkID: work, HandoffID: recorded.HandoffID, ConsumerProjectID: f.targetProject, ConsumerSessionRef: f.targetSession, Now: time.Unix(61, 0).UTC()}); err != nil {
 		t.Fatalf("post-landing consume refused: %v", err)
 	}
@@ -1576,13 +1494,12 @@ func TestManagedExecutionGateAdmitsEveryPlacedSessionOfTheReceivingProject(t *te
 	}
 }
 
-// The Project bind outlives its consumer's occupancy. A verified vacate
+// The Project bind outlives its consumer's occupancy. Loss of placement
 // removes that session's admission without changing the bind's provenance
 // or requiring another consumed event for a later landed receiver.
 func TestConsumedSharedBindSurvivesTheOriginalReceiverVacate(t *testing.T) {
 	t.Parallel()
 	f := setupProjectHandoffFixture(t)
-	ctx := context.Background()
 	// The original receiver lands, and its consume binds the frontier to
 	// the work-and-Project pair.
 	bindSessionToProjectWorktree(t, f.store, f.targetTree, f.targetSession)
@@ -1591,31 +1508,10 @@ func TestConsumedSharedBindSurvivesTheOriginalReceiverVacate(t *testing.T) {
 	if err := runHandoffGate(t, f.store, f.workID, f.targetSession); err != nil {
 		t.Fatalf("pre-vacate gate refused the original consumer: %v", err)
 	}
-	// The original consumer vacates its occupancy: the committed
-	// relocation request plus the /proc-readback verified landing release
-	// its occupancy rows (CD-0190).
-	destination := projectMainCheckout(t, f.targetTree)
-	request, err := json.Marshal(sessionVacatedPayload{WorkID: f.workID, ProjectID: f.targetProject, SessionRef: f.targetSession, SourceDirectory: filepath.Clean(f.targetTree), DestinationDirectory: filepath.Clean(destination)})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := ApplyOperation(ctx, f.store, Operation{Events: []Event{{
-		EventID: "ph-vacate-original-consumer", Kind: "work.session_vacated", SubjectType: SubjectWorkItem, SubjectID: f.workID, Actor: f.targetSession, OccurredAt: time.Unix(50, 0).UTC(), PayloadVersion: 2, Payload: request,
-	}}}); err != nil {
-		t.Fatal(err)
-	}
-	landing, err := f.store.RecordSessionVacateLanding(ctx, SessionVacateLandingRequest{
-		WorkID: f.workID, SessionRef: f.targetSession, LandedDirectory: filepath.Clean(destination), HostPID: os.Getpid(), Now: time.Unix(51, 0).UTC(),
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if landing.AlreadyRecorded || len(landing.ReleasedSources) == 0 {
-		t.Fatalf("vacate landing=%+v, want the original consumer's occupancy released", landing)
-	}
+	terminalCleanupSQL(t, f.store, `DELETE FROM worktree_occupancy WHERE session_ref='`+f.targetSession+`'`)
 	// The original placement no longer verifies: the released session's
 	// own admission fails closed.
-	err = runHandoffGate(t, f.store, f.workID, f.targetSession)
+	err := runHandoffGate(t, f.store, f.workID, f.targetSession)
 	if failureKind(err) != KindInvalidOperation || !strings.Contains(fmt.Sprint(err), "no verified placement") {
 		t.Fatalf("err=%v, want the vacated consumer's placement refusal", err)
 	}
@@ -1698,48 +1594,22 @@ func TestManagedExecutionGateKeepsTheWrongProjectBindRefusedAndSourceExecutionAd
 func TestAdmissionGateRefusesSupersededClaimLanding(t *testing.T) {
 	t.Parallel()
 	f := setupProjectHandoffFixture(t)
-	ctx := context.Background()
 	bindSessionToProjectWorktree(t, f.store, f.sourceTree, f.sourceSession)
 	recordHandoff(t, f, f.sourceTree)
 	if err := runHandoffGate(t, f.store, f.workID, f.sourceSession); err != nil {
 		t.Fatalf("source session gate refused before the reclaim %v", err)
 	}
-	// Capture the claim base before the reclaim retires the claimed
-	// worktree, then supersede the claim generation: reclaim plus a fresh
-	// claim at the same derived path, the fresh claim carrying the session's
-	// occupancy row from creation (CD-0179).
-	mainCheckout := projectMainCheckout(t, f.sourceTree)
-	baseOut, err := (ExecGitRunner{}).Run(ctx, mainCheckout, "rev-parse", "origin/main")
-	if err != nil {
-		t.Fatal(err)
-	}
-	version := readWorkVersion(t, f.store, f.workID)
-	vacateAndLandSession(t, f, f.sourceSession, f.sourceTree, mainCheckout)
-	if _, err := f.store.ReclaimWorktree(ctx, WorktreeReclaimRequest{
-		WorkID: f.workID, ProjectID: f.sourceProject, DefaultRef: "origin/main", PrincipalRef: "principal-1",
-		RequestID: "ph-reclaim-w", ExpectedVersion: version, Now: time.Unix(45, 0).UTC(), Runner: ExecGitRunner{},
-	}); err != nil {
-		t.Fatal(err)
-	}
-	reclaimed, err := f.store.ClaimWorktree(ctx, WorktreeClaimRequest{
-		OpID: "ph-op-w-2", WorkID: f.workID, ProjectID: f.sourceProject,
-		BaseSHA: strings.TrimSpace(string(baseOut)), PrincipalRef: "principal-1", RequestID: "ph-req-w-2",
-		SessionRef: f.sourceSession, ExpectedVersion: version + 1, Now: time.Unix(46, 0).UTC(),
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if reclaimed.Entry.Path != f.sourceTree {
-		t.Fatalf("re-claimed path=%s, want the derived path %s", reclaimed.Entry.Path, f.sourceTree)
-	}
+	terminalCleanupSQL(t, f.store, `DELETE FROM worktree_occupancy WHERE session_ref='`+f.sourceSession+`'`)
+	replaceHostWorktreeGeneration(t, f.store, f.sourceTree, "ph-op-w-2")
+	setWorktreeOccupant(t, f.store, f.workID, f.sourceSession)
 	// The only landing in the log names the superseded claim: the gate
 	// refuses, and the re-claim records no landing of its own.
-	err = runHandoffGate(t, f.store, f.workID, f.sourceSession)
+	err := runHandoffGate(t, f.store, f.workID, f.sourceSession)
 	if failureKind(err) != KindInvalidOperation || !strings.Contains(fmt.Sprint(err), "no verified placement") {
 		t.Fatalf("gate err=%v, want the superseded-claim landing refused", err)
 	}
 	var landings int
-	if err := f.store.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE kind='work.session_claim_landed' AND subject_id=?`, f.workID).Scan(&landings); err != nil {
+	if err := f.store.DatabaseForTesting().QueryRow(`SELECT count(*) FROM session_claim_landings WHERE work_id=?`, f.workID).Scan(&landings); err != nil {
 		t.Fatal(err)
 	}
 	if landings != 1 {
@@ -1749,85 +1619,40 @@ func TestAdmissionGateRefusesSupersededClaimLanding(t *testing.T) {
 	// generation and reopens admission.
 	bindSessionToProjectWorktree(t, f.store, f.sourceTree, f.sourceSession)
 	var claimOpID string
-	if err := f.store.DatabaseForTesting().QueryRow(`SELECT claim_op_id FROM session_claim_landings WHERE work_id=? AND session_ref=? AND project_id=? AND claim_op_id=?`, f.workID, f.sourceSession, f.sourceProject, reclaimed.Entry.ClaimOpID).Scan(&claimOpID); err != nil {
+	if err := f.store.DatabaseForTesting().QueryRow(`SELECT claim_op_id FROM session_claim_landings WHERE work_id=? AND session_ref=? AND project_id=? AND claim_op_id=?`, f.workID, f.sourceSession, f.sourceProject, "ph-op-w-2").Scan(&claimOpID); err != nil {
 		t.Fatal(err)
 	}
-	if claimOpID != reclaimed.Entry.ClaimOpID {
-		t.Fatalf("recorded landing claim op=%q, want the re-claimed generation %q", claimOpID, reclaimed.Entry.ClaimOpID)
+	if claimOpID != "ph-op-w-2" {
+		t.Fatalf("recorded landing claim op=%q, want ph-op-w-2", claimOpID)
 	}
 	if err := runHandoffGate(t, f.store, f.workID, f.sourceSession); err != nil {
 		t.Fatalf("post-landing gate refused %v", err)
 	}
 }
 
-// A claim landing after a vacate plus re-claim records its own first
-// landing. The vacate released every row the session held, so the re-claimed
-// worktree's landing finds one held row, no occupied source, and only the
-// vacated claim's landing in the log: replaying that landing instead would
-// leave the new claim's placement unprovable and the addressed consume
-// unverifiable.
+// A replacement claim generation needs its own retained landing.
+// Reusing the earlier claim's landing would leave the new claim's placement
+// unprovable and the addressed consume unverifiable.
 func TestReclaimedClaimAfterVacateRecordsItsOwnFirstLanding(t *testing.T) {
 	t.Parallel()
 	f := setupProjectHandoffFixture(t)
-	ctx := context.Background()
 	bindSessionToProjectWorktree(t, f.store, f.targetTree, f.targetSession)
-	// The session vacates to the Project's registered main checkout: the
-	// verified vacate landing releases its occupancy rows, so it holds no
-	// row anywhere.
-	destination := projectMainCheckout(t, f.targetTree)
-	request, err := json.Marshal(sessionVacatedPayload{WorkID: f.workID, ProjectID: f.targetProject, SessionRef: f.targetSession, SourceDirectory: filepath.Clean(f.targetTree), DestinationDirectory: filepath.Clean(destination)})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := ApplyOperation(ctx, f.store, Operation{Events: []Event{{
-		EventID: "ph-vacate-target", Kind: "work.session_vacated", SubjectType: SubjectWorkItem, SubjectID: f.workID, Actor: f.targetSession, OccurredAt: time.Unix(50, 0).UTC(), PayloadVersion: 2, Payload: request,
-	}}}); err != nil {
-		t.Fatal(err)
-	}
-	vacateLanding, err := f.store.RecordSessionVacateLanding(ctx, SessionVacateLandingRequest{WorkID: f.workID, SessionRef: f.targetSession, LandedDirectory: filepath.Clean(destination), HostPID: os.Getpid(), Now: time.Unix(51, 0).UTC()})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if vacateLanding.AlreadyRecorded || len(vacateLanding.ReleasedSources) == 0 {
-		t.Fatalf("vacate landing=%+v, want the target row released", vacateLanding)
-	}
-	// The session re-claims the target Project's worktree and lands again.
-	baseOut, err := (ExecGitRunner{}).Run(ctx, destination, "rev-parse", "origin/main")
-	if err != nil {
-		t.Fatal(err)
-	}
-	version := readWorkVersion(t, f.store, f.workID)
-	if _, err := f.store.ReclaimWorktree(ctx, WorktreeReclaimRequest{
-		WorkID: f.workID, ProjectID: f.targetProject, DefaultRef: "origin/main", PrincipalRef: "principal-2",
-		RequestID: "ph-reclaim-e", ExpectedVersion: version, Now: time.Unix(52, 0).UTC(), Runner: ExecGitRunner{},
-	}); err != nil {
-		t.Fatal(err)
-	}
-	reclaimed, err := f.store.ClaimWorktree(ctx, WorktreeClaimRequest{
-		OpID: "ph-op-e-2", WorkID: f.workID, ProjectID: f.targetProject,
-		BaseSHA: strings.TrimSpace(string(baseOut)), PrincipalRef: "principal-2", RequestID: "ph-req-e-2",
-		SessionRef: f.targetSession, ExpectedVersion: version + 1, Now: time.Unix(52, 0).UTC(),
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	second, err := f.store.RecordWorktreeClaimLanding(ctx, WorktreeClaimLandingRequest{WorkID: f.workID, SessionRef: f.targetSession, LandedDirectory: reclaimed.Entry.Path, HostPID: os.Getpid(), Now: time.Unix(53, 0).UTC()})
-	if err != nil || second.AlreadyRecorded {
-		t.Fatalf("second landing=%+v err=%v, want the re-claim's own first landing recorded", second, err)
-	}
+	terminalCleanupSQL(t, f.store, `DELETE FROM worktree_occupancy WHERE session_ref='`+f.targetSession+`'`)
+	replaceHostWorktreeGeneration(t, f.store, f.targetTree, "ph-op-e-2")
+	bindSessionToProjectWorktree(t, f.store, f.targetTree, f.targetSession)
 	var landings int
-	if err := f.store.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE kind='work.session_claim_landed' AND subject_id=?`, f.workID).Scan(&landings); err != nil {
+	if err := f.store.DatabaseForTesting().QueryRow(`SELECT count(*) FROM session_claim_landings WHERE work_id=?`, f.workID).Scan(&landings); err != nil {
 		t.Fatal(err)
 	}
 	if landings != 2 {
 		t.Fatalf("landing event count=%d, want the vacated claim's and the re-claim's own landing", landings)
 	}
 	var claimOpID string
-	if err := f.store.DatabaseForTesting().QueryRow(`SELECT claim_op_id FROM session_claim_landings WHERE work_id=? AND session_ref=? AND project_id=? AND claim_op_id=?`, f.workID, f.targetSession, f.targetProject, reclaimed.Entry.ClaimOpID).Scan(&claimOpID); err != nil {
+	if err := f.store.DatabaseForTesting().QueryRow(`SELECT claim_op_id FROM session_claim_landings WHERE work_id=? AND session_ref=? AND project_id=? AND claim_op_id=?`, f.workID, f.targetSession, f.targetProject, "ph-op-e-2").Scan(&claimOpID); err != nil {
 		t.Fatal(err)
 	}
-	if claimOpID != reclaimed.Entry.ClaimOpID {
-		t.Fatalf("recorded landing claim op=%q, want the re-claimed generation %q", claimOpID, reclaimed.Entry.ClaimOpID)
+	if claimOpID != "ph-op-e-2" {
+		t.Fatalf("recorded landing claim op=%q, want ph-op-e-2", claimOpID)
 	}
 	// The fresh landing resolves the placement: the addressed handoff binds
 	// to the consuming session, and the admission gate admits it.
@@ -1942,13 +1767,7 @@ func TestRecordProjectHandoffBindsPreservationToTheClaimedSourceWorktree(t *test
 	}
 	// Retiring the claim leaves no active source claim: the record refuses
 	// instead of trusting the supplied path.
-	version := readWorkVersion(t, f.store, f.workID)
-	if _, err := f.store.ReclaimWorktree(context.Background(), WorktreeReclaimRequest{
-		WorkID: f.workID, ProjectID: f.sourceProject, DefaultRef: "origin/main", PrincipalRef: "principal-1",
-		RequestID: "ph-bind-reclaim", ExpectedVersion: version, Now: time.Unix(50, 0).UTC(), Runner: ExecGitRunner{},
-	}); err != nil {
-		t.Fatal(err)
-	}
+	terminalCleanupSQL(t, f.store, `UPDATE worktree_entries SET state='reclaimed' WHERE project_id='`+f.sourceProject+`'`)
 	_, err = runRecordProjectHandoffTx(f, f.recordRequest(f.sourceTree))
 	if failureKind(err) != KindInvalidOperation || !strings.Contains(fmt.Sprint(err), "holds no claimed worktree") {
 		t.Fatalf("err=%v, want the no-claim refusal", err)
@@ -2004,21 +1823,14 @@ func TestProjectHandoffIdentityStaysWithinThePublishedIDBound(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	claim, err := s.ClaimWorktree(ctx, WorktreeClaimRequest{
-		OpID: "ph-id-claim", WorkID: longWork, ProjectID: longSource,
-		BaseSHA: strings.TrimSpace(string(baseOut)), PrincipalRef: "principal-1", RequestID: "ph-id-req",
-		ExpectedVersion: readWorkVersion(t, s, longWork), Now: time.Unix(10, 0).UTC(),
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	claim := createHostWorktreeFixture(t, s, longWork, longSource, "ph-id-claim", strings.TrimSpace(string(baseOut)))
 	req := RecordProjectHandoffRequest{
 		WorkID: longWork, SourceProjectID: longSource, TargetProjectID: longTarget,
 		SourceSessionRef: "session/" + strings.Repeat("n", 120),
 		BoundedJob:       "verify the receiving repository's adapter surface",
 		Changes:          []string{"adapter/opencode: opener route"}, Verification: []string{"bun test adapter/opencode/ pass"},
 		ArtifactRefs: nil, Blockers: []string{}, NextAction: "consume the handoff and verify the opener route",
-		SourceWorktree: claim.Entry.Path, Now: time.Unix(20, 0).UTC(),
+		SourceWorktree: claim.Path, Now: time.Unix(20, 0).UTC(),
 	}
 	var first ProjectHandoffResult
 	if err := s.Transact(ctx, func(tx *Transaction) error {

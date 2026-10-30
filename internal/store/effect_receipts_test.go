@@ -51,20 +51,6 @@ func hideEffectLog(t *testing.T, s *Store) {
 	}
 }
 
-func TestEffectReceiptBootstrapProbeLogBlind(t *testing.T) {
-	s := effectReceiptReadFixture(t)
-	e := testEvent()
-	e.EventID = "bootstrap:worktree-created"
-	seedEffectReceiptRead(t, s, 7, e)
-	hideEffectLog(t, s)
-	for _, tc := range []struct{ op, want string }{{"bootstrap", "bootstrap:worktree-created:9"}, {"new", "new:worktree-created"}} {
-		got, err := bootstrapCreationEventID(t.Context(), s.db, tc.op, 9)
-		if err != nil || got != tc.want {
-			t.Fatalf("creation identity = %q, %v; want %q", got, err, tc.want)
-		}
-	}
-}
-
 func TestEffectReceiptConflictLogBlind(t *testing.T) {
 	s := effectReceiptReadFixture(t)
 	e := testEvent()

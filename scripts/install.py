@@ -120,7 +120,6 @@ def derive_adapter_files(adapter_dir: Path) -> tuple[str, ...]:
 ADAPTER_FILES = (
     "adapter-contract-defect.ts",
     "agent-switch-hook.ts",
-    "claimed-worktree.ts",
     "concord-plugin.ts",
     "concord.ts",
     "continuity-hook.ts",
@@ -150,7 +149,7 @@ ADAPTER_FILES = (
 # traversing key still cannot reach a delete. Append on retirement; never
 # remove an entry while an installation that records it may still exist.
 RETIRED_ADAPTER_FILES = (
-    "native-subtask-refusal.ts", "ci-watch.ts", "dispatch-window.ts", "dispatch.ts", "generated-agent-lanes.ts",
+    "native-subtask-refusal.ts", "ci-watch.ts", "claimed-worktree.ts", "dispatch-window.ts", "dispatch.ts", "generated-agent-lanes.ts",
     "generated-lane-step-dispatch.ts", "lane_capabilities.ts", "lane_completion.ts", "lane_dispatch.ts",
     "oracle-readiness.ts", "packet.ts", "task-result.ts", "worker-report-protocol.js", "worker_control.ts",
     "worker_diff.ts", "worker_recovery.ts", "worker_source.ts", "worker_subject.ts",

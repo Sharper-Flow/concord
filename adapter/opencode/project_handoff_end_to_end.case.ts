@@ -1,28 +1,22 @@
 import { afterEach, expect, test } from "bun:test"
 import { Database } from "bun:sqlite"
+import { createHash } from "node:crypto"
 import { chmod, mkdir, writeFile } from "node:fs/promises"
 import { basename, join } from "node:path"
 import { fixtureTempRoot, requireOwnedFixtureRun, runFixtureProcess } from "./fixture-temp-root"
 requireOwnedFixtureRun()
 import ConcordAdapterPlugin from "./concord-plugin"
-import { configureConcordAdapter, invokeConcordOperation, projectHandoffConsumeKey, work_start, work_transition } from "./concord"
+import { configureConcordAdapter, consumeAddressedProjectHandoff, invokeConcordOperation, projectHandoffConsumeKey, work_transition } from "./concord"
 import { concordBinaryPath, configureCoreBinary, type CoreRunner } from "./core-runtime"
 import { configureHostLease } from "./host-lease"
-import { resetClaimedWorktrees } from "./claimed-worktree"
-import { resetTurnMoveBoundaries } from "./turn-move-boundary"
 import { manifestDigest } from "./generated-contracts"
-import { hostControlPlane, MOVE_SESSION_ROUTE, SESSION_ROUTE, SESSION_MESSAGES_ROUTE } from "./move-session"
+import { hostControlPlane, SESSION_ROUTE, SESSION_MESSAGES_ROUTE } from "./move-session"
 import { dbValue, fixturePublicKeyBase64, type JSONRecord } from "./end-to-end.fixture"
 
-// The Project-session handoff acceptance runs on the real boundary: a real
-// core binary against a real store, two Projects in two repositories, the
-// real boot route (work_start -> work-resume -> move readbacks ->
-// claim-landing -> addressed consume) for both coordinator sessions, the
-// real session_vacate mutation with its readback-verified landing
-// (CD-0190), and the real project_retirement read deriving
-// READY_TO_CLOSE_OR_REPLACE. A clean checkout has no binary on PATH; declare
-// the test skipped when no Go toolchain can build one, so a suite run without
-// the toolchain reports a skip, never a silent pass.
+// The core owns capture, session identity, continuity and handoff state. Git
+// and the fixture host own checkout creation and session placement. No SQL
+// fixture rows stand in for a production admission or preservation check.
+// A clean checkout needs Go to build the real core; absence reports a skip.
 const routeTest =
   Bun.spawnSync(["go", "version"], { env: { ...process.env } }).exitCode === 0
     ? (name: string, fn: () => Promise<void>) => test(name, fn, { timeout: 300000 })
@@ -72,14 +66,8 @@ async function git(cwd: string, ...args: string[]): Promise<void> {
   expect(result.exitCode, `git ${args.join(" ")}: ${result.stderr}`).toBe(0)
 }
 
-// realCoreRunner spawns the real core binary against the real store for
-// every transport leg, honoring the child working directory the boot flow
-// resolves (work-resume and session-prepare run from the session's own
-// directories) and the session-prepare seams: a HOME holding the primary agent
-// definitions and a fake `opencode` probe on PATH. This is the boundary the
-// acceptance claims: no canned answer stands between the boot flow and the
-// core, and no fixture session is launched by anyone — both coordinator
-// sessions are host-started before the route runs.
+// Every core transport leg uses the real store. Session preparation runs in
+// the host checkout with synthetic installed agent definitions and registry.
 function realCoreRunner(binary: string, dbPath: string, childEnv: Record<string, string>, captured: { invoke?: JSONRecord }, host?: HandoffHost): CoreRunner & {
   run(argv: string[], input: string, signal?: AbortSignal, options?: { cwd?: string }): ReturnType<CoreRunner["run"]>
 } {
@@ -98,11 +86,8 @@ function realCoreRunner(binary: string, dbPath: string, childEnv: Record<string,
   } as never
 }
 
-// fakeHostControlPlane holds per-session live directories and participation
-// metadata: moveSession performs the relocation the boot flow and the vacate
-// mover request, the session route reads the directory and metadata back,
-// and the PATCH route persists the managed Task scope the boot enrolls. The
-// seed names where each session runs before its first move.
+// The host starts sessions in their checkouts. Concord may read their live
+// directories and update participation metadata, but must never move them.
 async function fakeHostControlPlane(seed: Array<[string, string]>, runner: CoreRunner, retained?: HandoffHost) {
   const host = retained ?? { sessions: {}, taskCalls: 0 }
   for (const [id, directory] of seed) host.sessions[id] ??= { directory, metadata: {}, messages: [] }
@@ -129,12 +114,9 @@ async function fakeHostControlPlane(seed: Array<[string, string]>, runner: CoreR
           if (url === SESSION_MESSAGES_ROUTE) return { data: session.messages, response: new Response("[]", { status: 200 }) }
           return { data: { id, ...session }, response: new Response(null, { status: 200 }) }
         },
-        post: async ({ url, body }: { url: string; path?: Record<string, unknown>; body?: unknown }) => {
+        post: async ({ url }: { url: string; path?: Record<string, unknown>; body?: unknown }) => {
           if (url === SESSION_MESSAGES_ROUTE) throw new Error("handoff performs zero subtask writes")
-          expect(url).toBe(MOVE_SESSION_ROUTE)
-          const { sessionID, destination } = body as { sessionID: string; destination: { directory: string } }
-          host.sessions[sessionID].directory = destination.directory
-          return { data: null, response: new Response(null, { status: 204 }) }
+          throw new Error(`Concord must not create or relocate host sessions: ${url}`)
         },
         patch: async ({ url, path, body }: { url: string; path?: Record<string, unknown>; body?: unknown }) => {
           expect(url).toBe(SESSION_ROUTE)
@@ -168,19 +150,17 @@ interface HandoffFixture {
   workID: string
   sourceWorktree: string
   repoReceive: string
+  receiveWorktree: string
+  artifactPath: string
+  artifactRef: string
   handoffID: string
   captured: { invoke?: JSONRecord }
   childEnv: Record<string, string>
   host: HandoffHost
 }
 
-// bootHandoffFixture builds the real two-repository store: one product, two
-// Projects with canonical locators in distinct repositories, one shared work
-// item holding both memberships, one approved contract, and the recorded
-// handoff the source session addressed to the receiving Project through the
-// real invoke route. The session-prepare seams (primary agent definitions in a
-// fixture HOME and a fake `opencode` probe on PATH) let the real boot flow
-// run its prepare step without an installed host.
+// Capture and all workflow/handoff mutations cross the authenticated adapter.
+// The fixture creates ordinary Git worktrees, not Concord ownership rows.
 async function bootHandoffFixture(root: string, restartWitness = false): Promise<HandoffFixture> {
   const binRoot = join(root, "bin")
   const homeRoot = join(root, "home")
@@ -230,10 +210,7 @@ async function bootHandoffFixture(root: string, restartWitness = false): Promise
     await git(repo, "add", ".")
     await git(repo, "commit", "--quiet", "-m", "fixture")
     await git(repo, "remote", "add", "origin", "https://example.invalid/synthetic.git")
-    // The bootstrap preflight and the resume freshness sample both fetch
-    // origin's default branch, so the remote maps onto a local bare
-    // repository through insteadOf: every fetch stays hermetic while the
-    // URL stays one ResolveProject accepts.
+    // Native verification retains real default-branch refs without network IO.
     const bareOrigin = join(root, `origin-${basename(repo)}.git`)
     await git(root, "init", "--quiet", "--bare", "--initial-branch=main", bareOrigin)
     await git(repo, "config", `url.${bareOrigin}.insteadOf`, "https://example.invalid/synthetic.git")
@@ -251,45 +228,45 @@ async function bootHandoffFixture(root: string, restartWitness = false): Promise
   await runJSON("project-locator-add", { project_id: SOURCE_PROJECT, locator_id: "repo-source", kind: "canonical_path", value: repoSource, expected_version: 1 })
   await runJSON("project-locator-add", { project_id: RECEIVE_PROJECT, locator_id: "repo-receive", kind: "canonical_path", value: repoReceive, expected_version: 1 })
   await runJSON("product-knowledge-home-designate", { product_id: PRODUCT_ID, project_id: SOURCE_PROJECT, locator_id: "repo-source", expected_version: 3 })
-  const bootstrap = await runJSON("work-bootstrap", {
-    product_id: PRODUCT_ID,
-    project_id: SOURCE_PROJECT,
-    title: "Synthetic handoff route",
-    value_statement: "The bounded handoff crosses Projects without operator copying.",
-    kind: "bug",
-    task: "Exercise the handoff route.",
-    idempotency_key: "handoff-e2e-bootstrap",
-    defect_intake: { failure_shape: "handoff-e2e-route", reproduction: "run the synthetic handoff route", searched: "the synthetic store", related_defect_ids: [] },
-    priority: 1,
-    urgency: "standard",
-    tags: [],
-    workflow_type_ref: "",
-    external_ref: "",
-    governing_requirements: [],
-    ref: "HEAD",
-  }, repoSource)
-  const workID = bootstrap.work_id as string
   await runJSON("client-register", {
     client_ref: CLIENT_REF,
     key_id: "handoff-e2e-key",
     principal_ref: "operator-1",
     public_key: fixturePublicKeyBase64(PRIVATE_SEED),
-    capabilities: ["product_read", "work_transition", "work_relate"],
+    capabilities: ["product_read", "work_define", "work_transition", "work_relate"],
     product_scope: [PRODUCT_ID],
     project_scope: [SOURCE_PROJECT, RECEIVE_PROJECT],
     agent_scope: [AGENT],
   })
   const captured: { invoke?: JSONRecord } = {}
   const host: HandoffHost = { sessions: {}, taskCalls: 0 }
-  const sourceWorktree = (bootstrap.worktree as JSONRecord).path as string
-  // The host session route answers each session's current directory: the
-  // source session runs in its claimed worktree and the receiving sessions
-  // are host-started in the receiving repository before any route runs.
-  // The real core runner serves every transport leg from here on.
-  const seed: Array<[string, string]> = [[SOURCE_SESSION, sourceWorktree], [RECEIVE_SESSION, repoReceive], ...(restartWitness ? [] : [[RECEIVE_SESSION_B, repoReceive] as [string, string]])]
-  await fakeHostControlPlane(seed, realCoreRunner(binary, dbPath, childEnv, captured, host), host)
-  const sourceContext = contextFor(SOURCE_SESSION, sourceWorktree)
+  const runner = realCoreRunner(binary, dbPath, childEnv, captured, host)
+  await fakeHostControlPlane([[SOURCE_SESSION, repoSource]], runner, host)
   const invoke = (toolName: string, operation: string, input: JSONRecord, callContext: any) => invokeConcordOperation(toolName, { operation, input } as any, callContext)
+  const captureInput = {
+    title: "Synthetic handoff route",
+    value_statement: "The bounded handoff crosses Projects without operator copying.",
+    kind: "bug", task: "Exercise the handoff route.", project_ids: [SOURCE_PROJECT],
+    idempotency_key: "handoff-e2e-capture",
+    defect_intake: { failure_shape: "handoff-e2e-route", reproduction: "run the synthetic handoff route", searched: "the synthetic store", related_defect_ids: [] },
+  }
+  const capture = await invoke("concord_work_define", "capture", captureInput, contextFor(SOURCE_SESSION, repoSource))
+  expect(capture.outcome, JSON.stringify(capture)).toBe("ok")
+  const workID = capture.changed_refs.find((ref: JSONRecord) => ref.entity_kind === "work_item").id as string
+  expect(workID).toBeTruthy()
+  const replay = await invoke("concord_work_define", "capture", captureInput, contextFor(SOURCE_SESSION, repoSource))
+  expect(replay.outcome, JSON.stringify(replay)).toBe("ok")
+  expect(replay.replayed).toBe(true)
+  expect(replay.changed_refs).toEqual(capture.changed_refs)
+  expect(dbValue(dbPath, "SELECT count(*) AS n FROM work_items").n).toBe(1)
+  const sourceWorktree = join(root, "source-checkout")
+  const receiveWorktree = join(root, "receive-checkout")
+  await git(repoSource, "worktree", "add", "-b", `work/${workID}`, sourceWorktree)
+  await git(repoReceive, "worktree", "add", "-b", `work/${workID}`, receiveWorktree)
+  host.sessions[SOURCE_SESSION].directory = sourceWorktree
+  const seed: Array<[string, string]> = [[SOURCE_SESSION, sourceWorktree], [RECEIVE_SESSION, receiveWorktree], ...(restartWitness ? [] : [[RECEIVE_SESSION_B, receiveWorktree] as [string, string]])]
+  await fakeHostControlPlane(seed, runner, host)
+  const sourceContext = contextFor(SOURCE_SESSION, sourceWorktree)
   const version = () => dbValue(dbPath, `SELECT version FROM work_items WHERE id='${workID}'`).version as number
 
   const memberships = await invoke("concord_work_relate", "set_memberships", { work_id: workID, expected_version: await version(), memberships: [{ project_id: SOURCE_PROJECT, role: "primary" }, { project_id: RECEIVE_PROJECT, role: "secondary" }], idempotency_key: "handoff-e2e-memberships" }, sourceContext)
@@ -323,23 +300,53 @@ async function bootHandoffFixture(root: string, restartWitness = false): Promise
       verification_obligations: [],
     },
   })
+  const artifactPath = join(sourceWorktree, "README.md")
+  const artifactRef = `sha256:${createHash("sha256").update(new Uint8Array(await Bun.file(artifactPath).arrayBuffer())).digest("hex")}:${artifactPath}`
   const recorded = await invoke("concord_work_transition", "project_handoff_record", {
     work_id: workID,
     target_project_id: RECEIVE_PROJECT,
     bounded_job: "verify the receiving repository's adapter surface",
     next_action: "consume the handoff and run the bounded job",
-    changes: ["adapter/opencode: resume route"],
+    changes: ["adapter/opencode: handoff route"],
+    artifact_refs: [artifactRef],
     idempotency_key: "handoff-e2e-record",
   }, sourceContext)
   expect(recorded.outcome, `record: ${JSON.stringify(recorded)}`).toBe("ok")
   const handoffID = (recorded.result as JSONRecord).handoff_id as string
   expect(handoffID).toBeTruthy()
-  return { root, binary, dbPath, workID, sourceWorktree, repoReceive, handoffID, captured, childEnv, host }
+  return { root, binary, dbPath, workID, sourceWorktree, repoReceive, receiveWorktree, artifactPath, artifactRef, handoffID, captured, childEnv, host }
+}
+
+async function prepareSession(fixture: HandoffFixture, directory: string): Promise<void> {
+  const runner = realCoreRunner(fixture.binary, fixture.dbPath, fixture.childEnv, fixture.captured, fixture.host)
+  const result = await runner.run([fixture.binary, "session-prepare"], JSON.stringify({ product_id: PRODUCT_ID, work_id: fixture.workID, agent: AGENT }), undefined, { cwd: directory })
+  expect(result.exitCode, result.stderr).toBe(0)
+  expect(JSON.parse(result.stdout)).toMatchObject({ product_id: PRODUCT_ID, work_id: fixture.workID, directory, agent: AGENT })
+}
+
+async function readAddressedHandoff(fixture: HandoffFixture, sessionID: string): Promise<JSONRecord> {
+  const directory = await hostControlPlane().sessionDirectory(sessionID)
+  expect(directory).toBe(fixture.receiveWorktree)
+  const continuity = await invokeConcordOperation("concord_work_trace", { operation: "continuity", input: { work_id: fixture.workID } } as any, contextFor(sessionID, directory!))
+  expect(continuity.outcome, JSON.stringify(continuity)).toBe("ok")
+  expect(continuity.result.work_id).toBe(fixture.workID)
+  expect(continuity.result.pinned.work_pin.work_id).toBe(fixture.workID)
+  const handoff = continuity.result.pinned.pending_project_handoff
+  expect(handoff, JSON.stringify(continuity)).toMatchObject({ handoff_id: fixture.handoffID, target_project_id: RECEIVE_PROJECT })
+  return handoff
+}
+
+async function receiveTransport(fixture: HandoffFixture) {
+  const directory = fixture.receiveWorktree
+  const runner = realCoreRunner(fixture.binary, fixture.dbPath, fixture.childEnv, fixture.captured, fixture.host)
+  const result = await runner.run([fixture.binary, "project-resolve"], JSON.stringify({ directory, worktree: directory }))
+  expect(result.exitCode, result.stderr).toBe(0)
+  const ambient = JSON.parse(result.stdout)
+  expect(ambient.project_id).toBe(RECEIVE_PROJECT)
+  return { sessionDirectory: directory, ambient: { projectID: ambient.project_id as string, productIDs: ambient.product_ids as string[], scopeVersion: ambient.scope_version as string, mainWorktree: ambient.main_worktree as boolean } }
 }
 
 afterEach(async () => {
-  resetClaimedWorktrees()
-  resetTurnMoveBoundaries()
   configureConcordAdapter({ reset: true })
   configureHostLease({ reset: true })
   await ConcordAdapterPlugin({})
@@ -387,24 +394,20 @@ routeDeclaration("host-started session receives real core context without out-of
       expect(result.exitCode, `${argv[1]}: ${result.stderr}`).toBe(0)
       calls.push(argv[1])
       const after = snapshot()
-      if (argv[1] === "claim-landing") {
-        expect(JSON.parse(input)).toMatchObject({ work_id: workID, session_ref: SOURCE_SESSION, landed_directory: sourceWorktree })
-        expect(after).not.toEqual(before)
-      } else {
-        expect(after, `${argv[1]} must not write outside the typed landing`).toEqual(before)
-      }
+      expect(after, `${argv[1]} must not write to the database`).toEqual(before)
       return result
     },
   }
   configureCoreBinary(binary)
   const plugin = await fakeHostControlPlane([[SOURCE_SESSION, sourceWorktree]], runner, host)
   expect(host.sessions[SOURCE_SESSION].metadata).toEqual({})
-  const boot = parseToolResult(await work_start.execute({ work_id: workID } as any, contextFor(SOURCE_SESSION, sourceWorktree)))
-  expect(boot.outcome, JSON.stringify(boot)).toBe("ok")
-  expect(boot).toMatchObject({ work_id: workID, worktree_path: sourceWorktree, session_id: SOURCE_SESSION })
-  expect(calls).toContain("work-resume")
+  const prepared = await runner.run([binary, "session-prepare"], JSON.stringify({ product_id: PRODUCT_ID, work_id: workID, agent: AGENT }), new AbortController().signal, { cwd: sourceWorktree })
+  expect(prepared.exitCode, prepared.stderr).toBe(0)
+  const boot = JSON.parse(prepared.stdout)
+  expect(boot).toMatchObject({ work_id: workID, product_id: PRODUCT_ID, directory: sourceWorktree, agent: AGENT })
+  expect(boot.prompt).toContain(workID)
   expect(calls).toContain("session-prepare")
-  expect(calls).toContain("claim-landing")
+  expect(host.sessions[SOURCE_SESSION].directory).toBe(sourceWorktree)
 
   const beforeDelivery = snapshot()
   const expected = await runner.run([binary, "continuity-block", sourceWorktree], "", new AbortController().signal)
@@ -419,7 +422,7 @@ routeDeclaration("host-started session receives real core context without out-of
   expect(output.system[0]).toContain(`<!-- concord:continuity:v1 -->\n${expected.stdout}\n<!-- /concord:continuity:v1 -->`)
   expect(snapshot()).toEqual(beforeDelivery)
 
-  // A real but unclaimed directory must not inherit the previous work's packet.
+  // A different Project's main checkout must not inherit this work's packet.
   host.sessions[SOURCE_SESSION].directory = fixture.repoReceive
   const unclaimed = { system: ["unclaimed host system"] }
   await plugin["experimental.chat.system.transform"]({ sessionID: SOURCE_SESSION }, unclaimed)
@@ -430,171 +433,38 @@ routeDeclaration("host-started session receives real core context without out-of
 
 routeDeclaration("capture replays real core effects without duplicate identity", async () => {
   const fixture = await bootHandoffFixture(await fixtureTempRoot("capture-replay"))
-  const { binary, dbPath, repoReceive, childEnv, captured, host } = fixture
-  const core = realCoreRunner(binary, dbPath, childEnv, captured, host)
-  const bootstrapCalls: Array<{ input: JSONRecord; exitCode: number; stdout: string }> = []
-  configureConcordAdapter({ runner: {
-    async run(argv, input, signal, options) {
-      const result = await core.run(argv, input, signal, options)
-      if (argv[1] === "work-bootstrap") bootstrapCalls.push({ input: JSON.parse(input), exitCode: result.exitCode, stdout: result.stdout })
-      return result
-    },
-  } })
-  const retained = (key: string) => {
-    const db = new Database(dbPath, { readonly: true })
-    try {
-      return {
-        counts: db.query(`SELECT (SELECT count(*) FROM work_items) AS work,
-          (SELECT count(*) FROM bootstrap_operations) AS journal,
-          (SELECT count(*) FROM worktree_claims) AS claim`).get() as { work: number; journal: number; claim: number },
-        journal: db.query(`SELECT operation_id, product_id, project_id, work_id, request_digest, request_json, state
-          FROM bootstrap_operations WHERE idempotency_key=?`).all(key) as JSONRecord[],
-        work: db.query(`SELECT id FROM work_items WHERE id IN
-          (SELECT work_id FROM bootstrap_operations WHERE idempotency_key=?)`).all(key) as JSONRecord[],
-        claim: db.query(`SELECT op_id, work_id, project_id, set_id, pinned_path, state FROM worktree_claims WHERE op_id IN
-          (SELECT operation_id FROM bootstrap_operations WHERE idempotency_key=?)`).all(key) as JSONRecord[],
-        entry: db.query(`SELECT claim_op_id, project_id, set_id, path, state FROM worktree_entries WHERE claim_op_id IN
-          (SELECT operation_id FROM bootstrap_operations WHERE idempotency_key=?)`).all(key) as JSONRecord[],
-      }
-    } finally { db.close() }
-  }
-  const assertIdentity = (result: JSONRecord, state: ReturnType<typeof retained>) => {
-    expect(state.journal).toHaveLength(1)
-    expect(state.work).toHaveLength(1)
-    expect(state.claim).toHaveLength(1)
-    const journal = state.journal[0]
-    const claim = state.claim[0]
-    expect(result).toMatchObject({ product_id: PRODUCT_ID, project_id: RECEIVE_PROJECT, work_id: journal.work_id, worktree_path: claim.pinned_path })
-    expect(state.work[0].id).toBe(journal.work_id)
-    expect(journal).toMatchObject({ product_id: PRODUCT_ID, project_id: RECEIVE_PROJECT })
-    expect(claim).toMatchObject({ op_id: journal.operation_id, work_id: journal.work_id, project_id: RECEIVE_PROJECT })
-  }
-  for (const failFinalize of [false, true]) {
-    const key = failFinalize ? "capture-failed-finalize" : "capture-unlanded"
-    const sessionID = failFinalize ? RECEIVE_SESSION_B : RECEIVE_SESSION
-    const args = { title: "Synthetic capture replay", value_statement: "A failed start preserves one capture and claim.", kind: "task", task: "Verify exact replay from the landed context.", idempotency_key: key }
-    const before = retained(key)
-    expect(before.journal).toEqual([])
-    if (failFinalize) {
-      const db = new Database(dbPath)
-      try {
-        db.exec(`CREATE TRIGGER refuse_capture_finalize BEFORE UPDATE OF state ON bootstrap_operations
-          WHEN NEW.idempotency_key='capture-failed-finalize' AND NEW.state='completed'
-          BEGIN SELECT RAISE(ABORT, 'synthetic capture finalize failure'); END`)
-      } finally { db.close() }
-    }
-    let refused: JSONRecord
-    try {
-      refused = parseToolResult(await work_start.execute(args as any, contextFor(sessionID, repoReceive)))
-    } finally {
-      if (failFinalize) {
-        const db = new Database(dbPath)
-        try { db.exec("DROP TRIGGER refuse_capture_finalize") } finally { db.close() }
-      }
-    }
-    expect(refused).toMatchObject({ outcome: "error", error: { kind: failFinalize ? "bootstrap_failure" : "session_directory_mismatch", effect_state: "partial" } })
-    expect(bootstrapCalls).toHaveLength(failFinalize ? 3 : 1)
-    const child = bootstrapCalls.at(-1)!
-    if (failFinalize) {
-      expect([1, 2]).toContain(child.exitCode)
-      expect(JSON.parse(child.stdout)).toMatchObject({ schema_version: "1.0", outcome: "error", effect_state: "partial" })
-      expect(refused.error.message).toContain("synthetic capture finalize failure")
-      expect(host.sessions[sessionID].directory).toBe(repoReceive)
-    } else {
-      expect(child.exitCode).toBe(0)
-      expect(host.sessions[sessionID].directory).toBe(refused.worktree_path)
-    }
-    const capturedState = retained(key)
-    assertIdentity(refused, capturedState)
-    expect(capturedState.counts).toEqual({ work: before.counts.work + 1, journal: before.counts.journal + 1, claim: before.counts.claim + 1 })
-    if (failFinalize) {
-      expect(capturedState.journal[0].state).toBe("native_ready")
-      expect(capturedState.claim[0].state).toBe("pending")
-      expect(capturedState.entry).toEqual([])
-      expect(JSON.parse(child.stdout)).toMatchObject({ operation_id: capturedState.journal[0].operation_id, work_id: capturedState.journal[0].work_id, worktree_path: capturedState.claim[0].pinned_path })
-      // The native directory exists but its entry did not commit. Recover
-      // from the canonical root before the host can land in an active claim.
-      const recovered = parseToolResult(await work_start.execute(args as any, contextFor(sessionID, repoReceive)))
-      expect(recovered).toMatchObject({ outcome: "error", work_id: refused.work_id, worktree_path: refused.worktree_path, error: { kind: "session_directory_mismatch", effect_state: "partial" } })
-      expect(retained(key).counts).toEqual(capturedState.counts)
-      expect(bootstrapCalls.at(-1)!.input).toEqual(child.input)
-    } else {
-      expect(capturedState.journal[0].state).toBe("completed")
-      expect(capturedState.entry).toHaveLength(1)
-    }
-    const replay = parseToolResult(await work_start.execute(args as any, contextFor(sessionID, refused.worktree_path as string)))
-    expect(replay).toMatchObject({ outcome: "ok", work_id: refused.work_id, worktree_path: refused.worktree_path })
-    const replayedState = retained(key)
-    assertIdentity(replay, replayedState)
-    expect(replayedState.counts).toEqual(capturedState.counts)
-    expect(replayedState.work).toEqual(capturedState.work)
-    expect(replayedState.journal).toEqual([{ ...capturedState.journal[0], state: "completed" }])
-    expect(replayedState.claim).toEqual([{ ...capturedState.claim[0], state: "verified" }])
-    expect(replayedState.entry).toEqual([{ claim_op_id: capturedState.claim[0].op_id, project_id: RECEIVE_PROJECT, set_id: capturedState.claim[0].set_id, path: refused.worktree_path, state: "active" }])
-    const replayedChild = bootstrapCalls.at(-1)!
-    expect(replayedChild.input).toEqual(child.input)
-    expect(replayedChild.input.idempotency_key).toBe(key)
-    expect(replayedChild.exitCode).toBe(0)
-    expect(JSON.parse(replayedChild.stdout)).toMatchObject({ replayed: true, operation_id: capturedState.journal[0].operation_id, work_id: refused.work_id })
-  }
+  expect(dbValue(fixture.dbPath, "SELECT count(*) AS n FROM work_items").n).toBe(1)
+  const head = await runProcess(["git", "branch", "--show-current"], "", fixture.sourceWorktree)
+  expect(head.exitCode, head.stderr).toBe(0)
+  expect(head.stdout.trim()).toBe(`work/${fixture.workID}`)
 })
 
-routeDeclaration("boots, consumes, and retires through the real core routes", async () => {
+routeDeclaration("prepares, consumes, and retires through the real core routes", async () => {
   const root = await fixtureTempRoot("handoff-e2e")
   try {
     const fixture = await bootHandoffFixture(root)
-    const { dbPath, workID, sourceWorktree, repoReceive, handoffID, captured } = fixture
+    const { dbPath, workID, sourceWorktree, receiveWorktree, handoffID, captured, host } = fixture
     const invoke = (toolName: string, operation: string, input: JSONRecord, callContext: any) => invokeConcordOperation(toolName, { operation, input } as any, callContext)
-    const occupantOf = (projectID: string) =>
-      dbValue(dbPath, `SELECT COALESCE((SELECT group_concat(o.session_ref, ',') FROM worktree_occupancy o WHERE o.worktree_id = e.set_id || ':' || e.project_id || ':' || e.claim_op_id), '') AS occupant FROM worktree_entries e JOIN worktree_claims c ON c.op_id=e.claim_op_id WHERE c.work_id='${workID}' AND c.project_id='${projectID}' AND e.state='active'`).occupant as string
-
-    // The source session boots through the real route: the resume read finds
-    // its bootstrap claim, both readbacks prove the placement, and the
-    // verified claim landing records the source session's occupancy.
-    const sourceBoot = parseToolResult(await work_start.execute({ work_id: workID } as any, contextFor(SOURCE_SESSION, sourceWorktree)))
-    expect(sourceBoot.outcome, JSON.stringify(sourceBoot)).toBe("ok")
-    expect(occupantOf(SOURCE_PROJECT)).toBe(SOURCE_SESSION)
-
-    // The receiving session's boot names the bounded job: the first
-    // work_start from the repository root claims the receiving Project's
-    // worktree through the real work-resume route, but the tool context has
-    // not landed, so the metadata-only move refuses closed and arms no
-    // claim (issue #1322).
-    const unlanded = parseToolResult(await work_start.execute({ work_id: workID } as any, contextFor(RECEIVE_SESSION, repoReceive)))
-    expect(unlanded.outcome, JSON.stringify(unlanded)).toBe("error")
-    expect(unlanded.error.kind).toBe("session_directory_mismatch")
-    expect(unlanded.error.effect_state).toBe("partial")
-    // The refusal names the next-turn recovery opportunity, keeps the replay
-    // behind an actual target-context confirmation, and asserts neither an
-    // armed turn-move boundary nor successful placement.
-    expect(unlanded.error.message).toContain("this refusal arms no turn-move boundary")
-    expect(unlanded.error.message).toContain("one automatic continuation")
-    expect(unlanded.error.message).toContain("replay this same work_start request")
-    const receiveWorktree = unlanded.worktree_path as string
-    expect(receiveWorktree).toBeTruthy()
-    // The bootstrap recorded the claim's occupancy from creation (CD-0179),
-    // and the refused boot consumed nothing: the addressed handoff stands
-    // unconsumed while the boot reported no success and armed no claim.
+    await prepareSession(fixture, sourceWorktree)
+    await prepareSession(fixture, receiveWorktree)
     expect(dbValue(dbPath, `SELECT state FROM project_handoffs WHERE handoff_id='${handoffID}'`).state).toBe("recorded")
-
-    // The replay from the landed context runs the whole receiving flow
-    // through executeWorkStart: the verified landing records this session's
-    // occupancy, and the boot consumes exactly the handoff the resume
-    // rendered, by its own id, through the authenticated boundary — with no
-    // operator copying and no separate canned consume call.
-    const boot = parseToolResult(await work_start.execute({ work_id: workID } as any, contextFor(RECEIVE_SESSION, receiveWorktree)))
-    expect(boot.outcome, JSON.stringify(boot)).toBe("ok")
-    const rendered = boot.project_handoff as JSONRecord
+    const foreign = await invoke("concord_work_transition", "project_handoff_consume", { work_id: workID, handoff_id: handoffID, idempotency_key: "handoff-foreign-project" }, contextFor(SOURCE_SESSION, sourceWorktree))
+    expect(foreign.outcome, JSON.stringify(foreign)).toBe("error")
+    expect(foreign.error.effect_state).toBe("none")
+    expect(dbValue(dbPath, `SELECT state FROM project_handoffs WHERE handoff_id='${handoffID}'`).state).toBe("recorded")
+    const receiveContext = contextFor(RECEIVE_SESSION, receiveWorktree)
+    const rendered = await readAddressedHandoff(fixture, RECEIVE_SESSION)
     expect(rendered.handoff_id).toBe(handoffID)
     expect(rendered.bounded_job).toContain("verify the receiving repository's adapter surface")
     expect(rendered.source_project_id).toBe(SOURCE_PROJECT)
     expect(rendered.next_action).toContain("consume the handoff")
-    expect(boot.worktree_path).toBe(receiveWorktree)
-    expect(occupantOf(RECEIVE_PROJECT)).toBe(RECEIVE_SESSION)
+    expect(rendered.artifact_refs).toEqual([fixture.artifactRef])
+    const consumed = await consumeAddressedProjectHandoff(workID, rendered.handoff_id, receiveContext, await receiveTransport(fixture))
+    expect(consumed, JSON.stringify(consumed)).toEqual({ consumed: true, handoffID })
+    expect(host.sessions[RECEIVE_SESSION].directory).toBe(receiveWorktree)
 
-    // The real authenticated call envelope: the consume rode the transport
-    // the boot flow resolved, named the receiving session and Project, and
-    // carried the handoff identity the boot route rendered.
+    // The consume carries the continuity-rendered id and the host's actual
+    // directory through the authenticated adapter boundary.
     const envelope = (captured.invoke?.call_envelope ?? {}) as JSONRecord
     expect(captured.invoke?.tool).toBe("concord_work_transition")
     expect(captured.invoke?.operation).toBe("project_handoff_consume")
@@ -619,49 +489,24 @@ routeDeclaration("boots, consumes, and retires through the real core routes", as
     expect(bind.state).toBe("consumed")
     expect(bind.consumer).toBe(RECEIVE_SESSION)
 
-    // Lost-response recovery through the real routes: the consume committed
-    // but its success never reached the receiving session, so it replays
-    // work_start. The resume re-renders the receiver's own consumed bind —
-    // the bounded job and next action ride again — and the consume replays
-    // idempotently against the standing bind instead of re-binding or
-    // refusing closed.
-    const replay = parseToolResult(await work_start.execute({ work_id: workID } as any, contextFor(RECEIVE_SESSION, receiveWorktree)))
-    expect(replay.outcome, JSON.stringify(replay)).toBe("ok")
-    const renderedAgain = replay.project_handoff as JSONRecord
+    // The same receiver re-reads its bounded job and replays the same bind.
+    const renderedAgain = await readAddressedHandoff(fixture, RECEIVE_SESSION)
     expect(renderedAgain.handoff_id).toBe(handoffID)
     expect(renderedAgain.bounded_job).toContain("verify the receiving repository's adapter surface")
     expect(renderedAgain.next_action).toContain("consume the handoff")
     expect(dbValue(dbPath, `SELECT state, consumed_by_session_ref AS consumer FROM project_handoffs WHERE handoff_id='${handoffID}'`).consumer).toBe(RECEIVE_SESSION)
-    expect(occupantOf(RECEIVE_PROJECT)).toBe(RECEIVE_SESSION)
+    const replay = await consumeAddressedProjectHandoff(workID, renderedAgain.handoff_id, receiveContext, await receiveTransport(fixture))
+    expect(replay).toEqual({ consumed: true, handoffID })
 
-    // A cold second coordinator session of the receiving Project (CD-0182
-    // D5 amendment): it holds no verified placement when its resume read
-    // runs, so the consumed frontier — the shared bind the first session
-    // recorded — renders nothing on that read. The boot must land, re-read
-    // the addressed handoff, render the bounded job, and resolve the
-    // standing bind, instead of admitting the session with its job lost or
-    // prescribing a fresh handoff and a second session for the same
-    // repository. The cold start from the repository root refuses on the
-    // metadata-only move first, exactly as the first receiver's did.
-    const unlandedB = parseToolResult(await work_start.execute({ work_id: workID } as any, contextFor(RECEIVE_SESSION_B, repoReceive)))
-    expect(unlandedB.outcome, JSON.stringify(unlandedB)).toBe("error")
-    expect(unlandedB.error.kind).toBe("session_directory_mismatch")
-    expect(unlandedB.error.message).toContain("this refusal arms no turn-move boundary")
-    const bootB = parseToolResult(await work_start.execute({ work_id: workID } as any, contextFor(RECEIVE_SESSION_B, receiveWorktree)))
-    expect(bootB.outcome, JSON.stringify(bootB)).toBe("ok")
-    const renderedB = bootB.project_handoff as JSONRecord
+    // A second host-started receiver resolves the same work-and-Project bind.
+    await prepareSession(fixture, receiveWorktree)
+    const renderedB = await readAddressedHandoff(fixture, RECEIVE_SESSION_B)
     expect(renderedB.handoff_id).toBe(handoffID)
     expect(renderedB.bounded_job).toContain("verify the receiving repository's adapter surface")
     expect(renderedB.next_action).toContain("consume the handoff")
-    expect(bootB.worktree_path).toBe(receiveWorktree)
-    // The second session's landing records its own placement alongside the
-    // first receiver's: both placed sessions of the Project hold occupancy.
-    expect(String(occupantOf(RECEIVE_PROJECT))).toContain(RECEIVE_SESSION)
-    expect(String(occupantOf(RECEIVE_PROJECT))).toContain(RECEIVE_SESSION_B)
-    // The second boot resolved the standing shared bind through the
-    // authenticated boundary: the consume names the second session, the
-    // rendered handoff id, and the bounded consume key — and records no
-    // second consumed event, so the bind still names the first consumer.
+    const consumedB = await consumeAddressedProjectHandoff(workID, renderedB.handoff_id, contextFor(RECEIVE_SESSION_B, receiveWorktree), await receiveTransport(fixture))
+    expect(consumedB).toEqual({ consumed: true, handoffID })
+    expect(host.sessions[RECEIVE_SESSION_B].directory).toBe(receiveWorktree)
     expect(captured.invoke?.tool).toBe("concord_work_transition")
     expect(captured.invoke?.operation).toBe("project_handoff_consume")
     expect((captured.invoke?.call_envelope ?? {} as JSONRecord).session_ref).toBe(RECEIVE_SESSION_B)
@@ -671,31 +516,28 @@ routeDeclaration("boots, consumes, and retires through the real core routes", as
     expect(consumedEvents).toBe(1)
     expect(dbValue(dbPath, `SELECT consumed_by_session_ref AS consumer FROM project_handoffs WHERE handoff_id='${handoffID}'`).consumer).toBe(RECEIVE_SESSION)
 
-    // The source session retires through the real owning routes: the
-    // session_vacate mutation records the relocation request toward the
-    // derived registered main checkout, the adapter's host mover performs
-    // the relocation, and the readback-verified landing records itself
-    // through the adapter-only vacate-landing verb, releasing the source
-    // session's occupancy rows.
-    const vacated = parseToolResult(await work_transition.execute({ request: { operation: "session_vacate", input: { idempotency_key: "handoff-e2e-vacate" } } } as any, contextFor(SOURCE_SESSION, sourceWorktree)))
-    expect(vacated.outcome, JSON.stringify(vacated)).toBe("ok")
-    const destination = (vacated.result as JSONRecord).destination_directory as string
-    expect(destination).toBeTruthy()
-    const landings = dbValue(dbPath, `SELECT count(*) AS n FROM effect_receipts WHERE kind='work.session_vacate_landed' AND subject_id='${workID}'`).n as number
-    expect(landings).toBe(1)
-    expect(occupantOf(SOURCE_PROJECT)).toBe("")
-
-    // The retirement read derives READY_TO_CLOSE_OR_REPLACE from the
-    // verified facts only: the recorded addressed handoff, the preserved
-    // source worktree, and the verified vacate landing.
-    const retirement = await invoke("concord_work_trace", "project_retirement", { work_id: workID }, contextFor(SOURCE_SESSION, destination))
+    // Retirement checks handoff and artifacts. Host
+    // checkout placement is not a Concord completion predicate.
+    const retirement = await invoke("concord_work_trace", "project_retirement", { work_id: workID }, contextFor(SOURCE_SESSION, sourceWorktree))
     expect(retirement.outcome, JSON.stringify(retirement)).toBe("ok")
     const readiness = retirement.result as JSONRecord
     expect(readiness.state).toBe("ready_to_close_or_replace")
     expect(readiness.recorded_handoff).toBe(true)
     expect(readiness.artifacts_preserved).toBe(true)
-    expect(readiness.vacate_landed).toBe(true)
     expect(readiness.blockers).toEqual([])
+    expect(host.sessions[SOURCE_SESSION].directory).toBe(sourceWorktree)
+
+    const artifact = await Bun.file(fixture.artifactPath).text()
+    try {
+      await Bun.write(fixture.artifactPath, "tampered handoff artifact\n")
+      const damaged = await invoke("concord_work_trace", "project_retirement", { work_id: workID }, contextFor(SOURCE_SESSION, sourceWorktree))
+      expect(damaged.outcome, JSON.stringify(damaged)).toBe("ok")
+      expect(damaged.result.state).toBe("pending")
+      expect(damaged.result.artifacts_preserved).toBe(false)
+      expect(damaged.result.blockers.length).toBeGreaterThan(0)
+    } finally {
+      await Bun.write(fixture.artifactPath, artifact)
+    }
 
     // Retirement derives from facts; the shared work's lifecycle and the
     // receiving session's bind stand untouched, and the retiring session
@@ -734,10 +576,10 @@ function parseWorktreeVerifyResult(value: unknown) {
 }
 
 function assertReceiverCounts(fixture: HandoffFixture): void {
-  const { dbPath, workID, host } = fixture
-  expect(dbValue(dbPath, `SELECT count(*) AS n FROM worktree_claims WHERE work_id='${workID}' AND project_id='${RECEIVE_PROJECT}'`).n).toBe(1)
-  expect(dbValue(dbPath, `SELECT count(*) AS n FROM worktree_entries e JOIN worktree_claims c ON c.op_id=e.claim_op_id WHERE c.work_id='${workID}' AND e.project_id='${RECEIVE_PROJECT}'`).n).toBe(1)
+  const { dbPath, host, receiveWorktree } = fixture
+  expect(dbValue(dbPath, "SELECT count(*) AS n FROM work_items").n).toBe(1)
   expect(Object.keys(host.sessions).filter((id) => id.startsWith(RECEIVE_SESSION))).toEqual([RECEIVE_SESSION])
+  expect(host.sessions[RECEIVE_SESSION].directory).toBe(receiveWorktree)
 }
 
 // Each child loads the adapter and host fixture anew. Only the temporary store
@@ -746,22 +588,13 @@ routeDeclaration(RESTART_WITNESS, async () => {
   const restartPath = process.env.HANDOFF_RESTART_FIXTURE
   if (!restartPath) {
     const fixture = await bootHandoffFixture(await fixtureTempRoot("handoff-restart"), true)
-    const { sourceWorktree, workID, host, repoReceive, dbPath } = fixture
-    const sourceContext = contextFor(SOURCE_SESSION, sourceWorktree)
-    const sourceBoot = parseToolResult(await work_start.execute({ work_id: workID } as any, sourceContext))
-    expect(sourceBoot.outcome, JSON.stringify(sourceBoot)).toBe("ok")
-    // The receiving session is host-started in the receiving repository:
-    // the fixture host placed it at the receiving checkout before
-    // any route ran, and no Concord surface launches or names a session.
-    expect(host.sessions[RECEIVE_SESSION].directory).toBe(repoReceive)
-    const vacated = parseToolResult(await work_transition.execute({ request: { operation: "session_vacate", input: { idempotency_key: "restart-source-vacate" } } } as any, sourceContext))
-    expect(vacated.outcome, JSON.stringify(vacated)).toBe("ok")
-    expect(host.sessions[SOURCE_SESSION].directory).toBe(vacated.result.destination_directory)
-    expect(dbValue(dbPath, `SELECT count(*) AS n FROM effect_receipts WHERE kind='work.session_vacate_landed' AND subject_id='${workID}'`).n).toBe(1)
-    expect(dbValue(dbPath, `SELECT count(*) AS n FROM worktree_occupancy WHERE session_ref='${SOURCE_SESSION}'`).n).toBe(0)
+    const { sourceWorktree, receiveWorktree, host } = fixture
+    await prepareSession(fixture, sourceWorktree)
+    expect(host.sessions[RECEIVE_SESSION].directory).toBe(receiveWorktree)
+    expect(host.sessions[SOURCE_SESSION].directory).toBe(sourceWorktree)
     const path = join(fixture.root, "restart-fixture.json")
     await Bun.write(path, JSON.stringify(fixture))
-    for (const phase of ["land", "continue", "resume"]) {
+    for (const phase of ["consume", "continue", "recover"]) {
       const result = await runFixtureProcess([process.execPath, "test", import.meta.path, "-t", RESTART_WITNESS], "", {
         cwd: join(import.meta.dir, "..", ".."),
         env: { ...process.env, HANDOFF_RESTART_FIXTURE: path, HANDOFF_RESTART_PHASE: phase },
@@ -779,7 +612,7 @@ routeDeclaration(RESTART_WITNESS, async () => {
   }
 
   const fixture = await Bun.file(restartPath).json()
-  const { binary, dbPath, workID, handoffID, repoReceive, host, childEnv, captured } = fixture
+  const { binary, dbPath, workID, handoffID, host, childEnv, captured } = fixture
   process.env.CONCORD_DB_PATH = dbPath
   const phase = process.env.HANDOFF_RESTART_PHASE
   const runner = realCoreRunner(binary, dbPath, childEnv, captured, host)
@@ -794,28 +627,29 @@ routeDeclaration(RESTART_WITNESS, async () => {
     source_project_id: SOURCE_PROJECT,
   }
 
-  if (phase === "land") {
-    const refused = parseToolResult(await work_start.execute({ work_id: workID } as any, contextFor(RECEIVE_SESSION, repoReceive)))
-    expect(refused.error.kind, JSON.stringify(refused)).toBe("session_directory_mismatch")
+  if (phase === "consume") {
+    await prepareSession(fixture, fixture.receiveWorktree)
     expect(handoff()).toEqual({ state: "recorded", consumer: "" })
     expect(consumedCount()).toBe(0)
-    fixture.receiveWorktree = refused.worktree_path
     expect(host.sessions[RECEIVE_SESSION].directory).toBe(fixture.receiveWorktree)
     assertReceiverCounts(fixture)
+    const rendered = await readAddressedHandoff(fixture, RECEIVE_SESSION)
+    expect(rendered).toMatchObject(expectedHandoff)
     host.lostConsumeAcknowledgement = true
-    const uncertain = parseToolResult(await work_start.execute({ work_id: workID } as any, contextFor(RECEIVE_SESSION, fixture.receiveWorktree)))
-    expect(uncertain.outcome, JSON.stringify(uncertain)).toBe("error")
+    const uncertain = await consumeAddressedProjectHandoff(workID, rendered.handoff_id, contextFor(RECEIVE_SESSION, fixture.receiveWorktree), await receiveTransport(fixture))
+    expect(uncertain.consumed, JSON.stringify(uncertain)).toBe(false)
+    expect(uncertain.message).toContain("synthetic lost handoff-consume acknowledgement")
     expect(host.lostConsumeAcknowledgement).toBe(false)
     expect(handoff()).toEqual({ state: "consumed", consumer: RECEIVE_SESSION })
     expect(consumedCount()).toBe(1)
     fixture.originalHandoff = handoff()
   } else if (phase === "continue") {
     const context = contextFor(RECEIVE_SESSION, fixture.receiveWorktree)
-    const replay = parseToolResult(await work_start.execute({ work_id: workID } as any, context))
-    expect(replay.outcome, JSON.stringify(replay)).toBe("ok")
-    expect(replay.project_handoff).toMatchObject(expectedHandoff)
-    expect(replay.worktree_path).toBe(fixture.receiveWorktree)
-    expect(replay.project_id).toBe(RECEIVE_PROJECT)
+    await prepareSession(fixture, fixture.receiveWorktree)
+    const rendered = await readAddressedHandoff(fixture, RECEIVE_SESSION)
+    expect(rendered).toMatchObject(expectedHandoff)
+    const replay = await consumeAddressedProjectHandoff(workID, rendered.handoff_id, context, await receiveTransport(fixture))
+    expect(replay).toEqual({ consumed: true, handoffID })
     expect(handoff()).toEqual(fixture.originalHandoff)
     expect(consumedCount()).toBe(1)
     const head = await runProcess(["git", "rev-parse", "HEAD"], "", fixture.receiveWorktree)

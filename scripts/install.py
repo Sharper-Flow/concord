@@ -168,6 +168,7 @@ AGENT_FILES = (
     "concord-explore.md",
     "concord-lookup.md",
     "concord-advisor.md",
+    "concord-review.md",
     # Named primary profiles (CD-0154). Numbered host files stay unmanaged.
     "Concord-RTE.md",
     "Concord.md",

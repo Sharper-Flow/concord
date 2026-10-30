@@ -32,7 +32,6 @@ const PROJECT_2 = "project-reoccupy-2"
 const SESSION_ID = "reoccupy-session"
 const MESSAGE_ID = "reoccupy-message"
 const AGENT = "concord-implement"
-const LANE_AGENTS = ["concord-research", "concord-implement", "concord-design", "concord-review", "concord-verify"]
 const PRIVATE_SEED = new Uint8Array(32).fill(9)
 
 function vacateReceipts(dbPath: string, workID?: string) {
@@ -133,13 +132,11 @@ connected("vacate, work-resume, vacate in one session keeps one event per reques
     const repo2 = await repositoryFixture(root, "repo-2")
     await mkdir(repoCheckout, { recursive: true })
 
-    // The core verifies lane agent identity from $HOME and probes the host
+    // The core verifies requested agent identity from $HOME and probes the host
     // agent registry through `opencode debug config`. Both seams are
     // fixture-owned so the cycle never depends on an installed host.
     await mkdir(join(homeRoot, ".config", "opencode", "agents"), { recursive: true })
-    for (const lane of LANE_AGENTS) {
-      await writeFile(join(homeRoot, ".config", "opencode", "agents", `${lane}.md`), `${lane} synthetic definition\n`)
-    }
+    await writeFile(join(homeRoot, ".config", "opencode", "agents", `${AGENT}.md`), `${AGENT} synthetic definition\n`)
     const probe = join(binRoot, "opencode")
     await Bun.write(probe, `#!/bin/sh\necho '{"agent":{"${AGENT}":{"mode":"all","disable":false}}}'\n`)
     await chmod(probe, 0o755)
@@ -414,9 +411,7 @@ connected("a readback outside every Project recovers through the remembered dest
     const repo1 = await repositoryFixture(root, "repo-1")
     await mkdir(repoCheckout, { recursive: true })
     await mkdir(join(homeRoot, ".config", "opencode", "agents"), { recursive: true })
-    for (const lane of LANE_AGENTS) {
-      await writeFile(join(homeRoot, ".config", "opencode", "agents", `${lane}.md`), `${lane} synthetic definition\n`)
-    }
+    await writeFile(join(homeRoot, ".config", "opencode", "agents", `${AGENT}.md`), `${AGENT} synthetic definition\n`)
     const probe = join(binRoot, "opencode")
     await Bun.write(probe, `#!/bin/sh\necho '{"agent":{"${AGENT}":{"mode":"all","disable":false}}}'\n`)
     await chmod(probe, 0o755)
@@ -589,9 +584,7 @@ connected("an unreadable ok answer recovers through the same-key replay from the
     const repo1 = await repositoryFixture(root, "repo-1")
     await mkdir(repoCheckout, { recursive: true })
     await mkdir(join(homeRoot, ".config", "opencode", "agents"), { recursive: true })
-    for (const lane of LANE_AGENTS) {
-      await writeFile(join(homeRoot, ".config", "opencode", "agents", `${lane}.md`), `${lane} synthetic definition\n`)
-    }
+    await writeFile(join(homeRoot, ".config", "opencode", "agents", `${AGENT}.md`), `${AGENT} synthetic definition\n`)
     const probe = join(binRoot, "opencode")
     await Bun.write(probe, `#!/bin/sh\necho '{"agent":{"${AGENT}":{"mode":"all","disable":false}}}'\n`)
     await chmod(probe, 0o755)
@@ -763,9 +756,7 @@ connected("a same-key replay after a later claim refuses without moving the host
     const repo1 = await repositoryFixture(root, "repo-1")
     await mkdir(repoCheckout, { recursive: true })
     await mkdir(join(homeRoot, ".config", "opencode", "agents"), { recursive: true })
-    for (const lane of LANE_AGENTS) {
-      await writeFile(join(homeRoot, ".config", "opencode", "agents", `${lane}.md`), `${lane} synthetic definition\n`)
-    }
+    await writeFile(join(homeRoot, ".config", "opencode", "agents", `${AGENT}.md`), `${AGENT} synthetic definition\n`)
     const probe = join(binRoot, "opencode")
     await Bun.write(probe, `#!/bin/sh\necho '{"agent":{"${AGENT}":{"mode":"all","disable":false}}}'\n`)
     await chmod(probe, 0o755)

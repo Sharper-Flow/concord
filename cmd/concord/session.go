@@ -4,8 +4,6 @@ import (
 	"context"
 	"io"
 	"os"
-	"strconv"
-	"time"
 
 	"github.com/sharper-flow/concord/internal/sessionboot"
 	"github.com/sharper-flow/concord/internal/store"
@@ -16,97 +14,20 @@ import (
 // it; tests inject an isolated derivation.
 type sessionBootstrapFunc func(context.Context, string, string, string) ([]byte, error)
 
-// sessionOrchestratorFunc verifies the identity of the active agent in dir
-// and records the assertion as a domain event. CD-0061 D4 binds the two
-// steps: the verification proves the host has the required definition; the
-// record is the evidence Concord later has if anyone asks what the session
-// asserted.
-//
-// host is the registry resolution the caller made in dir: the registry the
-// verification checks is the document the probe carried back, so the verified
-// registry is the one the calling host resolves.
-//
-// agent is the active host agent the session runs as: the request's agent
-// field for session-prepare. The host answers an unselected name with the
-// operator's default agent and exits zero (CD-0049 D2), so the verification
-// proves the named agent resolves, registers, and is the one the session
-// selected.
-//
-// The function is a parameter so tests can inject an isolated temp store;
-// production wiring is hostOrchestratorIdentity below.
-type sessionOrchestratorFunc func(ctx context.Context, dir string, host hostCommandResolution, productID, workID, agent string) (string, error)
+// sessionOrchestratorFunc verifies the selected agent against its definition
+// and the calling host's registry in dir. It performs no store write.
+type sessionOrchestratorFunc func(ctx context.Context, dir string, host hostCommandResolution, agent string) (string, error)
 
-// hostOrchestratorIdentity is the production wiring for the session's
-// orchestrator assertion. It runs the file/digest verification for the active
-// agent in the caller's directory, checks the registry document the probe
-// carried back, opens the authority store, and records the assertion in a
-// single transaction. The verification runs before any store interaction so a
-// missing definition fails closed without touching the database — the session
-// either records the assertion it required or refuses.
-func hostOrchestratorIdentity(ctx context.Context, dir string, host hostCommandResolution, productID, workID, agent string) (string, error) {
-	return recordOrchestratorIdentity(ctx, os.Getenv("HOME"), host, dir, productID, workID, agent)
-}
-
-// recordOrchestratorIdentity carries the whole assertion. The home directory
-// is a parameter so a test drives the real path against a temporary
-// installation instead of restating it. host is the resolution the caller
-// made in dir: the registry document the probe resolved is what the
-// registration check reads.
-func recordOrchestratorIdentity(ctx context.Context, home string, host hostCommandResolution, dir, productID, workID, agent string) (handleResult string, errResult error) {
-	assertion, handle, err := verifyOrchestratorIdentity(home, dir, agent)
+func hostOrchestratorIdentity(_ context.Context, dir string, host hostCommandResolution, agent string) (string, error) {
+	handle, err := verifyOrchestratorIdentity(os.Getenv("HOME"), dir, agent)
 	if err != nil {
 		return "", err
 	}
-	// A resolvable definition is not proof the host will start it under the
-	// derived handle. Establish that before the store is touched, so a
-	// session that cannot run as the agent it asserts records nothing and
-	// refuses. The registry probed is the one the calling host
-	// resolves in dir, the directory the session itself runs in.
+	// A resolvable definition is not proof the host registers its handle.
 	if err := verifyHostRegistersHandle(host, handle); err != nil {
 		return "", err
 	}
-	assertion.ProductID = productID
-	assertion.WorkID = workID
-	assertion.PrincipalRef = "principal/orchestrator"
-	assertion.ClientRef = "client/concord-session"
-	// The handle is the name the host registers the definition under, and the
-	// name the session runs as. The file stem is neither once the definition
-	// carries `name:` frontmatter, so recording it would attribute the session
-	// to an agent that does not exist.
-	assertion.AgentRef = "agent/" + handle
-	assertion.SessionRef = "session/" + productID
-	path, err := databasePath()
-	if err != nil {
-		return "", err
-	}
-	s, err := openStoreForCommand(ctx, path)
-	if err != nil {
-		return "", err
-	}
-	defer func() {
-		if closeErr := s.Close(); closeErr != nil && errResult == nil {
-			handleResult = ""
-			errResult = closeErr
-		}
-	}()
-	eventID := orchestratorAssertionEventID(productID, workID)
-	if _, err := s.RecordOrchestratorIdentityAssertion(ctx, eventID, s.Now(), assertion); err != nil {
-		return "", err
-	}
 	return handle, nil
-}
-
-// orchestratorAssertionEventID returns the durable event_id Concord assigns
-// to the orchestrator assertion for a session. It incorporates productID
-// (always) and workID (when present) so concurrent sessions on the same
-// authority do not collide, and a monotonic nanosecond counter so back-to-
-// back sessions on the same scope record distinct events.
-func orchestratorAssertionEventID(productID, workID string) string {
-	scope := productID
-	if workID != "" {
-		scope = workID
-	}
-	return "session-orchestrator-identity:" + scope + ":" + strconv.FormatInt(time.Now().UnixNano(), 10)
 }
 
 // DeriveSessionBoot reads the canonical continuity projection and renders the

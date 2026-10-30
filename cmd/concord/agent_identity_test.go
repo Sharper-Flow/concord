@@ -40,24 +40,12 @@ func TestOrchestratorIdentityResolvesFromEitherSearchedDirectory(t *testing.T) {
 				dir = filepath.Join(home, ".config", "opencode", "agents")
 			}
 			writeAgentDefinition(t, dir, agentDefinitionFileName("concord-1"))
-			assertion, handle, err := verifyOrchestratorIdentity(home, cwd, "concord-1")
+			handle, err := verifyOrchestratorIdentity(home, cwd, "concord-1")
 			if err != nil {
 				t.Fatalf("identity = %v, want nil", err)
 			}
 			if handle != "concord-1" {
 				t.Errorf("handle = %q, want concord-1", handle)
-			}
-			if assertion.Type != OrchestratorIdentityType {
-				t.Errorf("type = %q, want %q", assertion.Type, OrchestratorIdentityType)
-			}
-			if assertion.Version != OrchestratorIdentityVersion {
-				t.Errorf("version = %q, want %q", assertion.Version, OrchestratorIdentityVersion)
-			}
-			if len(assertion.Sources) == 0 {
-				t.Fatalf("assertion sources empty; expected at least the orchestrator definition")
-			}
-			if assertion.Sources[0].Kind != "orchestrator_definition" {
-				t.Errorf("first source kind = %q, want orchestrator_definition", assertion.Sources[0].Kind)
 			}
 		})
 	}
@@ -65,7 +53,7 @@ func TestOrchestratorIdentityResolvesFromEitherSearchedDirectory(t *testing.T) {
 
 func TestOrchestratorIdentityNamesAbsentDefinitionAndSearchedDirectories(t *testing.T) {
 	home, cwd := t.TempDir(), t.TempDir()
-	_, _, err := verifyOrchestratorIdentity(home, cwd, "concord-1")
+	_, err := verifyOrchestratorIdentity(home, cwd, "concord-1")
 	if err == nil {
 		t.Fatal("identity = nil, want absent-identity failure")
 	}
@@ -89,7 +77,7 @@ func TestOrchestratorIdentityRefusesADefinitionThatRegistersADifferentHandle(t *
 	home, cwd := t.TempDir(), t.TempDir()
 	writeAgentDefinitionBody(t, filepath.Join(cwd, ".opencode", "agents"), agentDefinitionFileName("concord-1"),
 		[]byte("---\nname: op-renamed\nmode: all\n---\nbody\n"))
-	_, _, err := verifyOrchestratorIdentity(home, cwd, "concord-1")
+	_, err := verifyOrchestratorIdentity(home, cwd, "concord-1")
 	if err == nil {
 		t.Fatal("identity = nil, want handle-mismatch failure")
 	}
@@ -99,53 +87,6 @@ func TestOrchestratorIdentityRefusesADefinitionThatRegistersADifferentHandle(t *
 	}
 	if mismatch.Handle != "op-renamed" || mismatch.Requested != "concord-1" {
 		t.Fatalf("mismatch = %+v, want handle op-renamed for requested concord-1", mismatch)
-	}
-}
-
-func TestOrchestratorIdentityDigestIsStableAcrossInvocations(t *testing.T) {
-	home, cwd := t.TempDir(), t.TempDir()
-	dir := filepath.Join(cwd, ".opencode", "agents")
-	writeAgentDefinition(t, dir, agentDefinitionFileName("concord-1"))
-	if err := os.WriteFile(filepath.Join(cwd, "AGENTS.md"), []byte("# project instructions\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	first, _, err := verifyOrchestratorIdentity(home, cwd, "concord-1")
-	if err != nil {
-		t.Fatalf("first verify: %v", err)
-	}
-	second, _, err := verifyOrchestratorIdentity(home, cwd, "concord-1")
-	if err != nil {
-		t.Fatalf("second verify: %v", err)
-	}
-	if first.RulesetDigest != second.RulesetDigest {
-		t.Fatalf("digest changed across invocations on the same files: %q vs %q", first.RulesetDigest, second.RulesetDigest)
-	}
-	if !strings.HasPrefix(first.RulesetDigest, "sha256:") {
-		t.Fatalf("digest = %q, want sha256:<hex>", first.RulesetDigest)
-	}
-}
-
-func TestOrchestratorIdentityDigestChangesWhenArtifactChanges(t *testing.T) {
-	home, cwd := t.TempDir(), t.TempDir()
-	dir := filepath.Join(cwd, ".opencode", "agents")
-	writeAgentDefinition(t, dir, agentDefinitionFileName("concord-1"))
-	agentsPath := filepath.Join(cwd, "AGENTS.md")
-	if err := os.WriteFile(agentsPath, []byte("# instructions v1\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	first, _, err := verifyOrchestratorIdentity(home, cwd, "concord-1")
-	if err != nil {
-		t.Fatalf("first verify: %v", err)
-	}
-	if err := os.WriteFile(agentsPath, []byte("# instructions v2 — silently changed\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	second, _, err := verifyOrchestratorIdentity(home, cwd, "concord-1")
-	if err != nil {
-		t.Fatalf("second verify: %v", err)
-	}
-	if first.RulesetDigest == second.RulesetDigest {
-		t.Fatalf("digest unchanged after AGENTS.md mutation: %q", second.RulesetDigest)
 	}
 }
 

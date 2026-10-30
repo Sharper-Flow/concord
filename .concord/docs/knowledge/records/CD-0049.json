@@ -5,9 +5,7 @@
     "agent-surface"
   ],
   "authority": {
-    "contract_version": 1,
-    "legislated_by": "work-8d7bd788b2890355460bb5b7",
-    "tier": "legislated"
+    "tier": "derived"
   },
   "date": "2026-08-21T00:00:00Z",
   "evidence": [
@@ -28,7 +26,7 @@
   },
   "sha256": "sha256:c4a68616bb4ffd0e1172b971fbe96204d5af8769f4029570accb2af019b4b9c6",
   "status": "accepted",
-  "summary": "Managed session preparation asserts required agent identity rather than trusting a host fallback. Missing identity refuses start. Trusted client policy bounds the agent names a caller may present and an empty scope authorizes none. These checks attest no native Task producer identity.",
+  "summary": "Managed session preparation verifies required agent identity without recording an identity assertion or trusting a host fallback. Missing identity refuses start. Trusted client policy bounds the agent names a caller may present and an empty scope authorizes none. These checks attest no native Task producer identity.",
   "tags": [
     "agent-surface",
     "installer"

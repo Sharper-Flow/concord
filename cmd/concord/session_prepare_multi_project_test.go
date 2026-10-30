@@ -82,7 +82,7 @@ func TestSessionPrepareMultiProject(t *testing.T) {
 		var out, errOut bytes.Buffer
 		code := runSessionPrepare(commandSessionPrepareInput(t, result.WorkID, "run the task"), s, &out, &errOut,
 			hostCommandAt(defaultHostResolution()),
-			func(context.Context, string, hostCommandResolution, string, string, string) (string, error) {
+			func(context.Context, string, hostCommandResolution, string) (string, error) {
 				identityCalls++
 				return "agent", nil
 			},

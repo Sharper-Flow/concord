@@ -241,7 +241,6 @@ var eventKindRegistry = map[string]EventKindRegistration{
 	WorkflowOutsideRepairDispositionSet:       workflowRegistration[workflowOutsideRepairDispositionPayload](1, foldOutsideRepairDispositionSet),
 	WorkflowOutsideRepairReconciled:           registerScopedEventKind[workflowOutsideRepairReconcilePayload](1, EventAppendAuthorityWorkflow, foldOutsideRepairReconciled, validateWorkflowPayload[workflowOutsideRepairReconcilePayload]),
 	WorkflowOutsideRepairResumed:              workflowRegistration[workflowOutsideRepairResumePayload](1, foldOutsideRepairResumed),
-	EventSessionOrchestratorIdentityAsserted:  registerEventKind[orchestratorIdentityAssertedPayload](1, EventAppendAuthorityGeneric, foldSessionOrchestratorIdentityAsserted, validateSessionOrchestratorIdentityAssertedPayload),
 }
 
 // validateEventKindRegistry checks one registration map. It takes the map as a

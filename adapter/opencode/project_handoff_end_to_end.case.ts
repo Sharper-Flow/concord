@@ -1,6 +1,5 @@
 import { afterEach, expect, test } from "bun:test"
 import { Database } from "bun:sqlite"
-import { createHash } from "node:crypto"
 import { chmod, mkdir, writeFile } from "node:fs/promises"
 import { basename, join } from "node:path"
 import { fixtureTempRoot, requireOwnedFixtureRun, runFixtureProcess } from "./fixture-temp-root"
@@ -391,38 +390,6 @@ routeDeclaration("host-started session receives real core context without out-of
       if (argv[1] === "claim-landing") {
         expect(JSON.parse(input)).toMatchObject({ work_id: workID, session_ref: SOURCE_SESSION, landed_directory: sourceWorktree })
         expect(after).not.toEqual(before)
-      } else if (argv[1] === "session-prepare") {
-        // CD-0061 D4's identity evidence is an ordinary, non-durable commit
-        // (session_identity.go), not a Product/workflow projection mutation.
-        const receipts = after.effect_receipts.filter((row) => !before.effect_receipts.includes(row))
-        expect(receipts).toHaveLength(1)
-        const receipt = JSON.parse(receipts[0])
-        const actorFields = [["principal_ref", "principal/orchestrator"], ["client_ref", "client/concord-session"], ["agent_ref", `agent/${AGENT}`], ["session_ref", `session/${PRODUCT_ID}`]]
-        const actorBytes = "actor-v1\0" + actorFields.map(([key, value]) => `${key}=${Buffer.byteLength(value)}:${value}|`).join("")
-        expect(JSON.parse(receipts[0])).toEqual({
-          event_id: expect.stringMatching(new RegExp(`^session-orchestrator-identity:${workID}:\\d+$`)),
-          effect_seq: expect.any(Number), kind: "session.orchestrator_identity_asserted",
-          subject_type: "session", subject_id: workID,
-          actor: `actor:${createHash("sha256").update(actorBytes).digest("hex")}`, payload_version: 1,
-          payload_digest: expect.stringMatching(/^sha256:[0-9a-f]{64}$/),
-          delivery_assertion: 0,
-          relation_seq: null,
-        })
-        before.effect_receipts.push(receipts[0])
-        before.effect_receipts.sort()
-        expect(before.store_sequences).toHaveLength(2)
-        before.store_sequences = before.store_sequences.map((row) => {
-          const sequence = JSON.parse(row)
-          if (sequence.name !== "effect") return row
-          expect(sequence.last + 1).toBe(receipt.effect_seq)
-          return JSON.stringify({ ...sequence, last: receipt.effect_seq })
-        }).sort()
-        expect(before.store_revision).toHaveLength(1)
-        before.store_revision = before.store_revision.map((row) => {
-          const revision = JSON.parse(row)
-          return JSON.stringify({ ...revision, revision: revision.revision + 1 })
-        })
-        expect(after).toEqual(before)
       } else {
         expect(after, `${argv[1]} must not write outside the typed landing`).toEqual(before)
       }

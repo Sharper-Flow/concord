@@ -1,8 +1,6 @@
 {
   "authority": {
-    "contract_version": 1,
-    "legislated_by": "work-8d7bd788b2890355460bb5b7",
-    "tier": "legislated"
+    "tier": "derived"
   },
   "date": "2026-08-23T00:00:00Z",
   "evidence": [
@@ -25,7 +23,7 @@
   },
   "sha256": "sha256:af6143582cdffba75aeb58bcc1eea3067350e9c988931fe4bb18b69db2f0b270",
   "status": "accepted",
-  "summary": "CD-0027 excludes typed-lane restart. Session preparation records asserted orchestrator identity as a current session row, not a continuity boundary. Removed typed-agent columns and restart boundary kinds stay absent. The ruleset digest records only host artifacts actually resolved; it supplies neither workflow authority nor native Task producer attestation.",
+  "summary": "CD-0027 excludes typed-lane restart. Session preparation verifies the selected agent definition and host registration without writing an identity assertion or computing a source manifest or ruleset digest. Existing receipts confer no authority. Removed typed-agent columns and restart boundary kinds stay absent.",
   "tags": [
     "workflow",
     "lanes",
@@ -33,5 +31,5 @@
     "evidence",
     "integrity"
   ],
-  "title": "Orchestrator identity is recorded as a session assertion, not a restart boundary"
+  "title": "Session identity verification writes no assertion or restart boundary"
 }

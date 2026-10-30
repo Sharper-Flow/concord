@@ -43,7 +43,8 @@ what was found.
 
 ### D3. The orchestrator is constrained, not owned
 
-Concord records the orchestrator identity a session requires and verifies it.
+Concord verifies the orchestrator identity a session requires without recording
+an identity assertion (CD-0061 D4).
 Concord does not author, ship, or version an orchestrator persona. CD-0016
 excludes an `agent_definitions` table, so a Concord-owned orchestrator
 definition would have nowhere to record what it pinned. Ownership stays at the
@@ -69,15 +70,15 @@ indistinguishable from having no scope at all.
 
 The reference bounded here is the agent name the host presents, which is not
 necessarily its definition file name. Binding a definition digest instead is
-refused by CD-0061 D4 and D5. Authenticating the invocation itself remains
+refused by CD-0061 D4. Authenticating the invocation itself remains
 unsolved and is not settled here.
 
 ## Invariants
 
 2. No Concord code path treats the presence of an `--agent` argument as evidence
    that the named agent ran.
-3. A managed session either records the typed agent identity session-prepare
-   asserted, or refuses with a typed failure naming the required and observed
+3. A managed session either verifies the agent identity during session preparation,
+   or refuses with a typed failure naming the required and observed
    identity.
 4. Concord holds no durable definition of an orchestrator persona.
 5. An authorized invocation carries an agent reference its trusted client policy
@@ -85,11 +86,8 @@ unsolved and is not settled here.
 
 ## Consequences
 
-Session preparation records the asserted orchestrator identity separately from
-workflow continuity boundaries, as CD-0061 D2 and D4 require.
-
-Work-start preparation carries the identity assertion, so a session reaches
-managed work with its asserted identity already recorded.
+Work-start preparation verifies the selected agent before managed action. It
+writes no identity assertion or workflow continuity boundary (CD-0061 D2, D4).
 
 D5 gives every client registered before it an empty agent scope, which
 authorizes nothing. Each such client must be re-registered with the agents it

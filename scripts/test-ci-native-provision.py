@@ -1351,6 +1351,30 @@ print(json.dumps(args))
             self.skipTest("ShellCheck is not installed; CI must run it")
         subprocess.run(["shellcheck", script], check=True, timeout=30)
 
+    def test_workflow_node_pin_accepts_updates_and_rejects_unpinned_owners(self):
+        text = (ROOT / ".github/workflows/ci.yml").read_text()
+        for replacement, accepted in (
+            ("uses: actions/setup-node@" + "f" * 40, True),
+            ("uses: actions/setup-node@" + "a" * 40 + " # pinned", True),
+            ("uses: actions/setup-node@v7", False),
+            ("uses: actions/setup-node@" + "f" * 39, False),
+            ("uses: actions/setup-node@" + "f" * 41, False),
+            ("uses: actions/setup-node@" + "g" * 40, False),
+            ("uses: actions/setup-node@" + "f" * 40 + "-suffix", False),
+            ("# uses: actions/setup-node@" + "f" * 40, False),
+            ("uses: other/setup-node@" + "f" * 40, False),
+            ("", False),
+        ):
+            with self.subTest(replacement=replacement):
+                changed, count = re.subn(r"uses: actions/setup-node@[0-9a-f]{40}",
+                                         replacement, text, count=1)
+                self.assertEqual(count, 1)
+                result = unittest.TestResult()
+                with patch.object(Path, "read_text", return_value=changed):
+                    ProvisionTests("test_workflow_keeps_every_uv_warming_owner_qualified").run(result)
+                self.assertEqual(result.errors, [])
+                self.assertEqual(result.wasSuccessful(), accepted, result.failures)
+
     def test_workflow_keeps_every_uv_warming_owner_qualified(self):
         # GitHub's job format is parsed without adding a repository dependency.
         # Ruby/Python YAML variants disagree about the top-level `on` key; only
@@ -1366,12 +1390,12 @@ print(json.dumps(args))
                 # runner is unavailable in job-level env. Resolve its paths in
                 # a step and publish them for subsequent steps via GITHUB_ENV.
                 self.assertNotIn("${{ runner.", body.split("    steps:", 1)[0])
+                self.assertRegex(body, r"(?m)^        uses: actions/setup-node@[0-9a-f]{40}(?:[ \t]+#[^\n]*)?[ \t]*$")
                 for required in ["runs-on: ubuntu-24.04", "OC_NATIVE_ISOLATION_REQUIRED: \"1\"",
                                  "printf 'OC_NATIVE_NPM_CACHE=%s/native-target-npm-cache\\n' \"$RUNNER_TEMP\" >> \"$GITHUB_ENV\"",
                                  "printf 'OC_NATIVE_ISOLATION_EVIDENCE=%s/native-isolation-evidence\\n' \"$RUNNER_TEMP\" >> \"$GITHUB_ENV\"",
                                  "node-version: 24.15.0", "architecture: x64",
                                  "check-latest: false", "package-manager-cache: false", "bun-version: 1.4.0",
-                                 "actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38",
                                  "run: bash scripts/ci-provision-native-isolation.sh",
                                  "run: bun scripts/ci-warm-native-npm.ts", "native-isolation-${{ github.job }}"]:
                     self.assertIn(required, body)

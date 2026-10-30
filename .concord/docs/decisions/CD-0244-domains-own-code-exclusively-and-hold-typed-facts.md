@@ -98,7 +98,7 @@ Every fact carries `standing`:
   observed fact grants no authority and becomes law only through the law-change
   path of CD-0243 D4.
 
-`enforced_by` anchors resolve through the CD-0047 typed-anchor rules and must
+`enforced_by` anchors resolve through CD-0249's typed-anchor rules and must
 run in a required check. Decision and specification documents remain the home
 of reasoning and approval. A fact cites them; it does not replace them.
 
@@ -201,4 +201,3 @@ unrestructured roots declared `mixed`.
 ## Verification
 
 - `python3 scripts/check-knowledge-index.py` checks publication identity and hashes.
-- `python3 scripts/check-law-coverage.py` checks the outstanding implementation pointer; it does not prove the required conformance above.

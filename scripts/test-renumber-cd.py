@@ -37,7 +37,7 @@ class RenumberTests(unittest.TestCase):
     def setUp(self) -> None:
         self.tempdir = tempfile.TemporaryDirectory()
         self.root = Path(self.tempdir.name)
-        for directory in (".concord/docs/decisions", ".concord/docs/knowledge/records", ".concord/docs/knowledge/coverage"):
+        for directory in (".concord/docs/decisions", ".concord/docs/knowledge/records"):
             (self.root / directory).mkdir(parents=True)
         self.write(
             ".concord/docs/knowledge/manifest.json",
@@ -77,12 +77,6 @@ class RenumberTests(unittest.TestCase):
             + "\n",
             encoding="utf-8",
         )
-        coverage = self.root / f".concord/docs/knowledge/coverage/{identifier}.json"
-        coverage.parent.mkdir(parents=True, exist_ok=True)
-        coverage.write_text(
-            json.dumps({"id": identifier, "state": "satisfied"}, indent=2, sort_keys=True) + "\n",
-            encoding="utf-8",
-        )
 
     def write(self, relative: str, text: str) -> None:
         path = self.root / relative
@@ -105,7 +99,7 @@ class RenumberTests(unittest.TestCase):
         assert prepared is not None
         return renumber.apply(self.root, prepared, generate=False)
 
-    def test_moves_document_and_both_shards(self) -> None:
+    def test_moves_document_and_shard(self) -> None:
         self.assertEqual(self.move(), [])
 
         self.assertFalse(
@@ -116,8 +110,6 @@ class RenumberTests(unittest.TestCase):
         )
         self.assertFalse((self.root / ".concord/docs/knowledge/records/CD-0061.json").exists())
         self.assertTrue((self.root / ".concord/docs/knowledge/records/CD-0062.json").exists())
-        self.assertFalse((self.root / ".concord/docs/knowledge/coverage/CD-0061.json").exists())
-        self.assertTrue((self.root / ".concord/docs/knowledge/coverage/CD-0062.json").exists())
 
     def test_record_id_and_path_follow_the_move(self) -> None:
         self.assertEqual(self.move(), [])
@@ -125,8 +117,6 @@ class RenumberTests(unittest.TestCase):
         record = json.loads((self.root / ".concord/docs/knowledge/records/CD-0062.json").read_text())
         self.assertEqual(record["id"], "CD-0062")
         self.assertEqual(record["path"], ".concord/docs/decisions/CD-0062-root-home-states-its-claim.md")
-        coverage = json.loads((self.root / ".concord/docs/knowledge/coverage/CD-0062.json").read_text())
-        self.assertEqual(coverage["id"], "CD-0062")
 
     def test_body_and_scattered_references_move(self) -> None:
         self.write(".concord/docs/priorities.md", "See CD-0061 for the root home rule.\n")
@@ -201,7 +191,7 @@ class RenumberTests(unittest.TestCase):
         self.assertIn("same identifier", findings[0])
 
     def test_refuses_when_a_shard_is_missing(self) -> None:
-        (self.root / ".concord/docs/knowledge/coverage/CD-0061.json").unlink()
+        (self.root / ".concord/docs/knowledge/records/CD-0061.json").unlink()
         self.commit()
 
         findings = self.move()

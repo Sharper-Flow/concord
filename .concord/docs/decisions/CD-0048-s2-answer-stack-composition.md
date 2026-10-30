@@ -62,8 +62,8 @@ versioned-write meaning.
   obligation replaces it.
 - The store materialization continues to serve the JSON agent tools and the
   managed session context. No renderer ships (CD-0014).
-- Coverage for the vacated clauses carries an out-of-scope state, not a
-  satisfied one.
+- The vacated clauses carry no proof claim; this record's Verification section
+  names only what it still proves.
 
 ## Verification
 

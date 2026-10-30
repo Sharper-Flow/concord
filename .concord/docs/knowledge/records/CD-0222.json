@@ -32,7 +32,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:9038dd066bf331c110dbbdf22462deab12cf018760686a4d7c69d16203e82e47",
+  "sha256": "sha256:2de561343600e0e725c4db6dd60172dfc8337a17029bcf7b03a62754532d4f1d",
   "status": "accepted",
   "summary": "Carries architecture-bound Product law forward as Concord's primary coordination model: canonical Domains own law, Product-changing work binds its architecture footprint, and concurrent work on the same Domain reconciles through Git rather than a blocking overlap. Code ownership follows package boundaries; global navigation, generated cards, forced participation, and navigation adoption are retired with their consumers. Storage authority, research-pack authority, breaking cutovers, the surviving store query bounds and authority, and the applicable refinements (CD-0042 sequencing, CD-0144 execution-start fact, the 2026-09-22 browse correction, CD-0213 planning placement) remain in force. A declared, checked package-to-Domain map feeds the footprint read.",
   "tags": [

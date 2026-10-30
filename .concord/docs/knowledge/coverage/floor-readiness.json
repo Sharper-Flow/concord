@@ -1,5 +1,0 @@
-{
-  "id": "floor-readiness",
-  "reason": "Defines the first-usable floor conditions; no executable check decides whether the floor is met.",
-  "state": "out_of_scope"
-}

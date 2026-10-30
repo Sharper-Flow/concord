@@ -162,9 +162,7 @@ Concord's own development follows
   `internal/store.TestArchitectureReviewGuardsFirstAndContinuingDispatch`
   exercise the architecture ordering and review admission owned by CD-0242
   D4-D5. They do not prove a size-selected small implementation route.
-- `python3 scripts/check-law-coverage.py` validates the outstanding coverage
-  pointer; it does not establish delivery.
-  Closure still needs proof that a `small` implementation item cannot ship
+- Closure still needs proof that a `small` implementation item cannot ship
   without its outcome contract, its footprint checks, and one review under
   CD-0242 D5, that a re-sized item gains its newly required stages without
   redoing completed work (D6), and that the define-start and merge-queue

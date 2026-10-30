@@ -306,7 +306,7 @@ func validateDomainShapeRequestedAnchors(input DomainShapeCheckInput, checks map
 	}
 	seenEnforcement := map[DomainFactEnforcementAnchor]bool{}
 	for _, a := range input.EnforcementAnchors {
-		if !coverageAnchorKinds[a.Kind] || !domainFactText(a.Value, maxCoverageAnchorValue) || !checks[a.CheckID] || seenEnforcement[a] {
+		if !domainFactAnchorKinds[a.Kind] || !domainFactText(a.Value, maxDomainFactAnchorValue) || !checks[a.CheckID] || seenEnforcement[a] {
 			return fmt.Errorf("invalid or non-required requested enforcement anchor")
 		}
 		seenEnforcement[a] = true

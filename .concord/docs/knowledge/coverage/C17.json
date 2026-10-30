@@ -1,5 +1,0 @@
-{
-  "id": "C17",
-  "reason": "The coordination view retired with the launcher TUI under CD-0219; the relation-tree proofs it cited lived in the deleted storeport tests. The ranked-query half continues under the product-memory query contract and its corpus.",
-  "state": "out_of_scope"
-}

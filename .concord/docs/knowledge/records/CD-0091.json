@@ -1,8 +1,6 @@
 {
   "authority": {
-    "contract_version": 1,
-    "legislated_by": "work-8d7bd788b2890355460bb5b7",
-    "tier": "legislated"
+    "tier": "derived"
   },
   "date": "2026-08-31T00:00:00Z",
   "home_domain_id": "product-root:concord",
@@ -17,7 +15,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:2cdf1d9c5930cc993c2a3439213d0f16287dd946858e7f7a8d6bbaa52a1b08d3",
+  "sha256": "sha256:fbaad75dacca2b179c7add41d179a42eaafa96ba9692b163f846b8ce14273d07",
   "status": "accepted",
   "summary": "Defines the maturity and audience-commitment promotion ladder as evidence claims: a change that raises a Product's rung cites evidence meeting that rung's bar. Records Concord at prototype and operator_only.",
   "tags": [

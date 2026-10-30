@@ -90,6 +90,5 @@ red CI — the exact habit that would eventually wave a real `fired` through.
   majority-of-rounds commit overshoot under accepted authority fires.
 - `internal/store.TestConformanceSchedulerOvershootIsInconclusive` —
   wall+begin-wait overshoot with commit duration within target does not fire.
-- Law coverage for this record is `satisfied` on those two anchors.
-- Validators: `check-knowledge-index.py`, `check-law-coverage.py`,
+- Validators: `check-knowledge-index.py`,
   `check-json.py`, `check-doc-links.py`, `check-public-content.py`.

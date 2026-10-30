@@ -7,9 +7,7 @@
     "tier": "derived"
   },
   "date": "2026-10-10T00:00:00Z",
-  "evidence": [
-    ".concord/docs/knowledge/coverage/CD-0220.json"
-  ],
+  "evidence": [],
   "home_domain_id": "workflow-engine",
   "id": "CD-0220",
   "kind": "decision",

@@ -7,7 +7,7 @@
 - **Approval:** Operator accepted the drafted decision as written on 2026-08-22;
   the public record is
   [PR #393 comment](https://github.com/Sharper-Flow/concord/pull/393#issuecomment-5383612548)
-- **Related:** CD-0222 D2/D3/D9, CD-0002, CD-0013, CD-0015, CD-0036, CD-0047,
+- **Related:** CD-0222 D2/D3/D9, CD-0002, CD-0013, CD-0015, CD-0036,
   issue #337
 - **Preserves:** CD-0222 D3's one-home invariant; Git as the sole writer of
   Domain identity; the derived-projection role of SQLite
@@ -43,7 +43,7 @@ The registry declares seven child Domains under `product-root:concord`:
 durable-authority        SQLite authority, current rows, snapshots, migrations
 workflow-engine          workflow contracts, actions, verdicts, terminal law
 agent-surface            typed tool surface, lanes, transport, result envelope
-product-memory           knowledge index, law records, coverage, retention
+product-memory           knowledge index, law records, retention
 work-coordination        work-item semantics, relations, claims, observations
 operator-surface         terminal launcher, CLI verbs, installation
 repository-verification  the authority a repository check may hold

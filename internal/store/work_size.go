@@ -19,9 +19,9 @@ const WorkSized = "work.sized"
 // (DomainFootprintResult): the knowledge commit and hashes it was read at,
 // each named path as the read resolved it, every Domain the read reached, and
 // the behavior phrase with the laws it matched. A record with ChecksComplete
-// also keeps every law the read reached, each with its checks, and every
-// package check; a record without it predates that and says nothing about
-// them.
+// also keeps every law the read reached and every package check; a record
+// without it predates that and says nothing about them. Per-law coverage
+// checks are retired (CD-0249 D1) and no law carries any.
 type WorkSizeFootprint struct {
 	KnowledgeCommit       string                  `json:"knowledge_commit"`
 	RegistryContentHash   string                  `json:"registry_content_hash"`

@@ -8161,6 +8161,18 @@ DROP TABLE managed_resources;
 	},
 	{
 		Version:  166,
+		Name:     "law_coverage_retirement",
+		Breaking: true,
+		SQL: `
+-- CD-0249 D1: per-law coverage is retired. The coverage shards stop being
+-- parsed, the footprint stops loading law checks, and this table with its
+-- fold guards goes. An older binary names the table on every knowledge index
+-- rebuild, so the removal is breaking.
+DROP TABLE law_coverage_anchors;
+`,
+	},
+	{
+		Version:  167,
 		Name:     "native_task_cutover",
 		Breaking: true,
 		SQL: `

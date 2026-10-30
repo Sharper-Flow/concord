@@ -82,4 +82,3 @@ not record evidence, approval, or law on its own authority.
 ## Verification
 
 - `python3 scripts/check-knowledge-index.py` checks publication identity and hashes.
-- `python3 scripts/check-law-coverage.py` checks the outstanding implementation pointer; it does not prove the required conformance above.

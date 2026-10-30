@@ -223,4 +223,4 @@ Candidate anchors include `internal/store.TestResearchRetirementActivePinsProtec
 `internal/store.TestResearchRetirementCascadesContent`, and
 `internal/agent.TestResearchRetireDryRunAndReplay`.
 These source anchors are not a claim that this law-only session ran them or that they cover every obligation.
-The coverage shard remains unmeasured until the parent supplies integrated conformance evidence.
+Integrated conformance evidence remains outstanding.

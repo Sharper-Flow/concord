@@ -47,8 +47,7 @@ Each rung adds to the rung below it.
 
 - **alpha**: the replacement-ready floor is met, and the core mutation and
   migration path carries no open defect classified as bootstrap-blocking.
-- **beta**: alpha, and every `law-coverage.v1.json` entry is proved with no
-  `outstanding` state, and migration is forward-verified across at least one
+- **beta**: alpha, and migration is forward-verified across at least one
   released schema change, and a documented crash-recovery procedure has a
   passing test.
 - **production**: beta, and a defect-rate bar over a stated observation window is
@@ -105,8 +104,8 @@ the rung bars in D3 and D4 already state what each claim must prove.
 
 - This record exists with status `accepted` and is indexed once in
   `concord-knowledge-index.v1.json`.
-- The coverage shard records this decision as prose-only governance, because it
-  governs how a Product is matured, not how it behaves at runtime.
+- This decision is prose-only governance: it governs how a Product is
+  matured, not how it behaves at runtime.
 - `rollout-plan.md` §4 points at this decision as the accepted bounded need,
   without restating the ladder.
 - Concord's `maturity` remains `prototype` and its `audience_commitment` remains

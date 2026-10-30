@@ -112,8 +112,5 @@ records why the outcome holds without a wait the route does not offer.
 - `TestWorkStartRefusesDestinationOtherThanClaimedWorktree` proves D4.
 - A repository check verifies D1's no-process boundary: no `opencode run`
   invocation remains in the adapter.
-- The coverage shard `.concord/docs/knowledge/coverage/CD-0098.json`, composed by
-  `scripts/knowledge_index.py`, records CD-0098 as proved once the tests above
-  pass.
 - `python3 scripts/check-json.py`, `python3 scripts/check-doc-links.py`, and
   `python3 scripts/check-knowledge-index.py` pass.

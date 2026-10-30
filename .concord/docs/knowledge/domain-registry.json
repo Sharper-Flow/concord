@@ -158,7 +158,7 @@
       "domain_id": "product-memory",
       "name": "Product memory and law",
       "parent_domain_id": "product-root:concord",
-      "purpose": "Owns Product knowledge: the knowledge index and its records, the Domain registry as law, law-coverage and conformance records, lessons and research, and compaction and retention policy.",
+      "purpose": "Owns Product knowledge: the knowledge index and its records, the Domain registry as law, conformance records, lessons and research, and compaction and retention policy.",
       "status": "current"
     },
     {
@@ -197,7 +197,7 @@
       "architecture_relations": [
         {
           "governing_law_ids": [
-            "CD-0047"
+            "CD-0249"
           ],
           "kind": "depends_on",
           "target_domain_id": "product-memory"

@@ -24,7 +24,7 @@
 This record is accepted Product law under `.concord/docs/decisions/` with
 identity CD-0211.
 
-The knowledge record, coverage record, and accepted CD-0149 amendment pointer
+The knowledge record and accepted CD-0149 amendment pointer
 for this law are registered with authority `legislated`, legislated by
 `work-b0b08d6e28a8db2bad386ee6` at the approved contract version 1.
 

@@ -2065,35 +2065,6 @@ const GeneratedPayloadSchemaDocument = `{
                 ],
                 "type": "string"
               },
-              "checks": {
-                "items": {
-                  "additionalProperties": false,
-                  "properties": {
-                    "kind": {
-                      "enum": [
-                        "adapter_test",
-                        "generated",
-                        "go_test",
-                        "scenario",
-                        "validator"
-                      ],
-                      "type": "string"
-                    },
-                    "value": {
-                      "maxLength": 512,
-                      "minLength": 1,
-                      "type": "string"
-                    }
-                  },
-                  "required": [
-                    "kind",
-                    "value"
-                  ],
-                  "type": "object"
-                },
-                "maxItems": 32,
-                "type": "array"
-              },
               "content_hash": {
                 "maxLength": 128,
                 "minLength": 1,
@@ -2143,8 +2114,7 @@ const GeneratedPayloadSchemaDocument = `{
               "content_hash",
               "home_domain_id",
               "basis",
-              "matched_paths",
-              "checks"
+              "matched_paths"
             ],
             "type": "object"
           },
@@ -3641,19 +3611,17 @@ const GeneratedPayloadSchemaDocument = `{
     },
     "lane_report_resolved_finding": {
       "additionalProperties": false,
-      "anyOf": [
-        {
-          "required": [
-            "evidence_refs"
-          ]
-        },
-        {
-          "required": [
-            "judged_case_ids"
-          ]
-        }
-      ],
       "description": "One closure claim of a previously open ranked finding. Supply native evidence refs, exact judged-case IDs, or both as required by the finding. Judged closure requires Main acceptance of the fresh candidate-bound completed Review report; the report alone grants no closure authority. Omission, relabeling, or a confidence change never closes a finding.",
+      "else": {
+        "required": [
+          "judged_case_ids"
+        ]
+      },
+      "if": {
+        "required": [
+          "evidence_refs"
+        ]
+      },
       "properties": {
         "evidence_refs": {
           "description": "The producer-captured current-subject evidence the closure names, as the control requires. Bounds: 1..8 items inclusive",

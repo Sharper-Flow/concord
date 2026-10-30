@@ -200,8 +200,6 @@ set at the D5 boundary.
 
 - `python3 scripts/check-knowledge-index.py` proves the record shard, the
   content hashes, and the composed aggregate agree.
-- `python3 scripts/check-law-coverage.py` validates this record's executable
-  evidence anchors.
 - `python3 scripts/check-doc-links.py` and `python3 scripts/check-knowledge-placement.py`
   prove document links and knowledge placement hold.
 - Criterion 1 is covered by

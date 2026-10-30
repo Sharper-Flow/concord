@@ -20,7 +20,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:46eef851635b824e1d4791f1cf454e6ba3dc30b3c5bd7b5de9a95736e0c64e88",
+  "sha256": "sha256:395836874c34f1ecf12b10ec3c45155f939165bb4d7a5f4ed9e61c55cc7cc26b",
   "status": "accepted",
   "summary": "The sustained conformance falsifier weighs commit-duration P99, the quantity CD-0045 names as Concord-owned, against the unchanged 100ms target; wall and writer-admission wait stay measured and diagnostic, correctness precedence and population authority are untouched, and scheduler-owned overshoot on a shared runner reports as inconclusive instead of a law-grade fired verdict.",
   "tags": [

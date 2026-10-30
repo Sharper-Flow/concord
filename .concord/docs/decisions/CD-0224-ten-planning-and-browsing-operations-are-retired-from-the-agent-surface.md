@@ -51,8 +51,8 @@ The agent surface retires ten operations: `concord_domain.active_work`,
 compatibility path remains.
 
 The Product-row glance contract retires with its read. Its file
-.concord/docs/product-row-contract.md, its knowledge record, and its
-coverage record are deleted, the way CD-0219 D2 deletes the launcher
+.concord/docs/product-row-contract.md and its knowledge record are deleted,
+the way CD-0219 D2 deletes the launcher
 contracts whose subject retired. No C14 statement governs a live surface:
 the launcher render and the `concord_product_view.portfolio` read are both
 gone, and nothing replaces the five-group projection. The operator
@@ -78,8 +78,8 @@ The `blocks` readiness gates are unchanged: a `blocks` row from
 out of PM1.Q5 ready and hold it visible in PM1.Q4 while the blocker is not
 terminal.
 
-A lesson is authored as the lesson markdown under `.concord/docs/lessons/`,
-its manifest record shard, and its law-coverage shard, committed together in
+A lesson is authored as the lesson markdown under `.concord/docs/lessons/`
+and its manifest record shard, committed together in
 one commit on a branch of the knowledge-home Project (CD-0114 D3). The pull
 request and its required checks carry the approval, and the lesson is
 published when the pull request merges and a knowledge read verifies the

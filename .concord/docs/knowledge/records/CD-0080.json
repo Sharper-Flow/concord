@@ -22,7 +22,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:dba0b9e49fcba35d57175e691642f6ab284e31bba58ba07c71f3a78320c9bc3f",
+  "sha256": "sha256:2c885dce70942854088e97b81c2b78bafbbe13ebc67cefd4657799b9b1a0730e",
   "status": "accepted",
   "summary": "Per-call authorization intersects registered client policy with fresh Git-derived scope and requested capabilities, without grant tokens. Principal identity, idempotency, worktree ownership, manifest and scope refusals remain. Host approval keeps exact consequence/challenge/session bindings without a signature. Worker signing and its dedicated key lifecycle supply no authority after launcher retirement.",
   "tags": [

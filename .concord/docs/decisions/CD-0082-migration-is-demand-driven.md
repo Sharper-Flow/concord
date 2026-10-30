@@ -87,5 +87,5 @@ activities do not establish accepted release or maturity evidence.
 
 - Current documents state local migration authority and safeguards without a
   global migration or generic replacement policy.
-- The knowledge record and out-of-scope coverage shard identify this decision;
+- The knowledge record identifies this decision;
   generated manifests are rebuilt by their owning scripts.

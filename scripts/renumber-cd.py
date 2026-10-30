@@ -3,7 +3,7 @@
 
 A CD number lives in several places that must move together: the decision
 document filename, the document body, the record shard's ``id`` and ``path``,
-the coverage shard's ``id``, the record's ``sha256``, the generated aggregates,
+the record's ``sha256``, the generated aggregates,
 and every in-repository reference. Moving them by hand can leave a manifest
 that validates while pointing at the wrong document.
 
@@ -45,7 +45,6 @@ import knowledge_index  # noqa: E402
 CD_ID_RE = re.compile(r"^CD-[0-9]{4}$")
 DECISIONS = Path(".concord/docs/decisions")
 RECORDS = Path(".concord/docs/knowledge/records")
-COVERAGE = Path(".concord/docs/knowledge/coverage")
 
 # Regenerated rather than edited, in dependency order. Each entry is the argv
 # that rewrites the file from its authored source. A CD identifier reaches these
@@ -60,7 +59,6 @@ GENERATORS: tuple[tuple[str, ...], ...] = (
     ("scripts/generate-knowledge-index.py", "--update"),
     ("scripts/check-knowledge-index.py", "--update"),
     ("scripts/generate-knowledge-index.py", "--update"),
-    ("scripts/generate-law-coverage.py", "--update"),
     ("scripts/generate-agent-contracts.py",),
     ("scripts/generate-agent-profiles.py",),
 )
@@ -90,7 +88,6 @@ class Plan:
     new: str
     document: tuple[Path, Path]
     record: tuple[Path, Path]
-    coverage: tuple[Path, Path]
     edits: list[Path] = field(default_factory=list)
 
 
@@ -228,16 +225,12 @@ def plan(
 
     document = find_document(root, old, findings)
     record = RECORDS / f"{old}.json"
-    coverage = COVERAGE / f"{old}.json"
-    findings.extend(
-        f"{path}: shard is missing; {old} is not a complete record"
-        for path in (record, coverage)
-        if not (root / path).is_file()
-    )
+    if not (root / record).is_file():
+        findings.append(f"{record}: shard is missing; {old} is not a complete record")
 
     # The target must be entirely free. A partially occupied number produces a
     # manifest that still validates while pointing at the wrong document.
-    if (root / RECORDS / f"{new}.json").exists() or (root / COVERAGE / f"{new}.json").exists():
+    if (root / RECORDS / f"{new}.json").exists():
         findings.append(f"{new} already has a shard; choose a free number")
     if sorted((root / DECISIONS).glob(f"{new}-*.md")):
         findings.append(f"{new} already has a decision document; choose a free number")
@@ -276,7 +269,6 @@ def plan(
         new=new,
         document=(document, DECISIONS / document.name.replace(old, new, 1)),
         record=(record, RECORDS / f"{new}.json"),
-        coverage=(coverage, COVERAGE / f"{new}.json"),
         edits=edits,
     )
 
@@ -342,7 +334,6 @@ def apply(root: Path, prepared: Plan, *, generate: bool = True) -> list[str]:
 
     rename(root, *prepared.document, findings)
     rename(root, *prepared.record, findings)
-    rename(root, *prepared.coverage, findings)
     if findings:
         return findings
 
@@ -351,7 +342,6 @@ def apply(root: Path, prepared: Plan, *, generate: bool = True) -> list[str]:
         {"id": prepared.new, "path": prepared.document[1].as_posix()},
         findings,
     )
-    rewrite_json(root / prepared.coverage[1], {"id": prepared.new}, findings)
     if findings:
         return findings
 
@@ -374,7 +364,6 @@ def describe(prepared: Plan) -> str:
         f"{prepared.old} -> {prepared.new}",
         f"  document {prepared.document[0]} -> {prepared.document[1]}",
         f"  record   {prepared.record[0]} -> {prepared.record[1]}",
-        f"  coverage {prepared.coverage[0]} -> {prepared.coverage[1]}",
         f"  edits    {len(prepared.edits)} file(s)",
     ]
     lines.extend(f"    {path}" for path in prepared.edits)

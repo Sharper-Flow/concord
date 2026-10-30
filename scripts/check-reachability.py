@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 """Fail on mechanism the product cannot reach unless the repository declares it.
 
-CD-0047 D4. Law binding is a human claim and must be declared. Reachability is
-not: deadcode derives function reachability from a real callgraph, and go list
+CD-0249 D2: deadcode derives function reachability from a real callgraph, and go list
 accounts for internal packages outside the entrypoints' dependency set. This
 plane declares only its exceptions and computes everything else. A per-symbol
 manifest would restate a fact the toolchain already owns, and would drift from

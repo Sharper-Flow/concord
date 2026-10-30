@@ -76,15 +76,15 @@ Owner removal must preserve retained research or refuse before a foreign-key cas
 
 ### D6. Coverage follows the replacement obligations
 
-Coverage must prove explicit retirement, publication without deletion, work-authority guarantees, and research boundary witnesses.
-The manifest must not claim a satisfied state without evidence for those obligations.
+The proof must establish explicit retirement, publication without deletion, work-authority guarantees, and research boundary witnesses.
+No record may claim those obligations are proved without evidence for them.
 
 ## Alternatives considered
 
 - Cleanup before settled publication or release of references removes evidence or coordination state that a consumer still needs.
 - Research deletion during publication couples durable promotion to destructive cleanup.
 - Calendar expiration substitutes elapsed time for explicit intent and consumer protection.
-- Treating an old satisfied coverage record as current proof conceals changed obligations.
+- Treating an old proof record as current proof conceals changed obligations.
 
 ## Consequences
 
@@ -102,4 +102,4 @@ Publication and research boundaries are checked by `internal/store.TestResearchR
 `internal/store.TestTerminalCleanupRetainsDefectAdmissionClassification` checks that recurrence-admission facts survive collection of execution state.
 `internal/store.TestPublishedExecutionAbsenceReaders` and `internal/store.TestPublishedClassificationOnlyAbsenceReaders` check truthful readback after collection.
 Publication, every terminal route, owner removal, restart, restore and the pin/retire race still require integrated evidence.
-Coverage remains unmeasured until the required witnesses pass on the implementing subject.
+The required witnesses remain outstanding until they pass on the implementing subject.

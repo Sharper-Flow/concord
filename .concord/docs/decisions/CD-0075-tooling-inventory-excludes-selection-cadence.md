@@ -80,5 +80,5 @@ constant parity proves this contract without adding a dependency.
 - `python3 scripts/check-project-tooling.py` rejects `cadence` and accepts the
   dogfood manifest.
 - `python3 scripts/check-json.py`, `python3 scripts/check-doc-links.py`,
-  `python3 scripts/check-law-coverage.py`, and
+  and
   `python3 scripts/check-knowledge-index.py` pass.

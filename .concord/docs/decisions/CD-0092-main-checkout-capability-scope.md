@@ -74,4 +74,4 @@ capability and operation declarations govern authorization.
 - Implementation-bearing capabilities keep the typed refusal from the same
   checkout.
 - The allowlist is one declaration, and a test pins each capability's side.
-- The knowledge record, coverage shard, and repository validators pass.
+- The knowledge record and repository validators pass.

@@ -8,7 +8,6 @@
   "date": "2026-10-09T00:00:00Z",
   "evidence": [
     ".concord/docs/compaction-retention-policy.md",
-    ".concord/docs/knowledge/coverage/CD-0217.json",
     "internal/store/terminal_cleanup_test.go",
     "internal/store/terminal_absence_test.go",
     "internal/store/research_retirement_test.go",
@@ -25,7 +24,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:863541a2fc4476bc3ca108b8ca4381d2a1ea8568713fbda15bbbfbc61f9a1dbc",
+  "sha256": "sha256:5106e14f1cd6aeaeaf5ac0b3d00248e6f9389cbb10c5e275b6f19a51465ec1d4",
   "status": "accepted",
   "summary": "Separates verified terminal execution cleanup from explicit research retirement; protects retained research, category consumers and canonical knowledge.",
   "tags": [

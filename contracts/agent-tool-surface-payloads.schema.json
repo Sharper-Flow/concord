@@ -23778,8 +23778,7 @@
               "content_hash",
               "home_domain_id",
               "basis",
-              "matched_paths",
-              "checks"
+              "matched_paths"
             ],
             "properties": {
               "law_id": {
@@ -23830,35 +23829,6 @@
                   "type": "string",
                   "minLength": 1,
                   "maxLength": 512
-                }
-              },
-              "checks": {
-                "type": "array",
-                "maxItems": 32,
-                "items": {
-                  "type": "object",
-                  "additionalProperties": false,
-                  "required": [
-                    "kind",
-                    "value"
-                  ],
-                  "properties": {
-                    "kind": {
-                      "type": "string",
-                      "enum": [
-                        "adapter_test",
-                        "generated",
-                        "go_test",
-                        "scenario",
-                        "validator"
-                      ]
-                    },
-                    "value": {
-                      "type": "string",
-                      "minLength": 1,
-                      "maxLength": 512
-                    }
-                  }
                 }
               }
             }
@@ -24554,18 +24524,16 @@
       "required": [
         "finding_id"
       ],
-      "anyOf": [
-        {
-          "required": [
-            "evidence_refs"
-          ]
-        },
-        {
-          "required": [
-            "judged_case_ids"
-          ]
-        }
-      ],
+      "if": {
+        "required": [
+          "evidence_refs"
+        ]
+      },
+      "else": {
+        "required": [
+          "judged_case_ids"
+        ]
+      },
       "description": "One closure claim of a previously open ranked finding. Supply native evidence refs, exact judged-case IDs, or both as required by the finding. Judged closure requires Main acceptance of the fresh candidate-bound completed Review report; the report alone grants no closure authority. Omission, relabeling, or a confidence change never closes a finding.",
       "properties": {
         "finding_id": {

@@ -182,34 +182,6 @@ stored copy can age. CD-0106 D4 owns this rule.
 A record that carries learned usage of a resource is tagged
 `resource:<resource_id>`.
 
-## Coverage state
-
-Registering a record is not complete when the record exists. Every record
-also needs a coverage shard under `.concord/docs/knowledge/coverage/`, named for the
-record identifier. Regenerate the aggregate with
-[`scripts/generate-law-coverage.py`](../../scripts/generate-law-coverage.py)
-using its update flag. Without the shard,
-[`scripts/check-law-coverage.py`](../../scripts/check-law-coverage.py) reports
-an undeclared record and the required checks fail.
-
-The shard records whether the document's claims are proved. Choose the state
-from what evidence exists, not from how important the document is.
-
-| State | When it applies |
-|---|---|
-| `satisfied` | Executable evidence proves the claims. Name that evidence in the shard. |
-| `outstanding` | The claims are not yet proved and work is owed. Name the open issue that owns it. |
-| `unmeasured` | The document makes no proposition a running system could falsify. |
-| `out_of_scope` | The document does not claim anything about this Product's behaviour. Give a reason. |
-
-An `outstanding` shard must name an issue that is still open. A closed
-pointer is the same defect as a record with no referent at all.
-
-The coverage checker draws its subjects from every manifest record, including
-registered non-law kinds. A `reference` or `research` record therefore needs a
-shard even though it carries no authority. Those records normally take
-`out_of_scope`.
-
 ## The acceptance-criteria rule
 
 ### Binary by kind

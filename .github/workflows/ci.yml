@@ -90,7 +90,7 @@ jobs:
         with:
           bun-version: 1.4.0
       - name: Set up native Node
-        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         with:
           node-version: 24.15.0
           architecture: x64
@@ -365,7 +365,7 @@ jobs:
       - name: Test disposable native CI provisioning and cache warming
         run: python3 scripts/test-ci-native-provision.py
       - name: Set up native Node
-        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         with:
           node-version: 24.15.0
           architecture: x64
@@ -610,7 +610,7 @@ jobs:
         # and parses its combined output, which a "go: downloading" line breaks.
         run: go mod download
       - name: Set up native Node
-        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         with:
           node-version: 24.15.0
           architecture: x64
@@ -719,7 +719,7 @@ jobs:
         # and parses its combined output, which a "go: downloading" line breaks.
         run: go mod download
       - name: Set up native Node
-        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         with:
           node-version: 24.15.0
           architecture: x64
@@ -828,7 +828,7 @@ jobs:
         # and parses its combined output, which a "go: downloading" line breaks.
         run: go mod download
       - name: Set up native Node
-        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         with:
           node-version: 24.15.0
           architecture: x64
@@ -937,7 +937,7 @@ jobs:
         # and parses its combined output, which a "go: downloading" line breaks.
         run: go mod download
       - name: Set up native Node
-        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         with:
           node-version: 24.15.0
           architecture: x64
@@ -1046,7 +1046,7 @@ jobs:
         # and parses its combined output, which a "go: downloading" line breaks.
         run: go mod download
       - name: Set up native Node
-        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         with:
           node-version: 24.15.0
           architecture: x64
@@ -1155,7 +1155,7 @@ jobs:
         # and parses its combined output, which a "go: downloading" line breaks.
         run: go mod download
       - name: Set up native Node
-        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         with:
           node-version: 24.15.0
           architecture: x64
@@ -1264,7 +1264,7 @@ jobs:
         # and parses its combined output, which a "go: downloading" line breaks.
         run: go mod download
       - name: Set up native Node
-        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         with:
           node-version: 24.15.0
           architecture: x64
@@ -1610,7 +1610,7 @@ jobs:
         with:
           bun-version: 1.4.0
       - name: Set up native Node
-        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         with:
           node-version: 24.15.0
           architecture: x64
@@ -1709,7 +1709,7 @@ jobs:
         with:
           bun-version: 1.4.0
       - name: Set up native Node
-        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         with:
           node-version: 24.15.0
           architecture: x64

@@ -80,15 +80,8 @@ protection, and release-under-live-work refusals.
 ```gherkin
 Given the retired launcher artifacts are deleted
 When the law planes validate
-Then no registered record or coverage anchor cites a retired artifact
+Then no registered record cites a retired artifact
 And every kept entry-route clause keeps a surviving owner
-```
-
-```gherkin
-Given the retired surface is gone
-When a coverage record names a vacated obligation
-Then the record carries an out-of-scope or unmeasured state with its reason
-And no record claims satisfaction that the surviving surface does not prove
 ```
 
 ## Consequences
@@ -96,8 +89,7 @@ And no record claims satisfaction that the surviving surface does not prove
 The released binary sheds the Charm dependency surface, the launcher tests,
 and the launcher query family. Operator acceptance of the TUI has no subject
 after deletion and does not become a new acceptance gate for the entry route.
-Coverage for the vacated records carries out-of-scope or unmeasured states
-rather than satisfied ones. `priorities.md` and `design-constraints.md` own the
+`priorities.md` and `design-constraints.md` own the
 constitutional primary-surface direction. This retirement waives no
 first-usable floor criterion.
 
@@ -105,8 +97,6 @@ first-usable floor criterion.
 
 - `python3 scripts/check-knowledge-index.py` proves every record matches its
   document and no retired artifact keeps a record.
-- `python3 scripts/check-law-coverage.py` proves every satisfied anchor
-  resolves and vacated records carry their stated states.
 - `python3 scripts/check-doc-links.py` proves no document links a retired
   artifact.
 - `go test ./internal/store/ -run

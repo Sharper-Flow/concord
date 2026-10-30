@@ -23,8 +23,7 @@
     "internal/store/workflow_preflight.go",
     "internal/store/workflow_dispatch.go",
     "internal/store/workflow_action_guards.go",
-    "contracts/workflow-definition.schema.json",
-    ".concord/docs/knowledge/coverage/CD-0209.json"
+    "contracts/workflow-definition.schema.json"
   ],
   "home_domain_id": "workflow-engine",
   "id": "CD-0209",
@@ -59,7 +58,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:6c052ed243fbe5c24a0fb30218837646ef0214b07cae99d50327f485aeaad117",
+  "sha256": "sha256:2b6a765e4b498497bf269e12829d161d9473f422ad7097e1e319a0ab7d6f69b8",
   "status": "accepted",
   "summary": "One declared recovery-route table per workflow definition is the only owner of cross-step correction. The closed two-trigger set (unhealthy_verdict and disproved_premise_at_complete) pairs each trigger with one engine-owned recovery action, the registration gate refuses an undeclared or non-producer route, the runtime cross-step reader is one function, and the artifact-staleness state binds the production frontier to the declared target so only an accepted worker delivery or a typed target production direct action clears the bit. Definitions derive from one canonical source and declare their own table; the liveness and conformance checks cover every registered definition exhaustively; CD-0172 and CD-0186 keep the complete-step supersede bound to implementation and break_fix with exact approval terminal.",
   "tags": [

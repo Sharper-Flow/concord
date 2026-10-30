@@ -11,7 +11,7 @@
 
 ## Context
 
-The `.concord/` directory contains authored Product law, knowledge metadata, coverage declarations, configuration, and generated projections.
+The `.concord/` directory contains authored Product law, knowledge metadata, configuration, and generated projections.
 A path alone does not determine edit authority or law status.
 The lane registry grants source edits through `edit_scoped_files`; role and job
 scope delimit their use.
@@ -39,7 +39,7 @@ The coordinator resolves missing scope or law conflicts; a worker does not expan
 
 A lane without `edit_scoped_files` must not create, change, delete, or commit repository sources; for the review lane,
 review inspects the accumulated solution, may commit corrective changes, verifies the corrected candidate, and reports ([CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d5-execution-is-a-loop-that-main-controls)).
-This rule includes law, specifications, knowledge metadata, coverage declarations, and configuration under `.concord/`.
+This rule includes law, specifications, knowledge metadata, and configuration under `.concord/`.
 Research and verify return their assigned reports and evidence instead.
 Generated definitions deny native shell and named editor tools for lanes
 without `edit_scoped_files`. The generator derives those denials from the
@@ -50,7 +50,7 @@ existing capability registry, not a second writer list.
 A lane may run only commands its role and job permit.
 Those commands may produce normal test artifacts or regenerate projections from authorized inputs.
 Generated projections retain their owning generators and must not be hand-edited.
-Changing an input, record status, authority tier, or coverage claim is source authoring, not regeneration.
+Changing an input, record status, or authority tier is source authoring, not regeneration.
 Refreshing a content hash or canonical encoding does not approve the content or its evidence.
 
 A non-editing lane executes checks only through a packet-bound host capability.

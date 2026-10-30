@@ -311,8 +311,8 @@ def test_adapter_test_anchor_rejects_foreign_path() -> None:
 def test_contract_checker_anchor_resolves_through_the_umbrella_nesting() -> None:
     # The complete contract check has no direct CI step: check-json.py owns
     # it, so the validator anchor must resolve through the subprocess call
-    # graph alone. If the nesting is ever dropped, every coverage record
-    # citing scripts/check-agent-contracts.py stops resolving here.
+    # graph alone. If the nesting is ever dropped, every record citing
+    # scripts/check-agent-contracts.py stops resolving here.
     nested = anchors.nested_invocations(ROOT / "scripts/check-json.py")
     assert "scripts/check-agent-contracts.py" in nested, sorted(nested)
     assert anchors.validator_runs_in_ci("scripts/check-agent-contracts.py")
@@ -643,7 +643,7 @@ def test_validator_ci_reachability_requires_invocation_and_reaches_nested_cycles
         assert anchors.validator_runs_in_ci("scripts/check-inner.py")
         workflow.write_text("        run: python3 scripts/check-outer.py\n")
         assert anchors.validator_runs_in_ci("scripts/check-outer.py")
-        assert not anchors.validator_runs_in_ci("scripts/check-other.py"), "CD-0047 D3 nests law validators only through check-json.py"
+        assert not anchors.validator_runs_in_ci("scripts/check-other.py"), "CD-0249 D3 nests validators only through check-json.py"
         assert anchors.ci_reaches(tmp, {"kind": "validator", "value": "scripts/check-other.py"}), "tooling owners keep derived nesting"
 
 

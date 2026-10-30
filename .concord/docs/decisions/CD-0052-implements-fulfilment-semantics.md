@@ -79,6 +79,5 @@ cheapest honest state and is reversible if a consumer lands.
 - `internal/store.TestRelationKindsEnforceTheirOwnGraphRules` exercises the
   per-kind cycle rejection and the `implements` cycle exemption (two-node
   cycle permitted).
-- Law coverage for this record is `satisfied` on that anchor.
-- Validators: `check-knowledge-index.py`, `check-law-coverage.py`,
+- Validators: `check-knowledge-index.py`,
   `check-json.py`, `check-doc-links.py`, `check-public-content.py`.

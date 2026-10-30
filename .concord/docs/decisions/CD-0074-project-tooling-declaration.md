@@ -8,7 +8,7 @@
 - **Approval:** Operator approved the surface and its boundary in the session
   that opened issue #510 on 2026-08-25; the merged pull request is the public
   record.
-- **Related:** CD-0040 (D6), CD-0043 (D1), CD-0047 (unlapsed coverage lesson),
+- **Related:** CD-0040 (D6), CD-0043 (D1),
   CD-0055 (D1), [`../capability-placement.md`](../capability-placement.md) §3–§4,
   [`../predecessor-operational-coverage.md`](../predecessor-operational-coverage.md)
 - **Preserves:** CD-0043 D1's host-owned methodology boundary; CD-0040 D6's
@@ -51,8 +51,7 @@ length, matching JSON Schema. It proves that `config_path` and
 regular files inside the repository. It rejects symlink escapes, including a
 manifest symlink that resolves outside the repository. It does not inspect
 automation file contents. A missing manifest is a finding, not a vacuous pass.
-Deleting the declaration must be a visible decision, the same
-unlapsed-coverage lesson CD-0047 records for `check-law-coverage.py`.
+Deleting the declaration must be a visible decision.
 
 Concord publishes and checks
 `contracts/project-tooling.v1.schema.json` as the owner of the contract. An

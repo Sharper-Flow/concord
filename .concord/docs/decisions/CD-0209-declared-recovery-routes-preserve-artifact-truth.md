@@ -431,8 +431,6 @@ the `workflow.generic_one_off` version 13 fixture named by CON-846.
 The coverage guard enumerates definitions and refuses a
 route without a journey. Exhaustive liveness covers every registered
 definition.
-`.concord/docs/knowledge/coverage/CD-0209.json` names the test evidence
-for these distinct populations.
 
 ## Alternatives considered
 
@@ -521,9 +519,8 @@ references for a `request_correction` are the bound evidence
 references the engine reads; a correction that names evidence the
 engine cannot bind refuses at the gate.
 
-The coverage shard names the registration, production,
-admission, liveness, conformance, and public-tool tests. Repository
-verification supplies this evidence, not a fabricated workflow record.
+Repository verification supplies this evidence, not a fabricated workflow
+record.
 
 ## Verification
 

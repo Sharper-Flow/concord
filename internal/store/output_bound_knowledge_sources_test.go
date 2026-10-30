@@ -140,17 +140,6 @@ func init() {
 	registerOutputBound("/$defs/domain_footprint_result/properties/knowledge_commit/maxLength",
 		pkLengthSetBound("internal/store/git_knowledge.go", "validateCommitOID", "len(oid)"))
 
-	// Coverage anchor values are stored under CHECK(length(value) BETWEEN
-	// 1 AND 512) on law_coverage_anchors; the parse-time byte guard
-	// (maxCoverageAnchorValue) is the same bound in bytes.
-	registerOutputBound("/$defs/domain_footprint_result/properties/laws/items/properties/checks/items/properties/value/maxLength", goInlineBound("internal/store/knowledge_architecture.go", "parseKnowledgeCoverageShard", "len(anchor.Value)", boundBytes))
-
-	// Coverage anchors: at most maxCoverageAnchors per satisfied record,
-	// one shard per record ID, projected one row per anchor with ordinal
-	// CHECK 0..31.
-	registerOutputBound("/$defs/domain_footprint_result/properties/laws/items/properties/checks/maxItems",
-		goConstantBound("internal/store/knowledge_architecture.go", "maxCoverageAnchors", boundItems))
-
 	// Law content hashes are stored under CHECK length 71 with the sha256
 	// prefix in the final DDL; verifyManifestBlob refuses any mismatch.
 	registerOutputBound("/$defs/domain_footprint_result/properties/laws/items/properties/content_hash/maxLength", goInlineBound("internal/store/git_knowledge.go", "validateContentHash", "len(hash)", boundBytes))

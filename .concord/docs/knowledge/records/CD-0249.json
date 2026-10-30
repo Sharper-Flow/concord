@@ -1,0 +1,38 @@
+{
+  "applies_to_domain_ids": [
+    "durable-authority",
+    "repository-verification"
+  ],
+  "authority": {
+    "tier": "derived"
+  },
+  "date": "2026-10-29T00:00:00Z",
+  "evidence": [
+    ".concord/docs/reachability-exceptions.v1.json",
+    "scripts/check-reachability.py",
+    "scripts/coverage_state.py",
+    "scripts/evidence_anchors.py"
+  ],
+  "home_domain_id": "product-memory",
+  "id": "CD-0249",
+  "kind": "decision",
+  "law_relations": [],
+  "path": ".concord/docs/decisions/CD-0249-decisions-carry-no-coverage-records.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:86bb0bea1ed2dbdbd6385e0941c6656ec6ab5a3b2f584a01308cba2fb4f129f3",
+  "status": "accepted",
+  "summary": "Decisions carry no coverage records, states, or anchors: a decision Verification section alone names its tests, and per-law coverage schema, shards, scripts, CI enforcement, storage, and read output are retired through the breaking migration with a verified snapshot before the table drop. Reachability stays computed with only exceptions declared, the declaring planes share one state vocabulary whose outstanding pointers must name live issues, typed anchors keep the closed kinds with resolution and required-check wiring, and dead or superseded material is removed in the change that replaces it.",
+  "tags": [
+    "cleanup",
+    "drift",
+    "evidence",
+    "reachability"
+  ],
+  "title": "Decisions carry no coverage records"
+}

@@ -6,7 +6,6 @@
   },
   "date": "2026-10-08T00:00:00Z",
   "evidence": [
-    ".concord/docs/knowledge/coverage/CD-0212.json",
     "contracts/agent-tool-surface-payloads.schema.json",
     "internal/agent/mutations.go",
     "internal/store/schema.go",

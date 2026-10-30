@@ -2066,35 +2066,6 @@ const GeneratedPayloadSchemaDocument = `{
                 ],
                 "type": "string"
               },
-              "checks": {
-                "items": {
-                  "additionalProperties": false,
-                  "properties": {
-                    "kind": {
-                      "enum": [
-                        "adapter_test",
-                        "generated",
-                        "go_test",
-                        "scenario",
-                        "validator"
-                      ],
-                      "type": "string"
-                    },
-                    "value": {
-                      "maxLength": 512,
-                      "minLength": 1,
-                      "type": "string"
-                    }
-                  },
-                  "required": [
-                    "kind",
-                    "value"
-                  ],
-                  "type": "object"
-                },
-                "maxItems": 32,
-                "type": "array"
-              },
               "content_hash": {
                 "maxLength": 128,
                 "minLength": 1,
@@ -2144,8 +2115,7 @@ const GeneratedPayloadSchemaDocument = `{
               "content_hash",
               "home_domain_id",
               "basis",
-              "matched_paths",
-              "checks"
+              "matched_paths"
             ],
             "type": "object"
           },

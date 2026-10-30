@@ -2,8 +2,6 @@ package store
 
 import (
 	"context"
-	"encoding/json"
-	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -20,25 +18,10 @@ const architectureFixtureMap = `{
 }
 `
 
-const architectureFixtureCoverage = `{
-  "evidence": [
-    {"kind": "go_test", "value": "internal/alpha.TestAlpha"},
-    {"kind": "validator", "value": "scripts/check-alpha.py"}
-  ],
-  "id": "CD-0001",
-  "state": "satisfied"
-}
-`
-
-const architectureFixtureLessonCoverage = `{
-  "id": "LES-0001",
-  "reason": "Lessons are published guidance, not executable law.",
-  "state": "out_of_scope"
-}
-`
-
 // architectureFixtureRepo commits one decision whose evidence names two code
-// files (one twice), a lesson, the package map, and both records' coverage.
+// files (one twice), a lesson, and the package map. The retired coverage
+// shards (CD-0249 D1) are not part of the fixture; a head that still carries
+// one is covered by TestKnowledgeIndexRebuildIgnoresLeftoverCoverageShards.
 func architectureFixtureRepo(t *testing.T) string {
 	t.Helper()
 	repo := initKnowledgeRepo(t)
@@ -47,8 +30,6 @@ func architectureFixtureRepo(t *testing.T) string {
 		manifestFixture{ID: "LES-0001", Kind: "lesson", Path: ".concord/docs/lessons/LES-0001-alpha.md", Status: "published", Date: "2026-08-10T00:00:00Z", Title: "Alpha lesson", Summary: "A lesson", Scopes: architectureFixtureScopes()},
 	)
 	writeKnowledgeFile(t, repo, knowledgePackageMapPath, architectureFixtureMap)
-	writeKnowledgeFile(t, repo, knowledgeCoverageTreeDir+"CD-0001.json", architectureFixtureCoverage)
-	writeKnowledgeFile(t, repo, knowledgeCoverageTreeDir+"LES-0001.json", architectureFixtureLessonCoverage)
 	commitKnowledgeRepo(t, repo, "architecture fixture")
 	return repo
 }
@@ -75,7 +56,6 @@ func architectureSnapshot(t *testing.T, s *Store, home KnowledgeHome) string {
 	queries := []string{
 		`SELECT package_path||'='||domain_id||'#'||map_content_hash||'@'||scanned_commit_oid FROM knowledge_package_domains WHERE home_project_id=? AND home_locator_id=? ORDER BY package_path, domain_id`,
 		`SELECT law_id||':'||path||'@'||scanned_commit_oid FROM law_evidence_paths WHERE home_project_id=? AND home_locator_id=? ORDER BY law_id, path`,
-		`SELECT law_id||'#'||ordinal||'='||kind||':'||value||'@'||scanned_commit_oid FROM law_coverage_anchors WHERE home_project_id=? AND home_locator_id=? ORDER BY law_id, ordinal`,
 	}
 	var parts []string
 	for _, query := range queries {
@@ -109,12 +89,12 @@ func headCommit(t *testing.T, repo string) string {
 	return commit
 }
 
-// TestKnowledgeIndexProjectsPackageMapEvidenceAndCoverageAtTheScannedCommit
-// proves the rebuild reads the map and coverage shards at the indexed commit:
-// the map's Domains, each law's distinct evidence paths, and a satisfied
-// law's anchors in authored order project; an out-of-scope record projects
-// none; and a later commit's map replaces the earlier one.
-func TestKnowledgeIndexProjectsPackageMapEvidenceAndCoverageAtTheScannedCommit(t *testing.T) {
+// TestKnowledgeIndexProjectsPackageMapAndEvidenceAtTheScannedCommit proves
+// the rebuild reads the map and the evidence paths at the indexed commit:
+// the map's Domains and each law's distinct evidence paths project, and a
+// later commit's map replaces the earlier one. Per-law coverage anchors
+// project no row (CD-0249 D1).
+func TestKnowledgeIndexProjectsPackageMapAndEvidenceAtTheScannedCommit(t *testing.T) {
 	t.Parallel()
 	repo := architectureFixtureRepo(t)
 	s, home := architectureFixtureStore(t, repo)
@@ -127,7 +107,6 @@ func TestKnowledgeIndexProjectsPackageMapEvidenceAndCoverageAtTheScannedCommit(t
 	want := strings.Join([]string{
 		"internal/alpha=fixture-law#" + firstHash + "@" + first + ",internal/alpha/nested=fixture-law#" + firstHash + "@" + first,
 		"CD-0001:internal/alpha/a.go@" + first + ",CD-0001:internal/alpha/nested/b.go@" + first,
-		"CD-0001#0=go_test:internal/alpha.TestAlpha@" + first + ",CD-0001#1=validator:scripts/check-alpha.py@" + first,
 	}, "\n")
 	if got := architectureSnapshot(t, s, home); got != want {
 		t.Fatalf("architecture projection:\n%s\nwant:\n%s", got, want)
@@ -145,15 +124,11 @@ func TestKnowledgeIndexProjectsPackageMapEvidenceAndCoverageAtTheScannedCommit(t
 	}
 }
 
-// TestKnowledgeIndexRefusesMalformedPackageMapOrCoverageWithoutPartialProjection
+// TestKnowledgeIndexRefusesMalformedPackageMapWithoutPartialProjection
 // proves each malformed shape refuses the whole rebuild and leaves the
 // previous projection, law rows included, exactly as it was.
-func TestKnowledgeIndexRefusesMalformedPackageMapOrCoverageWithoutPartialProjection(t *testing.T) {
+func TestKnowledgeIndexRefusesMalformedPackageMapWithoutPartialProjection(t *testing.T) {
 	t.Parallel()
-	anchors := make([]string, 33)
-	for index := range anchors {
-		anchors[index] = fmt.Sprintf(`{"kind":"go_test","value":"internal/alpha.Test%d"}`, index)
-	}
 	cases := []struct {
 		name, path, content string
 		kind                FailureKind
@@ -168,13 +143,6 @@ func TestKnowledgeIndexRefusesMalformedPackageMapOrCoverageWithoutPartialProject
 		{"map duplicate path", knowledgePackageMapPath, `{"packages":[{"domain_ids":["fixture-law"],"path":"internal/alpha"},{"domain_ids":["fixture-law"],"path":"internal/alpha"}],"schema_version":"1.0"}`, KindInvalidNoteProof},
 		{"map repeated Domain", knowledgePackageMapPath, `{"packages":[{"domain_ids":["fixture-law","fixture-law"],"path":"internal/alpha"}],"schema_version":"1.0"}`, KindInvalidNoteProof},
 		{"map unknown Domain", knowledgePackageMapPath, `{"packages":[{"domain_ids":["nowhere"],"path":"internal/alpha"}],"schema_version":"1.0"}`, KindUnknownScope},
-		{"coverage unknown kind", knowledgeCoverageTreeDir + "CD-0001.json", `{"evidence":[{"kind":"path","value":"internal/alpha/a.go"}],"id":"CD-0001","state":"satisfied"}`, KindInvalidNoteProof},
-		{"coverage too many anchors", knowledgeCoverageTreeDir + "CD-0001.json", `{"evidence":[` + strings.Join(anchors, ",") + `],"id":"CD-0001","state":"satisfied"}`, KindInvalidNoteProof},
-		{"coverage unknown field", knowledgeCoverageTreeDir + "CD-0001.json", `{"evidence":[{"kind":"go_test","value":"internal/alpha.TestAlpha"}],"id":"CD-0001","state":"satisfied","note":"x"}`, KindInvalidNoteProof},
-		{"coverage obligation mismatch", knowledgeCoverageTreeDir + "CD-0001.json", `{"evidence":[{"kind":"go_test","value":"internal/alpha.TestAlpha"}],"id":"CD-0001","reason":"twice justified here","state":"satisfied"}`, KindInvalidNoteProof},
-		{"coverage unknown state", knowledgeCoverageTreeDir + "CD-0001.json", `{"id":"CD-0001","reason":"not a coverage state","state":"pending"}`, KindInvalidNoteProof},
-		{"coverage misnamed", knowledgeCoverageTreeDir + "CD-0002.json", `{"id":"CD-0001","reason":"named for another record","state":"unmeasured"}`, KindInvalidNoteProof},
-		{"coverage names no record", knowledgeCoverageTreeDir + "CD-0099.json", `{"id":"CD-0099","reason":"no such record exists","state":"unmeasured"}`, KindInvalidNoteProof},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -202,7 +170,7 @@ func TestKnowledgeIndexRefusesMalformedPackageMapOrCoverageWithoutPartialProject
 
 // TestKnowledgeIndexWithoutPackageMapProjectsNoPackages proves an absent map
 // is not an error: no package row and so no map hash projects, while
-// evidence paths and anchors still project.
+// evidence paths still project.
 func TestKnowledgeIndexWithoutPackageMapProjectsNoPackages(t *testing.T) {
 	t.Parallel()
 	repo := architectureFixtureRepo(t)
@@ -212,7 +180,7 @@ func TestKnowledgeIndexWithoutPackageMapProjectsNoPackages(t *testing.T) {
 	commitKnowledgeRepo(t, repo, "no package map")
 	s, home := architectureFixtureStore(t, repo)
 	lines := strings.Split(architectureSnapshot(t, s, home), "\n")
-	if len(lines) != 3 || lines[0] != "" || lines[1] == "" || lines[2] == "" {
+	if len(lines) != 2 || lines[0] != "" || lines[1] == "" {
 		t.Fatalf("absent-map projection = %q", lines)
 	}
 }
@@ -227,7 +195,7 @@ func TestFreshWatermarkOverAnOlderWritersPackageMapRebuilds(t *testing.T) {
 	s, home := architectureFixtureStore(t, repo)
 	want := architectureSnapshot(t, s, home)
 	db := s.DatabaseForTesting()
-	for _, statement := range []string{`INSERT INTO write_guard(active) VALUES(1)`, `DELETE FROM knowledge_package_domains`, `DELETE FROM law_coverage_anchors`, `DELETE FROM law_evidence_paths`, `UPDATE knowledge_index_watermark SET projection_version=2`, `DELETE FROM write_guard`} {
+	for _, statement := range []string{`INSERT INTO write_guard(active) VALUES(1)`, `DELETE FROM knowledge_package_domains`, `DELETE FROM law_evidence_paths`, `UPDATE knowledge_index_watermark SET projection_version=2`, `DELETE FROM write_guard`} {
 		if _, err := db.Exec(statement); err != nil {
 			t.Fatal(err)
 		}
@@ -249,9 +217,9 @@ func TestFreshWatermarkOverAnOlderWritersPackageMapRebuilds(t *testing.T) {
 // rebuild refusal from them.
 func TestKnowledgeArchitectureIsReadOnlyForTheDesignatedHome(t *testing.T) {
 	t.Parallel()
-	shards := knowledgeShards{packageMap: []byte("{"), packageMapPresent: true, coverage: map[string][]byte{"X.json": []byte("{")}}
+	shards := knowledgeShards{packageMap: []byte("{"), packageMapPresent: true}
 	architecture, err := prepareKnowledgeArchitecture(shards, KnowledgeManifest{}, false)
-	if err != nil || architecture.MapHash != "" || len(architecture.Packages) != 0 || len(architecture.Anchors) != 0 {
+	if err != nil || architecture.MapHash != "" || len(architecture.Packages) != 0 {
 		t.Fatalf("non-designated architecture = %+v err=%v", architecture, err)
 	}
 	if _, err := prepareKnowledgeArchitecture(shards, KnowledgeManifest{}, true); err == nil {
@@ -259,15 +227,14 @@ func TestKnowledgeArchitectureIsReadOnlyForTheDesignatedHome(t *testing.T) {
 	}
 }
 
-// TestCommittedPackageMapAndCoverageParseUnderTheStoreRules proves the
-// repository's own map and every committed coverage shard pass the strict
-// rebuild parsers against the composed manifest, so the Product's index
-// rebuilds.
-func TestCommittedPackageMapAndCoverageParseUnderTheStoreRules(t *testing.T) {
+// TestCommittedPackageMapParsesUnderTheStoreRules proves the repository's
+// own map passes the strict rebuild parser against the composed manifest, so
+// the Product's index rebuilds.
+func TestCommittedPackageMapParsesUnderTheStoreRules(t *testing.T) {
 	t.Parallel()
 	root := repositoryRootForTest(t)
 	manifest := composeWorkingTreeManifest(t, root)
-	shards := knowledgeShards{coverage: map[string][]byte{}}
+	shards := knowledgeShards{}
 	content, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(knowledgePackageMapPath)))
 	if err != nil {
 		t.Fatal(err)
@@ -276,24 +243,12 @@ func TestCommittedPackageMapAndCoverageParseUnderTheStoreRules(t *testing.T) {
 		t.Fatalf("package map is %d bytes; the shard archive admits at most %d", len(content), maxKnowledgeRecord)
 	}
 	shards.packageMap, shards.packageMapPresent = content, true
-	dir := filepath.Join(root, filepath.FromSlash(knowledgeCoverageTreeDir))
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, entry := range entries {
-		data, err := os.ReadFile(filepath.Join(dir, entry.Name()))
-		if err != nil {
-			t.Fatal(err)
-		}
-		shards.coverage[entry.Name()] = data
-	}
 	architecture, err := prepareKnowledgeArchitecture(shards, manifest, true)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(architecture.Packages) == 0 || len(architecture.Anchors) == 0 {
-		t.Fatalf("committed architecture projected %d packages and %d anchored records", len(architecture.Packages), len(architecture.Anchors))
+	if len(architecture.Packages) == 0 {
+		t.Fatalf("committed architecture projected %d packages", len(architecture.Packages))
 	}
 	paths := make([]string, 0, len(architecture.Packages))
 	for _, entry := range architecture.Packages {
@@ -304,22 +259,15 @@ func TestCommittedPackageMapAndCoverageParseUnderTheStoreRules(t *testing.T) {
 	}
 }
 
-// TestCoverageShardReasonCountsCharacters proves the store bounds a coverage
-// reason in characters, as scripts/coverage_state.py does, so a reason the
-// validator admits never refuses the index rebuild.
-func TestCoverageShardReasonCountsCharacters(t *testing.T) {
+// TestArchitectureAnchorConstantsServeDomainFacts proves the CD-0249 anchor
+// identity survived the coverage retirement (CD-0249 D1): the closed kinds
+// and the byte bound still serve domain facts and shape checks.
+func TestArchitectureAnchorConstantsServeDomainFacts(t *testing.T) {
 	t.Parallel()
-	shard := func(reason string) []byte {
-		data, err := json.Marshal(map[string]any{"id": "CD-0001", "state": "unmeasured", "reason": reason})
-		if err != nil {
-			t.Fatal(err)
-		}
-		return data
+	if !domainFactAnchorKinds["go_test"] || !domainFactAnchorKinds["validator"] || domainFactAnchorKinds["path"] {
+		t.Fatalf("anchor kinds = %v", domainFactAnchorKinds)
 	}
-	if _, _, err := parseKnowledgeCoverageShard("CD-0001.json", shard(strings.Repeat("é", maxCoverageReason))); err != nil {
-		t.Fatalf("reason of %d multibyte characters refused: %v", maxCoverageReason, err)
-	}
-	if _, _, err := parseKnowledgeCoverageShard("CD-0001.json", shard(strings.Repeat("é", maxCoverageReason+1))); err == nil {
-		t.Fatalf("reason of %d characters admitted", maxCoverageReason+1)
+	if maxDomainFactAnchorValue != 512 {
+		t.Fatalf("anchor value bound = %d", maxDomainFactAnchorValue)
 	}
 }

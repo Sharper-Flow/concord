@@ -296,8 +296,7 @@ statement starts `conflict-rule:<rule ID>`;
 `internal/store.TestReviewCompletionRetainsAppliedRuleContextClaims` proves the
 carrier. Nothing checks that a settlement outside Review names its rule.
 
-`python3 scripts/check-law-coverage.py` validates the outstanding coverage
-pointer, not the remaining enforcement and proof assigned below:
+The remaining enforcement and proof is assigned below:
 
 | Clauses | Open owner and limit of delivered proof |
 |---|---|
@@ -307,8 +306,7 @@ pointer, not the remaining enforcement and proof assigned below:
 | A2 row 6; D6 | [CON-1101](https://linear.app/sharper-flow/issue/CON-1101). Nothing enforces labels, raising-change links, the Linear view, or closure tracking. Nothing records or checks that the coordinator schedules a shipping-blocking unrelated bug first. |
 | A2 row 8 | [CON-1344](https://linear.app/sharper-flow/issue/CON-1344). Same-item resizing does not prove adding required stages while retaining completed work. CD-0229's Verification also retains the separate small-work proof and timing owners. |
 
-Passing `python3 scripts/check-law-coverage.py` does not establish whole-record
-coverage. The surviving outcomes still need executable proof or an explicit
+The surviving outcomes still need executable proof or an explicit
 owning law disposition. CD-0242 D4–D7 replaces the old
 execution machinery; D6 retires production-line caps and mandatory splitting.
 CD-0243 replaces seriousness, Domain count, crucial size, and unclassified

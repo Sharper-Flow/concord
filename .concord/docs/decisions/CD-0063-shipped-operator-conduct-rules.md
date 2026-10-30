@@ -206,9 +206,6 @@ private predecessor history and host tool coupling into a public release.
 - `.concord/docs/decisions/CD-0063-shipped-operator-conduct-rules.md` exists and is
   indexed exactly once as the record shard
   `.concord/docs/knowledge/records/CD-0063.json`, composed by `scripts/knowledge_index.py`.
-- `python3 scripts/check-law-coverage.py` checks the outstanding implementation
-  pointer for the skill admission, portability, and install conformance required
-  by CD-0245; it does not prove that conformance.
 - `contracts/agent-lanes.v1.json` keeps its version and
   `contracts/agent-lanes.digest` is unchanged.
 - A test installs, asserts the project pointer and the central agents directory,

@@ -130,9 +130,6 @@ requiring the split.
 - `.concord/docs/decisions/CD-0043-host-owned-lane-methodology.md` exists with status
   `accepted` and is indexed exactly once as the record shard
   `.concord/docs/knowledge/records/CD-0043.json`, composed by `scripts/knowledge_index.py`.
-- `python3 scripts/check-law-coverage.py` checks the outstanding implementation
-  pointer for the skill admission, portability, and install conformance required
-  by CD-0245; it does not prove that conformance.
 - `contracts/agent-lane-packet.schema.json` gains no property.
 - `contracts/agent-lanes.v1.json` keeps its current version, and
   `contracts/agent-lanes.digest` is unchanged.

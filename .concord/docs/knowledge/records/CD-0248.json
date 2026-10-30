@@ -28,7 +28,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:c1f3c96404d717f059819cb388e0504fdb94d28d5d6a999a12d439de92db6c31",
+  "sha256": "sha256:90cd1a4c8c46a9a3716d29491704bd14d2a61ff46522513209c8aa696fc065e4",
   "status": "accepted",
   "summary": "Applicable footprint checks bind declared commands to existing executable owners through repository validators. Existing result readers, worker-job controls, local verification, required CI and recorded Review establish candidate-specific execution and assertion adequacy. All eight continuity obligations remain required, with coverage outstanding until checked bindings, observed passing execution and independent Review establish their assertions. Existing workflow gates stay unchanged; no automatic footprint refusal, new receipt system or package-complete native recipe is added. CD-0205 and CD-0192 are not amended.",
   "tags": [

@@ -98,15 +98,12 @@ knowledge-home setup establishes their directory. Products declare shape checks
 in [`.concord/tooling.v1.json`](../tooling.v1.json); a declaration is not proof
 that a check ran. Without an extractor, data-object and configuration facts
 remain unverified under CD-0244 D5. Concord declares no boundary checker or
-extractors, and [CD-0244's coverage shard](knowledge/coverage/CD-0244.json)
-keeps the remaining obligations outstanding.
+extractors.
 
 ## Authoring
 
 A new CD takes the next number above every record under
 `.concord/docs/knowledge/records/` and every id `concord cd-reservations` lists.
-
-Coverage records for indexed law are authored as shards under `.concord/docs/knowledge/coverage/<id>.json`. After adding or editing a shard, run `python3 scripts/generate-law-coverage.py --update` to normalise it; `--check` proves every shard composes and is canonical.
 
 Knowledge records are authored as one sorted-key JSON object per file under
 `.concord/docs/knowledge/records/<id>.json`; the head fields are authored at

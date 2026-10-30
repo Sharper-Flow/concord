@@ -1,5 +1,0 @@
-{
-  "id": "CD-0014",
-  "reason": "The rendering stack this decision chose binds no shipped surface: the terminal launcher TUI retired under CD-0219 and the charm.land modules leave the graph with it.",
-  "state": "out_of_scope"
-}

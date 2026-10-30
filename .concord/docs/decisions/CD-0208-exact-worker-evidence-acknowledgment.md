@@ -175,5 +175,3 @@ uncertainty. It does not inject a physical filesystem or fsync fault.
   deadline interrupts a cooperative two-second read within 1,600 ms without
   worker evidence, with host Product selection unset.
 - `python3 scripts/check-knowledge-index.py` checks current hashes.
-- `python3 scripts/check-law-coverage.py` checks declared structure. This check does
-  not replace behavioral evidence.

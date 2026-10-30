@@ -209,7 +209,7 @@ choose a new report path outside the repository. Retain complete console output
 as well; a stale report cannot establish the current execution:
 
 ```sh
-bin/oc-test targeted -- bun test ./adapter/opencode/session-scope.test.ts --reporter=junit --reporter-outfile="$BUN_RESULTS"
+bin/oc-test broad -- bun test ./adapter/opencode/session-scope.test.ts --reporter=junit --reporter-outfile="$BUN_RESULTS"
 ```
 
 Check the expected file and case names, child `failure`/`error`/`skipped` elements,

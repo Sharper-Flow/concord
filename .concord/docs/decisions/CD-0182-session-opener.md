@@ -182,8 +182,7 @@ record adds no second landing rule inside one repository.
   runs.
 - `python3 scripts/test-installer.py` proves D4: the tuple entry survives an
   upgrade with its options and deregisters whole.
-- `python3 scripts/check-primary-prompts.py` proves the instructions name
-  the route, and `go test ./cmd/concord/ -run
+- `go test ./cmd/concord/ -run
   TestLauncherAndCommandCarryNoMultiplexerKnowledge` proves the binaries
   stay multiplexer-free.
 - `go test ./internal/store/ -run

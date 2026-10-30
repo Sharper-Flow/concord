@@ -36,7 +36,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:bb99384fdfe9336ed46667cebd8840365f4a115bbc3ee6aedb43a5f03a5bb99f",
+  "sha256": "sha256:028aaba9d9f2dea04e8cc5359f2053a8b2a6d0a73d6276161e757dd70cd3db41",
   "status": "accepted",
   "summary": "Native Task execution belongs to the host, without child-directory or producer attestation. Each repository has its own coordinator session and verified Project landing. Cross-repository worktree claims refuse before creation. Occupancy remains one row per session with checked process liveness, released by vacate, verified landing elsewhere or process end. Live occupancy blocks ordinary removal and content gates remain unchanged.",
   "tags": [

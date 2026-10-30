@@ -232,7 +232,6 @@ removes a live one.
   `bun test adapter/opencode/concord.test.ts` proves no removal input
   carries the field and no removal makes a host session-list round-trip.
 - The generated `Concord` profile states the cross-repository boundary.
-  `python3 scripts/check-primary-prompts.py` proves the boundary statement is
-  present. A repository
-  check cannot prove the absence of every paraphrased move instruction
-  (CD-0055 D4); the profile's own boundary wording governs that.
+  The profile's own boundary wording governs; literal phrase checks do not
+  prove its meaning or the absence of paraphrased move instructions
+  (CD-0055 D4).

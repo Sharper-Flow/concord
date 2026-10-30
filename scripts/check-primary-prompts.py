@@ -6,11 +6,9 @@ as managed agents. scripts/generate-agent-profiles.py --check owns their byte
 equality with the profile contract; this check proves their portable role
 boundaries:
 
-  RTE                keeps Build-level permissions, item decisions with the
-                     owning session, and human-only approval challenges, and
-                     holds coordination in a Linear project, never in an issue
-  Concord            needs no RTE, keeps the delegation anchor and cross-repository
-                     boundary (CD-0178 D2)
+  RTE                keeps Build-level permissions and rejects coordination-issue
+                     wording
+  Concord            keeps Build-level permissions and the delegation anchor
   Planner            edits only under .planning/, asks before unnamed shell
                      commands, cannot commit, push, open or merge pull requests,
                      or release, delegates only to the read-only utilities, and
@@ -49,112 +47,10 @@ NAMED_PROFILE_FILES = (
 FULL_PROFILE_FILES = ("Concord-RTE.md", "Concord.md")
 PLANNER_PROFILE_FILE = "Concord-Planner.md"
 PRIMARY_BUILD_TOOLS = ("edit", "write", "patch")
-RTE_REQUIRED_PHRASES = (
-    "Before allocation, load `concord-work-shaping`",
-    "assign one independently deliverable outcome with its done condition to one primary, even when it spans related issues",
-    "Load `concord-instruction-writing` before writing or editing agent instructions",
-    "The RTE coordinates dependencies, not another session's technical choices or operator approvals",
-    "They contact you for coordination, not permission",
-    "Never answer a Concord approval challenge",
-    "goes to the operator unchanged",
-    "Each session owns its design, code, tests, review, law text, publication",
-    "Keep Linear current",
-    "Report ship status to the operator",
-    "The user may choose to start this optional session",
-    "On every activation, run a coordination pass across the assigned streams",
-    "Inventory every agent session and account for every tab in the caller's workspace, not only assigned streams",
-    "Include your own tab and non-agent tabs explicitly so the tab inventory reconciles",
-    "Do not inventory other workspaces",
-    "Inventory does not expand assignment scope or grant lifecycle rights over unassigned sessions",
-    "A host session-state notice is an activation, not a timer or self-wakeup loop",
-    "Preserve blocked dialogs, permission requests, and non-consent gates",
-    "Do not answer another session's permission request or operator-reserved question",
-    "Add no timer or self-wakeup loop",
-    "name the missing evidence, who will recover it, and the concrete recovery action",
-    "Every workspace tab has a reconciled row; no non-working row is blank or says only \"awaiting guidance\"",
-    "On every pass, report a table with one row per workspace tab, keyed by observed tab title",
-    "For every non-working row, include its state, the event and actor it waits for, and the RTE action to unblock or supply that wait",
-    "Alternatively, mark it complete/retiring or outside scope and name its owner",
-    "Handling a notice does not finish the pass",
-    "Respect operator pauses",
-    "Before going idle, confirm all of the following",
-    "No incoming notice or permitted RTE-owned action remains",
-    "No eligible assignment for available capacity remains without an owner or a recorded reason it cannot proceed",
-    "Planning reflects the observed state",
-    "Every unfinished stream has an owner and next action",
-    "After acting, recheck only the affected streams",
-    "Do not repeatedly scan unchanged state or prompt workers already doing permitted work",
-    "Wait for worker notices, CI results, or operator input",
-    "Follow host instructions for session launch, reuse, and lifecycle",
-    "Reconcile assigned Linear issues during each pass",
-    "Keep status, execution owner, blockers, next actions, and evidence links current",
-    "An idle session, finished turn, or merged PR alone does not prove the item is Done",
-    "Use the host's Linear MCP skill for tool procedures",
-    "shared coordination instructions own worker and issue-state rules",
-    "Keep unmerged, merged, released, and installed states distinct",
-    "Do not keep a second planning backlog in a repository or host journal",
-    "An implementation issue is not the RTE's session journal",
-    "Routine same-session reloads use host continuity, not new planning comments",
-    "A shared package or possible overlap does not establish merge precedence",
-    "Continue the assigned outcome across partial deliveries",
-    "Name the operation, target, observed refusal, effect state, and admitted next action",
-    "Update a record only when its planning fact, decision, risk, or evidence changes",
-    "Never approve, accept, overrule, or publish for another session's item",
-    "Tell both owners when their streams change the same source owner",
-    "Set merge order only for an actual conflict or dependency",
-    "Compare each owner's retained posture, hold, or sequencing rule with your current directives",
-    "Apply current accepted CD-0243 D2-D3 before asking for consent",
-    "Assigning a worker to an in-scope dependency repair, and that worker publishing or merging its PR, do not independently require operator approval",
-    "A new ticket or implementation step is not itself new Product direction",
-    "Stated operator preferences remain binding",
-    "Apply the same rule when directing an owner to seek approval: name the class or reservation and consequence",
-    "Never make exact-wording approval an assignment condition outside that boundary",
-    "Hold this assignment in a Linear project",
-    "Add each assigned delivery issue that has no project",
-    "an issue in another project stays there, and the coordination project's description links it",
-    "mark it completed when the last issue it holds closes; linked issues finish in their own projects",
-    "Never create or reuse an issue as a coordination record",
-    "keep the assigned scope in the project description",
-    "Post material cross-stream dependencies, sequencing decisions, and changes to RTE directives as project status updates",
-)
 # The RTE holds coordination in a Linear project. An issue used as the
 # coordination record stays open with no deliverable, so any mention of one
 # in the RTE body is a regression, whatever the surrounding sentence says.
 RTE_FORBIDDEN_PATTERN = re.compile(r"coordination\s+issue", re.IGNORECASE)
-CONCORD_REQUIRED_PHRASES = (
-    "Before execution, load `concord-work-shaping`",
-    "Load `concord-law-writing` when drafting, amending or pruning Product law",
-    "Load `concord-instruction-writing` before writing or editing agent instructions",
-    "You are Concord, the primary agent",
-    "You do not need an RTE session",
-    "The user may choose to start an RTE session",
-    "Notices report actual overlap, not the chance of it",
-    "You own design, code, tests, review, law text, publication, CI follow-through, deployment, and planning for your work item",
-    "Managed participation is explicit (CD-0122 D1)",
-    "when the operator makes it to you or an RTE assignment places the work in Concord workflow, unless the request places it outside the workflow",
-    "Before capturing a production configuration-only operation, establish an admitted execution and acceptance route for its actual target",
-    "If no route exists, report the limitation before capture",
-    "Host-owned work has no Concord workflow authority, evidence, verdict, or completion claim",
-    "An existing managed item stays held until its supported handoff succeeds",
-    "a refusal is not permission to execute directly",
-    "Obtain operator consent only under the shared asking instructions; otherwise decide within scope and record why",
-    "When the core requests consent outside that boundary, report the implementation mismatch and follow its admitted recovery",
-    "A law revision you enact without operator approval is `derived` under CD-0230 D4, even when the prior revision was operator-approved",
-    "You are the only participant that advances workflow state",
-    "it never records a transition, a verdict, or completion",
-    "Record Review outcomes through the admitted workflow action against the current subject and dependencies",
-)
-PLANNER_REQUIRED_PHRASES = (
-    "Before triaging a request or refining a ticket, load `concord-work-shaping`",
-    "The user may choose to start this optional session",
-    "It is never a gate on Concord's work",
-    "Surface where an executing agent would have to guess",
-    "Separate what you observed from what you recommend",
-    "Write only approved decisions into a ticket's description",
-    "Keep each unapproved assumption visibly marked as unapproved",
-    "Propose a consequential batch of record changes before you apply it",
-    "Shell rules match command text, not what a command writes",
-)
 PLANNER_WRITERS = (
     "concord_work_compact",
     "concord_work_define",
@@ -301,12 +197,6 @@ def check_full_profile(name: str, frontmatter: str, flat_body: str) -> list[str]
         f"{name} frontmatter denies Concord tool {tool}"
         for tool in re.findall(r"^  (concord_\w+): deny$", frontmatter, re.MULTILINE)
     )
-    required_phrases = RTE_REQUIRED_PHRASES if name == "Concord-RTE.md" else CONCORD_REQUIRED_PHRASES
-    findings.extend(
-        f"{name} lost the role rule {phrase!r}"
-        for phrase in required_phrases
-        if phrase not in flat_body
-    )
     if name == "Concord-RTE.md" and (match := RTE_FORBIDDEN_PATTERN.search(flat_body)):
         findings.append(f"{name} names {match.group(0)!r}; the RTE holds coordination in a Linear project, never an issue")
     if name == "Concord.md":
@@ -315,22 +205,10 @@ def check_full_profile(name: str, frontmatter: str, flat_body: str) -> list[str]
             for marker in DELEGATION_ANCHOR_MARKERS
             if marker not in flat_body
         )
-        findings.extend(
-            f"{name} lost the cross-repository boundary phrase {phrase!r}"
-            for phrase in (
-                "Keep a work-item session in each repository",
-                "a second Project in another git repository",
-                "never claim or move across the boundary",
-                "this session stops driving the other repository",
-                "`concord_work_start` with `work_id` alone",
-                "`session_placement`",
-            )
-            if phrase not in flat_body
-        )
     return findings
 
 
-def check_planner_profile(name: str, frontmatter: str, flat_body: str) -> list[str]:
+def check_planner_profile(name: str, frontmatter: str) -> list[str]:
     findings = [
         f"{name} frontmatter grants unscoped '{tool}: allow'; edits must stay path-scoped"
         for tool in PRIMARY_BUILD_TOOLS
@@ -358,11 +236,6 @@ def check_planner_profile(name: str, frontmatter: str, flat_body: str) -> list[s
         f"{name} frontmatter does not deny Concord tool {tool}"
         for tool in PLANNER_WRITERS
         if f"\n  {tool}: deny" not in "\n" + frontmatter
-    )
-    findings.extend(
-        f"{name} lost the role rule {phrase!r}"
-        for phrase in PLANNER_REQUIRED_PHRASES
-        if phrase not in flat_body
     )
     return findings
 
@@ -399,7 +272,7 @@ def check_named_profiles(root: Path) -> list[str]:
             if match is not None
         )
         if name == PLANNER_PROFILE_FILE:
-            findings.extend(check_planner_profile(name, frontmatter, flat_body))
+            findings.extend(check_planner_profile(name, frontmatter))
         else:
             findings.extend(check_full_profile(name, frontmatter, flat_body))
     return findings

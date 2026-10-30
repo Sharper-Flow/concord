@@ -97,7 +97,6 @@ The registry and projection migration require a separate implementation change w
 ## Verification
 
 - `scripts/check-knowledge-index.py` validates the record shard, law home, and relation shape.
-- `scripts/check-law-coverage.py` validates that the decision has a coverage shard.
 - `scripts/check-json.py` runs the repository JSON and generated-contract validators.
 
 The checks validate this decision record and its current registry state. They do not claim that the split migration has happened.

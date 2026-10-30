@@ -643,7 +643,7 @@ def test_validator_ci_reachability_requires_invocation_and_reaches_nested_cycles
         assert anchors.validator_runs_in_ci("scripts/check-inner.py")
         workflow.write_text("        run: python3 scripts/check-outer.py\n")
         assert anchors.validator_runs_in_ci("scripts/check-outer.py")
-        assert not anchors.validator_runs_in_ci("scripts/check-other.py"), "CD-0047 D3 nests law validators only through check-json.py"
+        assert not anchors.validator_runs_in_ci("scripts/check-other.py"), "CD-0249 D3 nests validators only through check-json.py"
         assert anchors.ci_reaches(tmp, {"kind": "validator", "value": "scripts/check-other.py"}), "tooling owners keep derived nesting"
 
 

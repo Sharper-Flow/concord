@@ -1,8 +1,6 @@
 {
   "authority": {
-    "contract_version": 1,
-    "legislated_by": "work-8d7bd788b2890355460bb5b7",
-    "tier": "legislated"
+    "tier": "derived"
   },
   "date": "2026-09-02T00:00:00Z",
   "home_domain_id": "agent-adapter",
@@ -16,7 +14,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:f13c0ac83ea6cf681f5b02f005a123d96c137c56d604008b29cdad5a450d9566",
+  "sha256": "sha256:8ed7bad2f3a69db59613ae0aa2799d58a96f235773937adcbe7322fa4cedaf88",
   "status": "accepted",
   "summary": "Amends CD-0096 D6 and CD-0088 D4 at their launch clauses so work start moves the calling session into the claimed worktree instead of launching a new one. The worktree claim is recorded before the move, so a failed move leaves a resumable claim rather than a moved session with no claim. The host move route is required and its absence fails closed with a typed refusal instead of a launch fallback. The default checkout must be clean, the move carries no changes and takes effect from the next turn, and the session directory is read back and verified afterward. The session-prepare directory refusal, lane definition check, and read-back assertion are preserved and now guard the destination of a move.",
   "tags": [

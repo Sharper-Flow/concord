@@ -109,6 +109,3 @@ The store keeps current state and finite verified snapshots; retired planning ki
   records carry no Initiative behavior (CD-0242 D2). Until that change lands,
   `python3 scripts/check-knowledge-index.py` is the executable anchor for this
   record's law registration.
-- `python3 scripts/check-law-coverage.py` resolves the coverage shard's typed
-  anchors and checks their required-CI wiring. Anchor presence does not report
-  the outcome of a test run.

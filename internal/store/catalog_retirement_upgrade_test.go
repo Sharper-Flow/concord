@@ -113,8 +113,8 @@ func assertCatalogUpgrade(t *testing.T, db *sql.DB, before map[string][]string) 
 	if err := db.QueryRow(`SELECT version,breaking FROM schema_migrations ORDER BY version DESC LIMIT 1`).Scan(&version, &breaking); err != nil {
 		t.Fatal(err)
 	}
-	if version != 165 || version != CurrentSchemaVersion() || !breaking {
-		t.Fatalf("schema head=(%d, breaking=%v), want breaking 165", version, breaking)
+	if version != 166 || version != CurrentSchemaVersion() || !breaking {
+		t.Fatalf("schema head=(%d, breaking=%v), want breaking 166", version, breaking)
 	}
 }
 

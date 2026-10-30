@@ -1,8 +1,6 @@
 {
   "authority": {
-    "contract_version": 1,
-    "legislated_by": "work-8d7bd788b2890355460bb5b7",
-    "tier": "legislated"
+    "tier": "derived"
   },
   "date": "2026-08-22T00:00:00Z",
   "home_domain_id": "product-memory",
@@ -16,7 +14,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:dfb02ede6e20a025c45d88c94ebe85769b6bdcab5f36ddc309aa493ac5bf0592",
+  "sha256": "sha256:07ead6233e4a958583fbe6c1c89982b432a084dc04e6b2bda3aef676128f9682",
   "status": "accepted",
   "summary": "Defines how a document becomes accepted Product law, becomes registered non-law, or is dispositioned. Declares the three knowledge states, the three destinations for an unprocessed document, the two-tier kind taxonomy, the ordered kind-selection path, the acceptance-criteria rule, and the atomicity requirement binding a document edit to its recorded hash.",
   "tags": [

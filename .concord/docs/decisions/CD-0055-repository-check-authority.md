@@ -6,13 +6,13 @@
   textual guard is legal; the audit of the existing Go-source checks; issue #302
 - **Approval:** Operator accepted the drafted decision on 2026-08-21; the public
   record is [issue #302](https://github.com/Sharper-Flow/concord/issues/302)
-- **Related:** CD-0047 (declared coverage and the `deadcode` precedent), CD-0014
+- **Related:** CD-0249 (computed reachability and the `deadcode` precedent), CD-0014
   D7 (toolchain-parser AST checks in the test suite),
   [`priorities.md`](../priorities.md) P1,
   [`capability-placement.md`](../capability-placement.md) §3
 - **Preserves:** the coordination plane's prior exclusion of heuristic
   authority; the invariants `internal/store/txscope_test.go` and
-  `internal/store/boundary_test.go` guard; CD-0047's computed reachability
+  `internal/store/boundary_test.go` guard; CD-0249's computed reachability
 
 ## Context
 
@@ -41,7 +41,7 @@ The current inventory of Go-source analysis in required checks:
 
 | Check | Shape |
 |---|---|
-| `scripts/check-reachability.py` | version-pinned `deadcode` callgraph over `./cmd/...` with a declared-exceptions manifest (CD-0047 D4) |
+| `scripts/check-reachability.py` | version-pinned `deadcode` callgraph over `./cmd/...` with a declared-exceptions manifest (CD-0249 D2) |
 | `internal/store/txscope_test.go` | structural checks over the one-connection pool invariant |
 | `internal/store/boundary_test.go` | AST analysis through the toolchain's own parser over the raw SQLite boundary |
 
@@ -57,7 +57,7 @@ mode in miniature.
 ### D2. Real tool over hand-rolled
 
 Where an invariant genuinely needs static analysis, the check wraps a pinned
-real tool and declares only its exceptions — the CD-0047 D4 precedent. A check
+real tool and declares only its exceptions — the CD-0249 D2 precedent. A check
 must not hand-write a lexer or parser for a language the toolchain already
 parses: every new escape hatch then grows the hand-rolled front end, which is
 the accretion curve.

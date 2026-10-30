@@ -4,7 +4,7 @@
 Evidence-binding validators judge whether a `satisfied` record is proved
 rather than asserted: typed anchors must resolve, and the executable kinds must
 be invoked by a required workflow. Keeping that proof layer in one module stops
-two validators from accepting different proofs (CD-0047 D3).
+two validators from accepting different proofs (CD-0249 D3).
 
 Document-contract citations reuse native Go declaration presence without
 claiming the stronger coverage assertion verdict.

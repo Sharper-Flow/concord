@@ -271,6 +271,5 @@ Scenario: One derived failure fact references the terminal attribution
 
 - `python3 scripts/check-knowledge-index.py` proves this record registers with
   a current content hash.
-- `python3 scripts/check-law-coverage.py` proves the coverage record's state
-  obligations hold, and `python3 scripts/update-issue-state.py` proves the
-  outstanding pointer names a live issue.
+- `python3 scripts/update-issue-state.py` proves an outstanding pointer names
+  a live issue.

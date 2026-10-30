@@ -40,8 +40,7 @@
     ".concord/scenarios/product-memory-query.v1.json",
     "internal/store/knowledge_index_test.go",
     "internal/store/research_retirement_test.go",
-    "internal/agent/research_surface_test.go",
-    ".concord/docs/knowledge/coverage/compaction-retention-policy.json"
+    "internal/agent/research_surface_test.go"
   ],
   "home_domain_id": "product-memory",
   "id": "compaction-retention-policy",
@@ -54,7 +53,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:0fba480f317ff599f12ef08a502d9a645f965fc5f09c9e3b23646ee2b63f1824",
+  "sha256": "sha256:274c905f94750b3670c569fcdbc8d0950f26b6b6dd9873eab2bc0f7dd9247922",
   "status": "accepted",
   "summary": "Gates terminal execution cleanup on verified closure, settled publication and released consumers; keeps research retirement separate and historical indexes Git-derived.",
   "tags": [

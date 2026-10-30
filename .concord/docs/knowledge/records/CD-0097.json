@@ -1,8 +1,6 @@
 {
   "authority": {
-    "contract_version": 1,
-    "legislated_by": "work-8d7bd788b2890355460bb5b7",
-    "tier": "legislated"
+    "tier": "derived"
   },
   "date": "2026-09-02T00:00:00Z",
   "home_domain_id": "operator-surface",
@@ -16,7 +14,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:dd226eb48d9fb1de5be9d7ab336608b20fdb048ca7a060f9179f00d5346b6df5",
+  "sha256": "sha256:0818d97d2c0d5df50e0a90c64cee93ec3335d8c651422a6e973cc048aaac5f1a",
   "status": "accepted",
   "summary": "Accepts a bounded parallel migration mode for one Product: the operator declares it, the predecessor stays installed, writable, and usable, and it remains the live authority for every migrated surface (specifications, active work, terminal history, wisdom, reflections) until the operator records cutover. Items keep predecessor identity as provenance across repeated harvests, replay applies deterministic effects or idempotent no-ops, conflicts refuse typed naming the owning source, and knowledge curation records every drop. Trusted client policy grows by the additive client-policy-expand command that preserves every existing grant and the stored principal. Cutover changes authority, never installation.",
   "tags": [

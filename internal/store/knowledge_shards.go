@@ -25,12 +25,11 @@ const (
 	knowledgeRegistryPath  = ".concord/docs/knowledge/domain-registry.json"
 	knowledgeRecordTree    = ".concord/docs/knowledge/records"
 	knowledgeRecordTreeDir = knowledgeRecordTree + "/"
-	// The package map and the coverage tree are read beside the manifest
-	// at the same commit (CD-0222 D2). Only the knowledge index rebuild
-	// parses them; a manifest read carries their bytes and ignores them.
-	knowledgePackageMapPath  = ".concord/docs/knowledge/package-domains.json"
-	knowledgeCoverageTreeDir = ".concord/docs/knowledge/coverage/"
-	knowledgeFactTreeDir     = ".concord/docs/knowledge/facts/"
+	// The package map is read beside the manifest at the same commit
+	// (CD-0222 D2). Only the knowledge index rebuild parses it; a manifest
+	// read carries its bytes and ignores them.
+	knowledgePackageMapPath = ".concord/docs/knowledge/package-domains.json"
+	knowledgeFactTreeDir    = ".concord/docs/knowledge/facts/"
 )
 
 // knowledgeShardLayout is one shard-home tier a revision may carry
@@ -43,10 +42,9 @@ type knowledgeShardLayout struct {
 	recordTree       string
 	recordTreeDir    string
 	recordPathPrefix string
-	// packageMapPath and coverageTreeDir are empty for a tier that predates
-	// them, so such a revision carries neither.
-	packageMapPath  string
-	coverageTreeDir string
+	// packageMapPath is empty for a tier that predates it, so such a
+	// revision carries none.
+	packageMapPath string
 }
 
 var knowledgeShardLayouts = []knowledgeShardLayout{
@@ -58,7 +56,6 @@ var knowledgeShardLayouts = []knowledgeShardLayout{
 		recordTreeDir:    knowledgeRecordTreeDir,
 		recordPathPrefix: manifestRecordPathPrefix,
 		packageMapPath:   knowledgePackageMapPath,
-		coverageTreeDir:  knowledgeCoverageTreeDir,
 	},
 	{
 		root:             "docs/knowledge",
@@ -73,9 +70,8 @@ var knowledgeShardLayouts = []knowledgeShardLayout{
 // knowledgeShards is the raw material of one manifest: the head, the domain
 // registry, and every record shard keyed by its file name. recordPathPrefix
 // carries the layout tier the shards were read from, so composition
-// validates record paths under the prefix that revision has. The package map
-// and the coverage shards keyed by file name ride beside them for the
-// knowledge index rebuild.
+// validates record paths under the prefix that revision has. The package
+// map rides beside them for the knowledge index rebuild.
 type knowledgeShards struct {
 	head              []byte
 	registry          []byte
@@ -83,7 +79,6 @@ type knowledgeShards struct {
 	recordPathPrefix  string
 	packageMap        []byte
 	packageMapPresent bool
-	coverage          map[string][]byte
 	facts             map[string][]byte
 }
 
@@ -200,7 +195,7 @@ func readKnowledgeShardsAtCommitLayout(ctx context.Context, runner GitRunner, re
 }
 
 func readKnowledgeShardArchive(archive []byte, layout knowledgeShardLayout) (knowledgeShards, error) {
-	shards := knowledgeShards{records: map[string][]byte{}, coverage: map[string][]byte{}, facts: map[string][]byte{}, recordPathPrefix: layout.recordPathPrefix}
+	shards := knowledgeShards{records: map[string][]byte{}, facts: map[string][]byte{}, recordPathPrefix: layout.recordPathPrefix}
 	reader := tar.NewReader(bytes.NewReader(archive))
 	for {
 		header, err := reader.Next()
@@ -253,8 +248,6 @@ func (s *knowledgeShards) accept(name string, content []byte) bool {
 			s.records[strings.TrimPrefix(name, layout.recordTreeDir)] = content
 		case layout.packageMapPath != "" && name == layout.packageMapPath:
 			s.packageMap, s.packageMapPresent = content, true
-		case layout.coverageTreeDir != "" && directShardChild(name, layout.coverageTreeDir):
-			s.coverage[strings.TrimPrefix(name, layout.coverageTreeDir)] = content
 		case layout.root == knowledgeShardRoot && directShardChild(name, knowledgeFactTreeDir):
 			if s.facts == nil {
 				s.facts = map[string][]byte{}

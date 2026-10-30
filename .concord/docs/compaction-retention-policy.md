@@ -222,4 +222,4 @@ A simpler PM10 authority must preserve the canonical note, retained receipts, an
 - Criterion 7 names candidate `internal/agent.TestResearchRetireDryRunAndReplay`; restart and full committed replay coverage remain unmeasured.
 
 Publication, terminal, reopen, removal, migration, restore, and race boundaries still need integrated assessment.
-Source anchors do not establish execution or full coverage; the coverage shard remains unmeasured pending the parent's conformance evidence.
+Source anchors do not establish execution or full coverage; integrated conformance evidence remains outstanding.

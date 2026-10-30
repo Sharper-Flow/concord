@@ -1,8 +1,6 @@
 {
   "authority": {
-    "contract_version": 1,
-    "legislated_by": "work-8d7bd788b2890355460bb5b7",
-    "tier": "legislated"
+    "tier": "derived"
   },
   "date": "2026-09-06T00:00:00Z",
   "evidence": [
@@ -27,9 +25,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:390c3e115e33629838eead2765c1e1560a5175a3f1df5bfd13555f17a24f4a4d",
+  "sha256": "sha256:5953b9a4ba8c9bbe87abd9ed84229b572bfa7592b0ccbc1504b86dbf06370d52",
   "status": "accepted",
-  "summary": "The knowledge manifest and law-coverage record are committed as shards and composed on read. A lesson publication adds a note, one record shard, and one coverage shard on a branch, published by pull-request merge. Historical reads support pre-shard aggregate commits. Separate shards keep concurrent additions from editing one aggregate.",
+  "summary": "The knowledge manifest is committed as shards and composed on read. A lesson publication adds a note and one record shard on a branch, published by pull-request merge. Historical reads support pre-shard aggregate commits. Separate shards keep concurrent additions from editing one aggregate.",
   "tags": [
     "knowledge",
     "docs",

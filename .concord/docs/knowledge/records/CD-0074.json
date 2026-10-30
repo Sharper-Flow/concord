@@ -1,8 +1,6 @@
 {
   "authority": {
-    "contract_version": 1,
-    "legislated_by": "work-8d7bd788b2890355460bb5b7",
-    "tier": "legislated"
+    "tier": "derived"
   },
   "date": "2026-08-25T00:00:00Z",
   "evidence": [
@@ -22,7 +20,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:7a6e9124ad70ce10360caf0e728e1855b6a9ab9235e64b4866b3216786067d6a",
+  "sha256": "sha256:a8a73f30a6ec1b1733e1bd8c0062202a9e6c6020d16e623ea54fe4c2052af8c3",
   "status": "accepted",
   "summary": "D1 puts each project's ready tooling in one hand-authored manifest, .concord/tooling.v1.json, with required tier and independent cadence plus optional bounded cost_hint, config_path, automation_path, and notes; D2 aligns checker and schema text rules through raw string bounds and a required character outside JSON whitespace, validates shape without requiring adopters to vendor Concord's published schema, and proves that the manifest and referenced regular files remain inside the repository across symlinks; D3 holds the CD-0043 D1 boundary by carrying facts about tools and never methodology about when an agent should choose them; D4 performs file reads only so CD-0040 D6's probe-family limit holds and executing repository-named binaries stays unopened; D5 defines routine and on_demand as pure declared cadence intent, keeps automation_path informational, and rejects automation or CI text as cadence proof.",
   "tags": [

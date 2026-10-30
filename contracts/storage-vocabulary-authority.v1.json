@@ -167,11 +167,6 @@
       "authority": "check"
     },
     {
-      "table": "law_coverage_anchors",
-      "column": "kind",
-      "authority": "check"
-    },
-    {
       "table": "law_relations",
       "column": "kind",
       "authority": "check"

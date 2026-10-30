@@ -21,17 +21,14 @@ as a publication destination without implementing it.
 ## Decision
 
 **D1. Lessons publish through a reviewed pull request.**
-A lesson is authored as the lesson markdown under `.concord/docs/lessons/`, its
-manifest record shard, and its law-coverage shard, committed together in
+A lesson is authored as the lesson markdown under `.concord/docs/lessons/` and
+its manifest record shard, committed together in
 one commit on a branch of the knowledge-home Project
 (CD-0114 D3). The pull request and its required checks carry the approval:
-the operator reviews the note, the record, and the declared CD-0047
-state-conditional coverage disposition before merge, and the ordinary
+the operator reviews the note and the record before merge, and the ordinary
 authority model — an issue, a pull request, passing required checks — is
 what confers acceptance. The author writes no other surface: never the
-Project's canonical default checkout, never a foreign Project's tree, and
-never an inferred coverage state — the author declares the CD-0047
-reason, issue, or evidence, and that declaration commits beside the record.
+Project's canonical default checkout and never a foreign Project's tree.
 A merged commit is not by itself a published lesson: the lesson is published
 when the pull request merges and a knowledge read verifies the record.
 The manifest remains the lesson's durable
@@ -84,7 +81,7 @@ publication destination.
 
 - The knowledge manifest gains an optional `evidence` field; both the Go
   strict parser and the offline validator accept and bound it.
-- A lesson pull request commits the record shard and the coverage shard; the
+- A lesson pull request commits the record shard; the
   PR review authorizes publication.
 - After a lesson merges into the canonical knowledge home, `resolve_note`
   verifies the record. Search picks it up after the next index rebuild; that
@@ -93,8 +90,8 @@ publication destination.
 
 ## Verification
 
-- The publication commit is proved by review: the note, the record shard, and
-  the coverage shard land in one commit on a branch, and
+- The publication commit is proved by review: the note and the record shard
+  land in one commit on a branch, and
   `scripts/generate-knowledge-index.py --check` proves the shards compose
   with the new record under a fresh id and path. The index check proves
   composition; the review proves the publication.

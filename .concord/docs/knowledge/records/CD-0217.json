@@ -8,7 +8,6 @@
   "date": "2026-10-09T00:00:00Z",
   "evidence": [
     ".concord/docs/compaction-retention-policy.md",
-    ".concord/docs/knowledge/coverage/CD-0217.json",
     "internal/store/terminal_cleanup_test.go",
     "internal/store/terminal_absence_test.go",
     "internal/store/research_retirement_test.go",

@@ -8,8 +8,7 @@
   },
   "date": "2026-10-09T00:00:00Z",
   "evidence": [
-    "internal/agent/research_surface_test.go",
-    ".concord/docs/knowledge/coverage/CD-0216.json"
+    "internal/agent/research_surface_test.go"
   ],
   "home_domain_id": "agent-contract",
   "id": "CD-0216",

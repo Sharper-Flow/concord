@@ -16,10 +16,10 @@ import (
 
 // The footprint read joins the designated knowledge home's package map with
 // its law index (CD-0222 D2): given repository paths or a behavior phrase it
-// returns the governing Domains, the current law revisions, and the checks
-// those laws' coverage names. Behavior matching is Q9 unchanged; it runs
-// first, outside any transaction, because it probes the home's git head
-// (CD-0195 D2). The join then reads one snapshot.
+// returns the governing Domains and the current law revisions. Behavior
+// matching is Q9 unchanged; it runs first, outside any transaction, because
+// it probes the home's git head (CD-0195 D2). The join then reads one
+// snapshot.
 const (
 	footprintQueryID       = "C22.DomainFootprint"
 	footprintMaxPaths      = 64
@@ -69,21 +69,15 @@ type FootprintDomain struct {
 	Status   string `json:"status"`
 }
 
-type FootprintCheck struct {
-	Kind  string `json:"kind"`
-	Value string `json:"value"`
-}
-
 type FootprintLaw struct {
-	LawID        string           `json:"law_id"`
-	Kind         string           `json:"kind"`
-	Title        string           `json:"title"`
-	Path         string           `json:"path"`
-	ContentHash  string           `json:"content_hash"`
-	HomeDomainID string           `json:"home_domain_id"`
-	Basis        string           `json:"basis"`
-	MatchedPaths []string         `json:"matched_paths"`
-	Checks       []FootprintCheck `json:"checks"`
+	LawID        string   `json:"law_id"`
+	Kind         string   `json:"kind"`
+	Title        string   `json:"title"`
+	Path         string   `json:"path"`
+	ContentHash  string   `json:"content_hash"`
+	HomeDomainID string   `json:"home_domain_id"`
+	Basis        string   `json:"basis"`
+	MatchedPaths []string `json:"matched_paths"`
 }
 
 type FootprintPackageCheck struct {
@@ -322,11 +316,10 @@ type footprintCandidate struct {
 }
 
 // footprintSelection is the complete footprint before paging: every reached
-// path, Domain, package check, and ordered law, with no law checks loaded.
+// path, Domain, package check, and ordered law.
 type footprintSelection struct {
 	result  DomainFootprintResult
 	ordered []FootprintLaw
-	pair    []any
 }
 
 type footprintSelectionMode uint8
@@ -355,44 +348,21 @@ func queryDomainFootprintTx(ctx context.Context, q queryer, req DomainFootprintR
 		next := encodeFootprintCursor(out.KnowledgeCommit, out.binding, offset+limit)
 		out.NextCursor = &next
 	}
-	if err := loadFootprintLawChecks(ctx, q, selection.pair, page); err != nil {
-		return DomainFootprintResult{}, err
-	}
 	out.Laws = page
 	out.offset = offset
 	return out, nil
 }
 
-// footprintCompleteTx reads every reached law and its checks in one snapshot.
+// footprintCompleteTx reads every reached law in one snapshot.
 // The private selection mode determines whether the consumer also needs facts.
 func footprintCompleteTx(ctx context.Context, q queryer, req DomainFootprintRequest, home KnowledgeHome, paths, behaviorLaws []string, behaviorCommit string, mode footprintSelectionMode) (DomainFootprintResult, error) {
 	selection, err := footprintSelectTx(ctx, q, req, home, paths, behaviorLaws, behaviorCommit, mode)
 	if err != nil {
 		return DomainFootprintResult{}, err
 	}
-	if err := loadFootprintLawChecks(ctx, q, selection.pair, selection.ordered); err != nil {
-		return DomainFootprintResult{}, err
-	}
 	out := selection.result
 	out.Laws = selection.ordered
 	return out, nil
-}
-
-// loadFootprintLawChecks fills each law's checks. Domain-basis laws are
-// context and carry no checks.
-func loadFootprintLawChecks(ctx context.Context, q queryer, pair []any, laws []FootprintLaw) error {
-	for index := range laws {
-		laws[index].Checks = []FootprintCheck{}
-		if footprintBasisRank[laws[index].Basis] > footprintBasisRank[FootprintBehaviorMatch] {
-			continue
-		}
-		checks, err := footprintChecks(ctx, q, pair, laws[index].LawID)
-		if err != nil {
-			return err
-		}
-		laws[index].Checks = checks
-	}
-	return nil
 }
 
 func footprintSelectTx(ctx context.Context, q queryer, req DomainFootprintRequest, home KnowledgeHome, paths, behaviorLaws []string, behaviorCommit string, mode footprintSelectionMode) (footprintSelection, error) {
@@ -411,7 +381,6 @@ func footprintSelectTx(ctx context.Context, q queryer, req DomainFootprintReques
 	if behaviorCommit != "" && behaviorCommit != commit {
 		return none, newFailure(KindStaleContext, footprintQueryID, "the knowledge commit moved between the behavior match and the join", true, "retry the footprint read")
 	}
-	pair := []any{home.HomeProjectID, home.HomeLocatorID}
 
 	selectPaths := footprintSelectPathsTx
 	if mode == footprintOwnershipOnly {
@@ -425,7 +394,7 @@ func footprintSelectTx(ctx context.Context, q queryer, req DomainFootprintReques
 	for _, lawID := range behaviorLaws {
 		footprintPropose(selected.candidates, lawID, FootprintBehaviorMatch, "")
 	}
-
+	pair := []any{home.HomeProjectID, home.HomeLocatorID}
 	laws, err := footprintLawRows(ctx, q, pair, req.Product)
 	if err != nil {
 		return none, err
@@ -456,7 +425,7 @@ func footprintSelectTx(ctx context.Context, q queryer, req DomainFootprintReques
 	out.RegistryContentHash = registry.ContentHash
 	out.PackageMapContentHash = selected.mapHash
 	out.ResultMeta = ResultMeta{QueryID: footprintQueryID, ContractVersion: "C22/1.0", ResolvedScope: ResolvedScope{ProductID: req.Product}, Authority: "authoritative", OrderingKeys: []string{"basis", "law_id"}}
-	return footprintSelection{result: out, ordered: ordered, pair: pair}, nil
+	return footprintSelection{result: out, ordered: ordered}, nil
 }
 
 type footprintSelectedPaths struct {
@@ -705,26 +674,6 @@ func footprintLawRows(ctx context.Context, q queryer, pair []any, product string
 		return nil, wrapFailure(KindUnavailable, footprintQueryID, "cannot enumerate current law", true, "retry once the database is readable", err)
 	}
 	return laws, nil
-}
-
-func footprintChecks(ctx context.Context, q queryer, pair []any, lawID string) ([]FootprintCheck, error) {
-	rows, err := q.QueryContext(ctx, `SELECT kind,value FROM law_coverage_anchors WHERE home_project_id=? AND home_locator_id=? AND law_id=? ORDER BY ordinal`, append(pair, lawID)...)
-	if err != nil {
-		return nil, wrapFailure(KindUnavailable, footprintQueryID, "cannot read law coverage anchors", true, "retry once the database is readable", err)
-	}
-	defer rows.Close()
-	checks := []FootprintCheck{}
-	for rows.Next() {
-		var check FootprintCheck
-		if err := rows.Scan(&check.Kind, &check.Value); err != nil {
-			return nil, wrapFailure(KindUnavailable, footprintQueryID, "cannot decode a law coverage anchor", true, "retry once the database is readable", err)
-		}
-		checks = append(checks, check)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, wrapFailure(KindUnavailable, footprintQueryID, "cannot enumerate law coverage anchors", true, "retry once the database is readable", err)
-	}
-	return checks, nil
 }
 
 func footprintStrings(ctx context.Context, q queryer, query string, args ...any) ([]string, error) {

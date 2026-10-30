@@ -155,8 +155,7 @@ architecture bindings pin unchanged.
 The footprint read consumes
 [CD-0244 D7's bounded Domain-fact read](CD-0244-domains-own-code-exclusively-and-hold-typed-facts.md#d7-one-bounded-read-answers-a-domain-question)
 and joins the map with the law index. Given files or a behavior, it returns the
-governing Domains, the current law revisions, and the checks those laws' coverage
-names.
+governing Domains and the current law revisions.
 The Product registry remains the authority for Domain identity and law placement.
 
 ### D3. Every accepted law record has one architectural home
@@ -169,8 +168,8 @@ not create another owner.
 An owner note's law link creates no additional law home or applicability.
 Workflow law reliance retains exact revision identity and source qualification.
 A link to a test locates a check; it does not prove behavioral conformance.
-Owner notes are not accepted law records. Coverage states and proof anchors
-retain CD-0047's closed vocabulary and requirements.
+Owner notes are not accepted law records. Typed proof anchors keep
+CD-0249's closed kinds and resolution requirements.
 
 The Git knowledge manifest remains the sole writer. Its next compatible schema
 adds the Domain registry, law-home fields, and exact law identity
@@ -532,13 +531,12 @@ graph. Product law approval does not authorize live-state cutover.
 - **CD-0002/CD-0011:** SQLite is the sole local live-state
   authority under the existing falsifiers.
 
-The anchors below cover the carried obligations. CD-0244's coverage tracks its
-added Domain-shape requirements as outstanding; these anchors do not prove them.
+The anchors below cover the carried obligations; they do not prove
+CD-0244's added Domain-shape requirements.
 
 ## Verification
 
 - `python3 scripts/check-knowledge-index.py` proves record identity, placement, and the relation graph.
-- `python3 scripts/check-law-coverage.py` resolves this record's typed coverage anchors.
 - `python3 scripts/test-check-domain-registry.py` proves the referential checks without a participation rule.
 - `internal/store.TestConsequentialBoundariesAdmitASharedDomainPeer` and `internal/store.TestExecutionClaimAdmitsASharedDomainPeer` prove D6: a shared-Domain peer blocks no boundary.
 - `internal/store.TestResolveOverlapRecordsRoutineRelations` and `internal/store.TestResolveOverlapMergeAndSupersessionAreAtomic` prove the `resolve_overlap` relation writer.

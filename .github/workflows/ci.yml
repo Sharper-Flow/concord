@@ -616,10 +616,6 @@ jobs:
         # others import. txBeginExports runs `go list -deps -export -json ./...`
         # and parses its combined output, which a "go: downloading" line breaks.
         run: go mod download
-      - name: Fetch the released sources the release-pair tests build
-        # Release-pair tests build their baselines from these tags.
-        # The default checkout is shallow and carries no tags.
-        run: git fetch --no-tags --depth=1 origin +refs/tags/v11.61.0:refs/tags/v11.61.0 +refs/tags/v11.63.30:refs/tags/v11.63.30 +refs/tags/v13.4.0:refs/tags/v13.4.0
       - name: Test every package without its own shard job
         env:
           CONCORD_SELECTED_PRODUCT_ID: poison-product
@@ -670,10 +666,6 @@ jobs:
         # others import. txBeginExports runs `go list -deps -export -json ./...`
         # and parses its combined output, which a "go: downloading" line breaks.
         run: go mod download
-      - name: Fetch the released sources the release-pair tests build
-        # Release-pair tests build their baselines from these tags.
-        # The default checkout is shallow and carries no tags.
-        run: git fetch --no-tags --depth=1 origin +refs/tags/v11.61.0:refs/tags/v11.61.0 +refs/tags/v11.63.30:refs/tags/v11.63.30 +refs/tags/v13.4.0:refs/tags/v13.4.0
       - name: Set up native Node
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
         with:
@@ -783,10 +775,6 @@ jobs:
         # others import. txBeginExports runs `go list -deps -export -json ./...`
         # and parses its combined output, which a "go: downloading" line breaks.
         run: go mod download
-      - name: Fetch the released sources the release-pair tests build
-        # Release-pair tests build their baselines from these tags.
-        # The default checkout is shallow and carries no tags.
-        run: git fetch --no-tags --depth=1 origin +refs/tags/v11.61.0:refs/tags/v11.61.0 +refs/tags/v11.63.30:refs/tags/v11.63.30 +refs/tags/v13.4.0:refs/tags/v13.4.0
       - name: Set up native Node
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
         with:
@@ -896,10 +884,6 @@ jobs:
         # others import. txBeginExports runs `go list -deps -export -json ./...`
         # and parses its combined output, which a "go: downloading" line breaks.
         run: go mod download
-      - name: Fetch the released sources the release-pair tests build
-        # Release-pair tests build their baselines from these tags.
-        # The default checkout is shallow and carries no tags.
-        run: git fetch --no-tags --depth=1 origin +refs/tags/v11.61.0:refs/tags/v11.61.0 +refs/tags/v11.63.30:refs/tags/v11.63.30 +refs/tags/v13.4.0:refs/tags/v13.4.0
       - name: Set up native Node
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
         with:
@@ -1009,10 +993,6 @@ jobs:
         # others import. txBeginExports runs `go list -deps -export -json ./...`
         # and parses its combined output, which a "go: downloading" line breaks.
         run: go mod download
-      - name: Fetch the released sources the release-pair tests build
-        # Release-pair tests build their baselines from these tags.
-        # The default checkout is shallow and carries no tags.
-        run: git fetch --no-tags --depth=1 origin +refs/tags/v11.61.0:refs/tags/v11.61.0 +refs/tags/v11.63.30:refs/tags/v11.63.30 +refs/tags/v13.4.0:refs/tags/v13.4.0
       - name: Set up native Node
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
         with:
@@ -1122,10 +1102,6 @@ jobs:
         # others import. txBeginExports runs `go list -deps -export -json ./...`
         # and parses its combined output, which a "go: downloading" line breaks.
         run: go mod download
-      - name: Fetch the released sources the release-pair tests build
-        # Release-pair tests build their baselines from these tags.
-        # The default checkout is shallow and carries no tags.
-        run: git fetch --no-tags --depth=1 origin +refs/tags/v11.61.0:refs/tags/v11.61.0 +refs/tags/v11.63.30:refs/tags/v11.63.30 +refs/tags/v13.4.0:refs/tags/v13.4.0
       - name: Set up native Node
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
         with:
@@ -1235,10 +1211,6 @@ jobs:
         # others import. txBeginExports runs `go list -deps -export -json ./...`
         # and parses its combined output, which a "go: downloading" line breaks.
         run: go mod download
-      - name: Fetch the released sources the release-pair tests build
-        # Release-pair tests build their baselines from these tags.
-        # The default checkout is shallow and carries no tags.
-        run: git fetch --no-tags --depth=1 origin +refs/tags/v11.61.0:refs/tags/v11.61.0 +refs/tags/v11.63.30:refs/tags/v11.63.30 +refs/tags/v13.4.0:refs/tags/v13.4.0
       - name: Set up native Node
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
         with:
@@ -1348,10 +1320,6 @@ jobs:
         # others import. txBeginExports runs `go list -deps -export -json ./...`
         # and parses its combined output, which a "go: downloading" line breaks.
         run: go mod download
-      - name: Fetch the released sources the release-pair tests build
-        # Release-pair tests build their baselines from these tags.
-        # The default checkout is shallow and carries no tags.
-        run: git fetch --no-tags --depth=1 origin +refs/tags/v11.61.0:refs/tags/v11.61.0 +refs/tags/v11.63.30:refs/tags/v11.63.30 +refs/tags/v13.4.0:refs/tags/v13.4.0
       - name: Set up native Node
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
         with:
@@ -1557,10 +1525,6 @@ jobs:
         # others import. txBeginExports runs `go list -deps -export -json ./...`
         # and parses its combined output, which a "go: downloading" line breaks.
         run: go mod download
-      - name: Fetch the released sources the release-pair tests build
-        # Release-pair tests build their baselines from these tags.
-        # The default checkout is shallow and carries no tags.
-        run: git fetch --no-tags --depth=1 origin +refs/tags/v11.61.0:refs/tags/v11.61.0 +refs/tags/v11.63.30:refs/tags/v11.63.30 +refs/tags/v13.4.0:refs/tags/v13.4.0
       - name: Test shard 1 of 3 of ./internal/agent
         env:
           CONCORD_SELECTED_PRODUCT_ID: poison-product
@@ -1607,10 +1571,6 @@ jobs:
         # others import. txBeginExports runs `go list -deps -export -json ./...`
         # and parses its combined output, which a "go: downloading" line breaks.
         run: go mod download
-      - name: Fetch the released sources the release-pair tests build
-        # Release-pair tests build their baselines from these tags.
-        # The default checkout is shallow and carries no tags.
-        run: git fetch --no-tags --depth=1 origin +refs/tags/v11.61.0:refs/tags/v11.61.0 +refs/tags/v11.63.30:refs/tags/v11.63.30 +refs/tags/v13.4.0:refs/tags/v13.4.0
       - name: Test shard 2 of 3 of ./internal/agent
         env:
           CONCORD_SELECTED_PRODUCT_ID: poison-product
@@ -1657,10 +1617,6 @@ jobs:
         # others import. txBeginExports runs `go list -deps -export -json ./...`
         # and parses its combined output, which a "go: downloading" line breaks.
         run: go mod download
-      - name: Fetch the released sources the release-pair tests build
-        # Release-pair tests build their baselines from these tags.
-        # The default checkout is shallow and carries no tags.
-        run: git fetch --no-tags --depth=1 origin +refs/tags/v11.61.0:refs/tags/v11.61.0 +refs/tags/v11.63.30:refs/tags/v11.63.30 +refs/tags/v13.4.0:refs/tags/v13.4.0
       - name: Test shard 3 of 3 of ./internal/agent
         env:
           CONCORD_SELECTED_PRODUCT_ID: poison-product

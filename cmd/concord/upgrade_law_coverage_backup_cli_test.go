@@ -145,7 +145,7 @@ func TestUpgradeRetiringLawCoverageSnapshotsTheCoverageTableBeforeTheDrop(t *tes
 
 	code, out, errOut := runUpgradeStdin(t, `{}`)
 	if code != 0 {
-		t.Fatalf("the v165 to v166 upgrade must apply: %d %s", code, errOut)
+		t.Fatalf("the v165 to current upgrade must apply: %d %s", code, errOut)
 	}
 	var report struct {
 		Applied       []int  `json:"applied"`

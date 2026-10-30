@@ -59,7 +59,6 @@ type ClaimRequest struct {
 	IdempotencyKey        string    `json:"idempotency_key"`
 	RequestID             string    `json:"request_id"`
 	ObservedAt            time.Time `json:"observed_at"`
-	ApprovalRef           string    `json:"approval_ref,omitempty"`
 	ContractDigest        string    `json:"contract_digest"`
 }
 
@@ -97,7 +96,6 @@ type FenceResult struct {
 	AcceptedScopeSnapshot string     `json:"accepted_scope_snapshot,omitempty"`
 	ResultEventIDs        []string   `json:"result_event_ids,omitempty"`
 	Replayed              bool       `json:"replayed"`
-	ApprovalRef           string     `json:"approval_ref,omitempty"`
 	ContractDigest        string     `json:"contract_digest,omitempty"`
 }
 
@@ -133,7 +131,7 @@ func StepTx(ctx context.Context, transaction *Transaction, opID string) (FenceRe
 // callers. The claim commits durably (CD-0050 D3): a claim lost to power
 // failure could permit a duplicate cross-authority dispatch on retry. A
 // non-nil authorize runs in the same transaction that creates the durable
-// claim, so approval consumption commits together with the durable operation
+// claim, so the authorization commits together with the durable operation
 // identity.
 func ClaimStepAuthorized(ctx context.Context, s *Store, req ClaimRequest, authorize func(*Transaction) error) (FenceResult, error) {
 	if authorize == nil {
@@ -220,7 +218,7 @@ func claimStepObservedAuthorizedWithRegistry(ctx context.Context, s *Store, req 
 	if err := commitObservedTx(tx, observer); err != nil {
 		return FenceResult{}, wrapFailure(KindUnavailable, "claim_step", "cannot commit claim", true, "retry once the database is writable", err)
 	}
-	return FenceResult{OpID: req.OpID, AttemptEpoch: epoch, ApprovalRef: req.ApprovalRef}, nil
+	return FenceResult{OpID: req.OpID, AttemptEpoch: epoch}, nil
 }
 
 // CompleteStep authoritatively completes only the current attempt epoch. The
@@ -405,11 +403,11 @@ func validateStringRefs(refs []string, field string) error {
 
 func claimDigest(req ClaimRequest) string {
 	return digestJSON(struct {
-		OpID, WorkID, WorkflowTypeRef, WorkflowTypeDigest                                            string
-		StepID                                                                                       string
-		StepKind                                                                                     StepKind
-		AcceptedInputsDigest, AcceptedScopeSnapshot, PrincipalRef, Tool, IdempotencyKey, ApprovalRef string
-	}{req.OpID, req.WorkID, req.WorkflowTypeRef, req.WorkflowTypeDigest, req.StepID, req.StepKind, req.AcceptedInputsDigest, req.AcceptedScopeSnapshot, req.PrincipalRef, req.Tool, req.IdempotencyKey, req.ApprovalRef})
+		OpID, WorkID, WorkflowTypeRef, WorkflowTypeDigest                               string
+		StepID                                                                          string
+		StepKind                                                                        StepKind
+		AcceptedInputsDigest, AcceptedScopeSnapshot, PrincipalRef, Tool, IdempotencyKey string
+	}{req.OpID, req.WorkID, req.WorkflowTypeRef, req.WorkflowTypeDigest, req.StepID, req.StepKind, req.AcceptedInputsDigest, req.AcceptedScopeSnapshot, req.PrincipalRef, req.Tool, req.IdempotencyKey})
 }
 func completeDigest(req CompleteRequest) string {
 	return digestJSON(struct {
@@ -489,13 +487,6 @@ func readStep(ctx context.Context, q interface {
 	}
 	if err := json.Unmarshal([]byte(changed.String), &result.ChangedRefs); err != nil {
 		return result, wrapFailure(KindUnavailable, "step", "durable changed references are corrupt", false, "repair or restore the database", err)
-	}
-	var acceptedScope map[string]json.RawMessage
-	if json.Unmarshal([]byte(scope.String), &acceptedScope) == nil {
-		var approval string
-		if raw := acceptedScope["approval_ref"]; len(raw) > 0 && json.Unmarshal(raw, &approval) == nil {
-			result.ApprovalRef = approval
-		}
 	}
 	return result, nil
 }

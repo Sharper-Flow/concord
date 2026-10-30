@@ -349,8 +349,8 @@ func TestCompleteStepContractCorrectionReturnsBreakFixToRepair(t *testing.T) {
 	if err != nil {
 		t.Fatalf("discover contract correction at the complete step: %v", err)
 	}
-	if action.ID != "supersede_contract" || action.Approval != ActionApprovalRequired {
-		t.Fatalf("correction action = %#v, want operator-approved supersession", action)
+	if action.ID != "supersede_contract" {
+		t.Fatalf("correction action = %#v, want supersede_contract", action)
 	}
 	if err := issue1013Preflight(t, s, workID, "supersede_contract", completeStepSuccessorPayload(workID), fixture.owner); err != nil {
 		t.Fatalf("read-only preflight refused the complete-step correction: %v", err)
@@ -371,7 +371,7 @@ func TestCompleteStepContractCorrectionReturnsBreakFixToRepair(t *testing.T) {
 	}
 	_, _, definitionRef, definitionDigest := completeStepInstancePin(t, s, workID)
 
-	if err := runIssue933OperatorAction(t, s, workID, "supersede_contract", completeStepSuccessorPayload(workID), fixture.owner, fixture.operator); err != nil {
+	if err := runIssue933OperatorAction(t, s, workID, "supersede_contract", completeStepSuccessorPayload(workID), fixture.owner); err != nil {
 		t.Fatalf("supersede the contract at the complete step: %v", err)
 	}
 
@@ -583,7 +583,7 @@ func TestCompleteStepContractCorrectionReopensCompletedInstance(t *testing.T) {
 	if len(pin.NextValidIntents) != 1 || pin.NextValidIntents[0].ActionID != "supersede_contract" {
 		t.Fatalf("completed nonterminal instance intents = %#v, want only supersede_contract", pin.NextValidIntents)
 	}
-	if err := runIssue933OperatorAction(t, s, workID, "supersede_contract", completeStepSuccessorPayload(workID), fixture.owner, fixture.operator); err != nil {
+	if err := runIssue933OperatorAction(t, s, workID, "supersede_contract", completeStepSuccessorPayload(workID), fixture.owner); err != nil {
 		t.Fatalf("supersede on the completed instance: %v", err)
 	}
 	step, state, _, _ := completeStepInstancePin(t, s, workID)
@@ -600,7 +600,7 @@ func TestCompleteStepContractCorrectionReturnsImplementationToExecution(t *testi
 	const workID = "complete-correction-implementation"
 	fixture, _ := seedCompleteStepCorrection(t, workID, "workflow.implementation", "acceptance", "release")
 	s := fixture.store
-	if err := runIssue933OperatorAction(t, s, workID, "supersede_contract", completeStepSuccessorPayload(workID), fixture.owner, fixture.operator); err != nil {
+	if err := runIssue933OperatorAction(t, s, workID, "supersede_contract", completeStepSuccessorPayload(workID), fixture.owner); err != nil {
 		t.Fatalf("supersede the contract at the release step: %v", err)
 	}
 	step, state, _, _ := completeStepInstancePin(t, s, workID)
@@ -695,10 +695,6 @@ func TestCompleteStepContractCorrectionRefusals(t *testing.T) {
 		if err != nil {
 			t.Fatalf("routine complete-step correction without approval = %v, want admitted", err)
 		}
-		classified, err := ClassifyWorkflowApproval(mustBuiltinDefinition(t, "workflow.break_fix").Definition, "supersede_contract", WorkflowApprovalFacts{ProposedDecisionDomains: []string{}})
-		if err != nil || classified.Class != WorkflowApprovalClassDecision || classified.Consent != WorkflowConsentNone {
-			t.Fatalf("supersede_contract classification = %+v err=%v, want an engineering decision without consent", classified, err)
-		}
 	})
 
 	t.Run("stale work version", func(t *testing.T) {
@@ -713,7 +709,7 @@ func TestCompleteStepContractCorrectionRefusals(t *testing.T) {
 		defer tx.Rollback()
 		operationID := "complete-correction-stale-version"
 		_, err = applyWorkflowActionRawTx(context.Background(), tx, newWriteScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
-			WorkID: workID, ExpectedVersion: version + 1, ActionID: "supersede_contract", Payload: completeStepSuccessorPayload(workID), Actor: fixture.owner, OperatorActor: &fixture.operator,
+			WorkID: workID, ExpectedVersion: version + 1, ActionID: "supersede_contract", Payload: completeStepSuccessorPayload(workID), Actor: fixture.owner,
 			AcceptedInputsDigest: "sha256:" + strings.Repeat("f", 64), IdempotencyIdentity: operationID, OperationID: operationID,
 			PrincipalRef: fixture.owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: operationID, RequestID: "request:" + operationID,
 			ContractDigest: testManifestDigest, Now: time.Unix(31, 0).UTC(),
@@ -905,7 +901,7 @@ func TestCompleteStepCorrectionCutoffPersistsAcrossLaterSuccessor(t *testing.T) 
 	fixture, _ := seedCompleteStepCorrection(t, workID, "workflow.break_fix", "verify", "complete")
 	s := fixture.store
 
-	if err := runIssue933OperatorAction(t, s, workID, "supersede_contract", completeStepSuccessorPayload(workID), fixture.owner, fixture.operator); err != nil {
+	if err := runIssue933OperatorAction(t, s, workID, "supersede_contract", completeStepSuccessorPayload(workID), fixture.owner); err != nil {
 		t.Fatalf("supersede the contract at the complete step: %v", err)
 	}
 	cutoffV2, cutoffErr := workflowCompleteStepCorrectionEvidenceCutoff(ctx, s.db, workID, 2)
@@ -918,7 +914,7 @@ func TestCompleteStepCorrectionCutoffPersistsAcrossLaterSuccessor(t *testing.T) 
 
 	// A later ordinary supersession at the returned repair step retires the
 	// corrected contract without the reserved convention.
-	if err := runIssue933OperatorAction(t, s, workID, "supersede_contract", laterOrdinarySuccessorPayload(workID), fixture.owner, fixture.operator); err != nil {
+	if err := runIssue933OperatorAction(t, s, workID, "supersede_contract", laterOrdinarySuccessorPayload(workID), fixture.owner); err != nil {
 		t.Fatalf("ordinary supersession of the corrected contract: %v", err)
 	}
 	var activeVersion int
@@ -1015,7 +1011,7 @@ func TestCompleteStepCorrectionStaleLawStaysBehindTheGate(t *testing.T) {
 	if err := issue1013Preflight(t, s, workID, "supersede_contract", staleLawSuccessorPayload(workID), fixture.owner); err != nil {
 		t.Fatalf("preflight refused the complete-step correction behind a stale law: %v", err)
 	}
-	if err := runIssue933OperatorAction(t, s, workID, "supersede_contract", staleLawSuccessorPayload(workID), fixture.owner, fixture.operator); err != nil {
+	if err := runIssue933OperatorAction(t, s, workID, "supersede_contract", staleLawSuccessorPayload(workID), fixture.owner); err != nil {
 		t.Fatalf("supersede behind a stale law through the gate: %v", err)
 	}
 	if step, state, _, _ := completeStepInstancePin(t, s, workID); step != "repair" || state != "running" {
@@ -1072,7 +1068,7 @@ func TestCompleteStepCorrectionRecoversDuplicateProjection(t *testing.T) {
 	}
 	// consequence_v1 supersedes through attributed supersession, not
 	// verified operator approval (CD-0172).
-	if err := runIssue933OperatorAction(t, s, workID, "supersede_contract", duplicateRecovery, fixture.owner, fixture.operator); err != nil {
+	if err := runIssue933OperatorAction(t, s, workID, "supersede_contract", duplicateRecovery, fixture.owner); err != nil {
 		t.Fatalf("duplicate complete-step correction: %v", err)
 	}
 	if step, state, _, _ := completeStepInstancePin(t, s, workID); step != "repair" || state != "running" {
@@ -1104,7 +1100,7 @@ func TestCompleteStepCorrectionRecoversDuplicateProjection(t *testing.T) {
 	// duplicates hid: its started delivery, the accepted current Review of
 	// the delivered candidate, and the engineering successor's coordinator
 	// confirmation.
-	model.started, model.engineering = true, true
+	model.started = true
 	model.review = admissionModelReview{candidate: true, accepted: "ready_for_final_proof", current: true}
 	conformanceCheckpoint(t, s, BuiltinWorkflowRegistry(), workID, def, model, "after the duplicate correction")
 }
@@ -1188,7 +1184,7 @@ func TestCompleteStepCorrectionKeepsSuccessorVerdictsFresh(t *testing.T) {
 	ctx := context.Background()
 	fixture, _ := seedCompleteStepCorrection(t, workID, "workflow.break_fix", "verify", "complete")
 	s := fixture.store
-	if err := runIssue933OperatorAction(t, s, workID, "supersede_contract", completeStepSuccessorPayload(workID), fixture.owner, fixture.operator); err != nil {
+	if err := runIssue933OperatorAction(t, s, workID, "supersede_contract", completeStepSuccessorPayload(workID), fixture.owner); err != nil {
 		t.Fatalf("supersede the contract at the complete step: %v", err)
 	}
 	step, state, _, _ := completeStepInstancePin(t, s, workID)
@@ -1262,7 +1258,7 @@ func TestCompleteStepCorrectionReadOnlyPreflightRequiresReservedRoute(t *testing
 	if !errors.As(err, &failure) || failure.Kind != KindInvalidPayload || failure.Detail != "complete-step correction requires complete_step_correction in fields.route_conventions" {
 		t.Fatalf("read-only preflight without the reserved route = %v, want the reserved-route refusal", err)
 	}
-	if err := runIssue933OperatorAction(t, s, workID, "supersede_contract", withoutRoute, fixture.owner, fixture.operator); err == nil {
+	if err := runIssue933OperatorAction(t, s, workID, "supersede_contract", withoutRoute, fixture.owner); err == nil {
 		t.Fatal("the owning action admitted a successor without the reserved route")
 	}
 	var activeVersion int
@@ -1328,7 +1324,7 @@ func TestCompletedInstanceOffShapeSupersessionRefusesBeforeEffect(t *testing.T) 
 		t.Parallel()
 		const workID = "complete-correction-offshape-mutation"
 		fixture := seedOffShapeCompletedInstance(t, workID)
-		err := runIssue933OperatorAction(t, fixture.store, workID, "supersede_contract", offShapeStaleLawSuccessorPayload(workID), fixture.owner, fixture.operator)
+		err := runIssue933OperatorAction(t, fixture.store, workID, "supersede_contract", offShapeStaleLawSuccessorPayload(workID), fixture.owner)
 		var failure *Failure
 		if !errors.As(err, &failure) || failure.Kind != KindInvalidOperation || failure.Detail != sharedDetail {
 			t.Fatalf("mutation on the off-shape completed instance = %v, want the shape refusal", err)

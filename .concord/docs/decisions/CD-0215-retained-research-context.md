@@ -22,7 +22,7 @@ CD-0222 governs Initiative identity, narrative, entries, architecture, and migra
 
 ## Decision
 
-Physical pack deletion through `research_retire` follows CD-0013 D11 and requires operator approval only when a [CD-0243 D2](CD-0243-four-roles-and-six-operator-approval-classes.md#d2-the-operator-approves-six-classes-of-decision) class applies. Such an approval is exact and one-use, bound to the explicit candidate set, versions, Product scope, and operation. Dry-run and eligibility checks require no deletion consent and confer no authority to delete. Active-consumer protection, eligibility fences, atomicity, and replay identity remain required. CD-0243 D5 governs recovery and permanent loss.
+Physical pack deletion through `research_retire` binds the explicit candidate set, versions, Product scope, and operation. Dry-run and eligibility checks confer no authority to delete. Active-consumer protection, eligibility fences, atomicity, and replay identity remain required. Operator decisions follow [CD-0243 D2](CD-0243-four-roles-and-six-operator-approval-classes.md#d2-the-operator-approves-six-classes-of-decision) in conversation; D5 governs recovery and permanent loss.
 
 ### D1. Initiative remains secondary business context
 

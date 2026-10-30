@@ -3,12 +3,21 @@ package store
 import (
 	"encoding/json"
 	"reflect"
+	"slices"
 	"testing"
 )
 
+// declaringDefinition carries the required decision-domain declaration the
+// live composition build appends to approve_contract.
+func declaringDefinition() WorkflowDefinition {
+	approve := currentActionDefinition("approve_contract", true)
+	approve.Payload.Fields = append(slices.Clone(approve.Payload.Fields), workflowDecisionFactField())
+	return WorkflowDefinition{ActionDefinitions: []WorkflowActionDefinition{approve}}
+}
+
 func TestSixClassDecisionDomainsAuthoring(t *testing.T) {
 	t.Parallel()
-	definition := approvalPolicyDefinition(WorkflowApprovalPolicyConsequenceV1, "approve_contract")
+	definition := declaringDefinition()
 	for _, domains := range authoredDecisionDomainSets() {
 		if err := validateWorkflowAuthoredDecisionDomains(domains); err != nil {
 			t.Fatalf("canonical set %v refused: %v", domains, err)
@@ -52,7 +61,7 @@ func TestSixClassDecisionDomainsRoundTrip(t *testing.T) {
 	}
 	for _, domains := range sets {
 		t.Run(workflowJSON(domains), func(t *testing.T) {
-			definition := approvalPolicyDefinition(WorkflowApprovalPolicyConsequenceV1, "approve_contract")
+			definition := declaringDefinition()
 			authored, err := workflowSubmittedDecisionDomains(definition, "approval", map[string]json.RawMessage{"decision_domains": json.RawMessage(workflowJSON(domains))})
 			if err != nil {
 				t.Fatalf("approved six-class fact refused by authoring: %v", err)

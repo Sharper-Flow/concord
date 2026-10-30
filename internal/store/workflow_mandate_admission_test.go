@@ -72,7 +72,7 @@ func TestMandateAdmissionAgreement(t *testing.T) {
 			mandate = "bound"
 		}
 		conformanceCheckpoint(t, s, BuiltinWorkflowRegistry(), workID, definition, admissionModelState{
-			step: pin.Step, contracts: 1, mandate: mandate, engineering: true,
+			step: pin.Step, contracts: 1, mandate: mandate,
 		}, mandate)
 		decision := workflowAdmit(definition, state, "record_verdict")
 		payload := json.RawMessage(`{"verdicts":[{"predicate_id":"predicate:return-route","receipt_refs":["worktree_verify:mandate-unreachable"]}]}`)

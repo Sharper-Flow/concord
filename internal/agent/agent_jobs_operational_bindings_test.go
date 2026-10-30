@@ -2,7 +2,6 @@ package agent
 
 import (
 	"context"
-	"crypto/ed25519"
 	"encoding/json"
 	"errors"
 	"os"
@@ -210,14 +209,12 @@ func bindAJ8GroundTruthReclamation(t *testing.T, sc jobScenario) jobObservation 
 	return obs
 }
 
-// approvedWorkflowContract approves a contract through the signed host
-// challenge and returns its envelope and resulting work version.
-func approvedWorkflowContract(t *testing.T, s *store.Store, service *Service, grant Authority, privateKey ed25519.PrivateKey, env CallEnvelope, version int64, fields map[string]any, key string) (agentcontract.Envelope, int64) {
+func approvedWorkflowContract(t *testing.T, s *store.Store, service *Service, env CallEnvelope, version int64, fields map[string]any, key string) (agentcontract.Envelope, int64) {
 	t.Helper()
-	return approvedWorkflowActionWithVersions(t, s, service, grant, privateKey, env, version, "approve_contract", fields, key, map[string]any{"work": version})
+	return dispatchWorkflowActionResult(t, s, service, env, version, "approve_contract", fields, key)
 }
 
-func approvedWorkflowActionWithVersions(t *testing.T, s *store.Store, service *Service, grant Authority, privateKey ed25519.PrivateKey, env CallEnvelope, version int64, action string, fields map[string]any, key string, versions map[string]any) (agentcontract.Envelope, int64) {
+func dispatchWorkflowActionResult(t *testing.T, s *store.Store, service *Service, env CallEnvelope, version int64, action string, fields map[string]any, key string) (agentcontract.Envelope, int64) {
 	t.Helper()
 	input := map[string]any{"work_id": "work-1", "expected_version": version, "action_id": action, "idempotency_key": key}
 	if fields != nil {
@@ -230,19 +227,6 @@ func approvedWorkflowActionWithVersions(t *testing.T, s *store.Store, service *S
 		t.Fatal(err)
 	}
 	resp := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: raw}, env)
-	if resp.Error != nil && resp.Error.Kind == "approval_required" {
-		challengeRef, _ := resp.Error.Details["approval_ref"].(string)
-		if challengeRef == "" {
-			t.Fatalf("%s minted no challenge: %+v", action, resp.Error.Details)
-		}
-		withApproval := input
-		withApproval["approval"] = map[string]any{"approval_ref": challengeRef}
-		approvedRaw, _ := json.Marshal(withApproval)
-		scope := map[string]any{"product_id": "product-1", "project_ids": []string{"project-1"}, "work_ids": []string{"work-1"}, "scope_version": env.ScopeVersion}
-		approvalEnv := env
-		approvalEnv.HostApproval = signedHostApproval(privateKey, challengeRef, mutationDigest("concord_work_transition", "workflow_action", env, approvedRaw), scope, versions, grant.SessionRef, grant.AgentRef, grant.Worktree, fixedTime(), nonceForChallenge(challengeRef))
-		resp = dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: approvedRaw}, approvalEnv)
-	}
 	var newVersion int64
 	if err := s.DatabaseForTesting().QueryRow(`SELECT version FROM work_items WHERE id='work-1'`).Scan(&newVersion); err != nil {
 		t.Fatal(err)

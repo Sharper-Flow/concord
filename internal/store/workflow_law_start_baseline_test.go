@@ -17,7 +17,7 @@ func TestLawChangePreNamingUsesOwningStart(t *testing.T) {
 	seedLawChangeLaw(t, s, "law-agent", "derived", "agent-surface")
 	lawChangeConstructorItem(t, s, workID, false)
 	editLawChangeLaw(t, s, "law-agent")
-	change, err := deriveLawChange(t, s, workID, lawChangeV1Generic, lawChangeFields(t, map[string]any{workflowLawChangeReasonField: "revise"}), []string{"law-agent"}, nil, []string{})
+	change, err := deriveLawChange(t, s, workID, lawChangeV1Generic, lawChangeFields(t, map[string]any{workflowLawChangeReasonField: "revise"}), []string{"law-agent"}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -33,7 +33,7 @@ func TestLawChangeGenericRegistryEditCannotComplete(t *testing.T) {
 	s := seedLawChangeFixture(t, workID)
 	seedLawChangeLaw(t, s, "law-agent", "derived", "agent-surface")
 	lawChangeConstructorItem(t, s, workID, false)
-	change, err := deriveLawChange(t, s, workID, lawChangeV1Generic, lawChangeFields(t, map[string]any{workflowLawChangeReasonField: "revise"}), []string{"law-agent"}, nil, []string{})
+	change, err := deriveLawChange(t, s, workID, lawChangeV1Generic, lawChangeFields(t, map[string]any{workflowLawChangeReasonField: "revise"}), []string{"law-agent"}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -58,7 +58,7 @@ func TestLawChangeUnnamedNewAndRemovedLawsRefuse(t *testing.T) {
 				lawChangeFold(t, s, `DELETE FROM law_subjects WHERE law_id='law-agent'`)
 			}
 			requireFailureKind(t, enactLawChange(t, s, id, nil, nil), KindOutcomeMismatch, "law-free contract changed a source law")
-			change, err := deriveLawChange(t, s, id, lawChangeV1, nil, nil, nil, []string{})
+			change, err := deriveLawChange(t, s, id, lawChangeV1, nil, nil, nil)
 			if err != nil || change != nil {
 				t.Fatalf("recovery must not adopt an undeclared delta: change=%+v err=%v", change, err)
 			}
@@ -92,7 +92,7 @@ func TestLawChangeStartAbsenceAndSourceGraph(t *testing.T) {
 	t.Run("in-flight item has no invented start", func(t *testing.T) {
 		s := seedLawChangeFixture(t, "old-item")
 		seedLawChangeLaw(t, s, "law-agent", "derived", "agent-surface")
-		_, err := deriveLawChange(t, s, "old-item", lawChangeV1, lawChangeFields(t, map[string]any{workflowLawChangeReasonField: "revise"}), []string{"law-agent"}, nil, []string{})
+		_, err := deriveLawChange(t, s, "old-item", lawChangeV1, lawChangeFields(t, map[string]any{workflowLawChangeReasonField: "revise"}), []string{"law-agent"}, nil)
 		requireFailureKind(t, err, KindMissingEvidence, "missing start baseline")
 		requireFailureKind(t, enactLawChange(t, s, "old-item", nil, nil), KindMissingEvidence, "completion cannot infer historic start")
 		var count int
@@ -151,7 +151,7 @@ func TestLawChangeBaselineMigrationPreservesHistoricalFacts(t *testing.T) {
 	if err := json.Unmarshal([]byte(`{"reason":"retained","serious":true,"crucial":true,"predecessor_serious":true,"law_ids":["law-old"],"law_before":[],"registry_before":null}`), &historical); err != nil {
 		t.Fatal(err)
 	}
-	if historical.Version != 0 || historical.Approval != nil || historical.RegistryBefore != nil {
+	if historical.Version != 0 || historical.RegistryBefore != nil {
 		t.Fatalf("historical decoding fabricated proof: %+v", historical)
 	}
 }
@@ -219,10 +219,10 @@ func TestLawChangeNewLawRequiresAdditionScope(t *testing.T) {
 	startLawChange(t, s, id)
 	seedLawChangeLaw(t, s, "law-new", "derived", "agent-surface")
 	fields := lawChangeFields(t, map[string]any{workflowLawChangeReasonField: "add a law"})
-	_, err := deriveLawChange(t, s, id, lawChangeV1Generic, fields, []string{"law-new"}, nil, []string{})
+	_, err := deriveLawChange(t, s, id, lawChangeV1Generic, fields, []string{"law-new"}, nil)
 	requireFailureKind(t, err, KindOutcomeMismatch, "new law cannot masquerade as an existing derived revision")
 	binding := &WorkflowArchitectureBinding{LawAdditions: []WorkflowLawAddition{{LawID: "law-new", HomeDomainID: "agent-surface"}}}
-	change, err := deriveLawChange(t, s, id, lawChangeV1, fields, nil, binding, []string{})
+	change, err := deriveLawChange(t, s, id, lawChangeV1, fields, nil, binding)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -233,6 +233,6 @@ func TestLawChangeNewLawRequiresAdditionScope(t *testing.T) {
 		t.Fatal(err)
 	}
 	binding.LawAdditions = append(binding.LawAdditions, WorkflowLawAddition{LawID: "law-existing", HomeDomainID: "agent-surface"})
-	_, err = deriveLawChange(t, s, id, lawChangeV1, fields, nil, binding, []string{})
+	_, err = deriveLawChange(t, s, id, lawChangeV1, fields, nil, binding)
 	requireFailureKind(t, err, KindInvalidPayload, "existing law cannot masquerade as an addition")
 }

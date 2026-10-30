@@ -16,9 +16,6 @@ evidence planes record, and what the first go-live decision must later
 define.
 ## Contract
 
-Approval measurements follow CD-0013 D11 and CD-0243 D2: overlap answers, including merger and supersession, are measured as requiring operator approval only when a CD-0243 D2 class applies. Measurements also distinguish new-policy engineering from decision-bearing workflow checkpoints. No routine route is measured as requiring a host consent prompt. Existing population identity, evidence, and measurement obligations remain unchanged; historical pins remain a separate declared population.
-
-
 The binding contract is sections 1 through 3: the pre-go-live authority rule
 that only deterministic scenario evidence authorizes a surface change, the
 deterministic evidence planes and their boundaries, and the six-element
@@ -39,14 +36,14 @@ The authoritative evidence contract is:
 - strict generated manifest, payload, envelope, and scenario schemas;
 - core authority and authorization proofs;
 - SQLite transaction and idempotency proofs for durable effects;
-- negative probes for unknown fields, variants, stale versions, missing approval,
+- negative probes for unknown fields, variants, stale versions, missing capabilities,
   mismatched digests, malformed output, and false success; and
 - generated drift checks, repository validators, and conformance.
 
 Every scenario must assert authoritative state or effects rather than response
 wording. Hard authority, transaction, recovery, and prohibited-effect failures
 block the change. The TS1 corpus includes the named
-`AJ5-resolve-domain-overlap` real-dispatch proof for operator-approved,
+`AJ5-resolve-domain-overlap` real-dispatch proof for authorized,
 version-pinned overlap resolution.
 
 ## 2. Deterministic evidence planes
@@ -56,7 +53,7 @@ request, resulting state, communication, authority, effects, and recovery. It do
 not infer success from prompts or model prose.
 
 The operational plane may record bounded structural facts such as tool/operation,
-manifest digest, outcome, authority, retries, idempotency replays, approvals,
+manifest digest, outcome, authority, retries, idempotency replays,
 bytes, pagination, and latency. It must not infer intent, satisfaction, reasoning,
 or task success. It retains no prompts, transcripts, secrets, raw process exhaust,
 or Product identifiers beyond the approved bounded evidence artifact.

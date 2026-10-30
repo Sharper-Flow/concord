@@ -6,9 +6,10 @@ import (
 	"testing"
 )
 
-// pOverlapContractFacts derives the current consent facts for the raw fold
+// pOverlapContractFacts derives the current decision facts for the raw fold
 // witnesses. These cases change at most one child Domain and require no
-// operator consent; a serious change must use a consumed approval instead.
+// operator consent; a serious change takes the operator's conversational
+// decision under CD-0243.
 func pOverlapContractFacts(t *testing.T, s *Store, event Event) Event {
 	t.Helper()
 	definition := pinnedWorkflowDefinitionForTest(t, s, event.SubjectID)
@@ -42,7 +43,7 @@ func pOverlapContractFacts(t *testing.T, s *Store, event Event) Event {
 	if err != nil {
 		t.Fatal(err)
 	}
-	change, err := deriveWorkflowLawChangeTx(ctx, s.DatabaseForTesting(), definition, event.SubjectID, declarations, modifies, binding, []string{})
+	change, err := deriveWorkflowLawChangeTx(ctx, s.DatabaseForTesting(), definition, event.SubjectID, declarations, modifies, binding)
 	if err != nil {
 		t.Fatal(err)
 	}

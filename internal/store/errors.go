@@ -100,7 +100,6 @@ const (
 	KindUnknownScope                FailureKind = "unknown_scope"
 	KindAmbiguousScope              FailureKind = "ambiguous_scope"
 	KindStaleContext                FailureKind = "stale_context"
-	KindApprovalInvalid             FailureKind = "approval_invalid"
 	KindDegradedNotAllowed          FailureKind = "degraded_not_allowed"
 	KindBudgetRefused               FailureKind = "budget_refused"
 	KindInvalidInput                FailureKind = "invalid_input"
@@ -177,7 +176,6 @@ const (
 	// implementation details.
 	KindMissingEvidence   FailureKind = "missing_evidence"
 	KindNotTerminal       FailureKind = "not_terminal"
-	KindApprovalRequired  FailureKind = "approval_required"
 	KindOutcomeMismatch   FailureKind = "outcome_mismatch"
 	KindOperationConflict FailureKind = "operation_conflict"
 	// KindResourceBusy is transient exclusion that recorded nothing: a lease

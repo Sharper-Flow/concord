@@ -5,32 +5,72 @@ import (
 	"testing"
 )
 
-// Contract declarations admit both legacy fields and the consequence_v1
-// extension. Law-change declarations belong only to the extension: making
-// every added field optional on one flat object would erase that boundary.
+// Every contract declares its decision fact. The initial approve_contract
+// schema requires it in one closed fields object; the supersede_contract
+// fact is definition-conditional, so the advertised fields is one closed
+// union whose fact branch serves the families that declare the fact while
+// the store validates each call against the pinned family.
 func TestDecisionFactContractUnion(t *testing.T) {
-	for _, action := range []string{"approve_contract", "supersede_contract"} {
-		t.Run(action, func(t *testing.T) {
-			name := "work_transition_action_variant_" + action
+	for _, action := range []struct {
+		name              string
+		factBranches      int
+		noFactBranches    int
+		noFactSchemaValid bool
+	}{
+		{name: "approve_contract", factBranches: 1, noFactBranches: 0},
+		{name: "supersede_contract", factBranches: 1, noFactBranches: 1, noFactSchemaValid: true},
+	} {
+		t.Run(action.name, func(t *testing.T) {
+			name := "work_transition_action_variant_" + action.name
 			document := Document()
 			defs := document["$defs"].(map[string]any)
-			base := corpusSample(document, defs[name].(map[string]any)).(map[string]any)
+			variant := defs[name].(map[string]any)
+			fieldsNode := variant["properties"].(map[string]any)["fields"].(map[string]any)
+			fieldsRequired := map[string]bool{}
+			if fieldsNodeRequired, ok := fieldsNode["required"].([]any); ok {
+				for _, field := range fieldsNodeRequired {
+					fieldsRequired[field.(string)] = true
+				}
+			}
+			factBranches, noFactBranches := 0, 0
+			if branches, ok := fieldsNode["oneOf"].([]any); ok {
+				for _, branch := range branches {
+					required := map[string]bool{}
+					if branchRequired, ok := branch.(map[string]any)["required"].([]any); ok {
+						for _, field := range branchRequired {
+							required[field.(string)] = true
+						}
+					}
+					if required["decision_domains"] {
+						factBranches++
+					} else {
+						noFactBranches++
+					}
+				}
+			} else if fieldsRequired["decision_domains"] {
+				factBranches = 1
+			}
+			if factBranches != action.factBranches || noFactBranches != action.noFactBranches {
+				t.Fatalf("fact branches=%d no-fact branches=%d, want %d/%d", factBranches, noFactBranches, action.factBranches, action.noFactBranches)
+			}
+			base := corpusSample(document, variant).(map[string]any)
 			for _, test := range []struct {
 				name     string
 				decision bool
 				law      bool
 				valid    bool
 			}{
-				{name: "legacy", valid: true},
-				{name: "engineering extension", decision: true, valid: true},
-				{name: "law extension", decision: true, law: true, valid: true},
-				{name: "law without decision fact", law: true},
+				{name: "no decision fact", valid: action.noFactSchemaValid},
+				{name: "engineering fact", decision: true, valid: true},
+				{name: "law with its fact", decision: true, law: true, valid: true},
 			} {
 				t.Run(test.name, func(t *testing.T) {
 					input := corpusCopy(base).(map[string]any)
 					fields := input["fields"].(map[string]any)
 					if test.decision {
 						fields["decision_domains"] = []string{}
+					} else {
+						delete(fields, "decision_domains")
 					}
 					if test.law {
 						fields["law_change_reason"] = "Revise the bounded law."

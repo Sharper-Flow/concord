@@ -29,9 +29,6 @@ func TestCrossProductObservationRecordNeedsNoConsent(t *testing.T) {
 	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM work_observations WHERE work_id='work-2'`); got != 1 {
 		t.Fatalf("recorded %d work observations, want one", got)
 	}
-	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM agent_approval_challenges`); got != 0 {
-		t.Fatalf("ordinary observation minted %d challenges", got)
-	}
 }
 
 // CD-0243 D3/D7 preserve exact replay after removing ordinary consent.

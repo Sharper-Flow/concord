@@ -24,7 +24,6 @@ func TestWorkflowActionRefusesRetiredInitiativeBeforeNativePlanning(t *testing.T
 				t.Fatal(err)
 			}
 			before := countWorkflowEvents(t, s)
-			challengesBefore := countWorkflowApprovalChallenges(t, s)
 			probeCalls := 0
 			service.ProjectHostProber = func(context.Context, string, string) (store.ResolvedProjectHost, error) {
 				probeCalls++
@@ -44,8 +43,8 @@ func TestWorkflowActionRefusesRetiredInitiativeBeforeNativePlanning(t *testing.T
 			if err != nil || response.Error == nil || response.Error.Kind != "invalid_input" || response.Error.RecoveryAction.Kind != "reread_entities" || !strings.Contains(response.Error.Message, "CD-0213") {
 				t.Errorf("response=%+v err=%v, want retired-kind refusal", response.Error, err)
 			}
-			if probeCalls != 0 || countWorkflowEvents(t, s) != before || countWorkflowApprovalChallenges(t, s) != challengesBefore {
-				t.Fatalf("retired action reached native planning: probes=%d events=%d->%d challenges=%d->%d", probeCalls, before, countWorkflowEvents(t, s), challengesBefore, countWorkflowApprovalChallenges(t, s))
+			if probeCalls != 0 || countWorkflowEvents(t, s) != before {
+				t.Fatalf("retired action reached native planning: probes=%d events=%d->%d", probeCalls, before, countWorkflowEvents(t, s))
 			}
 		})
 	}

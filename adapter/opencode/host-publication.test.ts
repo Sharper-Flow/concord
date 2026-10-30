@@ -94,11 +94,12 @@ test("published workflow transition teaches every approve_contract admission rul
   // ValidateOperationPayload stays the closed boundary. The traversal reads
   // the compact document through the expansion helper.
   expect(advertisedAdmissionTeachingGaps(schema)).toEqual([])
-  // fields is one closed union: the legacy shape and the consequence_v1
-  // extension. The exhaustive per-kind assertions read each branch, so a
-  // drop from one branch cannot hide behind the factored parent view.
+  // fields is one closed object: every contract declares its decision
+  // domains. The exhaustive per-kind assertions read that branch, so a
+  // drop cannot hide behind the factored parent view.
   const fieldsBranches = actionFieldsBranches(actionInputBranch(schema, "approve_contract"))
-  expect(fieldsBranches, "approve_contract fields union branches").toHaveLength(2)
+  expect(fieldsBranches, "approve_contract fields branches").toHaveLength(1)
+  expect(fieldsBranches[0].required, "approve_contract required fields").toContain("decision_domains")
   for (const fields of fieldsBranches) {
     const items = fields.properties.outcome_predicates.items
     // Each published predicate item is closed per kind — outcome_kind
@@ -124,6 +125,7 @@ test("published workflow transition teaches every approve_contract admission rul
       idempotency_key: "idem-admission-conformance",
       fields: {
         premise: "Advertise the admission rules the store enforces.",
+        decision_domains: [],
         outcome_predicates: [{
           predicate_id: "predicate:admission-conformance",
           ordinal: 0,

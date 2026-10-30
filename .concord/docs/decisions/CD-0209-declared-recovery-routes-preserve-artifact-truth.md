@@ -15,10 +15,9 @@ admission and its liveness model need one declared producer route.
 
 ## Decision
 
-Under `approval_policy=consequence_v1`, correction needs authenticated
+Correction needs authenticated
 coordinator identity, exact diagnosis, strategy, affected predicates/findings
-and bound evidence, without independent operator approval. Other applicable
-recorded approval requirements remain. Recovery fabricates no workflow record.
+and bound evidence. Recovery fabricates no workflow record.
 
 ### D1. One declared recovery-route table per family
 

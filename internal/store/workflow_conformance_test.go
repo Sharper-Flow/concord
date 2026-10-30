@@ -66,7 +66,6 @@ type workflowCorpusRequest struct {
 	Fields          map[string]any            `json:"fields"`
 	Idempotency     workflowCorpusIdempotency `json:"idempotency"`
 	Grant           workflowCorpusGrant       `json:"grant"`
-	Approval        json.RawMessage           `json:"approval"`
 	Operation       workflowCorpusOperation   `json:"operation"`
 }
 

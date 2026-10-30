@@ -111,8 +111,8 @@ OpenCode TUIs" clause is the side of that line this decision lives on.
 
 Under CD-0222, Product-changing contracts declare affected Domains, and overlapping work
 requires a resolution pinned to both contract versions and judged content.
-Under CD-0013 D11, routine compatibility, blocking, and dependency answers need no
-operator approval; merger and supersession still require it.
+Operator decisions follow CD-0243 D2 in conversation. Merger and supersession
+do not independently require consent.
 
 ### D5. The entry route does not dispatch
 

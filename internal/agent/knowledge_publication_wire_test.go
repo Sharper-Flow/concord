@@ -73,7 +73,7 @@ func TestKnowledgePublicationOperationUsesProductRead(t *testing.T) {
 	if !ok {
 		t.Fatal("explicit publication observation is not registered")
 	}
-	if op.Kind != agentcontract.OperationRead || op.Capability != agentcontract.Capability("product_read") || op.QueryID != "CD-0020.R1" || op.Approval != agentcontract.ApprovalClass("none") {
+	if op.Kind != agentcontract.OperationRead || op.Capability != agentcontract.Capability("product_read") || op.QueryID != "CD-0020.R1" {
 		t.Fatalf("publication observation changed authorization route: %+v", op)
 	}
 }

@@ -107,9 +107,6 @@ DELETE FROM write_guard`); err != nil {
 			if actor != store.DeriveWorkflowActorRef(grant.PrincipalRef, grant.ClientRef, grant.AgentRef, grant.SessionRef) {
 				t.Fatalf("corrected contract changed author authority: %s", actor)
 			}
-			if countWorkflowApprovalChallenges(t, s) != 0 || countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM agent_approvals`) != 0 {
-				t.Fatal("request correction acquired operator consent state")
-			}
 			if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT spec_mandate,law_modifies,decision_domains FROM workflow_contracts WHERE work_id=?`, workID).Scan(&mandate, &modifies, &domains); err != nil {
 				t.Fatal(err)
 			}
@@ -148,7 +145,7 @@ func contractRequestCorrectionState(t *testing.T, s *store.Store, workID string)
 	}
 	state["effect_sequence"] = sequence
 	for _, table := range []string{
-		"effect_receipts", "idempotency_records", "agent_approval_challenges", "agent_approvals",
+		"effect_receipts", "idempotency_records",
 		"workflow_contracts", "workflow_contract_predicates", "workflow_architecture_bindings",
 		"workflow_contract_affected_domains", "workflow_contract_domain_modifications",
 		"workflow_contract_domain_relation_modifications", "workflow_contract_law_modifications",
@@ -174,7 +171,6 @@ func TestWorkflowRequestRecoveryClassification(t *testing.T) {
 		{"corrupt state", store.Failure{Kind: store.KindInvariantViolation}, "invariant_violation", "reread_entities"},
 		{"scope", store.Failure{Kind: store.KindUnknownScope}, "unknown_scope", "contact_operator"},
 		{"authorization", store.Failure{Kind: store.KindUnauthorized}, "unauthorized", "contact_operator"},
-		{"approval", store.Failure{Kind: store.FailureKind("approval_required")}, "approval_required", "request_approval"},
 		{"stale context", store.Failure{Kind: store.KindStaleContext}, "stale_context", "refresh_context"},
 		{"retryable input", store.Failure{Kind: store.KindInvalidPayload, RetrySafe: true}, "invalid_input", "reread_entities"},
 		{"possible effect", store.Failure{Kind: store.KindInvalidPayload, EffectPossible: true}, "invalid_input", "reconcile_operation"},

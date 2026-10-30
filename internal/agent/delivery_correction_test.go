@@ -2,7 +2,6 @@ package agent
 
 import (
 	"context"
-	"crypto/ed25519"
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
@@ -17,11 +16,11 @@ import (
 )
 
 // The agent contract for the terminal delivery correction: the routine
-// correction is dispatched without any approval claim and mints no challenge,
-// it is attributed to the authenticated coordinator's own workflow actor, and
-// it appends one versioned correction event beside the unchanged original.
-// The completed work stays closed, a supplied approval claim is refused
-// without consuming or minting any approval row, and the read surface shows
+// correction is dispatched without any approval claim, it is attributed to
+// the authenticated coordinator's own workflow actor, and it appends one
+// versioned correction event beside the unchanged original. The completed
+// work stays closed, a supplied approval claim refuses as an unknown input
+// field, and the read surface shows
 // the coordinator-asserted merge evidence beside the unchanged original. The
 // core never claims it verified the merge: the provenance field is the
 // coordinator_asserted constant, and no surface it renders speaks of a
@@ -97,20 +96,6 @@ func agentDeliveryCorrectionEvents(t *testing.T, s *store.Store) int {
 	return corrections
 }
 
-// agentApprovalRowCounts returns the challenge and approval rows the boundary
-// and the approval boundary hold.
-func agentApprovalRowCounts(t *testing.T, s *store.Store) (int, int) {
-	t.Helper()
-	var challenges, approvals int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM agent_approval_challenges`).Scan(&challenges); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM agent_approvals`).Scan(&approvals); err != nil {
-		t.Fatal(err)
-	}
-	return challenges, approvals
-}
-
 // agentCorrectionDispatchInput renders the closed correction input targeting
 // the exact recorded assertion; mutate adjusts one field for a refusal case.
 func agentCorrectionDispatchInput(t *testing.T, s *store.Store, targetEventID string, targetSeq int64, targetPayloadVersion int, idempotencyKey string, mutate func(map[string]any)) []byte {
@@ -149,7 +134,7 @@ func freshCoordinatorSessionGrant(t *testing.T, service *Service) Authority {
 func TestDeliveryCorrectionAgentContract(t *testing.T) {
 	t.Parallel()
 
-	t.Run("the unsigned correction appends once without any approval claim", func(t *testing.T) {
+	t.Run("the unsigned correction appends once", func(t *testing.T) {
 		t.Parallel()
 		s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_transition", "product_read"})
 		targetEventID, version, targetPayloadVersion, targetSeq := completedDeliveryAgentFixture(t, s, grant)
@@ -168,11 +153,8 @@ func TestDeliveryCorrectionAgentContract(t *testing.T) {
 		if err := s.DatabaseForTesting().QueryRow(`SELECT payload FROM workflow_delivery_state WHERE assertion_id=?`, targetEventID).Scan(&originalPayload); err != nil {
 			t.Fatal(err)
 		}
-		// The clean fixture holds no challenge or approval row before the
+		// The clean fixture holds no correction event before the
 		// unsigned effect, and the routine path mints none with it.
-		if challenges, approvals := agentApprovalRowCounts(t, s); challenges != 0 || approvals != 0 {
-			t.Fatalf("clean fixture holds %d challenge and %d approval rows", challenges, approvals)
-		}
 
 		// A repository path is not merge evidence: the closed input contract
 		// refuses it, because a repository path cannot carry a merge the core
@@ -187,19 +169,15 @@ func TestDeliveryCorrectionAgentContract(t *testing.T) {
 		}
 
 		// The unsigned correction succeeds: the routine path needs no
-		// approval claim and mints no challenge.
 		unsignedRaw := correctionInput("delivery-correction-1", nil)
 		approved := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "correct_delivery", Input: unsignedRaw}, env)
 		if approved.Outcome != agentcontract.OutcomeOK || approved.Error != nil {
 			t.Fatalf("unsigned correction outcome=%+v error=%+v", approved.Outcome, approved.Error)
 		}
-		if challenges, approvals := agentApprovalRowCounts(t, s); challenges != 0 || approvals != 0 {
-			t.Fatalf("unsigned correction left %d challenge and %d approval rows", challenges, approvals)
-		}
 
 		// The correction appends exactly one versioned event attributed to
 		// the authenticated coordinator's own workflow actor, with no
-		// approval claim and no operator substitute.
+		// no operator substitute.
 		grantActor := store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}
 		grantActorRef, err := store.WorkflowActorRef(grantActor)
 		if err != nil {
@@ -207,15 +185,14 @@ func TestDeliveryCorrectionAgentContract(t *testing.T) {
 		}
 		var eventActor string
 		var payloadVersion int
-		var payloadApprovalRef string
-		if err := s.DatabaseForTesting().QueryRow(`SELECT r.actor,r.payload_version,COALESCE(json_extract(d.correction_payload,'$.approval_ref'),'') FROM workflow_delivery_state d JOIN effect_receipts r ON r.event_id=d.correction_id WHERE r.kind=? AND d.work_id='work-1'`, store.WorkflowDeliveryCorrected).Scan(&eventActor, &payloadVersion, &payloadApprovalRef); err != nil {
+		if err := s.DatabaseForTesting().QueryRow(`SELECT r.actor,r.payload_version FROM workflow_delivery_state d JOIN effect_receipts r ON r.event_id=d.correction_id WHERE r.kind=? AND d.work_id='work-1'`, store.WorkflowDeliveryCorrected).Scan(&eventActor, &payloadVersion); err != nil {
 			t.Fatal(err)
 		}
 		if eventActor != grantActorRef {
 			t.Fatalf("correction actor = %q, want the authenticated coordinator %q", eventActor, grantActorRef)
 		}
-		if payloadVersion != 2 || payloadApprovalRef != "" {
-			t.Fatalf("correction event payload version %d approval claim %q, want version 2 with no claim", payloadVersion, payloadApprovalRef)
+		if payloadVersion != 2 {
+			t.Fatalf("correction event payload version %d, want version 2", payloadVersion)
 		}
 		var operatorActors int
 		if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM workflow_actors a JOIN effect_receipts r ON r.actor=a.actor_ref WHERE r.subject_id='work-1' AND r.kind=? AND a.actor_class='operator'`, store.WorkflowActorRecorded).Scan(&operatorActors); err != nil {
@@ -292,9 +269,6 @@ func TestDeliveryCorrectionAgentContract(t *testing.T) {
 		}
 		if assertion.Correction.EvidenceSource != store.DeliveryEvidenceSourceCoordinatorAsserted {
 			t.Fatalf("evidence source=%q, want the coordinator-asserted provenance", assertion.Correction.EvidenceSource)
-		}
-		if assertion.Correction.ApprovalRef != "" {
-			t.Fatalf("correction read carries an approval claim %q", assertion.Correction.ApprovalRef)
 		}
 
 		// The corrected assertion round-trips through the closed workflow_read
@@ -427,9 +401,6 @@ func TestDeliveryCorrectionAgentContract(t *testing.T) {
 		if corrected.Outcome != agentcontract.OutcomeOK || corrected.Error != nil {
 			t.Fatalf("fresh-session correction outcome=%+v error=%+v, want the unsigned success with no challenge", corrected.Outcome, corrected.Error)
 		}
-		if challenges, approvals := agentApprovalRowCounts(t, s); challenges != 0 || approvals != 0 {
-			t.Fatalf("fresh-session correction left %d challenge and %d approval rows", challenges, approvals)
-		}
 
 		// Exactly one actor-prefix event records the fresh session's exact
 		// authenticated tuple, and the recorded actor class stays agent: no
@@ -460,15 +431,14 @@ func TestDeliveryCorrectionAgentContract(t *testing.T) {
 		// fresh session's own workflow actor.
 		var eventActor string
 		var payloadVersion int
-		var payloadApprovalRef string
-		if err := s.DatabaseForTesting().QueryRow(`SELECT r.actor,r.payload_version,COALESCE(json_extract(d.correction_payload,'$.approval_ref'),'') FROM workflow_delivery_state d JOIN effect_receipts r ON r.event_id=d.correction_id WHERE r.kind=? AND d.work_id='work-1'`, store.WorkflowDeliveryCorrected).Scan(&eventActor, &payloadVersion, &payloadApprovalRef); err != nil {
+		if err := s.DatabaseForTesting().QueryRow(`SELECT r.actor,r.payload_version FROM workflow_delivery_state d JOIN effect_receipts r ON r.event_id=d.correction_id WHERE r.kind=? AND d.work_id='work-1'`, store.WorkflowDeliveryCorrected).Scan(&eventActor, &payloadVersion); err != nil {
 			t.Fatal(err)
 		}
 		if eventActor != freshActorRef {
 			t.Fatalf("correction actor = %q, want the fresh session's own actor %q", eventActor, freshActorRef)
 		}
-		if payloadVersion != 2 || payloadApprovalRef != "" {
-			t.Fatalf("correction event payload version %d approval claim %q, want version 2 with no claim", payloadVersion, payloadApprovalRef)
+		if payloadVersion != 2 {
+			t.Fatalf("correction event payload version %d, want version 2", payloadVersion)
 		}
 
 		// The work advanced two versions — the actor prefix plus the
@@ -534,9 +504,6 @@ func TestDeliveryCorrectionAgentContract(t *testing.T) {
 			if refused.Error == nil || refused.Error.Kind != "invalid_input" || !strings.Contains(refused.Error.Message, "does not match the recorded assertion") {
 				t.Fatalf("%s = %+v, want invalid_input naming the recorded assertion", race.name, refused.Error)
 			}
-			if challenges, approvals := agentApprovalRowCounts(t, s); challenges != 0 || approvals != 0 {
-				t.Fatalf("refused %s left %d challenge and %d approval rows", race.name, challenges, approvals)
-			}
 			if corrections := agentDeliveryCorrectionEvents(t, s); corrections != 0 {
 				t.Fatalf("refused %s wrote %d correction events", race.name, corrections)
 			}
@@ -546,7 +513,7 @@ func TestDeliveryCorrectionAgentContract(t *testing.T) {
 		})
 	}
 
-	t.Run("a supplied approval claim refuses without consumption or effects", func(t *testing.T) {
+	t.Run("an unknown field refuses without effects", func(t *testing.T) {
 		t.Parallel()
 		suppliedStore, suppliedService, suppliedGrant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_transition"})
 		suppliedTarget, suppliedVersion, suppliedPayloadVersion, suppliedSeq := completedDeliveryAgentFixture(t, suppliedStore, suppliedGrant)
@@ -565,16 +532,13 @@ func TestDeliveryCorrectionAgentContract(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		suppliedInput, err := injectApproval(suppliedBase, "challenge:supplied-approval")
+		suppliedInput, err := injectUnknownMutationField(suppliedBase, "supplied-value")
 		if err != nil {
 			t.Fatal(err)
 		}
 		supplied := dispatchMutation(t, suppliedStore, suppliedService, InvokeRequest{Tool: "concord_work_transition", Operation: "correct_delivery", Input: suppliedInput}, suppliedEnv)
-		if supplied.Outcome != agentcontract.OutcomeError || supplied.Error == nil || supplied.Error.Kind != "invalid_input" || !strings.Contains(supplied.Error.Message, "approval") {
-			t.Fatalf("supplied approval input outcome=%+v error=%+v, want invalid_input rejecting the approval claim", supplied.Outcome, supplied.Error)
-		}
-		if challenges, approvals := agentApprovalRowCounts(t, suppliedStore); challenges != 0 || approvals != 0 {
-			t.Fatalf("refused supplied claim left %d challenge and %d approval rows", challenges, approvals)
+		if supplied.Outcome != agentcontract.OutcomeError || supplied.Error == nil || supplied.Error.Kind != "invalid_input" {
+			t.Fatalf("supplied approval input outcome=%+v error=%+v, want invalid_input refusing the unknown field", supplied.Outcome, supplied.Error)
 		}
 		if corrections := agentDeliveryCorrectionEvents(t, suppliedStore); corrections != 0 {
 			t.Fatalf("refused supplied claim wrote %d correction events", corrections)
@@ -585,18 +549,6 @@ func TestDeliveryCorrectionAgentContract(t *testing.T) {
 	})
 }
 
-// correctionApprovedDispatch re-dispatches the correction input with the
-// approval attached and a HostApprovalAssertion bound to the caller-supplied
-// digest, mirroring the overlap route's approved retry. At this Service layer
-// the helper constructs the structurally accepted assertion; it performs no
-// signature of its own.
-func correctionApprovedDispatch(t *testing.T, s *store.Store, service *Service, privateKey ed25519.PrivateKey, env CallEnvelope, approvalRef, digest string, scope, versions map[string]any, input []byte) agentcontract.Envelope {
-	t.Helper()
-	approvedEnv := env
-	approvedEnv.HostApproval = signedHostApproval(privateKey, approvalRef, digest, scope, versions, env.SessionRef, env.AgentRef, env.Worktree, fixedTime(), nonceForChallenge(approvalRef))
-	return dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "correct_delivery", Input: input}, approvedEnv)
-}
-
 // CD-0243 D3/D7 retire cross-Product correction consent. The correction still
 // appends under the coordinator's actor and preserves the closed work, exact
 // target, original assertion, read contract, and durable Product scope.
@@ -604,7 +556,7 @@ func TestDeliveryCorrectionCrossProductBoundaryNeedsNoConsent(t *testing.T) {
 	t.Parallel()
 	// product_read authorizes the read-surface assertions below; the
 	// correction boundary itself needs work_transition and cross_scope only.
-	s, service, grant, _ := crossProductDispatchFixture(t, []agentcontract.Capability{"work_transition", "cross_scope", "product_read"})
+	s, service, grant := crossProductDispatchFixture(t, []agentcontract.Capability{"work_transition", "cross_scope", "product_read"})
 	targetEventID, version, targetPayloadVersion, targetSeq := completedDeliveryAgentFixture(t, s, grant)
 	scopeVersion, _, err := s.ScopeVersion(context.Background(), "project-1")
 	if err != nil {
@@ -632,9 +584,6 @@ func TestDeliveryCorrectionCrossProductBoundaryNeedsNoConsent(t *testing.T) {
 	if approved.Outcome != agentcontract.OutcomeOK || approved.Error != nil {
 		t.Fatalf("approved cross-Product correction outcome=%s error=%+v, want the appended correction", approved.Outcome, approved.Error)
 	}
-	if challenges, approvals := agentApprovalRowCounts(t, s); challenges != 0 || approvals != 0 {
-		t.Fatalf("ordinary cross-Product correction left %d challenges and %d approvals", challenges, approvals)
-	}
 
 	// The correction appends one versioned event attributed to the
 	// authenticated coordinator's own workflow actor, never to the approval
@@ -645,15 +594,14 @@ func TestDeliveryCorrectionCrossProductBoundaryNeedsNoConsent(t *testing.T) {
 	}
 	var eventActor string
 	var payloadVersion int
-	var payloadApprovalRef string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT r.actor,r.payload_version,COALESCE(json_extract(d.correction_payload,'$.approval_ref'),'') FROM workflow_delivery_state d JOIN effect_receipts r ON r.event_id=d.correction_id WHERE r.kind=? AND d.work_id='work-1'`, store.WorkflowDeliveryCorrected).Scan(&eventActor, &payloadVersion, &payloadApprovalRef); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT r.actor,r.payload_version FROM workflow_delivery_state d JOIN effect_receipts r ON r.event_id=d.correction_id WHERE r.kind=? AND d.work_id='work-1'`, store.WorkflowDeliveryCorrected).Scan(&eventActor, &payloadVersion); err != nil {
 		t.Fatal(err)
 	}
 	if eventActor != grantActorRef {
 		t.Fatalf("correction actor = %q, want the authenticated coordinator %q", eventActor, grantActorRef)
 	}
-	if payloadVersion != 2 || payloadApprovalRef != "" {
-		t.Fatalf("correction event payload version %d approval claim %q, want version 2 with no claim", payloadVersion, payloadApprovalRef)
+	if payloadVersion != 2 {
+		t.Fatalf("correction event payload version %d, want version 2", payloadVersion)
 	}
 	var correctedActors int
 	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_id='work-1' AND kind=?`, store.WorkflowActorRecorded).Scan(&correctedActors); err != nil {
@@ -820,7 +768,7 @@ func TestDeliveryCorrectionCrossProductBoundaryNeedsNoConsent(t *testing.T) {
 }
 
 // TestDeliveryCorrectionCachedReplayPreservesOriginalResultWithoutNewEffects:
-// a cached same-key correction replay that adds an unneeded approval claim
+// a cached same-key correction replay that adds an unknown approval field
 // refuses with the same invalid_input refusal the fresh correction call
 // returns. The canonical mutation digest excludes the approval block by
 // design, so the claim-bearing replay carries the stored digest of the
@@ -856,23 +804,19 @@ func TestDeliveryCorrectionCachedReplayPreservesOriginalResultWithoutNewEffects(
 	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_id='work-1' AND kind=?`, store.WorkflowActorRecorded).Scan(&baselineActors); err != nil {
 		t.Fatal(err)
 	}
-	baselineChallenges, baselineApprovals := agentApprovalRowCounts(t, s)
-	if baselineChallenges != 0 || baselineApprovals != 0 {
-		t.Fatalf("the unsigned correction left %d challenge and %d approval rows", baselineChallenges, baselineApprovals)
-	}
 	baselineIdempotency := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM idempotency_records`)
 	if got := workVersion(t, s, "work-1"); got != version+1 {
 		t.Fatalf("the unsigned correction version = %d, want the single correction advance %d", got, version+1)
 	}
 	baselineVersion := workVersion(t, s, "work-1")
 
-	withClaim, err := injectApproval(unsignedRaw, "challenge:cached-replay-claim")
+	withClaim, err := injectUnknownMutationField(unsignedRaw, "cached-replay-value")
 	if err != nil {
 		t.Fatal(err)
 	}
 	claimReplay := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "correct_delivery", Input: withClaim}, env)
-	if claimReplay.Outcome != agentcontract.OutcomeError || claimReplay.Error == nil || claimReplay.Error.Kind != "invalid_input" || claimReplay.Error.Message != "a routine delivery correction accepts no approval claim" {
-		t.Errorf("cached correction replay with an unneeded claim outcome=%s error=%+v, want the same fresh invalid_input refusal the unsigned claim path returns", claimReplay.Outcome, claimReplay.Error)
+	if claimReplay.Outcome != agentcontract.OutcomeError || claimReplay.Error == nil || claimReplay.Error.Kind != "invalid_input" {
+		t.Errorf("cached correction replay with an unknown claim field outcome=%s error=%+v, want the closed input schema's invalid_input refusal", claimReplay.Outcome, claimReplay.Error)
 	}
 	// The replay must settle nothing new: these probes measure the reply
 	// against the baseline populations captured before it.
@@ -888,9 +832,6 @@ func TestDeliveryCorrectionCachedReplayPreservesOriginalResultWithoutNewEffects(
 	}
 	if afterActors != baselineActors {
 		t.Errorf("the claim replay moved the actor prefix population from %d to %d", baselineActors, afterActors)
-	}
-	if challenges, approvals := agentApprovalRowCounts(t, s); challenges != baselineChallenges || approvals != baselineApprovals {
-		t.Errorf("the claim replay left %d challenge and %d approval rows, want the baseline %d and %d", challenges, approvals, baselineChallenges, baselineApprovals)
 	}
 	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM idempotency_records`); got != baselineIdempotency {
 		t.Errorf("the claim replay left %d idempotency rows, want the baseline %d", got, baselineIdempotency)

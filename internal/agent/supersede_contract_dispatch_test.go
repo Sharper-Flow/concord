@@ -1,7 +1,6 @@
 package agent
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"strings"
@@ -11,7 +10,7 @@ import (
 	"github.com/sharper-flow/concord/internal/store"
 )
 
-func TestSupersedeContractDispatchChallengesThenBindsApprovalOperator(t *testing.T) {
+func TestSupersedeContractDispatchAdvertisesCorrectionAndRefusesStaleVersion(t *testing.T) {
 	t.Parallel()
 	for _, stage := range []string{"before-start", "after-start", "acceptance", "shared-writer", "shared-domain"} {
 		t.Run(stage, func(t *testing.T) {
@@ -22,10 +21,10 @@ func TestSupersedeContractDispatchChallengesThenBindsApprovalOperator(t *testing
 
 func testSupersedeContractDispatch(t *testing.T, stage string) {
 	t.Helper()
-	s, service, grant, privateKey := mutationDispatchFixture(t, []agentcontract.Capability{"work_transition"})
+	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_transition"})
 	// The initial contract is engineering. The successor's serious registry
-	// correction exercises exact-text consent under consequence_v1.
-	version := seedAgentWorkflowAt(t, s, grant, legacyApprovalPolicyDefinitionForRef(t))
+	// correction is recorded by the authenticated coordinator.
+	version := seedAgentWorkflowAt(t, s, grant, currentImplementationFixtureDefinition(t))
 	scopeVersion, _, err := s.ScopeVersion(context.Background(), "project-1")
 	if err != nil {
 		t.Fatal(err)
@@ -45,7 +44,7 @@ func testSupersedeContractDispatch(t *testing.T, stage string) {
 	if len(binding["domain_modifies"].([]string)) != 0 {
 		contractFields["law_change_reason"] = "Correct the declared Domain registry."
 	}
-	contract, _ := approvedWorkflowContract(t, s, service, grant, privateKey, env, version, contractFields, "supersede-approve-contract")
+	contract, _ := approvedWorkflowContract(t, s, service, env, version, contractFields, "supersede-approve-contract")
 	if contract.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("approve_contract=%+v", contract.Error)
 	}
@@ -83,12 +82,11 @@ func testSupersedeContractDispatch(t *testing.T, stage string) {
 	successorBinding := workflowArchitectureBindingForSeededRegistry(t, s)
 	successorBinding["domain_modifies"] = []string{successorBinding["home_domain_id"].(string)}
 	fields := map[string]any{
-		"decision_domains":                 []string{"security"},
-		"contract_version":                 2,
-		"premise":                          "corrected premise",
-		"architecture_binding":             successorBinding,
-		"law_change_reason":                "Correct the security-relevant Domain registry declaration.",
-		"law_change_registry_content_hash": seededDomainRegistryContentHash(t, s),
+		"decision_domains":     []string{"security"},
+		"contract_version":     2,
+		"premise":              "corrected premise",
+		"architecture_binding": successorBinding,
+		"law_change_reason":    "Correct the security-relevant Domain registry declaration.",
 		"outcome_predicates": []map[string]any{{
 			"predicate_id": "predicate:primary", "ordinal": 0, "outcome_kind": "check",
 			"outcome_payload": map[string]any{"kind": "check", "check_ref": "check:workflow", "immutable_subject_ref": "commit:workflow", "expected_result": "pass"},
@@ -111,34 +109,7 @@ func testSupersedeContractDispatch(t *testing.T, stage string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	challenge := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: raw}, env)
-	if challenge.Outcome != agentcontract.OutcomeError || challenge.Error == nil || challenge.Error.Kind != "approval_required" {
-		t.Fatalf("challenge outcome=%s error=%+v", challenge.Outcome, challenge.Error)
-	}
-	challengeRef, ok := challenge.Error.Details["approval_ref"].(string)
-	if !ok || len(challengeRef) != 64 {
-		t.Fatalf("approval challenge ref=%v", challenge.Error.Details["approval_ref"])
-	}
-
-	approved := input
-	approved["approval"] = map[string]any{"approval_ref": challengeRef}
-	approvedRaw, err := json.Marshal(approved)
-	if err != nil {
-		t.Fatal(err)
-	}
-	// The assertion binds the invoking session's worktree.
-	scope, versions := challengeApprovalBindings(t, challenge.Error.ConsequenceSummary)
-	env.HostApproval = signedHostApproval(privateKey, challengeRef, mutationDigest("concord_work_transition", "workflow_action", env, approvedRaw), scope, versions, grant.SessionRef, grant.AgentRef, env.Worktree, fixedTime(), nonceForChallenge(challengeRef))
-	tampered := bytes.Replace(approvedRaw, []byte("corrected premise"), []byte("unapproved premise"), 1)
-	refused := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: tampered}, env)
-	if refused.Outcome != agentcontract.OutcomeError || refused.Error == nil || refused.Error.Kind != "approval_invalid" || workOneVersion(t, s) != version {
-		t.Fatalf("changed contract reused approval: outcome=%s error=%+v", refused.Outcome, refused.Error)
-	}
-	tamperedDesign := bytes.Replace(approvedRaw, []byte("corrected design"), []byte("unapproved design"), 1)
-	refused = dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: tamperedDesign}, env)
-	if refused.Outcome != agentcontract.OutcomeError || refused.Error == nil || refused.Error.Kind != "approval_invalid" || workOneVersion(t, s) != version {
-		t.Fatalf("changed design reused approval: outcome=%s error=%+v", refused.Outcome, refused.Error)
-	}
+	approvedRaw := raw
 	var stale map[string]any
 	if err := json.Unmarshal(approvedRaw, &stale); err != nil {
 		t.Fatal(err)
@@ -148,7 +119,7 @@ func testSupersedeContractDispatch(t *testing.T, stage string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	refused = dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: staleRaw}, env)
+	refused := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: staleRaw}, env)
 	if refused.Outcome != agentcontract.OutcomeError || refused.Error == nil || refused.Error.Kind != "version_conflict" || workOneVersion(t, s) != version {
 		t.Fatalf("stale version admitted correction: outcome=%s error=%+v", refused.Outcome, refused.Error)
 	}
@@ -173,26 +144,6 @@ func testSupersedeContractDispatch(t *testing.T, stage string) {
 	}
 	if actorClass != string(store.ActorAgent) {
 		t.Fatalf("successor author actor class=%q, want the invoking coordinator", actorClass)
-	}
-	var lawChangeJSON string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT law_change FROM workflow_contracts WHERE work_id='work-1' AND contract_version=2`).Scan(&lawChangeJSON); err != nil {
-		t.Fatal(err)
-	}
-	var change store.WorkflowLawChange
-	if err := json.Unmarshal([]byte(lawChangeJSON), &change); err != nil {
-		t.Fatal(err)
-	}
-	// The recorded binding names the consumed durable approval row, whose
-	// operator identity the fold re-derives as actor_class operator with the
-	// approval-prefixed agent ref and the approving session's principal.
-	if change.Approval == nil || change.Approval.ApprovalRef == "" || change.Approval.OperationDigest == "" || change.Approval.Consequence == "" {
-		t.Fatalf("successor omitted the consumed operator approval binding: %s", lawChangeJSON)
-	}
-	if change.Approval.Operator.ActorClass != store.ActorOperator || change.Approval.Operator.AgentRef != "approval:"+change.Approval.ApprovalRef {
-		t.Fatalf("successor recorded a non-operator approval identity: %s", lawChangeJSON)
-	}
-	if change.Approval.Operator.PrincipalRef != grant.PrincipalRef || change.Approval.Operator.SessionRef != grant.SessionRef {
-		t.Fatalf("successor approval operator %v does not bind the approving session", change.Approval.Operator)
 	}
 	after, err := store.VerifyWorkflowInstanceDefinition(context.Background(), s, store.BuiltinWorkflowRegistry(), "work-1")
 	if err != nil || after.Digest != before.Digest {

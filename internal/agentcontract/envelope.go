@@ -17,10 +17,6 @@ import (
 // MaxResultEnvelopeBytes is the serialized result envelope's hard maximum.
 const MaxResultEnvelopeBytes = 51200
 
-// MaxConsequenceSummaryBindings bounds each canonical binding list a
-// consequence summary carries.
-const MaxConsequenceSummaryBindings = 32
-
 type Outcome string
 
 const (
@@ -163,31 +159,12 @@ type TypedError struct {
 	StaleLawRevision    *StaleLawRevision    `json:"stale_law_revision,omitempty"`
 	ExternalRefConflict *ExternalRefConflict `json:"external_ref_conflict,omitempty"`
 	SessionPlacement    *SessionPlacement    `json:"session_placement,omitempty"`
-	// ConsequenceSummary is the CD-0037 typed approval prompt. It is derived
-	// at challenge mint from the exact facts the challenge binds, so nothing
-	// it describes can change without invalidating the challenge itself. It
-	// rides only refusals that minted a challenge; a refusal that minted
-	// nothing is instructions, not a consent prompt, and carries none.
-	ConsequenceSummary *ConsequenceSummary `json:"consequence_summary,omitempty"`
 	// SupportedBudgetSeconds is the CD-0038 D3 typed ceiling. It rides every
 	// budget_refused error — seconds refusal, result-size overrun, and the
 	// legacy millisecond bound alike — so the value a caller needs to recover
 	// is a field, never a details entry an implementation may forget to mint.
 	SupportedBudgetSeconds int            `json:"supported_budget_seconds,omitempty"`
 	Details                map[string]any `json:"details,omitempty"`
-}
-
-// ConsequenceSummary is the closed wire form of CD-0037 D1. Scope and
-// versions use the canonical sorted approval renderers, so an agent branches
-// on the same strings approval consumption compares byte-for-byte.
-type ConsequenceSummary struct {
-	Tool            string   `json:"tool"`
-	Operation       string   `json:"operation"`
-	Consequence     string   `json:"consequence"`
-	OperationDigest string   `json:"operation_digest"`
-	Scope           []string `json:"scope"`
-	Versions        []string `json:"versions"`
-	ExpiresAt       string   `json:"expires_at"`
 }
 
 // GoverningConflictOptions is the closed operator-choice vocabulary of CD-0035
@@ -638,7 +615,7 @@ func UniqueNonEmpty(values []string) bool {
 
 // recoveryActions is the closed recovery-action vocabulary the envelope
 // contract admits.
-var recoveryActions = map[string]bool{"none": true, "correct_request": true, "retry_same_request": true, "refresh_context": true, "reread_entities": true, "request_approval": true, "provide_evidence": true, "reduce_limit": true, "use_declared_route": true, "use_next_cursor": true, "restart_query": true, "adjust_budget": true, "reconcile_operation": true, "resolve_ambiguity": true, "contact_operator": true}
+var recoveryActions = map[string]bool{"none": true, "correct_request": true, "retry_same_request": true, "refresh_context": true, "reread_entities": true, "provide_evidence": true, "reduce_limit": true, "use_declared_route": true, "use_next_cursor": true, "restart_query": true, "adjust_budget": true, "reconcile_operation": true, "resolve_ambiguity": true, "contact_operator": true}
 
 // RecoveryActionAllowed reports whether kind names a contractual recovery
 // action. Any other authored recovery text is remedy prose, not an action.
@@ -670,36 +647,6 @@ var (
 	operationIDRE = regexp.MustCompile("^[a-z0-9_]+$")
 	commitOIDRE   = regexp.MustCompile("^[0-9a-f]{40}([0-9a-f]{24})?$")
 )
-
-// sortedBoundedList enforces the canonical renderer's contract: sorted,
-// unique, non-empty strings within the envelope bound.
-// sortedOptionalBindings is sortedBoundedList for a binding list the challenge
-// may legitimately bind nothing to. CD-0037 D3 derives the summary from the
-// exact versions bound to the challenge, and D4 has approval consumption
-// compare that same value byte for byte. An approval-gated operation that pins
-// no expected version binds an empty version map, so an empty list is the
-// faithful rendering of it. Refusing empty made that refusal undeliverable and
-// withheld the approval reference the operator needs to act.
-func sortedOptionalBindings(values []string, limit int) bool {
-	if len(values) == 0 {
-		return true
-	}
-	return sortedBoundedList(values, limit)
-}
-
-func sortedBoundedList(values []string, limit int) bool {
-	if len(values) == 0 || len(values) > limit {
-		return false
-	}
-	previous := ""
-	for i, value := range values {
-		if !BoundedBytes(value, 3, 256) || (i > 0 && value <= previous) {
-			return false
-		}
-		previous = value
-	}
-	return true
-}
 
 // enforcedRecoveryCouplings owns the actions admitted for each coupled kind.
 // The first action is the default for an unrecognized proposal. PublicRecovery
@@ -743,8 +690,6 @@ func PublicRecovery(kind, proposed string) string {
 	switch kind {
 	case "unauthorized", "unreachable", "internal_error":
 		return "contact_operator"
-	case "approval_required", "approval_invalid":
-		return "request_approval"
 	case "invalid_input":
 		return "correct_request"
 	case "invalid_transition", "invalid_relation", "invariant_violation":
@@ -849,14 +794,6 @@ func validateErrorRecoveryCouplings(err TypedError) error {
 	if err.Kind == "budget_refused" && err.SupportedBudgetSeconds < 1 {
 		return errors.New("budget refusal must carry supported_budget_seconds")
 	}
-	// CD-0037 D1: the summary is a closed object of challenge-bound facts. The
-	// D2 coupling — present exactly when a challenge was minted — belongs to
-	// the mint sites; this validates the object's shape wherever it appears.
-	if summary := err.ConsequenceSummary; summary != nil {
-		if x := validateConsequenceSummaryShape(summary); x != nil {
-			return x
-		}
-	}
 	if (err.Kind == "cancelled" || err.Kind == "timeout") && err.EffectState != EffectNone {
 		return errors.New("cancel/timeout must carry effect state none")
 	}
@@ -872,24 +809,6 @@ func validateErrorRecoveryCouplings(err TypedError) error {
 func validateStaleLawRevisionCoupling(revision *StaleLawRevision) error {
 	if revision == nil || !BoundedBytes(revision.OldLawID, 2, 256) || !ValidSHA256Proof(revision.OldContentHash) || len(revision.RecoveryActions) == 0 || len(revision.RecoveryActions) > 4 || !boundedStrings(revision.RecoveryActions, 128) {
 		return errors.New("stale law revision coupling violated")
-	}
-	return nil
-}
-
-// validateConsequenceSummaryShape validates the closed object of
-// challenge-bound facts a consequence summary carries.
-func validateConsequenceSummaryShape(summary *ConsequenceSummary) error {
-	if !toolIDRE.MatchString(summary.Tool) || !operationIDRE.MatchString(summary.Operation) || !BoundedBytes(summary.Consequence, 2, 64) || !ValidSHA256Proof(summary.OperationDigest) {
-		return errors.New("consequence summary identity fields are invalid")
-	}
-	if summary.ExpiresAt == "" {
-		return errors.New("consequence summary lacks expiry")
-	}
-	if _, err := time.Parse(time.RFC3339Nano, summary.ExpiresAt); err != nil {
-		return errors.New("consequence summary expiry is not RFC3339")
-	}
-	if !sortedBoundedList(summary.Scope, MaxConsequenceSummaryBindings) || !sortedOptionalBindings(summary.Versions, MaxConsequenceSummaryBindings) {
-		return errors.New("consequence summary scope or versions are not canonical sorted bindings")
 	}
 	return nil
 }

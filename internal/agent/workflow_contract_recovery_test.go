@@ -13,7 +13,7 @@ import (
 
 func TestPublicDuplicateContractRecoveryUsesRoutineAuthorityAndKeepsWorkID(t *testing.T) {
 	ctx := context.Background()
-	s, service, grant, privateKey := mutationDispatchFixture(t, []agentcontract.Capability{"work_transition"})
+	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_transition"})
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
 	if err != nil {
 		t.Fatal(err)
@@ -39,17 +39,9 @@ func TestPublicDuplicateContractRecoveryUsesRoutineAuthorityAndKeepsWorkID(t *te
 			t.Fatalf("advance action=%s response=%+v err=%v", action, response, dispatchErr)
 		}
 	}
-	initialInput := workflowContractActionInput(t, s, "public-recovery-approve", "")
-	challenge, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: initialInput}, env)
-	if err != nil || challenge.Outcome != agentcontract.OutcomeError || challenge.Error == nil || challenge.Error.Kind != "approval_required" {
-		t.Fatalf("initial approval challenge response=%+v err=%v", challenge, err)
-	}
-	challengeRef, _ := challenge.Error.Details["approval_ref"].(string)
-	env.HostApproval = signedHostApproval(privateKey, challengeRef, mutationDigest("concord_work_transition", "workflow_action", env, initialInput), map[string]any{
-		"product_id": "product-1", "project_ids": []string{"project-1"}, "work_ids": []string{"work-1"}, "scope_version": scopeVersion,
-	}, map[string]any{"work": 8}, grant.SessionRef, grant.AgentRef, grant.Worktree, fixedTime(), "public-recovery-initial")
-	if approved, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: workflowContractActionInput(t, s, "public-recovery-approve", challengeRef)}, env); err != nil || approved.Outcome != agentcontract.OutcomeOK {
-		t.Fatalf("initial approval response=%+v err=%v", approved, err)
+	initialInput := workflowContractActionInput(t, s, "public-recovery-approve")
+	if approved, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: initialInput}, env); err != nil || approved.Outcome != agentcontract.OutcomeOK {
+		t.Fatalf("initial approval response outcome=%s error kind=%s detail=%s err=%v", approved.Outcome, approved.Error.Kind, approved.Error.Message, err)
 	}
 
 	recordApprovedWorkDesign(t, s, service, mutationEnvelope(grant, scopeVersion), "work-1", "public-recovery-design")
@@ -77,11 +69,8 @@ DELETE FROM write_guard`); err != nil {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// A non-serious supersession is routine under consequence_v1, even when
-	// recovery repairs a duplicate projection. No second approval is consumed.
-	env.HostApproval = nil
-	challengesBefore := countWorkflowApprovalChallenges(t, s)
-	approvalsBefore := agentRowsSnapshot(t, s, `SELECT * FROM agent_approvals`)
+	// A non-serious supersession is routine, even when recovery repairs a
+	// duplicate projection.
 	results := make(chan struct {
 		response agentcontract.Envelope
 		err      error
@@ -130,11 +119,8 @@ DELETE FROM write_guard`); err != nil {
 	if err := db.QueryRow(`SELECT approved_by FROM workflow_contracts WHERE work_id='work-1' AND superseded_by IS NULL`).Scan(&approvingActor); err != nil {
 		t.Fatal(err)
 	}
-	if approvingActor != store.DeriveWorkflowActorRef(grant.PrincipalRef, grant.ClientRef, grant.AgentRef, grant.SessionRef) || agentRowsSnapshot(t, s, `SELECT * FROM agent_approvals`) != approvalsBefore {
-		t.Fatalf("routine recovery did not remain agent-attributed and approval-free: approving_actor=%s", approvingActor)
-	}
-	if got := countWorkflowApprovalChallenges(t, s); got != challengesBefore {
-		t.Fatalf("routine recovery minted approval challenges: %d -> %d", challengesBefore, got)
+	if approvingActor != store.DeriveWorkflowActorRef(grant.PrincipalRef, grant.ClientRef, grant.AgentRef, grant.SessionRef) {
+		t.Fatalf("routine recovery did not remain agent-attributed: approving_actor=%s", approvingActor)
 	}
 	replayed, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: recoveryInput}, env)
 	if err != nil || replayed.Outcome != agentcontract.OutcomeOK || !replayed.Replayed {
@@ -142,8 +128,5 @@ DELETE FROM write_guard`); err != nil {
 	}
 	if active := countRows(t, db, `SELECT count(*) FROM workflow_contracts WHERE work_id='work-1' AND superseded_by IS NULL`); active != 1 {
 		t.Fatalf("exact recovery retry changed active contract count to %d", active)
-	}
-	if agentRowsSnapshot(t, s, `SELECT * FROM agent_approvals`) != approvalsBefore {
-		t.Fatal("exact recovery retry changed retained approval state")
 	}
 }

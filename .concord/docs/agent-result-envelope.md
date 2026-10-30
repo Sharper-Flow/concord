@@ -139,7 +139,6 @@ correct_request
 retry_same_request
 refresh_context
 reread_entities
-request_approval
 provide_evidence
 reduce_limit
 use_declared_route
@@ -155,7 +154,7 @@ Closed error kinds:
 
 | Family | Kinds |
 |---|---|
-| Scope/auth | `unknown_scope`, `ambiguous_scope`, `stale_context`, `unauthorized`, `approval_required`, `approval_invalid` |
+| Scope/auth | `unknown_scope`, `ambiguous_scope`, `stale_context`, `unauthorized` |
 | Concurrency/retry | `version_conflict`, `idempotency_conflict`, `operation_conflict`, `resource_busy` |
 | Domain | `invalid_transition`, `invalid_relation`, `invariant_violation`, `missing_evidence`, `not_terminal`, `outcome_mismatch` |
 | Authority/freshness | `stale_requires_review`, `degraded_not_allowed`, `unreachable` |
@@ -166,19 +165,12 @@ Expected domain outcomes such as `not_compacted`, canonical-note `missing`, or
 canonical-note `ambiguous` remain typed `ok.result` variants when the query itself
 succeeded. They are not infrastructure errors.
 
-`approval_required` refusals that minted a core approval challenge carry the
-CD-0037 typed `consequence_summary` object (tool, operation, consequence,
-operation digest, canonical scope and version bindings, expiry). It is derived
-only from the facts bound to the challenge; challenge-less approval refusals
-carry no summary, and a summary without a challenge is invalid. The adapter
-transports the object unchanged; the host renders it for the operator.
-
 `retry_safe=true` means repeating the **same canonical request with the same
 idempotency key** cannot create another effect. It does not mean retrying immediately
 will succeed; `recovery_action` owns preparation.
 
 Error kind structurally constrains recovery: ambiguity resolves candidates; stale
-context refreshes; version/domain conflicts reread entities; approval/evidence errors
+context refreshes; version/domain conflicts reread entities; evidence errors
 request their missing proof; limit errors reduce the limit where the operation
 exposes one, or name an executable recovery for that operation under
 [§8.2](#82-lossless-oversized-result-transport); budget refusal adjusts
@@ -201,9 +193,9 @@ use an `error` outcome only when `effect_state=none`; possible effects become
 recovery steps for the agent. It is permitted only on a governing-law conflict —
 `invariant_violation` with `contact_operator` recovery — and its closed vocabulary
 is `clarify`, `amend_contract`, `accept_scope_cut`. It is permitted rather than
-required, so an `invariant_violation` that offers no choice stays valid. A refusal
-carrying `accept_scope_cut` also carries the `approval_ref` that option resolves
-against: the choice is actionable, not advisory. See
+required, so an `invariant_violation` that offers no choice stays valid. Acting on
+`accept_scope_cut` requires the `cross_scope` capability; otherwise the core
+refuses with `unauthorized`. See
 [CD-0035](./decisions/CD-0035-governing-requirements-at-capture.md).
 
 ### 5.1 Contract-request validation guidance

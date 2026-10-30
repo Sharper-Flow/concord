@@ -159,9 +159,6 @@ func TestMainCheckoutLifecyclePreservesTerminalGates(t *testing.T) {
 		if lifecycle := workLifecycle(t, s, "work-1"); lifecycle != "completed" {
 			t.Fatalf("work lifecycle=%q, want completed", lifecycle)
 		}
-		if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM agent_approval_challenges`); got != 0 {
-			t.Fatalf("ordinary completion minted %d challenges", got)
-		}
 	})
 }
 

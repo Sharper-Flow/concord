@@ -14,8 +14,7 @@
   "date": "2026-08-21T00:00:00Z",
   "evidence": [
     ".concord/docs/decisions/CD-0012-bind-stated-goals-to-delivered-outcomes.md",
-    ".concord/docs/decisions/CD-0026-learning-capture.md",
-    ".concord/docs/decisions/CD-0037-core-derived-approval-consequence-summaries.md"
+    ".concord/docs/decisions/CD-0026-learning-capture.md"
   ],
   "home_domain_id": "product-root:concord",
   "id": "CD-0053",
@@ -29,9 +28,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:be3fa8a7e2e260a0e23a2af343b1d4f464be16389b00324043d9d4028582b1fe",
+  "sha256": "sha256:360000927af42484417613f7a7cb1090a532f33d2c43e22370c0a6e60b02a782",
   "status": "accepted",
-  "summary": "CD-0019 D3 closes: the gated human-checkpoint lifecycle is absorbed into typed approval routes and core-derived consequence summaries; the agreement-gate discipline is preserved as the CD-0012 outcome contract enforced at completion; standalone wisdom capture is preserved as CD-0026 lesson publication into the git knowledge home. CD-0082 amends the cutover framing without changing these answers.",
+  "summary": "CD-0019 D3 closes: the gated human-checkpoint lifecycle is absorbed into purpose-built workflow types; the agreement-gate discipline is preserved as the CD-0012 outcome contract enforced at completion; standalone wisdom capture is preserved as CD-0026 lesson publication into the git knowledge home. CD-0082 amends the cutover framing without changing these answers.",
   "tags": [
     "predecessor",
     "migration",

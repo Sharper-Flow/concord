@@ -127,7 +127,6 @@
           "result_schema",
           "capability",
           "consequence",
-          "approval",
           "metadata",
           "supported_budget_seconds"
         ],
@@ -193,14 +192,6 @@
               "recovery",
               "research",
               "claim"
-            ],
-            "type": "string"
-          },
-          "approval": {
-            "enum": [
-              "none",
-              "conditional",
-              "required"
             ],
             "type": "string"
           },

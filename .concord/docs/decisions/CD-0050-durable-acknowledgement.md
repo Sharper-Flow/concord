@@ -55,11 +55,9 @@ The contract, stated as Product law:
   the store. If an ordinary write rolls back, it rolls back; there is
   no silent reconstruction.
 
-Consent classification is not durability classification. Removing a routine
-approval under CD-0013 D11 does not remove a durable acknowledgement boundary.
 Workflow actions, terminal transitions, authority changes, and cross-authority
 claims retain their durable commits under CD-0207. Mutation and recovery paths must select durability from the effect and retained
-intent, not merely from the presence of an approval reference.
+intent.
 
 ### D5. Schema migrations are excluded
 

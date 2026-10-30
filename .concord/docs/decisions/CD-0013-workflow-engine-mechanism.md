@@ -119,7 +119,7 @@ The registry is closed. Adding a new predicate kind requires an accepted CD-NNNN
 
 Actor identity stays the existing authenticated tuple.
 
-### D6. Evidence and approvals reuse existing machinery
+### D6. Evidence reuses existing bindings
 
 - Evidence uses the immutable-subject binding from CD-0008 D2 with the closed kinds
   the envelope schema already enumerates — `verification`, `review`, `approval`,
@@ -129,9 +129,6 @@ Actor identity stays the existing authenticated tuple.
   deliberately left for a separate reconciliation: the prose names
   "durable-knowledge" where the enum uses `durable_note`, and the prose omits
   `artifact` entirely. This decision resolves neither by implication.
-- Approvals use the existing `ApprovalCheck{OperationDigest, Scope, Versions,
-  Consequence}` chain with `Consequence=workflow_action` already reserved in the
-  schema.
 - `durable_operations` and the attempt-epoch fence remain the only step-claim
   authority; the store records each step result as a current row, not duplicated state.
 
@@ -176,7 +173,7 @@ A workflow reaches `terminal` only when:
 
 Each clause is a typed refusal at completion. Refusals reuse the existing TS7 closed
 error kinds wherever one already fits — `missing_evidence`, `unauthorized`,
-`approval_required`, `approval_invalid`, `invariant_violation`, `not_terminal`,
+`invariant_violation`, `not_terminal`,
 `stale_requires_review`, `version_conflict` — each paired with the recovery action
 the envelope schema already requires for it.
 
@@ -189,9 +186,9 @@ incomparable delivery has no criterion proof and is refused as missing evidence
 
 ### D11. Workflow actions use the current generated agent surface
 
-Definitions declaring `approval_policy=consequence_v1` use the following consent contract. Definitions generate from one canonical source, and the identities active work needs are derived at the integration boundary ([CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source)).
+Definitions generate from one canonical source, and the identities active work needs are derived at the integration boundary ([CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source)).
 
-This policy is the workflow-action form of CD-0230 D5 and
+Operator decisions follow CD-0230 D5 and
 [CD-0243 D2](CD-0243-four-roles-and-six-operator-approval-classes.md#d2-the-operator-approves-six-classes-of-decision).
 Consent follows the six operator approval classes, not execution consequence,
 durability, action name, or a missing classification. Routine engineering and
@@ -205,15 +202,12 @@ array means no class applies; an absent field is never treated as
 engineering. It does not infer consent from a title, tag, kind, path, or
 premise text. Only attributed contract supersession changes that
 classification, with expected versions and a reason; it never rewrites an
-earlier operator decision. The field's shipped `preference`, `product`, and
-`ui_ux` members are an implementation gap under CD-0243 D6.
-Engineering work still records a valid contract and premise confirmation
-without a host consent prompt. A decision requiring operator approval retains
-the exact question, choice, digest, and verified operator identity.
+earlier operator decision. The field describes the contract; operator approval
+remains conversational under CD-0243. Every workflow records a valid contract
+and premise confirmation.
 
 Supersession, correction, verdicts, completion and
-acceptance records are routine when no CD-0243 D2 class applies. Removed
-approvals do not remove evidence, version, source, scope, current-step, or
+acceptance records preserve evidence, version, source, scope, current-step, and
 recovery checks. Recovery follows CD-0243 D5: the operator may approve
 explained irreversible loss, and customer-data loss remains reserved.
 Supersession grants no legislative authority or automatic overlap exemption.
@@ -222,16 +216,14 @@ Independent native Task Review inspects the accumulated solution and reports
 one disposition that Main records against its exact subject and dependencies
 without Concord attesting a subagent producer ([CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d5-execution-is-a-loop-that-main-controls)).
 
-An engineering premise confirmation records the actual coordinator actor after
+A premise confirmation records the authenticated coordinator after
 investigation and acceptance deliverables pass. A UI/UX change requiring
 approval retains the operator's review and acceptance at the current contract
 version; contract approval alone does not satisfy that acceptance. Minor
 corrections introducing no new design or interaction need no fresh UI/UX
-approval. Completion requires current confirmation with the appropriate
-authority. D5 and D10's universal operator assertions are qualified by this
-consent policy.
+approval. Completion requires current confirmation by that coordinator.
 
-The shared admission derivation owns class-dependent questions and next actions. Every removed consent gate retains an admitted, evidence-backed exit and terminal reachability. Review is a real prerequisite, not an assumed verdict. No hold loop or fabricated human actor satisfies liveness.
+The shared admission derivation owns questions and next actions. Every reachable state retains an admitted, evidence-backed exit and terminal reachability. Review is a real prerequisite, not an assumed verdict. No hold loop or fabricated human actor satisfies liveness.
 
 At the current operation surface, removal, cancellation, repair,
 reconciliation, research-pack retirement, overlap resolution, membership
@@ -244,14 +236,7 @@ and durable-intent checks remain required. Workflow acceptance does not authoriz
 destructive commands, deployment, release, credential disclosure, or
 force-push; host permissions still govern them.
 
-The typed approval summary binds applicable classes, the exact operation,
-work identity, and contract version to the canonical request and consumption
-checks. The host renders core facts; caller prose and adapter inference do not
-supply authority. The six-class inventory and runtime alignment remain
-implementation obligations under CD-0243 D6; an unaligned gate is not a bypass
-route.
-
-Live-family definitions declare this policy and require explicit classification. Retired families gain no new authoring route. Definitions generate from one canonical source with no released definition version retained for history ([CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source)).
+Live-family contracts require explicit classification. Retired families gain no new authoring route. Definitions generate from one canonical source with no released definition version retained for history ([CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source)).
 
 [CD-0042 D2](CD-0042-pre-go-live-single-path.md#d2-the-current-agent-surface-has-one-identity)
 owns the current agent-tool contract identity, its digest binding, and
@@ -331,7 +316,7 @@ The implementation acceptance suite must exercise:
     resume point.
 23. A retry with the same idempotency identity produces no second effect.
 24. A step completed by a stale attempt_epoch is refused.
-25. Operator takeover of a stuck attempt succeeds only with a valid approval_ref.
+25. Takeover of a stuck attempt fences the prior holder by advancing the attempt epoch; the stale holder cannot complete it.
 
 ### Composition
 
@@ -465,7 +450,7 @@ kind, or actor tuple requires an accepted CD-NNNN.
 The engine admits `request_correction` after delivered work
 receives a current unhealthy verification verdict. A native Task alone does
 not satisfy this boundary. The action requires a diagnosis, strategy, affected
-predicate IDs, bound evidence, and exact operator approval. It holds
+predicate IDs, bound evidence, and authenticated coordinator authority. It holds
 the current checkpoint, preserves the recorded verdict and results, and returns
 the pinned instance to its declared external-effect step. It does not return to
 `refine`, rewrite the contract, or alter a definition's generated source.

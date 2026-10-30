@@ -57,7 +57,7 @@
       "link": "refused",
       "link_refusal": {
         "message": "overlap-resolution relations must be created by resolve_overlap",
-        "recovery": "use resolve_overlap so operator approval, version pins, and lifecycle changes remain atomic"
+        "recovery": "use resolve_overlap so version pins and lifecycle changes remain atomic"
       },
       "written_by": ["workflow.overlap_resolved"]
     },

@@ -53,9 +53,8 @@ func TestDeliveryPrerequisiteAdmissionAgreement(t *testing.T) {
 			definition, state := loadedAdmissionForTest(t, fixture.store, workID, pin)
 			model := admissionModelState{
 				step: pin.Step, contracts: 1,
-				review:      admissionModelReview{accepted: "ready_for_final_proof", candidate: true, current: true},
-				engineering: true,
-				started:     stage != "before-start", proof: stage == "green-proof",
+				review:  admissionModelReview{accepted: "ready_for_final_proof", candidate: true, current: true},
+				started: stage != "before-start", proof: stage == "green-proof",
 			}
 			want := admissionConformanceViewOf(admissionWorkflowState(definition, model))
 			// The unobserved fixture has no criterion assessment or association.

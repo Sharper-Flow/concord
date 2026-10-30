@@ -264,9 +264,8 @@ func workflowActionPreflightTx(ctx context.Context, tx *sql.Tx, registry Definit
 	// One admission derivation for the preflight: the tx-scoped loader folds
 	// the instance history into the abstract admission state once, and the
 	// pure workflowAdmit decides. The refusal applies here except the
-	// operator-approval walls and the closed-question wall,
-	// which the approval-gated mutation boundary and the selection chain own
-	// before the fold refuses them. A staleness, impact, wall, or
+	// closed-question wall, which the operator-selection chain owns
+	// before the fold refuses it. A staleness, impact, wall, or
 	// step-legality refusal is never deferred. The recovery flags and the
 	// supersede classification below read the same folded state instead of
 	// re-deriving the conditions per site.
@@ -313,7 +312,7 @@ func workflowActionPreflightTx(ctx context.Context, tx *sql.Tx, registry Definit
 	}
 	// The selection core consumes the folded admission's confirmation
 	// answer: one classification, no second fact read.
-	if err := validateWorkflowOperatorSelectionCoreTx(ctx, tx, entry, request, workflowConfirmationFold{authority: admission.ConfirmationAuthority, factFailure: admission.ConfirmationFactFailure}); err != nil {
+	if err := validateWorkflowOperatorSelectionCoreTx(ctx, tx, entry, request, workflowConfirmationFold{authority: admission.ConfirmationAuthority}); err != nil {
 		return RegisteredDefinition{}, err
 	}
 	// See the note in the non-transactional preflight: recording a new actor is
@@ -394,8 +393,8 @@ func preflightWorkflowVerdictTx(ctx context.Context, tx *sql.Tx, definition Work
 // supplied envelope value is validated against the declared type, and the
 // fields object carries only what the envelope does not project. Absent
 // values are left to the operator-selection guard, which owns presence
-// enforcement at the agent boundary; the fold consumes the operator approval
-// instead. The merged copy is validation input only; the recorded payload
+// enforcement at the agent boundary; the operator-selection guard consumes
+// the answer instead. The merged copy is validation input only; the recorded payload
 // stays what the caller supplied.
 func workflowEnvelopeProjectedPayload(definition WorkflowDefinition, actionID string, payload json.RawMessage, selectedChoice, decisionContextDigest string) json.RawMessage {
 	var payloadDefinition WorkflowPayloadDefinition
@@ -509,7 +508,7 @@ func validateWorkflowActionPayload(definition WorkflowDefinition, actionID strin
 	if err := validateWorkflowPayloadCrossFieldRules(actionID, fields); err != nil {
 		return err
 	}
-	if actionID == "approve_contract" && workflowApprovalPolicyRequiresDecisionFact(definition) {
+	if actionID == "approve_contract" && workflowDeclaresDecisionDomains(definition) {
 		_, err := workflowSubmittedDecisionDomains(definition, "approval", fields)
 		return err
 	}
@@ -536,7 +535,7 @@ func workflowActionPayloadDefinition(definition WorkflowDefinition, actionID str
 	// A consequence_v1 pin validates its found initial contract approval
 	// against the selected decision-fact declaration; the typed refusal
 	// propagates.
-	if found && actionID == "approve_contract" && workflowApprovalPolicyRequiresDecisionFact(definition) {
+	if found && actionID == "approve_contract" && workflowDeclaresDecisionDomains(definition) {
 		selected, err := workflowDecisionFactInitialActionDefinition(definition)
 		if err != nil {
 			return WorkflowPayloadDefinition{}, false, err

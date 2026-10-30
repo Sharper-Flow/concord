@@ -8242,6 +8242,46 @@ ALTER TABLE workflow_instances DROP COLUMN latest_non_dispatch_start_seq;
 ALTER TABLE workflow_instances DROP COLUMN result_disposition;
 `,
 	},
+	{
+		Version:  168,
+		Name:     "remove_operator_approval_system",
+		Breaking: true,
+		SQL: `
+DROP TABLE agent_approvals;
+DROP TABLE agent_approval_challenges;
+ALTER TABLE workflow_overlap_resolutions DROP COLUMN approval_ref;
+
+CREATE TABLE outside_repair_dispositions_v168 (
+    work_id TEXT PRIMARY KEY REFERENCES work_items(id) ON DELETE RESTRICT,
+    state TEXT NOT NULL CHECK(state IN ('active','completed','resumed')),
+    reason TEXT NOT NULL CHECK(length(reason) BETWEEN 1 AND 4096),
+    evidence_json TEXT NOT NULL CHECK(json_valid(evidence_json) AND json_type(evidence_json)='object'),
+    recorded_at TEXT NOT NULL
+);
+INSERT INTO outside_repair_dispositions_v168 SELECT work_id,state,reason,evidence_json,recorded_at FROM outside_repair_dispositions;
+DROP TABLE outside_repair_dispositions;
+ALTER TABLE outside_repair_dispositions_v168 RENAME TO outside_repair_dispositions;
+CREATE INDEX outside_repair_dispositions_state ON outside_repair_dispositions(state, work_id);
+CREATE TRIGGER outside_repair_dispositions_guard_insert BEFORE INSERT ON outside_repair_dispositions FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'outside_repair_dispositions is write-seam-only') WHERE NOT EXISTS (SELECT 1 FROM write_guard WHERE active=1); END;
+CREATE TRIGGER outside_repair_dispositions_guard_update BEFORE UPDATE ON outside_repair_dispositions FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'outside_repair_dispositions is write-seam-only') WHERE NOT EXISTS (SELECT 1 FROM write_guard WHERE active=1); END;
+CREATE TRIGGER outside_repair_dispositions_guard_delete BEFORE DELETE ON outside_repair_dispositions FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'outside_repair_dispositions is write-seam-only') WHERE NOT EXISTS (SELECT 1 FROM write_guard WHERE active=1); END;
+
+CREATE TABLE outside_repair_reconciliations_v168 (
+    reconciliation_id TEXT PRIMARY KEY CHECK(length(reconciliation_id) BETWEEN 2 AND 128),
+    work_id TEXT NOT NULL REFERENCES work_items(id) ON DELETE RESTRICT,
+    reason TEXT NOT NULL CHECK(length(reason) BETWEEN 1 AND 4096),
+    evidence_json TEXT NOT NULL CHECK(json_valid(evidence_json) AND json_type(evidence_json)='object'),
+    recorded_at TEXT NOT NULL
+);
+INSERT INTO outside_repair_reconciliations_v168 SELECT reconciliation_id,work_id,reason,evidence_json,recorded_at FROM outside_repair_reconciliations;
+DROP TABLE outside_repair_reconciliations;
+ALTER TABLE outside_repair_reconciliations_v168 RENAME TO outside_repair_reconciliations;
+CREATE INDEX outside_repair_reconciliations_work ON outside_repair_reconciliations(work_id, recorded_at);
+CREATE TRIGGER outside_repair_reconciliations_guard_insert BEFORE INSERT ON outside_repair_reconciliations FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'outside_repair_reconciliations is write-seam-only') WHERE NOT EXISTS (SELECT 1 FROM write_guard WHERE active=1); END;
+CREATE TRIGGER outside_repair_reconciliations_guard_update BEFORE UPDATE ON outside_repair_reconciliations FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'outside_repair_reconciliations is write-seam-only') WHERE NOT EXISTS (SELECT 1 FROM write_guard WHERE active=1); END;
+CREATE TRIGGER outside_repair_reconciliations_guard_delete BEFORE DELETE ON outside_repair_reconciliations FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'outside_repair_reconciliations is write-seam-only') WHERE NOT EXISTS (SELECT 1 FROM write_guard WHERE active=1); END;
+`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any

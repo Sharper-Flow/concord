@@ -11,9 +11,6 @@ import (
 )
 
 // WorkflowLawChange records a reason and the law delta against the owning start.
-// Consent follows the contract's decision domains, never size or seriousness.
-// Version zero's retired descriptive fields remain decodable, not authoritative
-// for new consent or a substitute for a verified owning-start baseline.
 type WorkflowLawChange struct {
 	Version                    int                          `json:"version,omitempty"`
 	Reason                     string                       `json:"reason"`
@@ -26,9 +23,6 @@ type WorkflowLawChange struct {
 	PredecessorSerious         bool                         `json:"predecessor_serious,omitempty"`
 	Serious                    bool                         `json:"serious,omitempty"`
 	EditsRegistry              bool                         `json:"edits_registry,omitempty"`
-	TextPins                   []WorkflowLawRevision        `json:"text_pins,omitempty"`
-	RegistryContentHash        string                       `json:"registry_content_hash,omitempty"`
-	Approval                   *workflowLawChangeApproval   `json:"approval,omitempty"`
 	LawBefore                  []workflowLawState           `json:"law_before"`
 	RegistryBefore             *workflowLawRegistrySnapshot `json:"registry_before"`
 }
@@ -48,67 +42,17 @@ func (state workflowLawState) differs(other workflowLawState) bool {
 	return state.Absent != other.Absent || state.ContentHash != other.ContentHash || state.Tier != other.Tier || !slices.Equal(state.DomainIDs, other.DomainIDs)
 }
 
-// The consent proof comes from the existing consumed approval, not from the
-// action payload. The coordinator still authors the contract; this tuple
-// records the human who approved its text without substituting the executor.
-type workflowLawChangeApproval struct {
-	workflowApprovalBinding
-	Operator WorkflowActor `json:"operator"`
-}
-
-func bindWorkflowLawChangeApprovalTx(ctx context.Context, tx *sql.Tx, request WorkflowActionExecutionRequest, change *WorkflowLawChange, decisionDomains []string) error {
-	if change == nil {
-		return nil
-	}
-	consent, err := classifyConsequenceV1Decision(WorkflowDefinition{}, "approve_contract", "proposed", decisionDomains)
-	if err != nil {
-		return err
-	}
-	if consent.Consent != WorkflowConsentRequired {
-		return nil
-	}
-	binding := workflowApprovalBinding{
-		ApprovalRef: request.OperatorApprovalRef, OperationDigest: request.ApprovalOperationDigest,
-		ScopeJSON: request.ApprovalScopeJSON, VersionsJSON: request.ApprovalVersionsJSON, Consequence: request.ApprovalConsequence,
-	}
-	operator, err := workflowOperatorFromConsumedApprovalTx(ctx, tx, binding, "workflow_law_change")
-	if err != nil {
-		return err
-	}
-	change.Approval = &workflowLawChangeApproval{workflowApprovalBinding: binding, Operator: operator.WorkflowActor}
-	return nil
-}
-
-func validateWorkflowLawChangeApproval(change *WorkflowLawChange, needsApproval bool) error {
-	if !needsApproval && change.Approval == nil && len(change.TextPins) == 0 && change.RegistryContentHash == "" {
-		return nil
-	}
-	proof := change.Approval
-	if proof == nil || proof.ApprovalRef == "" || !validDigest(proof.OperationDigest) || proof.ScopeJSON == "" || proof.VersionsJSON == "" || proof.Consequence == "" {
-		return newFailure(KindApprovalRequired, "fold_event", "a classified law change requires the consumed operator approval binding", false, "request approval for the exact proposed law text")
-	}
-	if _, err := WorkflowActorRef(proof.Operator); err != nil || proof.Operator.ActorClass != ActorOperator || proof.Operator.AgentRef != "approval:"+proof.ApprovalRef {
-		return newFailure(KindUnauthorized, "fold_event", "a classified law change requires the consumed approval's operator identity", false, "use the verified operator approval identity")
-	}
-	return nil
-}
-
 const (
-	workflowLawChangeReasonField       = "law_change_reason"
-	workflowLawChangeRemovalsField     = "law_change_removals"
-	workflowLawChangeTextPinsField     = "law_change_text_pins"
-	workflowLawChangeRegistryHashField = "law_change_registry_content_hash"
-	workflowLawChangeReasonMaxBytes    = 1024
-	workflowLawChangeTextPinsMax       = 64
-	workflowLawChangeTextPinSchema     = "workflow_law_text_pin"
+	workflowLawChangeReasonField    = "law_change_reason"
+	workflowLawChangeRemovalsField  = "law_change_removals"
+	workflowLawChangeReasonMaxBytes = 1024
+	workflowLawChangeRemovalsMax    = 64
 )
 
 func workflowLawChangeFields() []WorkflowPayloadField {
 	return []WorkflowPayloadField{
 		actionStringField(workflowLawChangeReasonField, false, workflowLawChangeReasonMaxBytes),
-		actionArrayField(workflowLawChangeRemovalsField, false, workflowLawChangeTextPinsMax, "law_id"),
-		actionItemArrayField(workflowLawChangeTextPinsField, false, 1, workflowLawChangeTextPinsMax, workflowLawChangeTextPinSchema),
-		actionStringField(workflowLawChangeRegistryHashField, false, 71),
+		actionArrayField(workflowLawChangeRemovalsField, false, workflowLawChangeRemovalsMax, "law_id"),
 	}
 }
 
@@ -146,14 +90,14 @@ func workflowChangedLawIDs(lawModifies []string, binding *WorkflowArchitectureBi
 // with no declared or retained enacted law scope, and refuses a law-changing
 // contract without a reason. binding is the Product-changing contract's
 // architecture binding, else nil.
-func deriveWorkflowLawChangeTx(ctx context.Context, q queryer, definition WorkflowDefinition, workID string, fields map[string]json.RawMessage, lawModifies []string, binding *WorkflowArchitectureBinding, decisionDomains []string) (*WorkflowLawChange, error) {
+func deriveWorkflowLawChangeTx(ctx context.Context, q queryer, definition WorkflowDefinition, workID string, fields map[string]json.RawMessage, lawModifies []string, binding *WorkflowArchitectureBinding) (*WorkflowLawChange, error) {
 	declared := false
 	for _, field := range workflowLawChangeFields() {
 		if _, present := fields[field.Name]; present {
 			declared = true
 		}
 	}
-	if !workflowApprovalPolicyRequiresDecisionFact(definition) {
+	if !workflowDeclaresDecisionDomains(definition) {
 		if declared {
 			return nil, newFailure(KindInvalidPayload, "workflow_law_change", "law_change fields are admitted only on a consequence_v1 contract that changes law", false, "omit the law_change fields")
 		}
@@ -180,21 +124,14 @@ func deriveWorkflowLawChangeTx(ctx context.Context, q queryer, definition Workfl
 		}
 		slices.Sort(change.Removals)
 	}
-	consent, err := classifyConsequenceV1Decision(definition, "approve_contract", "proposed", decisionDomains)
-	if err != nil {
-		return nil, err
-	}
-	if change.TextPins, change.RegistryContentHash, err = workflowLawChangeSubmittedPins(fields); err != nil {
-		return nil, err
-	}
-	if err := validateWorkflowLawChangePins(change, "workflow_law_change", consent.Consent == WorkflowConsentRequired); err != nil {
+	if err := validateWorkflowLawChangeRemovals(change, "workflow_law_change"); err != nil {
 		return nil, err
 	}
 	return change, nil
 }
 
-// Approval records declared scope and retains the still-enacted scope of the
-// immediate predecessor, which already carries every earlier retained law.
+// A law change records declared scope and retains the still-enacted scope of
+// the immediate predecessor, which already carries every earlier retained law.
 // Unattributed inventory deltas stay visible to completion; they do not become
 // this item's declarations or obstruct successor recovery.
 func deriveWorkflowLawChangeScopeTx(ctx context.Context, q queryer, workID string, change *WorkflowLawChange, lawModifies []string, binding *WorkflowArchitectureBinding) error {
@@ -311,54 +248,13 @@ func readWorkflowLawChangeHistoryTx(ctx context.Context, q queryer, workID strin
 	return changes, nil
 }
 
-// workflowLawChangeSubmittedPins decodes the submitted text pins, sorted by
-// law ID, and the registry content hash. Absent fields decode to nothing.
-func workflowLawChangeSubmittedPins(fields map[string]json.RawMessage) ([]WorkflowLawRevision, string, error) {
-	var pins []WorkflowLawRevision
-	if raw, present := fields[workflowLawChangeTextPinsField]; present {
-		if err := decodeWorkflowActionPayloadStrict(raw, &pins); err != nil || len(pins) == 0 {
-			return nil, "", newFailure(KindInvalidPayload, "workflow_law_change", "law_change_text_pins must be a non-empty list of {law_id, content_hash} pins", false, "pin each changed law's approved text by its content hash")
-		}
-		slices.SortFunc(pins, func(a, b WorkflowLawRevision) int { return strings.Compare(a.LawID, b.LawID) })
-	}
-	registryHash, _ := workflowFieldString(fields, workflowLawChangeRegistryHashField)
-	return pins, registryHash, nil
-}
-
-// Removals declare absence; classified changes pin the remaining law and registry
-// text. Agent-owned retained revisions carry the derived tier, not approval pins.
-func validateWorkflowLawChangePins(change *WorkflowLawChange, op string, needsApproval bool) error {
-	if len(change.Removals) > workflowLawChangeTextPinsMax || !slices.IsSorted(change.Removals) || len(slices.Compact(slices.Clone(change.Removals))) != len(change.Removals) {
+func validateWorkflowLawChangeRemovals(change *WorkflowLawChange, op string) error {
+	if len(change.Removals) > workflowLawChangeRemovalsMax || !slices.IsSorted(change.Removals) || len(slices.Compact(slices.Clone(change.Removals))) != len(change.Removals) {
 		return newFailure(KindInvalidPayload, op, "law_change removals must be a sorted unique list", false, "declare each removed law once")
 	}
 	for _, id := range change.Removals {
 		if !slices.Contains(change.LawIDs, id) || !slices.ContainsFunc(change.LawBefore, func(state workflowLawState) bool { return state.LawID == id && !state.Absent }) {
 			return newFailure(KindInvalidPayload, op, "law_change removal must name a scoped law present at the owning start: "+id, false, "declare the existing law through law_modifies before removing it")
-		}
-	}
-	if !needsApproval {
-		if change.TextPins != nil || change.RegistryContentHash != "" {
-			return newFailure(KindInvalidPayload, op, "law_change text pins require an applicable operator decision class; an agent-owned change carries the derived tier instead", false, "omit law_change_text_pins and law_change_registry_content_hash")
-		}
-		return nil
-	}
-	pinned := make([]string, 0, len(change.TextPins))
-	for _, pin := range change.TextPins {
-		if err := validateContentHash(pin.ContentHash); err != nil {
-			return newFailure(KindInvalidPayload, op, "law_change text pin for "+pin.LawID+" carries no sha256 content hash", false, "pin the sha256 content hash of the approved law text")
-		}
-		pinned = append(pinned, pin.LawID)
-	}
-	retained := slices.DeleteFunc(slices.Clone(change.LawIDs), func(id string) bool { return slices.Contains(change.Removals, id) })
-	if !slices.Equal(pinned, retained) {
-		return newFailure(KindInvalidPayload, op, fmt.Sprintf("a classified law change must pin the approved text of exactly each retained changed law: changed [%s], removals [%s], pinned [%s] (CD-0230 D4)", strings.Join(change.LawIDs, ", "), strings.Join(change.Removals, ", "), strings.Join(pinned, ", ")), false, "pin each retained changed law once and declare removed laws separately")
-	}
-	if change.EditsRegistry != (change.RegistryContentHash != "") {
-		return newFailure(KindInvalidPayload, op, "a classified law change pins the Domain registry content hash exactly when it edits the registry (CD-0230 D4)", false, "pin the drafted registry's content hash only for a registry edit")
-	}
-	if change.RegistryContentHash != "" {
-		if err := validateContentHash(change.RegistryContentHash); err != nil {
-			return newFailure(KindInvalidPayload, op, "law_change_registry_content_hash is not a sha256 content hash", false, "pin the drafted registry's sha256 content hash")
 		}
 	}
 	return nil
@@ -404,7 +300,7 @@ func resolveWorkflowChangedLawsTx(ctx context.Context, q queryer, homeProjectID,
 
 // validateWorkflowLawChangeShape holds a recorded fact to its closed form. It
 // reads nothing, so replay folds recorded bytes under it.
-func validateWorkflowLawChangeShape(change *WorkflowLawChange, decisionDomains, lawModifies []string, binding *WorkflowArchitectureBinding) error {
+func validateWorkflowLawChangeShape(change *WorkflowLawChange, lawModifies []string, binding *WorkflowArchitectureBinding) error {
 	if strings.TrimSpace(change.Reason) == "" || len(change.Reason) > workflowLawChangeReasonMaxBytes {
 		return newFailure(KindInvalidPayload, "fold_event", "law_change reason must be 1 to 1024 bytes", false, "record why the law changes")
 	}
@@ -434,26 +330,14 @@ func validateWorkflowLawChangeShape(change *WorkflowLawChange, decisionDomains, 
 			return err
 		}
 	}
-	needsApproval := change.Approval != nil
 	if change.Version == 2 {
 		if change.Serious || change.Crucial || change.PredecessorSerious || change.RemovesUserVisibleBehavior || change.TouchesSecurityOrDataSafe || len(change.DomainIDs) != 0 {
 			return newFailure(KindInvalidPayload, "fold_event", "current law_change carries retired seriousness facts", false, "record law scope and the contract's decision classes")
 		}
-		consent, err := classifyConsequenceV1Decision(WorkflowDefinition{}, "approve_contract", "proposed", decisionDomains)
-		if err != nil {
-			return err
-		}
-		needsApproval = consent.Consent == WorkflowConsentRequired
-		if !needsApproval && change.Approval != nil {
-			return newFailure(KindInvalidPayload, "fold_event", "agent-owned law change cannot claim operator consent", false, "omit the approval proof")
-		}
 	} else if change.Version != 0 {
 		return newFailure(KindInvalidPayload, "fold_event", "unknown law_change version", false, "use the current law-change shape")
 	}
-	if err := validateWorkflowLawChangePins(change, "fold_event", needsApproval); err != nil {
-		return err
-	}
-	return validateWorkflowLawChangeApproval(change, needsApproval)
+	return validateWorkflowLawChangeRemovals(change, "fold_event")
 }
 
 func validateWorkflowLawBeforeStates(before []workflowLawState) error {
@@ -501,24 +385,14 @@ func validateLiveWorkflowLawChangeTx(ctx context.Context, tx *sql.Tx, workID str
 	if !reflect.DeepEqual(expected.RegistryBefore, recorded.RegistryBefore) || !reflect.DeepEqual(expected.LawBefore, recorded.LawBefore) {
 		return newFailure(KindInvalidPayload, "fold_event", "law_change before-state differs from the owning-start baseline", false, "carry the before-states recorded at the item's owning start")
 	}
-	if recorded.Approval != nil {
-		proof := recorded.Approval
-		operator, err := workflowOperatorFromConsumedApprovalTx(ctx, tx, proof.workflowApprovalBinding, "workflow_law_change")
-		if err != nil {
-			return err
-		}
-		if operator.WorkflowActor != proof.Operator {
-			return newFailure(KindUnauthorized, "fold_event", "law_change operator identity differs from the consumed approval", false, "record the verified operator identity")
-		}
-	}
 	return nil
 }
 
 // Every enacted law and registry delta must lie inside the active scope.
 // A merged edit is excluded only by a completed peer's recorded enactment or
 // by Git proof that the reviewed candidate's history never made it.
-// Operator-approved text must match its pins; other law revisions must carry
-// the derived tier. A declared removal must be absent from the verified inventory.
+// Law revisions must carry the derived tier. A declared removal must be absent
+// from the verified inventory.
 func checkWorkflowLawChangeEnactmentTx(ctx context.Context, tx *sql.Tx, workID string, change *WorkflowLawChange, binding *WorkflowArchitectureBinding) error {
 	before, after, declaredLaws, err := readWorkflowLawAttributedBaselineTx(ctx, tx, workID, change)
 	if err != nil {
@@ -545,9 +419,6 @@ func checkWorkflowLawChangeEnactmentTx(ctx context.Context, tx *sql.Tx, workID s
 			return newFailure(KindOutcomeMismatch, "complete_workflow", "law declared for removal is still present in the Git projection: "+reference, false, "publish and rebuild the declared law removal")
 		}
 	}
-	if change.Approval != nil {
-		return checkWorkflowLawChangePinsEnactedTx(ctx, tx, workID, change)
-	}
 	homeProjectID, homeLocatorID, err := workflowLawHome(ctx, tx, workID)
 	if err != nil {
 		return err
@@ -565,51 +436,8 @@ func checkWorkflowLawChangeEnactmentTx(ctx context.Context, tx *sql.Tx, workID s
 			return newFailure(KindMissingEvidence, "complete_workflow", "the enacted law revision is missing from the Git projection: "+reference, false, "publish and rebuild the enacted law revision, or supersede the contract to declare its intended law_change_removals")
 		}
 		if resolution.tier != "derived" {
-			return newFailure(KindMissingEvidence, "complete_workflow", fmt.Sprintf("law %s, counted in a law change without the operator's approval of its exact text, must carry the derived tier, not %s (CD-0230 D4)", reference, resolution.tier), false, "record authority.tier derived on the changed law")
+			return newFailure(KindMissingEvidence, "complete_workflow", fmt.Sprintf("law %s must carry the derived tier, not %s (CD-0230 D4)", reference, resolution.tier), false, "record authority.tier derived on the changed law")
 		}
-	}
-	return nil
-}
-
-// checkWorkflowLawChangePinsEnactedTx compares the approved pins with the Git
-// projection. A difference means the enacted text is not the approved text,
-// so the change needs a successor contract and a new approval.
-func checkWorkflowLawChangePinsEnactedTx(ctx context.Context, tx *sql.Tx, workID string, change *WorkflowLawChange) error {
-	homeProjectID, homeLocatorID, err := workflowLawHome(ctx, tx, workID)
-	if err != nil {
-		return err
-	}
-	if len(change.TextPins) != 0 {
-		for _, pin := range change.TextPins {
-			subject, err := resolveWorkflowLawSubjectTx(ctx, tx, homeProjectID, homeLocatorID, pin.LawID)
-			if err != nil {
-				var failure *Failure
-				if failureAs(err, &failure) && failure.Kind == KindProjectionNotFound {
-					return newFailure(KindMissingEvidence, "complete_workflow", "the approved law revision is missing from the Git projection: "+pin.LawID, false, "publish and rebuild the approved law revision")
-				}
-				return err
-			}
-			if subject.hash != pin.ContentHash {
-				return newFailure(KindApprovalRequired, "complete_workflow", fmt.Sprintf("the enacted text of law %s (%s) is not the text the operator approved (%s) (CD-0230 D4)", pin.LawID, subject.hash, pin.ContentHash), false, "enact the approved text, or supersede the contract with the operator's approval of the new text")
-			}
-		}
-	}
-	if change.RegistryContentHash == "" {
-		return nil
-	}
-	productID, _, err := resolveKnowledgeSourceRole(ctx, tx, KnowledgeHome{HomeProjectID: homeProjectID, HomeLocatorID: homeLocatorID})
-	if err != nil {
-		return err
-	}
-	var registryHash string
-	if err := tx.QueryRowContext(ctx, `SELECT content_hash FROM domain_registries WHERE product_id=?`, productID).Scan(&registryHash); err != nil {
-		if err == sql.ErrNoRows {
-			return newFailure(KindMissingEvidence, "complete_workflow", "the approved Domain registry is missing from the Git projection", false, "publish and rebuild the approved Domain registry")
-		}
-		return wrapFailure(KindUnavailable, "complete_workflow", "cannot read the enacted Domain registry", true, "retry once the Domain registry is readable", err)
-	}
-	if registryHash != change.RegistryContentHash {
-		return newFailure(KindApprovalRequired, "complete_workflow", fmt.Sprintf("the enacted Domain registry (%s) is not the registry the operator approved (%s) (CD-0230 D4)", registryHash, change.RegistryContentHash), false, "enact the approved registry, or supersede the contract with the operator's approval of the new registry")
 	}
 	return nil
 }

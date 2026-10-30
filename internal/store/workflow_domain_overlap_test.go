@@ -2,7 +2,6 @@ package store
 
 import (
 	"context"
-	"encoding/json"
 	"strings"
 	"testing"
 	"time"
@@ -91,34 +90,15 @@ func seedOverlapProjection(t *testing.T, left, right string, relation bool) (*St
 	return s, actor
 }
 
-// resolveApprovedOverlap drives the live writer with an exact consumed
-// one-use approval so graph and terminal-effect guards remain reachable.
+// resolveApprovedOverlap drives the live writer's graph and terminal-effect guards.
 func resolveApprovedOverlap(t *testing.T, s *Store, eventID, fromWorkID, toWorkID string, fromExpected, toExpected int64, kind, reason, actor string) error {
 	t.Helper()
-	input, err := json.Marshal(map[string]any{
-		"from_work_id": fromWorkID, "from_expected_version": fromExpected,
-		"to_work_id": toWorkID, "to_expected_version": toExpected,
-		"from_contract_version": int64(1), "to_contract_version": int64(1),
-		"resolution_kind": kind, "reason": reason,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	digest := AgentMutationDigest("concord_work_relate", "resolve_overlap", "product", "project", input)
-	scope := string(mustJSONValue(map[string]any{"product_id": "product", "project_ids": []string{"project"}, "work_ids": []string{fromWorkID, toWorkID}}))
-	versions := string(mustJSONValue(workflowOverlapApprovalVersions{From: fromExpected, To: toExpected, FromContract: 1, ToContract: 1}))
-	ref := strings.TrimPrefix(digest, "sha256:")
-	if _, err := s.DatabaseForTesting().Exec(`INSERT OR IGNORE INTO agent_clients(client_ref,status,principal_ref,capabilities_json,product_scope_json,project_scope_json,created_at) VALUES('client/overlap-guard','active','principal/operator','[]','[]','[]','2026-09-10T00:00:00Z');
-INSERT INTO agent_approvals(approval_ref,operation_digest,scope_json,version_json,consequence,human_principal_ref,client_ref,session_ref,issued_at,expires_at,max_uses,used_count,protected_evidence_ref,protected_evidence_digest) VALUES(?,?,?,?,?,'principal/operator','client/overlap-guard','session/overlap-guard','2026-09-10T00:00:00Z','2026-09-11T00:00:00Z',1,1,'approval-evidence',?)`, ref, digest, scope, versions, "recovery", "sha256:"+strings.Repeat("b", 64)); err != nil {
-		t.Fatal(err)
-	}
 	return s.Transact(context.Background(), func(tx *Transaction) error {
 		_, err := ResolveWorkflowDomainOverlapTx(context.Background(), tx, WorkflowDomainOverlapResolutionRequest{
 			EventID: eventID, FromWorkID: fromWorkID, ToWorkID: toWorkID,
 			FromExpectedVersion: fromExpected, ToExpectedVersion: toExpected,
 			FromContractVersion: 1, ToContractVersion: 1, ResolutionKind: kind, Reason: reason, Actor: actor,
-			ApprovalRef: ref, ApprovalOperationDigest: digest, ApprovalScopeJSON: scope,
-			ApprovalVersionsJSON: versions, ApprovalConsequence: "recovery", OccurredAt: time.Unix(41, 0).UTC(),
+			OccurredAt: time.Unix(41, 0).UTC(),
 		})
 		return err
 	})

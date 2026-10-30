@@ -173,7 +173,6 @@ approval, transaction, or recovery boundary.
 - A catalog/discovery tool added merely because another platform has one.
 - Permanent aliases counted outside the budget.
 - Hiding a durable asynchronous operation behind a synchronous success response.
-- Merging approval-required and non-consequential operations solely to lower count.
 
 ## 8. Falsifiers and amendment rule
 

@@ -23,33 +23,16 @@ const (
 )
 
 type OutsideRepairDisposition struct {
-	WorkID      string                  `json:"work_id"`
-	Reason      string                  `json:"reason"`
-	ApprovalRef string                  `json:"approval_ref"`
-	State       string                  `json:"state"`
-	Evidence    *workflowproof.Evidence `json:"evidence,omitempty"`
-	RecordedAt  string                  `json:"recorded_at"`
-}
-
-// OutsideRepairApproval binds a consumed core one-use approval. The boundary
-// consumes it in the same Transaction as the typed mutation. An opaque token
-// alone is insufficient. Replay checks the recorded binding and operator actor.
-type OutsideRepairApproval struct {
-	ApprovalRef             string `json:"approval_ref"`
-	ApprovalOperationDigest string `json:"approval_operation_digest"`
-	ApprovalScopeJSON       string `json:"approval_scope_json"`
-	ApprovalVersionsJSON    string `json:"approval_versions_json"`
-	ApprovalConsequence     string `json:"approval_consequence"`
-}
-
-func (a OutsideRepairApproval) binding() workflowApprovalBinding {
-	return workflowApprovalBinding{ApprovalRef: a.ApprovalRef, OperationDigest: a.ApprovalOperationDigest, ScopeJSON: a.ApprovalScopeJSON, VersionsJSON: a.ApprovalVersionsJSON, Consequence: a.ApprovalConsequence}
+	WorkID     string                  `json:"work_id"`
+	Reason     string                  `json:"reason"`
+	State      string                  `json:"state"`
+	Evidence   *workflowproof.Evidence `json:"evidence,omitempty"`
+	RecordedAt string                  `json:"recorded_at"`
 }
 
 // OutsideRepairRequest selects one live work item and its authenticated actor.
 // A hold needs no completion evidence; it exists before repair starts.
 type OutsideRepairRequest struct {
-	OutsideRepairApproval
 	Actor           WorkflowActor
 	WorkID          string
 	Reason          string
@@ -93,22 +76,12 @@ func applyOutsideRepairMutationTx(ctx context.Context, transaction *Transaction,
 		return ApplyOperationResult{}, newFailure(KindInvalidPayload, "outside_repair", "work, reason, event identity or version is invalid", false, "supply bounded outside-repair fields")
 	}
 	actorIdentity := request.Actor
-	var actorRef string
-	if request.OutsideRepairApproval != (OutsideRepairApproval{}) {
-		operator, err := workflowOperatorFromConsumedApprovalTx(ctx, tx, request.binding(), "outside_repair")
-		if err != nil {
-			return ApplyOperationResult{}, err
-		}
-		actorIdentity = WorkflowActor{PrincipalRef: operator.PrincipalRef, ClientRef: operator.ClientRef, AgentRef: operator.AgentRef, SessionRef: operator.SessionRef, ActorClass: ActorOperator}
-		actorRef = operator.ref
-	} else {
-		if actorIdentity.ActorClass != ActorAgent {
-			return ApplyOperationResult{}, newFailure(KindUnauthorized, "outside_repair", "ordinary outside repair requires an authenticated agent", false, "use the authenticated outside-repair boundary")
-		}
-		actorRef, err = WorkflowActorRef(actorIdentity)
-		if err != nil {
-			return ApplyOperationResult{}, err
-		}
+	if actorIdentity.ActorClass != ActorAgent {
+		return ApplyOperationResult{}, newFailure(KindUnauthorized, "outside_repair", "outside repair requires an authenticated agent", false, "use the authenticated outside-repair boundary")
+	}
+	actorRef, err := WorkflowActorRef(actorIdentity)
+	if err != nil {
+		return ApplyOperationResult{}, err
 	}
 	if request.OccurredAt.IsZero() {
 		request.OccurredAt = transaction.now()
@@ -127,9 +100,6 @@ func applyOutsideRepairMutationTx(ctx context.Context, transaction *Transaction,
 	}
 	payload := map[string]any{
 		"reason": request.Reason, "state": state,
-		"approval_ref": request.ApprovalRef, "approval_operation_digest": request.ApprovalOperationDigest,
-		"approval_scope_json": request.ApprovalScopeJSON, "approval_versions_json": request.ApprovalVersionsJSON,
-		"approval_consequence": request.ApprovalConsequence,
 	}
 	if evidence != nil {
 		payload["evidence"] = evidence
@@ -223,8 +193,6 @@ func validateOutsideRepairRequiredChecks(repository string, pr workflowproof.Pul
 	return nil
 }
 
-var outsideRepairApprovalSubject = workflowApprovalBindingSubject{operation: "outside repair", actorHint: "use the approved outside-repair boundary", freshHint: "request approval for the exact outside-repair operation"}
-
 func validateOutsideRepairFold(ctx context.Context, tx *sql.Tx, event Event, p workflowOutsideRepairDispositionPayload, state string) (workProjection, error) {
 	if err := workflowBase(event, p.WorkflowVersionFields); err != nil {
 		return workProjection{}, err
@@ -232,22 +200,16 @@ func validateOutsideRepairFold(ctx context.Context, tx *sql.Tx, event Event, p w
 	if p.State != state || !workflowString(p.Reason, 4096) {
 		return workProjection{}, newFailure(KindInvalidPayload, "outside_repair", "invalid disposition state or reason", false, "use the typed outside-repair route")
 	}
-	if p.OutsideRepairApproval != (OutsideRepairApproval{}) {
-		if err := authorizeWorkflowOperatorApprovalTx(ctx, tx, event, p.binding(), outsideRepairApprovalSubject); err != nil {
-			return workProjection{}, err
-		}
-	} else {
-		var actorClass string
-		err := tx.QueryRowContext(ctx, `SELECT actor_class FROM workflow_actors WHERE actor_ref=?`, event.Actor).Scan(&actorClass)
-		if err == sql.ErrNoRows {
-			return workProjection{}, newFailure(KindUnauthorized, "outside_repair", "outside repair requires a recorded actor", false, "use the authenticated outside-repair boundary")
-		}
-		if err != nil {
-			return workProjection{}, wrapFailure(KindUnavailable, "outside_repair", "cannot read outside-repair actor", true, "retry once the workflow projection is readable", err)
-		}
-		if actorClass != string(ActorAgent) {
-			return workProjection{}, newFailure(KindUnauthorized, "outside_repair", "ordinary outside repair requires a recorded agent", false, "use the authenticated outside-repair boundary")
-		}
+	var actorClass string
+	err := tx.QueryRowContext(ctx, `SELECT actor_class FROM workflow_actors WHERE actor_ref=?`, event.Actor).Scan(&actorClass)
+	if err == sql.ErrNoRows {
+		return workProjection{}, newFailure(KindUnauthorized, "outside_repair", "outside repair requires a recorded actor", false, "use the authenticated outside-repair boundary")
+	}
+	if err != nil {
+		return workProjection{}, wrapFailure(KindUnavailable, "outside_repair", "cannot read outside-repair actor", true, "retry once the workflow projection is readable", err)
+	}
+	if actorClass != string(ActorAgent) {
+		return workProjection{}, newFailure(KindUnauthorized, "outside_repair", "outside repair requires a recorded agent", false, "use the authenticated outside-repair boundary")
 	}
 	work, err := readWork(ctx, tx, event.SubjectID)
 	if err != nil {
@@ -288,7 +250,7 @@ func foldOutsideRepairDispositionSet(ctx context.Context, tx *sql.Tx, event Even
 	if _, err := tx.ExecContext(ctx, `UPDATE workflow_instances SET outside_repair_state=? WHERE work_id=?`, OutsideRepairStateActive, event.SubjectID); err != nil {
 		return err
 	}
-	_, err := tx.ExecContext(ctx, `INSERT INTO outside_repair_dispositions(work_id,approval_ref,state,reason,evidence_json,recorded_at) VALUES(?,?,?,?,'{}',?) ON CONFLICT(work_id) DO UPDATE SET approval_ref=excluded.approval_ref,state=excluded.state,reason=excluded.reason,evidence_json=excluded.evidence_json,recorded_at=excluded.recorded_at`, event.SubjectID, p.ApprovalRef, p.State, p.Reason, event.OccurredAt.UTC().Format(time.RFC3339Nano))
+	_, err := tx.ExecContext(ctx, `INSERT INTO outside_repair_dispositions(work_id,state,reason,evidence_json,recorded_at) VALUES(?,?,?,'{}',?) ON CONFLICT(work_id) DO UPDATE SET state=excluded.state,reason=excluded.reason,evidence_json=excluded.evidence_json,recorded_at=excluded.recorded_at`, event.SubjectID, p.State, p.Reason, event.OccurredAt.UTC().Format(time.RFC3339Nano))
 	return err
 }
 
@@ -337,7 +299,7 @@ func foldOutsideRepairReconciled(ctx context.Context, tx *sql.Tx, event Event, s
 	if _, err := tx.ExecContext(ctx, `UPDATE outside_repair_dispositions SET state=?,evidence_json=? WHERE work_id=?`, p.State, string(raw), event.SubjectID); err != nil {
 		return err
 	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO outside_repair_reconciliations(reconciliation_id,work_id,approval_ref,reason,evidence_json,recorded_at) VALUES(?,?,?,?,?,?)`, event.EventID, event.SubjectID, p.ApprovalRef, p.Reason, string(raw), event.OccurredAt.UTC().Format(time.RFC3339Nano)); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO outside_repair_reconciliations(reconciliation_id,work_id,reason,evidence_json,recorded_at) VALUES(?,?,?,?,?)`, event.EventID, event.SubjectID, p.Reason, string(raw), event.OccurredAt.UTC().Format(time.RFC3339Nano)); err != nil {
 		return err
 	}
 	if err := removeTerminalResearchBindings(ctx, tx, event.SubjectID, event.OccurredAt); err != nil {
@@ -430,7 +392,7 @@ func outsideRepairActiveTx(ctx context.Context, q queryer, workID string) (bool,
 func outsideRepairDispositionTx(ctx context.Context, tx *sql.Tx, workID string) (*OutsideRepairDisposition, error) {
 	var p OutsideRepairDisposition
 	var raw string
-	err := tx.QueryRowContext(ctx, `SELECT approval_ref,state,reason,evidence_json,recorded_at FROM outside_repair_dispositions WHERE work_id=?`, workID).Scan(&p.ApprovalRef, &p.State, &p.Reason, &raw, &p.RecordedAt)
+	err := tx.QueryRowContext(ctx, `SELECT state,reason,evidence_json,recorded_at FROM outside_repair_dispositions WHERE work_id=?`, workID).Scan(&p.State, &p.Reason, &raw, &p.RecordedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}

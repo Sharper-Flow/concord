@@ -22,7 +22,7 @@ import (
 func TestProductChangingApprovalDerivesTheRegistryItPins(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	s, service, grant, privateKey := mutationDispatchFixture(t, []agentcontract.Capability{"work_transition", "product_read"})
+	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_transition", "product_read"})
 	if _, err := pm1fixture.SeedCommittedProductDomain(ctx, s, "product-1", "project-1", t.TempDir()); err != nil {
 		t.Fatalf("pm1fixture.SeedCommittedProductDomain: %v", err)
 	}
@@ -81,7 +81,7 @@ func TestProductChangingApprovalDerivesTheRegistryItPins(t *testing.T) {
 		"law_additions":            []any{},
 		"verification_obligations": []any{},
 	}
-	resp, _ := approvedWorkflowContract(t, s, service, grant, privateKey, env, version, fields, "derived-registry-approval")
+	resp, _ := approvedWorkflowContract(t, s, service, env, version, fields, "derived-registry-approval")
 	if resp.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("approve_contract against a derived registry: %+v", resp.Error)
 	}
@@ -100,7 +100,7 @@ func TestProductChangingApprovalDerivesTheRegistryItPins(t *testing.T) {
 func TestProductChangingApprovalDerivesTheRegistryWithoutAPriorRead(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	s, service, grant, privateKey := mutationDispatchFixture(t, []agentcontract.Capability{"work_transition", "product_read"})
+	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_transition", "product_read"})
 	home, err := pm1fixture.SeedCommittedProductDomain(ctx, s, "product-1", "project-1", t.TempDir())
 	if err != nil {
 		t.Fatalf("pm1fixture.SeedCommittedProductDomain: %v", err)
@@ -150,7 +150,7 @@ func TestProductChangingApprovalDerivesTheRegistryWithoutAPriorRead(t *testing.T
 	if err := s.DatabaseForTesting().QueryRow(`SELECT COUNT(*) FROM domain_registries`).Scan(&registries); err != nil || registries != 0 {
 		t.Fatalf("precondition: want no derived registry, got %d err=%v", registries, err)
 	}
-	resp, _ := approvedWorkflowContract(t, s, service, grant, privateKey, env, version, fields, "derived-registry-approval-no-read")
+	resp, _ := approvedWorkflowContract(t, s, service, env, version, fields, "derived-registry-approval-no-read")
 	if resp.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("approve_contract with no derived registry present: %+v", resp.Error)
 	}

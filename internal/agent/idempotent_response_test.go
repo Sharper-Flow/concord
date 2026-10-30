@@ -88,7 +88,7 @@ func TestIdempotentResponseKeepsCommittedSubjectWithoutHistory(t *testing.T) {
 		t.Fatal(err)
 	}
 	effects, finalizations := 0, 0
-	response, err := r.executeMutation(context.Background(), agentcontract.NewBase("cached-effect", r.Tool, r.Operation), raw, mutationDigest(r.Tool, r.Operation, r.Envelope, raw), map[string]any{"product_id": "product-1", "project_ids": []string{"project-1"}, "work_ids": []string{"work-1"}}, nil, "", "", false, nil, nil, nil,
+	response, err := r.executeMutation(context.Background(), agentcontract.NewBase("cached-effect", r.Tool, r.Operation), raw, mutationDigest(r.Tool, r.Operation, r.Envelope, raw), map[string]any{"product_id": "product-1", "project_ids": []string{"project-1"}, "work_ids": []string{"work-1"}}, nil, nil,
 		func(context.Context, *store.Transaction, Authority) (json.RawMessage, []string, []agentcontract.ChangedRef, error) {
 			effects++
 			return nil, nil, nil, nil
@@ -107,7 +107,7 @@ func TestIdempotentResponseMissingFactsKeepPossibleEffects(t *testing.T) {
 	r := runtime{Tool: "concord_work_relate", Operation: "message_withdraw"}
 	base := agentcontract.NewBase("incomplete", r.Tool, r.Operation)
 	complete := agentcontract.NewOKMutation(base, mutationPayload(nil, nil), nil, nil)
-	scopeJSON, _ := json.Marshal(mutationResponseScope(nil, complete, nil, false))
+	scopeJSON, _ := json.Marshal(mutationResponseScope(nil, complete, nil))
 	for _, prior := range []store.MutationIdempotencyRecord{
 		{ResultPayload: `{}`, ChangedRefs: `[]`, AuthorizedScopeSnapshot: `{}`},
 		{ResultPayload: `{}`, ChangedRefs: `not-json`, AuthorizedScopeSnapshot: string(scopeJSON)},
@@ -186,15 +186,5 @@ func TestIdempotentResponseWorkflowCapturesTransactionResult(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatal(err)
-	}
-}
-
-func TestIdempotentResponseRoutineClaimDoesNotReadHistory(t *testing.T) {
-	r := runtime{Tool: "concord_work_relate", Operation: "resolve_overlap", Envelope: CallEnvelope{SelectedProductID: "product-1"}}
-	raw := json.RawMessage(`{"resolution_kind":"depends_on","approval":{"approval_ref":"not-consumed"}}`)
-	prior := store.MutationIdempotencyRecord{ResultEventIDs: `["absent-event"]`, AuthorizedScopeSnapshot: `{"product_ids":["product-1"]}`}
-	response, refused, err := r.replayRoutineClaimAdmission(agentcontract.NewBase("claim", r.Tool, r.Operation), raw, prior)
-	if err != nil || !refused || response.Error == nil || response.Error.Kind != "malformed_response" || response.Error.EffectState != agentcontract.EffectPossible || response.Error.RecoveryAction.Kind != "contact_operator" || response.Error.RetrySafe {
-		t.Fatalf("missing retained consent must be an explicit current-record dependency: refused=%t response=%+v err=%v", refused, response.Error, err)
 	}
 }

@@ -21,7 +21,7 @@ claim or reclaim implementation worktrees.
 `concord_work_transition.lifecycle` has a different write surface. Its plan
 writes exactly one `work.transitioned` event in the store. It does not write a
 repository checkout path and it does not claim a worktree. Terminal targets
-already require verification evidence and operator approval through structural
+already require verification evidence through structural
 workflow checks.
 
 After a merged change, a host-captured work item can need a lifecycle
@@ -32,7 +32,10 @@ this operation writes Product state only.
 
 ## Decision
 
-The operation-scoped checkout authorization remains independent of consent. CD-0013 D11 removes approval only for routine acceptance-backed completion; it preserves terminal evidence, live-workflow completion refusal, cancellation approval, and historical-pin requirements. A main checkout acquires no implementation authority from this change.
+The operation-scoped checkout authorization preserves terminal evidence,
+live-workflow completion refusal, and historical-pin requirements. Operator
+decisions follow CD-0243 D2 in conversation. A main checkout acquires no
+implementation authority.
 
 
 ### D1. Main-checkout authority is operation-scoped
@@ -50,9 +53,9 @@ allowance does not apply to other operations under `work_transition`.
 store. It writes no checkout path and claims no implementation worktree.
 
 The operation keeps its existing gates. A terminal `completed` or `cancelled`
-target without verification evidence returns `missing_evidence`. Evidence then
-permits the existing operator approval challenge, and the transition applies
-only after the approval is accepted.
+target without verification evidence returns `missing_evidence`. With the
+evidence bound, the transition applies; the conversational operator ask
+follows CD-0243's classes.
 
 `worktree_claim` and `workflow_action` remain refused from the main checkout with the typed CD-0092 refusal. `worktree_reclaim` and `worktree_audit_reclaim` retain CD-0162's tier-gated admission. Removal receives only D5's conditional allowance.
 
@@ -63,8 +66,8 @@ operation-scoped extension. The authority-boundary tests prove that lifecycle
 authority grants from a registered Project's default checkout and that the
 implementation-bearing operations keep their typed refusal.
 
-The same tests prove that terminal evidence and operator approval remain
-required. They also prove that a terminal refusal without evidence is
+The same tests prove that terminal evidence remains required. They also prove
+that a terminal refusal without evidence is
 `missing_evidence`, not `unauthorized`.
 
 ### D4. CD-0092 is amended at this boundary
@@ -77,12 +80,12 @@ closed operation allowlist declared in `internal/agent/authority.go`.
 From a registered Project's default checkout, `concord_work_transition.remove` may remove one item with reason `shelved` only when all of the following hold:
 
 1. Its sole Project is the caller's resolved Project, its sole Product is the selected Product, and existing caller authority covers both.
-2. Its lifecycle and any workflow instance are `cancelled`, under the existing cancellation evidence, approval and historical-pin requirements.
+2. Its lifecycle and any workflow instance are `cancelled`, under the existing cancellation evidence and historical-pin requirements.
 3. At least one worktree claim is recorded, all recorded claims are reclaimed, and complete native inventory plus filesystem checks prove every recorded checkout path absent.
 4. Every recorded native retirement effect, across all claim generations and incarnations, is settled or durably retained with no cleanup owed. Pending deletion or restoration, active or pending claims, and live or unknown occupants refuse removal.
-5. Every existing removal safety, version, handoff, authority and approval requirement passes.
+5. Every existing removal safety, version, handoff and authority requirement passes.
 
-Authorization admits only this operation pair, not general `work_transition` authority. The removal planner and core check fresh eligibility before issuing a challenge and revalidate state, scope, work version and claim identities in the removal transaction. Native observations run outside that transaction and bind to those identities. Incomplete proof, observed change or uncertainty refuses removal without force or recovery bypass.
+Authorization admits only this operation pair, not general `work_transition` authority. The removal planner and core check fresh eligibility before any effect and revalidate state, scope, work version and claim identities in the removal transaction. Native observations run outside that transaction and bind to those identities. Incomplete proof, observed change or uncertainty refuses removal without force or recovery bypass.
 
 The allowance performs only the existing removal's store effects and receipt; it grants no checkout or provider execution authority. Other operations and removal routes keep their admission.
 

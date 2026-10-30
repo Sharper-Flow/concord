@@ -601,7 +601,6 @@ func TestWorkflowActionReplayVectorsUseInvokeAndAuthoritativeDurableResults(t *t
 			opID := seedCurrentWorkflowActionReplay(t, s, env, input, vector.resultKind)
 			beforeEvents := countWorkflowEvents(t, s)
 			beforeVersion := workOneVersion(t, s)
-			beforeChallenges := countWorkflowApprovalChallenges(t, s)
 
 			data, marshalErr := json.Marshal(struct {
 				CallEnvelope CallEnvelope    `json:"call_envelope"`
@@ -646,9 +645,6 @@ func TestWorkflowActionReplayVectorsUseInvokeAndAuthoritativeDurableResults(t *t
 			}
 			if got := workOneVersion(t, s); got != beforeVersion {
 				t.Fatalf("replay changed work version from %d to %d", beforeVersion, got)
-			}
-			if got := countWorkflowApprovalChallenges(t, s); got != beforeChallenges {
-				t.Fatalf("replay changed approval challenges from %d to %d", beforeChallenges, got)
 			}
 		})
 	}
@@ -766,7 +762,7 @@ func seedCurrentWorkflowActionReplay(t *testing.T, s *store.Store, env CallEnvel
 			if response.Outcome != agentcontract.OutcomeOK {
 				t.Fatalf("completed response fixture: %+v", response.Error)
 			}
-			metadata, err := json.Marshal(mutationResponseScope(originalScope, response, pinless, false))
+			metadata, err := json.Marshal(mutationResponseScope(originalScope, response, pinless))
 			if err != nil {
 				return err
 			}
@@ -793,18 +789,9 @@ func countWorkflowEvents(t *testing.T, s *store.Store) int {
 	return count
 }
 
-func countWorkflowApprovalChallenges(t *testing.T, s *store.Store) int {
-	t.Helper()
-	var count int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM agent_approval_challenges`).Scan(&count); err != nil {
-		t.Fatal(err)
-	}
-	return count
-}
-
-func TestWorkflowActionDispatchUsesDefinitionApprovalChallenge(t *testing.T) {
+func TestWorkflowActionDispatchPersistsDefinitionContract(t *testing.T) {
 	t.Parallel()
-	s, service, grant, privateKey := mutationDispatchFixture(t, []agentcontract.Capability{"work_transition"})
+	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_transition"})
 	if got := seedAgentWorkflow(t, s, grant); got != 4 {
 		t.Fatalf("workflow seed version=%d, want 4", got)
 	}
@@ -831,25 +818,15 @@ func TestWorkflowActionDispatchUsesDefinitionApprovalChallenge(t *testing.T) {
 			t.Fatalf("advance action=%s response=%+v err=%v", action, response, dispatchErr)
 		}
 	}
-	input := workflowContractActionInput(t, s, "wf-approve-contract", "")
-	challenge, err := Dispatch(context.Background(), s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: input}, env)
-	if err != nil || challenge.Outcome != agentcontract.OutcomeError || challenge.Error == nil || challenge.Error.Kind != "approval_required" {
-		t.Fatalf("approval challenge response=%+v err=%v", challenge, err)
-	}
-	challengeRef, _ := challenge.Error.Details["approval_ref"].(string)
-	digest := mutationDigest("concord_work_transition", "workflow_action", env, input)
-	scope := map[string]any{"product_id": "product-1", "project_ids": []string{"project-1"}, "work_ids": []string{"work-1"}, "scope_version": scopeVersion}
-	versions := map[string]any{"work": 8}
-	env.HostApproval = signedHostApproval(privateKey, challengeRef, digest, scope, versions, grant.SessionRef, grant.AgentRef, grant.Worktree, fixedTime(), "workflow-approval-0001")
+	input := workflowContractActionInput(t, s, "wf-approve-contract")
 	var durableBefore int
 	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM durable_operations WHERE workflow_type_ref LIKE 'workflow.%'`).Scan(&durableBefore); err != nil {
 		t.Fatal(err)
 	}
 	if durableBefore != 2 {
-		t.Fatalf("approval challenge durable operation count=%d, want 2 prior actions", durableBefore)
+		t.Fatalf("workflow action durable operation count=%d, want 2 prior actions", durableBefore)
 	}
-	approvedInput := workflowContractActionInput(t, s, "wf-approve-contract", challengeRef)
-	approved, err := Dispatch(context.Background(), s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: approvedInput}, env)
+	approved, err := Dispatch(context.Background(), s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: input}, env)
 	if err != nil || approved.Outcome != agentcontract.OutcomeOK {
 		if approved.Error != nil {
 			t.Fatalf("approved workflow action response=%+v error=%+v err=%v", approved, *approved.Error, err)
@@ -874,93 +851,5 @@ func TestWorkflowActionDispatchUsesDefinitionApprovalChallenge(t *testing.T) {
 	wantBinding := workflowArchitectureBindingForSeededRegistry(t, s)
 	if projection.ArchitectureBinding == nil || projection.ArchitectureBinding.HomeDomainID != wantBinding["home_domain_id"] {
 		t.Fatalf("agent approval did not persist readable architecture binding: %+v", projection.ArchitectureBinding)
-	}
-}
-
-// TestWorkflowLateHostApprovalNeedsOneChallenge walks the approval-gated
-// workflow path through the pending-challenge boundary: the operator's
-// affirmative answer arrives after the ten-minute mint deadline, the core
-// re-arms the expired unused invitation for its original interval, and the
-// same approved action advances without a second challenge or second ask.
-func TestWorkflowLateHostApprovalNeedsOneChallenge(t *testing.T) {
-	t.Parallel()
-	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_transition"})
-	if got := seedAgentWorkflow(t, s, grant); got != 4 {
-		t.Fatalf("workflow seed version=%d, want 4", got)
-	}
-	ctx := context.Background()
-	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	env := mutationEnvelope(grant, scopeVersion)
-	// The pre-contract walk is proposal and alignment: two
-	// events each over the version-4 capture, so the approval lands at
-	// expected version 8.
-	for i, action := range []string{"record_proposal", "record_alignment"} {
-		fields := ""
-		if action == "record_proposal" {
-			fields = `,"fields":{"problem":"The bounded problem statement.","affected":["The affected system."],"stakes":"The bounded stakes statement.","user_outcomes":["The expected user outcome."]}`
-		}
-		if action == "record_alignment" {
-			fields = `,"fields":{"searched":"The bounded backlog search statement.","outcome":"none_found"}`
-		}
-		expectedVersion := []int{4, 6}[i]
-		input := json.RawMessage(`{"work_id":"work-1","expected_version":` + strconv.Itoa(expectedVersion) + `,"action_id":"` + action + `"` + fields + `,"idempotency_key":"wf-late-` + action + `"}`)
-		response, dispatchErr := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: input}, env)
-		if dispatchErr != nil || response.Outcome != agentcontract.OutcomeOK {
-			t.Fatalf("advance action=%s response=%+v err=%v", action, response, dispatchErr)
-		}
-	}
-	input := workflowContractActionInput(t, s, "wf-late-approval", "")
-	challenge, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: input}, env)
-	if err != nil || challenge.Outcome != agentcontract.OutcomeError || challenge.Error == nil || challenge.Error.Kind != "approval_required" {
-		t.Fatalf("approval challenge response=%+v err=%v", challenge, err)
-	}
-	summary := challenge.Error.ConsequenceSummary
-	ref, _ := challenge.Error.Details["approval_ref"].(string)
-	if summary == nil || len(ref) != 64 {
-		t.Fatalf("workflow challenge lost its exact bindings: %+v", challenge.Error)
-	}
-	// The prompt stays open past the ten-minute mint deadline while the
-	// answer is pending; the operator's answer is fresh.
-	answerAt := fixedTime().Add(11 * time.Minute)
-	service.Now = func() time.Time { return answerAt }
-	env.HostApproval = &HostApprovalAssertion{ChallengeRef: ref, RequestDigest: summary.OperationDigest, Scope: summary.Scope, Versions: summary.Versions, SessionRef: env.SessionRef, AgentRef: env.AgentRef, Worktree: env.Worktree, IssuedAt: answerAt.Format(time.RFC3339Nano)}
-	approved, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: workflowContractActionInput(t, s, "wf-late-approval", ref)}, env)
-	if err != nil || approved.Outcome != agentcontract.OutcomeOK {
-		if approved.Error != nil {
-			t.Fatalf("late-approved workflow action response=%+v error=%+v err=%v", approved, *approved.Error, err)
-		}
-		t.Fatalf("late-approved workflow action response=%+v err=%v", approved, err)
-	}
-	if countWorkflowApprovalChallenges(t, s) != 1 {
-		t.Fatal("late workflow answer minted a second challenge")
-	}
-	var status string
-	var used int
-	var issuedAt, expiresAt string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT status, used_count, issued_at, expires_at FROM agent_approval_challenges WHERE challenge_ref=?`, ref).Scan(&status, &used, &issuedAt, &expiresAt); err != nil {
-		t.Fatal(err)
-	}
-	if status != "consumed" || used != 1 || issuedAt != fixedTime().Format(time.RFC3339Nano) || expiresAt != answerAt.Add(10*time.Minute).Format(time.RFC3339Nano) {
-		t.Fatalf("late workflow exchange challenge state status=%s used=%d issued=%s expires=%s", status, used, issuedAt, expiresAt)
-	}
-	if countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM agent_approvals WHERE used_count=1`) != 1 {
-		t.Fatal("late workflow exchange did not consume exactly one derived approval")
-	}
-	var step string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT current_step FROM workflow_instances WHERE work_id='work-1'`).Scan(&step); err != nil {
-		t.Fatal(err)
-	}
-	if step != "design" {
-		t.Fatalf("late-approved action current step=%s, want design", step)
-	}
-	replayed, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: workflowContractActionInput(t, s, "wf-late-approval", ref)}, env)
-	if err != nil || replayed.Outcome != agentcontract.OutcomeOK || !replayed.Replayed {
-		t.Fatalf("late workflow replay response=%+v err=%v", replayed, err)
-	}
-	if countWorkflowApprovalChallenges(t, s) != 1 {
-		t.Fatal("late workflow replay minted a challenge")
 	}
 }

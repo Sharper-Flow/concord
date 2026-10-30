@@ -19,6 +19,7 @@ func approveInputWithAbsentPredicate(payload string) string {
 	return `{"work_id":"work-1","expected_version":11,"action_id":"approve_contract","idempotency_key":"absent-variant-1",
 		"fields":{"contract_version":1,
 			"premise":"The premise states the bounded change.",
+			"decision_domains":[],
 			"required_evidence":["verification"],
 			"rigor_class":"prototype_internal",
 			"outcome_predicates":[{"predicate_id":"predicate:absent-thing","ordinal":0,"outcome_kind":"absent","outcome_payload":` + payload + `}]}}`

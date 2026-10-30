@@ -26,7 +26,7 @@ var (
 func confirmPremiseOperatorFields() []WorkflowPayloadField {
 	return []WorkflowPayloadField{
 		{Name: "selected_choice", ValueType: PayloadString, Required: true, Envelope: true, Enum: []string{"confirm", "revise", "stop"}},
-		{Name: "decision_context_digest", ValueType: PayloadDigest, Required: true, Envelope: true},
+		{Name: "decision_context_digest", ValueType: PayloadDigest, Required: false, Envelope: true},
 		actionIntegerField("contract_version", false),
 	}
 }

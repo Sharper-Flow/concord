@@ -44,7 +44,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:8c112945e10c02f6a312c4c09a36b937897053f1ff0b00f1ea8d6b9de0948820",
+  "sha256": "sha256:8044a320d6c43b9c22fa10a3f1ed85100adc3e94d25fa1120703253a135560a5",
   "status": "accepted",
   "summary": "Identifies the surface by generated manifest digest and fails closed on mismatch.",
   "tags": [

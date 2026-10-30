@@ -164,7 +164,7 @@ func testApprovalPayload(t testing.TB, s *Store, workID, actionID string, payloa
 	if _, present := fields["premise"]; !present {
 		fields["premise"] = "The operator stated this premise."
 	}
-	if _, present := fields["decision_domains"]; !present && workflowApprovalPolicyRequiresDecisionFact(pinnedWorkflowDefinitionForTest(t, s, workID)) {
+	if _, present := fields["decision_domains"]; !present && workflowDeclaresDecisionDomains(pinnedWorkflowDefinitionForTest(t, s, workID)) {
 		fields["decision_domains"] = []string{}
 	}
 	encoded, _ := json.Marshal(fields)

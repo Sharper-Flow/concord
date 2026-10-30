@@ -79,8 +79,7 @@ func TestResearchFramingRequiresContractApprovalBeforeInvestigate(t *testing.T) 
 	}
 
 	// The frame step records the research question as the contract premise:
-	// approval refuses a missing, blank, or placeholder question, and a stated
-	// one reaches the operator approval boundary.
+	// contract approval refuses a missing, blank, or placeholder question.
 	predicates := []map[string]any{{"predicate_id": "predicate:answer", "ordinal": 0, "outcome_kind": "outcome", "outcome_payload": map[string]any{"kind": "outcome", "allowed": []string{"report_recorded"}}}}
 	for i, fields := range []map[string]any{
 		{"outcome_predicates": predicates, "decision_domains": []string{}},
@@ -99,7 +98,10 @@ func TestResearchFramingRequiresContractApprovalBeforeInvestigate(t *testing.T) 
 		t.Fatalf("contract approvals without a stated question=%d, want 0", approvals)
 	}
 	stated := action("approve_contract", map[string]any{"premise": "Which retry bound keeps the dispatch route live?", "outcome_predicates": predicates, "decision_domains": []string{"product"}}, "framing-gate-stated-question")
-	if stated.Error == nil || stated.Error.Kind != "approval_required" {
-		t.Fatalf("approve_contract with a stated question = %+v, want the operator approval boundary", stated.Error)
+	if stated.Outcome != agentcontract.OutcomeOK {
+		t.Fatalf("approve_contract with a stated question = %+v, want success", stated.Error)
+	}
+	if approvals := contractApprovals(); approvals != 1 {
+		t.Fatalf("contract approvals with a stated question=%d, want 1", approvals)
 	}
 }

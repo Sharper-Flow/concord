@@ -73,7 +73,7 @@ not the supporting evidence, determines the shape below.
 
 ## Decisions
 
-For definitions declaring `approval_policy=consequence_v1`, CD-0013 D11 qualifies the operator-authored contract and operator-confirmed premise requirements. A valid contract, current-version premise confirmation, independent evaluation, and every outcome/evidence obligation remain required. Engineering confirmation records its authenticated coordinator, not a fictitious operator. Identities active work needs derive at the integration boundary ([CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source)).
+A valid attributed contract, current-version premise confirmation by the authenticated non-worker coordinator, independent evaluation, and every outcome/evidence obligation are required. Operator decisions remain conversational under CD-0243. Identities active work needs derive at the integration boundary ([CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source)).
 
 ### D1. The outcome contract has three parts with three revision authorities
 
@@ -82,8 +82,8 @@ part has a different mutability rule, and separating them is the point.
 
 | Part | Content | Revision authority | Effect of revision |
 |---|---|---|---|
-| **Premise** | Why this work exists, in the operator's terms. Durable. | Operator only | Not an edit. A changed premise supersedes the item with a successor. |
-| **Required end-state** | One or more falsifiable postconditions over the world after delivery, carrying the operative verb. | Operator only, at approval | Not an edit. See D6. |
+| **Premise** | Why this work exists, in the operator's terms. Durable. | Authenticated coordinator through attributed supersession; operator decisions follow CD-0243 | Not an edit. A changed premise supersedes the item with a successor. |
+| **Required end-state** | One or more falsifiable postconditions over the world after delivery, carrying the operative verb. | Authenticated coordinator through attributed supersession; operator decisions follow CD-0243 | Not an edit. See D6. |
 | **Candidate set** | The specific instances the end-state ranges over. | The executing agent, during execution | Records a revision in one transaction ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)). Premise and required end-state are untouched and no re-approval occurs. |
 
 The candidate set is deliberately the mutable part. R5 §5.1 shows that a contract which

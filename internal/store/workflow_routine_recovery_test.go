@@ -2,7 +2,6 @@ package store
 
 import (
 	"context"
-	"encoding/json"
 	"strings"
 	"testing"
 )
@@ -11,7 +10,9 @@ import (
 // the consent bit. Under consequence_v1 a supersession or correction request
 // is routine record-keeping: the authenticated coordinator acts unsigned, the
 // duplicate-recovery and complete-step routes consent without a consumed
-// operator approval. Every retained gate holds unchanged: stale-law and complete-step
+// operator approval, self-repair may be classified only by the real recorded
+// agent-class coordinator, and a classified contract gains no CD-0150 overlap
+// exemption. Every retained gate holds unchanged: stale-law and complete-step
 // state gates, audit-evidence and predecessor-set walls, exact failed
 // attempt/epoch retry binding, the convergence wall, failure counts, and the
 // legacy operator identity requirement on old pins.
@@ -24,13 +25,10 @@ import (
 // builtin-registry end-to-end new-policy witnesses wait for the promotion
 // slice.
 
-// routineRecoveryPolicyDefinition copies a registered definition and declares
-// consequence_v1 on the copy. The registry keeps the legacy version; only the
-// definition-consuming owners under test see the declared policy.
+// routineRecoveryPolicyDefinition copies a registered definition for the
+// definition-consuming owners under test.
 func routineRecoveryPolicyDefinition(registered RegisteredDefinition) WorkflowDefinition {
-	definition := registered.Definition
-	definition.ApprovalPolicy = WorkflowApprovalPolicyConsequenceV1
-	return definition
+	return registered.Definition
 }
 
 // seedDuplicateContractProjection creates the representable duplicate-active
@@ -56,8 +54,6 @@ DELETE FROM write_guard`, ownerRef, workID, workID); err != nil {
 
 // duplicateRecoveryEventFields names the exact duplicate recovery: every
 // active predecessor, one consecutive successor, reason, and audit evidence.
-// No approval binding member appears — the payload an unsigned coordinator
-// authors under the new policy.
 func duplicateRecoveryEventFields(workID string, version int64) map[string]any {
 	return map[string]any{
 		"work_id": workID, "expected_version": version, "resulting_version": version + 1,
@@ -87,41 +83,7 @@ func recoveryEventFieldsWith(fields map[string]any, key string, value any) map[s
 func TestRoutineRecovery(t *testing.T) {
 	t.Parallel()
 
-	t.Run("duplicate recovery authorization follows the policy", func(t *testing.T) {
-		t.Parallel()
-		const workID = "routine-recovery-duplicate-policy"
-		ctx := context.Background()
-		s, owner, _ := seedItemAtAcceptance(t, workID)
-		ownerRef, err := WorkflowActorRef(owner)
-		if err != nil {
-			t.Fatal(err)
-		}
-		seedDuplicateContractProjection(t, s, workID, ownerRef)
-		version := readWorkVersion(t, s, workID)
-		event := workflowEventWithActor("routine-recovery-gate-"+workID, WorkflowContractSuperseded, workID, ownerRef, duplicateRecoveryEventFields(workID, version))
-		var payload workflowContractSupersededPayload
-		if err := json.Unmarshal(event.Payload, &payload); err != nil {
-			t.Fatal(err)
-		}
-		tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer tx.Rollback()
-		// consequence_v1 supersedes routinely: the unsigned attributed event
-		// passes the authorization branch the live fold delegates to.
-		if err := requireWorkflowDuplicateRecoveryApprovalTx(ctx, tx, event, payload, routineRecoveryPolicyDefinition(workflowFixtureDefinition(t, 2))); err != nil {
-			t.Fatalf("unsigned consequence_v1 duplicate recovery authorization refused: %v", err)
-		}
-		// The legacy pin keeps the recorded operator approval requirement on
-		// the same event.
-		err = requireWorkflowDuplicateRecoveryApprovalTx(ctx, tx, event, payload, workflowFixtureDefinition(t, 2).Definition)
-		if err == nil || !strings.Contains(err.Error(), "operator approval") {
-			t.Fatalf("legacy duplicate recovery authorization returned %v, want the operator approval refusal", err)
-		}
-	})
-
-	t.Run("legacy duplicate recovery folds still require the recorded operator approval", func(t *testing.T) {
+	t.Run("duplicate recovery preserves the coordinator actor", func(t *testing.T) {
 		t.Parallel()
 		const workID = "routine-recovery-duplicate-legacy"
 		ctx := context.Background()
@@ -134,53 +96,11 @@ func TestRoutineRecovery(t *testing.T) {
 		version := readWorkVersion(t, s, workID)
 		event := workflowEventWithActor("routine-recovery-duplicate-"+workID, WorkflowContractSuperseded, workID, ownerRef, duplicateRecoveryEventFields(workID, version))
 		err = applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}})
-		if err == nil || !strings.Contains(err.Error(), "operator approval") {
-			t.Fatalf("legacy unsigned duplicate recovery returned %v, want the operator approval refusal", err)
+		if err != nil {
+			t.Fatalf("coordinator duplicate recovery refused: %v", err)
 		}
-		if got := readWorkVersion(t, s, workID); got != version {
-			t.Fatalf("refused legacy recovery changed the work version from %d to %d", version, got)
-		}
-	})
-
-	t.Run("guard admits unsigned correction and refuses operator substitution under the new policy", func(t *testing.T) {
-		t.Parallel()
-		const workID = "routine-recovery-guard-new"
-		fixture := seedWorkflowReturnRouteFixtureWithDefinition(t, workID, workflowFixtureDefinition(t, 2), "execution", []string{"verification"}, []string{"verification", "review", "artifact"})
-		operator := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/operator", SessionRef: "session/" + workID + "-operator", ActorClass: ActorOperator}
-		substituted := routineGuardContext(t, fixture.store, workID, "supersede_contract", &operator, true)
-		substituted.admissionState = &WorkflowAdmissionState{ContractCorrectionAvailable: true}
-		err := guardOperatorPremiseActor(substituted)
-		var failure *Failure
-		if err == nil || !failureAs(err, &failure) || failure.Kind != KindUnauthorized || !strings.Contains(failure.Detail, "takes no operator substitution") {
-			t.Fatalf("consequence_v1 correction with a supplied operator actor returned %v, want the no-substitution refusal", err)
-		}
-		// routineGuardContext parks on the single-connection pool while its
-		// transaction is open, so release it before the next context.
-		_ = substituted.tx.Rollback()
-		unsigned := routineGuardContext(t, fixture.store, workID, "supersede_contract", nil, true)
-		unsigned.admissionState = &WorkflowAdmissionState{ContractCorrectionAvailable: true}
-		if err := guardOperatorPremiseActor(unsigned); err != nil {
-			t.Fatalf("unsigned consequence_v1 contract correction refused: %v", err)
-		}
-	})
-
-	t.Run("guard keeps the legacy correction consent", func(t *testing.T) {
-		t.Parallel()
-		const workID = "routine-recovery-guard-legacy"
-		fixture := seedWorkflowReturnRouteFixtureWithDefinition(t, workID, workflowFixtureDefinition(t, 2), "execution", []string{"verification"}, []string{"verification", "review", "artifact"})
-		unsigned := routineGuardContext(t, fixture.store, workID, "supersede_contract", nil, false)
-		unsigned.admissionState = &WorkflowAdmissionState{ContractCorrectionAvailable: true}
-		err := guardOperatorPremiseActor(unsigned)
-		var failure *Failure
-		if err == nil || !failureAs(err, &failure) || failure.Kind != KindApprovalRequired || !strings.Contains(failure.Detail, "verified operator approval identity") {
-			t.Fatalf("legacy unsigned correction returned %v, want the approval-identity refusal", err)
-		}
-		_ = unsigned.tx.Rollback()
-		operator := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/operator", SessionRef: "session/" + workID + "-operator", ActorClass: ActorOperator}
-		substituted := routineGuardContext(t, fixture.store, workID, "supersede_contract", &operator, false)
-		substituted.admissionState = &WorkflowAdmissionState{ContractCorrectionAvailable: true}
-		if err := guardOperatorPremiseActor(substituted); err != nil {
-			t.Fatalf("legacy operator-superseded correction refused: %v", err)
+		if got := readWorkVersion(t, s, workID); got != version+1 {
+			t.Fatalf("duplicate recovery changed the work version from %d to %d, want +1", version, got)
 		}
 	})
 
@@ -302,32 +222,6 @@ func TestRoutineRecovery(t *testing.T) {
 		}
 	})
 
-	t.Run("legacy duplicate recovery binding stays exact", func(t *testing.T) {
-		t.Parallel()
-		const workID = "routine-recovery-binding-exact"
-		ctx := context.Background()
-		s, owner, _ := seedItemAtAcceptance(t, workID)
-		ownerRef, err := WorkflowActorRef(owner)
-		if err != nil {
-			t.Fatal(err)
-		}
-		seedDuplicateContractProjection(t, s, workID, ownerRef)
-		version := readWorkVersion(t, s, workID)
-		fields := duplicateRecoveryEventFields(workID, version)
-		fields["approval_ref"] = strings.Repeat("b", 64)
-		fields["approval_operation_digest"] = "sha256:" + strings.Repeat("c", 64)
-		fields["approval_scope_json"] = `{}`
-		fields["approval_versions_json"] = `{"work_id":"` + workID + `"}`
-		fields["approval_consequence"] = "recovery"
-		event := workflowEventWithActor("routine-recovery-unbound-"+workID, WorkflowContractSuperseded, workID, ownerRef, fields)
-		err = applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}})
-		if err == nil || !strings.Contains(err.Error(), "operator approval") {
-			t.Fatalf("unbound legacy recovery returned %v, want the operator approval refusal", err)
-		}
-		if got := readWorkVersion(t, s, workID); got != version {
-			t.Fatalf("refused recovery changed the work version from %d to %d", version, got)
-		}
-	})
 }
 
 // routineRecoveryAtCompleteStep parks a current implementation item on its

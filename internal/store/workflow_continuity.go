@@ -411,7 +411,7 @@ func continuityReadContractTx(ctx context.Context, tx *sql.Tx, work string, out 
 		if verifyErr != nil {
 			return verifyErr
 		}
-		confirmation, foldErr := foldWorkflowConfirmationTx(ctx, tx, work, registered.Definition)
+		confirmation, foldErr := foldWorkflowConfirmationTx(ctx, tx, work)
 		if foldErr != nil {
 			return foldErr
 		}

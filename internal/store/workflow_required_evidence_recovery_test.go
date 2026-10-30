@@ -163,7 +163,7 @@ func setWorkflowInstanceState(t *testing.T, s *Store, workID, state string) {
 	}
 }
 
-func runRecoveryAction(ctx context.Context, t *testing.T, s *Store, workID, actionID, operationID string, version int64, payload json.RawMessage, actor WorkflowActor, operator *WorkflowActor) error {
+func runRecoveryAction(ctx context.Context, t *testing.T, s *Store, workID, actionID, operationID string, version int64, payload json.RawMessage, actor WorkflowActor) error {
 	t.Helper()
 	ctx, err := prepareTerminalTestContext(ctx, s, workID, actionID)
 	if err != nil {
@@ -176,7 +176,7 @@ func runRecoveryAction(ctx context.Context, t *testing.T, s *Store, workID, acti
 	defer func() { _ = tx.Rollback() }()
 	request := WorkflowActionExecutionRequest{
 		WorkID: workID, ExpectedVersion: version, ActionID: actionID, Payload: payload, Actor: actor,
-		OperatorActor: operator, OperationID: operationID, PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition",
+		OperationID: operationID, PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition",
 		IdempotencyKey: operationID, IdempotencyIdentity: operationID, RequestID: operationID,
 		AcceptedInputsDigest: "sha256:" + strings.Repeat("b", 64), ContractDigest: testManifestDigest,
 		Now: time.Date(2026, 8, 12, 0, 0, 0, 0, time.UTC),
@@ -333,10 +333,10 @@ func TestAcceptedWorkerRecoveryCompletesWithoutChangingAuthority(t *testing.T) {
 
 	bindVersion := readWorkVersion(t, s, workID)
 	bindPayload := json.RawMessage(`{"evidence_kind":"commit","immutable_subject_ref":"` + wf04RecoveryRef + `"}`)
-	if err := runRecoveryAction(ctx, t, s, workID, "bind_evidence", workID+":recover-commit", bindVersion, bindPayload, owner, nil); err != nil {
+	if err := runRecoveryAction(ctx, t, s, workID, "bind_evidence", workID+":recover-commit", bindVersion, bindPayload, owner); err != nil {
 		t.Fatalf("late commit binding refused: %v", err)
 	}
-	replayErr := runRecoveryAction(ctx, t, s, workID, "bind_evidence", workID+":recover-commit", readWorkVersion(t, s, workID), bindPayload, owner, nil)
+	replayErr := runRecoveryAction(ctx, t, s, workID, "bind_evidence", workID+":recover-commit", readWorkVersion(t, s, workID), bindPayload, owner)
 	requireRecoveryFailure(t, replayErr, KindIllegalLifecycleTransition, "exact recovery replay")
 	if got := countEvidenceBinding(t, s, workID, wf04OutstandingKind, wf04RecoveryRef); got != 1 {
 		t.Fatalf("recovery replay binding count=%d, want 1", got)
@@ -373,10 +373,6 @@ func TestAcceptedWorkerRecoveryCompletesWithoutChangingAuthority(t *testing.T) {
 	if state != "completed" {
 		t.Fatalf("workflow state=%q, want completed", state)
 	}
-}
-
-func recoveryOperator(workID string) *WorkflowActor {
-	return &WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/operator", SessionRef: "session/operator-" + workID, ActorClass: ActorOperator}
 }
 
 func readRecoveryAuthority(t *testing.T, s *Store, workID string) (string, int64, int) {
@@ -424,16 +420,14 @@ func readDefinitionIdentity(t *testing.T, s *Store, workID string) string {
 	return identity
 }
 
-func TestAcceptanceRecoveryRefusesUnauthorizedAndTerminalActors(t *testing.T) {
+func TestAcceptanceRecoveryRefusesTerminalWorkflowWithoutBindingEvidence(t *testing.T) {
 	ctx := context.Background()
 	for _, tc := range []struct {
 		name  string
 		state string
 		actor WorkflowActor
 		kind  FailureKind
-		extra *WorkflowActor
 	}{
-		{name: "operator assertion on evidence bind", actor: WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/owner", SessionRef: "session/operator-assertion", ActorClass: ActorAgent}, extra: recoveryOperator("unauthorized"), kind: KindUnauthorized},
 		{name: "terminal workflow", state: "completed", actor: WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/owner", SessionRef: "session/terminal", ActorClass: ActorAgent}, kind: KindInvalidOperation},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -448,7 +442,7 @@ func TestAcceptanceRecoveryRefusesUnauthorizedAndTerminalActors(t *testing.T) {
 				setWorkflowInstanceState(t, s, workID, tc.state)
 			}
 			version := readWorkVersion(t, s, workID)
-			err := runRecoveryAction(ctx, t, s, workID, "bind_evidence", workID+":refusal", version, json.RawMessage(`{"evidence_kind":"commit","immutable_subject_ref":"`+wf04RecoveryRef+`"}`), tc.actor, tc.extra)
+			err := runRecoveryAction(ctx, t, s, workID, "bind_evidence", workID+":refusal", version, json.RawMessage(`{"evidence_kind":"commit","immutable_subject_ref":"`+wf04RecoveryRef+`"}`), tc.actor)
 			requireRecoveryFailure(t, err, tc.kind, tc.name)
 			if got := countEvidenceBinding(t, s, workID, wf04OutstandingKind, wf04RecoveryRef); got != 0 {
 				t.Fatalf("refused recovery binding count=%d, want 0", got)

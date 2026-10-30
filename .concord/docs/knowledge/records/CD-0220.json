@@ -19,7 +19,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:6d176564d285245542e2ca9a1c5982df1887bb1acff9b99415f2fcae4534ec48",
+  "sha256": "sha256:f5583f9d982f1a4f3b526bf1e81b115ee1ed63883da26dce0fa8e2626371da30",
   "status": "accepted",
   "summary": "Repository authoring remains inside approved source and law scope. The coordinator resolves conflicts and approval routing; hashes and reports do not enact law. Generated projections retain their owning generators. Native Task and tool permissions remain host-owned without a Concord subagent interceptor or sandbox. Independent review checks the actual delta and approval evidence. Outside-workflow work gains no workflow verdict or completion authority.",
   "tags": [

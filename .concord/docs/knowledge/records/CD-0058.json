@@ -19,7 +19,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:958fc9b70cb1bd3471bf28728e504e7678e6e27e44993ea1c198f3bd8dc3658c",
+  "sha256": "sha256:18019d4abaf45b973ba487a79c3a3b4747c9bda8878b24dba0d89ea6f42d159d",
   "status": "accepted",
   "summary": "Concrete model selection remains host-owned. Concord has no routing policy, model pin, fallback or subagent model-readback gate and its workflow results attest no executing model identity.",
   "tags": [

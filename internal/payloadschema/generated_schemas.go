@@ -3612,16 +3612,23 @@ const GeneratedPayloadSchemaDocument = `{
     "lane_report_resolved_finding": {
       "additionalProperties": false,
       "description": "One closure claim of a previously open ranked finding. Supply native evidence refs, exact judged-case IDs, or both as required by the finding. Judged closure requires Main acceptance of the fresh candidate-bound completed Review report; the report alone grants no closure authority. Omission, relabeling, or a confidence change never closes a finding.",
-      "else": {
-        "required": [
-          "judged_case_ids"
-        ]
-      },
-      "if": {
-        "required": [
-          "evidence_refs"
-        ]
-      },
+      "oneOf": [
+        {
+          "required": [
+            "evidence_refs"
+          ]
+        },
+        {
+          "not": {
+            "required": [
+              "evidence_refs"
+            ]
+          },
+          "required": [
+            "judged_case_ids"
+          ]
+        }
+      ],
       "properties": {
         "evidence_refs": {
           "description": "The producer-captured current-subject evidence the closure names, as the control requires. Bounds: 1..8 items inclusive",

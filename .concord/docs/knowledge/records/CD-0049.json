@@ -24,7 +24,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:c4a68616bb4ffd0e1172b971fbe96204d5af8769f4029570accb2af019b4b9c6",
+  "sha256": "sha256:850a7bf8676b4d4e794bb88851dd60d650addebc480c5451d51d2dd34bcf732e",
   "status": "accepted",
   "summary": "Managed session preparation verifies required agent identity without recording an identity assertion or trusting a host fallback. Missing identity refuses start. Trusted client policy bounds the agent names a caller may present and an empty scope authorizes none. These checks attest no native Task producer identity.",
   "tags": [

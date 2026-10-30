@@ -18,6 +18,16 @@ export const roleDeniedConcordTools: Readonly<Record<string, { readonly boundary
       "concord_work_transition"
     ]
   },
+  "concord-review": {
+    "boundary": "this native review helper holds no Concord tool that writes work state; return findings and uncommitted repairs to the caller",
+    "tools": [
+      "concord_work_compact",
+      "concord_work_define",
+      "concord_work_relate",
+      "concord_work_start",
+      "concord_work_transition"
+    ]
+  },
   "concord-explore": {
     "boundary": "this Concord utility holds no Concord tool access: its declared tool set is its complete tool surface",
     "tools": [

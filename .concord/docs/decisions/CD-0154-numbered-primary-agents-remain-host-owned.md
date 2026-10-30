@@ -3,7 +3,8 @@
 - **Status:** Accepted
 - **Date:** 2026-09-16
 - **Scope:** Ownership and distribution of the `concord-0`, `concord-1`, and
-  `concord-2` OpenCode definitions, and portable named primary profiles
+  `concord-2` OpenCode definitions, portable named primary profiles and native
+  step helpers
 - **Approval:** The operator approved host ownership with repository examples.
   The operator approved retirement of the shaping and driving examples as exact
   text on 2026-10-20 for
@@ -37,7 +38,7 @@ configuration. Named portable profiles are release assets.
 
 Concord does not install, update, migrate, remove, repair, or restore files named
 `concord-0.md`, `concord-1.md`, or `concord-2.md`. The installer manifest and
-release archive manage only the named primary profiles and
+release archive manage only the named primary profiles, native step helpers and
 utilities listed in `AGENT_FILES`.
 
 Install, upgrade, repair, and uninstall operations leave existing numbered
@@ -106,6 +107,15 @@ The RTE never answers a Concord approval challenge; it relays it unchanged to
 the human operator. Utility capability boundaries remain.
 The host owns session procedures, model routing, and machine configuration.
 Linear owns planning. Concord adds no session-launch or portfolio API.
+
+Concord also generates and installs `concord-review` as a native Task step helper
+from the profile manifest. It loads the shipped review method, reviews the
+assigned step and repairs its in-scope findings. It leaves changes uncommitted;
+the caller commits and owns delivery and workflow state. There is no read-only
+review mode. It may read Concord law and work context, but must not write Concord
+state, publish, contact the operator or send session notices. It may delegate
+only to exploration and external lookup utilities. Host safety and assigned-path
+permissions remain in force; model selection remains host-owned.
 
 The installer refuses a conflicting unmanaged named-profile file.
 It preserves the numbered host files under D1.

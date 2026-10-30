@@ -159,7 +159,7 @@ across every transaction phase during install, upgrade, and uninstall. The
 
 ## Batteries included
 
-Concord ships with primary agent profiles, read-only utilities, and
+Concord ships with primary agent profiles, native step helpers, read-only utilities, and
 portable skills ready for OpenCode out of the box.
 
 ### Agent profiles and utilities
@@ -170,6 +170,8 @@ portable skills ready for OpenCode out of the box.
 - **Read-only utilities**: `concord-explore` analyzes repository structure;
   `concord-lookup` investigates external sources; `concord-advisor` provides
   independent second opinions on bounded problems.
+- **Native review helper**: `concord-review` loads the [review method](skills/concord-review/SKILL.md),
+  repairs in-scope findings and leaves changes uncommitted for the caller.
 
 The host's native Task tool owns delegation. Concord neither launches subagents
 nor wraps their prompts or results.

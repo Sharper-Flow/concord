@@ -8,6 +8,9 @@
     "examples/opencode/agents/concord-0.md",
     ".concord/roles/concord.md",
     ".opencode/agents/Concord.md",
+    ".concord/roles/review.md",
+    ".opencode/agents/concord-review.md",
+    "scripts/test-generate-agent-profiles.py",
     "scripts/install.py",
     "scripts/test-installer.py",
     "scripts/check-primary-prompts.py",
@@ -36,9 +39,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:b8876a55b07363eafa0be1636978081d82a4204557ef0b9588dea5c58b30f64e",
+  "sha256": "sha256:59cd4be1992342dd8a9f90f96d17a4e6b7935e18fb3640f554ff04c415460b74",
   "status": "accepted",
-  "summary": "Concord keeps numbered agents host-owned, supplies an inert intake example and generated named primary profiles, and leaves live numbered definitions unchanged through every installer operation.",
+  "summary": "Concord keeps numbered agents host-owned, supplies an inert intake example, generated named primary profiles and a native review helper, and leaves numbered definitions unchanged through every installer operation.",
   "tags": [
     "primary-agents",
     "examples",

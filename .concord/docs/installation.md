@@ -105,7 +105,7 @@ not modify unrelated configuration keys.
 
 ### Shared requirements and Product knowledge
 
-The release ships generated primary profiles and coordinator utilities in its agents
+The release ships generated primary profiles, native step helpers and read-only utilities in its agents
 directory and the shared conduct corpus in its instructions directory. The
 installer owns these assets and registers the corpus through an absolute
 `current/instructions/*.md` pointer in each linked project's OpenCode

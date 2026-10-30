@@ -332,6 +332,18 @@ so a redirect can still write outside `.planning/`; the ask default is the
 human gate. Numbered host examples keep their narrower Task policy;
 hosts own those files and may configure their permissions independently.
 
+The native `concord-review` helper loads the review method, repairs in-scope
+findings and leaves changes uncommitted for its caller. It keeps Concord reads,
+denies workflow writes and publication, and delegates only to exploration and
+external lookup. Its shell rules preserve inherited host safety denies. These
+command-text rules are not a sandbox; its role also prohibits direct-store and
+wrapper bypasses.
+
+Hosts that enable reviewer-to-utility delegation must set OpenCode's
+[`subagent_depth`](https://github.com/anomalyco/opencode/blob/v1.18.29/packages/web/src/content/docs/config.mdx)
+to `2`. Its default `1` admits the reviewer but stops nested Tasks; the profile's
+Task allowlist does not override that host ceiling. Concord does not change it.
+
 The read-only utility definitions deny nested Task delegation. If a host wants
 per-agent model fallback behavior, configure the OMR plugin's ordered fallback
 targets under its plugin tuple, for example:
@@ -340,17 +352,11 @@ targets under its plugin tuple, for example:
 {
   "plugin": [["opencode-model-routing", {
     "agents": {
-      "concord-research": { "fallback_models": ["provider/preferred", "provider/fallback"] },
-      "concord-implement": { "fallback_models": ["provider/preferred", "provider/fallback"] },
-      "concord-design": { "fallback_models": ["provider/preferred", "provider/fallback"] },
-      "concord-review": { "fallback_models": ["provider/preferred", "provider/fallback"] },
-      "concord-verify": { "fallback_models": ["provider/preferred", "provider/fallback"] }
+      "concord-review": { "fallback_models": ["provider/preferred", "provider/fallback"] }
     }
   }]]
 }
 ```
 
-This configuration is purely host-owned. Concord neither reads nor asserts it;
-the adapter does not pass `--model` on the spawn argv and does not carry a
-resolution set. What runs is whatever the host's routing chain selects, and
-the adapter records that selection only as `readback_model`. CD-0058.
+This configuration is host-owned. The native Task runtime owns model selection;
+Concord ships no model pin and neither reads nor asserts the host's routing.

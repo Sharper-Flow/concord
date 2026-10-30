@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate primary profiles and coordinator-native utilities."""
+"""Generate primary profiles, native step helpers and read-only utilities."""
 from __future__ import annotations
 
 import argparse
@@ -12,6 +12,7 @@ UTILITY_MANIFEST = ROOT / "contracts/agent-utilities.v1.json"
 PRIMARY_PROFILES = ROOT / "contracts/agent-primary-profiles.v1.json"
 PRIMARY_PROFILES_SCHEMA = ROOT / "contracts/agent-primary-profiles.schema.json"
 PRIMARY_PROFILE_IDS = ("Concord-RTE", "Concord", "Concord-Planner")
+STEP_HELPER_IDS = ("concord-review",)
 STASH_DENIALS = tuple(f"    {json.dumps(pattern)}: deny" for pattern in
                      ("git stash *", "git * stash *", "*/git stash *", "*/git * stash *"))
 spec = importlib.util.spec_from_file_location("agent_contract_generator", ROOT / "scripts/generate-agent-contracts.py")
@@ -256,11 +257,14 @@ def load_primary_profiles(manifest: dict, path: Path = PRIMARY_PROFILES) -> dict
     profiles = json.loads(path.read_text())
     schema = json.loads(PRIMARY_PROFILES_SCHEMA.read_text())
     schema_validate(profiles, schema, schema, "primary_profiles")
-    if tuple(profile["id"] for profile in profiles["profiles"]) != PRIMARY_PROFILE_IDS:
-        raise ValueError("primary profile registry must contain the closed ordered primary set")
+    if tuple(profile["id"] for profile in profiles["profiles"]) != PRIMARY_PROFILE_IDS + STEP_HELPER_IDS:
+        raise ValueError("profile registry must contain the closed ordered primary and step-helper set")
     utilities = {f"concord-{entry['id']}" for entry in manifest["utilities"]}
     known = set(concord_tool_ids())
     for profile in profiles["profiles"]:
+        expected_mode = "subagent" if profile["id"] in STEP_HELPER_IDS else "primary"
+        if profile.get("mode", "primary") != expected_mode:
+            raise ValueError(f"profile {profile['id']} must declare mode {expected_mode}")
         if set(profile["denied_concord_tools"]) - known or set(profile["tools"]) & known:
             raise ValueError(f"primary profile {profile['id']} has misplaced or unknown Concord tools")
         if "concord_work_transition" in profile["denied_concord_tools"]:
@@ -274,7 +278,7 @@ def load_primary_profiles(manifest: dict, path: Path = PRIMARY_PROFILES) -> dict
 
 
 def primary_projection(profile: dict, role_source: str) -> str:
-    lines = ["---", f"description: {json.dumps(profile['description'], ensure_ascii=False)}", "mode: primary", "permission:"]
+    lines = ["---", f"description: {json.dumps(profile['description'], ensure_ascii=False)}", f"mode: {profile.get('mode', 'primary')}", "permission:"]
     lines.extend(f"  {tool}: {action}" for tool, action in profile["tools"].items())
     for key in ("edit", "bash", "task"):
         if key not in profile:
@@ -290,6 +294,7 @@ def primary_projection(profile: dict, role_source: str) -> str:
 
 PRIMARY_PROFILE_REFUSAL_BOUNDARIES = {
     "Concord-Planner": "this research and planning profile holds no Concord tool that writes work state; start or advance managed work from Concord",
+    "concord-review": "this native review helper holds no Concord tool that writes work state; return findings and uncommitted repairs to the caller",
 }
 UTILITY_REFUSAL_BOUNDARY = "this Concord utility holds no Concord tool access: its declared tool set is its complete tool surface"
 

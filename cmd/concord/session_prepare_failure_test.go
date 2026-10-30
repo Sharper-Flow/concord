@@ -3,7 +3,6 @@ package main
 import (
 	"bytes"
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"path/filepath"
@@ -47,7 +46,7 @@ func TestSessionPrepareCallbackFailureClassification(t *testing.T) {
 					var out, errOut bytes.Buffer
 					code := runSessionPrepare(commandSessionPrepareInput(t, result.WorkID, "run"), s, &out, &errOut,
 						hostCommandAt(defaultHostResolution()),
-						func(context.Context, string, hostCommandResolution, string, string, string) (string, error) {
+						func(context.Context, string, hostCommandResolution, string) (string, error) {
 							identityCalls++
 							if stage == "identity" {
 								return "", tc.err
@@ -74,71 +73,5 @@ func TestSessionPrepareCallbackFailureClassification(t *testing.T) {
 				})
 			}
 		})
-	}
-}
-
-func TestSessionPrepareIdentityAssertionSucceedsUnderAPinnedReader(t *testing.T) {
-	ctx := context.Background()
-	repo := initLocatorRepo(t)
-	dbPath := filepath.Join(t.TempDir(), "concord.db")
-	s := mustOpenStore(t, dbPath)
-	seedLocatorAuthority(t, s, repo)
-	result, err := s.BootstrapWorktree(ctx, bootstrapRequest(), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv(dbOverrideEnv, dbPath)
-	t.Chdir(result.Entry.Path)
-	if _, err := s.DatabaseForTesting().Exec("PRAGMA busy_timeout=1"); err != nil {
-		t.Fatal(err)
-	}
-	reader, err := sql.Open("sqlite", store.SQLiteFileURI(dbPath))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer reader.Close()
-	readTx, err := reader.BeginTx(ctx, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = readTx.Rollback() }()
-	var eventCount int
-	if err := readTx.QueryRowContext(ctx, "SELECT count(*) FROM effect_receipts").Scan(&eventCount); err != nil {
-		t.Fatal(err)
-	}
-	identityCalls, bootCalls := 0, 0
-	var identityErr error
-	run := func() (int, string, string) {
-		var out, errOut bytes.Buffer
-		code := runSessionPrepare(commandSessionPrepareInput(t, result.WorkID, "run"), s, &out, &errOut,
-			hostCommandAt(defaultHostResolution()),
-			func(ctx context.Context, _ string, _ hostCommandResolution, productID, workID, _ string) (string, error) {
-				identityCalls++
-				_, identityErr = s.RecordOrchestratorIdentityAssertion(ctx, fmt.Sprintf("prepare-identity-%d", identityCalls), s.Now(), store.OrchestratorIdentityAssertion{
-					Type: "orchestrator", Version: "1", RulesetDigest: "sha256:" + strings.Repeat("a", 64),
-					Sources:   []store.OrchestratorArtifactSource{{Kind: "orchestrator_definition", Path: filepath.Join(repo, "orchestrator.md"), SHA256: strings.Repeat("b", 64)}},
-					ProductID: productID, WorkID: workID, PrincipalRef: "principal/orchestrator", ClientRef: "client/session", AgentRef: "agent/concord-1", SessionRef: "session/prepare",
-				})
-				return "concord-1", identityErr
-			},
-			func(context.Context, string, string, string) ([]byte, error) {
-				bootCalls++
-				return []byte(`{"watermark":"test"}`), nil
-			})
-		return code, out.String(), errOut.String()
-	}
-	// The identity assertion is an ordinary write outside the CD-0050 D3
-	// enumeration: a reader that another process holds open cannot turn the
-	// committed assertion into a failure.
-	code, out, diagnostic := run()
-	if code != 0 || identityErr != nil || bootCalls != 1 || out == "" || diagnostic != "" {
-		t.Fatalf("pinned reader exit=%d boot calls=%d identity error=%v stdout=%q stderr=%q", code, bootCalls, identityErr, out, diagnostic)
-	}
-	var committedEvents int
-	if err := s.DatabaseForTesting().QueryRow("SELECT count(*) FROM effect_receipts").Scan(&committedEvents); err != nil {
-		t.Fatal(err)
-	}
-	if committedEvents != eventCount+1 {
-		t.Fatalf("events=%d want %d; the assertion must commit once", committedEvents, eventCount+1)
 	}
 }

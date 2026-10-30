@@ -460,7 +460,7 @@ func TestSessionPrepareRefusesWrongDirectoryBeforeIdentity(t *testing.T) {
 	var out, errOut bytes.Buffer
 	code := runSessionPrepare(commandSessionPrepareInput(t, result.WorkID, "run the task"), mustOpenStore(t, dbPath), &out, &errOut,
 		hostCommandAt(defaultHostResolution()),
-		func(context.Context, string, hostCommandResolution, string, string, string) (string, error) {
+		func(context.Context, string, hostCommandResolution, string) (string, error) {
 			identityCalls++
 			return "agent", nil
 		},
@@ -505,7 +505,7 @@ func TestSessionPrepareRefusesRetiredInitiativeBeforeCallbacks(t *testing.T) {
 			calls++
 			return defaultHostResolution(), nil
 		},
-		func(context.Context, string, hostCommandResolution, string, string, string) (string, error) {
+		func(context.Context, string, hostCommandResolution, string) (string, error) {
 			calls++
 			return "orchestrator", nil
 		},
@@ -538,17 +538,12 @@ func TestSessionPrepareRunsIdentityBeforeBoot(t *testing.T) {
 	var out, errOut bytes.Buffer
 	code := runSessionPrepare(commandSessionPrepareInput(t, result.WorkID, "use UTF-8 ✓"), s, &out, &errOut,
 		hostCommandAt(defaultHostResolution()),
-		func(ctx context.Context, dir string, host hostCommandResolution, productID, workID, agent string) (string, error) {
+		func(_ context.Context, _ string, _ hostCommandResolution, agent string) (string, error) {
 			identityCalls++
 			if agent != "concord-1" {
 				return "", errors.New("session-prepare must pass the active agent through to identity verification")
 			}
-			_, err := s.RecordOrchestratorIdentityAssertion(ctx, "prepare-success-identity", s.Now(), store.OrchestratorIdentityAssertion{
-				Type: "orchestrator", Version: "1", RulesetDigest: "sha256:" + strings.Repeat("a", 64),
-				Sources:   []store.OrchestratorArtifactSource{{Kind: "orchestrator_definition", Path: "/tmp/orchestrator.md", SHA256: strings.Repeat("b", 64)}},
-				ProductID: productID, WorkID: workID, PrincipalRef: "principal/orchestrator", ClientRef: "client/session", AgentRef: "agent/orchestrator", SessionRef: "session/prepare",
-			})
-			return "orchestrator", err
+			return "orchestrator", nil
 		},
 		func(context.Context, string, string, string) ([]byte, error) {
 			bootCalls++
@@ -570,7 +565,7 @@ func TestSessionPrepareRunsIdentityBeforeBoot(t *testing.T) {
 	if err := s.DatabaseForTesting().QueryRow("SELECT count(*) FROM effect_receipts").Scan(&after); err != nil {
 		t.Fatal(err)
 	}
-	if after != before+1 {
+	if after != before {
 		t.Fatalf("success event count before=%d after=%d", before, after)
 	}
 
@@ -579,7 +574,7 @@ func TestSessionPrepareRunsIdentityBeforeBoot(t *testing.T) {
 	out, errOut = bytes.Buffer{}, bytes.Buffer{}
 	code = runSessionPrepare(commandSessionPrepareInput(t, result.WorkID, "run"), s, &out, &errOut,
 		hostCommandAt(defaultHostResolution()),
-		func(context.Context, string, hostCommandResolution, string, string, string) (string, error) {
+		func(context.Context, string, hostCommandResolution, string) (string, error) {
 			identityCalls++
 			return "", errors.New("orchestrator definition is missing")
 		},
@@ -621,7 +616,7 @@ func TestSessionPrepareReportsAKilledRegistryProbeAsRetryable(t *testing.T) {
 	var out, errOut bytes.Buffer
 	code := runSessionPrepare(commandSessionPrepareInput(t, result.WorkID, "run"), s, &out, &errOut,
 		hostSessionPrepareRegistry,
-		func(context.Context, string, hostCommandResolution, string, string, string) (string, error) {
+		func(context.Context, string, hostCommandResolution, string) (string, error) {
 			identityCalls++
 			return "concord-1", nil
 		},
@@ -667,7 +662,7 @@ func TestTimedOutRegistryProbeTypedAndExit1(t *testing.T) {
 			defer timedCancel()
 			return hostSessionPrepareRegistry(timedCtx, dir)
 		},
-		func(context.Context, string, hostCommandResolution, string, string, string) (string, error) {
+		func(context.Context, string, hostCommandResolution, string) (string, error) {
 			identityCalls++
 			return "concord-1", nil
 		},
@@ -702,7 +697,7 @@ func TestDeterministicHostRegistryRefusalsExit2(t *testing.T) {
 		var out, errOut bytes.Buffer
 		code := runSessionPrepare(commandSessionPrepareInput(t, workID, "run"), mustOpenStore(t, dbPath), &out, &errOut,
 			hostSessionPrepareRegistry,
-			func(context.Context, string, hostCommandResolution, string, string, string) (string, error) {
+			func(context.Context, string, hostCommandResolution, string) (string, error) {
 				t.Fatal("the identity step ran after a refused probe")
 				return "", nil
 			},
@@ -794,7 +789,7 @@ func TestSessionPrepareProbesTheCallingHostOnce(t *testing.T) {
 		var out, errOut bytes.Buffer
 		code := runSessionPrepare(commandSessionPrepareInput(t, workID, "run"), mustOpenStore(t, dbPath), &out, &errOut,
 			hostSessionPrepareRegistry,
-			func(_ context.Context, _ string, host hostCommandResolution, _, _, agent string) (string, error) {
+			func(_ context.Context, _ string, host hostCommandResolution, agent string) (string, error) {
 				// The production callback verifies the resolution's registry
 				// document; the stub runs that check directly so the test
 				// observes exactly what the bare document decides.

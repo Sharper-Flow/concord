@@ -160,109 +160,15 @@ func registryResolutionFor(handles ...string) hostCommandResolution {
 	return hostCommandResolution{Command: append([]string(nil), defaultHostCommand...), Registry: document}
 }
 
-// The receipt binds every asserted field without retaining a session log.
-func assertRecordedAssertion(t *testing.T, dbPath string, expected store.OrchestratorIdentityAssertion) {
-	t.Helper()
-	s, err := store.Open(context.Background(), dbPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer s.Close()
-	var digest string
-	if err := s.DatabaseForTesting().QueryRowContext(context.Background(),
-		`SELECT payload_digest FROM effect_receipts WHERE kind = ? ORDER BY effect_seq DESC LIMIT 1`,
-		store.EventSessionOrchestratorIdentityAsserted,
-	).Scan(&digest); err != nil {
-		t.Fatal(err)
-	}
-	sources := make([]map[string]string, 0, len(expected.Sources))
-	for _, source := range expected.Sources {
-		sources = append(sources, map[string]string{"kind": source.Kind, "path": source.Path, "sha256": source.SHA256})
-	}
-	want := cliPayloadDigest(t, []byte(mustJSON(t, map[string]any{"type": expected.Type, "version": expected.Version, "ruleset_digest": expected.RulesetDigest, "sources": sources})))
-	if digest != want {
-		t.Fatalf("assertion receipt digest=%q, want exact resolved content %q", digest, want)
-	}
-}
-
-// TestSessionRecordsExactlyOneOrchestratorIdentityEvent covers CD-0061 D4:
-// a prepared session with a resolvable active-agent definition records
-// exactly one subject_type='session' receipt binding the asserted type,
-// version, ruleset digest and resolved source list.
-func TestSessionRecordsExactlyOneOrchestratorIdentityEvent(t *testing.T) {
-	home, cwd := t.TempDir(), t.TempDir()
-	writeAgentDefinition(t, filepath.Join(cwd, ".opencode", "agents"), agentDefinitionFileName("concord-1"))
-	t.Setenv("HOME", home)
-	dbPath := filepath.Join(t.TempDir(), "concord-assertion.db")
-	t.Setenv(dbOverrideEnv, dbPath)
-	expected, _, err := verifyOrchestratorIdentity(home, cwd, "concord-1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := recordOrchestratorIdentity(context.Background(), home, registryResolutionFor("concord-1"), cwd, "product-1", "work-1", "concord-1"); err != nil {
-		t.Fatalf("record assertion: %v", err)
-	}
-	s, err := store.Open(context.Background(), dbPath)
-	if err != nil {
-		t.Fatalf("Open: %v", err)
-	}
-	defer s.Close()
-	rows, err := s.DatabaseForTesting().QueryContext(context.Background(),
-		`SELECT subject_type, payload_digest FROM effect_receipts WHERE kind = ?`, store.EventSessionOrchestratorIdentityAsserted)
-	if err != nil {
-		t.Fatalf("read assertion events: %v", err)
-	}
-	defer rows.Close()
-	type recordedEvent struct {
-		SubjectType string
-		Digest      string
-	}
-	var events []recordedEvent
-	for rows.Next() {
-		var evt recordedEvent
-		if err := rows.Scan(&evt.SubjectType, &evt.Digest); err != nil {
-			t.Fatalf("scan: %v", err)
-		}
-		events = append(events, evt)
-	}
-	if err := rows.Err(); err != nil {
-		t.Fatalf("rows: %v", err)
-	}
-	if len(events) != 1 {
-		t.Fatalf("recorded %d session orchestrator events, want exactly 1", len(events))
-	}
-	if events[0].SubjectType != string(store.SubjectSession) {
-		t.Fatalf("subject_type = %q, want %q", events[0].SubjectType, store.SubjectSession)
-	}
-	if expected.Type != OrchestratorIdentityType {
-		t.Fatalf("type = %q, want %q", expected.Type, OrchestratorIdentityType)
-	}
-	if expected.Version != OrchestratorIdentityVersion {
-		t.Fatalf("version = %q, want %q", expected.Version, OrchestratorIdentityVersion)
-	}
-	if !strings.HasPrefix(expected.RulesetDigest, "sha256:") {
-		t.Fatalf("ruleset_digest = %q, want sha256:<hex>", expected.RulesetDigest)
-	}
-	if err := rows.Close(); err != nil {
-		t.Fatal(err)
-	}
-	assertRecordedAssertion(t, dbPath, expected)
-}
-
-// TestOrchestratorIdentityRefusalRecordsNothing covers the CD-0061 D4
-// ordering property CD-0049 D4 admits: when the active agent's definition
-// cannot resolve, or the registry does not register the derived handle, the
-// assertion records nothing — verification fails before any store
-// interaction, so the database file the environment names never exists.
 func TestOrchestratorIdentityRefusalRecordsNothing(t *testing.T) {
 	t.Run("definition absent", func(t *testing.T) {
 		home, cwd := t.TempDir(), t.TempDir()
 		t.Setenv("HOME", home)
 		dbPath := filepath.Join(t.TempDir(), "concord-absent.db")
 		t.Setenv(dbOverrideEnv, dbPath)
-		_, err := recordOrchestratorIdentity(context.Background(), home, registryResolutionFor("concord-1"), cwd, "product-1", "work-1", "concord-1")
+		_, err := hostOrchestratorIdentity(context.Background(), cwd, registryResolutionFor("concord-1"), "concord-1")
 		if err == nil {
-			t.Fatal("absent definition recorded an assertion")
+			t.Fatal("absent definition passed identity verification")
 		}
 		stderr := err.Error()
 		for _, fragment := range []string{
@@ -285,9 +191,9 @@ func TestOrchestratorIdentityRefusalRecordsNothing(t *testing.T) {
 		t.Setenv("HOME", home)
 		dbPath := filepath.Join(t.TempDir(), "concord-unregistered.db")
 		t.Setenv(dbOverrideEnv, dbPath)
-		_, err := recordOrchestratorIdentity(context.Background(), home, registryResolutionFor("some-other-agent"), cwd, "product-1", "work-1", "concord-1")
+		_, err := hostOrchestratorIdentity(context.Background(), cwd, registryResolutionFor("some-other-agent"), "concord-1")
 		if err == nil {
-			t.Fatal("an unregistered handle recorded an assertion")
+			t.Fatal("an unregistered handle passed identity verification")
 		}
 		for _, fragment := range []string{"concord-1", "not registered"} {
 			if !strings.Contains(err.Error(), fragment) {
@@ -298,110 +204,4 @@ func TestOrchestratorIdentityRefusalRecordsNothing(t *testing.T) {
 			t.Fatalf("database created at %q despite a refused registration check", dbPath)
 		}
 	})
-}
-
-// TestOrchestratorIdentityDigestRecomputesAndChangesWithArtifact covers
-// CD-0061 D5 / Invariant 4: the recorded digest equals a digest recomputed
-// from the resolved artifacts, and changes when any resolved artifact
-// changes.
-func TestOrchestratorIdentityDigestRecomputesAndChangesWithArtifact(t *testing.T) {
-	home, cwd := t.TempDir(), t.TempDir()
-	writeAgentDefinition(t, filepath.Join(cwd, ".opencode", "agents"), agentDefinitionFileName("concord-1"))
-	agentsPath := filepath.Join(cwd, "AGENTS.md")
-	if err := os.WriteFile(agentsPath, []byte("# instructions v1\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("HOME", home)
-	dbPath := filepath.Join(t.TempDir(), "concord-digest.db")
-	t.Setenv(dbOverrideEnv, dbPath)
-	record := func() {
-		t.Helper()
-		if _, err := recordOrchestratorIdentity(context.Background(), home, registryResolutionFor("concord-1"), cwd, "product-1", "work-1", "concord-1"); err != nil {
-			t.Fatalf("record assertion: %v", err)
-		}
-	}
-
-	// First assertion — recorded against the current files.
-	first, _, err := verifyOrchestratorIdentity(home, cwd, "concord-1")
-	if err != nil {
-		t.Fatalf("resolve first assertion: %v", err)
-	}
-	record()
-	assertRecordedAssertion(t, dbPath, first)
-	// Recompute the digest from the receipt-bound source list and assert
-	// equality. This is the property CD-0061 D5 / Invariant 4 requires:
-	// the digest derives only from what was resolved.
-	recomputed := computeOrchestratorRulesetDigest(first.Sources)
-	if recomputed != first.RulesetDigest {
-		t.Fatalf("recomputed digest %q != recorded %q", recomputed, first.RulesetDigest)
-	}
-	// Mutate AGENTS.md and re-record. The new digest must differ from the
-	// first, both for the recomputed value and the recorded one.
-	if err := os.WriteFile(agentsPath, []byte("# instructions v2 — silently changed\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	// Recompute the digest from the *current* filesystem (the verification
-	// step re-reads and re-hashes every resolved artifact). The current
-	// digest must differ from the recorded first one.
-	currentAssertion, _, err := verifyOrchestratorIdentity(home, cwd, "concord-1")
-	if err != nil {
-		t.Fatalf("verify after mutation: %v", err)
-	}
-	recomputedFromCurrent := currentAssertion.RulesetDigest
-	if recomputedFromCurrent == first.RulesetDigest {
-		t.Fatalf("digest unchanged after AGENTS.md mutation: %q", recomputedFromCurrent)
-	}
-	record()
-	assertRecordedAssertion(t, dbPath, currentAssertion)
-	second := currentAssertion
-	if second.RulesetDigest == first.RulesetDigest {
-		t.Fatalf("recorded digest unchanged across artifact mutation")
-	}
-	if second.RulesetDigest != recomputedFromCurrent {
-		t.Fatalf("recorded second digest %q != recomputed %q", second.RulesetDigest, recomputedFromCurrent)
-	}
-}
-
-// The recorded agent reference is the handle the host runs the session as.
-//
-// The active agent below is concord-1, so the host registers it under that
-// name and the assertion must record it. Recording the file name, or any
-// other string, would attribute every session to an agent the host does not
-// have — and under a fail-closed agent scope, to one no client can present.
-func TestOrchestratorAssertionRecordsTheRegisteredHandle(t *testing.T) {
-	home := t.TempDir()
-	cwd := t.TempDir()
-	writeAgentDefinitionBody(t, filepath.Join(cwd, ".opencode", "agents"), agentDefinitionFileName("concord-1"),
-		[]byte("---\nmode: primary\n---\n"))
-	dbPath := filepath.Join(t.TempDir(), "concord-handle.db")
-	t.Setenv("CONCORD_DB_PATH", dbPath)
-
-	handle, err := recordOrchestratorIdentity(context.Background(), home, registryResolutionFor("concord-1"), cwd, "product-1", "", "concord-1")
-	if err != nil {
-		t.Fatalf("record assertion: %v", err)
-	}
-	if handle != "concord-1" {
-		t.Fatalf("handle=%q, want the frontmatter name", handle)
-	}
-
-	s, err := store.Open(context.Background(), dbPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer s.Close()
-	var actor string
-	if err := s.DatabaseForTesting().QueryRowContext(context.Background(),
-		`SELECT actor FROM effect_receipts WHERE kind = ?`, store.EventSessionOrchestratorIdentityAsserted).Scan(&actor); err != nil {
-		t.Fatalf("read assertion event: %v", err)
-	}
-	// The agent reference is hashed into the actor rather than stored beside
-	// it, so the derived reference is what proves which agent was recorded.
-	want := store.DeriveWorkflowActorRef("principal/orchestrator", "client/concord-session", "agent/concord-1", "session/product-1")
-	stem := store.DeriveWorkflowActorRef("principal/orchestrator", "client/concord-session", "agent/concord-1.md", "session/product-1")
-	if actor == stem {
-		t.Fatal("the assertion recorded the definition file name, not the handle the host runs")
-	}
-	if actor != want {
-		t.Fatalf("recorded actor=%q, want the actor derived from agent/concord-1", actor)
-	}
 }

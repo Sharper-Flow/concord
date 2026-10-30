@@ -3,7 +3,6 @@ package store
 import (
 	"context"
 	"database/sql"
-	"strings"
 	"testing"
 )
 
@@ -30,23 +29,4 @@ func pinReaderSnapshot(t *testing.T, s *Store) {
 	if err := s.appendSeedEvent(context.Background()); err != nil {
 		t.Fatalf("commit after the pinned snapshot: %v", err)
 	}
-}
-
-// TestOrdinaryWritesOutsideBarrierEnumeration pins CD-0050 D3: writes outside
-// the consequential families carry no durability barrier, so a concurrent
-// reader in another process cannot turn their committed effect into a refusal.
-func TestOrdinaryWritesOutsideBarrierEnumeration(t *testing.T) {
-	t.Run("orchestrator identity assertion", func(t *testing.T) {
-		t.Parallel()
-		s := openTemp(t)
-		pinReaderSnapshot(t, s)
-		_, err := s.RecordOrchestratorIdentityAssertion(context.Background(), "identity-under-reader", s.Now(), OrchestratorIdentityAssertion{
-			Type: "orchestrator", Version: "1", RulesetDigest: "sha256:" + strings.Repeat("a", 64),
-			Sources:   []OrchestratorArtifactSource{{Kind: "orchestrator_definition", Path: "/tmp/orchestrator.md", SHA256: strings.Repeat("b", 64)}},
-			ProductID: "prod", WorkID: "work", PrincipalRef: "principal/orchestrator", ClientRef: "client/session", AgentRef: "agent/orchestrator", SessionRef: "session/prod",
-		})
-		if err != nil {
-			t.Fatalf("identity assertion under a pinned reader: %v", err)
-		}
-	})
 }

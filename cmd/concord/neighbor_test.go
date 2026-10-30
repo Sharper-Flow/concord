@@ -70,11 +70,8 @@ func cliNeighborOperations() []cliNeighborOperation {
 	return rows
 }
 
-// prepareSessionPrepareNeighborRow mirrors
-// TestSessionPrepareIdentityAssertionSucceedsUnderAPinnedReader's seed. The
-// identity assertion is the ordinary write inside session-prepare, so under a
-// reader it commits immediately behind a one-millisecond busy timeout, and
-// under a writer it waits out the bounded hold and still commits.
+// prepareSessionPrepareNeighborRow checks that session-prepare reads its
+// claimed worktree under either neighbor without recording identity receipts.
 func prepareSessionPrepareNeighborRow(ctx context.Context) func(t *testing.T) cliNeighborFixture {
 	return func(t *testing.T) cliNeighborFixture {
 		repo := initLocatorRepo(t)
@@ -91,38 +88,30 @@ func prepareSessionPrepareNeighborRow(ctx context.Context) func(t *testing.T) cl
 		if err := s.DatabaseForTesting().QueryRowContext(ctx, "SELECT count(*) FROM effect_receipts").Scan(&before); err != nil {
 			t.Fatal(err)
 		}
-		eventID := "neighbor-prepare-identity-1"
-		var identityErr error
 		run := func() error {
 			identityCalls := 0
 			var out, errOut bytes.Buffer
 			code := runSessionPrepare(commandSessionPrepareInput(t, result.WorkID, "run"), s, &out, &errOut,
 				hostCommandAt(defaultHostResolution()),
-				func(ctx context.Context, _ string, _ hostCommandResolution, productID, workID, _ string) (string, error) {
+				func(context.Context, string, hostCommandResolution, string) (string, error) {
 					identityCalls++
-					_, identityErr = s.RecordOrchestratorIdentityAssertion(ctx, eventID, s.Now(), store.OrchestratorIdentityAssertion{
-						Type: "orchestrator", Version: "1", RulesetDigest: "sha256:" + strings.Repeat("a", 64),
-						Sources:   []store.OrchestratorArtifactSource{{Kind: "orchestrator_definition", Path: filepath.Join(repo, "orchestrator.md"), SHA256: strings.Repeat("b", 64)}},
-						ProductID: productID, WorkID: workID, PrincipalRef: "principal/orchestrator", ClientRef: "client/session", AgentRef: "agent/concord-1", SessionRef: "session/prepare",
-					})
-					return "concord-1", identityErr
+					return "concord-1", nil
 				},
 				func(context.Context, string, string, string) ([]byte, error) {
 					return []byte(`{"watermark":"test"}`), nil
 				})
-			if code != 0 || identityErr != nil {
-				return fmt.Errorf("exit=%d identity error=%v stdout=%q stderr=%q", code, identityErr, out.String(), errOut.String())
+			if code != 0 || identityCalls != 1 {
+				return fmt.Errorf("exit=%d identity calls=%d stdout=%q stderr=%q", code, identityCalls, out.String(), errOut.String())
 			}
 			return nil
 		}
 		verify := func() {
-			assertCommittedEventOnce(t, s, eventID)
 			var total int
 			if err := s.DatabaseForTesting().QueryRowContext(ctx, "SELECT count(*) FROM effect_receipts").Scan(&total); err != nil {
 				t.Fatal(err)
 			}
-			if total != before+1 {
-				t.Fatalf("events=%d want %d; the assertion must commit once", total, before+1)
+			if total != before {
+				t.Fatalf("events=%d want %d; session-prepare must not record identity receipts", total, before)
 			}
 		}
 		return cliNeighborFixture{
@@ -217,10 +206,6 @@ func assertCommittedEventOnce(t *testing.T, s *store.Store, eventID string) {
 	case "work.created":
 		if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM work_items WHERE id=?`, subjectID).Scan(&committed); err != nil || committed != 1 || subjectType != "work_item" {
 			t.Fatalf("creation receipt has no current work: count=%d err=%v", committed, err)
-		}
-	case store.EventSessionOrchestratorIdentityAsserted:
-		if subjectType != "session" {
-			t.Fatalf("session receipt subject type=%q", subjectType)
 		}
 	default:
 		t.Fatalf("unhandled committed identity kind %q", kind)

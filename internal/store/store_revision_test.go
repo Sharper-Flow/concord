@@ -5,9 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"path/filepath"
-	"strings"
 	"testing"
-	"time"
 )
 
 func revisionValue(t *testing.T, q queryer) int64 {
@@ -21,7 +19,7 @@ func revisionValue(t *testing.T, q queryer) int64 {
 
 func TestStoreRevisionWriterClasses(t *testing.T) {
 	t.Parallel()
-	for _, class := range []string{"ordinary callback", "durable callback", "raw ordinary landing", "multi-event operation", "bypass assertion"} {
+	for _, class := range []string{"ordinary callback", "durable callback", "raw ordinary landing", "multi-event operation"} {
 		t.Run(class, func(t *testing.T) {
 			t.Parallel()
 			s := openTemp(t)
@@ -54,12 +52,6 @@ func TestStoreRevisionWriterClasses(t *testing.T) {
 						}),
 					},
 					ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectProduct, "revision-product"): 0, VersionRef(SubjectProject, "revision-project"): 0},
-				})
-			case "bypass assertion":
-				_, err = s.RecordOrchestratorIdentityAssertion(ctx, "revision-assertion", time.Now().UTC(), OrchestratorIdentityAssertion{
-					Type: "concord", Version: "1", ProductID: "revision-product", RulesetDigest: "sha256:" + strings.Repeat("a", 64),
-					Sources:      []OrchestratorArtifactSource{{Kind: "orchestrator_definition", Path: "/fixture/orchestrator.md", SHA256: strings.Repeat("b", 64)}},
-					PrincipalRef: "principal-fixture", ClientRef: "client-fixture", AgentRef: "agent-fixture", SessionRef: "session-fixture",
 				})
 			}
 			if err != nil {

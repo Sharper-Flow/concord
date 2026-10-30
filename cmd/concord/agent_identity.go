@@ -1,14 +1,10 @@
 package main
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
-
-	"github.com/sharper-flow/concord/internal/store"
 )
 
 // agentDefinitionFileName names the definition file an agent resolves to:
@@ -72,18 +68,6 @@ func (e *agentIdentityMismatchError) Error() string {
 	)
 }
 
-// OrchestratorIdentityType is the Concord-owned role constant the assertion
-// records. Naming a role is not authoring a persona; CD-0049 Invariant 4
-// keeps persona authorship out of Concord.
-const OrchestratorIdentityType = "orchestrator"
-
-// OrchestratorIdentityVersion is the Concord-owned contract version this
-// build requires. The operator has decided Concord picks this rather than
-// reading it from the file or deriving it; CD-0061 D5 fixes that choice
-// explicitly. The "1.0" shape matches the schema-version strings the rest
-// of Concord uses (knowledge manifest schema, lane packet schema).
-const OrchestratorIdentityVersion = "1.0"
-
 // agentIdentityAbsentError reports required agent identity that no searched
 // directory supplies. It names what was required, what was missing, and where
 // Concord looked, because the host resolves an unknown agent by silently
@@ -123,16 +107,9 @@ func agentSearchDirectories(home, dir string) []string {
 	return dirs
 }
 
-// manifestSeparator separates per-source lines in the ruleset digest
-// manifest.
-const manifestSeparator = "\n---\n"
-
 // verifyOrchestratorIdentity asserts that the active host agent's definition
 // resolves in the searched directories, that the host registers it under the
-// same name the session runs as, and returns the assertion it would record.
-// The ruleset digest derives ONLY from artifacts actually resolved — the
-// agent definition file and the instruction chain the host loads — never
-// from a declared or expected value (CD-0061 Invariant 4).
+// same name the session runs as, and returns that handle.
 //
 // An absent or unresolvable definition is a typed failure naming the
 // required identity, the observed absence, and the paths searched, because
@@ -140,29 +117,22 @@ const manifestSeparator = "\n---\n"
 // `name:` differs from the requested agent is a typed mismatch for the same
 // reason: the host would substitute the operator's default agent
 // (CD-0049 D2). The returned handle equals agent on success.
-func verifyOrchestratorIdentity(home, dir, agent string) (store.OrchestratorIdentityAssertion, string, error) {
+func verifyOrchestratorIdentity(home, dir, agent string) (string, error) {
 	dirs := agentSearchDirectories(home, dir)
 	fileName := agentDefinitionFileName(agent)
 	resolved, err := firstAgentDefinition(dirs, fileName)
 	if err != nil {
-		return store.OrchestratorIdentityAssertion{}, "", err
+		return "", err
 	}
 	handle := orchestratorInvocationHandle(resolved)
 	if handle != agent {
-		return store.OrchestratorIdentityAssertion{}, "", &agentIdentityMismatchError{
+		return "", &agentIdentityMismatchError{
 			Requested:  agent,
 			Handle:     handle,
 			Definition: resolved,
 		}
 	}
-	sources := collectOrchestratorArtifactSources(resolved, dir)
-	digest := computeOrchestratorRulesetDigest(sources)
-	return store.OrchestratorIdentityAssertion{
-		Type:          OrchestratorIdentityType,
-		Version:       OrchestratorIdentityVersion,
-		RulesetDigest: digest,
-		Sources:       sources,
-	}, handle, nil
+	return handle, nil
 }
 
 // firstAgentDefinition returns the first searched directory that contains a
@@ -191,120 +161,4 @@ func firstAgentDefinition(dirs []string, fileName string) (string, error) {
 		}
 	}
 	return resolved, nil
-}
-
-// collectOrchestratorArtifactSources enumerates the host artifacts the
-// orchestrator assertion actually resolved: the orchestrator definition
-// file first, then the AGENTS.md chain at the session directory dir
-// (up to 4 deep), then any paths
-// declared via the CONCORD_HOST_INSTRUCTIONS environment variable (up to
-// 16). Every entry contributes its filesystem path and content hash to the
-// ruleset digest manifest.
-//
-// This mirrors adapter/opencode/dispatch.ts computeHostPromptProvenance so
-// the two sides agree on the manifest construction, with one structural
-// difference required by CD-0061 Invariant 4: dispatch records unenumerated
-// surfaces by name, the orchestrator does not — its digest derives only from
-// artifacts it actually opened and hashed.
-func collectOrchestratorArtifactSources(definition, dir string) []store.OrchestratorArtifactSource {
-	sources := make([]store.OrchestratorArtifactSource, 0, 4)
-	if src, ok := hashOrchestratorSource("orchestrator_definition", definition); ok {
-		sources = append(sources, src)
-	}
-	root := hostGitRoot(dir)
-	walk := dir
-	for depth := 0; depth < 64 && countKind(sources, "agents_md") < 4; depth++ {
-		candidate := filepath.Join(walk, "AGENTS.md")
-		if src, ok := hashOrchestratorSource("agents_md", candidate); ok {
-			sources = append(sources, src)
-		}
-		if walk == root {
-			break
-		}
-		parent := filepath.Dir(walk)
-		if parent == "" || parent == walk {
-			break
-		}
-		walk = parent
-	}
-	declared := os.Getenv("CONCORD_HOST_INSTRUCTIONS")
-	for _, p := range strings.Split(declared, ":") {
-		if p == "" {
-			continue
-		}
-		if src, ok := hashOrchestratorSource("instruction_file", p); ok {
-			sources = append(sources, src)
-		}
-		if countKind(sources, "instruction_file") >= 16 {
-			break
-		}
-	}
-	return sources
-}
-
-// hostGitRoot returns the worktree root that bounds project configuration and
-// AGENTS.md discovery. A missing .git marker leaves the supplied directory as
-// the conservative boundary instead of importing files from its ancestors.
-func hostGitRoot(dir string) string {
-	walk := filepath.Clean(dir)
-	for {
-		if info, err := os.Stat(filepath.Join(walk, ".git")); err == nil && (info.IsDir() || info.Mode().IsRegular()) {
-			return walk
-		}
-		parent := filepath.Dir(walk)
-		if parent == walk {
-			return filepath.Clean(dir)
-		}
-		walk = parent
-	}
-}
-
-// hashOrchestratorSource reads path and returns its kind+path+sha256 triple
-// when the file is a regular file the host actually supplies. A missing or
-// non-regular file returns ok=false so the caller skips it rather than
-// recording a declared-but-absent artifact (CD-0061 Invariant 4).
-func hashOrchestratorSource(kind, path string) (store.OrchestratorArtifactSource, bool) {
-	info, err := os.Stat(path) //nolint:gosec // path is a fixed host artifact candidate or an operator-declared instruction file.
-	if err != nil || !info.Mode().IsRegular() {
-		return store.OrchestratorArtifactSource{}, false
-	}
-	data, err := os.ReadFile(path) //nolint:gosec // the regular-file check above guards the operator-owned host artifact path.
-	if err != nil {
-		return store.OrchestratorArtifactSource{}, false
-	}
-	sum := sha256.Sum256(data)
-	return store.OrchestratorArtifactSource{
-		Kind:   kind,
-		Path:   path,
-		SHA256: hex.EncodeToString(sum[:]),
-	}, true
-}
-
-func countKind(sources []store.OrchestratorArtifactSource, kind string) int {
-	n := 0
-	for _, src := range sources {
-		if src.Kind == kind {
-			n++
-		}
-	}
-	return n
-}
-
-// computeOrchestratorRulesetDigest returns the SHA-256 over the manifest
-// Concord records for this assertion. Each source contributes one line of
-// the form "<kind>\n<path>\n<sha256>"; sources are joined with manifestSeparator
-// to match adapter/opencode/dispatch.ts. The digest format is sha256:<hex>,
-// the same shape the lane provenance record and the worker report envelope
-// use elsewhere in Concord.
-func computeOrchestratorRulesetDigest(sources []store.OrchestratorArtifactSource) string {
-	if len(sources) == 0 {
-		return ""
-	}
-	parts := make([]string, 0, len(sources))
-	for _, src := range sources {
-		parts = append(parts, strings.Join([]string{src.Kind, src.Path, src.SHA256}, "\n"))
-	}
-	manifest := strings.Join(parts, manifestSeparator)
-	sum := sha256.Sum256([]byte(manifest))
-	return "sha256:" + hex.EncodeToString(sum[:])
 }

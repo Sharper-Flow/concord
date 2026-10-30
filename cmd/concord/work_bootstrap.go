@@ -305,7 +305,7 @@ func runSessionPrepare(raw []byte, s *store.Store, out, errOut io.Writer, hostCo
 		}
 		return sessionPrepareRefusalExit
 	}
-	handle, err := identity(context.Background(), cwd, host, input.ProductID, input.WorkID, input.Agent)
+	handle, err := identity(context.Background(), cwd, host, input.Agent)
 	if err != nil {
 		writeOperatorDiagnostic(errOut, "session-prepare", diagnosticText(err))
 		return sessionPrepareFailureExit(err, sessionPrepareRefusalExit)

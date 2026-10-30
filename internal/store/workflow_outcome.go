@@ -40,19 +40,18 @@ const (
 )
 
 type WorkflowDecisionRecord struct {
-	Question            string   `json:"question"`
-	OptionsConsidered   []string `json:"options_considered"`
-	Decision            string   `json:"decision"`
-	Rationale           string   `json:"rationale"`
-	Consequences        []string `json:"consequences"`
-	Inputs              []string `json:"inputs"`
-	POCFindings         string   `json:"poc_findings"`
-	Supersedes          *string  `json:"supersedes"`
-	SupersededBy        *string  `json:"superseded_by"`
-	Unknowns            []string `json:"unknowns"`
-	RequiredToDecide    []string `json:"required_to_decide"`
-	ReviewerActorRef    string   `json:"reviewer_actor_ref"`
-	OperatorApprovalRef string   `json:"operator_approval_ref"`
+	Question          string   `json:"question"`
+	OptionsConsidered []string `json:"options_considered"`
+	Decision          string   `json:"decision"`
+	Rationale         string   `json:"rationale"`
+	Consequences      []string `json:"consequences"`
+	Inputs            []string `json:"inputs"`
+	POCFindings       string   `json:"poc_findings"`
+	Supersedes        *string  `json:"supersedes"`
+	SupersededBy      *string  `json:"superseded_by"`
+	Unknowns          []string `json:"unknowns"`
+	RequiredToDecide  []string `json:"required_to_decide"`
+	ReviewerActorRef  string   `json:"reviewer_actor_ref"`
 }
 
 // OutcomePredicate is the closed v1 union. Only fields belonging to Kind may
@@ -204,7 +203,7 @@ func ValidateWorkflowPredicateForDefinition(definition WorkflowDefinition, predi
 }
 
 func validateDecisionRecord(record WorkflowDecisionRecord) error {
-	if len(record.Question) < 1 || len(record.Question) > 4096 || len(record.OptionsConsidered) < 1 || len(record.OptionsConsidered) > 16 || !uniqueStrings(record.OptionsConsidered) || (record.Decision != "accepted_decision" && record.Decision != "insufficient_evidence") || len(record.Rationale) < 1 || len(record.Rationale) > 4096 || len(record.Consequences) < 1 || len(record.Consequences) > 16 || len(record.Inputs) < 1 || len(record.Inputs) > 32 || len(record.POCFindings) < 1 || len(record.POCFindings) > 4096 || len(record.Unknowns) > 16 || len(record.RequiredToDecide) > 16 || !workflowActorRefPattern.MatchString(record.ReviewerActorRef) || !workflowApprovalPattern.MatchString(record.OperatorApprovalRef) {
+	if len(record.Question) < 1 || len(record.Question) > 4096 || len(record.OptionsConsidered) < 1 || len(record.OptionsConsidered) > 16 || !uniqueStrings(record.OptionsConsidered) || (record.Decision != "accepted_decision" && record.Decision != "insufficient_evidence") || len(record.Rationale) < 1 || len(record.Rationale) > 4096 || len(record.Consequences) < 1 || len(record.Consequences) > 16 || len(record.Inputs) < 1 || len(record.Inputs) > 32 || len(record.POCFindings) < 1 || len(record.POCFindings) > 4096 || len(record.Unknowns) > 16 || len(record.RequiredToDecide) > 16 || !workflowActorRefPattern.MatchString(record.ReviewerActorRef) {
 		return workflowOutcomeFailure("decision record is incomplete or invalid")
 	}
 	if record.Decision == "insufficient_evidence" && (len(record.Unknowns) == 0 || len(record.RequiredToDecide) == 0) {
@@ -348,7 +347,6 @@ var workflowSurfacePattern = regexp.MustCompile(`^[a-z][a-z0-9_.:/-]{1,127}$`)
 var workflowSubjectPattern = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.:/-]{1,127}$`)
 var workflowCheckPattern = regexp.MustCompile(`^check:[a-z][a-z0-9_.:/-]{1,127}$`)
 var workflowActorRefPattern = regexp.MustCompile(`^actor:[0-9a-f]{64}$`)
-var workflowApprovalPattern = regexp.MustCompile(`^approval:[a-z0-9][a-z0-9_.:/-]{1,127}$`)
 
 func validSubjectSet(values []string) bool {
 	if len(values) < 1 || len(values) > 100 || !uniqueStrings(values) {

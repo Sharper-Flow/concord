@@ -99,7 +99,7 @@ func TestTraceHistoryPageCarriesPublishedWorkflowRead(t *testing.T) {
 			EffectiveArtifact: "https://github.com/Sharper-Flow/concord/pull/1339",
 			Correction: &store.WorkflowReadDeliveryCorrection{
 				EventID: "correction-1", Reason: "asserted repository paths", Artifact: "https://github.com/Sharper-Flow/concord/pull/1339",
-				EvidenceSource: store.DeliveryEvidenceSourceCoordinatorAsserted, ApprovalRef: "approval-1", CorrectedAt: "2026-09-25T00:00:00Z",
+				EvidenceSource: store.DeliveryEvidenceSourceCoordinatorAsserted, CorrectedAt: "2026-09-25T00:00:00Z",
 			},
 		},
 		CandidateIDs:        []string{},
@@ -165,7 +165,7 @@ func TestTraceHistoryPageCarriesPublishedWorkflowRead(t *testing.T) {
 // render their versions.
 func TestTraceHistoryBindsTheContractVersionSelector(t *testing.T) {
 	t.Parallel()
-	s, service, grant, privateKey := mutationDispatchFixture(t, []agentcontract.Capability{"work_transition", "product_read"})
+	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_transition", "product_read"})
 	version := seedAgentWorkflow(t, s, grant)
 	scopeVersion, _, err := s.ScopeVersion(context.Background(), "project-1")
 	if err != nil {
@@ -176,7 +176,7 @@ func TestTraceHistoryBindsTheContractVersionSelector(t *testing.T) {
 		invokeWorkflowIssue31Action(t, s, service, env, actionID, version, "history-selector-"+actionID)
 		version = workOneVersion(t, s)
 	}
-	if approved, _ := approvedWorkflowContract(t, s, service, grant, privateKey, env, version, workflowContractFieldsForSeededRegistry(t, s), "history-selector-approve"); approved.Outcome != agentcontract.OutcomeOK {
+	if approved, _ := approvedWorkflowContract(t, s, service, env, version, workflowContractFieldsForSeededRegistry(t, s), "history-selector-approve"); approved.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("approve_contract = %+v", approved.Error)
 	}
 

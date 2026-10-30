@@ -90,11 +90,10 @@ func TestSpineCompleteStepContractRecovery(t *testing.T) {
 			}); err != nil {
 				t.Fatalf("current complete-step recovery preflight: %v", err)
 			}
-			challenges := countWorkflowApprovalChallenges(t, f.s)
 			input := map[string]any{"work_id": f.work, "expected_version": before.Pinned.Pin.Version, "action_id": "supersede_contract", "fields": fields, "idempotency_key": "spine-complete-supersede"}
 			spineOK(t, f.call(t, "concord_work_transition", "workflow_action", input))
 			after := f.read(t)
-			if after.WorkID != before.WorkID || after.Pinned.Step != family.target || after.Pinned.Pin.Lifecycle != before.Pinned.Pin.Lifecycle || after.Pinned.Contract.Version != contract.Version+1 || !reflect.DeepEqual(after.Pinned.Contract.OutcomePredicates, contract.OutcomePredicates) || !reflect.DeepEqual(after.Pinned.Pin.Review.Candidate, before.Pinned.Pin.Review.Candidate) || countWorkflowApprovalChallenges(t, f.s) != challenges || f.env.HostApproval != nil {
+			if after.WorkID != before.WorkID || after.Pinned.Step != family.target || after.Pinned.Pin.Lifecycle != before.Pinned.Pin.Lifecycle || after.Pinned.Contract.Version != contract.Version+1 || !reflect.DeepEqual(after.Pinned.Contract.OutcomePredicates, contract.OutcomePredicates) || !reflect.DeepEqual(after.Pinned.Pin.Review.Candidate, before.Pinned.Pin.Review.Candidate) {
 				t.Fatalf("complete-step recovery lost its target, subject or routine authority: %+v", after.Pinned)
 			}
 			effects := premiseConsentSnapshot(t, f.s)

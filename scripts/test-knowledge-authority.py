@@ -182,7 +182,7 @@ def test_loader_parses_the_committed_asset() -> None:
     defaults = authority_defaults.load()
     assert defaults.vehicle_work_id == VEHICLE
     assert isinstance(VEHICLE_VERSION, int) and VEHICLE_VERSION >= 1
-    assert len(defaults.members) == 112
+    assert len(defaults.members) == 110
     assert (MEMBER_ID, MEMBER_KIND) in defaults.members
     assert (NONMEMBER_ID, NONMEMBER_KIND) not in defaults.members
 

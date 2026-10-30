@@ -43,14 +43,12 @@ type workflowActionGuardContext struct {
 	// derivation: the tx-scoped loader's folded state and workflowAdmit's
 	// decision over it. Guards consume them instead of re-deriving the
 	// conditions per site.
-	admissionState      *WorkflowAdmissionState
-	admissionDecision   *WorkflowAdmissionDecision
-	deliveryProofRuns   []workflowVerificationRun
-	actorRef            string
-	eventActor          string
-	operatorRef         string
-	actorRecordPrefix   *workflowActorRecordPrefix
-	operatorNeedsRecord bool
+	admissionState    *WorkflowAdmissionState
+	admissionDecision *WorkflowAdmissionDecision
+	deliveryProofRuns []workflowVerificationRun
+	actorRef          string
+	eventActor        string
+	actorRecordPrefix *workflowActorRecordPrefix
 }
 
 type workflowActionGuardFunc func(*workflowActionGuardContext) error
@@ -543,91 +541,17 @@ func (p workflowActorRecordPrefix) event(eventID, workID string, now time.Time, 
 	return workflowTypedEvent(eventID, WorkflowActorRecorded, workID, p.actorRef, now, expectedVersion, map[string]any{"actor_ref": p.actorRef, "principal_ref": p.actor.PrincipalRef, "client_ref": p.actor.ClientRef, "agent_ref": p.actor.AgentRef, "session_ref": p.actor.SessionRef, "actor_class": string(p.actor.ActorClass)})
 }
 
-// Only these operator-decision actions can carry a verified operator identity.
-// A worker cannot acquire that authority through its report.
-func workflowActionAllowsOperatorIdentity(actionID string) bool {
-	switch actionID {
-	case "confirm_premise", "record_verdict", "complete", "supersede_contract", "request_correction":
-		return true
-	default:
-		return false
-	}
-}
-
-func guardOperatorPremiseActor(g *workflowActionGuardContext) error {
-	newPolicy := g.entry.Definition.ApprovalPolicy == WorkflowApprovalPolicyConsequenceV1
-	if g.request.OperatorActor == nil {
-		return guardUnsignedPremiseRecovery(g, newPolicy)
-	}
-	return guardSignedPremiseActor(g, newPolicy)
-}
-
-func guardUnsignedPremiseRecovery(g *workflowActionGuardContext, newPolicy bool) error {
-	if g.request.ActionID != "supersede_contract" && g.request.ActionID != "request_correction" {
+func guardCorrectionRecovery(g *workflowActionGuardContext) error {
+	if g.request.ActionID != "request_correction" {
 		return nil
 	}
-	// The availability half is the shared derivation: the fold's state
-	// carries the correction-request and contract-correction routes, so
-	// this guard consumes it instead of re-deriving the conditions. The
-	// operator identity requirement stays a guard check.
 	state, err := g.foldedAdmissionState()
 	if err != nil {
 		return err
 	}
-	if g.request.ActionID == "request_correction" {
-		if !state.CorrectionRequestRecovery {
-			return workflowCorrectionRequestUnavailableFailure("workflow_action", state.CorrectionRequestMissing)
-		}
-		if newPolicy {
-			// A repair request is routine: no operator approval identity,
-			// and no self-evaluation predicate — the requesting
-			// coordinator may have executed the failed delivery.
-			return nil
-		}
-		return newFailure(KindApprovalRequired, "workflow_action", "correction request requires the verified operator approval identity", false, "request_approval")
+	if !state.CorrectionRequestRecovery {
+		return workflowCorrectionRequestUnavailableFailure("workflow_action", state.CorrectionRequestMissing)
 	}
-	if state.ContractCorrectionAvailable {
-		if newPolicy {
-			// Contract correction is routine under consequence_v1: the
-			// authenticated coordinator supersedes unsigned, and the
-			// fold keeps the duplicate-recovery, stale-law, and
-			// audit-evidence walls it always ran.
-			return nil
-		}
-		return newFailure(KindApprovalRequired, "workflow_action", "contract correction requires the verified operator approval identity", false, "request_approval")
-	}
-	return nil
-}
-
-func guardSignedPremiseActor(g *workflowActionGuardContext, newPolicy bool) error {
-	if newPolicy && workflowActionAllowsOperatorIdentity(g.request.ActionID) && g.request.ActionID != "confirm_premise" {
-		return newFailure(KindUnauthorized, "workflow_action", "consequence_v1 takes no operator substitution for "+g.request.ActionID+"; invoke under the authenticated evaluator or coordinator identity", false, "act under the verified caller identity")
-	}
-	if !workflowActionAllowsOperatorIdentity(g.request.ActionID) || g.request.OperatorActor.ActorClass != ActorOperator {
-		return newFailure(KindUnauthorized, "workflow_action", "operator actor is only valid for signed premise confirmation, contract correction, conditioned verdict, and completion", false, "use the verified approval identity")
-	}
-	ref, err := WorkflowActorRef(*g.request.OperatorActor)
-	if err != nil {
-		return err
-	}
-	if ref == g.actorRef {
-		return newFailure(KindUnauthorized, "workflow_action", "operator actor cannot relabel the invoking agent", false, "approve from an independent operator identity")
-	}
-	var recordedPrincipal, recordedClient, recordedAgent, recordedSession string
-	var recordedClass ActorClass
-	recordErr := g.tx.QueryRowContext(g.ctx, `SELECT principal_ref,client_ref,agent_ref,session_ref,actor_class FROM workflow_actors WHERE actor_ref=?`, ref).Scan(&recordedPrincipal, &recordedClient, &recordedAgent, &recordedSession, &recordedClass)
-	switch {
-	case recordErr == sql.ErrNoRows:
-		g.operatorNeedsRecord = true
-	case recordErr != nil:
-		return wrapFailure(KindUnavailable, "workflow_action", "cannot read operator actor", true, "retry once the database is readable", recordErr)
-	default:
-		if recordedPrincipal != g.request.OperatorActor.PrincipalRef || recordedClient != g.request.OperatorActor.ClientRef || recordedAgent != g.request.OperatorActor.AgentRef || recordedSession != g.request.OperatorActor.SessionRef || recordedClass != ActorOperator {
-			return newFailure(KindInvariantViolation, "workflow_action", "recorded operator actor tuple does not match the signed assertion", false, "reread workflow actor authority")
-		}
-	}
-	g.operatorRef = ref
-	g.eventActor = ref
 	return nil
 }
 
@@ -841,10 +765,8 @@ type workflowActionAssemblyInput struct {
 	payload      json.RawMessage
 	evidenceRefs []string
 
-	eventActor          string
-	operatorRef         string
-	actorRecordPrefix   *workflowActorRecordPrefix
-	operatorNeedsRecord bool
+	eventActor        string
+	actorRecordPrefix *workflowActorRecordPrefix
 	// registry is the authoritative definition source the dispatch verified
 	// the entry through: nil selects the builtin registry.
 	registry DefinitionRegistry
@@ -872,10 +794,6 @@ func assembleWorkflowActionEventsTx(ctx context.Context, tx *sql.Tx, in workflow
 	versionCursor := in.request.ExpectedVersion
 	if in.actorRecordPrefix != nil {
 		events = append(events, in.actorRecordPrefix.event(in.request.OperationID+":actor", in.request.WorkID, in.request.Now, versionCursor))
-		versionCursor++
-	}
-	if in.operatorNeedsRecord {
-		events = append(events, workflowTypedEvent(in.request.OperationID+":operator", WorkflowActorRecorded, in.request.WorkID, in.operatorRef, in.request.Now, versionCursor, map[string]any{"actor_ref": in.operatorRef, "principal_ref": in.request.OperatorActor.PrincipalRef, "client_ref": in.request.OperatorActor.ClientRef, "agent_ref": in.request.OperatorActor.AgentRef, "session_ref": in.request.OperatorActor.SessionRef, "actor_class": string(ActorOperator)}))
 		versionCursor++
 	}
 	var workflowActionEpoch int64
@@ -1069,7 +987,7 @@ func extendCompletionEvidenceAuthorityTx(ctx context.Context, tx *sql.Tx, reques
 // applyCompleteWorkflowActionTx completes the workflow in this transaction:
 // the ordered completion gate runs and workflow.completed is appended here.
 // The caller's write scope guards the whole action region.
-func applyCompleteWorkflowActionTx(ctx context.Context, tx *sql.Tx, scope *writeScope, registry DefinitionRegistry, entry RegisteredDefinition, request WorkflowActionExecutionRequest, actor string, payload json.RawMessage, prefixEvents []Event) (WorkflowActionExecutionResult, error) {
+func applyCompleteWorkflowActionTx(ctx context.Context, tx *sql.Tx, scope *writeScope, registry DefinitionRegistry, request WorkflowActionExecutionRequest, actor string, payload json.RawMessage, prefixEvents []Event) (WorkflowActionExecutionResult, error) {
 	var result WorkflowActionExecutionResult
 	if scope == nil {
 		return result, newFailure(KindInvalidOperation, "complete_workflow", "write scope is required", false, "open the write scope with beginWrite")
@@ -1105,7 +1023,7 @@ func applyCompleteWorkflowActionTx(ctx context.Context, tx *sql.Tx, scope *write
 	if err := extendCompletionEvidenceAuthorityTx(ctx, tx, request); err != nil {
 		return result, err
 	}
-	completion, completionErr := workflowCompletionEventForDefinition(ctx, tx, registry, entry.Definition, request, actor, payload)
+	completion, completionErr := workflowCompletionEventForDefinition(ctx, tx, registry, request, actor, payload)
 	if completionErr != nil {
 		return result, completionErr
 	}

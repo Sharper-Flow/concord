@@ -68,7 +68,7 @@ dispatch, and the built-in family graphs.
 
 ## Contract
 
-For definitions declaring `approval_policy=consequence_v1`, CD-0013 D11 qualifies every operator-only contract, premise, verdict, correction, supersession, and completion clause in this contract, including their actor mappings. Engineering records a valid contract and coordinator confirmation; review records verdicts without consent, and Implement cannot accept its own result ([CD-0242 D5](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d5-execution-is-a-loop-that-main-controls)); coordinators record completion against those verdicts. No synthetic operator or approval evidence is created. Decision-bearing checkpoints retain human authority. Generated definitions derive from one source, and every evidence, recovery, source, and liveness obligation remains required ([CD-0242 D14](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source)).
+CD-0013 D11 qualifies every operator-only contract, premise, verdict, correction, supersession, and completion clause in this contract, including their actor mappings. Engineering records a valid contract and coordinator confirmation; review records verdicts, and Implement cannot accept its own result ([CD-0242 D5](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d5-execution-is-a-loop-that-main-controls)); coordinators record completion against those verdicts. No synthetic operator identity is created. Decision-bearing checkpoints retain human authority through CD-0243's conversational classes. Generated definitions derive from one source, and every evidence, recovery, source, and liveness obligation remains required ([CD-0242 D14](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source)).
 
 The binding contract is sections 1 through 12: the common representation and
 bounds, the definition registry, the instance state machine, current workflow
@@ -178,7 +178,7 @@ drift. No fallback definition or response-wording path is accepted.
 | From | To | Operation | Authority/fence |
 |---|---|---|---|
 | absent | `planned` | definition selected and capture/planning recorded | internal-inline |
-| `planned` | `ready` | contract, spec mandate, and definition approved | internal-inline; operator approval evidence |
+| `planned` | `ready` | contract, spec mandate, and definition approved | internal-inline |
 | `ready` | `running` | first action claimed | internal-inline for SQLite-only; fenced for cross-authority/external |
 | `running` | `running` | action checkpoint or successful action | inline or current `attempt_epoch` fence |
 | `running` | `blocked` | unresolved dependency discovered | internal-inline |
@@ -213,7 +213,7 @@ the rows below do not repeat this pair.
 |---|---|
 | `workflow.definition_selected` | `work_id`, `ref`, `version`, `digest`, `work_kind` (closed family enum) |
 | `workflow.contract_approved` | `work_id`, `contract_version`, `premise` (1–4096), `outcome_kind`, `outcome_payload` (strict outcome schema), `required_evidence` (0–7 unique), `route_conventions` (0–16 unique refs), `spec_mandate` (0–32 unique refs), `law_revisions` (one `{law_id, content_hash}` pin per mandated ID ), `rigor_class` (1–64), `consequence_class` (`internal_sqlite`, `cross_authority`, or `external_effect`) |
-| `workflow.contract_superseded` | `work_id`, `previous_contract_version`, optional unique `predecessor_contract_versions` (1–32), `new_contract_version`, `supersede_reason` (1–4096), `audit_evidence` (1–32 evidence refs), optional `approval_ref` with the exact `approval_operation_digest`, `approval_scope_json`, `approval_versions_json`, and `approval_consequence` binding, and optional `successor_contract` containing the fully validated contract fields and one current `law_revisions` pin per mandated law; recovery installs this successor and marks every named predecessor superseded in one transaction |
+| `workflow.contract_superseded` | `work_id`, `previous_contract_version`, optional unique `predecessor_contract_versions` (1–32), `new_contract_version`, `supersede_reason` (1–4096), `audit_evidence` (1–32 evidence refs), and optional `successor_contract` containing the fully validated contract fields and one current `law_revisions` pin per mandated law; recovery installs this successor and marks every named predecessor superseded in one transaction |
 | `workflow.candidate_set_revised` | `work_id`, `contract_version`, `candidate_kind` (exactly `work_item`, `product`, or `project`), `candidate_ref`, `added` (0–100 refs), `removed` (0–100 refs); `added` and `removed` are disjoint and not both empty |
 | `workflow.actor_recorded` | `work_id`, `actor_ref`, `principal_ref`, `client_ref`, `agent_ref`, `session_ref`, `actor_class` (`agent` or `operator`) |
 | `workflow.action_started` | `work_id`, `step_id`, `action_id`, `attempt_epoch`, `accepted_inputs_digest`, `idempotency_identity` (2–128), `actor_ref` |
@@ -245,7 +245,7 @@ Definition identity in these rows is the stable `ref` and content digest ([CD-02
 | Table | Columns (types) | Keys, foreign keys, and closed checks |
 |---|---|---|
 | `workflow_instances` | `work_id TEXT`, `definition_ref TEXT`, `definition_digest TEXT`, `current_step TEXT`, `instance_state TEXT`, `execution_actor_ref TEXT NULL`, `started_at TEXT NULL`, `completed_at TEXT NULL`, `last_checkpoint_at TEXT NULL` | PK `work_id`; FK work; FK actor nullable; checks digest, state enum |
-| `workflow_contracts` | `work_id TEXT`, `contract_version INTEGER`, `premise TEXT`, `outcome_kind TEXT`, `outcome_payload TEXT`, `consequence_class TEXT`, `required_evidence TEXT`, `route_conventions TEXT`, `approved_at TEXT`, `approved_by TEXT`, `superseded_by INTEGER NULL`, `spec_mandate TEXT`, `definition_ref TEXT`, `definition_digest TEXT` | PK `(work_id,contract_version)`; FK work and approved actor; self-FK superseded contract; checks nonempty premise, closed outcome/evidence/consequence; every contract approval records the exact selected definition pin |
+| `workflow_contracts` | `work_id TEXT`, `contract_version INTEGER`, `premise TEXT`, `outcome_kind TEXT`, `outcome_payload TEXT`, `consequence_class TEXT`, `required_evidence TEXT`, `route_conventions TEXT`, `approved_at TEXT`, `approved_by TEXT`, `superseded_by INTEGER NULL`, `spec_mandate TEXT`, `definition_ref TEXT`, `definition_digest TEXT` | PK `(work_id,contract_version)`; FK work and approved actor; self-FK superseded contract; checks nonempty premise, closed outcome/evidence/consequence; every contract records the exact selected definition pin |
 | `workflow_contract_law_revisions` | `work_id TEXT`, `contract_version INTEGER`, `law_id TEXT`, `content_hash TEXT` | PK `(work_id,contract_version,law_id)`; FK contract; reverse index by law ID; current rows written only by the contract-approval mutation ([CD-0242 D2](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)) |
 | `workflow_candidate_sets` | `work_id TEXT`, `contract_version INTEGER`, `candidate_kind TEXT`, `candidate_ref TEXT`, `candidate_role TEXT`, `candidate_scope TEXT`, `recorded_at TEXT`, `recorded_by TEXT` | PK `(work_id,contract_version,candidate_kind,candidate_ref)`; composite FK contract; FK actor; checks closed candidate kind/role |
 | `workflow_backlog_alignment` | `work_id TEXT`, `related_work_id TEXT NULL`, `searched TEXT`, `outcome TEXT`, `recorded_at TEXT`, `recorded_by TEXT` | PK `(work_id,related_work_id)`; FK work for both ids; checks closed outcome, a `none_found` work records no match rows, and no self-match; the declaration row carries a null `related_work_id`. Work removal clears rows naming the removed item in either column, because both foreign keys are `RESTRICT`. It does not reuse `workflow_candidate_sets`, whose composite FK binds to `workflow_contracts(work_id,contract_version)` and which therefore cannot hold a row before planning approves a contract |
@@ -512,7 +512,7 @@ are stable:
 | 1 | Every required evidence binding exists, resolves to its immutable subject, and belongs to the approved contract | `missing_evidence` | `provide_evidence` |
 | 3 | Every `modifies` edge is within the declared scope and the spec mandate is satisfied | `invariant_violation` | `reread_entities` |
 | 4 | Every approved predicate has a criterion-proof association on the current candidate, its actor tuple is complete, and an authorized coordinator records it using qualifying native receipts ([CD-0242 D5/D8](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d8-evidence-is-captured-by-its-producer-and-bound-to-its-subject)) | `unauthorized` for missing authority or partial actor; `missing_evidence` for absent verdict | `contact_operator` / `provide_evidence` |
-| 5 | Premise is confirmed with the authority the contract's decision fact requires: a verified operator for decision-bearing work, and under `consequence_v1` an authenticated coordinator for engineering work (CD-0013 D11) | `approval_required` or `missing_evidence` | `request_approval` / record the coordinator confirmation |
+| 5 | Premise is confirmed by the authenticated coordinator whose actor the confirmation records (CD-0013 D11) | `invalid_operation` or `missing_evidence` | record the coordinator confirmation |
 | 6 | Every recorded verdict answers an approved predicate, and no declared blocking staleness rule drifted | `outcome_mismatch` or `stale_requires_review` | `contact_operator` / `refresh_context` |
 | 7 | The gate reads, terminal metadata, lifecycle change, and the completion record commit in one transaction | `operation_conflict` | `reconcile_operation` |
 
@@ -570,41 +570,32 @@ rebuild exists
 
 For `confirm_premise`, the invoking agent tuple is never converted to an
 operator by changing `actor_class`, and `confirming_actor_ref` is not accepted
-from the workflow payload. The exact signed approval assertion must carry the
-no operator identity fields. The core authenticates the invoking client against
-the trusted-client key and policy, binds the assertion to the exact challenge,
-request digest, scope, work version, contract version, and `workflow_action`
-consequence, then consumes the assertion and approval record. The operator actor
-is deterministic core output derived from the consumed approval ref, consumed
-challenge ref, authenticated client, and canonical trusted-client policy digest;
-it is an approval-authority tuple, not a named-human identity. If its actor row
-is absent, the operator actor row is written in the same transaction as the
-recorded results; an existing row must match exactly. Replayed,
-mismatched, skipped-question, or payload-selected identities cannot create or
-use an operator actor. Idempotent replay returns the
-stored result without asking again, consuming approval again, or recording the
-actor again.
+from the workflow payload. The core authenticates the invoking client against
+the trusted-client key and policy, requires an agent-class non-worker
+coordinator, and records that identity as the confirmation's
+`confirming_actor_ref` with coordinator authority in the same transaction as
+the authorized intent. Replayed, mismatched, skipped-question, or
+payload-selected identities cannot substitute another actor. Idempotent replay
+returns the stored result without recording the confirmation again.
 
-### 8.1 Operator question before approval
+### 8.1 Operator question projection
 
-The bounded workflow read projection exposes `operator_question` only for the
-next declared human-checkpoint action. It contains the stable `prompt` and
+An active contract uses authenticated coordinator confirmation and exposes
+neither an operator question nor a withholding. Its `confirm_premise` action
+accepts no human choice or decision-context digest. Operator decisions follow
+CD-0243 D2 in conversation.
+
+Without an active contract, the bounded read projection may expose
+`operator_question` for a declared checkpoint action. It contains the stable `prompt` and
 `header`, a closed `choices` array (`id`, label, description, and action mapping),
 `allow_multiple=false`, `allow_custom=false`, bounded premise and contract
 summaries, and `decision_context_digest`. The digest is SHA-256 over the exact
 work ID and version, pinned definition ref/version/digest, contract version,
 action ID, premise bytes, outcome kind, and stored outcome-payload bytes.
 
-The model calls the built-in question UI using that projection. The question is
-semantic input only; the custom Concord tool never calls the question service.
-`confirm_premise` requires `selected_choice=confirm` and the matching digest.
-`revise` and `stop` are closed choices that route to the declared revision or
-cancellation action and are rejected if smuggled through `confirm_premise`.
-Only after core validates this selection and returns the exact approval challenge
-does the adapter call `ToolContext.ask`. `ask` is authorization, not semantic
-input. Its metadata includes work, action, contract version, selected choice, and
-bounded premise summary. A recorded operator therefore means approval authority,
-not an identified individual human.
+The question supplies semantic context only and grants no authority. The custom
+Concord tool never calls the question service. `revise` and `stop` name the
+declared revision or cancellation action; each action keeps its own admission.
 
 ## 9. Workflow composition
 
@@ -626,8 +617,8 @@ dispatcher performs this order:
 3. Validate work ID, expected work version, authenticated actor tuple, and current
    step. Stale versions return `version_conflict`; an incomplete actor returns
    `unauthorized`.
-4. Resolve required evidence and the existing `ApprovalCheck` chain. Missing or
-   invalid approval returns `approval_required` or `approval_invalid`.
+4. Resolve required evidence and validate authorization. A cross-scope action
+   requires `cross_scope`; otherwise the core returns `unauthorized`.
 5. Claim/check the durable idempotency identity. A replay of the same operation
    returns the original envelope without a second effect; a conflicting payload
    returns `idempotency_conflict`.
@@ -669,12 +660,10 @@ WF09, WF22, and WF25 each bind their criterion to a production route.
   transaction, and reads the resume
   state through the continuity read (CD-0016). Its resume step is `proposal`,
   a step of the pinned `workflow.implementation` definition.
-- WF25 leaves a compaction publication claim pending, then repeats the
-  publication under a new idempotency key without an approval. The agent
-  boundary returns `approval_required`, and the attempt epoch does not advance.
-  Compaction requires an approval on every publication, so WF25 covers
-  durable-operation claims only. The fenced-start takeover of a held attempt
-  is a separate route for criterion 25, covered by its own tests.
+- WF25 leaves a compaction publication claim pending, then takes over the
+  stuck claim. The new holder advances the attempt epoch; the stale holder
+  cannot complete the publication. The exact content, home, and no-second-effect
+  checks remain required.
 
 ## 12. Live-family graphs and declared action mappings
 
@@ -736,7 +725,7 @@ No result record is invented for a graph step.
 | `bind_evidence` | `workflow.evidence_bound`; the producer names a completed durable operation, for example a green verify-tier run at `worktree_verify:sha256:<digest>` |
 | `revise_candidates` | `workflow.candidate_set_revised` |
 | `link_successor` | `workflow.successor_linked` and the existing forward-link relation event |
-| `record_verdict` | `workflow.verdict_recorded`; the coordinator records the subject-bound verdict using qualifying native receipts, without attesting a subagent producer (CD-0242 D5/D8). CD-0116 governs any applicable operator-substitution route. |
+| `record_verdict` | `workflow.verdict_recorded`; the coordinator records the subject-bound verdict using qualifying native receipts, without attesting a subagent producer (CD-0242 D5/D8). |
 | `confirm_premise` | `workflow.premise_confirmed` |
 | `complete` | `workflow.completed`, only after the ordered gate in §7 |
 | `frame_question` | `workflow.action_completed`; the framed question is part of the action result and later decision-record evidence |

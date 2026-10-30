@@ -141,7 +141,7 @@ func completeWorkflowInScopeTx(ctx context.Context, tx *sql.Tx, registry Definit
 	if err := verifyWorkflowCompletionVerdictsTx(ctx, tx, event.SubjectID, contract); err != nil {
 		return err
 	}
-	if err := verifyWorkflowCompletionPremiseTx(ctx, tx, event.SubjectID, contract, definition); err != nil {
+	if err := verifyWorkflowCompletionPremiseTx(ctx, tx, event.SubjectID, contract); err != nil {
 		return err
 	}
 	if err := verifyBlockingStaleness(ctx, tx, event.SubjectID, definition, contract.RequiredEvidence); err != nil {
@@ -224,22 +224,16 @@ func verifyWorkflowCompletionVerdictsTx(ctx context.Context, tx *sql.Tx, workID 
 	return nil
 }
 
-func verifyWorkflowCompletionPremiseTx(ctx context.Context, tx *sql.Tx, workID string, contract workflowCompletionContractData, definition WorkflowDefinition) error {
-	// Clause 5: the premise confirmation carries the authority the contract's
-	// declared decision fact demands — a verified operator for decision-bearing
-	// work, and under consequence_v1 an authenticated non-worker coordinator
-	// for engineering. Legacy contracts keep the operator requirement.
+func verifyWorkflowCompletionPremiseTx(ctx context.Context, tx *sql.Tx, workID string, contract workflowCompletionContractData) error {
+	// Clause 5: an authenticated non-worker coordinator confirms the premise.
 	var confirmedBy string
 	if err := tx.QueryRowContext(ctx, `SELECT confirmed_by FROM workflow_premise_confirmations WHERE work_id=? AND contract_version=?`, workID, contract.Version).Scan(&confirmedBy); err != nil {
 		if err == sql.ErrNoRows {
-			if definition.ApprovalPolicy == WorkflowApprovalPolicyConsequenceV1 && workflowPremiseContractIsEngineering(contract) {
-				return workflowClauseFailure(KindMissingEvidence, 5, "workflow premise is not confirmed", "record the coordinator confirmation")
-			}
-			return workflowClauseFailure(KindApprovalRequired, 5, "workflow premise is not confirmed", "request_approval")
+			return workflowClauseFailure(KindMissingEvidence, 5, "workflow premise is not confirmed", "record the coordinator confirmation")
 		}
 		return workflowClauseError(wrapFailure(KindUnavailable, "complete_workflow", "cannot inspect premise confirmation", true, "retry once the database is readable", err), 5)
 	}
-	if err := workflowPremiseConfirmationAuthority(ctx, tx, definition, contract, confirmedBy); err != nil {
+	if err := workflowPremiseConfirmationAuthority(ctx, tx, confirmedBy); err != nil {
 		return workflowClauseError(err, 5)
 	}
 	return nil
@@ -327,41 +321,12 @@ type workflowCompletionContractData struct {
 	LawChange               *WorkflowLawChange
 }
 
-// workflowPremiseConfirmationAuthority holds one stored confirmation to the
-// authority its contract's declared decision fact demands: a verified operator
-// for decision-bearing work, and under consequence_v1 an authenticated
-// non-worker coordinator for engineering. Legacy contracts keep the operator
-// requirement, and a missing new-policy fact fails closed.
-func workflowPremiseConfirmationAuthority(ctx context.Context, tx *sql.Tx, definition WorkflowDefinition, contract workflowCompletionContractData, confirmedBy string) error {
-	if definition.ApprovalPolicy != WorkflowApprovalPolicyConsequenceV1 {
-		if err := requireActorClass(ctx, tx, confirmedBy, "operator"); err != nil {
-			return newFailure(KindApprovalRequired, "complete_workflow", "workflow premise confirmation is not operator typed", false, "request_approval")
-		}
-		return nil
-	}
-	if !contract.DecisionDomainsPresent {
-		return newFailure(KindInvariantViolation, "complete_workflow", "consequence_v1 completion requires the contract's stored decision-domain fact", false, "restore a verified backup into a new path with concord restore, then swap")
-	}
-	decision, err := ClassifyWorkflowApproval(definition, "confirm_premise", WorkflowApprovalFacts{ActiveDecisionDomains: contract.DecisionDomains})
-	if err != nil {
-		return err
-	}
-	if decision.Consent != WorkflowConsentNone {
-		if err := requireActorClass(ctx, tx, confirmedBy, "operator"); err != nil {
-			return newFailure(KindApprovalRequired, "complete_workflow", "workflow premise confirmation is not operator typed", false, "request_approval")
-		}
-		return nil
-	}
+// workflowPremiseConfirmationAuthority verifies the recorded coordinator.
+func workflowPremiseConfirmationAuthority(ctx context.Context, tx *sql.Tx, confirmedBy string) error {
 	if err := requireActorClass(ctx, tx, confirmedBy, "agent"); err != nil {
-		return newFailure(KindInvalidOperation, "complete_workflow", "engineering premise confirmation is not coordinator typed", false, "record the coordinator confirmation")
+		return newFailure(KindInvalidOperation, "complete_workflow", "premise confirmation is not coordinator typed", false, "record the coordinator confirmation")
 	}
 	return nil
-}
-
-// workflowPremiseContractIsEngineering reports whether the contract's stored
-// decision fact classifies the work as engineering under consequence_v1.
-func workflowPremiseContractIsEngineering(contract workflowCompletionContractData) bool {
-	return contract.DecisionDomainsPresent && !workflowDecisionDomainsRequireConsent(contract.DecisionDomains)
 }
 
 func workflowCompletionVersion(ctx context.Context, tx *sql.Tx, workID string, expected *int64) error {

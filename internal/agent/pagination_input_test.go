@@ -22,7 +22,6 @@ import (
 var paginationBaseInputs = map[string]map[string]any{
 	"concord_product_view.resolve":             {},
 	"concord_product_view.snapshot":            {},
-	"concord_product_view.blocked_sessions":    {"product_id": "prod-alpha"},
 	"concord_work_browse.list":                 {},
 	"concord_work_browse.ready":                {},
 	"concord_work_browse.blocked":              {},

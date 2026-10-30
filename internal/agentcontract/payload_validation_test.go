@@ -142,13 +142,13 @@ func TestGeneratedContractDeclarations(t *testing.T) {
 		{
 			ID: "concord_knowledge.search", Tool: "concord_knowledge", Operation: "search",
 			Kind: agentcontract.OperationRead, QueryID: "PM1.Q9", Capability: "product_read",
-			Consequence: "read", Approval: "none", Availability: agentcontract.AvailabilityAlways,
+			Consequence: "read", Availability: agentcontract.AvailabilityAlways,
 			SupportedBudgetSeconds: 300, InputSchema: "knowledge_search_input", ResultSchema: "knowledge_page",
 		},
 		{
 			ID: "concord_work_transition.workflow_action", Tool: "concord_work_transition", Operation: "workflow_action",
 			Kind: agentcontract.OperationMutation, Capability: "work_transition",
-			Consequence: "workflow_action", Approval: "conditional", Availability: agentcontract.AvailabilityWorkflowDefinition,
+			Consequence: "workflow_action", Availability: agentcontract.AvailabilityWorkflowDefinition,
 			SupportedBudgetSeconds: 30, InputSchema: "work_transition_action_input", ResultSchema: "projectable_mutation_result",
 		},
 	} {

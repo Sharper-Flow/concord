@@ -32,9 +32,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:6f07a05f072d6722589b421de95ff03a847694c983e8711d5903c10104a335c5",
+  "sha256": "sha256:405de3bc62f40ddce2d461092d981838682b25a655ed29c46603c4196446d2eb",
   "status": "accepted",
-  "summary": "Withholds every approval-required operator question until the work item carries an observation whose refs resolve to a current Domain and another work item, refuses contract approval while recorded pending questions lack a bound research pack revision, and leaves architecture mandatory where it already binds, at approval for Product-changing work.",
+  "summary": "Withholds every operator question until the work item carries an observation whose refs resolve to a current Domain and another work item, refuses contract approval while recorded pending questions lack a bound research pack revision, and leaves architecture mandatory where it already binds, at contract approval for Product-changing work.",
   "tags": [
     "workflow",
     "investigation",

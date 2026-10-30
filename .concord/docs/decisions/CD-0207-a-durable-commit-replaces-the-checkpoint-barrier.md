@@ -125,9 +125,7 @@ not change.
   reader does not fail a durable commit.
 - `internal/store.TestDurableTransactFailureSurfaces` proves a durable
   transaction failure reaches the caller.
-- `internal/agent.TestGrantRequestAcknowledgementIsDurable` proves each
-  acknowledged grant request adds a durable commit.
-- `internal/agent.TestGrantRequestAcknowledgesUnderPinnedReader` and
+- `internal/agent.TestWorkflowReplayCommitsDurablyUnderPinnedReader` and
   `cmd/concord.TestPredecessorImportAcknowledgesUnderPinnedReader` prove the
   acknowledgement succeeds while another connection holds a WAL read mark.
 - `python3 scripts/check-knowledge-index.py` proves this record registers

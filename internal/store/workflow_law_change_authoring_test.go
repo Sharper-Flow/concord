@@ -84,7 +84,7 @@ func TestLawChangeVersionZeroDescriptiveFactsRemainReadable(t *testing.T) {
 	if change.Version != 0 || !change.RemovesUserVisibleBehavior || !change.TouchesSecurityOrDataSafe || !change.Crucial || !change.Serious {
 		t.Fatalf("historical facts lost: %+v", change)
 	}
-	if err := validateWorkflowLawChangeShape(&change, nil, nil, nil); err != nil {
+	if err := validateWorkflowLawChangeShape(&change, nil, nil); err != nil {
 		t.Fatalf("historical shape refused: %v", err)
 	}
 }

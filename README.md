@@ -87,13 +87,11 @@ Every change progresses through five deterministic enforcement stages:
      Task tool and records its typed outcome against the current candidate.
      Concord checks the recorded subject and findings, not which subagent
      produced the review. The coordinator owns that independence claim.
-5. **Gate terminal transitions with operator approval.**
-   - *Why*: Keeps the operator in control of consequential decisions.
+5. **Gate terminal transitions on recorded evidence.**
+   - *Why*: Keeps completion claims bound to what actually ran.
    - *How*: When an agent requests a `completed` transition, Concord validates
-     all required evidence bindings. If the transition touches an approval
-     boundary, the engine halts with an `approval_required` challenge containing
-     the mutation digest. Only a valid signed host approval advances the state
-     in SQLite.
+     every required evidence binding and refuses the transition with
+     `missing_evidence` until the bindings stand.
 
 ### Verification in practice
 
@@ -103,7 +101,7 @@ demonstrates this gate directly:
 | Scenario | Agent action | Engine verdict |
 |---|---|---|
 | **Missing evidence** | Agent requests completion with no attached evidence | Refuses with `missing_evidence`. Prompt claims cannot satisfy the transition. |
-| **Gated completion** | Agent submits valid verification evidence | Halts with `approval_required`, returning the mutation digest. Transitions to `completed` only when a valid signed host approval is supplied. |
+| **Gated completion** | Agent submits valid verification evidence | The transition completes: the recorded evidence satisfies the terminal gate. |
 
 Run this test from a source checkout:
 

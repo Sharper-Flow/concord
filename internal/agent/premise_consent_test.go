@@ -5,33 +5,26 @@ import (
 	"encoding/json"
 	"fmt"
 	"reflect"
-	"slices"
-	"strconv"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
-// The caller supplies an evidenced current question, not a seeded acceptance
-// projection. Invoke owns host assertion validation before operator relabeling.
+// The coordinator records its own evidenced confirmation under its own
+// identity: an active contract projects no operator question, and the
+// closed confirm choice, the declared routes, and the caller identity
+// stay enforced.
 func assertPublicPremiseConsent(t *testing.T, s *store.Store, service *Service, env CallEnvelope, workID string) {
 	t.Helper()
 	question, err := readOperatorQuestionFromWorkPinForTest(context.Background(), s, workID)
-	if err != nil || question == nil {
-		t.Fatalf("operator question=%+v err=%v", question, err)
-	}
-	if question.ActionID != "confirm_premise" || question.Header != "Operator checkpoint" || question.AllowMultiple || question.AllowCustom || len(question.Choices) != 3 {
-		t.Fatalf("operator question shape=%+v", question)
-	}
-	if question.Choices[0].ID != "confirm" || question.Choices[0].ActionID != "confirm_premise" || question.Choices[1].ActionID != "supersede_contract" || question.Choices[2].ActionID != "concord_work_transition.lifecycle" {
-		t.Fatalf("operator question choices=%+v", question.Choices)
+	if err != nil || question != nil {
+		t.Fatalf("operator question=%+v err=%v, want none for the active contract", question, err)
 	}
 	input := map[string]any{
 		"work_id": workID, "expected_version": workVersion(t, s, workID), "action_id": "confirm_premise",
-		"selected_choice": "confirm", "decision_context_digest": question.DecisionContextDigest, "idempotency_key": "research-premise-consent",
+		"selected_choice": "confirm", "idempotency_key": "research-premise-consent",
 	}
 	refuse := func(t *testing.T, actorEnv CallEnvelope, request map[string]any, kind string) {
 		t.Helper()
@@ -48,11 +41,10 @@ func assertPublicPremiseConsent(t *testing.T, s *store.Store, service *Service, 
 		name, kind string
 		mutate     func(map[string]any)
 	}{
-		{"missing digest", "invalid_input", func(in map[string]any) { delete(in, "decision_context_digest") }},
-		{"malformed digest", "invalid_input", func(in map[string]any) { in["decision_context_digest"] = "not-a-digest" }},
-		{"stale digest", "stale_requires_review", func(in map[string]any) { in["decision_context_digest"] = "sha256:" + strings.Repeat("f", 64) }},
+		{"missing choice", "invalid_input", func(in map[string]any) { delete(in, "selected_choice") }},
 		{"revise uses its declared route", "invalid_transition", func(in map[string]any) { in["selected_choice"] = "revise" }},
 		{"stop uses its declared route", "invalid_transition", func(in map[string]any) { in["selected_choice"] = "stop" }},
+		{"human digest is not an engineering binding", "invalid_input", func(in map[string]any) { in["decision_context_digest"] = "sha256:" + strings.Repeat("f", 64) }},
 		{"payload cannot select operator", "invalid_input", func(in map[string]any) {
 			in["fields"] = map[string]any{"confirming_actor_ref": "actor:payload-selected"}
 		}},
@@ -66,55 +58,18 @@ func assertPublicPremiseConsent(t *testing.T, s *store.Store, service *Service, 
 			refuse(t, env, request, vector.kind)
 		})
 	}
-	challenge := invokeWorkflowIssue31(t, s, service, env, retryJSON(input))
-	if challenge.Outcome != agentcontract.OutcomeError || challenge.Error == nil || challenge.Error.Kind != "approval_required" {
-		t.Fatalf("product premise did not require operator consent: %+v", challenge.Error)
-	}
-	ref, _ := challenge.Error.Details["approval_ref"].(string)
-	summary := challenge.Error.ConsequenceSummary
-	if ref == "" || summary == nil || summary.OperationDigest != mutationDigest("concord_work_transition", "workflow_action", env, retryJSON(input)) || !slices.Contains(summary.Versions, "work:"+strconv.FormatInt(workVersion(t, s, workID), 10)) {
-		t.Fatalf("premise challenge lacks exact intent bindings: %+v", challenge.Error)
-	}
-	input["approval"] = map[string]any{"approval_ref": ref}
-	t.Run("missing host assertion", func(t *testing.T) { refuse(t, env, input, "approval_invalid") })
-	env.HostApproval = &HostApprovalAssertion{
-		ChallengeRef: ref, RequestDigest: summary.OperationDigest, Scope: summary.Scope, Versions: summary.Versions,
-		SessionRef: env.SessionRef, AgentRef: env.AgentRef, Worktree: env.Worktree, IssuedAt: fixedTime().Format(time.RFC3339Nano),
-	}
-	t.Run("wrong version assertion", func(t *testing.T) {
-		wrong := *env.HostApproval
-		wrong.Versions = slices.Clone(wrong.Versions)
-		for i, binding := range wrong.Versions {
-			if strings.HasPrefix(binding, "work:") {
-				wrong.Versions[i] = "work:" + strconv.FormatInt(workVersion(t, s, workID)+1, 10)
-			}
-		}
-		wrongEnv := env
-		wrongEnv.HostApproval = &wrong
-		refuse(t, wrongEnv, input, "approval_invalid")
-	})
-	// The host names no human. The authenticated registry and exact consent
-	// determine the operator identity, including when the wire principal is empty.
-	env.PrincipalRef = ""
 	spineOK(t, invokeWorkflowIssue31(t, s, service, env, retryJSON(input)))
 	var actorClass, confirmedBy, eventActor string
 	if err := s.DatabaseForTesting().QueryRow(`SELECT a.actor_class,pc.confirmed_by,e.actor FROM workflow_premise_confirmations pc JOIN workflow_actors a ON a.actor_ref=pc.confirmed_by JOIN effect_receipts e ON e.subject_id=pc.work_id AND e.kind=? WHERE pc.work_id=?`, store.WorkflowPremiseConfirmed, workID).Scan(&actorClass, &confirmedBy, &eventActor); err != nil {
 		t.Fatalf("read confirmed operator identity: %v", err)
 	}
-	if actorClass != string(store.ActorOperator) || confirmedBy != eventActor || confirmedBy == store.DeriveWorkflowActorRef(env.PrincipalRef, env.ClientRef, env.AgentRef, env.SessionRef) {
-		t.Fatalf("confirmation did not derive operator identity: class=%s confirming=%s event=%s", actorClass, confirmedBy, eventActor)
-	}
-	var got int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT used_count FROM agent_approvals WHERE protected_evidence_ref=?`, "approval-challenge:"+ref).Scan(&got); err != nil {
-		t.Fatalf("read consumed premise approval: %v", err)
-	}
-	if got != 1 {
-		t.Fatalf("operator approval used %d times, want once", got)
+	if actorClass != string(store.ActorAgent) || confirmedBy != eventActor || confirmedBy != store.DeriveWorkflowActorRef(env.PrincipalRef, env.ClientRef, env.AgentRef, env.SessionRef) {
+		t.Fatalf("confirmation did not keep caller identity: class=%s confirming=%s event=%s", actorClass, confirmedBy, eventActor)
 	}
 	before := premiseConsentSnapshot(t, s)
 	replay := spineOK(t, invokeWorkflowIssue31(t, s, service, env, retryJSON(input)))
 	if !replay.Replayed || !reflect.DeepEqual(before, premiseConsentSnapshot(t, s)) {
-		t.Fatal("premise replay changed workflow, operator identity or consent consumption")
+		t.Fatal("premise replay changed workflow, operator identity or confirmation state")
 	}
 }
 
@@ -122,11 +77,9 @@ func premiseConsentSnapshot(t *testing.T, s *store.Store) map[string]string {
 	t.Helper()
 	state := map[string]string{}
 	queries := map[string]string{
-		"versions":   `SELECT id,version FROM work_items ORDER BY id`,
-		"instances":  `SELECT work_id,instance_state,current_step FROM workflow_instances ORDER BY work_id`,
-		"actors":     `SELECT actor_ref,actor_class FROM workflow_actors ORDER BY actor_ref`,
-		"challenges": `SELECT challenge_ref,status,used_count FROM agent_approval_challenges ORDER BY challenge_ref`,
-		"approvals":  `SELECT approval_ref,used_count FROM agent_approvals ORDER BY approval_ref`,
+		"versions":  `SELECT id,version FROM work_items ORDER BY id`,
+		"instances": `SELECT work_id,instance_state,current_step FROM workflow_instances ORDER BY work_id`,
+		"actors":    `SELECT actor_ref,actor_class FROM workflow_actors ORDER BY actor_ref`,
 	}
 	for _, table := range []string{"effect_receipts", "workflow_instances", "workflow_contracts", "workflow_candidate_sets", "workflow_actors", "workflow_checkpoints", "workflow_impact_edges", "workflow_decision_records", "workflow_premise_confirmations"} {
 		queries[table] = fmt.Sprintf(`SELECT count(*) FROM %s`, table)

@@ -25,7 +25,7 @@ scenario corpus that judges every later surface candidate.
 Recorded workflow effects are current-row mutations; no event log or replay exists
 ([CD-0242](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2).
 
-AJ8 and Domain-overlap job scenarios use CD-0013 D11's consent policy. Routine compatibility, blocking, and dependency answers prove admission without approval consumption while retaining both work and judged contract pins. Merger or supersession proves exact operator approval consumption only when a CD-0243 D2 class applies, such as a governing-requirement scope cut; otherwise it proves admission without approval consumption. Workflow scenarios bind the one generated current definition ([CD-0242 D14](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source)); a missing review verdict is never a consent challenge.
+AJ8 and Domain-overlap job scenarios use CD-0243 D2's consent classes. Routine compatibility, blocking, and dependency answers prove admission while retaining both work and judged contract pins. A merger or supersession that discards declared governing requirements proves the `cross_scope` refusal; otherwise it proves ordinary admission. Workflow scenarios bind the one generated current definition ([CD-0242 D14](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source)); a missing review verdict is never a consent question.
 
 
 The binding contract is sections 1 through 4: the decision boundary, the
@@ -53,11 +53,11 @@ by Concord. No Q-number implies a separate tool.
 | **AJ1** | **Orient to a Product and choose work.** Resolve ambient Product/Project context; inspect needed, in-progress, blocked, and terminal work; understand cross-Project scope; select the highest-priority ready item. | Scope is explicit and unambiguous; one canonical work item appears once even when it spans Projects; blocked work is excluded from ready work; authority and freshness are visible. |
 | **AJ2** | **Explain why work is blocked.** Trace canonical blockers and state what must change. | Blockage is derived from relations and blocker terminality, never a competing stored state; resolved blockers disappear; graph depth and output stay bounded. |
 | **AJ3** | **Capture needed work without silently cutting scope.** Record a bounded idea, defect, investigation, implementation, or operational need with value, kind, and Project membership. | One canonical work item is created in the resolved scope. Ambiguity or conflict with governing law is surfaced for human direction rather than guessed or omitted. |
-| **AJ4** | **Transition work with evidence.** Move work through its accepted lifecycle, including completion, while satisfying evidence, approval, and version requirements. | One atomic domain transition occurs, evidence and actor are attributable, invalid or stale transitions fail structurally, and a retry cannot duplicate the effect. |
+| **AJ4** | **Transition work with evidence.** Move work through its accepted lifecycle, including completion, while satisfying evidence and version requirements. | One atomic domain transition occurs, evidence and actor are attributable, invalid or stale transitions fail structurally, and a retry cannot duplicate the effect. |
 | **AJ5** | **Relate and scope work.** Add or remove Project membership; create typed relations; and resolve concurrent Product-changing Domain overlap. | Graph and membership invariants hold; cycles and duplicate authority are rejected; supersession is atomic; overlap authority is operator-approved and pinned to both current contract versions. |
 | **AJ6** | **Compact and reconcile terminal work.** Publish the one canonical durable note required for terminal work and reconcile its Product-memory locator. | Git publication is proven before the SQLite locator is recorded; an interruption leaves an explicit, recoverable partial outcome; retries do not create duplicate notes or competing authority. |
 | **AJ7** | **Retrieve durable Product knowledge.** Find prior work, decisions, lessons, specs, and canonical completed-work notes. | One bounded query returns canonical locators and index watermark; missing, ambiguous, degraded, and unreachable are distinct; no repeated list→show→search choreography is required. |
-| **AJ8** | **Execute operational work with consequence controls.** Carry an ops item through plan, required approval, execution, health verification, rollback when needed, and cleanup—including ground-truth reclamation of derived resources. | Native authority executes the operation; Concord preserves intent, approval, status, and evidence. Missing approval blocks consequences, health failure triggers the declared recovery path, cleanup uses native facts rather than stale bookkeeping, and partial completion is explicit. |
+| **AJ8** | **Execute operational work with consequence controls.** Carry an ops item through plan, budgeted execution, health verification, rollback when needed, and cleanup—including ground-truth reclamation of derived resources. | Native authority executes the operation; Concord preserves intent, status, and evidence. A refused budget blocks consequences, health failure triggers the declared recovery path, cleanup uses native facts rather than stale bookkeeping, and partial completion is explicit. |
 
 These eight jobs are intentionally broader than storage queries and narrower than
 "do anything." They are the evidenced intent families repeatedly present in
@@ -75,7 +75,7 @@ later choose their concrete request/result schemas.
    current authority; degraded or unreachable state is never presented as current.
 3. **Atomic core effects:** each lifecycle transition, supersession, or membership
    move commits as one SQLite domain transaction; no observer sees half its state.
-4. **Evidence and consequence authority:** required evidence and human approval
+4. **Evidence and consequence authority:** required evidence and CD-0243's consent classes
    are checked by the core before the consequential effect.
 5. **Honest recovery:** partial success, stale versions, invalid relations,
    exhausted budgets, and recovery actions are structural outcomes—not prose hidden
@@ -287,7 +287,7 @@ definition, instruction, or invariant changed.
 
 CD-0222 makes unresolved concurrent Domain overlap a blocking Product-law fact.
 Before the current manifest added the overlap operation, AJ5's ordinary relation could record a graph edge but
-could not bind operator approval to both work versions, both active contract versions,
+could not bind both work versions, both active contract versions,
 and one closed compatibility, sequence, merger, or supersession decision. Treating the
 ordinary edge as authority would violate AJ5's duplicate-authority oracle and CD-0222.
 
@@ -295,8 +295,7 @@ The named failing scenario is therefore: authorize two overlapping Product-chang
 items to proceed concurrently using only the pre-5.0 AJ5 surface. No legitimate call
 can produce the required version-pinned resolution. The passing scenario
 `AJ5-resolve-domain-overlap` drives the real `concord_work_relate.resolve_overlap`
-dispatch path, observes the approval challenge, consumes the bound operator approval,
-and asserts the current `depends_on` resolution plus its relation companion. It
+dispatch path and asserts the current `depends_on` resolution plus its relation companion. It
 also actively proves that an ordinary link writes no overlap authority. `internal/agent.TestAgentJobsCorpus`, scenario `AJ5-resolve-domain-overlap`, is the executable binding.
 
 This amendment adds one scenario, bringing the corpus to 23. It does not add a ninth

@@ -23,20 +23,19 @@ import (
 // CallEnvelope is the hidden TS5 portion of an invoke request. The CLI accepts
 // it only from trusted client code; model-facing input is validated separately.
 type CallEnvelope struct {
-	SchemaVersion       string                 `json:"schema_version"`
-	RequestID           string                 `json:"request_id"`
-	ClientRef           string                 `json:"client_ref"`
-	PrincipalRef        string                 `json:"principal_ref"`
-	SessionRef          string                 `json:"session_ref"`
-	AgentRef            string                 `json:"agent_ref"`
-	Directory           string                 `json:"directory"`
-	Worktree            string                 `json:"worktree"`
-	AmbientProjectID    string                 `json:"ambient_project_id"`
-	SelectedProductID   string                 `json:"selected_product_id,omitempty"`
-	ScopeVersion        string                 `json:"scope_version"`
-	ManifestDigest      string                 `json:"manifest_digest"`
-	HostAssertionDigest string                 `json:"host_assertion_digest,omitempty"`
-	HostApproval        *HostApprovalAssertion `json:"host_approval_assertion,omitempty"`
+	SchemaVersion       string `json:"schema_version"`
+	RequestID           string `json:"request_id"`
+	ClientRef           string `json:"client_ref"`
+	PrincipalRef        string `json:"principal_ref"`
+	SessionRef          string `json:"session_ref"`
+	AgentRef            string `json:"agent_ref"`
+	Directory           string `json:"directory"`
+	Worktree            string `json:"worktree"`
+	AmbientProjectID    string `json:"ambient_project_id"`
+	SelectedProductID   string `json:"selected_product_id,omitempty"`
+	ScopeVersion        string `json:"scope_version"`
+	ManifestDigest      string `json:"manifest_digest"`
+	HostAssertionDigest string `json:"host_assertion_digest,omitempty"`
 }
 
 type InvokeRequest struct {
@@ -126,12 +125,6 @@ type productSnapshotInput struct {
 	Page         pageInput `json:"page"`
 	Limit        int       `json:"limit,omitempty"`
 }
-type blockedSessionsInput struct {
-	ProductID string    `json:"product_id"`
-	Page      pageInput `json:"page"`
-	Limit     int       `json:"limit,omitempty"`
-}
-
 type workListInput struct {
 	ProductID     string    `json:"product_id"`
 	ProjectIDs    []string  `json:"project_ids"`
@@ -1033,32 +1026,6 @@ func boundedErrorMessage(message string) string {
 	return strings.ToValidUTF8(message[:cut], "") + marker
 }
 
-// governingConflictEnvelope refuses a capture that does not cover the governing
-// requirements its target scope declares (CD-0035 D1/D3). The omitted
-// requirements are named in the typed violations rather than described in the
-// message, so an agent recovers without parsing prose.
-func governingConflictEnvelope(base agentcontract.Envelope, missing []string) agentcontract.Envelope {
-	base.Authority = agentcontract.AuthorityAuthoritative
-	base.Outcome = agentcontract.OutcomeError
-	base.Error = &agentcontract.TypedError{
-		Kind:           "invariant_violation",
-		RetrySafe:      false,
-		RecoveryAction: agentcontract.RecoveryAction{Kind: "contact_operator"},
-		EffectState:    agentcontract.EffectNone,
-		Message:        "capture does not carry the governing requirements accepted for this scope",
-		Violations:     missing,
-		Options:        agentcontract.GoverningConflictOptions,
-	}
-	if _, err := base.Encode(); err == nil {
-		return base
-	}
-	errorBase := agentcontract.NewBase(base.RequestID, base.Tool, base.Operation)
-	errorBase.Authority = agentcontract.AuthorityAuthoritative
-	errorBase.Outcome = agentcontract.OutcomeError
-	errorBase.Error = base.Error
-	return errorBase
-}
-
 func mapFailureKind(kind store.FailureKind) string {
 	switch kind {
 	case store.KindUnavailable:
@@ -1243,8 +1210,6 @@ func (r runtime) readResult(ctx context.Context, base agentcontract.Envelope, in
 		return r.readProductResolve(ctx, base, input)
 	case "concord_product_view.snapshot":
 		return r.readProductSnapshot(ctx, base, input)
-	case "concord_product_view.blocked_sessions":
-		return r.readProductBlockedSessions(ctx, base, input)
 	case "concord_work_browse.list":
 		return r.readWorkList(ctx, base, input)
 	case "concord_work_browse.ready":

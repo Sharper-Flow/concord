@@ -33,7 +33,7 @@ The accepted research-pack capability remains independent of workflow selection.
 
 ## Decision
 
-Only the three live execution families receive new `approval_policy=consequence_v1` versions under CD-0013 D11. The store keeps current state and finite snapshots, and recorded work keeps its recorded consent and attribution facts ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)). Review inspects the accumulated solution, verifies the corrected candidate, and reports one disposition that Main records; completion and engineering confirmation use their real authorized coordinators ([CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d5-execution-is-a-loop-that-main-controls)). No old work migrates implicitly and no retired family gains a new authoring route.
+The store keeps current state, finite snapshots, and attribution facts ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)). Review inspects the accumulated solution, verifies the corrected candidate, and reports one disposition that Main records; completion and premise confirmation use their real authorized coordinators ([CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d5-execution-is-a-loop-that-main-controls)). No retired family gains a new authoring route.
 
 ### D1. Three families own new execution
 
@@ -64,7 +64,7 @@ The live families are implementation, break-fix, and research, rules derived fro
 
 ### D3. Authorization and correction keep their owners
 
-Signed contract approval and the signed verdict checkpoint remain separate from
+Attributed contract recording and premise confirmation remain separate from
 independent verdict evidence. Immutable job revisions, attempts, subject commits,
 packet/report identities, actor/session/Project/worktree bindings, law/research
 pins, and operation/idempotency keys remain executable admission facts.

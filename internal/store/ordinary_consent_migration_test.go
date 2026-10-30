@@ -87,7 +87,7 @@ func TestOrdinaryConsentMigrationPreservesRowsAndConstraints(t *testing.T) {
 	db := ordinaryConsentMigrationFixture(t)
 	tables := append([]string{"effect_receipts", "workflow_contracts", "work_items"}, ordinaryConsentMigrationTables...)
 	before, metadata := sixClassSnapshot(t, db, tables...), ordinaryConsentSchemaMetadata(t, db)
-	if err := Migrate(context.Background(), db); err != nil {
+	if err := migrateOrdinaryConsentFixture(db); err != nil {
 		t.Fatal(err)
 	}
 	if got := sixClassSnapshot(t, db, tables...); !reflect.DeepEqual(got, before) {
@@ -180,4 +180,28 @@ func TestOrdinaryConsentMigrationRollsBackAtomically(t *testing.T) {
 	if got := sixClassSnapshot(t, db, tables...); !reflect.DeepEqual(got, before) {
 		t.Fatal("second migration pass changed state")
 	}
+}
+
+// These assertions bind migration 160's schema, not the current schema.
+func migrateOrdinaryConsentFixture(db *sql.DB) error {
+	ctx := context.Background()
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	m := migrations[159]
+	var applied bool
+	if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version=?)`, m.Version).Scan(&applied); err != nil {
+		return err
+	}
+	if !applied {
+		if err := applyMigration(ctx, tx, m); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO schema_migrations(version,name,checksum,applied_at,breaking) VALUES(?,?,?,'2026-01-01',?)`, m.Version, m.Name, m.checksum(), m.Breaking); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }

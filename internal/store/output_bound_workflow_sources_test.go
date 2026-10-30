@@ -168,9 +168,7 @@ func init() {
 	// re-admits the same 1..8 for replayed events (workflow.go:996-998);
 	// the projection's ordinal CHECK is a bare integer comparison the DDL
 	// parser cannot read.
-	contractOutcomePredicates := maxBound(
-		inputBound("/$defs/work_transition_action_variant_approve_contract/properties/fields/oneOf/0/properties/outcome_predicates/maxItems"),
-		inputBound("/$defs/work_transition_action_variant_approve_contract/properties/fields/oneOf/1/properties/outcome_predicates/maxItems"))
+	contractOutcomePredicates := inputBound("/$defs/work_transition_action_variant_approve_contract/properties/fields/properties/outcome_predicates/maxItems")
 
 	// The delivery assertion artifact writer uses record_delivery's admitted
 	// delivery_artifact input;
@@ -397,7 +395,7 @@ func init() {
 	// the fold re-admits the same canonical set
 	// (validateWorkflowDecisionDomains) for replayed events.
 	registerOutputBound("/$defs/workflow_contract/properties/decision_domains/maxItems", maxBound(
-		inputBound("/$defs/work_transition_action_variant_approve_contract/properties/fields/oneOf/1/properties/decision_domains/maxItems"),
+		inputBound("/$defs/work_transition_action_variant_approve_contract/properties/fields/properties/decision_domains/maxItems"),
 		inputBound("/$defs/work_transition_action_variant_supersede_contract/properties/fields/oneOf/1/properties/decision_domains/maxItems")))
 	registerOutputBound("/$defs/workflow_contract/properties/law_modifies/maxItems", contractLawModifies)
 	registerOutputBound("/$defs/workflow_contract/properties/law_revisions/maxItems",

@@ -46,7 +46,6 @@ func TestDispatchWorkRemovalRefusesMissingLinearConfirmation(t *testing.T) {
 	if countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM work_removal_operations`) != 0 {
 		t.Fatal("refused removal prepared or committed a removal receipt")
 	}
-	assertShelvingNoConsent(t, s)
 }
 
 func TestDispatchWorkRemovalCommitsWithRecordedLinearIssue(t *testing.T) {

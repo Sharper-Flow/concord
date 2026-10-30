@@ -136,9 +136,6 @@ func TestCrossProductMembershipNeedsNoConsentUnderCrossScope(t *testing.T) {
 	if err != nil || len(memberships) != 1 || memberships[0].ID != "project-2" {
 		t.Fatalf("work memberships = %+v, err = %v", memberships, err)
 	}
-	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM agent_approval_challenges`); got != 0 {
-		t.Fatalf("routine cross-Product membership minted %d challenges", got)
-	}
 }
 
 // Without the cross_scope capability the same mutation refuses before any
@@ -159,7 +156,7 @@ func TestCrossProductMembershipWithoutCrossScopeRefusesBeforeEffect(t *testing.T
 	if !strings.Contains(response.Error.Message, "cross_scope") {
 		t.Fatalf("refusal = %q, want it to name the cross_scope capability", response.Error.Message)
 	}
-	if workVersion(t, s, "work-1") != 2 || countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM agent_approval_challenges`) != 0 {
-		t.Fatal("refused membership changed state or created a challenge")
+	if workVersion(t, s, "work-1") != 2 {
+		t.Fatal("refused membership changed state")
 	}
 }

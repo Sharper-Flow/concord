@@ -150,18 +150,11 @@ test("published tool arguments expose a host-safe request shape", async () => {
   // Select the approve_contract variant by its action_id const: it is the
   // variant whose fields carry the outcome_predicates admission rules.
   const actionBranch = actionInput(transition, "approve_contract")
-  // fields is one closed union: the legacy shape and the consequence_v1
-  // extension that requires decision_domains. Every inspection below reads
-  // each branch, never the factored parent view where a branch-only field
-  // is invisible.
   const fieldsBranches = actionFieldsBranches(actionBranch)
-  expect(fieldsBranches, "approve_contract fields union branches").toHaveLength(2)
-  const legacyFields = fieldsBranches.find((fields: any) => !fields.required?.includes("decision_domains"))
-  const extensionFields = fieldsBranches.find((fields: any) => fields.required?.includes("decision_domains"))
-  expect(legacyFields, "the legacy fields branch").toBeObject()
-  expect(extensionFields, "the consequence_v1 fields branch").toBeObject()
-  expect(legacyFields.properties.decision_domains, "the legacy branch stays closed to the extension fields").toBeUndefined()
-  expect(extensionFields.properties.decision_domains, "the extension branch declares decision_domains").toBeObject()
+  expect(fieldsBranches, "approve_contract fields branches").toHaveLength(1)
+  expect(fieldsBranches[0].required).toContain("decision_domains")
+  expect(fieldsBranches[0].properties.decision_domains).toBeObject()
+  expect(fieldsBranches[0].additionalProperties).toBe(false)
   // CON-412: the items close per kind; each branch binds outcome_kind to
   // outcome_payload.kind and carries that branch's payload inline.
   for (const fields of fieldsBranches) {
@@ -221,7 +214,7 @@ test("work define publishes the record-only issue identity contract", () => {
   const input = branch.properties.input
   expect(input.required).toEqual(["work_id", "human_key", "remote_issue_uuid", "url", "idempotency_key"])
   expect(input.additionalProperties).toBe(false)
-  expect(Object.keys(input.properties).sort()).toEqual(["approval", "human_key", "idempotency_key", "remote_issue_uuid", "requested_budget_seconds", "url", "work_id"])
+  expect(Object.keys(input.properties).sort()).toEqual(["human_key", "idempotency_key", "remote_issue_uuid", "requested_budget_seconds", "url", "work_id"])
   expect(input.properties.human_key).toEqual(payloadSchemas.work_define_issue_link_record_input.properties.human_key)
   expect(input.properties.url).toEqual(payloadSchemas.work_define_issue_link_record_input.properties.url)
 })
@@ -423,9 +416,8 @@ test("oversize core results become bounded ToolResult error envelopes", async ()
   expect(envelope.error.adapter_reason).toBe("malformed_core_response")
 })
 
-test("transport and approval boundaries stay fail-closed", () => {
+test("transport boundaries stay fail-closed", () => {
   expect(source).toContain("concordBinaryPath(), \"invoke\"")
-  expect(source).toContain('always: []')
   expect(source).toContain("malformed_core_response")
   expect(source).toContain("operation_conflict")
   expect(source).not.toContain("console.log")
@@ -647,7 +639,7 @@ test("possible mutation failures reconcile by the request work ID", async () => 
   expect(result.error.details.reconciled).toEqual({ found: true, lifecycle: "completed", version: 3 })
 })
 
-test("post-approval possible failures use the same reconciliation wrapper", async () => {
+test("malformed mutation successes use the same reconciliation wrapper", async () => {
   const invalid = coreEnvelope("concord_work_transition", "lifecycle", "ok", {
     result: { changed_refs: [], next_valid_intents: [] },
     changed_refs: [], next_valid_intents: [], unexpected_field: true,
@@ -658,11 +650,10 @@ test("post-approval possible failures use the same reconciliation wrapper", asyn
   let calls = 0
   const result: any = await runTransition({ async run() {
     calls++
-    if (calls === 1 || calls === 4) return { exitCode: 0, stdout: JSON.stringify(contextResponse()), stderr: "" }
-    if (calls === 2) return { exitCode: 0, stdout: JSON.stringify(approvalChallenge()), stderr: "" }
-    return { exitCode: 0, stdout: JSON.stringify(calls === 3 ? invalid : readback), stderr: "" }
+    if (calls === 1 || calls === 3) return { exitCode: 0, stdout: JSON.stringify(contextResponse()), stderr: "" }
+    return { exitCode: 0, stdout: JSON.stringify(calls === 2 ? invalid : readback), stderr: "" }
   } })
-  expect(calls).toBe(5)
+  expect(calls).toBe(4)
   expect(result.error.details.reconciled).toEqual({ found: false, lifecycle: null, version: null })
 })
 
@@ -681,17 +672,16 @@ test("transport failures reconcile the request work ID", async () => {
   expect(result.error.details.salvaged).toBeUndefined()
 })
 
-test("post-approval runner failures reconcile the request work ID", async () => {
+test("runner exceptions reconcile the request work ID", async () => {
   const readback = coreEnvelope("concord_work_browse", "list", "ok", { result: { items: [] } })
   let calls = 0
   const result: any = await runTransition({ async run() {
     calls++
-    if (calls === 1 || calls === 4) return { exitCode: 0, stdout: JSON.stringify(contextResponse()), stderr: "" }
-    if (calls === 2) return { exitCode: 0, stdout: JSON.stringify(approvalChallenge()), stderr: "" }
-    if (calls === 3) throw new Error("runner failed after approval")
+    if (calls === 1 || calls === 3) return { exitCode: 0, stdout: JSON.stringify(contextResponse()), stderr: "" }
+    if (calls === 2) throw new Error("runner failed during mutation")
     return { exitCode: 0, stdout: JSON.stringify(readback), stderr: "" }
   } })
-  expect(calls).toBe(5)
+  expect(calls).toBe(4)
   expect(result.error.effect_state).toBe("possible")
   expect(result.error.recovery_action.kind).toBe("reconcile_operation")
   expect(result.error.details.reconciled).toEqual({ found: false, lifecycle: null, version: null })
@@ -967,75 +957,15 @@ test("I/O, malformed, timeout, and cancellation outcomes remain schema-valid", a
   expect(cancelled.error.effect_state).toBe("none")
 })
 
-const approvalChallenge = () => ({
-  schema_version: "1.0", manifest_digest: manifestDigest, request_id: "session-1-message-1", origin: "core", tool: "concord_work_transition", operation: "lifecycle", outcome: "error", resolved_scope: null, authority: "authoritative", freshness: null, source_version_watermark: [], ordering_keys: [], next_cursor: null, omissions: [], warnings: [], evidence_refs: [], replayed: false,
-  error: {
-    kind: "approval_required", retry_safe: false, recovery_action: { kind: "request_approval" }, effect_state: "none",
-    consequence_summary: {
-      tool: "concord_work_transition", operation: "lifecycle", consequence: "lifecycle",
-      operation_digest: `sha256:${"a".repeat(64)}`,
-      scope: ["product_id:product-1", "project_ids:project-1", "work_ids:work-1"], versions: ["work:2"], expires_at: "2026-10-01T00:00:00Z",
-    },
-    details: { approval_ref: "challenge-1", operation_digest: `sha256:${"a".repeat(64)}` },
-  },
-})
-const approvalSuccess = () => ({
-  schema_version: "1.0", manifest_digest: manifestDigest, request_id: "session-1-message-1", origin: "core", tool: "concord_work_transition", operation: "lifecycle", outcome: "ok", resolved_scope: null, authority: "authoritative", freshness: null, source_version_watermark: [], ordering_keys: [], next_cursor: null, omissions: [], warnings: [], evidence_refs: [], replayed: false,
-  result: { changed_refs: [], next_valid_intents: [] }, changed_refs: [], next_valid_intents: [],
-})
 const runTransition = (runner: any, ask?: () => Promise<void>) => {
   adapter.configureConcordAdapter({ runner })
   return rawHostResult(adapter.work_transition.execute(hostCall("lifecycle", { work_id: "work-1", expected_version: 2, target: "completed", reason: "done", idempotency_key: "idem-1" }), contextFor(ask)))
 }
 
-// mutations.go builds every workflow_action challenge with
-// `"selected_choice": in.SelectedChoice`. That field is a Go string, so an
-// action carrying no selection serializes it as "" rather than omitting it.
-// The tool surface admits the field only on confirm_premise, so a correct
-// caller sends nothing at all. A challenge check that compares the two values
-// refuses every approval-gated action except confirm_premise, and
-// approve_contract is the planning checkpoint in all seven workflows.
-//
-// These tests drive the whole challenge rather than asserting on the field
-// list, because the field list passed while the comparison still refused.
-const workflowActionChallenge = (actionID: string, selectedChoice = "") => ({
-  ...approvalChallenge(), operation: "workflow_action",
-  error: {
-    kind: "approval_required", retry_safe: false, recovery_action: { kind: "request_approval" }, effect_state: "none",
-    consequence_summary: { ...approvalChallenge().error.consequence_summary, operation: "workflow_action" },
-    details: {
-      approval_ref: "challenge-1", operation_digest: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-      work_id: "work-1", action_id: actionID, contract_version: "3",
-      selected_choice: selectedChoice, premise_summary: "approve the exact workflow action",
-      decision_context_digest: "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-    },
-  },
-})
 const runWorkflowAction = (runner: any, input: Record<string, unknown>, ask?: () => Promise<void>) => {
   adapter.configureConcordAdapter({ runner })
   return rawHostResult(adapter.work_transition.execute(hostCall("workflow_action", input), contextFor(ask)))
 }
-const challengeRunner = (challenge: unknown) => {
-  let calls = 0
-  return { async run() {
-    calls++
-    if (calls === 1) return { exitCode: 0, stdout: JSON.stringify(contextResponse()), stderr: "" }
-    if (calls === 2) return { exitCode: 0, stdout: JSON.stringify(challenge), stderr: "" }
-    return { exitCode: 0, stdout: JSON.stringify({ ...approvalSuccess(), operation: "workflow_action" }), stderr: "" }
-  } }
-}
-
-test("approve_contract clears the approval challenge the core actually builds", async () => {
-  let approvals = 0
-  const result: any = await runWorkflowAction(
-    challengeRunner(workflowActionChallenge("approve_contract")),
-    { work_id: "work-1", expected_version: 2, action_id: "approve_contract", idempotency_key: "idem-1" },
-    async () => { approvals++ },
-  )
-  expect(result.outcome).toBe("ok")
-  expect(approvals).toBe(1)
-})
-
 test("host publication round-trips check predicate payloads unchanged", async () => {
   const input = {
     work_id: "work-1",
@@ -1077,74 +1007,6 @@ test("host publication round-trips check predicate payloads unchanged", async ()
   const result: any = await rawHostResult(adapter.work_transition.execute(hostCall("workflow_action", input), contextFor()))
   expect(result.outcome).toBe("ok")
   expect(sentInput).toEqual(input)
-})
-
-test("approval host-round-trip asks and resubmits the exact resolve challenge once", async () => {
-  const input = {
-    from_work_id: "work-a",
-    to_work_id: "work-b",
-    from_expected_version: 3,
-    to_expected_version: 3,
-    from_contract_version: 1,
-    to_contract_version: 1,
-    resolution_kind: "supersedes",
-    reason: "replaced by the resolved item",
-    idempotency_key: "resolve-adapter-1",
-  }
-  const digest = `sha256:${"d".repeat(64)}`
-  const challenge = coreEnvelope("concord_work_relate", "resolve_overlap", "error", {
-    error: {
-      kind: "approval_required", retry_safe: false,
-      recovery_action: { kind: "request_approval" }, effect_state: "none",
-      consequence_summary: {
-        tool: "concord_work_relate", operation: "resolve_overlap", consequence: "relation",
-        operation_digest: digest,
-        scope: ["product_id:product-a", "product_ids:product-a", "product_ids:product-b", "project_ids:ambient", "work_ids:work-a", "work_ids:work-b", "scope_version:1"],
-        versions: ["from:3", "to:3"], expires_at: "2026-09-14T12:10:00Z",
-      },
-      details: {
-        approval_ref: "e".repeat(64), operation_digest: digest,
-        summary: "resolve the overlap by superseding work-b with work-a",
-        resolution_kind: "supersedes", from_work_id: "work-a", to_work_id: "work-b",
-      },
-    },
-  })
-  const success = coreEnvelope("concord_work_relate", "resolve_overlap", "ok", {
-    result: { changed_refs: [], next_valid_intents: [] },
-    changed_refs: [],
-    next_valid_intents: [],
-  })
-  const sentInputs: unknown[] = []
-  let approvals = 0
-  adapter.configureConcordAdapter({ runner: runnerWithContext((_argv: string[], raw: string, _signal: AbortSignal, calls: number) => {
-    if (calls > 1) sentInputs.push(JSON.parse(raw).input)
-    return calls === 2 ? challenge : success
-  }) })
-  const result: any = await rawHostResult(adapter.work_relate.execute(hostCall("resolve_overlap", input), contextFor(async () => { approvals++ })))
-  expect(result.outcome).toBe("ok")
-  expect(approvals).toBe(1)
-  expect(sentInputs).toEqual([input, { ...input, approval: { approval_ref: "e".repeat(64) } }])
-})
-
-test("confirm_premise still binds the selection it carries", async () => {
-  // The one action whose schema admits a selection must still agree with the
-  // core, or an operator could approve a choice they did not make.
-  const mismatched: any = await runWorkflowAction(
-    challengeRunner(workflowActionChallenge("confirm_premise", "revise")),
-    { work_id: "work-1", expected_version: 2, action_id: "confirm_premise", selected_choice: "confirm", decision_context_digest: "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", idempotency_key: "idem-2" },
-    async () => {},
-  )
-  expect(mismatched.outcome).not.toBe("ok")
-  expect(mismatched.error.adapter_reason).toBe("malformed_core_response")
-
-  let approvals = 0
-  const agreed: any = await runWorkflowAction(
-    challengeRunner(workflowActionChallenge("confirm_premise", "confirm")),
-    { work_id: "work-1", expected_version: 2, action_id: "confirm_premise", selected_choice: "confirm", decision_context_digest: "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", idempotency_key: "idem-3" },
-    async () => { approvals++ },
-  )
-  expect(agreed.outcome).toBe("ok")
-  expect(approvals).toBe(1)
 })
 
 test("confirm_premise refusals come from the core, not the adapter", async () => {
@@ -1365,62 +1227,6 @@ test("native verification cancellation kills the default runner's context child"
   }
 })
 
-test("large membership approval uses only the consequence summary bindings", async () => {
-  const scope = [
-    "product_id:product-1",
-    ...Array.from({ length: 9 }, (_, i) => `product_ids:product-${i + 1}`),
-    ...Array.from({ length: 13 }, (_, i) => `project_ids:project-${i + 1}`),
-    "scope_version:1", "work_ids:work-1",
-  ].sort()
-  const summary = {
-    tool: "concord_work_relate", operation: "set_memberships", consequence: "scope",
-    operation_digest: `sha256:${"a".repeat(64)}`, scope, versions: ["work:2"], expires_at: "2026-10-01T00:00:00Z",
-  }
-  const challenge = coreEnvelope(summary.tool, summary.operation, "error", {
-    error: {
-      kind: "approval_required", retry_safe: false, recovery_action: { kind: "request_approval" }, effect_state: "none",
-      consequence_summary: summary,
-      details: { approval_ref: "a".repeat(64), operation_digest: summary.operation_digest },
-    },
-  })
-  expect(validateGeneratedEnvelope(challenge)).toBe(true)
-  const input = {
-    work_id: "work-1", expected_version: 2, idempotency_key: "large-memberships",
-    memberships: Array.from({ length: 13 }, (_, i) => ({ project_id: `project-${i + 1}`, role: i === 0 ? "primary" : "secondary" })),
-  }
-  let approvedCall: any
-  let asked: any
-  adapter.configureConcordAdapter({ runner: runnerWithContext((_argv: string[], raw: string, _signal: AbortSignal, calls: number) => {
-    if (calls === 2) return challenge
-    approvedCall = JSON.parse(raw)
-    return coreEnvelope(summary.tool, summary.operation, "ok", { result: { changed_refs: [], next_valid_intents: [] }, changed_refs: [], next_valid_intents: [] })
-  }) })
-  const result: any = await rawHostResult(adapter.work_relate.execute(hostCall("set_memberships", input), contextFor(async (request: any) => { asked = request })))
-  expect(result.outcome).toBe("ok")
-  expect(asked.metadata.consequence_summary).toEqual(summary)
-  expect(approvedCall.call_envelope.host_approval_assertion.scope).toEqual(scope)
-  expect(approvedCall.call_envelope.host_approval_assertion.versions).toEqual(summary.versions)
-  expect(approvedCall.input).toEqual({ ...input, approval: { approval_ref: "a".repeat(64) } })
-})
-
-test("approval refuses mismatched summary identity before asking or resubmitting", async () => {
-  for (const changed of [
-    { tool: "concord_work_relate" },
-    { operation: "set_memberships" },
-    { operation_digest: `sha256:${"b".repeat(64)}` },
-  ]) {
-    const challenge = approvalChallenge()
-    Object.assign(challenge.error.consequence_summary, changed)
-    const runner = runnerWithContext(challenge)
-    let asks = 0
-    const result: any = await runTransition(runner, async () => { asks++ })
-    expect(result.error.kind).toBe("malformed_response")
-    expect(result.error.effect_state).toBe("none")
-    expect(asks).toBe(0)
-    expect(runner.calls()).toBe(2)
-  }
-})
-
 test("every declared query id passes the generated envelope contract", () => {
   // The generated validator runs on every core response. A query_id pattern
   // narrower than the manifest makes the adapter answer malformed_core_response
@@ -1460,7 +1266,7 @@ test("overlap resolution and stale-law refusal pass the generated adapter bounda
   const staleLaw = coreEnvelope("concord_work_transition", "lifecycle", "error", {
     error: {
       kind: "stale_law_revision", retry_safe: false,
-      recovery_action: { kind: "request_approval" }, effect_state: "none",
+      recovery_action: { kind: "use_declared_route", required_refs: ["supersede_contract", "terminal_work"] }, effect_state: "none",
       stale_law_revision: {
         old_law_id: "law-old", old_content_hash: `sha256:${"a".repeat(64)}`,
         recovery_actions: ["supersede_contract", "terminal_work"],
@@ -1501,109 +1307,6 @@ test("cross-repository placement passes the generated adapter boundary", async (
   expect(validateGeneratedEnvelope({ ...refusal, error: { ...error, session_placement: { ...error.session_placement, directory: ".git" } } })).toBe(false)
 })
 
-test("overlap approval asks with exact direction and resolution consequence", async () => {
-  const digest = `sha256:${"c".repeat(64)}`
-  const challenge = coreEnvelope("concord_work_relate", "resolve_overlap", "error", {
-    error: { kind: "approval_required", retry_safe: false, recovery_action: { kind: "request_approval" }, effect_state: "none",
-      consequence_summary: {
-        tool: "concord_work_relate", operation: "resolve_overlap", consequence: "relation",
-        operation_digest: digest, scope: ["product_id:product-1", "work_ids:work-1", "work_ids:work-2"],
-        versions: ["from:2", "from_contract:1", "to:3", "to_contract:1"], expires_at: "2026-08-20T00:00:00Z",
-      },
-      details: {
-      approval_ref: "overlap-challenge-1", operation_digest: digest,
-      summary: "Approve the exact requested mutation, scope, and expected versions.",
-      resolution_kind: "depends_on", from_work_id: "work-1", to_work_id: "work-2",
-    } },
-  })
-  const success = coreEnvelope("concord_work_relate", "resolve_overlap", "ok", {
-    result: { changed_refs: [], next_valid_intents: [] }, changed_refs: [], next_valid_intents: [],
-  })
-  let calls = 0
-  const runner = { async run() {
-    calls++
-    if (calls === 1) return { exitCode: 0, stdout: JSON.stringify(contextResponse()), stderr: "" }
-    return { exitCode: 0, stdout: JSON.stringify(calls === 2 ? challenge : success), stderr: "" }
-  } }
-  let askMetadata: any
-  adapter.configureConcordAdapter({ runner })
-  const result: any = await rawHostResult(adapter.work_relate.execute(hostCall("resolve_overlap", {
-    from_work_id: "work-1", to_work_id: "work-2",
-    from_expected_version: 2, to_expected_version: 3,
-    from_contract_version: 1, to_contract_version: 1,
-    resolution_kind: "depends_on", reason: "Work 2 must establish the shared law first.",
-    idempotency_key: "resolve-overlap-approval-1",
-  }), contextFor(async (request: any) => { askMetadata = request.metadata })))
-  expect(result.outcome).toBe("ok")
-  expect(askMetadata).toEqual({
-    approval_ref: "overlap-challenge-1", operation_digest: digest,
-    summary: "Approve the exact requested mutation, scope, and expected versions.",
-    scope: ["product_id:product-1", "work_ids:work-1", "work_ids:work-2"],
-    versions: ["from:2", "from_contract:1", "to:3", "to_contract:1"],
-    resolution_kind: "depends_on", from_work_id: "work-1", to_work_id: "work-2",
-    consequence_summary: {
-      tool: "concord_work_relate", operation: "resolve_overlap", consequence: "relation",
-      operation_digest: digest, scope: ["product_id:product-1", "work_ids:work-1", "work_ids:work-2"],
-      versions: ["from:2", "from_contract:1", "to:3", "to_contract:1"], expires_at: "2026-08-20T00:00:00Z",
-    },
-  })
-})
-
-test("client policy grant request asks with the calling client, policy version, and reason", async () => {
-  const digest = `sha256:${"d".repeat(64)}`
-  const policyVersion = `sha256:${"e".repeat(64)}`
-  const scope = ["capabilities:cross_scope", "client_ref:client-1", "policy_version:" + policyVersion, "product_scope:product-2"]
-  const challenge = coreEnvelope("concord_work_relate", "client_policy_grant_request", "error", {
-    error: { kind: "approval_required", retry_safe: false, recovery_action: { kind: "request_approval" }, effect_state: "none",
-      consequence_summary: {
-        tool: "concord_work_relate", operation: "client_policy_grant_request", consequence: "scope",
-        operation_digest: digest, scope, versions: [], expires_at: "2026-08-20T00:00:00Z",
-      },
-      details: {
-        approval_ref: "grant-challenge-1", operation_digest: digest,
-        summary: "Approve the exact added grants for your own trusted client; every existing grant and the stored principal stay unchanged.",
-        client_ref: "client-1", policy_version: policyVersion,
-        reason: "dependent work claims a cross-Product worktree",
-      } },
-  })
-  const success = coreEnvelope("concord_work_relate", "client_policy_grant_request", "ok", {
-    result: { client_ref: "client-1", policy_version: policyVersion, added_capabilities: ["cross_scope"], added_product_scope: ["product-2"], added_project_scope: [], added_agent_scope: [] },
-    changed_refs: [{ entity_kind: "trusted_client", id: "client-1", version: policyVersion }], next_valid_intents: [],
-  })
-  let calls = 0
-  const submitted: any[] = []
-  const runner = { async run(_argv: string[], input: any) {
-    calls++
-    submitted.push(input)
-    if (calls === 1) return { exitCode: 0, stdout: JSON.stringify(contextResponse()), stderr: "" }
-    return { exitCode: 0, stdout: JSON.stringify(calls === 2 ? challenge : success), stderr: "" }
-  } }
-  let askMetadata: any
-  adapter.configureConcordAdapter({ runner })
-  const result: any = await rawHostResult(adapter.work_relate.execute(hostCall("client_policy_grant_request", {
-    capabilities: ["cross_scope"], product_scope: ["product-2"], project_scope: [], agent_scope: [],
-    reason: "dependent work claims a cross-Product worktree", idempotency_key: "grant-request-adapter-1",
-  }), contextFor(async (request: any) => { askMetadata = request.metadata })))
-  expect(result.outcome).toBe("ok")
-  expect(askMetadata).toEqual({
-    approval_ref: "grant-challenge-1", operation_digest: digest,
-    summary: "Approve the exact added grants for your own trusted client; every existing grant and the stored principal stay unchanged.",
-    scope, versions: [],
-    client_ref: "client-1", policy_version: policyVersion,
-    reason: "dependent work claims a cross-Product worktree",
-    consequence_summary: {
-      tool: "concord_work_relate", operation: "client_policy_grant_request", consequence: "scope",
-      operation_digest: digest, scope, versions: [], expires_at: "2026-08-20T00:00:00Z",
-    },
-  })
-  // The resubmission is the same request with only the approval binding added,
-  // so the core's digest check sees the approved arguments, not edited ones.
-  const finalCall = JSON.parse(submitted[2])
-  expect(finalCall.input.approval).toEqual({ approval_ref: "grant-challenge-1" })
-  expect(finalCall.input.capabilities).toEqual(["cross_scope"])
-  expect(finalCall.call_envelope.host_approval_assertion.challenge_ref).toBe("grant-challenge-1")
-})
-
 test("generated and adapter validators reject unknown top-level fields for every outcome", async () => {
   const variants: Array<[string, any, any, any]> = [
     ["ok", coreEnvelope("concord_product_view", "resolve", "ok", { items: [{}] }), adapter.product_view, hostCall("resolve", {})],
@@ -1637,220 +1340,6 @@ test("worktree audit reclaim preserves committed refs through the adapter bounda
   expect(validateGeneratedEnvelope(result)).toBe(true)
   expect(result.outcome).toBe("error")
   expect(result.changed_refs).toEqual([{ entity_kind: "work_item", id: "work-2", version: "5" }])
-})
-
-test("approval rejection and possible-effect conflict are valid adapter envelopes", async () => {
-  const rejected: any = await runTransition(runnerWithContext({ exitCode: 0, stdout: JSON.stringify(approvalChallenge()), stderr: "" }), async () => { throw new Error("rejected") })
-  assertAdapterEnvelope(rejected)
-  expect(rejected.error.kind).toBe("cancelled")
-  expect(rejected.error.effect_state).toBe("none")
-
-  let calls = 0
-  const conflicted: any = await runTransition({ async run(_argv: string[]) { calls++; if (calls === 1) return { exitCode: 0, stdout: JSON.stringify(contextResponse()), stderr: "" }; if (calls === 2) return { exitCode: 0, stdout: JSON.stringify(approvalChallenge()), stderr: "" }; return { exitCode: 0, stdout: "not-json", stderr: "" } } })
-  assertAdapterEnvelope(conflicted)
-  expect(conflicted.error.kind).toBe("operation_conflict")
-  expect(conflicted.error.adapter_reason).toBe("unknown_effect")
-  expect(conflicted.error.effect_state).toBe("possible")
-})
-
-test("approval requests suspend under ask policy before resubmission", async () => {
-  const challenge = approvalChallenge()
-  const digest = challenge.error.details.operation_digest
-  const runner = runnerWithContext((_argv: string[], _input: string, _signal: AbortSignal, calls: number) => calls === 2 ? challenge : approvalSuccess())
-  let notifyPrompt!: (request: any) => void
-  const prompted = new Promise<any>((resolve) => { notifyPrompt = resolve })
-  let approve!: () => void
-  const decision = new Promise<void>((resolve) => { approve = resolve })
-  adapter.configureConcordAdapter({ runner })
-  const invocation = rawHostResult(adapter.work_transition.execute(hostCall("lifecycle", {
-    work_id: "work-1", expected_version: 2, target: "completed", reason: "done", idempotency_key: "ask-policy-1",
-  }), contextFor(async (request: any) => {
-    // OpenCode evaluates policy per pattern; an empty list returns without a prompt.
-    if (request.patterns.length === 0) return
-    notifyPrompt(request)
-    await decision
-  })))
-  let result: any
-  try {
-    const phase = await Promise.race([
-      prompted.then((request) => ({ kind: "prompted", request })),
-      invocation.then(() => ({ kind: "returned", request: null })),
-    ])
-    expect(phase.kind).toBe("prompted")
-    expect(phase.request.patterns).toEqual([digest])
-    expect(phase.request.always).toEqual([])
-    expect(runner.calls()).toBe(2)
-  } finally {
-    approve()
-    result = await invocation
-  }
-  expect(result.outcome).toBe("ok")
-  expect(runner.calls()).toBe(3)
-})
-
-test("approval requests respect deny policy without resubmission", async () => {
-  const challenge = workflowActionChallenge("approve_contract")
-  const runner = runnerWithContext((_argv: string[], _input: string, _signal: AbortSignal, calls: number) => calls === 2 ? challenge : { ...approvalSuccess(), operation: "workflow_action" })
-  adapter.configureConcordAdapter({ runner })
-  const result: any = await rawHostResult(adapter.work_transition.execute(hostCall("workflow_action", {
-    work_id: "work-1", expected_version: 2, action_id: "approve_contract", idempotency_key: "deny-policy-1",
-  }), contextFor(async (request: any) => {
-    if (request.patterns.length === 0) return
-    throw new Error("host policy denies this approval")
-  })))
-  expect(result.error?.kind).toBe("cancelled")
-  expect(result.error?.effect_state).toBe("none")
-  expect(runner.calls()).toBe(2)
-})
-
-test("approval challenge is resubmitted once with the same idempotency key and unsigned binding", async () => {
-  const requests: any[] = []
-  let calls = 0
-  const runner = { async run(_argv: string[], input: string) {
-    calls++
-    if (calls > 1) requests.push(JSON.parse(input))
-    if (calls === 1) return { exitCode: 0, stdout: JSON.stringify(contextResponse()), stderr: "" }
-    if (calls === 2) return { exitCode: 0, stdout: JSON.stringify(approvalChallenge()), stderr: "" }
-    return { exitCode: 0, stdout: JSON.stringify(approvalSuccess()), stderr: "" }
-  } }
-  let approvals = 0
-  const result: any = await runTransition(runner, async () => { approvals++ })
-  expect(result.outcome).toBe("ok")
-  expect(validateGeneratedEnvelope(result)).toBe(true)
-  expect(calls).toBe(3)
-  expect(approvals).toBe(1)
-  expect(requests[1].tool).toBe(requests[0].tool)
-  expect(requests[1].operation).toBe(requests[0].operation)
-  expect(requests[1].input.idempotency_key).toBe(requests[0].input.idempotency_key)
-  expect(requests[1].input.approval.approval_ref).toBe("challenge-1")
-  expect(requests[1].call_envelope.host_approval_assertion.scope).toEqual(["product_id:product-1", "project_ids:project-1", "work_ids:work-1"])
-  expect(requests[1].call_envelope.host_approval_assertion.versions).toEqual(["work:2"])
-  expect(requests[1].call_envelope.host_approval_assertion.signature).toBeUndefined()
-  expect(requests[1].call_envelope.host_approval_assertion.nonce).toBeUndefined()
-})
-
-test("a challenge-free approval refusal reaches the operator unchanged", async () => {
-  // allOf[5] of the envelope schema binds approval_required to the
-  // request_approval recovery action and requires nothing else, so the store
-  // sites that refuse approval without minting a challenge are
-  // contract-conformant. Only the allOf[16]/allOf[17] consequence_summary
-  // and details.approval_ref pair marks a minted challenge.
-  const challengeFree = coreEnvelope("concord_work_transition", "workflow_action", "error", {
-    error: { kind: "approval_required", retry_safe: false, recovery_action: { kind: "request_approval" }, effect_state: "none", message: "operator takeover required" },
-  })
-  expect(validateGeneratedEnvelope(challengeFree)).toBe(true)
-  let calls = 0
-  let approvals = 0
-  const runner = { async run() {
-    calls++
-    if (calls === 1) return { exitCode: 0, stdout: JSON.stringify(contextResponse()), stderr: "" }
-    if (calls === 2) return { exitCode: 0, stdout: JSON.stringify(challengeFree), stderr: "" }
-    throw new Error("no resubmission may follow a challenge-free refusal")
-  } }
-  const result: any = await runWorkflowAction(
-    runner,
-    { work_id: "work-1", expected_version: 2, action_id: "approve_contract", idempotency_key: "idem-challenge-free-1" },
-    async () => { approvals++ },
-  )
-  expect(result.outcome).toBe("error")
-  expect(result.error.kind).toBe("approval_required")
-  expect(result.error.message).toBe("operator takeover required")
-  expect(result.error.recovery_action.kind).toBe("request_approval")
-  expect(approvals).toBe(0)
-  expect(calls).toBe(2)
-})
-
-test("a minted challenge without its workflow metadata still refuses as malformed", async () => {
-  const minted: any = workflowActionChallenge("approve_contract")
-  delete minted.error.details.operation_digest
-  const result: any = await runWorkflowAction(
-    challengeRunner(minted),
-    { work_id: "work-1", expected_version: 2, action_id: "approve_contract", idempotency_key: "idem-minted-1" },
-    async () => {},
-  )
-  expect(result.outcome).not.toBe("ok")
-  expect(result.error.kind).toBe("malformed_response")
-  expect(result.error.adapter_reason).toBe("malformed_core_response")
-  expect(result.error.message).toBe("core approval challenge lacked exact workflow metadata")
-})
-
-test("workflow premise approval asks with exact checkpoint metadata and no human identity", async () => {
-  const requests: any[] = []
-  const challenge = coreEnvelope("concord_work_transition", "workflow_action", "error", {
-    error: { kind: "approval_required", retry_safe: false, recovery_action: { kind: "request_approval" }, effect_state: "none",
-    consequence_summary: { ...approvalChallenge().error.consequence_summary, operation: "workflow_action", versions: ["contract:1", "work:7"] },
-    details: {
-      approval_ref: "challenge-1", operation_digest: "sha256:" + "a".repeat(64),
-      work_id: "work-1", action_id: "confirm_premise", contract_version: "1", selected_choice: "confirm", premise_summary: "Ship the approved workflow premise.", decision_context_digest: "sha256:" + "b".repeat(64),
-    } },
-  })
-  const success = coreEnvelope("concord_work_transition", "workflow_action", "ok", { result: { changed_refs: [], next_valid_intents: [] }, changed_refs: [], next_valid_intents: [] })
-  let calls = 0
-  const runner = { async run(_argv: string[], input: string) {
-    calls++
-    if (calls > 1) requests.push(JSON.parse(input))
-    if (calls === 1) return { exitCode: 0, stdout: JSON.stringify(contextResponse()), stderr: "" }
-    return { exitCode: 0, stdout: JSON.stringify(calls === 2 ? challenge : success), stderr: "" }
-  } }
-  let askMetadata: any
-  adapter.configureConcordAdapter({ runner })
-  const result: any = await rawHostResult(adapter.work_transition.execute(hostCall("workflow_action", { work_id: "work-1", expected_version: 7, action_id: "confirm_premise", selected_choice: "confirm", decision_context_digest: "sha256:" + "b".repeat(64), idempotency_key: "confirm-1" }), contextFor(async (request: any) => { askMetadata = request.metadata })))
-  expect(result.outcome).toBe("ok")
-  expect(askMetadata).toEqual({ approval_ref: "challenge-1", operation_digest: "sha256:" + "a".repeat(64), scope: challenge.error.consequence_summary.scope, versions: challenge.error.consequence_summary.versions, work_id: "work-1", action_id: "confirm_premise", contract_version: "1", selected_choice: "confirm", decision_context_digest: "sha256:" + "b".repeat(64), premise_summary: "Ship the approved workflow premise.", consequence_summary: challenge.error.consequence_summary })
-  expect(requests[1].call_envelope.host_approval_assertion.operator_principal_ref).toBeUndefined()
-  expect(requests[1].call_envelope.host_approval_assertion.operator_agent_ref).toBeUndefined()
-  expect(requests[1].call_envelope.host_approval_assertion.operator_session_ref).toBeUndefined()
-})
-
-test("workflow approval round-trips the contract and work bindings", async () => {
-  const challenge = coreEnvelope("concord_work_transition", "workflow_action", "error", {
-    error: { kind: "approval_required", retry_safe: false, recovery_action: { kind: "request_approval" }, effect_state: "none",
-    consequence_summary: {
-      ...approvalChallenge().error.consequence_summary, operation: "workflow_action",
-      scope: ["product_id:product-1", "project_ids:project-1", "work_ids:work-1"],
-      versions: ["contract:1", "work:7"],
-    },
-    details: {
-      approval_ref: "challenge-1", operation_digest: "sha256:" + "a".repeat(64),
-      work_id: "work-1", action_id: "approve_contract", contract_version: "1", selected_choice: "", decision_context_digest: "", premise_summary: "approved contract objective",
-    } },
-  })
-  const success = coreEnvelope("concord_work_transition", "workflow_action", "ok", { result: { changed_refs: [], next_valid_intents: [] }, changed_refs: [], next_valid_intents: [] })
-  const requests: any[] = []
-  let calls = 0
-  const runner = { async run(_argv: string[], input: string) {
-    calls++
-    if (calls > 1) requests.push(JSON.parse(input))
-    if (calls === 1) return { exitCode: 0, stdout: JSON.stringify(contextResponse()), stderr: "" }
-    return { exitCode: 0, stdout: JSON.stringify(calls === 2 ? challenge : success), stderr: "" }
-  } }
-  let askMetadata: any
-  adapter.configureConcordAdapter({ runner })
-  const result: any = await rawHostResult(adapter.work_transition.execute(hostCall("workflow_action", { work_id: "work-1", expected_version: 7, action_id: "approve_contract", idempotency_key: "escalated-challenge-transport" }), contextFor(async (request: any) => { askMetadata = request.metadata })))
-  expect(result.outcome).toBe("ok")
-  expect(askMetadata).toEqual({ approval_ref: "challenge-1", operation_digest: "sha256:" + "a".repeat(64), scope: challenge.error.consequence_summary.scope, versions: challenge.error.consequence_summary.versions, work_id: "work-1", action_id: "approve_contract", contract_version: "1", selected_choice: "", decision_context_digest: "", premise_summary: "approved contract objective", consequence_summary: challenge.error.consequence_summary })
-  expect(requests[1].call_envelope.host_approval_assertion.scope).toEqual(["product_id:product-1", "project_ids:project-1", "work_ids:work-1"])
-  expect(requests[1].call_envelope.host_approval_assertion.versions).toEqual(["contract:1", "work:7"])
-})
-
-test("a metadata-less approval refusal stays a core refusal without asking the operator", async () => {
-  const refusal = coreEnvelope("concord_work_transition", "workflow_action", "error", {
-    error: { kind: "approval_required", retry_safe: false, recovery_action: { kind: "request_approval" }, effect_state: "none" },
-  })
-  let calls = 0
-  const runner = { async run() {
-    calls++
-    if (calls === 1) return { exitCode: 0, stdout: JSON.stringify(contextResponse()), stderr: "" }
-    return { exitCode: 0, stdout: JSON.stringify(refusal), stderr: "" }
-  } }
-  let asks = 0
-  adapter.configureConcordAdapter({ runner })
-  const result: any = await rawHostResult(adapter.work_transition.execute(hostCall("workflow_action", { work_id: "work-1", expected_version: 7, action_id: "approve_contract", idempotency_key: "escalated-dead-end" }), contextFor(async () => { asks++ })))
-  expect(validateGeneratedEnvelope(result), JSON.stringify(result)).toBe(true)
-  expect(result.origin).toBe("core")
-  expect(result.error.kind).toBe("approval_required")
-  expect(asks).toBe(0)
-  expect(calls).toBe(2)
 })
 
 test("fake seams exercise context resolution and malformed-response handling", async () => {
@@ -3935,7 +3424,7 @@ test("a notice that would push a fitting envelope over the byte cap falls to the
 
 test("a stale session's mutation still runs and carries the notice", async () => {
   await withReleaseLayout("v11.40.6", async () => {
-    adapter.configureConcordAdapter({ runner: runnerWithContext(approvalSuccess()) })
+    adapter.configureConcordAdapter({ runner: runnerWithContext(coreEnvelope("concord_work_transition", "lifecycle", "ok", { result: { changed_refs: [], next_valid_intents: [] }, changed_refs: [], next_valid_intents: [] })) })
     const result: any = await rawHostResult(adapter.work_transition.execute(hostCall("lifecycle", {
       work_id: "work-1", expected_version: 2, target: "completed", reason: "done", idempotency_key: "idem-stale-3",
     }), contextFor()))
@@ -4011,48 +3500,31 @@ test("CON-913 row 10: a contract-failing vacate answer keeps the replay tuple wi
   expect(result.error.details.salvaged).toMatchObject({ work_id: "work-1" })
 })
 
-test("CON-913 rows 11/12: post-approval vacate refusals keep the replay recovery", async () => {
-  const digest = "sha256:" + "a".repeat(64)
-  const challenge = coreEnvelope("concord_work_transition", "session_vacate", "error", {
-    error: {
-      kind: "approval_required", retry_safe: false, recovery_action: { kind: "request_approval" }, effect_state: "none",
-      consequence_summary: {
-        tool: "concord_work_transition", operation: "session_vacate", consequence: "session_vacate",
-        operation_digest: digest, scope: ["product_id:product-1", "project_ids:project-1"], versions: ["work:2"], expires_at: "2026-12-01T00:00:00Z",
-      },
-      details: { approval_ref: "challenge-vacate-913", operation_digest: digest },
-    },
-  })
-  expect(validateGeneratedEnvelope(challenge), envelopeFailurePath(challenge) ?? undefined).toBe(true)
-  const resubmissionRunner = (resubmission: () => { exitCode: number; stdout: string; stderr: string }) => {
+test("vacate refusals keep the replay recovery", async () => {
+  const vacateRunner = (result: () => { exitCode: number; stdout: string; stderr: string }) => {
     let calls = 0
     return { async run() {
       calls++
       if (calls === 1) return { exitCode: 0, stdout: JSON.stringify(contextResponse()), stderr: "" }
-      if (calls === 2) return { exitCode: 0, stdout: JSON.stringify(challenge), stderr: "" }
-      return resubmission()
+      return result()
     } }
   }
-  let approvals = 0
-  adapter.configureConcordAdapter({ runner: resubmissionRunner(() => ({ exitCode: 0, stdout: "not-json", stderr: "" })) })
+  adapter.configureConcordAdapter({ runner: vacateRunner(() => ({ exitCode: 0, stdout: "not-json", stderr: "" })) })
   const row11: any = await rawHostResult(adapter.work_transition.execute(
-    hostCall("session_vacate", { idempotency_key: "vacate-approval-913" }),
-    contextFor(async () => { approvals++ }),
+    hostCall("session_vacate", { idempotency_key: "vacate-malformed-913" }),
+    contextFor(),
   ))
-  expect(approvals).toBe(1)
   expectTuple(row11, V, "row 11")
   expect(row11.error.message).toContain("replay session_vacate")
 
-  approvals = 0
-  adapter.configureConcordAdapter({ runner: resubmissionRunner(() => ({ exitCode: 0, stdout: JSON.stringify(coreEnvelope("concord_work_transition", "session_vacate", "ok", {
+  adapter.configureConcordAdapter({ runner: vacateRunner(() => ({ exitCode: 0, stdout: JSON.stringify(coreEnvelope("concord_work_transition", "session_vacate", "ok", {
     result: { changed_refs: [], next_valid_intents: [], work_id: "work-1", project_id: "project-1", source_directory: "/worktree", destination_directory: "/main" },
     changed_refs: [], next_valid_intents: [], unexpected_field: true,
   })), stderr: "" })) })
   const row12: any = await rawHostResult(adapter.work_transition.execute(
-    hostCall("session_vacate", { idempotency_key: "vacate-approval-913-b" }),
-    contextFor(async () => { approvals++ }),
+    hostCall("session_vacate", { idempotency_key: "vacate-malformed-913-b" }),
+    contextFor(),
   ))
-  expect(approvals).toBe(1)
   expectTuple(row12, V, "row 12")
 })
 
@@ -4319,18 +3791,6 @@ test("CON-913 defect propagation: a defect thrown by the reconcile readback runn
   let caught: unknown = null
   try {
     await rawHostResult(adapter.work_transition.execute(hostCall("lifecycle", { work_id: "work-1", expected_version: 2, target: "completed", reason: "done", idempotency_key: "defect-readback-913" }), contextFor()))
-  } catch (error) {
-    caught = error
-  }
-  expect(caught).toBe(defect)
-})
-
-test("CON-913 defect propagation: a defect thrown by the host ask escapes unserialized", async () => {
-  const defect = contractDefect()
-  adapter.configureConcordAdapter({ runner: runnerWithContext((_argv: string[], _input: string, _signal: AbortSignal, calls: number) => calls === 2 ? approvalChallenge() : approvalSuccess()) })
-  let caught: unknown = null
-  try {
-    await rawHostResult(adapter.work_transition.execute(hostCall("lifecycle", { work_id: "work-1", expected_version: 2, target: "completed", reason: "done", idempotency_key: "defect-ask-913" }), contextFor(async () => { throw defect })))
   } catch (error) {
     caught = error
   }

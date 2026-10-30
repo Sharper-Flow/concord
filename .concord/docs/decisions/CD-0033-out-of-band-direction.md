@@ -28,12 +28,12 @@ same operator who redirected.
 
 ## Decision
 
-For `approval_policy=consequence_v1`, out-of-band direction still changes a committed contract only through attributed, versioned supersession with audit evidence. Supersession itself requires no operator approval. CD-0013 D11 governs conditional contract/premise consent; neither a revision's workflow consent class nor a chat message enacts Product law or waives governing requirements, and actual law changes follow CD-0230 D4.
+Out-of-band direction changes a committed contract only through attributed, versioned supersession with audit evidence. Operator decisions follow CD-0243; neither a contract revision nor a chat message enacts Product law or waives governing requirements. Actual law changes follow CD-0230 D4.
 
 
 **Operator direction of agent labor is legitimate and stays out-of-band. Its
 effects on the declared end-state enter Product truth through exactly one
-path: contract supersession, which already requires operator approval.**
+path: attributed contract supersession.**
 
 The obligation: when operator direction changes the required end-state, the
 agent supersedes the contract — recording the new premise, outcome, and

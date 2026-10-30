@@ -1,15 +1,11 @@
 package store
 
-// The two terminal conformance witnesses for the approval classes: an
-// engineering contract and a decision-bearing contract each reach the
-// terminal state through the public action route — ApplyWorkflowActionTx →
-// applyCompleteWorkflowActionTx → CompleteWorkflowTxWithRegistry → the
-// registered terminal fold → the lifecycle fold — with zero persisted
-// engineering consent challenges, and with the decision work keeping the
-// exact verified choice/digest/operator chain. The engineering confirmation
-// and completion caller is the executing coordinator, the actor the recorded
-// execution history names; the decision confirmation stays with the verified
-// operator while the executing coordinator completes.
+// The terminal conformance witness for the workflow's confirmation exit: an
+// engineering contract reaches the terminal state through the public action
+// route — ApplyWorkflowActionTx → applyCompleteWorkflowActionTx →
+// CompleteWorkflowTxWithRegistry → the registered terminal fold → the
+// lifecycle fold — with the executing coordinator, the actor the recorded
+// execution history names, recording the confirmation and the completion.
 //
 // The seed holds one rule: every state the witnesses read is folded from
 // events through the local consequence_v1 registry — selection, contract,
@@ -26,6 +22,7 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -34,18 +31,19 @@ import (
 
 // approvalRouteDefinition copies the local resolution definition and ships
 // the route's contract-authoring declarations: the initial approve_contract
-// action is the closed current declaration the consequence_v1 selection
-// answers from, and confirm_premise carries its declared operator-decision
-// contract — the closed choice and the human digest travel as declared
-// envelope fields, so the public action route validates and records them
-// instead of refusing an undeclared field.
+// action carries the required decision-domain fact the live composition
+// build appends, and confirm_premise keeps its closed choice payload — the
+// closed choice travels as a declared envelope field, so the public action
+// route validates and records it instead of refusing an undeclared field.
 func approvalRouteDefinition(t *testing.T) WorkflowDefinition {
 	t.Helper()
 	definition := resolutionPolicyDefinition(t)
 	for index := range definition.ActionDefinitions {
 		switch definition.ActionDefinitions[index].ID {
 		case "approve_contract":
-			definition.ActionDefinitions[index] = currentActionDefinition("approve_contract", true)
+			action := currentActionDefinition("approve_contract", true)
+			action.Payload.Fields = append(slices.Clone(action.Payload.Fields), workflowDecisionFactField())
+			definition.ActionDefinitions[index] = action
 		case "confirm_premise":
 			definition.ActionDefinitions[index].Payload = WorkflowPayloadDefinition{Closed: true, Fields: confirmPremiseOperatorFields()}
 		}
@@ -53,7 +51,7 @@ func approvalRouteDefinition(t *testing.T) WorkflowDefinition {
 	return definition
 }
 
-// runApprovalActionTx drives one workflow action through the public
+// runCoordinatorActionTx drives one workflow action through the public
 // ApplyWorkflowActionTx entry under the caller registry, the same transaction
 // entry the owning boundary uses. The store pools one connection, so the
 // transaction is the store's own Transact scope and the action commits or
@@ -63,7 +61,7 @@ func approvalRouteDefinition(t *testing.T) WorkflowDefinition {
 // A terminal action consumes the sealed subject preparation of the item's
 // active claimed worktree, the same preparation the host seals before the
 // boundary call.
-func runApprovalActionTx(t *testing.T, s *Store, registry DefinitionRegistry, workID, actionID string, actor WorkflowActor, operator *WorkflowActor, choice, digest, payload string) error {
+func runCoordinatorActionTx(t *testing.T, s *Store, registry DefinitionRegistry, workID, actionID string, actor WorkflowActor, choice, payload string) error {
 	t.Helper()
 	ctx := context.Background()
 	if actionID == "approve_contract" || actionID == "supersede_contract" || actionID == "complete" {
@@ -84,8 +82,8 @@ func runApprovalActionTx(t *testing.T, s *Store, registry DefinitionRegistry, wo
 	version := readWorkVersion(t, s, workID)
 	request := WorkflowActionExecutionRequest{
 		WorkID: workID, ExpectedVersion: version, ActionID: actionID,
-		SelectedChoice: choice, DecisionContextDigest: digest,
-		Actor: actor, OperatorActor: operator,
+		SelectedChoice:       choice,
+		Actor:                actor,
 		AcceptedInputsDigest: "sha256:" + strings.Repeat("b", 64) + strconv.FormatInt(version, 10),
 		IdempotencyIdentity:  actionID + "-approval-" + workID + "-" + strconv.FormatInt(version, 10),
 		OperationID:          actionID + "-approval-" + workID + "-" + strconv.FormatInt(version, 10),
@@ -101,18 +99,6 @@ func runApprovalActionTx(t *testing.T, s *Store, registry DefinitionRegistry, wo
 		_, err := ApplyWorkflowActionTx(ctx, tx, registry, request)
 		return err
 	})
-}
-
-// approvalChallengeCount counts persisted consent challenges. The store action
-// route must leave the table empty throughout both witnesses: no engineering
-// consent challenge is ever persisted, and the store route consumes none.
-func approvalChallengeCount(t *testing.T, s *Store) int {
-	t.Helper()
-	var challenges int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM agent_approval_challenges`).Scan(&challenges); err != nil {
-		t.Fatalf("read agent approval challenges: %v", err)
-	}
-	return challenges
 }
 
 // approvalKindEvidenceCount counts approval-kind evidence bindings on one work
@@ -275,18 +261,18 @@ func recordApprovalActors(t *testing.T, s *Store, workID string) reviewerOperato
 // recorded investigation, then records the actor triple. domains is the
 // active contract's decision fact. The owner it returns is the executing
 // coordinator.
-func seedApprovalItemAtAcceptance(t *testing.T, workID string, domains []string) (*Store, DefinitionRegistry, WorkflowDefinition, WorkflowActor, reviewerOperatorCoordinator) {
+func seedApprovalItemAtAcceptance(t *testing.T, workID string, domains []string) (*Store, DefinitionRegistry, WorkflowDefinition, WorkflowActor) {
 	t.Helper()
 	f := rAcceptance(t, workID, domains, true, true)
-	actors := recordApprovalActors(t, f.store, workID)
-	return f.store, BuiltinWorkflowRegistry(), mustBuiltinDefinition(t, "workflow.implementation").Definition, f.owner, actors
+	recordApprovalActors(t, f.store, workID)
+	return f.store, BuiltinWorkflowRegistry(), mustBuiltinDefinition(t, "workflow.implementation").Definition, f.owner
 }
 
 // seedApprovalAbsentFactAtAcceptance seeds the consequence_v1 pin to the
 // acceptance step with a contract whose stored decision fact is absent: the
 // legacy absence shape. The absent contract is authored under a registered
 // synthetic legacy twin of the route definition, the same ref at
-// definition.Version with the legacy approval policy, so the contract write
+// definition.Version, so the contract write
 // keeps its legacy-shape absence; the legacy twin is the registry's only, and
 // so current, registration while the item selects it and records its history.
 // The investigation observation is recorded through its real fold. The higher
@@ -302,8 +288,26 @@ func seedApprovalItemAtAcceptance(t *testing.T, workID string, domains []string)
 func seedApprovalAbsentFactAtAcceptance(t *testing.T, workID string) (*Store, DefinitionRegistry, WorkflowActor) {
 	t.Helper()
 	definition := approvalRouteDefinition(t)
+	// The legacy twin is the same route without the declared decision-domain
+	// fact: its approve_contract payload drops the required declaration, the
+	// shape historical pins carry. The higher version below re-adds it.
 	legacy := definition
-	legacy.ApprovalPolicy = ""
+	legacy.ActionDefinitions = slices.Clone(definition.ActionDefinitions)
+	for index := range legacy.ActionDefinitions {
+		if legacy.ActionDefinitions[index].ID != "approve_contract" {
+			continue
+		}
+		action := legacy.ActionDefinitions[index]
+		fields := make([]WorkflowPayloadField, 0, len(action.Payload.Fields))
+		for _, field := range action.Payload.Fields {
+			if field.Name == "decision_domains" {
+				continue
+			}
+			fields = append(fields, field)
+		}
+		action.Payload.Fields = fields
+		legacy.ActionDefinitions[index] = action
+	}
 	higher := definition
 	registry, legacyRegistered := newResolutionRegistry(t, legacy)
 	s, owner := seedResolutionSelection(t, workID, registry, legacyRegistered)
@@ -445,27 +449,6 @@ func approvalDecisionDigest(t *testing.T, s *Store, workID string) string {
 	return ComputeWorkflowDecisionContextDigest(workID, workVersion, definition, contract, "confirm_premise")
 }
 
-// approvalPreflightSelection drives the preflight — the owning boundary's
-// admission surface — with the caller registry and the operator-selection
-// envelope values the digest chain consumes.
-func approvalPreflightSelection(t *testing.T, s *Store, registry DefinitionRegistry, workID string, actor WorkflowActor, choice, digest string) error {
-	t.Helper()
-	ctx := context.Background()
-	// The store pools one connection: the expected version is read before the
-	// transaction opens, so no pool-backed read runs beside the open tx.
-	version := readWorkVersion(t, s, workID)
-	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer tx.Rollback()
-	_, err = workflowActionPreflightTx(ctx, tx, registry, WorkflowActionPreflightRequest{
-		WorkID: workID, ExpectedVersion: version, ActionID: "confirm_premise",
-		SelectedChoice: choice, DecisionContextDigest: digest, Actor: actor,
-	})
-	return err
-}
-
 // approvalContinuityProjectionError returns the continuity projection's
 // refusal so negative callers can assert it.
 func approvalContinuityProjectionError(t *testing.T, s *Store, registry DefinitionRegistry, workID string) error {
@@ -491,13 +474,13 @@ func approvalContinuityProjection(t *testing.T, s *Store, registry DefinitionReg
 	return snapshot.WorkPin, nil
 }
 
-func TestApprovalPolicyTerminalEngineering(t *testing.T) {
+func TestCoordinatorConfirmationTerminalEngineering(t *testing.T) {
 	t.Parallel()
 
-	t.Run("engineering completes through the public action route with zero consent challenges", func(t *testing.T) {
+	t.Run("engineering completes through the public action route", func(t *testing.T) {
 		t.Parallel()
 		const workID = "approval-terminal-engineering"
-		s, registry, definition, owner, _ := seedApprovalItemAtAcceptance(t, workID, []string{})
+		s, registry, definition, owner := seedApprovalItemAtAcceptance(t, workID, []string{})
 		ownerRef := ownerRefForTest(t, owner)
 
 		if kind := approvalKindEvidenceCount(t, s, workID); kind != 0 {
@@ -514,19 +497,16 @@ func TestApprovalPolicyTerminalEngineering(t *testing.T) {
 		// The model and the fold agree on the confirmation class: engineering
 		// holds no pending human question, and the coordinator confirmation is
 		// a real exit that does not stand behind one.
-		conformanceCheckpoint(t, s, registry, workID, definition, rAcceptanceModel(true), "engineering at acceptance")
+		conformanceCheckpoint(t, s, registry, workID, definition, rAcceptanceModel(), "engineering at acceptance")
 		state := foldedApprovalAdmission(t, s, registry, definition, workID)
 		if decision := workflowAdmit(definition, state, "confirm_premise"); !decision.Admitted {
 			t.Fatalf("engineering confirm_premise refused at admission: %v", decision.Failure)
-		}
-		if challenges := approvalChallengeCount(t, s); challenges != 0 {
-			t.Fatalf("engineering witness opened %d persisted consent challenges before any action", challenges)
 		}
 
 		// The executing coordinator confirms through the public action: no
 		// operator actor, no human digest, the closed confirm choice.
 		confirmationVersion := readWorkVersion(t, s, workID)
-		if err := runApprovalActionTx(t, s, registry, workID, "confirm_premise", owner, nil, "confirm", "", `{"selected_choice":"confirm"}`); err != nil {
+		if err := runCoordinatorActionTx(t, s, registry, workID, "confirm_premise", owner, "confirm", `{"selected_choice":"confirm"}`); err != nil {
 			t.Fatalf("engineering coordinator confirmation refused through the public action: %v", err)
 		}
 		confirmed, ok := approvalPremiseConfirmationRow(t, s, workID, 1)
@@ -537,15 +517,12 @@ func TestApprovalPolicyTerminalEngineering(t *testing.T) {
 			t.Fatalf("confirmation event actor = %q, want the executing coordinator %s", eventActor, ownerRef)
 		}
 		assertApprovalConfirmationReceipt(t, s, workID, ownerRef, "coordinator", 1, confirmationVersion)
-		if challenges := approvalChallengeCount(t, s); challenges != 0 {
-			t.Fatalf("engineering witness opened %d persisted consent challenges at confirmation", challenges)
-		}
 
 		// The executing coordinator completes through the real public complete
 		// store action; the registered terminal fold and the lifecycle fold
 		// close both projections under the same actor.
 		bindCompletionClosure(t, s, workID, owner)
-		if err := runApprovalActionTx(t, s, registry, workID, "complete", owner, nil, "", "", `{"impact_verdict":"non-breaking"}`); err != nil {
+		if err := runCoordinatorActionTx(t, s, registry, workID, "complete", owner, "", `{"impact_verdict":"non-breaking"}`); err != nil {
 			t.Fatalf("public complete action refused for engineering work: %v", err)
 		}
 		lifecycle, instanceState := approvalWorkAndInstanceState(t, s, workID)
@@ -554,9 +531,6 @@ func TestApprovalPolicyTerminalEngineering(t *testing.T) {
 		}
 		if eventActor := latestApprovalEventActor(t, s, workID, WorkflowCompleted); eventActor != ownerRef {
 			t.Fatalf("completion event actor = %q, want the executing coordinator %s", eventActor, ownerRef)
-		}
-		if challenges := approvalChallengeCount(t, s); challenges != 0 {
-			t.Fatalf("engineering witness left %d persisted consent challenges", challenges)
 		}
 		if kind := approvalKindEvidenceCount(t, s, workID); kind != 0 {
 			t.Fatalf("engineering witness left %d approval-kind evidence bindings", kind)
@@ -575,7 +549,7 @@ func TestApprovalPolicyTerminalEngineering(t *testing.T) {
 		// question machinery.
 		baselineVersion := readWorkVersion(t, s, workID)
 		baselineEvents := int64(approvalEventCount(t, s, workID))
-		err := runApprovalActionTx(t, s, registry, workID, "confirm_premise", owner, nil, "confirm", "", `{"selected_choice":"confirm"}`)
+		err := runCoordinatorActionTx(t, s, registry, workID, "confirm_premise", owner, "confirm", `{"selected_choice":"confirm"}`)
 		var failure *Failure
 		if err == nil || !failureAs(err, &failure) {
 			t.Fatalf("engineering confirmation without the recorded investigation returned %v, want a typed refusal", err)
@@ -602,7 +576,7 @@ func TestApprovalPolicyTerminalEngineering(t *testing.T) {
 		// deliverables gate refuses.
 		baselineVersion := readWorkVersion(t, s, workID)
 		baselineEvents := int64(approvalEventCount(t, s, workID))
-		err := runApprovalActionTx(t, s, registry, workID, "confirm_premise", owner, nil, "confirm", "", `{"selected_choice":"confirm"}`)
+		err := runCoordinatorActionTx(t, s, registry, workID, "confirm_premise", owner, "confirm", `{"selected_choice":"confirm"}`)
 		var failure *Failure
 		if err == nil || !failureAs(err, &failure) || failure.Kind != KindMissingEvidence {
 			t.Fatalf("engineering confirmation without the criterion association returned %v, want the missing-evidence refusal", err)
@@ -613,10 +587,10 @@ func TestApprovalPolicyTerminalEngineering(t *testing.T) {
 	t.Run("engineering completion cannot bypass the unconfirmed acceptance step", func(t *testing.T) {
 		t.Parallel()
 		const workID = "approval-terminal-engineering-unconfirmed"
-		s, registry, _, owner, _ := seedApprovalItemAtAcceptance(t, workID, []string{})
+		s, registry, _, owner := seedApprovalItemAtAcceptance(t, workID, []string{})
 		baselineVersion := readWorkVersion(t, s, workID)
 		baselineEvents := int64(approvalEventCount(t, s, workID))
-		if err := runApprovalActionTx(t, s, registry, workID, "complete", owner, nil, "", "", `{"impact_verdict":"non-breaking"}`); err == nil {
+		if err := runCoordinatorActionTx(t, s, registry, workID, "complete", owner, "", `{"impact_verdict":"non-breaking"}`); err == nil {
 			t.Fatal("engineering completion bypassed the unconfirmed acceptance step")
 		}
 		assertNoApprovalEffect(t, s, workID, baselineVersion, baselineEvents)
@@ -666,120 +640,4 @@ func registeredDigest(t *testing.T, registry DefinitionRegistry, definition Work
 		t.Fatalf("the caller registry does not hold %s", definition.Ref)
 	}
 	return entry.Digest
-}
-
-func TestApprovalPolicyTerminalDecision(t *testing.T) {
-	t.Parallel()
-
-	t.Run("decision completes through the exact choice digest and operator chain", func(t *testing.T) {
-		t.Parallel()
-		const workID = "approval-terminal-decision"
-		s, registry, definition, owner, actors := seedApprovalItemAtAcceptance(t, workID, []string{"product"})
-		ownerRef := ownerRefForTest(t, owner)
-
-		// The model and the fold agree: the decision contract keeps the open
-		// human question the exact choice/digest/operator chain answers.
-		conformanceCheckpoint(t, s, registry, workID, definition, rAcceptanceModel(false), "decision at acceptance")
-
-		// The projected question is real: it carries the exact verified
-		// digest, and no withheld reason stands beside it.
-		digest := approvalDecisionDigest(t, s, workID)
-		question, withheld := approvalOperatorQuestionProjection(t, s, registry, definition, registeredDigest(t, registry, definition), workID)
-		if question == nil || withheld != nil {
-			t.Fatalf("decision work projects question %+v withheld %+v, want the open question without a withheld reason", question, withheld)
-		}
-		if question.DecisionContextDigest != digest {
-			t.Fatalf("the projected question digest = %q, want the exact verified digest %q", question.DecisionContextDigest, digest)
-		}
-
-		// The exact verified digest passes the preflight under the caller
-		// registry; a stale digest refuses as stale, not as an unavailable pin;
-		// a missing digest or a missing choice refuses as the closed envelope
-		// requires. The preflight is read-only: the work version cannot move.
-		if err := approvalPreflightSelection(t, s, registry, workID, owner, "confirm", digest); err != nil {
-			t.Fatalf("the preflight refused the exact verified decision digest: %v", err)
-		}
-		staleErr := approvalPreflightSelection(t, s, registry, workID, owner, "confirm", "sha256:"+strings.Repeat("0", 64))
-		var staleFailure *Failure
-		if staleErr == nil || !failureAs(staleErr, &staleFailure) || staleFailure.Kind != KindStaleRequiresReview || !strings.Contains(staleFailure.Detail, "stale or forged") {
-			t.Fatalf("the preflight accepted a stale decision digest or refused it with the wrong shape: %v", staleErr)
-		}
-		baselineVersion := readWorkVersion(t, s, workID)
-		for name, request := range map[string][2]string{
-			"missing digest": {"confirm", ""},
-			"missing choice": {"", digest},
-		} {
-			missingErr := approvalPreflightSelection(t, s, registry, workID, owner, request[0], request[1])
-			var missingFailure *Failure
-			if missingErr == nil || !failureAs(missingErr, &missingFailure) || missingFailure.Kind != KindInvalidPayload {
-				t.Fatalf("the preflight accepted the decision %s: %v", name, missingErr)
-			}
-			if version := readWorkVersion(t, s, workID); version != baselineVersion {
-				t.Fatalf("the refused %s preflight moved the work version to %d", name, version)
-			}
-		}
-
-		// Missing operator authority refuses with no effect.
-		baselineEvents := int64(approvalEventCount(t, s, workID))
-		if err := runApprovalActionTx(t, s, registry, workID, "confirm_premise", owner, nil, "confirm", digest, `{"selected_choice":"confirm"}`); err == nil {
-			t.Fatal("decision confirmation without the verified operator was accepted")
-		}
-		assertNoApprovalEffect(t, s, workID, baselineVersion, baselineEvents)
-
-		// Completion cannot bypass the acceptance step the operator
-		// confirmation advances through.
-		if err := runApprovalActionTx(t, s, registry, workID, "complete", owner, nil, "", "", `{"impact_verdict":"non-breaking"}`); err == nil {
-			t.Fatal("decision completion bypassed the unconfirmed acceptance step")
-		}
-		assertNoApprovalEffect(t, s, workID, baselineVersion, baselineEvents)
-
-		// The exact verified operator choice and digest confirm through the
-		// public action; the operator and the executing coordinator stay
-		// distinct identities.
-		confirmationVersion := readWorkVersion(t, s, workID)
-		if err := runApprovalActionTx(t, s, registry, workID, "confirm_premise", owner, &actors.operator, "confirm", digest, `{"selected_choice":"confirm"}`); err != nil {
-			t.Fatalf("decision confirmation with the verified operator refused: %v", err)
-		}
-		// The decision fact rides contract 2, the reclassified successor.
-		confirmed, ok := approvalPremiseConfirmationRow(t, s, workID, 2)
-		if !ok || confirmed != actors.operatorRef {
-			t.Fatalf("decision confirmation row = %q (present %v), want the verified operator %s", confirmed, ok, actors.operatorRef)
-		}
-		if actors.operatorRef == ownerRef {
-			t.Fatalf("the operator and the executing coordinator collapsed into one actor: %s", ownerRef)
-		}
-		assertApprovalConfirmationReceipt(t, s, workID, actors.operatorRef, "operator", 2, confirmationVersion)
-
-		// Real completion reaches the same two terminal projections under the
-		// executing coordinator.
-		bindCompletionClosure(t, s, workID, owner)
-		if err := runApprovalActionTx(t, s, registry, workID, "complete", owner, nil, "", "", `{"impact_verdict":"non-breaking"}`); err != nil {
-			t.Fatalf("public complete action refused for decision work: %v", err)
-		}
-		lifecycle, instanceState := approvalWorkAndInstanceState(t, s, workID)
-		if lifecycle != "completed" || instanceState != "completed" {
-			t.Fatalf("terminal close left lifecycle=%q instance=%q, want both completed", lifecycle, instanceState)
-		}
-		if eventActor := latestApprovalEventActor(t, s, workID, WorkflowCompleted); eventActor != ownerRef {
-			t.Fatalf("completion event actor = %q, want the executing coordinator %s", eventActor, ownerRef)
-		}
-		assertNoFoldGuardRows(t, s)
-	})
-
-	t.Run("decision confirmation refuses without its investigation", func(t *testing.T) {
-		t.Parallel()
-		const workID = "approval-terminal-decision-prerequisites"
-		f := rAcceptance(t, workID, []string{"product"}, true, false)
-		s, registry, owner := f.store, BuiltinWorkflowRegistry(), f.owner
-		baselineVersion := readWorkVersion(t, s, workID)
-		baselineEvents := int64(approvalEventCount(t, s, workID))
-		// The store action route defers the closed-question wall to the
-		// selection chain; the preflight is the store-owned refusal.
-		err := approvalPreflightSelection(t, s, registry, workID, owner, "confirm", approvalDecisionDigest(t, s, workID))
-		var failure *Failure
-		if !failureAs(err, &failure) || failure.Kind != KindMissingEvidence || !strings.Contains(failure.Detail, "investigation") {
-			t.Fatalf("decision confirmation without the investigation returned %v, want missing_evidence naming the investigation", err)
-		}
-		assertNoApprovalEffect(t, s, workID, baselineVersion, baselineEvents)
-	})
 }

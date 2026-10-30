@@ -198,9 +198,23 @@ func TestEventLogRetirementUpgradePreservesCurrentRows(t *testing.T) {
 		}
 	}
 	retirementUpgradeMigrate(t, db)
+	// Migration 168 dropped workflow_overlap_resolutions' retired approval_ref
+	// column, so the preserved-byte comparison reads each surviving row
+	// without it.
+	wantAfter := make(map[string][][]any, len(before))
+	for table, rows := range before {
+		kept := make([][]any, 0, len(rows))
+		for _, row := range rows {
+			if table == "workflow_overlap_resolutions" && len(row) == 12 {
+				row = append(row[:9:9], row[10:]...)
+			}
+			kept = append(kept, row)
+		}
+		wantAfter[table] = kept
+	}
 	for _, table := range tables {
-		if got := retirementUpgradeRows(t, db, `SELECT * FROM `+table+` ORDER BY rowid`); !reflect.DeepEqual(got, before[table]) {
-			t.Errorf("%s changed bytes/types: before=%#v after=%#v", table, before[table], got)
+		if got := retirementUpgradeRows(t, db, `SELECT * FROM `+table+` ORDER BY rowid`); !reflect.DeepEqual(got, wantAfter[table]) {
+			t.Errorf("%s changed bytes/types: before=%#v after=%#v", table, wantAfter[table], got)
 		}
 		if got := retirementUpgradeRows(t, db, `SELECT name,"unique",origin,partial FROM pragma_index_list(?) ORDER BY name`, table); !reflect.DeepEqual(got, indexes[table]) {
 			t.Errorf("%s indexes changed: before=%v after=%v", table, indexes[table], got)

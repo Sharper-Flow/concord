@@ -28,22 +28,22 @@ func admissionReviewViewOf(state *WorkflowReviewState) admissionReviewView {
 }
 
 type admissionConformanceView struct {
-	Step, Lifecycle, InstanceState                                               string
-	RefinementWorkflow                                                           bool
-	ActiveContracts                                                              int64
-	LateCriterionAssociation, LawPinStale, DesignStale, ArtifactStale            bool
-	Review                                                                       admissionReviewView
-	CorrectionRequestRecovery, PendingOperatorDecision                           bool
-	AcceptanceDeliverablesMissing                                                bool
-	ApprovalPolicy, ConfirmationAuthority                                        string
-	ConfirmationFactFailure, CompleteStepCorrection, ContractCorrectionAvailable bool
-	DeliveryStarted, DeliveryProofRequired, DeliveryProofReady                   bool
-	DeliveryFailure, DeliveryProofFailure                                        bool
-	MandatePresent, MandateMissing                                               bool
-	MandateBindingStep                                                           string
-	MandateAddedByContract                                                       bool
-	MandateCorrectionAction                                                      string
-	MandateFailure                                                               bool
+	Step, Lifecycle, InstanceState                                    string
+	RefinementWorkflow                                                bool
+	ActiveContracts                                                   int64
+	LateCriterionAssociation, LawPinStale, DesignStale, ArtifactStale bool
+	Review                                                            admissionReviewView
+	CorrectionRequestRecovery, PendingOperatorDecision                bool
+	AcceptanceDeliverablesMissing                                     bool
+	ConfirmationAuthority                                             string
+	CompleteStepCorrection, ContractCorrectionAvailable               bool
+	DeliveryStarted, DeliveryProofRequired, DeliveryProofReady        bool
+	DeliveryFailure, DeliveryProofFailure                             bool
+	MandatePresent, MandateMissing                                    bool
+	MandateBindingStep                                                string
+	MandateAddedByContract                                            bool
+	MandateCorrectionAction                                           string
+	MandateFailure                                                    bool
 }
 
 func admissionConformanceViewOf(state WorkflowAdmissionState) admissionConformanceView {
@@ -54,8 +54,8 @@ func admissionConformanceViewOf(state WorkflowAdmissionState) admissionConforman
 		LateCriterionAssociation: state.LateCriterionAssociation, ArtifactStale: state.ArtifactStale,
 		Review: admissionReviewViewOf(state.Review), CorrectionRequestRecovery: state.CorrectionRequestRecovery,
 		PendingOperatorDecision: state.PendingOperatorDecision, AcceptanceDeliverablesMissing: state.AcceptanceDeliverablesMissing != nil,
-		ApprovalPolicy: state.ApprovalPolicy, ConfirmationAuthority: string(state.ConfirmationAuthority),
-		ConfirmationFactFailure: state.ConfirmationFactFailure != nil, CompleteStepCorrection: state.CompleteStepCorrection,
+		ConfirmationAuthority:       string(state.ConfirmationAuthority),
+		CompleteStepCorrection:      state.CompleteStepCorrection,
 		ContractCorrectionAvailable: state.ContractCorrectionAvailable,
 		DeliveryStarted:             state.Delivery.Started, DeliveryProofRequired: state.Delivery.ProofRequired,
 		DeliveryFailure: state.Delivery.Failure != nil, MandateFailure: state.Mandate.Failure != nil,

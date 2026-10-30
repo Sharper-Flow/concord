@@ -13,8 +13,8 @@ coordination cost without adding an independent judgment.
 ## Decision
 
 Contract authority, evidence and independent Review remain mandatory. Consent
-follows CD-0243's six classes. Under `consequence_v1`, engineering premise
-confirmation uses authenticated coordinator identity. Batching never silently
+follows CD-0243's six classes in conversation. Premise confirmation uses
+authenticated coordinator identity. Batching never silently
 omits an approved predicate or supplies fabricated proof.
 
 ### D1. One record_verdict call carries each predicate it judges

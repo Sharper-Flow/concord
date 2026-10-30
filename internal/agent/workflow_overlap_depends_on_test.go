@@ -10,8 +10,7 @@ import (
 
 // A depends_on resolution is the declarer's own sequencing answer: the
 // declarer waits behind the peer and the peer proceeds, so the caller
-// records it with no approval claim, no minted challenge, and no consumed
-// row. blocks shares that routine trust on its own fixture.
+// records the directed edge. blocks uses its own fixture.
 func TestResolveOverlapDependsOnRecordsDirectedSequencingWithoutConsent(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -23,7 +22,7 @@ func TestResolveOverlapDependsOnRecordsDirectedSequencingWithoutConsent(t *testi
 	if response.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("depends_on sequencing resolution must not need approval: %+v", response.Error)
 	}
-	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM workflow_overlap_resolutions WHERE resolution_kind='depends_on' AND approval_ref=''`); got != 1 {
+	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM workflow_overlap_resolutions WHERE resolution_kind='depends_on'`); got != 1 {
 		t.Fatalf("depends_on resolutions=%d, want the recorded unsigned sequencing resolution", got)
 	}
 	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM relations WHERE kind='depends_on' AND work_id_from='work-1' AND work_id_to='work-2' AND resolution_id IS NOT NULL`); got != 1 {
@@ -34,12 +33,6 @@ func TestResolveOverlapDependsOnRecordsDirectedSequencingWithoutConsent(t *testi
 	}
 	if workVersion(t, s, "work-1") != 3 || workVersion(t, s, "work-2") != 3 {
 		t.Fatal("depends_on resolution left the endpoints off the single-step versions")
-	}
-	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM agent_approval_challenges`); got != 0 {
-		t.Fatalf("depends_on resolution minted %d challenges, want none", got)
-	}
-	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM agent_approvals`); got != 0 {
-		t.Fatalf("depends_on resolution consumed %d approval rows, want none", got)
 	}
 
 	// A fresh pair for the blocks side, so its relation is the pair's only one.
@@ -52,13 +45,7 @@ func TestResolveOverlapDependsOnRecordsDirectedSequencingWithoutConsent(t *testi
 	if blocksResponse.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("routine blocks resolution=%+v", blocksResponse.Error)
 	}
-	if got := countRows(t, s2.DatabaseForTesting(), `SELECT count(*) FROM workflow_overlap_resolutions WHERE resolution_kind='blocks' AND approval_ref=''`); got != 1 {
+	if got := countRows(t, s2.DatabaseForTesting(), `SELECT count(*) FROM workflow_overlap_resolutions WHERE resolution_kind='blocks'`); got != 1 {
 		t.Fatalf("blocks resolutions=%d, want the recorded unsigned admission hold", got)
-	}
-	if got := countRows(t, s2.DatabaseForTesting(), `SELECT count(*) FROM agent_approval_challenges`); got != 0 {
-		t.Fatalf("blocks resolution minted %d challenges, want none", got)
-	}
-	if got := countRows(t, s2.DatabaseForTesting(), `SELECT count(*) FROM agent_approvals`); got != 0 {
-		t.Fatalf("blocks resolution consumed %d approval rows, want none", got)
 	}
 }

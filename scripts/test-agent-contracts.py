@@ -157,19 +157,8 @@ RETIRED_PUBLISHED_ACTIONS = {
 }
 
 
-class ApprovalDeclarationTests(unittest.TestCase):
-    def test_six_class_operation_consent_preserves_other_axes(self):
-        required = {"concord_work_relate.product_project_add", "concord_work_relate.client_policy_grant_request"}
-        conditional = {
-            "concord_work_define.capture", "concord_work_define.revise_intent",
-            "concord_work_relate.resolve_overlap",
-            "concord_work_transition.workflow_action",
-        }
-        for operation in manifest["operations"]:
-            with self.subTest(operation=operation["id"]):
-                expected = "required" if operation["id"] in required else "conditional" if operation["id"] in conditional else "none"
-                self.assertEqual(operation["approval"], expected)
-        # Consent is not capability, scope, idempotency, or consequence.
+class MutationMetadataTests(unittest.TestCase):
+    def test_mutations_preserve_capability_consequence_and_request_metadata(self):
         for identifier, capability, consequence, context in [
             ("concord_work_transition.remove", "work_transition", "lifecycle", "ambient"),
             ("concord_work_compact.publish", "work_compact", "publication", "explicit"),
@@ -177,12 +166,13 @@ class ApprovalDeclarationTests(unittest.TestCase):
             ("concord_work_transition.outside_repair", "work_transition", "recovery", "ambient"),
             ("concord_work_relate.set_memberships", "work_relate", "scope", "explicit"),
         ]:
-            operation = next(op for op in manifest["operations"] if op["id"] == identifier)
-            self.assertEqual(operation["kind"], "mutation")
-            self.assertEqual(operation["capability"], capability)
-            self.assertEqual(operation["consequence"], consequence)
-            self.assertEqual(operation["metadata"]["idempotency"], "required")
-            self.assertEqual(operation["metadata"]["context"], context)
+            with self.subTest(operation=identifier):
+                operation = next(op for op in manifest["operations"] if op["id"] == identifier)
+                self.assertEqual(operation["kind"], "mutation")
+                self.assertEqual(operation["capability"], capability)
+                self.assertEqual(operation["consequence"], consequence)
+                self.assertEqual(operation["metadata"]["idempotency"], "required")
+                self.assertEqual(operation["metadata"]["context"], context)
 
 
 class DomainFactProjectionTests(unittest.TestCase):
@@ -599,7 +589,7 @@ class ContractGuidanceProjectionTests(unittest.TestCase):
         self.assertEqual(list(projected["$defs"]["code"])[:2], ["type", "minLength"])
 
     def test_examples_are_instances_not_subschemas(self):
-        generator.check_schema_keywords({"type": "object", "examples": [{"approval_ref": "sample"}]})
+        generator.check_schema_keywords({"type": "object", "examples": [{"example_field": "sample"}]})
         with self.assertRaisesRegex(ValueError, "unsupported JSON Schema keywords"):
             generator.check_schema_keywords({"items": {"unknown_constraint": True}})
 
@@ -2485,50 +2475,6 @@ class NativeOracleRequestProjectionTests(unittest.TestCase):
             self.validate(legacy, "worktree_inspect_result")
             with self.assertRaises(ValueError):
                 self.validate(legacy | {"path": ""}, "worktree_inspect_result")
-
-
-class MutationApprovalPropertyTests(unittest.TestCase):
-    """Every mutation can reach the cross-Product approval escalation: the
-    runtime forces requiresApproval when the derived Product scope crosses the
-    selected Product, and the approved resubmission carries input.approval.
-    Each mutation input must declare the optional typed approval property, and
-    the generator refuses a mutation input without it, so the declared surface
-    and the runtime rule cannot disagree.
-    """
-
-    def mutation_approval_refusals(self, defs):
-        refusals = []
-        for operation in manifest["operations"]:
-            if operation["kind"] != "mutation":
-                continue
-            schema = defs[operation["input_schema"].split("/")[-1]]
-            try:
-                generator.require_mutation_approval_property(operation, schema)
-            except ValueError as err:
-                refusals.append(str(err))
-        return refusals
-
-    def test_shipped_mutation_inputs_declare_optional_approval(self):
-        self.assertEqual(self.mutation_approval_refusals(payload_schema["$defs"]), [])
-
-    def test_a_mutation_input_without_the_approval_property_is_rejected(self):
-        defs = copy.deepcopy(payload_schema["$defs"])
-        del defs["work_define_observation_record_input"]["properties"]["approval"]
-        refusals = self.mutation_approval_refusals(defs)
-        self.assertTrue(any("concord_work_define.observation_record" in f for f in refusals), refusals)
-
-    def test_a_required_approval_property_is_rejected(self):
-        defs = copy.deepcopy(payload_schema["$defs"])
-        schema = defs["work_define_observation_record_input"]
-        schema["required"] = list(schema["required"]) + ["approval"]
-        refusals = self.mutation_approval_refusals(defs)
-        self.assertTrue(any("concord_work_define.observation_record" in f for f in refusals), refusals)
-
-    def test_an_untyped_approval_property_is_rejected(self):
-        defs = copy.deepcopy(payload_schema["$defs"])
-        defs["work_define_observation_record_input"]["properties"]["approval"] = {"type": "string"}
-        refusals = self.mutation_approval_refusals(defs)
-        self.assertTrue(any("concord_work_define.observation_record" in f for f in refusals), refusals)
 
 
 def workflow_job_steps(job_name: str) -> list[dict]:

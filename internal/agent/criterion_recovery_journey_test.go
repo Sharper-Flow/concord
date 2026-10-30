@@ -17,7 +17,6 @@ func TestCriterion38RecoveryReevaluationJourney(t *testing.T) {
 	before := f.read(t)
 	candidate := *before.Pinned.Pin.Review.Candidate
 	proof := store.WorkPinEvidence{EvidenceKind: "verification", ImmutableSubjectRef: f.proof}
-	challenges := countWorkflowApprovalChallenges(t, f.s)
 
 	f.administrativeRecovery(t)
 	after := f.read(t)
@@ -115,7 +114,7 @@ func TestCriterion38RecoveryReevaluationJourney(t *testing.T) {
 	spineOK(t, f.action(t, "complete", map[string]any{"impact_verdict": "non-breaking"}))
 	done := f.read(t)
 	if done.Pinned.Pin.Lifecycle != "completed" || *done.Pinned.Pin.Review.Candidate != candidate || len(done.Pinned.Pin.VerifiedCriteria) != 1 ||
-		countWorkflowApprovalChallenges(t, f.s) != challenges || f.proofCommit != candidate.Commit {
-		t.Fatal("re-evaluation required no-op production, discarded proof, or introduced unrelated approval")
+		f.proofCommit != candidate.Commit {
+		t.Fatal("re-evaluation required no-op production or discarded proof")
 	}
 }

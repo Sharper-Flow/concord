@@ -47,8 +47,8 @@ compatibility identities.
 The surface is statically registered in the OpenCode adapter. Agents do not search
 for or progressively load Concord tools. The current tool and operation names are
 those generated from the manifest, including
-`concord_work_relate.resolve_overlap`. The adapter remains a thin transport and
-permission bridge; the Go core owns authority, transactions, and consequences.
+`concord_work_relate.resolve_overlap`. The adapter owns host context and
+transport; the Go core owns authority, transactions, and consequences.
 
 ## 2. Change rule before go-live
 

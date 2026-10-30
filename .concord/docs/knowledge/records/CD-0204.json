@@ -11,7 +11,7 @@
     "internal/store/workflow_premise_deliverables_test.go",
     "internal/store/workflow_review_disposition_test.go",
     "internal/store/confirm_premise_truth_test.go",
-    "internal/store/workflow_approval_step_kind_test.go",
+    "internal/store/workflow_step_reach_test.go",
     "internal/store/workflow_admission_liveness_test.go"
   ],
   "home_domain_id": "workflow-engine",
@@ -35,7 +35,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:61743997b4df8e8041e53b3cd1849984bb880c5165a188c410dda0905d03d259",
+  "sha256": "sha256:cc66978b263a38a5e0a06d0f37fe071ee7e83b06e07b55490aef54be29f174ca",
   "status": "accepted",
   "summary": "Admission shares acceptance-deliverables refusals across preflight, work pins and execution. record_review validates the exact subject-bound payload; every delivery admission refuses behind a blocking or stale Review disposition. Late record_verdict keeps its declared terminal and premise-question recovery without advancing the step. No attempt-bound acceptance exception remains.",
   "tags": [

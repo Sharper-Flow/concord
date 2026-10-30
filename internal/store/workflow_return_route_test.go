@@ -23,7 +23,7 @@ func seedWorkflowReturnRouteFixture(t *testing.T, workID, definitionRef, verdict
 
 func seedWorkflowReturnRouteFixtureRequiring(t *testing.T, workID, definitionRef, verdictStep string, requiredEvidence, boundKinds []string) workflowReturnRouteFixture {
 	t.Helper()
-	return seedWorkflowReturnRouteFixtureWithDefinition(t, workID, legacyApprovalPolicyDefinitionForRef(t, definitionRef), verdictStep, requiredEvidence, boundKinds)
+	return seedWorkflowReturnRouteFixtureWithDefinition(t, workID, currentFixtureDefinition(t, definitionRef), verdictStep, requiredEvidence, boundKinds)
 }
 
 func seedCurrentWorkflowReturnRouteFixture(t *testing.T, workID, definitionRef, verdictStep string) workflowReturnRouteFixture {

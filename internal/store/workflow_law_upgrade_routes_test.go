@@ -32,8 +32,8 @@ func lawUpgradePrefixForDefinition(t *testing.T, id, step string, contract, boun
 	owner := WorkflowActor{PrincipalRef: "principal/upgrade", ClientRef: "client/upgrade", AgentRef: "agent/main", SessionRef: "session/upgrade", ActorClass: ActorAgent}
 	ref := ownerRefForTest(t, owner)
 	entry := mustBuiltinDefinition(t, definitionRef)
-	if entry.Definition.ApprovalPolicy != WorkflowApprovalPolicyConsequenceV1 {
-		t.Fatal("upgrade witness must exercise consequence_v1")
+	if !workflowDeclaresDecisionDomains(entry.Definition) {
+		t.Fatal("upgrade witness must exercise the declared decision fact")
 	}
 	execSixClassSQL(t, s.db, `INSERT INTO write_guard(active) VALUES(1)`)
 	execSixClassSQL(t, s.db, `UPDATE work_items SET lifecycle='in_progress' WHERE id=?`, id)

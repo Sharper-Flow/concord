@@ -26,8 +26,7 @@
       "description": "Resolve Product context and bounded Product snapshots.",
       "operations": [
         "concord_product_view.resolve",
-        "concord_product_view.snapshot",
-        "concord_product_view.blocked_sessions"
+        "concord_product_view.snapshot"
       ]
     },
     {
@@ -109,9 +108,7 @@
         "concord_work_relate.set_memberships",
         "concord_work_relate.message_send",
         "concord_work_relate.message_withdraw",
-        "concord_work_relate.resolve_overlap",
-        "concord_work_relate.product_project_add",
-        "concord_work_relate.client_policy_grant_request"
+        "concord_work_relate.resolve_overlap"
       ]
     },
     {
@@ -143,7 +140,6 @@
       "result_schema": "#/schemas/product_context",
       "capability": "product_read",
       "consequence": "read",
-      "approval": "none",
       "metadata": {
         "context": "ambient",
         "idempotency": "request_id",
@@ -164,28 +160,6 @@
       "result_schema": "#/schemas/product_snapshot",
       "capability": "product_read",
       "consequence": "read",
-      "approval": "none",
-      "metadata": {
-        "context": "ambient",
-        "idempotency": "request_id",
-        "pagination": "cursor",
-        "output_bytes": 51200,
-        "versions": [
-          "1.0"
-        ]
-      },
-      "supported_budget_seconds": 300
-    },
-    {
-      "id": "concord_product_view.blocked_sessions",
-      "tool": "concord_product_view",
-      "kind": "read",
-      "query_id": "PM1.Q12",
-      "input_schema": "#/schemas/product_view_blocked_sessions_input",
-      "result_schema": "#/schemas/blocked_sessions_page",
-      "capability": "product_read",
-      "consequence": "read",
-      "approval": "none",
       "metadata": {
         "context": "ambient",
         "idempotency": "request_id",
@@ -206,7 +180,6 @@
       "result_schema": "#/schemas/work_browse_list_result",
       "capability": "product_read",
       "consequence": "read",
-      "approval": "none",
       "metadata": {
         "context": "ambient",
         "idempotency": "request_id",
@@ -227,7 +200,6 @@
       "result_schema": "#/schemas/blocked_work_page",
       "capability": "product_read",
       "consequence": "read",
-      "approval": "none",
       "metadata": {
         "context": "ambient",
         "idempotency": "request_id",
@@ -248,7 +220,6 @@
       "result_schema": "#/schemas/work_page",
       "capability": "product_read",
       "consequence": "read",
-      "approval": "none",
       "metadata": {
         "context": "ambient",
         "idempotency": "request_id",
@@ -269,7 +240,6 @@
       "result_schema": "#/schemas/work_scope",
       "capability": "product_read",
       "consequence": "read",
-      "approval": "none",
       "metadata": {
         "context": "explicit",
         "idempotency": "request_id",
@@ -290,7 +260,6 @@
       "result_schema": "#/schemas/work_messages_page",
       "capability": "product_read",
       "consequence": "read",
-      "approval": "none",
       "metadata": {
         "context": "ambient",
         "idempotency": "request_id",
@@ -311,7 +280,6 @@
       "result_schema": "#/schemas/worktree_audit_page",
       "capability": "product_read",
       "consequence": "read",
-      "approval": "none",
       "metadata": {
         "context": "ambient",
         "idempotency": "request_id",
@@ -332,7 +300,6 @@
       "result_schema": "#/schemas/worktree_inspect_result",
       "capability": "product_read",
       "consequence": "read",
-      "approval": "none",
       "metadata": {
         "context": "ambient",
         "idempotency": "request_id",
@@ -353,7 +320,6 @@
       "result_schema": "#/schemas/work_event_page",
       "capability": "product_read",
       "consequence": "read",
-      "approval": "none",
       "metadata": {
         "context": "explicit",
         "idempotency": "request_id",
@@ -374,7 +340,6 @@
       "result_schema": "#/schemas/work_observation_page",
       "capability": "product_read",
       "consequence": "read",
-      "approval": "none",
       "metadata": {
         "context": "explicit",
         "idempotency": "request_id",
@@ -395,7 +360,6 @@
       "result_schema": "#/schemas/external_observation_page",
       "capability": "product_read",
       "consequence": "read",
-      "approval": "none",
       "metadata": {
         "context": "explicit",
         "idempotency": "request_id",
@@ -416,7 +380,6 @@
       "result_schema": "#/schemas/work_relation_graph",
       "capability": "product_read",
       "consequence": "read",
-      "approval": "none",
       "metadata": {
         "context": "explicit",
         "idempotency": "request_id",
@@ -437,7 +400,6 @@
       "result_schema": "#/schemas/continuity_read_result",
       "capability": "product_read",
       "consequence": "read",
-      "approval": "none",
       "metadata": {
         "context": "explicit",
         "idempotency": "request_id",
@@ -458,7 +420,6 @@
       "result_schema": "#/schemas/json_fragment_page",
       "capability": "product_read",
       "consequence": "read",
-      "approval": "none",
       "metadata": {
         "context": "ambient",
         "idempotency": "request_id",
@@ -479,7 +440,6 @@
       "result_schema": "#/schemas/research_read_result",
       "capability": "product_read",
       "consequence": "read",
-      "approval": "none",
       "metadata": {
         "context": "ambient",
         "idempotency": "request_id",
@@ -500,7 +460,6 @@
       "result_schema": "#/schemas/project_retirement_result",
       "capability": "product_read",
       "consequence": "read",
-      "approval": "none",
       "metadata": {
         "context": "explicit",
         "idempotency": "request_id",
@@ -521,7 +480,6 @@
       "result_schema": "#/schemas/knowledge_page",
       "capability": "product_read",
       "consequence": "read",
-      "approval": "none",
       "metadata": {
         "context": "ambient",
         "idempotency": "request_id",
@@ -542,7 +500,6 @@
       "result_schema": "#/schemas/canonical_note_result",
       "capability": "product_read",
       "consequence": "read",
-      "approval": "none",
       "metadata": {
         "context": "explicit",
         "idempotency": "request_id",
@@ -563,7 +520,6 @@
       "result_schema": "#/schemas/knowledge_publication",
       "capability": "product_read",
       "consequence": "read",
-      "approval": "none",
       "metadata": {
         "context": "explicit",
         "idempotency": "request_id",
@@ -584,7 +540,6 @@
       "result_schema": "#/schemas/mutation_result",
       "capability": "work_define",
       "consequence": "intent",
-      "approval": "conditional",
       "metadata": {
         "context": "ambient",
         "idempotency": "required",
@@ -605,7 +560,6 @@
       "result_schema": "#/schemas/mutation_result",
       "capability": "work_define",
       "consequence": "intent",
-      "approval": "conditional",
       "metadata": {
         "context": "ambient",
         "idempotency": "required",
@@ -626,7 +580,6 @@
       "result_schema": "#/schemas/mutation_result",
       "capability": "research",
       "consequence": "research",
-      "approval": "none",
       "metadata": {
         "context": "ambient",
         "idempotency": "required",
@@ -647,7 +600,6 @@
       "result_schema": "#/schemas/mutation_result",
       "capability": "research",
       "consequence": "research",
-      "approval": "none",
       "metadata": {
         "context": "ambient",
         "idempotency": "required",
@@ -668,7 +620,6 @@
       "result_schema": "#/schemas/mutation_result",
       "capability": "research",
       "consequence": "research",
-      "approval": "none",
       "metadata": {
         "context": "ambient",
         "idempotency": "required",
@@ -689,7 +640,6 @@
       "result_schema": "#/schemas/mutation_result",
       "capability": "research",
       "consequence": "research",
-      "approval": "none",
       "metadata": {
         "context": "ambient",
         "idempotency": "required",
@@ -710,7 +660,6 @@
       "result_schema": "#/schemas/mutation_result",
       "capability": "research",
       "consequence": "research",
-      "approval": "none",
       "metadata": {
         "context": "ambient",
         "idempotency": "required",
@@ -731,7 +680,6 @@
       "result_schema": "#/schemas/research_retire_result",
       "capability": "research",
       "consequence": "research",
-      "approval": "none",
       "metadata": {
         "context": "explicit",
         "idempotency": "required",
@@ -752,7 +700,6 @@
       "result_schema": "#/schemas/mutation_result",
       "capability": "work_define",
       "consequence": "intent",
-      "approval": "none",
       "metadata": {
         "context": "ambient",
         "idempotency": "required",
@@ -773,7 +720,6 @@
       "result_schema": "#/schemas/mutation_result",
       "capability": "work_define",
       "consequence": "intent",
-      "approval": "none",
       "metadata": {
         "context": "ambient",
         "idempotency": "required",
@@ -794,7 +740,6 @@
       "result_schema": "#/schemas/mutation_result",
       "capability": "work_transition",
       "consequence": "lifecycle",
-      "approval": "none",
       "metadata": {
         "context": "ambient",
         "idempotency": "required",
@@ -815,7 +760,6 @@
       "result_schema": "#/schemas/mutation_result",
       "capability": "work_transition",
       "consequence": "lifecycle",
-      "approval": "none",
       "metadata": {
         "context": "ambient",
         "idempotency": "required",
@@ -837,7 +781,6 @@
       "result_schema": "#/schemas/projectable_mutation_result",
       "capability": "work_transition",
       "consequence": "workflow_action",
-      "approval": "conditional",
       "metadata": {
         "context": "workflow",
         "idempotency": "required",
@@ -858,7 +801,6 @@
       "result_schema": "#/schemas/worktree_claim_result",
       "capability": "work_transition",
       "consequence": "lifecycle",
-      "approval": "none",
       "metadata": {
         "context": "ambient",
         "idempotency": "required",
@@ -879,7 +821,6 @@
       "result_schema": "#/schemas/session_vacate_result",
       "capability": "work_transition",
       "consequence": "lifecycle",
-      "approval": "none",
       "metadata": {
         "context": "ambient",
         "idempotency": "required",
@@ -900,7 +841,6 @@
       "result_schema": "#/schemas/project_handoff_record_result",
       "capability": "work_transition",
       "consequence": "lifecycle",
-      "approval": "none",
       "metadata": {
         "context": "ambient",
         "idempotency": "required",
@@ -921,7 +861,6 @@
       "result_schema": "#/schemas/project_handoff_consume_result",
       "capability": "work_transition",
       "consequence": "lifecycle",
-      "approval": "none",
       "metadata": {
         "context": "ambient",
         "idempotency": "required",
@@ -942,7 +881,6 @@
       "result_schema": "#/schemas/mutation_result",
       "capability": "work_transition",
       "consequence": "lifecycle",
-      "approval": "none",
       "metadata": {
         "context": "ambient",
         "idempotency": "required",
@@ -963,7 +901,6 @@
       "result_schema": "#/schemas/worktree_audit_reclaim_result",
       "capability": "work_transition",
       "consequence": "lifecycle",
-      "approval": "none",
       "metadata": {
         "context": "ambient",
         "idempotency": "required",
@@ -984,7 +921,6 @@
       "result_schema": "#/schemas/worktree_verify_result",
       "capability": "work_transition",
       "consequence": "claim",
-      "approval": "none",
       "metadata": {
         "context": "ambient",
         "idempotency": "required",
@@ -1005,7 +941,6 @@
       "result_schema": "#/schemas/mutation_result",
       "capability": "work_transition",
       "consequence": "lifecycle",
-      "approval": "none",
       "metadata": {
         "context": "ambient",
         "idempotency": "required",
@@ -1026,7 +961,6 @@
       "result_schema": "#/schemas/mutation_result",
       "capability": "work_relate",
       "consequence": "scope",
-      "approval": "none",
       "metadata": {
         "context": "explicit",
         "idempotency": "required",
@@ -1047,7 +981,6 @@
       "result_schema": "#/schemas/mutation_result",
       "capability": "work_relate",
       "consequence": "relation",
-      "approval": "conditional",
       "metadata": {
         "context": "explicit",
         "idempotency": "required",
@@ -1068,7 +1001,6 @@
       "result_schema": "#/schemas/projectable_mutation_result",
       "capability": "work_relate",
       "consequence": "relation",
-      "approval": "none",
       "metadata": {
         "context": "ambient",
         "idempotency": "required",
@@ -1089,7 +1021,6 @@
       "result_schema": "#/schemas/mutation_result",
       "capability": "work_relate",
       "consequence": "relation",
-      "approval": "none",
       "metadata": {
         "context": "ambient",
         "idempotency": "required",
@@ -1110,7 +1041,6 @@
       "result_schema": "#/schemas/mutation_result",
       "capability": "work_compact",
       "consequence": "publication",
-      "approval": "none",
       "metadata": {
         "context": "explicit",
         "idempotency": "required",
@@ -1131,7 +1061,6 @@
       "result_schema": "#/schemas/mutation_result",
       "capability": "work_compact",
       "consequence": "recovery",
-      "approval": "none",
       "metadata": {
         "context": "explicit",
         "idempotency": "required",
@@ -1152,7 +1081,6 @@
       "result_schema": "#/schemas/domain_list_result",
       "capability": "product_read",
       "consequence": "read",
-      "approval": "none",
       "metadata": {
         "context": "ambient",
         "idempotency": "request_id",
@@ -1173,7 +1101,6 @@
       "result_schema": "#/schemas/domain_detail_result",
       "capability": "product_read",
       "consequence": "read",
-      "approval": "none",
       "metadata": {
         "context": "explicit",
         "idempotency": "request_id",
@@ -1194,7 +1121,6 @@
       "result_schema": "#/schemas/domain_footprint_result",
       "capability": "product_read",
       "consequence": "read",
-      "approval": "none",
       "metadata": {
         "context": "explicit",
         "idempotency": "request_id",
@@ -1215,7 +1141,6 @@
       "result_schema": "#/schemas/domain_shape_result",
       "capability": "product_read",
       "consequence": "read",
-      "approval": "none",
       "metadata": {
         "context": "explicit",
         "idempotency": "request_id",
@@ -1236,49 +1161,6 @@
       "result_schema": "#/schemas/mutation_result",
       "capability": "work_transition",
       "consequence": "recovery",
-      "approval": "none",
-      "metadata": {
-        "context": "explicit",
-        "idempotency": "required",
-        "pagination": "none",
-        "output_bytes": 51200,
-        "versions": [
-          "1.0"
-        ]
-      },
-      "supported_budget_seconds": 300
-    },
-    {
-      "id": "concord_work_relate.product_project_add",
-      "tool": "concord_work_relate",
-      "kind": "mutation",
-      "query_id": null,
-      "input_schema": "#/schemas/work_relate_product_project_add_input",
-      "result_schema": "#/schemas/work_relate_product_project_add_result",
-      "capability": "work_relate",
-      "consequence": "scope",
-      "approval": "required",
-      "metadata": {
-        "context": "explicit",
-        "idempotency": "required",
-        "pagination": "none",
-        "output_bytes": 51200,
-        "versions": [
-          "1.0"
-        ]
-      },
-      "supported_budget_seconds": 300
-    },
-    {
-      "id": "concord_work_relate.client_policy_grant_request",
-      "tool": "concord_work_relate",
-      "kind": "mutation",
-      "query_id": null,
-      "input_schema": "#/schemas/work_relate_client_policy_grant_request_input",
-      "result_schema": "#/schemas/work_relate_client_policy_grant_request_result",
-      "capability": "work_relate",
-      "consequence": "scope",
-      "approval": "required",
       "metadata": {
         "context": "explicit",
         "idempotency": "required",
@@ -1299,7 +1181,6 @@
       "result_schema": "#/schemas/mutation_result",
       "capability": "work_transition",
       "consequence": "recovery",
-      "approval": "none",
       "metadata": {
         "context": "ambient",
         "idempotency": "required",
@@ -1320,7 +1201,6 @@
       "result_schema": "#/schemas/mutation_result",
       "capability": "work_transition",
       "consequence": "recovery",
-      "approval": "none",
       "metadata": {
         "context": "ambient",
         "idempotency": "required",
@@ -1352,10 +1232,6 @@
     },
     "base_envelope": {
       "ref": "contracts/agent-tool-envelope.schema.json#/$defs/base",
-      "closed": true
-    },
-    "blocked_sessions_page": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/blocked_sessions_page",
       "closed": true
     },
     "blocked_work_page": {
@@ -1428,10 +1304,6 @@
     },
     "product_snapshot": {
       "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/product_snapshot",
-      "closed": true
-    },
-    "product_view_blocked_sessions_input": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/product_view_blocked_sessions_input",
       "closed": true
     },
     "product_view_resolve_input": {
@@ -1558,14 +1430,6 @@
       "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_page",
       "closed": true
     },
-    "work_relate_client_policy_grant_request_input": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_relate_client_policy_grant_request_input",
-      "closed": true
-    },
-    "work_relate_client_policy_grant_request_result": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_relate_client_policy_grant_request_result",
-      "closed": true
-    },
     "work_relate_memberships_input": {
       "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_relate_memberships_input",
       "closed": true
@@ -1576,14 +1440,6 @@
     },
     "work_relate_message_withdraw_input": {
       "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_relate_message_withdraw_input",
-      "closed": true
-    },
-    "work_relate_product_project_add_input": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_relate_product_project_add_input",
-      "closed": true
-    },
-    "work_relate_product_project_add_result": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_relate_product_project_add_result",
       "closed": true
     },
     "work_relate_resolve_overlap_input": {
@@ -1772,6 +1628,6 @@
       "digest"
     ]
   },
-  "payload_digest": "sha256:d6aa13b05a115412ee729c3ab0313282f4b157e8885918d89f8514f29e3aed23",
-  "digest": "sha256:103c0e9f6ed835c5c02386d5c39a38ec11e7ea69d8c05b30b1822c021fbbc150"
+  "payload_digest": "sha256:1e6ad3290b0793ce4377073ecbac4a33f1a5df83782ee665b37d8661c6ade6ac",
+  "digest": "sha256:150241575f2a9a21ffc827591b6735bf858b4dcf35e8decfba91a70d38c3a3f5"
 }

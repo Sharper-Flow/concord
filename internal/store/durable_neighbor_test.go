@@ -72,7 +72,7 @@ func durableNeighborOperations() []neighborOperation {
 					return s.RevokeTrustedClient(ctx, client.ClientRef, now)
 				default:
 					return s.TransactDurable(ctx, func(tx *Transaction) error {
-						return MutateTrustedClientPolicyTx(ctx, tx, client.ClientRef, func(c TrustedClientRecord) (TrustedClientRecord, error) {
+						return mutateTrustedClientPolicyTx(ctx, tx, client.ClientRef, func(c TrustedClientRecord) (TrustedClientRecord, error) {
 							c.CapabilitiesJSON = `["product_read","work_define"]`
 							return c, nil
 						})

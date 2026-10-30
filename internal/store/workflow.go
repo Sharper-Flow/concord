@@ -178,18 +178,14 @@ type workflowContractPredicatePayload struct {
 
 type workflowOverlapResolvedPayload struct {
 	WorkflowVersionFields
-	ToWorkID                string `json:"to_work_id"`
-	ToExpectedVersion       int64  `json:"to_expected_version"`
-	ToResultingVersion      int64  `json:"to_resulting_version"`
-	FromContractVersion     int64  `json:"from_contract_version"`
-	ToContractVersion       int64  `json:"to_contract_version"`
-	ResolutionKind          string `json:"resolution_kind"`
-	Reason                  string `json:"reason"`
-	ApprovalRef             string `json:"approval_ref"`
-	ApprovalOperationDigest string `json:"approval_operation_digest"`
-	ApprovalScopeJSON       string `json:"approval_scope_json"`
-	ApprovalVersionsJSON    string `json:"approval_versions_json"`
-	ApprovalConsequence     string `json:"approval_consequence"`
+	ToWorkID            string `json:"to_work_id"`
+	ToExpectedVersion   int64  `json:"to_expected_version"`
+	ToResultingVersion  int64  `json:"to_resulting_version"`
+	FromContractVersion int64  `json:"from_contract_version"`
+	ToContractVersion   int64  `json:"to_contract_version"`
+	ResolutionKind      string `json:"resolution_kind"`
+	Reason              string `json:"reason"`
+	CrossScope          bool   `json:"cross_scope"`
 }
 
 func (p workflowOverlapResolvedPayload) workflowVersionFields() WorkflowVersionFields {
@@ -203,11 +199,6 @@ type workflowContractSupersededPayload struct {
 	PredecessorContractVersions []int64  `json:"predecessor_contract_versions,omitempty"`
 	SupersedeReason             string   `json:"supersede_reason"`
 	AuditEvidence               []string `json:"audit_evidence"`
-	ApprovalRef                 string   `json:"approval_ref,omitempty"`
-	ApprovalOperationDigest     string   `json:"approval_operation_digest,omitempty"`
-	ApprovalScopeJSON           string   `json:"approval_scope_json,omitempty"`
-	ApprovalVersionsJSON        string   `json:"approval_versions_json,omitempty"`
-	ApprovalConsequence         string   `json:"approval_consequence,omitempty"`
 	// SuccessorContract is present for the operator-approved stale-law
 	// recovery route. When present, the event installs the fully supplied
 	// successor instead of cloning the prior contract.
@@ -478,8 +469,7 @@ type workflowPremiseConfirmedPayload struct {
 	ContractVersion    int64  `json:"contract_version"`
 	ConfirmingActorRef string `json:"confirming_actor_ref"`
 	// ConfirmationAuthority records whose authority the confirmation
-	// carries: "operator" for the verified operator identity, "coordinator"
-	// for consequence_v1's authenticated non-worker coordinator.
+	// carries: the authenticated non-worker coordinator.
 	ConfirmationAuthority string `json:"confirmation_authority,omitempty"`
 }
 
@@ -506,10 +496,8 @@ type workflowCompletedPayload struct {
 	Warnings          []string `json:"warnings,omitempty"`
 }
 
-// Outside repair records operator authority independently of workflow gates.
 type workflowOutsideRepairDispositionPayload struct {
 	WorkflowVersionFields
-	OutsideRepairApproval
 	Reason string `json:"reason"`
 	State  string `json:"state"`
 }
@@ -928,7 +916,7 @@ func foldValidatedWorkflowContractApproval(ctx context.Context, tx *sql.Tx, even
 	if definitionErr != nil {
 		return definitionErr
 	}
-	if err := validateWorkflowContractApprovalPolicy(ctx, tx, event, registered, contractFields, p); err != nil {
+	if err := validateWorkflowContractFacts(ctx, tx, event, registered, contractFields, p); err != nil {
 		return err
 	}
 	if err := advanceWorkflowVersion(ctx, tx, event, p.WorkflowVersionFields); err != nil {
@@ -940,17 +928,18 @@ func foldValidatedWorkflowContractApproval(ctx context.Context, tx *sql.Tx, even
 	return persistWorkflowContractApprovalTx(ctx, tx, event, registered, p)
 }
 
-func validateWorkflowContractApprovalPolicy(ctx context.Context, tx *sql.Tx, event Event, registered RegisteredDefinition, contractFields map[string]json.RawMessage, p workflowContractApprovedPayload) error {
+func validateWorkflowContractFacts(ctx context.Context, tx *sql.Tx, event Event, registered RegisteredDefinition, contractFields map[string]json.RawMessage, p workflowContractApprovedPayload) error {
 	changesProductTruth := registered.Definition.ChangesProductTruth != nil && *registered.Definition.ChangesProductTruth
-	// consequence_v1 answers consent from the contract's declared decision
-	// domains, so a contract under that policy must declare the typed fact
-	// itself: nil is the legacy absence shape and [] is explicit engineering.
-	if workflowApprovalPolicyRequiresDecisionFact(registered.Definition) && p.DecisionDomains == nil {
-		return newFailure(KindInvalidPayload, "fold_event", "consequence_v1 contract approval requires the declared decision-domain fact; absence is a legacy shape", false, "declare the contract's decision domains explicitly")
+	// The contract's declared decision-domain fact is the authored record of
+	// its decision class, so a contract under the typed declaration must
+	// carry the fact itself: nil is the legacy absence shape and [] is
+	// explicit engineering.
+	if workflowDeclaresDecisionDomains(registered.Definition) && p.DecisionDomains == nil {
+		return newFailure(KindInvalidPayload, "fold_event", "contract approval requires the declared decision-domain fact; absence is a legacy shape", false, "declare the contract's decision domains explicitly")
 	}
 	// A successor that changes no law itself still carries the law change its
 	// predecessors recorded; the live check holds it to the item's baseline.
-	tracksLawChange := workflowApprovalPolicyRequiresDecisionFact(registered.Definition)
+	tracksLawChange := workflowDeclaresDecisionDomains(registered.Definition)
 	if p.LawChange != nil && !tracksLawChange {
 		return newFailure(KindInvalidPayload, "fold_event", "law_change is recorded only on a consequence_v1 contract", false, "omit law_change")
 	}
@@ -958,7 +947,7 @@ func validateWorkflowContractApprovalPolicy(ctx context.Context, tx *sql.Tx, eve
 		return newFailure(KindInvalidPayload, "fold_event", "a consequence_v1 contract that changes law must record law_change", false, "record the law change with its reason")
 	}
 	if p.LawChange != nil {
-		if err := validateWorkflowLawChangeShape(p.LawChange, p.DecisionDomains, p.LawModifies, p.ArchitectureBinding); err != nil {
+		if err := validateWorkflowLawChangeShape(p.LawChange, p.LawModifies, p.ArchitectureBinding); err != nil {
 			return err
 		}
 	}
@@ -1065,7 +1054,7 @@ func persistWorkflowContractApprovalTx(ctx context.Context, tx *sql.Tx, event Ev
 // authorization a duplicate-projection recovery owes, and one active row per
 // named predecessor. It returns the sorted predecessor versions the fold
 // supersedes.
-func validateWorkflowContractSupersessionPredecessors(ctx context.Context, tx *sql.Tx, registry DefinitionRegistry, event Event, p workflowContractSupersededPayload) ([]int64, error) {
+func validateWorkflowContractSupersessionPredecessors(ctx context.Context, tx *sql.Tx, event Event, p workflowContractSupersededPayload) ([]int64, error) {
 	predecessors := p.PredecessorContractVersions
 	if len(predecessors) == 0 && p.PreviousContractVersion > 0 {
 		predecessors = []int64{p.PreviousContractVersion}
@@ -1095,15 +1084,6 @@ func validateWorkflowContractSupersessionPredecessors(ctx context.Context, tx *s
 	if activeCount != len(predecessors) {
 		return nil, newFailure(KindInvariantViolation, "fold_event", "contract supersession predecessor list does not match active workflow contracts", false, "supply the exact duplicate recovery set or restore a verified backup into a new path with concord restore, then swap")
 	}
-	if activeCount > 1 {
-		registered, definitionErr := VerifyWorkflowInstanceDefinitionTx(ctx, tx, registry, event.SubjectID)
-		if definitionErr != nil {
-			return nil, definitionErr
-		}
-		if err := requireWorkflowDuplicateRecoveryApprovalTx(ctx, tx, event, p, registered.Definition); err != nil {
-			return nil, err
-		}
-	}
 	for _, predecessor := range predecessors {
 		var active int
 		if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM workflow_contracts WHERE work_id=? AND contract_version=? AND superseded_by IS NULL`, event.SubjectID, predecessor).Scan(&active); err != nil {
@@ -1114,24 +1094,6 @@ func validateWorkflowContractSupersessionPredecessors(ctx context.Context, tx *s
 		}
 	}
 	return predecessors, nil
-}
-
-// requireWorkflowDuplicateRecoveryApprovalTx is the duplicate-recovery
-// authorization branch beside the pin the fold resolved. Legacy pins admit
-// only through the recorded operator approval binding; consequence_v1
-// supersedes routinely — the unsigned attributed event keeps the exact
-// predecessor set, audit evidence, and invalidation.
-func requireWorkflowDuplicateRecoveryApprovalTx(ctx context.Context, tx *sql.Tx, event Event, p workflowContractSupersededPayload, definition WorkflowDefinition) error {
-	if definition.ApprovalPolicy == WorkflowApprovalPolicyConsequenceV1 {
-		return nil
-	}
-	return authorizeWorkflowOperatorApprovalTx(ctx, tx, event, workflowApprovalBinding{
-		ApprovalRef:     p.ApprovalRef,
-		OperationDigest: p.ApprovalOperationDigest,
-		ScopeJSON:       p.ApprovalScopeJSON,
-		VersionsJSON:    p.ApprovalVersionsJSON,
-		Consequence:     p.ApprovalConsequence,
-	}, contractRecoveryApprovalSubject)
 }
 
 func foldWorkflowContractSuperseded(ctx context.Context, tx *sql.Tx, event Event, scope *writeScope) error {
@@ -1145,7 +1107,7 @@ func foldWorkflowContractSuperseded(ctx context.Context, tx *sql.Tx, event Event
 	if err := beginWorkflowLifecycleTx(ctx, tx, event); err != nil {
 		return err
 	}
-	predecessors, err := validateWorkflowContractSupersessionPredecessors(ctx, tx, scopeDefinitionRegistry(scope), event, p)
+	predecessors, err := validateWorkflowContractSupersessionPredecessors(ctx, tx, event, p)
 	if err != nil {
 		return err
 	}
@@ -1220,7 +1182,7 @@ func cloneWorkflowSuccessorTx(ctx context.Context, tx *sql.Tx, event Event, scop
 	// contract, so a consequence_v1 successor cannot declare its
 	// decision-domain fact on this shape. The complete-successor route
 	// declares it through the initial fold's policy gate.
-	if workflowApprovalPolicyRequiresDecisionFact(registered.Definition) {
+	if workflowDeclaresDecisionDomains(registered.Definition) {
 		return newFailure(KindInvalidPayload, "fold_event", "consequence_v1 contract supersession cannot use the legacy clone route", false, "supply a complete successor contract that declares its decision domains explicitly")
 	}
 	if err := advanceWorkflowVersion(ctx, tx, event, p.WorkflowVersionFields); err != nil {
@@ -2854,21 +2816,17 @@ func foldWorkflowPremiseConfirmed(ctx context.Context, tx *sql.Tx, event Event, 
 	if p.ContractVersion <= 0 {
 		return newFailure(KindInvalidPayload, "fold_event", "premise confirmation has invalid contract version", false, "supply a positive contract version")
 	}
-	registered, registeredErr := VerifyWorkflowInstanceDefinitionTx(ctx, tx, scopeDefinitionRegistry(scope), event.SubjectID)
+	_, registeredErr := VerifyWorkflowInstanceDefinitionTx(ctx, tx, scopeDefinitionRegistry(scope), event.SubjectID)
 	if registeredErr != nil {
 		return registeredErr
 	}
-	return workflowPremiseConfirmedWriteTx(ctx, tx, registered.Definition, event, p)
+	return workflowPremiseConfirmedWriteTx(ctx, tx, event, p)
 }
 
-// workflowPremiseConfirmedWriteTx is the premise confirmation fold body minus
-// the builtin definition resolution: the caller supplies the verified
-// definition, so consequence_v1 seams can drive the same owner a live fold
-// drives. It validates the claimed authority against the definition and the
-// active contract's stored fact, binds the confirming actor, and records the
-// confirmation row.
-func workflowPremiseConfirmedWriteTx(ctx context.Context, tx *sql.Tx, definition WorkflowDefinition, event Event, p workflowPremiseConfirmedPayload) error {
-	if err := workflowPremiseConfirmedAuthorityTx(ctx, tx, definition, event.SubjectID, p.ContractVersion, p.ConfirmingActorRef, p.ConfirmationAuthority); err != nil {
+// workflowPremiseConfirmedWriteTx binds the authenticated coordinator and active
+// contract before recording the confirmation row.
+func workflowPremiseConfirmedWriteTx(ctx context.Context, tx *sql.Tx, event Event, p workflowPremiseConfirmedPayload) error {
+	if err := workflowPremiseConfirmedAuthorityTx(ctx, tx, event.SubjectID, p.ContractVersion, p.ConfirmingActorRef, p.ConfirmationAuthority); err != nil {
 		return err
 	}
 	var class string
@@ -2976,29 +2934,12 @@ func insertWorkflowForwardRelation(ctx context.Context, tx *sql.Tx, event Event,
 }
 
 // workflowPremiseConfirmedAuthorityTx validates a claimed confirmation
-// authority against the verified definition and the active contract's stored
-// decision fact: only consequence_v1 engineering admits coordinator authority,
-// while legacy and decision-bearing contracts require the verified operator.
-// The claimed class and the worker-history rule are checked here, so a forged
-// role cannot ride on a caller-supplied authority string.
-func workflowPremiseConfirmedAuthorityTx(ctx context.Context, tx *sql.Tx, definition WorkflowDefinition, workID string, contractVersion int64, confirmingActor, claimedAuthority string) error {
-	if claimedAuthority != "operator" && claimedAuthority != "coordinator" {
-		return newFailure(KindInvalidPayload, "fold_event", "premise confirmation authority is not closed", false, "record operator or coordinator authority")
+// authority against the active contract and recorded coordinator identity.
+func workflowPremiseConfirmedAuthorityTx(ctx context.Context, tx *sql.Tx, workID string, contractVersion int64, confirmingActor, claimedAuthority string) error {
+	if claimedAuthority != "coordinator" {
+		return newFailure(KindInvalidPayload, "fold_event", "premise confirmation requires coordinator authority", false, "record the coordinator confirmation")
 	}
-	var stored sql.NullString
-	if err := tx.QueryRowContext(ctx, `SELECT decision_domains FROM workflow_contracts WHERE work_id=? AND contract_version=?`, workID, contractVersion).Scan(&stored); err != nil {
-		if err == sql.ErrNoRows {
-			return newFailure(KindInvariantViolation, "fold_event", "confirmed workflow contract is missing", false, "reread_entities")
-		}
-		return err
-	}
-	if definition.ApprovalPolicy != WorkflowApprovalPolicyConsequenceV1 {
-		if claimedAuthority != "operator" {
-			return newFailure(KindInvalidOperation, "fold_event", "premise confirmation on this contract requires the verified operator authority", false, "record operator approval")
-		}
-		return requireActorClass(ctx, tx, confirmingActor, "operator")
-	}
-	// A consequence_v1 confirmation is bound to the contract version it named.
+	// A confirmation is bound to the contract version it named.
 	// Supersession invalidates it: a confirmation must name the active version.
 	active, activeErr := activeWorkflowContractVersion(ctx, tx, workID, "fold_event")
 	if activeErr != nil {
@@ -3007,27 +2948,7 @@ func workflowPremiseConfirmedAuthorityTx(ctx context.Context, tx *sql.Tx, defini
 	if active != contractVersion {
 		return newFailure(KindInvalidPayload, "fold_event", fmt.Sprintf("premise confirmation names contract version %d, which supersession invalidated; the active version is %d", contractVersion, active), false, "confirm the active contract version")
 	}
-	if !stored.Valid {
-		return newFailure(KindInvariantViolation, "fold_event", "consequence_v1 confirmation requires the contract's stored decision-domain fact; absence is a legacy shape", false, "record the contract's decision domains")
-	}
-	var domains []string
-	if json.Unmarshal([]byte(stored.String), &domains) != nil {
-		return newFailure(KindInvariantViolation, "fold_event", "the stored decision-domain fact is malformed", false, "restore a verified backup into a new path with concord restore, then swap")
-	}
-	decision, err := ClassifyWorkflowApproval(definition, "confirm_premise", WorkflowApprovalFacts{ActiveDecisionDomains: domains})
-	if err != nil {
-		return err
-	}
-	if decision.Consent != WorkflowConsentNone && claimedAuthority != "operator" {
-		return newFailure(KindInvalidOperation, "fold_event", "decision-bearing premise confirmation requires the verified operator authority", false, "record operator approval")
-	}
-	if decision.Consent == WorkflowConsentNone && claimedAuthority != "coordinator" {
-		return newFailure(KindInvalidOperation, "fold_event", "engineering premise confirmation requires the authenticated coordinator authority; the verified operator confirms decision-bearing work alone", false, "record the coordinator confirmation")
-	}
-	if claimedAuthority == "coordinator" {
-		return requireActorClass(ctx, tx, confirmingActor, "agent")
-	}
-	return requireActorClass(ctx, tx, confirmingActor, "operator")
+	return requireActorClass(ctx, tx, confirmingActor, "agent")
 }
 
 func valueOrNil(value *string) any {

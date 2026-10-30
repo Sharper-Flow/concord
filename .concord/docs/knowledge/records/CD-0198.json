@@ -28,7 +28,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:f1228195b8cdfaee1be1cd11a9a0da71e1c2ea990205e0ea7374b9c27258dcdb",
+  "sha256": "sha256:72bebe01897bd8b70bf714d55af68b5937649e33a62f6d49cfdabcef7343bcf7",
   "status": "accepted",
   "summary": "Batched verdicts retain per-predicate actor/evidence/kind and reject duplicates; omitted predicates remain missing. Typed break-fix diagnosis retains reproduction, alignment and root-cause guards. Repair/refine starts derive atomically from the first action and retain fences, epochs and exact declared-command native verification. Delivery uses its complete admission and Review records separately; no combined worker acceptance or retry dispatch remains.",
   "tags": [

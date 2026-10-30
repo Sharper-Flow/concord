@@ -127,39 +127,22 @@ func readOverlapGoverningRequirementScope(ctx context.Context, q queryer, fromID
 	return err
 }
 
-// checkOverlapGoverningScope re-derives the cut inside the effect transaction,
-// including for SQL-only callers. Consent binds both sets as well as endpoints
-// and versions; a supplied claim on retained scope keeps its existing admission.
-func checkOverlapGoverningScope(ctx context.Context, tx *sql.Tx, request WorkflowDomainOverlapResolutionRequest) error {
-	if request.ResolutionKind != ResolutionMergedInto && request.ResolutionKind != ResolutionSupersedes {
+// checkOverlapGoverningScope re-derives the cut inside the effect transaction.
+func checkOverlapGoverningScope(ctx context.Context, tx *sql.Tx, fromWorkID, toWorkID, kind string, crossScope bool) error {
+	if kind != ResolutionMergedInto && kind != ResolutionSupersedes {
 		return nil
 	}
-	scope, err := overlapGoverningRequirementScope(ctx, tx, request.FromWorkID, request.ToWorkID, request.ResolutionKind)
+	scope, err := overlapGoverningRequirementScope(ctx, tx, fromWorkID, toWorkID, kind)
 	if err != nil {
 		return err
-	}
-	var approved struct {
-		GoverningRequirements string `json:"governing_requirements"`
-	}
-	if request.ApprovalRef != "" {
-		if err := json.Unmarshal([]byte(request.ApprovalScopeJSON), &approved); err != nil {
-			return workflowOverlapApprovalUnauthorized("governing_requirements")
-		}
-		if approved.GoverningRequirements != "" && approved.GoverningRequirements != scope.Digest() {
-			return workflowOverlapApprovalUnauthorized("governing_requirements")
-		}
 	}
 	if len(scope.Missing()) == 0 {
 		return nil
 	}
-	if request.ApprovalRef == "" {
-		failure := newFailure(KindApprovalRequired, "workflow_domain_overlap", "overlap resolution cuts governing requirements", false, "request_approval")
+	if !crossScope {
+		failure := newFailure(KindUnauthorized, "workflow_domain_overlap", "overlap resolution cuts governing requirements and requires cross_scope capability", false, "contact_operator")
 		failure.Violations = scope.Missing()
 		return failure
 	}
-	if approved.GoverningRequirements != scope.Digest() {
-		return workflowOverlapApprovalUnauthorized("governing_requirements")
-	}
-	_, err = workflowOperatorFromConsumedApprovalTx(ctx, tx, workflowApprovalBinding{ApprovalRef: request.ApprovalRef, OperationDigest: request.ApprovalOperationDigest, ScopeJSON: request.ApprovalScopeJSON, VersionsJSON: request.ApprovalVersionsJSON, Consequence: request.ApprovalConsequence}, "workflow_domain_overlap")
-	return err
+	return nil
 }

@@ -7,11 +7,8 @@ import (
 	"testing"
 )
 
-// CD-0013 criterion 25 covers every callable fenced start, not one action:
-// on each start a current definition declares on a step, another actor's
-// start over a held attempt refuses approval_required before it opens an
-// epoch, and the holder's own restart stays free.
-func TestFencedStartTakeoverRequiresApprovalOnEveryCallableStart(t *testing.T) {
+// Every fenced start checks the boundary's held-attempt snapshot.
+func TestFencedStartTakeoverRequiresSnapshotOnEveryCallableStart(t *testing.T) {
 	t.Parallel()
 	type startCase struct{ name, ref, step, start string }
 	var cases []startCase
@@ -40,8 +37,8 @@ func TestFencedStartTakeoverRequiresApprovalOnEveryCallableStart(t *testing.T) {
 			other := WorkflowActor{PrincipalRef: fixture.owner.PrincipalRef, ClientRef: fixture.owner.ClientRef, AgentRef: "agent/other", SessionRef: "session/" + workID + "-other", ActorClass: ActorAgent}
 			err := runVerdictActionAs(t, s, workID, tc.start, json.RawMessage(`{}`), 0, other)
 			var failure *Failure
-			if !errors.As(err, &failure) || failure.Kind != KindApprovalRequired {
-				t.Fatalf("another actor's unapproved %s over a held attempt = %v, want approval_required", tc.start, err)
+			if !errors.As(err, &failure) || failure.Kind != KindOperationConflict {
+				t.Fatalf("another actor's %s over a held attempt = %v, want operation_conflict", tc.start, err)
 			}
 			if got := reviewGateStartedEpoch(t, s, workID, tc.start); got != held {
 				t.Fatalf("refused takeover moved the attempt epoch %d -> %d", held, got)

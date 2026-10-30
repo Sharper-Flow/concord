@@ -143,7 +143,6 @@
           {
             "id": "record_proposal",
             "consequence": "internal_sqlite",
-            "approval": "none",
             "execution_mode": "advance",
             "payload": {
               "fields": []
@@ -152,7 +151,6 @@
           {
             "id": "record_discovery",
             "consequence": "internal_sqlite",
-            "approval": "none",
             "execution_mode": "advance",
             "payload": {
               "fields": []
@@ -161,7 +159,6 @@
           {
             "id": "record_design",
             "consequence": "internal_sqlite",
-            "approval": "none",
             "execution_mode": "advance",
             "payload": {
               "fields": []
@@ -170,7 +167,6 @@
           {
             "id": "approve_contract",
             "consequence": "internal_sqlite",
-            "approval": "required",
             "execution_mode": "advance",
             "payload": {
               "fields": []
@@ -179,7 +175,6 @@
           {
             "id": "start_execution",
             "consequence": "external_effect",
-            "approval": "none",
             "execution_mode": "fenced",
             "payload": {
               "fields": []
@@ -188,7 +183,6 @@
           {
             "id": "checkpoint_execution",
             "consequence": "external_effect",
-            "approval": "none",
             "execution_mode": "checkpoint",
             "payload": {
               "fields": []
@@ -197,7 +191,6 @@
           {
             "id": "bind_evidence",
             "consequence": "internal_sqlite",
-            "approval": "none",
             "execution_mode": "hold",
             "payload": {
               "fields": []
@@ -206,7 +199,6 @@
           {
             "id": "link_successor",
             "consequence": "internal_sqlite",
-            "approval": "none",
             "execution_mode": "hold",
             "payload": {
               "fields": []
@@ -215,7 +207,6 @@
           {
             "id": "record_verdict",
             "consequence": "internal_sqlite",
-            "approval": "none",
             "execution_mode": "hold",
             "payload": {
               "fields": []
@@ -224,7 +215,6 @@
           {
             "id": "confirm_premise",
             "consequence": "internal_sqlite",
-            "approval": "required",
             "execution_mode": "advance",
             "payload": {
               "fields": []
@@ -233,7 +223,6 @@
           {
             "id": "complete",
             "consequence": "internal_sqlite",
-            "approval": "none",
             "execution_mode": "hold",
             "payload": {
               "fields": []
@@ -242,7 +231,6 @@
           {
             "id": "checkpoint_context",
             "consequence": "internal_sqlite",
-            "approval": "none",
             "execution_mode": "hold",
             "payload": {
               "fields": [
@@ -320,7 +308,6 @@
           {
             "id": "cross_context_boundary",
             "consequence": "internal_sqlite",
-            "approval": "none",
             "execution_mode": "advance",
             "payload": {
               "fields": [
@@ -410,14 +397,14 @@
             "target": "execution"
           }
         ],
-        "digest": "sha256:2d9b06014aa5161d891f8fc6a2f4241523d6d0fd90d99381b25668dc23aea88b"
+        "digest": "sha256:882cae4a36a7beea0133fb3297bb870e64d9bf5e3baf6ff21e7a4af5ece91773"
       }
     },
     {"id": "outcome-exists-valid", "schema": "workflow-outcome.schema.json", "valid": true, "instance": {"kind": "exists", "surface": "git:tree", "subjects": ["path:cmd/concord"]}},
     {"id": "outcome-absent-valid", "schema": "workflow-outcome.schema.json", "valid": true, "instance": {"kind": "absent", "surface": "git:tree", "subjects": ["path:legacy"], "distinguish_from": ["archived", "relocated"]}},
     {"id": "outcome-research-valid", "schema": "workflow-outcome.schema.json", "valid": true, "instance": {"kind": "outcome", "allowed": ["no_change"]}},
     {"id": "outcome-check-valid", "schema": "workflow-outcome.schema.json", "valid": true, "instance": {"kind": "check", "check_ref": "check:workflow-proof", "immutable_subject_ref": "commit:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "expected_result": "pass"}},
-    {"id": "outcome-spike-record-valid", "schema": "workflow-outcome.schema.json", "work_kind": "architecture_spike", "valid": true, "instance": {"kind": "outcome", "allowed": ["accepted_decision"], "decision_record": {"question": "Which public mechanism should bind state?", "options_considered": ["sqlite", "remote"], "decision": "accepted_decision", "rationale": "The local authority is sufficient.", "consequences": ["One writer remains authoritative."], "inputs": [".concord/docs/decisions/CD-0013-workflow-engine-mechanism.md"], "poc_findings": "No POC built.", "supersedes": null, "superseded_by": null, "unknowns": [], "required_to_decide": [], "reviewer_actor_ref": "actor:017389e1649c56f00f9265c121eed78cb73aca12052cefae3df35d9036a029bc", "operator_approval_ref": "approval:spike-1"}}},
+    {"id": "outcome-spike-record-valid", "schema": "workflow-outcome.schema.json", "work_kind": "architecture_spike", "valid": true, "instance": {"kind": "outcome", "allowed": ["accepted_decision"], "decision_record": {"question": "Which public mechanism should bind state?", "options_considered": ["sqlite", "remote"], "decision": "accepted_decision", "rationale": "The local authority is sufficient.", "consequences": ["One writer remains authoritative."], "inputs": [".concord/docs/decisions/CD-0013-workflow-engine-mechanism.md"], "poc_findings": "No POC built.", "supersedes": null, "superseded_by": null, "unknowns": [], "required_to_decide": [], "reviewer_actor_ref": "actor:017389e1649c56f00f9265c121eed78cb73aca12052cefae3df35d9036a029bc"}}},
     {"id": "outcome-spike-no-record-valid", "schema": "workflow-outcome.schema.json", "work_kind": "architecture_spike", "valid": true, "instance": {"kind": "outcome", "allowed": ["accepted_decision"]}},
     {"id": "outcome-extra-property-invalid", "schema": "workflow-outcome.schema.json", "valid": false, "expected_error": "unknown properties", "instance": {"kind": "exists", "surface": "git:tree", "subjects": ["path:cmd/concord"], "extra": true}},
     {"id": "outcome-unknown-kind-invalid", "schema": "workflow-outcome.schema.json", "valid": false, "expected_error": "oneOf mismatch", "instance": {"kind": "expression", "surface": "git:tree", "subjects": ["path:cmd/concord"]}}

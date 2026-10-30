@@ -14,7 +14,7 @@ import (
 // production: any growth in the widest shape fails this exact figure first,
 // and the pin moves only by a deliberate re-derivation beside the ceilings'
 // own next-power-of-two assertions.
-const derivedRequestWireMaxBytes = 10415091
+const derivedRequestWireMaxBytes = 10413478
 
 // The shared action ceilings derive from the widest admitted shape, not a
 // shortlist: this test enumerates every admitted workflow-action variant the
@@ -111,7 +111,7 @@ func TestWorkflowActionWidestShapeDerivesSharedCeilings(t *testing.T) {
 	// One derivation: the widest whole action variant rides the invoke
 	// envelope, and its next power of two is the one figure both production
 	// aliases must equal.
-	request := invokeRequestWireBytes(t, defs, opt, widest)
+	request := invokeRequestWireBytes(t, widest)
 	derived := schemawire.NextPowerOfTwo(request)
 	if request != derivedRequestWireMaxBytes {
 		t.Fatalf("the derived full-invoke request = %d bytes, want the pinned %d; the widest shape grew and the pin must be re-derived beside the ceilings it rounds to", request, derivedRequestWireMaxBytes)

@@ -5,34 +5,6 @@ import (
 	"testing"
 )
 
-// A step may declare an approval-required action only when its operator
-// question serves that approval. Correction requests instead use the folded
-// recovery route under consequence_v1.
-func TestRegisteredStepsAdmitTheirApprovalRequiredActions(t *testing.T) {
-	for _, definition := range BuiltinWorkflowDefinitions() {
-		approvalRequired := map[string]bool{}
-		for _, action := range definition.ActionDefinitions {
-			if action.Approval == ActionApprovalRequired {
-				approvalRequired[action.ID] = true
-			}
-		}
-		for _, step := range definition.StepGraph.Steps {
-			if step.Kind == WorkflowStepHumanCheckpoint {
-				continue
-			}
-			served, _ := workflowOperatorQuestionAction(definition, step.ID)
-			for _, id := range step.Actions {
-				if id == "request_correction" && (workflowStepIsDeliveryGate(&step) || workflowUnhealthyVerdictRouteTarget(definition, step.ID) != "") {
-					continue
-				}
-				if approvalRequired[id] && id != served {
-					t.Errorf("%s step %q has kind %q and declares approval-required action %q that its operator question does not serve, so the action can never run", definition.Ref, step.ID, step.Kind, id)
-				}
-			}
-		}
-	}
-}
-
 // A non-terminal step whose every advancing action is refused is a dead end.
 func TestRegisteredNonTerminalStepsCanAdvance(t *testing.T) {
 	for _, definition := range BuiltinWorkflowDefinitions() {
@@ -48,14 +20,9 @@ func TestRegisteredNonTerminalStepsCanAdvance(t *testing.T) {
 			if terminal[step.ID] {
 				continue
 			}
-			served, _ := workflowOperatorQuestionAction(definition, step.ID)
 			reachable := false
 			for _, id := range step.Actions {
-				action, ok := effect[id]
-				if !ok || !workflowActionAdvancesStep(definition, id) {
-					continue
-				}
-				if action.Approval == ActionApprovalRequired && step.Kind != WorkflowStepHumanCheckpoint && id != served {
+				if _, ok := effect[id]; !ok || !workflowActionAdvancesStep(definition, id) {
 					continue
 				}
 				reachable = true

@@ -45,7 +45,7 @@ func TestTerminalCleanupDefersUnreleasedOwners(t *testing.T) {
 		{"held_verify_lease", KindResourceBusy, []string{lease}},
 		{"ref_preservation_debt", KindOperationConflict, []string{`INSERT INTO worktree_ref_outcomes(set_id,project_id,claim_op_id,branch,phase,reason,recorded_at) VALUES('wts:work-done','proj-web','claim','work/closed','restoration_owed','restore','now')`}},
 		{"pending_vacate", KindOperationConflict, []string{`INSERT INTO session_vacate_requests VALUES('work-done','session-fixture','proj-web','/synthetic/work','/synthetic/main',1,0)`}},
-		{"outside_repair", KindOutsideRepairActive, []string{`INSERT INTO outside_repair_dispositions VALUES('work-done','approval:fixture','active','repair','{}','now')`}},
+		{"outside_repair", KindOutsideRepairActive, []string{`INSERT INTO outside_repair_dispositions VALUES('work-done','active','repair','{}','now')`}},
 		{"pending_durable_effect", KindOperationConflict, []string{`INSERT INTO durable_operations SELECT 'other-operation',attempt_epoch,work_id,workflow_type_ref,step_id,step_kind,accepted_inputs_digest,accepted_scope_snapshot,'pending',result_payload,evidence_refs,changed_refs,resume_cursor,principal_ref,request_id,observed_at,completed_at,contract_digest,workflow_type_digest FROM durable_operations WHERE op_id='publication'`}},
 		{"pending_removal", KindOperationConflict, []string{`INSERT INTO work_removal_operations(operation_id,idempotency_key,work_id,expected_version,reason,actor,handoff_json,handoff_digest,state,created_at,updated_at) VALUES('remove-fixture','remove-key','work-done',3,'shelved','operator','{}','sha256:1111111111111111111111111111111111111111111111111111111111111111','prepared','now','now')`}},
 		{"unconsumed_handoff", KindOperationConflict, []string{`INSERT INTO project_handoffs(handoff_id,work_id,contract_version,source_project_id,target_project_id,source_session_ref,bounded_job,changes,verification,artifact_refs,blockers,next_action,state,recorded_at) VALUES('handoff-fixture','work-done',1,'proj-web','proj-other','session-fixture','bounded','[]','[]','[]','[]','continue','recorded','now')`}},
@@ -298,7 +298,7 @@ func terminalCleanupFixtureForKind(t *testing.T, kind string, beforeCancel ...fu
 		if err := runVerdictActionAs(t, s, "work-done", "record_verdict", criterionAssociationPayload(ref, "predicate:first", "predicate:second"), 0, f.owner); err != nil {
 			t.Fatalf("associate research criteria: %v", err)
 		}
-		if err := runApprovalActionTx(t, s, BuiltinWorkflowRegistry(), "work-done", "confirm_premise", f.owner, nil, "confirm", "", `{}`); err != nil {
+		if err := runCoordinatorActionTx(t, s, BuiltinWorkflowRegistry(), "work-done", "confirm_premise", f.owner, "confirm", `{}`); err != nil {
 			t.Fatalf("confirm research premise: %v", err)
 		}
 		if err := closureBind(t, f, "work-done", "review", hash); err != nil {

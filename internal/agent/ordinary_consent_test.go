@@ -29,9 +29,6 @@ func TestOrdinaryTerminalLifecycleNeedsNoConsent(t *testing.T) {
 			if replay.Outcome != agentcontract.OutcomeOK || !replay.Replayed {
 				t.Fatalf("replay = %+v", replay)
 			}
-			if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM agent_approval_challenges`); got != 0 {
-				t.Fatalf("ordinary lifecycle minted %d challenges", got)
-			}
 		})
 	}
 }
@@ -48,7 +45,7 @@ func TestOrdinaryOutsideRepairNeedsNoConsent(t *testing.T) {
 				}
 				return dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: operation, Input: raw}, env)
 			}
-			assertOutsideOK(t, dispatch("outside_repair", outsideHoldInput(2, nil)), "ordinary hold")
+			assertOutsideOK(t, dispatch("outside_repair", outsideHoldInput(2)), "ordinary hold")
 			if fake.fetches != 0 {
 				t.Fatal("hold fetched external evidence")
 			}
@@ -60,9 +57,6 @@ func TestOrdinaryOutsideRepairNeedsNoConsent(t *testing.T) {
 			if mode == "completed" && fake.fetches == 0 {
 				t.Fatal("completed reconcile did not fetch proof")
 			}
-			if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM agent_approval_challenges`); got != 0 {
-				t.Fatalf("ordinary outside repair minted %d challenges", got)
-			}
 		})
 	}
 }
@@ -72,10 +66,9 @@ func TestOrdinaryOutsideRepairNeedsNoConsent(t *testing.T) {
 func TestOrdinaryOverlapNeedsNoConsent(t *testing.T) {
 	for _, kind := range []string{"merged_into", "supersedes"} {
 		t.Run(kind, func(t *testing.T) {
-			s, service, _, env := routineCoordinationFixture(t)
+			s, service, env := routineCoordinationFixture(t)
 			binding := routineOverlapExactBinding(t, s, kind)
 			request := InvokeRequest{Tool: "concord_work_relate", Operation: "resolve_overlap", Input: routineOverlapResolveInput(t, binding, "ordinary-overlap")}
-			before := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM agent_approval_challenges`)
 			result := dispatchMutation(t, s, service, request, env)
 			if result.Outcome != agentcontract.OutcomeOK {
 				t.Fatalf("ordinary %s: %+v", kind, result.Error)
@@ -83,9 +76,6 @@ func TestOrdinaryOverlapNeedsNoConsent(t *testing.T) {
 			replay := dispatchMutation(t, s, service, request, env)
 			if replay.Outcome != agentcontract.OutcomeOK || !replay.Replayed {
 				t.Fatalf("overlap replay: %+v", replay.Error)
-			}
-			if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM agent_approval_challenges`); got != before {
-				t.Fatalf("ordinary overlap minted %d challenges", got-before)
 			}
 		})
 	}

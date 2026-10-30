@@ -56,7 +56,7 @@ func TestOutsideRepairWorkPinOmitsOutstandingEvidenceKinds(t *testing.T) {
 			delete(pin, "workflow_definition_digest")
 			delete(pin, "obligations")
 			pin["outside_repair_disposition"] = map[string]any{
-				"work_id": "work-outstanding-schema", "reason": "repair", "approval_ref": "approval-fixture",
+				"work_id": "work-outstanding-schema", "reason": "repair",
 				"state": state, "recorded_at": "2026-10-17T00:00:00Z",
 			}
 			raw, err := json.Marshal(pin)

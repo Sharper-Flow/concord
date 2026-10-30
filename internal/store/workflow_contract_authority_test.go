@@ -66,7 +66,7 @@ func TestDuplicateActiveContractsRecoverWithExactPredecessorSet(t *testing.T) {
 	db := s.DatabaseForTesting()
 	seedDuplicateContractProjection(t, s, workID, ownerRef)
 	version := readWorkVersion(t, s, workID)
-	if _, action, err := WorkflowActionDefinitionFor(context.Background(), s, BuiltinWorkflowRegistry(), workID, "supersede_contract"); err != nil || action.ID != "supersede_contract" || action.Approval != ActionApprovalRequired {
+	if _, action, err := WorkflowActionDefinitionFor(context.Background(), s, BuiltinWorkflowRegistry(), workID, "supersede_contract"); err != nil || action.ID != "supersede_contract" {
 		t.Fatalf("duplicate recovery action = %q, error = %v", action.ID, err)
 	}
 	recoveryFields := map[string]any{
@@ -87,11 +87,6 @@ func TestDuplicateActiveContractsRecoverWithExactPredecessorSet(t *testing.T) {
 			"work_id": workID, "expected_version": expectedVersion, "resulting_version": expectedVersion + 1,
 			"previous_contract_version": int64(1), "predecessor_contract_versions": []int64{1, 2}, "new_contract_version": int64(3),
 			"supersede_reason": "repair the duplicate projection", "audit_evidence": []string{"evidence:duplicate-recovery"},
-			"approval_ref":              "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-			"approval_operation_digest": "sha256:" + strings.Repeat("c", 64),
-			"approval_scope_json":       `{}`,
-			"approval_versions_json":    `{"work_id":"` + workID + `"}`,
-			"approval_consequence":      "recovery",
 			"successor_contract": map[string]any{
 				"contract_version": 3, "premise": "recovered premise", "outcome_predicates": recoveryFields["outcome_predicates"],
 				"required_evidence": []string{"verification"}, "route_conventions": []string{}, "spec_mandate": []string{},
@@ -105,50 +100,7 @@ func TestDuplicateActiveContractsRecoverWithExactPredecessorSet(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("duplicate recovery preflight refused the reachable route: %v", err)
 	}
-	unauthorized := workflowEventWithActor("duplicate-recovery-agent", WorkflowContractSuperseded, workID, ownerRef, makeRecoveryEventFields(version))
-	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{unauthorized}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}); err == nil || !strings.Contains(err.Error(), "recorded operator approval actor") {
-		t.Fatalf("agent duplicate recovery error = %v, want operator authorization refusal", err)
-	}
-	approvalRef := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-	if _, err := db.Exec(`INSERT INTO agent_clients(client_ref,status,principal_ref,capabilities_json,product_scope_json,project_scope_json,created_at) VALUES('client/concord-1','active','principal/operator','[]','[]','[]','2026-09-10T00:00:00Z')`); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Exec(`INSERT INTO agent_approvals(approval_ref,operation_digest,scope_json,version_json,consequence,human_principal_ref,client_ref,session_ref,issued_at,expires_at,max_uses,used_count,protected_evidence_ref,protected_evidence_digest) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-		approvalRef, "sha256:"+strings.Repeat("c", 64), `{}`, `{"work_id":"`+workID+`"}`, "recovery", "principal/operator", "client/concord-1", "session/"+workID+"-recovery", "2026-09-10T00:00:00Z", "2026-09-11T00:00:00Z", 1, 1, "approval-evidence", "sha256:"+strings.Repeat("b", 64)); err != nil {
-		t.Fatal(err)
-	}
-	operator := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "approval:" + approvalRef, SessionRef: "session/" + workID + "-recovery", ActorClass: ActorOperator}
-	operatorRef, err := WorkflowActorRef(operator)
-	if err != nil {
-		t.Fatal(err)
-	}
-	operatorVersion := readWorkVersion(t, s, workID)
-	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{workflowEventWithActor("duplicate-recovery-operator", WorkflowActorRecorded, workID, operatorRef, map[string]any{
-		"work_id": workID, "expected_version": operatorVersion, "resulting_version": operatorVersion + 1,
-		"actor_ref": operatorRef, "principal_ref": operator.PrincipalRef, "client_ref": operator.ClientRef,
-		"agent_ref": operator.AgentRef, "session_ref": operator.SessionRef, "actor_class": string(ActorOperator),
-	})}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): operatorVersion}}); err != nil {
-		t.Fatal(err)
-	}
-	version = readWorkVersion(t, s, workID)
-	// The fold owns the binding's self-consistency: the payload must name the
-	// approval the recorded operator actor asserts, and every binding field
-	// admission checked must be present. A mismatched digest is admission's
-	// refusal, not the fold's, because the fold reads no approval row.
-	unbound := makeRecoveryEventFields(version)
-	unbound["approval_ref"] = "b0bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
-	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{workflowEventWithActor("duplicate-recovery-unbound", WorkflowContractSuperseded, workID, operatorRef, unbound)}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}); err == nil || !strings.Contains(err.Error(), "requires a recorded operator approval actor") {
-		t.Fatalf("recovery binding outside the recorded operator actor was accepted: %v", err)
-	}
-	incomplete := makeRecoveryEventFields(version)
-	incomplete["approval_consequence"] = ""
-	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{workflowEventWithActor("duplicate-recovery-incomplete", WorkflowContractSuperseded, workID, operatorRef, incomplete)}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}); err == nil || !strings.Contains(err.Error(), "carries no complete operator approval binding") {
-		t.Fatalf("incomplete recovery binding was accepted: %v", err)
-	}
-	if got := readWorkVersion(t, s, workID); got != version {
-		t.Fatalf("rejected recovery approval changed work version from %d to %d", version, got)
-	}
-	event := workflowEventWithActor("duplicate-recovery", WorkflowContractSuperseded, workID, operatorRef, makeRecoveryEventFields(version))
+	event := workflowEventWithActor("duplicate-recovery", WorkflowContractSuperseded, workID, ownerRef, makeRecoveryEventFields(version))
 	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}); err != nil {
 		t.Fatal(err)
 	}

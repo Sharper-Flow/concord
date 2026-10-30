@@ -26,9 +26,8 @@ import (
 // the manifest fails here until it is given an input, and an entry left
 // behind by a removed read fails here too.
 var readMarshalInputs = map[string]string{
-	"concord_product_view.resolve":          `{"product_id":"prod-alpha"}`,
-	"concord_product_view.snapshot":         `{"product_id":"prod-alpha"}`,
-	"concord_product_view.blocked_sessions": `{"product_id":"prod-alpha"}`,
+	"concord_product_view.resolve":  `{"product_id":"prod-alpha"}`,
+	"concord_product_view.snapshot": `{"product_id":"prod-alpha"}`,
 
 	"concord_work_browse.list":             `{"product_id":"prod-alpha","page":{"cursor":null,"limit":10}}`,
 	"concord_work_browse.blocked":          `{"product_id":"prod-alpha","page":{"cursor":null,"limit":10}}`,

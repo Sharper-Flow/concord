@@ -34,14 +34,13 @@ client's Product scope and must own the ambient Project.
 
 The scope watermark covers all Product↔Project edges for Products that own the
 ambient Project. Adding, removing, or changing a sibling membership changes the
-watermark. Approval challenge creation and consumption re-read current Product
-authority before they permit an effect.
+watermark. Mutation admission re-reads current Product authority before it
+permits an effect.
 
 ### D4. Refusal before effect
 
-A Project outside the authorized Product scope is refused before an approval
-challenge is created or a mutation effect runs. A removed sibling loses
-authority on the next invocation.
+A Project outside the authorized Product scope is refused before a mutation
+effect runs. A removed sibling loses authority on the next invocation.
 
 ## Consequences
 

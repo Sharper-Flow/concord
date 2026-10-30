@@ -155,7 +155,7 @@ func TestPublicRecoveryHonorsEnforcedCouplings(t *testing.T) {
 
 func TestCoordinationRecoveryPreservesSupportedOwnerAction(t *testing.T) {
 	t.Parallel()
-	for _, action := range []string{"reconcile_operation", "reread_entities", "use_declared_route", "request_approval"} {
+	for _, action := range []string{"reconcile_operation", "reread_entities", "use_declared_route"} {
 		t.Run(action, func(t *testing.T) {
 			if got := PublicRecovery("stale_law_revision", action); got != action {
 				t.Errorf("PublicRecovery(stale_law_revision, %q) = %q, want owner action", action, got)

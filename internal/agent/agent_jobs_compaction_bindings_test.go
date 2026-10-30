@@ -109,19 +109,6 @@ func (p cancelledNotePublication) request() InvokeRequest {
 	return InvokeRequest{Tool: "concord_work_compact", Operation: "publish", Input: p.input}
 }
 
-// approvedBy returns the request carrying approvalRef and an envelope whose
-// signed host approval binds that reference to this exact request.
-func (p cancelledNotePublication) approvedBy(t *testing.T, privateKey ed25519.PrivateKey, approvalRef string) (InvokeRequest, CallEnvelope) {
-	t.Helper()
-	withApproval, err := injectApproval(p.input, approvalRef)
-	if err != nil {
-		t.Fatalf("inject approval: %v", err)
-	}
-	env := p.env
-	env.HostApproval = signedHostApproval(privateKey, approvalRef, p.digest, p.scope, p.versions, env.SessionRef, env.AgentRef, env.Worktree, fixedTime(), nonceForChallenge(approvalRef))
-	return InvokeRequest{Tool: "concord_work_compact", Operation: "publish", Input: withApproval}, env
-}
-
 // publishCancelledNote drives the durable publication intent. CD-0243 D3/D7
 // retire ordinary consent, not exact content/home proof or publication order.
 func publishCancelledNote(t *testing.T, s *store.Store, service *Service, grant Authority, privateKey ed25519.PrivateKey, home store.KnowledgeHome) agentcontract.Envelope {
@@ -144,9 +131,6 @@ func TestPredicateFirstCallPublishesWithoutConsent(t *testing.T) {
 	}
 	if archivedCancelledWorkCount(t, s) != 1 {
 		t.Fatal("approved publication did not record one canonical note")
-	}
-	if countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM agent_approval_challenges WHERE consequence='publication'`) != 0 {
-		t.Fatal("ordinary publication persisted an approval challenge")
 	}
 }
 

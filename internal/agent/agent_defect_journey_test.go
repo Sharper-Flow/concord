@@ -3,7 +3,6 @@ package agent
 import (
 	"context"
 	"encoding/json"
-	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -57,53 +56,12 @@ func TestPublicDefectJourneyThroughRealResearchCompletion(t *testing.T) {
 		}
 		return response
 	}
-	// approvedAction dispatches one action input and, when the core minted
-	// an approval challenge, resubmits it with the signed host approval the
-	// challenge binds. The typed consequence summary is the only wire owner
-	// of the challenge's scope and version bindings; the details carry the
-	// reference metadata alone.
 	approvedAction := func(actorEnv CallEnvelope, input map[string]any, key string) agentcontract.Envelope {
 		t.Helper()
 		raw := retryJSON(input)
 		request := InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: raw}
 		actorEnv.RequestID = "request:" + key
-		challenge := dispatchMutation(t, s, service, request, actorEnv)
-		if challenge.Outcome == agentcontract.OutcomeOK {
-			return challenge
-		}
-		if challenge.Error == nil || challenge.Error.Kind != "approval_required" {
-			t.Fatalf("%s without approval outcome=%s error=%+v, want approval_required or ok", input["action_id"], challenge.Outcome, challenge.Error)
-		}
-		var details struct {
-			Ref      string   `json:"approval_ref"`
-			Digest   string   `json:"operation_digest"`
-			Scope    []string `json:"-"`
-			Versions []string `json:"-"`
-		}
-		if err := json.Unmarshal(retryJSON(challenge.Error.Details), &details); err != nil {
-			t.Fatal(err)
-		}
-		summary := challenge.Error.ConsequenceSummary
-		if summary == nil || summary.Tool != request.Tool || summary.Operation != request.Operation || summary.OperationDigest != details.Digest {
-			t.Fatalf("%s challenge lacks a typed consequence summary bound to this request: summary=%+v details=%+v", input["action_id"], summary, details)
-		}
-		details.Scope, details.Versions = summary.Scope, summary.Versions
-		wantWork := "work:" + strconv.FormatInt(input["expected_version"].(int64), 10)
-		if details.Digest != mutationDigest(request.Tool, request.Operation, actorEnv, raw) || !slices.Contains(details.Versions, wantWork) {
-			t.Fatalf("%s challenge does not bind the exact intent: %+v", input["action_id"], details)
-		}
-		approved := cloneWithApproval(t, input, details.Ref)
-		request.Input = retryJSON(approved)
-		approvedEnv := actorEnv
-		approvedEnv.HostApproval = &HostApprovalAssertion{ChallengeRef: details.Ref, RequestDigest: details.Digest, Scope: details.Scope, Versions: details.Versions, SessionRef: actorEnv.SessionRef, AgentRef: actorEnv.AgentRef, Worktree: actorEnv.Worktree, IssuedAt: fixedTime().Format(time.RFC3339Nano)}
-		response, dispatchErr := Dispatch(ctx, s, service, request, approvedEnv)
-		if dispatchErr != nil {
-			t.Fatalf("approved %s dispatch: %v", input["action_id"], dispatchErr)
-		}
-		if response.Error != nil && response.Error.Kind == "approval_invalid" {
-			t.Fatalf("%s approval refused on its bindings: error=%+v summary=%+v details=%+v", input["action_id"], response.Error, summary, details)
-		}
-		return response
+		return dispatchMutation(t, s, service, request, actorEnv)
 	}
 
 	// 1. The first bug of the shape is admitted with its intake.

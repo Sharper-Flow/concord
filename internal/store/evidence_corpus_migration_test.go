@@ -26,7 +26,7 @@ func evidenceExplicitCorpus(t *testing.T) historicalFactCorpus {
 
 func evidenceCorpusForWork(t *testing.T, work string) historicalFactCorpus {
 	t.Helper()
-	definition := cloneWorkflowDefinition(legacyApprovalPolicyDefinitionForRef(t, "workflow.break_fix").Definition)
+	definition := cloneWorkflowDefinition(currentFixtureDefinition(t, "workflow.break_fix").Definition)
 	definition.Ref = "workflow.evidence_corpus_fixture"
 	var hold WorkflowActionDefinition
 	for _, a := range definition.ActionDefinitions {
@@ -306,7 +306,7 @@ func assertEvidenceCorrection142(t *testing.T) {
 func assertEvidenceSupersession142(t *testing.T) {
 	t.Helper()
 	const work = "supersession-corpus"
-	definition := cloneWorkflowDefinition(legacyApprovalPolicyDefinitionForRef(t, "workflow.research").Definition)
+	definition := cloneWorkflowDefinition(currentFixtureDefinition(t, "workflow.research").Definition)
 	definition.Ref = "workflow.supersession_corpus_fixture"
 	registered, err := BuiltinWorkflowRegistry().Register(definition)
 	if err != nil {

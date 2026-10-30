@@ -51,31 +51,6 @@ func admissionExitFixture(t *testing.T, s *Store, ref string, p workflowActionCo
 	return event.Seq
 }
 
-func admissionExitPinFixture(t *testing.T, s *Store, ref, step string) {
-	t.Helper()
-	entry, err := BuiltinWorkflowDefinitionForRef(ref)
-	if err != nil {
-		t.Fatal(err)
-	}
-	tx, err := s.db.BeginTx(t.Context(), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer tx.Rollback()
-	if err := enterWrite(t.Context(), tx); err != nil {
-		t.Fatal(err)
-	}
-	if err := pinWorkflowInstanceToStepTx(t.Context(), tx, "admission-exits", entry, step, ""); err != nil {
-		t.Fatal(err)
-	}
-	if err := leaveWrite(t.Context(), tx); err != nil {
-		t.Fatal(err)
-	}
-	if err := tx.Commit(); err != nil {
-		t.Fatal(err)
-	}
-}
-
 func TestWorkflowAdmissionCompletedExitsLogBlind(t *testing.T) {
 	s := openTemp(t)
 	seedStepWork(t, s, "admission-exits")
@@ -97,11 +72,27 @@ func TestWorkflowAdmissionCompletedExitsLogBlind(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer tx.Rollback()
-	exits, err := readWorkflowExits(t.Context(), tx, "admission-exits")
+	type completedExit struct {
+		seq                             int64
+		stepID, actionID, definitionRef string
+	}
+	rows, err := tx.QueryContext(t.Context(), `SELECT exit_seq,step_id,action_id,definition_ref FROM workflow_completed_exits WHERE work_id='admission-exits' ORDER BY exit_seq DESC`)
 	if err != nil {
 		t.Fatalf("completed exits without the log: %v", err)
 	}
-	want := []workflowExitRecord{
+	defer rows.Close()
+	var exits []completedExit
+	for rows.Next() {
+		var exit completedExit
+		if err := rows.Scan(&exit.seq, &exit.stepID, &exit.actionID, &exit.definitionRef); err != nil {
+			t.Fatal(err)
+		}
+		exits = append(exits, exit)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	want := []completedExit{
 		{seq: otherStep, stepID: "investigate", actionID: "accept_worker_result", definitionRef: "workflow.research"},
 		{seq: otherAction, stepID: "findings", actionID: "accept_worker_result", definitionRef: "workflow.research"},
 		{seq: otherFamily, stepID: "findings", actionID: "record_report", definitionRef: "workflow.implementation"},
@@ -115,60 +106,8 @@ func TestWorkflowAdmissionCompletedExitsLogBlind(t *testing.T) {
 			t.Errorf("exit %d = %+v; want %+v", i, exit, want[i])
 		}
 	}
-	if exits, err := readWorkflowExits(t.Context(), tx, "other-work"); err != nil || len(exits) != 0 {
-		t.Fatalf("other work exits = %+v, %v; want none", exits, err)
-	}
-}
-
-func TestWorkflowAdmissionCarriedExitLogBlind(t *testing.T) {
-	for _, tc := range []struct {
-		name, ref, step, action, verdict string
-		want                             bool
-	}{
-		{"own-family", "workflow.research", "findings", "record_report", "conclude", true},
-		{"wrong-family", "workflow.implementation", "findings", "record_report", "conclude", false},
-		{"unknown-family", "workflow.unknown", "findings", "record_report", "conclude", false},
-		{"no-prior-pin", "", "findings", "record_report", "conclude", false},
-		{"nonadvancing-action", "workflow.research", "findings", "checkpoint_context", "conclude", false},
-		{"not-direct-predecessor", "workflow.research", "investigate", "record_finding", "conclude", false},
-		{"wrong-verdict-step", "workflow.research", "findings", "record_report", "acceptance", false},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			s := openTemp(t)
-			seedStepWork(t, s, "admission-exits")
-			admissionExitFixture(t, s, tc.ref, workflowActionCompletedPayload{StepID: tc.step, ActionID: tc.action})
-			// The current instance family is deliberately not the exit's family.
-			admissionExitPinFixture(t, s, "workflow.implementation", "acceptance")
-			tx, err := s.db.BeginTx(t.Context(), nil)
-			if err != nil {
-				t.Fatal(err)
-			}
-			exits, err := readWorkflowExits(t.Context(), tx, "admission-exits")
-			if err != nil || len(exits) != 1 {
-				t.Fatalf("fixture exits = %+v, %v; want one", exits, err)
-			}
-			got := carriedExitSatisfiedItsPinnedDefinition(tc.verdict, exits)
-			if got != tc.want {
-				t.Fatalf("carried exit before hiding log = %t; want %t", got, tc.want)
-			}
-			if err := tx.Rollback(); err != nil {
-				t.Fatal(err)
-			}
-			frontierWriteOnlyLog(t, s)
-			tx, err = s.db.BeginTx(t.Context(), nil)
-			if err != nil {
-				t.Fatal(err)
-			}
-			defer tx.Rollback()
-			exits, err = readWorkflowExits(t.Context(), tx, "admission-exits")
-			if err != nil || len(exits) != 1 {
-				t.Fatalf("carried exit facts without log = %+v, %v; want one", exits, err)
-			}
-			got = carriedExitSatisfiedItsPinnedDefinition(tc.verdict, exits)
-			if got != tc.want {
-				t.Fatalf("carried exit without log = %t; want %t", got, tc.want)
-			}
-		})
+	if err := tx.QueryRowContext(t.Context(), `SELECT count(*) FROM workflow_completed_exits WHERE work_id='other-work'`).Scan(&count); err != nil || count != 0 {
+		t.Fatalf("other work exit count = %d, %v; want none", count, err)
 	}
 }
 

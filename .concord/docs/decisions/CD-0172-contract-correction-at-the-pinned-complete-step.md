@@ -2,7 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-09-23
-- **Scope:** Store admission for operator-approved contract supersession at the completion step, the workflow step return, and the verdict carryover rule
+- **Scope:** Store admission for attributed contract supersession at the completion step, the workflow step return, and the verdict carryover rule
 - **Approval:** The operator approved this bounded recovery route for a disproved contract at completion.
 - **Related:** CD-0013, CD-0030, CD-0124, CD-0143
 - **Preserves:** CD-0143's unhealthy-verdict route, predecessor contract authority, current verdicts and applicable operator authority.
@@ -24,7 +24,7 @@ no mechanism could reopen the work under a corrected contract.
 
 ## Decision
 
-For `approval_policy=consequence_v1`, complete-step contract correction requires attributed supersession, not verified operator approval. Exact successor content, audit evidence, current versions, evidence cutoffs, stale acceptance invalidation, and declared recovery remain required. Conditional human confirmation follows CD-0013 D11; recorded items keep their recorded operator requirement.
+Complete-step contract correction requires attributed supersession, exact successor content, audit evidence, current versions, evidence cutoffs, stale acceptance invalidation, and declared recovery. Premise confirmation follows CD-0013 D11.
 
 ### D1. Admit correction at the completion step
 
@@ -40,10 +40,10 @@ refuses.
 Action discovery, the work pin, preflight, the dispatch guard, and admission
 share one predicate; each reads current rows in the mutation's transaction ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 
-### D2. Require the exact successor through the operator boundary
+### D2. Require the exact successor through attributed supersession
 
 The correction keeps the typed supersede payload: the exact successor contract,
-audit evidence, the current work version, and the verified operator approval.
+audit evidence, the current work version, and the authenticated coordinator.
 The successor must declare the reserved route convention
 `complete_step_correction`. The convention is refused on every other route and
 on every directly approved contract. Admission refuses a successor whose

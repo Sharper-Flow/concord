@@ -8,7 +8,6 @@
   "evidence": [
     "internal/agent/authority.go",
     "internal/store/schema.go",
-    "internal/store/blocked_sessions.go",
     ".concord/docs/reachability-exceptions.v1.json"
   ],
   "home_domain_id": "agent-call-boundary",
@@ -22,9 +21,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:2c885dce70942854088e97b81c2b78bafbbe13ebc67cefd4657799b9b1a0730e",
+  "sha256": "sha256:210a893370a3c131ebbfaec200a3967a7fa9d9d923de449833d588e7958f5bf7",
   "status": "accepted",
-  "summary": "Per-call authorization intersects registered client policy with fresh Git-derived scope and requested capabilities, without grant tokens. Principal identity, idempotency, worktree ownership, manifest and scope refusals remain. Host approval keeps exact consequence/challenge/session bindings without a signature. Worker signing and its dedicated key lifecycle supply no authority after launcher retirement.",
+  "summary": "Per-call authorization intersects registered client policy with fresh Git-derived scope and requested capabilities. Principal identity, idempotency, worktree ownership, manifest and scope refusals remain.",
   "tags": [
     "authority",
     "grants",

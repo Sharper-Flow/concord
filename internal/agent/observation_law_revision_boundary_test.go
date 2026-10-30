@@ -324,7 +324,4 @@ func TestStaleLawBoundaryLeavesRecoveryReachable(t *testing.T) {
 	if lifecycle, got := readWorkFromStore(t, s, observationBoundaryWork); lifecycle != "cancelled" || got != int64(version+1) {
 		t.Fatalf("terminal recovery = %s v%d, want cancelled v%d", lifecycle, got, version+1)
 	}
-	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM agent_approval_challenges`); got != 0 {
-		t.Fatalf("ordinary terminal recovery minted %d challenges", got)
-	}
 }

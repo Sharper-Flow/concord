@@ -84,7 +84,7 @@ func TestNonProductChangingLawRevision(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				lawChange, err := deriveWorkflowLawChangeTx(ctx, tx, definition, workID, lawChangeInputs, modifies, nil, []string{})
+				lawChange, err := deriveWorkflowLawChangeTx(ctx, tx, definition, workID, lawChangeInputs, modifies, nil)
 				if rollbackErr := tx.Rollback(); rollbackErr != nil {
 					t.Fatal(rollbackErr)
 				}

@@ -29,7 +29,7 @@ type candidateJourney struct {
 
 func newCandidateJourney(t *testing.T, workID string) *candidateJourney {
 	t.Helper()
-	f := seedWorkContextFixtureWithDefinition(t, workID, legacyApprovalPolicyDefinitionForRef(t, "workflow.break_fix"))
+	f := seedWorkContextFixtureWithDefinition(t, workID, currentFixtureDefinition(t, "workflow.break_fix"))
 	t.Cleanup(func() { f.store.Close() })
 	j := &candidateJourney{fixture: f, s: f.store, workID: workID, repo: t.TempDir()}
 	j.acceptor = WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/candidate-acceptor", SessionRef: "session/" + workID + "-acceptor", ActorClass: ActorAgent}

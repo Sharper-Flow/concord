@@ -172,33 +172,27 @@ Current tool refusals still follow their admitted recovery routes until aligned.
 
 Complete rule enforcement is not implemented. R3, P12 and A2 row 3 reuse the managed-workflow law-change checks.
 `internal/store.TestLawChangeAgentOwnedReasonAndTier` proves a reason and
-derived-tier enactment without treating seriousness, size or Domain count as
-consent triggers. `internal/store.TestLawChangeSixClassesPinExactText` and
-`internal/store.TestLawChangeApprovalRequiresConsumedIdentity` check six-class
-consent, exact enacted text and consumed operator identity.
-`internal/agent.TestWorkflowClassifiedLawChangeApproval` exercises signed
-exact-text approval through public dispatch, including tampering refusal;
+derived-tier enactment.
 `internal/agent.TestWorkflowUnclassifiedLawChangeAdmission` checks admission
-without approval for an unclassified change. These controls do not infer the
+through public dispatch. These controls do not infer the
 consequence class or judge a reason's substance; review owns those judgments.
 They do not detect code that contradicts current law without a law edit;
 review and goal A's spot checks own that detection.
 They do not establish D4 enforcement on the ad-hoc development route or
 whole-record runtime alignment under CD-0243 D6.
 
-P5 reuses the six-class classifier. `internal/store.TestSixClassApprovalPolicy`
-demands consent for each authored class and none for an unclassified contract,
-`internal/store.TestSixClassDecisionDomainsAuthoring` admits exactly the six
-classes, and `internal/agent.TestWorkflowApprovalBoundaryConsent` checks that a
-routine action raises no challenge. The authored class remains a review
+P5 reuses the declared decision-domain fact. `internal/store.TestSixClassDecisionDomainsAuthoring`
+admits exactly the six classes and refuses every historical or unknown member,
+and `internal/store.TestSixClassDecisionDomainsRoundTrip` proves each authored
+class stores and projects byte-identically. The authored class remains a review
 judgment.
 
 U and A2 row 7 use the existing operator boundary. The agent asks the operator
 directly for preview and early visual-design approval under CD-0242 D9 and
-records the answer in the existing work record. `internal/store.TestSixClassApprovalPolicy`
-and `internal/store.TestSixClassDecisionDomainsAuthoring` prove the classified
-UI/UX consent boundary. They do not prove approval of a final preview or mockup,
-renewed approval of a changed experience, or interception of a Git push or merge.
+records the answer in the existing work record. `internal/store.TestSixClassDecisionDomainsAuthoring`
+proves the declared UI/UX class boundary. They do not prove approval of a final
+preview or mockup, renewed approval of a changed experience, or interception of
+a Git push or merge.
 
 S, P10, A2 row 9 and P8 use D2's recorded-review method.
 `internal/store.TestReviewCompletionRetainsAppliedRuleContextClaims` follows a
@@ -313,7 +307,6 @@ CD-0243 replaces seriousness, Domain count, crucial size, and unclassified
 approval points as independent consent triggers. Neither replacement makes
 an unproved retained rule satisfied or permits bypassing a current gate.
 
-- `go test ./internal/store` must prove consent follows the six classes,
-  including exact-text approval for approval-boundary changes, while an
-  agent-enacted law revision records the `derived` tier. Classification and
-  runtime alignment are separate implementation obligations under CD-0243 D6.
+- `go test ./internal/store` must prove an agent-enacted law revision records
+  the `derived` tier and a declared law removal is absent from the verified
+  inventory.

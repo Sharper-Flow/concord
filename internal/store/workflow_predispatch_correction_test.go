@@ -45,7 +45,7 @@ func TestPredispatchContractCorrectionPreservesExecutionIdentity(t *testing.T) {
 		t.Fatal(err)
 	}
 	version := readWorkVersion(t, s, workID)
-	err = runIssue933OperatorAction(t, s, workID, "supersede_contract", raw, owner, operatorVerdictActor(t, workID))
+	err = runIssue933OperatorAction(t, s, workID, "supersede_contract", raw, owner)
 	var failure *Failure
 	if !errors.As(err, &failure) || failure.Kind != KindInvalidPayload {
 		t.Fatalf("designless workflow acquired a design: %v", err)
@@ -53,20 +53,22 @@ func TestPredispatchContractCorrectionPreservesExecutionIdentity(t *testing.T) {
 	if readWorkVersion(t, s, workID) != version {
 		t.Fatal("refused design addition changed work")
 	}
-	active, err := s.ActiveWorkflowContract(ctx, workID)
-	if err != nil || active.Version != 1 {
-		t.Fatalf("refused design addition partially changed the contract: %+v err=%v", active, err)
+	var contractVersion int64
+	err = s.db.QueryRowContext(ctx, `SELECT contract_version FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL`, workID).Scan(&contractVersion)
+	if err != nil || contractVersion != 1 {
+		t.Fatalf("refused design addition partially changed the contract: %d err=%v", contractVersion, err)
 	}
-	if err := runIssue933OperatorAction(t, s, workID, "supersede_contract", issue1013SuccessorContract(), owner, operatorVerdictActor(t, workID)); err != nil {
+	if err := runIssue933OperatorAction(t, s, workID, "supersede_contract", issue1013SuccessorContract(), owner); err != nil {
 		t.Fatalf("correct before dispatch: %v", err)
 	}
 	pin, err := ReadWorkPin(ctx, s, workID)
 	if err != nil || pin.WorkID != workID {
 		t.Fatalf("contract correction lost its current work identity: pin=%+v err=%v", pin, err)
 	}
-	contract, err := s.ActiveWorkflowContract(ctx, workID)
-	if err != nil || contract.Version != 2 || contract.Premise != "corrected predicate subject" {
-		t.Fatalf("correction lost successor: %+v err=%v", contract, err)
+	var premise string
+	err = s.db.QueryRowContext(ctx, `SELECT contract_version,premise FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL`, workID).Scan(&contractVersion, &premise)
+	if err != nil || contractVersion != 2 || premise != "corrected predicate subject" {
+		t.Fatalf("correction lost successor: %d %q err=%v", contractVersion, premise, err)
 	}
 	entry, err := VerifyWorkflowInstanceDefinition(ctx, s, BuiltinWorkflowRegistry(), workID)
 	if err != nil || entry.Digest != definition.Digest {

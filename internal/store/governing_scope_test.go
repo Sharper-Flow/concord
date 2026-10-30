@@ -3,14 +3,13 @@ package store
 import (
 	"context"
 	"encoding/json"
-	"strings"
 	"testing"
 	"time"
 )
 
 func TestGoverningOverlapCoreRequiresPreservedScope(t *testing.T) {
 	for _, kind := range []string{ResolutionMergedInto, ResolutionSupersedes} {
-		for _, path := range []string{"entry", "fold", "fold_claim", "legacy_from", "legacy_to"} {
+		for _, path := range []string{"entry", "fold", "legacy_from", "legacy_to"} {
 			t.Run(kind+"/"+path, func(t *testing.T) {
 				ctx := context.Background()
 				s, actor := seedOverlapProjection(t, "governed-left", "governed-right", false)
@@ -19,7 +18,7 @@ func TestGoverningOverlapCoreRequiresPreservedScope(t *testing.T) {
 					terminated = "governed-right"
 				}
 				overlapFixtureExec(t, s, `UPDATE work_items SET intent_json=json_set(intent_json,'$.governing_requirements',json('["audit_required"]')) WHERE id=?`, terminated)
-				want := KindApprovalRequired
+				want := KindUnauthorized
 				if path == "legacy_from" || path == "legacy_to" {
 					unknown := "governed-left"
 					if path == "legacy_to" {
@@ -34,14 +33,8 @@ func TestGoverningOverlapCoreRequiresPreservedScope(t *testing.T) {
 					t.Fatal(err)
 				}
 				var err error
-				if path == "fold" || path == "fold_claim" {
+				if path == "fold" {
 					payload := map[string]any{"work_id": "governed-left", "expected_version": fromVersion, "resulting_version": fromVersion + 1, "to_work_id": "governed-right", "to_expected_version": toVersion, "to_resulting_version": toVersion + 1, "from_contract_version": 1, "to_contract_version": 1, "resolution_kind": kind, "reason": "settle overlap"}
-					if path == "fold_claim" {
-						// A self-consistent claim without a consumed receipt is not consent.
-						scope, _ := json.Marshal(map[string]any{"work_ids": []string{"governed-left", "governed-right"}, "governing_requirements": NewGoverningRequirementScope([]string{"audit_required"}, nil).Digest()})
-						versions, _ := json.Marshal(workflowOverlapApprovalVersions{From: fromVersion, To: toVersion, FromContract: 1, ToContract: 1})
-						payload["approval_ref"], payload["approval_operation_digest"], payload["approval_scope_json"], payload["approval_versions_json"], payload["approval_consequence"] = "absent-approval", "sha256:"+strings.Repeat("b", 64), string(scope), string(versions), "relation"
-					}
 					event := operationEvent("governed-fold", WorkflowOverlapResolved, SubjectWorkItem, "governed-left", payload)
 					err = applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "governed-left"): fromVersion, VersionRef(SubjectWorkItem, "governed-right"): toVersion}})
 				} else {

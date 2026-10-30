@@ -14,14 +14,14 @@ import (
 // from one derived action input: the call envelope's host-owned identities
 // under their downstream owners' bounds, then the four-member request
 // wrapper. Both request derivations share it.
-func invokeRequestWireBytes(t *testing.T, defs map[string]any, opt schemawire.Options, input int) int {
+func invokeRequestWireBytes(t *testing.T, input int) int {
 	t.Helper()
 	// The call envelope's host-owned identities, each with its downstream
 	// owner: the reference grammar bounds the request and actor identities
 	// at 128 bytes (768 escaped bytes worst case in quotes), the contract's
 	// absolute_path def bounds the session paths at 4096 code points, the
 	// digest def's ASCII-proven sha256 grammar bounds the three digests at
-	// one byte per scalar, and the approval rides $defs/approval.
+	// one byte per scalar.
 	envelope := map[string]int{
 		"schema_version":      len(`"1.0"`),
 		"request_id":          schemawire.JSONStringWireBytes(128),
@@ -41,13 +41,6 @@ func invokeRequestWireBytes(t *testing.T, defs map[string]any, opt schemawire.Op
 		"scope_version":         2 + 128,
 		"manifest_digest":       2 + 128,
 		"host_assertion_digest": 2 + 128,
-		"host_approval_assertion": func() int {
-			approval, approvalErr := schemawire.Max(defs["approval"], "approval", opt)
-			if approvalErr != nil {
-				t.Fatal(approvalErr)
-			}
-			return approval
-		}(),
 	}
 	envelopeBytes := 2
 	first := true
@@ -107,7 +100,7 @@ func TestRequestBudgetDerivesFromDeclaredMaxima(t *testing.T) {
 	// The call envelope's host-owned identities wrap the derived Review
 	// input; the shared builder keeps this per-shape proof and the
 	// widest-shape derivation on one construction.
-	request := invokeRequestWireBytes(t, defs, opt, input)
+	request := invokeRequestWireBytes(t, input)
 	if request > MaxRequestBytes {
 		t.Fatalf("the composed declared maxima need %d bytes, above the %d-byte request budget; derive the budget again", request, MaxRequestBytes)
 	}

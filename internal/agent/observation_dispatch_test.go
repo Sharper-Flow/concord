@@ -86,9 +86,6 @@ func TestObservationRecordDispatchContinuityAndNonAuthority(t *testing.T) {
 	if lifecycle, got := readWorkFromStore(t, s, "work-holder"); lifecycle != "needed" || got != version {
 		t.Fatalf("refused completion changed work = %s v%d, want needed v%d", lifecycle, got, version)
 	}
-	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM agent_approval_challenges`); got != 0 {
-		t.Fatalf("ordinary completion minted %d challenges", got)
-	}
 
 	// Replay is idempotent.
 	replay := invoke("concord_work_define", "observation_record", map[string]any{

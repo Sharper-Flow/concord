@@ -68,25 +68,6 @@ func (r runtime) readProductSnapshot(ctx context.Context, base agentcontract.Env
 	return r.q2(base, q)
 }
 
-func (r runtime) readProductBlockedSessions(ctx context.Context, base agentcontract.Envelope, input []byte) (agentcontract.Envelope, error) {
-	var in blockedSessionsInput
-	if err := decodeOperationInput(input, &in); err != nil {
-		return base, err
-	}
-	if in.ProductID == "" {
-		in.ProductID = r.Envelope.SelectedProductID
-	}
-	products := []string{}
-	if in.ProductID != "" {
-		products = append(products, in.ProductID)
-	}
-	result, err := r.Store.BlockedSessions(ctx, time.Now().UTC(), products, effectiveLimit(in.Limit, in.Page))
-	if err != nil {
-		return failureEnvelope(base, err), nil
-	}
-	return r.resultEnvelope(base, result.ResultMeta, r.scope(result.ResultMeta), map[string]any{"sessions": result.Sessions})
-}
-
 func (r runtime) readWorkList(ctx context.Context, base agentcontract.Envelope, input []byte) (agentcontract.Envelope, error) {
 	var in workListInput
 	if err := decodeOperationInput(input, &in); err != nil {

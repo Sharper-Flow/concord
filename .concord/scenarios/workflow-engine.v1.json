@@ -59,7 +59,6 @@
         "fields": {"payload": {"work": "new", "outcome": null}, "title": "WF01-capture-late-outcome title", "value_statement": "fixture value statement", "project_ids": ["project"]},
         "idempotency": {"key": "wf01-capture-late-outcome-key", "request_id": "wf01-capture-late-outcome-request", "operation_id": "wf01-capture-late-outcome-operation", "accepted_inputs_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"},
         "grant": {"principal_ref": "principal:operator", "client_ref": "client:concord-1", "agent_ref": "agent-engineer", "session_ref": "session-executor", "capability": "workflow_action", "scope": "project"},
-        "approval": {"required": false, "approval_ref": null},
         "operation": {"op_id": "wf01-capture-late-outcome-operation"}
       },
       "observations": {"expected_reads": [
@@ -80,7 +79,7 @@
         "fields": {"premise": "The fixture needs a decidable approved end-state.", "decision_domains": []},
         "idempotency": {"key": "wf02-key", "request_id": "wf02-request", "operation_id": "wf02-operation", "accepted_inputs_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"},
         "grant": {"principal_ref": "principal:operator", "client_ref": "client:concord-1", "agent_ref": "agent-engineer", "session_ref": "session-executor", "capability": "workflow_action", "scope": "project"},
-        "approval": {"required": false, "approval_ref": null}, "operation": {"op_id": "wf02-operation"}
+        "operation": {"op_id": "wf02-operation"}
       },
       "expected": {"assertions": [
         {"target": "communication", "path": "error.kind", "op": "eq", "value": "invalid_input"},
@@ -105,7 +104,7 @@
         "actor_ref": "actor:4ab6e3a017f83a02b9575d8e3e21c22a32affb19f225040a29fa15336d5e2fa7", "definition_ref": "workflow.implementation", "action_id": "complete", "fields": {"impact_verdict": "non-breaking"},
         "idempotency": {"key": "wf04-key", "request_id": "wf04-request", "operation_id": "wf04-operation", "accepted_inputs_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"},
         "grant": {"principal_ref": "principal/operator", "client_ref": "client/concord-1", "agent_ref": "agent/owner", "session_ref": "session/work-alpha", "capability": "workflow_action", "scope": "project"},
-        "approval": {"required": false, "approval_ref": null}, "operation": {"op_id": "wf04-operation"}
+        "operation": {"op_id": "wf04-operation"}
       },
       "expected": {"assertions": [
         {"target": "communication", "path": "error.kind", "op": "eq", "value": "missing_evidence"},
@@ -132,7 +131,7 @@
         "actor_ref": "actor:4ab6e3a017f83a02b9575d8e3e21c22a32affb19f225040a29fa15336d5e2fa7", "definition_ref": "workflow.implementation", "action_id": "complete", "fields": {"impact_verdict": "non-breaking"},
         "idempotency": {"key": "wf05-key", "request_id": "wf05-request", "operation_id": "wf05-operation", "accepted_inputs_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"},
         "grant": {"principal_ref": "principal/operator", "client_ref": "client/concord-1", "agent_ref": "agent/owner", "session_ref": "session/work-alpha", "capability": "workflow_action", "scope": "project"},
-        "approval": {"required": false, "approval_ref": null}, "operation": {"op_id": "wf05-operation"}
+        "operation": {"op_id": "wf05-operation"}
       },
       "expected": {"assertions": [
         {"target": "communication", "path": "error", "op": "absent"},
@@ -157,7 +156,7 @@
         "actor_ref": "actor:4ab6e3a017f83a02b9575d8e3e21c22a32affb19f225040a29fa15336d5e2fa7", "definition_ref": "workflow.implementation", "action_id": "complete", "fields": {"impact_verdict": "non-breaking"},
         "idempotency": {"key": "wf19-key", "request_id": "wf19-request", "operation_id": "wf19-operation", "accepted_inputs_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"},
         "grant": {"principal_ref": "principal/operator", "client_ref": "client/concord-1", "agent_ref": "agent/owner", "session_ref": "session/work-alpha", "capability": "workflow_action", "scope": "project"},
-        "approval": {"required": false, "approval_ref": null}, "operation": {"op_id": "wf19-operation"}
+        "operation": {"op_id": "wf19-operation"}
       },
       "expected": {"assertions": [
         {"target": "communication", "path": "error.kind", "op": "eq", "value": "operation_conflict"},
@@ -184,7 +183,7 @@
         "fields": {"problem": "The fixture needs an available current definition.", "affected": ["The current work item."], "stakes": "An unregistered action must not change durable state.", "user_outcomes": ["Only the current registered definition authorizes actions."]},
         "idempotency": {"key": "wf37-key", "request_id": "wf37-request", "operation_id": "wf37-operation", "accepted_inputs_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"},
         "grant": {"principal_ref": "principal:operator", "client_ref": "client:concord-1", "agent_ref": "agent-engineer", "session_ref": "session-executor", "capability": "workflow_action", "scope": "project"},
-        "approval": {"required": false, "approval_ref": null}, "operation": {"op_id": "wf37-operation"}
+        "operation": {"op_id": "wf37-operation"}
       },
       "expected": {"assertions": [
         {"target": "communication", "path": "error.kind", "op": "eq", "value": "invariant_violation"},
@@ -208,7 +207,7 @@
         "fields": {"impact_verdict": "non-breaking", "evidence_commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "current_commit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},
         "idempotency": {"key": "wf47-key", "request_id": "wf47-request", "operation_id": "wf47-operation", "accepted_inputs_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"},
         "grant": {"principal_ref": "principal/operator", "client_ref": "client/concord-1", "agent_ref": "agent/owner", "session_ref": "session/work-alpha", "capability": "workflow_action", "scope": "project"},
-        "approval": {"required": false, "approval_ref": null}, "operation": {"op_id": "wf47-operation"}
+        "operation": {"op_id": "wf47-operation"}
       },
       "expected": {"assertions": [
         {"target": "communication", "path": "error.kind", "op": "eq", "value": "missing_evidence"},
@@ -233,7 +232,7 @@
         "actor_ref": "actor:4ab6e3a017f83a02b9575d8e3e21c22a32affb19f225040a29fa15336d5e2fa7", "definition_ref": "workflow.implementation", "action_id": "complete", "fields": {"impact_verdict": "non-breaking"},
         "idempotency": {"key": "wf50-key", "request_id": "wf50-request", "operation_id": "wf50-operation", "accepted_inputs_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"},
         "grant": {"principal_ref": "principal/operator", "client_ref": "client/concord-1", "agent_ref": "agent/owner", "session_ref": "session/work-alpha", "capability": "workflow_action", "scope": "project"},
-        "approval": {"required": false, "approval_ref": null}, "operation": {"op_id": "wf50-operation"}
+        "operation": {"op_id": "wf50-operation"}
       },
       "expected": {"assertions": [
         {"target": "communication", "path": "error.kind", "op": "eq", "value": "missing_evidence"},

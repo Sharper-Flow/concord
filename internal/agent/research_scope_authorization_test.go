@@ -197,38 +197,9 @@ func researchScopeInvoke(t *testing.T, f researchScopeEnv, operation string, inp
 	return researchScopeInvokeEnvelope(t, f, operation, input, nil)
 }
 
-// researchScopeAuthoringAllowed runs one content-authoring operation and,
-// when the cross-Product mutation policy answers approval_required, completes
-// the exact core challenge round trip — the minted challenge ref, a signed
-// host approval assertion over the mutation's derived scope, and the approved
-// resubmission with the opaque approval reference — before returning the
-// final envelope. Every other outcome passes through untouched.
-func researchScopeAuthoringAllowed(t *testing.T, f researchScopeEnv, operation string, input map[string]any, owner string) agentcontract.Envelope {
+func researchScopeAuthoringAllowed(t *testing.T, f researchScopeEnv, operation string, input map[string]any) agentcontract.Envelope {
 	t.Helper()
-	read := researchScopeInvoke(t, f, operation, input)
-	if read.Error == nil || read.Error.Kind != "approval_required" {
-		return read
-	}
-	ref, _ := read.Error.Details["approval_ref"].(string)
-	if len(ref) != 64 {
-		t.Fatalf("approval refusal lost its challenge ref: %+v", read.Error)
-	}
-	raw, err := json.Marshal(input)
-	if err != nil {
-		t.Fatal(err)
-	}
-	envelope, err := researchScopeEnvelope(f)
-	if err != nil {
-		t.Fatal(err)
-	}
-	scope := map[string]any{"product_id": "product-a", "product_ids": []string{"product-a", "product-b"}, "project_ids": []string{"project-a"}, "scope_version": envelope.ScopeVersion, "work_ids": []string{owner}}
-	envelope.HostApproval = signedHostApproval(mustKey(t), ref, mutationDigest(toolForOperation(operation), operation, envelope, raw), scope, map[string]any{}, envelope.SessionRef, envelope.AgentRef, envelope.Worktree, fixedTime(), operation+"-approval")
-	approved := map[string]any{}
-	for key, value := range input {
-		approved[key] = value
-	}
-	approved["approval"] = map[string]any{"approval_ref": ref}
-	return researchScopeInvokeEnvelope(t, f, operation, approved, &envelope)
+	return researchScopeInvoke(t, f, operation, input)
 }
 
 func researchScopePackVersion(t *testing.T, s *store.Store, packID string) int64 {
@@ -265,8 +236,6 @@ type researchScopeEffects struct {
 	consumerEvents  int64
 	receipts        int64
 	durableOps      int64
-	approvalRows    int64
-	approvalUses    int64
 }
 
 func researchScopeSnapshot(t *testing.T, s *store.Store, packID string) researchScopeEffects {
@@ -290,7 +259,6 @@ func researchScopeSnapshot(t *testing.T, s *store.Store, packID string) research
 	load(`SELECT effect_seq FROM work_items WHERE id=?`, []any{researchScopeConsumer}, &e.consumerEvents)
 	load(`SELECT count(*) FROM idempotency_records`, nil, &e.receipts)
 	load(`SELECT count(*) FROM durable_operations`, nil, &e.durableOps)
-	load(`SELECT count(*),COALESCE(sum(used_count),0) FROM agent_approval_challenges`, nil, &e.approvalRows, &e.approvalUses)
 	return e
 }
 
@@ -658,13 +626,9 @@ func TestResearchScopePolicyMatrix(t *testing.T) {
 			})
 			t.Run("authoring", func(t *testing.T) {
 				for _, operation := range researchScopeAuthoringInputs() {
-					// Allowed rows take the approval-capable path; refused
-					// rows go in plain, so an unexpected approval_required
-					// surfaces as a failed kind assertion instead of being
-					// silently approved.
 					var author agentcontract.Envelope
 					if test.authorOK {
-						author = researchScopeAuthoringAllowed(t, f, operation.name, operation.input(researchScopePackB, researchScopePackVersion(t, f.store, researchScopePackB)), researchScopeOwnerB)
+						author = researchScopeAuthoringAllowed(t, f, operation.name, operation.input(researchScopePackB, researchScopePackVersion(t, f.store, researchScopePackB)))
 					} else {
 						author = researchScopeInvoke(t, f, operation.name, operation.input(researchScopePackB, researchScopePackVersion(t, f.store, researchScopePackB)))
 					}

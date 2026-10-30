@@ -806,8 +806,8 @@ func holdCutoverWorkUnderOutsideRepair(t *testing.T, path string) {
 	execUnderWriteGuard(t, s.DatabaseForTesting(),
 		cutoverFixtureArchivedInstance(cutoverHeldWork),
 		fmt.Sprintf(`UPDATE workflow_instances SET instance_state='outside_repair', outside_repair_state='active' WHERE work_id='%s'`, cutoverHeldWork),
-		fmt.Sprintf(`INSERT INTO outside_repair_dispositions(work_id,approval_ref,state,reason,evidence_json,recorded_at)
-			VALUES('%s','approval:cutover-fixture-hold','active','operator-held outside repair','{}','2026-10-12T00:00:00Z')`, cutoverHeldWork),
+		fmt.Sprintf(`INSERT INTO outside_repair_dispositions(work_id,state,reason,evidence_json,recorded_at)
+			VALUES('%s','active','outside repair hold','{}','2026-10-12T00:00:00Z')`, cutoverHeldWork),
 	)
 }
 

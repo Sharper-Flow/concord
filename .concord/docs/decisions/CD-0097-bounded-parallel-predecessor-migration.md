@@ -151,8 +151,7 @@ work for the Product is a new demand-driven operation under CD-0082.
 - `predecessor inventory` reports the preflight inventory, and
   `predecessor import` refuses a conflict with a typed failure that names the
   owning source. Mode declaration, terminal-history import, and the cutover
-  record are outstanding. The coverage shard records that state and its
-  tracking issue.
+  record are outstanding.
 - CD-0082 stays whole. The mode adds no global migration state, no shadow
   requirement, and no rollback prohibition beyond the runbook's fix-forward
   rule.
@@ -196,6 +195,6 @@ the expansion is its own command.
 - Repeated migration runs apply deterministic new effects or idempotent
   no-ops, and a conflict refuses typed naming the owning source.
 - No mode command writes, freezes, disables, or deletes predecessor state.
-- The knowledge record, coverage shard, and generated manifests for this
+- The knowledge record and generated manifests for this
   decision are rebuilt by their owning scripts, and `scripts/check-json.py`,
   `scripts/check-doc-links.py`, and `scripts/check-knowledge-index.py` pass.

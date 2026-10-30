@@ -1,5 +1,0 @@
-{
-  "id": "CD-0089",
-  "reason": "Concord development coordination assigns planning, repository review, merge, and workflow authority. It is process law rather than an executable runtime contract; CD-0213 governs Product-scoped planning and issue linkage.",
-  "state": "out_of_scope"
-}

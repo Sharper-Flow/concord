@@ -27107,8 +27107,7 @@
               "content_hash",
               "home_domain_id",
               "basis",
-              "matched_paths",
-              "checks"
+              "matched_paths"
             ],
             "properties": {
               "law_id": {
@@ -27159,35 +27158,6 @@
                   "type": "string",
                   "minLength": 1,
                   "maxLength": 512
-                }
-              },
-              "checks": {
-                "type": "array",
-                "maxItems": 32,
-                "items": {
-                  "type": "object",
-                  "additionalProperties": false,
-                  "required": [
-                    "kind",
-                    "value"
-                  ],
-                  "properties": {
-                    "kind": {
-                      "type": "string",
-                      "enum": [
-                        "adapter_test",
-                        "generated",
-                        "go_test",
-                        "scenario",
-                        "validator"
-                      ]
-                    },
-                    "value": {
-                      "type": "string",
-                      "minLength": 1,
-                      "maxLength": 512
-                    }
-                  }
                 }
               }
             }

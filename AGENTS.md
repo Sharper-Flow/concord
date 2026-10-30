@@ -88,6 +88,6 @@ inference. Conventional Commit titles are load-bearing for release semver.
 | Which files are generated, from which inputs | [`scripts/generate-agent-contracts.py`](scripts/generate-agent-contracts.py); [`scripts/generate-agent-lanes.py`](scripts/generate-agent-lanes.py) |
 | PR title grammar and its semver effect | [`scripts/check-commit-title.py`](scripts/check-commit-title.py); [`scripts/release.py`](scripts/release.py) |
 | How a release is built and published | [`.github/workflows/release.yml`](.github/workflows/release.yml) |
-| What is proved versus merely present | [`.concord/docs/knowledge/coverage/`](.concord/docs/knowledge/coverage/); [`.concord/docs/reachability-exceptions.v1.json`](.concord/docs/reachability-exceptions.v1.json) |
+| What is proved versus merely present | Each decision's Verification section and [`.concord/docs/decisions/CD-0249-decisions-carry-no-coverage-records.md`](.concord/docs/decisions/CD-0249-decisions-carry-no-coverage-records.md); [`.concord/docs/reachability-exceptions.v1.json`](.concord/docs/reachability-exceptions.v1.json) |
 | Product law, priorities, documentation rules, and release currency before capture | [`.concord/docs/README.md`](.concord/docs/README.md); [`.concord/docs/priorities.md`](.concord/docs/priorities.md); [`CD-0165`](.concord/docs/decisions/CD-0165-an-agent-begins-a-work-item-only-on-the-current-concord-release.md) |
 | Package and seam ownership | [`.concord/docs/core-architecture.md`](.concord/docs/core-architecture.md) §4 (entry points by responsibility) |

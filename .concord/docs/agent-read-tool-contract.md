@@ -242,8 +242,7 @@ An existing table, CLI command, or API endpoint is not sufficient evidence.
   `scripts/check-agent-contracts.py` together with `ValidateContractOperation`
   in `internal/agentcontract/generated_contracts.go`, exercised by
   `TestDispatchProductResolveReturnsGeneratedPayload`
-  (`internal/agent/runtime_test.go`). The validator is anchored as a
-  validator in the record's coverage shard.
+  (`internal/agent/runtime_test.go`).
 - Criterion 2 is proved by
   `TestAuthenticatedCursorBindsOperationAndRejectsTampering`
   (`internal/agent/runtime_test.go`).

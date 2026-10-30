@@ -821,13 +821,11 @@ def check_shard_encoding(findings: list[str]) -> None:
 
     A shard differing only in indent, key order, or trailing newline still
     parses, so every other check passes and the drift stays invisible. The
-    generators reprove it only under a manual --check run; this is the path CI
-    takes, so it holds on every push. Coverage shards have no other live check
-    at all, which is why they are held here too.
+    generator reproves it only under a manual --check run; this is the path CI
+    takes, so it holds on every push.
     """
     shard_dirs = {
         "record shard": ROOT / ".concord/docs/knowledge/records",
-        "coverage shard": ROOT / ".concord/docs/knowledge/coverage",
     }
     for label, shard_dir in shard_dirs.items():
         if not shard_dir.is_dir():
@@ -842,8 +840,7 @@ def check_shard_encoding(findings: list[str]) -> None:
                 fail(
                     findings,
                     f"manifest: {label} is not canonically encoded: {shard_path.relative_to(ROOT)}; "
-                    "run python3 scripts/generate-knowledge-index.py --update "
-                    "and python3 scripts/generate-law-coverage.py --update",
+                    "run python3 scripts/generate-knowledge-index.py --update",
                 )
 
 

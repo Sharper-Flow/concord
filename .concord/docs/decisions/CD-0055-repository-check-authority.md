@@ -6,13 +6,13 @@
   textual guard is legal; the audit of the existing Go-source checks; issue #302
 - **Approval:** Operator accepted the drafted decision on 2026-08-21; the public
   record is [issue #302](https://github.com/Sharper-Flow/concord/issues/302)
-- **Related:** CD-0047 (declared coverage and the `deadcode` precedent), CD-0014
+- **Related:** CD-0249 (computed reachability and the `deadcode` precedent), CD-0014
   D7 (toolchain-parser AST checks in the test suite),
   [`priorities.md`](../priorities.md) P1,
   [`capability-placement.md`](../capability-placement.md) §3
 - **Preserves:** the coordination plane's prior exclusion of heuristic
   authority; the invariants `internal/store/txscope_test.go` and
-  `internal/store/boundary_test.go` guard; CD-0047's computed reachability
+  `internal/store/boundary_test.go` guard; CD-0249's computed reachability
 
 ## Context
 
@@ -41,7 +41,7 @@ The current inventory of Go-source analysis in required checks:
 
 | Check | Shape |
 |---|---|
-| `scripts/check-reachability.py` | version-pinned `deadcode` callgraph over `./cmd/...` with a declared-exceptions manifest (CD-0047 D4) |
+| `scripts/check-reachability.py` | version-pinned `deadcode` callgraph over `./cmd/...` with a declared-exceptions manifest (CD-0249 D2) |
 | `internal/store/txscope_test.go` | structural checks over the one-connection pool invariant |
 | `internal/store/boundary_test.go` | AST analysis through the toolchain's own parser over the raw SQLite boundary |
 
@@ -57,7 +57,7 @@ mode in miniature.
 ### D2. Real tool over hand-rolled
 
 Where an invariant genuinely needs static analysis, the check wraps a pinned
-real tool and declares only its exceptions — the CD-0047 D4 precedent. A check
+real tool and declares only its exceptions — the CD-0249 D2 precedent. A check
 must not hand-write a lexer or parser for a language the toolchain already
 parses: every new escape hatch then grows the hand-rolled front end, which is
 the accretion curve.
@@ -105,7 +105,7 @@ a probabilistic or judgment-shaped verdict is D4 and never blocks.
 4. This decision governs the repository validator plane only. The coordination
    plane's prior exclusion of heuristic authority is unchanged and remains the
    stronger rule.
-5. This record's satisfied coverage names the surviving store-boundary tests,
+5. This record's Verification section names the surviving store-boundary tests,
    transaction-scope test, and reachability checker.
 
 ## Rejected alternatives
@@ -133,5 +133,5 @@ warn-only guard over an invisible hang is noise nobody reads.
 - `internal/store.TestStoreBoundaryRepoIsClean` checks the production tree, and
   `internal/store.TestStoreBoundaryFixtureViolations` proves the boundary's
   finding classes and allowed scopes through the toolchain parser.
-- The required Go suite runs those tests. This record's coverage names them
+- The required Go suite runs those tests. This record's Verification section names them
   with the reachability checker as its surviving anchors.

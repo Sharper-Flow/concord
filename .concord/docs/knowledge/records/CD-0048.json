@@ -20,7 +20,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:2774508100467ea9b568e5064be79b0cba3cb9aba3505cd89f97de995c0a6f11",
+  "sha256": "sha256:24ce90ff2bab52a53ba3b7f0786a1c760dd0afc6d7328236dd0380891628c693",
   "status": "accepted",
   "summary": "The S2 answer-stack clauses are vacated with the retired launcher TUI under CD-0219. The store keeps current rows and their query contracts (CD-0242 D2): the store materialization the record documented keeps its owning contracts, migration 109 drops the work_items.last_activity_at column, and updated_at keeps its versioned-write meaning.",
   "tags": [

@@ -194,7 +194,7 @@ func TestWorkSizeEventHoldsTheCompleteFootprintToItsPaths(t *testing.T) {
 
 	complete := workSizeFootprintFixture()
 	complete.ChecksComplete = true
-	complete.Laws = []FootprintLaw{{LawID: "CD-0229", Checks: []FootprintCheck{}}}
+	complete.Laws = []FootprintLaw{{LawID: "CD-0229"}}
 	complete.PackageChecks = []FootprintPackageCheck{{Package: "internal/store", Kind: "go_package", Value: "./internal/store"}}
 	if err := applyWorkEvent(t, s, workSizedEventWith("complete-3", "complete", WorkSizeModelVersion, WorkSizeSmall, inputs, complete), nil); err != nil {
 		t.Fatal(err)

@@ -49,13 +49,18 @@ type DomainInvariantFact struct {
 	EnforcedBy         []DomainFactEnforcementAnchor `json:"enforced_by"`
 }
 
-// DomainFactEnforcementAnchor reuses CD-0047 kind/value identity. CheckID
+// DomainFactEnforcementAnchor uses CD-0249 D3's kind/value identity. CheckID
 // associates the resolved anchor with a required check, not a passing run.
 type DomainFactEnforcementAnchor struct {
 	Kind    string `json:"kind"`
 	Value   string `json:"value"`
 	CheckID string `json:"check_id"`
 }
+
+// Domain facts and shape checks share a closed anchor vocabulary and a byte bound.
+const maxDomainFactAnchorValue = 512
+
+var domainFactAnchorKinds = map[string]bool{"adapter_test": true, "generated": true, "go_test": true, "scenario": true, "validator": true}
 
 // DomainFactRepositoryAnchor identifies an entry point in an existing Project.
 // The caller resolves it against the same source revision as the fact.
@@ -248,8 +253,8 @@ func validateDomainInvariantFact(value *DomainInvariantFact, refs DomainFactRefe
 		if refs.ValidationMode == DomainFactUnverifiedReferences {
 			resolved = refs.RequiredCheckIDs[anchor.CheckID]
 		}
-		if !coverageAnchorKinds[anchor.Kind] || !domainFactText(anchor.Value, maxCoverageAnchorValue) || !domainFactIDPattern.MatchString(anchor.CheckID) || !resolved || seen[anchor] {
-			return "enforced_by must name unique resolved CD-0047 anchors in a required check"
+		if !domainFactAnchorKinds[anchor.Kind] || !domainFactText(anchor.Value, maxDomainFactAnchorValue) || !domainFactIDPattern.MatchString(anchor.CheckID) || !resolved || seen[anchor] {
+			return "enforced_by must name unique resolved CD-0249 anchors in a required check"
 		}
 		seen[anchor] = true
 	}

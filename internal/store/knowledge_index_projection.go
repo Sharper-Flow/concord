@@ -419,7 +419,7 @@ func insertDomainProjection(ctx context.Context, tx *sql.Tx, home KnowledgeHome,
 // A binary that reads a watermark stamped with a higher version refuses the
 // rebuild rather than overwrite a newer projection, the rule the schema
 // manifest (checkManifest) applies to the database itself.
-const knowledgeProjectionVersion = 5
+const knowledgeProjectionVersion = 6
 
 // refuseWatermarkFromNewerBinary is the rebuild admission rule. The store
 // pools one connection, so this read against s.db must precede the rebuild
@@ -550,7 +550,6 @@ var derivedKnowledgeClearOrder = []string{
 	"knowledge_domain_roots",
 	"knowledge_domain_shapes",
 	"knowledge_package_domains",
-	"law_coverage_anchors",
 	"law_evidence_paths",
 	"law_bodies",
 	"law_relations",
@@ -582,7 +581,7 @@ func rebuildKnowledgeIndexTx(ctx context.Context, tx *sql.Tx, home KnowledgeHome
 		}
 	}
 	// An empty prepared architecture still projects the designated home's
-	// empty shape at this revision, like its empty package/coverage inventory.
+	// empty shape at this revision, like its empty package inventory.
 	if !manifestMissing && designated && architecture.Shape == nil {
 		architecture.Shape = newDomainShapeProjection(commit, manifest, architecture)
 	}

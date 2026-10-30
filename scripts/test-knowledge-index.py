@@ -590,16 +590,12 @@ def test_record_shards_carry_the_encoding_update_writes() -> None:
     with tempfile.TemporaryDirectory(dir=checker.ROOT) as directory:
         root = Path(directory)
         records_dir = root / ".concord/docs/knowledge/records"
-        coverage_dir = root / ".concord/docs/knowledge/coverage"
         records_dir.mkdir(parents=True)
-        coverage_dir.mkdir(parents=True)
         canonical = shard_format.canonical_bytes
         # Insertion order is deliberately unsorted so the sort_keys drift differs.
         record = {"title": "Decision", "id": "CD-0099", "kind": "decision"}
-        coverage = {"state": "satisfied", "id": "CD-0099"}
         for label, shard_dir, shard in (
             ("record", records_dir, record),
-            ("coverage", coverage_dir, coverage),
         ):
             shard_path = shard_dir / "CD-0099.json"
             shard_path.write_bytes(canonical(shard))
@@ -649,6 +645,33 @@ def test_composed_repository_manifest_passes_the_canonical_schema() -> None:
     compose_spec.loader.exec_module(knowledge_index)
     errors = schema_errors(validator, knowledge_index.compose_manifest())
     assert errors == [], errors[:5]
+
+
+def test_manifest_composer_does_not_require_coverage_shards() -> None:
+    """CD-0249 D1 retires per-law coverage records; the composer carries no
+    coverage branch.
+
+    The composer used to load generate-law-coverage.py and expose
+    compose_law_coverage, so the coverage shard tree was a load-bearing
+    dependency of manifest composition. The manifest composes from the
+    knowledge shards alone, and no coverage surface remains.
+    """
+    compose_spec = importlib.util.spec_from_file_location(
+        "knowledge_index_no_coverage", Path(__file__).with_name("knowledge_index.py")
+    )
+    composer = importlib.util.module_from_spec(compose_spec)
+    compose_spec.loader.exec_module(composer)
+    assert not hasattr(composer, "compose_law_coverage"), (
+        "the composer still exposes the retired coverage composition surface"
+    )
+    assert not hasattr(composer, "compose_law_coverage_bytes"), (
+        "the composer still exposes the retired coverage composition surface"
+    )
+    with tempfile.TemporaryDirectory(dir=checker.ROOT) as directory:
+        root = Path(directory)
+        write_shard_tree(root, fixture())
+        manifest = json.loads(composer.compose_manifest_bytes(root))
+    assert [record["id"] for record in manifest["records"]] == ["lesson-1"]
 
 
 CORRECTED_DERIVED_RECORD_IDS = frozenset({

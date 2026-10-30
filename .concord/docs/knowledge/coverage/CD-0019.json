@@ -1,5 +1,0 @@
-{
-  "id": "CD-0019",
-  "reason": "A method decision: it directs how each preserved feature's shape is chosen, which no executable check decides.",
-  "state": "out_of_scope"
-}

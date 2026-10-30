@@ -143,6 +143,5 @@ because it produces a durable grant record as a side effect of asking.
 - `TestRunHelpListsExactCommandFormsAndStdinShapes` and
   `TestCommandRouterAcceptsCanonicalAndTwoWordFormsWithoutPanicking` cover the
   verb's registration and both invocation forms.
-- `python3 scripts/check-json.py`, `python3 scripts/check-doc-links.py`,
-  `python3 scripts/check-knowledge-index.py`, and
-  `python3 scripts/check-law-coverage.py` pass.
+- `python3 scripts/check-json.py`, `python3 scripts/check-doc-links.py`, and
+  `python3 scripts/check-knowledge-index.py` pass.

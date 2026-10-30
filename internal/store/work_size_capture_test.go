@@ -211,7 +211,7 @@ func TestRecordWorkSizeRefusesAMovedKnowledgeCommit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	writeKnowledgeFile(t, repo, knowledgeCoverageTreeDir+"CD-0002.json", footprintCoverage("CD-0002", `{"kind":"go_test","value":"internal/alpha.TestRoot"}`))
+	writeKnowledgeFile(t, repo, knowledgePackageMapPath, `{"packages":[{"domain_ids":["fixture-law"],"path":"internal/alpha"},{"domain_ids":["fixture-law"],"path":"internal/alpha/nested"}],"schema_version":"1.0"}`+"\n")
 	commitKnowledgeRepo(t, repo, "knowledge moves")
 	if err := s.EnsureKnowledgeIndexFresh(ctx, home); err != nil {
 		t.Fatal(err)

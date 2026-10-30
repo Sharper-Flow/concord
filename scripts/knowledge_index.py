@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Compose the knowledge manifest and the law-coverage record from their shards.
+"""Compose the knowledge manifest from its shards.
 
 The shards under .concord/docs/knowledge/ are the committed authority (CD-0114). No
 committed file lists every record, so two changes that each add a record never
@@ -62,10 +62,6 @@ def _manifest_generator() -> ModuleType:
     return sys.modules.get("generate_knowledge_index") or _load_module("generate_knowledge_index", "generate-knowledge-index.py")
 
 
-def _coverage_generator() -> ModuleType:
-    return sys.modules.get("generate_law_coverage") or _load_module("generate_law_coverage", "generate-law-coverage.py")
-
-
 def compose_manifest_bytes(root: Path = ROOT) -> bytes:
     """The manifest the shards under root compose, as canonical bytes."""
     findings: list[str] = []
@@ -77,18 +73,6 @@ def compose_manifest_bytes(root: Path = ROOT) -> bytes:
 
 def compose_manifest(root: Path = ROOT) -> dict:
     return json.loads(compose_manifest_bytes(root))
-
-
-def compose_law_coverage_bytes(root: Path = ROOT) -> bytes:
-    findings: list[str] = []
-    derived = _coverage_generator().derive_aggregate(root, findings)
-    if derived is None:
-        raise ComposeError(findings or ["coverage shards did not compose"])
-    return derived
-
-
-def compose_law_coverage(root: Path = ROOT) -> dict:
-    return json.loads(compose_law_coverage_bytes(root))
 
 
 def _git(root: Path, *args: str) -> bytes:

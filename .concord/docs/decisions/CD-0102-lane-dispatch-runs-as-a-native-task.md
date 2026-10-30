@@ -320,8 +320,5 @@ authorization has nothing to bind.
   path.
 - The scenario `WF48-lane-pipeline-typed-evidence` drives the registered lanes
   through this path.
-- The coverage shard `.concord/docs/knowledge/coverage/CD-0102.json`, composed by
-  `scripts/knowledge_index.py`, records CD-0102 as proved once the tests above
-  pass.
 - `python3 scripts/check-json.py`, `python3 scripts/check-doc-links.py`, and
   `python3 scripts/check-knowledge-index.py` pass.

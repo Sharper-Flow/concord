@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """The one coverage-state vocabulary, shared by every plane that declares it.
 
-CD-0047 D2 gives every coverage plane one state vocabulary rather than a
+CD-0249 D2 gives every declaring plane one state vocabulary rather than a
 second enum for the same idea. This module is how "the same vocabulary" is guaranteed
 structurally: the states and their obligations are defined once and imported,
 so two planes cannot drift into two dialects. A test asserting two copies stay
@@ -14,16 +14,12 @@ unused fields matters as much as requiring the used one — a record carrying
 both `evidence` and `reason` reads as though it were justified twice and is
 really justified by neither.
 
-Planes differ in what evidence *is*: a typed anchor for accepted law (CD-0047
-D3), a computed caller for reachable mechanism (CD-0047 D4). They do not differ
-in what the states mean, so only the evidence resolver is plane-specific.
-
 Requiring an `issue` field is only half of what `outstanding` claims. The other
 half is that the issue is still open, because a record's accountability dies
 with its owning issue, and a pointer at a closed one tracks nothing while
 reading as though it tracks something. That liveness rule belongs to the
 vocabulary rather than to any single plane, so it lives here beside the
-obligation it completes (CD-0047 D3).
+obligation it completes (CD-0249 D2).
 
 CI has no network guarantee, so the deterministic form reads a committed
 snapshot. scripts/update-issue-state.py assembles it from agent-captured Linear
@@ -39,7 +35,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 
-# CD-0047 D2.
+# CD-0249 D2.
 STATES = ("satisfied", "outstanding", "unmeasured", "out_of_scope")
 
 # The field each state requires, and by omission the fields it forbids.
@@ -53,7 +49,6 @@ STATE_OBLIGATION = {
 OBLIGATION_FIELDS = frozenset(STATE_OBLIGATION.values())
 
 MAX_REASON = 1024
-MAX_EVIDENCE = 32
 
 ISSUE_STATE = ROOT / ".concord/docs/issue-state.v1.json"
 ISSUE_REPO = "Sharper-Flow/concord"
@@ -65,7 +60,6 @@ REFRESH_COMMAND = "scripts/update-issue-state.py"
 # would let a plane be added without its pointers being covered, which is the
 # absence this registry exists to make impossible.
 ISSUE_STATE_MANIFESTS = (
-    (ROOT / ".concord/docs/knowledge/coverage", "records"),
     (ROOT / ".concord/docs/reachability-exceptions.v1.json", "exceptions"),
 )
 
@@ -80,12 +74,7 @@ def valid_issue_pointer(value: object) -> bool:
 
 
 def load_plane(path: Path) -> dict:
-    """The document a registered plane composes. A directory plane is a shard
-    tree composed through knowledge_index; a file plane is read as JSON."""
-    if path.is_dir():
-        import knowledge_index
-
-        return knowledge_index.compose_law_coverage(ROOT)
+    """The document a registered plane composes, read as JSON."""
     return json.loads(path.read_text(encoding="utf-8"))
 
 
@@ -274,7 +263,7 @@ def write_issue_state(states: dict[str, str], generated_at: str, linear_read_at:
 def check_subject_set(
     declared: list[str], discovered: list[str], noun: str, findings: list[str]
 ) -> None:
-    """Enforce CD-0047 D1 in both directions.
+    """Enforce CD-0249 D2 in both directions.
 
     The validator derives the complete subject set rather than iterating what
     the manifest happens to list, so a subject the manifest forgets is a

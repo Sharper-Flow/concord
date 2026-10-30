@@ -11,18 +11,12 @@ import (
 
 const footprintProduct = "foot-product"
 
-func footprintCoverage(id string, anchors ...string) string {
-	if len(anchors) == 0 {
-		return `{"id":"` + id + `","reason":"Covered elsewhere.","state":"out_of_scope"}` + "\n"
-	}
-	return `{"evidence":[` + strings.Join(anchors, ",") + `],"id":"` + id + `","state":"satisfied"}` + "\n"
-}
-
 // footprintFixtureRepo commits one law of every footprint basis: CD-0003 is
-// the law document a caller names; CD-0001 (child-homed, anchored) and
-// CD-0002 (root-homed, coverage out of scope) name internal/alpha/a.go;
-// CD-0004 matches the behavior phrase; CD-0007 is homed in the reached
-// Domain; CD-0005 is homed elsewhere and applies to it.
+// the law document a caller names; CD-0001 (child-homed) and CD-0002
+// (root-homed) name internal/alpha/a.go; CD-0004 matches the behavior
+// phrase; CD-0007 is homed in the reached Domain; CD-0005 is homed elsewhere
+// and applies to it. Per-law coverage shards are retired (CD-0249 D1) and
+// name no fixture member.
 func footprintFixtureRepo(t *testing.T, withMap bool) string {
 	t.Helper()
 	repo := initKnowledgeRepo(t)
@@ -51,17 +45,6 @@ func footprintFixtureRepo(t *testing.T, withMap bool) string {
 	if withMap {
 		writeKnowledgeFile(t, repo, knowledgePackageMapPath, architectureFixtureMap)
 	}
-	anchor := func(kind, value string) string { return `{"kind":"` + kind + `","value":"` + value + `"}` }
-	for id, content := range map[string]string{
-		"CD-0001": footprintCoverage("CD-0001", anchor("go_test", "internal/alpha.TestAlpha"), anchor("validator", "scripts/check-alpha.py")),
-		"CD-0002": footprintCoverage("CD-0002"),
-		"CD-0003": footprintCoverage("CD-0003", anchor("scenario", "AJ5-beta")),
-		"CD-0004": footprintCoverage("CD-0004", anchor("go_test", "internal/alpha.TestRocket")),
-		"CD-0005": footprintCoverage("CD-0005", anchor("go_test", "internal/alpha.TestApplies")),
-		"CD-0007": footprintCoverage("CD-0007", anchor("go_test", "internal/alpha.TestContext")),
-	} {
-		writeKnowledgeFile(t, repo, knowledgeCoverageTreeDir+id+".json", content)
-	}
 	commitKnowledgeRepo(t, repo, "footprint fixture")
 	return repo
 }
@@ -82,17 +65,12 @@ type footprintLawView struct {
 	LawID   string
 	Basis   string
 	Matched string
-	Checks  string
 }
 
 func footprintLawViews(laws []FootprintLaw) []footprintLawView {
 	views := make([]footprintLawView, 0, len(laws))
 	for _, law := range laws {
-		checks := make([]string, 0, len(law.Checks))
-		for _, check := range law.Checks {
-			checks = append(checks, check.Kind+":"+check.Value)
-		}
-		views = append(views, footprintLawView{LawID: law.LawID, Basis: law.Basis, Matched: strings.Join(law.MatchedPaths, ","), Checks: strings.Join(checks, ",")})
+		views = append(views, footprintLawView{LawID: law.LawID, Basis: law.Basis, Matched: strings.Join(law.MatchedPaths, ",")})
 	}
 	return views
 }
@@ -103,11 +81,11 @@ var footprintFixtureRequest = DomainFootprintRequest{
 	Behavior: "rocket ignition",
 }
 
-// TestDomainFootprintJoinsPackageMapLawEvidenceAndCoverage proves the
-// footprint join and its order (CD-0222 D2): each law once under its
-// strongest basis, checks only on the first three bases, the reached
-// Domains, the package checks, and the unmapped flag.
-func TestDomainFootprintJoinsPackageMapLawEvidenceAndCoverage(t *testing.T) {
+// TestDomainFootprintJoinsPackageMapLawEvidence proves the footprint join
+// and its order (CD-0222 D2): each law once under its strongest basis, the
+// reached Domains, the package checks, and the unmapped flag. Per-law
+// coverage is retired (CD-0249 D1) and no law carries checks.
+func TestDomainFootprintJoinsPackageMapLawEvidence(t *testing.T) {
 	t.Parallel()
 	s, _, repo := footprintFixtureStore(t, true)
 	result, err := s.QueryDomainFootprint(context.Background(), footprintFixtureRequest)
@@ -116,12 +94,12 @@ func TestDomainFootprintJoinsPackageMapLawEvidenceAndCoverage(t *testing.T) {
 	}
 	doc := ".concord/docs/decisions/CD-0003-beta.md"
 	want := []footprintLawView{
-		{"CD-0003", FootprintIsLawDocument, doc, "scenario:AJ5-beta"},
-		{"CD-0001", FootprintNamesPath, "internal/alpha/a.go", "go_test:internal/alpha.TestAlpha,validator:scripts/check-alpha.py"},
-		{"CD-0002", FootprintNamesPath, "internal/alpha/a.go", ""},
-		{"CD-0004", FootprintBehaviorMatch, "", "go_test:internal/alpha.TestRocket"},
-		{"CD-0007", FootprintHomedInDomain, "", ""},
-		{"CD-0005", FootprintAppliesToDomain, "", ""},
+		{"CD-0003", FootprintIsLawDocument, doc},
+		{"CD-0001", FootprintNamesPath, "internal/alpha/a.go"},
+		{"CD-0002", FootprintNamesPath, "internal/alpha/a.go"},
+		{"CD-0004", FootprintBehaviorMatch, ""},
+		{"CD-0007", FootprintHomedInDomain, ""},
+		{"CD-0005", FootprintAppliesToDomain, ""},
 	}
 	if got := footprintLawViews(result.Laws); !reflect.DeepEqual(got, want) {
 		t.Fatalf("laws:\n%+v\nwant:\n%+v", got, want)
@@ -215,8 +193,8 @@ func TestDomainFootprintPagesAreStableAndCursorsBindTheirRequest(t *testing.T) {
 	assertFailureKind(t, err, KindInvalidCursor)
 
 	writeKnowledgeFile(t, repo, "README.md", "moved\n")
-	writeKnowledgeFile(t, repo, knowledgeCoverageTreeDir+"CD-0002.json", footprintCoverage("CD-0002", `{"kind":"go_test","value":"internal/alpha.TestRoot"}`))
-	commitKnowledgeRepo(t, repo, "coverage moves")
+	writeKnowledgeFile(t, repo, knowledgePackageMapPath, `{"packages":[{"domain_ids":["fixture-law"],"path":"internal/alpha"},{"domain_ids":["fixture-law"],"path":"internal/alpha/nested"}],"schema_version":"1.0"}`+"\n")
+	commitKnowledgeRepo(t, repo, "knowledge moves")
 	if err := s.EnsureKnowledgeIndexFresh(ctx, home); err != nil {
 		t.Fatal(err)
 	}
@@ -281,9 +259,8 @@ func TestDomainFootprintRefusesMalformedSelectors(t *testing.T) {
 
 // TestCommittedCorpusFeedsTheFootprintOfWorkflowDesign proves the
 // repository's own inputs carry the case the footprint read answers: the
-// package map resolves internal/store/workflow_design.go, CD-0128 and
-// CD-0133 name it as evidence, and CD-0133's coverage projects anchors while
-// CD-0128's out-of-scope coverage projects none.
+// package map resolves internal/store/workflow_design.go, and CD-0128 and
+// CD-0133 name it as evidence.
 func TestCommittedCorpusFeedsTheFootprintOfWorkflowDesign(t *testing.T) {
 	t.Parallel()
 	root := repositoryRootForTest(t)
@@ -292,14 +269,7 @@ func TestCommittedCorpusFeedsTheFootprintOfWorkflowDesign(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	shards := knowledgeShards{packageMap: content, packageMapPresent: true, coverage: map[string][]byte{}}
-	for _, id := range []string{"CD-0128", "CD-0133"} {
-		data, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(knowledgeCoverageTreeDir), id+".json"))
-		if err != nil {
-			t.Fatal(err)
-		}
-		shards.coverage[id+".json"] = data
-	}
+	shards := knowledgeShards{packageMap: content, packageMapPresent: true}
 	architecture, err := prepareKnowledgeArchitecture(shards, manifest, true)
 	if err != nil {
 		t.Fatal(err)
@@ -322,9 +292,6 @@ func TestCommittedCorpusFeedsTheFootprintOfWorkflowDesign(t *testing.T) {
 	}
 	if !naming["CD-0128"] || !naming["CD-0133"] {
 		t.Fatalf("laws naming %s = %v", file, naming)
-	}
-	if len(architecture.Anchors["CD-0133"]) == 0 || len(architecture.Anchors["CD-0128"]) != 0 {
-		t.Fatalf("anchors CD-0133=%d CD-0128=%d", len(architecture.Anchors["CD-0133"]), len(architecture.Anchors["CD-0128"]))
 	}
 }
 

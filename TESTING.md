@@ -4,6 +4,8 @@ Use this guide to choose repository checks. The shared sufficiency and evidence
 reuse rule remains in [completion.md](.concord/instructions/completion.md).
 [Required CI](.github/workflows/ci.yml) owns broad merge verification;
 [Lefthook](lefthook.yml) owns pre-push checks. Neither is replaced by a local plan.
+Every push must use the installed shared hook; follow the
+[clone setup and failure recovery](CONTRIBUTING.md#required-pre-push-preflight).
 
 ## Choose before running
 

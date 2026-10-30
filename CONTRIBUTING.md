@@ -41,7 +41,7 @@ python3 scripts/check-json.py
 bin/oc-test conformance
 ```
 
-## Pre-push preflight (optional)
+## Required pre-push preflight
 
 The repository ships a [Lefthook](https://github.com/evilmartians/lefthook)
 `pre-push` preflight (`lefthook.yml`): the cheap CI-owned gates — Go
@@ -52,11 +52,13 @@ pushed files is skipped, so a Python-only push skips the Go gates. Preflight
 is not full-suite proof: the Go test suite, the adapter suite, the race
 detector, and acceptance run only in CI.
 
-Install it once from a merged checkout of `main`:
+Before the first push from a clone, install the hook from its clean, merged
+checkout of `main`:
 
 ```sh
 go install github.com/evilmartians/lefthook/v2@v2.1.14
 lefthook install
+test -x "$(git rev-parse --git-path hooks/pre-push)"
 ```
 
 - `go install` puts the `lefthook` binary in `$(go env GOPATH)/bin`; that
@@ -69,7 +71,16 @@ lefthook install
 - `lefthook.yml` pins `min_version: 2.1.14`; an older installed binary fails
   instead of guessing at newer settings.
 
-Run the same gates manually, with or without a hook installed:
+This clone setup step owns hook installation, not the Concord release installer.
+The hook remains in the clone's common Git directory across Concord upgrades.
+Repeat the setup after a fresh clone or host rebuild, or if the hook is removed. The
+`no_auto_install: true` setting means a manual preflight does not repair a missing
+hook. `assert_lefthook_installed: true` makes an installed hook fail when it cannot
+find Lefthook; it cannot detect a missing hook.
+
+Push normally and let the installed hook run the selected gates. Fix a failing
+gate before retrying; do not bypass the hook. CI remains the verification owner.
+To diagnose a failure before retrying a push, run the same gates manually:
 
 ```sh
 bin/oc-test preflight

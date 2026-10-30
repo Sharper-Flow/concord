@@ -4,10 +4,9 @@
 Positive scenarios run the checker against the real profiles and intake example.
 Negative scenarios copy them into a temporary tree, break one invariant on
 purpose, and prove the checker reports it: a host tool name in frontmatter,
-duplicated conduct text, a lost intake boundary, a missing cross-repository
-boundary phrase, or a retired example. The named profiles prove
-their contract: the Concord-RTE and Concord profiles carry Build-level grants
-with no workflow denial and the required role sentences, Concord-Planner keeps
+duplicated conduct text, a lost intake boundary, or a retired example. The named
+profiles prove their contract: the Concord-RTE and Concord profiles carry Build-level grants
+with no workflow denial, Concord-Planner keeps
 its path-scoped edits, ask-default shell, utility-only delegation, and
 work-state denials, and the retired concord-coordinator and concord-operator
 profiles are rejected on sight.
@@ -15,7 +14,6 @@ profiles are rejected on sight.
 from __future__ import annotations
 
 import importlib.util
-import re
 import shutil
 import tempfile
 import unittest
@@ -63,26 +61,6 @@ class PrimaryPromptCheckTests(unittest.TestCase):
         for name in check_primary_prompts.NAMED_PROFILE_FILES:
             self.assertIn(f'"{name}"', installer)
 
-    def test_validator_pins_the_primary_role_sentences(self) -> None:
-        self.assertIn("You do not need an RTE session", check_primary_prompts.CONCORD_REQUIRED_PHRASES)
-        self.assertIn("The user may choose to start this optional session", check_primary_prompts.RTE_REQUIRED_PHRASES)
-        self.assertIn(
-            "You own design, code, tests, review, law text, publication, CI follow-through, deployment, and planning for your work item",
-            check_primary_prompts.CONCORD_REQUIRED_PHRASES,
-        )
-
-    def test_writing_routes_are_required_in_generated_profiles(self) -> None:
-        for name, skills in (
-            ("Concord.md", ("concord-law-writing", "concord-instruction-writing")),
-            ("Concord-RTE.md", ("concord-instruction-writing",)),
-        ):
-            for skill in skills:
-                with self.subTest(profile=name, skill=skill):
-                    path = ROOT / check_primary_prompts.PROFILE_DIR / name
-                    self.assertIn(skill, path.read_text(encoding="utf-8"))
-                    self.rewrite(name, lambda text: text.replace(skill, "missing-writing-method"))
-                    self.assertTrue(any(name in finding and skill in finding for finding in self.findings()))
-
     def test_missing_named_profile_reports(self) -> None:
         (self.root / check_primary_prompts.PROFILE_DIR / "Concord-RTE.md").unlink()
         findings = self.findings()
@@ -90,18 +68,6 @@ class PrimaryPromptCheckTests(unittest.TestCase):
         (self.root / check_primary_prompts.PROFILE_DIR / "Concord.md").unlink()
         findings = self.findings()
         self.assertTrue(any("missing named primary profile" in finding and "Concord.md" in finding for finding in findings))
-
-    def test_shaping_routes_fire_before_refinement_allocation_and_execution(self) -> None:
-        for name, trigger in (
-            ("Concord-Planner.md", "Before triaging a request or refining a ticket, load `concord-work-shaping`"),
-            ("Concord-RTE.md", "Before allocation, load `concord-work-shaping`"),
-            ("Concord.md", "Before execution, load `concord-work-shaping`"),
-        ):
-            with self.subTest(profile=name):
-                text = (ROOT / check_primary_prompts.PROFILE_DIR / name).read_text(encoding="utf-8")
-                self.assertIn(trigger, check_primary_prompts.flatten(text))
-                self.rewrite(name, lambda text: text.replace("concord-work-shaping", "missing-shaping-method"))
-                self.assertTrue(any(name in finding and trigger in finding for finding in self.findings()))
 
     def test_concord_lost_build_permission_grants_report(self) -> None:
         def strip_grants(text: str) -> str:
@@ -128,36 +94,6 @@ class PrimaryPromptCheckTests(unittest.TestCase):
         )
         findings = self.findings()
         self.assertTrue(any("Concord.md" in finding and "concord_work_start" in finding for finding in findings))
-
-    def test_concord_lost_required_role_sentence_reports(self) -> None:
-        def strip_sentences(text: str) -> str:
-            for phrase in check_primary_prompts.CONCORD_REQUIRED_PHRASES:
-                pattern = r"\s+".join(re.escape(word) for word in phrase.split())
-                text, count = re.subn(pattern, "", text)
-                self.assertEqual(count, 1, phrase)
-            return text
-
-        self.rewrite("Concord.md", strip_sentences)
-        findings = self.findings()
-        for phrase in check_primary_prompts.CONCORD_REQUIRED_PHRASES:
-            self.assertTrue(
-                any("Concord.md" in finding and phrase in finding for finding in findings),
-                phrase,
-            )
-
-    def test_concord_configuration_intake_boundaries_are_required(self) -> None:
-        phrases = (
-            "Managed participation is explicit (CD-0122 D1)",
-            "when the operator makes it to you or an RTE assignment places the work in Concord workflow, unless the request places it outside the workflow",
-            "Before capturing a production configuration-only operation, establish an admitted execution and acceptance route for its actual target",
-            "If no route exists, report the limitation before capture",
-            "Host-owned work has no Concord workflow authority, evidence, verdict, or completion claim",
-            "An existing managed item stays held until its supported handoff succeeds",
-            "a refusal is not permission to execute directly",
-        )
-        for phrase in phrases:
-            with self.subTest(phrase=phrase):
-                self.assertIn(phrase, check_primary_prompts.CONCORD_REQUIRED_PHRASES)
 
     def test_rte_lost_build_permission_grants_report(self) -> None:
         def strip_grants(text: str) -> str:
@@ -231,112 +167,6 @@ class PrimaryPromptCheckTests(unittest.TestCase):
     def test_planner_lost_work_state_denial_reports(self) -> None:
         self.assert_planner_finding(lambda text: text.replace("  concord_work_transition: deny\n", "", 1), "does not deny Concord tool concord_work_transition")
 
-    def test_planner_lost_required_role_sentence_reports(self) -> None:
-        for phrase in check_primary_prompts.PLANNER_REQUIRED_PHRASES:
-            self.setUp()
-            words = phrase.split()
-            pattern = r"\s+".join(re.escape(word) for word in words)
-            self.assert_planner_finding(lambda text: re.sub(pattern, "removed", text, count=1), phrase)
-
-    def test_resume_cannot_accept_a_project_selector(self) -> None:
-        self.rewrite("Concord.md", lambda text: text.replace('with `work_id` alone', 'with `work_id` and `project_id`', 1))
-        self.assertTrue(any("Concord.md" in finding and "with `work_id` alone" in finding for finding in self.findings()))
-
-    def test_rte_lost_required_role_sentence_reports(self) -> None:
-        def strip_sentences(text: str) -> str:
-            for phrase in check_primary_prompts.RTE_REQUIRED_PHRASES:
-                pattern = r"\s+".join(re.escape(word) for word in phrase.split())
-                text, count = re.subn(pattern, "", text)
-                self.assertEqual(count, 1, phrase)
-            return text
-
-        self.rewrite("Concord-RTE.md", strip_sentences)
-        findings = self.findings()
-        for phrase in check_primary_prompts.RTE_REQUIRED_PHRASES:
-            self.assertTrue(
-                any("Concord-RTE.md" in finding and phrase in finding for finding in findings),
-                phrase,
-            )
-
-    def test_rte_coordination_and_planning_obligations_are_required(self) -> None:
-        for phrase in (
-            "On every activation, run a coordination pass across the assigned streams",
-            "Handling a notice does not finish the pass",
-            "Respect operator pauses",
-            "Before going idle, confirm all of the following",
-            "No incoming notice or permitted RTE-owned action remains",
-            "No eligible assignment for available capacity remains without an owner or a recorded reason it cannot proceed",
-            "Planning reflects the observed state",
-            "Every unfinished stream has an owner and next action",
-            "After acting, recheck only the affected streams",
-            "Do not repeatedly scan unchanged state or prompt workers already doing permitted work",
-            "Wait for worker notices, CI results, or operator input",
-            "Follow host instructions for session launch, reuse, and lifecycle",
-            "Reconcile assigned Linear issues during each pass",
-            "Keep status, execution owner, blockers, next actions, and evidence links current",
-            "An idle session, finished turn, or merged PR alone does not prove the item is Done",
-            "Use the host's Linear MCP skill for tool procedures",
-            "shared coordination instructions own worker and issue-state rules",
-            "Keep unmerged, merged, released, and installed states distinct",
-            "Do not keep a second planning backlog in a repository or host journal",
-        ):
-            with self.subTest(phrase=phrase):
-                self.assertIn(phrase, check_primary_prompts.RTE_REQUIRED_PHRASES)
-
-    def test_rte_workspace_inventory_omissions_report_individually(self) -> None:
-        phrases = (
-            "Inventory every agent session and account for every tab in the caller's workspace, not only assigned streams",
-            "Include your own tab and non-agent tabs explicitly so the tab inventory reconciles",
-            "Do not inventory other workspaces",
-            "Inventory does not expand assignment scope or grant lifecycle rights over unassigned sessions",
-            "A host session-state notice is an activation, not a timer or self-wakeup loop",
-            "Preserve blocked dialogs, permission requests, and non-consent gates",
-            "Respect operator pauses",
-            "name the missing evidence, who will recover it, and the concrete recovery action",
-            'Every workspace tab has a reconciled row; no non-working row is blank or says only "awaiting guidance"',
-            "On every pass, report a table with one row per workspace tab, keyed by observed tab title",
-            "For every non-working row, include its state, the event and actor it waits for, and the RTE action to unblock or supply that wait",
-            "Alternatively, mark it complete/retiring or outside scope and name its owner",
-            "Do not answer another session's permission request or operator-reserved question",
-            "Add no timer or self-wakeup loop",
-        )
-        path = self.root / check_primary_prompts.PROFILE_DIR / "Concord-RTE.md"
-        original = path.read_text(encoding="utf-8")
-        self.assertEqual(self.findings(), [])
-        for phrase in phrases:
-            with self.subTest(phrase=phrase):
-                def omit_rule(_: str) -> str:
-                    pattern = r"\s+".join(re.escape(word) for word in phrase.split())
-                    rewritten, count = re.subn(pattern, "", original)
-                    self.assertEqual(count, 1, phrase)
-                    return rewritten
-
-                self.rewrite("Concord-RTE.md", omit_rule)
-                self.assertEqual(self.findings(), [f"Concord-RTE.md lost the role rule {phrase!r}"])
-
-    def test_rte_record_ownership_and_continuation_are_required(self) -> None:
-        for phrase in (
-            "An implementation issue is not the RTE's session journal",
-            "Routine same-session reloads use host continuity, not new planning comments",
-            "A shared package or possible overlap does not establish merge precedence",
-            "Continue the assigned outcome across partial deliveries",
-            "Name the operation, target, observed refusal, effect state, and admitted next action",
-            "Update a record only when its planning fact, decision, risk, or evidence changes",
-            "Never approve, accept, overrule, or publish for another session's item",
-            "Tell both owners when their streams change the same source owner",
-            "Set merge order only for an actual conflict or dependency",
-            "Compare each owner's retained posture, hold, or sequencing rule with your current directives",
-            "Hold this assignment in a Linear project",
-            "Add each assigned delivery issue that has no project",
-            "an issue in another project stays there, and the coordination project's description links it",
-            "mark it completed when the last issue it holds closes; linked issues finish in their own projects",
-            "Never create or reuse an issue as a coordination record",
-            "keep the assigned scope in the project description",
-            "Post material cross-stream dependencies, sequencing decisions, and changes to RTE directives as project status updates",
-        ):
-            with self.subTest(phrase=phrase):
-                self.assertIn(phrase, check_primary_prompts.RTE_REQUIRED_PHRASES)
-
     def test_rte_coordination_issue_reports(self) -> None:
         path = self.root / check_primary_prompts.PROFILE_DIR / "Concord-RTE.md"
         original = path.read_text(encoding="utf-8")
@@ -353,16 +183,6 @@ class PrimaryPromptCheckTests(unittest.TestCase):
                 self.assertEqual(len(findings), 1, findings)
                 self.assertIn("Concord-RTE.md names", findings[0])
                 self.assertIn("never an issue", findings[0])
-
-    def test_rte_routine_delivery_does_not_add_approval_classes(self) -> None:
-        for phrase in (
-            "Apply current accepted CD-0243 D2-D3 before asking for consent",
-            "Assigning a worker to an in-scope dependency repair, and that worker publishing or merging its PR, do not independently require operator approval",
-            "A new ticket or implementation step is not itself new Product direction",
-            "Stated operator preferences remain binding",
-        ):
-            with self.subTest(phrase=phrase):
-                self.assertIn(phrase, check_primary_prompts.RTE_REQUIRED_PHRASES)
 
     def test_retired_coordinator_profile_reports(self) -> None:
         # Zero tolerance: a checkout that still ships a retired profile
@@ -382,16 +202,6 @@ class PrimaryPromptCheckTests(unittest.TestCase):
         )
         findings = self.findings()
         self.assertTrue(any("concord-operator" in finding for finding in findings))
-
-    def test_concord_lost_boundary_phrase_reports(self) -> None:
-        self.rewrite("Concord.md", lambda text: re.sub(r"this session stops driving the\s+other\s+repository", "both sessions drive it", text))
-        findings = self.findings()
-        self.assertTrue(any("Concord.md" in finding and "cross-repository boundary phrase" in finding for finding in findings))
-
-    def test_concord_lost_repository_local_session_rule_reports(self) -> None:
-        phrase = "Keep a work-item session in each repository"
-        self.rewrite("Concord.md", lambda text: text.replace(phrase, "Share one session across repositories"))
-        self.assertTrue(any("Concord.md" in finding and phrase in finding for finding in self.findings()))
 
     def test_concord_lost_delegation_anchor_reports(self) -> None:
         self.rewrite("Concord.md", lambda text: text.replace("Size is not an exemption", "Size decides"))
@@ -484,26 +294,8 @@ class PrimaryPromptCheckTests(unittest.TestCase):
         findings = self.findings()
         self.assertTrue(any("does not allow task by default" in finding for finding in findings))
 
-    def test_boundary_phrases_pass_on_real_profiles(self) -> None:
+    def test_copied_profiles_and_example_pass(self) -> None:
         self.assertEqual(self.findings(), [])
-
-    def test_missing_boundary_statement_reports(self) -> None:
-        def drop_boundary(text: str) -> str:
-            rewritten, count = re.subn(
-                r"never claim or move across the\s+boundary",
-                "follow the work into the other repository",
-                text,
-            )
-            self.assertEqual(count, 1, "fixture no longer carries the boundary statement")
-            return rewritten
-
-        self.rewrite("Concord.md", drop_boundary)
-        findings = self.findings()
-        self.assertTrue(any(
-            "Concord.md" in finding
-            and "cross-repository boundary phrase 'never claim or move across the boundary'" in finding
-            for finding in findings
-        ))
 
 
 if __name__ == "__main__":

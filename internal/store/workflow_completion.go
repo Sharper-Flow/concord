@@ -239,7 +239,7 @@ func verifyWorkflowCompletionPremiseTx(ctx context.Context, tx *sql.Tx, workID s
 		}
 		return workflowClauseError(wrapFailure(KindUnavailable, "complete_workflow", "cannot inspect premise confirmation", true, "retry once the database is readable", err), 5)
 	}
-	if err := workflowPremiseConfirmationAuthority(ctx, tx, definition, contract, workID, confirmedBy); err != nil {
+	if err := workflowPremiseConfirmationAuthority(ctx, tx, definition, contract, confirmedBy); err != nil {
 		return workflowClauseError(err, 5)
 	}
 	return nil
@@ -332,7 +332,7 @@ type workflowCompletionContractData struct {
 // for decision-bearing work, and under consequence_v1 an authenticated
 // non-worker coordinator for engineering. Legacy contracts keep the operator
 // requirement, and a missing new-policy fact fails closed.
-func workflowPremiseConfirmationAuthority(ctx context.Context, tx *sql.Tx, definition WorkflowDefinition, contract workflowCompletionContractData, workID, confirmedBy string) error {
+func workflowPremiseConfirmationAuthority(ctx context.Context, tx *sql.Tx, definition WorkflowDefinition, contract workflowCompletionContractData, confirmedBy string) error {
 	if definition.ApprovalPolicy != WorkflowApprovalPolicyConsequenceV1 {
 		if err := requireActorClass(ctx, tx, confirmedBy, "operator"); err != nil {
 			return newFailure(KindApprovalRequired, "complete_workflow", "workflow premise confirmation is not operator typed", false, "request_approval")

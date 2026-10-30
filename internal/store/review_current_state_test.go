@@ -179,7 +179,7 @@ func TestReviewCurrentCandidateChangesOnlyOnRecordedReview(t *testing.T) {
 	}
 	baseline := read()
 	descendantCommit(t, j, "repair")
-	repair := currentReviewBlockForTest(t, j.s, j.workID, "", "ready_for_final_proof")
+	repair := currentReviewBlockForTest(t, j.s, j.workID, "ready_for_final_proof")
 	repair.InputCandidate = input
 	finding.Status = "closed"
 	finding.ClosureRefs = []string{"worktree_verify:repair"}

@@ -1659,12 +1659,8 @@ func foldWorkflowActionCheckpointed(ctx context.Context, tx *sql.Tx, event Event
 func admitWorkflowCheckpointWriterTx(ctx context.Context, tx *sql.Tx, event Event, p workflowActionCheckpointedPayload, definition WorkflowDefinition, step *WorkflowStep, currentStep, executionActor string) error {
 	fenced := step != nil && workflowStepFences(definition, *step)
 	var admitted bool
-	var err error
 	if !fenced {
-		admitted, err = workflowCheckpointWriterAdmitted(ctx, tx, event.SubjectID, executionActor, p.ActorRef, false, event.Seq)
-		if err != nil {
-			return err
-		}
+		admitted = workflowCheckpointWriterAdmitted(executionActor, p.ActorRef, false)
 	} else {
 		checkpointFields, checkpointFieldsErr := workflowActionObject(p.CheckpointPayload)
 		if checkpointFieldsErr != nil {
@@ -1683,10 +1679,7 @@ func admitWorkflowCheckpointWriterTx(ctx context.Context, tx *sql.Tx, event Even
 			// to the rule with the fence in place.
 			admitted = true
 		} else {
-			admitted, err = workflowCheckpointWriterAdmitted(ctx, tx, event.SubjectID, executionActor, p.ActorRef, true, event.Seq)
-			if err != nil {
-				return err
-			}
+			admitted = workflowCheckpointWriterAdmitted(executionActor, p.ActorRef, true)
 		}
 	}
 	if !admitted {
@@ -2449,15 +2442,13 @@ func workflowCheckpointAttemptEpoch(ctx context.Context, q queryer, definition W
 }
 
 // workflowCheckpointWriterAdmitted reports whether the workflow actor may
-// append checkpoint-event actions and action failures on the work item at the
-// event's sequence position.
-//
-// Admission reads current state before writing the checkpoint.
-func workflowCheckpointWriterAdmitted(ctx context.Context, q queryer, workID, executionActor, actorRef string, fenced bool, beforeSeq int64) (bool, error) {
+// append checkpoint-event actions and action failures: a fenced step admits
+// only its execution actor.
+func workflowCheckpointWriterAdmitted(executionActor, actorRef string, fenced bool) bool {
 	if executionActor == "" || actorRef == "" {
-		return false, nil
+		return false
 	}
-	return !fenced || actorRef == executionActor, nil
+	return !fenced || actorRef == executionActor
 }
 
 // workflowStepFences reports whether any action on the step runs fenced, and so
@@ -2689,11 +2680,7 @@ func foldWorkflowActionFailed(ctx context.Context, tx *sql.Tx, event Event, scop
 	}
 	step := workflowStep(entry.Definition, currentStep)
 	fenced := step != nil && workflowStepFences(entry.Definition, *step)
-	admitted, err := workflowCheckpointWriterAdmitted(ctx, tx, event.SubjectID, executionActor, p.ActorRef, fenced, event.Seq)
-	if err != nil {
-		return err
-	}
-	if !admitted {
+	if !workflowCheckpointWriterAdmitted(executionActor, p.ActorRef, fenced) {
 		return newFailure(KindUnauthorized, "fold_event", "action failure actor does not hold the workflow writing authority", false, "fail the workflow action through the workflow actor that holds the writing authority")
 	}
 	if err := requireActor(ctx, tx, p.ActorRef); err != nil {

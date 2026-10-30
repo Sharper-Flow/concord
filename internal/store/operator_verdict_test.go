@@ -9,7 +9,7 @@ import (
 )
 
 // The session remains the executing actor after an in-session delivery.
-func seedDeliveredItemAtAcceptance(t *testing.T, workID string) (*Store, WorkflowActor) {
+func seedDeliveredItemAtAcceptance(t *testing.T, workID string) *Store {
 	t.Helper()
 	ctx := context.Background()
 	s := openTemp(t)
@@ -45,7 +45,7 @@ func seedDeliveredItemAtAcceptance(t *testing.T, workID string) (*Store, Workflo
 	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{delivery}}); err != nil {
 		t.Fatalf("record delivery exit: %v", err)
 	}
-	return s, owner
+	return s
 }
 
 func operatorVerdictActor(t *testing.T, workID string) WorkflowActor {

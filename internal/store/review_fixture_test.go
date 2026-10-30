@@ -26,7 +26,7 @@ func acceptCurrentReviewForTest(t *testing.T, f workContextFixture, repo, dispos
 func completeCurrentReviewForTest(t *testing.T, f workContextFixture, repo, disposition string, mutations ...func(*ReviewBlock)) (string, int64) {
 	t.Helper()
 	qualifyReviewSubjectForTest(t, f.store, f.workID, repo)
-	report := currentReviewBlockForTest(t, f.store, f.workID, "", disposition)
+	report := currentReviewBlockForTest(t, f.store, f.workID, disposition)
 	for _, mutate := range mutations {
 		mutate(report)
 	}
@@ -58,7 +58,7 @@ func recordReviewForTest(t *testing.T, s *Store, workID string, actor WorkflowAc
 	})
 }
 
-func qualifyReviewSubjectForTest(t *testing.T, s *Store, workID, repo string) WorktreeVerifyResult {
+func qualifyReviewSubjectForTest(t *testing.T, s *Store, workID, repo string) {
 	t.Helper()
 	var project string
 	if err := s.db.QueryRow(`SELECT project_id FROM work_projects WHERE work_id=? AND role='primary'`, workID).Scan(&project); err != nil {
@@ -73,10 +73,9 @@ func qualifyReviewSubjectForTest(t *testing.T, s *Store, workID, repo string) Wo
 	if err != nil || result.ExitCode != 0 || result.TrackedFilesChanged || result.SubjectRef == "" {
 		t.Fatalf("qualify fixture candidate: %+v, %v", result, err)
 	}
-	return result
 }
 
-func currentReviewBlockForTest(t *testing.T, s *Store, workID, label, disposition string) *ReviewBlock {
+func currentReviewBlockForTest(t *testing.T, s *Store, workID, disposition string) *ReviewBlock {
 	t.Helper()
 	repo := reviewFixtureDirectory(t, s, workID)
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)

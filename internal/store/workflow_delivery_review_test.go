@@ -18,7 +18,7 @@ func TestDeliveryRequiresRecordedReadyDisposition(t *testing.T) {
 				}
 				acceptDeliveryBindFresh(t, c, "combined-review-disposition")
 				before := c.j.effects(t)
-				err = runDeliveryAdmissionAction(t, c.f.store, c.f.workID, "record_delivery", mustJSONValue(map[string]any{"delivery_artifact": "artifact:review-disposition", "delivery_state": "asserted"}), nil, reviewGateAcceptor(c.f.workID))
+				err = runDeliveryAdmissionAction(t, c.f.store, c.f.workID, mustJSONValue(map[string]any{"delivery_artifact": "artifact:review-disposition", "delivery_state": "asserted"}), nil, reviewGateAcceptor(c.f.workID))
 				var failure *Failure
 				if !failureAs(err, &failure) || failure.Kind != KindMissingEvidence || !strings.Contains(failure.Detail, "Review has not reached ready_for_final_proof without remaining obligations") {
 					t.Fatalf("delivery under %s = %v, want the ready-Review refusal", disposition, err)

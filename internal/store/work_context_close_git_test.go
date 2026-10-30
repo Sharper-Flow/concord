@@ -87,14 +87,14 @@ func TestWorkContextCloseGit(t *testing.T) {
 	if err := runVerdictActionAs(t, s, workID, "start_execution", json.RawMessage(`{}`), 0, owner); err != nil {
 		t.Fatal(err)
 	}
-	if err := runVerdictActionAs(t, s, workID, "record_work_context", json.RawMessage(mustJSONValue(map[string]any{
+	if err := runVerdictActionAs(t, s, workID, "record_work_context", mustJSONValue(map[string]any{
 		"required_reading": []map[string]any{{"domain_id": workContextTestChild, "reason": marker + "-reading", "source": map[string]any{"kind": "repository_file", "project_id": "project", "path": ".concord/docs/spec.md", "commit_oid": base}}},
 		"context_findings": []map[string]any{
 			workContextFinding(workContextTestChild, "rejected_approach", marker+"-rejected", ""),
 			workContextFinding(workContextTestChild, "open_question", marker+"-question", ""),
 			workContextFinding(workContextTestChild, "observation", marker+"-observation", ""),
 		},
-	})), 0, owner); err != nil {
+	}), 0, owner); err != nil {
 		t.Fatal(err)
 	}
 
@@ -133,7 +133,7 @@ func TestWorkContextCloseGit(t *testing.T) {
 	if err != nil || verified.ExitCode != 0 || verified.SubjectRef != "commit:"+base {
 		t.Fatalf("capture passing command receipt on the close candidate: %+v err=%v", verified, err)
 	}
-	report := currentReviewBlockForTest(t, s, workID, "", "ready_for_final_proof")
+	report := currentReviewBlockForTest(t, s, workID, "ready_for_final_proof")
 	report.Assessments = []ReviewAssessment{{PredicateID: "predicate:context-close", Assessment: "supported", ReceiptRefs: []string{verified.OperationRef}}}
 	if err := recordReviewForTest(t, s, workID, owner, report); err != nil {
 		t.Fatalf("record close Review: %v", err)

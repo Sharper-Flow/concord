@@ -162,7 +162,7 @@ func TestCoordinatorReviewCandidatesRequireExactObservedInputAndOutput(t *testin
 
 func TestCoordinatorReviewPreflightDefersObservationToAtomicFold(t *testing.T) {
 	j, _ := retainedReviewFixture(t, "review-preflight-observation")
-	report := currentReviewBlockForTest(t, j.s, j.workID, "", "continue")
+	report := currentReviewBlockForTest(t, j.s, j.workID, "continue")
 	preflight := func() error {
 		return WorkflowActionPreflightWithRegistry(t.Context(), j.s, BuiltinWorkflowRegistry(), WorkflowActionPreflightRequest{
 			WorkID: j.workID, ExpectedVersion: readWorkVersion(t, j.s, j.workID), ActionID: "record_review",

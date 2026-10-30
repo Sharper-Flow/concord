@@ -12,8 +12,9 @@ import (
 )
 
 // Tooling is resolved outside the action's transaction, as it is at runtime.
-func runDeliveryAdmissionAction(t *testing.T, s *Store, workID, action string, payload json.RawMessage, tooling *ProjectToolingManifest, owner WorkflowActor) error {
+func runDeliveryAdmissionAction(t *testing.T, s *Store, workID string, payload json.RawMessage, tooling *ProjectToolingManifest, owner WorkflowActor) error {
 	t.Helper()
+	const action = "record_delivery"
 	ctx, err := prepareTerminalTestContext(t.Context(), s, workID, action)
 	if err != nil {
 		return err
@@ -75,14 +76,14 @@ func acceptDeliveryBindFresh(t *testing.T, c acceptDeliveryCandidate, id string)
 func acceptDeliveryCorrectedCandidateAt(t *testing.T, workID, ref string) acceptDeliveryCandidate {
 	t.Helper()
 	c := acceptDeliveryCandidateAt(t, workID, ref, "refine", false)
-	input := currentReviewBlockForTest(t, c.f.store, workID, "", "ready_for_final_proof").OutputCandidate
+	input := currentReviewBlockForTest(t, c.f.store, workID, "ready_for_final_proof").OutputCandidate
 	path := filepath.Join(c.j.repo, "review.txt")
 	if err := os.WriteFile(path, []byte("corrected candidate awaiting verification\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	c.j.commit(t, "reviewer@example.invalid", "corrective candidate")
 	qualifyReviewSubjectForTest(t, c.f.store, workID, c.j.repo)
-	report := currentReviewBlockForTest(t, c.f.store, workID, "", "ready_for_final_proof")
+	report := currentReviewBlockForTest(t, c.f.store, workID, "ready_for_final_proof")
 	report.InputCandidate = input
 	if err := recordReviewForTest(t, c.f.store, workID, c.f.owner, report); err != nil {
 		t.Fatal(err)
@@ -102,7 +103,7 @@ func acceptDeliveryUnobservedCandidateAt(t *testing.T, workID, ref string) accep
 	c := acceptDeliveryCandidate{f: f, j: &candidateJourney{fixture: f, s: f.store, workID: workID, repo: repo, acceptor: f.owner}, definition: definition}
 	reviewGateStartStep(t, f.store, workID, "refine", "checkpoint_refine", f.owner)
 	actor := mustActorRef(t, f.owner)
-	report := currentReviewBlockForTest(t, f.store, workID, "", "ready_for_final_proof")
+	report := currentReviewBlockForTest(t, f.store, workID, "ready_for_final_proof")
 	state := WorkflowReviewState{Dependencies: &report.Dependencies}
 	applyWorkflowAcceptedReview(&state, WorkflowAcceptedReview{ReportRef: "retained-review:" + workID, ReportDigest: reviewDigest(report), ActorRef: actor, Report: *report}, map[string]ReviewFinding{})
 	if err := f.store.Transact(t.Context(), func(tx *Transaction) error {
@@ -195,16 +196,17 @@ func TestDeliveryAdmissionRefusals(t *testing.T) {
 						step = family.workStep
 					}
 					var c acceptDeliveryCandidate
-					if tc.unproved && tc.name != "stale-run" {
+					switch {
+					case tc.unproved && tc.name != "stale-run":
 						c = acceptDeliveryUnobservedCandidateAt(t, workID, family.ref)
-					} else if tc.unproved {
+					case tc.unproved:
 						c = acceptDeliveryCorrectedCandidateAt(t, workID, family.ref)
-					} else {
+					default:
 						c = acceptDeliveryCandidateAt(t, workID, family.ref, step, false)
 					}
 					tooling := tc.seed(t, c)
 					before := outsideRepairDatabaseSnapshot(t, c.f.store)
-					err := runDeliveryAdmissionAction(t, c.f.store, workID, "record_delivery", mustJSONValue(map[string]any{"delivery_artifact": "artifact:refine-exit", "delivery_state": "asserted"}), tooling, reviewGateAcceptor(workID))
+					err := runDeliveryAdmissionAction(t, c.f.store, workID, mustJSONValue(map[string]any{"delivery_artifact": "artifact:refine-exit", "delivery_state": "asserted"}), tooling, reviewGateAcceptor(workID))
 					var failure *Failure
 					if !failureAs(err, &failure) || failure.Kind != tc.kind || !strings.Contains(failure.Detail, tc.detail) {
 						t.Fatalf("delivery refusal = %v, want %s naming %q", err, tc.kind, tc.detail)
@@ -227,7 +229,7 @@ func TestDeliveryReusesPreRefineReceipt(t *testing.T) {
 		t.Run(family.ref, func(t *testing.T) {
 			c := acceptDeliveryCandidateAt(t, "delivery-reuse", family.ref, "refine", false)
 			c.j.bindVerification(t, c.early)
-			if err := runDeliveryAdmissionAction(t, c.f.store, c.f.workID, "record_delivery", mustJSONValue(map[string]any{"delivery_artifact": "artifact:reused-proof", "delivery_state": "asserted"}), nil, reviewGateAcceptor(c.f.workID)); err != nil {
+			if err := runDeliveryAdmissionAction(t, c.f.store, c.f.workID, mustJSONValue(map[string]any{"delivery_artifact": "artifact:reused-proof", "delivery_state": "asserted"}), nil, reviewGateAcceptor(c.f.workID)); err != nil {
 				t.Fatal(err)
 			}
 			reviewGateRequireStep(t, c.f.store, c.f.workID, "delivery")
@@ -240,7 +242,7 @@ func TestDeliveryAssertionReaders(t *testing.T) {
 	c := acceptDeliveryCandidateAt(t, workID, "workflow.implementation", "refine", false)
 	s := c.f.store
 	acceptDeliveryBindFresh(t, c, "readers")
-	if err := runDeliveryAdmissionAction(t, s, workID, "record_delivery", mustJSONValue(map[string]any{"delivery_artifact": "artifact:delivery", "delivery_state": "asserted"}), nil, reviewGateAcceptor(workID)); err != nil {
+	if err := runDeliveryAdmissionAction(t, s, workID, mustJSONValue(map[string]any{"delivery_artifact": "artifact:delivery", "delivery_state": "asserted"}), nil, reviewGateAcceptor(workID)); err != nil {
 		t.Fatal(err)
 	}
 	seq, err := workflowLatestDeliveryAssertionSeq(t.Context(), s, workID)

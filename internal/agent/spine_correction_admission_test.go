@@ -127,6 +127,10 @@ func TestSpineCurrentReviewCorrectionAdmission(t *testing.T) {
 	f.review(t, "ready_for_final_proof", f.proof)
 	t.Run("ready Review closes the correction prerequisite", func(t *testing.T) { refuse(t, "request_correction", fields) })
 	spineOK(t, f.action(t, "bind_evidence", map[string]any{"evidence_kind": "verification", "evidence_ref": f.proof}))
+	if step := f.read(t).Pinned.Step; step != "execution" {
+		t.Fatalf("corrective Review moved the producing step to %q", step)
+	}
+	spineOK(t, f.action(t, "record_delivery", delivery))
 	if current := f.read(t); current.Pinned.Step != "refine" || current.Pinned.Pin.Review.Candidate == nil || current.Pinned.Pin.Review.Candidate.Commit != gitRun(t, f.path, "rev-parse", "HEAD") {
 		t.Fatalf("corrective execution did not exit on its accepted checked candidate: %+v", current.Pinned)
 	}

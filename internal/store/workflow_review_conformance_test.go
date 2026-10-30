@@ -113,7 +113,7 @@ func TestCurrentReviewAdmissionLoaderConformsToAcceptedDisposition(t *testing.T)
 			if err := workflowAdmitReview(*before.Review); !hasFailureKind(err, KindMissingEvidence) {
 				t.Fatalf("ordinary implementation authorized exit without Review: %v", err)
 			}
-			report := currentReviewBlockForTest(t, f.store, f.workID, "", disposition)
+			report := currentReviewBlockForTest(t, f.store, f.workID, disposition)
 			draft := check("after constructing unrecorded Review")
 			if err := workflowAdmitReview(*draft.Review); !hasFailureKind(err, KindMissingEvidence) {
 				t.Fatalf("unrecorded %s report authorized execution exit: %v", disposition, err)

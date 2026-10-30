@@ -72,7 +72,7 @@ func TestOwnerOracleGraph(t *testing.T) {
 			}
 			owners[owner.OwnerID] = owner
 		}
-		if _, err := validateOracleCases(oracle.Cases, owners); err != nil {
+		if err := validateOracleCases(oracle.Cases, owners); err != nil {
 			return err
 		}
 		for _, control := range oracle.Controls {

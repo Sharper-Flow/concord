@@ -97,8 +97,8 @@ func (p *WorkflowSubjectPreparation) sample(ctx context.Context, q queryer) erro
 	}
 	for _, entry := range entries {
 		if entry.State == worktreeEntryActive && entry.ProjectID == p.receipt.ProjectID && entry.Path == p.receipt.Path && entry.Branch == p.receipt.Branch {
-			copy := entry
-			p.entry = &copy
+			matchedEntry := entry
+			p.entry = &matchedEntry
 			return nil
 		}
 	}

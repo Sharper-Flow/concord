@@ -474,12 +474,12 @@ func TestBackupRestorePreservesLivingEvidence(t *testing.T) {
 	}
 	if _, err := applyWorkflowActionRawTx(ctx, actionTx, newWriteScope(actionTx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
 		WorkID: contextWork, ExpectedVersion: contextActionVersion, ActionID: "record_work_context",
-		Payload: json.RawMessage(mustJSONValue(map[string]any{
+		Payload: mustJSONValue(map[string]any{
 			"required_reading":      []map[string]any{},
 			"finding_refs":          []string{},
 			"context_findings":      []map[string]any{},
 			"research_finding_refs": []map[string]any{researchSelectionEntry(pack.PackID, 1, "f1", workContextTestChild)},
-		})),
+		}),
 		ResearchBindings:     []ResearchBindingDeclaration{{PackID: pack.PackID, Revision: 1, UseRole: UseContext, Required: true}},
 		Actor:                contextOwner,
 		AcceptedInputsDigest: "sha256:" + strings.Repeat("c", 64),

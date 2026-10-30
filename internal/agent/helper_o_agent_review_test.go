@@ -177,10 +177,9 @@ func oAgentControlRepository(t *testing.T, f *oAgentFixtureState) {
 }
 
 // oAgentReview records the coordinator's subject-bound Review through
-// record_review. Assessments cite either this report's native execution of
-// the prepared control or the actual command receipts the caller asks Review
-// to assess on this candidate.
-func oAgentReview(t *testing.T, f *oAgentFixtureState, disposition string, prove bool, receipts ...string) {
+// record_review. Assessments cite this report's native execution of
+// the prepared control.
+func oAgentReview(t *testing.T, f *oAgentFixtureState, disposition string, prove bool) {
 	t.Helper()
 	// The Review output must be the current qualified clean candidate, so
 	// requalify HEAD through the retained clean-subject owner first.
@@ -211,9 +210,6 @@ func oAgentReview(t *testing.T, f *oAgentFixtureState, disposition string, prove
 			t.Fatalf("O native execution: %s (%v)", executed.Result, err)
 		}
 		report.Assessments = []store.ReviewAssessment{{PredicateID: "predicate:primary", Assessment: "supported", ReceiptRefs: []string{result.OperationRef}}}
-	}
-	if len(receipts) > 0 {
-		report.Assessments = []store.ReviewAssessment{{PredicateID: "predicate:primary", Assessment: "supported", ReceiptRefs: receipts}}
 	}
 	spineOK(t, oAgentAction(t, f, "record_review", map[string]any{"review": report}))
 }

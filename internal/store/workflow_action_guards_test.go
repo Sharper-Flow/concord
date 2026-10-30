@@ -132,7 +132,7 @@ func TestCorrectedContractExternalCheckRecoveryAtAcceptance(t *testing.T) {
 	}
 	seedWork(t, s, workID+"-compared")
 	insertInvestigationGateObservation(t, s, workID, "obs:"+strings.Repeat("9", 16), []string{"root", workID + "-compared"})
-	if err := pConfirmReceiptPremise(t, f, repo); err != nil {
+	if err := pConfirmReceiptPremise(t, f); err != nil {
 		t.Fatalf("confirm successor: %v", err)
 	}
 	bindCompletionClosure(t, s, workID, f.owner)

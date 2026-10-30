@@ -114,7 +114,7 @@ func TestDeliveryGateRecoveryReturnsStaleReviewThroughAgent(t *testing.T) {
 		t.Fatalf("gate recovery approve_contract: %+v", response.Error)
 	}
 
-	// Ready Review advances execution into the mandatory refinement pass.
+	// Delivery consumes ready Review before the mandatory refinement pass.
 	recordApprovedWorkDesign(t, s, service, env, "work-1", "gate-recovery-design")
 	if response := invoke(map[string]any{"work_id": "work-1", "expected_version": version(), "action_id": "start_execution", "idempotency_key": "gate-execution-start"}); response.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("gate recovery start_execution: %+v", response.Error)
@@ -128,8 +128,16 @@ func TestDeliveryGateRecoveryReturnsStaleReviewThroughAgent(t *testing.T) {
 		t.Fatalf("gate recovery integration bind: %+v", response.Error)
 	}
 	oAgentReview(t, oAgentFixture(t, s, service, env, "work-1"), "ready_for_final_proof", false)
+	if stepOf() != "execution" {
+		t.Fatalf("ready Review moved execution to %q", stepOf())
+	}
+	spineOK(t, oAgentAction(t, fixture, "record_delivery", map[string]any{"delivery_artifact": "artifact:gate-recovery", "delivery_state": "asserted"}))
 	if stepOf() != "refine" {
-		t.Fatalf("step after ready execution Review = %q, want refine", stepOf())
+		t.Fatalf("step after execution delivery = %q, want refine", stepOf())
+	}
+	var producerDelivery string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT assertion_id FROM workflow_delivery_state WHERE work_id='work-1'`).Scan(&producerDelivery); err != nil {
+		t.Fatal(err)
 	}
 	// The canonical head derives the refine start from the qualifying
 	// checkpoint pair; the callable start_refine retired with it.
@@ -211,14 +219,15 @@ func TestDeliveryGateRecoveryReturnsStaleReviewThroughAgent(t *testing.T) {
 		t.Fatalf("step after gate return = %q, want execution", got)
 	}
 
-	// Ready Review advanced execution, not delivery. Neither the refused
-	// delivery nor the parked gate's correction may assert delivery.
-	var deliveries int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts r JOIN workflow_delivery_state d ON d.assertion_id=r.event_id WHERE r.subject_id='work-1' AND r.kind=? AND json_extract(d.payload,'$.action_id')='record_delivery'`, store.WorkflowActionCompleted).Scan(&deliveries); err != nil {
+	// The delivery state keeps one row per item and each later assertion
+	// replaces it, so the producer's assertion must still be current: neither
+	// the refused delivery nor the parked gate's correction asserted delivery.
+	var currentDelivery string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT assertion_id FROM workflow_delivery_state WHERE work_id='work-1'`).Scan(&currentDelivery); err != nil {
 		t.Fatal(err)
 	}
-	if deliveries != 0 {
-		t.Fatalf("Review progression or gate recovery recorded %d delivery assertions, want none", deliveries)
+	if currentDelivery != producerDelivery {
+		t.Fatalf("gate recovery replaced producer delivery %q with %q", producerDelivery, currentDelivery)
 	}
 	var definitionDigest string
 	if err := s.DatabaseForTesting().QueryRow(`SELECT definition_digest FROM workflow_instances WHERE work_id='work-1'`).Scan(&definitionDigest); err != nil {

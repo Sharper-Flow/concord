@@ -129,7 +129,7 @@ func ApplyWorkflowDeliveryCorrectionTx(ctx context.Context, tx *Transaction, req
 // actor the recorded authority does not admit as a coordinator: an
 // unrecorded ref, an operator substitute, or a worker-lane actor. Every
 // input is log-derived state, so live admission and replay refuse alike.
-func workflowDeliveryCorrectionCoordinatorAdmitted(ctx context.Context, q queryer, workID, actorRef, stage string) error {
+func workflowDeliveryCorrectionCoordinatorAdmitted(ctx context.Context, q queryer, actorRef, stage string) error {
 	var actorClass string
 	err := q.QueryRowContext(ctx, `SELECT actor_class FROM workflow_actors WHERE actor_ref=?`, actorRef).Scan(&actorClass)
 	if err == sql.ErrNoRows {
@@ -168,7 +168,7 @@ func foldWorkflowDeliveryCorrected(ctx context.Context, tx *sql.Tx, event Event)
 	if event.Actor == "" {
 		return newFailure(KindUnauthorized, "fold_event", "delivery correction has no authenticated actor", false, "append the correction through the approved operator route")
 	}
-	if err := workflowDeliveryCorrectionCoordinatorAdmitted(ctx, tx, event.SubjectID, event.Actor, "fold_event"); err != nil {
+	if err := workflowDeliveryCorrectionCoordinatorAdmitted(ctx, tx, event.Actor, "fold_event"); err != nil {
 		return err
 	}
 	targetSeq, targetPayloadVersion, targetArtifact, err := workflowDeliveryAssertionEventTx(ctx, tx, event.SubjectID, p.TargetEventID)

@@ -778,7 +778,7 @@ func TestNativeOracleLateCancellationPublishesNoGreen(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	result, err := f.s.releaseNativeOracle(context.Background(), req, entry, oracleGitSubjectSnapshot{head: plan.SubjectCommit, clean: true}, plan.WorktreeIdentity, plan, r, raw, unavailable, unavailableRaw, capture, true)
+	result, err := f.s.releaseNativeOracle(context.Background(), req, entry, oracleGitSubjectSnapshot{head: plan.SubjectCommit, clean: true}, plan, r, raw, unavailable, unavailableRaw, capture, true)
 	if err != nil {
 		t.Fatal(err)
 	}

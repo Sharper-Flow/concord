@@ -41,7 +41,7 @@ func smallImplementationAtRelease(t *testing.T) acceptDeliveryCandidate {
 				t.Fatal(err)
 			}
 		}
-		if err := runDeliveryAdmissionAction(t, c.f.store, c.f.workID, "record_delivery", delivery, tooling, c.f.owner); err != nil {
+		if err := runDeliveryAdmissionAction(t, c.f.store, c.f.workID, delivery, tooling, c.f.owner); err != nil {
 			t.Fatalf("%s delivery: %v", step, err)
 		}
 	}

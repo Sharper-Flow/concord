@@ -94,7 +94,7 @@ func pReceiptBatch(refs [][]string, indexes ...int) json.RawMessage {
 	return mustJSONValue(map[string]any{"verdicts": entries})
 }
 
-func pConfirmReceiptPremise(t *testing.T, f workContextFixture, repo string) error {
+func pConfirmReceiptPremise(t *testing.T, f workContextFixture) error {
 	t.Helper()
 	ctx := t.Context()
 	prepared, err := PrepareWorkflowAcceptanceFreshness(ctx, f.store, PrepareWorkflowSubjectRequest{WorkID: f.workID})
@@ -267,7 +267,7 @@ func TestWorkflowVerdictBatchLateRecoveryResolvesActiveContract(t *testing.T) {
 }
 
 func TestWorkflowVerdictBatchOmissionStaysMissing(t *testing.T) {
-	f, repo, refs := pReceiptFixture(t, "batch-omission-current", 3, 1)
+	f, _, refs := pReceiptFixture(t, "batch-omission-current", 3, 1)
 	if err := runVerdictActionAs(t, f.store, f.workID, "record_verdict", pReceiptBatch(refs, 0, 1), 0, f.owner); err != nil {
 		t.Fatal(err)
 	}
@@ -290,7 +290,7 @@ func TestWorkflowVerdictBatchOmissionStaysMissing(t *testing.T) {
 	if err != nil || len(missing) != 0 {
 		t.Fatalf("full coverage still missing=%v err=%v", missing, err)
 	}
-	if err := pConfirmReceiptPremise(t, f, repo); err != nil {
+	if err := pConfirmReceiptPremise(t, f); err != nil {
 		t.Fatalf("confirm after full coverage: %v", err)
 	}
 	if step := currentStep(t, f.store, f.workID); step != "release" {

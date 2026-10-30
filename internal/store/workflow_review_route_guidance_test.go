@@ -84,7 +84,7 @@ func TestReviewRouteGuidanceAcceptance(t *testing.T) {
 		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			report := currentReviewBlockForTest(t, j.s, j.workID, "", "ready_for_final_proof")
+			report := currentReviewBlockForTest(t, j.s, j.workID, "ready_for_final_proof")
 			tc.change(report)
 			before := outsideRepairDatabaseSnapshot(t, j.s)
 			failure := reviewRouteFailure(t, recordReviewForTest(t, j.s, j.workID, j.fixture.owner, report))

@@ -69,9 +69,9 @@ func (f *g11Fixture) assess(t *testing.T, basis []string) {
 	f.apply(t, WorkSized, workSizedPayload{ModelVersion: 2, Size: size, Inputs: in, Footprint: workSizeFootprintFixture(), ReviewBasis: basis})
 }
 
-func (f *g11Fixture) action(t *testing.T, action string) Event {
+func (f *g11Fixture) action(t *testing.T, action string) {
 	t.Helper()
-	return f.apply(t, WorkflowActionCompleted, workflowActionCompletedPayload{ActionID: action})
+	f.apply(t, WorkflowActionCompleted, workflowActionCompletedPayload{ActionID: action})
 }
 
 func (f *g11Fixture) review(t *testing.T, report *ReviewBlock) Event {

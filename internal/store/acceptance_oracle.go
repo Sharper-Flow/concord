@@ -242,45 +242,44 @@ func validateOracleLawBindings(ownerID string, bindings []OracleLawBinding) erro
 	return nil
 }
 
-// validateOracleCases proves every case entry's closed shape and returns the
-// identity index, with each case mapped to a declared owner.
-func validateOracleCases(entries []OracleCase, owners map[string]OracleOwner) (map[string]OracleCase, error) {
+// validateOracleCases proves every case entry's closed shape and declared owner.
+func validateOracleCases(entries []OracleCase, owners map[string]OracleOwner) error {
 	if !oracleJudgedHistorySafe(&AcceptanceOracle{Cases: entries}, &AcceptanceOracle{Cases: entries}) {
-		return nil, oracleFailure(KindInvalidPayload, "acceptance oracle declares executable and Review-judged cases on the same owner and entry point", "keep executable obligations executable; judgment cannot replace them")
+		return oracleFailure(KindInvalidPayload, "acceptance oracle declares executable and Review-judged cases on the same owner and entry point", "keep executable obligations executable; judgment cannot replace them")
 	}
 	cases := map[string]OracleCase{}
 	for _, entry := range entries {
 		if !oracleCaseIDPattern.MatchString(entry.CaseID) {
-			return nil, oracleFailure(KindInvalidPayload, "acceptance oracle case_id "+entry.CaseID+" must match case:<reference>", "name each case with a stable case: identity")
+			return oracleFailure(KindInvalidPayload, "acceptance oracle case_id "+entry.CaseID+" must match case:<reference>", "name each case with a stable case: identity")
 		}
 		if _, exists := cases[entry.CaseID]; exists {
-			return nil, oracleFailure(KindInvalidPayload, "acceptance oracle case "+entry.CaseID+" is declared twice", "declare each case once")
+			return oracleFailure(KindInvalidPayload, "acceptance oracle case "+entry.CaseID+" is declared twice", "declare each case once")
 		}
 		if _, exists := owners[entry.OwnerID]; !exists {
-			return nil, oracleFailure(KindInvalidPayload, "acceptance oracle case "+entry.CaseID+" names undeclared owner "+entry.OwnerID, "map every case to a declared owner")
+			return oracleFailure(KindInvalidPayload, "acceptance oracle case "+entry.CaseID+" names undeclared owner "+entry.OwnerID, "map every case to a declared owner")
 		}
 		for _, text := range []struct {
 			value string
 			label string
 		}{{entry.EntryPoint, "entry_point"}, {entry.InputClass, "input_class"}, {entry.ExpectedState, "expected_state"}} {
 			if err := oracleBoundedText(text.value, "case "+entry.CaseID+" "+text.label); err != nil {
-				return nil, err
+				return err
 			}
 		}
 		if entry.Judge != "" {
 			if entry.Judge != OracleJudgeReview || entry.ControlIDs != nil {
-				return nil, oracleFailure(KindInvalidPayload, "acceptance oracle judged case "+entry.CaseID+" must name judge review and no controls", "declare either executable controls or Review judgment")
+				return oracleFailure(KindInvalidPayload, "acceptance oracle judged case "+entry.CaseID+" must name judge review and no controls", "declare either executable controls or Review judgment")
 			}
 		} else if len(entry.ControlIDs) < 1 || len(entry.ControlIDs) > OracleCaseControlsMax {
-			return nil, oracleFailure(KindInvalidPayload, "acceptance oracle case "+entry.CaseID+" must name 1 to 8 controls", "map every case to at least one executable control")
+			return oracleFailure(KindInvalidPayload, "acceptance oracle case "+entry.CaseID+" must name 1 to 8 controls", "map every case to at least one executable control")
 		}
 		if err := validateUniqueOracleReferences(entry.ControlIDs, func(value string) bool { return oracleControlIDPattern.MatchString(value) },
 			"acceptance oracle case "+entry.CaseID+" names control ", " outside the control grammar", "acceptance oracle case "+entry.CaseID+" names control ", "name each control once per case"); err != nil {
-			return nil, err
+			return err
 		}
 		cases[entry.CaseID] = entry
 	}
-	return cases, nil
+	return nil
 }
 
 func oracleJudgedHistorySafe(previous, latest *AcceptanceOracle) bool {

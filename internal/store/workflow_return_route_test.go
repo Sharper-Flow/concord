@@ -252,7 +252,7 @@ func testPReviewCorrection(t *testing.T, id, family, effect string) {
 		t.Fatal(err)
 	}
 	reviewGateRequireStep(t, j.s, id, effect)
-	correction, err := workflowCorrectionContext(t.Context(), j.s.db, id, effect)
+	correction, err := readWorkflowCorrectionContext(t.Context(), j.s.db, id)
 	if err != nil || correction == nil || len(correction.PredicateIDs) != 1 || correction.PredicateIDs[0] != "predicate:return-route" {
 		t.Fatalf("correction context=%+v err=%v", correction, err)
 	}

@@ -434,10 +434,6 @@ func validateCorrectionRequestPayload(ctx context.Context, q queryer, workID str
 	return nil
 }
 
-func workflowCorrectionContext(ctx context.Context, q queryer, workID, stepID string) (*WorkflowCorrectionContext, error) {
-	return readWorkflowCorrectionContext(ctx, q, workID)
-}
-
 func correctionReferenceStrings(values []string) []string {
 	out, seen := []string{}, map[string]bool{}
 	for _, value := range values {

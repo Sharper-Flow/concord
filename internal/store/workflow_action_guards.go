@@ -1001,16 +1001,14 @@ func appendGenericWorkflowCompletion(in workflowActionAssemblyInput, attemptEpoc
 		completionValues["delivery_state"] = state
 	}
 	if in.request.ActionID == "request_correction" {
-		if err := bindWorkflowCorrectionCompletion(in, fields, completionValues); err != nil {
-			return events, err
-		}
+		bindWorkflowCorrectionCompletion(fields, completionValues)
 	}
 	resultVersion := in.request.ExpectedVersion + int64(len(events)) + 1
 	events = append(events, workflowTypedEvent(in.request.OperationID+":completed", WorkflowActionCompleted, in.request.WorkID, in.eventActor, in.request.Now, resultVersion-1, completionValues))
 	return events, nil
 }
 
-func bindWorkflowCorrectionCompletion(in workflowActionAssemblyInput, fields map[string]json.RawMessage, completionValues map[string]any) error {
+func bindWorkflowCorrectionCompletion(fields map[string]json.RawMessage, completionValues map[string]any) {
 	completionValues["correction_diagnosis"] = workflowFieldStringDefault(fields, "diagnosis", "")
 	completionValues["correction_strategy"] = workflowFieldStringDefault(fields, "strategy", "")
 	completionValues["correction_predicate_ids"] = workflowFieldStrings(fields, "predicate_ids")
@@ -1023,7 +1021,6 @@ func bindWorkflowCorrectionCompletion(in workflowActionAssemblyInput, fields map
 	if _, present := fields["open_finding_ids"]; present {
 		completionValues["correction_open_finding_ids"] = workflowFieldStrings(fields, "open_finding_ids")
 	}
-	return nil
 }
 
 func workflowDefinitionRequiresDeliveryPayload(definition WorkflowDefinition) bool {

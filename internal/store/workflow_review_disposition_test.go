@@ -11,7 +11,7 @@ func TestBlockingReviewDispositionRecordsWithoutAdvancing(t *testing.T) {
 		t.Run(disposition, func(t *testing.T) {
 			j := pReturnReviewFixture(t, "review-hold-"+disposition, "workflow.implementation", "")
 			step := currentStep(t, j.s, j.workID)
-			report := currentReviewBlockForTest(t, j.s, j.workID, "", disposition)
+			report := currentReviewBlockForTest(t, j.s, j.workID, disposition)
 			before := j.effects(t)
 			if err := j.action(t, "record_review", map[string]any{"review": report, "delivery_artifact": "artifact:blocked-review", "delivery_state": "asserted"}, j.fixture.owner); !hasFailureKind(err, KindInvalidPayload) {
 				t.Fatalf("Review carried a delivery assertion: %v", err)
@@ -88,7 +88,7 @@ func TestReadyReviewRecordsBesideASharedDomainWriter(t *testing.T) {
 	const peerID = "ready-review-overlap-peer"
 	j := pReturnReviewFixture(t, workID, "workflow.break_fix", "")
 	s := j.s
-	report := currentReviewBlockForTest(t, s, workID, "", "ready_for_final_proof")
+	report := currentReviewBlockForTest(t, s, workID, "ready_for_final_proof")
 	ownerRef := mustActorRef(t, j.fixture.owner)
 	execInFold(t, s, `INSERT INTO workflow_contract_domain_modifications(work_id,contract_version,domain_id) VALUES('`+workID+`',1,'root')`)
 	seedRootWriterPeer(t, s, peerID, ownerRef)

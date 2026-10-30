@@ -89,7 +89,7 @@ func TestRoutineEvaluation(t *testing.T) {
 	t.Run("new policy refuses operator-substituted verdicts", func(t *testing.T) {
 		t.Parallel()
 		const workID = "routine-new-verdict-substitution"
-		s, _ := seedDeliveredItemAtAcceptance(t, workID)
+		s := seedDeliveredItemAtAcceptance(t, workID)
 		operator := operatorVerdictActor(t, workID)
 		version := readWorkVersion(t, s, workID)
 		tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
@@ -108,7 +108,7 @@ func TestRoutineEvaluation(t *testing.T) {
 	t.Run("new policy refuses operator-substituted completion", func(t *testing.T) {
 		t.Parallel()
 		const workID = "routine-new-completion-substitution"
-		s, _ := seedDeliveredItemAtAcceptance(t, workID)
+		s := seedDeliveredItemAtAcceptance(t, workID)
 		_, operator, coordinator := seedRoutineActors(t, s, workID)
 		setWorkflowStepForOperatorVerdictTest(t, s, workID, "release")
 		version := readWorkVersion(t, s, workID)
@@ -165,7 +165,7 @@ func TestRoutineEvaluation(t *testing.T) {
 	t.Run("unbound evidence refuses under new policy", func(t *testing.T) {
 		t.Parallel()
 		const workID = "routine-new-unbound-evidence"
-		s, _ := seedDeliveredItemAtAcceptance(t, workID)
+		s := seedDeliveredItemAtAcceptance(t, workID)
 		reviewer, _, _ := seedRoutineActors(t, s, workID)
 		reviewerRef := ownerRefForTest(t, reviewer)
 		version := readWorkVersion(t, s, workID)

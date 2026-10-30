@@ -393,7 +393,7 @@ func seedWorkContextFixtureWithDefinition(t *testing.T, workID string, registere
 
 func (f workContextFixture) recordWorkContext(t *testing.T, payload any) error {
 	t.Helper()
-	return runVerdictActionAs(t, f.store, f.workID, "record_work_context", json.RawMessage(mustJSONValue(payload)), 0, f.owner)
+	return runVerdictActionAs(t, f.store, f.workID, "record_work_context", mustJSONValue(payload), 0, f.owner)
 }
 
 // workContextRepoReading builds one repository_file reading; rationale is
@@ -1028,15 +1028,15 @@ func TestCompletionAndBoundaryWriteNoContextContent(t *testing.T) {
 	// The compaction-draft-adjacent boundary: a durable checkpoint and a
 	// summary boundary carry only their own content, before the terminal
 	// completion freezes the instance.
-	if err := runVerdictActionAs(t, fixture.store, fixture.workID, "checkpoint_context", json.RawMessage(mustJSONValue(map[string]any{
+	if err := runVerdictActionAs(t, fixture.store, fixture.workID, "checkpoint_context", mustJSONValue(map[string]any{
 		"checkpoint_id": "ctx-session-checkpoint", "active_unit": "the bounded unit", "hypothesis": "the bounded hypothesis", "diagnosis": "the bounded diagnosis", "strategy": "the bounded strategy",
 		"touched_refs": []string{"internal/store/work_context.go"}, "evidence_refs": []string{"evidence:ctx"}, "pending_questions": []string{}, "pending_decisions": []string{},
-	})), 0, fixture.owner); err != nil {
+	}), 0, fixture.owner); err != nil {
 		t.Fatalf("checkpoint after context records refused: %v", err)
 	}
-	if err := runVerdictActionAs(t, fixture.store, fixture.workID, "cross_context_boundary", json.RawMessage(mustJSONValue(map[string]any{
+	if err := runVerdictActionAs(t, fixture.store, fixture.workID, "cross_context_boundary", mustJSONValue(map[string]any{
 		"boundary_kind": "summary", "mode": "summary", "checkpoint_id": "ctx-session-checkpoint", "summary": "the bounded session summary names no finding",
-	})), 0, fixture.owner); err != nil {
+	}), 0, fixture.owner); err != nil {
 		t.Fatalf("context boundary refused: %v", err)
 	}
 	// Main associates the captured proof and completes through the declared

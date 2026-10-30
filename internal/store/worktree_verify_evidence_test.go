@@ -174,7 +174,7 @@ func TestGreenVerifyRunBindsAsVerificationEvidence(t *testing.T) {
 	if err := runVerdictActionAs(t, s, workID, "record_verdict", pReceiptBatch(refs, 0), 0, f.owner); err != nil {
 		t.Fatalf("associate reviewed verify receipt: %v", err)
 	}
-	if err := pConfirmReceiptPremise(t, f, repo); err != nil {
+	if err := pConfirmReceiptPremise(t, f); err != nil {
 		t.Fatalf("confirm with reviewed verify receipt: %v", err)
 	}
 	bindCompletionClosure(t, s, workID, f.owner)

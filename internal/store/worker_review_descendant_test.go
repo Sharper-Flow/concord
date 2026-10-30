@@ -66,7 +66,7 @@ func TestReviewDescendantNonDescendantRefuses(t *testing.T) {
 		t.Run(shape, func(t *testing.T) {
 			j, root := descendantReviewFixture(t, "descendant-nonancestor-"+shape)
 			descendantCommit(t, j, "older-unaccepted")
-			old := currentReviewBlockForTest(t, j.s, j.workID, "", "continue").InputCandidate
+			old := currentReviewBlockForTest(t, j.s, j.workID, "continue").InputCandidate
 			descendantCommit(t, j, "anchor-new")
 			acceptCurrentReviewForTest(t, j.fixture, j.repo, "continue")
 			gitRunStore(t, j.repo, "reset", "--hard", root)
@@ -75,7 +75,7 @@ func TestReviewDescendantNonDescendantRefuses(t *testing.T) {
 			} else {
 				j.observeRun(t, "reset-older")
 			}
-			report := currentReviewBlockForTest(t, j.s, j.workID, "", "ready_for_final_proof")
+			report := currentReviewBlockForTest(t, j.s, j.workID, "ready_for_final_proof")
 			// A corrective report cannot substitute an older input for the
 			// retained anchor, even if its output has a qualified receipt.
 			report.InputCandidate = old
@@ -93,7 +93,7 @@ func TestReviewDescendantNonDescendantRefuses(t *testing.T) {
 func TestReviewDescendantPreparedSubjectDriftRefuses(t *testing.T) {
 	j, _ := descendantReviewFixture(t, "descendant-prepared-drift")
 	descendantCommit(t, j, "b")
-	report := currentReviewBlockForTest(t, j.s, j.workID, "", "continue")
+	report := currentReviewBlockForTest(t, j.s, j.workID, "continue")
 	prepared, err := PrepareWorkflowAcceptanceFreshness(t.Context(), j.s, PrepareWorkflowSubjectRequest{WorkID: j.workID})
 	if err != nil {
 		t.Fatal(err)
@@ -101,7 +101,7 @@ func TestReviewDescendantPreparedSubjectDriftRefuses(t *testing.T) {
 	descendantCommit(t, j, "c")
 	before := j.effects(t)
 	ctx := WithWorkflowSubjectPreparation(t.Context(), prepared)
-	if err := j.terminalActionContext(t, ctx, "record_review", mustJSONValue(map[string]any{"review": report}), j.fixture.owner, nil); !hasFailureKind(err, KindStaleRequiresReview) {
+	if err := j.terminalActionContext(t, ctx, "record_review", mustJSONValue(map[string]any{"review": report}), j.fixture.owner); !hasFailureKind(err, KindStaleRequiresReview) {
 		t.Fatalf("prepared subject drift = %v, want stale_requires_review", err)
 	}
 	if j.effects(t) != before {
@@ -111,7 +111,7 @@ func TestReviewDescendantPreparedSubjectDriftRefuses(t *testing.T) {
 
 func TestReviewDescendantPostObservationMovementKeepsObservedSubject(t *testing.T) {
 	j := journeyWithIntegratedB(t, "descendant-unobserved-prepared-drift")
-	report := currentReviewBlockForTest(t, j.s, j.workID, "", "ready_for_final_proof")
+	report := currentReviewBlockForTest(t, j.s, j.workID, "ready_for_final_proof")
 	prepared, err := PrepareWorkflowAcceptanceFreshness(t.Context(), j.s, PrepareWorkflowSubjectRequest{WorkID: j.workID})
 	if err != nil {
 		t.Fatal(err)
@@ -124,7 +124,7 @@ func TestReviewDescendantPostObservationMovementKeepsObservedSubject(t *testing.
 		t.Fatal("fixture must move live HEAD without replacing the qualified B pin")
 	}
 	ctx := WithWorkflowSubjectPreparation(t.Context(), prepared)
-	if err := j.terminalActionContext(t, ctx, "record_review", mustJSONValue(map[string]any{"review": report}), j.fixture.owner, nil); err != nil {
+	if err := j.terminalActionContext(t, ctx, "record_review", mustJSONValue(map[string]any{"review": report}), j.fixture.owner); err != nil {
 		t.Fatalf("record the sealed B observation: %v", err)
 	}
 	j.requireAcceptedReview(t, j.b)

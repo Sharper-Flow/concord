@@ -531,7 +531,7 @@ func workPinCorrectionRequestIntentsTx(ctx context.Context, tx *sql.Tx, workID s
 	} else if state.CorrectionRequestRecovery && admitted && !workPinContainsAction(pin.NextValidIntents, "request_correction") {
 		pin.NextValidIntents = append(pin.NextValidIntents, workPinIntentForAction(workflowCorrectionRequestActionDefinition(), pin.Version, "verification_correction"))
 	}
-	correction, correctionErr := workflowCorrectionContext(ctx, tx, workID, pin.Step)
+	correction, correctionErr := readWorkflowCorrectionContext(ctx, tx, workID)
 	if correctionErr != nil {
 		return correctionErr
 	}

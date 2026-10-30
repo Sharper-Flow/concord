@@ -146,7 +146,7 @@ func TestDeliveryGateDeclaresCorrectiveReturn(t *testing.T) {
 
 func TestReviewOfReplacedCandidateCannotAuthorizeDelivery(t *testing.T) {
 	j := reviewGateRefineFixture(t, "review-gate-stale-review", "workflow.break_fix")
-	early := currentReviewBlockForTest(t, j.s, j.workID, "", "ready_for_final_proof")
+	early := currentReviewBlockForTest(t, j.s, j.workID, "ready_for_final_proof")
 	pReturnProduce(t, j, "repair")
 	if j.pinned(t) == early.OutputCandidate.Commit {
 		t.Fatal("repair did not replace the qualified subject")
@@ -174,7 +174,7 @@ func TestReviewApplicabilityFollowsCandidateNotDispatchOrder(t *testing.T) {
 	t.Run("unchanged qualification and draft keep Review applicable", func(t *testing.T) {
 		j := reviewGateRefineFixture(t, "review-gate-unchanged", "workflow.break_fix")
 		before := issue1013Pin(t, j.s, j.workID).Review
-		draft := currentReviewBlockForTest(t, j.s, j.workID, "", "ready_for_final_proof")
+		draft := currentReviewBlockForTest(t, j.s, j.workID, "ready_for_final_proof")
 		j.observeRun(t, "unchanged-subject")
 		after := issue1013Pin(t, j.s, j.workID).Review
 		if before == nil || after == nil || !reflect.DeepEqual(before.Accepted, after.Accepted) || *before.Candidate != *after.Candidate || !after.DependenciesCurrent || draft.OutputCandidate != *after.Candidate {
@@ -191,7 +191,7 @@ func TestReviewApplicabilityFollowsCandidateNotDispatchOrder(t *testing.T) {
 	})
 	t.Run("Review corrective output needs no further Review", func(t *testing.T) {
 		j := reviewGateRefineFixture(t, "review-gate-corrective-output", "workflow.break_fix")
-		input := currentReviewBlockForTest(t, j.s, j.workID, "", "continue").InputCandidate
+		input := currentReviewBlockForTest(t, j.s, j.workID, "continue").InputCandidate
 		output := descendantCommit(t, j, "correct-the-candidate")
 		completeCurrentReviewForTest(t, j.fixture, j.repo, "ready_for_final_proof", func(report *ReviewBlock) { report.InputCandidate = input })
 		pin := issue1013Pin(t, j.s, j.workID)

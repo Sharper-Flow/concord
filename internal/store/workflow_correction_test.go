@@ -284,8 +284,8 @@ func completeCompleteStepReview(t *testing.T, fixture workflowReturnRouteFixture
 		t.Fatalf("record the reviewer actor: %v", err)
 	}
 	wf := workContextFixture{store: s, workID: workID, owner: fixture.owner, operator: fixture.operator}
-	proof := qAssociateCurrentProofAt(t, wf, verdictStep, "", true)
-	if err := pConfirmReceiptPremise(t, wf, proof.repo); err != nil {
+	qAssociateCurrentProofAt(t, wf, verdictStep, "", true)
+	if err := pConfirmReceiptPremise(t, wf); err != nil {
 		t.Fatalf("confirm the premise: %v", err)
 	}
 	var step string
@@ -492,7 +492,7 @@ func TestCompleteStepContractCorrectionReturnsBreakFixToRepair(t *testing.T) {
 		t.Fatal(err)
 	}
 	var failure *Failure
-	if err := pConfirmReceiptPremise(t, wf, repo); err == nil {
+	if err := pConfirmReceiptPremise(t, wf); err == nil {
 		t.Fatal("confirm_premise passed with only predecessor evidence")
 	} else if !errors.As(err, &failure) || failure.Kind != KindMissingEvidence {
 		t.Fatalf("confirm_premise with only predecessor evidence = %v, want missing-evidence", err)
@@ -553,7 +553,7 @@ func TestCompleteStepContractCorrectionReturnsBreakFixToRepair(t *testing.T) {
 	if len(satisfied) != 1 || satisfied[0].ContractVersion != 2 {
 		t.Fatalf("fresh verdicts = %#v, want one successor verdict", satisfied)
 	}
-	if err := pConfirmReceiptPremise(t, wf, repo); err != nil {
+	if err := pConfirmReceiptPremise(t, wf); err != nil {
 		t.Fatalf("confirm the successor premise after the fresh bindings: %v", err)
 	}
 	if step, _, _, _ := completeStepInstancePin(t, s, workID); step != "complete" {

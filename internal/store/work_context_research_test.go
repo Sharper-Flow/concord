@@ -120,7 +120,7 @@ func recordResearchDeclarationTxReceipt(t *testing.T, f workContextFixture, fiel
 	}
 	fieldRaw := make(map[string]json.RawMessage, len(fields))
 	for name, value := range fields {
-		fieldRaw[name] = json.RawMessage(mustJSONValue(value))
+		fieldRaw[name] = mustJSONValue(value)
 	}
 	return f.store.Transact(ctx, func(transaction *Transaction) error {
 		rawTx, txErr := transactionSQL(transaction, "research declaration mirror")

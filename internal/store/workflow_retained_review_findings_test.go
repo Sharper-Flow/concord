@@ -44,7 +44,7 @@ func TestRetainedReviewDraftKeepsCandidateBoundary(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	report := currentReviewBlockForTest(t, j.s, j.workID, "", "correction_required")
+	report := currentReviewBlockForTest(t, j.s, j.workID, "correction_required")
 	report.InputCandidate = input
 	report.Findings = []ReviewFinding{{FindingID: "finding:draft", Severity: "P2", Confidence: "high", Detail: "unrecorded finding", InScope: true, Blocking: true, Status: "open", EvidenceRefs: []string{}, ClosureRefs: []string{}}}
 	before := j.effects(t)

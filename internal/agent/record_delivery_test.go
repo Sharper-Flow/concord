@@ -11,8 +11,8 @@ import (
 	"github.com/sharper-flow/concord/internal/store"
 )
 
-// A hand-off summary holds the producer step. Ready Review advances its
-// checked candidate to refinement, whose own start and delivery remain required.
+// Summary and Review hold the producer step; only delivery advances its checked
+// candidate to refinement, whose own start and delivery remain required.
 func TestRecordDeliveryExitsTheStepTheSessionExecuted(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -80,8 +80,14 @@ func TestRecordDeliveryExitsTheStepTheSessionExecuted(t *testing.T) {
 
 	f.review(t, "ready_for_final_proof", f.proof)
 	delivery := map[string]any{"delivery_artifact": "artifact:repair", "delivery_state": "asserted"}
+	if step := currentStep(); step != "repair" {
+		t.Fatalf("ready Review moved the step to %q, want repair", step)
+	}
+	if err := try("record_delivery", delivery); err != nil {
+		t.Fatalf("producer record_delivery refused: %v", err)
+	}
 	if step := currentStep(); step != "refine" {
-		t.Fatalf("ready Review left the step at %q, want refine", step)
+		t.Fatalf("producer record_delivery left the step at %q, want refine", step)
 	}
 	if err := try("checkpoint_refine", map[string]any{}); err != nil {
 		t.Fatalf("checkpoint_refine refused: %v", err)

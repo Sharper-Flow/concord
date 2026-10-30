@@ -247,7 +247,7 @@ func newSpineExecutionFixtureForFamily(t *testing.T, family string) *spineFixtur
 	return f
 }
 
-func (f *spineFixture) prepareControl(t *testing.T) string {
+func (f *spineFixture) prepareControl(t *testing.T) {
 	t.Helper()
 	state := f.read(t)
 	binding := state.Pinned.Contract.ArchitectureBinding
@@ -277,7 +277,6 @@ func (f *spineFixture) prepareControl(t *testing.T) string {
 	if result.Oracle == nil || result.Oracle.Qualification != "ready" {
 		t.Fatalf("native preparation not ready: %+v", result)
 	}
-	return result.OperationRef
 }
 
 func (f *spineFixture) implement(t *testing.T) {
@@ -360,10 +359,14 @@ func TestSpineFreshSessionResumesCurrentState(t *testing.T) {
 // evaluation and premise confirmation still remain before completion.
 func (f *spineFixture) advanceToAcceptance(t *testing.T) {
 	t.Helper()
-	if step := f.read(t).Pinned.Step; step != "refine" {
-		t.Fatalf("ready Review left the step at %q, want refine", step)
-	}
 	delivery := map[string]any{"delivery_artifact": "artifact:spine-value", "delivery_state": "asserted"}
+	if step := f.read(t).Pinned.Step; step != "execution" && step != "repair" {
+		t.Fatalf("ready Review moved the producing step to %q", step)
+	}
+	spineOK(t, f.action(t, "record_delivery", delivery))
+	if step := f.read(t).Pinned.Step; step != "refine" {
+		t.Fatalf("producer delivery left the step at %q, want refine", step)
+	}
 	spineOK(t, f.action(t, "checkpoint_refine", map[string]any{}))
 	f.proof = f.verify(t)
 	spineOK(t, f.action(t, "bind_evidence", map[string]any{"evidence_kind": "artifact", "evidence_ref": "commit:" + f.proofCommit}))

@@ -268,7 +268,7 @@ func TestWorkContextSubjectPreparationBoundaries(t *testing.T) {
 		f := seedWorkContextFixture(t, "ctx-probe-identity-drift")
 		defer f.store.Close()
 		reviewSubjectClaim(t, f.store, f.workID)
-		report := currentReviewBlockForTest(t, f.store, f.workID, "", "continue")
+		report := currentReviewBlockForTest(t, f.store, f.workID, "continue")
 		prepared, err := PrepareWorkflowAcceptanceFreshness(t.Context(), f.store, PrepareWorkflowSubjectRequest{WorkID: f.workID})
 		if err != nil {
 			t.Fatal(err)
@@ -277,7 +277,7 @@ func TestWorkContextSubjectPreparationBoundaries(t *testing.T) {
 		j := &candidateJourney{fixture: f, s: f.store, workID: f.workID}
 		ctx := WithWorkflowSubjectPreparation(t.Context(), prepared)
 		before := outsideRepairDatabaseSnapshot(t, f.store)
-		if err := j.terminalActionContext(t, ctx, "record_review", mustJSONValue(map[string]any{"review": report}), f.owner, nil); !hasFailureKind(err, KindProjectionConflict) {
+		if err := j.terminalActionContext(t, ctx, "record_review", mustJSONValue(map[string]any{"review": report}), f.owner); !hasFailureKind(err, KindProjectionConflict) {
 			t.Fatalf("changed subject observation = %v, want projection_conflict", err)
 		}
 		if outsideRepairDatabaseSnapshot(t, f.store) != before {

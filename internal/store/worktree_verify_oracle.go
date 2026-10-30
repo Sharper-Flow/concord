@@ -368,7 +368,7 @@ func validateNativeBundleAuthorityTx(ctx context.Context, tx *sql.Tx, work strin
 		}
 		seen[c.CaseID] = true
 	}
-	if _, err := validateOracleCases(b.Cases, map[string]OracleOwner{b.Owner.OwnerID: b.Owner}); err != nil {
+	if err := validateOracleCases(b.Cases, map[string]OracleOwner{b.Owner.OwnerID: b.Owner}); err != nil {
 		return err
 	}
 	oracle := &AcceptanceOracle{Owners: []OracleOwner{b.Owner}, Cases: b.Cases, Controls: []OracleControl{b.Control}}
@@ -505,7 +505,7 @@ func (s *Store) verifyNativeOracle(ctx context.Context, req WorktreeVerifyReques
 	defer releaseAbandonedVerifyLease(s, ctx, req.LeaseID, &released)
 	capture := &nativeStreamCapture{stdout: []byte{}, stderr: []byte{}, complete: true}
 	result := nativeOracleInitialResult(req, entry, plan)
-	return s.executeNativeOracleLease(ctx, runner, entry, req, plan, before, identity, capture, result, &released)
+	return s.executeNativeOracleLease(ctx, runner, entry, req, plan, before, capture, result, &released)
 }
 
 func validateNativeExecutionPreparation(ctx context.Context, q queryer, req WorktreeVerifyRequest, plan nativeOraclePlan) error {
@@ -520,7 +520,7 @@ func validateNativeExecutionPreparation(ctx context.Context, q queryer, req Work
 	return nil
 }
 
-func (s *Store) executeNativeOracleLease(ctx context.Context, runner GitRunner, entry WorktreeEntry, req WorktreeVerifyRequest, plan nativeOraclePlan, before oracleGitSubjectSnapshot, identity string, capture *nativeStreamCapture, result WorktreeVerifyResult, released *bool) (WorktreeVerifyResult, error) {
+func (s *Store) executeNativeOracleLease(ctx context.Context, runner GitRunner, entry WorktreeEntry, req WorktreeVerifyRequest, plan nativeOraclePlan, before oracleGitSubjectSnapshot, capture *nativeStreamCapture, result WorktreeVerifyResult, released *bool) (WorktreeVerifyResult, error) {
 	leaseRef := nativeLeaseRef(req.LeaseID)
 	var err error
 	if plan.Target != nil {
@@ -567,7 +567,7 @@ func (s *Store) executeNativeOracleLease(ctx context.Context, runner GitRunner, 
 		return result, annotateCommittedEffect(err, leaseRef)
 	}
 	aborted := ctx.Err() != nil
-	result, err = s.releaseNativeOracle(finalCtx, req, entry, after, identity, plan, result, raw, unavailable, unavailableRaw, capture, aborted)
+	result, err = s.releaseNativeOracle(finalCtx, req, entry, after, plan, result, raw, unavailable, unavailableRaw, capture, aborted)
 	if err != nil {
 		return result, annotateCommittedEffect(err, leaseRef)
 	}
@@ -629,7 +629,7 @@ func readNativeOracleReleaseStamp(ctx context.Context, q queryer, req WorktreeVe
 	return stamp, err
 }
 
-func (s *Store) releaseNativeOracle(ctx context.Context, req WorktreeVerifyRequest, entry WorktreeEntry, after oracleGitSubjectSnapshot, identity string, p nativeOraclePlan, result WorktreeVerifyResult, raw []byte, unavailable WorktreeVerifyResult, unavailableRaw []byte, capture *nativeStreamCapture, aborted bool) (WorktreeVerifyResult, error) {
+func (s *Store) releaseNativeOracle(ctx context.Context, req WorktreeVerifyRequest, entry WorktreeEntry, after oracleGitSubjectSnapshot, p nativeOraclePlan, result WorktreeVerifyResult, raw []byte, unavailable WorktreeVerifyResult, unavailableRaw []byte, capture *nativeStreamCapture, aborted bool) (WorktreeVerifyResult, error) {
 	stamp, err := readNativeOracleReleaseStamp(ctx, s.db, req)
 	if err != nil {
 		return result, err

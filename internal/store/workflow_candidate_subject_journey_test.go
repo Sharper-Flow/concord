@@ -133,10 +133,10 @@ func (j *candidateJourney) terminalAction(t *testing.T, action string, payload j
 	if err != nil {
 		return err
 	}
-	return j.terminalActionContext(t, ctx, action, payload, actor, nil)
+	return j.terminalActionContext(t, ctx, action, payload, actor)
 }
 
-func (j *candidateJourney) terminalActionContext(t *testing.T, ctx context.Context, action string, payload json.RawMessage, actor WorkflowActor, operator *WorkflowActor) error {
+func (j *candidateJourney) terminalActionContext(t *testing.T, ctx context.Context, action string, payload json.RawMessage, actor WorkflowActor) error {
 	t.Helper()
 	if action == "complete" && knowledgeSourceSetProofFrom(ctx) == nil {
 		var err error
@@ -153,7 +153,7 @@ func (j *candidateJourney) terminalActionContext(t *testing.T, ctx context.Conte
 	}
 	return j.s.Transact(ctx, func(tx *Transaction) error {
 		_, err := ApplyWorkflowActionTx(ctx, tx, BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
-			WorkID: j.workID, ExpectedVersion: version, ActionID: action, Payload: payload, Actor: actor, OperatorActor: operator, SelectedChoice: choice,
+			WorkID: j.workID, ExpectedVersion: version, ActionID: action, Payload: payload, Actor: actor, SelectedChoice: choice,
 			EvidenceRefs: actionEvidenceRefs(action, payload), AcceptedInputsDigest: nativeDigest([]byte(id)), IdempotencyIdentity: id,
 			OperationID: id, PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: id,
 			RequestID: "request:" + id, ContractDigest: testManifestDigest, Now: time.Now().UTC(),
@@ -218,7 +218,7 @@ func journeyThroughA(t *testing.T, workID string, reviewRecorded bool) *candidat
 	if got := currentStep(t, j.s, j.workID); got != "verify" {
 		t.Fatalf("step after delivery over A = %q, want verify", got)
 	}
-	j.reviewA = currentReviewBlockForTest(t, j.s, j.workID, "", "ready_for_final_proof")
+	j.reviewA = currentReviewBlockForTest(t, j.s, j.workID, "ready_for_final_proof")
 	j.reviewA.Assessments = []ReviewAssessment{{PredicateID: "predicate:work-context", Assessment: "supported", ReceiptRefs: []string{j.runA.OperationRef}}}
 	if reviewRecorded {
 		if err := recordReviewForTest(t, j.s, j.workID, j.fixture.owner, j.reviewA); err != nil {
@@ -341,7 +341,7 @@ func TestManagedCandidateSubjectDelayedReviewRequiresObservedCandidate(t *testin
 func TestManagedCandidateSubjectReviewNeverRelabelsOldProof(t *testing.T) {
 	j := journeyToVerify(t, "candidate-review-old-proof", false)
 	j.observeB(t)
-	report := currentReviewBlockForTest(t, j.s, j.workID, "", "ready_for_final_proof")
+	report := currentReviewBlockForTest(t, j.s, j.workID, "ready_for_final_proof")
 	report.Assessments = j.reviewA.Assessments
 	before := j.effects(t)
 	if err := recordReviewForTest(t, j.s, j.workID, j.fixture.owner, report); err == nil {
@@ -432,7 +432,7 @@ func TestManagedCandidateSubjectFreshIndependentEvidenceAcceptsB(t *testing.T) {
 	if err != nil || executed.Oracle == nil || executed.Oracle.Qualification != "pass" || executed.Oracle.SubjectCommit != j.b || j.launches != launches+1 {
 		t.Fatalf("execute native oracle on B: %+v err=%v launches=%d", executed.Oracle, err, j.launches-launches)
 	}
-	report := currentReviewBlockForTest(t, j.s, j.workID, "", "ready_for_final_proof")
+	report := currentReviewBlockForTest(t, j.s, j.workID, "ready_for_final_proof")
 	report.Assessments = []ReviewAssessment{{PredicateID: "predicate:work-context", Assessment: "supported", ReceiptRefs: []string{executed.OperationRef}}}
 	if err := recordReviewForTest(t, j.s, j.workID, j.fixture.owner, report); err != nil {
 		t.Fatalf("record B's receipt-bound Review: %v", err)
@@ -473,7 +473,7 @@ func TestManagedCandidateSubjectCorrectiveReviewOnB(t *testing.T) {
 	if step := currentStep(t, j.s, j.workID); step != "repair" {
 		t.Fatalf("step after correction = %q, want repair", step)
 	}
-	before, err := workflowCorrectionContext(t.Context(), j.s.db, j.workID, "repair")
+	before, err := readWorkflowCorrectionContext(t.Context(), j.s.db, j.workID)
 	if err != nil || before == nil || before.Disposition != "verification" || before.Diagnosis != diagnosis || before.Strategy != strategy || len(before.PredicateIDs) != 1 || before.PredicateIDs[0] != "predicate:work-context" || len(before.EvidenceRefs) != 1 || before.EvidenceRefs[0] != run.OperationRef {
 		t.Fatalf("correction context = %+v err=%v, want this request's direction and B evidence", before, err)
 	}
@@ -481,7 +481,7 @@ func TestManagedCandidateSubjectCorrectiveReviewOnB(t *testing.T) {
 		t.Fatalf("request_correction moved B pin to %q", got)
 	}
 	acceptCurrentReviewForTest(t, j.fixture, j.repo, "ready_for_final_proof")
-	if after, err := workflowCorrectionContext(t.Context(), j.s.db, j.workID, "repair"); err != nil || after != nil {
+	if after, err := readWorkflowCorrectionContext(t.Context(), j.s.db, j.workID); err != nil || after != nil {
 		t.Fatalf("recorded corrective Review left unfinished direction: %+v %v", after, err)
 	}
 	j.requireRecordsUnchanged(t, j.snapshotA)
@@ -499,7 +499,7 @@ func (j *candidateJourney) bindVerification(t *testing.T, run WorktreeVerifyResu
 
 func (j *candidateJourney) completeCorrectiveReview(t *testing.T, path, content, observeID string) (string, WorktreeVerifyResult) {
 	t.Helper()
-	input := currentReviewBlockForTest(t, j.s, j.workID, "", "ready_for_final_proof").InputCandidate
+	input := currentReviewBlockForTest(t, j.s, j.workID, "ready_for_final_proof").InputCandidate
 	if err := os.MkdirAll(filepath.Join(j.repo, filepath.Dir(path)), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -511,7 +511,7 @@ func (j *candidateJourney) completeCorrectiveReview(t *testing.T, path, content,
 	if run.SubjectRef != "commit:"+output {
 		t.Fatalf("corrected candidate run = %q, want %q", run.SubjectRef, output)
 	}
-	report := currentReviewBlockForTest(t, j.s, j.workID, "", "ready_for_final_proof")
+	report := currentReviewBlockForTest(t, j.s, j.workID, "ready_for_final_proof")
 	report.InputCandidate = input
 	if err := recordReviewForTest(t, j.s, j.workID, j.fixture.owner, report); err != nil {
 		t.Fatalf("record corrective Review: %v", err)

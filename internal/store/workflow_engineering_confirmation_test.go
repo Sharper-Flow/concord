@@ -451,7 +451,7 @@ func TestEngineeringConfirmationLifecycle(t *testing.T) {
 		// Clause 5 authority: the stale v1 coordinator row cannot satisfy the
 		// decision-bearing successor's operator requirement.
 		contractV2 := workflowCompletionContractData{Version: 2, DecisionDomains: []string{"product"}, DecisionDomainsPresent: true}
-		if err := workflowPremiseConfirmationAuthority(context.Background(), forgedTx, definition, contractV2, workID, coordinatorRef); err == nil {
+		if err := workflowPremiseConfirmationAuthority(context.Background(), forgedTx, definition, contractV2, coordinatorRef); err == nil {
 			t.Fatal("clause 5 accepted the stale coordinator confirmation for the decision-bearing successor")
 		}
 		// Wrong-direction authority: an operator-substituted claim on
@@ -460,7 +460,7 @@ func TestEngineeringConfirmationLifecycle(t *testing.T) {
 		if err := workflowPremiseConfirmedAuthorityTx(context.Background(), forgedTx, definition, workID, 1, operatorRef, "operator"); err == nil {
 			t.Fatal("operator authority accepted on an engineering contract")
 		}
-		if err := workflowPremiseConfirmationAuthority(context.Background(), forgedTx, definition, workflowCompletionContractData{Version: 1, DecisionDomains: []string{}, DecisionDomainsPresent: true}, workID, operatorRef); err == nil {
+		if err := workflowPremiseConfirmationAuthority(context.Background(), forgedTx, definition, workflowCompletionContractData{Version: 1, DecisionDomains: []string{}, DecisionDomainsPresent: true}, operatorRef); err == nil {
 			t.Fatal("clause 5 accepted an operator-typed confirmation for engineering")
 		}
 		if err := forgedTx.Rollback(); err != nil {

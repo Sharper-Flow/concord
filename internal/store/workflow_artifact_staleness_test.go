@@ -52,7 +52,7 @@ func stalenessSeedContract(t *testing.T, s *Store, workID string) {
 
 // stalenessEvent supplies trusted current descriptors without authorizing an
 // action. The live-writer tests separately exercise admission and persistence.
-func stalenessEvent(t *testing.T, s *Store, workID, kind, payload string) Event {
+func stalenessEvent(t *testing.T, s *Store, workID, kind, payload string) {
 	t.Helper()
 	actorRef, err := WorkflowActorRef(stepFixtureActor())
 	if err != nil {
@@ -128,7 +128,6 @@ func stalenessEvent(t *testing.T, s *Store, workID, kind, payload string) Event 
 	if err := tx.Commit(); err != nil {
 		t.Fatal(err)
 	}
-	return event
 }
 
 func stalenessActionPayload(step, action string) string {

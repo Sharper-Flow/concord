@@ -627,7 +627,7 @@ func TestCorrectedContractLivenessThroughProducerReturn(t *testing.T) {
 
 	// The stale half: the successor's own gate refuses a completion built on
 	// pre-correction facts — the ordinary stale recovery stays unchanged.
-	if err := pConfirmReceiptPremise(t, current, journey.repo); err == nil {
+	if err := pConfirmReceiptPremise(t, current); err == nil {
 		t.Fatal("confirm_premise admitted behind the successor's outstanding fresh evidence")
 	}
 
@@ -707,7 +707,7 @@ func TestCorrectedContractLivenessThroughProducerReturn(t *testing.T) {
 	if err := runVerdictActionAs(t, s, workID, "record_verdict", criterionAssociationPayload(proof.OperationRef, "predicate:return-route"), 0, reviewer); err != nil {
 		t.Fatalf("fresh verdict on the corrected contract: %v", err)
 	}
-	if err := pConfirmReceiptPremise(t, current, journey.repo); err != nil {
+	if err := pConfirmReceiptPremise(t, current); err != nil {
 		t.Fatalf("confirm the corrected premise: %v", err)
 	}
 	if step := currentStep(t, s, workID); step != "complete" {

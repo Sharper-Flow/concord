@@ -31,7 +31,7 @@ func TestNativeClaimedSubjectRefusesMismatch(t *testing.T) {
 		t.Fatalf("matching active claim = %+v, %v", prepared, err)
 	}
 	other := t.TempDir()
-	report := currentReviewBlockForTest(t, j.s, j.workID, "", "ready_for_final_proof")
+	report := currentReviewBlockForTest(t, j.s, j.workID, "ready_for_final_proof")
 	if _, err := j.s.db.Exec(`INSERT INTO write_guard(active) VALUES(1); UPDATE worktree_entries SET path=? WHERE set_id=?; DELETE FROM write_guard`, other, WorktreeSetID(j.workID)); err != nil {
 		t.Fatal(err)
 	}
@@ -56,7 +56,7 @@ func TestNativeClaimedSubjectRequiresActiveClaim(t *testing.T) {
 	for _, state := range []string{"missing", "reclaimed"} {
 		t.Run(state, func(t *testing.T) {
 			j := pReturnReviewFixture(t, "subject-claim-"+state, "workflow.break_fix", "")
-			report := currentReviewBlockForTest(t, j.s, j.workID, "", "ready_for_final_proof")
+			report := currentReviewBlockForTest(t, j.s, j.workID, "ready_for_final_proof")
 			var err error
 			if state == "missing" {
 				_, err = j.s.db.Exec(`INSERT INTO write_guard(active) VALUES(1); DELETE FROM worktree_entries WHERE set_id=?; DELETE FROM write_guard`, WorktreeSetID(j.workID))

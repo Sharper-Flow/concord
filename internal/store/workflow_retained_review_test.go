@@ -60,7 +60,7 @@ func TestRetainedEditingReviewCanRepair(t *testing.T) {
 	j, _ := retainedReviewFixture(t, "retained-repair-output")
 	inputCommit := descendantCommit(t, j, "input-needing-repair")
 	acceptCurrentReviewForTest(t, j.fixture, j.repo, "correction_required")
-	input := currentReviewBlockForTest(t, j.s, j.workID, "", "continue").InputCandidate
+	input := currentReviewBlockForTest(t, j.s, j.workID, "continue").InputCandidate
 	output := descendantCommit(t, j, "fresh-review-repair")
 	if inputCommit == output {
 		t.Fatal("Review did not repair the retained input")
@@ -79,7 +79,7 @@ func TestRetainedReviewCandidateBounds(t *testing.T) {
 		t.Run(shape, func(t *testing.T) {
 			j, input := retainedReviewFixture(t, "retained-bound-"+shape)
 			descendantCommit(t, j, "ordinary-editor")
-			report := currentReviewBlockForTest(t, j.s, j.workID, "", "continue")
+			report := currentReviewBlockForTest(t, j.s, j.workID, "continue")
 			report.InputCandidate = input
 			want := KindStaleRequiresReview
 			switch shape {

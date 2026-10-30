@@ -33,7 +33,7 @@ func TestReviewSubjectPreparationDoesNotReadDeliveryHistory(t *testing.T) {
 		t.Fatalf("wrong current subject: %+v, %v", prepared, err)
 	}
 	want := [][]string{{"status", "--porcelain=v1", "-z", "--untracked-files=all"}, {"rev-parse", "--verify", "HEAD^{commit}"}, {"rev-parse", "--verify", head + "^{tree}"}}
-	if !slices.EqualFunc(calls, want, func(a, b []string) bool { return slices.Equal(a, b) }) {
+	if !slices.EqualFunc(calls, want, slices.Equal) {
 		t.Fatalf("current candidate probe read more than clean status, HEAD and tree: %v", calls)
 	}
 	if outsideRepairDatabaseSnapshot(t, j.s) != before {

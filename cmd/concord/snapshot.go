@@ -13,7 +13,7 @@ import (
 // Tests wrap the real backup to observe the admission boundary at the snapshot.
 var snapshotDatabase = store.BackupDatabase
 
-// snapshotBeforeMutation shares repair and upgrade snapshot policy. It returns
+// snapshotBeforeMutation owns the upgrade snapshot policy. It returns
 // the intended path even on failure. Only an absent source reports present=false;
 // the caller decides whether absence permits its action.
 func snapshotBeforeMutation(path, dataRoot, operation, releaseVersion string) (destination string, present bool, err error) {

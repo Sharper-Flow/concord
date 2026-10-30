@@ -64,7 +64,7 @@
     },
     {
       "id": "lefthook-preflight",
-      "purpose": "Required, file-selected Lefthook pre-push preflight gates.",
+      "purpose": "File-selected Lefthook pre-push gates; the installed hook runs them on every push.",
       "invocation": "bin/oc-test preflight",
       "tier": "standard",
       "cost_hint": "Cheaper than the smoke tier; gates whose globs match no pushed file are skipped.",

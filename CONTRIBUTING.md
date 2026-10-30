@@ -72,9 +72,8 @@ test -x "$(git rev-parse --git-path hooks/pre-push)"
   instead of guessing at newer settings.
 
 This clone setup step owns hook installation, not the Concord release installer.
-The hook remains in the clone's common Git directory across Concord upgrades
-and serves every linked worktree, including newly created worktrees. Repeat the
-setup after a fresh clone or host rebuild, or if the hook is removed. The
+The hook remains in the clone's common Git directory across Concord upgrades.
+Repeat the setup after a fresh clone or host rebuild, or if the hook is removed. The
 `no_auto_install: true` setting means a manual preflight does not repair a missing
 hook. `assert_lefthook_installed: true` makes an installed hook fail when it cannot
 find Lefthook; it cannot detect a missing hook.

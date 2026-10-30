@@ -44,6 +44,8 @@ Linux amd64 is the only release platform.
   temporary staging workspace and changes no repository dependency file. Run
   it; `--skip-host-typecheck` leaves the local evidence incomplete.
 - Do not populate reserved boundaries (`workflows/`, `skills/`) opportunistically.
+- Push normally: the shared pre-push hook runs the gates. Fix a failing gate; never
+  bypass the hook. A clone without it needs the [one-time setup](CONTRIBUTING.md#required-pre-push-preflight).
 - Do not place any of the following in the repository, even temporarily:
   private Product or customer names and data; personal filesystem paths, machine
   names, private network details, or local service addresses; credentials,

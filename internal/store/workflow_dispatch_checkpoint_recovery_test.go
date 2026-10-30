@@ -83,14 +83,21 @@ func TestReviewCheckpointCorrectionAvailability(t *testing.T) {
 				if (err == nil) != available {
 					t.Fatalf("%s: discovery err=%v, want available=%v", stage, err, available)
 				}
-				pin := issue1013Pin(t, j.s, workID)
+				pin, pinErr := ReadWorkPin(t.Context(), j.s, workID)
+				if contracts == 0 {
+					if !hasFailureKind(pinErr, KindInvariantViolation) {
+						t.Fatalf("%s: pin error=%v, want typed invariant_violation for inactive contract projection", stage, pinErr)
+					}
+				} else if pinErr != nil {
+					t.Fatalf("%s: read work pin: %v", stage, pinErr)
+				}
 				intent := false
 				for _, candidate := range pin.NextValidIntents {
 					if candidate.ActionID == "supersede_contract" && candidate.ReasonCode == "operator_contract_correction" {
 						intent = true
 					}
 				}
-				if intent != available {
+				if pinErr == nil && intent != available {
 					t.Fatalf("%s: pin correction intent=%v, want %v", stage, intent, available)
 				}
 				if got := admissionContractCorrection(definition, admissionModelState{step: step, contracts: contracts}); got != available {
@@ -98,10 +105,10 @@ func TestReviewCheckpointCorrectionAvailability(t *testing.T) {
 				}
 				if !available {
 					err := WorkflowActionPreflightWithRegistry(t.Context(), j.s, BuiltinWorkflowRegistry(), WorkflowActionPreflightRequest{
-						WorkID: workID, ExpectedVersion: pin.Version, ActionID: "supersede_contract", Actor: j.fixture.owner,
+						WorkID: workID, ExpectedVersion: readWorkVersion(t, j.s, workID), ActionID: "supersede_contract", Actor: j.fixture.owner,
 					})
-					if !hasFailureKind(err, KindInvalidOperation) {
-						t.Fatalf("%s: preflight=%v, want stale-contract recovery refusal", stage, err)
+					if !hasFailureKind(err, KindInvariantViolation) {
+						t.Fatalf("%s: preflight=%v, want typed invariant_violation for inactive contract projection", stage, err)
 					}
 				}
 				if after := contractCorrectionEffectSnapshot(t, j.s, workID); after != before {

@@ -4168,9 +4168,6 @@ const GeneratedPayloadSchemaDocument = `{
     "mutation_result": {
       "additionalProperties": false,
       "properties": {
-        "assignment_group": {
-          "$ref": "#/$defs/workflow_assignment_group_result"
-        },
         "changed_refs": {
           "items": {
             "additionalProperties": false,
@@ -10735,7 +10732,7 @@ const GeneratedPayloadSchemaDocument = `{
             "minLength": 1,
             "type": "string"
           },
-          "maxItems": 8,
+          "maxItems": 32,
           "minItems": 0,
           "type": [
             "array",
@@ -11231,13 +11228,6 @@ const GeneratedPayloadSchemaDocument = `{
           "maxItems": 64,
           "type": "array",
           "uniqueItems": true
-        },
-        "failure_detail": {
-          "type": "string"
-        },
-        "failure_kind": {
-          "maxLength": 64,
-          "type": "string"
         },
         "predicate_ids": {
           "items": {
@@ -12212,7 +12202,7 @@ const GeneratedPayloadSchemaDocument = `{
             "minLength": 1,
             "type": "string"
           },
-          "maxItems": 8,
+          "maxItems": 32,
           "minItems": 0,
           "type": [
             "array",
@@ -24785,57 +24775,6 @@ const GeneratedPayloadSchemaDocument = `{
       "minItems": 1,
       "type": "array"
     },
-    "workflow_assignment_group_result": {
-      "additionalProperties": false,
-      "properties": {
-        "group_id": {
-          "$ref": "#/$defs/id"
-        },
-        "members": {
-          "items": {
-            "additionalProperties": false,
-            "properties": {
-              "digest": {
-                "maxLength": 71,
-                "minLength": 71,
-                "pattern": "^sha256:[0-9a-f]{64}$",
-                "type": "string"
-              },
-              "job_id": {
-                "$ref": "#/$defs/id"
-              },
-              "member_id": {
-                "$ref": "#/$defs/id"
-              },
-              "project_id": {
-                "$ref": "#/$defs/id"
-              },
-              "revision": {
-                "maximum": 2147483647,
-                "minimum": 1,
-                "type": "integer"
-              }
-            },
-            "required": [
-              "member_id",
-              "job_id",
-              "revision",
-              "digest",
-              "project_id"
-            ],
-            "type": "object"
-          },
-          "maxItems": 8,
-          "minItems": 2,
-          "type": "array"
-        }
-      },
-      "required": [
-        "group_id",
-        "members"
-      ],
-      "type": "object"
-    },
     "workflow_backlog_alignment": {
       "additionalProperties": false,
       "properties": {
@@ -25104,14 +25043,6 @@ const GeneratedPayloadSchemaDocument = `{
           "maxItems": 32,
           "type": "array",
           "uniqueItems": true
-        },
-        "failure_detail": {
-          "maxLength": 4096,
-          "type": "string"
-        },
-        "failure_kind": {
-          "maxLength": 64,
-          "type": "string"
         },
         "predicate_ids": {
           "items": {

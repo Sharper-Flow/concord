@@ -653,7 +653,7 @@ WORKFLOW_PREDICATE_MAX_BYTES = 64 * 1024
 # parents need their own copy to reach the other twins. The output bound
 # ledger proves every dropped cap unbounded and every kept cap finite.
 RETAINED_OUTPUT_TWINS = {
-    "workflow_correction_context": ("/properties/diagnosis/maxLength", "/properties/failure_detail/maxLength"),
+    "workflow_correction_context": ("/properties/diagnosis/maxLength",),
     "workflow_law_context": ("/properties/registry_path/maxLength",),
     "workflow_law_context_law": ("/properties/path/maxLength",),
     "work_context_finding_view": ("/properties/source_event_id/maxLength",),

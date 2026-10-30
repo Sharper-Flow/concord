@@ -414,6 +414,9 @@ func validateCorrectionRequestPayload(ctx context.Context, q queryer, workID str
 	if workflowFieldStringDefault(fields, "diagnosis", "") == "" || workflowFieldStringDefault(fields, "strategy", "") == "" || len(predicates) == 0 || len(evidence) == 0 {
 		return newFailure(KindInvalidPayload, subject, "request_correction requires diagnosis, strategy, predicate IDs, and bound evidence", false, "supply the complete correction disposition")
 	}
+	if fault := workflowCorrectionSchemaValuesFaultForAdmission(predicates, evidence, nil); fault != "" {
+		return newFailure(KindInvalidPayload, subject, "request_correction carries correction values the closed response schema cannot represent: "+fault, false, "supply correction values the closed work_pin response schema accepts")
+	}
 	for _, predicate := range predicates {
 		if !slices.Contains(correction.PredicateIDs, predicate) {
 			return newFailure(KindInvalidPayload, subject, "request_correction names a predicate without a current non-ok verdict", false, "name only affected approved predicates")

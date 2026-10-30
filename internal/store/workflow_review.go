@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"slices"
@@ -177,6 +178,9 @@ func loadWorkflowReviewState(ctx context.Context, q queryer, work string) (Workf
 	}
 	if hasContract {
 		deps, err := workflowReviewDependencies(ctx, q, work)
+		if err == sql.ErrNoRows {
+			return state, newFailure(KindInvariantViolation, "workflow_review", "retained workflow contracts have no active contract", false, "restore a verified backup into a new path with concord restore, then swap")
+		}
 		if err != nil {
 			return state, err
 		}

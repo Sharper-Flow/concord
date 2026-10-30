@@ -169,7 +169,21 @@ func legacyReviewSourceOracle(ctx context.Context, q queryer, work string, job *
 
 func acceptLegacyReviewResult(ctx context.Context, q migrationRunner, work, actor string, state *WorkflowReviewState, result legacyReviewResult, auth legacyReviewAuthorization, ref string) error {
 	if result.Review != nil && auth.Capability == "review" {
-		applyWorkflowAcceptedReview(state, WorkflowAcceptedReview{ReportRef: ref, ReportDigest: reviewDigest(result.Review), ActorRef: actor, Report: *result.Review}, workflowReviewFindingMap(*state))
+		findings := workflowReviewFindingMap(*state)
+		// Historical acceptance only applies proposed closures. Observation
+		// already merged findings; accepting an older report cannot reopen them.
+		for _, finding := range result.Review.Findings {
+			if finding.Status == "closed" {
+				previous := findings[finding.FindingID]
+				previous.Status, previous.ClosureRefs = "closed", finding.ClosureRefs
+				findings[finding.FindingID] = previous
+			}
+		}
+		state.Accepted = &WorkflowAcceptedReview{ReportRef: ref, ReportDigest: reviewDigest(result.Review), ActorRef: actor, Report: *result.Review}
+		candidate := result.Review.OutputCandidate
+		state.Candidate = &candidate
+		state.DependenciesCurrent = state.Dependencies != nil && sameReviewDependencies(result.Review.Dependencies, *state.Dependencies)
+		setWorkflowReviewFindings(state, findings)
 		return nil
 	}
 	if result.Observed == nil || result.Observed.State != "clean" {
@@ -201,9 +215,12 @@ func observeLegacyReviewReport(state *WorkflowReviewState, report *ReviewBlock, 
 			if previous.Status == "open" {
 				finding.InScope = finding.InScope || previous.InScope
 				finding.Blocking = finding.Blocking || previous.Blocking
+				finding.Status = "open"
 			}
 		}
-		finding.Status = "open"
+		if finding.Status == "closed" {
+			finding.Status = "open"
+		}
 		findings[finding.FindingID] = finding
 	}
 	setWorkflowReviewFindings(state, findings)

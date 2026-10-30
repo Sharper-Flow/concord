@@ -1,7 +1,7 @@
 import { test, expect } from "bun:test"
 import fs from "node:fs"
 import path from "node:path"
-import { contractOperations, hostToolDescriptions, hostToolSchemas, workflowActionPublicVariants } from "./generated-contracts"
+import { contractOperations, hostToolSchemas, workflowActionPublicVariants } from "./generated-contracts"
 import { expandedPublishedRequestSchema, PINNED_PUBLISHED_TOTAL_BYTES } from "./generated-contract-tests"
 
 const adapter = await import("./concord")

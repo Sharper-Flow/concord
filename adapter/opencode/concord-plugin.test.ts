@@ -1,7 +1,5 @@
 import { afterAll, afterEach, describe, expect, test } from "bun:test"
 import nodeFs from "node:fs"
-import os from "node:os"
-import path from "node:path"
 import { configureHostLease } from "./host-lease"
 import ConcordAdapterPlugin from "./concord-plugin"
 import { hostControlPlane, MOVE_SESSION_ROUTE, MoveSessionUnavailable } from "./move-session"

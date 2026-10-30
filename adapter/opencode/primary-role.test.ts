@@ -1,7 +1,6 @@
 // Registered primary and utility roles retain their declared tool boundaries.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test"
 import ConcordAdapterPlugin from "./concord-plugin"
-import utilityRegistry from "../../contracts/agent-utilities.v1.json"
 import { guardPrimaryRole, PrimaryRoleRefusal } from "./primary-role"
 import { roleDeniedConcordTools } from "./generated-primary-profiles"
 import { configureHostLease } from "./host-lease"
@@ -13,6 +12,7 @@ const MUTATING = ["concord_work_compact", "concord_work_define", "concord_work_r
 const READS = ["concord_product_view", "concord_work_browse", "concord_work_trace", "concord_knowledge", "concord_domain"]
 const WORKFLOW_CATALOG = [...MUTATING, ...READS].sort()
 const CATALOG = WORKFLOW_CATALOG
+const utilityRegistry = await Bun.file(new URL("../../contracts/agent-utilities.v1.json", import.meta.url)).json() as { utilities: { id: string }[] }
 const UTILITY_AGENTS = utilityRegistry.utilities.map((utility) => `concord-${utility.id}`)
 
 let registered: string[] = []

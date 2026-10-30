@@ -2,7 +2,7 @@ import { createHash } from "node:crypto"
 import { clientRef } from "./credentials"
 import { contractOperations, hostToolDescriptions, hostToolSchemas, maxEnvelopeBytes, payloadSchemas, workflowActionPublicVariants } from "./generated-contracts"
 import { activeManifestDigest, adoptManifestDigest, resolveDiskManifestDigest } from "./manifest-pin"
-import { validateGeneratedEnvelope, validateGeneratedPayload, envelopeFailurePath, payloadFailurePath, payloadFailureMessage } from "./generated-contract-tests"
+import { validateGeneratedEnvelope, validateGeneratedPayload, envelopeFailurePath, payloadFailurePath } from "./generated-contract-tests"
 import { AdapterContractDefect } from "./adapter-contract-defect"
 // The typed fail-closed error re-exports so callers of this module can catch
 // it by class without importing the shared owner.
@@ -16,7 +16,7 @@ import { armedClaimedWorktree, armClaimedWorktree, clearClaimedWorktree, pending
 import { ensureConductLink } from "./project-link"
 import { queueWorkStartContinuation, clearWorkStartContinuation, resetWorkStartContinuations } from "./work-start-continuation"
 import { moveNoticeText, recordMoveNotice, takeMoveNotice } from "./move-notice"
-import { mutationResult, reconstructMutationResult } from "./mutation-result"
+import { reconstructMutationResult } from "./mutation-result"
 
 type ToolContext = {
   sessionID: string

@@ -1,6 +1,8 @@
 {
   "authority": {
-    "tier": "derived"
+    "contract_version": 1,
+    "legislated_by": "work-8d7bd788b2890355460bb5b7",
+    "tier": "legislated"
   },
   "date": "2026-09-02T00:00:00Z",
   "home_domain_id": "worker-lanes",

@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
 """The one canonical byte form for an authored knowledge shard.
 
-Knowledge records and coverage records are hand-authored JSON objects, one file
-per record. This module owns their byte form. Both shard generators normalise
-through it: regenerating repairs a drifted shard in place, and --check refuses
-one.
+Knowledge records are hand-authored JSON objects, one file per record. This
+module owns their byte form. The shard generator normalises through it:
+regenerating repairs a drifted shard in place, and --check refuses one.
 
 Key order is alphabetical rather than authored, because a stable order is what
 makes a content change legible in a diff.

@@ -5,7 +5,9 @@
     "workflow-engine"
   ],
   "authority": {
-    "tier": "derived"
+    "contract_version": 1,
+    "legislated_by": "work-eee5ffe324a3c303eab87703",
+    "tier": "legislated"
   },
   "date": "2026-10-06T00:00:00Z",
   "evidence": [

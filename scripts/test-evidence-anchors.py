@@ -311,8 +311,8 @@ def test_adapter_test_anchor_rejects_foreign_path() -> None:
 def test_contract_checker_anchor_resolves_through_the_umbrella_nesting() -> None:
     # The complete contract check has no direct CI step: check-json.py owns
     # it, so the validator anchor must resolve through the subprocess call
-    # graph alone. If the nesting is ever dropped, every coverage record
-    # citing scripts/check-agent-contracts.py stops resolving here.
+    # graph alone. If the nesting is ever dropped, every record citing
+    # scripts/check-agent-contracts.py stops resolving here.
     nested = anchors.nested_invocations(ROOT / "scripts/check-json.py")
     assert "scripts/check-agent-contracts.py" in nested, sorted(nested)
     assert anchors.validator_runs_in_ci("scripts/check-agent-contracts.py")

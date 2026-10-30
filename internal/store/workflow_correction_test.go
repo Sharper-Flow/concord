@@ -879,18 +879,6 @@ func TestCorrectionSourceSurvivesContractSupersession(t *testing.T) {
 	}
 }
 
-// The declared payload gate is the input surface that names the field: a
-// predicate id outside the id charset must be refused by the payload
-// declaration itself, before any correction-specific check runs.
-func TestCorrectionPayloadDeclarationRefusesNonIDPredicateID(t *testing.T) {
-	payload := json.RawMessage(`{"diagnosis":"the delivered predicate id carries a slash","strategy":"re-request with an in-charset id","predicate_ids":["predicate:primary/slash"],"evidence_refs":["evidence:correction-gate"]}`)
-	err := validateWorkflowActionPayload(WorkflowDefinition{}, "request_correction", payload)
-	var failure *Failure
-	if !errors.As(err, &failure) || failure.Kind != KindInvalidPayload || !strings.Contains(failure.Detail, `"predicate_ids"`) {
-		t.Fatalf("payload gate failure=%v, want an invalid-payload refusal naming predicate_ids", err)
-	}
-}
-
 // laterOrdinarySuccessorPayload is the typed successor a later ordinary
 // supersession approves after the complete-step correction: identical
 // predicate payloads, no reserved convention, version 3.

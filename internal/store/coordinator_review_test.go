@@ -316,24 +316,19 @@ func TestCoordinatorReviewResolutionShapeAndAggregateBound(t *testing.T) {
 	}
 }
 
-func TestCoordinatorReviewOnlyReadyDispositionAdvances(t *testing.T) {
-	definition := WorkflowDefinition{ActionDefinitions: []WorkflowActionDefinition{{ID: "record_review", ExecutionMode: ActionAdvance}},
-		StepGraph: WorkflowStepGraph{Steps: []WorkflowStep{{ID: "execution", Kind: WorkflowStepExternalEffect, Actions: []string{"record_review"}}}}}
-	if workflowCompletedActionAdvances(definition, workflowActionCompletedPayload{StepID: "execution", ActionID: "record_review"}) {
-		t.Fatal("missing Review advanced the step")
+// CD-0112 D2 and CD-0198 keep record_delivery the only producing-step exit:
+// recording Review holds the step under every disposition.
+func TestCoordinatorReviewHoldsUnderEveryDisposition(t *testing.T) {
+	if mode := builtinActionPolicies["record_review"].ExecutionMode; mode != ActionHold {
+		t.Fatalf("record_review execution mode=%q, want %q", mode, ActionHold)
 	}
+	definition := WorkflowDefinition{ActionDefinitions: []WorkflowActionDefinition{{ID: "record_review", ExecutionMode: ActionHold}},
+		StepGraph: WorkflowStepGraph{Steps: []WorkflowStep{{ID: "execution", Kind: WorkflowStepExternalEffect, Actions: []string{"record_review"}}}}}
 	for _, disposition := range []string{"continue", "correction_required", "revision_required", "ready_for_final_proof"} {
-		t.Run(disposition, func(t *testing.T) {
-			completion := workflowActionCompletedPayload{StepID: "execution", ActionID: "record_review", Review: &ReviewBlock{Disposition: disposition}}
-			if advances := workflowCompletedActionAdvances(definition, completion); advances != (disposition == "ready_for_final_proof") {
-				t.Fatalf("disposition %s advances=%v", disposition, advances)
-			}
-			holding := cloneWorkflowDefinition(definition)
-			holding.ActionDefinitions[0].ExecutionMode = ActionHold
-			if workflowCompletedActionAdvances(holding, completion) {
-				t.Fatal("a holding action advanced the step")
-			}
-		})
+		completion := workflowActionCompletedPayload{StepID: "execution", ActionID: "record_review", Review: &ReviewBlock{Disposition: disposition}}
+		if workflowCompletedActionAdvances(definition, completion) {
+			t.Fatalf("disposition %s advanced the step", disposition)
+		}
 	}
 }
 

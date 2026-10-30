@@ -6,25 +6,25 @@ import (
 )
 
 func TestWorkflowCorrectionAndReviewStepMatrix(t *testing.T) {
-	type expectation struct{ correction, review, readyAdvances bool }
+	type expectation struct{ correction, review bool }
 	want := map[string]map[string]expectation{
 		"workflow.implementation": {
-			"proposal": {true, false, false}, "alignment": {false, false, false},
-			"planning": {false, false, false}, "design": {true, false, false},
-			"execution": {true, true, true}, "refine": {true, true, true},
-			"delivery": {false, false, false}, "acceptance": {true, true, false},
-			"release": {true, false, false},
+			"proposal": {true, false}, "alignment": {false, false},
+			"planning": {false, false}, "design": {true, false},
+			"execution": {true, true}, "refine": {true, true},
+			"delivery": {false, false}, "acceptance": {true, true},
+			"release": {true, false},
 		},
 		"workflow.break_fix": {
-			"diagnosis": {false, false, false}, "planning": {false, false, false},
-			"repair": {true, true, true}, "refine": {true, true, true},
-			"delivery": {false, false, false}, "verify": {true, true, false},
-			"complete": {true, false, false},
+			"diagnosis": {false, false}, "planning": {false, false},
+			"repair": {true, true}, "refine": {true, true},
+			"delivery": {false, false}, "verify": {true, true},
+			"complete": {true, false},
 		},
 		"workflow.research": {
-			"frame": {false, false, false}, "investigate": {true, false, false},
-			"findings": {true, false, false}, "conclude": {true, true, false},
-			"complete": {true, false, false},
+			"frame": {false, false}, "investigate": {true, false},
+			"findings": {true, false}, "conclude": {true, true},
+			"complete": {true, false},
 		},
 	}
 	families, steps := 0, 0
@@ -57,19 +57,15 @@ func TestWorkflowCorrectionAndReviewStepMatrix(t *testing.T) {
 				}
 				if e.review {
 					for _, successor := range admissionSuccessors(definition, admissionModelState{step: step.ID}, "record_review") {
-						wantStep := step.ID
-						if e.readyAdvances && successor.review.accepted == "ready_for_final_proof" {
-							wantStep = workflowNextStep(definition, step.ID)
-						}
-						if successor.step != wantStep {
-							t.Errorf("%s model successor=%s, want %s", successor.review.accepted, successor.step, wantStep)
+						if successor.step != step.ID {
+							t.Errorf("%s model successor=%s, want held at %s", successor.review.accepted, successor.step, step.ID)
 						}
 					}
 				}
 				for _, disposition := range []string{"continue", "correction_required", "revision_required", "ready_for_final_proof"} {
 					completion := workflowActionCompletedPayload{StepID: step.ID, ActionID: "record_review", Review: &ReviewBlock{Disposition: disposition}}
-					if got, want := workflowCompletedActionAdvances(definition, completion), e.readyAdvances && disposition == "ready_for_final_proof"; got != want {
-						t.Errorf("%s: advances=%v, want %v", disposition, got, want)
+					if workflowCompletedActionAdvances(definition, completion) {
+						t.Errorf("%s: recorded Review advanced the step; record_delivery owns the producing-step exit", disposition)
 					}
 				}
 				if workflowCompletedActionAdvances(definition, workflowActionCompletedPayload{StepID: step.ID, ActionID: "record_review"}) {

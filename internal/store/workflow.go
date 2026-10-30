@@ -2141,14 +2141,7 @@ func admitWorkflowRecoveryEvidenceCompletionTx(ctx context.Context, tx *sql.Tx, 
 // workflowCompletedActionAdvances reports whether a recorded action completion advances the pinned step.
 func workflowCompletedActionAdvances(definition WorkflowDefinition, p workflowActionCompletedPayload) bool {
 	mode, ok := workflowActionExecutionMode(definition, p.ActionID)
-	if !ok || mode != ActionAdvance {
-		return false
-	}
-	if p.ActionID != "record_review" {
-		return true
-	}
-	step := workflowStep(definition, p.StepID)
-	return step != nil && step.Kind != WorkflowStepHumanCheckpoint && slices.Contains(step.Actions, "record_review") && p.Review != nil && p.Review.Disposition == "ready_for_final_proof"
+	return ok && mode == ActionAdvance
 }
 
 func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event, scope *writeScope) error {
@@ -2261,11 +2254,8 @@ func persistWorkflowActionCompletionTx(ctx context.Context, tx *sql.Tx, event Ev
 	if _, err := tx.ExecContext(ctx, `INSERT INTO workflow_step_completions(work_id,step_id,completion_seq) VALUES(?,?,?) ON CONFLICT(work_id,step_id) DO UPDATE SET completion_seq=excluded.completion_seq`, event.SubjectID, p.StepID, event.Seq); err != nil {
 		return workflowProjectionError(err, "cannot record the step completion frontier")
 	}
-	switch p.ActionID {
-	case "request_correction":
-		if err := advanceWorkflowCorrectionFactsTx(ctx, tx, event); err != nil {
-			return err
-		}
+	if err := advanceWorkflowCorrectionFactsTx(ctx, tx, event); err != nil {
+		return err
 	}
 	return persistWorkflowCompletionExitTx(ctx, tx, event, p, entry, advancesStep, nextStep)
 }
@@ -2280,7 +2270,7 @@ func persistWorkflowCompletionExitTx(ctx context.Context, tx *sql.Tx, event Even
 			return workflowProjectionError(err, "cannot record the current delivery assertion")
 		}
 	}
-	if p.ActionID != "record_review" || advancesStep {
+	if p.ActionID != "record_review" {
 		if _, err := tx.ExecContext(ctx, `INSERT INTO workflow_phase_exits(work_id,action_id,exit_seq,actor,step_id,contract_version,record_version)
 		VALUES(?,?,?,?,?,COALESCE((SELECT MAX(contract_version) FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL),0),?)
 		ON CONFLICT(work_id,action_id) DO UPDATE SET exit_seq=excluded.exit_seq,actor=excluded.actor,step_id=excluded.step_id,contract_version=excluded.contract_version,record_version=excluded.record_version`, event.SubjectID, p.ActionID, event.Seq, event.Actor, p.StepID, event.SubjectID, *p.ResultingVersion); err != nil {

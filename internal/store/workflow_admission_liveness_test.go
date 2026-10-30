@@ -401,11 +401,6 @@ func admissionSuccessors(definition WorkflowDefinition, state admissionModelStat
 			recorded.review.candidate, recorded.review.current, recorded.review.changed = true, true, false
 			if disposition == "ready_for_final_proof" {
 				recorded.review.blocked = false
-				step := workflowStep(definition, state.step)
-				mode, declared := workflowActionExecutionMode(definition, actionID)
-				if declared && mode == ActionAdvance && step != nil && step.Kind != WorkflowStepHumanCheckpoint {
-					recorded = admissionEnterStep(definition, recorded, workflowNextStep(definition, state.step))
-				}
 			}
 			successors = append(successors, recorded)
 		}

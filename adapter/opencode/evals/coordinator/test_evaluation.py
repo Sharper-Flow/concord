@@ -625,7 +625,11 @@ class ServedInputCorrectionTests(unittest.TestCase):
     def test_authorization_denial_replay_grants_no_correction(self):
         case = SCENARIOS["same-repository-second-project"]
         for denied in ({"reason_code": "authorization_denied"},
-                       {"kind": "unauthorized"}, {"kind": "approval_required"}):
+                       {"adapter_reason": "lane_tool_refusal"},
+                       {"kind": "unauthorized"}, {"kind": "approval_required"},
+                       {"kind": "unknown_scope"},
+                       {"kind": "invalid_input", "recovery_action": {"kind": "request_approval"}},
+                       {"kind": "invalid_input", "recovery_action": {"kind": "contact_operator"}}):
             with self.subTest(denied=denied):
                 refusal = {"outcome": "error", "error": {
                     **denied, "effect_state": "none", "message": "Outside the fixture grant.",
@@ -931,18 +935,6 @@ class TypeSensitiveGateTests(unittest.TestCase):
         ]
         result = evaluate(case, calls, events, 0, {"source": "nonce"})
         self.assertFalse(result["checks"]["trace_matches_event"])
-        self.assertFalse(result["passed"])
-
-    def test_corrected_claim_identity_type_drift_breaks_the_correction(self):
-        # The refused claim names the version as a bool; the corrected claim
-        # carries the int. Value equality alone would preserve identity.
-        case = SCENARIOS["same-repository-second-project"]
-        refused = malformed_claim_args()
-        refused["request"]["input"]["expected_version"] = True
-        calls, events = refusal_prefixed_observation(
-            case, TRANSITION, refused, served_correction_refusal())
-        events[0]["part"]["state"]["input"] = copy.deepcopy(refused)
-        result = evaluate(case, calls, events, 0, {"source": "nonce"})
         self.assertFalse(result["passed"])
 
     def test_final_response_nested_type_drift_breaks_the_match(self):

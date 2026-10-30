@@ -21,7 +21,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:81e870346a44d3eaa22492d776632525abdc7f2a1f910031563896acef570fd2",
+  "sha256": "sha256:44f03735ce8e1bb207f71598ac694623e5e45ee526e490305de64d5df9438303",
   "status": "accepted",
   "summary": "CD-0027 excludes typed-lane restart. Session preparation verifies the selected agent definition and host registration without writing an identity assertion or computing a source manifest or ruleset digest. Existing receipts confer no authority. Removed typed-agent columns and restart boundary kinds stay absent.",
   "tags": [

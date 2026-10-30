@@ -48,7 +48,7 @@ identity-only and performs no preparation (CD-0031).
 
 The three `typed_agent_*` columns and the `restart` member of the `boundary_kind`
 CHECK are removed in a forward migration. They encode a capability accepted law
-excludes, and retaining them invites exactly the misreading CD-0049 made.
+excludes; retaining them would suggest that typed restart is available.
 
 Removal hardens CD-0027's exclusion structurally, which is what that record asked
 for. It does not foreclose reversal: a future decision restoring lane restart

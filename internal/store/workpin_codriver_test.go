@@ -10,8 +10,8 @@ import (
 // TestReadWorkPinReportsEveryCoordinatorSessionDrivingTheItem pins the gap a
 // live incident exposed: two coordinator sessions drove one work item, each
 // recorded workflow state, and neither pin ever named the other. Concord
-// admits the second coordinator by design, because CD-0061 D4 keeps the
-// orchestrator identity event evidence rather than authorization. Admission
+// admits the second coordinator by design: session preparation records no
+// identity that could make one coordinator exclusive (CD-0061 D4). Admission
 // is not the defect. Silence is: a coordinator reads a pin on every response
 // and cannot learn that another session is driving the same item.
 func TestReadWorkPinReportsEveryCoordinatorSessionDrivingTheItem(t *testing.T) {

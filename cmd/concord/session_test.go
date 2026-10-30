@@ -168,7 +168,7 @@ func TestOrchestratorIdentityRefusalRecordsNothing(t *testing.T) {
 		t.Setenv(dbOverrideEnv, dbPath)
 		_, err := hostOrchestratorIdentity(context.Background(), cwd, registryResolutionFor("concord-1"), "concord-1")
 		if err == nil {
-			t.Fatal("absent definition recorded an assertion")
+			t.Fatal("absent definition passed identity verification")
 		}
 		stderr := err.Error()
 		for _, fragment := range []string{
@@ -193,7 +193,7 @@ func TestOrchestratorIdentityRefusalRecordsNothing(t *testing.T) {
 		t.Setenv(dbOverrideEnv, dbPath)
 		_, err := hostOrchestratorIdentity(context.Background(), cwd, registryResolutionFor("some-other-agent"), "concord-1")
 		if err == nil {
-			t.Fatal("an unregistered handle recorded an assertion")
+			t.Fatal("an unregistered handle passed identity verification")
 		}
 		for _, fragment := range []string{"concord-1", "not registered"} {
 			if !strings.Contains(err.Error(), fragment) {
